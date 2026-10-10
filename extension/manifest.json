@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Chat Search for Reddit",
-  "version": "0.3.8",
-  "description": "Find conversations and search messages inside Reddit chat with a small, native-looking interface.",
+  "version": "0.4.0",
+  "description": "Find conversations and search saved messages across Reddit chats with a small, native-looking interface.",
   "content_scripts": [
     {
       "matches": [
@@ -30,8 +30,11 @@
       "run_at": "document_start",
       "js": [
         "directory-model.js",
+        "search-core.js",
         "data-client.js",
-        "directory-store.js"
+        "directory-store.js",
+        "message-store.js",
+        "message-cache-client.js"
       ]
     },
     {
@@ -43,7 +46,6 @@
       "match_about_blank": true,
       "run_at": "document_idle",
       "js": [
-        "search-core.js",
         "adapter.js",
         "native-labels.js",
         "date-picker.js",
