@@ -12,6 +12,8 @@ The generated `artifacts/reddit-chat-search/` folder and `artifacts/reddit-chat-
 
 Choose **All chats** below the sidebar search field to search messages already saved by the extension. **People** retains username search and empty-field conversation browsing. All chats supports the same date calendar, sender avatars, keyboard selection, and exact conversation/message/thread navigation. Its Refresh button re-reads local data; it does not download every conversation.
 
+All chats remains the selected sidebar view when you click the conversation pane or open a matched message. Its calendar overlays the existing global view rather than exposing Reddit's native list underneath. Clicking outside or pressing Escape closes the calendar without switching sidebar views; choosing People returns to username search. People results and individual message menus retain their normal dismissal behavior.
+
 The same saved messages seed individual message search before its normal history reads. Global results explicitly say **History may be incomplete**. A chat count describes rooms with saved data, not the percentage of your complete archive. Missing messages become searchable when Reddit loads them or you explicitly search that conversation. An optional full-history build is deferred until gap recovery, thread coverage, and storage costs are verified.
 
 ## Search and browse
