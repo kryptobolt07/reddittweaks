@@ -9,7 +9,7 @@ const records=[
   {id:'shared',roomId:'alex',text:'alpha saved message',author:'alex_morgan',timestamp:'2026-10-08T10:00:00Z'},
   {id:'shared',roomId:'jules',text:'alpha saved reply',authorSelf:true,author:'fixture_user',timestamp:'2026-10-07T10:00:00Z',thread:true}
 ];
-function setup(t,{compact=false,search}={}){
+function setup(t,{compact=false,search,directory}={}){
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat/',runScripts:'outside-only',pretendToBeVisual:true});
   t.after(()=>dom.window.close());const W=dom.window;W.matchMedia=()=>({matches:true});
   for(const file of ['demo/fixture.js','extension/search-core.js','extension/adapter.js','extension/date-picker.js'])W.eval(source(file));
@@ -22,6 +22,7 @@ function setup(t,{compact=false,search}={}){
     room:async room=>({owner,records:data.filter(r=>r.roomId===room),coverage:{complete:false}}),
     subscribe:callback=>{listeners.add(callback);return ()=>listeners.delete(callback);},flush:async()=>{}
   };
+  if(directory)W.RCSDirectory=directory;
   W.eval(source('extension/content.js'));
   const host=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav),root=host.shadowRoot,input=root.querySelector('input');
   const all=()=>root.querySelector('[data-scope="all"]').click();
@@ -92,6 +93,20 @@ test('stale saved queries and account notifications cannot show a previous accou
 test('empty saved cache explains coverage without triggering network history',async t=>{
   const {all,change,root,nativeCalls}=setup(t);await wait(20);nativeCalls.length=0;change({owner:'fixture-owner',cleared:true},[]);all();await wait(140);
   assert.match(root.querySelector('.empty').textContent,/No saved messages yet/);assert.equal(nativeCalls.length,0);
+});
+test('People search includes a named community chat and labels pending invitations separately from usernames',async t=>{
+  const {W,api,root,input}=setup(t);await wait(20);
+  W.RCSData.request=()=>({promise:Promise.resolve([{id:'community',name:'You have been invited to join r/ExampleCommunity',type:'reddit_modmail',membership:'invite',participantIds:[],identityPending:false}]),cancel(){}});
+  root.querySelector('.load').click();await wait(20);input.value='ExampleCommunity';input.dispatchEvent(new W.Event('input'));
+  assert.equal(visibleRows(root).length,1);assert.match(visibleRows(root)[0].textContent,/Community chat · Request pending/);
+});
+test('accepted membership received from saved-directory changes clears a pending caption without another query',async t=>{
+  const room={id:'community',name:'r/ExampleCommunity',type:'reddit_modmail',membership:'invite',identityPending:false};let listener,loads=0;
+  const directory={getStartup:()=>({pending:false,entry:{directoryComplete:true,records:[room]}}),getOwner:()=> 'fixture-owner',onChange:callback=>{listener=callback;},load:()=>{loads++;return {promise:Promise.resolve([room]),cancel(){}};}};
+  const {W,root,input}=setup(t,{directory});await wait(20);input.value='ExampleCommunity';input.dispatchEvent(new W.Event('input'));
+  const row=visibleRows(root)[0];assert.match(row.textContent,/Request pending/);const before=loads;
+  listener({fromStorage:true,records:[{...room,membership:'join'}]});
+  assert.equal(visibleRows(root)[0],row);assert.doesNotMatch(row.textContent,/Request pending/);assert.match(row.textContent,/Community chat/);assert.equal(loads,before);assert.equal(input.value,'ExampleCommunity');
 });
 test('individual searches show saved room messages before a missing native history request completes',async t=>{
   const {W,api}=setup(t);let resolveHistory;W.RCSData.request=(type,args)=>({promise:type==='history'?new Promise(resolve=>resolveHistory=resolve):Promise.resolve([]),cancel(){}});

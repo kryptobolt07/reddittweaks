@@ -363,7 +363,7 @@
         const available = this.container.getBoundingClientRect().bottom - this.host.getBoundingClientRect().bottom;
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
-      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => entry.type!=='reddit_modmail' && C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates).sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0));
+      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates).sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0));
       if(selected)this.active=this.hits.findIndex(hit=>this.rowKey(hit)===selected);
       if(this.kind==='list' && !this.isGlobal)this.hits=this.hits.filter(hit=>!(!hit.historicalName && ['[deleted]','Someone','Username unavailable'].includes(hit.name) && (hit.identityPending || !hit.accountUnavailable || this.loading)));
       const showing=this.kind==='list' ? this.isGlobal || this.browseOpen : Boolean(query || bounds.active);
@@ -396,7 +396,7 @@
           this.rows.set(key,row);
         }
         row.position=i;row.result.classList.toggle('active',i===this.active);row.result.hidden=false;
-        const signature=JSON.stringify([query,hit.name,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName,this.loading]);
+        const signature=JSON.stringify([query,hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName,this.loading]);
         if(row.signature!==signature) {
           row.signature=signature;
           row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query) : document.createTextNode(hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable'));
@@ -408,6 +408,7 @@
             row.caption.textContent=hit.accountUnavailable ? 'Unavailable account · Date unavailable' : 'Date unavailable';
             row.caption.title='Reddit has not provided a message timestamp for this conversation.';
           } else row.caption.removeAttribute('title');
+          if(!this.messageMode && (hit.type==='reddit_modmail' || hit.membership==='invite'))row.caption.textContent=`${hit.type==='reddit_modmail'?'Community chat':'Chat'}${hit.membership==='invite'?' · Request pending':''}${hit.timestamp?` · ${this.formatTime(hit.timestamp)}`:''}`;
           if(this.isGlobal)row.caption.textContent=`${this.cache.get(hit.roomId)?.name || 'Saved conversation'}${hit.timestamp ? ` · ${this.formatTime(hit.timestamp)}` : ''}`;
           if(row.preview) {
             const match=C.ranges(hit.text,query)[0];const start=Math.max(0,(match?.[0] || 0)-40);
@@ -521,7 +522,7 @@
           const previous=new Map(this.cache);this.cache.clear();
           for(const record of records)this.cache.set(record.id,{...previous.get(record.id),...record});
           this.complete=!records.some(record=>record.identityPending);directoryComplete=this.complete;
-          if(!this.complete)this.notice='Some usernames are unavailable. Saved matches remain searchable.';
+          if(!this.complete)this.notice=records.some(record=>record.status==='invite-pending')?'Some chat requests are pending. Available conversations remain searchable.':'Some usernames are unavailable. Saved matches remain searchable.';
         } else {index.replace(room,records,records.historyMeta || {});this.complete=records.historyMeta?.complete!==false;this.dateCompleteKey=records.historyMeta?.dateComplete ? JSON.stringify(records.historyMeta.dates || {}) : '';if(this.complete)completeRooms.add(room);}
       } catch(error) { if(this.dataTask===task)this.notice=error.message; }
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.load.textContent='Refresh';if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
