@@ -146,6 +146,7 @@
   }
   function renderWindow() {
     if (state.loading) {
+      input.removeAttribute('aria-activedescendant');
       viewport.innerHTML = `<div class="skeleton-list" aria-label="Loading saved results">${Array.from({length:7},() => '<div class="skeleton-row"><span class="skeleton-avatar"></span><span><i></i><i></i></span></div>').join('')}</div>`;
       return;
     }
@@ -160,7 +161,10 @@
     // Only visible groups/rows are mounted. Off-screen content is represented by spacers.
     const sticky = state.items.slice(0,start).reverse().find((item) => item.kind === 'day');
     viewport.innerHTML = `<div class="virtual-spacer" style="height:${firstOffset}px" aria-hidden="true"></div>${sticky ? `<h3 class="day-heading carried-day">${esc(sticky.text)}</h3>` : ''}${slice.map((item) => item.kind === 'day' ? `<h3 class="day-heading" style="height:${item.height}px">${esc(item.text)}</h3>` : `<div class="virtual-item" style="height:${item.height}px" data-item-kind="${item.kind}">${itemHTML(item)}</div>`).join('')}<div class="virtual-spacer" style="height:${tail}px" aria-hidden="true"></div>`;
-    viewport.querySelectorAll('[data-key]').forEach((row) => { row.classList.toggle('selected',row.dataset.key === state.selected); row.classList.toggle('keyboard-focus',row.dataset.key === state.keyboard); });
+    let activeRow = null;
+    viewport.querySelectorAll('[data-key]').forEach((row) => { row.classList.toggle('selected',row.dataset.key === state.selected); row.classList.toggle('keyboard-focus',row.dataset.key === state.keyboard); if (row.dataset.key === state.keyboard) activeRow = row; });
+    if (activeRow) { activeRow.id = 'active-search-result'; input.setAttribute('aria-activedescendant',activeRow.id); }
+    else input.removeAttribute('aria-activedescendant');
   }
   function runSearch({reset = true} = {}) {
     clearTimeout(queryTimer);
