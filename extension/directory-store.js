@@ -102,7 +102,7 @@
       const full=force || !entry?.directoryComplete;
       const knownIds=(entry?.records || []).map(record=>record.id);
       const known=new Set(knownIds);
-      const retryIds=(entry?.records || []).filter(record=>record.type!=='reddit_modmail' && (
+      const retryIds=(entry?.records || []).filter(record=>record.type!=='reddit_modmail' && record.status!=='participants-unavailable' && (
         !record.identities?.length || record.identities.some(person=>
           (person.pending || !person.availabilityKnown) && person.profileRetryAt<=Date.now() ||
           person.accountUnavailable && !person.historicalName && !person.recoveryCheckedAt
