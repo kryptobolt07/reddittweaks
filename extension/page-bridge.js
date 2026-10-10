@@ -128,7 +128,8 @@
     seedNativeTimelines(ctx);
   }
   function cacheIdentity(ctx,id) {
-    return {id,...historyIdentity(ctx,id)};
+    const person=historyIdentity(ctx,id);
+    return {id,...person,availabilityKnown:person.self || Boolean(profileCache(ctx).get(id)?.availabilityKnown)};
   }
   function compactCacheEvent(value,roomId) {
     const raw=value?.event || value;
