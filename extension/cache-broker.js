@@ -1,4 +1,4 @@
-/* Coordination and directory metadata only. Reddit credentials stay in the page. */
+/* Directory coordination and saved-message storage. Reddit credentials stay in the page. */
 importScripts('directory-model.js');
 const Model=RCSDirectoryModel;
 const cachePrefix='rcs-directory-v2:';
@@ -125,4 +125,41 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   const result=queue.then(()=>handle(message,sender));queue=result.catch(()=>{});
   result.then(value=>respond({ok:true,...value}),()=>respond({ok:false,error:'Unable to coordinate the username cache. Please retry.'}));
   return true;
+});
+
+/* Independent write queue: directory refreshes cannot block saved-message searches. */
+importScripts('search-core.js','message-store.js');
+const messages=new RCSMessageStore.Store();
+let messageQueue=Promise.resolve();
+async function notifyMessageTabs(owner,cleared=false) {
+  const tabs=await chrome.tabs.query({});
+  await Promise.all(tabs.map(tab=>chrome.tabs.sendMessage(tab.id,{scope:'rcs-messages-changed',owner,cleared}).catch(()=>{})));
+}
+async function handleMessages(message,sender) {
+  if(sender.id!==chrome.runtime.id)throw Error('Invalid sender');
+  const popup=!sender.tab && sender.url?.startsWith(chrome.runtime.getURL(''));
+  if(!popup && !/^https:\/\/([a-z0-9-]+\.)*reddit\.com\//i.test(sender.url || sender.tab?.url || ''))throw Error('Invalid message origin');
+  if(message.action==='clear') {
+    if(!popup)throw Error('Open the extension popup to clear saved messages.');
+    if(message.owner && !RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
+    await messages.clear(message.owner);await notifyMessageTabs(message.owner || null,true);return {cleared:true};
+  }
+  if(message.action==='stats' && popup)return messages.stats(message.owner);
+  if(!RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
+  if(message.action==='ingest') {const result=await messages.ingest(message);await notifyMessageTabs(message.owner);return result;}
+  if(message.action==='mark-native-import-complete'){await messages.importState(message.owner,true);return {nativeImportComplete:true};}
+  if(message.action==='stats')return messages.stats(message.owner);
+  if(message.action==='search')return messages.search(message.owner,message,await entryFor(message.owner));
+  if(message.action==='room') {
+    if(typeof message.roomId!=='string' || !message.roomId || message.roomId.length>1000)throw Error('Invalid room');
+    const result=await messages.search(message.owner,{roomId:message.roomId,limit:500},await entryFor(message.owner));
+    while(result.hasMore){const next=await messages.search(message.owner,{roomId:message.roomId,limit:500,offset:result.records.length},await entryFor(message.owner));result.records.push(...next.records);result.hasMore=next.hasMore;}
+    return result;
+  }
+  throw Error('Unknown message operation');
+}
+chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+  if(message?.scope!=='rcs-messages')return;
+  const result=messageQueue.then(()=>handleMessages(message,sender));messageQueue=result.catch(()=>{});
+  result.then(value=>respond({ok:true,...value}),error=>respond({ok:false,error:error?.message || 'Unable to save messages. Please retry.'}));return true;
 });

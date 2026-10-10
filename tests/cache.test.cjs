@@ -10,11 +10,16 @@ function storage() {
   const data={};return {data,async get(keys){if(keys===null)return clone(data);return Object.fromEntries([].concat(keys).filter(key=>key in data).map(key=>[key,clone(data[key])]));},async set(value){Object.assign(data,clone(value));},async remove(keys){for(const key of [].concat(keys))delete data[key];},async clear(){for(const key of Object.keys(data))delete data[key];},async setAccessLevel(){}};
 }
 function broker() {
-  const local=storage(),session=storage();let handler;
-  const chrome={storage:{local,session},runtime:{id:'test-extension',getURL:path=>'chrome-extension://test-extension/'+path,onMessage:{addListener(fn){handler=fn;}}}};
-  const start=()=>vm.runInNewContext(source('extension/directory-model.js')+'\n'+source('extension/cache-broker.js'),{importScripts(){},chrome,crypto:require('node:crypto').webcrypto,Date,Map,Promise});start();
+  const local=storage(),session=storage(),handlers=[];
+  const chrome={storage:{local,session},runtime:{id:'test-extension',getURL:path=>'chrome-extension://test-extension/'+path,onMessage:{addListener(fn){handlers.push(fn);}}}};
+  const start=()=>{
+    handlers.length=0;
+    const context=vm.createContext({chrome,crypto:require('node:crypto').webcrypto,Date,Map,Promise,TextEncoder});
+    context.importScripts=(...files)=>{for(const file of files)vm.runInContext(source('extension/'+file),context);};
+    vm.runInContext(source('extension/cache-broker.js'),context);
+  };start();
   const sender=tab=>({id:chrome.runtime.id,tab:{id:tab},documentId:'doc-'+tab});
-  const send=(message,from=sender(1))=>new Promise(resolve=>handler({scope:'rcs-directory',...message},from,resolve));
+  const send=(message,from=sender(1))=>new Promise(resolve=>{for(const handler of handlers)handler({scope:'rcs-directory',...message},from,resolve);});
   return {local,session,send,start,sender};
 }
 const owner='@t2_me:reddit.com';
