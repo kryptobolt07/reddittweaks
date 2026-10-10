@@ -39,6 +39,14 @@
     .icon:hover,.toggle:hover,.load:hover { background:var(--rcs-hover); } button:focus-visible,a:focus-visible { outline:2px solid var(--rcs-accent); outline-offset:2px; }
     .icon:disabled { opacity:.35; cursor:default; } .toggle { display:flex; align-items:center; gap:7px; margin:5px 12px; padding:6px 10px; border:0; border-radius:20px; background:transparent; color:var(--rcs-muted); font-size:12px; }
     .panel { position:absolute; top:100%; left:0; right:0; background:var(--rcs-bg); border-bottom:1px solid var(--rcs-line); box-shadow:0 8px 16px #00000010; }
+    .scope { display:flex;gap:3px;padding:0 12px 6px;background:var(--rcs-bg); }
+    .scope button { border:0;border-radius:999px;padding:3px 10px;font-size:11px;color:var(--rcs-muted);background:transparent; }
+    .scope button[aria-pressed=true] { color:var(--rcs-text);background:var(--rcs-soft);font-weight:600; }
+    :host([data-rcs-compact]) .scope { padding:0 6px 4px; }
+    .conversation-panel .message-heading { display:block; }
+    .conversation-panel .message-heading .time { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    .conversation-panel .preview { font-size:12px;-webkit-line-clamp:2; }
+    .coverage { padding:5px 10px;color:var(--rcs-muted);font-size:10px;border-bottom:1px solid var(--rcs-line); }
     .conversation-panel { height:var(--rcs-list-height,320px); display:flex; flex-direction:column; }
     .conversation-panel .results { max-height:none; flex:1; min-height:0; }
     .meta { padding:7px 10px; display:flex; align-items:center; justify-content:space-between; gap:6px; color:var(--rcs-muted); font-size:11px; border-bottom:1px solid var(--rcs-line); }
@@ -124,10 +132,10 @@
       this.container = container; this.kind = kind; this.room = ''; this.cache = directory; this.active = -1; this.hits = []; this.loading = false;
       this.complete = kind === 'list' && directoryComplete;
       this.rows = new Map();
-      this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;
+      this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;this.scope='people';this.savedHits=[];this.savedTotal=0;this.savedGeneration=0;this.savedOwner=undefined;this.savedLoading=false;
       this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
-      this.host.setAttribute('data-rcs-version','0.3.8');
+      this.host.setAttribute('data-rcs-version','0.4.0');
       const shadow = this.host.attachShadow({mode:'open'});
       const style = node('style', '', css); shadow.append(style);
       this.toggle = node('button', 'toggle', 'Search messages'); this.toggle.type = 'button';
@@ -143,9 +151,9 @@
       const label = kind === 'list' ? 'Search usernames' : 'Search messages';
       this.input.placeholder = label; this.input.setAttribute('aria-label', label);
       this.input.setAttribute('aria-controls', 'rcs-results'); this.input.setAttribute('aria-expanded', 'false');
-      this.clear = icon('close', 'Clear search', () => { this.input.value = '';if(this.kind==='messages' && !this.dates?.from && !this.dates?.to)this.cancelLoad(); this.render(); this.input.focus(); }); this.clear.hidden = true;
+      this.clear = icon('close', 'Clear search', () => { this.input.value = '';if(this.kind==='messages' && !this.dates?.from && !this.dates?.to)this.cancelLoad(); this.render();if(this.isGlobal)this.ensureData();this.input.focus(); }); this.clear.hidden = true;
       field.append(searchIcon, this.input, this.clear); this.bar.append(field);
-      if (kind === 'messages') {
+      if (kind === 'messages' || kind === 'list') {
         this.dates={from:'',to:''};
         this.datePicker=new RCSDatePicker({
           onChange:(dates,label)=>{this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
@@ -157,7 +165,7 @@
         this.dateToggle.setAttribute('aria-expanded','false');
         this.count=node('span','count');
         this.prev=icon('up','Previous match',()=>this.move(-1,true));this.next=icon('down','Next match',()=>this.move(1,true));
-        this.bar.append(this.dateToggle,this.count,this.prev,this.next,icon('close','Close message search',()=>this.close()));
+        this.bar.append(this.dateToggle);if(kind==='messages')this.bar.append(this.count,this.prev,this.next,icon('close','Close message search',()=>this.close()));else this.dateToggle.hidden=true;
         this.dateChip=node('span','date-chip');this.dateChip.hidden=true;
         this.dateChipLabel=node('button','date-chip-edit');this.dateChipLabel.type='button';this.dateChipLabel.addEventListener('click',()=>this.dateToggle.click());
         this.dateRemove=icon('close','Remove date filter',()=>{this.datePicker.reset();this.render();this.dateToggle.focus({preventScroll:true});});this.dateRemove.classList.add('date-remove');this.dateChip.append(this.dateChipLabel,this.dateRemove);
@@ -169,7 +177,9 @@
       if (kind === 'list') this.panel.classList.add('conversation-panel');
       else this.panel.classList.add('message-panel');
       this.results = node('div', 'results'); this.results.id = 'rcs-results';
-      this.panel.append(meta, this.results); shadow.append(this.toggle,this.bar);if(this.datePicker)shadow.append(this.datePicker.element,node('style','',RCSDatePicker.styles));shadow.append(this.panel);
+      this.coverage=node('div','coverage','Saved messages only · History may be incomplete');this.coverage.hidden=true;
+      this.panel.append(meta,this.coverage,this.results); shadow.append(this.toggle,this.bar);
+      if(kind==='list'){this.scopeBar=node('div','scope');this.scopeBar.setAttribute('aria-label','Search scope');for(const [value,label] of [['people','People'],['all','All chats']]){const button=node('button','',label);button.type='button';button.dataset.scope=value;button.setAttribute('aria-pressed',String(value===this.scope));button.addEventListener('click',()=>this.setScope(value));this.scopeBar.append(button);}shadow.append(this.scopeBar);}if(this.datePicker)shadow.append(this.datePicker.element,node('style','',RCSDatePicker.styles));shadow.append(this.panel);
       this.toggle.hidden = kind === 'list'; this.bar.hidden = kind === 'messages'; this.panel.hidden = true;
       if (kind === 'messages') {
         const header = A.query(A.selectors.header, container);
@@ -184,7 +194,7 @@
           this.toggle.hidden = true; this.host.hidden = true;
         }
       }
-      this.input.addEventListener('input', () => { this.active = -1;if(this.kind==='list')this.browseOpen=true;else if(!this.input.value.trim() && !this.dates?.from && !this.dates?.to)this.cancelLoad();this.render();if(this.kind==='messages')this.ensureData(); });
+      this.input.addEventListener('input', () => { this.active = -1;if(this.kind==='list')this.browseOpen=true;else if(!this.input.value.trim() && !this.dates?.from && !this.dates?.to)this.cancelLoad();this.render();if(this.kind==='messages' || this.isGlobal)this.ensureData(); });
       this.input.addEventListener('focus', () => this.showResults());
       this.input.addEventListener('click', () => this.showResults());
       if(globalThis.IntersectionObserver)this.avatarObserver=new IntersectionObserver(entries=>{
@@ -197,7 +207,7 @@
       this.results.addEventListener('scroll',()=>{
         if(this.renderLimit<this.hits.length && this.results.scrollTop+this.results.clientHeight>=this.results.scrollHeight-160) {
           this.renderLimit+=50;this.render();
-        }
+        }else if(this.isGlobal && this.savedHasMore && !this.savedLoading && this.results.scrollTop+this.results.clientHeight>=this.results.scrollHeight-160)this.querySaved(true);
       });
       shadow.addEventListener('keydown', event => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.kind === 'list' ? this.dismiss() : this.close(); }
@@ -207,7 +217,7 @@
           if (event.key === 'Enter') {
             if (this.active < 0) this.move(1);
             this.activate(this.active);
-          } else {this.move(event.key === 'ArrowUp' ? -1 : 1);if(this.results.contains(event.target))this.hits[this.active] && this.rows.get(`${this.room}:${this.hits[this.active].id}`)?.result.focus({preventScroll:true});}
+          } else {this.move(event.key === 'ArrowUp' ? -1 : 1);if(this.results.contains(event.target))this.hits[this.active] && this.rows.get(this.rowKey(this.hits[this.active]))?.result.focus({preventScroll:true});}
         }
       });
       this.outside = event => { if (!event.composedPath().includes(this.host)){if(this.datePicker?.open)this.datePicker.close(false);this.dismiss();} };
@@ -215,8 +225,74 @@
       const point = A.mountPoint(container, kind === 'messages' ? A.selectors.header : 'rs-room-list-header');
       point.parent.insertBefore(this.host, point.before);
       if(globalThis.ResizeObserver){this.resizeObserver=new ResizeObserver(()=>{this.updateLayout();if(!this.bar.hidden)this.render();});this.resizeObserver.observe(container);}
+      this.savedUnsubscribe=globalThis.RCSMessages?.subscribe(value=>this.savedChanged(value));
       this.sync();
       if (kind === 'list') this.ensureData(false,true);
+    }
+    get isGlobal(){return this.kind==='list' && this.scope==='all';}
+    get messageMode(){return this.kind==='messages' || this.isGlobal;}
+    rowKey(hit){return `${this.isGlobal ? hit?.roomId : this.room}:${hit?.id}`;}
+    setScope(scope){
+      if(this.scope===scope){this.showResults();return;}
+      this.cancelLoad();this.scope=scope;this.savedKey='';this.active=-1;this.clearRows();this.browseOpen=true;
+      const label=this.isGlobal?'Search saved messages':'Search usernames';this.input.placeholder=label;this.input.setAttribute('aria-label',label);this.panel.setAttribute('aria-label',`${label} results`);
+      this.dateToggle.hidden=!this.isGlobal;this.coverage.hidden=!this.isGlobal;this.dateChip.hidden=!this.isGlobal;
+      for(const button of this.scopeBar.children)button.setAttribute('aria-pressed',String(button.dataset.scope===scope));
+      if(!this.isGlobal)this.datePicker.close(false);
+      this.render();this.ensureData();this.input.focus();
+    }
+    resetSaved(){
+      this.savedGeneration++;clearTimeout(this.savedTimer);this.savedKey='';this.savedHits=[];this.savedTotal=0;this.savedHasMore=false;this.savedLoading=false;this.savedStats=undefined;this.roomSavedKey='';this.complete=false;this.dateCompleteKey='';this.active=-1;this.hits=[];this.clearRows();
+    }
+    savedChanged(value){
+      const ownerChanged=this.savedOwner!==undefined && this.savedOwner!==value.owner;
+      this.savedOwner=value.owner;
+      if(ownerChanged || value.cleared){
+        index.clear();completeRooms.clear();if(ownerChanged){directory.clear();directoryComplete=false;}
+        this.cancelLoad();this.resetSaved();this.input.value='';this.notice='';this.render();
+        if(this.isGlobal)this.ensureData();return;
+      }
+      this.roomSavedKey='';
+      if(this.isGlobal){this.savedKey='';this.ensureData();}
+      else if(this.kind==='messages' && (!value.roomIds || value.roomIds.includes(this.room)))this.readSavedRoom();
+    }
+    querySaved(more=false){
+      if(!this.isGlobal || more && (this.savedLoading || !this.savedHasMore))return;
+      const key=JSON.stringify([this.input.value.trim(),this.dates]);
+      if(!more && key===this.savedKey)return;
+      clearTimeout(this.savedTimer);
+      const generation=++this.savedGeneration;this.savedKey=key;
+      if(!more){this.savedHits=[];this.savedTotal=0;this.savedHasMore=false;this.active=-1;this.renderLimit=50;}
+      const offset=more ? this.savedHits.length : 0;this.savedLoading=true;this.notice='';this.render();
+      this.savedTimer=setTimeout(async()=>{
+        try{
+          if(!globalThis.RCSMessages)throw Error('Saved message storage is unavailable.');
+          const result=await RCSMessages.search({query:this.input.value.trim(),dates:{...this.dates},limit:200,offset});
+          if(generation!==this.savedGeneration || !this.isGlobal || !this.host.isConnected)return;
+          if(this.savedOwner!==undefined && this.savedOwner!==result.owner){this.resetSaved();this.savedOwner=result.owner;this.ensureData();return;}
+          this.savedOwner=result.owner;this.savedHits=more ? [...this.savedHits,...result.records] : result.records;this.savedTotal=result.total;this.savedHasMore=Boolean(result.hasMore);this.savedStats=result.stats;this.savedPersistent=result.persistent;
+          if(more)this.renderLimit+=200;
+        }catch(error){if(generation===this.savedGeneration)this.notice=error.message;}
+        finally{if(generation===this.savedGeneration){this.savedLoading=false;this.render();}}
+      },more ? 0 : 100);
+    }
+    async readSavedRoom(){
+      if(this.kind!=='messages' || !globalThis.RCSMessages)return;
+      const room=this.room,generation=this.savedGeneration,key=`${generation}:${room}`;
+      if(this.roomSavedKey===key)return this.roomSavedPromise;
+      this.roomSavedKey=key;
+      this.roomSavedPromise=(async()=>{
+        try{
+          const result=await RCSMessages.room(room);
+          if(generation!==this.savedGeneration || room!==this.room || !this.host.isConnected)return;
+          if(this.savedOwner!==undefined && this.savedOwner!==result.owner)return;
+          this.savedOwner=result.owner;index.replace(room,result.records,{complete:false});
+          // A stored boundary does not prove freshness after an offline gap.
+          // Show saved data immediately; native history still verifies current coverage.
+          if(!this.panel.hidden)this.render();
+        }catch{if(this.roomSavedKey===key)this.roomSavedKey='';}
+      })();
+      return this.roomSavedPromise;
     }
     open() { this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true'); this.ensureData(); this.render(); this.input.focus(); }
     showResults() {this.stoppedByUser=false;if(this.kind==='list')this.browseOpen=true;this.ensureData();this.render();}
@@ -263,15 +339,15 @@
       const query = this.input.value.trim(); this.clear.hidden = !query;
       const dates=this.dates || {from:'',to:''},bounds=C.dateBounds(dates),searchKey=JSON.stringify([query,dates]);
       if(searchKey!==this.lastQuery){this.renderLimit=50;this.lastQuery=searchKey;}
-      const selected=this.hits[this.active]?.id;
-      if(this.dateToggle){this.dateToggle.classList.toggle('filtered',bounds.active);this.dateToggle.setAttribute('aria-pressed',String(bounds.active));this.dateChip.hidden=!bounds.active;this.dateChipLabel.textContent=this.datePicker.compactSummary();this.dateChip.title=this.dateLabel || '';this.dateChipLabel.setAttribute('aria-label',`Edit date filter: ${this.dateLabel || ''}`);}
+      const selected=this.hits[this.active] ? this.rowKey(this.hits[this.active]) : '';
+      if(this.dateToggle){this.dateToggle.classList.toggle('filtered',bounds.active);this.dateToggle.setAttribute('aria-pressed',String(bounds.active));this.dateChip.hidden=!bounds.active || this.kind==='list' && !this.isGlobal;this.dateChipLabel.textContent=this.datePicker.compactSummary();this.dateChip.title=this.dateLabel || '';this.dateChipLabel.setAttribute('aria-label',`Edit date filter: ${this.dateLabel || ''}`);}
       if (this.kind === 'list') {
         const available = this.container.getBoundingClientRect().bottom - this.host.getBoundingClientRect().bottom;
-        this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);
+        this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
-      this.hits = this.kind === 'list' ? [...this.cache.values()].filter(entry => entry.type!=='reddit_modmail' && C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates).sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0));
-      if(selected)this.active=this.hits.findIndex(hit=>hit.id===selected);
-      if(this.kind==='list')this.hits=this.hits.filter(hit=>!(!hit.historicalName && ['[deleted]','Someone','Username unavailable'].includes(hit.name) && (hit.identityPending || !hit.accountUnavailable || this.loading)));
+      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => entry.type!=='reddit_modmail' && C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates).sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0));
+      if(selected)this.active=this.hits.findIndex(hit=>this.rowKey(hit)===selected);
+      if(this.kind==='list' && !this.isGlobal)this.hits=this.hits.filter(hit=>!(!hit.historicalName && ['[deleted]','Someone','Username unavailable'].includes(hit.name) && (hit.identityPending || !hit.accountUnavailable || this.loading)));
       const showing=this.kind==='list' ? this.browseOpen : Boolean(query || bounds.active);
       this.input.setAttribute('aria-expanded', String(showing));
       this.panel.hidden = !showing || Boolean(this.datePicker?.open);
@@ -281,41 +357,44 @@
       this.status.textContent = this.kind==='list' && globalThis.RCSDirectory?.getStartup?.().pending ? 'Restoring saved usernames…' : this.loading ? this.progress || (this.kind === 'list' ? 'Searching all conversations…' : 'Searching all messages…') : this.notice || `${this.hits.length} ${this.kind === 'list' ? 'conversation' : 'message'}${this.hits.length === 1 ? '' : 's'}${this.complete ? '' : ' · still connecting'}`;
       if(this.kind==='list' && this.loading && !this.refreshing && globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete)this.status.textContent=`${this.hits.length} saved conversations · ${this.progress.startsWith('Waiting') ? this.progress.replace(/\s*\(\d+\)$/,'') : this.progress.includes('dates') ? 'Updating dates…' : 'Checking updates…'}`;
       if(this.kind==='messages')this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.hits.length} match${this.hits.length===1?'':'es'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;
+      if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedLoading ? ' · Searching…' : ''}`;
+      if(this.isGlobal){this.coverage.textContent=`${this.savedPersistent===false ? 'Session messages only' : 'Saved messages only'} · History may be incomplete`;this.load.textContent='Refresh';}
       this.status.title=this.status.textContent;
       const wanted=[];
       for (const [i, hit] of this.hits.slice(0,this.renderLimit).entries()) {
-        const key=`${this.room}:${hit.id}`;
+        const key=this.rowKey(hit);
         let row=this.rows.get(key);
         if(!row) {
           const result=node('button','result');result.type='button';
           const copy=node('span','copy');
           const name=node('span','name');const caption=node('span','time');
-          if(this.kind==='messages'){const heading=node('span','message-heading');heading.append(name,caption);copy.append(heading);}else copy.append(name,caption);
+          if(this.messageMode){const heading=node('span','message-heading');heading.append(name,caption);copy.append(heading);}else copy.append(name,caption);
           row={result,copy,name,caption};
           row.avatar=node('span','avatar');row.avatar.setAttribute('aria-hidden','true');result.append(row.avatar);
-          if(this.kind==='messages') {row.preview=node('span','preview');copy.append(row.preview);}
+          if(this.messageMode) {row.preview=node('span','preview');copy.append(row.preview);}
           result.append(copy);result.addEventListener('click',()=>this.activate(row.position));
           this.rows.set(key,row);
         }
         row.position=i;row.result.classList.toggle('active',i===this.active);row.result.hidden=false;
-        const signature=JSON.stringify([query,hit.name,hit.author,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName,this.loading]);
+        const signature=JSON.stringify([query,hit.name,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName,this.loading]);
         if(row.signature!==signature) {
           row.signature=signature;
-          row.name.replaceChildren(this.kind==='list' ? highlight(hit.name,query) : document.createTextNode(hit.author?.startsWith('@') ? 'Unknown sender' : hit.author || 'Unknown sender'));
-          row.caption.textContent=this.kind==='list' ? (hit.accountUnavailable ? hit.historicalName ? 'Unavailable account · Retained username' : 'Unavailable account' : 'Open conversation') : hit.timestamp ? this.formatTime(hit.timestamp) : '';
-          if(this.kind==='list' && hit.timestamp && Number.isFinite(new Date(hit.timestamp).getTime())) {
+          row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query) : document.createTextNode(hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable'));
+          row.caption.textContent=!this.messageMode ? (hit.accountUnavailable ? hit.historicalName ? 'Unavailable account · Retained username' : 'Unavailable account' : 'Open conversation') : hit.timestamp ? this.formatTime(hit.timestamp) : '';
+          if(!this.messageMode && hit.timestamp && Number.isFinite(new Date(hit.timestamp).getTime())) {
             row.caption.textContent=`${this.formatTime(hit.timestamp)}${hit.accountUnavailable ? ' · Unavailable account' : ''}`;
             row.caption.title='Last conversation activity';
-          } else if(this.kind==='list' && !this.loading) {
+          } else if(!this.messageMode && !this.loading) {
             row.caption.textContent=hit.accountUnavailable ? 'Unavailable account · Date unavailable' : 'Date unavailable';
             row.caption.title='Reddit has not provided a message timestamp for this conversation.';
           } else row.caption.removeAttribute('title');
+          if(this.isGlobal)row.caption.textContent=`${this.cache.get(hit.roomId)?.name || 'Saved conversation'}${hit.timestamp ? ` · ${this.formatTime(hit.timestamp)}` : ''}`;
           if(row.preview) {
             const match=C.ranges(hit.text,query)[0];const start=Math.max(0,(match?.[0] || 0)-40);
             row.preview.replaceChildren(highlight(`${start ? '…' : ''}${hit.text.slice(start,start+180)}${hit.text.length>start+180 ? '…' : ''}`,query));
           }
         }
-        const avatarUrl=hit.avatar || '',speaker=this.kind==='list' ? hit.name : hit.author;
+        const avatarUrl=hit.avatar || '',speaker=!this.messageMode ? hit.name : hit.authorSelf ? 'You' : hit.author;
         if(row.avatar && (row.avatarUrl!==avatarUrl || !row.image?.isConnected && row.avatarLabel!==speaker)) {
           if(row.image){this.avatarObserver?.unobserve(row.image);this.pendingAvatarSources.delete(row.image);}
           row.avatarUrl=avatarUrl;row.avatarLabel=speaker;row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();
@@ -342,13 +421,15 @@
       // the same decoded avatar. No src assignment occurs during normal sync.
       const visible=new Set(wanted);
       for(const row of this.rows.values()){row.result.hidden=!visible.has(row.result);row.result.classList.toggle('result',visible.has(row.result));}
-      for(const extra of this.results.querySelectorAll('.empty,.hint'))extra.remove();
+      for(const extra of this.results.querySelectorAll('.empty,.hint,.saved-more'))extra.remove();
       let position=this.results.firstElementChild;
       for(const result of wanted) {
         if(result!==position)this.results.insertBefore(result,position);
         position=result.nextElementSibling;
       }
-      if (!this.hits.length) this.results.append(node('div', 'empty', this.loading ? this.kind==='list' ? 'Loading your conversations…' : 'Searching your history in the background…' : this.kind === 'list' ? 'No matching usernames. Try a shorter name.' : 'No matching messages. Try another word.'));
+      if(this.isGlobal && !this.hits.length)this.results.append(node('div','empty',this.savedLoading ? 'Searching saved messages…' : this.notice || (this.savedStats?.messages ? 'No matching saved messages. Try another word.' : 'No saved messages yet. Messages Reddit loads will become searchable here.')));
+      else if (!this.hits.length) this.results.append(node('div', 'empty', this.loading ? this.kind==='list' ? 'Loading your conversations…' : 'Searching your history in the background…' : this.kind === 'list' ? 'No matching usernames. Try a shorter name.' : 'No matching messages. Try another word.'));
+      if(this.isGlobal && this.savedHasMore){const more=node('button','load saved-more',this.savedLoading ? 'Loading…' : `Load more (${this.savedHits.length} of ${this.savedTotal})`);more.disabled=this.savedLoading;more.addEventListener('click',()=>this.querySaved(true));this.results.append(more);}
       if(this.hits.length>this.renderLimit)this.results.append(node('div','hint',`Showing ${this.renderLimit} of ${this.hits.length}. Scroll for more.`));
     }
     formatTime(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}); }
@@ -357,14 +438,14 @@
       const next=this.active<0 ? (direction<0 ? total-1 : 0) : (this.active+direction+total)%total;
       if(next>=this.renderLimit)this.renderLimit=Math.ceil((next+1)/50)*50;
       this.active=next;this.render();
-      const result=this.rows.get(`${this.room}:${this.hits[this.active]?.id}`)?.result;
+      const result=this.rows.get(this.rowKey(this.hits[this.active]))?.result;
       if(result){const row=result.getBoundingClientRect(),viewport=this.results.getBoundingClientRect();if(row.top<viewport.top)this.results.scrollTop-=viewport.top-row.top;else if(row.bottom>viewport.bottom)this.results.scrollTop+=row.bottom-viewport.bottom;}
       if (this.kind === 'messages' && jump) this.jump(this.hits[this.active]);
     }
     async activate(i) {
       const hit = this.hits[i]; if (!hit) return;
       this.active = i;
-      if (this.kind === 'list') {
+      if (this.kind === 'list' && !this.isGlobal) {
         try {
           if (globalThis.RCSData) await RCSData.request('open',{roomId:hit.id}).promise;
           else if (hit.element?.isConnected) (hit.link || hit.element).click();
@@ -375,7 +456,7 @@
     }
     async jump(hit) {
       if (globalThis.RCSData) {
-        try { await RCSData.request('jump',{roomId:this.room,eventId:hit.id,thread:Boolean(hit.thread)}).promise;this.dismiss(); }
+        try { await RCSData.request('jump',{roomId:hit.roomId || this.room,eventId:hit.id,thread:Boolean(hit.thread)}).promise;this.dismiss(); }
         catch(error) { this.status.textContent=error.message; }
         return;
       }
@@ -387,10 +468,13 @@
     }
     cancelLoad(showNotice=false) {
       if(showNotice)this.stoppedByUser=true;
+      this.savedGeneration++;clearTimeout(this.savedTimer);this.savedLoading=false;this.savedKey='';
       this.dataTask?.cancel();this.dataTask=null;this.loading=false;this.load.textContent='Refresh';
       if(showNotice) {this.notice='Search stopped. Results may be incomplete.';this.render();}
     }
     async ensureData(force=false,reconcile=false) {
+      if(this.isGlobal){if(force)this.savedKey='';this.querySaved();return;}
+      if(this.kind==='messages'){const generation=this.savedGeneration;await this.readSavedRoom();if(generation!==this.savedGeneration)return;}
       const dateKey=JSON.stringify(this.dates || {});
       if(this.kind==='messages' && !force && !this.input.value.trim() && !this.dates?.from && !this.dates?.to)return;
       if(!globalThis.RCSData || this.loading || (this.complete && !force && !reconcile) || this.kind==='messages' && !force && this.dateCompleteKey===dateKey) return;
@@ -423,7 +507,7 @@
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.load.textContent='Refresh';if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
-    destroy() { this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
+    destroy() { this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
     if(value.fromStorage || value.restored) {
@@ -432,7 +516,7 @@
       schedule();
       return;
     }
-    if(value.accountChanged){globalThis.RCSNativeLabels?.clear();directory.clear();index.clear();completeRooms.clear();for(const control of controls.values())control.clearRows();}
+    if(value.accountChanged){globalThis.RCSNativeLabels?.clear();directory.clear();index.clear();completeRooms.clear();for(const control of controls.values()){control.cancelLoad();control.resetSaved();control.input.value='';control.notice='';control.render();}}
     directoryComplete=false;
     for(const control of controls.values())if(control.kind==='list'){control.complete=false;if(!control.stoppedByUser || value.accountChanged)control.ensureData();}
   });
