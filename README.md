@@ -1,12 +1,18 @@
-# Chat Search for Reddit — 0.3.8
+# Chat Search for Reddit — 0.4.0
 
 ## Load in Brave
 
-Extract `artifacts/reddit-chat-search-v0.3.8.zip` and load its folder through **Load unpacked** in `brave://extensions`.
+Extract `artifacts/reddit-chat-search-v0.4.0.zip` and load its folder through **Load unpacked** in `brave://extensions`.
 
 For an existing installation, replace the files in its current unpacked folder, choose **Reload** on the same extension card, and refresh Reddit tabs. Keeping the same installation preserves its saved directory and enables migration from 0.2.4. Loading another folder as a separate extension creates separate storage; disable the older installation to avoid duplicate controls.
 
 The generated `artifacts/reddit-chat-search/` folder and `artifacts/reddit-chat-search.zip` also contain the current build.
+
+## Saved message search in 0.4.0
+
+Choose **All chats** below the sidebar search field to search messages already saved by the extension. **People** retains username search and empty-field conversation browsing. All chats supports the same date calendar, sender avatars, keyboard selection, and exact conversation/message/thread navigation. Its Refresh button re-reads local data; it does not download every conversation.
+
+The same saved messages seed individual message search before its normal history reads. Global results explicitly say **History may be incomplete**. A chat count describes rooms with saved data, not the percentage of your complete archive. Missing messages become searchable when Reddit loads them or you explicitly search that conversation. An optional full-history build is deferred until gap recovery, thread coverage, and storage costs are verified.
 
 ## Search and browse
 
@@ -18,7 +24,7 @@ The generated `artifacts/reddit-chat-search/` folder and `artifacts/reddit-chat-
 - Retained membership metadata can recover an unavailable account's former name. Search its name or `deleted` / `[deleted]`. Identifiable native conversation rows, headers, introduction cards, and authors (including image-only messages) show the retained name with **Unavailable**. Shared native name/title functions and the username renderer are hooked so later renders also use recovered names; a scoped fallback adds status labels and covers bypassing components. Internal Reddit functions can still change in future releases.
 - Full-page chat, floating chat, and the minimized **Search chats** shortcut are supported. Floating and narrow message panels use smaller search controls, result rows, and a 228px calendar. The calendar aligns with the right edge of the search ribbon and stays within the conversation width. Date selections and Apply use Reddit's red-orange brand color independently of its black primary button color. Username and message search fields share a 32px height.
 
-Background indexing does not scroll the visible chat. Message bodies remain in tab memory and are not included in the persistent username directory. Redactions exclude messages, edits replace their searchable text, and supported native message events update loaded indexes without another full download.
+Background indexing does not scroll the visible chat. Fetched message bodies now persist in a separate, account-scoped message database; the username directory still contains metadata only. Redactions exclude messages, edits replace their searchable text, and supported native message events update loaded indexes without another full download.
 
 ## Directory and request policy
 
@@ -30,7 +36,7 @@ Completed discovery is checkpointed before profile resolution. Incomplete direct
 
 A completed saved index survives browser restarts. Reopening Reddit or another chat control reuses it. The extension listens to Reddit's existing native sync and room/member events to merge newly discovered conversations and affected identities; it does not start a separate sync loop or fresh `m.direct` request.
 
-Initial builds extract available message timestamps from the timeline included in their existing bulk requests, then discard those message bodies. Older complete indexes with missing dates receive one separate bulk timeline pass; successful completion is saved so browser restarts do not repeat it. This pass does not rebuild usernames or fetch each room separately. Empty or inaccessible timelines remain **Date unavailable**. Native timeline events update saved activity timestamps without additional profile reads.
+Initial builds extract available message timestamps from the timeline included in their existing bulk requests, and retain any supplied message bodies in the separate message cache. Older complete indexes with missing dates receive one separate bulk timeline pass; successful completion is saved so browser restarts do not repeat it. This pass does not rebuild usernames or fetch each room separately. Empty or inaccessible timelines remain **Date unavailable**. Native timeline events update saved activity timestamps without additional profile reads.
 
 A full traversal runs again only for explicit **Refresh**, a cleared cache, or an incomplete/older directory format that has never been fully enumerated. The 24-hour identity age makes individual profiles eligible for selective refresh, not a full periodic directory crawl. Updates from other devices become searchable as the native client delivers them; explicit Refresh repairs any directory gap that native sync does not expose.
 
@@ -46,7 +52,15 @@ Directory schema v2 stores conversation IDs, participant references, room type/m
 
 Persistent directory storage contains no message bodies, DOM elements, authentication credentials, cookies, or avatar image bytes. The popup's **Clear saved usernames** control clears directory data and leaves unrelated storage and server cooldowns intact. Reload Reddit afterward to rebuild.
 
-History events, pagination cursors, and search results live only in page memory, with up to 20 conversation caches retained. Cache eviction invalidates completion flags. Native labels are presentation changes bound to room/account/event IDs; account status and native interaction behavior are preserved.
+Messages are stored in extension-owned IndexedDB, keyed by the authenticated Matrix account and room. Compact event records contain text, event/sender IDs, timestamps, thread references, edit relationships, and redaction tombstones. Search metadata references the stored text instead of copying it. Sender identity hints include names and avatar URLs; media files, access tokens, cookies, and DOM elements are not saved. Observed redactions remove deleted plaintext and exclude those messages from results. Edits from the original sender replace searchable text, including when an edit arrives before its original message.
+
+Capture starts when the native client becomes available and observes its existing events and loaded timelines, even before a search. Already returned directory/history pages feed the same database. The first saved-message read also imports locally stored Reddit history once per account/install, using bounded readonly transactions against the verified native database schema. Each chunk waits for extension storage before continuing; a completion marker is written only after a successful import. An unsupported or malformed native cache remains partial. This import makes no server requests and proves no archive completeness.
+
+Writes and reads validate the active account. Failed writes remain in a bounded memory retry queue (500 batches, 10,000 events, 8 MiB of estimated transport text), retrying on later reads or incoming batches. Overflow is reported and blocks the import marker. Writes already acknowledged by IndexedDB survive tab/browser restarts; an unsaved retry queue does not. Other open Reddit tabs receive cache-change notifications. There is no second sync loop, scheduled history crawl, or profile lookup solely for this cache.
+
+The popup shows saved message/room counts and estimated compact data bytes, and offers **Clear saved messages** separately from **Clear saved usernames**. Clearing messages removes all extension message accounts and their native-import markers; it leaves the username directory intact. Open tabs discard cached results and pending writes. Newly received/fetched messages can be saved again; native import can run again after reload. Estimates exclude IndexedDB overhead and browser disk allocation, and there is no fixed 30–50 MB guarantee or automatic age eviction in this release.
+
+Pagination cursors and the active history working set still live in page memory, with up to 20 conversation caches retained. Cache eviction invalidates in-memory completion flags. Persisted coverage is descriptive: it never suppresses history verification after a reload or offline gap. Native labels are presentation changes bound to room/account/event IDs; account status and native interaction behavior are preserved.
 
 This extension uses Reddit's private implementation and is independent and unaffiliated with Reddit.
 
@@ -61,6 +75,10 @@ npm run package
 
 The local preview is `http://127.0.0.1:8765/demo/` and uses invented data. Search **old_friend** or **river** for an unloaded conversation, and **archive** for an older message.
 
-Tests cover multi-page discovery, interrupted/repeated cursors, cache migration and account isolation, restart reuse, cross-tab sharing, native updates, rate-limit coordination, empty-query browsing, lazy/stable avatars, retained native labels and recycled rows, history over 5,000 messages, replies, edits, redactions, cancellation/resume, exact navigation, and unchanged scroll positions during background loading.
+Tests additionally cover persistent account isolation, cross-tab edits/redactions, native-only capture, durable import backpressure, failed writes, clear during import, local-only global search, and full/floating UI. Earlier tests cover multi-page discovery, interrupted/repeated cursors, cache migration and account isolation, restart reuse, cross-tab sharing, native updates, rate-limit coordination, empty-query browsing, lazy/stable avatars, retained native labels and recycled rows, history over 5,000 messages, replies, edits, redactions, cancellation/resume, exact navigation, and unchanged scroll positions during background loading.
 
-The packaged release's validation record distinguishes synthetic browser checks from live testing on the signed-in Reddit account. Reloading the updated extension is required for live validation of the new installed build.
+For a reproducible synthetic size/latency sample, run `node scripts/measure-cache.cjs`. It uses invented messages and fake IndexedDB, not the browser's private database or actual disk usage.
+
+Git uses the repeatable workflow in [AGENTS.md](AGENTS.md): small conventional commits, relevant tests before each implementation commit, a full suite and package validation before release, and no private chat captures or generated artifacts in Git. The implementation plan is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+
+The packaged release's validation record distinguishes synthetic Brave checks from live testing on the signed-in Reddit account. Reloading the updated extension is required for live validation of the new installed build.

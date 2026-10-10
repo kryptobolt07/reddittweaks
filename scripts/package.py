@@ -18,6 +18,11 @@ output = root / 'artifacts' / f'reddit-chat-search-v{manifest["version"]}.zip'
 output.parent.mkdir(exist_ok=True)
 unpacked = output.parent / 'reddit-chat-search'
 unpacked.mkdir(exist_ok=True)
+# This generated folder is the stable unpacked installation. Remove assets
+# retired from source so a subsequent build cannot retain obsolete scripts.
+for path in unpacked.rglob('*'):
+    if path.is_file() and not (extension / path.relative_to(unpacked)).is_file():
+        path.unlink()
 with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
     for path in sorted(extension.rglob('*')):
         if path.is_file():
