@@ -593,7 +593,7 @@
       }
     }
   }
-  function stateOf(room) { return listOf(room.state || room.invite_state); }
+  function stateOf(room) { return mergeState(listOf(room.invite_state),listOf(room.state)); }
   function mergeState(...groups) {
     const events=new Map();
     for(const group of groups)for(const event of group)events.set(`${event.type}\u0000${event.state_key || ''}`,event);
@@ -602,14 +602,14 @@
   function cachedRoom(native) {
     const state=[];
     for(const type of ['com.reddit.chat.type','m.room.name','m.room.avatar']) {
-      const event=native.getStateEvents?.(type,'');
+      const event=native.getStateEvents?.(type,'') || native.currentState?.getStateEvents?.(type,'');
       if(event?.getContent)state.push({type,state_key:'',content:event.getContent()});
     }
     for(const member of native.getMembers?.() || []) {
       const event=member.events?.member;
       state.push({type:'m.room.member',state_key:member.userId,sender:event?.getSender?.(),origin_server_ts:event?.getTs?.(),unsigned:event?.getUnsigned?.(),content:event?.getContent?.() || {membership:member.membership || 'join',displayname:member.rawDisplayName || member.name,avatar_url:member.getMxcAvatarUrl?.()}});
     }
-    return {room_id:native.roomId,state,summary:{'m.heroes':native.summaryHeroes || []},nativeName:native.name,timestamp:native.getLastActiveTimestamp?.() || 0};
+    return {room_id:native.roomId,state,membership:native.getMyMembership?.() || '',summary:{'m.heroes':native.summaryHeroes || []},nativeName:native.name,timestamp:native.getLastActiveTimestamp?.() || 0};
   }
   function participantIds(raw,direct,own) {
     const type=stateOf(raw).find(event=>event.type==='com.reddit.chat.type')?.content;
@@ -659,10 +659,11 @@
         aliases:participants.flatMap(id=>resolvedIdentity(id,people.get(id),ctx).aliases),
         participantIds:participants,participants:participants.map(id=>resolvedIdentity(id,people.get(id),ctx).name).filter(Boolean),
         identities:participants.map(id=>identityRecord(id,people.get(id),ctx)),
-        identityPending:type!=='reddit_modmail' && participants.some(id=>{
+        status:raw.participantAccessDenied ? 'participants-unavailable' : '',
+        identityPending:type!=='reddit_modmail' && (Boolean(raw.participantAccessDenied) || participants.some(id=>{
           const person=resolvedIdentity(id,people.get(id),ctx),retained=identityCache(ctx).get(id);
           return !person.name || person.unavailable && !person.historical && !retained?.recoveryCheckedAt;
-        }),
+        })),
         timestamp:Math.max(raw.timestamp || 0,saved?.timestamp || 0,latestMessageTime(raw)),
         lastSeq:String(raw.last_seq_id ?? saved?.lastSeq ?? ''),href:'/room/'+encodeURIComponent(raw.room_id)};
     }).sort((a,b)=>b.timestamp-a.timestamp);
@@ -751,9 +752,19 @@
     job.stage='conversation participants';
     const unresolved=[...rooms.values()].filter(raw=>roomKind(raw,direct,own)!=='reddit_modmail' && !participantIds(raw,direct,own).length);
     for(const raw of unresolved) {
-      const data=await retryRead(()=>ctx.client.http.authedRequest('GET','/rooms/'+encodeURIComponent(raw.room_id)+'/members',{not_membership:'leave'}),job);
-      if(!Array.isArray(data.chunk))throw problem('Reddit did not return conversation participants. Search is incomplete.');
-      raw.state=mergeState(stateOf(raw),data.chunk);rememberMembers(data.chunk,ctx);
+      // Invitations and departed rooms may deny membership reads even though
+      // Reddit includes them in its directory. One such room must not block
+      // accessible conversations or discard the already-resolved identities.
+      if(raw.membership==='leave' || raw.membership==='ban' || knownConversations.get(raw.room_id)?.status==='participants-unavailable' && !request.refreshProfiles && !request.changedIds?.includes(raw.room_id)) {raw.participantAccessDenied=true;continue;}
+      try {
+        const data=await retryRead(()=>ctx.client.http.authedRequest('GET','/rooms/'+encodeURIComponent(raw.room_id)+'/members',{not_membership:'leave'}),job);
+        if(!Array.isArray(data.chunk))throw problem('Reddit did not return conversation participants. Search is incomplete.');
+        raw.state=mergeState(stateOf(raw),data.chunk);rememberMembers(data.chunk,ctx);
+      } catch(error) {
+        const status=Number(error.httpStatus || error.status || error.response?.status);
+        if(status!==403 && status!==404)throw error;
+        check(job);raw.participantAccessDenied=true;
+      }
     }
     const ids=[...rooms.values()].filter(raw=>roomKind(raw,direct,own)!=='reddit_modmail').flatMap(raw=>participantIds(raw,direct,own));
     job.stage='profiles';

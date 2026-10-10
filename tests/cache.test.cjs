@@ -51,6 +51,23 @@ test('saved directory survives a new tab, issues no Reddit reads, and can open a
   assert.equal(restored.find(record=>record.id==='oldfriend').name,'old_friend');assert.equal(second.api.calls.length,0);
   await second.W.RCSData.request('open',{roomId:'oldfriend'}).promise;assert.equal(second.api.active.id,'oldfriend');assert.equal(second.api.calls[0].method,'rooms');second.dom.window.close();
 });
+test('inaccessible participant status persists and a restored directory does not retry that invitation',async t=>{
+  const cache=broker();let lookups=0;
+  const addRestricted=env=>{
+    const getRooms=env.client.getRooms,read=env.client.getRoomList;
+    env.client.getRooms=()=>[...getRooms(),{roomId:'restricted',name:'Chat request',getMyMembership:()=> 'invite'}];
+    env.client.getRoomList=async options=>{const data=await read(options);data.rooms.push({room_id:'restricted',membership:'invite',state:[]});return data;};
+    env.client.http.authedRequest=async()=>{lookups++;throw Object.assign(Error('forbidden'),{httpStatus:403});};
+  };
+  const first=environment(cache);t.after(()=>first.dom.window.close());addRestricted(first);
+  const records=await first.W.RCSDirectory.load().promise;
+  assert.equal(records.find(r=>r.id==='oldfriend').name,'old_friend');
+  assert.equal(records.find(r=>r.id==='restricted').status,'participants-unavailable');assert.equal(lookups,1);
+  assert.equal(cache.local.data['rcs-directory-v2:'+owner].directoryComplete,true,'room enumeration is complete, even though an identity is unresolved');
+  first.dom.window.close();const second=environment(cache,2);t.after(()=>second.dom.window.close());addRestricted(second);
+  const restored=await second.W.RCSDirectory.load().promise;
+  assert.equal(restored.find(r=>r.id==='restricted').identityPending,true);assert.equal(lookups,1);assert.equal(second.api.calls.length,0);
+});
 test('parallel tabs share a single full directory fetch',async t=>{
   const cache=broker();const a=environment(cache),b=environment(cache,2);t.after(()=>{a.dom.window.close();b.dom.window.close();});t.after(()=>a.dom.window.close());
   const results=await Promise.all([a.W.RCSDirectory.load().promise,b.W.RCSDirectory.load().promise]);

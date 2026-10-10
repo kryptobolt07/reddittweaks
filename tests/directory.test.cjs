@@ -36,6 +36,31 @@ test('repeated pagination cursors are rejected instead of sending an unbounded r
   client.getRoomList=async options=>({...await read(options),next_batch:'repeated'});
   await assert.rejects(W.RCSData.request('conversations').promise,/pagination stopped advancing/);assert.equal(api.calls.length,2);
 });
+test('restricted invitations and departed rooms preserve accessible usernames without aborting or repeated member requests',async t=>{
+  const {W,client,rooms}=await setup(t,10),members=[];
+  rooms.splice(7,2,{room_id:'restricted',membership:'invite',state:[]},{room_id:'departed',membership:'leave',state:[]});
+  client.http.authedRequest=async(method,path)=>{members.push(path);throw Object.assign(Error('forbidden'),{httpStatus:403,errcode:'M_FORBIDDEN'});};
+  const records=await W.RCSData.request('conversations').promise;
+  assert.equal(records.find(r=>r.id==='fantastic').name,'Fantastic_Care9298');
+  assert.equal(records.find(r=>r.id==='restricted').status,'participants-unavailable');
+  assert.equal(records.find(r=>r.id==='restricted').identityPending,true);
+  assert.equal(records.find(r=>r.id==='departed').identityPending,true);
+  assert.deepEqual(members,['/rooms/restricted/members']);
+  const again=await W.RCSData.request('conversations').promise;
+  assert.equal(again.find(r=>r.id==='fantastic').name,'Fantastic_Care9298');assert.equal(members.length,1);
+});
+test('invite state is retained even when the room has an empty normal state list',async t=>{
+  const {W,client,rooms}=await setup(t,9);
+  rooms[7]={room_id:'invited',membership:'invite',state:[],invite_state:[{type:'com.reddit.chat.type',content:{type:'direct',participants:['@t2_me:reddit.com','@t2_alex:reddit.com']}}]};
+  client.http.authedRequest=async()=>{throw Error('No member request should be needed');};
+  const records=await W.RCSData.request('conversations').promise;
+  assert.equal(records.find(r=>r.id==='invited').participantIds[0],'@t2_alex:reddit.com');
+});
+test('unexpected participant failures remain visible instead of being treated as a complete username load',async t=>{
+  const {W,client,rooms}=await setup(t,9);rooms[7]={room_id:'broken',membership:'join',state:[]};
+  client.http.authedRequest=async()=>{throw Object.assign(Error('bad response'),{httpStatus:400});};
+  await assert.rejects(W.RCSData.request('conversations').promise,/conversation participants.*HTTP 400/);
+});
 test('empty-field browsing progressively reveals the entire local directory without more data requests',async t=>{
   const {W,api}=await setup(t,201);W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));await tick(300);
   const root=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav).shadowRoot,input=root.querySelector('input');
