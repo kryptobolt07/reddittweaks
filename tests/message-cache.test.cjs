@@ -186,3 +186,21 @@ test('targeted clear for an inactive account invalidates its import result and p
   await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});assert.equal(await h.store.importState(other),true);await h.win.RCSMessages.search({});h.setActive(owner);await h.win.RCSMessages.search({});
   assert.equal(await h.store.importState(owner),false);assert.equal(h.imports,2);assert.equal(h.marks,2);h.dom.window.close();
 });
+test('single-event bursts coalesce across rooms without losing room IDs or coverage boundaries',async()=>{
+  const h=clientHarness({marked:true});
+  for(let i=0;i<1500;i++)h.emit({owner,roomId:'!burst-'+i+':reddit.com',events:[event('$burst-'+i,'burst text',1000,{room_id:undefined})]});
+  h.emit(batch([],{coverage:{complete:true}}));await h.win.RCSMessages.flush();
+  const found=await h.store.search(owner,{limit:1});assert.equal(found.total,1500);assert.equal(found.stats.rooms,1501);assert.equal(found.stats.completeRooms,1);
+  assert.ok(h.calls.filter(action=>action==='ingest').length<15,'one RPC per native event is avoided');
+  assert.equal(found.records[0].roomId.startsWith('!burst-'),true);h.dom.window.close();
+});
+test('overflow barriers can drain, but only matching recovery clears the error; unrecovered gaps block import marker',async()=>{
+  const h=clientHarness(),rejected=[];h.win.document.addEventListener('rcs-message-cache-rejected',event=>rejected.push(JSON.parse(event.detail)));
+  h.emit(batch(Array.from({length:10001},(_,i)=>event('$lost-'+i,'lost'))));await assert.rejects(h.win.RCSMessages.flush(),/buffer is full/);
+  let ack;h.win.document.addEventListener('rcs-message-cache-flushed',event=>ack=JSON.parse(event.detail));
+  h.win.document.dispatchEvent(new h.win.CustomEvent('rcs-message-cache-flush',{detail:JSON.stringify({owner,id:'barrier'})}));await waitForTick();assert.equal(ack.ok,true);
+  const recover=value=>h.win.document.dispatchEvent(new h.win.CustomEvent('rcs-message-cache-recovered',{detail:JSON.stringify(value)}));
+  recover({owner,id:'stale',complete:true});await assert.rejects(h.win.RCSMessages.flush(),/buffer is full/);
+  recover({owner,id:rejected[0].id,complete:false});const result=await h.win.RCSMessages.search({});assert.equal(result.captureIncomplete,true);assert.equal(h.marks,0);h.dom.window.close();
+});
+const waitForTick=()=>new Promise(resolve=>setTimeout(resolve,10));

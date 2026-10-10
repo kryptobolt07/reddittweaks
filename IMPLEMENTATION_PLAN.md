@@ -30,3 +30,13 @@ All five implementation stages are complete. The full suite passes 153 tests, in
 Synthetic Brave preview checks cover full chat, floating chat in both themes, the shared date calendar, global result navigation, and the minimized Search chats entry point. This is not a claim that the newly packaged build has been installed and validated against the signed-in account.
 
 The reproducible Node/fake-indexeddb measurement stores 20,000 invented messages across 1,000 rooms: approximately 12.37 MiB of compact data, with a 236 ms median global scan in this environment. It excludes database overhead and does not establish a size ceiling. These findings support the initial saved-message scope; full-history building remains deferred.
+
+## Buffer correction within 0.4.0
+
+Read-only Brave diagnostics found 20,303 native timeline events across 1,006 nonempty timelines. The original synchronous startup capture exceeded the unchanged 500-batch / 10,000-event / 8 MiB queue before its writer could drain. Database-import backpressure did not cover this producer, and the latched overflow blocked every subsequent read. Unchanged snapshot rescans could also thrash the 10,000-event dedup window.
+
+Startup/sync capture now drains through durable, bounded chunks, records native event references to skip unchanged snapshots, and coalesces ordinary native event bursts. Rejected identifiers are replayed from local native/history sources; only a matching durable recovery clears the transient error. Missing local sources retain an explicit partial-capture status, and genuine storage failures stay visible.
+
+The old implementation reproduced the exact error in a 20,400-event startup fixture. The corrected implementation passes 157 tests, including that fixture, unchanged-sync reuse, cross-room coalescing, coverage boundaries, and a 12,500-event burst recovery. A separate, temporary Brave probe captured 16,418 searchable live SDK messages in memory in about 604 ms, then continued receiving native events. The diagnostic code was removed afterward. This verifies the live producer shape, not installation or persistent storage of the corrected build in Brave.
+
+No version bump, new sync loop, server recovery requests, visible scrolling, or cache clearing is required by this correction.

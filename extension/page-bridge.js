@@ -11,6 +11,7 @@
   const captureSignatures=new Map();
   const capturedIdentities=new Map();
   const capturedCoverage=new Map();
+  let nativeCapture;
   let watchedSignature='';
   let watchTimer;
   const identityCaches = new Map();
@@ -99,6 +100,7 @@
     nativeHandlers.clear();changedRooms.clear();profileChangedRooms.clear();metadataVersion=0;
     captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();
     watchedClient=ctx.client;watchedOwner=owner;
+    nativeCapture={client:ctx.client,owner,ctx,pending:new Map(),snapshots:new Map(),task:null,recovery:null,incomplete:false,missing:new Set()};
     if(knownOwner!==owner){knownConversations.clear();knownRoomStates.clear();histories.clear();knownOwner=owner;}
     watchedSignature=JSON.stringify(directoryContext(ctx));
     const client=ctx.client,matrixHost=ctx.find?.('rs-matrix-client');
@@ -169,17 +171,67 @@
       if(capturedCoverage.get(roomId)===signature)coverage=undefined;else capturedCoverage.set(roomId,signature);
     }
     if(!events.length && !identities.length && !coverage)return;
-    document.dispatchEvent(new CustomEvent('rcs-message-cache-batch',{detail:JSON.stringify({owner,roomId,events,identities,source,...(coverage ? {coverage} : {})})}));
+    const detail=JSON.stringify({owner,roomId,events,identities,source,...(coverage ? {coverage} : {})});
+    document.dispatchEvent(new CustomEvent('rcs-message-cache-batch',{detail}));
+    return {events:events.length,bytes:detail.length*2};
+  }
+  function nativeRoomEvents(native) {
+    const live=native.getLiveTimeline?.()?.getEvents?.() || native.getUnfilteredTimelineSet?.()?.getEvents?.() || [];
+    return [...live,...(native.getThreads?.() || []).flatMap(thread=>[thread.rootEvent,...(thread.events || thread.getEvents?.() || [])].filter(Boolean))];
+  }
+  function runNativeCapture(state) {
+    if(state.task || state!==nativeCapture)return state.task;
+    const matrixHost=state.ctx.find?.('rs-matrix-client');
+    const guard=()=>{if(state!==nativeCapture || watchedClient!==state.client || state.client.getUserId()!==state.owner || matrixHost && (!matrixHost.isConnected || matrixHost.client!==state.client))throw problem('Reddit account changed. Please retry.');};
+    state.task=Promise.resolve().then(async()=>{
+      let units=0,bytes=0;
+      const barrier=async(force=false)=>{if(!units && !force)return;await flushNativeCache({owner:state.owner},guard);units=0;bytes=0;};
+      do {
+      while(state.pending.size){
+        guard();const [key,job]=state.pending.entries().next().value;state.pending.delete(key);
+        if(job.identities){const sent=publishCache(state.ctx,undefined,[],'cache-recovery',undefined,job.identities);if(sent){units++;bytes+=sent.bytes;}if(bytes>=512*1024)await barrier();continue;}
+        let values,refs;try{values=job.history ? [...job.history.events.values()] : nativeRoomEvents(job.native);refs=values.map(value=>value?.event || value);if(job.native)rememberMembers(stateOf(cachedRoom(job.native)),state.ctx);}catch{state.incomplete=true;continue;}
+        const before=state.snapshots.get(key);
+        // Remember native event references, not a second copy of every body.
+        // Edits/redactions are independently captured by the native handlers.
+        if(!job.force && before?.length===refs.length && refs.every((value,i)=>value===before[i]))continue;
+        try {
+          let chunk=[],chunkBytes=0;
+          const send=async()=>{
+            if(!chunk.length)return;
+            const sent=publishCache(state.ctx,job.roomId,chunk,job.force?'cache-recovery':'native-memory');
+            for(const value of chunk){const raw=compactCacheEvent(value,job.roomId);if(raw){const key=raw.room_id+'\n'+raw.event_id;if(captureSignatures.has(key))state.missing.delete(key);}}
+            chunk=[];chunkBytes=0;
+            if(sent){units+=Math.max(1,sent.events);bytes+=sent.bytes;}
+            if(units>=200 || bytes>=512*1024)await barrier();
+          };
+          for(const value of values){
+            guard();if(job.wanted && !job.wanted.has((value?.event || value)?.event_id))continue;const size=JSON.stringify(compactCacheEvent(value,job.roomId) || {}).length*2;
+            if(chunk.length && (chunk.length>=200 || chunkBytes+size>256*1024))await send();
+            chunk.push(value);chunkBytes+=size;
+          }
+          await send();if(!job.force)state.snapshots.set(key,refs);
+        }catch(error){state.pending.set(key,job);throw error;}
+      }
+      await barrier(Boolean(state.recovery));guard();
+      } while(state.pending.size);
+      if(state.recovery){document.dispatchEvent(new CustomEvent('rcs-message-cache-recovered',{detail:JSON.stringify({owner:state.owner,id:state.recovery,complete:!state.incomplete && !state.missing.size})}));state.recovery=null;state.incomplete=false;state.missing.clear();}
+      document.dispatchEvent(new CustomEvent('rcs-message-cache-snapshot-saved',{detail:JSON.stringify({owner:state.owner})}));
+    }).catch(()=>{state.failed=true; /* Retain the room job for a later native event/read retry. */ }).finally(()=>{state.task=null;if(state===nativeCapture && state.pending.size && !state.failed)runNativeCapture(state);});
+    // A failed writer must not create a timed retry loop. A new native signal
+    // can resume the pending room jobs after the storage problem is resolved.
+    return state.task;
   }
   function captureNativeRoom(ctx,native) {
-    if(!native?.roomId)return;
-    rememberMembers(stateOf(cachedRoom(native)),ctx);
-    const live=native.getLiveTimeline?.()?.getEvents?.() || native.getUnfilteredTimelineSet?.()?.getEvents?.() || [];
-    const events=[...live,...(native.getThreads?.() || []).flatMap(thread=>[thread.rootEvent,...(thread.events || thread.getEvents?.() || [])].filter(Boolean))];
-    publishCache(ctx,native.roomId,events,'native-memory');
+    const state=nativeCapture;if(!native?.roomId || state?.client!==ctx.client || state.owner!==ctx.client.getUserId())return;
+    state.pending.set(native.roomId,{native,roomId:native.roomId});state.failed=false;return runNativeCapture(state);
   }
   function seedNativeTimelines(ctx) {
-    for(const native of ctx.client.getRooms?.() || [])try{captureNativeRoom(ctx,native);}catch{ /* Isolate one incompatible room from the others. */ }
+    const state=nativeCapture;if(state?.client!==ctx.client || state.owner!==ctx.client.getUserId())return;
+    const rooms=ctx.client.getRooms?.() || [],ids=new Set(rooms.map(room=>room.roomId));
+    for(const id of state.snapshots.keys())if(!ids.has(id))state.snapshots.delete(id);
+    for(const native of rooms)if(native?.roomId)state.pending.set(native.roomId,{native,roomId:native.roomId});
+    state.failed=false;return runNativeCapture(state);
   }
   function flushNativeCache(job,guard) {
     const owner=job.owner,id=crypto.randomUUID();
@@ -860,6 +912,32 @@
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     if(!watchedOwner || value?.owner!==watchedOwner || watchedClient?.getUserId?.()!==watchedOwner)return;
     captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();
+    const ctx=nativeCapture?.ctx;
+    if(ctx){
+      // Clear cancels pre-clear snapshot jobs. Existing tails form the baseline;
+      // unchanged syncs must not immediately refill data the user just cleared.
+      nativeCapture={client:watchedClient,owner:watchedOwner,ctx,pending:new Map(),snapshots:new Map(),task:null,recovery:null,incomplete:false,missing:new Set()};
+      for(const room of watchedClient.getRooms?.() || [])try{nativeCapture.snapshots.set(room.roomId,nativeRoomEvents(room).map(value=>value?.event || value));}catch{}
+    }
+  });
+  document.addEventListener('rcs-message-cache-rejected',event=>{
+    let value;try{value=JSON.parse(event.detail);}catch{return;}
+    const state=nativeCapture;
+    if(!state || value?.owner!==state.owner || state.client.getUserId()!==state.owner || typeof value.id!=='string' || !Array.isArray(value.events))return;
+    const rooms=new Set(value.roomId?[value.roomId]:[]),wanted=new Map();
+    for(const item of value.events){if(typeof item.roomId!=='string' || typeof item.id!=='string')continue;rooms.add(item.roomId);if(!wanted.has(item.roomId))wanted.set(item.roomId,new Set());wanted.get(item.roomId).add(item.id);state.missing.add(item.roomId+'\n'+item.id);captureSignatures.delete(item.roomId+'\n'+item.id);if(item.sender)capturedIdentities.delete(item.sender);}
+    const identities=Array.isArray(value.identities)?value.identities:[];
+    for(const id of identities)capturedIdentities.delete(id);
+    for(let i=0;i<identities.length;i+=200)state.pending.set('identity-recovery:'+i,{identities:identities.slice(i,i+200)});
+    state.recovery=value.id;
+    for(const id of rooms){
+      capturedCoverage.delete(id);const native=state.client.getRoom?.(id),history=histories.get(state.owner,id,false);
+      const add=(key,source)=>{const before=state.pending.get(key)?.wanted,ids=wanted.get(id);state.pending.set(key,{...source,roomId:id,force:true,...(ids?.size?{wanted:new Set([...(before || []),...ids])}:{})});};
+      if(history?.owner===state.owner)add('history-recovery:'+id,{history});
+      if(native)add('native-recovery:'+id,{native});
+      if(!native && history?.owner!==state.owner)state.incomplete=true;
+    }
+    state.failed=false;runNativeCapture(state);
   });
   const observeNativeClient=()=>{try{const ctx=context();if(ctx.client?.getUserId?.())watchDirectory(ctx);}catch{ /* Native discovery is optional and fail open. */ }};
   setTimeout(observeNativeClient,0);

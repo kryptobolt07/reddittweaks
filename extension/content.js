@@ -270,7 +270,7 @@
           const result=await RCSMessages.search({query:this.input.value.trim(),dates:{...this.dates},limit:200,offset});
           if(generation!==this.savedGeneration || !this.isGlobal || !this.host.isConnected)return;
           if(this.savedOwner!==undefined && this.savedOwner!==result.owner){this.resetSaved();this.savedOwner=result.owner;this.ensureData();return;}
-          this.savedOwner=result.owner;this.savedHits=more ? [...this.savedHits,...result.records] : result.records;this.savedTotal=result.total;this.savedHasMore=Boolean(result.hasMore);this.savedStats=result.stats;this.savedPersistent=result.persistent;
+          this.savedOwner=result.owner;this.savedHits=more ? [...this.savedHits,...result.records] : result.records;this.savedTotal=result.total;this.savedHasMore=Boolean(result.hasMore);this.savedStats=result.stats;this.savedPersistent=result.persistent;this.savedCaptureIncomplete=result.captureIncomplete;
           if(more)this.renderLimit+=200;
         }catch(error){if(generation===this.savedGeneration)this.notice=error.message;}
         finally{if(generation===this.savedGeneration){this.savedLoading=false;this.render();}}
@@ -358,7 +358,7 @@
       if(this.kind==='list' && this.loading && !this.refreshing && globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete)this.status.textContent=`${this.hits.length} saved conversations · ${this.progress.startsWith('Waiting') ? this.progress.replace(/\s*\(\d+\)$/,'') : this.progress.includes('dates') ? 'Updating dates…' : 'Checking updates…'}`;
       if(this.kind==='messages')this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.hits.length} match${this.hits.length===1?'':'es'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;
       if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedLoading ? ' · Searching…' : ''}`;
-      if(this.isGlobal){this.coverage.textContent=`${this.savedPersistent===false ? 'Session messages only' : 'Saved messages only'} · History may be incomplete`;this.load.textContent='Refresh';}
+      if(this.isGlobal){this.coverage.textContent=`${this.savedCaptureIncomplete ? 'Some captures unavailable' : this.savedPersistent===false ? 'Session messages only' : 'Saved messages only'} · History may be incomplete`;this.load.textContent='Refresh';}
       this.status.title=this.status.textContent;
       const wanted=[];
       for (const [i, hit] of this.hits.slice(0,this.renderLimit).entries()) {
