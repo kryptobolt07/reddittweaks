@@ -163,11 +163,14 @@ test('all saved messages stay searchable while only a small window of results is
   assert.ok(p.model.messages.length >= 1800);
   assert.ok(p.d.querySelectorAll('.message-result').length < 20);
   assert.ok(p.state.items.length > p.d.querySelectorAll('.virtual-item').length);
+  p.key('ArrowDown');
+  assert.ok(p.input.hasAttribute('aria-activedescendant'));
   const first = p.find('.message-group').dataset.key;
   const viewport = p.find('#search-results');
   viewport.scrollTop = Math.max(0, p.state.totalHeight - 600);
   viewport.dispatchEvent(new p.w.Event('scroll')); p.tick(0);
   assert.notEqual(p.find('.message-group').dataset.key, first);
+  assert.equal(p.input.hasAttribute('aria-activedescendant'), false);
   assert.ok(p.d.querySelectorAll('.message-result').length < 20);
   assert.match(p.find('.virtual-spacer').getAttribute('style'), /height:[1-9]\d*px/);
 });
