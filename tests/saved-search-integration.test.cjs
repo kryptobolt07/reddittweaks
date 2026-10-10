@@ -5,8 +5,8 @@ const {JSDOM}=require('jsdom');
 const {IDBFactory,IDBKeyRange}=require('fake-indexeddb');
 const source=file=>fs.readFileSync(file,'utf8');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-function worker(t){
-  const listeners=[],tabs=new Map(),idb=new IDBFactory();
+function worker(t,idb=new IDBFactory()){
+  const listeners=[],tabs=new Map();
   const context=vm.createContext({indexedDB:idb,IDBKeyRange,TextEncoder,crypto});
   const local={get:async()=>({}),set:async()=>{},remove:async()=>{},setAccessLevel(){}};
   context.chrome={runtime:{id:'test-extension',getURL:path=>'chrome-extension://test-extension/'+path,onMessage:{addListener:fn=>listeners.push(fn)}},storage:{local,session:local},tabs:{query:async()=>[...tabs.keys()].map(id=>({id})),sendMessage:async(id,message)=>tabs.get(id)?.(message)}};
@@ -59,7 +59,7 @@ test('real global interface searches captured messages and receives redactions w
   env.emit(event('$remove','',{type:'m.room.redaction',redacts:'$visible'}));await env.W.RCSMessages.flush();await wait(160);
   assert.equal(root.querySelectorAll('.result').length,0);assert.equal(env.api.calls.length,0);
 });
-test('large native local import drains durably between chunks and is not repeated on reload',async t=>{
+test('large native cache reconciles in durable chunks and is read again without duplicate rewrites on reload',async t=>{
   const broker=worker(t),send=broker.send;
   broker.send=async(message,sender)=>{if(message.action==='ingest')await wait(2);return send(message,sender);};
   const env=page(t,broker,1);env.W.IDBKeyRange=IDBKeyRange;
@@ -74,13 +74,43 @@ test('large native local import drains durably between chunks and is not repeate
     tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
   });
   env.client.store={backend:{db}};
+  env.client.emitSync();
   let nativeReads=0;const transaction=db.transaction.bind(db);db.transaction=(...args)=>{nativeReads++;return transaction(...args);};
   const first=await env.W.RCSMessages.search({query:'coffee',limit:1});assert.equal(first.importing,true);
   await env.W.RCSMessages.ready();const result=await env.W.RCSMessages.search({query:'coffee',limit:1});
   assert.equal(result.total,12000);assert.equal((await env.W.RCSMessages.ready()).nativeImportComplete,true);assert.equal(result.coverage.complete,false);assert.ok(nativeReads>1);
-  const priorReads=nativeReads,reloaded=page(t,broker,2);reloaded.client.store={backend:{db}};reloaded.W.IDBKeyRange=IDBKeyRange;
-  assert.equal((await reloaded.W.RCSMessages.search({query:'coffee',limit:1})).total,12000);assert.equal(nativeReads,priorReads,'persisted import marker prevents a second native scan');
+  const priorReads=nativeReads,reloaded=page(t,broker,2,undefined,(client,W)=>{client.store={backend:{db}};W.IDBKeyRange=IDBKeyRange;});
+  assert.equal((await reloaded.W.RCSMessages.search({query:'coffee',limit:1})).total,12000);await reloaded.W.RCSMessages.ready();assert.ok(nativeReads>priorReads,'a new attachment checks local cached changes despite the old completion marker');
   assert.equal(env.api.calls.length+reloaded.api.calls.length,0);
+});
+test('restart after a disabled interval automatically catches up native cached messages, edits and redactions',async t=>{
+  const factory=new IDBFactory(),db=await new Promise((resolve,reject)=>{const open=factory.open('reddit-chat-store',1);open.onupgradeneeded=()=>open.result.createObjectStore('room_timeline',{keyPath:['room_id','scope','parent_id','seq_id']});open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});t.after(()=>db.close());
+  const nativeRoom='!local-history:reddit.com';
+  const write=values=>new Promise((resolve,reject)=>{const tx=db.transaction('room_timeline','readwrite'),store=tx.objectStore('room_timeline');for(const [seq,content]of values)store.put({room_id:nativeRoom,scope:'',parent_id:'',seq_id:seq,content:{...content,room_id:nativeRoom}});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+  await write([[1,event('$base','old coffee')],[2,event('$gone','private deleted text')],[3,event('$kept','older text retained by extension')]]);
+  const extensionDB=new IDBFactory(),firstWorker=worker(t,extensionDB),configure=(client,W)=>{client.store={backend:{db}};client.getRooms=()=>[];W.IDBKeyRange=IDBKeyRange;};
+  const first=page(t,firstWorker,1,undefined,configure);await wait(30);await first.W.RCSMessages.ready();
+  assert.equal((await first.W.RCSMessages.stats()).stats.messages,3);assert.ok((await first.W.RCSMessages.stats()).nativeReconciledAt>0);assert.equal(first.api.calls.length,0);
+  first.W.close();firstWorker.tabs.delete(1);
+  // Reddit continues saving while the extension has no document or listeners.
+  await write([[2,event('$gone','', {content:{},unsigned:{redacted_because:{event_id:'$red'}}})],[4,event('$edit','* updated tea',{origin_server_ts:1791433000000,content:{body:'* updated tea','m.new_content':{body:'updated tea'},'m.relates_to':{rel_type:'m.replace',event_id:'$base'}}})],[5,event('$missed','message received while disabled')]]);
+  await new Promise(resolve=>{const tx=db.transaction('room_timeline','readwrite');tx.objectStore('room_timeline').delete([nativeRoom,'','',3]);tx.oncomplete=resolve;});
+  const nextWorker=worker(t,extensionDB),next=page(t,nextWorker,2,undefined,configure);
+  // Startup capture must reconcile even before the user opens a search.
+  let caughtUp=false;
+  for(let attempt=0;attempt<100;attempt++){const result=await nextWorker.send({scope:'rcs-messages',action:'search',query:'disabled',owner:'@t2_me:reddit.com'},{id:'test-extension',url:'https://www.reddit.com/chat/',tab:{id:2}});if(result.total===1){caughtUp=true;break;}await wait(10);}
+  assert.equal(caughtUp,true,'the page attaches and reconciles before any document search or ready call');
+  await next.W.RCSMessages.ready();const all=await next.W.RCSMessages.search({});
+  assert.equal(all.total,3);assert.equal((await next.W.RCSMessages.search({query:'updated tea'})).total,1);assert.equal((await next.W.RCSMessages.search({query:'private deleted text'})).total,0);assert.equal((await next.W.RCSMessages.search({query:'disabled'})).total,1);assert.equal((await next.W.RCSMessages.search({query:'older text'})).total,1,'native cache eviction does not imply deletion');
+  assert.equal(all.coverage.complete,false);assert.equal(next.api.calls.length,0);assert.equal((await next.W.RCSMessages.room(nativeRoom)).records.length,3);
+});
+test('individual history completion waits for saved writes and a storage failure remains retryable',async t=>{
+  const broker=worker(t),send=broker.send;let fail=true;
+  broker.send=(message,sender)=>message.action==='ingest' && fail?Promise.resolve({ok:false,error:'Synthetic storage failure'}):send(message,sender);
+  const env=page(t,broker,1);await wait(30);
+  await assert.rejects(env.W.RCSData.request('history',{roomId:'alex'}).promise,/Saved messages could not be written/);
+  fail=false;await env.W.RCSData.request('history',{roomId:'alex'}).promise;
+  assert.ok((await env.W.RCSMessages.room('alex')).records.length>0);
 });
 
 test('startup native timelines exceeding both buffer limits save completely and unchanged sync does not replay',async t=>{

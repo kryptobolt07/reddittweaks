@@ -42,7 +42,8 @@ test('inclusive dates, room filtering, deterministic newest-first pages, coverag
   assert.equal(found.total,2);assert.equal(found.records[0].id,'$b');assert.equal(found.hasMore,true);
   assert.equal((await store.search(owner,{query:'hello word',roomId,limit:1,offset:1})).records[0].id,'$a');
   assert.equal((await store.stats(owner)).stats.completeRooms,1);assert.ok(found.stats.approxBytes>0);
-  await store.ingest(batch([event('$a','duplicate')]));assert.equal((await store.stats(owner)).stats.completeRooms,0);
+  await store.ingest(batch([event('$a','duplicate')]));assert.equal((await store.stats(owner)).stats.completeRooms,1);
+  await store.ingest(batch([event('$unverified','new capture')]));assert.equal((await store.stats(owner)).stats.completeRooms,0);
   assert.equal((await store.search(owner,{dates:{from:'2026-02-30'}})).total,0);
   await store.importState(owner,true);assert.equal((await store.stats(owner)).nativeImportComplete,true);
   await store.clear(owner);assert.equal((await store.stats(owner)).stats.messages,0);assert.equal((await store.stats(owner)).nativeImportComplete,false);
@@ -52,6 +53,18 @@ test('memory fallback isolates accounts and does not claim persistence; storage 
   assert.equal((await memory.search(owner)).persistent,false);assert.equal((await memory.search(other)).total,0);
   const broken=new Store({indexedDB:{open(){const req={};queueMicrotask(()=>{req.error=Error('quota');req.onerror();});return req;}}});
   await assert.rejects(broken.ingest(batch([event('$a','hello')])),/quota/);
+});
+test('local reconciliation skips unchanged room and identity writes while persisting new edits and redactions',async()=>{
+  const {Store}=model(),store=new Store({name:crypto.randomUUID()}),base=batch([event('$base','original')],{identities:[{id:other,name:'Bob'}]});
+  assert.equal((await store.ingest(base)).changed,true);
+  const db=await store.db(),transaction=db.transaction.bind(db);let writes=0;
+  db.transaction=(...args)=>{const tx=transaction(...args),objectStore=tx.objectStore.bind(tx),wrapped=new WeakSet();tx.objectStore=name=>{const store=objectStore(name);if(!wrapped.has(store)){wrapped.add(store);const put=store.put.bind(store);store.put=(...values)=>{writes++;return put(...values);};}return store;};return tx;};
+  assert.equal((await store.ingest(base)).changed,false);assert.equal(writes,0,'duplicate local rows cause no durable rewrites');
+  await store.ingest(batch([event('$edit','* edited',2000,{content:{body:'* edited','m.new_content':{body:'edited'},'m.relates_to':{rel_type:'m.replace',event_id:'$base'}}})]));
+  assert.equal((await new Store({name:store.name}).search(owner)).records[0].text,'edited');assert.equal(writes,1,'only the changed room is rewritten');
+  await store.ingest(batch([event('$base','',1000,{unsigned:{redacted_because:{event_id:'$red'}}})]));
+  assert.equal((await new Store({name:store.name}).search(owner)).total,0);
+  assert.equal((await store.ingest(base)).changed,false,'a duplicate cannot undo a saved redaction');
 });
 test('isolated client binds batches to native account, flushes reads, and forwards cross-tab changes',async()=>{
   const dom=new JSDOM('',{runScripts:'outside-only'}),win=dom.window;win.TextEncoder=TextEncoder;
@@ -109,7 +122,7 @@ function clientHarness({store,nativeImport,marked=false}={}){
   for(const file of ['search-core.js','message-store.js'])win.eval(fs.readFileSync(`extension/${file}`,'utf8'));
   store ||= new win.RCSMessageStore.Store({indexedDB:null});let active=owner,changed,failures=0,imports=0,marks=0;const calls=[],nativeArgs=[];
   const emit=value=>win.document.dispatchEvent(new win.CustomEvent('rcs-message-cache-batch',{detail:JSON.stringify(value)}));
-  win.RCSData={request(method,parameters){if(method==='identity-context')return {promise:Promise.resolve({owner:active})};if(method==='cache-native-history'){nativeArgs.push(parameters);imports++;return {promise:Promise.resolve().then(()=>nativeImport?.(emit)).then(()=>({available:true}))};}throw Error('Unexpected native method');}};
+  win.RCSData={request(method,parameters){if(method==='identity-context')return {promise:Promise.resolve({owner:active})};if(method==='cache-native-history'){nativeArgs.push(parameters);imports++;return {promise:Promise.resolve().then(()=>nativeImport?.(emit)).then(result=>result?.available===false?result:{available:true})};}throw Error('Unexpected native method');}};
   win.chrome={runtime:{onMessage:{addListener(fn){changed=fn;}},async sendMessage(msg){calls.push(msg.action);if(msg.action==='stats')return {ok:true,...await store.stats(msg.owner),nativeImportComplete:marked || await store.importState(msg.owner)};if(msg.action==='search')return {ok:true,...await store.search(msg.owner,msg)};if(msg.action==='room')return {ok:true,...await store.search(msg.owner,{roomId:msg.roomId})};if(msg.action==='mark-native-import-complete'){marks++;return {ok:true,nativeImportComplete:await store.importState(msg.owner,true)};}if(msg.action==='ingest'){if(failures-->0)return {ok:false,error:'Transient quota failure'};return {ok:true,...await store.ingest(msg)};}}}};
   win.eval(fs.readFileSync('extension/message-cache-client.js','utf8'));
   return {dom,win,store,calls,nativeArgs,emit,setActive(value){active=value;},fail(count){failures=count;},get imports(){return imports;},get marks(){return marks;},change(message){changed(message);}};
@@ -121,7 +134,7 @@ test('client retains failed batches, retries on explicit reads or next batch, an
   h.fail(1);h.emit(batch([event('$next','next batch retry')]));await new Promise(resolve=>setTimeout(resolve,0));h.emit(batch([event('$trigger','trigger')]));await api.flush();assert.equal((await h.store.search(owner)).total,3);
   h.fail(2);h.emit(batch([event('$stale','stale owner data')]));await new Promise(resolve=>setTimeout(resolve,0));h.setActive(other);assert.equal((await api.search({})).total,0);assert.equal((await h.store.search(owner,{query:'stale'})).total,0);h.dom.window.close();
 });
-test('saved search and room read return before native import finishes; ready waits and reload skips the persisted marker',async()=>{
+test('saved search and room read return before native reconciliation; ready waits and a restart reconciles again',async()=>{
   let release;const gate=new Promise(resolve=>release=resolve);const h=clientHarness({nativeImport:async emit=>{await gate;emit(batch([event('$import','native cached text')]));}});
   await h.store.ingest(batch([event('$saved','native already saved')]));
   const search=h.win.RCSMessages.search({query:'native'}),room=h.win.RCSMessages.room(roomId);
@@ -130,7 +143,7 @@ test('saved search and room read return before native import finishes; ready wai
   let finished=false;const ready=h.win.RCSMessages.ready().then(value=>{finished=true;return value;});await waitForTick();assert.equal(finished,false);
   release();assert.equal((await ready).importing,false);assert.equal((await h.win.RCSMessages.search({query:'native'})).total,2);assert.equal(h.marks,1);
   const statsCalls=h.calls.filter(action=>action==='stats').length;await h.win.RCSMessages.search({});assert.equal(h.calls.filter(action=>action==='stats').length,statsCalls);assert.equal(h.imports,1);
-  const restarted=clientHarness({store:h.store});assert.equal((await restarted.win.RCSMessages.search({})).total,2);await restarted.win.RCSMessages.ready();assert.equal(restarted.imports,0);h.dom.window.close();restarted.dom.window.close();
+  const restarted=clientHarness({store:h.store});assert.equal((await restarted.win.RCSMessages.search({})).total,2);await restarted.win.RCSMessages.ready();assert.equal(restarted.imports,1);h.dom.window.close();restarted.dom.window.close();
 });
 test('failed native-import writes prevent completion marker until retained data is saved',async()=>{
   const h=clientHarness({nativeImport:emit=>emit(batch([event('$retryImport','persist before marker')]))});h.fail(10);
@@ -209,3 +222,13 @@ test('overflow barriers can drain, but only matching recovery clears the error; 
   recover({owner,id:rejected[0].id,complete:false});const result=await h.win.RCSMessages.search({});assert.equal(result.captureIncomplete,true);assert.equal(h.marks,0);h.dom.window.close();
 });
 const waitForTick=()=>new Promise(resolve=>setTimeout(resolve,10));
+test('native connection starts reconciliation without a search and a late database-ready signal retries once',async()=>{
+  let ready=false;const h=clientHarness({nativeImport:emit=>{if(!ready)return {available:false,retryable:true};emit(batch([event('$automatic','automatic cached message')]));}});
+  const connect=(sourceReady,attachment='first')=>h.win.document.dispatchEvent(new h.win.CustomEvent('rcs-message-cache-connected',{detail:JSON.stringify({owner,attachment,sourceReady})}));
+  connect(false);await waitForTick();assert.equal(h.imports,1);assert.equal(h.calls.includes('search'),false);
+  connect(false);await waitForTick();assert.equal(h.imports,1,'unchanged not-ready signals do not loop');
+  ready=true;connect(true);await waitForTick();assert.equal(h.imports,2);assert.equal((await h.store.search(owner)).total,1);assert.ok((await h.store.stats(owner)).nativeReconciledAt>0);
+  connect(true);await waitForTick();assert.equal(h.imports,2,'ordinary native sync signals reuse completed attachment');
+  connect(true,'replacement');await waitForTick();assert.equal(h.imports,3,'a replacement client attaches and checks local history again');
+  h.change({scope:'rcs-messages-changed',owner,cleared:true});connect(true,'after-clear');await waitForTick();assert.equal(h.imports,3,'Clear does not refill old history in the same document');h.dom.window.close();
+});

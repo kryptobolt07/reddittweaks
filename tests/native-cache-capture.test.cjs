@@ -23,6 +23,15 @@ function setup(configure=()=>{}) {
   W.eval(source('extension/page-bridge.js'));W.eval(source('extension/data-client.js'));
   return {dom,W,api,matrix,client,handlers,batches};
 }
+test('local cache readiness and replacement announce once rather than starting a sync polling loop',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const connected=[];
+  env.W.document.addEventListener('rcs-message-cache-connected',event=>connected.push(JSON.parse(event.detail)));await wait(20);
+  assert.equal(connected.length,1);assert.equal(connected[0].sourceReady,false);
+  const database=()=>({name:'reddit-chat-store',objectStoreNames:{contains:()=>true}});
+  env.client.store={backend:{db:database()}};env.client.emit('sync');assert.equal(connected.length,2);assert.equal(connected[1].sourceReady,true);assert.equal(connected[1].attachment,connected[0].attachment);
+  env.client.emit('sync');assert.equal(connected.length,2);
+  env.client.store.backend.db=database();env.client.emit('sync');assert.equal(connected.length,3);assert.notEqual(connected[2].attachment,connected[1].attachment);assert.equal(env.api.calls.length,0);
+});
 test('startup captures loaded native timelines and threads without profile, history, or directory requests',async t=>{
   const env=setup(client=>{
     client.getRooms=()=>[{roomId:'startup',getLiveTimeline:()=>({getEvents:()=>[message('loaded','startup')]}),getThreads:()=>[{rootEvent:message('root','startup'),events:[message('reply','startup')]}]}];
