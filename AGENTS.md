@@ -9,8 +9,19 @@ Follow the user's current instructions first. Do not delegate unless the user ex
 - Use conventional commit subjects: `feat:`, `fix:`, `test:`, `docs:`, or `chore:`. Explain why a nontrivial change is needed in the commit body.
 - Run the relevant tests before each implementation commit. Run the full test suite and package validation before a release commit. Record material limitations in the release notes.
 - Inspect staged changes before committing. Use explicit paths to stage only the intended files. Never commit credentials, private chat data, research captures, generated artifacts, or dependencies.
-- Update the manifest version only when the user requests a release/version bump. Keep `artifacts/reddit-chat-search/` as the stable unpacked testing folder.
+- Follow the version policy below. Keep `artifacts/reddit-chat-search/` as the stable unpacked testing folder.
 - Leave completed, validated work committed. Do not push, publish, rewrite history, or discard changes without authorization.
+
+## Extension versions
+
+- The user's explicit version instructions override this policy. Otherwise, apply it to the final validated bundle without asking for a separate version approval.
+- Keep the same version for small cosmetic/text changes, documentation/tests, internal refactors, and follow-up corrections within the current unreleased bundle that do not materially change behavior. Commit these changes normally; do not bump for every commit.
+- Bump PATCH for a meaningful user-visible bug fix, reliability correction, or performance improvement (for example, 0.4.0 to 0.4.1 for removing startup search blocking).
+- Bump MINOR for a new user-facing feature or a substantial compatible expansion of behavior (for example, 0.4.x to 0.5.0 for a new search mode); reset PATCH to zero.
+- Bump MAJOR for an incompatible release once at 1.x or later. Before 1.0, use a MINOR bump for breaking changes and document migration/recovery steps. Never bump a storage schema merely because the extension version changes.
+- Choose the smallest justified increment once per completed release bundle. Explain the choice in release notes. A version decision is independent of the number of commits or edited lines.
+- Treat `extension/manifest.json` as the extension version source of truth. Synchronize only current runtime/display version references, the current release notes, and packaging paths. Preserve historical version references and independent tooling/package versions.
+- Make coherent implementation commits with relevant tests first. Then run the full suite and verify archive integrity and source/stable-folder byte equality before committing release metadata. Do not rewrite an already-created versioned archive after a release commit; new meaningful release changes receive the appropriate bump, while small in-progress edits share their unreleased version.
 
 ## Extension constraints
 
