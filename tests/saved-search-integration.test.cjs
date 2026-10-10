@@ -14,7 +14,7 @@ function worker(t,idb=new IDBFactory()){
   vm.runInContext(source('extension/cache-broker.js'),context);
   t.after(async()=>{const db=await vm.runInContext('messages.db()',context);db?.close();});
   const send=(message,sender)=>new Promise(resolve=>{for(const listener of listeners)listener(message,sender,resolve);});
-  return {tabs,send};
+  return {tabs,send,store:vm.runInContext('messages',context)};
 }
 function page(t,broker,id,owner='@t2_me:reddit.com',configure=()=>{}){
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat/',runScripts:'outside-only',pretendToBeVisual:true});
@@ -33,6 +33,7 @@ const event=(id,body,extras={})=>({event_id:id,room_id:'alex',type:'m.room.messa
 test('native capture, worker persistence, reload and account isolation share global and room search',async t=>{
   const broker=worker(t),first=page(t,broker,1);await wait(30);
   first.emit(event('$one','saved coffee'));
+  await first.W.RCSMessages.flush();
   let found=await first.W.RCSMessages.search({query:'coffee'});
   assert.equal(found.total,1);assert.equal(found.records[0].author,'You');assert.equal(found.coverage.complete,false);assert.equal(first.api.calls.length,0);
   const restarted=page(t,broker,2);await wait(30);
@@ -46,6 +47,18 @@ test('native capture, worker persistence, reload and account isolation share glo
   restarted.emit(event('$redact','',{type:'m.room.redaction',redacts:'$one'}));await restarted.W.RCSMessages.flush();
   assert.equal((await first.W.RCSMessages.search({query:'tea'})).total,0);
   assert.equal(first.api.calls.length+restarted.api.calls.length+isolated.api.calls.length,0);
+});
+test('worker committed reads bypass paused mutations while captures and clear remain ordered',async t=>{
+  const broker=worker(t),owner='@t2_me:reddit.com',sender={id:'test-extension',url:'https://www.reddit.com/chat/',tab:{id:1}},send=(action,extra={},from=sender)=>broker.send({scope:'rcs-messages',owner,action,...extra},from);
+  await send('ingest',{roomId:'alex',events:[event('$saved','already committed')]});
+  let release;const gate=new Promise(resolve=>release=resolve),write=broker.store.write.bind(broker.store),order=[];
+  broker.store.write=async value=>{await gate;order.push(value.events[0].event_id);return write(value);};
+  const one=send('ingest',{roomId:'alex',events:[event('$one','queued first')]}),two=send('ingest',{roomId:'alex',events:[event('$two','queued second')]}),clearing=send('clear',{}, {id:'test-extension',url:'chrome-extension://test-extension/popup.html'});let timeout;
+  try {
+    const reads=await Promise.race([Promise.all([send('search',{query:'committed'}),send('room',{roomId:'alex'}),send('stats')]),new Promise((_,reject)=>timeout=setTimeout(()=>reject(Error('worker reads joined the mutation queue')),1000))]);
+    assert.ok(reads.every(value=>value.ok));assert.equal(reads[0].total,1);assert.equal(reads[1].records.length,1);assert.equal(reads[2].stats.messages,1);assert.equal(order.length,0);
+  }finally{clearTimeout(timeout);release();await Promise.all([one,two,clearing]);}
+  assert.deepEqual(order,['$one','$two']);assert.equal((await send('search')).total,0);
 });
 test('real global interface searches captured messages and receives redactions without directory or history reads',async t=>{
   const broker=worker(t),env=page(t,broker,1);await wait(30);
