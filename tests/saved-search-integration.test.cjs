@@ -16,15 +16,15 @@ function worker(t){
   const send=(message,sender)=>new Promise(resolve=>{for(const listener of listeners)listener(message,sender,resolve);});
   return {tabs,send};
 }
-function page(t,broker,id,owner='@t2_me:reddit.com'){
+function page(t,broker,id,owner='@t2_me:reddit.com',configure=()=>{}){
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat/',runScripts:'outside-only',pretendToBeVisual:true});
   t.after(()=>dom.window.close());const W=dom.window;W.TextEncoder=TextEncoder;W.matchMedia=()=>({matches:true});
   W.chrome={runtime:{sendMessage:message=>broker.send(message,{id:'test-extension',url:W.location.href,tab:{id}}),onMessage:{addListener:fn=>broker.tabs.set(id,fn)}}};
   for(const file of ['demo/fixture.js','extension/directory-model.js','extension/history-store.js','extension/native-identities.js','extension/search-core.js'])W.eval(source(file));
   const api=W.ChatFixture.build(W.document.body),client=api.app.querySelector('rs-matrix-client').client;
-  client.getUserId=()=>owner;
+  client.getUserId=()=>owner;configure(client,W,api);
   const handlers=new Map();client.on=(type,fn)=>{if(!handlers.has(type))handlers.set(type,new Set());handlers.get(type).add(fn);};client.off=(type,fn)=>handlers.get(type)?.delete(fn);
-  const emit=event=>{for(const fn of handlers.get('event') || [])fn({event});};
+  const emit=event=>{for(const fn of handlers.get('event') || [])fn({event});};client.emitSync=()=>{for(const fn of handlers.get('sync') || [])fn();};
   // Register the isolated listener before native watchers start, as document_start does.
   for(const file of ['extension/data-client.js','extension/message-store.js','extension/message-cache-client.js','extension/page-bridge.js'])W.eval(source(file));
   return {W,api,client,emit};
@@ -80,4 +80,32 @@ test('large native local import drains durably between chunks and is not repeate
   const priorReads=nativeReads,reloaded=page(t,broker,2);reloaded.client.store={backend:{db}};reloaded.W.IDBKeyRange=IDBKeyRange;
   assert.equal((await reloaded.W.RCSMessages.search({query:'coffee',limit:1})).total,12000);assert.equal(nativeReads,priorReads,'persisted import marker prevents a second native scan');
   assert.equal(env.api.calls.length+reloaded.api.calls.length,0);
+});
+
+test('startup native timelines exceeding both buffer limits save completely and unchanged sync does not replay',async t=>{
+  const broker=worker(t),writes=[],original=broker.send;
+  broker.send=async(message,sender)=>{if(message.action==='ingest'){writes.push(message);await wait(2);}return original(message,sender);};
+  const env=page(t,broker,1,undefined,client=>{
+    const rooms=Array.from({length:1020},(_,room)=>({roomId:`!startup-${room}:reddit.com`,events:Array.from({length:20},(_,i)=>event(`$startup-${room}-${i}`,'startup coffee',{room_id:`!startup-${room}:reddit.com`}))}));
+    for(const room of rooms)room.getLiveTimeline=()=>({getEvents:()=>room.events});
+    client.getRooms=()=>rooms;client.getRoom=id=>rooms.find(room=>room.roomId===id);
+  });
+  await wait(30);await env.W.RCSMessages.flush();
+  // The producer announces durable completion, so a test cannot pass on a
+  // partially drained snapshot merely because one read won a scheduling race.
+  await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('startup capture did not drain')),20000);env.W.document.addEventListener('rcs-message-cache-snapshot-saved',()=>{clearTimeout(timeout);resolve();},{once:true});});
+  const result=await env.W.RCSMessages.search({query:'startup',limit:1});assert.equal(result.total,20400);assert.equal(env.api.calls.length,0);
+  const before=writes.length;
+  // Registered sync listener belongs to the native client, not a new fetch.
+  env.client.emitSync();await wait(40);await env.W.RCSMessages.flush();assert.equal(writes.length,before);
+});
+test('a live event burst recovers rejected captures locally and clears the latched error without a reload',async t=>{
+  const broker=worker(t),env=page(t,broker,1);await wait(30);
+  const events=Array.from({length:12500},(_,i)=>event('$live-'+i,'burst coffee',{room_id:'!burst:reddit.com'}));
+  const native={roomId:'!burst:reddit.com',getLiveTimeline:()=>({getEvents:()=>events})},getRoom=env.client.getRoom;
+  env.client.getRoom=id=>id===native.roomId?native:getRoom(id);
+  const recovered=new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('burst recovery did not finish')),20000);env.W.document.addEventListener('rcs-message-cache-recovered',event=>{clearTimeout(timeout);resolve(JSON.parse(event.detail));},{once:true});});
+  for(const raw of events)env.emit(raw);
+  assert.equal((await recovered).complete,true);
+  const result=await env.W.RCSMessages.search({query:'burst',limit:1});assert.equal(result.total,12500);assert.equal(result.captureIncomplete,false);assert.equal(env.api.calls.length,0);
 });
