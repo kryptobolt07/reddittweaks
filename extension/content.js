@@ -210,7 +210,13 @@
         }else if(this.isGlobal && this.savedHasMore && !this.savedLoading && this.results.scrollTop+this.results.clientHeight>=this.results.scrollHeight-160)this.querySaved(true);
       });
       shadow.addEventListener('keydown', event => {
-        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.kind === 'list' ? this.dismiss() : this.close(); }
+        if (event.key === 'Escape') {
+          event.preventDefault();event.stopPropagation();
+          if(this.datePicker?.open)this.datePicker.close();
+          else if(this.isGlobal)this.input.blur();
+          else this.kind === 'list' ? this.dismiss() : this.close();
+          return;
+        }
         const inResults=this.results.contains(event.target),arrow=['ArrowDown','ArrowUp'].includes(event.key);
         if (!this.panel.hidden && ((arrow && (this.bar.contains(event.target) || inResults)) || event.key==='Enter' && (event.target===this.input || inResults))) {
           event.preventDefault(); event.stopPropagation();
@@ -303,7 +309,12 @@
     }
     open() { this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true'); this.ensureData(); this.render(); this.input.focus(); }
     showResults() {this.stoppedByUser=false;if(this.kind==='list')this.browseOpen=true;this.ensureData();this.render();}
-    dismiss() { this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false'); }
+    dismiss() {
+      // All chats is the selected sidebar view, rather than a transient menu.
+      // Keep it mounted when focus moves to the room or a result is opened.
+      if(this.isGlobal)return;
+      this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
+    }
     close(focus = true) { this.cancelLoad(); this.input.value = '';if(this.datePicker){this.datePicker.element.hidden=true;this.datePicker.applied={mode:'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
     updateLayout() {
       let compact=false;
@@ -355,9 +366,11 @@
       this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => entry.type!=='reddit_modmail' && C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates).sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0));
       if(selected)this.active=this.hits.findIndex(hit=>this.rowKey(hit)===selected);
       if(this.kind==='list' && !this.isGlobal)this.hits=this.hits.filter(hit=>!(!hit.historicalName && ['[deleted]','Someone','Username unavailable'].includes(hit.name) && (hit.identityPending || !hit.accountUnavailable || this.loading)));
-      const showing=this.kind==='list' ? this.browseOpen : Boolean(query || bounds.active);
+      const showing=this.kind==='list' ? this.isGlobal || this.browseOpen : Boolean(query || bounds.active);
       this.input.setAttribute('aria-expanded', String(showing));
-      this.panel.hidden = !showing || Boolean(this.datePicker?.open);
+      // The calendar overlays the global view. Hiding its opaque panel would
+      // reveal Reddit's native list underneath while choosing a date.
+      this.panel.hidden = !showing || !this.isGlobal && Boolean(this.datePicker?.open);
       if (this.count) this.count.textContent = showing ? `${Math.max(0,this.active + 1)}/${this.hits.length}` : '';
       if (this.prev) { this.prev.disabled = !showing || !this.hits.length; this.next.disabled = this.prev.disabled; }
       if (!showing) return;

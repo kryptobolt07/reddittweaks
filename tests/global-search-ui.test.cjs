@@ -30,6 +30,32 @@ function setup(t,{compact=false,search}={}){
   return {W,api,host,root,input,all,query,change,nativeCalls,savedCalls,listeners};
 }
 function visibleRows(root){return [...root.querySelectorAll('.result')].filter(row=>!row.hidden);}
+for(const compact of [false,true])test(`${compact?'floating':'full'} All chats stays visible under the calendar and when focus or navigation moves to a room`,async t=>{
+  const {W,api,root,input,all,query,nativeCalls,savedCalls}=setup(t,{compact});await wait(20);nativeCalls.length=0;
+  all();query('alpha');await wait(140);
+  const panel=root.querySelector('.panel'),results=root.querySelector('.results'),scroll=37;
+  results.scrollTop=scroll;const rows=visibleRows(root),savedCount=savedCalls.length;
+  root.querySelector('[aria-label="Filter by date"]').click();
+  assert.equal(panel.hidden,false);assert.equal(root.querySelector('.date-popover').hidden,false);
+  assert.equal(visibleRows(root)[0],rows[0]);assert.equal(results.scrollTop,scroll);
+  assert.equal(savedCalls.length,savedCount,'opening a calendar does not query messages');assert.equal(nativeCalls.length,0);
+  const composer=W.RCSAdapter.query('input[aria-label="Message (demo only)"]',api.room);
+  composer.dispatchEvent(new W.Event('pointerdown',{bubbles:true,composed:true}));composer.focus();
+  assert.equal(root.querySelector('.date-popover').hidden,true,'outside click closes only the calendar');
+  assert.equal(panel.hidden,false);assert.equal(input.value,'alpha');assert.equal(visibleRows(root)[0],rows[0]);assert.equal(results.scrollTop,scroll);
+  api.select('jules');await wait(30);
+  assert.equal(panel.hidden,false);assert.equal(root.querySelector('[data-scope="all"]').getAttribute('aria-pressed'),'true');assert.equal(input.value,'alpha');assert.equal(savedCalls.length,savedCount);
+  input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(panel.hidden,false,'Escape does not change the chosen sidebar view');
+  root.querySelector('[data-scope="people"]').click();W.RCSAdapter.query('input[aria-label="Message (demo only)"]',api.room).dispatchEvent(new W.Event('pointerdown',{bubbles:true,composed:true}));
+  assert.equal(panel.hidden,true,'People results remain dismissible');
+});
+test('Escape from the global search field closes its calendar while retaining applied filters and results',async t=>{
+  const {W,root,input,all,query}=setup(t);all();query('alpha');await wait(140);
+  const toggle=root.querySelector('[aria-label="Filter by date"]');toggle.click();
+  input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  assert.equal(root.querySelector('.date-popover').hidden,true);assert.equal(toggle.getAttribute('aria-expanded'),'false');
+  assert.equal(root.querySelector('.panel').hidden,false);assert.equal(input.value,'alpha');assert.equal(visibleRows(root).length,2);
+});
 test('All chats searches only saved messages, preserves separate room rows and exact threaded navigation',async t=>{
   const {W,root,input,all,query,nativeCalls,savedCalls}=setup(t);await wait(20);nativeCalls.length=0;
   all();query('alpha');await wait(140);
@@ -40,13 +66,14 @@ test('All chats searches only saved messages, preserves separate room rows and e
   assert.equal(nativeCalls.length,0,'arrows only move result focus');
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await wait(0);
   assert.deepEqual(nativeCalls.map(call=>({type:call.type,args:JSON.parse(JSON.stringify(call.args))})),[{type:'jump',args:{roomId:'jules',eventId:'shared',thread:true}}]);
-  assert.equal(root.querySelector('.panel').hidden,true);input.dispatchEvent(new W.Event('click'));assert.equal(root.querySelector('.panel').hidden,false,'focused field reopens results');
+  assert.equal(root.querySelector('.panel').hidden,false,'opening a match keeps the selected global sidebar visible');input.dispatchEvent(new W.Event('click'));assert.equal(root.querySelector('.panel').hidden,false);
 });
 test('floating sidebar keeps the compact field and saved-message date filter uses only local storage',async t=>{
   const {root,host,all,nativeCalls,savedCalls}=setup(t,{compact:true});await wait(20);nativeCalls.length=0;all();await wait(140);
   assert.equal(host.hasAttribute('data-rcs-compact'),true);assert.match(root.querySelector('style').textContent,/height:32px/);
   const toggle=root.querySelector('[aria-label="Filter by date"]');assert.equal(toggle.hidden,false);toggle.click();
   assert.equal(toggle.getAttribute('aria-expanded'),'true');
+  assert.equal(root.querySelector('.panel').hidden,false,'the global view stays behind the floating calendar');
   root.querySelector('[data-mode="On"]').click();root.querySelector('.calendar-year').click();root.querySelector('[data-year="2026"]').click();root.querySelector('.calendar-month').click();root.querySelector('[data-month="9"]').click();
   root.querySelector('[data-date="2026-10-08"]').click();root.querySelector('.calendar-apply').click();await wait(140);
   assert.equal(savedCalls.at(-1).dates.from,'2026-10-08');assert.equal(visibleRows(root).length,1);assert.equal(nativeCalls.length,0);
