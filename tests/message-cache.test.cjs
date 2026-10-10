@@ -157,3 +157,22 @@ test('Clear during initial native import prevents late completion from marking o
   const searching=h.win.RCSMessages.search({});await new Promise(resolve=>setTimeout(resolve,0));await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});h.fail(0);release();
   assert.equal((await searching).total,0);assert.equal(h.marks,0);assert.equal(await h.store.importState(owner),false);assert.equal((await h.win.RCSMessages.search({})).total,0);assert.equal(h.imports,1);h.dom.window.close();
 });
+test('known sender name and avatar survive opaque or placeholder identity hints across restart',async()=>{
+  const {Store}=model(),name=crypto.randomUUID(),store=new Store({name});
+  await store.ingest(batch([event('$identity','hello',1000,{sender:other})],{identities:[{id:other,name:'HumanName',avatar:'https://example.test/avatar.png',historical:true,unavailable:true,availabilityKnown:true}]}));
+  for(const hint of [other,'[deleted]','Someone','Unknown sender','Username unavailable','[removed]'])await store.ingest(batch([],{identities:[{id:other,name:hint,avatar:'data:image/png;base64,ignored',historical:false,unavailable:false,availabilityKnown:false}]}));
+  const restarted=new Store({name}),record=(await restarted.search(owner)).records[0];assert.equal(record.author,'HumanName');assert.equal(record.avatar,'https://example.test/avatar.png');assert.equal(record.authorHistorical,true);assert.equal(record.authorUnavailable,true);
+  await restarted.ingest(batch([],{identities:[{id:other,name:'RestoredName',historical:false,unavailable:false,availabilityKnown:true}]}));
+  const restored=(await new Store({name}).search(owner)).records[0];assert.equal(restored.author,'RestoredName');assert.equal(restored.authorUnavailable,false);assert.equal(restored.authorHistorical,false);assert.equal(restored.avatar,'https://example.test/avatar.png');
+});
+test('directory identity enriches opaque saved sender hints and respects verified availability precedence',async()=>{
+  const {Store}=model(),store=new Store({name:crypto.randomUUID()});
+  await store.ingest(batch([event('$directoryIdentity','hello',1000,{sender:other})],{identities:[{id:other,name:other,unavailable:false,historical:false}]}));
+  const directory={identities:{[other]:{id:other,name:'RecoveredDirectoryName',avatar:'https://example.test/directory.png',accountUnavailable:true,historicalName:true,availabilityKnown:true}}};
+  const enriched=(await store.search(owner,{},directory)).records[0];assert.equal(enriched.author,'RecoveredDirectoryName');assert.equal(enriched.authorHistorical,true);assert.equal(enriched.authorUnavailable,true);
+  await store.ingest(batch([],{identities:[{id:other,name:'SavedHuman',unavailable:true,historical:true,availabilityKnown:true}]}));
+  const unknownDirectory={identities:{[other]:{id:other,name:'[deleted]',accountUnavailable:false,historicalName:false,availabilityKnown:false}}};
+  const preserved=(await store.search(owner,{},unknownDirectory)).records[0];assert.equal(preserved.author,'SavedHuman');assert.equal(preserved.authorUnavailable,true);assert.equal(preserved.authorHistorical,true);
+  const currentDirectory={identities:{[other]:{id:other,name:'CurrentHuman',accountUnavailable:false,historicalName:false,availabilityKnown:true}}};
+  const available=(await store.search(owner,{},currentDirectory)).records[0];assert.equal(available.author,'CurrentHuman');assert.equal(available.authorUnavailable,false);assert.equal(available.authorHistorical,false);
+});

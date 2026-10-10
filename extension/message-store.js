@@ -33,9 +33,19 @@
     row.coverage=coverage ? {complete:coverage.complete===true,dateComplete:coverage.dateComplete===true,dates:{from:str(coverage.dates?.from,10),to:str(coverage.dates?.to,10)}} : {complete:false,dateComplete:false};
     delete row.approxBytes;row.approxBytes=bytes(row);return row;
   }
+  function meaningfulName(value) {
+    const name=str(value).trim(),normalized=name.normalize('NFKC').toLocaleLowerCase();
+    return !name || name.startsWith('@') || ['[deleted]','[removed]','someone','unknown sender','username unavailable','deleted user','message'].includes(normalized)?'':name;
+  }
   function identity(person) {
     if(!ownerOK(person?.id))return null;
-    return {id:person.id,name:str(person.name),avatar:/^https:\/\//.test(person.avatar || '')?str(person.avatar,2000):'',self:Boolean(person.self),historical:Boolean(person.historical ?? person.historicalName),unavailable:Boolean(person.unavailable ?? person.accountUnavailable)};
+    return {id:person.id,name:meaningfulName(person.name),avatar:/^https:\/\//.test(person.avatar || '')?str(person.avatar,2000):'',self:Boolean(person.self),historical:Boolean(person.historical ?? person.historicalName),unavailable:Boolean(person.unavailable ?? person.accountUnavailable),availabilityKnown:Boolean(person.availabilityKnown || person.unavailable || person.accountUnavailable)};
+  }
+  function mergeIdentity(before,after) {
+    const previous=identity(before) || {},incoming=identity(after);if(!incoming)return previous;
+    const name=incoming.name || previous.name || '',unavailable=incoming.availabilityKnown?incoming.unavailable:Boolean(previous.unavailable);
+    return {...previous,...incoming,name,avatar:incoming.avatar || previous.avatar || '',availabilityKnown:incoming.availabilityKnown || Boolean(previous.availabilityKnown),unavailable,
+      historical:incoming.availabilityKnown && !unavailable?incoming.historical:Boolean(incoming.historical || previous.historical || unavailable && name)};
   }
   const request=task=>new Promise((resolve,reject)=>{task.onsuccess=()=>resolve(task.result);task.onerror=()=>reject(task.error || Error('Message storage failed'));});
   const done=tx=>new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=tx.onerror=()=>reject(tx.error || Error('Message storage failed'));});
@@ -56,7 +66,7 @@
       try {
         const read=tx?request(tx.objectStore('identities').get(batch.owner)):Promise.resolve(this.identities.get(batch.owner));
         const rows=await Promise.all([...grouped.keys()].map(roomId=>tx?request(tx.objectStore('rooms').get([batch.owner,roomId])):Promise.resolve(this.memory.get(JSON.stringify([batch.owner,roomId])))));
-        const people={...(await read)?.people};for(const raw of batch.identities || []){const person=identity(raw);if(person)people[person.id]={...people[person.id],...person,name:person.name || people[person.id]?.name || '',avatar:person.avatar || people[person.id]?.avatar || ''};}
+        const people={...(await read)?.people};for(const raw of batch.identities || []){const person=identity(raw);if(person)people[person.id]=mergeIdentity(people[person.id],person);}
         const saved={...(await read),owner:batch.owner,people};delete saved.approxBytes;saved.approxBytes=bytes(saved);if(tx)tx.objectStore('identities').put(saved);else this.identities.set(batch.owner,saved);
         let i=0;for(const [roomId,events]of grouped){const row=reduce(rows[i++] || {owner:batch.owner,roomId,events:[]},events,roomId===batch.roomId?batch.coverage:undefined);if(tx)tx.objectStore('rooms').put(row);else this.memory.set(JSON.stringify([batch.owner,roomId]),row);}
         if(completion)await completion;return {owner:batch.owner,persistent:this.persistent};
@@ -71,7 +81,7 @@
       if(typeof query!=='string' || query.length>1000 || !Number.isInteger(limit) || limit<1 || limit>500 || !Number.isInteger(offset) || offset<0 || offset>1000000)throw Error('Invalid message query');
       const {rows,people,identityBytes}=await this.snapshot(owner,roomId),bounds=RCSCore.dateBounds(dates),records=[];
       for(const row of rows)if(!roomId || row.roomId===roomId){const ledger=new Map(row.events.map(event=>[event.id,event]));for(const record of row.records){const text=ledger.get(record.bodyEvent)?.body || '';if(!text || bounds.invalid || !RCSCore.matches(text,query) || bounds.active && !(record.time>=bounds.start && record.time<bounds.end))continue;
-        const cached=people[record.sender] || {},known=directory?.identities?.[record.sender] || {},person={...known,...cached,name:cached.name || known.name,avatar:cached.avatar || known.avatar},self=record.sender===owner;
+        const cached=people[record.sender] || {},known=directory?.identities?.[record.sender] || {},person=mergeIdentity(cached,{...known,id:record.sender}),self=record.sender===owner;
         records.push({id:record.id,roomId:row.roomId,text,sender:record.sender,timestamp:record.time?new Date(record.time).toISOString():'',author:self?'You':person.name || record.sender,authorSelf:self,authorHistorical:Boolean(person.historical ?? person.historicalName),authorUnavailable:Boolean(person.unavailable ?? person.accountUnavailable),avatar:person.avatar || '',thread:record.thread,threadRoot:record.threadRoot});}}
       records.sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0) || a.roomId.localeCompare(b.roomId) || a.id.localeCompare(b.id));
       return {owner,persistent:this.persistent,records:records.slice(offset,offset+limit),total:records.length,hasMore:offset+limit<records.length,stats:this.statistics(rows,people,identityBytes),coverage:roomId?rows.find(row=>row.roomId===roomId)?.coverage || {complete:false,dateComplete:false}:{complete:false,unknownRooms:true,threadsVerified:false}};
