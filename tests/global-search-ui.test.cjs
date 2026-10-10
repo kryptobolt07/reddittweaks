@@ -86,3 +86,28 @@ test('saved events update edits and delete redacted matches without fetching his
   query('edited');await wait(140);assert.equal(visibleRows(root).length,1);change({owner:'fixture-owner',cleared:true},[]);await wait(140);assert.equal(visibleRows(root).length,0);assert.equal(nativeCalls.length,0);
   assert.equal(listeners.size,2);W.dispatchEvent(new W.PageTransitionEvent('pagehide',{persisted:false}));assert.equal(listeners.size,0);
 });
+test('continuous capture notifications do not starve queries or clear already-visible global matches',async t=>{
+  const {all,query,root,change,savedCalls}=setup(t);
+  all();query('alpha');
+  const interval=setInterval(()=>change({owner:'fixture-owner',changed:true}),15);t.after(()=>clearInterval(interval));
+  await wait(180);
+  assert.ok(savedCalls.length>0,'query runs while captures are still arriving');
+  assert.equal(visibleRows(root).length,2,'matches are visible before the capture stream ends');
+  assert.doesNotMatch(root.querySelector('[role=status]').textContent,/0 matches.*0 saved chats/);
+  await wait(150);assert.equal(visibleRows(root).length,2,'background refresh preserves current matches');
+});
+test('a capture arriving during a pending query refreshes once after that query instead of discarding its result',async t=>{
+  const pending=[];const {all,query,root,change,savedCalls}=setup(t,{search:args=>new Promise(resolve=>pending.push({args,resolve}))});
+  all();query('alpha');assert.equal(root.querySelector('[role=status]').textContent,'Searching saved messages…');await wait(120);
+  for(let i=0;i<20;i++)change({owner:'fixture-owner',changed:true});
+  pending[0].resolve({owner:'fixture-owner',records:[records[0]],total:1,hasMore:false,importing:true,stats:{rooms:1}});await wait(0);
+  assert.equal(visibleRows(root).length,1);assert.match(root.querySelector('[role=status]').textContent,/Saving cached messages/);
+  await wait(530);assert.equal(savedCalls.length,2);
+  pending[1].resolve({owner:'fixture-owner',records,total:2,hasMore:false,importing:false,stats:{rooms:2}});await wait(0);assert.equal(visibleRows(root).length,2);
+});
+test('late saved-query completion does not render or refresh a disconnected control',async t=>{
+  let resolve;const {all,query,host,change,savedCalls}=setup(t,{search:()=>new Promise(done=>resolve=done)});
+  all();query('alpha');await wait(120);change({owner:'fixture-owner',changed:true});host.remove();
+  resolve({owner:'fixture-owner',records,total:2,stats:{rooms:2}});await wait(140);
+  assert.equal(savedCalls.length,1,'completion cannot start a background refresh after the control is removed');
+});

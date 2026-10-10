@@ -75,7 +75,8 @@ test('large native local import drains durably between chunks and is not repeate
   });
   env.client.store={backend:{db}};
   let nativeReads=0;const transaction=db.transaction.bind(db);db.transaction=(...args)=>{nativeReads++;return transaction(...args);};
-  const result=await env.W.RCSMessages.search({query:'coffee',limit:1});
+  const first=await env.W.RCSMessages.search({query:'coffee',limit:1});assert.equal(first.importing,true);
+  await env.W.RCSMessages.ready();const result=await env.W.RCSMessages.search({query:'coffee',limit:1});
   assert.equal(result.total,12000);assert.equal((await env.W.RCSMessages.ready()).nativeImportComplete,true);assert.equal(result.coverage.complete,false);assert.ok(nativeReads>1);
   const priorReads=nativeReads,reloaded=page(t,broker,2);reloaded.client.store={backend:{db}};reloaded.W.IDBKeyRange=IDBKeyRange;
   assert.equal((await reloaded.W.RCSMessages.search({query:'coffee',limit:1})).total,12000);assert.equal(nativeReads,priorReads,'persisted import marker prevents a second native scan');
