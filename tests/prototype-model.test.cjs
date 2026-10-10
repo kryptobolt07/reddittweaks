@@ -69,6 +69,7 @@ test('ranges are end exclusive and snippets center the first match with adjusted
   const repeated = model.search({query:'the'}).messages.find(item => item.ranges.length > 1);
   assert.ok(repeated.ranges.every(([a,b]) => repeated.text.slice(a,b).toLowerCase() === 'the'));
   assert.equal(model.search({query:'the'}).commonWord, true);
+  assert.equal(model.search({query:'this'}).commonWord, true);
 });
 
 test('sort orders and grouped results preserve the same filtered message set', () => {

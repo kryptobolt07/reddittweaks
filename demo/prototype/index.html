@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reddit chat · unified search prototype</title>
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <header class="preview-header">
+    <a class="preview-brand" href="../index.html" aria-label="Back to the existing extension preview"><span class="brand-mark">●</span> reddit <span class="prototype-label">CHAT / DESIGN PREVIEW</span></a>
+    <nav class="preview-actions" aria-label="Preview controls">
+      <button data-layout="full" aria-pressed="true">Full chat</button>
+      <button data-layout="floating" aria-pressed="false">Floating</button>
+      <button data-layout="minimized" aria-pressed="false">Minimized</button>
+      <button id="theme-toggle" aria-label="Switch to dark theme" title="Switch theme">Dark</button>
+    </nav>
+  </header>
+  <main class="workspace">
+    <div class="demo-feed" aria-hidden="true"><span>r / ideas</span><h1>A little room for better conversations.</h1><p>One place to find the people, links, and messages you remember.</p><div class="feed-card"><span>r / casualconversation · Demo</span><h2>What made your day a little better?</h2><p>A good cup of coffee. A long walk. Catching up with an old friend.</p><div class="feed-votes">↑ 128 &nbsp; · &nbsp; 24 comments</div></div><p class="demo-disclaimer">Synthetic preview · No Reddit account or network requests</p></div>
+    <section class="chat-shell" id="chat-shell" aria-label="Chat design prototype">
+      <aside class="chat-sidebar" aria-label="Search chats">
+        <header class="sidebar-header"><h1>Chats <span class="preview-tag">Preview</span></h1><div><button class="icon-button" id="demo-loading" title="Preview a loading state" aria-label="Preview a loading state"></button><button class="icon-button" id="minimize-chat" title="Minimize chat" aria-label="Minimize chat"></button></div></header>
+        <div class="unified-search">
+          <div class="search-input-row"><span id="search-icon" aria-hidden="true"></span><input id="search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Search chats and messages" aria-label="Search chats and messages" aria-controls="search-results" aria-describedby="search-help"><button class="icon-button" id="clear-search" aria-label="Clear search" title="Clear search" hidden></button><kbd id="search-shortcut">/</kbd></div>
+          <span id="search-help" class="sr-only">Search people and saved messages. Use from:me, before:2026-10-01, after:2026-09-01, has:link, or a quoted phrase. Arrow keys navigate, Enter opens a result, Escape clears.</span>
+          <div class="scope-tabs" id="scope-tabs" role="tablist" aria-label="Search scope" hidden></div>
+          <div class="search-controls">
+            <button id="filter-control" class="control-pill" title="Filter conversations" aria-label="Filter conversations" aria-haspopup="menu" aria-expanded="false"></button>
+            <button id="from-control" class="control-pill" title="Filter message sender" aria-haspopup="menu" aria-expanded="false"></button>
+            <button id="date-control" class="control-pill" title="Filter messages by date" aria-haspopup="dialog" aria-expanded="false"></button>
+            <button id="sort-control" class="control-pill" title="Sort search results" aria-haspopup="menu" aria-expanded="false"></button>
+            <button id="word-control" class="control-pill" title="Match whole words" aria-pressed="false">Whole word</button>
+          </div>
+          <div class="active-filters" id="active-filters" hidden></div>
+          <div class="popover" id="search-popover" hidden></div>
+        </div>
+        <div class="results-status"><span id="result-status" role="status" aria-live="polite"></span><button class="icon-button" id="refresh-results" title="Refresh saved results" aria-label="Refresh saved results"></button></div>
+        <div class="common-hint" id="common-hint" hidden>Common word, try adding another term.</div>
+        <div class="results-viewport" id="search-results" aria-label="Search results" tabindex="-1"></div>
+        <footer class="coverage-footer"><span>Saved messages only · History may be incomplete</span><button id="learn-why">Learn why</button></footer>
+      </aside>
+      <section class="chat-room" aria-label="Selected conversation"><header class="room-header" id="room-header"></header><div class="room-timeline" id="room-timeline" tabindex="0" aria-label="Conversation messages"></div><form class="room-composer" id="room-composer"><input aria-label="Message draft (preview only)" placeholder="Message · preview only"><button class="icon-button" title="Messages aren't sent in this preview" aria-label="Send unavailable in preview" disabled></button></form></section>
+      <div class="minimized-bar"><button id="restore-chat" aria-label="Restore chat"><span class="brand-mark">●</span><strong>Chats</strong><span class="minimized-count"></span></button><button id="minimized-search" class="icon-button" title="Search chats and messages" aria-label="Search chats and messages"></button></div>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <dialog class="help-dialog" id="coverage-dialog"><div class="help-content"><button class="icon-button dialog-close" id="close-help" aria-label="Close explanation" title="Close explanation"></button><span class="preview-tag">ABOUT THIS PREVIEW</span><h2>Search what’s saved.</h2><p>The real extension can search messages captured from Reddit or fetched by a previous search. Older messages or chats that haven't been captured may be missing. Saving some history doesn't prove that a conversation is complete.</p><p>This design preview uses synthetic messages only. Refresh, unread states, and opening a message are simulated; it doesn’t import data, contact Reddit, or change the installed extension.</p><h3>Try a search</h3><ul><li><code>from:me has:link</code></li><li><code>"coffee tomorrow"</code></li><li><code>after:2026-09-01 before:2026-10-01</code></li></ul><p class="help-shortcuts"><kbd>/</kbd> Search &nbsp; <kbd>↑</kbd> <kbd>↓</kbd> Navigate &nbsp; <kbd>Enter</kbd> Open &nbsp; <kbd>Esc</kbd> Clear</p></div></dialog>
+  <script src="model.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

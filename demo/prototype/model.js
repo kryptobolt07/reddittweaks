@@ -189,7 +189,7 @@
       if (!groupMap.has(message.chatId)) { const group = {chat: message.chat, messages: []}; groupMap.set(message.chatId, group); groups.push(group); }
       groupMap.get(message.chatId).messages.push(message);
     });
-    return {people, messages: resultMessages, groups, commonWord: needles.length > 0 && (resultMessages.length > 300 || needles.every(term => ['the', 'a', 'i', 'and', 'to', 'it', 'you', 'me', 'thanks', 'yes'].includes(fold(term)))), parsed};
+    return {people, messages: resultMessages, groups, commonWord: needles.length > 0 && (resultMessages.length > 300 || needles.every(term => ['the', 'a', 'i', 'and', 'to', 'it', 'this', 'that', 'is', 'are', 'was', 'on', 'for', 'you', 'me', 'thanks', 'yes'].includes(fold(term)))), parsed};
   }
   function context(messageId) {
     const message = messages.find(item => item.id === messageId);
