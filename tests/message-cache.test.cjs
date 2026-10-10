@@ -121,16 +121,21 @@ test('client retains failed batches, retries on explicit reads or next batch, an
   h.fail(1);h.emit(batch([event('$next','next batch retry')]));await new Promise(resolve=>setTimeout(resolve,0));h.emit(batch([event('$trigger','trigger')]));await api.flush();assert.equal((await h.store.search(owner)).total,3);
   h.fail(2);h.emit(batch([event('$stale','stale owner data')]));await new Promise(resolve=>setTimeout(resolve,0));h.setActive(other);assert.equal((await api.search({})).total,0);assert.equal((await h.store.search(owner,{query:'stale'})).total,0);h.dom.window.close();
 });
-test('first search and concurrent room read share one native import; later queries and restarted client skip persisted marker',async()=>{
+test('saved search and room read return before native import finishes; ready waits and reload skips the persisted marker',async()=>{
   let release;const gate=new Promise(resolve=>release=resolve);const h=clientHarness({nativeImport:async emit=>{await gate;emit(batch([event('$import','native cached text')]));}});
-  const search=h.win.RCSMessages.search({query:'native'}),room=h.win.RCSMessages.room(roomId);await new Promise(resolve=>setTimeout(resolve,0));assert.equal(h.imports,1);assert.equal(h.nativeArgs[0].awaitCache,true);release();assert.equal((await search).total,1);assert.equal((await room).records.length,1);assert.equal(h.marks,1);
+  await h.store.ingest(batch([event('$saved','native already saved')]));
+  const search=h.win.RCSMessages.search({query:'native'}),room=h.win.RCSMessages.room(roomId);
+  const first=await search;assert.equal(first.total,1);assert.equal(first.importing,true);assert.equal((await room).records.length,1);
+  await new Promise(resolve=>setTimeout(resolve,0));assert.equal(h.imports,1);assert.equal(h.nativeArgs[0].awaitCache,true);assert.equal(h.marks,0);
+  let finished=false;const ready=h.win.RCSMessages.ready().then(value=>{finished=true;return value;});await waitForTick();assert.equal(finished,false);
+  release();assert.equal((await ready).importing,false);assert.equal((await h.win.RCSMessages.search({query:'native'})).total,2);assert.equal(h.marks,1);
   const statsCalls=h.calls.filter(action=>action==='stats').length;await h.win.RCSMessages.search({});assert.equal(h.calls.filter(action=>action==='stats').length,statsCalls);assert.equal(h.imports,1);
-  const restarted=clientHarness({store:h.store});assert.equal((await restarted.win.RCSMessages.search({})).total,1);assert.equal(restarted.imports,0);h.dom.window.close();restarted.dom.window.close();
+  const restarted=clientHarness({store:h.store});assert.equal((await restarted.win.RCSMessages.search({})).total,2);await restarted.win.RCSMessages.ready();assert.equal(restarted.imports,0);h.dom.window.close();restarted.dom.window.close();
 });
 test('failed native-import writes prevent completion marker until retained data is saved',async()=>{
   const h=clientHarness({nativeImport:emit=>emit(batch([event('$retryImport','persist before marker')]))});h.fail(10);
-  await assert.rejects(h.win.RCSMessages.search({}),/Transient/);assert.equal(h.marks,0);assert.equal(await h.store.importState(owner),false);
-  h.fail(0);assert.equal((await h.win.RCSMessages.search({})).total,1);assert.equal(h.imports,1);assert.equal(h.marks,1);h.dom.window.close();
+  await assert.rejects(h.win.RCSMessages.ready(),/Transient/);assert.equal(h.marks,0);assert.equal(await h.store.importState(owner),false);
+  h.fail(0);await h.win.RCSMessages.ready();assert.equal((await h.win.RCSMessages.search({})).total,1);assert.equal(h.imports,1);assert.equal(h.marks,1);h.dom.window.close();
 });
 test('clear drops failed backlog and resets page capture dedup; retry overflow is reported',async()=>{
   const h=clientHarness({marked:true}),resets=[],errors=[];h.win.document.addEventListener('rcs-message-cache-reset',event=>resets.push(JSON.parse(event.detail)));h.win.RCSMessages.subscribe(value=>{if(value.error)errors.push(value.error);});
@@ -148,8 +153,8 @@ test('native import flush barrier acknowledges durable writes and rejects wrong 
   barrier('wrong',other);await new Promise(resolve=>setTimeout(resolve,10));assert.equal(acks[2].ok,false);assert.equal(acks[2].owner,other);assert.match(acks[2].error,/account changed/);h.dom.window.close();
 });
 test('returning account rechecks persisted import marker while Clear suppresses same-document native reimport',async()=>{
-  const h=clientHarness({nativeImport:emit=>emit(batch([event('$importOnce','cached')]))});await h.win.RCSMessages.search({});assert.equal(h.imports,1);
-  h.setActive(other);await h.win.RCSMessages.search({});h.setActive(owner);const before=h.calls.filter(action=>action==='stats').length;await h.win.RCSMessages.search({});assert.equal(h.calls.filter(action=>action==='stats').length,before+1);assert.equal(h.imports,2);
+  const h=clientHarness({nativeImport:emit=>emit(batch([event('$importOnce','cached')]))});await h.win.RCSMessages.ready();assert.equal(h.imports,1);
+  h.setActive(other);await h.win.RCSMessages.ready();h.setActive(owner);const before=h.calls.filter(action=>action==='stats').length;await h.win.RCSMessages.search({});await h.win.RCSMessages.ready();assert.equal(h.calls.filter(action=>action==='stats').length,before+2);assert.equal(h.imports,2);
   await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});assert.equal((await h.win.RCSMessages.search({})).total,0);assert.equal(h.imports,2);assert.equal(await h.store.importState(owner),false);h.dom.window.close();
 });
 test('Clear during initial native import prevents late completion from marking or restoring discarded writes',async()=>{
@@ -177,12 +182,12 @@ test('directory identity enriches opaque saved sender hints and respects verifie
   const available=(await store.search(owner,{},currentDirectory)).records[0];assert.equal(available.author,'CurrentHuman');assert.equal(available.authorUnavailable,false);assert.equal(available.authorHistorical,false);
 });
 test('clear-all invalidates previously imported accounts without same-document reimport or empty completion marker',async()=>{
-  const h=clientHarness();await h.win.RCSMessages.search({});h.setActive(other);await h.win.RCSMessages.search({});assert.equal(h.imports,2);assert.equal(h.marks,2);
+  const h=clientHarness();await h.win.RCSMessages.ready();h.setActive(other);await h.win.RCSMessages.ready();assert.equal(h.imports,2);assert.equal(h.marks,2);
   await h.store.clear();h.change({scope:'rcs-messages-changed',owner:null,cleared:true});assert.equal((await h.win.RCSMessages.search({})).total,0);h.setActive(owner);assert.equal((await h.win.RCSMessages.search({})).total,0);
   assert.equal(h.imports,2);assert.equal(h.marks,2);assert.equal(await h.store.importState(owner),false);assert.equal(await h.store.importState(other),false);h.dom.window.close();
 });
 test('targeted clear for an inactive account invalidates its import result and preserves active account marker',async()=>{
-  const h=clientHarness();await h.win.RCSMessages.search({});h.setActive(other);await h.win.RCSMessages.search({});
+  const h=clientHarness();await h.win.RCSMessages.ready();h.setActive(other);await h.win.RCSMessages.ready();
   await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});assert.equal(await h.store.importState(other),true);await h.win.RCSMessages.search({});h.setActive(owner);await h.win.RCSMessages.search({});
   assert.equal(await h.store.importState(owner),false);assert.equal(h.imports,2);assert.equal(h.marks,2);h.dom.window.close();
 });
