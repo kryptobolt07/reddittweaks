@@ -248,7 +248,7 @@
       this.render();this.ensureData();this.input.focus();
     }
     resetSaved(){
-      this.savedGeneration++;clearTimeout(this.savedTimer);this.savedDirty=false;this.savedKey='';this.savedHits=[];this.savedTotal=0;this.savedHasMore=false;this.savedLoading=false;this.savedStats=undefined;this.savedImporting=false;this.roomSavedKey='';this.complete=false;this.dateCompleteKey='';this.active=-1;this.hits=[];this.clearRows();
+      this.savedGeneration++;clearTimeout(this.savedTimer);this.savedDirty=false;this.savedKey='';this.savedHits=[];this.savedTotal=0;this.savedHasMore=false;this.savedLoading=false;this.savedStats=undefined;this.savedImporting=false;this.savedSavingError='';this.roomSavedKey='';this.complete=false;this.dateCompleteKey='';this.active=-1;this.hits=[];this.clearRows();
     }
     savedChanged(value){
       const ownerChanged=this.savedOwner!==undefined && this.savedOwner!==value.owner;
@@ -268,7 +268,7 @@
       }
       else if(this.kind==='messages' && !this.bar.hidden && (!value.roomIds || value.roomIds.includes(this.room)))this.readSavedRoom();
     }
-    querySaved(more=false,background=false){
+    querySaved(more=false,background=false,retryWrites=false){
       if(!this.isGlobal || more && (this.savedLoading || !this.savedHasMore))return;
       const key=JSON.stringify([this.input.value.trim(),this.dates]);
       if(!more && key===this.savedKey)return;
@@ -280,14 +280,14 @@
         if(generation!==this.savedGeneration || !this.isGlobal || !this.host.isConnected || !globalThis.document)return;
         try{
           if(!globalThis.RCSMessages)throw Error('Saved message storage is unavailable.');
-          const result=await RCSMessages.search({query:this.input.value.trim(),dates:{...this.dates},limit:200,offset});
+          const result=await RCSMessages.search({query:this.input.value.trim(),dates:{...this.dates},limit:200,offset,...(retryWrites?{retryWrites:true}:{})});
           if(generation!==this.savedGeneration || !this.isGlobal || !this.host.isConnected)return;
           if(this.savedOwner!==undefined && this.savedOwner!==result.owner){this.resetSaved();this.savedOwner=result.owner;this.ensureData();return;}
-          this.savedOwner=result.owner;this.savedHits=more ? [...this.savedHits,...result.records] : result.records;this.savedTotal=result.total;this.savedHasMore=Boolean(result.hasMore);this.savedStats=result.stats;this.savedPersistent=result.persistent;this.savedImporting=result.importing;this.savedCaptureIncomplete=result.captureIncomplete;
+          this.savedOwner=result.owner;this.savedHits=more ? [...this.savedHits,...result.records] : result.records;this.savedTotal=result.total;this.savedHasMore=Boolean(result.hasMore);this.savedStats=result.stats;this.savedPersistent=result.persistent;this.savedImporting=result.importing;this.savedSavingError=result.savingError || '';this.savedCaptureIncomplete=result.captureIncomplete;
           if(more)this.renderLimit+=200;
         }catch(error){if(generation===this.savedGeneration)this.notice=error.message;}
         finally{if(generation===this.savedGeneration && this.host.isConnected && globalThis.document){this.savedLoading=false;this.render();if(this.savedDirty){this.savedDirty=false;this.savedKey='';if(this.browseOpen)this.querySaved(false,true);}}}
-      },more ? 0 : background && this.savedImporting ? 500 : 100);
+      },more ? 0 : background && this.savedImporting && !retryWrites ? 500 : 100);
     }
     async readSavedRoom(){
       if(this.kind!=='messages' || !globalThis.RCSMessages)return;
@@ -377,8 +377,8 @@
       this.status.textContent = this.kind==='list' && globalThis.RCSDirectory?.getStartup?.().pending ? 'Restoring saved usernames…' : this.loading ? this.progress || (this.kind === 'list' ? 'Searching all conversations…' : 'Searching all messages…') : this.notice || `${this.hits.length} ${this.kind === 'list' ? 'conversation' : 'message'}${this.hits.length === 1 ? '' : 's'}${this.complete ? '' : ' · still connecting'}`;
       if(this.kind==='list' && this.loading && !this.refreshing && globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete)this.status.textContent=`${this.hits.length} saved conversations · ${this.progress.startsWith('Waiting') ? this.progress.replace(/\s*\(\d+\)$/,'') : this.progress.includes('dates') ? 'Updating dates…' : 'Checking updates…'}`;
       if(this.kind==='messages')this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.hits.length} match${this.hits.length===1?'':'es'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;
-      if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || (!this.savedStats && this.savedLoading ? 'Searching saved messages…' : `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedImporting ? ' · Saving cached messages…' : this.savedLoading ? ' · Searching…' : ''}`);
-      if(this.isGlobal){this.coverage.textContent=`${this.savedCaptureIncomplete ? 'Some captures unavailable' : this.savedPersistent===false ? 'Session messages only' : 'Saved messages only'} · History may be incomplete`;this.load.textContent='Refresh';}
+      if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || (!this.savedStats && this.savedLoading ? 'Searching saved messages…' : `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedSavingError ? ' · Saving paused' : this.savedImporting ? ' · Saving cached messages…' : this.savedLoading ? ' · Searching…' : ''}`);
+      if(this.isGlobal){this.coverage.textContent=`${this.savedCaptureIncomplete ? 'Some captures unavailable' : this.savedPersistent===false ? 'Session messages only' : 'Saved messages only'} · History may be incomplete`;this.coverage.title=this.savedSavingError ? `Saving failed: ${this.savedSavingError}. Refresh to retry pending writes.` : '';this.load.textContent='Refresh';}
       this.status.title=this.status.textContent;
       const wanted=[];
       for (const [i, hit] of this.hits.slice(0,this.renderLimit).entries()) {
@@ -494,7 +494,7 @@
       if(showNotice) {this.notice='Search stopped. Results may be incomplete.';this.render();}
     }
     async ensureData(force=false,reconcile=false) {
-      if(this.isGlobal){if(force)this.savedKey='';this.querySaved();return;}
+      if(this.isGlobal){if(force)this.savedKey='';this.querySaved(false,force,force);return;}
       if(this.kind==='messages'){const generation=this.savedGeneration;await this.readSavedRoom();if(generation!==this.savedGeneration)return;}
       const dateKey=JSON.stringify(this.dates || {});
       if(this.kind==='messages' && !force && !this.input.value.trim() && !this.dates?.from && !this.dates?.to)return;

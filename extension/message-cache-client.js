@@ -2,23 +2,23 @@
 (() => {
   const subscribers=new Set(),initializations=new Map(),preparing=new Set(),imports=new Map(),importRequests=new Map(),attachments=new Map(),clearedAccounts=new Set(),captureGaps=new Set(),pending=[];
   const MAX_BATCHES=500,MAX_EVENTS=10000,MAX_BYTES=8*1024*1024;
-  let owner=null,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
+  let owner=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
   const runtime=globalThis.chrome?.runtime,memory=!runtime?.sendMessage?new RCSMessageStore.Store({indexedDB:null}):null;
   const notify=value=>{if(owner && value.owner && value.owner!==owner)return;for(const listener of subscribers)try{listener(value);}catch{}};
   function discard(account){for(let i=pending.length-1;i>=0;i--)if(!account || pending[i].batch.owner===account)pending.splice(i,1);}
   async function context() {
     const value=await RCSData.request('identity-context').promise;
     if(!RCSMessageStore.ownerOK(value?.owner))throw Error('Authenticated Reddit account unavailable');
-    if(owner!==value.owner){if(owner){discard(owner);preparing.delete(owner);initializations.delete(owner);}owner=value.owner;writeError=null;if(overflowError?.account!==owner)overflowError=null;notify({owner,accountChanged:true});}
+    if(owner!==value.owner){if(owner){discard(owner);preparing.delete(owner);initializations.delete(owner);}owner=value.owner;readRevision++;writeError=null;if(overflowError?.account!==owner)overflowError=null;notify({owner,accountChanged:true});}
     return owner;
   }
   async function call(action,parameters={}) {
     if(runtime?.sendMessage){const value=await runtime.sendMessage({scope:'rcs-messages',...parameters,action});if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;}
     if(action==='ingest')return memory.ingest(parameters);
-    if(action==='stats')return memory.stats(parameters.owner);
+    if(action==='stats')return memory.stats(parameters.owner,{committed:true});
     if(action==='mark-native-import-complete')return {nativeImportComplete:await memory.importState(parameters.owner,true)};
-    if(action==='search')return memory.search(parameters.owner,parameters);
-    if(action==='room'){const value=await memory.search(parameters.owner,{roomId:parameters.roomId,limit:500});while(value.hasMore){const page=await memory.search(parameters.owner,{roomId:parameters.roomId,limit:500,offset:value.records.length});value.records.push(...page.records);value.hasMore=page.hasMore;}return value;}
+    if(action==='search')return memory.search(parameters.owner,{...parameters,committed:true});
+    if(action==='room')return memory.room(parameters.owner,parameters.roomId,undefined,{committed:true});
   }
   async function drain() {
     while(pending.length){const item=pending[0],active=await context();if(!pending.includes(item))continue;if(item.batch.owner!==active){pending.splice(pending.indexOf(item),1);continue;}
@@ -52,7 +52,7 @@
       const accounts=message.owner?[message.owner]:new Set([owner,...initializations.keys(),...imports.keys(),...importRequests.keys(),...clearedAccounts,...pending.map(item=>item.batch.owner)]);
       discard(message.owner);
       for(const account of accounts)if(account){initializations.delete(account);preparing.delete(account);captureGaps.delete(account);clearedAccounts.add(account);importRequests.get(account)?.cancel?.();imports.set(account,{available:false,cleared:true});}
-      if(affectsActive){writeError=null;overflowError=null;document.dispatchEvent(new CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:message.owner || owner})}));}
+      if(affectsActive){readRevision++;writeError=null;overflowError=null;document.dispatchEvent(new CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:message.owner || owner})}));}
     }
     if(affectsActive)notify({owner,changed:true,cleared:message.cleared,roomIds:message.roomIds});
   });
@@ -73,12 +73,12 @@
     if(!initializations.has(active)){
       preparing.add(active);
       const current=()=>initializations.get(active)===task && owner===active && !clearedAccounts.has(active);
-      const task=(async()=>{await flush();const value=await call('stats',{owner:active});
+      const task=(async()=>{await flush();
         // Completion records a successful past read, not future freshness.
         // Reconcile local cached events once for each new page attachment.
         if(!memory && current()){if(!imports.has(active)){let request;try{request=RCSData.request('cache-native-history',{owner:active,awaitCache:true});importRequests.set(active,request);const result=await request.promise;if(current())imports.set(active,result);}catch(error){if(current()){imports.set(active,{available:false});notify({owner:active,error:error.message});}}finally{if(importRequests.get(active)===request)importRequests.delete(active);}}
           await flush();if(current() && !captureGaps.has(active) && imports.get(active)?.available===true){if(await context()!==active)throw Error('Reddit account changed. Please retry.');if(current())await call('mark-native-import-complete',{owner:active});}}
-        return value;
+        return {owner:active};
       })();initializations.set(active,task);
       task.then(()=>{if(initializations.get(active)===task){preparing.delete(active);notify({owner:active,changed:true});}},()=>{if(initializations.get(active)===task){preparing.delete(active);initializations.delete(active);}});
     }
@@ -99,13 +99,16 @@
     }catch(error){notify({owner:value.owner,error:error.message});}
   });
   async function read(action,parameters={},waitForImport=false) {
-    const active=await context(),initialization=ensureReady(active);
-    // Saved results are useful before the one-time native import finishes.
-    // Only explicit ready() callers wait for all import chunks and the marker.
-    if(waitForImport)await initialization;else initialization.catch(error=>notify({owner:active,error:error.message}));
-    await flush();const result=await call(action,{...parameters,owner:active});
+    const active=await context(),revision=readRevision;
+    if(parameters.retryWrites && pending.length && !draining)schedule();
+    const initialization=waitForImport || !writeError && !overflowError?ensureReady(active):null;
+    // Interactive reads never drain captures. Only ready()/flush() and native
+    // producer acknowledgements establish that pending messages are saved.
+    if(waitForImport){await initialization;await flush();}else initialization?.catch(error=>notify({owner:active,error:error.message}));
+    const {retryWrites,...options}=parameters,result=await call(action,{...options,owner:active});
     if(await context()!==active)throw Error('Reddit account changed. Please retry.');
-    return {...result,importing:preparing.has(active),captureIncomplete:captureGaps.has(active)};
+    if(revision!==readRevision)throw Error('Saved messages changed. Please retry.');
+    return {...result,importing:preparing.has(active),savingPending:pending.length>0,savingError:writeError?.message || '',captureIncomplete:captureGaps.has(active)};
   }
   globalThis.RCSMessages=Object.freeze({ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),flush,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
   document.dispatchEvent(new CustomEvent('rcs-message-cache-listening'));

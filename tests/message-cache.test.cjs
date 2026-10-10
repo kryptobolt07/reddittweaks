@@ -66,7 +66,7 @@ test('local reconciliation skips unchanged room and identity writes while persis
   assert.equal((await new Store({name:store.name}).search(owner)).total,0);
   assert.equal((await store.ingest(base)).changed,false,'a duplicate cannot undo a saved redaction');
 });
-test('isolated client binds batches to native account, flushes reads, and forwards cross-tab changes',async()=>{
+test('isolated client reads committed batches for the native account and forwards cross-tab changes',async()=>{
   const dom=new JSDOM('',{runScripts:'outside-only'}),win=dom.window;win.TextEncoder=TextEncoder;
   for(const file of ['search-core.js','message-store.js'])win.eval(fs.readFileSync(`extension/${file}`,'utf8'));
   let active=owner,changed;win.RCSData={request(){return {promise:Promise.resolve({owner:active})};}};
@@ -74,7 +74,7 @@ test('isolated client binds batches to native account, flushes reads, and forwar
   win.chrome={runtime:{onMessage:{addListener(fn){changed=fn;}},async sendMessage(msg){if(msg.action==='stats')return {ok:true,...await store.stats(msg.owner),nativeImportComplete:true};if(msg.action==='search')return {ok:true,...await store.search(msg.owner,msg)};if(msg.action==='ingest')return {ok:true,...await store.ingest(msg)};}}};
   win.eval(fs.readFileSync('extension/message-cache-client.js','utf8'));const updates=[];win.RCSMessages.subscribe(value=>updates.push(value));
   const emit=value=>win.document.dispatchEvent(new win.CustomEvent('rcs-message-cache-batch',{detail:JSON.stringify(value)}));
-  emit(batch([event('$a','hello')]));assert.equal((await win.RCSMessages.search({query:'hello'})).total,1);
+  emit(batch([event('$a','hello')]));await win.RCSMessages.flush();assert.equal((await win.RCSMessages.search({query:'hello'})).total,1);
   changed({scope:'rcs-messages-changed',owner});assert.equal(updates.at(-1).changed,true);
   active=other;emit(batch([event('$bad','must not leak')]));assert.equal((await win.RCSMessages.search({query:''})).total,0);
   assert.ok(updates.some(value=>value.accountChanged && value.owner===other));dom.window.close();
@@ -117,20 +117,21 @@ test('search estimates sum cached bytes without encoding saved messages again',a
   const store=new ctx.RCSMessageStore.Store({name:crypto.randomUUID()});await store.ingest(batch([event('$a','saved text')]));encodings=0;
   await store.search(owner);await store.search(owner,{roomId});await store.stats(owner);assert.equal(encodings,0);
 });
-function clientHarness({store,nativeImport,marked=false}={}){
+function clientHarness({store,nativeImport,marked=false,ingestGate,readGate}={}){
   const dom=new JSDOM('',{runScripts:'outside-only'}),win=dom.window;win.TextEncoder=TextEncoder;
   for(const file of ['search-core.js','message-store.js'])win.eval(fs.readFileSync(`extension/${file}`,'utf8'));
   store ||= new win.RCSMessageStore.Store({indexedDB:null});let active=owner,changed,failures=0,imports=0,marks=0;const calls=[],nativeArgs=[];
   const emit=value=>win.document.dispatchEvent(new win.CustomEvent('rcs-message-cache-batch',{detail:JSON.stringify(value)}));
   win.RCSData={request(method,parameters){if(method==='identity-context')return {promise:Promise.resolve({owner:active})};if(method==='cache-native-history'){nativeArgs.push(parameters);imports++;return {promise:Promise.resolve().then(()=>nativeImport?.(emit)).then(result=>result?.available===false?result:{available:true})};}throw Error('Unexpected native method');}};
-  win.chrome={runtime:{onMessage:{addListener(fn){changed=fn;}},async sendMessage(msg){calls.push(msg.action);if(msg.action==='stats')return {ok:true,...await store.stats(msg.owner),nativeImportComplete:marked || await store.importState(msg.owner)};if(msg.action==='search')return {ok:true,...await store.search(msg.owner,msg)};if(msg.action==='room')return {ok:true,...await store.search(msg.owner,{roomId:msg.roomId})};if(msg.action==='mark-native-import-complete'){marks++;return {ok:true,nativeImportComplete:await store.importState(msg.owner,true)};}if(msg.action==='ingest'){if(failures-->0)return {ok:false,error:'Transient quota failure'};return {ok:true,...await store.ingest(msg)};}}}};
+  win.chrome={runtime:{onMessage:{addListener(fn){changed=fn;}},async sendMessage(msg){calls.push(msg.action);if(msg.action==='stats'){const value=await store.stats(msg.owner,{committed:true});return {ok:true,...value,nativeImportComplete:marked || value.nativeImportComplete};}if(msg.action==='search'){const value=await store.search(msg.owner,{...msg,committed:true});await readGate;return {ok:true,...value};}if(msg.action==='room')return {ok:true,...await store.room(msg.owner,msg.roomId,undefined,{committed:true})};if(msg.action==='mark-native-import-complete'){marks++;return {ok:true,nativeImportComplete:await store.importState(msg.owner,true)};}if(msg.action==='ingest'){await ingestGate;if(failures-->0)return {ok:false,error:'Transient quota failure'};return {ok:true,...await store.ingest(msg)};}}}};
   win.eval(fs.readFileSync('extension/message-cache-client.js','utf8'));
   return {dom,win,store,calls,nativeArgs,emit,setActive(value){active=value;},fail(count){failures=count;},get imports(){return imports;},get marks(){return marks;},change(message){changed(message);}};
 }
-test('client retains failed batches, retries on explicit reads or next batch, and never writes old account data to new account',async()=>{
+test('failed captures leave committed data readable; explicit flush or a new batch retries without account leakage',async()=>{
   const h=clientHarness({marked:true}),api=h.win.RCSMessages;
   h.fail(1);h.emit(batch([event('$retry','retained')]));await new Promise(resolve=>setTimeout(resolve,0));
-  assert.equal((await api.search({query:'retained'})).total,1);
+  const cached=await api.search({query:'retained'});assert.equal(cached.total,0);assert.match(cached.savingError,/Transient/);
+  await api.flush();assert.equal((await api.search({query:'retained'})).total,1);
   h.fail(1);h.emit(batch([event('$next','next batch retry')]));await new Promise(resolve=>setTimeout(resolve,0));h.emit(batch([event('$trigger','trigger')]));await api.flush();assert.equal((await h.store.search(owner)).total,3);
   h.fail(2);h.emit(batch([event('$stale','stale owner data')]));await new Promise(resolve=>setTimeout(resolve,0));h.setActive(other);assert.equal((await api.search({})).total,0);assert.equal((await h.store.search(owner,{query:'stale'})).total,0);h.dom.window.close();
 });
@@ -165,9 +166,9 @@ test('native import flush barrier acknowledges durable writes and rejects wrong 
   h.fail(10);h.emit(batch([event('$failure','not saved')]));barrier('failure');await new Promise(resolve=>setTimeout(resolve,10));assert.equal(acks[1].ok,false);assert.match(acks[1].error,/Transient/);
   barrier('wrong',other);await new Promise(resolve=>setTimeout(resolve,10));assert.equal(acks[2].ok,false);assert.equal(acks[2].owner,other);assert.match(acks[2].error,/account changed/);h.dom.window.close();
 });
-test('returning account rechecks persisted import marker while Clear suppresses same-document native reimport',async()=>{
+test('returning account rechecks readiness without a redundant stats scan while Clear suppresses native reimport',async()=>{
   const h=clientHarness({nativeImport:emit=>emit(batch([event('$importOnce','cached')]))});await h.win.RCSMessages.ready();assert.equal(h.imports,1);
-  h.setActive(other);await h.win.RCSMessages.ready();h.setActive(owner);const before=h.calls.filter(action=>action==='stats').length;await h.win.RCSMessages.search({});await h.win.RCSMessages.ready();assert.equal(h.calls.filter(action=>action==='stats').length,before+2);assert.equal(h.imports,2);
+  h.setActive(other);await h.win.RCSMessages.ready();h.setActive(owner);const before=h.calls.filter(action=>action==='stats').length;await h.win.RCSMessages.search({});await h.win.RCSMessages.ready();assert.equal(h.calls.filter(action=>action==='stats').length,before+1);assert.equal(h.imports,2);
   await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});assert.equal((await h.win.RCSMessages.search({})).total,0);assert.equal(h.imports,2);assert.equal(await h.store.importState(owner),false);h.dom.window.close();
 });
 test('Clear during initial native import prevents late completion from marking or restoring discarded writes',async()=>{
@@ -222,6 +223,42 @@ test('overflow barriers can drain, but only matching recovery clears the error; 
   recover({owner,id:rejected[0].id,complete:false});const result=await h.win.RCSMessages.search({});assert.equal(result.captureIncomplete,true);assert.equal(h.marks,0);h.dom.window.close();
 });
 const waitForTick=()=>new Promise(resolve=>setTimeout(resolve,10));
+test('committed snapshots read saved data while future writes are paused; a room uses one consistent snapshot',async()=>{
+  const {Store}=model(),store=new Store({name:crypto.randomUUID()});
+  await store.ingest(batch(Array.from({length:750},(_,i)=>event('$saved-'+i,'saved text',i+1))));
+  let release;const gate=new Promise(resolve=>release=resolve),write=store.write.bind(store);store.write=async value=>{await gate;return write(value);};
+  const pending=store.ingest(batch([event('$queued','pending text',10000)]));
+  let timeout;
+  try {
+    let snapshots=0;const snapshot=store.snapshot.bind(store);store.snapshot=(...args)=>{snapshots++;return snapshot(...args);};
+    const room=await Promise.race([store.room(owner,roomId,undefined,{committed:true}),new Promise((_,reject)=>timeout=setTimeout(()=>reject(Error('committed read waited for queued write')),1000))]);
+    assert.equal(room.total,750);assert.equal(room.records.length,750);assert.equal(new Set(room.records.map(r=>r.id)).size,750);assert.equal(snapshots,1);
+    assert.equal((await store.stats(owner,{committed:true})).stats.messages,750);
+  }finally{clearTimeout(timeout);release();await pending;}
+  assert.equal((await store.search(owner)).total,751);
+});
+test('search, room and stats return before an in-flight capture while ready and flush keep durable barriers',async()=>{
+  let release;const gate=new Promise(resolve=>release=resolve),h=clientHarness({ingestGate:gate});
+  await h.store.ingest(batch([event('$old','already saved')]));h.emit(batch([event('$new','new capture')]));
+  let flushed=false,readied=false;const flushing=h.win.RCSMessages.flush().then(()=>flushed=true),ready=h.win.RCSMessages.ready().then(()=>readied=true);let timeout;
+  try {
+    const [search,room,stats]=await Promise.race([Promise.all([h.win.RCSMessages.search({}),h.win.RCSMessages.room(roomId),h.win.RCSMessages.stats()]),new Promise((_,reject)=>timeout=setTimeout(()=>reject(Error('interactive reads waited for capture')),1000))]);
+    assert.equal(search.total,1);assert.equal(search.savingPending,true);assert.equal(room.records.length,1);assert.equal(stats.stats.messages,1);assert.equal(flushed,false);assert.equal(readied,false);
+  }finally{clearTimeout(timeout);release();await Promise.all([flushing,ready]);}
+  assert.equal((await h.win.RCSMessages.search({})).total,2);h.dom.window.close();
+});
+test('ordinary reads do not retry a failed write repeatedly and explicit Refresh retries in the background',async()=>{
+  const h=clientHarness();await h.store.ingest(batch([event('$old','saved')]));h.fail(10);h.emit(batch([event('$new','pending')]));await waitForTick();
+  const before=h.calls.filter(action=>action==='ingest').length;
+  for(let i=0;i<3;i++){const found=await h.win.RCSMessages.search({});assert.equal(found.total,1);assert.match(found.savingError,/Transient/);}
+  assert.equal(h.calls.filter(action=>action==='ingest').length,before);
+  h.fail(0);await h.win.RCSMessages.search({retryWrites:true});await h.win.RCSMessages.flush();const saved=await h.win.RCSMessages.search({});assert.equal(saved.total,2);assert.equal(saved.savingError,'');await h.win.RCSMessages.ready();h.dom.window.close();
+});
+test('a delayed committed read cannot return old results after the active cache is cleared',async()=>{
+  let release;const gate=new Promise(resolve=>release=resolve),h=clientHarness({readGate:gate});await h.store.ingest(batch([event('$old','before clear')]));
+  const searching=h.win.RCSMessages.search({});const rejected=assert.rejects(searching,/Saved messages changed/);await waitForTick();
+  await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});release();await rejected;assert.equal((await h.win.RCSMessages.search({})).total,0);h.dom.window.close();
+});
 test('native connection starts reconciliation without a search and a late database-ready signal retries once',async()=>{
   let ready=false;const h=clientHarness({nativeImport:emit=>{if(!ready)return {available:false,retryable:true};emit(batch([event('$automatic','automatic cached message')]));}});
   const connect=(sourceReady,attachment='first')=>h.win.document.dispatchEvent(new h.win.CustomEvent('rcs-message-cache-connected',{detail:JSON.stringify({owner,attachment,sourceReady})}));
