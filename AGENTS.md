@@ -21,7 +21,7 @@ Follow the user's current instructions first. Do not delegate unless the user ex
 - Bump MAJOR for an incompatible release once at 1.x or later. Before 1.0, use a MINOR bump for breaking changes and document migration/recovery steps. Never bump a storage schema merely because the extension version changes.
 - Choose the smallest justified increment once per completed release bundle. Explain the choice in release notes. A version decision is independent of the number of commits or edited lines.
 - Treat `extension/manifest.json` as the extension version source of truth. Synchronize only current runtime/display version references, the current release notes, and packaging paths. Preserve historical version references and independent tooling/package versions.
-- Make coherent implementation commits with relevant tests first. Then run the full suite and verify archive integrity and source/stable-folder byte equality before committing release metadata. Do not rewrite an already-created versioned archive after a release commit; new meaningful release changes receive the appropriate bump, while small in-progress edits share their unreleased version.
+- Make coherent implementation commits with relevant tests first. Then run the full suite and verify archive integrity and source/stable-folder byte equality before committing release metadata. Small edits may rebuild the same-version local export with updated validation; do not replace published release assets or tags without authorization.
 
 ## Extension constraints
 

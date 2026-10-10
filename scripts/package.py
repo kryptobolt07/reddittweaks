@@ -1,12 +1,16 @@
 """Create a clean, directly loadable extension archive without build dependencies."""
 from pathlib import Path
 import json
+import re
 import shutil
 import zipfile
 
 root = Path(__file__).resolve().parents[1]
 extension = root / 'extension'
 manifest = json.loads((extension / 'manifest.json').read_text())
+assert re.fullmatch(r'\d+\.\d+\.\d+', manifest['version']), 'Use MAJOR.MINOR.PATCH for extension releases'
+runtime_versions = re.findall(r'''setAttribute\(['"]data-rcs-version['"],\s*['"]([^'"]+)['"]\)''', (extension / 'content.js').read_text())
+assert runtime_versions == [manifest['version']], 'Manifest and runtime version stamp must match'
 required = [*manifest['icons'].values(), manifest['action']['default_popup']]
 if manifest.get('background', {}).get('service_worker'):
     required.append(manifest['background']['service_worker'])
