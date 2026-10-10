@@ -99,8 +99,9 @@
   const fold = value => String(value || '').normalize('NFKC').toLocaleLowerCase();
   function dateValue(value) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return NaN;
-    const stamp = Date.parse(value + 'T00:00:00Z');
-    return Number.isFinite(stamp) && new Date(stamp).toISOString().slice(0, 10) === value ? stamp : NaN;
+    const [year, month, date] = value.split('-').map(Number);
+    const local = new Date(year, month - 1, date);
+    return local.getFullYear() === year && local.getMonth() === month - 1 && local.getDate() === date ? local.getTime() : NaN;
   }
   function parseQuery(query) {
     const parsed = {terms: [], phrases: [], from: [], after: [], before: [], hasLink: false, invalid: false};

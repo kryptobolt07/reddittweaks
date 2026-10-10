@@ -42,7 +42,7 @@ test('all operators and UI filters compose with AND; message operators do not ma
 test('date operators include after midnight and exclude before midnight', () => {
   const result = model.search({query:'after:2026-10-10 before:2026-10-11'});
   assert.ok(result.messages.length > 0);
-  assert.ok(result.messages.every(item => item.at >= Date.parse('2026-10-10T00:00:00Z') && item.at < Date.parse('2026-10-11T00:00:00Z')));
+  assert.ok(result.messages.every(item => item.at >= new Date(2026,9,10).getTime() && item.at < new Date(2026,9,11).getTime()));
 });
 
 test('text is conjunctive, quotes are exact, and whole-word mode excludes partial words', () => {
