@@ -1,0 +1,128 @@
+/* Coordination and directory metadata only. Reddit credentials stay in the page. */
+importScripts('directory-model.js');
+const Model=RCSDirectoryModel;
+const cachePrefix='rcs-directory-v2:';
+const oldPrefix='rcs-directory-v1:';
+const leasePrefix='rcs-directory-lease:';
+const sessionPrefix='rcs-directory-session-v2:';
+const trafficPrefix='rcs-traffic-v1:';
+let queue=Promise.resolve();
+chrome.storage.local.setAccessLevel?.({accessLevel:'TRUSTED_CONTEXTS'});
+async function entryFor(owner) {
+  const key=cachePrefix+owner;
+  const stored=await chrome.storage.local.get([key,oldPrefix+owner]);
+  if(stored[key]?.schema===2)return stored[key];
+  if(stored[oldPrefix+owner]) {
+    const entry=Model.normalise(stored[oldPrefix+owner],owner);
+    await chrome.storage.local.set({[key]:entry});
+    await chrome.storage.local.remove(oldPrefix+owner);return entry;
+  }
+}
+function mergeRecords(previous, additions) {
+  const records=new Map((previous || []).map(record=>[record.id,record]));
+  for(const record of additions || [])records.set(record.id,record);
+  return [...records.values()];
+}
+async function handle(message,sender) {
+  if(sender.id!==chrome.runtime.id || message?.scope!=='rcs-directory')return;
+  if(message.action==='bootstrap') {
+    // Stays in the isolated extension world; only the authenticated account is sent to the page.
+    const saved=await chrome.storage.local.get(null),entries={};
+    for(const key of Object.keys(saved))if(key.startsWith(cachePrefix) || key.startsWith(oldPrefix)) {
+      const owner=key.slice(key.startsWith(cachePrefix)?cachePrefix.length:oldPrefix.length);
+      if(/^@[^:\s]{1,200}:[^\s]{1,200}$/.test(owner))entries[owner]=Model.view(await entryFor(owner));
+    }
+    return {entries};
+  }
+  if(message.action==='clear') {
+    if(sender.tab || !sender.url?.startsWith(chrome.runtime.getURL('')))throw Error('Open the extension popup to clear the cache.');
+    const all=await chrome.storage.local.get(null);
+    await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(cachePrefix)||key.startsWith(oldPrefix)));
+    const session=await chrome.storage.session.get(null);
+    await chrome.storage.session.remove(Object.keys(session).filter(key=>key.startsWith(leasePrefix)||key.startsWith(sessionPrefix)));
+    return {cleared:true};
+  }
+  const owner=message.owner;
+  if(typeof owner!=='string' || !/^@[^:\s]{1,200}:[^\s]{1,200}$/.test(owner))throw Error('Invalid account');
+  const holder=sender.tab?.id+':'+(sender.documentId || sender.frameId || 0);
+  const now=Date.now();
+  if(message.action==='detach') {
+    const leaseKey=leasePrefix+owner,trafficKey=trafficPrefix+owner;
+    const saved=await chrome.storage.session.get([leaseKey,trafficKey]);
+    if(saved[leaseKey]?.holder===holder)await chrome.storage.session.remove(leaseKey);
+    if(saved[trafficKey])await chrome.storage.session.set({[trafficKey]:{...saved[trafficKey],permits:saved[trafficKey].permits.filter(p=>p.holder!==holder)}});
+    return {detached:true};
+  }
+  if(message.action.startsWith('traffic-')) {
+    const key=trafficPrefix+owner;
+    const traffic=(await chrome.storage.session.get(key))[key] || {permits:[],cooldownUntil:0};
+    const cooldownKey='rcs-request-cooldown-v1:'+owner;
+    const cooldown=(await chrome.storage.local.get(cooldownKey))[cooldownKey];
+    traffic.cooldownUntil=Math.max(traffic.cooldownUntil,cooldown?.until || 0);
+    traffic.permits=traffic.permits.filter(permit=>permit.expires>now);
+    if(message.action==='traffic-cooldown') {
+      if(!Number.isFinite(message.until))throw Error('Invalid cooldown');
+      traffic.cooldownUntil=Math.max(traffic.cooldownUntil,message.until);
+      await chrome.storage.local.set({[cooldownKey]:{until:traffic.cooldownUntil}});
+    } else if(message.action==='traffic-acquire') {
+      if(traffic.cooldownUntil>now)return {busy:true,waitMs:Math.min(1000,traffic.cooldownUntil-now),cooldown:true};
+      if(traffic.permits.length>=2 || message.priority!=='interactive' && traffic.permits.some(p=>p.priority!=='interactive'))return {busy:true,waitMs:250};
+      const token=crypto.randomUUID();
+      traffic.permits.push({token,holder,priority:message.priority==='interactive'?'interactive':'background',expires:now+120000});
+      await chrome.storage.session.set({[key]:traffic});return {token};
+    } else if(message.action==='traffic-renew') {
+      const permit=traffic.permits.find(p=>p.token===message.token&&p.holder===holder);
+      if(!permit)throw Error('Request coordination expired');
+      permit.expires=now+120000;
+    } else if(message.action==='traffic-release')traffic.permits=traffic.permits.filter(p=>p.token!==message.token||p.holder!==holder);
+    else throw Error('Unknown request operation');
+    await chrome.storage.session.set({[key]:traffic});return {cooldownUntil:traffic.cooldownUntil};
+  }
+  const key=cachePrefix+owner,leaseKey=leasePrefix+owner,sessionKey=sessionPrefix+owner;
+  const stored=await chrome.storage.session.get([leaseKey,sessionKey]);
+  const lease=stored[leaseKey],session=stored[sessionKey] || {};
+  const entry=await entryFor(owner);
+  const reply={entry:Model.view(entry),verifiedAt:session.verifiedAt || 0};
+  if(message.action==='read')return reply;
+  if(message.action==='invalidate') {await chrome.storage.session.remove(sessionKey);return {...reply,verifiedAt:0};}
+  const owns=Boolean(lease && lease.token===message.token && lease.holder===holder && lease.expires>now);
+  if(message.action==='acquire') {
+    if(lease && lease.expires>now)return {...reply,busy:true};
+    const token=crypto.randomUUID();
+    await chrome.storage.session.set({[leaseKey]:{token,holder,expires:now+90000}});
+    return {...reply,token};
+  }
+  if(!owns)throw Error('Directory update expired. Please retry.');
+  if(message.action==='renew') {
+    await chrome.storage.session.set({[leaseKey]:{...lease,expires:now+90000}});return {renewed:true};
+  }
+  if(message.action==='publish' || message.action==='checkpoint') {
+    if(!Array.isArray(message.records))throw Error('Invalid directory');
+    const previous=Model.view(entry),identityMap={...(entry?.identities || {})};
+    for(const person of message.identities || []) {
+      const incoming=Model.identity(person);if(incoming)identityMap[incoming.id]=Model.mergeIdentity(identityMap[incoming.id],incoming);
+    }
+    // Absence from a scan is not evidence of permanent conversation deletion.
+    const records=mergeRecords(previous?.records,message.records);
+    const complete=message.action==='publish' && message.full===true || message.discoveryComplete===true;
+    const directoryComplete=complete || Boolean(entry?.directoryComplete),activityComplete=message.activityComplete===true || Boolean(entry?.activityComplete);
+    const saved=Model.normalise({records,identities:identityMap,revision:message.revision || entry?.revision || '',
+      nativeRevision:message.nativeRevision || entry?.nativeRevision || '',
+      directoryComplete,activityComplete,
+      directoryCursor:directoryComplete ? null : Object.hasOwn(message,'directoryCursor') ? message.directoryCursor : entry?.directoryCursor,
+      activityCursor:activityComplete ? null : Object.hasOwn(message,'activityCursor') ? message.activityCursor : entry?.activityCursor,
+      directoryVerifiedAt:complete ? now : entry?.directoryVerifiedAt || 0},owner);
+    await chrome.storage.local.set({[key]:saved});
+    if(complete)await chrome.storage.session.set({[sessionKey]:{verifiedAt:now}});
+    if(message.action==='publish')await chrome.storage.session.remove(leaseKey);
+    return {entry:Model.view(saved),verifiedAt:complete ? now : reply.verifiedAt};
+  }
+  if(message.action==='release') {await chrome.storage.session.remove(leaseKey);return {released:true};}
+  throw Error('Unknown cache operation');
+}
+chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+  if(message?.scope!=='rcs-directory')return;
+  const result=queue.then(()=>handle(message,sender));queue=result.catch(()=>{});
+  result.then(value=>respond({ok:true,...value}),()=>respond({ok:false,error:'Unable to coordinate the username cache. Please retry.'}));
+  return true;
+});
