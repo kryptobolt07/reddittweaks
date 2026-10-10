@@ -135,7 +135,7 @@
       this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;this.scope='people';this.savedHits=[];this.savedTotal=0;this.savedGeneration=0;this.savedOwner=undefined;this.savedLoading=false;
       this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
-      this.host.setAttribute('data-rcs-version','0.4.0');
+      this.host.setAttribute('data-rcs-version','0.4.1');
       const shadow = this.host.attachShadow({mode:'open'});
       const style = node('style', '', css); shadow.append(style);
       this.toggle = node('button', 'toggle', 'Search messages'); this.toggle.type = 'button';
