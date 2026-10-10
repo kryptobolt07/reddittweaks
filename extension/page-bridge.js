@@ -12,6 +12,8 @@
   const capturedIdentities=new Map();
   const capturedCoverage=new Map();
   let nativeCapture;
+  let cacheConsumerReady=false;
+  document.addEventListener('rcs-message-cache-listening',()=>{cacheConsumerReady=true;});
   let watchedSignature='';
   let watchTimer;
   const identityCaches = new Map();
@@ -90,7 +92,11 @@
     const owner=ctx.client.getUserId();
     const map=ctx.client.getAccountData?.('m.direct')?.getContent() || {};
     const ids=[...new Set([...(ctx.client.getRooms?.() || []).map(room=>room.roomId),...Object.values(map).filter(Array.isArray).flat()])].filter(id=>typeof id==='string').sort();
-    return {owner,ids,revision:JSON.stringify(ids),metadataVersion,changedIds:[...changedRooms],profileChangedIds:[...profileChangedRooms]};
+    const roomMeta=Object.fromEntries((ctx.client.getRooms?.() || []).map(room=>{
+      const event=room.getStateEvents?.('com.reddit.chat.type','') || room.currentState?.getStateEvents?.('com.reddit.chat.type','');
+      return [room.roomId,{membership:room.getMyMembership?.() || '',type:event?.getContent?.()?.type || '',name:room.name || '',hasParticipants:(room.getMembers?.() || []).some(member=>member.userId!==owner && ['join','invite'].includes(member.membership))}];
+    }));
+    return {owner,ids,roomMeta,revision:JSON.stringify(ids),metadataVersion,changedIds:[...changedRooms],profileChangedIds:[...profileChangedRooms]};
   }
   function watchDirectory(ctx) {
     const owner=ctx.client?.getUserId?.();
@@ -120,7 +126,7 @@
             if(root)nativeHistoryEvent(root,thread.roomId);
             seedNativeTimelines(ctx);
           }
-          if(type==='sync')seedNativeTimelines(ctx);
+          if(type==='sync'){seedNativeTimelines(ctx);announceNativeCache(ctx);}
           if(type==='Room')captureNativeRoom(ctx,values[0]);
           signalDirectory(type,...values);
         }
@@ -128,6 +134,15 @@
       nativeHandlers.set(type,handler);client.on(type,handler);
     }
     seedNativeTimelines(ctx);
+    announceNativeCache(ctx);
+  }
+  function announceNativeCache(ctx) {
+    const state=nativeCapture;if(state?.client!==ctx.client || state.owner!==ctx.client.getUserId())return;
+    const db=ctx.client.store?.backend?.db,sourceReady=db?.name==='reddit-chat-store' && db.objectStoreNames?.contains('room_timeline');
+    if(state.announced && (!sourceReady || state.localSource===db))return;
+    if(sourceReady && state.localSource && state.localSource!==db)state.attachment=crypto.randomUUID();
+    state.announced=true;state.localSource=sourceReady?db:null;state.attachment ||= crypto.randomUUID();
+    document.dispatchEvent(new CustomEvent('rcs-message-cache-connected',{detail:JSON.stringify({owner:state.owner,attachment:state.attachment,sourceReady:Boolean(sourceReady)})}));
   }
   function cacheIdentity(ctx,id) {
     const person=historyIdentity(ctx,id);
@@ -258,8 +273,9 @@
   async function importNativeHistory(ctx,job) {
     // Read the verified native schema directly. Reddit's high-level loader
     // races network; its degradable store wrapper can clear DB on failure.
+    await ctx.client.syncApi?.savedSyncPromise;check(job);
     const db=ctx.client.store?.backend?.db;
-    if(db?.name!=='reddit-chat-store' || !db.objectStoreNames?.contains('room_timeline'))return {available:false,imported:0};
+    if(db?.name!=='reddit-chat-store' || !db.objectStoreNames?.contains('room_timeline'))return {available:false,retryable:true,imported:0};
     let lastKey,imported=0,scanned=0,malformed=false;
     const matrixHost=ctx.find?.('rs-matrix-client');
     const guard=()=>{
@@ -357,7 +373,7 @@
     const raw={...event,room_id:id};
     const ctx={client:watchedClient},owner=watchedClient.getUserId();
     if(owner!==watchedOwner)return;
-    if(raw.type==='m.room.member'){rememberMembers([raw],ctx);publishIdentityChanges(ctx,new Set([raw.state_key]));}
+    if(raw.type==='m.room.member'){rememberMembers([raw],ctx);publishIdentityChanges(ctx,new Set([raw.state_key]));signalDirectory('RoomState.events',{roomId:id,event:raw});}
     const interested=[...running.values()].some(job=>!job.cancelled && job.request?.method==='history' && job.request.roomId===id);
     const room=histories.get(owner,id,interested);
     const changed=room ? histories.accept(room,raw) : [];
@@ -369,9 +385,9 @@
   }
   function signalDirectory(type,...values) {
     for(const value of values) {
-      const id=value?.getRoomId?.() || value?.roomId;
+      const id=value?.getRoomId?.() || value?.roomId || value?.room_id || value?.event?.room_id;
       if(id){changedRooms.add(id);metadataVersion++;}
-      const raw=value?.event;
+      const raw=value?.event || value;
       if(raw?.type==='m.room.member' && watchedClient) {
         const ctx={client:watchedClient},saved=profileCache(ctx).get(raw.state_key);
         if(id && saved && (raw.origin_server_ts || 0)>(saved.verifiedAt || 0))profileChangedRooms.add(id);
@@ -596,14 +612,14 @@
   function stateOf(room) { return mergeState(listOf(room.invite_state),listOf(room.state)); }
   function mergeState(...groups) {
     const events=new Map();
-    for(const group of groups)for(const event of group)events.set(`${event.type}\u0000${event.state_key || ''}`,event);
+    for(const group of groups)for(const event of group){const key=`${event.type}\u0000${event.state_key || ''}`,before=events.get(key);if(!before?.origin_server_ts || !event.origin_server_ts || event.origin_server_ts>=before.origin_server_ts)events.set(key,event);}
     return [...events.values()];
   }
   function cachedRoom(native) {
     const state=[];
     for(const type of ['com.reddit.chat.type','m.room.name','m.room.avatar']) {
       const event=native.getStateEvents?.(type,'') || native.currentState?.getStateEvents?.(type,'');
-      if(event?.getContent)state.push({type,state_key:'',content:event.getContent()});
+      if(event?.getContent)state.push({type,state_key:'',content:event.getContent(),origin_server_ts:event.getTs?.()});
     }
     for(const member of native.getMembers?.() || []) {
       const event=member.events?.member;
@@ -651,16 +667,19 @@
       const person=resolvedIdentity(participants[0],people.get(participants[0]),ctx);
       const saved=knownConversations.get(raw.room_id);
       const native=ctx.client.getRoom?.(raw.room_id);
-      const name=value('m.room.name')?.name || (directRoom ? person.name || saved?.name || native?.name || 'Username unavailable' : saved?.name || native?.name || (type==='reddit_modmail' ? 'Modmail' : 'Group chat'));
+      const nativeName=[native?.name,raw.nativeName].find(name=>name && name!=='Empty room') || '';
+      const savedName=saved?.name && saved.name!=='Empty room'?saved.name:'';
+      const name=value('m.room.name')?.name || (directRoom ? person.name || savedName || nativeName || 'Username unavailable' : nativeName || savedName || (raw.pendingInvite ? 'Chat request' : type==='reddit_modmail' ? 'Modmail' : 'Group chat'));
       const avatar=directRoom ? person.avatar || saved?.avatar || '' : safeImage(value('m.room.avatar')?.url,ctx.client);
-      return {id:raw.room_id,name,avatar,type,membership:raw.membership || native?.getMyMembership?.() || saved?.membership || '',
+      const membership=state.find(event=>event.type==='m.room.member' && event.state_key===own)?.content?.membership || raw.membership || native?.getMyMembership?.() || saved?.membership || '';
+      return {id:raw.room_id,name,avatar,type,membership,
         hidden:Boolean(native?.getAccountData?.('com.reddit.hidden_chat')?.getContent?.()?.hidden || saved?.hidden),
         historicalName:directRoom && person.historical,accountUnavailable:directRoom && person.unavailable,
         aliases:participants.flatMap(id=>resolvedIdentity(id,people.get(id),ctx).aliases),
         participantIds:participants,participants:participants.map(id=>resolvedIdentity(id,people.get(id),ctx).name).filter(Boolean),
         identities:participants.map(id=>identityRecord(id,people.get(id),ctx)),
-        status:raw.participantAccessDenied ? 'participants-unavailable' : '',
-        identityPending:type!=='reddit_modmail' && (Boolean(raw.participantAccessDenied) || participants.some(id=>{
+        status:raw.pendingInvite ? 'invite-pending' : raw.participantAccessDenied ? 'participants-unavailable' : '',
+        identityPending:type!=='reddit_modmail' && (Boolean(raw.participantAccessDenied || raw.pendingInvite) || participants.some(id=>{
           const person=resolvedIdentity(id,people.get(id),ctx),retained=identityCache(ctx).get(id);
           return !person.name || person.unavailable && !person.historical && !retained?.recoveryCheckedAt;
         })),
@@ -755,7 +774,10 @@
       // Invitations and departed rooms may deny membership reads even though
       // Reddit includes them in its directory. One such room must not block
       // accessible conversations or discard the already-resolved identities.
-      if(raw.membership==='leave' || raw.membership==='ban' || knownConversations.get(raw.room_id)?.status==='participants-unavailable' && !request.refreshProfiles && !request.changedIds?.includes(raw.room_id)) {raw.participantAccessDenied=true;continue;}
+      const membership=stateOf(raw).find(event=>event.type==='m.room.member' && event.state_key===own)?.content?.membership || raw.membership;
+      if(membership==='invite'){raw.pendingInvite=true;continue;}
+      const saved=knownConversations.get(raw.room_id);
+      if(membership==='leave' || membership==='ban' || saved?.status==='participants-unavailable' && membership===saved.membership && !request.refreshProfiles && !request.changedIds?.includes(raw.room_id)) {raw.participantAccessDenied=true;continue;}
       try {
         const data=await retryRead(()=>ctx.client.http.authedRequest('GET','/rooms/'+encodeURIComponent(raw.room_id)+'/members',{not_membership:'leave'}),job);
         if(!Array.isArray(data.chunk))throw problem('Reddit did not return conversation participants. Search is incomplete.');
@@ -887,6 +909,7 @@
     if((room.complete || rangeCovered(room,historyDateStart(job.requestedDates))) && !request.refresh) {
       job.historyMeta={complete:room.complete,dateComplete:true,dates:job.requestedDates,redacted:[...room.removed]};
       publishCache(ctx,roomId,[],'history-verified',job.historyMeta);
+      if(cacheConsumerReady)await flushNativeCache(job,()=>check(job));
       return histories.project(room,id=>historyIdentity(ctx,id));
     }
     let load=room.loading;
@@ -916,7 +939,7 @@
     try {
       const records=await load.promise;check(job);
       job.historyMeta={complete:room.complete,dateComplete:rangeCovered(room,historyDateStart(job.requestedDates)),dates:job.requestedDates,redacted:[...room.removed]};
-      publishCache(ctx,roomId,[],'history-verified',job.historyMeta);return records;
+      publishCache(ctx,roomId,[],'history-verified',job.historyMeta);if(cacheConsumerReady)await flushNativeCache(job,()=>check(job));return records;
     } finally {load.jobs.delete(job);}
   }
   document.addEventListener('rcs-message-cache-reset',event=>{
@@ -950,7 +973,7 @@
     }
     state.failed=false;runNativeCapture(state);
   });
-  const observeNativeClient=()=>{try{const ctx=context();if(ctx.client?.getUserId?.())watchDirectory(ctx);}catch{ /* Native discovery is optional and fail open. */ }};
+  const observeNativeClient=()=>{try{const ctx=context();if(ctx.client?.getUserId?.()){watchDirectory(ctx);announceNativeCache(ctx);}}catch{ /* Native discovery is optional and fail open. */ }};
   setTimeout(observeNativeClient,0);
   setInterval(observeNativeClient,1500);
   document.addEventListener('rcs-chat-starting',observeNativeClient);

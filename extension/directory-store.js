@@ -102,13 +102,18 @@
       const full=force || !entry?.directoryComplete;
       const knownIds=(entry?.records || []).map(record=>record.id);
       const known=new Set(knownIds);
-      const retryIds=(entry?.records || []).filter(record=>record.type!=='reddit_modmail' && record.status!=='participants-unavailable' && (
+      const retryIds=(entry?.records || []).filter(record=>record.type!=='reddit_modmail' && !['participants-unavailable','invite-pending'].includes(record.status) && (
         !record.identities?.length || record.identities.some(person=>
           (person.pending || !person.availabilityKnown) && person.profileRetryAt<=Date.now() ||
           person.accountUnavailable && !person.historicalName && !person.recoveryCheckedAt
         )
       )).map(record=>record.id);
-      const changedIds=[...new Set([...(context.changedIds || []),...retryIds])];
+      const membershipIds=(entry?.records || []).filter(record=>{
+        if(!['participants-unavailable','invite-pending'].includes(record.status) && record.membership!=='invite')return false;
+        const native=context.roomMeta?.[record.id];
+        return native && (record.status==='participants-unavailable' && native.membership==='invite' || native.membership && native.membership!==record.membership || native.type && native.type!==record.type || record.identityPending && native.hasParticipants || native.name && native.name!=='Empty room' && native.name!==record.name);
+      }).map(record=>record.id);
+      const changedIds=[...new Set([...(context.changedIds || []),...retryIds,...membershipIds])];
       const needsActivity=!full && !entry.activityComplete && entry.records.some(r=>r.type!=='reddit_modmail' && !r.timestamp);
       if(!full && !context.ids.some(id=>!known.has(id)) && !changedIds.length) {
         await rpc(job,'prime-directory',{owner:context.owner,records:[],ackMetadataVersion:context.metadataVersion});

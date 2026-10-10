@@ -42,12 +42,12 @@ test('restricted invitations and departed rooms preserve accessible usernames wi
   client.http.authedRequest=async(method,path)=>{members.push(path);throw Object.assign(Error('forbidden'),{httpStatus:403,errcode:'M_FORBIDDEN'});};
   const records=await W.RCSData.request('conversations').promise;
   assert.equal(records.find(r=>r.id==='fantastic').name,'Fantastic_Care9298');
-  assert.equal(records.find(r=>r.id==='restricted').status,'participants-unavailable');
+  assert.equal(records.find(r=>r.id==='restricted').status,'invite-pending');
   assert.equal(records.find(r=>r.id==='restricted').identityPending,true);
   assert.equal(records.find(r=>r.id==='departed').identityPending,true);
-  assert.deepEqual(members,['/rooms/restricted/members']);
+  assert.deepEqual(members,[]);
   const again=await W.RCSData.request('conversations').promise;
-  assert.equal(again.find(r=>r.id==='fantastic').name,'Fantastic_Care9298');assert.equal(members.length,1);
+  assert.equal(again.find(r=>r.id==='fantastic').name,'Fantastic_Care9298');assert.equal(members.length,0);
 });
 test('invite state is retained even when the room has an empty normal state list',async t=>{
   const {W,client,rooms}=await setup(t,9);

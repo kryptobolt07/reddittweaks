@@ -1,6 +1,6 @@
 /* Isolated-world client. Page event account claims are checked against native identity. */
 (() => {
-  const subscribers=new Set(),initializations=new Map(),preparing=new Set(),imports=new Map(),importRequests=new Map(),clearedAccounts=new Set(),captureGaps=new Set(),pending=[];
+  const subscribers=new Set(),initializations=new Map(),preparing=new Set(),imports=new Map(),importRequests=new Map(),attachments=new Map(),clearedAccounts=new Set(),captureGaps=new Set(),pending=[];
   const MAX_BATCHES=500,MAX_EVENTS=10000,MAX_BYTES=8*1024*1024;
   let owner=null,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
   const runtime=globalThis.chrome?.runtime,memory=!runtime?.sendMessage?new RCSMessageStore.Store({indexedDB:null}):null;
@@ -22,7 +22,7 @@
   }
   async function drain() {
     while(pending.length){const item=pending[0],active=await context();if(!pending.includes(item))continue;if(item.batch.owner!==active){pending.splice(pending.indexOf(item),1);continue;}
-      item.inFlight=true;try{await call('ingest',item.batch);}finally{item.inFlight=false;}const index=pending.indexOf(item);if(index>=0)pending.splice(index,1);writeError=null;notify({owner:active,changed:true});}
+      let result;item.inFlight=true;try{result=await call('ingest',item.batch);}finally{item.inFlight=false;}const index=pending.indexOf(item);if(index>=0)pending.splice(index,1);writeError=null;if(result.changed!==false)notify({owner:active,changed:true,roomIds:result.roomIds});}
   }
   function schedule(){if(draining)return queue;draining=true;queue=queue.then(drain).catch(error=>{writeError=error;notify({owner,error:error.message});}).finally(()=>{draining=false;});return queue;}
   function enqueue(batch) {
@@ -54,7 +54,7 @@
       for(const account of accounts)if(account){initializations.delete(account);preparing.delete(account);captureGaps.delete(account);clearedAccounts.add(account);importRequests.get(account)?.cancel?.();imports.set(account,{available:false,cleared:true});}
       if(affectsActive){writeError=null;overflowError=null;document.dispatchEvent(new CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:message.owner || owner})}));}
     }
-    if(affectsActive)notify({owner,changed:true,cleared:message.cleared});
+    if(affectsActive)notify({owner,changed:true,cleared:message.cleared,roomIds:message.roomIds});
   });
   async function flush({barrier=false}={}){await queue;if(pending.length)await schedule();if(writeError)throw writeError;if(overflowError && (!owner || overflowError.account===owner) && !barrier)throw overflowError;}
   document.addEventListener('rcs-message-cache-flush',async event=>{
@@ -72,15 +72,32 @@
   async function ensureReady(active) {
     if(!initializations.has(active)){
       preparing.add(active);
+      const current=()=>initializations.get(active)===task && owner===active && !clearedAccounts.has(active);
       const task=(async()=>{await flush();const value=await call('stats',{owner:active});
-        if(!memory && !value.nativeImportComplete){if(!imports.has(active)){try{const request=RCSData.request('cache-native-history',{owner:active,awaitCache:true});importRequests.set(active,request);const result=await request.promise;if(!clearedAccounts.has(active))imports.set(active,result);}catch(error){if(!clearedAccounts.has(active)){imports.set(active,{available:false});notify({owner:active,error:error.message});}}finally{importRequests.delete(active);}}
-          await flush();if(!clearedAccounts.has(active) && !captureGaps.has(active) && imports.get(active)?.available===true){if(await context()!==active)throw Error('Reddit account changed. Please retry.');await call('mark-native-import-complete',{owner:active});}}
+        // Completion records a successful past read, not future freshness.
+        // Reconcile local cached events once for each new page attachment.
+        if(!memory && current()){if(!imports.has(active)){let request;try{request=RCSData.request('cache-native-history',{owner:active,awaitCache:true});importRequests.set(active,request);const result=await request.promise;if(current())imports.set(active,result);}catch(error){if(current()){imports.set(active,{available:false});notify({owner:active,error:error.message});}}finally{if(importRequests.get(active)===request)importRequests.delete(active);}}
+          await flush();if(current() && !captureGaps.has(active) && imports.get(active)?.available===true){if(await context()!==active)throw Error('Reddit account changed. Please retry.');if(current())await call('mark-native-import-complete',{owner:active});}}
         return value;
       })();initializations.set(active,task);
       task.then(()=>{if(initializations.get(active)===task){preparing.delete(active);notify({owner:active,changed:true});}},()=>{if(initializations.get(active)===task){preparing.delete(active);initializations.delete(active);}});
     }
     return initializations.get(active);
   }
+  document.addEventListener('rcs-message-cache-connected',async event=>{
+    document.dispatchEvent(new CustomEvent('rcs-message-cache-listening'));
+    let value;try{value=JSON.parse(event.detail);}catch{return;}
+    if(!RCSMessageStore.ownerOK(value?.owner) || typeof value.attachment!=='string' || value.attachment.length>100)return;
+    try {
+      const active=await context();if(active!==value.owner || clearedAccounts.has(active))return;
+      const previous=attachments.get(active);attachments.set(active,value.attachment);
+      if(previous && previous!==value.attachment){importRequests.get(active)?.cancel?.();initializations.delete(active);preparing.delete(active);imports.delete(active);}
+      await ensureReady(active);
+      // A client can expose its account before its database opens. Retry once
+      // on the native ready transition, not on every sync heartbeat.
+      if(owner===active && value.sourceReady && !clearedAccounts.has(active) && imports.get(active)?.retryable){initializations.delete(active);imports.delete(active);await ensureReady(active);}
+    }catch(error){notify({owner:value.owner,error:error.message});}
+  });
   async function read(action,parameters={},waitForImport=false) {
     const active=await context(),initialization=ensureReady(active);
     // Saved results are useful before the one-time native import finishes.
@@ -91,4 +108,5 @@
     return {...result,importing:preparing.has(active),captureIncomplete:captureGaps.has(active)};
   }
   globalThis.RCSMessages=Object.freeze({ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),flush,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
+  document.dispatchEvent(new CustomEvent('rcs-message-cache-listening'));
 })();

@@ -131,9 +131,9 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
 importScripts('search-core.js','message-store.js');
 const messages=new RCSMessageStore.Store();
 let messageQueue=Promise.resolve();
-async function notifyMessageTabs(owner,cleared=false) {
+async function notifyMessageTabs(owner,cleared=false,roomIds) {
   const tabs=await chrome.tabs.query({});
-  await Promise.all(tabs.map(tab=>chrome.tabs.sendMessage(tab.id,{scope:'rcs-messages-changed',owner,cleared}).catch(()=>{})));
+  await Promise.all(tabs.map(tab=>chrome.tabs.sendMessage(tab.id,{scope:'rcs-messages-changed',owner,cleared,...(roomIds?{roomIds}:{})}).catch(()=>{})));
 }
 async function handleMessages(message,sender) {
   if(sender.id!==chrome.runtime.id)throw Error('Invalid sender');
@@ -146,7 +146,7 @@ async function handleMessages(message,sender) {
   }
   if(message.action==='stats' && popup)return messages.stats(message.owner);
   if(!RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
-  if(message.action==='ingest') {const result=await messages.ingest(message);await notifyMessageTabs(message.owner);return result;}
+  if(message.action==='ingest') {const result=await messages.ingest(message);if(result.changed!==false)await notifyMessageTabs(message.owner,false,result.roomIds);return result;}
   if(message.action==='mark-native-import-complete'){await messages.importState(message.owner,true);return {nativeImportComplete:true};}
   if(message.action==='stats')return messages.stats(message.owner);
   if(message.action==='search')return messages.search(message.owner,message,await entryFor(message.owner));

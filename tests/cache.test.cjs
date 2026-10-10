@@ -51,7 +51,7 @@ test('saved directory survives a new tab, issues no Reddit reads, and can open a
   assert.equal(restored.find(record=>record.id==='oldfriend').name,'old_friend');assert.equal(second.api.calls.length,0);
   await second.W.RCSData.request('open',{roomId:'oldfriend'}).promise;assert.equal(second.api.active.id,'oldfriend');assert.equal(second.api.calls[0].method,'rooms');second.dom.window.close();
 });
-test('inaccessible participant status persists and a restored directory does not retry that invitation',async t=>{
+test('pending invite status persists without a forbidden lookup and resolves after acceptance across restart',async t=>{
   const cache=broker();let lookups=0;
   const addRestricted=env=>{
     const getRooms=env.client.getRooms,read=env.client.getRoomList;
@@ -62,11 +62,29 @@ test('inaccessible participant status persists and a restored directory does not
   const first=environment(cache);t.after(()=>first.dom.window.close());addRestricted(first);
   const records=await first.W.RCSDirectory.load().promise;
   assert.equal(records.find(r=>r.id==='oldfriend').name,'old_friend');
-  assert.equal(records.find(r=>r.id==='restricted').status,'participants-unavailable');assert.equal(lookups,1);
+  assert.equal(records.find(r=>r.id==='restricted').status,'invite-pending');assert.equal(lookups,0);
   assert.equal(cache.local.data['rcs-directory-v2:'+owner].directoryComplete,true,'room enumeration is complete, even though an identity is unresolved');
   first.dom.window.close();const second=environment(cache,2);t.after(()=>second.dom.window.close());addRestricted(second);
   const restored=await second.W.RCSDirectory.load().promise;
-  assert.equal(restored.find(r=>r.id==='restricted').identityPending,true);assert.equal(lookups,1);assert.equal(second.api.calls.length,0);
+  assert.equal(restored.find(r=>r.id==='restricted').identityPending,true);assert.equal(lookups,0);assert.equal(second.api.calls.length,0);
+  const getRooms=second.client.getRooms;
+  second.client.getRooms=()=>getRooms().map(room=>room.roomId==='restricted'?{roomId:'restricted',name:'Community invitation',getMyMembership:()=> 'join',currentState:{getStateEvents:type=>type==='com.reddit.chat.type'?{getContent:()=>({type:'reddit_modmail'}),getTs:()=>2000}:null}}:room);
+  const accepted=await second.W.RCSDirectory.load().promise;
+  assert.equal(accepted.find(r=>r.id==='restricted').membership,'join');assert.equal(accepted.find(r=>r.id==='restricted').type,'reddit_modmail');assert.equal(accepted.find(r=>r.id==='restricted').name,'Community invitation');assert.equal(accepted.find(r=>r.id==='restricted').identityPending,false);assert.equal(accepted.find(r=>r.id==='restricted').status,'');assert.equal(lookups,0);
+  assert.equal(cache.local.data['rcs-directory-v2:'+owner].conversations.find(r=>r.id==='restricted').membership,'join');
+});
+test('native membership acceptance resolves a saved pending request without a directory rebuild',async t=>{
+  const cache=broker(),env=environment(cache);t.after(()=>env.dom.window.close());let joined=false,lookups=0;
+  const read=env.client.getRoomList,getRooms=env.client.getRooms,getRoom=env.client.getRoom;
+  const invitation={roomId:'pending-person',name:'Empty room',getMyMembership:()=>joined?'join':'invite',getMembers:()=>joined?[{userId:'@t2_alex:reddit.com',membership:'join',name:'alex_morgan'}]:[]};
+  env.client.getRooms=()=>[...getRooms(),invitation];env.client.getRoom=id=>id===invitation.roomId?invitation:getRoom(id);
+  env.client.getRoomList=async options=>{const value=await read(options);value.rooms.push({room_id:invitation.roomId,membership:'invite',state:[]});return value;};
+  env.client.http.authedRequest=async()=>{lookups++;throw Object.assign(Error('forbidden'),{httpStatus:403});};
+  const pending=await env.W.RCSDirectory.load().promise;assert.equal(pending.find(r=>r.id===invitation.roomId).status,'invite-pending');assert.equal(lookups,0);
+  env.api.calls.length=0;joined=true;
+  env.listeners.get('RoomState.events')({event_id:'$accepted',room_id:invitation.roomId,type:'m.room.member',state_key:owner,origin_server_ts:2000,content:{membership:'join'}});
+  await tick(400);const accepted=await env.W.RCSDirectory.load().promise;
+  const room=accepted.find(r=>r.id===invitation.roomId);assert.equal(room.membership,'join');assert.equal(room.status,'');assert.equal(room.name,'alex_morgan');assert.equal(room.identityPending,false);assert.equal(lookups,0);assert.equal(env.api.calls.length,0);
 });
 test('parallel tabs share a single full directory fetch',async t=>{
   const cache=broker();const a=environment(cache),b=environment(cache,2);t.after(()=>{a.dom.window.close();b.dom.window.close();});t.after(()=>a.dom.window.close());
