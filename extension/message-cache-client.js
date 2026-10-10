@@ -33,9 +33,16 @@
     pending.push(...additions);return schedule();
   }
   document.addEventListener('rcs-message-cache-batch',event=>{let batch;try{batch=JSON.parse(event.detail);}catch{return;}if(batch && RCSMessageStore.ownerOK(batch.owner))enqueue(batch).catch(()=>{});});
-  runtime?.onMessage?.addListener(message=>{if(message?.scope!=='rcs-messages-changed' || message.owner && message.owner!==owner)return;
-    if(message.cleared){discard(message.owner);const account=message.owner || owner;if(account){initializations.delete(account);clearedAccounts.add(account);importRequests.get(account)?.cancel?.();imports.set(account,{available:false,cleared:true});}writeError=null;overflowError=null;document.dispatchEvent(new CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:message.owner || owner})}));}
-    notify({owner,changed:true,cleared:message.cleared});
+  runtime?.onMessage?.addListener(message=>{
+    if(message?.scope!=='rcs-messages-changed')return;
+    const affectsActive=!message.owner || message.owner===owner;
+    if(message.cleared){
+      const accounts=message.owner?[message.owner]:new Set([owner,...initializations.keys(),...imports.keys(),...importRequests.keys(),...clearedAccounts,...pending.map(item=>item.batch.owner)]);
+      discard(message.owner);
+      for(const account of accounts)if(account){initializations.delete(account);clearedAccounts.add(account);importRequests.get(account)?.cancel?.();imports.set(account,{available:false,cleared:true});}
+      if(affectsActive){writeError=null;overflowError=null;document.dispatchEvent(new CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:message.owner || owner})}));}
+    }
+    if(affectsActive)notify({owner,changed:true,cleared:message.cleared});
   });
   async function flush(){await queue;if(pending.length)await schedule();if(overflowError)throw overflowError;if(writeError)throw writeError;}
   document.addEventListener('rcs-message-cache-flush',async event=>{

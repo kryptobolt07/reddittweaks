@@ -176,3 +176,13 @@ test('directory identity enriches opaque saved sender hints and respects verifie
   const currentDirectory={identities:{[other]:{id:other,name:'CurrentHuman',accountUnavailable:false,historicalName:false,availabilityKnown:true}}};
   const available=(await store.search(owner,{},currentDirectory)).records[0];assert.equal(available.author,'CurrentHuman');assert.equal(available.authorUnavailable,false);assert.equal(available.authorHistorical,false);
 });
+test('clear-all invalidates previously imported accounts without same-document reimport or empty completion marker',async()=>{
+  const h=clientHarness();await h.win.RCSMessages.search({});h.setActive(other);await h.win.RCSMessages.search({});assert.equal(h.imports,2);assert.equal(h.marks,2);
+  await h.store.clear();h.change({scope:'rcs-messages-changed',owner:null,cleared:true});assert.equal((await h.win.RCSMessages.search({})).total,0);h.setActive(owner);assert.equal((await h.win.RCSMessages.search({})).total,0);
+  assert.equal(h.imports,2);assert.equal(h.marks,2);assert.equal(await h.store.importState(owner),false);assert.equal(await h.store.importState(other),false);h.dom.window.close();
+});
+test('targeted clear for an inactive account invalidates its import result and preserves active account marker',async()=>{
+  const h=clientHarness();await h.win.RCSMessages.search({});h.setActive(other);await h.win.RCSMessages.search({});
+  await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});assert.equal(await h.store.importState(other),true);await h.win.RCSMessages.search({});h.setActive(owner);await h.win.RCSMessages.search({});
+  assert.equal(await h.store.importState(owner),false);assert.equal(h.imports,2);assert.equal(h.marks,2);h.dom.window.close();
+});
