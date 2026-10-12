@@ -164,7 +164,7 @@ test('native header stays above search while list rows stay below; header overri
 
 test('operator commands insert query tokens and sender values use main avatar rows without native navigation',async t=>{
   const p=await setup(t);p.control.input.focus();p.type('coffee fr');assert.equal(p.control.suggestions.hidden,true);
-  p.type('coffee from');assert.equal(p.control.suggestions.hidden,false);assert.match(p.find('[role="option"]').textContent,/from:.*From a person/);assert.ok(p.find('[role="option"] svg'));const calls=p.requests.length;
+  p.type('coffee from');assert.equal(p.control.suggestions.hidden,false);assert.match(p.find('[role="option"]').textContent,/from:.*From a person/);assert.ok(p.find('[role="option"] svg'));const calls=p.requests.length,queries=p.searches.length;await p.tick(180);assert.equal(p.searches.length,queries,'operator command completion must not scan saved messages');
   await p.key('Enter');assert.equal(p.control.input.value,'coffee from:');assert.equal(p.control.suggestions.hidden,true);assert.ok(p.find('.sender-result .avatar'));assert.match(p.control.status.textContent,/Choose a sender/);
   p.cache.set('space',{id:'space',name:'Coffee Person',type:'direct'});p.control.senderChoicesCache=null;p.type('coffee from:Co');assert.match(p.find('.sender-result').textContent,/Coffee Person/);
   await p.key('ArrowDown');assert.ok(p.find('.sender-result.keyboard-focus'));await p.key('Enter');assert.equal(p.control.input.value,'coffee from:"Coffee Person" ');assert.equal(p.requests.length,calls);
@@ -197,7 +197,7 @@ test('has: autocomplete provides a valid link operator and missing native event 
 
 test('individual room tools insert operators and use the current result panel for sender selection',async t=>{
   const p=await setup(t),w=p.w,host=w.document.createElement('div');host.dataset.rcsUi='messages';const shadow=host.attachShadow({mode:'open'}),bar=w.document.createElement('div'),input=w.document.createElement('input'),date=w.document.createElement('button'),results=w.document.createElement('div'),status=w.document.createElement('span');date.innerHTML='<svg></svg>Date';bar.append(input,date);shadow.append(bar,results,status);p.fixture.room.shadowRoot.append(host);
-  let renders=0,loads=0,navigation=0;const room={host,bar,input,dateToggle:date,results,status,dates:{from:'',to:''},room:'alex',hits:[],active:-1,render(){renders++;room.tools?.sync();room.tools?.renderValueChoices();},ensureData(){if(!room.tools?.valuePicker())loads++;}};
+  let renders=0,loads=0,navigation=0;const room={host,bar,input,dateToggle:date,results,status,dates:{from:'',to:''},room:'alex',hits:[],active:-1,render(){renders++;room.tools?.sync();room.tools?.renderValueChoices();},ensureData(){if(!room.tools?.valuePicker() && room.tools?.suggestions.hidden!==false)loads++;}};
   input.addEventListener('input',()=>{room.render();room.ensureData();});room.datePicker=new w.RCSDatePicker({onChange:()=>{},onClose:()=>{}});shadow.append(room.datePicker.element);shadow.addEventListener('keydown',()=>{navigation++;});
   const before=p.requests.length,tools=w.RCSUnifiedSearch.decorateMessageControl(room,{cache:p.cache,adapter:w.RCSAdapter});t.after(()=>tools.destroy());
   assert.equal(p.requests.length,before);assert.equal(renders,0);assert.equal(loads,0);assert.equal(tools.filterButton.textContent,'');assert.equal(date.textContent,'');

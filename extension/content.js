@@ -510,7 +510,7 @@
       if(showNotice) {this.notice='Search stopped. Results may be incomplete.';this.render();}
     }
     async ensureData(force=false,reconcile=false) {
-      if(this.tools?.valuePicker?.() || C.parseQuery(this.input.value).invalid)return;
+      if(this.tools?.suggestions?.hidden===false || this.tools?.valuePicker?.() || C.parseQuery(this.input.value).invalid)return;
       if(this.isGlobal){if(force)this.savedKey='';this.querySaved(false,force,force);return;}
       if(this.kind==='messages'){const generation=this.savedGeneration;await this.readSavedRoom();if(generation!==this.savedGeneration)return;}
       const dateKey=JSON.stringify(this.dates || {});
