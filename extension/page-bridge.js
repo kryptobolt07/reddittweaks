@@ -88,13 +88,18 @@
     if(request.broadcast){request.broadcast(fields);return;}
     document.dispatchEvent(new CustomEvent(responseEvent,{detail:JSON.stringify({channel:request.channel,id:request.id,...fields})}));
   }
+  function unreadCount(room,raw={}) {
+    let count;try{count=room?.getUnreadNotificationCount?.('total');}catch{}
+    count ??= raw.unread_notifications?.notification_count;
+    return Number.isFinite(count) && count>=0 ? count : undefined;
+  }
   function directoryContext(ctx) {
     const owner=ctx.client.getUserId();
     const map=ctx.client.getAccountData?.('m.direct')?.getContent() || {};
     const ids=[...new Set([...(ctx.client.getRooms?.() || []).map(room=>room.roomId),...Object.values(map).filter(Array.isArray).flat()])].filter(id=>typeof id==='string').sort();
     const roomMeta=Object.fromEntries((ctx.client.getRooms?.() || []).map(room=>{
       const event=room.getStateEvents?.('com.reddit.chat.type','') || room.currentState?.getStateEvents?.('com.reddit.chat.type','');
-      return [room.roomId,{membership:room.getMyMembership?.() || '',type:event?.getContent?.()?.type || '',name:room.name || '',hasParticipants:(room.getMembers?.() || []).some(member=>member.userId!==owner && ['join','invite'].includes(member.membership))}];
+      return [room.roomId,{membership:room.getMyMembership?.() || '',type:event?.getContent?.()?.type || '',name:room.name || '',...(unreadCount(room)!==undefined ? {unreadCount:unreadCount(room)} : {}),hasParticipants:(room.getMembers?.() || []).some(member=>member.userId!==owner && ['join','invite'].includes(member.membership))}];
     }));
     return {owner,ids,roomMeta,revision:JSON.stringify(ids),metadataVersion,changedIds:[...changedRooms],profileChangedIds:[...profileChangedRooms]};
   }
@@ -116,8 +121,11 @@
       if(watchedClient!==client || watchedOwner!==owner || client.getUserId()!==owner || matrixHost && (!matrixHost.isConnected || matrixHost.client!==client))return;
       operation(...values);
     }catch{ /* Future native event models must fail open. */ }};
-    if(client.on)for(const type of ['sync','Room','deleteRoom','accountData','Room.name','Room.timeline','Room.redaction','Thread.update','Thread.newReply','RoomState.events','RoomMember.name','event']) {
+    if(client.on)for(const type of ['sync','Room','deleteRoom','accountData','Room.name','Room.timeline','Room.receipt','Room.unreadNotifications','Room.redaction','Thread.update','Thread.newReply','RoomState.events','RoomMember.name','event']) {
       const handler=guarded((...values)=>{
+        if(type==='Room.receipt' || type==='Room.unreadNotifications'){
+          document.dispatchEvent(new CustomEvent('rcs-conversation-activity',{detail:JSON.stringify(directoryContext(ctx))}));return;
+        }
         if(type==='event')nativeHistoryEvent(values[0]);
         else {
           if(['Room.timeline','Room.redaction','RoomState.events'].includes(type))nativeHistoryEvent(values[0],values[1]?.roomId);
@@ -625,7 +633,7 @@
       const event=member.events?.member;
       state.push({type:'m.room.member',state_key:member.userId,sender:event?.getSender?.(),origin_server_ts:event?.getTs?.(),unsigned:event?.getUnsigned?.(),content:event?.getContent?.() || {membership:member.membership || 'join',displayname:member.rawDisplayName || member.name,avatar_url:member.getMxcAvatarUrl?.()}});
     }
-    return {room_id:native.roomId,state,membership:native.getMyMembership?.() || '',summary:{'m.heroes':native.summaryHeroes || []},nativeName:native.name,timestamp:native.getLastActiveTimestamp?.() || 0};
+    return {room_id:native.roomId,state,...(unreadCount(native)!==undefined ? {unread_notifications:{notification_count:unreadCount(native)}} : {}),membership:native.getMyMembership?.() || '',summary:{'m.heroes':native.summaryHeroes || []},nativeName:native.name,timestamp:native.getLastActiveTimestamp?.() || 0};
   }
   function participantIds(raw,direct,own) {
     const type=stateOf(raw).find(event=>event.type==='com.reddit.chat.type')?.content;
@@ -672,7 +680,7 @@
       const name=value('m.room.name')?.name || (directRoom ? person.name || savedName || nativeName || 'Username unavailable' : nativeName || savedName || (raw.pendingInvite ? 'Chat request' : type==='reddit_modmail' ? 'Modmail' : 'Group chat'));
       const avatar=directRoom ? person.avatar || saved?.avatar || '' : safeImage(value('m.room.avatar')?.url,ctx.client);
       const membership=state.find(event=>event.type==='m.room.member' && event.state_key===own)?.content?.membership || raw.membership || native?.getMyMembership?.() || saved?.membership || '';
-      return {id:raw.room_id,name,avatar,type,membership,
+      return {id:raw.room_id,name,avatar,type,membership,...(unreadCount(native,raw)!==undefined ? {unreadCount:unreadCount(native,raw)} : {}),
         hidden:Boolean(native?.getAccountData?.('com.reddit.hidden_chat')?.getContent?.()?.hidden || saved?.hidden),
         historicalName:directRoom && person.historical,accountUnavailable:directRoom && person.unavailable,
         aliases:participants.flatMap(id=>resolvedIdentity(id,people.get(id),ctx).aliases),

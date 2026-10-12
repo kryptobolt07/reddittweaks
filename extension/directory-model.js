@@ -54,7 +54,7 @@
       records.set(item.id,{
         id:string(item.id),type,participantIds,name:direct && participantIds.length ? '' : string(item.name),
         avatar:direct && participantIds.length ? '' : image(item.avatar),aliases:direct && participantIds.length ? [] : strings(item.aliases),
-        timestamp:number(item.timestamp),membership:string(item.membership),hidden:Boolean(item.hidden),
+        timestamp:number(item.timestamp),...(Number.isFinite(item.unreadCount)&&item.unreadCount>=0 ? {unreadCount:item.unreadCount} : {}),membership:string(item.membership),hidden:Boolean(item.hidden),
         status:string(item.status),lastSeq:string(item.lastSeq),identityPending:Boolean(item.identityPending)
       });
     }
