@@ -100,6 +100,21 @@ test('messages that unload from a virtual timeline remain searchable without ret
   api.appendMessage('alex_morgan','A new coffee message','new-live-id');await tick();input.value='coffee';input.dispatchEvent(new W.Event('input'));assert.equal(control.querySelectorAll('.result').length,3);
   dom.window.close();
 });
+test('room snippets fit narrow results around a deep URL match and retain nodes through unrelated live activity',async()=>{
+  const dom=environment();const W=dom.window;const api=W.ChatFixture.build(W.document.body);
+  const text='Opening context '.repeat(35)+'https://example.com/'+ 'a'.repeat(70)+'MATCHPOINT'+'z'.repeat(60);
+  api.appendMessage('alex_morgan',text,'deep-link');
+  W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
+  W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();
+  const control=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;
+  const results=control.querySelector('.results');results.getBoundingClientRect=()=>({width:300});
+  const input=control.querySelector('input');input.value='MATCHPOINT';input.dispatchEvent(new W.Event('input'));
+  const preview=control.querySelector('.preview'),mark=preview.querySelector('mark');
+  assert.equal(mark.textContent,'MATCHPOINT');assert.ok(preview.textContent.length<=65);assert.ok(preview.textContent.startsWith('…'));
+  api.appendMessage('alex_morgan','Unrelated live message','unrelated');await tick();
+  assert.equal(control.querySelector('.preview'),preview);assert.equal(preview.querySelector('mark'),mark);
+  dom.window.close();
+});
 test('untrusted message text renders as text and never becomes HTML',async()=>{
   const dom=environment();const W=dom.window;const api=W.ChatFixture.build(W.document.body);api.appendMessage('alex_morgan','<img src=x onerror=alert(1)> coffee','xss');W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();
