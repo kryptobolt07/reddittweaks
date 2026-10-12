@@ -134,9 +134,9 @@
         const oldest=this.rooms.keys().next().value;this.rooms.delete(oldest);this.redacted.delete(oldest);this.metadata.delete(oldest);this.onEvict(oldest);
       }
     }
-    search(room, query,dates={}) {
+    search(room, query,dates={},options={}) {
       const parsed=parseQuery(query);
-      return [...(this.rooms.get(room)?.values() ?? [])].filter(message=>matchesQuery(message,parsed,{dates}));
+      return [...(this.rooms.get(room)?.values() ?? [])].filter(message=>matchesQuery(message,parsed,{...options,dates}));
     }
     replace(room,messages,metadata={}) {
       const previous=this.rooms.get(room);this.rooms.delete(room);if(previous)this.rooms.set(room,previous);
