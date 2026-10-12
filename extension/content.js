@@ -46,7 +46,6 @@
     .conversation-panel .message-heading { display:block; }
     .conversation-panel .message-heading .time { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
     .conversation-panel .preview { font-size:12px;-webkit-line-clamp:2; }
-    .coverage { padding:5px 10px;color:var(--rcs-muted);font-size:10px;border-bottom:1px solid var(--rcs-line); }
     .conversation-panel { height:var(--rcs-list-height,320px); display:flex; flex-direction:column; }
     .conversation-panel .results { max-height:none; flex:1; min-height:0; }
     .meta { padding:3px 9px; display:flex; align-items:center; justify-content:space-between; gap:6px; color:var(--rcs-muted); font-size:10px; border-bottom:1px solid var(--rcs-line); }
@@ -179,8 +178,7 @@
       if (kind === 'list') this.panel.classList.add('conversation-panel');
       else this.panel.classList.add('message-panel');
       this.results = node('div', 'results'); this.results.id = 'rcs-results';
-      this.coverage=node('div','coverage','Saved messages only · History may be incomplete');this.coverage.hidden=true;
-      this.panel.append(meta,this.coverage,this.results); shadow.append(this.toggle,this.bar);
+      this.panel.append(meta,this.results); shadow.append(this.toggle,this.bar);
       if(kind==='list'){this.scopeBar=node('div','scope');this.scopeBar.setAttribute('aria-label','Search scope');for(const [value,label] of [['people','People'],['all','All chats']]){const button=node('button','',label);button.type='button';button.dataset.scope=value;button.setAttribute('aria-pressed',String(value===this.scope));button.addEventListener('click',()=>this.setScope(value));this.scopeBar.append(button);}shadow.append(this.scopeBar);}if(this.datePicker)shadow.append(this.datePicker.element,node('style','',RCSDatePicker.styles));shadow.append(this.panel);
       this.toggle.hidden = kind === 'list'; this.bar.hidden = kind === 'messages'; this.panel.hidden = true;
       if (kind === 'messages') {
@@ -245,7 +243,7 @@
       if(this.scope===scope){this.showResults();return;}
       this.cancelLoad();this.scope=scope;this.savedKey='';this.active=-1;this.clearRows();this.browseOpen=true;
       const label=this.isGlobal?'Search saved messages':'Search usernames';this.input.placeholder=label;this.input.setAttribute('aria-label',label);this.panel.setAttribute('aria-label',`${label} results`);
-      this.dateToggle.hidden=!this.isGlobal;this.coverage.hidden=!this.isGlobal;this.dateChip.hidden=!this.isGlobal;
+      this.dateToggle.hidden=!this.isGlobal;this.dateChip.hidden=!this.isGlobal;
       for(const button of this.scopeBar.children)button.setAttribute('aria-pressed',String(button.dataset.scope===scope));
       if(!this.isGlobal)this.datePicker.close(false);
       this.render();this.ensureData();this.input.focus();
@@ -388,8 +386,8 @@
       if(this.kind==='list' && this.loading && !this.refreshing && globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete)this.status.textContent=`${this.hits.length} saved conversations · ${this.progress.startsWith('Waiting') ? this.progress.replace(/\s*\(\d+\)$/,'') : this.progress.includes('dates') ? 'Updating dates…' : 'Checking updates…'}`;
       if(this.kind==='messages')this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.hits.length} match${this.hits.length===1?'':'es'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;
       if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || (!this.savedStats && this.savedLoading ? 'Searching saved messages…' : `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedSavingError ? ' · Saving paused' : this.savedImporting ? ' · Saving cached messages…' : this.savedLoading ? ' · Searching…' : ''}`);
-      if(this.isGlobal){this.coverage.textContent=`${this.savedCaptureIncomplete ? 'Some captures unavailable' : this.savedPersistent===false ? 'Session messages only' : 'Saved messages only'} · History may be incomplete`;this.coverage.title=this.savedSavingError ? `Saving failed: ${this.savedSavingError}. Refresh to retry pending writes.` : '';this.load.textContent='Refresh';}
-      this.status.title=this.status.textContent;
+      if(this.isGlobal)this.load.textContent='Refresh';
+      this.status.title=this.savedSavingError ? `${this.status.textContent} · ${this.savedSavingError}` : this.status.textContent;
       const wanted=[];
       for (const [i, hit] of this.hits.slice(0,this.renderLimit).entries()) {
         const key=this.rowKey(hit);

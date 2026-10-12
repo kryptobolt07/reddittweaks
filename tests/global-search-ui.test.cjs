@@ -62,7 +62,7 @@ test('All chats searches only saved messages, preserves separate room rows and e
   all();query('alpha');await wait(140);
   assert.equal(nativeCalls.length,0);assert.equal(savedCalls.at(-1).query,'alpha');
   const rows=visibleRows(root);assert.equal(rows.length,2);assert.equal(rows[1].querySelector('.name').textContent,'You');
-  assert.match(root.querySelector('.coverage').textContent,/History may be incomplete/);assert.match(root.querySelector('[role=status]').textContent,/2 saved chats/);
+  assert.equal(root.querySelector('.coverage'),null);assert.match(root.querySelector('[role=status]').textContent,/2 saved chats/);
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
   assert.equal(nativeCalls.length,0,'arrows only move result focus');
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await wait(0);
@@ -97,7 +97,7 @@ test('empty saved cache explains coverage without triggering network history',as
 test('saving failure keeps committed matches visible and Refresh explicitly retries without a history request',async t=>{
   let paused=true;const {all,query,root,savedCalls,nativeCalls}=setup(t,{search:async args=>{if(args.retryWrites)paused=false;return {owner:'fixture-owner',persistent:true,records,total:2,stats:{rooms:2},savingError:paused?'Synthetic quota failure':''};}});
   await wait(20);nativeCalls.length=0;all();query('alpha');await wait(140);
-  const row=visibleRows(root)[0];assert.equal(visibleRows(root).length,2);assert.match(root.querySelector('[role=status]').textContent,/Saving paused/);assert.match(root.querySelector('.coverage').title,/quota failure/);
+  const row=visibleRows(root)[0];assert.equal(visibleRows(root).length,2);assert.match(root.querySelector('[role=status]').textContent,/Saving paused/);assert.match(root.querySelector('[role=status]').title,/quota failure/);
   root.querySelector('.load').click();assert.equal(visibleRows(root)[0],row,'Refresh retains existing matches while retrying');await wait(140);
   assert.equal(savedCalls.at(-1).retryWrites,true);assert.equal(visibleRows(root)[0],row);assert.doesNotMatch(root.querySelector('[role=status]').textContent,/Saving paused/);assert.equal(nativeCalls.length,0);
 });

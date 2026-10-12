@@ -68,7 +68,7 @@ test('real global interface searches captured messages and receives redactions w
   const root=env.W.RCSAdapter.query('[data-rcs-ui="list"]',env.api.nav).shadowRoot;
   root.querySelector('[data-scope="all"]').click();const input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new env.W.Event('input'));await wait(160);
   assert.equal(root.querySelectorAll('.result').length,1);assert.equal(root.querySelector('.name').textContent,'You');assert.equal(env.api.calls.length,0);
-  assert.match(root.querySelector('.coverage').textContent,/incomplete/);
+  assert.equal(root.querySelector('.coverage'),null);
   env.emit(event('$remove','',{type:'m.room.redaction',redacts:'$visible'}));await env.W.RCSMessages.flush();await wait(160);
   assert.equal(root.querySelectorAll('.result').length,0);assert.equal(env.api.calls.length,0);
 });
