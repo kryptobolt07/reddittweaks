@@ -35,7 +35,7 @@ test('unified panel mounts into native fixture with real local storage, native i
   const p=await setup(t),c=p.control;
   assert.equal(c.host.getAttribute('data-rcs-ui'),'list');assert.equal(c.host.parentNode,p.fixture.nav.shadowRoot);
   assert.equal(c.input.placeholder,'Search chats and messages');
-  assert.ok(c.summaries.size>0);assert.equal(c.panel.hidden,true);await p.search('alex');assert.equal(c.shadow.querySelector('.row-snippet'),null);assert.ok(p.find('.chat-result .row-time').textContent);
+  assert.ok(c.summaries.size>0);assert.equal(c.panel.hidden,true);await p.search('alex');assert.match(p.find('.chat-result .row-snippet').textContent,/You:/);assert.ok(p.find('.chat-result .row-time').textContent);
   assert.equal(p.requests.filter(item=>item.method==='directory').length,1);
   assert.ok(p.requests.every(item=>['directory'].includes(item.method)));
   c.sync();c.sync();await settle();assert.equal(p.requests.length,1);
@@ -216,4 +216,14 @@ test('native selected-chat state follows Reddit navigation and keyboard movement
 test('date operator completion applies query dates through the existing calendar without changing the separate range',async t=>{
   const p=await setup(t);p.type('coffee before');await p.key('Enter');assert.equal(p.control.input.value,'coffee before:');await p.key('Enter');const picker=p.control.datePicker;assert.equal(picker.open,true);picker.choose('2026-10-09');p.find('.calendar-apply').click();assert.equal(p.control.input.value,'coffee before:2026-10-09 ');assert.equal(picker.open,false);assert.equal(p.control.dates.from,'');assert.equal(p.control.dates.to,'');assert.equal(p.control.shadow.activeElement,p.control.input);await p.tick(180);assert.equal(p.searches.at(-1).query,'coffee before:2026-10-09');
   p.type('after:2026-10-08');await p.key('Enter');assert.equal(p.control.input.value,'after:2026-10-08 ');
+});
+
+test('people previews omit missing or older messages and update from existing saved captures without server reads',async t=>{
+  const p=await setup(t);await p.search('alex');await p.click('[data-scope="people"]');const c=p.control,calls=p.requests.length,chat=p.cache.get('alex'),at=1791432000000+86400000;
+  c.summaries.clear();c.render();assert.equal(c.shadow.querySelector('.row-snippet'),null);assert.doesNotMatch(c.results.textContent,/No saved message/);
+  p.cache.set('alex',{...chat,timestamp:at});c.summaries.set('alex',{roomId:'alex',text:'An older saved message',timestamp:new p.w.Date(at-60000).toISOString(),authorSelf:true});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(p.find('[data-key="chat:alex"] time').getAttribute('datetime'),new p.w.Date(at).toISOString());
+  await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'latest-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:at,content:{body:'The latest\nmessage'}}]});p.emit({owner:'@t2_me:reddit.com',changed:true,roomIds:['alex']});await settle();assert.equal(p.find('[data-key="chat:alex"] .row-snippet').textContent,'You: The latest message');
+  p.cache.set('alex',{...p.cache.get('alex'),accountUnavailable:true,historicalName:true});c.render();assert.equal(c.items.find(item=>item.key==='chat:alex').height,80);assert.match(p.find('[data-key="chat:alex"] .row-meta').textContent,/Unavailable account/);
+  c.summaries.set('alex',{roomId:'alex',text:'   ',timestamp:new p.w.Date(at).toISOString()});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.requests.length,calls);
+  p.type('from:');assert.equal(c.shadow.querySelector('.row-snippet'),null,'sender-filter choices remain simple avatar/name rows');
 });
