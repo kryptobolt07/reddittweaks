@@ -53,8 +53,8 @@
     .meta [role=status] { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
     .load,.date-chip { display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:26px;font-size:11px;font-weight:600;color:var(--rcs-text);border:1px solid var(--rcs-line);border-radius:999px;padding:4px 10px;background:var(--rcs-soft);white-space:nowrap;flex-shrink:0; }
     .results { max-height:min(360px,50vh); overflow:auto; overscroll-behavior:contain; padding:4px 0; }
-    .result { display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:11px 14px; color:var(--rcs-text); background:transparent; border:0; border-left:3px solid transparent; text-decoration:none; }
-    .result:hover,.result.active { background:var(--rcs-soft); } .result.active { border-left-color:var(--rcs-accent); }
+    .result { display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:11px 14px; color:var(--rcs-text); background:transparent; border:0; border-left:0; text-decoration:none; }
+    .result:hover,.result.active { background:var(--rcs-soft); }
     .avatar { position:relative;display:grid; place-items:center; width:32px; height:32px; border-radius:50%; color:var(--rcs-muted); background:var(--rcs-soft); font-weight:600; flex:none; overflow:hidden; }
     .avatar img { position:absolute;inset:0;width:100%; height:100%; object-fit:cover; }
     .copy { min-width:0; flex:1; } .name { display:block; font-size:13px; font-weight:600; } .preview { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; margin-top:4px; font-size:13px; overflow-wrap:anywhere; }
@@ -383,6 +383,7 @@
       if (this.count) this.count.textContent = showing ? `${Math.max(0,this.active + 1)}/${this.hits.length}` : '';
       if (this.prev) { this.prev.disabled = !showing || !this.hits.length; this.next.disabled = this.prev.disabled; }
       if (!showing) return;
+      if(this.tools?.renderValueChoices?.())return;
       this.status.textContent = this.kind==='list' && globalThis.RCSDirectory?.getStartup?.().pending ? 'Restoring saved usernames…' : this.loading ? this.progress || (this.kind === 'list' ? 'Searching all conversations…' : 'Searching all messages…') : this.notice || `${this.hits.length} ${this.kind === 'list' ? 'conversation' : 'message'}${this.hits.length === 1 ? '' : 's'}${this.complete ? '' : ' · still connecting'}`;
       if(this.kind==='list' && this.loading && !this.refreshing && globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete)this.status.textContent=`${this.hits.length} saved conversations · ${this.progress.startsWith('Waiting') ? this.progress.replace(/\s*\(\d+\)$/,'') : this.progress.includes('dates') ? 'Updating dates…' : 'Checking updates…'}`;
       if(this.kind==='messages')this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.hits.length} match${this.hits.length===1?'':'es'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;
@@ -509,6 +510,7 @@
       if(showNotice) {this.notice='Search stopped. Results may be incomplete.';this.render();}
     }
     async ensureData(force=false,reconcile=false) {
+      if(this.tools?.valuePicker?.() || C.parseQuery(this.input.value).invalid)return;
       if(this.isGlobal){if(force)this.savedKey='';this.querySaved(false,force,force);return;}
       if(this.kind==='messages'){const generation=this.savedGeneration;await this.readSavedRoom();if(generation!==this.savedGeneration)return;}
       const dateKey=JSON.stringify(this.dates || {});
