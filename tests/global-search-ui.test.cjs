@@ -9,7 +9,7 @@ const records=[
   {id:'shared',roomId:'alex',text:'alpha saved message',author:'alex_morgan',timestamp:'2026-10-08T10:00:00Z'},
   {id:'shared',roomId:'jules',text:'alpha saved reply',authorSelf:true,author:'fixture_user',timestamp:'2026-10-07T10:00:00Z',thread:true}
 ];
-function setup(t,{compact=false,search,directory}={}){
+function setup(t,{compact=false,search,directory,tools=false}={}){
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat/',runScripts:'outside-only',pretendToBeVisual:true});
   t.after(()=>dom.window.close());const W=dom.window;W.matchMedia=()=>({matches:true});
   for(const file of ['demo/fixture.js','extension/search-core.js','extension/adapter.js','extension/date-picker.js'])W.eval(source(file));
@@ -23,6 +23,7 @@ function setup(t,{compact=false,search,directory}={}){
     subscribe:callback=>{listeners.add(callback);return ()=>listeners.delete(callback);},flush:async()=>{}
   };
   if(directory)W.RCSDirectory=directory;
+  if(tools)for(const file of ['extension/unified-search-styles.js','extension/unified-search.js'])W.eval(source(file));
   W.eval(source('extension/content.js'));
   const host=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav),root=host.shadowRoot,input=root.querySelector('input');
   const all=()=>root.querySelector('[data-scope="all"]').click();
@@ -159,4 +160,18 @@ test('late saved-query completion does not render or refresh a disconnected cont
   all();query('alpha');await wait(120);change({owner:'fixture-owner',changed:true});host.remove();
   resolve({owner:'fixture-owner',records,total:2,stats:{rooms:2}});await wait(140);
   assert.equal(savedCalls.length,1,'completion cannot start a background refresh after the control is removed');
+});
+
+
+test('individual message search uses sticky days with time-only rows and dates each relevance row',async t=>{
+  const {W,api}=setup(t,{tools:true});await wait(20);const host=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room),root=host.shadowRoot;
+  root.querySelector('.toggle').click();const input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await wait(140);
+  const rows=visibleRows(root);assert.equal(rows.length,2);assert.equal(root.querySelectorAll('.day-heading').length,1);
+  const expected=[33,34].map(minute=>new Date(2026,9,8,9,minute).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}));
+  assert.deepEqual(rows.map(row=>row.querySelector('.time').textContent).sort(),expected.sort());
+  for(const row of rows)assert.match(row.querySelector('.time').title,/Thu.*Oct.*8.*2026/);
+  root.querySelector('.query-filter').click();root.querySelector('[data-value="relevant"]').click();assert.equal(root.querySelector('.day-heading'),null);
+  for(const row of visibleRows(root))assert.match(row.querySelector('.time').textContent,/,/);
+  root.querySelector('.query-filter').click();root.querySelector('[data-value="oldest"]').click();assert.equal(root.querySelectorAll('.day-heading').length,1);
+  assert.equal(visibleRows(root)[0],rows[1],'changing sort reuses mounted result and avatar nodes');
 });

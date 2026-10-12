@@ -112,3 +112,19 @@ test('in-room MessageIndex supports operators and authoritative self identities'
   assert.equal(index.search(room,'before:2026-02-30').length,0);
   assert.equal(index.search(room,'coffee tomorrow').length,3);
 });
+
+
+test('message timestamps use divider dates for chronological sort and retain their own date for relevance',()=>{
+  const {RCSCore:C}=environment(),now=new Date(2026,9,11,23,40).getTime(),at=(year,month,day)=>new Date(year,month,day,21,42).getTime();
+  assert.equal(C.dayLabel(at(2026,9,11),now),'Today');assert.equal(C.dayLabel(at(2026,9,10),now),'Yesterday');
+  assert.equal(C.dayLabel(at(2026,9,5),now),'Monday');assert.equal(C.dayLabel(at(2026,9,4),now),'Oct 4');assert.equal(C.dayLabel(at(2025,9,3),now),'Oct 3, 2025');
+  const yesterday=at(2026,9,10),time=new Date(yesterday).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+  for(const sort of ['newest','oldest'])assert.equal(C.messageTime(yesterday,{sort,now}),time);
+  assert.equal(C.messageTime(yesterday,{sort:'relevant',now}),'Yesterday, '+time);
+  assert.equal(C.messageTime(at(2026,9,3),{sort:'relevant',now}),'Oct 3, '+time);
+  assert.equal(C.messageTime(at(2025,9,3),{sort:'relevant',now}),'Oct 3, 2025, '+time);
+  assert.match(C.fullTimestamp(yesterday),/Sat.*Oct.*10.*2026.*9:42/);
+  assert.equal(C.messageTime('invalid'),'');assert.equal(C.dayLabel('invalid'),'Date unavailable');assert.equal(C.fullTimestamp('invalid'),'Date unavailable');assert.equal(C.dayKey('invalid'),'');
+  assert.notEqual(C.dayKey(new Date(2026,9,10,23,59)),C.dayKey(new Date(2026,9,11,0,0)));assert.equal(C.dayKey(new Date(2026,9,10,0,0)),C.dayKey(new Date(2026,9,10,23,59)));
+  assert.equal(C.dayLabel(new Date(2026,2,8),new Date(2026,2,9)),'Yesterday','local calendar dates survive a daylight-saving transition');
+});
