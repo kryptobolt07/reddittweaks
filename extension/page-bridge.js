@@ -242,7 +242,7 @@
             if(chunk.length && (chunk.length>=200 || chunkBytes+size>256*1024))await send();
             chunk.push(value);chunkBytes+=size;
           }
-          await send();if(!job.force)state.snapshots.set(key,refs);
+          await send();if(!job.force || !job.wanted)state.snapshots.set(key,refs);
         }catch(error){state.pending.set(key,job);throw error;}
       }
       await barrier(Boolean(state.recovery));guard();
