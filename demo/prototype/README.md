@@ -1,6 +1,6 @@
 # Unified chat search design preview
 
-Branch: `prototype/unified-chat-search`. This is an interactive design experiment, separate from the installed extension. The extension remains version 0.4.1, and its stable unpacked folder is unchanged.
+Branch: `prototype/unified-chat-search`. This folder is the isolated synthetic design experiment. The branch also now builds the actual 0.5.0 extension in `extension/`, exported to the stable `artifacts/reddit-chat-search/` folder. Use that folder to test the extension in Reddit.
 
 From the repository root, run `npm run preview`, then open <http://127.0.0.1:8765/demo/prototype/>. You can also open this folder's `index.html` directly. The preview has no build step or external resources.
 
@@ -24,7 +24,7 @@ Input is debounced by 180 ms. A windowed result list mounts only visible rows pl
 
 The 42 conversations and 1,853 messages are generated synthetic fixtures anchored to October 11, 2026. Unread flags, request states, refresh delays, avatars, context, and message jumps demonstrate the design. The composer does not send. No Reddit credentials, APIs, account caches, native sync events, or extension runtime are accessed.
 
-This is not an installable extension build. Integration with actual Reddit navigation, accurate live unread/request state, progressive native captures, large real-account storage, and production search performance still requires a separate implementation after design review. The saved-history footer intentionally avoids claiming complete coverage.
+This is not an installable extension build. This standalone experiment does not exercise actual Reddit navigation, unread/request state, native captures, real-account storage, or production search performance; those are handled separately by the extension integration and its native fixture tests. The saved-history footer intentionally avoids claiming complete coverage.
 
 ## Validation
 

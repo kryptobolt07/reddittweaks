@@ -151,6 +151,17 @@ test('single filter icon exposes all options while From/sort/word stay out of th
   await p.click('[data-control="filter"]');await p.click('[data-value="has:link"]');assert.match(p.control.input.value,/has:link/);
 });
 
+test('native header stays above search while list rows stay below; header overrides restore on unmount',async t=>{
+  const p=await setup(t),header=p.fixture.nav.shadowRoot.querySelector('.nav-head');
+  header.style.position='static';header.append(p.w.document.createElement('rs-rooms-nav-filter'));
+  p.control.sync();assert.equal(header.style.position,'relative');assert.equal(header.style.zIndex,'2');
+  p.control.savedTotal=2000;p.control.updateControls();assert.equal(p.control.common.hidden,true,'empty browsing is not a common-word search');
+  p.control.destroy();assert.equal(header.style.position,'static');assert.equal(header.style.zIndex,'');
+  const host=p.w.document.createElement('div');header.after(host);header.style.zIndex='9';
+  p.w.RCSAdapter.syncSearchLayer(p.fixture.nav,host,'rs-rooms-nav-filter');assert.equal(header.style.zIndex,'9','preserve the native higher layer');
+  header.style.position='sticky';p.w.RCSAdapter.releaseSearchLayer(host);assert.equal(header.style.position,'sticky','preserve a later native update');
+});
+
 test('operator suggestions preserve query text, accept senders with spaces and never open a room on Enter',async t=>{
   const p=await setup(t);p.control.input.focus();p.type('coffee fr');assert.equal(p.control.suggestions.hidden,false);
   assert.match(p.find('[role="option"]').textContent,/From someone/);const calls=p.requests.length;

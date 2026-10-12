@@ -101,6 +101,28 @@
     if (scroll) return {parent: scroll.parentNode, before: scroll};
     return {parent: root, before: root.firstChild};
   }
+  const searchHeaders = new WeakMap();
+  function releaseSearchLayer(host) {
+    const saved=searchHeaders.get(host);if(!saved)return;
+    for(const [property,value,priority,applied] of saved.styles)if(saved.header.style.getPropertyValue(property)===applied){
+      if(value)saved.header.style.setProperty(property,value,priority);else saved.header.style.removeProperty(property);
+    }
+    searchHeaders.delete(host);
+  }
+  function syncSearchLayer(container,host,headerSelector) {
+    let header=query(headerSelector,container);
+    while(header && header.parentNode!==host.parentNode)header=header.parentElement || header.getRootNode().host;
+    if(header===host || !header?.style)header=null;
+    if(searchHeaders.get(host)?.header===header)return;
+    releaseSearchLayer(host);if(!header)return;
+    const computed=getComputedStyle(header),styles=[];
+    const set=(property,value)=>{styles.push([property,header.style.getPropertyValue(property),header.style.getPropertyPriority(property),value]);header.style.setProperty(property,value);};
+    // Search is above the native list (layer 1); only the header owns layer 2.
+    // Preserve higher native layers and restore our overrides on unmount.
+    if((header.style.position || computed.position)==='static')set('position','relative');
+    if(!(Number(header.style.zIndex || computed.zIndex)>=2))set('z-index','2');
+    searchHeaders.set(host,{header,styles});
+  }
   function scrollContainer(room) {
     const candidates = queryAll(selectors.scroller + ', [class*="scroll"]', room);
     for (const candidate of candidates) {
@@ -111,5 +133,5 @@
     }
     return null;
   }
-  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, roomKey, messages, mountPoint, scrollContainer});
+  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, scrollContainer});
 })();
