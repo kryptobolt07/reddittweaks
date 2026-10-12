@@ -23,7 +23,7 @@
     person: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'
   };
   const css = `
-    :host { display:block; position:relative; z-index:0; isolation:isolate; flex-shrink:0; min-width:0;
+    :host { display:block; position:relative; z-index:1; isolation:isolate; flex-shrink:0; min-width:0;
       color:var(--color-neutral-content-strong,#0f1a1c); font:14px/1.4 var(--font-sans, -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);
       --rcs-bg:var(--color-neutral-background,#fff); --rcs-soft:var(--color-neutral-background-weak,#f2f4f5);
       --rcs-text:var(--color-neutral-content-strong,#0f1a1c); --rcs-muted:var(--color-neutral-content-weak,#576f76);
@@ -49,7 +49,7 @@
     .coverage { padding:5px 10px;color:var(--rcs-muted);font-size:10px;border-bottom:1px solid var(--rcs-line); }
     .conversation-panel { height:var(--rcs-list-height,320px); display:flex; flex-direction:column; }
     .conversation-panel .results { max-height:none; flex:1; min-height:0; }
-    .meta { padding:7px 10px; display:flex; align-items:center; justify-content:space-between; gap:6px; color:var(--rcs-muted); font-size:11px; border-bottom:1px solid var(--rcs-line); }
+    .meta { padding:3px 9px; display:flex; align-items:center; justify-content:space-between; gap:6px; color:var(--rcs-muted); font-size:10px; border-bottom:1px solid var(--rcs-line); }
     .meta [role=status] { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
     .load,.date-chip { display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:26px;font-size:11px;font-weight:600;color:var(--rcs-text);border:1px solid var(--rcs-line);border-radius:999px;padding:4px 10px;background:var(--rcs-soft);white-space:nowrap;flex-shrink:0; }
     .results { max-height:min(360px,50vh); overflow:auto; overscroll-behavior:contain; padding:4px 0; }
@@ -335,6 +335,7 @@
       // real header and virtual scroller arrive instead of leaving it above Chats.
       const point=A.mountPoint(this.container,this.kind==='messages' ? A.selectors.header : 'rs-room-list-header');
       if(point.before!==this.host && (this.host.parentNode!==point.parent || this.host.nextSibling!==point.before)) point.parent.insertBefore(this.host,point.before);
+      A.syncSearchLayer?.(this.container,this.host,this.kind==='messages'?A.selectors.header:'rs-room-list-header, rs-rooms-nav-filter');
       if (this.kind === 'list') {
         if(globalThis.RCSDirectory?.getStartup?.().pending)return;
         for (const row of A.queryAll(A.selectors.row, this.container)) {
@@ -542,7 +543,7 @@
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.load.textContent='Refresh';if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
-    destroy() { this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
+    destroy() { A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
     if(value.fromStorage || value.restored) {
