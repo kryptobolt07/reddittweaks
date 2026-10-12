@@ -88,8 +88,8 @@ test('conversation dates use existing activity timestamps and omit missing dates
   W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));await tick(300);
   const root=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav).shadowRoot,input=root.querySelector('input');
   const calls=api.calls.length;input.value='alex';input.dispatchEvent(new W.Event('input'));
-  const date=root.querySelector('.time');assert.equal(date.title,'Last conversation activity');
-  assert.equal(date.textContent,new W.Date(1791432000000).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}));
+  const date=root.querySelector('.time');assert.match(date.title,/Last conversation activity/);assert.match(date.title,/2026/);
+  assert.equal(date.textContent,W.RCSCore.compactTime(1791432000000));
   input.value='fantastic';input.dispatchEvent(new W.Event('input'));
   assert.equal(root.querySelector('.time').textContent,'Date unavailable');assert.match(root.querySelector('.time').title,/not provided/);
   assert.equal(api.calls.length,calls);
@@ -105,4 +105,11 @@ test('Retry-After waits longer than 30 seconds are honored without an early retr
   };
   assert.equal((await W.RCSData.request('conversations').promise).length,7);
   assert.equal(attempts,2);assert.ok(retryTime-firstAttempt>=120000);
+});
+test('directory persistence distinguishes known unread counts from missing metadata',t=>{
+  const dom=new JSDOM('<!doctype html>',{runScripts:'outside-only'});t.after(()=>dom.window.close());const W=dom.window;W.eval(source('extension/directory-model.js'));
+  const owner='@t2_me:reddit.com',entry=W.RCSDirectoryModel.normalise({records:[{id:'known',name:'Example',unreadCount:3},{id:'read',name:'Other',unreadCount:0},{id:'unknown',name:'Unknown'},{id:'invalid',unreadCount:-1}]},owner);
+  const view=W.RCSDirectoryModel.view(entry);
+  assert.equal(view.records.find(r=>r.id==='known').unreadCount,3);assert.equal(view.records.find(r=>r.id==='read').unreadCount,0);
+  assert.equal(Object.hasOwn(view.records.find(r=>r.id==='unknown'),'unreadCount'),false);assert.equal(Object.hasOwn(view.records.find(r=>r.id==='invalid'),'unreadCount'),false);
 });

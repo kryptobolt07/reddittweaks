@@ -198,3 +198,15 @@ test('deleted identities are recovered from membership metadata without peeking 
   const records=await W.RCSData.request('conversations').promise;assert.equal(records.find(r=>r.id==='amey').name,'Odd-Ratio-3098');
   assert.equal(api.calls.filter(c=>c.path==='/rooms/amey/members').length,1);assert.equal(api.calls.some(c=>c.path==='/rooms/amey/events'),false);
 });
+test('native unread counts are local metadata and receipt changes do not issue requests',async t=>{
+  const {dom,W,api}=setup();t.after(()=>dom.window.close());
+  const client=api.app.querySelector('rs-matrix-client').client,rooms=client.getRooms,handlers=new Map();
+  let count=3;client.getRooms=()=>rooms().map(room=>({...room,getUnreadNotificationCount:()=>room.roomId==='alex'?count:0}));
+  client.on=(name,handler)=>handlers.set(name,handler);client.off=()=>{};
+  const context=await W.RCSData.request('directory-context').promise;
+  assert.equal(context.roomMeta.alex.unreadCount,3);assert.equal(context.roomMeta.jules.unreadCount,0);
+  const calls=api.calls.length;let received;
+  W.document.addEventListener('rcs-conversation-activity',event=>received=JSON.parse(event.detail));
+  count=0;handlers.get('Room.receipt')?.({roomId:'alex'});
+  assert.equal(received.owner,context.owner);assert.equal(received.roomMeta.alex.unreadCount,0);assert.equal(api.calls.length,calls);
+});
