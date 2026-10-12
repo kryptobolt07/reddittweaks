@@ -30,12 +30,12 @@
     return {start:first?.getTime()??-Infinity,end:last?.getTime()??Infinity,active:Boolean(from||to),invalid};
   }
   function parseQuery(query='') {
-    const parsed={terms:[],phrases:[],from:[],after:[],before:[],hasLink:false,invalid:false,errors:[]};
+    const parsed={terms:[],phrases:[],from:[],after:[],before:[],hasLink:false,hasImage:false,hasFile:false,invalid:false,errors:[]};
     const tokens=String(query).match(/(?:[^\s"]*"[^"]*"|[^\s"]+)/g) || [];
     for(const token of tokens){
       const operator=token.match(/^(from|after|before|has):(.*)$/i);
       if(operator){const key=operator[1].toLowerCase(),value=operator[2].replace(/^"|"$/g,'');
-        if(key==='has'){if(normalize(value)==='link')parsed.hasLink=true;else parsed.errors.push('Use has:link');}
+        if(key==='has'){const kind=normalize(value);if(kind==='link')parsed.hasLink=true;else if(kind==='image')parsed.hasImage=true;else if(kind==='file')parsed.hasFile=true;else parsed.errors.push('Use has:link, has:image or has:file');}
         else if(key==='from'){if(value)parsed.from.push(normalize(value));else parsed.errors.push('Add a sender after from:');}
         else {if(!value || dateBounds({from:value}).invalid)parsed.errors.push('Use a valid YYYY-MM-DD date');parsed[key].push(value);}
       }else if(token.startsWith('"') && token.endsWith('"')){if(token.length>2)parsed.phrases.push(token.slice(1,-1));}
@@ -44,18 +44,29 @@
     parsed.invalid=parsed.errors.length>0;return parsed;
   }
   const wordCharacter=char=>Boolean(char && /[\p{L}\p{N}_]/u.test(char));
+  const beforeCharacter=(text,index)=>{const last=text.charCodeAt(index-1);return last>=0xdc00 && last<=0xdfff?text.slice(index-2,index):text[index-1];};
+  const wordBoundary=(text,start,end)=>!wordCharacter(beforeCharacter(text,start)) && !wordCharacter(String.fromCodePoint(text.codePointAt(end) ?? 0));
+  let segmenter;
   function foldedText(text){
-    const original=String(text ?? ''),starts=[],ends=[];let value='';
-    const segments=typeof Intl.Segmenter==='function'?[...new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(original)].map(item=>[item.segment,item.index]):Array.from(original).map((char,index,array)=>[char,array.slice(0,index).join('').length]);
-    for(const [segment,index]of segments){const folded=segment.normalize('NFKC').toLocaleLowerCase();value+=folded;for(let i=0;i<folded.length;i++){starts.push(index);ends.push(index+segment.length);}}
+    const original=String(text ?? '');
+    // ASCII offsets never change: avoid thousands of grapheme objects and maps
+    // for the usual chat messages and long links.
+    if(!/[^\x00-\x7f]/.test(original))return {value:original.toLowerCase(),starts:null,ends:null};
+    const starts=[],ends=[];let value='';
+    const append=(segment,index)=>{const folded=segment.normalize('NFKC').toLocaleLowerCase();value+=folded;for(let i=0;i<folded.length;i++){starts.push(index);ends.push(index+segment.length);}};
+    if(typeof Intl.Segmenter==='function'){
+      segmenter ||= new Intl.Segmenter(undefined,{granularity:'grapheme'});
+      for(const item of segmenter.segment(original))append(item.segment,item.index);
+    }else{let index=0;for(const char of original){append(char,index);index+=char.length;}}
     return {value,starts,ends};
   }
+  const needlesFor=parsed=>[...parsed.terms,...parsed.phrases].map(normalize).filter(Boolean);
   function queryRanges(text,needles,{wholeWord=false}={}){
     if(!needles.length)return {ranges:[],complete:true};
     const mapped=foldedText(text),found=[];let complete=true;
-    for(const needle of needles){const term=normalize(needle);let offset=0,matched=false;
-      while(term && (offset=mapped.value.indexOf(term,offset))!==-1){const end=offset+term.length;
-        if(!wholeWord || !wordCharacter(Array.from(mapped.value.slice(0,offset)).at(-1)) && !wordCharacter(Array.from(mapped.value.slice(end))[0])){found.push([mapped.starts[offset],mapped.ends[end-1]]);matched=true;}
+    for(const term of needles){let offset=0,matched=false;
+      while((offset=mapped.value.indexOf(term,offset))!==-1){const end=offset+term.length;
+        if(!wholeWord || wordBoundary(mapped.value,offset,end)){found.push([mapped.starts?mapped.starts[offset]:offset,mapped.ends?mapped.ends[end-1]:end]);matched=true;}
         offset=end;
       }
       if(!matched)complete=false;
@@ -64,21 +75,29 @@
     const ranges=found.reduce((all,next)=>{const last=all.at(-1);if(last && next[0]<=last[1])last[1]=Math.max(last[1],next[1]);else all.push(next);return all;},[]);
     return {ranges,complete};
   }
-  function matchesQuery(record,query='',{from='all',wholeWord=false,dates={}}={},conversation={}){
-    const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates);
-    if(parsed.invalid || bounds.invalid)return false;
-    const self=typeof record.authorSelf==='boolean'?record.authorSelf:record.sender==='me' || Boolean(conversation.owner && record.sender===conversation.owner) || normalize(record.author)==='you';
-    if(from==='me' && !self || from==='them' && self)return false;
-    if(!parsed.from.every(sender=>sender==='me'?self:sender==='them'?!self:!self && (matches(record.author || record.sender,sender) || !record.author && matches(conversation.name,sender))))return false;
-    const time=typeof record.timestamp==='number'?record.timestamp:new Date(record.timestamp ?? record.at).getTime();
-    if(bounds.active && !(Number.isFinite(time) && time>=bounds.start && time<bounds.end))return false;
-    if(!parsed.after.every(date=>Number.isFinite(time) && time>=dateBounds({from:date}).start) || !parsed.before.every(date=>Number.isFinite(time) && time<dateBounds({from:date}).start))return false;
-    const text=String(record.text || '');
-    const folded=normalize(text);
-    const textMatches=[...parsed.terms,...parsed.phrases].every(needle=>{const term=normalize(needle);let offset=0;while(term && (offset=folded.indexOf(term,offset))!==-1){const end=offset+term.length;if(!wholeWord || !wordCharacter(Array.from(folded.slice(0,offset)).at(-1)) && !wordCharacter(Array.from(folded.slice(end))[0]))return true;offset=end;}return false;});
-    return (!parsed.hasLink || /\b(?:https?:\/\/|www\.)\S+/i.test(text)) && textMatches;
+  function prepareQuery(query='',{from='all',wholeWord=false,dates={}}={},conversation={}){
+    const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates),needles=needlesFor(parsed);
+    const start=Math.max(bounds.start,...parsed.after.map(date=>dateBounds({from:date}).start)),end=Math.min(bounds.end,...parsed.before.map(date=>dateBounds({from:date}).start));
+    const dated=bounds.active || parsed.after.length>0 || parsed.before.length>0;
+    if(parsed.invalid || bounds.invalid)return ()=>false;
+    return record=>{
+      const self=typeof record.authorSelf==='boolean'?record.authorSelf:record.sender==='me' || Boolean(conversation.owner && record.sender===conversation.owner) || normalize(record.author)==='you';
+      if(from==='me' && !self || from==='them' && self)return false;
+      // Multiple sender selections are alternatives; text and other filters
+      // still narrow those senders together.
+      if(parsed.from.length && !parsed.from.some(sender=>sender==='me'?self:sender==='them'?!self:!self && (matches(record.author || record.sender,sender) || !record.author && matches(conversation.name,sender))))return false;
+      if(dated){const time=typeof record.timestamp==='number'?record.timestamp:new Date(record.timestamp ?? record.at).getTime();if(!(Number.isFinite(time) && time>=start && time<end))return false;}
+      const text=String(record.text || '');
+      if(parsed.hasLink && !/\b(?:https?:\/\/|www\.)\S+/i.test(text) || parsed.hasImage && record.attachmentType!=='image' || parsed.hasFile && record.attachmentType!=='file')return false;
+      if(!needles.length)return true;
+      // Keep normalization identical to highlighting. Sender normalization
+      // strips u/ and whitespace, but message bodies must retain them.
+      const folded=/[^\x00-\x7f]/.test(text)?foldedText(text).value:text.toLowerCase();
+      return needles.every(term=>{let offset=0;while((offset=folded.indexOf(term,offset))!==-1){const end=offset+term.length;if(!wholeWord || wordBoundary(folded,offset,end))return true;offset=end;}return false;});
+    };
   }
-  function highlightRanges(text,query='',options={}){const parsed=typeof query==='object'?query:parseQuery(query);return queryRanges(text,[...parsed.terms,...parsed.phrases],options).ranges;}
+  function matchesQuery(record,query='',options={},conversation={}){return prepareQuery(query,options,conversation)(record);}
+  function highlightRanges(text,query='',options={}){const parsed=typeof query==='object'?query:parseQuery(query);return queryRanges(text,needlesFor(parsed),options).ranges;}
   function excerpt(text,query='',{wholeWord=false,max=160}={}){
     text=String(text ?? '');const found=highlightRanges(text,query,{wholeWord}),first=found[0] || [0,0];
     max=Number.isFinite(max)?Math.max(20,max):160;
@@ -154,8 +173,8 @@
       }
     }
     search(room, query,dates={},options={}) {
-      const parsed=parseQuery(query);
-      return [...(this.rooms.get(room)?.values() ?? [])].filter(message=>matchesQuery(message,parsed,{...options,dates}));
+      const match=prepareQuery(query,{...options,dates});
+      return [...(this.rooms.get(room)?.values() ?? [])].filter(match);
     }
     replace(room,messages,metadata={}) {
       const previous=this.rooms.get(room);this.rooms.delete(room);if(previous)this.rooms.set(room,previous);
@@ -166,5 +185,5 @@
     }
     clear() { this.rooms.clear();this.redacted.clear();this.metadata.clear(); }
   }
-  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, matchesQuery, highlightRanges, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
+  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, prepareQuery, matchesQuery, highlightRanges, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
 })();

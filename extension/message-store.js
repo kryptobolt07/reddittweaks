@@ -5,9 +5,10 @@
   function compact(raw,roomId) {
     if(!raw || !['m.room.message','m.sticker','m.room.redaction'].includes(raw.type))return null;
     const id=str(raw.event_id),room=str(raw.room_id || roomId);if(!id || !room)return null;
-    const content=raw.content || {},relation=content['m.relates_to'] || {};
+    const content=raw.content || {},relation=content['m.relates_to'] || {},bodyContent=content['m.new_content'] || content;
     return {id,room,type:raw.type,sender:str(raw.sender),time:Number.isFinite(raw.origin_server_ts)?raw.origin_server_ts:0,
       body:str(content['m.new_content']?.body ?? content.body,65536) || (raw.type==='m.sticker'?'Sticker':''),
+      attachmentType:raw.type==='m.sticker' || bodyContent.msgtype==='m.image'?'image':bodyContent.msgtype==='m.file'?'file':'',
       replaces:relation.rel_type==='m.replace'?str(relation.event_id):'',thread:relation.rel_type==='m.thread',
       threadRoot:relation.rel_type==='m.thread'?str(relation.event_id):'',
       redacts:str(raw.redacts || content.redacts),redacted:Boolean(raw.unsigned?.redacted_because)};
@@ -16,7 +17,7 @@
   const order=(a,b)=>a.time-b.time || a.id.localeCompare(b.id);
   function reduce(row,events,coverage) {
     const ledger=new Map((row.events || []).map(event=>[event.id,event]));
-    for(const event of events) {const before=ledger.get(event.id);ledger.set(event.id,before?{...before,redacts:before.redacts || event.redacts,redacted:before.redacted || event.redacted}:event);}
+    for(const event of events) {const before=ledger.get(event.id);ledger.set(event.id,before?{...before,attachmentType:before.attachmentType || event.attachmentType || '',redacts:before.redacts || event.redacts,redacted:before.redacted || event.redacted}:event);}
     const removed=new Set([...ledger.values()].filter(event=>event.redacted).map(event=>event.id));
     for(const event of ledger.values())if(event.redacts)removed.add(event.redacts);
     // Tombstones must retain identifiers, never deleted message plaintext.
@@ -72,7 +73,7 @@
         const roomIds=[];let i=0;
         for(const [roomId,events]of grouped){
           const before=rows[i++],ledger=new Map((before?.events || []).map(event=>[event.id,event])),coverage=roomId===batch.roomId?batch.coverage:undefined;
-          const changed=!before || events.some(event=>{const saved=ledger.get(event.id);return !saved || event.redacted && !saved.redacted || event.redacts && !saved.redacts;}) || coverage && JSON.stringify({complete:coverage.complete===true,dateComplete:coverage.dateComplete===true,dates:{from:str(coverage.dates?.from,10),to:str(coverage.dates?.to,10)}})!==JSON.stringify(before.coverage);
+          const changed=!before || events.some(event=>{const saved=ledger.get(event.id);return !saved || event.attachmentType && saved.attachmentType!==event.attachmentType || event.redacted && !saved.redacted || event.redacts && !saved.redacts;}) || coverage && JSON.stringify({complete:coverage.complete===true,dateComplete:coverage.dateComplete===true,dates:{from:str(coverage.dates?.from,10),to:str(coverage.dates?.to,10)}})!==JSON.stringify(before.coverage);
           // A startup reconciliation can read old cached rows again. Compare
           // their durable ledger before reducing/rewriting a whole room.
           if(!changed)continue;
@@ -97,22 +98,25 @@
       if(typeof roomId!=='string' || !roomId || roomId.length>1000)throw Error('Invalid room');
       return this.searchSnapshot(owner,await this.snapshot(owner,roomId,{committed}),{query:'',roomId,dates:{},limit:Infinity,offset:0},directory);
     }
-    materialize(owner,row,record,ledger,people,directory) {
+    materialize(owner,row,record,ledger,people,directory,identityCache,numericTime=false) {
       const text=ledger.get(record.bodyEvent)?.body || '';
-      const cached=people[record.sender] || {},known=directory?.identities?.[record.sender] || {},person=mergeIdentity(cached,{...known,id:record.sender}),self=record.sender===owner;
-      return {id:record.id,roomId:row.roomId,text,sender:record.sender,timestamp:record.time?new Date(record.time).toISOString():'',author:self?'You':person.name || record.sender,authorSelf:self,authorHistorical:Boolean(person.historical ?? person.historicalName),authorUnavailable:Boolean(person.unavailable ?? person.accountUnavailable),avatar:person.avatar || '',thread:record.thread,threadRoot:record.threadRoot};
+      let person=identityCache?.get(record.sender);
+      if(!person){const cached=people[record.sender] || {},known=directory?.identities?.[record.sender] || {};person=mergeIdentity(cached,{...known,id:record.sender});identityCache?.set(record.sender,person);}
+      const self=record.sender===owner;
+      return {id:record.id,roomId:row.roomId,text,sender:record.sender,timestamp:numericTime?(record.time || NaN):record.time?new Date(record.time).toISOString():'',attachmentType:ledger.get(record.bodyEvent)?.attachmentType || '',author:self?'You':person.name || record.sender,authorSelf:self,authorHistorical:Boolean(person.historical ?? person.historicalName),authorUnavailable:Boolean(person.unavailable ?? person.accountUnavailable),avatar:person.avatar || '',thread:record.thread,threadRoot:record.threadRoot};
     }
     searchSnapshot(owner,{rows,people,identityBytes},{query,roomId,roomIds,dates,from='all',wholeWord=false,sort='newest',grouped=false,limit,offset},directory) {
-      const parsed=RCSCore.parseQuery(query),records=[],allowed=roomIds?new Set(roomIds):null;
+      const parsed=RCSCore.parseQuery(query),match=RCSCore.prepareQuery(parsed,{from,wholeWord,dates}),records=[],times=new Map(),identityCache=new Map(),allowed=roomIds?new Set(roomIds):null;
       for(const row of rows)if((!roomId || row.roomId===roomId) && (!allowed || allowed.has(row.roomId))){const ledger=new Map(row.events.map(event=>[event.id,event]));for(const record of row.records){
-        const message=this.materialize(owner,row,record,ledger,people,directory);
-        if(message.text && RCSCore.matchesQuery(message,parsed,{from,wholeWord,dates}))records.push(message);
+        const message=this.materialize(owner,row,record,ledger,people,directory,identityCache,true);
+        if(message.text && match(message)){times.set(message,record.time || 0);records.push(message);}
       }}
       const relevance=message=>RCSCore.highlightRanges(message.text,parsed,{wholeWord}).reduce((score,[start,end])=>score+end-start+(start===0?20:0),0);
       const scores=sort==='relevant'?new Map(records.map(record=>[record,relevance(record)])):null;
-      records.sort((a,b)=>(scores?scores.get(b)-scores.get(a):0) || (sort==='oldest'?1:-1)*((Date.parse(a.timestamp)||0)-(Date.parse(b.timestamp)||0)) || a.roomId.localeCompare(b.roomId) || a.id.localeCompare(b.id));
+      records.sort((a,b)=>(scores?scores.get(b)-scores.get(a):0) || (sort==='oldest'?1:-1)*(times.get(a)-times.get(b)) || a.roomId.localeCompare(b.roomId) || a.id.localeCompare(b.id));
       const counts=new Map();for(const record of records)counts.set(record.roomId,(counts.get(record.roomId)||0)+1);
       const page=records.slice(offset,offset+limit),groups=[];
+      for(const record of page)record.timestamp=Number.isFinite(record.timestamp)?new Date(record.timestamp).toISOString():'';
       if(grouped){const byRoom=new Map();for(const [id,total]of counts){const group={roomId:id,total,records:[]};byRoom.set(id,group);groups.push(group);}for(const record of page)byRoom.get(record.roomId).records.push(record);}
       return {owner,persistent:this.persistent,records:page,total:records.length,hasMore:offset+limit<records.length,matchedRooms:counts.size,...(grouped?{groups}:{}),stats:this.statistics(rows,people,identityBytes),coverage:roomId?rows.find(row=>row.roomId===roomId)?.coverage || {complete:false,dateComplete:false}:{complete:false,unknownRooms:true,threadsVerified:false}};
     }
