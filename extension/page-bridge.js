@@ -13,7 +13,16 @@
   const capturedCoverage=new Map();
   let nativeCapture;
   let cacheConsumerReady=false;
-  document.addEventListener('rcs-message-cache-listening',()=>{cacheConsumerReady=true;});
+  document.addEventListener('rcs-message-cache-listening',()=>{
+    const first=!cacheConsumerReady;cacheConsumerReady=true;
+    if(first && nativeCapture?.ctx && nativeCapture.owner===nativeCapture.client.getUserId()){
+      // The page client can become ready before isolated content scripts attach.
+      // Replay its already-loaded snapshot once, rather than deduplicating data
+      // that was emitted while nobody could persist it.
+      captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();nativeCapture.snapshots.clear();
+      seedNativeTimelines(nativeCapture.ctx,{force:true});
+    }
+  });
   let watchedSignature='';
   let watchTimer;
   const identityCaches = new Map();
@@ -208,7 +217,7 @@
     const guard=()=>{if(state!==nativeCapture || watchedClient!==state.client || state.client.getUserId()!==state.owner || matrixHost && (!matrixHost.isConnected || matrixHost.client!==state.client))throw problem('Reddit account changed. Please retry.');};
     state.task=Promise.resolve().then(async()=>{
       let units=0,bytes=0;
-      const barrier=async(force=false)=>{if(!units && !force)return;await flushNativeCache({owner:state.owner},guard);units=0;bytes=0;};
+      const barrier=async(force=false)=>{if(!units && !force)return;if(!cacheConsumerReady){units=0;bytes=0;return;}await flushNativeCache({owner:state.owner},guard);units=0;bytes=0;};
       do {
       while(state.pending.size){
         guard();const [key,job]=state.pending.entries().next().value;state.pending.delete(key);
@@ -249,11 +258,11 @@
     const state=nativeCapture;if(!native?.roomId || state?.client!==ctx.client || state.owner!==ctx.client.getUserId())return;
     state.pending.set(native.roomId,{native,roomId:native.roomId});state.failed=false;return runNativeCapture(state);
   }
-  function seedNativeTimelines(ctx) {
+  function seedNativeTimelines(ctx,{force=false}={}) {
     const state=nativeCapture;if(state?.client!==ctx.client || state.owner!==ctx.client.getUserId())return;
     const rooms=ctx.client.getRooms?.() || [],ids=new Set(rooms.map(room=>room.roomId));
     for(const id of state.snapshots.keys())if(!ids.has(id))state.snapshots.delete(id);
-    for(const native of rooms)if(native?.roomId)state.pending.set(native.roomId,{native,roomId:native.roomId});
+    for(const native of rooms)if(native?.roomId)state.pending.set(native.roomId,{native,roomId:native.roomId,force});
     state.failed=false;return runNativeCapture(state);
   }
   function flushNativeCache(job,guard) {
