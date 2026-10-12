@@ -1,8 +1,8 @@
-# Chat Search for Reddit — 0.5.0 design test
+# Chat Search for Reddit — 0.5.1 design test
 
 ## Load in Brave
 
-Extract `artifacts/reddit-chat-search-v0.5.0.zip` and load its folder through **Load unpacked** in `brave://extensions`.
+Extract `artifacts/reddit-chat-search-v0.5.1.zip` and load its folder through **Load unpacked** in `brave://extensions`.
 
 For an existing installation, replace the files in its current unpacked folder, choose **Reload** on the same extension card, and refresh Reddit tabs. Keeping the same installation preserves its saved directory and enables migration from 0.2.4. Loading another folder as a separate extension creates separate storage; disable the older installation to avoid duplicate controls.
 
