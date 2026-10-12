@@ -184,3 +184,13 @@ test('storage acknowledgement cannot complete native import after the authentica
   await assert.rejects(env.W.RCSData.request('cache-native-history',{awaitCache:true}).promise,/account changed/);
   assert.equal(env.batches.flatMap(batch=>batch.events).length,200);
 });
+test('a late cache consumer receives loaded timelines once without a flush timeout or server reads',async t=>{
+  const env=setup(client=>{client.getRooms=()=>[{roomId:'late',getLiveTimeline:()=>({getEvents:()=>[message('already-loaded','late')]})}];});t.after(()=>env.dom.window.close());
+  await wait(30);assert.ok(env.batches.some(batch=>batch.events.some(event=>event.event_id==='already-loaded')));
+  const captured=[];env.W.document.addEventListener('rcs-message-cache-batch',event=>captured.push(JSON.parse(event.detail)));
+  env.W.document.addEventListener('rcs-message-cache-flush',event=>{const value=JSON.parse(event.detail);env.W.document.dispatchEvent(new env.W.CustomEvent('rcs-message-cache-flushed',{detail:JSON.stringify({...value,ok:true})}));});
+  env.W.document.dispatchEvent(new env.W.CustomEvent('rcs-message-cache-listening'));
+  await wait(30);assert.equal(captured.flatMap(batch=>batch.events).filter(event=>event.event_id==='already-loaded').length,1);
+  const count=captured.length;env.W.document.dispatchEvent(new env.W.CustomEvent('rcs-message-cache-listening'));env.client.emit('sync');await wait(30);
+  assert.equal(captured.length,count,'further listening and unchanged sync signals do not replay snapshots');assert.equal(env.api.calls.length,0);
+});
