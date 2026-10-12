@@ -149,6 +149,7 @@ async function handleMessages(message,sender) {
   if(message.action==='ingest') {const result=await messages.ingest(message);if(result.changed!==false)await notifyMessageTabs(message.owner,false,result.roomIds);return result;}
   if(message.action==='mark-native-import-complete'){await messages.importState(message.owner,true);return {nativeImportComplete:true};}
   if(message.action==='stats')return messages.stats(message.owner,{committed:true});
+  if(message.action==='summaries')return messages.summaries(message.owner,{committed:true});
   if(message.action==='search')return messages.search(message.owner,{...message,committed:true},await entryFor(message.owner));
   if(message.action==='room') {
     if(typeof message.roomId!=='string' || !message.roomId || message.roomId.length>1000)throw Error('Invalid room');
@@ -160,7 +161,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(message?.scope!=='rcs-messages')return;
   // Reads see committed data without joining the capture/clear mutation queue.
   // Mutations retain their order and native producers still wait for their ack.
-  const reading=['search','room','stats'].includes(message.action);
+  const reading=['search','room','stats','summaries'].includes(message.action);
   const result=reading?handleMessages(message,sender):messageQueue.then(()=>handleMessages(message,sender));if(!reading)messageQueue=result.catch(()=>{});
   result.then(value=>respond({ok:true,...value}),error=>respond({ok:false,error:error?.message || 'Unable to save messages. Please retry.'}));return true;
 });

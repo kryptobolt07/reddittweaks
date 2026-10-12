@@ -29,6 +29,72 @@
     if(last)last.setDate(last.getDate()+1);
     return {start:first?.getTime()??-Infinity,end:last?.getTime()??Infinity,active:Boolean(from||to),invalid};
   }
+  function parseQuery(query='') {
+    const parsed={terms:[],phrases:[],from:[],after:[],before:[],hasLink:false,invalid:false,errors:[]};
+    const tokens=String(query).match(/(?:[^\s"]*"[^"]*"|[^\s"]+)/g) || [];
+    for(const token of tokens){
+      const operator=token.match(/^(from|after|before|has):(.*)$/i);
+      if(operator){const key=operator[1].toLowerCase(),value=operator[2].replace(/^"|"$/g,'');
+        if(key==='has'){if(normalize(value)==='link')parsed.hasLink=true;else parsed.errors.push('Use has:link');}
+        else if(key==='from'){if(value)parsed.from.push(normalize(value));else parsed.errors.push('Add a sender after from:');}
+        else {if(!value || dateBounds({from:value}).invalid)parsed.errors.push('Use a valid YYYY-MM-DD date');parsed[key].push(value);}
+      }else if(token.startsWith('"') && token.endsWith('"')){if(token.length>2)parsed.phrases.push(token.slice(1,-1));}
+      else parsed.terms.push(token.replace(/"/g,''));
+    }
+    parsed.invalid=parsed.errors.length>0;return parsed;
+  }
+  const wordCharacter=char=>Boolean(char && /[\p{L}\p{N}_]/u.test(char));
+  function foldedText(text){
+    const original=String(text ?? ''),starts=[],ends=[];let value='';
+    const segments=typeof Intl.Segmenter==='function'?[...new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(original)].map(item=>[item.segment,item.index]):Array.from(original).map((char,index,array)=>[char,array.slice(0,index).join('').length]);
+    for(const [segment,index]of segments){const folded=segment.normalize('NFKC').toLocaleLowerCase();value+=folded;for(let i=0;i<folded.length;i++){starts.push(index);ends.push(index+segment.length);}}
+    return {value,starts,ends};
+  }
+  function queryRanges(text,needles,{wholeWord=false}={}){
+    if(!needles.length)return {ranges:[],complete:true};
+    const mapped=foldedText(text),found=[];let complete=true;
+    for(const needle of needles){const term=normalize(needle);let offset=0,matched=false;
+      while(term && (offset=mapped.value.indexOf(term,offset))!==-1){const end=offset+term.length;
+        if(!wholeWord || !wordCharacter(Array.from(mapped.value.slice(0,offset)).at(-1)) && !wordCharacter(Array.from(mapped.value.slice(end))[0])){found.push([mapped.starts[offset],mapped.ends[end-1]]);matched=true;}
+        offset=end;
+      }
+      if(!matched)complete=false;
+    }
+    found.sort((a,b)=>a[0]-b[0]);
+    const ranges=found.reduce((all,next)=>{const last=all.at(-1);if(last && next[0]<=last[1])last[1]=Math.max(last[1],next[1]);else all.push(next);return all;},[]);
+    return {ranges,complete};
+  }
+  function matchesQuery(record,query='',{from='all',wholeWord=false,dates={}}={},conversation={}){
+    const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates);
+    if(parsed.invalid || bounds.invalid)return false;
+    const self=typeof record.authorSelf==='boolean'?record.authorSelf:record.sender==='me' || Boolean(conversation.owner && record.sender===conversation.owner) || normalize(record.author)==='you';
+    if(from==='me' && !self || from==='them' && self)return false;
+    if(!parsed.from.every(sender=>sender==='me'?self:sender==='them'?!self:!self && (matches(record.author || record.sender,sender) || !record.author && matches(conversation.name,sender))))return false;
+    const time=typeof record.timestamp==='number'?record.timestamp:new Date(record.timestamp ?? record.at).getTime();
+    if(bounds.active && !(Number.isFinite(time) && time>=bounds.start && time<bounds.end))return false;
+    if(!parsed.after.every(date=>Number.isFinite(time) && time>=dateBounds({from:date}).start) || !parsed.before.every(date=>Number.isFinite(time) && time<dateBounds({from:date}).start))return false;
+    const text=String(record.text || '');
+    const folded=normalize(text);
+    const textMatches=[...parsed.terms,...parsed.phrases].every(needle=>{const term=normalize(needle);let offset=0;while(term && (offset=folded.indexOf(term,offset))!==-1){const end=offset+term.length;if(!wholeWord || !wordCharacter(Array.from(folded.slice(0,offset)).at(-1)) && !wordCharacter(Array.from(folded.slice(end))[0]))return true;offset=end;}return false;});
+    return (!parsed.hasLink || /\b(?:https?:\/\/|www\.)\S+/i.test(text)) && textMatches;
+  }
+  function highlightRanges(text,query='',options={}){const parsed=typeof query==='object'?query:parseQuery(query);return queryRanges(text,[...parsed.terms,...parsed.phrases],options).ranges;}
+  function excerpt(text,query='',{wholeWord=false,max=160}={}){
+    text=String(text ?? '');const found=highlightRanges(text,query,{wholeWord}),first=found[0] || [0,0];
+    max=Number.isFinite(max)?Math.max(20,max):160;
+    let start=Math.max(0,first[0]-Math.floor(max/3)),end=Math.min(text.length,Math.max(start+max,first[1]));
+    if(end===text.length)start=Math.max(0,Math.min(first[0],end-max));
+    if(start && start<first[0]){const space=text.indexOf(' ',start);if(space!==-1 && space<first[0])start=space+1;}
+    const prefix=start?'…':'',suffix=end<text.length?'…':'';
+    return {text:prefix+text.slice(start,end)+suffix,ranges:found.filter(([a,b])=>b>start && a<end).map(([a,b])=>[Math.max(a,start)-start+prefix.length,Math.min(b,end)-start+prefix.length])};
+  }
+  function compactTime(timestamp,now=Date.now()){
+    const date=new Date(timestamp),today=new Date(now);if(!Number.isFinite(date.getTime()))return '';
+    const midnight=value=>new Date(value.getFullYear(),value.getMonth(),value.getDate()).getTime(),age=Math.round((midnight(today)-midnight(date))/86400000);
+    if(age===0)return date.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+    if(age===1)return 'Yesterday';if(age>1 && age<7)return date.toLocaleDateString(undefined,{weekday:'short'});
+    return date.toLocaleDateString(undefined,{month:'short',day:'numeric',...(date.getFullYear()!==today.getFullYear()?{year:'numeric'}:{})});
+  }
   class MessageIndex {
     constructor(limit = 5000,onEvict=()=>{}) { this.limit = limit; this.rooms = new Map();this.redacted=new Map();this.metadata=new Map();this.onEvict=onEvict; }
     upsert(room, messages,{dom=false,authoritative=false,redacted=[]}={}) {
@@ -69,12 +135,8 @@
       }
     }
     search(room, query,dates={}) {
-      const bounds=dateBounds(dates);if(bounds.invalid)return [];
-      return [...(this.rooms.get(room)?.values() ?? [])].filter(message=>{
-        if(!bounds.active)return matches(message.text,query);
-        const time=new Date(message.timestamp).getTime();
-        return (!bounds.active || Number.isFinite(time)&&time>=bounds.start&&time<bounds.end) && matches(message.text,query);
-      });
+      const parsed=parseQuery(query);
+      return [...(this.rooms.get(room)?.values() ?? [])].filter(message=>matchesQuery(message,parsed,{dates}));
     }
     replace(room,messages,metadata={}) {
       const previous=this.rooms.get(room);this.rooms.delete(room);if(previous)this.rooms.set(room,previous);
@@ -85,5 +147,5 @@
     }
     clear() { this.rooms.clear();this.redacted.clear();this.metadata.clear(); }
   }
-  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, MessageIndex});
+  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, matchesQuery, highlightRanges, excerpt, compactTime, MessageIndex});
 })();
