@@ -1036,6 +1036,16 @@
       else {
         job.stage='navigation';
         await prepareNavigation(ctx,job,request.roomId);
+        if(request.method==='jump' && typeof ctx.client.fetchRoomEvent==='function' &&
+          (typeof ctx.client.getRoom!=='function' || ctx.client.getRoom(request.roomId))) {
+          // Reddit's exact-event loader hydrates the native timeline around the
+          // selected event. Route changes alone can resolve before that load
+          // fails, leaving the search UI reporting a jump that never happened.
+          job.stage='selected message';
+          emit(request,{progress:{label:'Opening message…'}});
+          await ctx.client.fetchRoomEvent(request.roomId,request.eventId);
+          check(job);
+        }
         const route=`/room/${encodeURIComponent(request.roomId)}${request.method==='jump' ? `/event/${encodeURIComponent(request.eventId)}${request.thread ? '/thread' : ''}` : ''}`;
         await ctx.history.navigate(route);result={route};
       }

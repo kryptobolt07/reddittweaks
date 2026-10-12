@@ -80,6 +80,33 @@ test('native navigation opens an unrendered conversation and jumps directly to a
   assert.ok(W.RCSAdapter.messages(api.room).some(message=>message.id==='alex-remote-0'));
   assert.equal(env.scrollWrites,0);env.dom.window.close();
 });
+test('message navigation uses the native exact-event loader before routing and preserves thread routes',async t=>{
+  const env=setup({compact:true});t.after(()=>env.dom.window.close());const {W,api}=env;
+  const client=api.app.querySelector('rs-matrix-client').client,steps=[];
+  const nativeNavigate=api.app.querySelector('rs-history').navigate;
+  api.app.querySelector('rs-history').navigate=async route=>{steps.push(['route',route]);return nativeNavigate(route);};
+  client.fetchRoomEvent=async(roomId,eventId)=>{steps.push(['load',roomId,eventId]);assert.equal(env.scrollWrites,0);return {event_id:eventId};};
+  const progress=[];
+  const result=await W.RCSData.request('jump',{roomId:'alex',eventId:'alex-remote-0',thread:true},value=>progress.push(value.label)).promise;
+  assert.deepEqual(steps,[['load','alex','alex-remote-0'],['route','/room/alex/event/alex-remote-0/thread']]);
+  assert.equal(result.route,'/room/alex/event/alex-remote-0/thread');assert.deepEqual(progress,['Opening message…']);assert.equal(env.scrollWrites,0);
+});
+test('unavailable exact events fail visibly without navigating to a false successful jump',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const {W,api}=env;
+  const client=api.app.querySelector('rs-matrix-client').client;
+  client.fetchRoomEvent=async()=>{const error=Error('gone');error.httpStatus=404;throw error;};
+  let routes=0;api.app.querySelector('rs-history').navigate=async()=>{routes++;};
+  await assert.rejects(W.RCSData.request('jump',{roomId:'alex',eventId:'removed'}).promise,/Unable to load selected message \(HTTP 404\)/);
+  assert.equal(routes,0);assert.equal(env.scrollWrites,0);
+});
+test('cold saved-room navigation leaves native routing able to initialize an uncached room',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const {W,api}=env;
+  const client=api.app.querySelector('rs-matrix-client').client;
+  assert.equal(client.getRoom('amey'),null);
+  let loads=0;client.fetchRoomEvent=async()=>{loads++;throw Error('Room not found');};
+  const result=await W.RCSData.request('jump',{roomId:'amey',eventId:'saved-event'}).promise;
+  assert.equal(result.route,'/room/amey/event/saved-event');assert.equal(api.active.id,'amey');assert.equal(loads,0);assert.equal(env.scrollWrites,0);
+});
 test('search UI uses full API data, displays avatars, and opens an offscreen conversation',async t=>{
   const env=setup({content:true});t.after(()=>env.dom.window.close());const {W,api}=env;await tick();
   const control=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav).shadowRoot;const input=control.querySelector('input');

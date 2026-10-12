@@ -122,7 +122,7 @@
   function highlight(text, query, options={}) {
     const fragment = document.createDocumentFragment();
     let offset = 0;
-    for (const [start, end] of (C.highlightRanges?.(text,query,options) || C.ranges(text, query))) {
+    for (const [start, end] of (options.ranges || C.highlightRanges?.(text,query,options) || C.ranges(text, query))) {
       fragment.append(document.createTextNode(text.slice(offset, start)), node('mark', '', text.slice(start, end)));
       offset = end;
     }
@@ -392,6 +392,12 @@
       this.status.title=this.savedSavingError ? `${this.status.textContent} · ${this.savedSavingError}` : this.status.textContent;
       const wanted=[],dayHeaders=new Map([...this.results.querySelectorAll('.day-heading')].map(el=>[el.dataset.day,el]));let lastDay=null;
       const chronological=this.messageMode && this.queryOptions?.sort!=='relevant';
+      const partner=this.kind==='messages' ? this.cache.get(this.room) : null;
+      const partnerName=partner?.name || (this.kind==='messages' ? A.text(A.query('.room-name',this.container)) : '');
+      const partnerAvatar=this.kind==='messages' ? partner?.avatar || A.query('.user-avatar img, rs-user-avatar img, header img',this.container)?.getAttribute('src') : '';
+      const resultWidth=this.results.getBoundingClientRect().width || this.container.getBoundingClientRect().width || 320;
+      const excerptMax=Math.max(48,Math.min(180,Math.floor((resultWidth-90)/6*2-8)));
+      const signaturePrefix=JSON.stringify([query,this.queryOptions,partnerName,excerptMax,this.messageMode ? false : this.loading]);
       for (const [i, hit] of this.hits.slice(0,this.renderLimit).entries()) {
         if(chronological){const day=C.dayKey(hit.timestamp);if(day!==lastDay){let heading=dayHeaders.get(day);if(!heading){heading=node('h3','day-heading');heading.dataset.day=day;}heading.textContent=C.dayLabel(hit.timestamp);wanted.push(heading);lastDay=day;}}
         const key=this.rowKey(hit);
@@ -408,9 +414,7 @@
           this.rows.set(key,row);
         }
         row.position=i;row.result.classList.toggle('active',i===this.active);row.result.hidden=false;
-        const partner=this.kind==='messages' ? this.cache.get(this.room) : null;
-        const partnerName=partner?.name || (this.kind==='messages' ? A.text(A.query('.room-name',this.container)) : '');
-        const signature=JSON.stringify([query,this.queryOptions,partnerName,hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName,this.loading]);
+        const signature=signaturePrefix+JSON.stringify([hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName]);
         if(row.signature!==signature) {
           row.signature=signature;
           row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query) : document.createTextNode(partnerName || (hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable')));
@@ -426,13 +430,13 @@
           if(!this.messageMode && (hit.type==='reddit_modmail' || hit.membership==='invite'))row.caption.textContent=`${hit.type==='reddit_modmail'?'Community chat':'Chat'}${hit.membership==='invite'?' · Request pending':''}${hit.timestamp?` · ${this.formatTime(hit.timestamp)}`:''}`;
           if(this.isGlobal)row.caption.textContent=`${this.cache.get(hit.roomId)?.name || 'Saved conversation'}${hit.timestamp ? ` · ${C.messageTime(hit.timestamp,{sort:this.queryOptions?.sort})}` : ''}`;
           if(row.preview) {
-            const match=C.ranges(hit.text,query)[0];const start=Math.max(0,(match?.[0] || 0)-40);
-            const snippet=C.excerpt?.(hit.text,query,this.queryOptions) || {text:`${start ? '…' : ''}${hit.text.slice(start,start+180)}${hit.text.length>start+180 ? '…' : ''}`};
-            row.preview.replaceChildren(...(this.kind==='messages' && hit.authorSelf ? [node('span','you-prefix','You: ')] : []),highlight(snippet.text,query,this.queryOptions));
+            const max=excerptMax-(this.kind==='messages' && hit.authorSelf ? 5 : 0);
+            const snippet=C.excerpt?.(hit.text,query,{...this.queryOptions,max}) || {text:hit.text.slice(0,max)};
+            row.preview.replaceChildren(...(this.kind==='messages' && hit.authorSelf ? [node('span','you-prefix','You: ')] : []),highlight(snippet.text,query,{...this.queryOptions,ranges:snippet.ranges}));
+            row.preview.classList.toggle('link-snippet',/(?:https?:\/\/|www\.)/i.test(hit.text));
             row.preview.title=hit.text;
           }
         }
-        const partnerAvatar=this.kind==='messages' ? this.cache.get(this.room)?.avatar || A.query('.user-avatar img, rs-user-avatar img, header img',this.container)?.getAttribute('src') : '';
         const avatarUrl=partnerAvatar || (this.kind==='messages' && hit.authorSelf ? '' : hit.avatar) || '',speaker=!this.messageMode ? hit.name : partnerName || (hit.authorSelf ? 'You' : hit.author);
         if(row.avatar && (row.avatarUrl!==avatarUrl || !row.image?.isConnected && row.avatarLabel!==speaker)) {
           if(row.image){this.avatarObserver?.unobserve(row.image);this.pendingAvatarSources.delete(row.image);}
@@ -496,7 +500,8 @@
     }
     async jump(hit) {
       if (globalThis.RCSData) {
-        try { await RCSData.request('jump',{roomId:hit.roomId || this.room,eventId:hit.id,thread:Boolean(hit.thread)}).promise;this.dismiss(); }
+        this.status.textContent='Opening message…';
+        try { await RCSData.request('jump',{roomId:hit.roomId || this.room,eventId:hit.id,thread:Boolean(hit.thread)},progress=>{if(progress.label)this.status.textContent=progress.label;}).promise;this.dismiss(); }
         catch(error) { this.status.textContent=error.message; }
         return;
       }
