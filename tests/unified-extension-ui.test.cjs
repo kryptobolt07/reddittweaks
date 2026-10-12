@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {JSDOM}=require('jsdom');
 const settle=async()=>{for(let i=0;i<35;i++)await Promise.resolve();};
-async function setup(t,{large=false,deferSearch=false}={}) {
+async function setup(t,{large=false,deferSearch=false,scope='all'}={}) {
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat',runScripts:'outside-only'}),w=dom.window;
   w.TextEncoder=TextEncoder;w.HTMLElement.prototype.scrollIntoView=function(){};
   let clock=0,id=0;const timers=new Map();w.setTimeout=(fn,ms=0)=>{timers.set(++id,{fn,at:clock+ms});return id;};w.clearTimeout=value=>timers.delete(value);w.requestAnimationFrame=fn=>w.setTimeout(fn,0);w.cancelAnimationFrame=w.clearTimeout;
@@ -22,6 +22,7 @@ async function setup(t,{large=false,deferSearch=false}={}) {
   w.RCSData={request:(method,parameters)=>{requests.push({method,...parameters});if(method==='open' || method==='jump')fixture.select(parameters.roomId);return {promise:Promise.resolve({})};}};
   w.RCSMessages={search:async parameters=>{searches.push({...parameters});if(deferSearch)await new Promise(resolve=>pending.push(resolve));return store.search(owner,parameters);},room:roomId=>store.room(owner,roomId),summaries:()=>store.summaries(owner),subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener);}};
   load('extension/unified-search-styles.js');load('extension/unified-search.js');const control=new w.RCSUnifiedSearch(fixture.nav,{cache,adapter:w.RCSAdapter,version:'test'});
+  control.setScope(scope);
   t.after(()=>{control.destroy();dom.window.close();});await settle();
   const find=selector=>{const value=control.shadow.querySelector(selector);assert.ok(value,'Missing '+selector);return value;};
   const click=async selector=>{find(selector).click();await settle();};
@@ -115,7 +116,7 @@ test('directory failure keeps cached chats and account reset/destroy discard lis
 test('Enter flushes pending input and opens first matching native result; tab arrows change scope',async t=>{
   const p=await setup(t);p.control.input.focus();p.type('coffee');await p.key('Enter');await settle();
   assert.ok(p.requests.some(item=>item.method==='jump'));
-  await p.key('ArrowRight',p.find('[data-scope="all"]'));assert.equal(p.control.scope,'people');
+  await p.key('ArrowRight',p.find('[data-scope="all"]'));assert.equal(p.control.scope,'messages');
   await p.key('End',p.find('[data-scope="people"]'));assert.equal(p.control.scope,'messages');
   const calls=p.requests.length;await p.click('.icon-button[aria-label="Refresh saved results"]');
   assert.equal(p.requests.length,calls);assert.equal(p.searches.at(-1).retryWrites,true);
@@ -145,13 +146,13 @@ test('filter menu follows People, Messages and All context with no redundant dat
   assert.equal(c.controls.parentNode,c.field);assert.equal(c.controls.children.length,2);
   assert.equal(p.find('[data-control="filter"]').textContent,'');assert.equal(p.find('[data-control="date"]').hidden,false);
   await p.search('coff');await p.click('[data-scope="people"]');await p.click('[data-control="filter"]');
-  assert.deepEqual([...c.popover.querySelectorAll('.menu-section-title')].map(el=>el.textContent),['Filters','Chats','Sort by']);
+  assert.deepEqual([...c.popover.querySelectorAll('.menu-section-title')].map(el=>el.textContent),['Filters','Chats','Status','Sort by']);
   assert.equal(c.popover.querySelector('[data-value="from:"],[data-value="has:"],[data-value="before:"],[data-value="after:"],[data-value="wholeWord"],[data-value="relevant"]'),null);
-  assert.equal(p.find('[data-control="date"]').hidden,true);
+  assert.equal(p.find('[data-control="date"]').hidden,false);assert.equal(p.find('[data-control="date"]').disabled,true);
   await p.click('[data-value="unread"]');assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'true');
   await p.click('[data-scope="messages"]');assert.equal(c.popover.hidden,true);assert.equal(p.find('[data-control="date"]').hidden,false);
   assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'false');assert.equal(p.searches.at(-1).roomIds,undefined);
-  await p.click('[data-control="filter"]');assert.deepEqual([...c.popover.querySelectorAll('.menu-section-title')].map(el=>el.textContent),['Filters','Sort by']);
+  await p.click('[data-control="filter"]');assert.deepEqual([...c.popover.querySelectorAll('.menu-section-title')].map(el=>el.textContent),['Filters','Contains','Sort by']);
   assert.equal(c.popover.querySelector('[data-value="unread"],[data-value="groups"],[data-value="requests"]'),null);assert.ok(p.find('[data-value="relevant"]'));
   await p.click('[data-value="from:"]');assert.equal(c.input.value,'coff from:');assert.ok(p.find('.sender-result .avatar'));
   await p.search('coffee');await p.click('[data-scope="all"]');await p.click('[data-control="filter"]');assert.ok(p.find('[data-value="from:"]'));assert.ok(p.find('[data-value="unread"]'));
@@ -175,7 +176,7 @@ test('operator commands insert query tokens and sender values use main avatar ro
   p.cache.set('space',{id:'space',name:'Coffee Person',type:'direct'});p.control.senderChoicesCache=null;p.type('coffee from:Co');assert.match(p.find('.sender-result').textContent,/Coffee Person/);
   await p.key('ArrowDown');assert.ok(p.find('.sender-result.keyboard-focus'));await p.key('Enter');assert.equal(p.control.input.value,'coffee from:"Coffee Person" ');assert.equal(p.requests.length,calls);
   for(const query of ['has','has:','before','before:','after','after:']){p.type(query);assert.equal(p.control.suggestions.hidden,true);assert.equal(p.control.valuePicker(),null);}
-  await p.search('alex');await p.click('[data-scope="people"]');p.type('from');assert.equal(p.control.suggestions.hidden,true);assert.equal(p.requests.filter(item=>item.method==='history').length,0);
+  await p.search('alex');await p.click('[data-scope="people"]');p.type('from');assert.equal(p.control.scope,'messages');assert.equal(p.control.suggestions.hidden,false);assert.equal(p.requests.filter(item=>item.method==='history').length,0);
 });
 
 test('in-flight capture updates coalesce without restarting requests and preserve committed results',async t=>{
@@ -190,14 +191,14 @@ test('in-flight capture updates coalesce without restarting requests and preserv
 
 test('missing conversation dates remain blank and unavailable names do not falsely claim retention',async t=>{
   const p=await setup(t);const row=p.control.time(0);assert.equal(row.textContent,'');assert.equal(row.title,'Date unavailable');assert.equal(row.hasAttribute('datetime'),false);
-  const chat=p.cache.get('alex');p.cache.set('alex',{...chat,accountUnavailable:true,historicalName:false});p.control.render();await settle();assert.equal(p.find('.chat-result .row-meta').textContent,'Unavailable account');
+  const chat=p.cache.get('alex');p.cache.set('alex',{...chat,accountUnavailable:true,historicalName:false});await p.search('alex');p.control.render();await settle();assert.equal(p.find('.chat-result .row-meta').textContent,'Unavailable account');
 });
 
 test('missing native event retries are bounded',async t=>{
   const p=await setup(t);p.control.input.focus();
   let scans=0;const adapter=p.control.adapter;p.control.adapter={...adapter,chatRoots:()=>{scans++;return [];}};
-  await p.control.openMessage({roomId:'alex',id:'absent-native-event',timestamp:1791432000000});await p.tick(1600);const final=scans;
-  await p.tick(1000);assert.equal(scans,final);assert.equal(final,16);assert.equal(p.requests.filter(item=>item.method==='jump').length,1);
+  await p.control.openMessage({roomId:'alex',id:'absent-native-event',timestamp:1791432000000});await p.tick(4100);const final=scans;
+  await p.tick(1000);assert.equal(scans,final);assert.equal(final,41);assert.equal(p.requests.filter(item=>item.method==='jump').length,1);
 });
 
 test('individual room tools insert operators and use the current result panel for sender selection',async t=>{
@@ -206,7 +207,7 @@ test('individual room tools insert operators and use the current result panel fo
   input.addEventListener('input',()=>{room.render();room.ensureData();});room.datePicker=new w.RCSDatePicker({onChange:()=>{},onClose:()=>{}});shadow.append(room.datePicker.element);shadow.addEventListener('keydown',()=>{navigation++;});
   const before=p.requests.length,tools=w.RCSUnifiedSearch.decorateMessageControl(room,{cache:p.cache,adapter:w.RCSAdapter});t.after(()=>tools.destroy());
   assert.equal(p.requests.length,before);assert.equal(renders,0);assert.equal(loads,0);assert.equal(tools.filterButton.textContent,'');assert.equal(date.textContent,'');
-  tools.filterButton.click();assert.deepEqual([...tools.popover.querySelectorAll('.menu-section-title')].map(el=>el.textContent),['Filters','Sort by']);tools.popover.querySelector('[data-value="from:"]').click();assert.equal(input.value,'from:');assert.equal(loads,0);assert.equal(tools.suggestions.hidden,true);assert.ok(results.querySelector('.sender-result'));
+  tools.filterButton.click();assert.deepEqual([...tools.popover.querySelectorAll('.menu-section-title')].map(el=>el.textContent),['Filters','Contains','Sort by']);tools.popover.querySelector('[data-value="from:"]').click();assert.equal(input.value,'from:');assert.equal(loads,0);assert.equal(tools.suggestions.hidden,true);assert.ok(results.querySelector('.sender-result'));
   input.value='from:al';input.dispatchEvent(new w.Event('input',{bubbles:true}));assert.match(results.textContent,/alex_morgan/);assert.doesNotMatch(results.textContent,/jules_designs/);
   input.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true}));assert.equal(input.value,'from:alex_morgan ');assert.equal(loads,1);assert.equal(navigation,0);assert.equal(p.requests.length,before);
   input.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true}));assert.equal(navigation,1);
@@ -224,7 +225,7 @@ test('calendar applies dates independently of filter accent and People ignores d
   assert.equal(c.input.value,'alex');assert.equal(c.datePicker.open,false);assert.equal(c.dates.from,'2026-10-08');assert.equal(c.dates.to,'2026-10-09');
   assert.equal(p.find('[data-control="date"]').getAttribute('aria-pressed'),'true');assert.ok(p.find('[data-control="date"]').classList.contains('active'));
   assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'false');assert.equal(p.find('[data-control="filter"]').classList.contains('active'),false);
-  await p.click('[data-scope="people"]');assert.equal(c.people().length,2);assert.equal(p.find('[data-control="date"]').hidden,true);assert.equal(c.chips.hidden,true);
+  await p.click('[data-scope="people"]');assert.equal(c.people().length,2);assert.equal(p.find('[data-control="date"]').hidden,false);assert.equal(p.find('[data-control="date"]').disabled,true);assert.equal(c.chips.hidden,true);
   await p.click('[data-control="filter"]');await p.click('[data-value="unread"]');assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'true');
   await p.click('[data-scope="messages"]');assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'false');assert.equal(p.find('[data-control="date"]').getAttribute('aria-pressed'),'true');
   await p.search('coffee from:me ');assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'true');
@@ -266,4 +267,48 @@ test('virtualized chronological results retain the current sticky day beyond unl
   assert.equal(heading.textContent,p.w.RCSCore.dayLabel(record.timestamp));assert.ok(c.shadow.querySelectorAll('.message-result').length<15);
   const height=[...c.results.children].reduce((sum,el)=>sum+Number.parseFloat(el.style.height||'0'),0);assert.equal(height,c.totalHeight,'carried header retains virtual height and scroll position');
   await p.click('[data-control="filter"]');await p.click('[data-value="relevant"]');assert.equal(c.shadow.querySelector('.carried-day,.day-heading'),null);
+});
+
+test('People is the native default; focus and clicking search expose underlined scopes without replacing the empty native list',async t=>{
+  const p=await setup(t,{scope:'people'}),c=p.control;assert.equal(c.scope,'people');assert.equal(c.panel.hidden,true);assert.equal(c.scopeBar.hidden,true);
+  c.input.focus();c.input.click();await settle();assert.equal(c.scopeBar.hidden,false);assert.equal(c.panel.hidden,true);assert.equal(c.items.length,0);assert.equal(p.searches.length,0);
+  assert.deepEqual([...c.scopeBar.children].map(el=>el.dataset.scope),['people','all','messages']);assert.equal(p.w.RCSAdapter.query('.threads',p.fixture.nav).hidden,false);
+  await p.search('alex');assert.equal(c.scope,'people');assert.ok(p.find('.chat-result'));assert.equal(p.searches.length,0);
+  c.clearQuery();assert.equal(c.panel.hidden,true);assert.equal(c.scope,'people');await p.click('.search-icon');assert.equal(c.scopeBar.hidden,false);
+});
+
+test('multiple selected sender chips match alternatives and remove one sender without removing the query',async t=>{
+  const p=await setup(t),c=p.control;await p.search('coffee from:me ');await p.click('[data-scope="messages"]');
+  assert.equal(c.senderChips.querySelectorAll('.sender-chip').length,1);assert.equal(c.senderChips.querySelector('.sender-chip-label').textContent,'from:');
+  await p.click('.sender-chips > .control-pill');assert.equal(c.input.value,'coffee from:me from:');assert.equal(c.valueChoices().some(choice=>choice.token==='from:me'),false);
+  const person=c.valueChoices().find(choice=>choice.token==='from:alex_morgan');assert.ok(person);c.selectValue(person);await p.tick(180);
+  assert.equal(c.senderChips.querySelectorAll('.sender-chip').length,2);assert.ok(c.senderChips.querySelector('.sender-chip-avatar'));
+  assert.ok(c.savedHits.some(record=>record.authorSelf));assert.ok(c.savedHits.some(record=>!record.authorSelf));
+  assert.ok(c.savedHits.every(record=>record.authorSelf || record.author==='alex_morgan'));
+  await p.click('[aria-label="Remove sender me"]');await p.tick(180);assert.equal(c.senderChips.querySelectorAll('.sender-chip').length,1);assert.match(c.input.value,/coffee/);assert.doesNotMatch(c.input.value,/from:me/);assert.ok(c.savedHits.length);assert.ok(c.savedHits.every(record=>record.author==='alex_morgan'));
+});
+
+test('match windows expose short URL matches and People title matches while live sync retains clickable nodes',async t=>{
+  const p=await setup(t),c=p.control,text='https://example.invalid/'+ 'a'.repeat(280)+'F'+ 'z'.repeat(200);
+  await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'deep-link',type:'m.room.message',sender:'@t2_alex:reddit.com',origin_server_ts:1791432000000+1e6,content:{body:text}}]});
+  await p.search('f');await p.click('[data-scope="messages"]');const row=p.find('[data-key="message:alex:deep-link"]'),snippet=row.querySelector('.snippet');
+  assert.equal(snippet.querySelector('mark').textContent,'F');assert.ok(snippet.textContent.startsWith('…'));assert.ok(snippet.textContent.length<=c.snippetMax+2);assert.ok(snippet.classList.contains('link-snippet'));
+  const open=row.querySelector('button'),before=p.searches.length;open.dispatchEvent(new p.w.Event('pointerdown',{bubbles:true}));for(let i=0;i<12;i++){c.sync();c.render();}assert.equal(p.find('[data-key="message:alex:deep-link"] button'),open);assert.equal(p.searches.length,before);open.click();await settle();assert.equal(p.requests.at(-1).eventId,'deep-link');
+  p.cache.set('long-title',{id:'long-title',name:'Many words before the important Filter Person title',type:'direct'});await p.search('filter');await p.click('[data-scope="people"]');assert.equal(p.find('.chat-result .row-title mark').textContent,'Filter');
+});
+
+test('message selection scrolls and highlights exact message-id targets and ignores obsolete navigation completion',async t=>{
+  const p=await setup(t),c=p.control;await p.search('coffee');await p.click('[data-scope="messages"]');let scrolled=0;
+  p.w.RCSData={request:()=>{const target=p.w.RCSAdapter.messages(p.fixture.room,{includeNontext:true})[0].element;target.removeAttribute('data-id');target.setAttribute('message-id','exact-match');target.scrollIntoView=()=>{scrolled++;};return {promise:Promise.resolve({})};}};
+  await c.openMessage({roomId:'alex',id:'exact-match'});const target=p.w.RCSAdapter.messages(p.fixture.room,{includeNontext:true})[0].element;assert.equal(target.hasAttribute('data-rcs-jump-highlight'),true);assert.equal(scrolled,1);assert.equal(c.navigationNotice,'');
+  const pending=[];p.w.RCSData={request:()=>({promise:new Promise(resolve=>pending.push(resolve)),cancel(){}})};
+  const old=c.openMessage({roomId:'alex',id:'old'}),latest=c.openMessage({roomId:'alex',id:'exact-match'});pending[1]({});await latest;assert.equal(scrolled,2);pending[0]({});await old;assert.equal(scrolled,2);assert.equal(c.navigationNotice,'');
+});
+
+test('attachment menu toggles real metadata filters exclusively and context hides irrelevant options',async t=>{
+  const p=await setup(t),c=p.control;
+  await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'photo',type:'m.room.message',sender:'@t2_alex:reddit.com',origin_server_ts:1791432000000,content:{body:'A photo',msgtype:'m.image'}}]});
+  await p.click('[data-scope="messages"]');await p.click('[data-control="filter"]');await p.click('[data-value="has:image"]');await p.tick(180);assert.equal(c.savedHits.length,1);assert.equal(c.savedHits[0].id,'photo');assert.ok(p.find('[aria-label="Remove image filter"]'));
+  await p.click('[data-control="filter"]');await p.click('[data-value="has:file"]');await p.tick(180);assert.doesNotMatch(c.input.value,/has:image/);assert.match(c.input.value,/has:file/);assert.equal(c.savedTotal,0);
+  await p.search('alex');await p.click('[data-scope="people"]');await p.click('[data-control="filter"]');assert.equal(c.popover.querySelector('[data-value="has:image"],[data-value="from:"]'),null);assert.ok(p.find('[data-value="direct"]'));assert.ok(p.find('[data-value="unavailable"]'));
 });
