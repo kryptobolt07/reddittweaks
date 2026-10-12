@@ -1,0 +1,114 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),vm=require('node:vm');
+const {JSDOM}=require('jsdom');
+function environment(){const context=vm.createContext({TextEncoder,console});for(const file of ['search-core.js','message-store.js'])vm.runInContext(fs.readFileSync(`extension/${file}`,'utf8'),context);return context;}
+const plain=value=>JSON.parse(JSON.stringify(value));
+const owner='@alice:reddit.com',them='@bob:reddit.com',room='!one:reddit.com';
+function event(id,text,time,sender=them,roomId=room){return {event_id:id,room_id:roomId,type:'m.room.message',sender,origin_server_ts:time,content:{body:text}};}
+const noon=day=>new Date(2026,9,day,12).getTime();
+
+test('unified query operators compose with sender controls and inclusive legacy local dates',()=>{
+  const {RCSCore:C}=environment(),record={text:'Coffee tomorrow: https://example.com/cafe',author:'BobBuilder',authorSelf:false,sender:them,timestamp:new Date(noon(11)).toISOString()};
+  assert.equal(C.matchesQuery(record,'coffee "coffee tomorrow" from:bob has:link after:2026-10-11 before:2026-10-12',{dates:{from:'2026-10-11',to:'2026-10-11'}}),true);
+  assert.equal(C.matchesQuery(record,'coffee from:me'),false);
+  assert.equal(C.matchesQuery(record,'coffee from:them',{from:'me'}),false);
+  assert.equal(C.matchesQuery(record,'before:2026-10-11'),false);
+  assert.equal(C.matchesQuery(record,'after:2026-10-12'),false);
+  assert.equal(C.matchesQuery(record,'has:link',{dates:{to:'2026-10-10'}}),false);
+  assert.equal(C.matchesQuery(record,'before:2026-02-30'),false);
+  assert.equal(C.matchesQuery(record,'has:image'),false);
+  assert.equal(C.matchesQuery({...record,author:'You',authorSelf:true},'from:me'),true);
+  assert.equal(C.matchesQuery({...record,author:'Alice',authorSelf:undefined,sender:'me'},'from:me'),true);
+});
+
+test('quoted phrases, conjunctive text and Unicode whole words keep original highlight offsets',()=>{
+  const {RCSCore:C}=environment(),text='A ＣＯＦＦＥＥ tomorrow and coffeehouse, café ☕.';
+  assert.equal(C.matchesQuery({text},'coffee tomorrow'),true);
+  assert.equal(C.matchesQuery({text},'"tomorrow coffee"'),false);
+  assert.equal(C.matchesQuery({text:'coffeehouse'},'coffee',{wholeWord:true}),false);
+  assert.equal(C.matchesQuery({text:'coffée café'},'café',{wholeWord:true}),true);
+  const ranges=plain(C.highlightRanges(text,'coffee from:me',{wholeWord:true}));
+  assert.deepEqual(ranges,[[2,8]]);
+  assert.equal(text.slice(...ranges[0]),'ＣＯＦＦＥＥ');
+  assert.deepEqual(plain(C.highlightRanges('İstanbul, İstanbul','i̇stanbul')),[[0,8],[10,18]]);
+  assert.deepEqual(plain(C.highlightRanges('😀 café café','café')),[[3,7],[8,12]]);
+  assert.equal(C.matches('ＣＯＦＦＥＥ','coffee'),true,'legacy matching remains compatible');
+});
+
+test('excerpt highlights are relative to centered truncated text and omit query operators',()=>{
+  const {RCSCore:C}=environment(),text='A little introductory material. '.repeat(8)+'exact phrase here '+ 'some trailing details. '.repeat(8);
+  const excerpt=C.excerpt(text,'"exact phrase" from:them',{max:100});
+  assert.ok(excerpt.text.startsWith('…') && excerpt.text.endsWith('…'));
+  assert.equal(excerpt.text.slice(...excerpt.ranges[0]),'exact phrase');
+  assert.deepEqual(plain(C.highlightRanges(text,'from:me after:2026-10-01')),[]);
+});
+
+test('saved search filters rooms, counts all grouped matches and keeps pagination and sort stable',async()=>{
+  const {RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null});
+  await store.ingest({owner,events:[event('a','coffee tomorrow',noon(10)),event('b','a coffee story',noon(11),owner),event('c','coffee coffee',noon(9),them,'!two:reddit.com')],identities:[{id:them,name:'BobBuilder'}]});
+  assert.deepEqual(plain((await store.search(owner,{query:'coffee',sort:'oldest'})).records.map(record=>record.id)),['c','a','b']);
+  assert.deepEqual(plain((await store.search(owner,{query:'coffee',sort:'newest'})).records.map(record=>record.id)),['b','a','c']);
+  assert.equal((await store.search(owner,{query:'coffee',sort:'relevant'})).records[0].id,'c');
+  const grouped=await store.search(owner,{query:'coffee',grouped:true,limit:1});
+  assert.equal(grouped.total,3);assert.equal(grouped.matchedRooms,2);assert.equal(grouped.hasMore,true);
+  assert.equal(grouped.groups.reduce((sum,group)=>sum+group.total,0),3);
+  assert.equal(grouped.groups.reduce((sum,group)=>sum+group.records.length,0),1);
+  assert.equal((await store.search(owner,{query:'from:me',from:'them'})).total,0);
+  assert.equal((await store.search(owner,{query:'from:bob'})).total,2);
+  assert.equal((await store.search(owner,{roomIds:[room]})).total,2);
+  assert.equal((await store.search(owner,{roomIds:[]})).total,0);
+  assert.equal((await store.search(them,{query:'coffee'})).total,0);
+  await assert.rejects(store.search(owner,{roomIds:'all'}),/Invalid/);
+  await assert.rejects(store.search(owner,{limit:501}),/Invalid/);
+});
+
+test('lightweight summaries use materialized edits, exclude redactions, and isolate owners',async()=>{
+  const {RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null});
+  await store.ingest({owner,events:[event('old','old text',noon(9),owner),event('latest','private text',noon(10)),event('base','original',noon(8),owner,'!two:reddit.com')]});
+  await store.ingest({owner,events:[{...event('edit','edit body',noon(11),owner,'!two:reddit.com'),content:{body:'* edited','m.new_content':{body:'Edited '.repeat(60)},'m.relates_to':{rel_type:'m.replace',event_id:'base'}}},{...event('redaction','',noon(11)),type:'m.room.redaction',redacts:'latest'}]});
+  const summaries=await store.summaries(owner);
+  assert.equal(summaries.summaries.length,2);
+  assert.equal(summaries.summaries.find(item=>item.roomId===room).text,'old text');
+  assert.equal(summaries.summaries.find(item=>item.roomId==='!two:reddit.com').text.length,200);
+  assert.ok(summaries.summaries.every(item=>item.authorSelf));
+  assert.deepEqual(plain((await store.summaries(them)).summaries),[]);
+  assert.equal(JSON.stringify(summaries).includes('private text'),false);
+  await assert.rejects(store.summaries('invalid'),/Invalid account/);
+});
+
+test('summary client reads honor identity changes without waiting for catch-up',async()=>{
+  const dom=new JSDOM('',{runScripts:'outside-only'}),win=dom.window;win.TextEncoder=TextEncoder;
+  for(const file of ['search-core.js','message-store.js'])win.eval(fs.readFileSync(`extension/${file}`,'utf8'));
+  let active=owner,finish;
+  win.RCSData={request:action=>({promise:action==='identity-context'?Promise.resolve({owner:active}):new Promise(()=>{})})};
+  win.chrome={runtime:{sendMessage:message=>message.action==='summaries'?new Promise(resolve=>{finish=resolve;}):Promise.resolve({ok:true}),onMessage:{addListener(){}}}};
+  win.eval(fs.readFileSync('extension/message-cache-client.js','utf8'));
+  const request=win.RCSMessages.summaries();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.ok(finish,'summary transport started while native history remains pending');
+  active=them;finish({ok:true,owner,summaries:[{roomId:room,text:'old account'}]});
+  await assert.rejects(request,/account changed/);dom.window.close();
+});
+
+test('compact timestamps show same-day time, yesterday, recent weekday and prior-year date',()=>{
+  const {RCSCore:C}=environment(),now=noon(11);
+  assert.ok(C.compactTime(noon(11),now).includes('12'));
+  assert.equal(C.compactTime(noon(10),now),'Yesterday');
+  assert.ok(C.compactTime(noon(8),now));
+  assert.ok(C.compactTime(new Date(2025,9,3).getTime(),now).includes('2025'));
+  assert.equal(C.compactTime('not a date',now),'');
+});
+
+test('in-room MessageIndex supports operators and authoritative self identities',()=>{
+  const {RCSCore:C}=environment(),index=new C.MessageIndex();
+  const timestamp=new Date(noon(11)).toISOString();
+  index.upsert(room,[{id:'self',text:'Coffee tomorrow https://example.com/self',author:'Alice',authorSelf:true,timestamp},
+    {id:'other',text:'Coffee tomorrow https://example.com/them',author:'BobBuilder',authorSelf:false,timestamp},
+    {id:'plain',text:'Coffee tomorrow',author:'BobBuilder',authorSelf:false,timestamp}]);
+  assert.deepEqual(plain(index.search(room,'from:me has:link "coffee tomorrow"').map(message=>message.id)),['self']);
+  assert.deepEqual(plain(index.search(room,'from:bob has:link after:2026-10-11 before:2026-10-12').map(message=>message.id)),['other']);
+  assert.equal(index.search(room,'from:them',{to:'2026-10-10'}).length,0);
+  assert.equal(index.search(room,'before:2026-02-30').length,0);
+  assert.equal(index.search(room,'coffee tomorrow').length,3);
+});

@@ -89,21 +89,39 @@
       // write. Future queued captures cannot delay this committed snapshot.
       const tx=db.transaction(['rooms','identities'],'readonly');const [found,identities]=await Promise.all([request(roomId?tx.objectStore('rooms').get([owner,roomId]):tx.objectStore('rooms').getAll(IDBKeyRange.bound([owner,''],[owner,'\uffff']))),request(tx.objectStore('identities').get(owner))]);const rows=roomId?(found?[found]:[]):found;return {rows,people:identities?.people || {},identityBytes:identities?.approxBytes || 0,nativeReconciledAt:identities?.nativeReconciledAt || 0,nativeImportComplete:Boolean(identities?.nativeImportComplete)};
     }
-    async search(owner,{query='',roomId,dates={},limit=200,offset=0,committed=false}={},directory) {
-      if(typeof query!=='string' || query.length>1000 || !Number.isInteger(limit) || limit<1 || limit>500 || !Number.isInteger(offset) || offset<0 || offset>1000000)throw Error('Invalid message query');
-      return this.searchSnapshot(owner,await this.snapshot(owner,roomId,{committed}),{query,roomId,dates,limit,offset},directory);
+    async search(owner,{query='',roomId,roomIds,dates={},from='all',wholeWord=false,sort='newest',grouped=false,limit=200,offset=0,committed=false}={},directory) {
+      if(typeof query!=='string' || query.length>1000 || !Number.isInteger(limit) || limit<1 || limit>500 || !Number.isInteger(offset) || offset<0 || offset>1000000 || !['all','me','them'].includes(from) || !['newest','oldest','relevant'].includes(sort) || roomIds!==undefined && (!Array.isArray(roomIds) || roomIds.some(id=>typeof id!=='string' || !id || id.length>1000)))throw Error('Invalid message query');
+      return this.searchSnapshot(owner,await this.snapshot(owner,roomId,{committed}),{query,roomId,roomIds,dates,from,wholeWord,sort,grouped,limit,offset},directory);
     }
     async room(owner,roomId,directory,{committed=false}={}) {
       if(typeof roomId!=='string' || !roomId || roomId.length>1000)throw Error('Invalid room');
       return this.searchSnapshot(owner,await this.snapshot(owner,roomId,{committed}),{query:'',roomId,dates:{},limit:Infinity,offset:0},directory);
     }
-    searchSnapshot(owner,{rows,people,identityBytes},{query,roomId,dates,limit,offset},directory) {
-      const bounds=RCSCore.dateBounds(dates),records=[];
-      for(const row of rows)if(!roomId || row.roomId===roomId){const ledger=new Map(row.events.map(event=>[event.id,event]));for(const record of row.records){const text=ledger.get(record.bodyEvent)?.body || '';if(!text || bounds.invalid || !RCSCore.matches(text,query) || bounds.active && !(record.time>=bounds.start && record.time<bounds.end))continue;
-        const cached=people[record.sender] || {},known=directory?.identities?.[record.sender] || {},person=mergeIdentity(cached,{...known,id:record.sender}),self=record.sender===owner;
-        records.push({id:record.id,roomId:row.roomId,text,sender:record.sender,timestamp:record.time?new Date(record.time).toISOString():'',author:self?'You':person.name || record.sender,authorSelf:self,authorHistorical:Boolean(person.historical ?? person.historicalName),authorUnavailable:Boolean(person.unavailable ?? person.accountUnavailable),avatar:person.avatar || '',thread:record.thread,threadRoot:record.threadRoot});}}
-      records.sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0) || a.roomId.localeCompare(b.roomId) || a.id.localeCompare(b.id));
-      return {owner,persistent:this.persistent,records:records.slice(offset,offset+limit),total:records.length,hasMore:offset+limit<records.length,stats:this.statistics(rows,people,identityBytes),coverage:roomId?rows.find(row=>row.roomId===roomId)?.coverage || {complete:false,dateComplete:false}:{complete:false,unknownRooms:true,threadsVerified:false}};
+    materialize(owner,row,record,ledger,people,directory) {
+      const text=ledger.get(record.bodyEvent)?.body || '';
+      const cached=people[record.sender] || {},known=directory?.identities?.[record.sender] || {},person=mergeIdentity(cached,{...known,id:record.sender}),self=record.sender===owner;
+      return {id:record.id,roomId:row.roomId,text,sender:record.sender,timestamp:record.time?new Date(record.time).toISOString():'',author:self?'You':person.name || record.sender,authorSelf:self,authorHistorical:Boolean(person.historical ?? person.historicalName),authorUnavailable:Boolean(person.unavailable ?? person.accountUnavailable),avatar:person.avatar || '',thread:record.thread,threadRoot:record.threadRoot};
+    }
+    searchSnapshot(owner,{rows,people,identityBytes},{query,roomId,roomIds,dates,from='all',wholeWord=false,sort='newest',grouped=false,limit,offset},directory) {
+      const parsed=RCSCore.parseQuery(query),records=[],allowed=roomIds?new Set(roomIds):null;
+      for(const row of rows)if((!roomId || row.roomId===roomId) && (!allowed || allowed.has(row.roomId))){const ledger=new Map(row.events.map(event=>[event.id,event]));for(const record of row.records){
+        const message=this.materialize(owner,row,record,ledger,people,directory);
+        if(message.text && RCSCore.matchesQuery(message,parsed,{from,wholeWord,dates}))records.push(message);
+      }}
+      const relevance=message=>RCSCore.highlightRanges(message.text,parsed,{wholeWord}).reduce((score,[start,end])=>score+end-start+(start===0?20:0),0);
+      const scores=sort==='relevant'?new Map(records.map(record=>[record,relevance(record)])):null;
+      records.sort((a,b)=>(scores?scores.get(b)-scores.get(a):0) || (sort==='oldest'?1:-1)*((Date.parse(a.timestamp)||0)-(Date.parse(b.timestamp)||0)) || a.roomId.localeCompare(b.roomId) || a.id.localeCompare(b.id));
+      const counts=new Map();for(const record of records)counts.set(record.roomId,(counts.get(record.roomId)||0)+1);
+      const page=records.slice(offset,offset+limit),groups=[];
+      if(grouped){const byRoom=new Map();for(const [id,total]of counts){const group={roomId:id,total,records:[]};byRoom.set(id,group);groups.push(group);}for(const record of page)byRoom.get(record.roomId).records.push(record);}
+      return {owner,persistent:this.persistent,records:page,total:records.length,hasMore:offset+limit<records.length,matchedRooms:counts.size,...(grouped?{groups}:{}),stats:this.statistics(rows,people,identityBytes),coverage:roomId?rows.find(row=>row.roomId===roomId)?.coverage || {complete:false,dateComplete:false}:{complete:false,unknownRooms:true,threadsVerified:false}};
+    }
+    async summaries(owner,{committed=false}={}) {
+      const {rows}=await this.snapshot(owner,undefined,{committed}),summaries=[];
+      for(const row of rows){const ledger=new Map(row.events.map(event=>[event.id,event]));const latest=row.records.filter(record=>ledger.get(record.bodyEvent)?.body).sort((a,b)=>order(b,a))[0];if(!latest)continue;
+        summaries.push({roomId:row.roomId,text:ledger.get(latest.bodyEvent).body.slice(0,200),timestamp:latest.time?new Date(latest.time).toISOString():'',authorSelf:latest.sender===owner});}
+      summaries.sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0) || a.roomId.localeCompare(b.roomId));
+      return {owner,persistent:this.persistent,summaries};
     }
     statistics(rows,people,identityBytes) {return {messages:rows.reduce((sum,row)=>sum+row.records.length,0),rooms:rows.length,completeRooms:rows.filter(row=>row.coverage.complete).length,approxBytes:rows.reduce((sum,row)=>sum+(row.approxBytes ?? bytes(row)),0)+(identityBytes ?? (Array.isArray(people)?people.reduce((sum,person)=>sum+(person.approxBytes ?? bytes(person)),0):bytes(people)))};}
     async importState(owner,mark=false) {await this.queue;const db=await this.db();if(!db){const saved=this.identities.get(owner) || {owner,people:{}};if(mark){saved.nativeImportComplete=true;saved.nativeReconciledAt=Date.now();delete saved.approxBytes;saved.approxBytes=bytes(saved);this.identities.set(owner,saved);}return mark || Boolean(saved.nativeImportComplete);}const tx=db.transaction('identities',mark?'readwrite':'readonly'),completion=done(tx);const saved=await request(tx.objectStore('identities').get(owner)) || {owner,people:{}};if(mark){saved.nativeImportComplete=true;saved.nativeReconciledAt=Date.now();delete saved.approxBytes;saved.approxBytes=bytes(saved);tx.objectStore('identities').put(saved);}await completion;return mark || Boolean(saved.nativeImportComplete);}
