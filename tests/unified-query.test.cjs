@@ -128,3 +128,54 @@ test('message timestamps use divider dates for chronological sort and retain the
   assert.notEqual(C.dayKey(new Date(2026,9,10,23,59)),C.dayKey(new Date(2026,9,11,0,0)));assert.equal(C.dayKey(new Date(2026,9,10,0,0)),C.dayKey(new Date(2026,9,10,23,59)));
   assert.equal(C.dayLabel(new Date(2026,2,8),new Date(2026,2,9)),'Yesterday','local calendar dates survive a daylight-saving transition');
 });
+
+test('short matches deep in long links remain visible and use original offsets',()=>{
+  const {RCSCore:C}=environment(),text='https://example.com/'+ 'a'.repeat(600)+'F'+ 'b'.repeat(300);
+  assert.equal(C.matchesQuery({text},'f'),true);
+  const snippet=C.excerpt(text,'f',{max:60});
+  assert.ok(snippet.text.startsWith('…') && snippet.text.endsWith('…'));
+  assert.ok(snippet.text.length<=62);
+  assert.equal(snippet.ranges.length,1);
+  assert.equal(snippet.text.slice(...snippet.ranges[0]),'F');
+  assert.ok(snippet.ranges[0][0]<25,'the match appears early enough in the visual window');
+  for(const body of ['u/foo','  Ｆｏｏ café  ','Σ','😀needle😀']){
+    const needle=body==='Σ'?'σ':body.includes('needle')?'needle':'foo';
+    assert.equal(C.matchesQuery({text:body},needle),C.highlightRanges(body,needle).length>0,'matching and highlight normalization agree');
+  }
+  assert.equal(C.matchesQuery({text:'😀needle😀'},'needle',{wholeWord:true}),true);
+  assert.equal(C.matchesQuery({text:'𐐀needle'},'needle',{wholeWord:true}),false,'astral letters remain part of a word');
+});
+
+test('multiple sender filters are alternatives while text and dates remain conjunctive',async()=>{
+  const {RCSCore:C,RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null}),carol='@carol:reddit.com';
+  await store.ingest({owner,events:[event('bob','meeting',noon(10)),event('carol','meeting',noon(11),carol),event('self','meeting',noon(11),owner),event('different','holiday',noon(11))],identities:[{id:them,name:'Bob'},{id:carol,name:'Carol'}]});
+  assert.deepEqual(plain((await store.search(owner,{query:'meeting from:bob from:carol'})).records.map(message=>message.id)),['carol','bob']);
+  assert.deepEqual(plain((await store.search(owner,{query:'meeting from:bob from:carol after:2026-10-11'})).records.map(message=>message.id)),['carol']);
+  assert.equal(C.matchesQuery({text:'meeting',authorSelf:true},'meeting from:me from:bob'),true);
+});
+
+test('attachment filters use authentic message types, edited metadata and account isolation',async()=>{
+  const {RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null});
+  const image={...event('image','Photo.jpg',noon(10)),content:{body:'Photo.jpg',msgtype:'m.image'}},file={...event('file','Document.pdf',noon(10)),content:{body:'Document.pdf',msgtype:'m.file'}};
+  await store.ingest({owner,events:[image,file,event('fake','Photo.jpg',noon(10)),{...event('sticker','',noon(10)),type:'m.sticker'}]});
+  assert.deepEqual(plain((await store.search(owner,{query:'has:image'})).records.map(record=>record.id)),['image','sticker']);
+  assert.deepEqual(plain((await store.search(owner,{query:'has:file'})).records.map(record=>record.id)),['file']);
+  assert.equal((await store.search(owner,{query:'has:image has:file'})).total,0);
+  assert.equal((await store.search(them,{query:'has:image'})).total,0);
+  await store.ingest({owner,events:[{...event('edit-file','* converted',noon(11)),content:{body:'* converted','m.new_content':{body:'converted.png',msgtype:'m.image'},'m.relates_to':{rel_type:'m.replace',event_id:'file'}}}]});
+  assert.equal((await store.search(owner,{query:'has:file'})).total,0);
+  assert.equal((await store.search(owner,{query:'has:image converted'})).records[0].id,'file');
+});
+
+
+test('native replay backfills attachment metadata in preexisting cached events without a schema reset',async()=>{
+  const {RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null}),image={...event('image','Photo.jpg',noon(10)),content:{body:'Photo.jpg',msgtype:'m.image'}};
+  await store.ingest({owner,roomId:room,events:[image],coverage:{complete:true,dateComplete:true}});
+  const saved=[...store.memory.values()][0];delete saved.events[0].attachmentType;
+  assert.equal((await store.search(owner,{query:'has:image'})).total,0);
+  const replay=await store.ingest({owner,roomId:room,events:[image],coverage:{complete:true,dateComplete:true}});
+  assert.equal(replay.changed,true);
+  assert.equal((await store.search(owner,{query:'has:image'})).total,1);
+  assert.equal((await store.search(owner,{roomId:room})).coverage.complete,true);
+  assert.equal((await store.ingest({owner,roomId:room,events:[image],coverage:{complete:true,dateComplete:true}})).changed,false);
+});
