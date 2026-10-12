@@ -52,6 +52,8 @@
     .meta [role=status] { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
     .load,.date-chip { display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:26px;font-size:11px;font-weight:600;color:var(--rcs-text);border:1px solid var(--rcs-line);border-radius:999px;padding:4px 10px;background:var(--rcs-soft);white-space:nowrap;flex-shrink:0; }
     .results { max-height:min(360px,50vh); overflow:auto; overscroll-behavior:contain; padding:4px 0; }
+    .day-heading { position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;height:28px;margin:0;padding:0 10px;color:var(--rcs-muted);background:var(--rcs-bg);font-size:10px;font-weight:600; }
+    .day-heading::before,.day-heading::after { content:'';flex:1;height:1px;background:var(--rcs-line); }
     .result { display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:11px 14px; color:var(--rcs-text); background:transparent; border:0; border-left:0; text-decoration:none; }
     .result:hover,.result.active { background:var(--rcs-soft); }
     .avatar { position:relative;display:grid; place-items:center; width:32px; height:32px; border-radius:50%; color:var(--rcs-muted); background:var(--rcs-soft); font-weight:600; flex:none; overflow:hidden; }
@@ -388,8 +390,10 @@
       if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || (!this.savedStats && this.savedLoading ? 'Searching saved messages…' : `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedSavingError ? ' · Saving paused' : this.savedImporting ? ' · Saving cached messages…' : this.savedLoading ? ' · Searching…' : ''}`);
       if(this.isGlobal)this.load.textContent='Refresh';
       this.status.title=this.savedSavingError ? `${this.status.textContent} · ${this.savedSavingError}` : this.status.textContent;
-      const wanted=[];
+      const wanted=[],dayHeaders=new Map([...this.results.querySelectorAll('.day-heading')].map(el=>[el.dataset.day,el]));let lastDay=null;
+      const chronological=this.messageMode && this.queryOptions?.sort!=='relevant';
       for (const [i, hit] of this.hits.slice(0,this.renderLimit).entries()) {
+        if(chronological){const day=C.dayKey(hit.timestamp);if(day!==lastDay){let heading=dayHeaders.get(day);if(!heading){heading=node('h3','day-heading');heading.dataset.day=day;}heading.textContent=C.dayLabel(hit.timestamp);wanted.push(heading);lastDay=day;}}
         const key=this.rowKey(hit);
         let row=this.rows.get(key);
         if(!row) {
@@ -410,7 +414,7 @@
         if(row.signature!==signature) {
           row.signature=signature;
           row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query) : document.createTextNode(partnerName || (hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable')));
-          row.caption.textContent=!this.messageMode ? (hit.accountUnavailable ? hit.historicalName ? 'Unavailable account · Retained username' : 'Unavailable account' : 'Open conversation') : hit.timestamp ? this.formatTime(hit.timestamp) : '';
+          row.caption.textContent=!this.messageMode ? (hit.accountUnavailable ? hit.historicalName ? 'Unavailable account · Retained username' : 'Unavailable account' : 'Open conversation') : hit.timestamp ? C.messageTime(hit.timestamp,{sort:this.queryOptions?.sort}) : '';
           if(!this.messageMode && hit.timestamp && Number.isFinite(new Date(hit.timestamp).getTime())) {
             row.caption.textContent=`${this.formatTime(hit.timestamp)}${hit.accountUnavailable ? ' · Unavailable account' : ''}`;
             row.caption.title=`Last conversation activity · ${new Date(hit.timestamp).toLocaleString()}`;
@@ -418,9 +422,9 @@
             row.caption.textContent=hit.accountUnavailable ? 'Unavailable account · Date unavailable' : 'Date unavailable';
             row.caption.title='Reddit has not provided a message timestamp for this conversation.';
           } else row.caption.removeAttribute('title');
-          if(this.kind==='messages' && hit.timestamp)row.caption.title=new Date(hit.timestamp).toLocaleString();
+          if(this.messageMode)row.caption.title=C.fullTimestamp(hit.timestamp || NaN);
           if(!this.messageMode && (hit.type==='reddit_modmail' || hit.membership==='invite'))row.caption.textContent=`${hit.type==='reddit_modmail'?'Community chat':'Chat'}${hit.membership==='invite'?' · Request pending':''}${hit.timestamp?` · ${this.formatTime(hit.timestamp)}`:''}`;
-          if(this.isGlobal)row.caption.textContent=`${this.cache.get(hit.roomId)?.name || 'Saved conversation'}${hit.timestamp ? ` · ${this.formatTime(hit.timestamp)}` : ''}`;
+          if(this.isGlobal)row.caption.textContent=`${this.cache.get(hit.roomId)?.name || 'Saved conversation'}${hit.timestamp ? ` · ${C.messageTime(hit.timestamp,{sort:this.queryOptions?.sort})}` : ''}`;
           if(row.preview) {
             const match=C.ranges(hit.text,query)[0];const start=Math.max(0,(match?.[0] || 0)-40);
             const snippet=C.excerpt?.(hit.text,query,this.queryOptions) || {text:`${start ? '…' : ''}${hit.text.slice(start,start+180)}${hit.text.length>start+180 ? '…' : ''}`};
@@ -455,6 +459,7 @@
       // Keep unmatched rows mounted but hidden so returning to a query reuses
       // the same decoded avatar. No src assignment occurs during normal sync.
       const visible=new Set(wanted);
+      for(const heading of dayHeaders.values())if(!visible.has(heading))heading.remove();
       for(const row of this.rows.values()){row.result.hidden=!visible.has(row.result);row.result.classList.toggle('result',visible.has(row.result));}
       for(const extra of this.results.querySelectorAll('.empty,.hint,.saved-more'))extra.remove();
       let position=this.results.firstElementChild;

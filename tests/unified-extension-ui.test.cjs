@@ -249,3 +249,21 @@ test('people previews omit missing or older messages and update from existing sa
   assert.match(w.document.querySelector('.cache-info').textContent,/Saved messages only.*History may be incomplete.*scoped to your Reddit account/s);
   assert.match(w.document.querySelector('#message-stats').textContent,/42 saved messages.*3 chats/);assert.equal(calls.length,1);assert.equal(calls[0].action,'stats');
 });
+
+
+test('global chronological results show times under day dividers and relevance removes all dividers',async t=>{
+  const p=await setup(t),c=p.control;await p.search('coffee');await p.click('[data-scope="messages"]');
+  assert.ok(c.items.some(item=>item.kind==='day'));
+  const verify=()=>{for(const el of c.shadow.querySelectorAll('.message-result time')){assert.equal(el.textContent,p.w.RCSCore.messageTime(el.getAttribute('datetime'),{sort:c.sort}));assert.equal(el.title,p.w.RCSCore.fullTimestamp(el.getAttribute('datetime')));}};
+  verify();await p.click('[data-control="filter"]');await p.click('[data-value="oldest"]');assert.ok(c.items.some(item=>item.kind==='day'));verify();
+  await p.click('[data-control="filter"]');await p.click('[data-value="relevant"]');assert.equal(c.items.some(item=>item.kind==='day'),false);assert.equal(c.shadow.querySelector('.day-heading'),null);verify();
+  assert.match(p.find('.message-result time').textContent,/,/);await p.click('[data-control="filter"]');await p.click('[data-value="newest"]');assert.ok(c.shadow.querySelector('.day-heading'));verify();
+});
+
+test('virtualized chronological results retain the current sticky day beyond unloaded earlier rows',async t=>{
+  const p=await setup(t,{large:true}),c=p.control;await p.search('coffee');await p.click('[data-scope="messages"]');
+  c.results.scrollTop=12000;c.renderWindow();const heading=p.find('.carried-day'),record=c.items.find(item=>item.kind==='message' && item.offset>=11760).record;
+  assert.equal(heading.textContent,p.w.RCSCore.dayLabel(record.timestamp));assert.ok(c.shadow.querySelectorAll('.message-result').length<15);
+  const height=[...c.results.children].reduce((sum,el)=>sum+Number.parseFloat(el.style.height||'0'),0);assert.equal(height,c.totalHeight,'carried header retains virtual height and scroll position');
+  await p.click('[data-control="filter"]');await p.click('[data-value="relevant"]');assert.equal(c.shadow.querySelector('.carried-day,.day-heading'),null);
+});

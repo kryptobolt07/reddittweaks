@@ -95,6 +95,25 @@
     if(age===1)return 'Yesterday';if(age>1 && age<7)return date.toLocaleDateString(undefined,{weekday:'short'});
     return date.toLocaleDateString(undefined,{month:'short',day:'numeric',...(date.getFullYear()!==today.getFullYear()?{year:'numeric'}:{})});
   }
+  function dayKey(timestamp){
+    const date=new Date(timestamp);if(!Number.isFinite(date.getTime()))return '';
+    return `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`;
+  }
+  function dayLabel(timestamp,now=Date.now()){
+    const date=new Date(timestamp),today=new Date(now);if(!Number.isFinite(date.getTime()))return 'Date unavailable';
+    const midnight=value=>Date.UTC(value.getFullYear(),value.getMonth(),value.getDate()),age=(midnight(today)-midnight(date))/86400000;
+    if(age===0)return 'Today';if(age===1)return 'Yesterday';
+    if(age>1 && age<7 && date.getFullYear()===today.getFullYear())return date.toLocaleDateString(undefined,{weekday:'long'});
+    return date.toLocaleDateString(undefined,{month:'short',day:'numeric',...(date.getFullYear()!==today.getFullYear()?{year:'numeric'}:{})});
+  }
+  function messageTime(timestamp,{sort='newest',now=Date.now()}={}){
+    const date=new Date(timestamp);if(!Number.isFinite(date.getTime()))return '';
+    const time=date.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+    return sort==='relevant'?`${dayLabel(timestamp,now)}, ${time}`:time;
+  }
+  function fullTimestamp(timestamp){
+    const date=new Date(timestamp);return Number.isFinite(date.getTime())?date.toLocaleString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'Date unavailable';
+  }
   class MessageIndex {
     constructor(limit = 5000,onEvict=()=>{}) { this.limit = limit; this.rooms = new Map();this.redacted=new Map();this.metadata=new Map();this.onEvict=onEvict; }
     upsert(room, messages,{dom=false,authoritative=false,redacted=[]}={}) {
@@ -147,5 +166,5 @@
     }
     clear() { this.rooms.clear();this.redacted.clear();this.metadata.clear(); }
   }
-  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, matchesQuery, highlightRanges, excerpt, compactTime, MessageIndex});
+  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, matchesQuery, highlightRanges, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
 })();
