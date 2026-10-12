@@ -71,7 +71,7 @@ test('All chats searches only saved messages, preserves separate room rows and e
 });
 test('floating sidebar keeps the compact field and saved-message date filter uses only local storage',async t=>{
   const {root,host,all,nativeCalls,savedCalls}=setup(t,{compact:true});await wait(20);nativeCalls.length=0;all();await wait(140);
-  assert.equal(host.hasAttribute('data-rcs-compact'),true);assert.match(root.querySelector('style').textContent,/height:32px/);
+  assert.equal(host.hasAttribute('data-rcs-compact'),true);assert.match(root.querySelector('style').textContent,/height:40px/);
   const toggle=root.querySelector('[aria-label="Filter by date"]');assert.equal(toggle.hidden,false);toggle.click();
   assert.equal(toggle.getAttribute('aria-expanded'),'true');
   assert.equal(root.querySelector('.panel').hidden,false,'the global view stays behind the floating calendar');

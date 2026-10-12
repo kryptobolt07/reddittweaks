@@ -23,7 +23,7 @@
     person: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'
   };
   const css = `
-    :host { display:block; position:relative; z-index:6; flex-shrink:0; min-width:0;
+    :host { display:block; position:relative; z-index:0; isolation:isolate; flex-shrink:0; min-width:0;
       color:var(--color-neutral-content-strong,#0f1a1c); font:14px/1.4 var(--font-sans, -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);
       --rcs-bg:var(--color-neutral-background,#fff); --rcs-soft:var(--color-neutral-background-weak,#f2f4f5);
       --rcs-text:var(--color-neutral-content-strong,#0f1a1c); --rcs-muted:var(--color-neutral-content-weak,#576f76);
@@ -32,8 +32,8 @@
     :host([hidden]) { display:none!important; } * { box-sizing:border-box; } [hidden] { display:none!important; }
     button,input { font:inherit; } button { cursor:pointer; } svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; flex:none; }
     .bar { display:flex; gap:6px; align-items:center; padding:8px 12px; background:var(--rcs-bg); }
-    .field { display:flex; flex:1; min-width:0; gap:8px; align-items:center; background:var(--rcs-soft); border-radius:20px; padding:0 10px; height:32px; color:var(--rcs-muted); border:1px solid transparent; }
-    .field:focus-within { border-color:var(--rcs-muted); } input { width:100%; min-width:0; border:0; outline:0; background:transparent; color:var(--rcs-text); font-size:12px; height:28px; }
+    .field { display:flex; flex:1; min-width:0; gap:8px; align-items:center; background:var(--rcs-soft); border-radius:20px; padding:0 10px; height:40px; color:var(--rcs-muted); border:1px solid transparent; }
+    .field:focus-within { border-color:var(--rcs-muted); } input { width:100%; min-width:0; border:0; outline:0; background:transparent; color:var(--rcs-text); font-size:12px; height:36px; }
     input::placeholder { color:var(--rcs-muted); opacity:1; } input::-webkit-search-cancel-button { display:none; }
     .icon { display:grid; place-items:center; padding:0; width:28px; height:28px; border:0; border-radius:50%; background:transparent; color:var(--rcs-muted); flex:none; }
     .icon:hover,.toggle:hover,.load:hover { background:var(--rcs-hover); } button:focus-visible,a:focus-visible { outline:2px solid var(--rcs-accent); outline-offset:2px; }
@@ -61,8 +61,8 @@
     .time { display:block; color:var(--rcs-muted); font-size:11px; font-weight:400; margin-top:2px; } .hint,.empty { color:var(--rcs-muted); padding:20px 16px; font-size:12px; text-align:center; }
     mark { background:#ffcc804d; color:inherit; border-radius:2px; } .count { font-size:11px; color:var(--rcs-muted); white-space:nowrap; }
     :host([data-rcs-ui=messages]) .bar { width:100%;padding:6px 8px;gap:4px; }
-    :host([data-rcs-ui=messages]) .field { height:32px; }
-    :host([data-rcs-ui=messages]) input { height:28px;font-size:12px; }
+    :host([data-rcs-ui=messages]) .field { height:40px; }
+    :host([data-rcs-ui=messages]) input { height:36px;font-size:12px; }
     .date-chip { max-width:52%;color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 8%,var(--rcs-bg));border-color:color-mix(in srgb,var(--rcs-accent) 20%,var(--rcs-line)); }
     .date-chip { padding:0 3px 0 8px;gap:2px; }
     .date-chip-edit { border:0;padding:4px 0;min-width:0;background:transparent;color:inherit;font:inherit;overflow:hidden;text-overflow:ellipsis; }
@@ -78,10 +78,11 @@
     .message-heading { display:flex;align-items:baseline;gap:8px;min-width:0; }
     .message-heading .name { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px; }
     .message-heading .time { margin:0;white-space:nowrap;font-size:10px; }
+    .you-prefix { font-weight:400; }
     .message-panel .preview { -webkit-line-clamp:2;font-size:12px;line-height:1.45;margin-top:2px; }
     :host([data-rcs-compact]) .bar { padding:4px 6px;gap:2px; }
-    :host([data-rcs-compact]) .field { height:32px;gap:4px;padding:0 7px; }
-    :host([data-rcs-compact]) input { height:28px;font-size:12px; }
+    :host([data-rcs-compact]) .field { height:40px;gap:4px;padding:0 7px; }
+    :host([data-rcs-compact]) input { height:36px;font-size:12px; }
     :host([data-rcs-compact]) .icon { width:24px;height:24px; }
     :host([data-rcs-compact]) svg { width:16px;height:16px; }
     :host([data-rcs-compact]) .toggle { margin:3px 6px;padding:4px 7px; }
@@ -117,10 +118,10 @@
     button.addEventListener('click', handler);
     return button;
   }
-  function highlight(text, query) {
+  function highlight(text, query, options={}) {
     const fragment = document.createDocumentFragment();
     let offset = 0;
-    for (const [start, end] of C.ranges(text, query)) {
+    for (const [start, end] of (C.highlightRanges?.(text,query,options) || C.ranges(text, query))) {
       fragment.append(document.createTextNode(text.slice(offset, start)), node('mark', '', text.slice(start, end)));
       offset = end;
     }
@@ -129,13 +130,14 @@
   }
   class SearchControl {
     constructor(container, kind) {
+      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.5.0'});
       this.container = container; this.kind = kind; this.room = ''; this.cache = directory; this.active = -1; this.hits = []; this.loading = false;
       this.complete = kind === 'list' && directoryComplete;
       this.rows = new Map();
       this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;this.scope='people';this.savedHits=[];this.savedTotal=0;this.savedGeneration=0;this.savedOwner=undefined;this.savedLoading=false;
       this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
-      this.host.setAttribute('data-rcs-version','0.4.1');
+      this.host.setAttribute('data-rcs-version','0.5.0');
       const shadow = this.host.attachShadow({mode:'open'});
       const style = node('style', '', css); shadow.append(style);
       this.toggle = node('button', 'toggle', 'Search messages'); this.toggle.type = 'button';
@@ -232,6 +234,7 @@
       point.parent.insertBefore(this.host, point.before);
       if(globalThis.ResizeObserver){this.resizeObserver=new ResizeObserver(()=>{this.updateLayout();if(!this.bar.hidden)this.render();});this.resizeObserver.observe(container);}
       this.savedUnsubscribe=globalThis.RCSMessages?.subscribe(value=>this.savedChanged(value));
+      if(kind==='messages')this.tools=globalThis.RCSUnifiedSearch?.decorateMessageControl?.(this,{cache:this.cache,adapter:A});
       this.sync();
       if (kind === 'list') this.ensureData(false,true);
     }
@@ -354,7 +357,7 @@
       if ((this.input.value.trim() || this.dates?.from || this.dates?.to) && !this.panel.hidden) this.render();
     }
     render() {
-      const query = this.input.value.trim(); this.clear.hidden = !query;
+      const query = this.input.value.trim(); this.clear.hidden = !query;this.tools?.sync?.();
       const dates=this.dates || {from:'',to:''},bounds=C.dateBounds(dates),searchKey=JSON.stringify([query,dates]);
       if(searchKey!==this.lastQuery){this.renderLimit=50;this.lastQuery=searchKey;}
       const selected=this.hits[this.active] ? this.rowKey(this.hits[this.active]) : '';
@@ -363,7 +366,12 @@
         const available = this.container.getBoundingClientRect().bottom - this.host.getBoundingClientRect().bottom;
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
-      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates).sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0));
+      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
+        const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
+        if(this.queryOptions?.sort==='oldest')return -newest;
+        if(this.queryOptions?.sort==='relevant'){const score=record=>C.highlightRanges(record.text,query,{wholeWord:this.queryOptions?.wholeWord}).reduce((sum,[start,end])=>sum+end-start+(start===0?20:0),0);return score(b)-score(a) || newest;}
+        return newest;
+      });
       if(selected)this.active=this.hits.findIndex(hit=>this.rowKey(hit)===selected);
       if(this.kind==='list' && !this.isGlobal)this.hits=this.hits.filter(hit=>!(!hit.historicalName && ['[deleted]','Someone','Username unavailable'].includes(hit.name) && (hit.identityPending || !hit.accountUnavailable || this.loading)));
       const showing=this.kind==='list' ? this.isGlobal || this.browseOpen : Boolean(query || bounds.active);
@@ -396,33 +404,39 @@
           this.rows.set(key,row);
         }
         row.position=i;row.result.classList.toggle('active',i===this.active);row.result.hidden=false;
-        const signature=JSON.stringify([query,hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName,this.loading]);
+        const partner=this.kind==='messages' ? this.cache.get(this.room) : null;
+        const partnerName=partner?.name || (this.kind==='messages' ? A.text(A.query('.room-name',this.container)) : '');
+        const signature=JSON.stringify([query,this.queryOptions,partnerName,hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName,this.loading]);
         if(row.signature!==signature) {
           row.signature=signature;
-          row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query) : document.createTextNode(hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable'));
+          row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query) : document.createTextNode(partnerName || (hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable')));
           row.caption.textContent=!this.messageMode ? (hit.accountUnavailable ? hit.historicalName ? 'Unavailable account · Retained username' : 'Unavailable account' : 'Open conversation') : hit.timestamp ? this.formatTime(hit.timestamp) : '';
           if(!this.messageMode && hit.timestamp && Number.isFinite(new Date(hit.timestamp).getTime())) {
             row.caption.textContent=`${this.formatTime(hit.timestamp)}${hit.accountUnavailable ? ' · Unavailable account' : ''}`;
-            row.caption.title='Last conversation activity';
+            row.caption.title=`Last conversation activity · ${new Date(hit.timestamp).toLocaleString()}`;
           } else if(!this.messageMode && !this.loading) {
             row.caption.textContent=hit.accountUnavailable ? 'Unavailable account · Date unavailable' : 'Date unavailable';
             row.caption.title='Reddit has not provided a message timestamp for this conversation.';
           } else row.caption.removeAttribute('title');
+          if(this.kind==='messages' && hit.timestamp)row.caption.title=new Date(hit.timestamp).toLocaleString();
           if(!this.messageMode && (hit.type==='reddit_modmail' || hit.membership==='invite'))row.caption.textContent=`${hit.type==='reddit_modmail'?'Community chat':'Chat'}${hit.membership==='invite'?' · Request pending':''}${hit.timestamp?` · ${this.formatTime(hit.timestamp)}`:''}`;
           if(this.isGlobal)row.caption.textContent=`${this.cache.get(hit.roomId)?.name || 'Saved conversation'}${hit.timestamp ? ` · ${this.formatTime(hit.timestamp)}` : ''}`;
           if(row.preview) {
             const match=C.ranges(hit.text,query)[0];const start=Math.max(0,(match?.[0] || 0)-40);
-            row.preview.replaceChildren(highlight(`${start ? '…' : ''}${hit.text.slice(start,start+180)}${hit.text.length>start+180 ? '…' : ''}`,query));
+            const snippet=C.excerpt?.(hit.text,query,this.queryOptions) || {text:`${start ? '…' : ''}${hit.text.slice(start,start+180)}${hit.text.length>start+180 ? '…' : ''}`};
+            row.preview.replaceChildren(...(this.kind==='messages' && hit.authorSelf ? [node('span','you-prefix','You: ')] : []),highlight(snippet.text,query,this.queryOptions));
+            row.preview.title=hit.text;
           }
         }
-        const avatarUrl=hit.avatar || '',speaker=!this.messageMode ? hit.name : hit.authorSelf ? 'You' : hit.author;
+        const partnerAvatar=this.kind==='messages' ? this.cache.get(this.room)?.avatar || A.query('.user-avatar img, rs-user-avatar img, header img',this.container)?.getAttribute('src') : '';
+        const avatarUrl=partnerAvatar || (this.kind==='messages' && hit.authorSelf ? '' : hit.avatar) || '',speaker=!this.messageMode ? hit.name : partnerName || (hit.authorSelf ? 'You' : hit.author);
         if(row.avatar && (row.avatarUrl!==avatarUrl || !row.image?.isConnected && row.avatarLabel!==speaker)) {
           if(row.image){this.avatarObserver?.unobserve(row.image);this.pendingAvatarSources.delete(row.image);}
           row.avatarUrl=avatarUrl;row.avatarLabel=speaker;row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();
           if(!speaker || speaker.startsWith('@'))row.avatar.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">${icons.person}</svg>`;
           try {
-            const url=new URL(hit.avatar,location.href);
-            if(hit.avatar && (url.protocol==='https:' || /^data:image\/(png|jpeg|webp|svg\+xml)[;,]/.test(hit.avatar))) {
+            const url=new URL(avatarUrl,location.href);
+            if(avatarUrl && (url.protocol==='https:' || /^data:image\/(png|jpeg|webp|svg\+xml)[;,]/.test(avatarUrl))) {
               const image=node('img');image.alt='';image.referrerPolicy='no-referrer';
               image.style.visibility='hidden';image.addEventListener('load',()=>{
                 image.style.visibility='visible';
@@ -431,8 +445,8 @@
               image.addEventListener('error',()=>{if(image.parentNode===row.avatar){row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();if(!speaker || speaker.startsWith('@'))row.avatar.innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true">${icons.person}</svg>`;}},{once:true});
               image.loading='lazy';image.decoding='async';row.image=image;
               row.avatar.append(image);
-              if(this.avatarObserver){this.pendingAvatarSources.set(image,hit.avatar);this.avatarObserver.observe(image);}
-              else image.src=hit.avatar;
+              if(this.avatarObserver){this.pendingAvatarSources.set(image,avatarUrl);this.avatarObserver.observe(image);}
+              else image.src=avatarUrl;
             }
           } catch { /* Keep the initial for an invalid image URL. */ }
         }
@@ -453,7 +467,7 @@
       if(this.isGlobal && this.savedHasMore){const more=node('button','load saved-more',this.savedLoading ? 'Loading…' : `Load more (${this.savedHits.length} of ${this.savedTotal})`);more.disabled=this.savedLoading;more.addEventListener('click',()=>this.querySaved(true));this.results.append(more);}
       if(this.hits.length>this.renderLimit)this.results.append(node('div','hint',`Showing ${this.renderLimit} of ${this.hits.length}. Scroll for more.`));
     }
-    formatTime(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}); }
+    formatTime(value) { if(C.compactTime)return C.compactTime(value);const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}); }
     move(direction,jump=false) {
       const total = this.hits.length; if (!total) return;
       const next=this.active<0 ? (direction<0 ? total-1 : 0) : (this.active+direction+total)%total;
@@ -528,7 +542,7 @@
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.load.textContent='Refresh';if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
-    destroy() { this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
+    destroy() { this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
     if(value.fromStorage || value.restored) {
@@ -540,6 +554,16 @@
     if(value.accountChanged){globalThis.RCSNativeLabels?.clear();directory.clear();index.clear();completeRooms.clear();for(const control of controls.values()){control.cancelLoad();control.resetSaved();control.input.value='';control.notice='';control.render();}}
     directoryComplete=false;
     for(const control of controls.values())if(control.kind==='list'){control.complete=false;if(!control.stoppedByUser || value.accountChanged)control.ensureData();}
+  });
+  document.addEventListener('rcs-conversation-activity',event=>{
+    let value;try{value=JSON.parse(event.detail);}catch{return;}
+    const owner=globalThis.RCSDirectory?.getOwner();
+    if(!owner || value?.owner!==owner)return;
+    for(const [id,meta] of Object.entries(value.roomMeta || {})){
+      const record=directory.get(id);
+      if(record && Number.isFinite(meta.unreadCount) && meta.unreadCount>=0)directory.set(id,{...record,unreadCount:meta.unreadCount});
+    }
+    for(const control of controls.values())if(control.kind==='list')control.render();
   });
   document.addEventListener('rcs-history-changed',event=>{
     let value;try{value=JSON.parse(event.detail);}catch{return;}

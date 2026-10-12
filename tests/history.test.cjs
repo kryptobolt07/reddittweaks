@@ -248,9 +248,9 @@ test('late saved identities update open completed search results without downloa
   const request=W.RCSData.request;W.RCSData={request:(method,...args)=>method==='conversations'?{promise:Promise.resolve([]),cancel:()=>{}}:request(method,...args)};
   W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));await tick(150);
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(150);
-  assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'));const reads=api.calls.filter(c=>c.path==='/rooms/alex/events').length;
+  assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'),'conversation title is primary even while sender metadata is pending');const reads=api.calls.filter(c=>c.path==='/rooms/alex/events').length;
   await W.RCSData.request('prime-directory',{owner:client.getUserId(),records:[],identities:[{id:'@t2_alex:reddit.com',name:'alex_morgan',avatar:'https://example.com/late.png',availabilityKnown:true}]}).promise;
-  assert.equal([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'),false);assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'));
+  assert.equal([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'),false);assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'));assert.ok([...root.querySelectorAll('.avatar img')].some(image=>image.getAttribute('src')==='https://example.com/late.png'));
   await tick(50);assert.equal(api.calls.filter(c=>c.path==='/rooms/alex/events').length,reads);
 });
 test('unbound grouped native rows do not create unknown duplicate results while cached events are searched',async t=>{
