@@ -1,3 +1,17 @@
+# 0.8.2 design test
+
+- Reconcile sidebar routing and header hydration before paint, bypassing the ordinary 120 ms UI debounce for those changes. Mobile Back restores retained search chrome and existing matches alongside a ready native sidebar.
+- Observe the native sidebar header’s size as well as the sidebar. Reveal search when the header is hydrated and laid out, and measure the result viewport only after mounting beneath it. Retain the scroll anchor while readiness is pending.
+- Use at most two route-local animation-frame follow-ups to discover shadow roots attached during the native render. Keep the existing discovery heartbeat as a fallback; add no network polling or server requests.
+- Keep ordinary timeline mutations batched and exclude extension-owned changes across shadow boundaries, avoiding repeated discovery caused by search redraws. Cancel scheduled restore work on page unload.
+- Return to already-ready matches without another local message query or directory load. Query/filter/scope/page state, account isolation and the compact nonwrapping count layout remain intact.
+
+Version choice: PATCH to 0.8.2 as requested, for smoother mobile search restoration. Storage schemas and independent tooling versions remain unchanged.
+
+Validation: all 310 tests pass. Lifecycle fixtures verify hidden/replaced sidebar restoration on the first frame, no additional query/directory load on return, immediate reveal after header layout, next-frame shadow hydration, preserved scroll/filter state, ordinary timeline batching, ignored search redraws and unload cancellation. All 19 JavaScript scripts parse. Archive integrity and source/stable-folder/ZIP equality pass for all 25 assets; the convenience ZIP matches the versioned bundle. No Brave artifact check was performed.
+
+Limitations: search still needs Reddit’s native header and mounting structure to become ready. Unusually late unobserved shadow hydration can use the existing discovery fallback. First-frame behavior is verified with synthetic lifecycle fixtures, not a live signed-in mobile rendering session. UI restoration remains within the current document/account; saved-history coverage remains incomplete. Reload the extension and refresh Reddit to apply this export.
+
 # 0.8.1 design test
 
 - Keep People/All/Messages labels centered in equal-width columns without clipping Messages. Reserve counts below labels in narrow panels, and beside labels when the chat container has enough room. Count changes do not shift the labels.
