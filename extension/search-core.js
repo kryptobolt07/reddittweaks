@@ -30,12 +30,12 @@
     return {start:first?.getTime()??-Infinity,end:last?.getTime()??Infinity,active:Boolean(from||to),invalid};
   }
   function parseQuery(query='') {
-    const parsed={terms:[],phrases:[],from:[],after:[],before:[],hasLink:false,hasImage:false,hasFile:false,invalid:false,errors:[]};
+    const parsed={terms:[],phrases:[],from:[],after:[],before:[],hasLink:false,hasImage:false,hasFile:false,hasVideo:false,hasAudio:false,hasGif:false,invalid:false,errors:[]};
     const tokens=String(query).match(/(?:[^\s"]*"[^"]*"|[^\s"]+)/g) || [];
     for(const token of tokens){
       const operator=token.match(/^(from|after|before|has):(.*)$/i);
       if(operator){const key=operator[1].toLowerCase(),value=operator[2].replace(/^"|"$/g,'');
-        if(key==='has'){const kind=normalize(value);if(kind==='link')parsed.hasLink=true;else if(kind==='image')parsed.hasImage=true;else if(kind==='file')parsed.hasFile=true;else parsed.errors.push('Use has:link, has:image or has:file');}
+        if(key==='has'){const kind=normalize(value).replace(/s$/,''),flag={link:'hasLink',image:'hasImage',file:'hasFile',video:'hasVideo',audio:'hasAudio',gif:'hasGif'}[kind];if(flag)parsed[flag]=true;else parsed.errors.push('Use has:link, has:image, has:gif, has:video, has:audio or has:file');}
         else if(key==='from'){if(value)parsed.from.push(normalize(value));else parsed.errors.push('Add a sender after from:');}
         else {if(!value || dateBounds({from:value}).invalid)parsed.errors.push('Use a valid YYYY-MM-DD date');parsed[key].push(value);}
       }else if(token.startsWith('"') && token.endsWith('"')){if(token.length>2)parsed.phrases.push(token.slice(1,-1));}
@@ -89,6 +89,7 @@
       if(dated){const time=typeof record.timestamp==='number'?record.timestamp:new Date(record.timestamp ?? record.at).getTime();if(!(Number.isFinite(time) && time>=start && time<end))return false;}
       const text=String(record.text || '');
       if(parsed.hasLink && !/\b(?:https?:\/\/|www\.)\S+/i.test(text) || parsed.hasImage && record.attachmentType!=='image' || parsed.hasFile && record.attachmentType!=='file')return false;
+      if(parsed.hasVideo && record.attachmentType!=='video' || parsed.hasAudio && record.attachmentType!=='audio' || parsed.hasGif && !(record.attachmentType==='image' && record.attachmentMime==='image/gif'))return false;
       if(!needles.length)return true;
       // Keep normalization identical to highlighting. Sender normalization
       // strips u/ and whitespace, but message bodies must retain them.
