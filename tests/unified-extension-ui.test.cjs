@@ -50,7 +50,7 @@ test('typing debounces 180ms while captures and native sync never starve or rest
   assert.equal(p.searches.length,count);await p.tick(1);
   assert.equal(p.searches.at(-1).query,'coffee');assert.ok(p.control.savedTotal>0);
   assert.ok(p.control.savedHits.every(record=>/coffee/i.test(record.text)));
-  assert.match(p.find('[data-scope="messages"]').textContent,/Messages \(\d+\)/);
+  assert.match(p.find('[data-scope="messages"]').textContent,/Messages\d+/);
 });
 
 test('scope counts remain independent and sender/operator/known unread filters compose',async t=>{
@@ -413,7 +413,7 @@ test('renamed and identically named conversations retain distinct room/event key
 test('image matches and People summaries show stable lazy thumbnails instead of filenames, with safe fallback and compact text rows',async t=>{
   const p=await setup(t,{scope:'messages'}),c=p.control;
   await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'photo-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:1791433000000,content:{body:'my-upload.jpeg',msgtype:'m.image',url:'https://example.invalid/thumb.jpg'}}]});await p.search('has:image');
-  const row=p.find('[data-key="message:alex:photo-preview"]'),img=row.querySelector('.media-image');assert.ok(img);assert.equal(img.getAttribute('loading'),'lazy');assert.equal(img.src,'https://example.invalid/thumb.jpg');assert.doesNotMatch(row.textContent,/my-upload|jpeg/);assert.match(row.textContent,/You: Image/);assert.match(row.querySelector('button').getAttribute('aria-label'),/You sent: Image/);
+  const row=p.find('[data-key="message:alex:photo-preview"]'),img=row.querySelector('.media-image');assert.ok(img);assert.equal(img.getAttribute('loading'),'lazy');assert.equal(img.src,'https://example.invalid/thumb.jpg');assert.doesNotMatch(row.textContent,/my-upload|jpeg/);assert.match(row.textContent,/You:/);assert.doesNotMatch(row.textContent,/Image|GIF/);assert.equal(img.width,96);assert.equal(img.height,64);assert.match(row.querySelector('button').getAttribute('aria-label'),/You sent: Image/);
   for(let i=0;i<10;i++){c.sync();c.render();}assert.equal(p.find('.media-image'),img,'native updates reuse the image node/source');
   img.dispatchEvent(new p.w.Event('error'));assert.equal(img.hidden,true);assert.equal(row.querySelector('.media-placeholder').hidden,false);c.render();assert.equal(p.find('.media-image'),img,'failed previews are not repeatedly requested');
   await c.loadSummaries();await p.search('alex');await p.click('[data-scope="people"]');const compact=p.find('[data-key="chat:alex"] .row-image-preview');assert.ok(compact.querySelector('.media-image'));assert.doesNotMatch(compact.textContent,/jpeg/);
@@ -450,4 +450,17 @@ test('People previews and status share compact rows without the common-word hint
   assert.equal(c.status.textContent,'1,784 matches · 725 chats');
   assert.doesNotMatch(c.status.textContent,/loaded/);assert.match(c.status.title,/loaded/);
   assert.equal(c.shadow.querySelector('.common-hint'),null);
+});
+
+
+test('scope labels and reserved count slots stay mounted across count changes',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee');
+  const label=p.find('[data-scope="messages"] .scope-label'),count=p.find('[data-scope="messages"] .scope-count');
+  for(const total of [1,37,999,1784]){c.savedTotal=total;c.updateControls();
+    assert.equal(p.find('[data-scope="messages"] .scope-label'),label);
+    assert.equal(p.find('[data-scope="messages"] .scope-count'),count);
+    assert.equal(label.textContent,'Messages');assert.equal(count.textContent,total>999?'999+':String(total));
+    assert.match(c.scopeButtons.messages.getAttribute('aria-label'),new RegExp(total.toLocaleString()));
+  }
+  c.clearQuery();assert.equal(p.find('[data-scope="messages"] .scope-count'),count);
 });
