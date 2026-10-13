@@ -56,6 +56,9 @@
     .day-heading::before,.day-heading::after { content:'';flex:1;height:1px;background:var(--rcs-line); }
     .result { display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:11px 14px; color:var(--rcs-text); background:transparent; border:0; border-left:0; text-decoration:none; }
     .result:hover,.result.active { background:var(--rcs-soft); }
+    .result:focus-visible { outline:0;box-shadow:none; }
+    .result.active { position:relative; }
+    .result.active::before { content:'';position:absolute;inset-block:8px;left:0;width:3px;border-radius:0 3px 3px 0;background:color-mix(in srgb,var(--rcs-accent) 35%,transparent); }
     .avatar { position:relative;display:grid; place-items:center; width:32px; height:32px; border-radius:50%; color:var(--rcs-muted); background:var(--rcs-soft); font-weight:600; flex:none; overflow:hidden; }
     .avatar img { position:absolute;inset:0;width:100%; height:100%; object-fit:cover; }
     .copy { min-width:0; flex:1; } .name { display:block; font-size:13px; font-weight:600; } .preview { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; margin-top:4px; font-size:13px; overflow-wrap:anywhere; }
