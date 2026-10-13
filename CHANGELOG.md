@@ -1,3 +1,17 @@
+# 0.7.1 design test
+
+- Match message terms shorter than three characters on Unicode word boundaries. Keep longer substring searches, strict AND across the full message, and quoted exact phrases. Apply the same rule in saved/global and individual search, highlights and excerpts; People and sender completion retain substring matching.
+- Keep conversation names/avatars as result headers. Prefix only your messages in DMs; prefix every sender in groups. Add accessible sender/action labels and avoid substituting your own avatar when a conversation avatar is missing.
+- Let right-aligned timestamps wrap when needed instead of cutting off username suffixes. Allocate virtual row space for wrapped headings and refresh height calculations on resize. Reuse the excerpt for both visual and accessible text.
+- Score relevance by distinct term coverage, with existing occurrence/position tie breaks. AND results all satisfy the required terms; partial matches remain excluded.
+- Verify existing year-bearing older day dividers and stable room/event IDs across renamed and identically named conversations.
+
+Version choice: PATCH for visible matching, sender-identity, accessibility and layout corrections within existing search. Storage schemas, native capture/sync behavior and tab styles are unchanged.
+
+Validation: all 279 tests pass; JavaScript parses and all 24 archive files match source and the stable unpacked folder. Brave synthetic checks verify full example usernames, right-aligned/wrapped times, DM/group prefixes, accessible labels, whole-word short matches, strict AND, and distinct 2024/2025 date dividers. Screenshots are in ignored validation artifacts.
+
+Limitations: snippets can omit required terms outside the displayed window even though the full message matches all of them. Long group titles may use two lines with a full-name tooltip. Saved history remains incomplete, and the signed-in installed Reddit bundle still needs manual Reload and validation.
+
 # 0.7.0 design test
 
 - Move applied global sender/media filters out of the editable input into one compact 32 px chip row below it. Hide its horizontal scrollbar, keep removal buttons on the right, preserve draft text, and make Clear filters remove all applied state.
