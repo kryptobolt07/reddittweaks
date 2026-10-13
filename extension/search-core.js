@@ -60,23 +60,24 @@
     }else{let index=0;for(const char of original){append(char,index);index+=char.length;}}
     return {value,starts,ends};
   }
-  const needlesFor=parsed=>[...parsed.terms,...parsed.phrases].map(normalize).filter(Boolean);
-  function queryRanges(text,needles,{wholeWord=false}={}){
-    if(!needles.length)return {ranges:[],complete:true};
-    const mapped=foldedText(text),found=[];let complete=true;
-    for(const term of needles){let offset=0,matched=false;
+  const needlesFor=parsed=>[...new Set([...parsed.terms,...parsed.phrases].map(normalize).filter(Boolean))];
+  const requiresBoundary=(term,{wholeWord=false,shortTermsWholeWord=true}={})=>wholeWord || shortTermsWholeWord && [...term].length<3;
+  function queryRanges(text,needles,options={}){
+    if(!needles.length)return {ranges:[],complete:true,matchedTerms:0};
+    const mapped=foldedText(text),found=[];let complete=true,matchedTerms=0;
+    for(const term of needles){const bounded=requiresBoundary(term,options);let offset=0,matched=false;
       while((offset=mapped.value.indexOf(term,offset))!==-1){const end=offset+term.length;
-        if(!wholeWord || wordBoundary(mapped.value,offset,end)){found.push([mapped.starts?mapped.starts[offset]:offset,mapped.ends?mapped.ends[end-1]:end]);matched=true;}
+        if(!bounded || wordBoundary(mapped.value,offset,end)){found.push([mapped.starts?mapped.starts[offset]:offset,mapped.ends?mapped.ends[end-1]:end]);matched=true;}
         offset=end;
       }
-      if(!matched)complete=false;
+      if(!matched)complete=false;else matchedTerms++;
     }
     found.sort((a,b)=>a[0]-b[0]);
     const ranges=found.reduce((all,next)=>{const last=all.at(-1);if(last && next[0]<=last[1])last[1]=Math.max(last[1],next[1]);else all.push(next);return all;},[]);
-    return {ranges,complete};
+    return {ranges,complete,matchedTerms};
   }
-  function prepareQuery(query='',{from='all',wholeWord=false,dates={}}={},conversation={}){
-    const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates),needles=needlesFor(parsed);
+  function prepareQuery(query='',{from='all',wholeWord=false,shortTermsWholeWord=true,dates={}}={},conversation={}){
+    const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates),needles=needlesFor(parsed),boundaries=needles.map(term=>requiresBoundary(term,{wholeWord,shortTermsWholeWord}));
     const start=Math.max(bounds.start,...parsed.after.map(date=>dateBounds({from:date}).start)),end=Math.min(bounds.end,...parsed.before.map(date=>dateBounds({from:date}).start));
     const dated=bounds.active || parsed.after.length>0 || parsed.before.length>0;
     if(parsed.invalid || bounds.invalid)return ()=>false;
@@ -94,13 +95,25 @@
       // Keep normalization identical to highlighting. Sender normalization
       // strips u/ and whitespace, but message bodies must retain them.
       const folded=/[^\x00-\x7f]/.test(text)?foldedText(text).value:text.toLowerCase();
-      return needles.every(term=>{let offset=0;while((offset=folded.indexOf(term,offset))!==-1){const end=offset+term.length;if(!wholeWord || wordBoundary(folded,offset,end))return true;offset=end;}return false;});
+      return needles.every((term,i)=>{let offset=0;while((offset=folded.indexOf(term,offset))!==-1){const end=offset+term.length;if(!boundaries[i] || wordBoundary(folded,offset,end))return true;offset=end;}return false;});
     };
   }
   function matchesQuery(record,query='',options={},conversation={}){return prepareQuery(query,options,conversation)(record);}
   function highlightRanges(text,query='',options={}){const parsed=typeof query==='object'?query:parseQuery(query);return queryRanges(text,needlesFor(parsed),options).ranges;}
-  function excerpt(text,query='',{wholeWord=false,max=160}={}){
-    text=String(text ?? '');const found=highlightRanges(text,query,{wholeWord}),first=found[0] || [0,0];
+  function relevanceScore(text,query='',options={}){
+    const parsed=typeof query==='object'?query:parseQuery(query),found=queryRanges(text,needlesFor(parsed),options);
+    // AND matches all required terms. Coverage is primary; occurrences and
+    // an early match break ties without admitting partial/OR results.
+    return found.matchedTerms*1000000+Math.min(999999,found.ranges.reduce((score,[start,end])=>score+end-start+(start===0?20:0),0));
+  }
+  function messageSender(record,conversation={}){
+    const self=typeof record.authorSelf==='boolean'?record.authorSelf:normalize(record.author)==='you' || Boolean(conversation.owner && record.sender===conversation.owner);
+    const group=conversation.type?!['direct','reddit_titled_direct'].includes(conversation.type):(conversation.participantIds?.length || conversation.participants?.length || 0)>1;
+    const label=self?'You':record.author && !record.author.startsWith('@')?record.author:'Sender unavailable';
+    return {self,group,label,prefix:self || group?label+': ':''};
+  }
+  function excerpt(text,query='',{wholeWord=false,shortTermsWholeWord=true,max=160}={}){
+    text=String(text ?? '');const found=highlightRanges(text,query,{wholeWord,shortTermsWholeWord}),first=found[0] || [0,0];
     max=Number.isFinite(max)?Math.max(20,max):160;
     let start=Math.max(0,first[0]-Math.floor(max/3)),end=Math.min(text.length,Math.max(start+max,first[1]));
     if(end===text.length)start=Math.max(0,Math.min(first[0],end-max));
@@ -186,5 +199,5 @@
     }
     clear() { this.rooms.clear();this.redacted.clear();this.metadata.clear(); }
   }
-  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, prepareQuery, matchesQuery, highlightRanges, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
+  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, prepareQuery, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
 })();

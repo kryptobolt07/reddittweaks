@@ -120,7 +120,7 @@
         const message=this.materialize(owner,row,record,ledger,people,directory,identityCache,true);
         if(message.text && match(message)){times.set(message,record.time || 0);records.push(message);}
       }}
-      const relevance=message=>RCSCore.highlightRanges(message.text,parsed,{wholeWord}).reduce((score,[start,end])=>score+end-start+(start===0?20:0),0);
+      const relevance=message=>RCSCore.relevanceScore(message.text,parsed,{wholeWord});
       const scores=sort==='relevant'?new Map(records.map(record=>[record,relevance(record)])):null;
       records.sort((a,b)=>(scores?scores.get(b)-scores.get(a):0) || (sort==='oldest'?1:-1)*(times.get(a)-times.get(b)) || a.roomId.localeCompare(b.roomId) || a.id.localeCompare(b.id));
       const counts=new Map();for(const record of records)counts.set(record.roomId,(counts.get(record.roomId)||0)+1);
