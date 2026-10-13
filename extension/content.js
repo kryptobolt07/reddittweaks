@@ -28,7 +28,7 @@
       --rcs-bg:var(--color-neutral-background,#fff); --rcs-soft:var(--color-neutral-background-weak,#f2f4f5);
       --rcs-text:var(--color-neutral-content-strong,#0f1a1c); --rcs-muted:var(--color-neutral-content-weak,#576f76);
       --rcs-line:var(--color-neutral-border-weak,#e5e8eb); --rcs-hover:var(--color-neutral-background-hover,#e8edef);
-      --rcs-accent:var(--color-brand-background,#d93900); }
+      --rcs-accent:#ff4500; }
     :host([hidden]) { display:none!important; } * { box-sizing:border-box; } [hidden] { display:none!important; }
     button,input { font:inherit; } button { cursor:pointer; } svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; flex:none; }
     .bar { display:flex; gap:6px; align-items:center; padding:8px 12px; background:var(--rcs-bg); }
