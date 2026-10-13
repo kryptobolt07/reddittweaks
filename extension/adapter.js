@@ -70,6 +70,32 @@
     if(href){const match=/\/(?:chat\/)?room\/([^/]+)/.exec(new URL(href).pathname);if(match)try{roomId=decodeURIComponent(match[1]);}catch{}}
     return {id: row.getAttribute('room') || row.getAttribute('room-id') || roomId || row.getAttribute('data-rcs-room-id') || href || name, name, href, avatar, element: row, link};
   }
+  const appearanceRows = new WeakMap();
+  function chatListMetrics(container) {
+    let refs=appearanceRows.get(container);
+    if(!refs?.name?.isConnected || !refs.frame?.isConnected || refs.frame.classList.contains('has-notifications') || ['preview','time','body','avatar'].some(key=>refs[key] && !refs[key].isConnected)){
+      const rows=queryAll(selectors.row,container),row=rows.find(row=>!query('.has-notifications',row)) || rows[0];
+      if(!row)return null;
+      const name=query(selectors.name,row);if(!name)return null;
+      const icon=query('rs-room-icon',row);
+      refs={frame:query('.container,a',row) || row,name,preview:query('.last-message,.preview,[data-testid="last-message"]',row),time:query('.last-message-time,time,[data-testid="last-message-time"]',row),body:query('.body,.copy',row),avatar:query('.avatar,img,image',icon || row)};
+      appearanceRows.set(container,refs);
+    }
+    const values={},frame=getComputedStyle(refs.frame);
+    const font=(element,key)=>{
+      if(!element)return;const style=getComputedStyle(element),size=parseFloat(style.fontSize);if(!size)return;
+      const height=parseFloat(style.lineHeight) || size*1.5,family=style.fontFamily || frame.fontFamily || 'Arial,sans-serif';
+      values['--rcs-row-'+key+'-font']=`${style.fontStyle || 'normal'} 400 ${size}px/${height}px ${family}`;
+      values['--rcs-row-'+key+'-size']=size+'px';values['--rcs-row-'+key+'-line-height']=height+'px';
+      if(style.color)values['--rcs-row-'+key+'-color']=style.color;
+    };
+    font(refs.name,'title');font(refs.preview || refs.name,'preview');font(refs.time,'time');
+    const length=(value,key)=>{const number=parseFloat(value);if(Number.isFinite(number) && number>=0)values['--rcs-row-'+key]=number+'px';};
+    const rowHeight=Math.max(parseFloat(frame.minHeight) || 0,refs.frame.offsetHeight || (/px$/.test(frame.height)?parseFloat(frame.height):0) || 0);if(rowHeight>0)length(rowHeight,'min-height');length(frame.paddingTop,'padding-block');length(frame.paddingLeft,'padding-inline');length(frame.columnGap || frame.gap,'gap');
+    if(refs.body){const body=getComputedStyle(refs.body);length(body.rowGap || body.gap,'body-gap');}
+    if(refs.avatar){const avatar=getComputedStyle(refs.avatar),size=parseFloat(avatar.width) || refs.avatar.offsetWidth;if(size>0)values['--rcs-row-avatar-size']=size+'px';}
+    return values;
+  }
   function roomKey(room) {
     return room.getAttribute('room') || room.getAttribute('room-id') || room.getAttribute('channel-id') || room.getAttribute('data-room-id') || room.getAttribute('data-rcs-room-id') ||
       query('[room-id]', room)?.getAttribute('room-id') ||
@@ -133,5 +159,5 @@
     }
     return null;
   }
-  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, scrollContainer});
+  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, chatListMetrics, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, scrollContainer});
 })();
