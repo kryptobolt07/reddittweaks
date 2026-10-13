@@ -509,7 +509,6 @@
       if (!current) { this.status.textContent = 'Reddit chat is not connected yet. Please retry.'; return; }
       this.dismiss();
       current.element.scrollIntoView({block:'center',behavior:'instant'});
-      if (current.element.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) current.element.animate([{outline:'2px solid #ff4500',outlineOffset:'3px'},{outline:'2px solid transparent',outlineOffset:'3px'}],{duration:1600});
     }
     cancelLoad(showNotice=false) {
       if(showNotice)this.stoppedByUser=true;

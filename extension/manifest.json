@@ -49,6 +49,7 @@
         "adapter.js",
         "native-labels.js",
         "date-picker.js",
+        "global-search-model.js",
         "unified-search-styles.js",
         "unified-search.js",
         "content.js"
