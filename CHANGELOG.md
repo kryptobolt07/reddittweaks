@@ -1,3 +1,18 @@
+# 0.8.0 design test
+
+- Show lazy image/GIF thumbnails in global message results, available latest-message previews, and individual message search instead of JPEG filenames. Filenames remain searchable and available on hover.
+- Reuse Reddit’s native media URL conversion, prefer thumbnail references, and retain one bounded credential-free HTTPS preview URL. Keep credentials in the page world and media bytes outside extension storage. No additional profile/history requests or sync loop.
+- Preserve preview references through both native IndexedDB import compaction passes, replay, edits and summaries. Redactions remove references; older data requires no schema migration and gains previews as native references become available.
+- Cache bounded thumbnail nodes and keep a stable placeholder after failures, avoiding repeated requests on redraw. Account clearing/destruction resets preview views.
+- Replace result-navigation outlines with a faded orange left rail; scope tabs retain their underline.
+- Tighten text-result spacing, align content to the top, and retain extra space for wrapped headings and image previews. Keep virtual row heights consistent with their contents.
+
+Version choice: MINOR for the new image-preview capability; spacing corrections share this release. Storage schemas and independent tooling versions remain unchanged.
+
+Validation: all 284 tests pass; extension JavaScript syntax, ZIP integrity, and source/stable-folder equality pass for all 25 assets. Tests cover URL validation, replay, edits/redactions, native conversion without server calls, double-compaction cache import, lazy node reuse/failure fallback, People summaries, individual image history, and existing search/navigation coverage. Brave synthetic checks confirm loaded thumbnails, mixed results, compact spacing and stable scrolling/refocusing.
+
+Limitations: missing or inaccessible references show an Image/GIF placeholder. Old cached filenames cannot reconstruct a preview URL until Reddit exposes the corresponding event again. Saved-history coverage remains incomplete. The signed-in installed bundle requires manual Reload and validation; browser checks use synthetic data.
+
 # 0.7.1 design test
 
 - Match message terms shorter than three characters on Unicode word boundaries. Keep longer substring searches, strict AND across the full message, and quoted exact phrases. Apply the same rule in saved/global and individual search, highlights and excerpts; People and sender completion retain substring matching.
