@@ -1,3 +1,17 @@
+# 0.8.1 design test
+
+- Keep People/All/Messages labels centered in equal-width columns without clipping Messages. Reserve counts below labels in narrow panels, and beside labels when the chat container has enough room. Count changes do not shift the labels.
+- Wait for Reddit’s actual header to hydrate and acquire layout before revealing the search host. Mount sidebar search beside the native header wrapper and individual message search beneath its header, avoiding the initial above-header flash in full-screen, floating and narrow/mobile chat.
+- Suspend hidden or detached mobile sidebar controllers when opening a result. Back to the same account and chat surface restores query text, applied filters, scope, loaded results and the scroll anchor. Keep native message navigation running while the sidebar is away.
+- Refresh already-browsed local result pages after capture updates instead of resetting to the first 500 matches. Anchor the viewport by stable room/event IDs while retaining visible results during the local refresh.
+- Bound detached controller retention to four chat surfaces within the current document, destroy evicted controllers, and clear retained state on account changes and page unload. No new server requests, sync loop or storage schema.
+
+Version choice: PATCH for mobile search restoration and responsive mounting reliability fixes. Independent tooling versions remain unchanged.
+
+Validation: all 306 tests pass, including hidden/replaced mobile sidebars, account isolation, loaded-page catch-up and viewport restoration, delayed header content/layout, nested shadow toolbar anchoring, and both sidebar and individual-room mount readiness. All 19 JavaScript scripts parse. ZIP integrity and source/stable-folder/archive equality pass for all 25 assets; the convenience ZIP matches the versioned archive. No Brave artifact check was performed, as requested.
+
+Limitations: restored UI state is temporary within the same document and native chat surface; a page reload or browser restart starts a fresh search UI while persistent saved messages remain available. Readiness and navigation still depend on Reddit’s native component structure. Headless fixtures cover lifecycle behavior but do not validate final rendered pixel layout or the installed signed-in bundle; reload the extension and refresh Reddit to apply this export. Saved-history coverage remains incomplete.
+
 # 0.8.0 design test
 
 - Show lazy image/GIF thumbnails in global message results, available latest-message previews, and individual message search instead of JPEG filenames. Filenames remain searchable and available on hover.
