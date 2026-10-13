@@ -4,8 +4,9 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {JSDOM}=require('jsdom');
 const settle=async()=>{for(let i=0;i<35;i++)await Promise.resolve();};
-async function setup(t,{large=false,deferSearch=false,scope='all'}={}) {
+async function setup(t,{large=false,deferSearch=false,scope='all',nativeFonts=false}={}) {
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat',runScripts:'outside-only'}),w=dom.window;
+  if(nativeFonts)Object.defineProperty(w.document,'fonts',{value:new w.EventTarget()});
   w.TextEncoder=TextEncoder;w.HTMLElement.prototype.scrollIntoView=function(){};
   let clock=0,id=0;const timers=new Map();w.setTimeout=(fn,ms=0)=>{timers.set(++id,{fn,at:clock+ms});return id;};w.clearTimeout=value=>timers.delete(value);w.requestAnimationFrame=fn=>w.setTimeout(fn,0);w.cancelAnimationFrame=w.clearTimeout;
   const tick=async ms=>{const end=clock+ms;for(;;){const next=[...timers].filter(([,timer])=>timer.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!next)break;clock=next[1].at;timers.delete(next[0]);next[1].fn();await settle();}clock=end;await settle();};
@@ -525,4 +526,25 @@ test('Escape closes search chrome from the field or opened results and reopening
   c.input.focus();await settle();assert.equal(c.panel.hidden,false);assert.equal(c.scopeBar.hidden,false);assert.equal(c.chips.hidden,false);
   await p.click('[data-control="filter"]');await p.key('Escape');assert.equal(c.popover.hidden,true);assert.equal(c.panel.hidden,true);assert.equal(c.scopeBar.hidden,true);
   c.input.focus();await settle();c.datePicker.show();await p.key('Escape');assert.equal(c.datePicker.open,false);assert.equal(c.scopeBar.hidden,true);
+});
+
+
+test('native responsive metrics update both result kinds and invalidate only changed measurements',async t=>{
+  const p=await setup(t,{scope:'people'}),c=p.control;await p.search('alex');
+  let metrics={'--rcs-row-title-font':'400 14px/20px TestSans','--rcs-row-preview-font':'400 14px/20px TestSans','--rcs-row-time-font':'400 11px/16px TestSans','--rcs-row-min-height':'60px','--rcs-row-avatar-size':'32px'};
+  c.adapter={...c.adapter,chatListMetrics:()=>metrics};c.updateLayout(true);c.render();
+  assert.equal(c.host.style.getPropertyValue('--rcs-row-title-font'),metrics['--rcs-row-title-font']);assert.equal(c.items.find(item=>item.kind==='chat').height,60);
+  c.messageHeights.set('retained',80);c.updateLayout(true);assert.equal(c.messageHeights.size,1,'identical native styles retain measurement cache');
+  metrics={...metrics,'--rcs-row-title-font':'400 18px/24px TestSans','--rcs-row-preview-font':'400 18px/24px TestSans','--rcs-row-min-height':'72px'};c.updateLayout(true);c.render();
+  assert.equal(c.messageHeights.size,0);assert.equal(c.items.find(item=>item.kind==='chat').height,72);
+  await p.click('[data-scope="messages"]');await p.search('coffee');assert.equal(c.host.style.getPropertyValue('--rcs-row-preview-font'),metrics['--rcs-row-preview-font']);
+  assert.ok(p.find('.message-name.row-title'));assert.ok(p.find('.message-heading.row-top'));assert.ok(p.requests.every(item=>item.method==='directory'),'appearance syncing makes no server calls');
+});
+
+
+test('late fonts and root theme changes refresh native row metrics without starting searches',async t=>{
+  const p=await setup(t,{scope:'people',nativeFonts:true}),c=p.control;await p.search('alex');const requests=p.requests.length,searches=p.searches.length;
+  c.messageHeights.set('old-font',88);p.w.document.fonts.dispatchEvent(new p.w.Event('loadingdone'));await settle();assert.equal(c.messageHeights.size,0);
+  c.messageHeights.set('old-theme',88);p.w.document.body.classList.add('synthetic-theme');await settle();assert.equal(c.messageHeights.size,0);
+  assert.equal(p.requests.length,requests);assert.equal(p.searches.length,searches);assert.equal(c.input.value,'alex');
 });
