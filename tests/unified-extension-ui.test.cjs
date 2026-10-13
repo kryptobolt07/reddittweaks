@@ -162,7 +162,7 @@ test('native header stays above search while list rows stay below; header overri
   const p=await setup(t),header=p.fixture.nav.shadowRoot.querySelector('.nav-head');
   header.style.position='static';header.append(p.w.document.createElement('rs-rooms-nav-filter'));
   p.control.sync();assert.equal(header.style.position,'relative');assert.equal(header.style.zIndex,'2');
-  p.control.savedTotal=2000;p.control.updateControls();assert.equal(p.control.common.hidden,true,'empty browsing is not a common-word search');
+  p.control.savedTotal=2000;p.control.updateControls();assert.equal(p.control.shadow.querySelector('.common-hint'),null);
   p.control.destroy();assert.equal(header.style.position,'static');assert.equal(header.style.zIndex,'');
   const host=p.w.document.createElement('div');header.after(host);header.style.zIndex='9';
   p.w.RCSAdapter.syncSearchLayer(p.fixture.nav,host,'rs-rooms-nav-filter');assert.equal(header.style.zIndex,'9','preserve the native higher layer');
@@ -191,7 +191,7 @@ test('in-flight capture updates coalesce without restarting requests and preserv
 
 test('missing conversation dates remain blank and unavailable names do not falsely claim retention',async t=>{
   const p=await setup(t);const row=p.control.time(0);assert.equal(row.textContent,'');assert.equal(row.title,'Date unavailable');assert.equal(row.hasAttribute('datetime'),false);
-  const chat=p.cache.get('alex');p.cache.set('alex',{...chat,accountUnavailable:true,historicalName:false});await p.search('alex');p.control.render();await settle();assert.equal(p.find('.chat-result .row-meta').textContent,'Unavailable account');
+  const chat=p.cache.get('alex');p.cache.set('alex',{...chat,accountUnavailable:true,historicalName:false});await p.search('alex');p.control.render();await settle();assert.equal(p.find('.chat-result .row-meta').textContent,'Unavailable');
 });
 
 test('missing native event retries are bounded',async t=>{
@@ -238,7 +238,7 @@ test('people previews omit missing or older messages and update from existing sa
   c.summaries.clear();c.render();assert.equal(c.shadow.querySelector('.row-snippet'),null);assert.doesNotMatch(c.results.textContent,/No saved message/);
   p.cache.set('alex',{...chat,timestamp:at});c.summaries.set('alex',{roomId:'alex',text:'An older saved message',timestamp:new p.w.Date(at-60000).toISOString(),authorSelf:true});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(p.find('[data-key="chat:alex"] time').getAttribute('datetime'),new p.w.Date(at).toISOString());
   await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'latest-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:at,content:{body:'The latest\nmessage'}}]});p.emit({owner:'@t2_me:reddit.com',changed:true,roomIds:['alex']});await p.tick(750);assert.equal(p.find('[data-key="chat:alex"] .row-snippet').textContent,'You: The latest message');
-  p.cache.set('alex',{...p.cache.get('alex'),accountUnavailable:true,historicalName:true});c.render();assert.equal(c.items.find(item=>item.key==='chat:alex').height,80);assert.match(p.find('[data-key="chat:alex"] .row-meta').textContent,/Unavailable account/);
+  p.cache.set('alex',{...p.cache.get('alex'),accountUnavailable:true,historicalName:true});c.render();assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.find('[data-key="chat:alex"] .row-meta').textContent,'Unavailable');assert.match(p.find('[data-key="chat:alex"] .row-meta').title,/Unavailable account/);
   c.summaries.set('alex',{roomId:'alex',text:'   ',timestamp:new p.w.Date(at).toISOString()});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.requests.length,calls);
   await p.click('[data-scope="messages"]');p.type('from:');assert.ok(c.shadow.querySelector('.sender-result .row-title'),'sender choices reuse the People row renderer');
 });
@@ -279,7 +279,7 @@ test('People is the native default; focus and clicking search expose underlined 
 
 test('multiple selected sender chips match alternatives and remove one sender without removing the query',async t=>{
   const p=await setup(t),c=p.control;await p.search('coffee from:me ');await p.click('[data-scope="messages"]');
-  assert.equal(c.senderChips.querySelectorAll('.sender-chip').length,1);assert.equal(c.senderChips.querySelector('.sender-chip-label').textContent,'from:');
+  assert.equal(c.senderChips.querySelectorAll('.sender-chip').length,1);assert.equal(c.senderChips.querySelector('.sender-chip-label'),null);assert.equal(c.senderChips.querySelector('.sender-chip-value').textContent,'You');assert.ok(c.senderChips.querySelector('.sender-chip-avatar,.sender-chip-icon'));assert.doesNotMatch(c.senderChips.textContent,/from:/);
   await p.click('[aria-label="Add sender"]');assert.equal(c.input.value,'coffee from:');assert.equal(c.valueChoices().some(choice=>choice.token==='from:me'),false);
   const person=c.valueChoices().find(choice=>choice.token==='from:alex_morgan');assert.ok(person);c.selectValue(person);await p.tick(180);
   assert.equal(c.senderChips.querySelectorAll('.sender-chip').length,2);assert.ok(c.senderChips.querySelector('.sender-chip-avatar'));
@@ -419,4 +419,35 @@ test('image matches and People summaries show stable lazy thumbnails instead of 
   await c.loadSummaries();await p.search('alex');await p.click('[data-scope="people"]');const compact=p.find('[data-key="chat:alex"] .row-image-preview');assert.ok(compact.querySelector('.media-image'));assert.doesNotMatch(compact.textContent,/jpeg/);
   assert.ok(c.messageRowHeight(p.cache.get('alex'),{text:'Hello'})<c.messageRowHeight(p.cache.get('alex'),{text:'A longer message that takes two lines in the search preview.'}));
   c.resetSaved();assert.equal(c.mediaView.images.size,0);
+});
+
+
+test('returning from an opened conversation keeps only one navigation rail',async t=>{
+  const p=await setup(t,{scope:'people'}),c=p.control;await p.search('alex');
+  await p.click('[data-key="chat:alex"]');
+  p.fixture.room.dispatchEvent(new p.w.MouseEvent('pointerdown',{bubbles:true,composed:true}));
+  assert.equal(c.active,'');assert.equal(p.find('.selection-rail').dataset.key,'chat:alex');
+  c.input.focus();await p.key('ArrowDown');await p.key('ArrowDown');
+  assert.equal(c.shadow.querySelectorAll('.selection-rail').length,1);
+  assert.equal(p.find('.selection-rail').dataset.key,'chat:alex2');
+  assert.equal(p.find('[aria-current="page"]').dataset.key,'chat:alex','opened chat remains accessible without a second visual rail');
+  const cached=p.find('[data-key="chat:alex"]');c.render();
+  assert.equal(p.find('[data-key="chat:alex"]'),cached);assert.equal(c.shadow.querySelectorAll('.selection-rail').length,1);
+  p.fixture.room.dispatchEvent(new p.w.FocusEvent('focusin',{bubbles:true,composed:true}));
+  assert.equal(p.find('.selection-rail').dataset.key,'chat:alex');assert.equal(c.shadow.querySelectorAll('.selection-rail').length,1);
+});
+
+test('People previews and status share compact rows without the common-word hint',async t=>{
+  const p=await setup(t,{scope:'people'}),c=p.control;await p.search('alex');
+  for(const kind of [{accountUnavailable:true,historicalName:true},{type:'group'},{membership:'invite'}]){
+    p.cache.set('alex',{...p.cache.get('alex'),...kind});c.render();
+    assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);
+    const secondary=p.find('[data-key="chat:alex"] .row-secondary');
+    assert.ok(secondary.querySelector('.row-snippet'));assert.ok(secondary.querySelector('.row-meta'));
+  }
+  await p.click('[data-scope="messages"]');await p.search('this');
+  c.savedTotal=1784;c.savedRooms=725;c.hasMore=true;c.updateControls();
+  assert.equal(c.status.textContent,'1,784 matches · 725 chats');
+  assert.doesNotMatch(c.status.textContent,/loaded/);assert.match(c.status.title,/loaded/);
+  assert.equal(c.shadow.querySelector('.common-hint'),null);
 });
