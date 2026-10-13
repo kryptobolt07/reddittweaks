@@ -16,6 +16,7 @@
   function clearRetainedLists(){for(const {control} of retainedLists.values())control.destroy();retainedLists.clear();}
   const observed = new Map();
   let scheduled = false;
+  let refreshTimer=null,fastScheduled=false,navigationFrame=0;
   let stopped = false;
   let collapsedControl = null;
   let openListRequested = false;
@@ -601,18 +602,55 @@
   });
   function schedule() {
     if (scheduled || stopped) return; scheduled = true;
-    setTimeout(() => { scheduled = false; refresh(); },120);
+    refreshTimer=setTimeout(() => { refreshTimer=null;scheduled = false; refresh(); },120);
+  }
+  function composedParent(node){return node.parentElement || node.host || node.getRootNode?.().host;}
+  function extensionNode(node){for(let current=node;current;current=composedParent(current))if(current.matches?.('[data-rcs-ui]'))return true;return false;}
+  const routeSelector=A.selectors.list+', rs-app, #resizable, rs-room-list-header, rs-rooms-nav-filter';
+  function routeMutation(record){
+    if(record.type==='attributes'){
+      if(record.target.matches?.(routeSelector))return true;
+      // Responsive routes can toggle a wrapper instead of the sidebar itself.
+      for(const control of controls.values())if(control.kind==='list')for(let current=control.container;current;current=composedParent(current))if(current===record.target)return true;
+      return false;
+    }
+    if(record.type==='childList' && [...record.addedNodes,...record.removedNodes].some(node=>!extensionNode(node) && (node.matches?.(routeSelector) || node.querySelector?.(routeSelector))))return true;
+    for(let current=record.target;current;current=composedParent(current)){
+      if(current.matches?.('rs-room-list-header, rs-rooms-nav-filter'))return true;
+      if(current.matches?.(A.selectors.row+', '+A.selectors.room))return false;
+    }
+    return false;
+  }
+  function scheduleNavigation(){
+    if(stopped || fastScheduled)return;
+    clearTimeout(refreshTimer);refreshTimer=null;scheduled=true;fastScheduled=true;
+    // Mutation delivery precedes paint: remount retained search with the native
+    // sidebar, rather than showing Reddit's list during the ordinary debounce.
+    queueMicrotask(()=>{fastScheduled=false;scheduled=false;if(stopped || !globalThis.document?.documentElement)return;refresh();
+      cancelAnimationFrame(navigationFrame);let remaining=2;
+      const follow=()=>{navigationFrame=0;if(stopped || !globalThis.document?.documentElement || document.hidden)return;
+        const pending=retainedLists.size || [...controls.values()].some(control=>control.host.hidden && A.visible(control.container));
+        if(!pending)return;refresh();if(--remaining>0)navigationFrame=requestAnimationFrame(follow);
+      };
+      // Catch shadow roots attached during this route's Lit render. This is a
+      // bounded UI discovery pass, not a new heartbeat or network operation.
+      navigationFrame=requestAnimationFrame(follow);
+    });
+  }
+  function mutationsChanged(records){
+    if(stopped || !globalThis.document?.documentElement)return;
+    const native=records.filter(record=>!extensionNode(record.target) && !(record.type==='childList' && [...record.addedNodes,...record.removedNodes].length && [...record.addedNodes,...record.removedNodes].every(extensionNode)));
+    if(!native.length)return;
+    if(native.some(routeMutation))scheduleNavigation();else schedule();
   }
   function refresh() {
-    if (stopped || document.hidden) return;
+    if (stopped || !globalThis.document?.documentElement || document.hidden) return;
     // On normal Reddit pages this only runs when a chat shell is present.
     const roots = A.chatRoots();
     const liveRoots = new Set(roots);
     for (const [root, observer] of observed) if (!liveRoots.has(root)) { observer.disconnect(); observed.delete(root); }
     for (const root of roots) if (!observed.has(root)) {
-      const observer = new MutationObserver(records => {
-        if (records.some(record => !record.target.closest?.('[data-rcs-ui]'))) schedule();
-      });
+      const observer = new MutationObserver(mutationsChanged);
       observer.observe(root,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['room','room-id','channel-id','data-room-id','data-id','data-rcs-event-id','data-rcs-sender','data-rcs-author-self','hidden','selected','style','class']}); observed.set(root,observer);
     }
     const find = selector => [...new Set(roots.flatMap(root => [...(root.matches?.(selector) ? [root] : []), ...root.querySelectorAll(selector)]))];
@@ -661,11 +699,11 @@
   // Shadow roots attached after an element is inserted don't emit DOM mutations.
   // A modest discovery heartbeat covers delayed Lit hydration without patching Reddit.
   const heartbeat = setInterval(refresh,1800);
-  const observer = new MutationObserver(schedule); observer.observe(document,{childList:true,subtree:true});
+  const observer = new MutationObserver(mutationsChanged); observer.observe(document,{childList:true,subtree:true});
   document.addEventListener('visibilitychange',schedule);
   window.addEventListener('pagehide',event => {
     if (event.persisted) return;
-    stopped = true; clearInterval(heartbeat); observer.disconnect();
+    stopped = true; clearInterval(heartbeat);clearTimeout(refreshTimer);cancelAnimationFrame(navigationFrame);observer.disconnect();
     for (const observer of observed.values()) observer.disconnect();
     clearRetainedLists();for (const control of controls.values()) control.destroy(); index.clear();
     directory.clear();completeRooms.clear();
