@@ -9,6 +9,8 @@
 
 - Same-version visual follow-up: show one faded selection rail, prioritize keyboard navigation, and restore the opened-chat indicator when focus leaves search. Keep People rows at 64 px with short status labels beside previews.
 - Remove the common-word hint, compact counts/Refresh, and move loaded counts into the tooltip. Align sender chips to the search field’s left edge and show only their avatar/icon, username and removal control.
+- Escape dismisses global results, tabs, chips and menus from the search field or opened result rows, retaining the query and filters for reopening. Background updates do not reopen dismissed search.
+- Match global message rows to People/discovery typography and spacing, reusing title/time classes, 36 px avatars, normal-weight names and muted 11 px snippets capped at three lines.
 - Keep message timestamps on the same line as native-style normal-weight conversation names; exceptionally long names truncate with full-name tooltips.
 - Fit visible message cards to measured content with a bounded measurement cache, width invalidation and preserved virtual scroll anchors. Cap match-centered snippets at three lines and extend the rail with consistent 8 px top/bottom padding. Keyboard reveals and manual scrolling remain independent.
 - ArrowUp reveals the whole previous card below sticky day headers while preserving downward scrolling.
@@ -17,7 +19,7 @@
 
 Version choice: MINOR for the new image-preview capability; spacing corrections share this release. Storage schemas and independent tooling versions remain unchanged.
 
-Validation: all 290 tests pass; extension JavaScript syntax, ZIP integrity, and source/stable-folder equality pass for all 25 assets. Tests cover URL validation, replay, edits/redactions, native conversion without server calls, double-compaction cache import, lazy node reuse/failure fallback, People summaries, individual image history, and existing search/navigation coverage. The original bundle received Brave synthetic checks for loaded thumbnails, mixed results and stable scrolling/refocusing. The visual follow-up uses headless fixture tests only, as requested; no Brave artifact check was performed.
+Validation: all 291 tests pass; extension JavaScript syntax, ZIP integrity, and source/stable-folder equality pass for all 25 assets. Tests cover URL validation, replay, edits/redactions, native conversion without server calls, double-compaction cache import, lazy node reuse/failure fallback, People summaries, individual image history, and existing search/navigation coverage. The original bundle received Brave synthetic checks for loaded thumbnails, mixed results and stable scrolling/refocusing. The visual follow-up uses headless fixture tests only, as requested; no Brave artifact check was performed.
 
 Limitations: missing or inaccessible references show an Image/GIF placeholder. Old cached filenames cannot reconstruct a preview URL until Reddit exposes the corresponding event again. Saved-history coverage remains incomplete. The signed-in installed bundle requires manual Reload and validation; browser checks use synthetic data.
 
