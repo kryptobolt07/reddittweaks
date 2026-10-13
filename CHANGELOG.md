@@ -6,6 +6,8 @@
 - Refresh already-browsed local result pages after capture updates instead of resetting to the first 500 matches. Anchor the viewport by stable room/event IDs while retaining visible results during the local refresh.
 - Bound detached controller retention to four chat surfaces within the current document, destroy evicted controllers, and clear retained state on account changes and page unload. No new server requests, sync loop or storage schema.
 
+Same-version cosmetic follow-up: reduce scope-tab vertical padding, remove the label/count gap and shrink the reserved count slot. Labels remain centered and readable; counts retain a stable position with enough nonwrapping space for `999+`. All 53 unified interface tests pass, updated styles parse, and all 25 packaged assets match source and the stable unpacked folder. No browser artifact check.
+
 Version choice: PATCH for mobile search restoration and responsive mounting reliability fixes. Independent tooling versions remain unchanged.
 
 Validation: all 306 tests pass, including hidden/replaced mobile sidebars, account isolation, loaded-page catch-up and viewport restoration, delayed header content/layout, nested shadow toolbar anchoring, and both sidebar and individual-room mount readiness. All 19 JavaScript scripts parse. ZIP integrity and source/stable-folder/archive equality pass for all 25 assets; the convenience ZIP matches the versioned archive. No Brave artifact check was performed, as requested.

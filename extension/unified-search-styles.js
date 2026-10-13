@@ -209,10 +209,10 @@
     .search-icon:hover { background:var(--rcs-hover); }
     .search-icon svg { width:18px; height:18px; }
     .scope.scope-tabs { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:4px;margin:5px 0 0;padding:0;border-bottom:1px solid var(--rcs-line); }
-    /* Reserve a count row even when counts are empty, keeping labels centered and stationary. */
-    .scope-tab { position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(1.25em,auto) .75em;align-items:start;justify-items:center;gap:3px;min-width:0;width:100%;max-width:100%;padding:8px 2px;min-height:34px;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--rcs-muted);font-weight:500;background-clip:padding-box;font-size:var(--rcs-row-title-size,12px); }
-    .scope-count { display:block;grid-column:1;grid-row:2;width:4ch;max-width:100%;text-align:center;font-size:calc(var(--rcs-row-title-size,12px) * .75);line-height:1;font-weight:400;font-variant-numeric:tabular-nums; }
-    .scope-label { grid-column:1;grid-row:1;max-width:100%;line-height:1.25;text-align:center;white-space:normal;overflow-wrap:anywhere; }
+    /* Keep a compact count slot so counts do not shift or clip centered labels. */
+    .scope-tab { position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(1.2em,auto) .65em;align-items:start;justify-items:center;gap:0;min-width:0;width:100%;max-width:100%;padding:3px 2px;min-height:28px;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--rcs-muted);font-weight:500;background-clip:padding-box;font-size:var(--rcs-row-title-size,12px); }
+    .scope-count { display:block;grid-column:1;grid-row:2;width:5ch;max-width:100%;white-space:nowrap;overflow-wrap:normal;word-break:normal;text-align:center;font-size:calc(var(--rcs-row-title-size,12px) * .65);line-height:1;font-weight:400;font-variant-numeric:tabular-nums; }
+    .scope-label { grid-column:1;grid-row:1;max-width:100%;line-height:1.2;text-align:center;white-space:normal;overflow-wrap:anywhere; }
     /* Wider chat lists have room for a count beside a separately centered label. */
     @container rcs-search (min-width:36em) {
       .scope-tab { grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);grid-template-rows:auto;align-items:center; }
