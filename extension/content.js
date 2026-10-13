@@ -9,6 +9,11 @@
   let directoryComplete = Boolean(globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete);
   const completeRooms = new Set();
   const controls = new Map();
+  // Mobile routing can detach the sidebar. Retain its controller only within
+  // the same document, authenticated account and native chat shell.
+  const retainedLists = new Map();
+  function listContext(container){for(let node=container;node;node=node.parentElement || node.getRootNode?.().host){if(node.localName==='rs-app' || node.id==='resizable')return node;}return document.body || document.documentElement;}
+  function clearRetainedLists(){for(const {control} of retainedLists.values())control.destroy();retainedLists.clear();}
   const observed = new Map();
   let scheduled = false;
   let stopped = false;
@@ -235,7 +240,7 @@
       this.outside = event => { if (!event.composedPath().includes(this.host)){if(this.datePicker?.open)this.datePicker.close(false);this.dismiss();} };
       document.addEventListener('pointerdown', this.outside);
       const point = A.mountPoint(container, kind === 'messages' ? A.selectors.header : 'rs-room-list-header');
-      point.parent.insertBefore(this.host, point.before);
+      this.host.hidden=point.ready===false;point.parent.insertBefore(this.host, point.before);
       if(globalThis.ResizeObserver){this.resizeObserver=new ResizeObserver(()=>{this.updateLayout();if(!this.bar.hidden)this.render();});this.resizeObserver.observe(container);}
       this.savedUnsubscribe=globalThis.RCSMessages?.subscribe(value=>this.savedChanged(value));
       if(kind==='messages')this.tools=globalThis.RCSUnifiedSearch?.decorateMessageControl?.(this,{cache:this.cache,adapter:A});
@@ -337,7 +342,7 @@
       this.updateLayout();
       // Hydration can finish after document_idle; align the search bar once the
       // real header and virtual scroller arrive instead of leaving it above Chats.
-      const point=A.mountPoint(this.container,this.kind==='messages' ? A.selectors.header : 'rs-room-list-header');
+      const point=A.mountPoint(this.container,this.kind==='messages' ? A.selectors.header : 'rs-room-list-header');this.host.hidden=point.ready===false;
       if(point.before!==this.host && (this.host.parentNode!==point.parent || this.host.nextSibling!==point.before)) point.parent.insertBefore(this.host,point.before);
       A.syncSearchLayer?.(this.container,this.host,this.kind==='messages'?A.selectors.header:'rs-room-list-header, rs-rooms-nav-filter');
       if (this.kind === 'list') {
@@ -559,6 +564,7 @@
     destroy() { this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
+    if(value.accountChanged)clearRetainedLists();
     if(value.fromStorage || value.restored) {
       for(const record of value.records || [])directory.set(record.id,{...directory.get(record.id),...record});
       for(const control of controls.values())if(!control.panel.hidden)control.render();
@@ -618,10 +624,20 @@
     }
     const rooms = find(A.selectors.room).filter(A.visible);
     const live = new Map([...lists.map(list => [list,'list']), ...rooms.map(room => [room,'messages'])]);
-    for (const [container, control] of controls) if (!live.has(container) || !control.host.isConnected) { control.destroy(); controls.delete(container); }
+    for(const [container,control] of controls)if(!live.has(container) || !control.host.isConnected){
+      if(control.kind==='list' && typeof control.suspend==='function'){
+        control.suspend();if(container.isConnected && control.host.isConnected)continue;
+        const owner=control.owner || globalThis.RCSDirectory?.getOwner?.(),context=control.listContext || listContext(container);
+        if(owner){const old=retainedLists.get(context);if(old?.control!==control)old?.control.destroy();retainedLists.delete(context);retainedLists.set(context,{owner,control});while(retainedLists.size>4){const key=retainedLists.keys().next().value;retainedLists.get(key).control.destroy();retainedLists.delete(key);}controls.delete(container);continue;}
+      }
+      control.destroy();controls.delete(container);
+    }
     for (const [container,kind] of live) {
-      if (!controls.has(container)) controls.set(container,new SearchControl(container,kind));
-      else controls.get(container).sync();
+      if(!controls.has(container)){
+        const context=listContext(container),retained=kind==='list'?retainedLists.get(context):null,owner=globalThis.RCSDirectory?.getOwner?.();
+        if(retained && owner && retained.owner===owner){retainedLists.delete(context);retained.control.resume(container);controls.set(container,retained.control);}
+        else{if(retained){retained.control.destroy();retainedLists.delete(context);}const control=new SearchControl(container,kind);if(kind==='list')control.listContext=context;controls.set(container,control);}
+      }else{const control=controls.get(container);if(control.suspended)control.resume(container);else control.sync();}
     }
     // The minimized bar lives in a separate shadow root from rs-app.
     const restore = roots.flatMap(root => [...root.querySelectorAll('button[aria-label="Maximize chat view"]')]).find(A.visible);
@@ -651,7 +667,7 @@
     if (event.persisted) return;
     stopped = true; clearInterval(heartbeat); observer.disconnect();
     for (const observer of observed.values()) observer.disconnect();
-    for (const control of controls.values()) control.destroy(); index.clear();
+    clearRetainedLists();for (const control of controls.values()) control.destroy(); index.clear();
     directory.clear();completeRooms.clear();
     globalThis.RCSNativeLabels?.clear();
     collapsedControl?.host.remove();

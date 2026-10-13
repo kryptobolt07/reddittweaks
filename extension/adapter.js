@@ -120,12 +120,46 @@
     }).filter(message => includeNontext || message.text);
   }
   function mountPoint(container, headerSelector) {
-    const header = headerSelector && query(headerSelector, container);
-    if (header) return {parent: header.parentNode, before: header.nextSibling};
     const root = container.shadowRoot || container;
+    const native = container.localName?.startsWith('rs-');
+    const defined = native && Boolean(globalThis.customElements?.get(container.localName));
+    let header = headerSelector && query(headerSelector, container);
+    // The current native sidebar calls its header a nav filter. Older clients
+    // and synthetic fixtures still use a list header or an ordinary nav head.
+    if (!header && headerSelector && /rs-room-list-header/.test(headerSelector)) {
+      header = query('rs-rooms-nav-filter', container);
+      if (!header && !defined) header = query('.nav-head', container);
+    }
+    if (header) {
+      const contentHeader = header;
+      const nativeHeader = header.localName?.startsWith('rs-');
+      // Native nav filters may sit inside a header wrapper or its shadow root.
+      // Mount beside that wrapper, never inside the native toolbar.
+      if (header.localName === 'rs-rooms-nav-filter') {
+        while (header.parentNode !== root) {
+          const parent = header.parentElement || header.getRootNode().host;
+          if (!parent || parent === container) break;
+          header = parent;
+        }
+      }
+      let ready = true;
+      // Explicit native header placeholders can arrive before registration.
+      // They still need content and geometry; only generic fixture headers
+      // bypass native readiness checks when their container is unregistered.
+      if (defined || nativeHeader) {
+        const rect = header.getBoundingClientRect();
+        const rendered = rect.width > 0 && rect.height > 0;
+        const populated = Boolean(text(contentHeader) || query('button, input, a[href], [role="button"]', contentHeader));
+        ready = visible(header) && rendered && populated;
+      }
+      return {parent: header.parentNode, before: header.nextSibling, ready, header};
+    }
     const scroll = query(selectors.scroller + ', rs-virtual-scroll, rs-room-list-scroll, [role="list"]', container);
-    if (scroll) return {parent: scroll.parentNode, before: scroll};
-    return {parent: root, before: root.firstChild};
+    // Coordinates remain usable while the native element hydrates, but callers
+    // must keep search hidden until its actual header has been laid out.
+    const ready = !native || !headerSelector;
+    if (scroll) return {parent: scroll.parentNode, before: scroll, ready, header: null};
+    return {parent: root, before: root.firstChild, ready, header: null};
   }
   const searchHeaders = new WeakMap();
   function releaseSearchLayer(host) {

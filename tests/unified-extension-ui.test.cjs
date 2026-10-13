@@ -548,3 +548,29 @@ test('late fonts and root theme changes refresh native row metrics without start
   c.messageHeights.set('old-theme',88);p.w.document.body.classList.add('synthetic-theme');await settle();assert.equal(c.messageHeights.size,0);
   assert.equal(p.requests.length,requests);assert.equal(p.searches.length,searches);assert.equal(c.input.value,'alex');
 });
+
+
+test('suspended mobile search retains filters, paged results and return viewport through catch-up',async t=>{
+  const p=await setup(t,{scope:'messages',large:true}),c=p.control;await p.search('coffee from:me ');await c.searchSaved(true);await settle();assert.ok(c.savedHits.length>500);
+  const wanted=c.savedHits.length,anchor=c.items.filter(item=>item.kind==='message')[550];assert.ok(anchor);
+  c.results.scrollTop=anchor.offset+5;c.lastScrollTop=c.results.scrollTop;c.returnViewport=c.captureViewport();
+  const scope=c.scope,query=c.input.value,filters=JSON.stringify(c.queryState.filters),calendar=c.datePicker.applied;
+  c.suspend();p.emit({owner:c.owner});await p.tick(750);const searches=p.searches.length;assert.equal(c.suspended,true);
+  c.resume(p.fixture.nav);await settle();
+  assert.equal(c.scope,scope);assert.equal(c.input.value,query);assert.equal(JSON.stringify(c.queryState.filters),filters);assert.equal(c.datePicker.applied,calendar);
+  assert.equal(c.savedHits.length,wanted,'refresh retains all previously loaded result pages');
+  const restored=c.items.find(item=>item.key===anchor.key);assert.equal(c.results.scrollTop,restored.offset+5);
+  assert.ok(p.searches.length<=searches+2,'two local pages refresh once, without an extra directory build');assert.equal(p.requests.filter(item=>item.method==='directory').length,1);
+});
+
+test('search waits for native header readiness before revealing and restoring a mobile viewport',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee');
+  const mount=c.adapter.mountPoint;let ready=false;
+  c.adapter={...c.adapter,mountPoint:(...args)=>({...mount(...args),ready})};
+  c.results.scrollTop=19;c.returnViewport=c.captureViewport();c.suspend();c.resume(p.fixture.nav);
+  assert.equal(c.host.hidden,true);assert.ok(c.pendingResumeViewport);
+  assert.match(c.shadow.querySelector('style').textContent,/:host\(\[hidden\]\)\s*\{\s*display:none\s*!important/);
+  const parent=c.host.parentNode,previous=c.host.previousElementSibling;
+  ready=true;c.sync();assert.equal(c.host.hidden,false);assert.equal(c.pendingResumeViewport,null);
+  assert.equal(c.host.parentNode,parent);assert.equal(c.host.previousElementSibling,previous);assert.equal(c.results.scrollTop,19);
+});
