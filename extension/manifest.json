@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chat Search for Reddit",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Find conversations and search saved messages across Reddit chats with a small, native-looking interface.",
   "content_scripts": [
     {
@@ -71,5 +71,5 @@
   "background": {
     "service_worker": "cache-broker.js"
   },
-  "version_name": "0.6.0 design test"
+  "version_name": "0.7.0 design test"
 }
