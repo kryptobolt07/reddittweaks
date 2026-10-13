@@ -55,13 +55,13 @@
       room.complete=Boolean(room.scopes.get('')?.done) && [...room.roots.keys()].every(parent=>room.scopes.get(parent)?.done) && !room.dirtyThreads.size;
       return room.complete;
     }
-    project(room,resolve,ids) {
+    project(room,resolve,ids,media=()=>({})) {
       const events=ids ? ids.map(id=>room.events.get(id)).filter(Boolean) : [...room.events.values()];
       return events.filter(event=>['m.room.message','m.sticker'].includes(event.type) && !room.removed.has(event.event_id) && !event.unsigned?.redacted_because && event.content?.['m.relates_to']?.rel_type!=='m.replace').map(event=>{
         let edit;
         for(const candidate of room.edits.get(event.event_id)?.values() || [])if(!room.removed.has(candidate.event_id)&&!candidate.unsigned?.redacted_because&&(!edit||(candidate.origin_server_ts||0)>(edit.origin_server_ts||0)))edit=candidate;
-        const content=edit?.content?.['m.new_content'] || event.content || {},person=resolve(event.sender);
-        return {id:event.event_id,text:typeof content.body==='string' ? content.body : event.type==='m.sticker'?'Sticker':'',author:person.name || event.sender,
+        const content=edit?.content?.['m.new_content'] || event.content || {},person=resolve(event.sender),attachment=media(content,event.type);
+        return {...attachment,id:event.event_id,text:typeof content.body==='string' && content.body?content.body:attachment.attachmentType==='image'?'Image':event.type==='m.sticker'?'Sticker':'',author:person.name || event.sender,
           authorSelf:Boolean(person.self),authorHistorical:Boolean(person.historical),authorUnavailable:Boolean(person.unavailable),avatar:person.avatar || '',sender:event.sender,
           timestamp:event.origin_server_ts?new Date(event.origin_server_ts).toISOString():'',
           thread:event.content?.['m.relates_to']?.rel_type==='m.thread',roomId:room.roomId};

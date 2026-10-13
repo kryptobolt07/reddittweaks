@@ -165,12 +165,26 @@
     const person=historyIdentity(ctx,id);
     return {id,...person,availabilityKnown:person.self || Boolean(profileCache(ctx).get(id)?.availabilityKnown)};
   }
-  function compactCacheEvent(value,roomId) {
+  function previewURL(value){
+    if(typeof value!=='string' || !value || value.length>2000)return '';
+    try{const url=new URL(value);if(url.protocol!=='https:' || url.username || url.password || url.hash)return '';
+      for(const key of url.searchParams.keys())if(/token|auth|signature|credential|password|(?:^|[_-])key(?:$|[_-])/i.test(key))return '';
+      return url.href;
+    }catch{return '';}
+  }
+  function previewMetadata(content,type,client){
+    const attachmentType=type==='m.sticker'?'image':({'m.image':'image','m.video':'video','m.audio':'audio','m.file':'file'}[content?.msgtype] || '');
+    const attachmentMime=typeof content?.info?.mimetype==='string'?content.info.mimetype.slice(0,200).trim().toLowerCase().split(';')[0]:'';
+    let source=attachmentType==='image'?content?.info?.thumbnail_url || content?.url || content?.rcs_preview_url || '':'';
+    if(typeof source==='string' && source.startsWith('mxc://'))try{source=client?.mxcUrlToHttp?.(source,160,120,'scale') || '';}catch{source='';}
+    return {attachmentType,attachmentMime,attachmentPreview:previewURL(source)};
+  }
+  function compactCacheEvent(value,roomId,client) {
     const raw=value?.event || value;
     if(!raw?.event_id || !['m.room.message','m.sticker','m.room.redaction'].includes(raw.type))return;
     const id=raw.room_id || value?.getRoomId?.() || roomId;if(!id)return;
     const content=raw.content || {},keep=source=>{
-      const result={};for(const key of ['body','msgtype','url','m.relates_to'])if(source?.[key]!==undefined)result[key]=source[key];if(typeof source?.info?.mimetype==='string')result.info={mimetype:source.info.mimetype.slice(0,200)};return result;
+      const result={};for(const key of ['body','msgtype','m.relates_to'])if(source?.[key]!==undefined)result[key]=source[key];if(typeof source?.info?.mimetype==='string')result.info={mimetype:source.info.mimetype.slice(0,200)};const media=previewMetadata(source,raw.type,client);if(media.attachmentPreview)result.rcs_preview_url=media.attachmentPreview;return result;
     };
     const saved={event_id:raw.event_id,room_id:id,type:raw.type,sender:raw.sender,origin_server_ts:raw.origin_server_ts,seq_id:raw.seq_id,content:keep(content)};
     if(content['m.new_content'])saved.content['m.new_content']=keep(content['m.new_content']);
@@ -185,7 +199,7 @@
     const owner=ctx.client.getUserId();if(!owner || owner!==watchedOwner || ctx.client!==watchedClient)return;
     const events=[],ids=new Set(identityIds),identities=[];
     for(const value of values) {
-      const saved=compactCacheEvent(value,roomId);if(!saved)continue;
+      const saved=compactCacheEvent(value,roomId,ctx.client);if(!saved)continue;
       const key=saved.room_id+'\n'+saved.event_id,signature=JSON.stringify(saved);
       if(captureSignatures.get(key)!==signature){events.push(saved);captureSignatures.delete(key);captureSignatures.set(key,signature);}
       if(saved.sender)ids.add(saved.sender);
@@ -232,13 +246,13 @@
           const send=async()=>{
             if(!chunk.length)return;
             const sent=publishCache(state.ctx,job.roomId,chunk,job.force?'cache-recovery':'native-memory');
-            for(const value of chunk){const raw=compactCacheEvent(value,job.roomId);if(raw){const key=raw.room_id+'\n'+raw.event_id;if(captureSignatures.has(key))state.missing.delete(key);}}
+            for(const value of chunk){const raw=compactCacheEvent(value,job.roomId,state.client);if(raw){const key=raw.room_id+'\n'+raw.event_id;if(captureSignatures.has(key))state.missing.delete(key);}}
             chunk=[];chunkBytes=0;
             if(sent){units+=Math.max(1,sent.events);bytes+=sent.bytes;}
             if(units>=200 || bytes>=512*1024)await barrier();
           };
           for(const value of values){
-            guard();if(job.wanted && !job.wanted.has((value?.event || value)?.event_id))continue;const size=JSON.stringify(compactCacheEvent(value,job.roomId) || {}).length*2;
+            guard();if(job.wanted && !job.wanted.has((value?.event || value)?.event_id))continue;const size=JSON.stringify(compactCacheEvent(value,job.roomId,state.client) || {}).length*2;
             if(chunk.length && (chunk.length>=200 || chunkBytes+size>256*1024))await send();
             chunk.push(value);chunkBytes+=size;
           }
@@ -330,7 +344,7 @@
         scanned++;
         if(typeof row?.room_id!=='string' || !row.content || typeof row.content!=='object'){malformed=true;continue;}
         if(!['m.room.message','m.sticker','m.room.redaction'].includes(row.content.type))continue;
-        const event=compactCacheEvent(row.content,row.room_id);
+        const event=compactCacheEvent(row.content,row.room_id,ctx.client);
         if(!event){malformed=true;continue;}
         if(!rooms.has(event.room_id))rooms.set(event.room_id,[]);
         rooms.get(event.room_id).push(event);imported++;
@@ -345,6 +359,7 @@
       await delay(0);
     }
   }
+  function projectHistory(room,ctx,ids){return histories.project(room,id=>historyIdentity(ctx,id),ids,(content,type)=>previewMetadata(content,type,ctx.client));}
   function historyIdentity(ctx,id) {
     const person=resolvedIdentity(id,profileCache(ctx).get(id),ctx);
     const rendered=renderedIdentityCaches.get(ctx.client.getUserId())?.get(id);
@@ -363,7 +378,7 @@
     for(const room of histories.rooms.values())if(room.owner===owner) {
       const changed=[...room.events.values()].filter(event=>ids.has(event.sender)).map(event=>event.event_id);
       if(changed.length)document.dispatchEvent(new CustomEvent('rcs-history-changed',{detail:JSON.stringify({owner,roomId:room.roomId,identityOnly:true,
-        records:histories.project(room,id=>historyIdentity(ctx,id),changed),redacted:[...room.removed],complete:room.complete})}));
+        records:projectHistory(room,ctx,changed),redacted:[...room.removed],complete:room.complete})}));
     }
   }
   function rememberRenderedIdentities(ctx) {
@@ -398,7 +413,7 @@
     publishCache(ctx,id,[raw],'native',dirty ? {complete:false,dateComplete:false} : undefined);
     if(!room)return;
     document.dispatchEvent(new CustomEvent('rcs-history-changed',{detail:JSON.stringify({owner,roomId:room.roomId,
-      records:histories.project(room,id=>historyIdentity(ctx,id),changed),redacted:[...room.removed],complete:room.complete,dateInvalidated:room.dirtyThreads.size>0})}));
+      records:projectHistory(room,ctx,changed),redacted:[...room.removed],complete:room.complete,dateInvalidated:room.dirtyThreads.size>0})}));
   }
   function signalDirectory(type,...values) {
     for(const value of values) {
@@ -849,7 +864,7 @@
   function historyProgress(ctx,job,room,label,ids) {
     job.loaded=room.events.size;
     rememberRenderedIdentities(ctx);
-    emit(job.request,{progress:{loaded:room.events.size,label,records:histories.project(room,id=>historyIdentity(ctx,id),ids),redacted:[...room.removed],complete:room.complete}});
+    emit(job.request,{progress:{loaded:room.events.size,label,records:projectHistory(room,ctx,ids),redacted:[...room.removed],complete:room.complete}});
   }
   function historyDateStart(dates) {
     if(!dates?.from)return -Infinity;
@@ -927,7 +942,7 @@
       job.historyMeta={complete:room.complete,dateComplete:true,dates:job.requestedDates,redacted:[...room.removed]};
       publishCache(ctx,roomId,[],'history-verified',job.historyMeta);
       if(cacheConsumerReady)await flushNativeCache(job,()=>check(job));
-      return histories.project(room,id=>historyIdentity(ctx,id));
+      return projectHistory(room,ctx);
     }
     let load=room.loading;
     if(!load) {
@@ -950,7 +965,7 @@
         } while(!rangeCovered(room,shared.dateStart()));
         check(shared);histories.readiness(room);
         historyProgress(ctx,shared,room,room.complete ? 'Available history indexed' : rangeCovered(room,shared.dateStart()) ? 'Selected dates searched' : 'More replies are available');
-        return histories.project(room,id=>historyIdentity(ctx,id));
+        return projectHistory(room,ctx);
       })().finally(()=>{if(room.loading===load)room.loading=null;histories.trim();});
     }
     try {
