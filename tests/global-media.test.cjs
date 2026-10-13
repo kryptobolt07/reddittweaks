@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm');
-function environment(){const context=vm.createContext({TextEncoder});for(const file of ['search-core.js','message-store.js'])vm.runInContext(fs.readFileSync(`extension/${file}`,'utf8'),context);return context;}
+function environment(){const context=vm.createContext({TextEncoder,URL});for(const file of ['search-core.js','message-store.js'])vm.runInContext(fs.readFileSync(`extension/${file}`,'utf8'),context);return context;}
 const owner='@alice:reddit.com',sender='@bob:reddit.com',room='!media:reddit.com';
 const event=(id,msgtype,body='',info)=>({event_id:id,room_id:room,type:'m.room.message',sender,origin_server_ts:1000,content:{msgtype,body,...(info?{info}:{})}});
 const ids=result=>Array.from(result.records,record=>record.id).sort();
@@ -62,4 +62,20 @@ test('available media types come from materialized account data independently of
   assert.deepEqual(Array.from((await store.search(sender,{})).availableMediaTypes),[]);
   await store.ingest({owner,events:[{...event('edit','m.text'),content:{'m.new_content':{body:'plain text',msgtype:'m.text'},'m.relates_to':{rel_type:'m.replace',event_id:'gif'}}},{...event('redaction','m.text'),type:'m.room.redaction',redacts:'audio'}]});
   assert.deepEqual(Array.from((await store.search(owner,{})).availableMediaTypes),['file','link']);
+});
+
+test('image preview references are bounded and credential-free, update on replay/edits, and disappear on redaction',async()=>{
+  const {RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null}),photo=event('photo','m.image','photo.jpeg');
+  await store.ingest({owner,events:[photo]});assert.equal((await store.search(owner,{query:'has:image'})).records[0].attachmentPreview,'');
+  photo.content.url='https://example.invalid/original.jpg';photo.content.info={thumbnail_url:'https://example.invalid/thumb.jpg'};
+  assert.equal((await store.ingest({owner,events:[photo]})).changed,true);assert.equal((await store.ingest({owner,events:[photo]})).changed,false);
+  assert.equal((await store.search(owner,{query:'has:image'})).records[0].attachmentPreview,'https://example.invalid/thumb.jpg');
+  assert.equal((await store.summaries(owner)).summaries[0].attachmentPreview,'https://example.invalid/thumb.jpg');
+  const rejected=['http://example.invalid/img','data:image/png,abc','javascript:alert(1)','https://user:secret@example.invalid/img','https://example.invalid/img?access_token=secret','https://example.invalid/img?X-Amz-Signature=secret','https://example.invalid/img#secret'];
+  for(const [i,url]of rejected.entries())await store.ingest({owner,events:[{...event('bad-'+i,'m.image','picture.jpeg'),content:{msgtype:'m.image',body:'picture.jpeg',url}}]});
+  assert.ok((await store.search(owner,{query:'picture'})).records.every(record=>!record.attachmentPreview));assert.equal(JSON.stringify(await store.snapshot(owner)).includes('secret'),false);
+  await store.ingest({owner,events:[{...event('edit','m.image','* replaced'),content:{'m.relates_to':{rel_type:'m.replace',event_id:'photo'},'m.new_content':{msgtype:'m.image',body:'new.jpeg',url:'https://example.invalid/new.jpg'}}}]});
+  assert.equal((await store.search(owner,{query:'new.jpeg'})).records[0].attachmentPreview,'https://example.invalid/new.jpg');
+  await store.ingest({owner,events:[{...event('redact','m.text'),type:'m.room.redaction',redacts:'photo'}]});
+  const ledger=(await store.snapshot(owner)).rows[0].events;assert.ok(ledger.filter(record=>['photo','edit'].includes(record.id)).every(record=>record.attachmentPreview===''));
 });
