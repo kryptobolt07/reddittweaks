@@ -153,3 +153,12 @@ test('a live event burst recovers rejected captures locally and clears the latch
   assert.equal((await recovered).complete,true);
   const result=await env.W.RCSMessages.search({query:'burst',limit:1});assert.equal(result.total,12500);assert.equal(result.captureIncomplete,false);assert.equal(env.api.calls.length,0);
 });
+
+test('native media MIME survives the bridge into persistent GIF search, edits and redactions',async t=>{
+  const broker=worker(t),env=page(t,broker,11),batches=[];env.W.document.addEventListener('rcs-message-cache-batch',value=>batches.push(JSON.parse(value.detail)));await wait(30);
+  env.emit(event('$native-gif','animation',{content:{body:'animation',msgtype:'m.image',info:{mimetype:'image/gif',thumbnail_url:'https://example.invalid/private-thumbnail',w:1000}}}));await env.W.RCSMessages.flush();
+  let found=await env.W.RCSMessages.search({query:'has:gif'});assert.equal(found.total,1);assert.equal(found.records[0].attachmentMime,'image/gif');assert.ok(found.availableMediaTypes.includes('gif'));
+  const raw=batches.flatMap(batch=>batch.events).find(record=>record.event_id==='$native-gif');assert.deepEqual(Object.keys(raw.content.info),['mimetype']);
+  env.emit(event('$native-gif-edit','* still image',{content:{body:'* still image','m.relates_to':{rel_type:'m.replace',event_id:'$native-gif'},'m.new_content':{body:'still image',msgtype:'m.image',info:{mimetype:'image/png'}}}}));await env.W.RCSMessages.flush();assert.equal((await env.W.RCSMessages.search({query:'has:gif'})).total,0);assert.equal((await env.W.RCSMessages.search({query:'has:image'})).total,1);
+  env.emit(event('$native-image-redact','',{type:'m.room.redaction',redacts:'$native-gif'}));await env.W.RCSMessages.flush();found=await env.W.RCSMessages.search({query:'has:image'});assert.equal(found.total,0);assert.equal(found.availableMediaTypes.includes('gif'),false);assert.equal(env.api.calls.length,0);
+});

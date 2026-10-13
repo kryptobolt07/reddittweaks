@@ -170,7 +170,7 @@
     if(!raw?.event_id || !['m.room.message','m.sticker','m.room.redaction'].includes(raw.type))return;
     const id=raw.room_id || value?.getRoomId?.() || roomId;if(!id)return;
     const content=raw.content || {},keep=source=>{
-      const result={};for(const key of ['body','msgtype','url','m.relates_to'])if(source?.[key]!==undefined)result[key]=source[key];return result;
+      const result={};for(const key of ['body','msgtype','url','m.relates_to'])if(source?.[key]!==undefined)result[key]=source[key];if(typeof source?.info?.mimetype==='string')result.info={mimetype:source.info.mimetype.slice(0,200)};return result;
     };
     const saved={event_id:raw.event_id,room_id:id,type:raw.type,sender:raw.sender,origin_server_ts:raw.origin_server_ts,seq_id:raw.seq_id,content:keep(content)};
     if(content['m.new_content'])saved.content['m.new_content']=keep(content['m.new_content']);
