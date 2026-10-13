@@ -497,3 +497,20 @@ test('ArrowUp brings the previous whole card below the sticky day header',async 
   const people=c.items.filter(item=>item.kind==='chat');c.active=people[1].key;c.results.scrollTop=people[0].offset+10;await p.key('ArrowUp');
   assert.equal(c.results.scrollTop,people[0].offset);
 });
+
+
+test('rendered message heights replace estimates without losing the scroll anchor or cached rows',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee');
+  const before=c.items.filter(item=>item.kind==='message');assert.ok(before.length>1);
+  const target=before[1],row=p.find('[data-key="'+target.key+'"]');
+  const nodes=c.items.filter(item=>item.kind==='message');for(const item of nodes){const node=p.find('[data-key="'+item.key+'"]');node.getBoundingClientRect=()=>({height:item.key===target.key?94:64});}
+  const oldTop=target.offset+8;c.results.scrollTop=oldTop;c.renderedWindow='';c.renderWindow();
+  const updated=c.items.find(item=>item.key===target.key);
+  assert.equal(updated.height,94);assert.equal(c.items.find(item=>item.key===nodes[0].key).height,64);
+  assert.equal(c.results.scrollTop,updated.offset+8,'height changes above the viewport preserve its content anchor');
+  assert.equal(p.find('[data-key="'+target.key+'"]'),row,'measurement reuses mounted rows');
+  const total=c.items.reduce((sum,item)=>sum+item.height,0);assert.equal(c.totalHeight,total);
+  c.makeItems();assert.equal(c.items.find(item=>item.key===target.key).height,94,'unchanged results reuse measured heights');
+  row.getBoundingClientRect=()=>{throw Error('cached row should not be measured again');};c.active=target.key;c.navigating=true;c.results.scrollTop=0;c.renderedWindow='';c.renderWindow();assert.equal(c.results.scrollTop,0,'manual scroll is not pulled back to the keyboard cursor');
+  c.container.getBoundingClientRect=()=>({width:240,bottom:700});c.updateLayout();assert.equal(c.messageHeights.size,0,'width changes invalidate wrapping measurements');
+});
