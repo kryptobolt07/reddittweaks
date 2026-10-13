@@ -283,10 +283,11 @@
     .row-time { display:block; flex-shrink:0; color:var(--rcs-muted); font-size:10px; white-space:nowrap; font-weight:400; }
     .row-snippet { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:4px; color:var(--rcs-muted); font-size:11px; }
     .row-meta { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--rcs-muted); font-size:10px; margin-top:3px; }
-    .message-result { position:relative; height:100%;min-height:96px; padding:5px 14px; border:0; }
-    .message-open { display:flex; align-items:center; gap:10px; width:100%; height:100%; padding:4px 0; text-align:left; }
+    .message-result { position:relative; height:100%;min-height:64px; padding:6px 14px; border:0; }
+    .message-open { display:flex; align-items:flex-start; gap:10px; width:100%; height:100%; padding:4px 0; text-align:left; }
+    .row-image-preview { margin-top:4px; }
     .message-open .avatar { flex:0 0 34px; width:34px; height:34px; }
-    .message-copy { display:flex; flex:1; flex-direction:column; justify-content:center; gap:3px; min-width:0; }
+    .message-copy { display:flex; flex:1; flex-direction:column; justify-content:flex-start; gap:3px; min-width:0; }
     .message-heading { display:flex;flex-wrap:wrap;align-items:baseline;column-gap:7px;row-gap:0;min-width:0; }
     .message-name { flex:1 0 auto;min-width:0;max-width:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;overflow-wrap:anywhere; color:var(--rcs-text); font-size:13px; font-weight:600; }
     .message-open .row-time { flex:0 0 auto;margin-left:auto; font-size:10px; }
@@ -307,5 +308,5 @@
     .skeleton-text { flex:1; height:32px; margin-top:2px; border-radius:4px; background:linear-gradient(var(--rcs-hover) 0 11px,transparent 11px 20px,var(--rcs-hover) 20px); animation:rcs-pulse 1.4s ease-in-out infinite alternate; }
     :host([data-rcs-compact]) .bar.unified-search { display:block; padding:5px 14px 0; }
     :host([data-rcs-compact]) .scope.scope-tabs { gap:4px;margin:5px 0 0;padding:0;border-bottom:1px solid var(--rcs-line); }
-  ` + globalThis.RCSUnifiedToolStyles;
+  ` + globalThis.RCSUnifiedToolStyles + (globalThis.RCSMediaPreview?.styles || "");
 })();

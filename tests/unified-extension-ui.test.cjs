@@ -21,7 +21,7 @@ async function setup(t,{large=false,deferSearch=false,scope='all'}={}) {
   w.RCSDirectory={getStartup:()=>({pending:false,entry:{directoryComplete:true}}),getOwner:()=>owner,load:(force,progress)=>{requests.push({method:'directory',force});progress({records:[]});return {promise:loadError?Promise.reject(Error('offline')):Promise.resolve([...cache.values()]),cancel:()=>requests.push({method:'cancel'})};}};
   w.RCSData={request:(method,parameters)=>{requests.push({method,...parameters});if(method==='open' || method==='jump')fixture.select(parameters.roomId);return {promise:Promise.resolve({})};}};
   w.RCSMessages={search:async parameters=>{searches.push({...parameters});if(deferSearch)await new Promise(resolve=>pending.push(resolve));return store.search(owner,parameters);},room:roomId=>store.room(owner,roomId),summaries:()=>store.summaries(owner),subscribe:listener=>{listeners.add(listener);return()=>listeners.delete(listener);}};
-  load('extension/global-search-model.js');load('extension/unified-search-styles.js');load('extension/unified-search.js');const control=new w.RCSUnifiedSearch(fixture.nav,{cache,adapter:w.RCSAdapter,version:'test'});
+  load('extension/global-search-model.js');load('extension/media-preview.js');load('extension/unified-search-styles.js');load('extension/unified-search.js');const control=new w.RCSUnifiedSearch(fixture.nav,{cache,adapter:w.RCSAdapter,version:'test'});
   control.setScope(scope);
   t.after(()=>{control.destroy();dom.window.close();});await settle();
   const find=selector=>{const value=control.shadow.querySelector(selector);assert.ok(value,'Missing '+selector);return value;};
@@ -408,4 +408,15 @@ test('renamed and identically named conversations retain distinct room/event key
   p.cache.set('alex',{...p.cache.get('alex'),name:'A renamed conversation'});p.cache.set('maya',{...p.cache.get('maya'),name:'A renamed conversation'});c.makeItems();c.renderWindow();
   const rows=[...c.shadow.querySelectorAll('.message-result')].filter(row=>row.querySelector('.message-name').textContent==='A renamed conversation');assert.ok(rows.length>=2);assert.equal(new Set(rows.map(row=>row.dataset.key)).size,rows.length);
   const row=p.find('[data-key="message:alex:'+target.id+'"]');row.querySelector('button').click();await settle();assert.equal(p.requests.at(-1).roomId,'alex');assert.equal(p.requests.at(-1).eventId,target.id);
+});
+
+test('image matches and People summaries show stable lazy thumbnails instead of filenames, with safe fallback and compact text rows',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;
+  await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'photo-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:1791433000000,content:{body:'my-upload.jpeg',msgtype:'m.image',url:'https://example.invalid/thumb.jpg'}}]});await p.search('has:image');
+  const row=p.find('[data-key="message:alex:photo-preview"]'),img=row.querySelector('.media-image');assert.ok(img);assert.equal(img.getAttribute('loading'),'lazy');assert.equal(img.src,'https://example.invalid/thumb.jpg');assert.doesNotMatch(row.textContent,/my-upload|jpeg/);assert.match(row.textContent,/You: Image/);assert.match(row.querySelector('button').getAttribute('aria-label'),/You sent: Image/);
+  for(let i=0;i<10;i++){c.sync();c.render();}assert.equal(p.find('.media-image'),img,'native updates reuse the image node/source');
+  img.dispatchEvent(new p.w.Event('error'));assert.equal(img.hidden,true);assert.equal(row.querySelector('.media-placeholder').hidden,false);c.render();assert.equal(p.find('.media-image'),img,'failed previews are not repeatedly requested');
+  await c.loadSummaries();await p.search('alex');await p.click('[data-scope="people"]');const compact=p.find('[data-key="chat:alex"] .row-image-preview');assert.ok(compact.querySelector('.media-image'));assert.doesNotMatch(compact.textContent,/jpeg/);
+  assert.ok(c.messageRowHeight(p.cache.get('alex'),{text:'Hello'})<c.messageRowHeight(p.cache.get('alex'),{text:'A longer message that takes two lines in the search preview.'}));
+  c.resetSaved();assert.equal(c.mediaView.images.size,0);
 });

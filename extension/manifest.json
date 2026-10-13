@@ -50,6 +50,7 @@
         "native-labels.js",
         "date-picker.js",
         "global-search-model.js",
+        "media-preview.js",
         "unified-search-styles.js",
         "unified-search.js",
         "content.js"

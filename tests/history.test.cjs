@@ -11,7 +11,7 @@ function setup(t,{content=false}={}) {
   for(const file of ['demo/fixture.js','extension/directory-model.js','extension/search-core.js','extension/adapter.js','extension/history-store.js','extension/native-identities.js','extension/page-bridge.js','extension/data-client.js'])W.eval(source(file));
   const api=W.ChatFixture.build(W.document.body),client=api.app.querySelector('rs-matrix-client').client,listeners=new Map();
   client.on=(type,fn)=>listeners.set(type,fn);client.off=type=>listeners.delete(type);
-  if(content){W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));}
+  if(content){for(const file of ['extension/message-store.js','extension/media-preview.js','extension/date-picker.js','extension/content.js'])W.eval(source(file));}
   return {W,api,client,listeners};
 }
 test('cancelled history resumes at the saved cursor instead of downloading its first page again',async t=>{
@@ -271,4 +271,13 @@ test('native event bindings update recycled rows independently of deleted-accoun
   assert.equal(event.getAttribute('data-rcs-event-id'),'$self');assert.equal(event.getAttribute('data-rcs-author-self'),'true');
   event.event={getId:()=>'$peer',getSender:()=> '@t2_alex:reddit.com'};event.updated();assert.equal(event.getAttribute('data-rcs-event-id'),'$peer');assert.equal(event.getAttribute('data-rcs-sender'),'@t2_alex:reddit.com');assert.equal(event.getAttribute('data-rcs-author-self'),'false');assert.equal(event.nativeUpdates,1);
   W.RCSNativeIdentities.clear();event.event={getId:()=>'$self-again',getSender:()=> '@t2_me:reddit.com'};event.updated();assert.equal(event.getAttribute('data-rcs-author-self'),'true');assert.equal(api.calls.length,calls);
+});
+
+
+test('individual image history keeps preview metadata and shows a thumbnail instead of a filename',async t=>{
+  const {W,api,client}=setup(t,{content:true});client.mxcUrlToHttp=()=> 'https://example.invalid/native-thumb.jpg';
+  api.remoteMessages.get('alex').push({event_id:'native-image',room_id:'alex',type:'m.room.message',sender:'@t2_alex:reddit.com',seq_id:'7',origin_server_ts:1791432420000,content:{msgtype:'m.image',body:'photo.jpeg',url:'mxc://reddit.com/photo',info:{mimetype:'image/jpeg'}}});
+  const records=await W.RCSData.request('history',{roomId:'alex'}).promise,photo=records.find(record=>record.id==='native-image');assert.equal(photo.attachmentType,'image');assert.equal(photo.attachmentPreview,'https://example.invalid/native-thumb.jpg');
+  const trigger=W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button');trigger.click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='photo';input.dispatchEvent(new W.Event('input'));await tick(250);
+  const preview=root.querySelector('.preview.has-image');assert.ok(preview);assert.ok(preview.querySelector('.media-image'));assert.doesNotMatch(preview.textContent,/jpeg/);assert.match(preview.textContent,/Image/);
 });
