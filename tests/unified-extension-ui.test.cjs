@@ -464,3 +464,21 @@ test('scope labels and reserved count slots stay mounted across count changes',a
   }
   c.clearQuery();assert.equal(p.find('[data-scope="messages"] .scope-count'),count);
 });
+
+
+test('Enter promotes keyboard preview to the opened chat or message indicator',async t=>{
+  const p=await setup(t,{scope:'people'}),c=p.control;await p.search('alex');
+  await p.key('ArrowDown');await p.key('ArrowDown');
+  assert.ok(p.find('.selection-rail').classList.contains('keyboard-preview'));
+  await p.key('Enter');assert.equal(p.requests.at(-1).roomId,'alex2');
+  const opened=p.find('.selection-rail');assert.equal(opened.dataset.key,'chat:alex2');
+  assert.ok(opened.classList.contains('selected'));assert.equal(opened.classList.contains('keyboard-preview'),false);
+  await p.key('ArrowUp');assert.ok(p.find('.selection-rail').classList.contains('keyboard-preview'));
+  assert.equal(c.shadow.querySelectorAll('.selection-rail').length,1);
+  await p.click('[data-scope="all"]');await p.search('coffee');
+  const item=c.items.find(item=>item.kind==='message');assert.ok(item);
+  c.active=item.key;c.navigating=true;c.renderWindow();await p.key('Enter');
+  const message=p.find('.message-result.selection-rail');assert.equal(message.dataset.key,item.key);
+  assert.ok(message.classList.contains('selected'));assert.equal(message.classList.contains('keyboard-preview'),false);
+  assert.equal(c.shadow.querySelectorAll('.selection-rail').length,1);
+});
