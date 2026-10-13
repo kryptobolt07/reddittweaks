@@ -138,14 +138,14 @@ test('nothing mounts on an unrelated Reddit feed or thread',()=>{
   const dom=environment();dom.window.document.body.innerHTML='<main><header>Post</header><p>A normal Reddit post</p></main>';dom.window.eval(source('extension/content.js'));
   assert.equal(dom.window.document.querySelector('[data-rcs-ui]'),null);dom.window.close();
 });
-test('late hydration moves username search below the native Chats header',async()=>{
+test('username search keeps its header anchor while the native scroller hydrates',async()=>{
   const dom=environment();const W=dom.window;const api=W.ChatFixture.build(W.document.body);
   const scroller=api.nav.shadowRoot.querySelector('rs-virtual-scroll');scroller.remove();
   W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
   const host=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav);
-  assert.equal(api.nav.shadowRoot.firstElementChild.localName,'div');
+  const header=api.nav.shadowRoot.querySelector('.nav-head');assert.equal(host.previousElementSibling,header);
   api.nav.shadowRoot.append(scroller);await tick();
-  assert.equal(host.nextElementSibling,scroller);
+  assert.equal(host.previousElementSibling,header);
   assert.ok(host.previousElementSibling);
   assert.equal(api.nav.shadowRoot.querySelectorAll('[data-rcs-ui="list"]').length,1);
   dom.window.close();
