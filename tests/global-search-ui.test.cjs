@@ -23,7 +23,7 @@ function setup(t,{compact=false,search,directory,tools=false}={}){
     subscribe:callback=>{listeners.add(callback);return ()=>listeners.delete(callback);},flush:async()=>{}
   };
   if(directory)W.RCSDirectory=directory;
-  if(tools)for(const file of ['extension/global-search-model.js','extension/unified-search-styles.js','extension/unified-search.js'])W.eval(source(file));
+  if(tools)for(const file of ['extension/global-search-model.js','extension/media-preview.js','extension/unified-search-styles.js','extension/unified-search.js'])W.eval(source(file));
   W.eval(source('extension/content.js'));
   const host=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav),root=host.shadowRoot,input=root.querySelector('input');
   const all=()=>root.querySelector('[data-scope="all"]').click();
