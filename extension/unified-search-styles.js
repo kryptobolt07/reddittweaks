@@ -23,6 +23,7 @@
       --rcs-row-preview-color:var(--color-tone-2,var(--rcs-muted));
       --rcs-row-time-color:var(--color-tone-2,var(--rcs-muted));
     }
+    :host([hidden]) { display:none !important; }
     * { box-sizing:border-box; }
     [hidden] { display:none !important; }
     button,input { font:inherit; }
@@ -195,7 +196,7 @@
   `;
   globalThis.RCSUnifiedStyles += `
     :host { z-index:1; isolation:isolate; }
-    .bar.unified-search { display:block; padding:7px 12px 0; }
+    .bar.unified-search { display:block; padding:7px 12px 0; container:rcs-search / inline-size; }
     .bar.unified-search .field { width:100%; height:40px; }
     .field .search-controls { display:flex;flex-wrap:nowrap;gap:1px;padding:0;margin:0;flex-shrink:0; }
     .field .control-pill { padding:0;border:0;border-radius:50%;width:26px;height:26px;min-height:26px; }
@@ -207,10 +208,17 @@
     .search-icon { display:flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:28px;padding:0;border:0;border-radius:50%;color:var(--rcs-muted);background:transparent; }
     .search-icon:hover { background:var(--rcs-hover); }
     .search-icon svg { width:18px; height:18px; }
-    .scope.scope-tabs { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:center;gap:4px;margin:5px 0 0;padding:0;border-bottom:1px solid var(--rcs-line); }
-    .scope-tab { position:relative;isolation:isolate;display:flex;align-items:center;justify-content:center;gap:3px;min-width:0;width:100%;max-width:100%;overflow:hidden;padding:8px 2px;min-height:34px;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--rcs-muted);font-size:12px;font-weight:500;white-space:nowrap;background-clip:padding-box;font-size:var(--rcs-row-title-size,12px); }
-    .scope-count { display:inline-block;flex:none;width:4ch;text-align:center;font-size:calc(var(--rcs-row-title-size,12px) * .75);line-height:1;font-weight:400;font-variant-numeric:tabular-nums;align-self:center; }
-    .scope-label { flex:none; }
+    .scope.scope-tabs { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:4px;margin:5px 0 0;padding:0;border-bottom:1px solid var(--rcs-line); }
+    /* Reserve a count row even when counts are empty, keeping labels centered and stationary. */
+    .scope-tab { position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(1.25em,auto) .75em;align-items:start;justify-items:center;gap:3px;min-width:0;width:100%;max-width:100%;padding:8px 2px;min-height:34px;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--rcs-muted);font-weight:500;background-clip:padding-box;font-size:var(--rcs-row-title-size,12px); }
+    .scope-count { display:block;grid-column:1;grid-row:2;width:4ch;max-width:100%;text-align:center;font-size:calc(var(--rcs-row-title-size,12px) * .75);line-height:1;font-weight:400;font-variant-numeric:tabular-nums; }
+    .scope-label { grid-column:1;grid-row:1;max-width:100%;line-height:1.25;text-align:center;white-space:normal;overflow-wrap:anywhere; }
+    /* Wider chat lists have room for a count beside a separately centered label. */
+    @container rcs-search (min-width:36em) {
+      .scope-tab { grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);grid-template-rows:auto;align-items:center; }
+      .scope-label { grid-column:2; }
+      .scope-count { grid-column:3;grid-row:1;justify-self:start;margin-inline-start:3px; }
+    }
     .scope-tab:hover { background:transparent;border-bottom-color:color-mix(in srgb,var(--rcs-accent) 35%,transparent); }
     .scope-tab.active,.scope-tab[aria-selected=true] { background:transparent;color:var(--rcs-text);border-bottom-color:var(--rcs-accent);font-weight:600; }
     .bar.unified-search .global-filter-rail { display:flex;align-items:center;flex-wrap:nowrap;gap:6px;width:100%;height:32px;min-height:32px;overflow-x:auto;overflow-y:hidden;padding:3px 0;justify-content:flex-start;overscroll-behavior-inline:contain;scrollbar-width:none;-ms-overflow-style:none; }
