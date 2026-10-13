@@ -201,8 +201,10 @@
     .search-icon { display:flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:28px;padding:0;border:0;border-radius:50%;color:var(--rcs-muted);background:transparent; }
     .search-icon:hover { background:var(--rcs-hover); }
     .search-icon svg { width:18px; height:18px; }
-    .scope.scope-tabs { display:flex;align-items:center;gap:4px;margin:5px 0 0;padding:0;border-bottom:1px solid var(--rcs-line); }
-    .scope-tab { position:relative;isolation:isolate;display:flex;align-items:center;justify-content:center;flex:1 1 auto;min-width:0;max-width:100%;overflow:hidden;padding:8px 4px;min-height:34px;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--rcs-muted);font-size:12px;font-weight:500;white-space:nowrap;background-clip:padding-box; }
+    .scope.scope-tabs { display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.65fr) minmax(0,1.35fr);align-items:center;gap:4px;margin:5px 0 0;padding:0;border-bottom:1px solid var(--rcs-line); }
+    .scope-tab { position:relative;isolation:isolate;display:flex;align-items:center;justify-content:center;gap:3px;min-width:0;width:100%;max-width:100%;overflow:hidden;padding:8px 2px;min-height:34px;border:0;border-bottom:2px solid transparent;border-radius:0;color:var(--rcs-muted);font-size:12px;font-weight:500;white-space:nowrap;background-clip:padding-box; }
+    .scope-count { display:inline-block;flex:none;width:4ch;text-align:center;font-size:9px;line-height:1;font-weight:400;font-variant-numeric:tabular-nums;align-self:center; }
+    .scope-label { flex:none; }
     .scope-tab:hover { background:transparent;border-bottom-color:color-mix(in srgb,var(--rcs-accent) 35%,transparent); }
     .scope-tab.active,.scope-tab[aria-selected=true] { background:transparent;color:var(--rcs-text);border-bottom-color:var(--rcs-accent);font-weight:600; }
     .bar.unified-search .global-filter-rail { display:flex;align-items:center;flex-wrap:nowrap;gap:6px;width:100%;height:32px;min-height:32px;overflow-x:auto;overflow-y:hidden;padding:3px 0;justify-content:flex-start;overscroll-behavior-inline:contain;scrollbar-width:none;-ms-overflow-style:none; }
