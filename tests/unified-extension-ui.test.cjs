@@ -482,3 +482,18 @@ test('Enter promotes keyboard preview to the opened chat or message indicator',a
   assert.ok(message.classList.contains('selected'));assert.equal(message.classList.contains('keyboard-preview'),false);
   assert.equal(c.shadow.querySelectorAll('.selection-rail').length,1);
 });
+
+
+test('ArrowUp brings the previous whole card below the sticky day header',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee');
+  Object.defineProperty(c.results,'clientHeight',{value:180,configurable:true});
+  const hits=c.items.filter(item=>item.kind==='message');assert.ok(hits.length>1);
+  c.active=hits[1].key;c.results.scrollTop=hits[0].offset+12;await p.key('ArrowUp');
+  assert.equal(c.active,hits[0].key);
+  const header=c.items.slice(0,c.items.indexOf(hits[0])).reverse().find(item=>item.kind==='day');
+  assert.ok(hits[0].offset>=c.results.scrollTop+header.height);
+  assert.ok(hits[0].offset+hits[0].height<=c.results.scrollTop+c.results.clientHeight);
+  await p.click('[data-scope="people"]');await p.search('alex');
+  const people=c.items.filter(item=>item.kind==='chat');c.active=people[1].key;c.results.scrollTop=people[0].offset+10;await p.key('ArrowUp');
+  assert.equal(c.results.scrollTop,people[0].offset);
+});
