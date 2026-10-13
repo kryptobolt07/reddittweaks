@@ -65,7 +65,7 @@
     const parsed=core().parseQuery(draft);
     // These operators describe messages; People and All use the same name query.
     if(parsed.invalid || parsed.from.length || parsed.after.length || parsed.before.length || mediaTypes.some(type=>parsed['has'+type[0].toUpperCase()+type.slice(1)]))return [];
-    const predicate=core().prepareQuery(parsed,{wholeWord});
+    const predicate=core().prepareQuery(parsed,{wholeWord,shortTermsWholeWord:false});
     const list=records && typeof records.values==='function' && !Array.isArray(records)?[...records.values()]:[...records];
     return list.filter(record=>roomAllowed(record,filter) && predicate({text:[record.name,...record.participants || [],...record.aliases || [],...(record.accountUnavailable?['deleted unavailable retained username']:[])].join(' ')}))
       .sort(typeof sort==='function'?sort:(a,b)=>sort==='oldest'?timestamp(a)-timestamp(b):timestamp(b)-timestamp(a));

@@ -76,10 +76,10 @@
     .message-panel .results { max-height:min(320px,var(--rcs-message-height,42vh)); }
     .message-panel .avatar { width:24px;height:24px;margin-top:1px;font-size:11px; }
     .message-panel .avatar svg { width:15px;height:15px; }
-    .message-heading { display:flex;align-items:baseline;gap:8px;min-width:0; }
-    .message-heading .name { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px; }
-    .message-heading .time { margin:0;white-space:nowrap;font-size:10px; }
-    .you-prefix { font-weight:400; }
+    .message-heading { display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px;row-gap:0;min-width:0; }
+    .message-heading .name { flex:1 0 auto;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;font-size:12px; }
+    .message-heading .time { margin:0 0 0 auto;white-space:nowrap;font-size:10px; }
+    .you-prefix { color:var(--rcs-muted);font-weight:400; }
     .message-panel .preview { -webkit-line-clamp:2;font-size:12px;line-height:1.45;margin-top:2px; }
     :host([data-rcs-compact]) .bar { padding:4px 6px;gap:2px; }
     :host([data-rcs-compact]) .field { height:40px;gap:4px;padding:0 7px; }
@@ -370,7 +370,7 @@
       this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
         const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
         if(this.queryOptions?.sort==='oldest')return -newest;
-        if(this.queryOptions?.sort==='relevant'){const score=record=>C.highlightRanges(record.text,query,{wholeWord:this.queryOptions?.wholeWord}).reduce((sum,[start,end])=>sum+end-start+(start===0?20:0),0);return score(b)-score(a) || newest;}
+        if(this.queryOptions?.sort==='relevant'){const score=record=>C.relevanceScore(record.text,query,{wholeWord:this.queryOptions?.wholeWord});return score(b)-score(a) || newest;}
         return newest;
       });
       if(selected)this.active=this.hits.findIndex(hit=>this.rowKey(hit)===selected);
@@ -397,7 +397,7 @@
       const partnerAvatar=this.kind==='messages' ? partner?.avatar || A.query('.user-avatar img, rs-user-avatar img, header img',this.container)?.getAttribute('src') : '';
       const resultWidth=this.results.getBoundingClientRect().width || this.container.getBoundingClientRect().width || 320;
       const excerptMax=Math.max(48,Math.min(180,Math.floor((resultWidth-90)/6*2-8)));
-      const signaturePrefix=JSON.stringify([query,this.queryOptions,partnerName,excerptMax,this.messageMode ? false : this.loading]);
+      const signaturePrefix=JSON.stringify([query,this.queryOptions,partnerName,partner?.type,excerptMax,this.messageMode ? false : this.loading]);
       for (const [i, hit] of this.hits.slice(0,this.renderLimit).entries()) {
         if(chronological){const day=C.dayKey(hit.timestamp);if(day!==lastDay){let heading=dayHeaders.get(day);if(!heading){heading=node('h3','day-heading');heading.dataset.day=day;}heading.textContent=C.dayLabel(hit.timestamp);wanted.push(heading);lastDay=day;}}
         const key=this.rowKey(hit);
@@ -417,7 +417,7 @@
         const signature=signaturePrefix+JSON.stringify([hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName]);
         if(row.signature!==signature) {
           row.signature=signature;
-          row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query) : document.createTextNode(partnerName || (hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable')));
+          row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query,{shortTermsWholeWord:false}) : document.createTextNode(partnerName || (hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable')));
           row.caption.textContent=!this.messageMode ? (hit.accountUnavailable ? hit.historicalName ? 'Unavailable account · Retained username' : 'Unavailable account' : 'Open conversation') : hit.timestamp ? C.messageTime(hit.timestamp,{sort:this.queryOptions?.sort}) : '';
           if(!this.messageMode && hit.timestamp && Number.isFinite(new Date(hit.timestamp).getTime())) {
             row.caption.textContent=`${this.formatTime(hit.timestamp)}${hit.accountUnavailable ? ' · Unavailable account' : ''}`;
@@ -432,9 +432,9 @@
           if(row.preview) {
             const max=excerptMax-(this.kind==='messages' && hit.authorSelf ? 5 : 0);
             const snippet=C.excerpt?.(hit.text,query,{...this.queryOptions,max}) || {text:hit.text.slice(0,max)};
-            row.preview.replaceChildren(...(this.kind==='messages' && hit.authorSelf ? [node('span','you-prefix','You: ')] : []),highlight(snippet.text,query,{...this.queryOptions,ranges:snippet.ranges}));
+            row.preview.replaceChildren(...(C.messageSender(hit,partner || this.cache.get(hit.roomId) || {}).prefix ? [node('span','you-prefix',C.messageSender(hit,partner || this.cache.get(hit.roomId) || {}).prefix)] : []),highlight(snippet.text,query,{...this.queryOptions,ranges:snippet.ranges}));
             row.preview.classList.toggle('link-snippet',/(?:https?:\/\/|www\.)/i.test(hit.text));
-            row.preview.title=hit.text;
+            row.preview.title=hit.text;const sender=C.messageSender(hit,partner || this.cache.get(hit.roomId) || {});row.result.setAttribute('aria-label',`${sender.label} sent: ${snippet.text}. In ${partnerName || this.cache.get(hit.roomId)?.name || 'Saved conversation'}. ${C.fullTimestamp(hit.timestamp)}. Open message.`);
           }
         }
         const avatarUrl=partnerAvatar || (this.kind==='messages' && hit.authorSelf ? '' : hit.avatar) || '',speaker=!this.messageMode ? hit.name : partnerName || (hit.authorSelf ? 'You' : hit.author);

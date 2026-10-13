@@ -129,14 +129,14 @@ test('message timestamps use divider dates for chronological sort and retain the
   assert.equal(C.dayLabel(new Date(2026,2,8),new Date(2026,2,9)),'Yesterday','local calendar dates survive a daylight-saving transition');
 });
 
-test('short matches deep in long links remain visible and use original offsets',()=>{
-  const {RCSCore:C}=environment(),text='https://example.com/'+ 'a'.repeat(600)+'F'+ 'b'.repeat(300);
-  assert.equal(C.matchesQuery({text},'f'),true);
-  const snippet=C.excerpt(text,'f',{max:60});
+test('long substring matches deep in links remain visible and use original offsets',()=>{
+  const {RCSCore:C}=environment(),text='https://example.com/'+ 'a'.repeat(600)+'TARGET'+ 'b'.repeat(300);
+  assert.equal(C.matchesQuery({text},'target'),true);
+  const snippet=C.excerpt(text,'target',{max:60});
   assert.ok(snippet.text.startsWith('…') && snippet.text.endsWith('…'));
   assert.ok(snippet.text.length<=62);
   assert.equal(snippet.ranges.length,1);
-  assert.equal(snippet.text.slice(...snippet.ranges[0]),'F');
+  assert.equal(snippet.text.slice(...snippet.ranges[0]),'TARGET');
   assert.ok(snippet.ranges[0][0]<25,'the match appears early enough in the visual window');
   for(const body of ['u/foo','  Ｆｏｏ café  ','Σ','😀needle😀']){
     const needle=body==='Σ'?'σ':body.includes('needle')?'needle':'foo';
@@ -178,4 +178,35 @@ test('native replay backfills attachment metadata in preexisting cached events w
   assert.equal((await store.search(owner,{query:'has:image'})).total,1);
   assert.equal((await store.search(owner,{roomId:room})).coverage.complete,true);
   assert.equal((await store.ingest({owner,roomId:room,events:[image],coverage:{complete:true,dateComplete:true}})).changed,false);
+});
+
+
+test('short message terms use Unicode whole words in matching, excerpts and relevance while longer terms retain substrings',()=>{
+  const {RCSCore:C}=environment();
+  for(const term of ['u','us','in','σ']){
+    const body='introduce user outlet inside '+term+'!';
+    assert.deepEqual(plain(C.highlightRanges(body,term)),[[body.lastIndexOf(term),body.lastIndexOf(term)+term.length]]);
+    assert.equal(C.matchesQuery({text:'introduce user outlet inside'},term),false);
+    assert.equal(C.matchesQuery({text:body},term),true);
+    const snippet=C.excerpt(body,term,{max:24});assert.equal(snippet.text.slice(...snippet.ranges[0]),term);
+  }
+  assert.equal(C.matchesQuery({text:'user username'},'use'),true);
+  assert.equal(C.matchesQuery({text:'introduce'},'u',{shortTermsWholeWord:false}),true,'People/name matching may explicitly retain substring completion');
+  assert.equal(C.matchesQuery({text:'can introduce either'},'can either u'),false);
+  assert.equal(C.matchesQuery({text:'u can do either'},'can either u'),true);
+  assert.equal(C.matchesQuery({text:'can u do either'},'"can either" u'),false);
+  assert.equal(C.matchesQuery({text:'can either work for u'},'"can either" u'),true);
+  assert.ok(C.relevanceScore('can either u','can either u')>C.relevanceScore('can can can','can either u'));
+});
+
+test('persistent and individual message searches share short-term AND and exact-phrase semantics',async()=>{
+  const {RCSCore:C,RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null}),index=new C.MessageIndex(Infinity);
+  const texts=['can introduce either a user outlet','can u choose either','either can u choose','can choose either'];
+  await store.ingest({owner,events:texts.map((text,i)=>event('short-'+i,text,noon(10)+i))});
+  index.upsert(room,texts.map((text,i)=>({id:'short-'+i,text})));
+  for(const [query,expected]of [['can either u',['short-1','short-2']],['"u choose either" can',['short-1']],['us',[]]]){
+    assert.deepEqual(plain((await store.search(owner,{query})).records.map(r=>r.id).sort()),expected);
+    assert.deepEqual(plain(index.search(room,query).map(r=>r.id).sort()),expected);
+  }
+  const now=noon(11);assert.equal(C.dayLabel(new Date(2025,8,2),now),'Sep 2, 2025');assert.equal(C.dayLabel(new Date(2024,8,2),now),'Sep 2, 2024');
 });

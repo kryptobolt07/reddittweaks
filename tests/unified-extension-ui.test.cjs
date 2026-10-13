@@ -288,11 +288,11 @@ test('multiple selected sender chips match alternatives and remove one sender wi
   await p.click('[aria-label="Remove sender me"]');await p.tick(180);assert.equal(c.senderChips.querySelectorAll('.sender-chip').length,1);assert.match(c.input.value,/coffee/);assert.doesNotMatch(c.input.value,/from:me/);assert.ok(c.savedHits.length);assert.ok(c.savedHits.every(record=>record.author==='alex_morgan'));
 });
 
-test('match windows expose short URL matches and People title matches while live sync retains clickable nodes',async t=>{
-  const p=await setup(t),c=p.control,text='https://example.invalid/'+ 'a'.repeat(280)+'F'+ 'z'.repeat(200);
+test('match windows expose long URL substrings and People title matches while live sync retains clickable nodes',async t=>{
+  const p=await setup(t),c=p.control,text='https://example.invalid/'+ 'a'.repeat(280)+'TARGET'+ 'z'.repeat(200);
   await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'deep-link',type:'m.room.message',sender:'@t2_alex:reddit.com',origin_server_ts:1791432000000+1e6,content:{body:text}}]});
-  await p.search('f');await p.click('[data-scope="messages"]');const row=p.find('[data-key="message:alex:deep-link"]'),snippet=row.querySelector('.snippet');
-  assert.equal(snippet.querySelector('mark').textContent,'F');assert.ok(snippet.textContent.startsWith('…'));assert.ok(snippet.textContent.length<=c.snippetMax+2);assert.ok(snippet.classList.contains('link-snippet'));
+  await p.search('target');await p.click('[data-scope="messages"]');const row=p.find('[data-key="message:alex:deep-link"]'),snippet=row.querySelector('.snippet');
+  assert.equal(snippet.querySelector('mark').textContent,'TARGET');assert.ok(snippet.textContent.startsWith('…'));assert.ok(snippet.textContent.length<=c.snippetMax+2);assert.ok(snippet.classList.contains('link-snippet'));
   const open=row.querySelector('button'),before=p.searches.length;open.dispatchEvent(new p.w.Event('pointerdown',{bubbles:true}));for(let i=0;i<12;i++){c.sync();c.render();}assert.equal(p.find('[data-key="message:alex:deep-link"] button'),open);assert.equal(p.searches.length,before);open.click();await settle();assert.equal(p.requests.at(-1).eventId,'deep-link');
   p.cache.set('long-title',{id:'long-title',name:'Many words before the important Filter Person title',type:'direct'});await p.search('filter');await p.click('[data-scope="people"]');assert.equal(p.find('.chat-result .row-title mark').textContent,'Filter');
 });
@@ -387,4 +387,25 @@ test('empty-state Clear filters removes all applied state while preserving draft
   c.filter='unread';c.dates.from='2026-10-08';c.invalidate();await settle();
   const clear=[...c.results.querySelectorAll('button')].find(button=>button.textContent==='Clear filters');assert.ok(clear);clear.click();await settle();
   assert.equal(c.queryState.filters.length,0);assert.equal(c.filter,'all');assert.equal(c.from,'all');assert.equal(c.dates.from,'');assert.equal(c.scope,'messages');assert.equal(c.input.value.trim(),'nonexistent');assert.equal(c.chips.hidden,true);
+});
+
+
+test('DM and group message headers identify conversations while snippets and accessible names identify the sender',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;
+  const own={id:'own',roomId:'alex',text:'A saved response',author:'fixture_user',authorSelf:true,avatar:'https://example.invalid/own.png',timestamp:1791432000000};
+  const incoming={...own,id:'other',author:'alex_morgan',authorSelf:false};
+  const dm=p.cache.get('alex'),group={id:'group-stable',type:'group',name:'Project discussion',avatar:'https://example.invalid/group.png'};
+  for(const [record,chat,prefix,aria]of [[own,dm,'You: ','You sent:'],[incoming,dm,'','alex_morgan sent:'],[own,group,'You: ','You sent:'],[incoming,group,'alex_morgan: ','alex_morgan sent:']]){
+    const row=c.messageRow(record,chat);assert.equal(row.querySelector('.message-name').textContent,chat.name);assert.equal(row.querySelector('.message-name').title,chat.name);
+    assert.equal(row.querySelector('.you-prefix,.sender-prefix')?.textContent || '',prefix);assert.ok(row.querySelector('.message-open').getAttribute('aria-label').startsWith(aria));
+    assert.equal(row.querySelector('img').src,chat.avatar);
+  }
+  const withoutGroupAvatar=c.messageRow(own,{...group,avatar:''});assert.equal(withoutGroupAvatar.querySelector('img'),null,'an own avatar never becomes the conversation avatar');assert.equal(withoutGroupAvatar.querySelector('.initials').textContent,'PD');
+});
+
+test('renamed and identically named conversations retain distinct room/event keys and exact navigation',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee');const target=c.savedHits.find(record=>record.roomId==='alex');assert.ok(target);
+  p.cache.set('alex',{...p.cache.get('alex'),name:'A renamed conversation'});p.cache.set('maya',{...p.cache.get('maya'),name:'A renamed conversation'});c.makeItems();c.renderWindow();
+  const rows=[...c.shadow.querySelectorAll('.message-result')].filter(row=>row.querySelector('.message-name').textContent==='A renamed conversation');assert.ok(rows.length>=2);assert.equal(new Set(rows.map(row=>row.dataset.key)).size,rows.length);
+  const row=p.find('[data-key="message:alex:'+target.id+'"]');row.querySelector('button').click();await settle();assert.equal(p.requests.at(-1).roomId,'alex');assert.equal(p.requests.at(-1).eventId,target.id);
 });
