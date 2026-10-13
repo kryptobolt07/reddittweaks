@@ -7,9 +7,13 @@
 - Replace result-navigation outlines with a faded orange left rail; scope tabs retain their underline.
 - Tighten text-result spacing, align content to the top, and retain extra space for wrapped headings and image previews. Keep virtual row heights consistent with their contents.
 
+- Same-version visual follow-up: show one short faded selection rail, prioritize keyboard navigation, and restore the opened-chat indicator when focus leaves search. Keep People rows at 64 px with short status labels beside previews.
+- Remove the common-word hint, compact counts/Refresh, and move loaded counts into the tooltip. Align sender chips to the search field’s left edge and show only their avatar/icon, username and removal control.
+- Reserve compact count slots and fixed scope columns to prevent People/All/Messages from shifting. Enlarge message thumbnails to 96 × 64 px without a visible Image/GIF caption; retain accessible labels and sender prefixes.
+
 Version choice: MINOR for the new image-preview capability; spacing corrections share this release. Storage schemas and independent tooling versions remain unchanged.
 
-Validation: all 284 tests pass; extension JavaScript syntax, ZIP integrity, and source/stable-folder equality pass for all 25 assets. Tests cover URL validation, replay, edits/redactions, native conversion without server calls, double-compaction cache import, lazy node reuse/failure fallback, People summaries, individual image history, and existing search/navigation coverage. Brave synthetic checks confirm loaded thumbnails, mixed results, compact spacing and stable scrolling/refocusing.
+Validation: all 287 tests pass; extension JavaScript syntax, ZIP integrity, and source/stable-folder equality pass for all 25 assets. Tests cover URL validation, replay, edits/redactions, native conversion without server calls, double-compaction cache import, lazy node reuse/failure fallback, People summaries, individual image history, and existing search/navigation coverage. The original bundle received Brave synthetic checks for loaded thumbnails, mixed results and stable scrolling/refocusing. The visual follow-up uses headless fixture tests only, as requested; no Brave artifact check was performed.
 
 Limitations: missing or inaccessible references show an Image/GIF placeholder. Old cached filenames cannot reconstruct a preview URL until Reddit exposes the corresponding event again. Saved-history coverage remains incomplete. The signed-in installed bundle requires manual Reload and validation; browser checks use synthetic data.
 
