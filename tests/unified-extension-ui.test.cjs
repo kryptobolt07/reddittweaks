@@ -70,7 +70,7 @@ test('native open and jump retain sidebar, recent searches are account scoped, f
   assert.equal(p.control.shadow.querySelector('.context-button'),null);
   await p.click('.message-open');assert.ok(p.requests.some(item=>item.method==='jump' && item.eventId));
   assert.equal(p.control.panel.hidden,false);assert.equal(p.control.input.value,'coffee');assert.equal(JSON.stringify(p.storage['rcs-unified-recent:@t2_me:reddit.com']),'["coffee"]');
-  await p.key('Escape');assert.equal(p.control.input.value,'');await p.click('[data-scope="all"]');assert.equal(p.control.panel.hidden,true);assert.ok(p.control.recent.includes('coffee'));await p.search('alex');await p.click('[data-scope="people"]');
+  await p.key('Escape');assert.equal(p.control.input.value,'coffee');assert.equal(p.control.panel.hidden,true);assert.equal(p.control.scopeBar.hidden,true);assert.ok(p.control.recent.includes('coffee'));await p.search('alex');await p.click('[data-scope="people"]');
   await p.click('.chat-result');assert.ok(p.requests.some(item=>item.method==='open'));
   p.control.resetSaved();p.setOwner('@t2_other:reddit.com');p.control.render();await settle();assert.equal(p.control.recent.length,0);
   assert.equal(p.control.shadow.querySelector('.recent-row'),null);
@@ -513,4 +513,16 @@ test('rendered message heights replace estimates without losing the scroll ancho
   c.makeItems();assert.equal(c.items.find(item=>item.key===target.key).height,94,'unchanged results reuse measured heights');
   row.getBoundingClientRect=()=>{throw Error('cached row should not be measured again');};c.active=target.key;c.navigating=true;c.results.scrollTop=0;c.renderedWindow='';c.renderWindow();assert.equal(c.results.scrollTop,0,'manual scroll is not pulled back to the keyboard cursor');
   c.container.getBoundingClientRect=()=>({width:240,bottom:700});c.updateLayout();assert.equal(c.messageHeights.size,0,'width changes invalidate wrapping measurements');
+});
+
+
+test('Escape closes search chrome from the field or opened results and reopening retains the query',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee from:me ');c.input.focus();
+  await p.click('.message-open');const row=p.find('.message-open');row.focus();await p.key('Escape',row);
+  assert.equal(c.panel.hidden,true);assert.equal(c.scopeBar.hidden,true);assert.equal(c.chips.hidden,true);
+  assert.equal(c.input.value.trim(),'coffee');assert.equal(c.queryState.filters.length,1);
+  c.sync();p.emit({owner:c.owner});await p.tick(750);assert.equal(c.panel.hidden,true);assert.equal(c.scopeBar.hidden,true);
+  c.input.focus();await settle();assert.equal(c.panel.hidden,false);assert.equal(c.scopeBar.hidden,false);assert.equal(c.chips.hidden,false);
+  await p.click('[data-control="filter"]');await p.key('Escape');assert.equal(c.popover.hidden,true);assert.equal(c.panel.hidden,true);assert.equal(c.scopeBar.hidden,true);
+  c.input.focus();await settle();c.datePicker.show();await p.key('Escape');assert.equal(c.datePicker.open,false);assert.equal(c.scopeBar.hidden,true);
 });
