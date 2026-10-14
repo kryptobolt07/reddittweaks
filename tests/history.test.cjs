@@ -193,7 +193,7 @@ test('a known old thread root still searches recent replies inside the selected 
 });
 test('the date pill clear button removes the filter without clearing the message query or opening the calendar',async t=>{
   const {W,api}=setup(t,{content:true});await tick(250);W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();await tick(150);
-  const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
+  const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(150);
   root.querySelector('[aria-label="Filter by date"]').click();setDateSegments(root,'start','2026-10-08');setDateSegments(root,'end','2026-10-08');root.querySelector('.calendar-apply').click();
   const calls=api.calls.length;assert.equal(root.querySelector('.date-chip svg rect'),null);
   root.querySelector('[aria-label="Remove date filter"]').click();assert.equal(root.querySelector('.date-chip').hidden,true);assert.equal(root.querySelector('.date-popover').hidden,true);assert.equal(input.value,'coffee');assert.equal(root.querySelectorAll('.result').length,2);assert.equal(api.calls.length,calls);
