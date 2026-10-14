@@ -141,14 +141,14 @@
   }
   class SearchControl {
     constructor(container, kind) {
-      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.8.7'});
+      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.9.0'});
       this.container = container; this.kind = kind; this.room = ''; this.cache = directory; this.active = -1; this.hits = []; this.loading = false;
       this.complete = kind === 'list' && directoryComplete;
       this.rows = new Map();
       this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;this.scope='people';this.savedHits=[];this.savedTotal=0;this.savedGeneration=0;this.savedOwner=undefined;this.savedLoading=false;
       this.mediaView=globalThis.RCSMediaPreview?new RCSMediaPreview.View({onBeforeResize:()=>this.captureImageViewport(),onResize:()=>this.restoreImageViewport()}):null;this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
-      this.host.setAttribute('data-rcs-version','0.8.7');
+      this.host.setAttribute('data-rcs-version','0.9.0');
       const shadow = this.host.attachShadow({mode:'open'});
       const style = node('style', '', css+(globalThis.RCSMediaPreview?.styles || '')); shadow.append(style);
       this.toggle = node('button', 'toggle', 'Search messages'); this.toggle.type = 'button';
