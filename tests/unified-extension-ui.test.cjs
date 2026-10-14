@@ -675,3 +675,16 @@ test('Down Arrow during message loading waits for current matches then focuses t
   const p=await setup(t,{scope:'messages',deferSearch:true}),c=p.control;c.input.focus();p.type('coffee');await p.key('ArrowDown');assert.equal(c.pendingNavigation,'ArrowDown');assert.equal(c.active,'');await p.key('ArrowDown');assert.equal(c.active,'');
   while(p.pending.length){p.pending.shift()();await settle();}assert.ok(c.active.startsWith('message:'));assert.equal(c.pendingNavigation,'');assert.equal(c.shadow.activeElement.closest('[data-key]').dataset.key,c.active);assert.equal(c.input.value,'coffee');
 });
+
+test('All and Messages mark unavailable accounts compactly and refresh cached rows when availability changes',async t=>{
+  const p=await setup(t),c=p.control;await p.search('coffee');const chat=p.cache.get('alex');p.cache.set('alex',{...chat,name:'CoffeeAlex',accountUnavailable:true,historicalName:true});c.render();
+  assert.equal(p.find('[data-key="chat:alex"] .row-meta').textContent,'Unavailable');let row=p.find('.message-result[data-key^="message:alex:"]');assert.ok(row.querySelector('.unavailable-marker'));assert.match(row.querySelector('.unavailable-marker').title,/Unavailable account.*Retained identity/);assert.match(row.querySelector('button').getAttribute('aria-label'),/Unavailable account/);assert.equal(row.querySelectorAll('.row-time').length,1);
+  await p.click('[data-scope="messages"]');row=p.find('.message-result[data-key^="message:alex:"]');assert.ok(row.querySelector('.unavailable-marker'));assert.equal(row.querySelector('.avatar').src,chat.avatar);
+  p.cache.set('alex',chat);c.render();assert.equal(p.find('.message-result[data-key^="message:alex:"]').querySelector('.unavailable-marker'),null);
+});
+
+test('an unavailable group sender is identified without marking the whole group unavailable',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee');const record=c.savedHits.find(record=>!record.authorSelf);assert.ok(record);p.cache.set(record.roomId,{...p.cache.get(record.roomId),type:'group',accountUnavailable:false});record.authorUnavailable=true;record.authorHistorical=true;c.render();
+  const row=p.find('[data-key="message:'+record.roomId+':'+record.id+'"]');assert.match(row.querySelector('.unavailable-marker').getAttribute('aria-label'),/Unavailable sender:/);assert.doesNotMatch(row.querySelector('.unavailable-marker').title,/Unavailable account/);
+  record.authorUnavailable=false;c.render();assert.equal(p.find('[data-key="message:'+record.roomId+':'+record.id+'"]').querySelector('.unavailable-marker'),null);
+});
