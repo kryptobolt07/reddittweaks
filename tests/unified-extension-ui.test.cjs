@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const {JSDOM}=require('jsdom');
+const {setDateSegments}=require('./date-segments-helper.cjs');
 const settle=async()=>{for(let i=0;i<35;i++)await Promise.resolve();};
 async function setup(t,{large=false,deferSearch=false,scope='all',nativeFonts=false}={}) {
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat',runScripts:'outside-only'}),w=dom.window;
@@ -79,9 +80,9 @@ test('native open and jump retain sidebar, recent searches are account scoped, f
 
 test('calendar range can be selected in one popover and date filters cleared without native history requests',async t=>{
   const p=await setup(t);await p.click('[data-control="date"]');const picker=p.control.datePicker;
-  picker.view=new p.w.Date(2026,9,1);picker.render();picker.choose('2026-10-01');picker.choose('2026-10-09');
+  setDateSegments(picker.element,'start','2026-10-01');setDateSegments(picker.element,'end','2026-10-09');
   assert.equal(picker.open,true);const bounds=picker.bounds();assert.equal(bounds.from,'2026-10-01');assert.equal(bounds.to,'2026-10-09');
-  picker.applied={...picker.draft};picker.onChange(bounds,picker.summary());picker.close();await settle();
+  picker.element.querySelector('.calendar-apply').click();await settle();
   assert.ok(p.find('[aria-label="Remove date filter"]'));await p.click('[aria-label="Remove date filter"]');
   assert.equal(p.control.dates.from,'');assert.equal(p.control.dates.to,'');assert.ok(p.requests.every(item=>item.method==='directory'));
 });
@@ -222,7 +223,7 @@ test('native selected-chat state follows Reddit navigation and keyboard movement
 
 test('calendar applies dates independently of filter accent and People ignores dormant message controls',async t=>{
   const p=await setup(t),c=p.control;await p.search('alex');await p.click('[data-control="date"]');
-  c.datePicker.choose('2026-10-08');c.datePicker.choose('2026-10-09');await p.click('.calendar-apply');
+  setDateSegments(c.datePicker.element,'start','2026-10-08');setDateSegments(c.datePicker.element,'end','2026-10-09');await p.click('.calendar-apply');
   assert.equal(c.input.value,'alex');assert.equal(c.datePicker.open,false);assert.equal(c.dates.from,'2026-10-08');assert.equal(c.dates.to,'2026-10-09');
   assert.equal(p.find('[data-control="date"]').getAttribute('aria-pressed'),'true');assert.ok(p.find('[data-control="date"]').classList.contains('active'));
   assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'false');assert.equal(p.find('[data-control="filter"]').classList.contains('active'),false);

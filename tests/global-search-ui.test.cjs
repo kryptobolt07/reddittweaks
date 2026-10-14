@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs');
 const {join}=require('node:path');
 const {JSDOM}=require('jsdom');
+const {setDateSegments,setDateMode}=require('./date-segments-helper.cjs');
 const source=file=>readFileSync(join(__dirname,'..',file),'utf8');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const records=[
@@ -76,8 +77,7 @@ test('floating sidebar keeps the compact field and saved-message date filter use
   const toggle=root.querySelector('[aria-label="Filter by date"]');assert.equal(toggle.hidden,false);toggle.click();
   assert.equal(toggle.getAttribute('aria-expanded'),'true');
   assert.equal(root.querySelector('.panel').hidden,false,'the global view stays behind the floating calendar');
-  root.querySelector('[data-mode="On"]').click();root.querySelector('.calendar-year').click();root.querySelector('[data-year="2026"]').click();root.querySelector('.calendar-month').click();root.querySelector('[data-month="9"]').click();
-  root.querySelector('[data-date="2026-10-08"]').click();root.querySelector('.calendar-apply').click();await wait(140);
+  setDateMode(root,'On');setDateSegments(root,'start','2026-10-08');root.querySelector('.calendar-apply').click();await wait(140);
   assert.equal(savedCalls.at(-1).dates.from,'2026-10-08');assert.equal(visibleRows(root).length,1);assert.equal(nativeCalls.length,0);
   root.querySelector('[aria-label="Remove date filter"]').click();await wait(140);assert.equal(visibleRows(root).length,2);
   root.querySelector('.load').click();await wait(140);assert.equal(nativeCalls.length,0);

@@ -252,18 +252,7 @@
     :host([data-rcs-ui="list"]) .global-sender-result .row-main { flex:1;min-width:0; }
     :host([data-rcs-ui="list"]) .global-sender-result .row-title { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--rcs-text);font-size:12px;font-weight:400; }
     :host([data-rcs-ui="list"]) .global-sender-result .row-meta { display:block;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--rcs-muted);font-size:10px; }
-    .bar.unified-search .date-popover { --calendar-cell:25px;top:calc(100% + 4px);right:8px;width:244px;max-width:calc(100% - 16px);max-height:min(350px,65vh);overflow:auto;padding:8px;border-radius:10px;font-size:11px; }
-    .bar.unified-search .date-popover .date-modes { gap:2px;margin-bottom:6px;padding:2px; }
-    .bar.unified-search .date-popover .date-mode { padding:4px 2px;font-size:10px; }
-    .bar.unified-search .date-popover .calendar-nav { gap:3px;margin-bottom:5px; }
-    .bar.unified-search .date-popover .calendar-nav-button { width:23px;height:24px;font-size:19px; }
-    .bar.unified-search .date-popover .calendar-month,.bar.unified-search .date-popover .calendar-year { height:25px;padding-inline:7px; }
-    .bar.unified-search .date-popover .calendar-year { width:64px; }
-    .bar.unified-search .date-popover .calendar-weekdays { margin-bottom:3px;font-size:9px; }
-    .bar.unified-search .date-popover .calendar-day { font-size:11px; }
-    .bar.unified-search .date-popover .calendar-summary { min-height:24px;padding:5px 0;font-size:9px; }
-    .bar.unified-search .date-popover .calendar-actions { gap:6px;padding-top:6px; }
-    .bar.unified-search .date-popover .calendar-clear,.bar.unified-search .date-popover .calendar-apply { min-height:26px;padding:4px 11px;font-size:10px; }
+    .bar.unified-search .date-popover { top:calc(100% + 4px);right:8px;width:236px;max-width:calc(100% - 16px);padding:8px;border-radius:10px;font-size:12px; }
     .results { overflow-anchor:none;scrollbar-gutter:stable;outline:0; }
     .virtual-spacer,.virtual-item { overflow-anchor:none; }
     .panel { box-shadow:none; }
