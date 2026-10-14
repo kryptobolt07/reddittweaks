@@ -21,10 +21,11 @@
   }
   const known=dimensions=>Number.isFinite(dimensions?.width) && Number.isFinite(dimensions?.height) && dimensions.width>=1 && dimensions.height>=1 && dimensions.width<=100000 && dimensions.height<=100000;
   class View {
-    constructor({onResize,onDimensions}={}){this.images=new Map();this.contexts=new WeakMap();this.learned=new WeakMap();this.onResize=onResize;this.onDimensions=onDimensions || (patch=>globalThis.RCSMessages?.rememberImageDimensions?.(patch));}
-    size(thumb,record,compact){
+    constructor({onResize,onBeforeResize,onDimensions}={}){this.images=new Map();this.contexts=new WeakMap();this.learned=new WeakMap();this.onResize=onResize;this.onBeforeResize=onBeforeResize;this.onDimensions=onDimensions || (patch=>globalThis.RCSMessages?.rememberImageDimensions?.(patch));}
+    size(thumb,record,compact,beforeResize=false){
       const img=thumb.querySelector('img'),natural={width:img?.naturalWidth,height:img?.naturalHeight},hint={width:record?.attachmentWidth,height:record?.attachmentHeight};
       const size=fitSize(known(natural)?natural:known(hint)?hint:null,compact),signature=size.width+':'+size.height,changed=thumb.dataset.size!==signature;
+      if(changed && beforeResize)this.onBeforeResize?.(thumb);
       thumb.dataset.size=signature;thumb.style.width=size.width+'px';thumb.style.aspectRatio=size.width+' / '+size.height;
       if(img){img.width=size.width;img.height=size.height;}return changed;
     }
@@ -45,7 +46,7 @@
         const shimmer=make(native?'faceplate-shimmer':'span','media-shimmer '+(native?'native-shimmer':'fallback-shimmer'));if(native)shimmer.setAttribute('shape','pill');
         const error=make('span','media-error','▧');error.hidden=Boolean(source);shimmer.hidden=!source;fallback.append(shimmer,error);thumb.append(fallback);
         if(source){const img=make('img','media-image');img.alt=caption+' preview';img.setAttribute('loading','lazy');img.setAttribute('decoding','async');img.setAttribute('referrerpolicy','no-referrer');
-          img.addEventListener('load',()=>{const context=this.contexts.get(thumb);if(!context)return;thumb.dataset.state='loaded';thumb.setAttribute('aria-busy','false');fallback.hidden=true;if(this.size(thumb,context.record,context.compact) && this.images.get(key)===thumb)this.onResize?.();this.remember(thumb);});
+          img.addEventListener('load',()=>{const context=this.contexts.get(thumb);if(!context)return;const active=this.images.get(key)===thumb || thumb.isConnected,changed=this.size(thumb,context.record,context.compact,active);thumb.dataset.state='loaded';thumb.setAttribute('aria-busy','false');fallback.hidden=true;if(changed && active)this.onResize?.(context.record);this.remember(thumb);});
           img.addEventListener('error',()=>{thumb.dataset.state='error';thumb.setAttribute('aria-busy','false');img.hidden=true;shimmer.hidden=true;error.hidden=false;fallback.hidden=false;thumb.title='Preview unavailable; open the message to view it.';});
           thumb.append(img);this.contexts.set(thumb,{record,compact,owner});this.size(thumb,record,compact);img.src=source;
         }else thumb.title='Preview unavailable; open the message to view it.';

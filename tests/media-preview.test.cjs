@@ -62,3 +62,10 @@ test('missing hints learn once and shimmer loading, errors and reduced motion re
   assert.equal(saved.length,1);assert.equal(saved[0].width,400);assert.equal(saved[0].height,800);assert.equal(saved[0].owner,'@me:reddit.com');
   const failure=view.render({...record,id:'failure'});failure.querySelector('img').dispatchEvent(new w.Event('error'));assert.equal(failure.querySelector('.media-thumb').dataset.state,'error');assert.equal(failure.querySelector('.media-shimmer').hidden,true);assert.equal(failure.querySelector('.media-error').hidden,false);assert.equal(failure.querySelector('.media-thumb').getAttribute('aria-busy'),'false');
 });
+
+test('image resize captures the old placeholder before changing geometry or revealing decoded content',t=>{
+  const w=setup(t),steps=[];let thumb;
+  const view=new w.RCSMediaPreview.View({onBeforeResize:node=>{steps.push('before');assert.equal(node.dataset.state,'loading');assert.equal(node.style.aspectRatio,'96 / 64');assert.equal(node.querySelector('.media-image').height,64);},onResize:record=>{steps.push('after');assert.equal(thumb.dataset.state,'loaded');assert.equal(thumb.querySelector('.media-image').height,128);assert.equal(record.id,'resize-order');}});
+  const root=view.render({roomId:'room',id:'resize-order',attachmentPreview:'https://example.invalid/resize-order'});w.document.body.append(root);thumb=root.querySelector('.media-thumb');const img=root.querySelector('img');
+  Object.defineProperties(img,{naturalWidth:{value:400},naturalHeight:{value:800}});img.dispatchEvent(new w.Event('load'));assert.deepEqual(steps,['before','after']);
+});

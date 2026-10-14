@@ -607,3 +607,29 @@ test('invalidated context preserves visible matches and asks for a page refresh 
   assert.equal(c.savedHits.length,count);assert.match(c.status.textContent,/Refresh this Reddit tab/);assert.doesNotMatch(c.status.textContent,/Searching/);assert.equal(c.refresh.disabled,true);assert.equal(c.refresh.getAttribute('aria-busy'),'false');
   p.emit({owner:c.owner,changed:true});await p.tick(2000);c.render();await settle();assert.equal(p.searches.length,searches);assert.equal(c.savedHits.length,count);
 });
+
+test('image growth commits track height before restoring a bottom viewport and retains unrelated measurements',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control,original=c.messageRow.bind(c);
+  c.messageRow=(...args)=>{const row=original(...args);row.getBoundingClientRect=()=>({height:70+(row.querySelector('.media-image')?.height || 0)});return row;};
+  await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:Array.from({length:16},(_,i)=>({event_id:'anchor-photo-'+i,type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:1791433000000+i*1000,content:{body:'anchor.jpeg',msgtype:'m.image',url:'https://example.invalid/anchor/'+i}}))});
+  Object.defineProperty(c.results,'clientHeight',{value:180});await p.search('has:image');
+  c.results.scrollTop=c.totalHeight-180;c.renderedWindow='';c.renderWindow();
+  // Model browser scroll clamping against the committed DOM track, which JSDOM
+  // does not perform. A target beyond the old track must not be assigned early.
+  let scroll=c.results.scrollTop;
+  const maximum=()=>Math.max(0,[...c.results.children].reduce((sum,node)=>sum+(parseFloat(node.style.height)||0),0)-180);
+  Object.defineProperty(c.results,'scrollTop',{configurable:true,get:()=>scroll,set:value=>{scroll=Math.max(0,Math.min(value,maximum()));}});
+  for(const node of c.results.children){const remove=node.remove.bind(node);node.remove=()=>{remove();scroll=Math.min(scroll,maximum());};}
+  const top=scroll,anchor=c.items.find(item=>item.offset+item.height>top),within=top-anchor.offset;
+  const above=c.items.filter(item=>item.kind==='message' && item.offset+item.height<=top && c.results.querySelector('[data-key="'+item.key+'"]')).at(-1);assert.ok(above);
+  const unrelated=c.items.find(item=>item.kind==='message' && item.key!==above.key);const savedHeight=c.messageHeights.get(unrelated.renderKey);assert.ok(savedHeight);
+  const searches=p.searches.length,requests=p.requests.length,topSpacer=c.topSpacer,bottomSpacer=c.bottomSpacer;
+  const decode=async item=>{const image=p.find('[data-key="'+item.key+'"] .media-image');Object.defineProperties(image,{naturalWidth:{value:500,configurable:true},naturalHeight:{value:1000,configurable:true}});image.dispatchEvent(new p.w.Event('load'));await p.tick(0);};
+  await decode(above);
+  let current=c.items.find(item=>item.key===anchor.key);assert.equal(current.offset-scroll,-within,'the visible row stays at the same screen position near the end');assert.equal(scroll,top+64,'the offset is applied after the taller track exists');
+  assert.equal(c.messageHeights.get(unrelated.renderKey),savedHeight,'one image does not invalidate every image height');assert.equal(c.topSpacer,topSpacer);assert.equal(c.bottomSpacer,bottomSpacer);
+  const beforeCurrent=scroll;await decode(current);assert.equal(scroll,beforeCurrent,'the visible image grows downwards without moving its header');
+  current=c.items.find(item=>item.key===anchor.key);c.results.scrollTop=current.offset;c.renderedWindow='';c.renderWindow();const beforeBelow=scroll;
+  const below=c.items.find(item=>item.kind==='message' && item.offset>=scroll+180);assert.ok(below);await decode(below);assert.equal(scroll,beforeBelow,'an image below the viewport does not pull the viewport down');
+  assert.equal(p.searches.length,searches);assert.equal(p.requests.length,requests);
+});
