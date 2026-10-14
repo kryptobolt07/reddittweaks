@@ -70,7 +70,8 @@
     .copy { min-width:0; flex:1; } .name { display:block; font-size:13px; font-weight:600; } .preview { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; margin-top:4px; font-size:13px; overflow-wrap:anywhere; }
     .time { display:block; color:var(--rcs-muted); font-size:11px; font-weight:400; margin-top:2px; } .hint,.empty { color:var(--rcs-muted); padding:20px 16px; font-size:12px; text-align:center; }
     mark { background:#ffcc804d; color:inherit; border-radius:2px; } .count { font-size:11px; color:var(--rcs-muted); white-space:nowrap; }
-    :host([data-rcs-ui=messages]) .bar { width:100%;padding:6px 8px;gap:4px; }
+    :host([data-rcs-ui=messages]) .bar { width:100%;padding:6px 8px 2px;gap:4px; }
+    :host([data-rcs-ui=messages]) .count { flex:0 0 11ch;inline-size:11ch;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center;font-variant-numeric:tabular-nums; }
     :host([data-rcs-ui=messages]) .field { height:40px; }
     :host([data-rcs-ui=messages]) input { height:36px;font-size:12px; }
     .date-chip { max-width:52%;color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 8%,var(--rcs-bg));border-color:color-mix(in srgb,var(--rcs-accent) 20%,var(--rcs-line)); }
@@ -80,7 +81,7 @@
     .date-chip .date-remove svg { width:12px;height:12px; }
     .date-chip:hover { background:color-mix(in srgb,var(--rcs-accent) 14%,var(--rcs-bg)); }
     .icon.filtered { background:var(--rcs-hover);color:var(--rcs-accent); }
-    .message-panel { width:min(480px,calc(100% - 16px));left:50%;right:auto;transform:translateX(-50%);margin-top:6px;border:1px solid var(--rcs-line);border-radius:12px;overflow:hidden; }
+    .message-panel { width:min(480px,calc(100% - 16px));left:50%;right:auto;transform:translateX(-50%);margin-top:0;border:1px solid var(--rcs-line);border-radius:12px;overflow:hidden; }
     .message-panel .result { gap:7px;padding:7px 9px;align-items:start; }
     .message-panel .results { overflow-anchor:none;max-height:min(320px,var(--rcs-message-height,42vh)); }
     .message-panel .avatar { width:24px;height:24px;margin-top:1px;font-size:11px; }
@@ -92,6 +93,7 @@
     .message-panel .preview.has-image { display:block;max-height:none;-webkit-line-clamp:unset; }
     .message-panel .preview { -webkit-line-clamp:2;font-size:12px;line-height:1.45;margin-top:2px; }
     :host([data-rcs-compact]) .bar { padding:4px 6px;gap:2px; }
+    :host([data-rcs-ui=messages][data-rcs-compact]) .bar { padding-bottom:2px; }
     :host([data-rcs-compact]) .field { height:40px;gap:4px;padding:0 7px; }
     :host([data-rcs-compact]) input { height:36px;font-size:12px; }
     :host([data-rcs-compact]) .icon { width:24px;height:24px; }
@@ -102,7 +104,7 @@
     :host([data-rcs-compact]) .result { padding:7px 8px;gap:7px; }
     :host([data-rcs-compact]) .avatar { width:26px;height:26px; }
     :host([data-rcs-compact]) .name { font-size:12px; }
-    :host([data-rcs-compact]) .message-panel { width:min(320px,calc(100% - 12px));margin-top:3px;border-radius:9px; }
+    :host([data-rcs-compact]) .message-panel { width:min(320px,calc(100% - 12px));margin-top:0;border-radius:9px; }
     :host([data-rcs-compact]) .message-panel .results { max-height:min(210px,var(--rcs-message-height,42vh)); }
     :host([data-rcs-compact]) .message-panel .avatar { width:22px;height:22px; }
     :host([data-rcs-compact]) .message-panel .preview { font-size:11px; }
