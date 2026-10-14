@@ -195,3 +195,14 @@ test('native IndexedDB catch-up preserves previews through both compact capture 
   const broker=worker(t),env=page(t,broker,13,undefined,(client,W)=>{W.IDBKeyRange=IDBKeyRange;client.store={backend:{db}};client.getRooms=()=>[];client.mxcUrlToHttp=()=> 'https://example.invalid/local-thumb.jpg';});await env.W.RCSMessages.ready();
   const result=await env.W.RCSMessages.search({query:'has:image'});assert.equal(result.total,1);assert.equal(result.records[0].attachmentPreview,'https://example.invalid/local-thumb.jpg');assert.equal(result.records[0].attachmentWidth,1200);assert.equal(result.records[0].attachmentHeight,1600);assert.equal(env.api.calls.length,0);
 });
+
+test('invalidated extension transport reports a terminal reload message without retrying captures or reads',async t=>{
+  const broker=worker(t),env=page(t,broker,31);await env.W.RCSMessages.ready();
+  const updates=[];env.W.RCSMessages.subscribe(value=>updates.push(value));let attempts=0;
+  env.W.chrome.runtime.sendMessage=()=>{attempts++;throw Error('Extension context invalidated.');};
+  await assert.rejects(env.W.RCSMessages.search({query:'coffee'}),error=>error.code==='RCS_CONTEXT_INVALIDATED' && /Refresh this Reddit tab/.test(error.message));
+  await assert.rejects(env.W.RCSMessages.search({query:'coffee'}),/Refresh this Reddit tab/);
+  env.emit(event('$stale-capture','stale coffee'));await wait(20);
+  await assert.rejects(env.W.RCSMessages.flush(),/Refresh this Reddit tab/);
+  assert.equal(attempts,1);assert.equal(updates.filter(value=>value.contextInvalidated).length,1);assert.equal(env.api.calls.length,0);
+});
