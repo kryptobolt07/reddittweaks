@@ -1,3 +1,15 @@
+# 0.8.5 design test
+
+- Replace the raw “Extension context invalidated” error and perpetual search label with a clear instruction to refresh the Reddit tab after the extension is reloaded or updated. Preserve loaded results, latch the discarded transport state and stop repeated worker calls, capture buffering and scheduled search retries in that tab.
+- Give Refresh a busy indicator and accessible activity label for local searching, preview reads, native-cache import and capture saving. Show a compact import status while it is active; honor reduced motion. Import and saving progress notifications update controls without rerunning message queries or rebuilding the directory.
+- Keep the existing cache policy: message Refresh rereads saved results and retries pending writes rather than forcing another full native-history import. A page refresh reconnects scripts and performs the existing local reconciliation; no new server requests or sync loop.
+
+Version choice: PATCH to 0.8.5 for stale-tab recovery messaging and activity feedback. Storage schemas and independent tooling versions remain unchanged.
+
+Validation: all 325 tests pass, including a discarded runtime rejecting once without repeated capture/search transport calls, preserved visible matches, activity during a deferred local query, import start/end feedback without additional searches or directory reads, and manual Refresh returning to idle. All 19 JavaScript scripts parse. Archive integrity and source/stable-folder/ZIP equality pass for all 25 assets; the convenience ZIP matches the versioned bundle. No Brave artifact check was performed.
+
+Limitations: browser-invalidated extension scripts cannot reconnect themselves; existing Reddit tabs must be refreshed after an extension update. The live reported tab was not inspected, so a particular browser reload/update event is not attributed. Saved-history coverage remains incomplete.
+
 # 0.8.4 design test
 
 - Replace fixed 96 × 64 cropping with proportional message previews up to 128 px wide and 128 px high. Keep small returned images small and preserve compact People previews within 28 × 20 px. Use automatic image height and contain rendering, without stretching or cover cropping.
