@@ -73,11 +73,11 @@ test('list search filters usernames rather than previews; keyboard selection ope
   assert.equal(W.RCSAdapter.queryAll('[data-rcs-ui="list"]',api.nav).length,1);
   dom.window.close();
 });
-test('message search finds and jumps to matches, clears, and resets when a reused room changes',async()=>{
-  const dom=environment();const W=dom.window;const api=W.ChatFixture.build(W.document.body);W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
+test('message search finds and jumps to matches, clears, and resets when a reused room changes',async t=>{
+  const dom=environment();t.after(()=>dom.window.close());const W=dom.window;const api=W.ChatFixture.build(W.document.body);W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
   const trigger=W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button');trigger.click();
   const host=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room);const control=host.shadowRoot;const input=control.querySelector('input');
-  assert.equal(host.parentElement.localName,'main');assert.equal(host.hidden,false);
+  assert.equal(host.parentElement,W.RCSAdapter.query(W.RCSAdapter.selectors.header,api.room));assert.equal(host.hidden,false);
   input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(control.querySelectorAll('.result').length,2);assert.ok(control.querySelector('mark'));
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}));assert.equal(control.querySelector('.count').textContent,'2/2');
   assert.equal(W.RCSAdapter.messages(api.room)[2].element.dataset.scrolled,undefined);assert.equal(control.querySelector('.panel').hidden,false);
