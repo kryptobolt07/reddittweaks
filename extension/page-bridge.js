@@ -175,9 +175,14 @@
   function previewMetadata(content,type,client){
     const attachmentType=type==='m.sticker'?'image':({'m.image':'image','m.video':'video','m.audio':'audio','m.file':'file'}[content?.msgtype] || '');
     const attachmentMime=typeof content?.info?.mimetype==='string'?content.info.mimetype.slice(0,200).trim().toLowerCase().split(';')[0]:'';
-    let source=attachmentType==='image'?content?.info?.thumbnail_url || content?.url || content?.rcs_preview_url || '':'';
-    if(typeof source==='string' && source.startsWith('mxc://'))try{source=client?.mxcUrlToHttp?.(source,160,120,'scale') || '';}catch{source='';}
-    return {attachmentType,attachmentMime,attachmentPreview:previewURL(source)};
+    let attachmentPreview='';
+    if(attachmentType==='image')for(let source of [content?.url,content?.info?.thumbnail_url,content?.rcs_preview_url]){
+      // Request a bounded high-density preview from the original media, rather
+      // than resizing an already-small thumbnail. Never download bytes here.
+      if(typeof source==='string' && source.startsWith('mxc://'))try{source=client?.mxcUrlToHttp?.(source,384,256,'scale') || '';}catch{source='';}
+      attachmentPreview=previewURL(source);if(attachmentPreview)break;
+    }
+    return {attachmentType,attachmentMime,attachmentPreview};
   }
   function compactCacheEvent(value,roomId,client) {
     const raw=value?.event || value;
