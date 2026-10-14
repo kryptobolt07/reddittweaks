@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs');
 const {join}=require('node:path');
 const {JSDOM}=require('jsdom');
+const {setDateSegments,setDateMode}=require('./date-segments-helper.cjs');
 const source=file=>readFileSync(join(__dirname,'..',file),'utf8');
 const tick=ms=>new Promise(resolve=>setTimeout(resolve,ms||30));
 function setup(t,{content=false}={}) {
@@ -84,17 +85,12 @@ test('calendar filters work without text and reuse loaded history and decoded se
   const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');
   input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(150);const image=root.querySelector('.result img'),calls=api.calls.length;
   root.querySelector('[aria-label="Filter by date"]').click();
-  const choose=(year,month,day)=>{
-    root.querySelector('.calendar-year').click();root.querySelector(`[data-year="${year}"]`).click();
-    root.querySelector('.calendar-month').click();root.querySelector(`[data-month="${month}"]`).click();
-    root.querySelector(`[data-date="${year}-10-${String(day).padStart(2,'0')}"]`).click();
-  };
-  choose('2026','9',8);choose('2026','9',8);root.querySelector('.calendar-apply').click();
+  setDateSegments(root,'start','2026-10-08');setDateSegments(root,'end','2026-10-08');root.querySelector('.calendar-apply').click();
   assert.equal(root.querySelector('.date-chip').parentElement,root.querySelector('.meta'));
   assert.equal(root.querySelectorAll('.result').length,2);assert.equal(root.querySelector('.result img'),image);
   input.value='';input.dispatchEvent(new W.Event('input'));assert.equal(root.querySelector('.panel').hidden,false);
   assert.equal(root.querySelectorAll('.result').length,7);
-  root.querySelector('[aria-label="Filter by date"]').click();root.querySelector('[data-mode="After"]').click();choose('2026','9',8);root.querySelector('.calendar-apply').click();assert.equal(root.querySelectorAll('.result').length,0);
+  root.querySelector('[aria-label="Filter by date"]').click();setDateMode(root,'After');setDateSegments(root,'start','2026-10-08');root.querySelector('.calendar-apply').click();assert.equal(root.querySelectorAll('.result').length,0);
   root.querySelector('[aria-label="Filter by date"]').click();root.querySelector('.calendar-clear').click();root.querySelector('.date-popover').dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(root.querySelector('.panel').hidden,true);
   assert.equal(api.calls.length,calls);
 });
@@ -198,7 +194,7 @@ test('a known old thread root still searches recent replies inside the selected 
 test('the date pill clear button removes the filter without clearing the message query or opening the calendar',async t=>{
   const {W,api}=setup(t,{content:true});await tick(250);W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();await tick(150);
   const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(150);
-  root.querySelector('[aria-label="Filter by date"]').click();root.querySelector('[data-date="2026-10-08"]').click();root.querySelector('[data-date="2026-10-08"]').click();root.querySelector('.calendar-apply').click();
+  root.querySelector('[aria-label="Filter by date"]').click();setDateSegments(root,'start','2026-10-08');setDateSegments(root,'end','2026-10-08');root.querySelector('.calendar-apply').click();
   const calls=api.calls.length;assert.equal(root.querySelector('.date-chip svg rect'),null);
   root.querySelector('[aria-label="Remove date filter"]').click();assert.equal(root.querySelector('.date-chip').hidden,true);assert.equal(root.querySelector('.date-popover').hidden,true);assert.equal(input.value,'coffee');assert.equal(root.querySelectorAll('.result').length,2);assert.equal(api.calls.length,calls);
 });
@@ -206,7 +202,7 @@ test('opening an empty message search does not download history before text or d
   const {W,api}=setup(t,{content:true});await tick(150);W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();await tick(100);
   const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;assert.equal(api.calls.filter(c=>c.path==='/rooms/alex/events').length,0);
   root.querySelector('[aria-label="Filter by date"]').click();await tick(50);assert.equal(api.calls.filter(c=>c.path==='/rooms/alex/events').length,0);
-  root.querySelector('[data-date="2026-10-08"]').click();root.querySelector('[data-date="2026-10-08"]').click();root.querySelector('.calendar-apply').click();await tick(150);assert.ok(api.calls.some(c=>c.path==='/rooms/alex/events'));
+  setDateSegments(root,'start','2026-10-08');setDateSegments(root,'end','2026-10-08');root.querySelector('.calendar-apply').click();await tick(150);assert.ok(api.calls.some(c=>c.path==='/rooms/alex/events'));
 });
 test('a native edit arriving before its original history page is retained when that page loads',async t=>{
   const {W,api,client,listeners}=setup(t);let release;const read=client.http.authedRequest;client.http.authedRequest=async(...args)=>{if(!release)await new Promise(resolve=>release=resolve);return read(...args);};
