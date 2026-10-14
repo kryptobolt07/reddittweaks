@@ -252,7 +252,6 @@
     :host([data-rcs-ui="list"]) .global-sender-result .row-main { flex:1;min-width:0; }
     :host([data-rcs-ui="list"]) .global-sender-result .row-title { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--rcs-text);font-size:12px;font-weight:400; }
     :host([data-rcs-ui="list"]) .global-sender-result .row-meta { display:block;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--rcs-muted);font-size:10px; }
-    .bar.unified-search .date-popover { top:calc(100% + 4px);right:8px;width:236px;max-width:calc(100% - 16px);padding:8px;border-radius:10px;font-size:12px; }
     .results { overflow-anchor:none;scrollbar-gutter:stable;outline:0; }
     .virtual-spacer,.virtual-item { overflow-anchor:none; }
     .panel { box-shadow:none; }
