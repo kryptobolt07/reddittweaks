@@ -1,3 +1,16 @@
+# 0.9.1 design test
+
+- Replace the separate date dropdown experiment with the requested compact reference-style picker: DD/MM/YY text with inline suggestions, a shared month grid, Today, a small result preview and On/Before/After/Between conditions. Between keeps both endpoints on one row. Four-digit years and ISO paste remain supported; two-digit years explicitly map to 2000–2099. Sequential numeric typing adds slashes, and the first pointer interaction selects a focused date for replacement without the old day-field caret/length-limit failure.
+- Add a quiet Quick ranges menu on the existing header row: Last 7 days, Last 30 days, This month, Last month and This year. Presets update the draft and preview and wait for Apply. Periods are inclusive and handle month/leap-year boundaries.
+- Keep typed suggestions, condition choices, quick ranges and month/year selection inline in the calendar body, eliminating drop-up overlap with native profile headers. Bound the entire panel below the chat/search ribbon and inside the room; a short window scrolls its contents while keeping actions reachable. Use Reddit colors, compact icons and a faded orange rail for keyboard suggestion/choice previews, without an outline.
+- Preserve strict date/range validation, all existing date semantics, explicit Apply/Clear, removable date chips, draft cancellation, Today/Yesterday suggestions, calendar keyboard navigation and Escape isolation from global search. Editing makes no search/history request until Apply. No new dependencies, server requests, storage schemas or history build.
+
+Version choice: keep 0.9.1 for the explicitly requested amendment and design replacement. The earlier PATCH decision remains unchanged; historical releases and independent tooling versions are preserved.
+
+Validation: all 354 tests pass, including 15 date-picker and 70 unified-interface tests. Fixtures cover slash entry and fixed short years, partial suggestions, pointer selection, dates/paste/range validation, quick ranges and leap months, calendar/month navigation, single grid tab stop, inline choices, cancellation and chat bounds. All 19 JavaScript scripts parse. Synthetic headless Chrome verified actual pointer/keyboard entry of 211026 as 21/10/26, light/dark/narrow layouts, placement below a conversation ribbon and reachable actions in a short chat. No signed-in Brave artifact check was performed. ZIP integrity and source/stable-folder/archive equality pass for all 25 assets; the convenience ZIP matches the versioned export.
+
+Limitations: two-digit years mean 2000–2099; enter four digits for other centuries. Very short chat windows scroll the picker contents. The older standalone design preview retains its historical calendar. Reload the extension and refresh Reddit to apply this export. Saved-history coverage remains incomplete; no global-history build or persistent history cursors are added.
+
 # 0.9.0 design test
 
 - Extend recovered native identities to retained avatars. Pass the saved safe HTTPS reference to Reddit’s room-icon/profile controllers and user-avatar renders, including chat-list rows, room headers, introductions and message senders. Newly connected native components receive the presentation override before their first render. Reuse avatar models and bypass native avatar cache-miss lookups when a retained reference is available.
