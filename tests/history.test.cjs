@@ -282,3 +282,16 @@ test('individual image history keeps preview metadata and shows a thumbnail inst
   assert.equal(photo.attachmentWidth,1200);assert.equal(photo.attachmentHeight,1600);
   const preview=root.querySelector('.preview.has-image');assert.ok(preview);assert.ok(preview.querySelector('.media-image'));assert.doesNotMatch(preview.textContent,/jpeg/);assert.doesNotMatch(preview.textContent,/Image|GIF/);const image=preview.querySelector('.media-image');Object.defineProperties(image,{naturalWidth:{value:192},naturalHeight:{value:256}});image.dispatchEvent(new W.Event('load'));assert.equal(image.width,96);assert.equal(image.height,128);
 });
+
+test('individual search anchors the visible header when images above or below it decode',async t=>{
+  const {W,api}=setup(t,{content:true});await tick();
+  for(const [i,msgtype]of [[0,'m.image'],[1,'m.text'],[2,'m.image']])api.remoteMessages.get('alex').push({event_id:'anchor-'+i,room_id:'alex',type:'m.room.message',sender:'@t2_alex:reddit.com',seq_id:String(9-i),origin_server_ts:1800000000000-i*1000,content:{msgtype,body:'anchor '+i,...(msgtype==='m.image'?{url:'https://example.invalid/anchor/'+i}:{})}});
+  W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='anchor';input.dispatchEvent(new W.Event('input'));await tick(250);
+  const results=root.querySelector('.results'),rows=[...results.querySelectorAll('.result')];assert.equal(rows.length,3);
+  const height=row=>64+(row.querySelector('.media-image')?.height || 0);results.getBoundingClientRect=()=>({top:10});
+  for(const [i,row]of rows.entries())row.getBoundingClientRect=()=>{const top=10+rows.slice(0,i).reduce((sum,r)=>sum+height(r),0)-results.scrollTop;return {top,bottom:top+height(row)};};
+  results.scrollTop=height(rows[0]);const headerTop=rows[1].getBoundingClientRect().top;
+  const decode=row=>{const img=row.querySelector('.media-image');Object.defineProperties(img,{naturalWidth:{value:400},naturalHeight:{value:800}});img.dispatchEvent(new W.Event('load'));};
+  decode(rows[0]);assert.equal(results.scrollTop,192);assert.equal(rows[1].getBoundingClientRect().top,headerTop);
+  const before=results.scrollTop;decode(rows[2]);assert.equal(results.scrollTop,before);assert.equal(rows[1].getBoundingClientRect().top,headerTop);
+});

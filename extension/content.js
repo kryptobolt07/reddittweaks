@@ -82,7 +82,7 @@
     .icon.filtered { background:var(--rcs-hover);color:var(--rcs-accent); }
     .message-panel { width:min(480px,calc(100% - 16px));left:50%;right:auto;transform:translateX(-50%);margin-top:6px;border:1px solid var(--rcs-line);border-radius:12px;overflow:hidden; }
     .message-panel .result { gap:7px;padding:7px 9px;align-items:start; }
-    .message-panel .results { max-height:min(320px,var(--rcs-message-height,42vh)); }
+    .message-panel .results { overflow-anchor:none;max-height:min(320px,var(--rcs-message-height,42vh)); }
     .message-panel .avatar { width:24px;height:24px;margin-top:1px;font-size:11px; }
     .message-panel .avatar svg { width:15px;height:15px; }
     .message-heading { display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px;row-gap:0;min-width:0; }
@@ -146,7 +146,7 @@
       this.complete = kind === 'list' && directoryComplete;
       this.rows = new Map();
       this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;this.scope='people';this.savedHits=[];this.savedTotal=0;this.savedGeneration=0;this.savedOwner=undefined;this.savedLoading=false;
-      this.mediaView=globalThis.RCSMediaPreview?new RCSMediaPreview.View():null;this.pendingAvatarSources=new Map();
+      this.mediaView=globalThis.RCSMediaPreview?new RCSMediaPreview.View({onBeforeResize:()=>this.captureImageViewport(),onResize:()=>this.restoreImageViewport()}):null;this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
       this.host.setAttribute('data-rcs-version','0.8.5');
       const shadow = this.host.attachShadow({mode:'open'});
@@ -248,6 +248,16 @@
       this.sync();
       if (kind === 'list') this.ensureData(false,true);
     }
+    captureImageViewport(){
+      this.imageViewport=null;if(!this.results?.isConnected || this.panel.hidden)return;
+      const top=this.results.getBoundingClientRect().top,element=[...this.results.querySelectorAll('.result')].find(row=>!row.hidden && row.getBoundingClientRect().bottom>top);
+      if(element)this.imageViewport={element,offset:element.getBoundingClientRect().top-top,scrollTop:this.results.scrollTop};
+    }
+    restoreImageViewport(){
+      const anchor=this.imageViewport;this.imageViewport=null;if(!anchor?.element.isConnected || this.panel.hidden)return;
+      const offset=anchor.element.getBoundingClientRect().top-this.results.getBoundingClientRect().top;
+      this.results.scrollTop=anchor.scrollTop+offset-anchor.offset;
+    }
     get isGlobal(){return this.kind==='list' && this.scope==='all';}
     get messageMode(){return this.kind==='messages' || this.isGlobal;}
     rowKey(hit){return `${this.isGlobal ? hit?.roomId : this.room}:${hit?.id}`;}
@@ -260,7 +270,7 @@
       if(!this.isGlobal)this.datePicker.close(false);
       this.render();this.ensureData();this.input.focus();
     }
-    resetSaved(){this.mediaView?.clear();
+    resetSaved(){this.imageViewport=null;this.mediaView?.clear();
       this.savedGeneration++;clearTimeout(this.savedTimer);this.savedDirty=false;this.savedKey='';this.savedHits=[];this.savedTotal=0;this.savedHasMore=false;this.savedLoading=false;this.savedStats=undefined;this.savedImporting=false;this.savedSavingError='';this.roomSavedKey='';this.complete=false;this.dateCompleteKey='';this.active=-1;this.hits=[];this.clearRows();
     }
     savedChanged(value){
@@ -564,7 +574,7 @@
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.load.textContent='Refresh';if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
-    destroy() { this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
+    destroy() { this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
     if(value.accountChanged)clearRetainedLists();
