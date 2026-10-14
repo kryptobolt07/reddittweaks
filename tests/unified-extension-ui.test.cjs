@@ -688,3 +688,7 @@ test('an unavailable group sender is identified without marking the whole group 
   const row=p.find('[data-key="message:'+record.roomId+':'+record.id+'"]');assert.match(row.querySelector('.unavailable-marker').getAttribute('aria-label'),/Unavailable sender:/);assert.doesNotMatch(row.querySelector('.unavailable-marker').title,/Unavailable account/);
   record.authorUnavailable=false;c.render();assert.equal(p.find('[data-key="message:'+record.roomId+':'+record.id+'"]').querySelector('.unavailable-marker'),null);
 });
+
+test('date dropdown Escape stays inside the picker and does not dismiss the global search',async t=>{
+  const p=await setup(t),c=p.control;await p.search('coffee');const searches=p.searches.length;await p.click('[data-control="date"]');const month=c.datePicker.segment('start','month');month.click();assert.equal(c.datePicker.optionsMenu.hidden,false);await p.key('Escape',month);assert.equal(c.datePicker.open,true);assert.equal(c.datePicker.optionsMenu.hidden,true);assert.equal(c.searchDismissed,false);await p.key('Escape',month);assert.equal(c.datePicker.open,false);assert.equal(c.searchDismissed,false);assert.equal(c.input.value,'coffee');assert.equal(p.searches.length,searches);
+});
