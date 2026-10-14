@@ -639,7 +639,7 @@ test('typing does not scan people or rebuild results until debounce, even during
   const p=await setup(t,{large:true}),c=p.control;await p.search('coffee');const row=p.find('.message-open'),searches=p.searches.length,people=c.people.bind(c);let scans=0;
   c.people=(...args)=>{scans++;return people(...args);};
   for(const query of ['c','co','cof','coff','coffe']){p.type(query);assert.equal(c.input.value,query);p.emit({owner:c.owner,statusOnly:true,importing:true});p.emit({owner:c.owner,changed:true});c.updateLayout(true);c.render();await p.tick(30);}
-  assert.equal(scans,0);assert.equal(p.searches.length,searches);assert.equal(c.results.querySelector('.message-open'),row);assert.equal(c.results.getAttribute('aria-busy'),'true');
+  assert.equal(scans,0);assert.equal(p.searches.length,searches);assert.ok([...c.rowCache.values()].some(entry=>entry.node.contains(row)));assert.ok(c.results.querySelector('.skeleton-list'));assert.equal(c.results.querySelector('.message-open'),null);assert.equal(c.results.getAttribute('aria-busy'),'true');
   await p.tick(179-30);assert.equal(scans,0);await p.tick(1);assert.ok(scans>0);assert.equal(p.searches.length,searches+1);assert.equal(p.searches.at(-1).query,'coffe');assert.equal(c.queryPending,false);
 });
 
@@ -647,4 +647,31 @@ test('a saved query completing while the user types leaves the input and result 
   const p=await setup(t,{deferSearch:true}),c=p.control;await p.search('coffee');const people=c.people.bind(c);let scans=0;c.people=(...args)=>{scans++;return people(...args);};
   p.type('unmatched-word');const children=[...c.results.children];p.pending.shift()();await settle();assert.equal(scans,0);assert.equal(c.input.value,'unmatched-word');assert.deepEqual([...c.results.children],children);
   await p.tick(180);assert.equal(p.searches.at(-1).query,'unmatched-word');p.pending.shift()();await settle();assert.equal(c.savedTotal,0);assert.match(p.find('.empty-state').textContent,/No messages match/);
+});
+
+for(const scope of ['people','all','messages'])test(scope+' shows a reusable loading placeholder immediately, before debounced filtering',async t=>{
+  const p=await setup(t,{scope}),c=p.control;await p.search('alex');const searches=p.searches.length,people=c.people.bind(c);let scans=0;c.people=(...args)=>{scans++;return people(...args);};
+  p.type('co');const placeholder=p.find('.skeleton-list');assert.equal(c.panel.hidden,false);assert.equal(c.results.getAttribute('aria-busy'),'true');assert.equal(scans,0);assert.equal(p.searches.length,searches);
+  p.type('cof');p.emit({owner:c.owner,statusOnly:true,importing:true});c.render();assert.equal(p.find('.skeleton-list'),placeholder);assert.equal(scans,0);await p.tick(179);assert.equal(p.find('.skeleton-list'),placeholder);assert.equal(p.searches.length,searches);
+  await p.tick(1);assert.equal(c.results.querySelector('.skeleton-list'),null);assert.equal(c.results.getAttribute('aria-busy'),'false');assert.ok(scans>0);
+  p.type('alex');assert.equal(p.find('.skeleton-list'),placeholder);await p.key('Escape');assert.equal(c.panel.hidden,true);await p.tick(200);assert.equal(c.panel.hidden,true);c.clearQuery();await settle();assert.equal(c.results.querySelector('.skeleton-list'),null);
+});
+
+test('loading placeholders reuse Reddit shimmer when available, with a reduced-motion fallback',async t=>{
+  const p=await setup(t),c=p.control;p.w.customElements.define('faceplate-shimmer',class extends p.w.HTMLElement{});p.type('coffee');assert.equal(p.find('.skeleton-list').querySelectorAll('faceplate-shimmer').length,21);assert.equal(c.results.querySelector('.skeleton-fallback'),null);
+  await p.tick(180);c.loadingSkeleton=null;p.w.matchMedia=()=>({matches:true});p.type('coff');assert.equal(c.results.querySelector('faceplate-shimmer'),null);assert.equal(p.find('.skeleton-list').querySelectorAll('.skeleton-fallback').length,21);
+});
+
+for(const scope of ['people','all','messages'])test(scope+' Down Arrow enters results from the field and scope tab, including a cached pending draft',async t=>{
+  const p=await setup(t,{scope}),c=p.control,query=scope==='messages'?'coffee':'alex';await p.search(query);c.input.focus();p.type(query);await p.key('ArrowDown');
+  assert.ok(c.active);assert.equal(c.shadow.activeElement.closest('[data-key]').dataset.key,c.active);assert.equal(c.pendingNavigation || '', '');
+  const first=c.active;await p.key('ArrowDown',c.shadow.activeElement);assert.notEqual(c.active,first);assert.equal(c.shadow.activeElement.closest('[data-key]').dataset.key,c.active);
+  await p.key('Escape',c.shadow.activeElement);assert.equal(c.panel.hidden,true);await p.key('ArrowDown');assert.equal(c.panel.hidden,false);assert.equal(c.shadow.activeElement.closest('[data-key]').dataset.key,c.active);
+  c.scopeButtons[scope].focus();await p.key('ArrowDown',c.scopeButtons[scope]);assert.equal(c.shadow.activeElement.closest('[data-key]').dataset.key,c.active);
+  await p.search('nonexistent-phrase');p.type('nonexistent-phrase');await p.key('ArrowDown');assert.equal(c.active,'');assert.equal(c.pendingNavigation || '','');
+});
+
+test('Down Arrow during message loading waits for current matches then focuses the result',async t=>{
+  const p=await setup(t,{scope:'messages',deferSearch:true}),c=p.control;c.input.focus();p.type('coffee');await p.key('ArrowDown');assert.equal(c.pendingNavigation,'ArrowDown');assert.equal(c.active,'');await p.key('ArrowDown');assert.equal(c.active,'');
+  while(p.pending.length){p.pending.shift()();await settle();}assert.ok(c.active.startsWith('message:'));assert.equal(c.pendingNavigation,'');assert.equal(c.shadow.activeElement.closest('[data-key]').dataset.key,c.active);assert.equal(c.input.value,'coffee');
 });

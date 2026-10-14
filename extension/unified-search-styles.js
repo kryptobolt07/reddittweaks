@@ -311,9 +311,15 @@
     .empty-state > svg { margin:0 auto 12px; width:28px; height:28px; }
     .empty-state h2 { margin:0 0 6px; color:var(--rcs-text); font-size:14px; }
     .empty-state p { margin:0 0 12px; font-size:11px; line-height:1.55; }
-    .skeleton-row { display:flex; gap:11px; padding:20px 14px; height:86px; }
-    .skeleton-avatar { width:36px; height:36px; border-radius:50%; background:var(--rcs-hover); }
-    .skeleton-text { flex:1; height:32px; margin-top:2px; border-radius:4px; background:linear-gradient(var(--rcs-hover) 0 11px,transparent 11px 20px,var(--rcs-hover) 20px); animation:rcs-pulse 1.4s ease-in-out infinite alternate; }
+    .skeleton-row { display:flex; align-items:flex-start; gap:var(--rcs-row-gap,var(--spacer-xs,8px)); padding:var(--rcs-row-padding-block,var(--spacer-xs,8px)) var(--rcs-row-padding-inline,var(--spacer-sm,12px)); min-height:var(--rcs-row-min-height,64px); box-sizing:border-box; }
+    .skeleton-shimmer { position:relative; display:block; overflow:hidden; background:var(--color-shimmer-background,var(--rcs-hover)); border-radius:4px; }
+    .skeleton-avatar { flex:none; width:var(--rcs-row-avatar-size,var(--size-xl,32px)); height:var(--rcs-row-avatar-size,var(--size-xl,32px)); border-radius:50%; }
+    .skeleton-copy { display:flex; flex:1; min-width:0; flex-direction:column; gap:9px; padding-top:3px; }
+    .skeleton-title { width:55%; height:12px; }
+    .skeleton-preview { width:86%; height:11px; }
+    .skeleton-fallback::after { content:""; position:absolute; inset:0; transform:translateX(-100%); background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent); animation:rcs-result-shimmer 1.5s ease-in-out infinite; }
+    @keyframes rcs-result-shimmer { to { transform:translateX(100%); } }
+    @media(prefers-reduced-motion:reduce) { .skeleton-fallback::after { display:none; } }
     :host([data-rcs-compact]) .bar.unified-search { display:block; padding:5px 14px 0; }
     :host([data-rcs-compact]) .scope.scope-tabs { gap:4px;margin:5px 0 0;padding:0;border-bottom:1px solid var(--rcs-line); }
   ` + globalThis.RCSUnifiedToolStyles + (globalThis.RCSMediaPreview?.styles || "");
