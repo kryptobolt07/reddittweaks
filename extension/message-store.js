@@ -17,7 +17,7 @@
     // Only native type/MIME metadata classifies attachments; never guess from
     // filenames. Retain one credential-free image preview reference, not bytes.
     const attachmentMime=attachmentType?str(bodyContent.info?.mimetype,200).trim().toLowerCase().split(';')[0]:'';
-    const attachmentPreview=attachmentType==='image'?previewURL(bodyContent.rcs_preview_url || bodyContent.info?.thumbnail_url || bodyContent.url):'';
+    const attachmentPreview=attachmentType==='image'?[bodyContent.rcs_preview_url,bodyContent.url,bodyContent.info?.thumbnail_url].map(previewURL).find(Boolean) || '':'';
     return {id,room,type:raw.type,sender:str(raw.sender),time:Number.isFinite(raw.origin_server_ts)?raw.origin_server_ts:0,
       body:str(bodyContent.body,65536) || (raw.type==='m.sticker'?'Sticker':({image:'Image',video:'Video',audio:'Audio',file:'File'}[attachmentType] || '')),
       attachmentType,attachmentMime,...(attachmentPreview?{attachmentPreview}:{}),

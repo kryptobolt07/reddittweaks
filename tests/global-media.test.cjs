@@ -69,8 +69,8 @@ test('image preview references are bounded and credential-free, update on replay
   await store.ingest({owner,events:[photo]});assert.equal((await store.search(owner,{query:'has:image'})).records[0].attachmentPreview,'');
   photo.content.url='https://example.invalid/original.jpg';photo.content.info={thumbnail_url:'https://example.invalid/thumb.jpg'};
   assert.equal((await store.ingest({owner,events:[photo]})).changed,true);assert.equal((await store.ingest({owner,events:[photo]})).changed,false);
-  assert.equal((await store.search(owner,{query:'has:image'})).records[0].attachmentPreview,'https://example.invalid/thumb.jpg');
-  assert.equal((await store.summaries(owner)).summaries[0].attachmentPreview,'https://example.invalid/thumb.jpg');
+  assert.equal((await store.search(owner,{query:'has:image'})).records[0].attachmentPreview,'https://example.invalid/original.jpg');
+  assert.equal((await store.summaries(owner)).summaries[0].attachmentPreview,'https://example.invalid/original.jpg');
   const rejected=['http://example.invalid/img','data:image/png,abc','javascript:alert(1)','https://user:secret@example.invalid/img','https://example.invalid/img?access_token=secret','https://example.invalid/img?X-Amz-Signature=secret','https://example.invalid/img#secret'];
   for(const [i,url]of rejected.entries())await store.ingest({owner,events:[{...event('bad-'+i,'m.image','picture.jpeg'),content:{msgtype:'m.image',body:'picture.jpeg',url}}]});
   assert.ok((await store.search(owner,{query:'picture'})).records.every(record=>!record.attachmentPreview));assert.equal(JSON.stringify(await store.snapshot(owner)).includes('secret'),false);
@@ -78,4 +78,13 @@ test('image preview references are bounded and credential-free, update on replay
   assert.equal((await store.search(owner,{query:'new.jpeg'})).records[0].attachmentPreview,'https://example.invalid/new.jpg');
   await store.ingest({owner,events:[{...event('redact','m.text'),type:'m.room.redaction',redacts:'photo'}]});
   const ledger=(await store.snapshot(owner)).rows[0].events;assert.ok(ledger.filter(record=>['photo','edit'].includes(record.id)).every(record=>record.attachmentPreview===''));
+});
+
+test('image compaction falls back to a safe thumbnail when the original is not usable',()=>{
+  const {RCSMessageStore:{compact}}=environment();
+  for(const url of ['mxc://reddit.com/original','https://example.invalid/photo?access_token=secret']){
+    const raw=event('fallback','m.image','photo.jpeg');raw.content.url=url;raw.content.info={thumbnail_url:'https://example.invalid/safe-thumbnail'};
+    assert.equal(compact(raw).attachmentPreview,'https://example.invalid/safe-thumbnail');
+    raw.content.rcs_preview_url='https://example.invalid/native-conversion';assert.equal(compact(raw).attachmentPreview,'https://example.invalid/native-conversion');
+  }
 });

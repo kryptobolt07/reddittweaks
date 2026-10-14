@@ -164,9 +164,17 @@ test('native media MIME survives the bridge into persistent GIF search, edits an
 });
 
 test('native image capture reuses the client media URL conversion without profile or history requests',async t=>{
-  const broker=worker(t),converted=[],env=page(t,broker,12,'@t2_me:reddit.com',client=>{client.mxcUrlToHttp=(...args)=>{converted.push(args);return 'https://matrix.redditspace.com/_matrix/media/v3/thumbnail/reddit.com/image?width=160&height=120';};});await wait(30);
+  const broker=worker(t),converted=[],env=page(t,broker,12,'@t2_me:reddit.com',client=>{client.mxcUrlToHttp=(...args)=>{converted.push(args);return 'https://matrix.redditspace.com/_matrix/media/v3/thumbnail/reddit.com/image?width=384&height=256';};});await wait(30);
   env.emit(event('$photo','photo.jpeg',{content:{body:'photo.jpeg',msgtype:'m.image',url:'mxc://reddit.com/original',info:{mimetype:'image/jpeg',thumbnail_url:'mxc://reddit.com/image'}}}));await env.W.RCSMessages.flush();
-  const result=await env.W.RCSMessages.search({query:'has:image'});assert.equal(result.total,1);assert.match(result.records[0].attachmentPreview,/thumbnail/);assert.ok(converted.length);assert.ok(converted.every(args=>JSON.stringify(args)===JSON.stringify(['mxc://reddit.com/image',160,120,'scale'])));assert.equal(env.api.calls.length,0);
+  const result=await env.W.RCSMessages.search({query:'has:image'});assert.equal(result.total,1);assert.match(result.records[0].attachmentPreview,/thumbnail/);assert.ok(converted.length);assert.ok(converted.every(args=>JSON.stringify(args)===JSON.stringify(['mxc://reddit.com/original',384,256,'scale'])));assert.equal(env.api.calls.length,0);
+});
+
+test('native preview conversion falls back safely when the original reference cannot be converted',async t=>{
+  const converted=[],broker=worker(t),env=page(t,broker,14,'@t2_me:reddit.com',client=>{client.mxcUrlToHttp=(...args)=>{converted.push(args);if(args[0].endsWith('/unavailable'))throw Error('Unavailable original');return 'https://example.invalid/safe-preview';};});await wait(30);
+  env.emit(event('$fallback-photo','fallback.jpeg',{content:{body:'fallback.jpeg',msgtype:'m.image',url:'mxc://reddit.com/unavailable',info:{thumbnail_url:'mxc://reddit.com/thumbnail'}}}));await env.W.RCSMessages.flush();
+  const result=await env.W.RCSMessages.search({query:'fallback.jpeg'});assert.equal(result.records[0].attachmentPreview,'https://example.invalid/safe-preview');
+  assert.ok(converted.some(args=>args[0]==='mxc://reddit.com/unavailable'));assert.ok(converted.some(args=>args[0]==='mxc://reddit.com/thumbnail'));
+  assert.ok(converted.every(args=>args[1]===384 && args[2]===256 && args[3]==='scale'));assert.equal(env.api.calls.length,0);
 });
 
 
