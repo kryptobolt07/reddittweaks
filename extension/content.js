@@ -21,6 +21,7 @@
   let collapsedControl = null;
   let openListRequested = false;
   const icons = {
+    back: '<path d="M19 12H5m7-7-7 7 7 7"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/>',
     close: '<path d="m6 6 12 12M6 18 18 6"/>',
     up: '<path d="m6 14 6-6 6 6"/>',
@@ -71,7 +72,20 @@
     .time { display:block; color:var(--rcs-muted); font-size:11px; font-weight:400; margin-top:2px; } .hint,.empty { color:var(--rcs-muted); padding:20px 16px; font-size:12px; text-align:center; }
     mark { background:#ffcc804d; color:inherit; border-radius:2px; } .count { font-size:11px; color:var(--rcs-muted); white-space:nowrap; }
     :host([data-rcs-ui=messages]) .bar { width:100%;padding:6px 8px 2px;gap:4px; }
-    :host([data-rcs-ui=messages]) .count { flex:0 0 11ch;inline-size:11ch;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center;font-variant-numeric:tabular-nums; }
+    :host([data-rcs-ui=messages]) .match-navigation { position:relative;display:flex;align-items:flex-start;gap:0;flex:none;height:40px;padding-top:1px; }
+    :host([data-rcs-ui=messages]) .match-navigation .icon { height:27px; }
+    :host([data-rcs-ui=messages]) .count { position:absolute;left:50%;bottom:1px;transform:translateX(-50%);max-width:100%;overflow:hidden;text-overflow:ellipsis;text-align:center;font:9px/10px var(--font-sans,Arial,sans-serif);font-variant-numeric:tabular-nums;pointer-events:none; }
+    :host([data-rcs-header-search]) { position:absolute;inset:0;z-index:3;width:100%;height:100%;background:var(--rcs-bg); }
+    :host([data-rcs-header-search]) .bar { height:100%;padding:4px 8px; }
+    :host([data-rcs-header-search]) .message-panel { top:calc(50% + 22px); }
+    :host([data-rcs-header-search]) .query-tools-overlay { top:calc(50% + 20px); }
+    :host([data-rcs-header-search]) .field.has-senders { height:40px;min-height:40px;flex-wrap:nowrap;padding-block:0; }
+    :host([data-rcs-header-search]) .field input { order:2;flex:1;min-width:0;width:0; }
+    :host([data-rcs-header-search]) .field .room-back { order:0; }
+    :host([data-rcs-header-search]) .field .sender-chips { order:1;flex:0 1 auto;max-width:45%;width:auto;flex-wrap:nowrap;overflow:auto;scrollbar-width:none; }
+    :host([data-rcs-header-search]) .sender-chip { flex:none;max-width:150px; }
+    :host([data-rcs-header-search]) .field > .icon:not(.room-back) { order:3; }
+    :host([data-rcs-ui=messages][data-rcs-header-search][data-rcs-compact]) .bar { padding:4px 6px; }
     :host([data-rcs-ui=messages]) .field { height:40px; }
     :host([data-rcs-ui=messages]) input { height:36px;font-size:12px; }
     .date-chip { max-width:52%;color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 8%,var(--rcs-bg));border-color:color-mix(in srgb,var(--rcs-accent) 20%,var(--rcs-line)); }
@@ -99,7 +113,7 @@
     :host([data-rcs-compact]) .icon { width:24px;height:24px; }
     :host([data-rcs-compact]) svg { width:16px;height:16px; }
     :host([data-rcs-compact]) .toggle { margin:3px 6px;padding:4px 7px; }
-    :host([data-rcs-compact]) .count { font-size:10px; }
+    :host([data-rcs-compact]) .count { font-size:8px; }
     :host([data-rcs-compact]) .meta { padding:5px 8px;font-size:10px;gap:4px; }
     :host([data-rcs-compact]) .result { padding:7px 8px;gap:7px; }
     :host([data-rcs-compact]) .avatar { width:26px;height:26px; }
@@ -151,6 +165,9 @@
       this.mediaView=globalThis.RCSMediaPreview?new RCSMediaPreview.View({onBeforeResize:()=>this.captureImageViewport(),onResize:()=>this.restoreImageViewport()}):null;this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
       this.host.setAttribute('data-rcs-version','0.9.1');
+      // Header search handles its own controls; native header profile/settings
+      // handlers must not receive clicks or typing from the replacement UI.
+      if(kind==='messages')for(const type of ['click','dblclick','pointerdown','pointerup','mousedown','mouseup','keydown'])this.host.addEventListener(type,event=>event.stopPropagation());
       const shadow = this.host.attachShadow({mode:'open'});
       const style = node('style', '', css+(globalThis.RCSMediaPreview?.styles || '')); shadow.append(style);
       this.toggle = node('button', 'toggle', 'Search messages'); this.toggle.type = 'button';
@@ -160,8 +177,8 @@
       this.toggle.setAttribute('aria-expanded', 'false'); this.toggle.addEventListener('click', () => this.open());
       this.bar = node('div', 'bar');
       const field = node('label', 'field');
-      const searchIcon = icon('search', 'Search', () => {this.input.focus();this.showResults();});
-      searchIcon.tabIndex = -1;
+      const searchIcon = kind==='messages'?icon('back','Close message search',()=>this.close()):icon('search','Search',()=>{this.input.focus();this.showResults();});
+      if(kind==='messages')searchIcon.classList.add('room-back');else searchIcon.tabIndex=-1;
       this.input = node('input'); this.input.type = 'search'; this.input.autocomplete = 'off'; this.input.spellcheck = false;
       const label = kind === 'list' ? 'Search usernames' : 'Search messages';
       this.input.placeholder = label; this.input.setAttribute('aria-label', label);
@@ -181,7 +198,7 @@
         this.dateToggle.setAttribute('aria-expanded','false');
         this.count=node('span','count');
         this.prev=icon('up','Previous match',()=>this.move(-1,true));this.next=icon('down','Next match',()=>this.move(1,true));
-        this.bar.append(this.dateToggle);if(kind==='messages')this.bar.append(this.count,this.prev,this.next,icon('close','Close message search',()=>this.close()));else this.dateToggle.hidden=true;
+        this.bar.append(this.dateToggle);if(kind==='messages'){this.navigation=node('span','match-navigation');this.navigation.setAttribute('role','group');this.navigation.setAttribute('aria-label','Search match navigation');this.navigation.append(this.prev,this.next,this.count);this.bar.append(this.navigation);}else this.dateToggle.hidden=true;
         this.dateChip=node('span','date-chip');this.dateChip.hidden=true;
         this.dateChipLabel=node('button','date-chip-edit');this.dateChipLabel.type='button';this.dateChipLabel.addEventListener('click',()=>this.dateToggle.click());
         this.dateRemove=icon('close','Remove date filter',()=>{this.datePicker.reset();this.render();this.dateToggle.focus({preventScroll:true});});this.dateRemove.classList.add('date-remove');this.dateChip.append(this.dateChipLabel,this.dateRemove);
@@ -202,10 +219,9 @@
           this.triggerHost = node('span'); this.triggerHost.setAttribute('data-rcs-ui','message-trigger');
           this.triggerHost.style.cssText = 'display:inline-flex;flex-shrink:0;align-items:center;';
           const triggerRoot = this.triggerHost.attachShadow({mode:'open'});
-          this.trigger = icon('search','Search messages',() => this.open()); this.trigger.setAttribute('aria-expanded','false');
+          this.trigger = icon('search','Search messages',() => this.open()); this.trigger.setAttribute('aria-expanded','false');this.trigger.addEventListener('click',event=>event.stopPropagation());
           triggerRoot.append(node('style','',css),this.trigger);
-          const actions = header.lastElementChild;
-          (actions?.classList.contains('flex') ? actions : header).prepend(this.triggerHost);
+          this.mountMessageTrigger(header);
           this.toggle.hidden = true; this.host.hidden = true;
         }
       }
@@ -344,7 +360,7 @@
       })();
       return this.roomSavedPromise;
     }
-    open() { this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true'); this.ensureData(); this.render(); this.input.focus(); }
+    open() { this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true'); this.syncHeaderSearch();this.ensureData(); this.render(); this.input.focus(); }
     showResults() {this.stoppedByUser=false;if(this.kind==='list')this.browseOpen=true;this.ensureData();this.render();}
     dismiss() {
       // All chats is the selected sidebar view, rather than a transient menu.
@@ -352,7 +368,9 @@
       if(this.isGlobal)return;
       this.cancelInput();this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
     }
-    close(focus = true) { this.cancelLoad(); this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
+    close(focus = true) { this.cancelLoad(); this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true;A.releaseRoomSearchHeader?.(this.host); this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
+    mountMessageTrigger(header){const root=header.shadowRoot||header;if(this.triggerHost&&!root.contains(this.triggerHost)){const actions=[...root.children].filter(child=>child!==this.host&&!['STYLE','LINK','SCRIPT'].includes(child.tagName)).at(-1);(actions?.classList.contains('flex')?actions:root).prepend(this.triggerHost);}}
+    syncHeaderSearch(){if(this.kind!=='messages'||this.bar.hidden)return false;const header=A.query(A.selectors.header,this.container);if(header)this.mountMessageTrigger(header);return A.syncRoomSearchHeader?.(this.container,this.host);}
     updateLayout() {
       let compact=false;
       for(let current=this.container;current;current=current.parentElement || current.getRootNode()?.host) {
@@ -368,8 +386,11 @@
       // Hydration can finish after document_idle; align the search bar once the
       // real header and virtual scroller arrive instead of leaving it above Chats.
       const point=A.mountPoint(this.container,this.kind==='messages' ? A.selectors.header : 'rs-room-list-header');this.host.hidden=point.ready===false;
-      if(point.before!==this.host && (this.host.parentNode!==point.parent || this.host.nextSibling!==point.before)) point.parent.insertBefore(this.host,point.before);
-      A.syncSearchLayer?.(this.container,this.host,this.kind==='messages'?A.selectors.header:'rs-room-list-header, rs-rooms-nav-filter');
+      if(!this.syncHeaderSearch()){
+        A.releaseRoomSearchHeader?.(this.host);
+        if(point.before!==this.host && (this.host.parentNode!==point.parent || this.host.nextSibling!==point.before))point.parent.insertBefore(this.host,point.before);
+        A.syncSearchLayer?.(this.container,this.host,this.kind==='messages'?A.selectors.header:'rs-room-list-header, rs-rooms-nav-filter');
+      }
       if (this.kind === 'list') {
         if(globalThis.RCSDirectory?.getStartup?.().pending)return;
         for (const row of A.queryAll(A.selectors.row, this.container)) {
@@ -590,7 +611,7 @@
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.load.textContent='Refresh';if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
-    destroy() { this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
+    destroy() { A.releaseRoomSearchHeader?.(this.host);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
     if(value.accountChanged)clearRetainedLists();
@@ -691,6 +712,7 @@
     const rooms = find(A.selectors.room).filter(A.visible);
     const live = new Map([...lists.map(list => [list,'list']), ...rooms.map(room => [room,'messages'])]);
     for(const [container,control] of controls)if(!live.has(container) || !control.host.isConnected){
+      if(live.has(container)&&control.kind==='messages'&&control.syncHeaderSearch())continue;
       if(control.kind==='list' && typeof control.suspend==='function'){
         control.suspend();if(container.isConnected && control.host.isConnected)continue;
         const owner=control.owner || globalThis.RCSDirectory?.getOwner?.(),context=control.listContext || listContext(container);

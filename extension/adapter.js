@@ -183,6 +183,51 @@
     if(!(Number(header.style.zIndex || computed.zIndex)>=2))set('z-index','2');
     searchHeaders.set(host,{header,styles});
   }
+  // Keep the native header and its geometry in place; search owns only an
+  // overlay and temporary presentation/accessibility attributes on its children.
+  const roomSearchHeaders=new WeakMap();
+  function releaseRoomSearchHeader(host){
+    const state=roomSearchHeaders.get(host);if(!state)return;
+    for(const [child,saved]of state.children){
+      if(child.style.getPropertyValue('visibility')==='hidden'&&child.style.getPropertyPriority('visibility')==='important'){
+        if(saved.visibility)child.style.setProperty('visibility',saved.visibility,saved.priority);else child.style.removeProperty('visibility');
+      }
+      for(const [name,value,applied]of [['inert',saved.inert,''],['aria-hidden',saved.aria,'true']])if(child.getAttribute(name)===applied){if(value===null)child.removeAttribute(name);else child.setAttribute(name,value);}
+    }
+    for(const [name,value,priority,applied,appliedPriority]of state.styles)if(state.header.style.getPropertyValue(name)===applied&&state.header.style.getPropertyPriority(name)===appliedPriority){if(value)state.header.style.setProperty(name,value,priority);else state.header.style.removeProperty(name);}
+    if(state.marker.parentNode)state.marker.replaceWith(host);else if(state.header.parentNode)state.header.after(host);
+    host.removeAttribute('data-rcs-header-search');roomSearchHeaders.delete(host);
+  }
+  function syncRoomSearchHeader(container,host){
+    const header=query(selectors.header,container);if(!header?.isConnected||header===host||host.contains(header))return false;
+    if(getComputedStyle(header).display==='contents')return false;
+    const root=header.shadowRoot||header;let state=roomSearchHeaders.get(host);
+    if(state&&(state.header!==header||state.root!==root)){releaseRoomSearchHeader(host);state=null;}
+    if(!state){
+      releaseSearchLayer(host);
+      const marker=document.createComment('room-search-return');header.after(marker);
+      state={header,root,marker,children:new Map(),styles:[]};
+      const set=(name,value)=>{state.styles.push([name,header.style.getPropertyValue(name),header.style.getPropertyPriority(name),value,'important']);header.style.setProperty(name,value,'important');};
+      const computed=getComputedStyle(header);if(!computed.position||computed.position==='static')set('position','relative');
+      if(!(Number(computed.zIndex)>=2))set('z-index','2');
+      if(computed.overflowX!=='visible')set('overflow-x','visible');
+      if(computed.overflowY!=='visible')set('overflow-y','visible');
+      roomSearchHeaders.set(host,state);
+    }
+    for(const child of root.children){
+      if(child===host||['STYLE','LINK','SCRIPT'].includes(child.tagName))continue;
+      let saved=state.children.get(child);
+      if(!saved){saved={visibility:child.style.getPropertyValue('visibility'),priority:child.style.getPropertyPriority('visibility'),inert:child.getAttribute('inert'),aria:child.getAttribute('aria-hidden')};state.children.set(child,saved);}
+      // Native rerenders can replace children or update an existing child's
+      // attributes. Preserve the latest native values before hiding it again.
+      if(child.style.getPropertyValue('visibility')!=='hidden'||child.style.getPropertyPriority('visibility')!=='important'){
+        saved.visibility=child.style.getPropertyValue('visibility');saved.priority=child.style.getPropertyPriority('visibility');child.style.setProperty('visibility','hidden','important');
+      }
+      if(child.getAttribute('inert')!==''){saved.inert=child.getAttribute('inert');child.setAttribute('inert','');}
+      if(child.getAttribute('aria-hidden')!=='true'){saved.aria=child.getAttribute('aria-hidden');child.setAttribute('aria-hidden','true');}
+    }
+    host.setAttribute('data-rcs-header-search','');if(host.parentNode!==root)root.append(host);return true;
+  }
   function scrollContainer(room) {
     const candidates = queryAll(selectors.scroller + ', [class*="scroll"]', room);
     for (const candidate of candidates) {
@@ -193,5 +238,5 @@
     }
     return null;
   }
-  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, chatListMetrics, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, scrollContainer});
+  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, chatListMetrics, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, syncRoomSearchHeader, releaseRoomSearchHeader, scrollContainer});
 })();
