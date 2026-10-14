@@ -175,7 +175,7 @@ test('operator commands insert query tokens and sender values use main avatar ro
   const p=await setup(t);p.control.input.focus();p.type('coffee fr');assert.equal(p.control.suggestions.hidden,true);
   p.type('coffee from');assert.equal(p.control.suggestions.hidden,false);assert.match(p.find('[role="option"]').textContent,/from:.*From a person/);assert.ok(p.find('[role="option"] svg'));const calls=p.requests.length,queries=p.searches.length;await p.tick(180);assert.equal(p.searches.length,queries,'operator command completion must not scan saved messages');
   await p.key('Enter');assert.equal(p.control.input.value,'coffee from:');assert.equal(p.control.suggestions.hidden,true);assert.ok(p.find('.sender-result .avatar'));assert.match(p.control.status.textContent,/Choose a sender/);
-  p.cache.set('space',{id:'space',name:'Coffee Person',type:'direct'});p.control.senderChoicesCache=null;p.type('coffee from:Co');assert.match(p.find('.sender-result').textContent,/Coffee Person/);
+  p.cache.set('space',{id:'space',name:'Coffee Person',type:'direct'});p.control.senderChoicesCache=null;p.type('coffee from:Co');await p.tick(180);assert.match(p.find('.sender-result').textContent,/Coffee Person/);
   await p.key('ArrowDown');assert.ok(p.find('.sender-result.keyboard-focus'));await p.key('Enter');assert.equal(p.control.input.value,'coffee');assert.equal(p.control.queryValue(),'from:"Coffee Person" coffee');assert.equal(p.requests.length,calls);
   for(const query of ['has','has:','before','before:','after','after:']){p.type(query);assert.equal(p.control.suggestions.hidden,true);assert.equal(p.control.valuePicker(),null);}
   await p.search('alex');await p.click('[data-scope="people"]');p.type('from');assert.equal(p.control.scope,'people');assert.equal(p.control.suggestions.hidden,false);assert.equal(p.requests.filter(item=>item.method==='history').length,0);
@@ -242,7 +242,7 @@ test('people previews omit missing or older messages and update from existing sa
   await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'latest-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:at,content:{body:'The latest\nmessage'}}]});p.emit({owner:'@t2_me:reddit.com',changed:true,roomIds:['alex']});await p.tick(750);assert.equal(p.find('[data-key="chat:alex"] .row-snippet').textContent,'You: The latest message');
   p.cache.set('alex',{...p.cache.get('alex'),accountUnavailable:true,historicalName:true});c.render();assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.find('[data-key="chat:alex"] .row-meta').textContent,'Unavailable');assert.match(p.find('[data-key="chat:alex"] .row-meta').title,/Unavailable account/);
   c.summaries.set('alex',{roomId:'alex',text:'   ',timestamp:new p.w.Date(at).toISOString()});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.requests.length,calls);
-  await p.click('[data-scope="messages"]');p.type('from:');assert.ok(c.shadow.querySelector('.sender-result .row-title'),'sender choices reuse the People row renderer');
+  await p.click('[data-scope="messages"]');p.type('from:');await p.tick(180);assert.ok(c.shadow.querySelector('.sender-result .row-title'),'sender choices reuse the People row renderer');
 });
 
  test('extension popup explains incomplete saved history and shows cache statistics outside injected chat UI',async t=>{
@@ -355,7 +355,7 @@ test('arrow keys move selection from clicked result buttons without native conta
 });
 
 test('sender suggestions dismiss outside the field and reopen on focus without dropping draft or selected filters',async t=>{
-  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee from:me ');p.type('coffee from:al');assert.ok(c.shadow.querySelector('.global-sender-result'));
+  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee from:me ');p.type('coffee from:al');await p.tick(180);assert.ok(c.shadow.querySelector('.global-sender-result'));
   p.fixture.room.dispatchEvent(new p.w.Event('pointerdown',{bubbles:true,composed:true}));assert.equal(c.panel.hidden,true);assert.equal(c.input.value,'coffee from:al');assert.equal(c.queryState.filters.length,1);
   c.sync();assert.equal(c.panel.hidden,true);c.input.click();await settle();assert.equal(c.panel.hidden,false);assert.ok(c.shadow.querySelector('.global-sender-result'));
 });
@@ -633,4 +633,18 @@ test('image growth commits track height before restoring a bottom viewport and r
   current=c.items.find(item=>item.key===anchor.key);c.results.scrollTop=current.offset;c.renderedWindow='';c.renderWindow();const beforeBelow=scroll;
   const below=c.items.find(item=>item.kind==='message' && item.offset>=scroll+180);assert.ok(below);await decode(below);assert.equal(scroll,beforeBelow,'an image below the viewport does not pull the viewport down');
   assert.equal(p.searches.length,searches);assert.equal(p.requests.length,requests);
+});
+
+test('typing does not scan people or rebuild results until debounce, even during native capture and resize work',async t=>{
+  const p=await setup(t,{large:true}),c=p.control;await p.search('coffee');const row=p.find('.message-open'),searches=p.searches.length,people=c.people.bind(c);let scans=0;
+  c.people=(...args)=>{scans++;return people(...args);};
+  for(const query of ['c','co','cof','coff','coffe']){p.type(query);assert.equal(c.input.value,query);p.emit({owner:c.owner,statusOnly:true,importing:true});p.emit({owner:c.owner,changed:true});c.updateLayout(true);c.render();await p.tick(30);}
+  assert.equal(scans,0);assert.equal(p.searches.length,searches);assert.equal(c.results.querySelector('.message-open'),row);assert.equal(c.results.getAttribute('aria-busy'),'true');
+  await p.tick(179-30);assert.equal(scans,0);await p.tick(1);assert.ok(scans>0);assert.equal(p.searches.length,searches+1);assert.equal(p.searches.at(-1).query,'coffe');assert.equal(c.queryPending,false);
+});
+
+test('a saved query completing while the user types leaves the input and result DOM alone until debounce',async t=>{
+  const p=await setup(t,{deferSearch:true}),c=p.control;await p.search('coffee');const people=c.people.bind(c);let scans=0;c.people=(...args)=>{scans++;return people(...args);};
+  p.type('unmatched-word');const children=[...c.results.children];p.pending.shift()();await settle();assert.equal(scans,0);assert.equal(c.input.value,'unmatched-word');assert.deepEqual([...c.results.children],children);
+  await p.tick(180);assert.equal(p.searches.at(-1).query,'unmatched-word');p.pending.shift()();await settle();assert.equal(c.savedTotal,0);assert.match(p.find('.empty-state').textContent,/No messages match/);
 });

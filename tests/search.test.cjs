@@ -63,12 +63,12 @@ test('list search filters usernames rather than previews; keyboard selection ope
   const dom=environment();const W=dom.window;const api=W.ChatFixture.build(W.document.body);W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
   const control=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav).shadowRoot;
   const input=control.querySelector('input');
-  input.value='coffee';input.dispatchEvent(new W.Event('input'));assert.equal(control.querySelectorAll('.result').length,0);
-  input.value='alex';input.dispatchEvent(new W.Event('input'));assert.equal(control.querySelectorAll('.result').length,2);
+  input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(control.querySelectorAll('.result').length,0);
+  input.value='alex';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(control.querySelectorAll('.result').length,2);
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
   assert.equal(control.querySelector('.result.active .name').textContent,'alex_morgan');
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));assert.equal(api.active.id,'alex');
-  input.value='jules';input.dispatchEvent(new W.Event('input'));control.querySelector('.result').click();await tick();
+  input.value='jules';input.dispatchEvent(new W.Event('input'));await tick(170);control.querySelector('.result').click();await tick();
   assert.equal(api.active.id,'jules');assert.equal(control.querySelector('.panel').hidden,true);
   assert.equal(W.RCSAdapter.queryAll('[data-rcs-ui="list"]',api.nav).length,1);
   dom.window.close();
@@ -78,13 +78,13 @@ test('message search finds and jumps to matches, clears, and resets when a reuse
   const trigger=W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button');trigger.click();
   const host=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room);const control=host.shadowRoot;const input=control.querySelector('input');
   assert.equal(host.parentElement.localName,'main');assert.equal(host.hidden,false);
-  input.value='coffee';input.dispatchEvent(new W.Event('input'));assert.equal(control.querySelectorAll('.result').length,2);assert.ok(control.querySelector('mark'));
+  input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(control.querySelectorAll('.result').length,2);assert.ok(control.querySelector('mark'));
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}));assert.equal(control.querySelector('.count').textContent,'2/2');
   assert.equal(W.RCSAdapter.messages(api.room)[2].element.dataset.scrolled,undefined);assert.equal(control.querySelector('.panel').hidden,false);
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
   assert.equal(W.RCSAdapter.messages(api.room)[2].element.dataset.scrolled,'true');
   control.querySelector('[aria-label="Clear search"]').click();assert.equal(input.value,'');assert.equal(control.querySelector('.panel').hidden,true);
-  input.value='coffee';input.dispatchEvent(new W.Event('input'));api.select('jules');await tick();
+  input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);api.select('jules');await tick();
   const next=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;
   assert.equal(next.querySelector('input').value,'');
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();
@@ -95,9 +95,9 @@ test('messages that unload from a virtual timeline remain searchable without ret
   const dom=environment();const W=dom.window;const api=W.ChatFixture.build(W.document.body);W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
   const old=W.RCSAdapter.messages(api.room)[2];old.element.remove();await tick();
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();
-  const control=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;const input=control.querySelector('input');input.value='grab';input.dispatchEvent(new W.Event('input'));
+  const control=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;const input=control.querySelector('input');input.value='grab';input.dispatchEvent(new W.Event('input'));await tick(170);
   assert.equal(control.querySelectorAll('.result').length,1);control.querySelector('.result').click();assert.match(control.querySelector('[role="status"]').textContent,/connected/);
-  api.appendMessage('alex_morgan','A new coffee message','new-live-id');await tick();input.value='coffee';input.dispatchEvent(new W.Event('input'));assert.equal(control.querySelectorAll('.result').length,3);
+  api.appendMessage('alex_morgan','A new coffee message','new-live-id');await tick();input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(control.querySelectorAll('.result').length,3);
   dom.window.close();
 });
 test('room snippets fit narrow results around a deep URL match and retain nodes through unrelated live activity',async()=>{
@@ -108,7 +108,7 @@ test('room snippets fit narrow results around a deep URL match and retain nodes 
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();
   const control=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;
   const results=control.querySelector('.results');results.getBoundingClientRect=()=>({width:300});
-  const input=control.querySelector('input');input.value='MATCHPOINT';input.dispatchEvent(new W.Event('input'));
+  const input=control.querySelector('input');input.value='MATCHPOINT';input.dispatchEvent(new W.Event('input'));await tick(170);
   const preview=control.querySelector('.preview'),mark=preview.querySelector('mark');
   assert.equal(mark.textContent,'MATCHPOINT');assert.ok(preview.textContent.length<=65);assert.ok(preview.textContent.startsWith('…'));
   api.appendMessage('alex_morgan','Unrelated live message','unrelated');await tick();
@@ -118,7 +118,7 @@ test('room snippets fit narrow results around a deep URL match and retain nodes 
 test('untrusted message text renders as text and never becomes HTML',async()=>{
   const dom=environment();const W=dom.window;const api=W.ChatFixture.build(W.document.body);api.appendMessage('alex_morgan','<img src=x onerror=alert(1)> coffee','xss');W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();
-  const control=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;const input=control.querySelector('input');input.value='onerror';input.dispatchEvent(new W.Event('input'));
+  const control=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;const input=control.querySelector('input');input.value='onerror';input.dispatchEvent(new W.Event('input'));await tick(170);
   assert.equal(control.querySelectorAll('.result img').length,0);assert.match(control.querySelector('.preview').textContent,/<img/);dom.window.close();
 });
 test('floating chat inside an anonymous shell works, minimized search restores and focuses the list',async()=>{
@@ -156,9 +156,9 @@ test('opaque server sender IDs do not replace an already known native author nam
   index.upsert('room',[{id:'known',text:'coffee',author:'@t2_alex:reddit.com',sender:'@t2_alex:reddit.com',avatar:''}],{authoritative:true});
   const hit=index.search('room','coffee')[0];assert.equal(hit.author,'alex_morgan');assert.equal(hit.avatar,'https://example.com/avatar.png');
 });
-test('arrow keys within focused result rows change selection and keep the menu open until Enter',t=>{
+test('arrow keys within focused result rows change selection and keep the menu open until Enter',async t=>{
   const dom=environment();t.after(()=>dom.window.close());const W=dom.window,api=W.ChatFixture.build(W.document.body);W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
-  W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));
+  W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));const first=root.querySelector('.result.active');first.focus();first.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
   assert.equal(root.querySelector('.count').textContent,'2/2');assert.equal(root.activeElement,root.querySelector('.result.active'));assert.equal(root.querySelector('.panel').hidden,false);assert.equal(W.RCSAdapter.messages(api.room).some(m=>m.element.dataset.scrolled),false);
   root.activeElement.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));assert.equal(root.querySelector('.panel').hidden,true);assert.equal(W.RCSAdapter.messages(api.room).some(m=>m.element.dataset.scrolled),true);

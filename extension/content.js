@@ -164,12 +164,12 @@
       const label = kind === 'list' ? 'Search usernames' : 'Search messages';
       this.input.placeholder = label; this.input.setAttribute('aria-label', label);
       this.input.setAttribute('aria-controls', 'rcs-results'); this.input.setAttribute('aria-expanded', 'false');
-      this.clear = icon('close', 'Clear search', () => { this.input.value = '';if(this.kind==='messages' && !this.dates?.from && !this.dates?.to)this.cancelLoad(); this.render();if(this.isGlobal)this.ensureData();this.input.focus(); }); this.clear.hidden = true;
+      this.clear = icon('close', 'Clear search', () => { this.cancelInput();this.input.value = '';if(this.kind==='messages' && !this.dates?.from && !this.dates?.to)this.cancelLoad(); this.render();if(this.isGlobal)this.ensureData();this.input.focus(); }); this.clear.hidden = true;
       field.append(searchIcon, this.input, this.clear); this.bar.append(field);
       if (kind === 'messages' || kind === 'list') {
         this.dates={from:'',to:''};
         this.datePicker=new RCSDatePicker({
-          onChange:(dates,label)=>{this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
+          onChange:(dates,label)=>{this.cancelInput();this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
           onClose:restoreFocus=>{this.dateToggle.setAttribute('aria-expanded','false');this.render();if(restoreFocus)this.dateToggle.focus({preventScroll:true});}
         });
         this.dateToggle=icon('calendar','Filter by date',()=>{
@@ -186,7 +186,7 @@
       this.panel = node('section', 'panel'); this.panel.setAttribute('aria-label', `${label} results`);
       const meta = node('div', 'meta'); this.status = node('span'); this.status.setAttribute('role', 'status'); this.status.setAttribute('aria-live','polite'); meta.append(this.status);
       this.load = node('button', 'load', 'Refresh'); this.load.type = 'button';
-      this.load.addEventListener('click', () => this.loading ? this.cancelLoad(true) : this.ensureData(true));if(this.dateChip)meta.append(this.dateChip);meta.append(this.load);
+      this.load.addEventListener('click', () => {this.cancelInput();this.loading ? this.cancelLoad(true) : this.ensureData(true);});if(this.dateChip)meta.append(this.dateChip);meta.append(this.load);
       if (kind === 'list') this.panel.classList.add('conversation-panel');
       else this.panel.classList.add('message-panel');
       this.results = node('div', 'results'); this.results.id = 'rcs-results';
@@ -206,7 +206,7 @@
           this.toggle.hidden = true; this.host.hidden = true;
         }
       }
-      this.input.addEventListener('input', () => { this.active = -1;if(this.kind==='list')this.browseOpen=true;else if(!this.input.value.trim() && !this.dates?.from && !this.dates?.to)this.cancelLoad();this.render();if(this.kind==='messages' || this.isGlobal)this.ensureData(); });
+      this.input.addEventListener('input', () => {this.active=-1;if(this.kind==='messages'){this.queueInput();return;}this.browseOpen=true;this.render();if(this.isGlobal)this.ensureData();});
       this.input.addEventListener('focus', () => this.showResults());
       this.input.addEventListener('click', () => this.showResults());
       if(globalThis.IntersectionObserver)this.avatarObserver=new IntersectionObserver(entries=>{
@@ -222,6 +222,7 @@
         }else if(this.isGlobal && this.savedHasMore && !this.savedLoading && this.results.scrollTop+this.results.clientHeight>=this.results.scrollHeight-160)this.querySaved(true);
       });
       shadow.addEventListener('keydown', event => {
+        if(event.target===this.input && this.inputPending && ['ArrowUp','ArrowDown','Enter'].includes(event.key))this.flushInput();
         if (event.key === 'Escape') {
           event.preventDefault();event.stopPropagation();
           if(this.datePicker?.open)this.datePicker.close();
@@ -248,6 +249,14 @@
       this.sync();
       if (kind === 'list') this.ensureData(false,true);
     }
+    cancelInput(){clearTimeout(this.inputTimer);this.inputTimer=null;this.inputPending=false;this.results?.setAttribute('aria-busy','false');}
+    queueInput(){
+      this.cancelInput();this.clear.hidden=!this.input.value.trim();
+      if(!this.input.value.trim() && !this.dates?.from && !this.dates?.to){this.cancelLoad();this.render();return;}
+      this.inputPending=true;this.results.setAttribute('aria-busy','true');this.panel.hidden=Boolean(this.datePicker?.open);this.input.setAttribute('aria-expanded','true');
+      this.inputTimer=setTimeout(()=>{if(this.host.isConnected)this.flushInput();else this.cancelInput();},150);
+    }
+    flushInput(){this.cancelInput();this.render();this.ensureData();}
     captureImageViewport(){
       this.imageViewport=null;if(!this.results?.isConnected || this.panel.hidden)return;
       const top=this.results.getBoundingClientRect().top,element=[...this.results.querySelectorAll('.result')].find(row=>!row.hidden && row.getBoundingClientRect().bottom>top);
@@ -270,7 +279,7 @@
       if(!this.isGlobal)this.datePicker.close(false);
       this.render();this.ensureData();this.input.focus();
     }
-    resetSaved(){this.imageViewport=null;this.mediaView?.clear();
+    resetSaved(){this.cancelInput();this.imageViewport=null;this.mediaView?.clear();
       this.savedGeneration++;clearTimeout(this.savedTimer);this.savedDirty=false;this.savedKey='';this.savedHits=[];this.savedTotal=0;this.savedHasMore=false;this.savedLoading=false;this.savedStats=undefined;this.savedImporting=false;this.savedSavingError='';this.roomSavedKey='';this.complete=false;this.dateCompleteKey='';this.active=-1;this.hits=[];this.clearRows();
     }
     savedChanged(value){
@@ -338,7 +347,7 @@
       // All chats is the selected sidebar view, rather than a transient menu.
       // Keep it mounted when focus moves to the room or a result is opened.
       if(this.isGlobal)return;
-      this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
+      this.cancelInput();this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
     }
     close(focus = true) { this.cancelLoad(); this.input.value = '';if(this.datePicker){this.datePicker.element.hidden=true;this.datePicker.applied={mode:'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
     updateLayout() {
@@ -380,6 +389,7 @@
       if ((this.input.value.trim() || this.dates?.from || this.dates?.to) && !this.panel.hidden) this.render();
     }
     render() {
+      if(this.inputPending)return;
       const query = this.input.value.trim(); this.clear.hidden = !query;this.tools?.sync?.();
       const dates=this.dates || {from:'',to:''},bounds=C.dateBounds(dates),searchKey=JSON.stringify([query,dates]);
       if(searchKey!==this.lastQuery){this.renderLimit=50;this.lastQuery=searchKey;}
@@ -389,6 +399,7 @@
         const available = this.container.getBoundingClientRect().bottom - this.host.getBoundingClientRect().bottom;
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
+      if(this.kind==='messages' && !query && !bounds.active){this.hits=[];this.active=-1;this.panel.hidden=true;this.input.setAttribute('aria-expanded','false');if(this.count)this.count.textContent='';if(this.prev)this.prev.disabled=this.next.disabled=true;return;}
       this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
         const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
         if(this.queryOptions?.sort==='oldest')return -newest;
@@ -533,12 +544,14 @@
       current.element.scrollIntoView({block:'center',behavior:'instant'});
     }
     cancelLoad(showNotice=false) {
+      this.cancelInput();
       if(showNotice)this.stoppedByUser=true;
       this.savedGeneration++;clearTimeout(this.savedTimer);this.savedLoading=false;this.savedDirty=false;this.savedKey='';
       this.dataTask?.cancel();this.dataTask=null;this.loading=false;this.load.textContent='Refresh';
       if(showNotice) {this.notice='Search stopped. Results may be incomplete.';this.render();}
     }
     async ensureData(force=false,reconcile=false) {
+      if(this.inputPending)return;
       if(this.tools?.suggestions?.hidden===false || this.tools?.valuePicker?.() || C.parseQuery(this.input.value).invalid)return;
       if(this.isGlobal){if(force)this.savedKey='';this.querySaved(false,force,force);return;}
       if(this.kind==='messages'){const generation=this.savedGeneration;await this.readSavedRoom();if(generation!==this.savedGeneration)return;}
