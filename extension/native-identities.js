@@ -6,9 +6,12 @@
   let contextProvider=null,identityClient=null,pending=false;
   let eventBinder=null;const boundEventHosts=new WeakSet();
   const placeholder=value=>typeof value==='string' && ['[deleted]','Someone'].includes(value.trim());
-  function currentName(id,room=false) {
+  function currentPerson(id,room=false) {
     return identityClient?.getUserId?.()===owner ? (room ? rooms : people).get(id) : undefined;
   }
+  const currentName=(id,room=false)=>currentPerson(id,room)?.name;
+  function safeAvatar(value){try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && !url.hash && ![...url.searchParams.keys()].some(key=>/token|auth|signature|credential|password|(?:^|[_-])key(?:$|[_-])/i.test(key))?url.href:'';}catch{return '';}}
+
   function bindHost(host) {
     if(host.tagName==='RS-TIMELINE-EVENT' && eventBinder) {
       try{eventBinder(host);}catch{ /* Keep Reddit usable if its event model changes. */ }
@@ -24,9 +27,13 @@
         const recovered=currentName(args[0]);if(recovered)return recovered;
         const value=original.apply(this,args);return pending && placeholder(value) ? '…' : value;
       }) || installed;
+      installed=hook(users,'getAvatar',function(original,args){
+        const person=currentPerson(args[0]);
+        return person?.avatar ? person.avatarView : original.apply(this,args);
+      }) || installed;
       installed=hook(users,'getRedditUser',function(original,args){
-        const profile=original.apply(this,args),recovered=currentName(args[0]);
-        return profile && (recovered || pending && placeholder(profile.displayName)) ? {...profile,displayName:recovered || '…'} : profile;
+        const profile=original.apply(this,args),person=currentPerson(args[0]);
+        return profile && (person || pending && placeholder(profile.displayName)) ? {...profile,displayName:person?.name || '…',...(person?.avatar?{avatar:{...profile.avatar,src:person.avatar,isSnoovatar:false,snoovatarSrc:undefined},snoovatarIcon:undefined}:{})} : profile;
       }) || installed;
     }
     installed=hook(host.roomController,'getDirectRoomUsername',function(original,args){
@@ -36,6 +43,11 @@
     if(host.tagName==='RS-USERNAME')installed=hook(host,'render',function(original,args){
       const recovered=currentName(this.getAttribute('user-id')) || (pending && placeholder(this.username) ? '…' : '');
       return recovered ? original.apply(new Proxy(this,{get:(target,key)=>key==='username' ? recovered : Reflect.get(target,key,target)}),args) : original.apply(this,args);
+    }) || installed;
+    if(host.tagName==='RS-USER-AVATAR')installed=hook(host,'render',function(original,args){
+      const avatar=currentPerson(this.getAttribute('user-id'))?.avatar;
+      // Supply presentation inputs only; preserve native membership/profile flags.
+      return avatar && !this.isCommunityAgent ? original.apply(new Proxy(this,{get:(target,key)=>key==='icon'?avatar:key==='snoovatar'?null:Reflect.get(target,key,target)}),args) : original.apply(this,args);
     }) || installed;
     if(typeof host.requestUpdate==='function')hostsToRefresh.add(host);
     return installed;
@@ -81,7 +93,7 @@
     if(owner && owner!==current)clear();
     owner=current;identityClient=ctx.client;
     const valid=id=>typeof id==='string' && /^@[^:\s]+:[^\s]+$/.test(id) && id!==current;
-    people=new Map((Array.isArray(request.people)?request.people:[]).filter(p=>valid(p?.id) && /^[A-Za-z0-9_-]{3,20}$/.test(p.name || '')).map(p=>[p.id,p.name]));
+    people=new Map((Array.isArray(request.people)?request.people:[]).filter(p=>valid(p?.id) && /^[A-Za-z0-9_-]{3,20}$/.test(p.name || '')).map(p=>{const avatar=safeAvatar(p.avatar),previous=people.get(p.id);return [p.id,previous?.name===p.name && previous.avatar===avatar?previous:{name:p.name,avatar,avatarView:{src:avatar,isSnoovatar:false}}];}));
     rooms=new Map((Array.isArray(request.rooms)?request.rooms:[]).filter(r=>typeof r?.id==='string' && r.id.length<=1000 && people.has(r.person)).map(r=>[r.id,people.get(r.person)]));
     const next=JSON.stringify([[...people],[...rooms]]),changed=pending!==Boolean(request.restoring) || signature!==next;signature=next;pending=Boolean(request.restoring);
     const hosts=ctx.all('*').filter(e=>e.tagName.startsWith('RS-'));

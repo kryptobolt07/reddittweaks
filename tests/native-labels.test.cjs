@@ -12,7 +12,7 @@ function setup(t,{compact=false}={}) {
   const row=A.query('rs-rooms-nav-room',api.nav),users=row.users,getProfile=users.getRedditUserById;
   users.getRedditUserById=async id=>id==='t2_alex'?{isDeleted:true,name:'[deleted]'}:getProfile(id);
   const client=api.app.querySelector('rs-matrix-client').client,getRooms=client.getRoomList;
-  client.getRoomList=async options=>{const data=await getRooms(options);const alex=data.rooms.find(room=>room.room_id==='alex');if(alex)alex.state.push({type:'m.room.member',state_key:'@t2_alex:reddit.com',sender:'@t2_alex:reddit.com',origin_server_ts:123,content:{displayname:'Odd-Ratio-3098',membership:'join'}});return data;};
+  client.getRoomList=async options=>{const data=await getRooms(options);const alex=data.rooms.find(room=>room.room_id==='alex');if(alex)alex.state.push({type:'m.room.member',state_key:'@t2_alex:reddit.com',sender:'@t2_alex:reddit.com',origin_server_ts:123,content:{displayname:'Odd-Ratio-3098',membership:'join',avatar_url:'https://example.invalid/retained-avatar.png'}});return data;};
   A.query('.room-name',row).textContent='[deleted]';A.query('a',row).setAttribute('aria-label','Direct chat with [deleted]');
   A.query('header .name',api.room).textContent='[deleted]';
   for(const message of A.messages(api.room))if(message.element.event.getSender()==='@t2_alex:reddit.com')A.query('.user-name',message.element).textContent='[deleted]';
@@ -116,4 +116,37 @@ test('native presentation hooks drive subsequent renders while preserving profil
   assert.equal(username.render(),'[deleted]','another account never inherits historical names');client.getUserId=getOwner;
   W.RCSNativeLabels.clear();assert.equal(users.getRedditUser,original);assert.equal(username.render,originalRender);
   assert.ok(updates>after,'clearing asks native hosts to render their original names');
+});
+
+test('retained avatars drive native room icons and profile presentation without modifying original objects or fetching profiles',async t=>{
+  for(const compact of [false,true]){
+    const {W,api,A,client,row}=setup(t,{compact}),users=row.users,originalAvatar={src:'https://example.invalid/deleted.png',isNSFW:true},profile={displayName:'[deleted]',isDeleted:true,avatar:originalAvatar,snoovatarIcon:{src:'https://example.invalid/deleted-snoovatar.png'}};
+    let avatarReads=0;users.getAvatar=()=>{avatarReads++;return originalAvatar;};users.getRedditUser=()=>profile;
+    const originalGetAvatar=users.getAvatar,originalGetProfile=users.getRedditUser;
+    const roomIcon=W.document.createElement('rs-room-icon');roomIcon.users=users;row.shadowRoot.append(roomIcon);let updates=0;roomIcon.requestUpdate=()=>updates++;
+    const records=await W.RCSData.request('conversations').promise,directory=new Map(records.map(record=>[record.id,record])),index=new W.RCSCore.MessageIndex(Infinity),calls=api.calls.length;
+    assert.equal(directory.get('alex').avatar,'https://example.invalid/retained-avatar.png');await W.RCSNativeLabels.update(directory,index);
+    assert.equal(users.getAvatar('@t2_alex:reddit.com').src,directory.get('alex').avatar);assert.equal(avatarReads,0,'known retained avatars bypass native cache misses');assert.equal(users.getAvatar('@t2_alex:reddit.com'),users.getAvatar('@t2_alex:reddit.com'),'native renders reuse the same avatar model');
+    const displayed=users.getRedditUser('@t2_alex:reddit.com');assert.equal(displayed.avatar.src,directory.get('alex').avatar);assert.equal(displayed.isDeleted,true);assert.equal(displayed.avatar.isNSFW,true);assert.equal(displayed.snoovatarIcon,undefined);assert.equal(profile.avatar,originalAvatar);assert.equal(profile.snoovatarIcon.src,'https://example.invalid/deleted-snoovatar.png');
+    assert.equal(users.getAvatar('@t2_jules:reddit.com'),originalAvatar);assert.equal(users.getRedditUser('@t2_jules:reddit.com'),profile);
+    const before=updates;directory.get('alex').avatar='https://example.invalid/new-retained-avatar.png';for(const person of directory.get('alex').identities)if(person.id==='@t2_alex:reddit.com')person.avatar=directory.get('alex').avatar;
+    await W.RCSNativeLabels.update(directory,index);assert.equal(users.getAvatar('@t2_alex:reddit.com').src,directory.get('alex').avatar);assert.ok(updates>before,'an avatar-only change repaints native hosts');
+    await W.RCSNativeLabels.update(directory,index);const unchanged=updates;await W.RCSNativeLabels.update(directory,index);assert.equal(updates,unchanged);assert.equal(api.calls.length,calls);
+    const getOwner=client.getUserId;client.getUserId=()=>'@t2_other:reddit.com';assert.equal(users.getAvatar('@t2_alex:reddit.com'),originalAvatar);client.getUserId=getOwner;
+    W.RCSNativeLabels.clear();assert.equal(users.getAvatar,originalGetAvatar);assert.equal(users.getRedditUser,originalGetProfile);
+  }
+});
+
+test('native user avatars receive retained images before first render and restore on recycling, account clear and unsafe URLs',async t=>{
+  const {W,api,A,client,row}=setup(t),records=await W.RCSData.request('conversations').promise,directory=new Map(records.map(record=>[record.id,record])),index=new W.RCSCore.MessageIndex(Infinity);
+  await W.RCSNativeLabels.update(directory,index);
+  W.customElements.define('rs-user-avatar',class extends W.HTMLElement{
+    constructor(){super();this.icon='https://example.invalid/placeholder.png';this.snoovatar='native-snoovatar';this.isNSFW=true;}
+    connectedCallback(){this.first=this.render();}
+    render(){return {icon:this.icon,snoovatar:this.snoovatar,isNSFW:this.isNSFW};}
+  });
+  const avatars=[];for(const scope of [row.shadowRoot,A.query('header',api.room),A.messages(api.room)[0].element.shadowRoot]){const avatar=W.document.createElement('rs-user-avatar');avatar.setAttribute('user-id','@t2_alex:reddit.com');avatar.setAttribute('room-id','alex');scope.append(avatar);avatars.push(avatar);assert.equal(avatar.first.icon,'https://example.invalid/retained-avatar.png');assert.equal(avatar.first.snoovatar,null);assert.equal(avatar.first.isNSFW,true);assert.equal(avatar.icon,'https://example.invalid/placeholder.png');}
+  const avatar=avatars[0];avatar.setAttribute('user-id','@t2_jules:reddit.com');assert.equal(avatar.render().icon,avatar.icon);avatar.setAttribute('user-id','@t2_alex:reddit.com');avatar.isCommunityAgent=true;assert.equal(avatar.render().icon,avatar.icon);avatar.isCommunityAgent=false;
+  for(const unsafe of ['javascript:alert(1)','https://example.invalid/avatar?access_token=secret','https://user:password@example.invalid/avatar']){W.RCSNativeIdentities.update({client,all:()=>avatars},{people:[{id:'@t2_alex:reddit.com',name:'Odd-Ratio-3098',avatar:unsafe}]});assert.equal(avatar.render().icon,avatar.icon);}
+  await W.RCSNativeLabels.update(directory,index);assert.equal(avatar.render().icon,'https://example.invalid/retained-avatar.png');W.RCSNativeLabels.clear();for(const item of avatars)assert.equal(item.render().icon,item.icon);
 });
