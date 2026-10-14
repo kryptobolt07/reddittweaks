@@ -1,11 +1,13 @@
-// Enter dates through the same editable fields as a person using the picker.
+// Drive the restored calendar through its month/year/day buttons.
+// Keep the helper name for the existing search integration fixtures.
 function setDateSegments(root,bound,value){
-  const W=root.ownerDocument.defaultView,[year,month,day]=value.split('-');
-  for(const [part,text]of Object.entries({day,month,year})){
-    const input=root.querySelector(`input[data-bound="${bound}"][data-part="${part}"]`);
-    if(!input)throw Error('Missing '+bound+' '+part);
-    input.focus();input.value=text;input.dispatchEvent(new W.Event('input',{bubbles:true}));input.blur();
-  }
+  const [year,month]=value.split('-').map(Number);
+  root.querySelector('.calendar-year').click();
+  const yearOption=root.querySelector(`[data-year="${year}"]`);
+  if(!yearOption)throw Error('Missing calendar year '+year);
+  yearOption.click();root.querySelector('.calendar-month').click();
+  root.querySelector(`[data-month="${month-1}"]`).click();
+  root.querySelector(`[data-date="${value}"]`).click();
 }
-function setDateMode(root,mode){root.querySelector('.date-condition').click();root.querySelector(`[data-mode="${mode}"]`).click();}
+function setDateMode(root,mode){root.querySelector(`[data-mode="${mode}"]`).click();}
 module.exports={setDateSegments,setDateMode};

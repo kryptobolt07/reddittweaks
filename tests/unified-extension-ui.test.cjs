@@ -689,6 +689,6 @@ test('an unavailable group sender is identified without marking the whole group 
   record.authorUnavailable=false;c.render();assert.equal(p.find('[data-key="message:'+record.roomId+':'+record.id+'"]').querySelector('.unavailable-marker'),null);
 });
 
-test('date dropdown Escape stays inside the picker and does not dismiss the global search',async t=>{
-  const p=await setup(t),c=p.control;await p.search('coffee');const searches=p.searches.length;await p.click('[data-control="date"]');const input=c.datePicker.input();input.value='14';input.dispatchEvent(new p.w.Event('input',{bubbles:true}));assert.equal(c.datePicker.view,'suggestions');await p.key('Escape',input);assert.equal(c.datePicker.open,true);assert.equal(c.datePicker.view,'');assert.equal(c.searchDismissed,false);await p.key('Escape',input);assert.equal(c.datePicker.open,false);assert.equal(c.searchDismissed,false);assert.equal(c.input.value,'coffee');assert.equal(p.searches.length,searches);
+test('calendar chooser Escape stays inside the picker and does not dismiss global search',async t=>{
+  const p=await setup(t),c=p.control;await p.search('coffee');const searches=p.searches.length;await p.click('[data-control="date"]');const picker=c.datePicker;picker.element.querySelector('.calendar-month').click();assert.equal(picker.chooser,'month');await p.key('Escape',picker.element.querySelector('.calendar-option'));assert.equal(picker.open,true);assert.equal(picker.chooser,'');assert.equal(c.searchDismissed,false);await p.key('Escape',picker.element.querySelector('.calendar-month'));assert.equal(picker.open,false);assert.equal(c.searchDismissed,false);assert.equal(c.input.value,'coffee');assert.equal(p.searches.length,searches);
 });
