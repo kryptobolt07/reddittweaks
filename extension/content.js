@@ -141,14 +141,14 @@
   }
   class SearchControl {
     constructor(container, kind) {
-      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.9.0'});
+      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.9.1'});
       this.container = container; this.kind = kind; this.room = ''; this.cache = directory; this.active = -1; this.hits = []; this.loading = false;
       this.complete = kind === 'list' && directoryComplete;
       this.rows = new Map();
       this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;this.scope='people';this.savedHits=[];this.savedTotal=0;this.savedGeneration=0;this.savedOwner=undefined;this.savedLoading=false;
       this.mediaView=globalThis.RCSMediaPreview?new RCSMediaPreview.View({onBeforeResize:()=>this.captureImageViewport(),onResize:()=>this.restoreImageViewport()}):null;this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
-      this.host.setAttribute('data-rcs-version','0.9.0');
+      this.host.setAttribute('data-rcs-version','0.9.1');
       const shadow = this.host.attachShadow({mode:'open'});
       const style = node('style', '', css+(globalThis.RCSMediaPreview?.styles || '')); shadow.append(style);
       this.toggle = node('button', 'toggle', 'Search messages'); this.toggle.type = 'button';
@@ -169,6 +169,7 @@
       if (kind === 'messages' || kind === 'list') {
         this.dates={from:'',to:''};
         this.datePicker=new RCSDatePicker({
+          getBounds:()=>{const rect=this.container.getBoundingClientRect();if(!rect.width||!rect.height)return;return {left:rect.left,right:rect.right,top:Math.max(rect.top,this.bar.getBoundingClientRect().bottom,A.query(A.selectors.header,this.container)?.getBoundingClientRect().bottom||rect.top),bottom:rect.bottom};},
           onChange:(dates,label)=>{this.cancelInput();this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
           onClose:restoreFocus=>{this.dateToggle.setAttribute('aria-expanded','false');this.render();if(restoreFocus)this.dateToggle.focus({preventScroll:true});}
         });
@@ -349,7 +350,7 @@
       if(this.isGlobal)return;
       this.cancelInput();this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
     }
-    close(focus = true) { this.cancelLoad(); this.input.value = '';if(this.datePicker){this.datePicker.element.hidden=true;this.datePicker.applied={mode:'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
+    close(focus = true) { this.cancelLoad(); this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
     updateLayout() {
       let compact=false;
       for(let current=this.container;current;current=current.parentElement || current.getRootNode()?.host) {
