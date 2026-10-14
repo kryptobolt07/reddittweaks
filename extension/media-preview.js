@@ -2,11 +2,22 @@
 (() => {
   const label=record=>record.attachmentMime==='image/gif'?'GIF':'Image';
   const make=(tag,className,text)=>{const el=document.createElement(tag);el.className=className;if(text)el.textContent=text;return el;};
+  function sourceURL(value){
+    const safe=globalThis.RCSMessageStore?.previewURL(value);if(!safe)return '';
+    const url=new URL(safe);
+    // Upgrade already-saved native thumbnail references without rereading
+    // history. Arbitrary CDN URLs and native download URLs remain untouched.
+    if(url.origin==='https://matrix.redditspace.com' && /^\/_matrix\/media\/(?:v\d+|r0)\/thumbnail\/[^/]+\/[^/]+$/.test(url.pathname)){
+      for(const [key,size]of [['width',384],['height',256]])if(!(Number(url.searchParams.get(key))>=size))url.searchParams.set(key,String(size));
+      url.searchParams.set('method','scale');
+    }
+    return url.href;
+  }
   class View {
     constructor(){this.images=new Map();}
     render(record,{prefix='',compact=false}={}){
       const root=make('span','media-snippet'+(compact?' compact-media':'')),caption=label(record);
-      const source=globalThis.RCSMessageStore?.previewURL(record.attachmentPreview) || '';
+      const source=sourceURL(record.attachmentPreview);
       const key=JSON.stringify([record.roomId,record.id || record.timestamp,compact,source]);
       let thumb=this.images.get(key);
       if(!thumb){
@@ -23,15 +34,15 @@
     clear(){this.images.clear();}
   }
   const styles=`
-    .media-snippet{display:flex;align-items:center;gap:8px;min-width:0;height:64px;white-space:normal}
-    .media-thumb{position:relative;display:block;flex:0 0 96px;width:96px;height:64px;overflow:hidden;border-radius:6px;background:var(--rcs-soft)}
+    .media-snippet{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;min-height:64px;white-space:normal}
+    .media-thumb{position:relative;display:block;flex:0 0 auto;width:96px;height:64px;overflow:hidden;border-radius:6px;background:var(--rcs-soft)}
     .media-image{display:block;width:100%;height:100%;object-fit:cover}
     .media-placeholder{position:absolute;inset:0;display:grid;place-items:center;color:var(--rcs-muted);font-size:20px}
     .media-description{display:block;min-width:0;font-size:12px;line-height:1.4;color:var(--rcs-muted)}
     .media-prefix{font-weight:400}.media-label{font-weight:400}
-    .compact-media{height:20px;gap:5px}.compact-media .media-thumb{flex-basis:28px;width:28px;height:20px;border-radius:3px}
+    .compact-media{flex-direction:row;align-items:center;height:20px;min-height:20px;gap:5px}.compact-media .media-thumb{flex-basis:28px;width:28px;height:20px;border-radius:3px}
     .compact-media .media-placeholder{font-size:14px}.compact-media .media-description{font-size:11px}
     .media-thumb [hidden]{display:none!important}
   `;
-  globalThis.RCSMediaPreview=Object.freeze({View,label,styles});
+  globalThis.RCSMediaPreview=Object.freeze({View,label,sourceURL,styles});
 })();
