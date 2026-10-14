@@ -264,6 +264,8 @@
       this.savedGeneration++;clearTimeout(this.savedTimer);this.savedDirty=false;this.savedKey='';this.savedHits=[];this.savedTotal=0;this.savedHasMore=false;this.savedLoading=false;this.savedStats=undefined;this.savedImporting=false;this.savedSavingError='';this.roomSavedKey='';this.complete=false;this.dateCompleteKey='';this.active=-1;this.hits=[];this.clearRows();
     }
     savedChanged(value){
+      if(value.contextInvalidated){this.contextInvalidated=true;clearTimeout(this.savedTimer);this.savedLoading=this.savedDirty=this.savedImporting=false;this.notice=value.error;this.render();return;}
+      if(value.statusOnly){if(value.importing!==undefined)this.savedImporting=value.importing;if(this.isGlobal)this.render();return;}
       const ownerChanged=this.savedOwner!==undefined && this.savedOwner!==value.owner;
       this.savedOwner=value.owner;
       if(ownerChanged || value.cleared){
@@ -282,7 +284,7 @@
       else if(this.kind==='messages' && !this.bar.hidden && (!value.roomIds || value.roomIds.includes(this.room)))this.readSavedRoom();
     }
     querySaved(more=false,background=false,retryWrites=false){
-      if(!this.isGlobal || more && (this.savedLoading || !this.savedHasMore))return;
+      if(this.contextInvalidated || !this.isGlobal || more && (this.savedLoading || !this.savedHasMore))return;
       const key=JSON.stringify([this.input.value.trim(),this.dates]);
       if(!more && key===this.savedKey)return;
       clearTimeout(this.savedTimer);
@@ -303,7 +305,7 @@
       },more ? 0 : background && this.savedImporting && !retryWrites ? 500 : 100);
     }
     async readSavedRoom(){
-      if(this.kind!=='messages' || !globalThis.RCSMessages)return;
+      if(this.contextInvalidated || this.kind!=='messages' || !globalThis.RCSMessages)return;
       const room=this.room,generation=this.savedGeneration,key=`${generation}:${room}`;
       if(this.roomSavedKey===key)return this.roomSavedPromise;
       this.roomSavedKey=key;

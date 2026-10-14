@@ -3,18 +3,28 @@
   const subscribers=new Set(),initializations=new Map(),preparing=new Set(),imports=new Map(),importRequests=new Map(),attachments=new Map(),clearedAccounts=new Set(),captureGaps=new Set(),pending=[];
   const dimensionPatches=new Map();let dimensionTimer=null,dimensionsRunning=false;
   const MAX_BATCHES=500,MAX_EVENTS=10000,MAX_BYTES=8*1024*1024;
+  let contextError=null;
   let owner=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
   const runtime=globalThis.chrome?.runtime,memory=!runtime?.sendMessage?new RCSMessageStore.Store({indexedDB:null}):null;
   const notify=value=>{if(owner && value.owner && value.owner!==owner)return;for(const listener of subscribers)try{listener(value);}catch{}};
   function discard(account){for(let i=pending.length-1;i>=0;i--)if(!account || pending[i].batch.owner===account)pending.splice(i,1);for(const [key,item]of dimensionPatches)if(!account || item.owner===account){dimensionPatches.delete(key);item.resolve({changed:false});}}
+  function transportError(error){
+    if(contextError)return contextError;
+    if(!/extension context invalidated/i.test(error?.message || ''))return error;
+    contextError=Error('Extension updated. Refresh this Reddit tab to reconnect.');contextError.code='RCS_CONTEXT_INVALIDATED';
+    discard();preparing.clear();for(const request of importRequests.values())request.cancel?.();importRequests.clear();
+    notify({owner,contextInvalidated:true,error:contextError.message});return contextError;
+  }
   async function context() {
+    if(contextError)throw contextError;
     const value=await RCSData.request('identity-context').promise;
     if(!RCSMessageStore.ownerOK(value?.owner))throw Error('Authenticated Reddit account unavailable');
     if(owner!==value.owner){if(owner){discard(owner);preparing.delete(owner);initializations.delete(owner);}owner=value.owner;readRevision++;writeError=null;if(overflowError?.account!==owner)overflowError=null;notify({owner,accountChanged:true});}
     return owner;
   }
   async function call(action,parameters={}) {
-    if(runtime?.sendMessage){const value=await runtime.sendMessage({scope:'rcs-messages',...parameters,action});if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;}
+    if(contextError)throw contextError;
+    if(runtime?.sendMessage)try{const value=await runtime.sendMessage({scope:'rcs-messages',...parameters,action});if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;}catch(error){throw transportError(error);}
     if(action==='ingest')return memory.ingest(parameters);
     if(action==='image-dimensions')return memory.rememberDimensions(parameters);
     if(action==='summaries')return memory.summaries(parameters.owner,{committed:true});
@@ -27,8 +37,9 @@
     while(pending.length){const item=pending[0],active=await context();if(!pending.includes(item))continue;if(item.batch.owner!==active){pending.splice(pending.indexOf(item),1);continue;}
       let result;item.inFlight=true;try{result=await call('ingest',item.batch);}finally{item.inFlight=false;}const index=pending.indexOf(item);if(index>=0)pending.splice(index,1);writeError=null;if(result.changed!==false)notify({owner:active,changed:true,roomIds:result.roomIds});}
   }
-  function schedule(){if(draining)return queue;draining=true;queue=queue.then(drain).catch(error=>{writeError=error;notify({owner,error:error.message});}).finally(()=>{draining=false;});return queue;}
+  function schedule(){if(contextError)return Promise.reject(contextError);if(draining)return queue;draining=true;notify({owner,statusOnly:true,savingPending:pending.length>0});queue=queue.then(drain).catch(error=>{writeError=error;notify({owner,error:error.message});}).finally(()=>{draining=false;notify({owner,statusOnly:true,savingPending:pending.length>0});});return queue;}
   function enqueue(batch) {
+    if(contextError)return Promise.reject(contextError);
     const events=Array.isArray(batch.events)?batch.events:[],identities=Array.isArray(batch.identities)?batch.identities.slice(0,1000):[],additions=[];
     for(let offset=0;offset<Math.max(1,events.length);offset+=500){const chunk={owner:batch.owner,roomId:batch.roomId,events:events.slice(offset,offset+500).map(event=>event.room_id?event:{...event,room_id:batch.roomId}),identities,coverage:offset+500>=events.length?batch.coverage:undefined};additions.push({batch:chunk,bytes:JSON.stringify(chunk).length*2});}
     const count=items=>items.reduce((sum,item)=>sum+item.batch.events.length,0),size=items=>items.reduce((sum,item)=>sum+item.bytes,0);
@@ -59,7 +70,7 @@
     }
     if(affectsActive)notify({owner,changed:true,cleared:message.cleared,roomIds:message.roomIds});
   });
-  async function flush({barrier=false}={}){await queue;if(pending.length)await schedule();if(writeError)throw writeError;if(overflowError && (!owner || overflowError.account===owner) && !barrier)throw overflowError;}
+  async function flush({barrier=false}={}){if(contextError)throw contextError;await queue;if(pending.length)await schedule();if(writeError)throw writeError;if(overflowError && (!owner || overflowError.account===owner) && !barrier)throw overflowError;}
   document.addEventListener('rcs-message-cache-flush',async event=>{
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     if(!RCSMessageStore.ownerOK(value?.owner) || typeof value.id!=='string' || !value.id || value.id.length>100)return;
@@ -82,8 +93,8 @@
         if(!memory && current()){if(!imports.has(active)){let request;try{request=RCSData.request('cache-native-history',{owner:active,awaitCache:true});importRequests.set(active,request);const result=await request.promise;if(current())imports.set(active,result);}catch(error){if(current()){imports.set(active,{available:false});notify({owner:active,error:error.message});}}finally{if(importRequests.get(active)===request)importRequests.delete(active);}}
           await flush();if(current() && !captureGaps.has(active) && imports.get(active)?.available===true){if(await context()!==active)throw Error('Reddit account changed. Please retry.');if(current())await call('mark-native-import-complete',{owner:active});}}
         return {owner:active};
-      })();initializations.set(active,task);
-      task.then(()=>{if(initializations.get(active)===task){preparing.delete(active);notify({owner:active,changed:true});}},()=>{if(initializations.get(active)===task){preparing.delete(active);initializations.delete(active);}});
+      })();initializations.set(active,task);notify({owner:active,statusOnly:true,importing:true});
+      task.then(()=>{if(initializations.get(active)===task){preparing.delete(active);notify({owner:active,changed:true,importing:false});}},()=>{if(initializations.get(active)===task){preparing.delete(active);initializations.delete(active);notify({owner:active,statusOnly:true,importing:false});}});
     }
     return initializations.get(active);
   }

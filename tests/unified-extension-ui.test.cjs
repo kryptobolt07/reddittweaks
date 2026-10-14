@@ -588,3 +588,22 @@ test('search waits for native header readiness before revealing and restoring a 
   ready=true;c.sync();assert.equal(c.host.hidden,false);assert.equal(c.pendingResumeViewport,null);
   assert.equal(c.host.parentNode,parent);assert.equal(c.host.previousElementSibling,previous);assert.equal(c.results.scrollTop,19);
 });
+
+test('refresh shows local query activity and import progress without extra directory or message reads',async t=>{
+  const p=await setup(t,{deferSearch:true}),c=p.control;await p.click('[data-scope="messages"]');
+  assert.equal(c.refresh.getAttribute('aria-busy'),'true');assert.equal(c.refresh.disabled,true);assert.match(c.refresh.title,/Searching saved/);
+  p.pending.shift()();await settle();const searches=p.searches.length,requests=p.requests.length;
+  p.emit({owner:c.owner,statusOnly:true,importing:true});
+  assert.equal(c.refresh.classList.contains('busy'),true);assert.match(c.status.textContent,/Importing cached messages/);assert.match(c.refresh.title,/Importing/);
+  await p.tick(1000);assert.equal(p.searches.length,searches);assert.equal(p.requests.length,requests,'progress does not build another directory');
+  p.emit({owner:c.owner,statusOnly:true,importing:false});assert.equal(c.refresh.getAttribute('aria-busy'),'false');assert.doesNotMatch(c.status.textContent,/Importing/);
+  c.refresh.click();await settle();assert.equal(p.searches.length,searches+1);assert.equal(c.refresh.getAttribute('aria-busy'),'true');
+  p.pending.shift()();await settle();assert.equal(c.refresh.getAttribute('aria-busy'),'false');assert.equal(p.requests.length,requests);
+});
+
+test('invalidated context preserves visible matches and asks for a page refresh instead of showing perpetual search',async t=>{
+  const p=await setup(t),c=p.control;await p.search('coffee');await p.click('[data-scope="messages"]');const count=c.savedHits.length,searches=p.searches.length;
+  p.emit({contextInvalidated:true,error:'Extension updated. Refresh this Reddit tab to reconnect.'});
+  assert.equal(c.savedHits.length,count);assert.match(c.status.textContent,/Refresh this Reddit tab/);assert.doesNotMatch(c.status.textContent,/Searching/);assert.equal(c.refresh.disabled,true);assert.equal(c.refresh.getAttribute('aria-busy'),'false');
+  p.emit({owner:c.owner,changed:true});await p.tick(2000);c.render();await settle();assert.equal(p.searches.length,searches);assert.equal(c.savedHits.length,count);
+});
