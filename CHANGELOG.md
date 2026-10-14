@@ -1,3 +1,16 @@
+# 0.8.3 design test
+
+- Request 384 × 256 scale previews through Reddit’s existing media conversion helper, using the original image reference when available instead of first enlarging an already-small thumbnail. Prefer the safe converted reference during storage compaction and fall back to another valid reference if conversion or URL validation fails.
+- Upgrade recognized credential-free Reddit Matrix thumbnail URLs at display time, including references already saved by older versions. Preserve the media identifier, avoid reducing existing larger dimensions, and leave arbitrary CDN/download URLs unchanged. No history reload or extra profile/directory requests.
+- Stack You/group-sender prefixes above message-result image previews in global and individual search. Keep compact People summaries inline. Reserve the extra sender-line height in the virtual list and retain measured-height correction.
+- Keep the existing 96 × 64 display size, lazy loading, bounded node cache, failure placeholders and unchanged-row image reuse. Higher-resolution image responses may contain more bytes; image bytes remain outside extension storage.
+
+Version choice: PATCH for image-quality and sender-layout corrections within the existing preview feature. Storage schemas and independent tooling versions remain unchanged.
+
+Validation: all 314 tests pass; all 19 extension JavaScript files parse. Coverage includes original-reference selection, 384 × 256 native conversion, safe fallback on conversion failure, existing-cache URL upgrades, credential rejection, unchanged external URLs, stacked/compact CSS layouts, image-node reuse, sender-row height, import compaction, edits and redactions. ZIP integrity and equality with source and the stable unpacked folder pass for all 25 assets; the convenience ZIP matches the versioned export. No Brave artifact check was performed.
+
+Limitations: requesting more pixels cannot restore detail absent from the source. Old cached references to a separate low-resolution thumbnail file cannot reconstruct the original image reference until Reddit supplies that event again. Live server image quality and signed-in rendering were not checked; validation uses synthetic events and layout fixtures. Reload the extension and refresh Reddit to apply this export. Saved-history coverage remains incomplete.
+
 # 0.8.2 design test
 
 - Reconcile sidebar routing and header hydration before paint, bypassing the ordinary 120 ms UI debounce for those changes. Mobile Back restores retained search chrome and existing matches alongside a ready native sidebar.
