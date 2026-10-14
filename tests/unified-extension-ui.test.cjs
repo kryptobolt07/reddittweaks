@@ -692,3 +692,9 @@ test('an unavailable group sender is identified without marking the whole group 
 test('calendar chooser Escape stays inside the picker and does not dismiss global search',async t=>{
   const p=await setup(t),c=p.control;await p.search('coffee');const searches=p.searches.length;await p.click('[data-control="date"]');const picker=c.datePicker;picker.element.querySelector('.calendar-month').click();assert.equal(picker.chooser,'month');await p.key('Escape',picker.element.querySelector('.calendar-option'));assert.equal(picker.open,true);assert.equal(picker.chooser,'');assert.equal(c.searchDismissed,false);await p.key('Escape',picker.element.querySelector('.calendar-month'));assert.equal(picker.open,false);assert.equal(c.searchDismissed,false);assert.equal(c.input.value,'coffee');assert.equal(p.searches.length,searches);
 });
+
+test('quick dates remain a local draft until Apply and reuse the existing saved-search path',async t=>{
+  const p=await setup(t),c=p.control;await p.search('coffee');await p.click('[data-control="date"]');const picker=c.datePicker;picker.today=()=> '2026-10-14';const searches=p.searches.length,requests=p.requests.length;
+  picker.element.querySelector('.calendar-quick').click();picker.element.querySelector('[data-preset="Last 7 days"]').click();await settle();assert.equal(p.searches.length,searches);assert.equal(p.requests.length,requests);assert.equal(c.dates.from,'');assert.equal(c.dates.to,'');assert.equal(picker.open,true);
+  picker.element.querySelector('.calendar-apply').click();await settle();assert.equal(c.dates.from,'2026-10-08');assert.equal(c.dates.to,'2026-10-14');assert.equal(p.searches.length,searches+1);assert.equal(p.requests.length,requests);assert.ok(p.find('[aria-label="Remove date filter"]'));await p.click('[aria-label="Remove date filter"]');assert.equal(c.dates.from,'');assert.equal(c.dates.to,'');assert.equal(c.input.value,'coffee');
+});
