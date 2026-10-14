@@ -157,14 +157,14 @@
   }
   class SearchControl {
     constructor(container, kind) {
-      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.9.1'});
+      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.10.0'});
       this.container = container; this.kind = kind; this.room = ''; this.cache = directory; this.active = -1; this.hits = []; this.loading = false;
       this.complete = kind === 'list' && directoryComplete;
       this.rows = new Map();
       this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;this.scope='people';this.savedHits=[];this.savedTotal=0;this.savedGeneration=0;this.savedOwner=undefined;this.savedLoading=false;
       this.mediaView=globalThis.RCSMediaPreview?new RCSMediaPreview.View({onBeforeResize:()=>this.captureImageViewport(),onResize:()=>this.restoreImageViewport()}):null;this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
-      this.host.setAttribute('data-rcs-version','0.9.1');
+      this.host.setAttribute('data-rcs-version','0.10.0');
       // Header search handles its own controls; native header profile/settings
       // handlers must not receive clicks or typing from the replacement UI.
       if(kind==='messages')for(const type of ['click','dblclick','pointerdown','pointerup','mousedown','mouseup','keydown'])this.host.addEventListener(type,event=>event.stopPropagation());

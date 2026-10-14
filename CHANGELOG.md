@@ -1,3 +1,16 @@
+# 0.10.0 design test
+
+- Switch individual-room search into the existing native user header instead of adding a separate search ribbon. Preserve its height and the timeline position. A leading Back arrow and Esc restore the same avatar, name and native controls; no native profile objects are replaced.
+- Remove the standalone match-count width slot. Put the match position below the previous/next icons within their existing 40 px control footprint, so it adds no dedicated horizontal slot or extra toolbar row. Keep the field width unchanged from empty counters through five-digit totals. Preserve the compact result gap and centered menu. Sender chips remain inline within the search field, preserving header height.
+- Keep native header nodes in place, temporarily hide/inert their content while search is active and restore prior styles/accessibility attributes on close. Support ordinary and shadow headers, header/main rerenders, same-room search retention, trigger reattachment, room changes, missing return markers and page teardown. Preserve later native style/attribute changes rather than overwriting them. Isolate search clicks/typing from native header profile/settings handlers, including the Back click.
+- Reuse the existing calendar, filters, matching, cached results, native message navigation, capture and history-loading paths. No new requests, sync loop, dependencies, persistence or schema changes. Global search and its mobile return state retain their current behavior.
+
+Version choice: MINOR to 0.10.0 for the new user-facing header-search mode and integration. Storage schemas and independent tooling versions remain unchanged. Refresh existing Reddit tabs after reloading the extension.
+
+Validation: all 364 tests pass, including 8 dedicated header lifecycle cases and existing calendar/search suites. Coverage includes presentation/accessibility restoration, native rerenders, connected return placement, same-room retention/reopening, Back/Esc, room changes, teardown and native event isolation. All 19 JavaScript scripts parse. Synthetic headless Chrome verifies unchanged header height/timeline position, a 2 px result gap, fixed field width for empty/small/five-digit counts, inline sender-chip sizing and restored native identity at 820, 420 and 320 px widths. Source/stable-folder/ZIP equality and archive integrity pass for all 25 assets; the convenience ZIP matches the versioned export. No signed-in Brave artifact check was performed.
+
+Limitations: integration relies on an accessible native header with its own layout box; unavailable or display-contents headers retain the existing search fallback. Very long counters are clipped within the navigation footprint while their full text remains in the DOM. Saved-history coverage remains incomplete; no global-history build or persistent history cursors are added.
+
 # 0.9.1 design test
 
 - Keep the restored month-grid interaction and refine its structure: flat mode tabs with the same solid active/faded hover underline as People/All/Messages, softly squared date selections, softer range fills, compact month/year selectors and footer controls, and orange keyboard cues instead of inherited blue outlines. Use #ff4500 for selected dates and Apply, with neutral text on active mode/chooser labels. Selected choices have a solid side accent; keyboard previews have a faded accent.
