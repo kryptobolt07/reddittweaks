@@ -1,3 +1,16 @@
+# 0.9.0 design test
+
+- Extend recovered native identities to retained avatars. Pass the saved safe HTTPS reference to Reddit’s room-icon/profile controllers and user-avatar renders, including chat-list rows, room headers, introductions and message senders. Newly connected native components receive the presentation override before their first render. Reuse avatar models and bypass native avatar cache-miss lookups when a retained reference is available.
+- Preserve original profile objects, account/NSFW/community-agent flags and component properties. Overrides are tied to the authenticated account and native user IDs, follow recycled rows, update when only the avatar changes and restore native behavior when cleared. Reject credential-bearing and non-HTTPS avatar references. No additional directory, profile or history requests, storage schema change, history build or sync loop; the browser loads the retained image reference normally.
+- Add a compact unavailable-account icon beside conversation names in All and Messages results, with a descriptive tooltip and accessible label. Keep timestamps on their existing line and update cached rows when availability changes. Group messages identify the unavailable sender, preserving the group’s own identity. People/chat rows keep their existing Unavailable text.
+- Retain 0.8.7’s immediate loading placeholders and Down Arrow entry from the input/scope tabs into results, including cached drafts, pending message queries, dismissed menus and empty results.
+
+Version choice: MINOR to 0.9.0 for the requested expansion of retained-identity presentation across native chat and global results. Storage schemas and independent tooling versions remain unchanged; existing saved data is reused.
+
+Validation: all 346 tests pass, including 9 native presentation and 69 unified interface tests. Synthetic fixtures cover full/floating layouts, first connected avatar render, stable avatar models, original profile preservation, account switching, clearing/recycling, unsafe URLs, avatar-only updates, availability changes and group-sender labels. All 19 JavaScript scripts parse. ZIP integrity and source/stable-folder/archive equality pass for all 25 assets; the convenience ZIP matches the versioned export. No signed-in Brave artifact check was performed.
+
+Limitations: restoration requires a retained, accessible avatar reference; an old photo cannot be reconstructed if no reference was saved or the image is no longer served. Unavailable does not distinguish deletion from suspension or banning. Native integration is based on the inspected client’s presentation methods and synthetic fixtures; future native component changes may require updates. Reload the extension and refresh Reddit to apply this export. Saved-history coverage remains incomplete, and persistent global-history cursors/full-history building are not added in this release.
+
 # 0.8.7 design test
 
 - Trial compact day/month/year segments instead of a month grid in global and individual message search. Between shows From and To; On, Before and After show a single row. A small themed condition dropdown replaces a row of mode tabs, retaining Reddit accents and a narrower floating layout.
