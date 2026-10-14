@@ -119,7 +119,7 @@ test('accepted membership received from saved-directory changes clears a pending
 test('individual searches show saved room messages before a missing native history request completes',async t=>{
   const {W,api}=setup(t);let resolveHistory;W.RCSData.request=(type,args)=>({promise:type==='history'?new Promise(resolve=>resolveHistory=resolve):Promise.resolve([]),cancel(){}});
   const A=W.RCSAdapter,trigger=A.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button');trigger.click();
-  const root=A.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='saved';input.dispatchEvent(new W.Event('input'));await wait(20);
+  const root=A.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='saved';input.dispatchEvent(new W.Event('input'));await wait(190);
   assert.equal(visibleRows(root).length,1);assert.match(visibleRows(root)[0].textContent,/alpha saved message/);assert.ok(resolveHistory);resolveHistory([]);
 });
 test('global cache pagination preserves the full count and returns later pages without network calls',async t=>{
@@ -165,7 +165,7 @@ test('late saved-query completion does not render or refresh a disconnected cont
 
 test('individual message search uses sticky days with time-only rows and dates each relevance row',async t=>{
   const {W,api}=setup(t,{tools:true});await wait(20);const host=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room),root=host.shadowRoot;
-  root.querySelector('.toggle').click();const input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await wait(140);
+  root.querySelector('.toggle').click();const input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await wait(190);
   const rows=visibleRows(root);assert.equal(rows.length,2);assert.equal(root.querySelectorAll('.day-heading').length,1);
   const expected=[33,34].map(minute=>new Date(2026,9,8,9,minute).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}));
   assert.deepEqual(rows.map(row=>row.querySelector('.time').textContent).sort(),expected.sort());

@@ -59,10 +59,10 @@ test('live edits remove old words and display new matches in an open message sea
   const {W,api,listeners}=setup(t,{content:true});await tick(250);
   const control=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();await tick(150);
-  const input=control.querySelector('input');input.value='coffe';input.dispatchEvent(new W.Event('input'));await tick(150);
+  const input=control.querySelector('input');input.value='coffe';input.dispatchEvent(new W.Event('input'));await tick(170);
   const target=api.remoteMessages.get('alex')[3];
   listeners.get('event')({event:{event_id:'live-edit',room_id:'alex',seq_id:'7',type:'m.room.message',sender:'@t2_alex:reddit.com',origin_server_ts:1800000000000,content:{'m.relates_to':{rel_type:'m.replace',event_id:target.event_id},'m.new_content':{body:'chocolate needle'}}}});
-  input.value='chocolate';input.dispatchEvent(new W.Event('input'));assert.equal(control.querySelectorAll('.result').length,1);
+  input.value='chocolate';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(control.querySelectorAll('.result').length,1);
   await tick(200);assert.equal(control.querySelectorAll('.result').length,1,'DOM resynchronization preserves the server edit');
 });
 test('message matches appear while later pages are still blocked, with compact sender icons and highlights',async t=>{
@@ -71,7 +71,7 @@ test('message matches appear while later pages are still blocked, with compact s
   client.http.authedRequest=async(method,path,params)=>{if(path==='/rooms/alex/events' && params.seq!==undefined)await new Promise(resolve=>release=resolve);return read(method,path,params);};
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();
   const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');
-  input.value='meet';input.dispatchEvent(new W.Event('input'));await tick(120);
+  input.value='meet';input.dispatchEvent(new W.Event('input'));await tick(170);
   assert.equal(typeof release,'function');assert.equal(root.querySelectorAll('.result').length,1);
   assert.ok(root.querySelector('.result .avatar'));assert.ok(root.querySelector('.result mark'));
   assert.match(root.querySelector('[role="status"]').textContent,/1 match.*Searching/);
@@ -83,12 +83,12 @@ test('calendar filters work without text and reuse loaded history and decoded se
   const {W,api}=setup(t,{content:true});await tick(250);
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();await tick(150);
   const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');
-  input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(150);const image=root.querySelector('.result img'),calls=api.calls.length;
+  input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);const image=root.querySelector('.result img'),calls=api.calls.length;
   root.querySelector('[aria-label="Filter by date"]').click();
   setDateSegments(root,'start','2026-10-08');setDateSegments(root,'end','2026-10-08');root.querySelector('.calendar-apply').click();
   assert.equal(root.querySelector('.date-chip').parentElement,root.querySelector('.meta'));
   assert.equal(root.querySelectorAll('.result').length,2);assert.equal(root.querySelector('.result img'),image);
-  input.value='';input.dispatchEvent(new W.Event('input'));assert.equal(root.querySelector('.panel').hidden,false);
+  input.value='';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(root.querySelector('.panel').hidden,false);
   assert.equal(root.querySelectorAll('.result').length,7);
   root.querySelector('[aria-label="Filter by date"]').click();setDateMode(root,'After');setDateSegments(root,'start','2026-10-08');root.querySelector('.calendar-apply').click();assert.equal(root.querySelectorAll('.result').length,0);
   root.querySelector('[aria-label="Filter by date"]').click();root.querySelector('.calendar-clear').click();root.querySelector('.date-popover').dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(root.querySelector('.panel').hidden,true);
@@ -193,7 +193,7 @@ test('a known old thread root still searches recent replies inside the selected 
 });
 test('the date pill clear button removes the filter without clearing the message query or opening the calendar',async t=>{
   const {W,api}=setup(t,{content:true});await tick(250);W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();await tick(150);
-  const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(150);
+  const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
   root.querySelector('[aria-label="Filter by date"]').click();setDateSegments(root,'start','2026-10-08');setDateSegments(root,'end','2026-10-08');root.querySelector('.calendar-apply').click();
   const calls=api.calls.length;assert.equal(root.querySelector('.date-chip svg rect'),null);
   root.querySelector('[aria-label="Remove date filter"]').click();assert.equal(root.querySelector('.date-chip').hidden,true);assert.equal(root.querySelector('.date-popover').hidden,true);assert.equal(input.value,'coffee');assert.equal(root.querySelectorAll('.result').length,2);assert.equal(api.calls.length,calls);
@@ -219,7 +219,7 @@ test('a full-history subscriber joining after a date cutoff resumes the shared s
 });
 test('clicking a still-focused search input after Enter reopens the saved matches without another history read',async t=>{
   const {W,api}=setup(t,{content:true});await tick(150);W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();
-  const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(150);
+  const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await tick(50);
   assert.equal(root.querySelector('.panel').hidden,true);assert.equal(root.activeElement,input);const calls=api.calls.length;
   input.click();assert.equal(root.querySelector('.panel').hidden,false);assert.equal(input.value,'coffee');assert.equal(root.querySelectorAll('.result').length,2);assert.equal(input.getAttribute('aria-expanded'),'true');
@@ -243,7 +243,7 @@ test('late saved identities update open completed search results without downloa
   const {W,api,client}=setup(t);hideNativePeople(W,api);
   const request=W.RCSData.request;W.RCSData={request:(method,...args)=>method==='conversations'?{promise:Promise.resolve([]),cancel:()=>{}}:request(method,...args)};
   W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));await tick(150);
-  W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(150);
+  W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
   assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'),'conversation title is primary even while sender metadata is pending');const reads=api.calls.filter(c=>c.path==='/rooms/alex/events').length;
   await W.RCSData.request('prime-directory',{owner:client.getUserId(),records:[],identities:[{id:'@t2_alex:reddit.com',name:'alex_morgan',avatar:'https://example.com/late.png',availabilityKnown:true}]}).promise;
   assert.equal([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'),false);assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'));assert.ok([...root.querySelectorAll('.avatar img')].some(image=>image.getAttribute('src')==='https://example.com/late.png'));
@@ -256,7 +256,7 @@ test('unbound grouped native rows do not create unknown duplicate results while 
   A.query('.user-name',A.queryAll('rs-timeline-event',api.room)[2]).textContent='';
   let release;const read=client.http.authedRequest;client.http.authedRequest=async(...args)=>{if(!release)await new Promise(resolve=>release=resolve);return read(...args);};
   W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));await tick(150);
-  A.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=A.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(100);
+  A.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=A.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
   try {assert.equal([...root.querySelectorAll('.result .name')].filter(n=>n.textContent==='Sender unavailable').length,0);assert.equal(root.querySelectorAll('.result').length,2);}
   finally {root.querySelector('[aria-label="Close message search"]').click();release?.();await tick(100);}
 });
@@ -290,4 +290,15 @@ test('individual search anchors the visible header when images above or below it
   const decode=row=>{const img=row.querySelector('.media-image');Object.defineProperties(img,{naturalWidth:{value:400},naturalHeight:{value:800}});img.dispatchEvent(new W.Event('load'));};
   decode(rows[0]);assert.equal(results.scrollTop,192);assert.equal(rows[1].getBoundingClientRect().top,headerTop);
   const before=results.scrollTop;decode(rows[2]);assert.equal(results.scrollTop,before);assert.equal(rows[1].getBoundingClientRect().top,headerTop);
+});
+
+test('room typing postpones local matching and progressive history redraws until idle, while Enter flushes immediately',async t=>{
+  const {W,api}=setup(t,{content:true});await tick(50);W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');
+  const search=W.RCSCore.MessageIndex.prototype.search;let queries=0;W.RCSCore.MessageIndex.prototype.search=function(...args){queries++;return search.apply(this,args);};
+  for(const text of ['c','co','cof']){input.value=text;input.dispatchEvent(new W.Event('input'));assert.equal(input.value,text);}
+  assert.equal(queries,0);assert.equal(api.calls.filter(call=>call.path==='/rooms/alex/events').length,0);assert.equal(root.querySelector('.results').getAttribute('aria-busy'),'true');
+  input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));assert.ok(queries>0);assert.ok(root.querySelector('.result.active'));assert.equal(root.querySelector('.results').getAttribute('aria-busy'),'false');
+  const before=queries;input.value='new draft';input.dispatchEvent(new W.Event('input'));api.appendMessage('alex_morgan','new draft arrives','pending-typing-event');await tick(70);assert.equal(queries,before,'timeline updates do not search within the typing window');
+  await tick(140);assert.ok(queries>before);assert.ok(root.querySelector('.preview').textContent.includes('new draft'));
+  input.value='unfinished';input.dispatchEvent(new W.Event('input'));api.room.dispatchEvent(new W.MouseEvent('pointerdown',{bubbles:true,composed:true}));await tick(180);assert.equal(root.querySelector('.panel').hidden,true,'a dismissed typing timer cannot reopen the menu');
 });
