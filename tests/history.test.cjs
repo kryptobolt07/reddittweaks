@@ -276,8 +276,9 @@ test('native event bindings update recycled rows independently of deleted-accoun
 
 test('individual image history keeps preview metadata and shows a thumbnail instead of a filename',async t=>{
   const {W,api,client}=setup(t,{content:true});client.mxcUrlToHttp=()=> 'https://example.invalid/native-thumb.jpg';
-  api.remoteMessages.get('alex').push({event_id:'native-image',room_id:'alex',type:'m.room.message',sender:'@t2_alex:reddit.com',seq_id:'7',origin_server_ts:1791432420000,content:{msgtype:'m.image',body:'photo.jpeg',url:'mxc://reddit.com/photo',info:{mimetype:'image/jpeg'}}});
+  api.remoteMessages.get('alex').push({event_id:'native-image',room_id:'alex',type:'m.room.message',sender:'@t2_alex:reddit.com',seq_id:'7',origin_server_ts:1791432420000,content:{msgtype:'m.image',body:'photo.jpeg',url:'mxc://reddit.com/photo',info:{mimetype:'image/jpeg',w:1200,h:1600}}});
   const records=await W.RCSData.request('history',{roomId:'alex'}).promise,photo=records.find(record=>record.id==='native-image');assert.equal(photo.attachmentType,'image');assert.equal(photo.attachmentPreview,'https://example.invalid/native-thumb.jpg');
   const trigger=W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button');trigger.click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='photo';input.dispatchEvent(new W.Event('input'));await tick(250);
-  const preview=root.querySelector('.preview.has-image');assert.ok(preview);assert.ok(preview.querySelector('.media-image'));assert.doesNotMatch(preview.textContent,/jpeg/);assert.doesNotMatch(preview.textContent,/Image|GIF/);assert.equal(preview.querySelector('.media-image').width,96);assert.equal(preview.querySelector('.media-image').height,64);
+  assert.equal(photo.attachmentWidth,1200);assert.equal(photo.attachmentHeight,1600);
+  const preview=root.querySelector('.preview.has-image');assert.ok(preview);assert.ok(preview.querySelector('.media-image'));assert.doesNotMatch(preview.textContent,/jpeg/);assert.doesNotMatch(preview.textContent,/Image|GIF/);const image=preview.querySelector('.media-image');Object.defineProperties(image,{naturalWidth:{value:192},naturalHeight:{value:256}});image.dispatchEvent(new W.Event('load'));assert.equal(image.width,96);assert.equal(image.height,128);
 });

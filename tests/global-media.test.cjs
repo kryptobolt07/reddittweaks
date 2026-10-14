@@ -88,3 +88,27 @@ test('image compaction falls back to a safe thumbnail when the original is not u
     raw.content.rcs_preview_url='https://example.invalid/native-conversion';assert.equal(compact(raw).attachmentPreview,'https://example.invalid/native-conversion');
   }
 });
+
+test('image layout hints persist through replay, edits and redactions with bounded metadata',async()=>{
+  const {RCSMessageStore:{Store,compact}}=environment(),store=new Store({indexedDB:null}),photo=event('portrait','m.image','portrait.jpeg');
+  await store.ingest({owner,events:[photo]});photo.content.info={w:1200,h:1600};
+  assert.equal((await store.ingest({owner,events:[photo]})).changed,true);assert.equal((await store.ingest({owner,events:[photo]})).changed,false);
+  const image=(await store.search(owner,{query:'portrait.jpeg'})).records[0];assert.equal(image.attachmentWidth,1200);assert.equal(image.attachmentHeight,1600);assert.equal((await store.summaries(owner)).summaries[0].attachmentHeight,1600);
+  await store.ingest({owner,events:[{...event('edit-aspect','m.image','* landscape'),content:{'m.relates_to':{rel_type:'m.replace',event_id:'portrait'},'m.new_content':{msgtype:'m.image',body:'landscape.jpeg',info:{width:1600,height:900}}}}]});
+  assert.equal((await store.search(owner,{query:'landscape.jpeg'})).records[0].attachmentHeight,900);
+  await store.ingest({owner,events:[{...event('redact-aspect','m.text'),type:'m.room.redaction',redacts:'portrait'}]});assert.ok((await store.snapshot(owner)).rows[0].events.filter(e=>['portrait','edit-aspect'].includes(e.id)).every(e=>!e.attachmentWidth && !e.attachmentHeight));
+  for(const info of [{w:10},{w:0,h:10},{w:NaN,h:20},{w:100001,h:10},{w:'100',h:50}]){photo.content.info=info;assert.equal(compact(photo).attachmentWidth,undefined);}
+});
+
+test('decoded image hints update only the current attachment and preserve content and coverage',async()=>{
+  const {RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null}),photo=event('learn','m.image','image.jpeg');photo.content.url='https://example.invalid/original';photo.content.info={w:100,h:100};
+  await store.ingest({owner,roomId:room,events:[photo],coverage:{complete:true}});
+  const patch={roomId:room,eventId:'learn',preview:photo.content.url,width:400,height:800},save=records=>store.rememberDimensions({owner,records});
+  assert.equal((await save([patch])).changed,true);assert.equal((await save([patch])).changed,false);
+  await store.ingest({owner,roomId:room,events:[photo],coverage:{complete:true}});let found=await store.room(owner,room);assert.equal(found.records[0].attachmentWidth,400);assert.equal(found.coverage.complete,true);assert.equal(found.records[0].text,'image.jpeg');
+  const edited={...event('edit-learn','m.image','* edit'),content:{'m.relates_to':{rel_type:'m.replace',event_id:'learn'},'m.new_content':{msgtype:'m.image',body:'edited.jpeg',url:'https://example.invalid/edited',info:{w:800,h:400}}}};
+  await store.ingest({owner,events:[edited]});assert.equal((await save([patch])).changed,false,'ignore an image load from before an edit');assert.equal((await store.room(owner,room)).records[0].attachmentWidth,800);
+  assert.equal((await store.rememberDimensions({owner:sender,records:[{...patch,preview:'https://example.invalid/edited'}]})).changed,false,'account-isolated records');
+  for(const width of [0,Infinity,100001])await assert.rejects(save([{...patch,width}]),/Invalid image dimensions/);
+  await store.ingest({owner,events:[{...event('redact-learn','m.text'),type:'m.room.redaction',redacts:'learn'}]});assert.equal((await save([{...patch,preview:'https://example.invalid/edited'}])).changed,false);assert.equal((await store.room(owner,room)).records.length,0);
+});

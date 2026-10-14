@@ -147,6 +147,8 @@ async function handleMessages(message,sender) {
   if(message.action==='stats' && popup)return messages.stats(message.owner,{committed:true});
   if(!RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
   if(message.action==='ingest') {const result=await messages.ingest(message);if(result.changed!==false)await notifyMessageTabs(message.owner,false,result.roomIds);return result;}
+  // Layout hints do not broadcast message changes or restart active searches.
+  if(message.action==='image-dimensions')return messages.rememberDimensions(message);
   if(message.action==='mark-native-import-complete'){await messages.importState(message.owner,true);return {nativeImportComplete:true};}
   if(message.action==='stats')return messages.stats(message.owner,{committed:true});
   if(message.action==='summaries')return messages.summaries(message.owner,{committed:true});

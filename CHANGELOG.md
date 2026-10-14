@@ -1,3 +1,18 @@
+# 0.8.4 design test
+
+- Replace fixed 96 × 64 cropping with proportional message previews up to 128 px wide and 128 px high. Keep small returned images small and preserve compact People previews within 28 × 20 px. Use automatic image height and contain rendering, without stretching or cover cropping.
+- Retain validated native image dimensions during the existing message import, history reads and event captures. Bind hints to the chosen preview source, including separate thumbnail metadata when that source is used. Reserve the final preview dimensions before assigning its image URL; no additional history pass or metadata request.
+- Reuse Reddit’s registered faceplate-shimmer component for loading images, with a themed fallback when it is unavailable and static placeholders for reduced motion. Keep the loading image hidden inside the same sized placeholder and reveal it when decoded; errors stop the shimmer and retain a stable fallback.
+- Learn missing or incorrect dimensions from decoded previews and batch at most 100 small account-scoped layout updates. Reuse these hints on later visits without saving image bytes, broadcasting message changes or restarting active searches. Protect edited/redacted attachments against stale load callbacks and preserve learned proportions during native replay.
+- Reuse existing image nodes and notify layout when an active cached image loads offscreen as well as onscreen. Batch image-load measurements per frame, invalidate image-row measurements and preserve virtual scroll anchors without rerunning search or directory loads. Cancel queued image-layout work on suspension, account/cache reset and destruction.
+- Align message-result avatars with the conversation heading at the top, above image content. Sender prefixes remain above message images. Scale thumbnail requests retain their existing 384 × 256 bounds and source reuse.
+
+Version choice: PATCH for uncropped preview proportions, stable image placeholders and avatar alignment. This correction amends the existing 0.8.4 bundle without another version bump. Storage schemas and independent tooling versions remain unchanged.
+
+Validation: all 322 tests pass. Coverage includes proportional image fitting, native metadata through both import compaction passes, edited/redacted images, decoded-hint persistence across reloads, account/source isolation, batched writes without search notifications, native shimmer reuse, reduced motion, error placeholders and virtual measurements without search restart or scroll movement. All 19 JavaScript scripts parse. ZIP integrity and source/stable-folder/archive equality pass for all 25 assets; the convenience ZIP matches the versioned bundle. No Brave artifact check was performed.
+
+Limitations: images with missing or incorrect metadata can resize on their first decoded load; learned hints reduce this on later visits. Native shimmer reuse depends on Reddit registering its component before the preview is created, otherwise the themed fallback is used. A larger request cannot recover detail absent from a low-resolution source. Pixel rendering in the signed-in browser was not checked; tests use synthetic events/layout fixtures. Reload the extension and refresh Reddit to apply this export. Saved-history coverage remains incomplete.
+
 # 0.8.3 design test
 
 - Request 384 × 256 scale previews through Reddit’s existing media conversion helper, using the original image reference when available instead of first enlarging an already-small thumbnail. Prefer the safe converted reference during storage compaction and fall back to another valid reference if conversion or URL validation fails.

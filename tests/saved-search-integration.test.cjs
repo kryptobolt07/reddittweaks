@@ -156,9 +156,9 @@ test('a live event burst recovers rejected captures locally and clears the latch
 
 test('native media MIME survives the bridge into persistent GIF search, edits and redactions',async t=>{
   const broker=worker(t),env=page(t,broker,11),batches=[];env.W.document.addEventListener('rcs-message-cache-batch',value=>batches.push(JSON.parse(value.detail)));await wait(30);
-  env.emit(event('$native-gif','animation',{content:{body:'animation',msgtype:'m.image',info:{mimetype:'image/gif',thumbnail_url:'https://example.invalid/private-thumbnail',w:1000}}}));await env.W.RCSMessages.flush();
+  env.emit(event('$native-gif','animation',{content:{body:'animation',msgtype:'m.image',info:{mimetype:'image/gif',thumbnail_url:'https://example.invalid/private-thumbnail',w:1000,h:2000,thumbnail_info:{w:1000,h:2000}}}}));await env.W.RCSMessages.flush();
   let found=await env.W.RCSMessages.search({query:'has:gif'});assert.equal(found.total,1);assert.equal(found.records[0].attachmentMime,'image/gif');assert.ok(found.availableMediaTypes.includes('gif'));
-  const raw=batches.flatMap(batch=>batch.events).find(record=>record.event_id==='$native-gif');assert.deepEqual(Object.keys(raw.content.info),['mimetype']);assert.equal(raw.content.rcs_preview_url,'https://example.invalid/private-thumbnail');
+  const raw=batches.flatMap(batch=>batch.events).find(record=>record.event_id==='$native-gif');assert.deepEqual(Object.keys(raw.content.info),['mimetype','w','h']);assert.equal(raw.content.rcs_preview_url,'https://example.invalid/private-thumbnail');
   env.emit(event('$native-gif-edit','* still image',{content:{body:'* still image','m.relates_to':{rel_type:'m.replace',event_id:'$native-gif'},'m.new_content':{body:'still image',msgtype:'m.image',info:{mimetype:'image/png'}}}}));await env.W.RCSMessages.flush();assert.equal((await env.W.RCSMessages.search({query:'has:gif'})).total,0);assert.equal((await env.W.RCSMessages.search({query:'has:image'})).total,1);
   env.emit(event('$native-image-redact','',{type:'m.room.redaction',redacts:'$native-gif'}));await env.W.RCSMessages.flush();found=await env.W.RCSMessages.search({query:'has:image'});assert.equal(found.total,0);assert.equal(found.availableMediaTypes.includes('gif'),false);assert.equal(env.api.calls.length,0);
 });
@@ -167,6 +167,17 @@ test('native image capture reuses the client media URL conversion without profil
   const broker=worker(t),converted=[],env=page(t,broker,12,'@t2_me:reddit.com',client=>{client.mxcUrlToHttp=(...args)=>{converted.push(args);return 'https://matrix.redditspace.com/_matrix/media/v3/thumbnail/reddit.com/image?width=384&height=256';};});await wait(30);
   env.emit(event('$photo','photo.jpeg',{content:{body:'photo.jpeg',msgtype:'m.image',url:'mxc://reddit.com/original',info:{mimetype:'image/jpeg',thumbnail_url:'mxc://reddit.com/image'}}}));await env.W.RCSMessages.flush();
   const result=await env.W.RCSMessages.search({query:'has:image'});assert.equal(result.total,1);assert.match(result.records[0].attachmentPreview,/thumbnail/);assert.ok(converted.length);assert.ok(converted.every(args=>JSON.stringify(args)===JSON.stringify(['mxc://reddit.com/original',384,256,'scale'])));assert.equal(env.api.calls.length,0);
+});
+
+test('decoded layout hints batch across images, survive reload, and do not announce message changes',async t=>{
+  const broker=worker(t),env=page(t,broker,21);await env.W.RCSMessages.ready();
+  for(const id of ['$one-image','$two-image'])env.emit(event(id,'image.jpeg',{content:{body:'image.jpeg',msgtype:'m.image',url:'https://example.invalid/'+id}}));await env.W.RCSMessages.flush();
+  const updates=[];env.W.RCSMessages.subscribe(value=>updates.push(value));const calls=[],send=broker.send;broker.send=(message,sender)=>{calls.push(message);return send(message,sender);};
+  const save=id=>env.W.RCSMessages.rememberImageDimensions({owner:'@t2_me:reddit.com',roomId:'alex',eventId:id,preview:'https://example.invalid/'+id,width:400,height:800});
+  await Promise.all([save('$one-image'),save('$two-image')]);assert.equal(calls.filter(call=>call.action==='image-dimensions').length,1);assert.equal(updates.length,0,'layout hints do not restart saved-message queries');
+  const reloaded=page(t,broker,22);const result=await reloaded.W.RCSMessages.search({query:'has:image'});assert.equal(result.records.length,2);assert.ok(result.records.every(record=>record.attachmentWidth===400 && record.attachmentHeight===800));
+  assert.equal(env.api.calls.length+reloaded.api.calls.length,0);
+  const other=page(t,broker,23,'@t2_other:reddit.com');await other.W.RCSMessages.ready();assert.equal((await other.W.RCSMessages.rememberImageDimensions({owner:'@t2_me:reddit.com',roomId:'alex',eventId:'$one-image',preview:'https://example.invalid/$one-image',width:50,height:50})).changed,false);
 });
 
 test('native preview conversion falls back safely when the original reference cannot be converted',async t=>{
@@ -180,7 +191,7 @@ test('native preview conversion falls back safely when the original reference ca
 
 test('native IndexedDB catch-up preserves previews through both compact capture passes without server calls',async t=>{
   const factory=new IDBFactory(),db=await new Promise((resolve,reject)=>{const open=factory.open('reddit-chat-store',1);open.onupgradeneeded=()=>open.result.createObjectStore('room_timeline',{keyPath:['room_id','scope','parent_id','seq_id']});open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});t.after(()=>db.close());
-  await new Promise((resolve,reject)=>{const tx=db.transaction('room_timeline','readwrite');tx.objectStore('room_timeline').put({room_id:'!local-image:reddit.com',scope:'',parent_id:'',seq_id:1,content:event('$local-photo','local.jpeg',{room_id:undefined,content:{body:'local.jpeg',msgtype:'m.image',url:'mxc://reddit.com/local-image',info:{mimetype:'image/jpeg'}}})});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+  await new Promise((resolve,reject)=>{const tx=db.transaction('room_timeline','readwrite');tx.objectStore('room_timeline').put({room_id:'!local-image:reddit.com',scope:'',parent_id:'',seq_id:1,content:event('$local-photo','local.jpeg',{room_id:undefined,content:{body:'local.jpeg',msgtype:'m.image',url:'mxc://reddit.com/local-image',info:{mimetype:'image/jpeg',w:1200,h:1600}}})});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
   const broker=worker(t),env=page(t,broker,13,undefined,(client,W)=>{W.IDBKeyRange=IDBKeyRange;client.store={backend:{db}};client.getRooms=()=>[];client.mxcUrlToHttp=()=> 'https://example.invalid/local-thumb.jpg';});await env.W.RCSMessages.ready();
-  const result=await env.W.RCSMessages.search({query:'has:image'});assert.equal(result.total,1);assert.equal(result.records[0].attachmentPreview,'https://example.invalid/local-thumb.jpg');assert.equal(env.api.calls.length,0);
+  const result=await env.W.RCSMessages.search({query:'has:image'});assert.equal(result.total,1);assert.equal(result.records[0].attachmentPreview,'https://example.invalid/local-thumb.jpg');assert.equal(result.records[0].attachmentWidth,1200);assert.equal(result.records[0].attachmentHeight,1600);assert.equal(env.api.calls.length,0);
 });

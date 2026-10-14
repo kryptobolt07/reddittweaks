@@ -1,11 +1,12 @@
 /* Isolated-world client. Page event account claims are checked against native identity. */
 (() => {
   const subscribers=new Set(),initializations=new Map(),preparing=new Set(),imports=new Map(),importRequests=new Map(),attachments=new Map(),clearedAccounts=new Set(),captureGaps=new Set(),pending=[];
+  const dimensionPatches=new Map();let dimensionTimer=null,dimensionsRunning=false;
   const MAX_BATCHES=500,MAX_EVENTS=10000,MAX_BYTES=8*1024*1024;
   let owner=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
   const runtime=globalThis.chrome?.runtime,memory=!runtime?.sendMessage?new RCSMessageStore.Store({indexedDB:null}):null;
   const notify=value=>{if(owner && value.owner && value.owner!==owner)return;for(const listener of subscribers)try{listener(value);}catch{}};
-  function discard(account){for(let i=pending.length-1;i>=0;i--)if(!account || pending[i].batch.owner===account)pending.splice(i,1);}
+  function discard(account){for(let i=pending.length-1;i>=0;i--)if(!account || pending[i].batch.owner===account)pending.splice(i,1);for(const [key,item]of dimensionPatches)if(!account || item.owner===account){dimensionPatches.delete(key);item.resolve({changed:false});}}
   async function context() {
     const value=await RCSData.request('identity-context').promise;
     if(!RCSMessageStore.ownerOK(value?.owner))throw Error('Authenticated Reddit account unavailable');
@@ -15,6 +16,7 @@
   async function call(action,parameters={}) {
     if(runtime?.sendMessage){const value=await runtime.sendMessage({scope:'rcs-messages',...parameters,action});if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;}
     if(action==='ingest')return memory.ingest(parameters);
+    if(action==='image-dimensions')return memory.rememberDimensions(parameters);
     if(action==='summaries')return memory.summaries(parameters.owner,{committed:true});
     if(action==='stats')return memory.stats(parameters.owner,{committed:true});
     if(action==='mark-native-import-complete')return {nativeImportComplete:await memory.importState(parameters.owner,true)};
@@ -111,6 +113,26 @@
     if(revision!==readRevision)throw Error('Saved messages changed. Please retry.');
     return {...result,importing:preparing.has(active),savingPending:pending.length>0,savingError:writeError?.message || '',captureIncomplete:captureGaps.has(active)};
   }
-  globalThis.RCSMessages=Object.freeze({ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),flush,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
+  async function saveDimensionPatches(){
+    dimensionTimer=null;if(dimensionsRunning || !dimensionPatches.size)return;dimensionsRunning=true;
+    const items=[...dimensionPatches.values()];dimensionPatches.clear();
+    try{
+      const active=await context(),valid=items.filter(item=>item.owner===active && item.revision===readRevision && !clearedAccounts.has(active));
+      const result=valid.length?await call('image-dimensions',{owner:active,records:valid.map(({roomId,eventId,preview,width,height})=>({roomId,eventId,preview,width,height}))}):{changed:false};
+      for(const item of items)item.resolve(valid.includes(item)?result:{changed:false});
+    }catch{for(const item of items)item.resolve({changed:false});}
+    finally{dimensionsRunning=false;if(dimensionPatches.size)dimensionTimer=setTimeout(saveDimensionPatches,100);}
+  }
+  function rememberImageDimensions(patch){
+    if(!RCSMessageStore.ownerOK(patch?.owner))return Promise.resolve({changed:false});
+    return new Promise(resolve=>{
+      const key=JSON.stringify([patch.owner,patch.roomId,patch.eventId]),old=dimensionPatches.get(key);old?.resolve({changed:false});dimensionPatches.delete(key);
+      if(dimensionPatches.size>=100){const first=dimensionPatches.keys().next().value;dimensionPatches.get(first).resolve({changed:false});dimensionPatches.delete(first);}
+      dimensionPatches.set(key,{...patch,revision:readRevision,resolve});
+      if(!dimensionTimer && !dimensionsRunning)dimensionTimer=setTimeout(saveDimensionPatches,100);
+    });
+  }
+  window.addEventListener('pagehide',event=>{if(!event.persisted){clearTimeout(dimensionTimer);for(const item of dimensionPatches.values())item.resolve({changed:false});dimensionPatches.clear();}});
+  globalThis.RCSMessages=Object.freeze({ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),rememberImageDimensions,flush,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
   document.dispatchEvent(new CustomEvent('rcs-message-cache-listening'));
 })();

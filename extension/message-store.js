@@ -17,10 +17,13 @@
     // Only native type/MIME metadata classifies attachments; never guess from
     // filenames. Retain one credential-free image preview reference, not bytes.
     const attachmentMime=attachmentType?str(bodyContent.info?.mimetype,200).trim().toLowerCase().split(';')[0]:'';
-    const attachmentPreview=attachmentType==='image'?[bodyContent.rcs_preview_url,bodyContent.url,bodyContent.info?.thumbnail_url].map(previewURL).find(Boolean) || '':'';
+    const candidate=attachmentType==='image'?[[bodyContent.rcs_preview_url,bodyContent.info],[bodyContent.url,bodyContent.info],[bodyContent.info?.thumbnail_url,bodyContent.info?.thumbnail_info]].map(([url,info])=>({url:previewURL(url),info})).find(item=>item.url):null;
+    const attachmentPreview=candidate?.url || '',info=candidate?candidate.info:bodyContent.info;
+    const w=info?.w ?? info?.width,h=info?.h ?? info?.height;
+    const dimensions=attachmentType==='image' && Number.isFinite(w) && Number.isFinite(h) && w>=1 && h>=1 && w<=100000 && h<=100000?{attachmentWidth:Math.round(w),attachmentHeight:Math.round(h)}:{};
     return {id,room,type:raw.type,sender:str(raw.sender),time:Number.isFinite(raw.origin_server_ts)?raw.origin_server_ts:0,
       body:str(bodyContent.body,65536) || (raw.type==='m.sticker'?'Sticker':({image:'Image',video:'Video',audio:'Audio',file:'File'}[attachmentType] || '')),
-      attachmentType,attachmentMime,...(attachmentPreview?{attachmentPreview}:{}),
+      attachmentType,attachmentMime,...(attachmentPreview?{attachmentPreview}:{}),...dimensions,
       replaces:relation.rel_type==='m.replace'?str(relation.event_id):'',thread:relation.rel_type==='m.thread',
       threadRoot:relation.rel_type==='m.thread'?str(relation.event_id):'',
       redacts:str(raw.redacts || content.redacts),redacted:Boolean(raw.unsigned?.redacted_because)};
@@ -29,11 +32,18 @@
   const order=(a,b)=>a.time-b.time || a.id.localeCompare(b.id);
   function reduce(row,events,coverage) {
     const ledger=new Map((row.events || []).map(event=>[event.id,event]));
-    for(const event of events) {const before=ledger.get(event.id);ledger.set(event.id,before?{...before,body:before.body || event.body,attachmentType:before.attachmentType || event.attachmentType || '',attachmentMime:before.attachmentMime || event.attachmentMime || '',...(event.attachmentPreview || before.attachmentPreview?{attachmentPreview:event.attachmentPreview || before.attachmentPreview}:{}),redacts:before.redacts || event.redacts,redacted:before.redacted || event.redacted}:event);}
+    for(const event of events) {
+      const before=ledger.get(event.id);if(!before){ledger.set(event.id,event);continue;}
+      const sourceChanged=Boolean(event.attachmentPreview && before.attachmentPreview!==event.attachmentPreview);
+      const merged={...before,body:before.body || event.body,attachmentType:before.attachmentType || event.attachmentType || '',attachmentMime:before.attachmentMime || event.attachmentMime || '',...(event.attachmentPreview || before.attachmentPreview?{attachmentPreview:event.attachmentPreview || before.attachmentPreview}:{}),redacts:before.redacts || event.redacts,redacted:before.redacted || event.redacted};
+      if(sourceChanged){delete merged.attachmentWidth;delete merged.attachmentHeight;delete merged.attachmentDimensionsSource;}
+      if(event.attachmentWidth && event.attachmentHeight && (sourceChanged || before.attachmentDimensionsSource!=='decoded')){merged.attachmentWidth=event.attachmentWidth;merged.attachmentHeight=event.attachmentHeight;delete merged.attachmentDimensionsSource;}
+      ledger.set(event.id,merged);
+    }
     const removed=new Set([...ledger.values()].filter(event=>event.redacted).map(event=>event.id));
     for(const event of ledger.values())if(event.redacts)removed.add(event.redacts);
     // Tombstones must retain identifiers, never deleted message plaintext.
-    for(const event of ledger.values())if(removed.has(event.id) || event.replaces && removed.has(event.replaces)){event.body='';event.attachmentType='';event.attachmentMime='';event.attachmentPreview='';event.redacted=true;}
+    for(const event of ledger.values())if(removed.has(event.id) || event.replaces && removed.has(event.replaces)){event.body='';event.attachmentType='';event.attachmentMime='';event.attachmentPreview='';delete event.attachmentWidth;delete event.attachmentHeight;delete event.attachmentDimensionsSource;event.redacted=true;}
     const edits=new Map();
     for(const event of ledger.values())if(event.replaces && !removed.has(event.id)) {
       const original=ledger.get(event.replaces);if(!original || original.sender!==event.sender)continue;
@@ -85,7 +95,7 @@
         const roomIds=[];let i=0;
         for(const [roomId,events]of grouped){
           const before=rows[i++],ledger=new Map((before?.events || []).map(event=>[event.id,event])),coverage=roomId===batch.roomId?batch.coverage:undefined;
-          const changed=!before || events.some(event=>{const saved=ledger.get(event.id);return !saved || !saved.redacted && (event.attachmentType && !saved.attachmentType || event.attachmentMime && !saved.attachmentMime || event.attachmentPreview && event.attachmentPreview!==saved.attachmentPreview || event.attachmentType && !saved.body && event.body) || event.redacted && !saved.redacted || event.redacts && !saved.redacts;}) || coverage && JSON.stringify({complete:coverage.complete===true,dateComplete:coverage.dateComplete===true,dates:{from:str(coverage.dates?.from,10),to:str(coverage.dates?.to,10)}})!==JSON.stringify(before.coverage);
+          const changed=!before || events.some(event=>{const saved=ledger.get(event.id);return !saved || !saved.redacted && (event.attachmentType && !saved.attachmentType || event.attachmentMime && !saved.attachmentMime || event.attachmentPreview && event.attachmentPreview!==saved.attachmentPreview || event.attachmentWidth && saved.attachmentDimensionsSource!=='decoded' && (event.attachmentWidth!==saved.attachmentWidth || event.attachmentHeight!==saved.attachmentHeight) || event.attachmentType && !saved.body && event.body) || event.redacted && !saved.redacted || event.redacts && !saved.redacts;}) || coverage && JSON.stringify({complete:coverage.complete===true,dateComplete:coverage.dateComplete===true,dates:{from:str(coverage.dates?.from,10),to:str(coverage.dates?.to,10)}})!==JSON.stringify(before.coverage);
           // A startup reconciliation can read old cached rows again. Compare
           // their durable ledger before reducing/rewriting a whole room.
           if(!changed)continue;
@@ -94,6 +104,29 @@
         }
         if(completion)await completion;return {owner:batch.owner,persistent:this.persistent,changed:identitiesChanged || roomIds.length>0,...(!identitiesChanged?{roomIds}:{})};
       } catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
+    }
+    rememberDimensions(batch){const result=this.queue.then(()=>this.writeDimensions(batch));this.queue=result.catch(()=>{});return result;}
+    async writeDimensions({owner,records}={}){
+      if(!ownerOK(owner) || !Array.isArray(records) || records.length>100)throw Error('Invalid image dimensions');
+      for(const r of records)if(typeof r?.roomId!=='string' || !r.roomId || r.roomId.length>1000 || typeof r.eventId!=='string' || !r.eventId || r.eventId.length>1000 || !previewURL(r.preview) || !Number.isFinite(r.width) || !Number.isFinite(r.height) || r.width<1 || r.height<1 || r.width>100000 || r.height>100000)throw Error('Invalid image dimensions');
+      const rooms=[...new Set(records.map(r=>r.roomId))],db=await this.db(),tx=db?.transaction('rooms','readwrite'),completion=tx?done(tx):null;
+      try{
+        const rows=await Promise.all(rooms.map(id=>tx?request(tx.objectStore('rooms').get([owner,id])):Promise.resolve(this.memory.get(JSON.stringify([owner,id]))))),changed=[];
+        for(let i=0;i<rooms.length;i++){
+          const row=rows[i];if(!row)continue;const ledger=new Map(row.events.map(e=>[e.id,e]));let dirty=false;
+          for(const r of records.filter(r=>r.roomId===rooms[i])){
+            const current=row.records.find(e=>e.id===r.eventId),event=current && ledger.get(current.bodyEvent);
+            // Never revive redacted content or apply stale load events to edits.
+            if(!event || event.redacted || event.attachmentType!=='image' || event.attachmentPreview!==previewURL(r.preview))continue;
+            const width=Math.round(r.width),height=Math.round(r.height);
+            if(event.attachmentWidth===width && event.attachmentHeight===height)continue;
+            event.attachmentWidth=width;event.attachmentHeight=height;event.attachmentDimensionsSource='decoded';dirty=true;
+          }
+          if(!dirty)continue;delete row.approxBytes;row.approxBytes=bytes(row);
+          if(tx)tx.objectStore('rooms').put(row);else this.memory.set(JSON.stringify([owner,row.roomId]),row);changed.push(row.roomId);
+        }
+        if(completion)await completion;return {owner,changed:changed.length>0,roomIds:changed};
+      }catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
     }
     async snapshot(owner,roomId,{committed=false}={}) {
       if(!ownerOK(owner))throw Error('Invalid account');if(!committed)await this.queue;
@@ -115,7 +148,7 @@
       let person=identityCache?.get(record.sender);
       if(!person){const cached=people[record.sender] || {},known=directory?.identities?.[record.sender] || {};person=mergeIdentity(cached,{...known,id:record.sender});identityCache?.set(record.sender,person);}
       const self=record.sender===owner;
-      return {id:record.id,roomId:row.roomId,text,sender:record.sender,timestamp:numericTime?(record.time || NaN):record.time?new Date(record.time).toISOString():'',attachmentType:ledger.get(record.bodyEvent)?.attachmentType || '',attachmentMime:ledger.get(record.bodyEvent)?.attachmentMime || '',attachmentPreview:ledger.get(record.bodyEvent)?.attachmentPreview || '',author:self?'You':person.name || record.sender,authorSelf:self,authorHistorical:Boolean(person.historical ?? person.historicalName),authorUnavailable:Boolean(person.unavailable ?? person.accountUnavailable),avatar:person.avatar || '',thread:record.thread,threadRoot:record.threadRoot};
+      return {id:record.id,roomId:row.roomId,text,sender:record.sender,timestamp:numericTime?(record.time || NaN):record.time?new Date(record.time).toISOString():'',attachmentType:ledger.get(record.bodyEvent)?.attachmentType || '',attachmentMime:ledger.get(record.bodyEvent)?.attachmentMime || '',attachmentPreview:ledger.get(record.bodyEvent)?.attachmentPreview || '',...(ledger.get(record.bodyEvent)?.attachmentWidth?{attachmentWidth:ledger.get(record.bodyEvent).attachmentWidth,attachmentHeight:ledger.get(record.bodyEvent).attachmentHeight}:{}),author:self?'You':person.name || record.sender,authorSelf:self,authorHistorical:Boolean(person.historical ?? person.historicalName),authorUnavailable:Boolean(person.unavailable ?? person.accountUnavailable),avatar:person.avatar || '',thread:record.thread,threadRoot:record.threadRoot};
     }
     searchSnapshot(owner,{rows,people,identityBytes},{query,roomId,roomIds,dates,from='all',wholeWord=false,sort='newest',grouped=false,limit,offset},directory) {
       const parsed=RCSCore.parseQuery(query),match=RCSCore.prepareQuery(parsed,{from,wholeWord,dates}),records=[],times=new Map(),identityCache=new Map(),allowed=roomIds?new Set(roomIds):null,mediaTypes=new Set();
@@ -140,7 +173,7 @@
     async summaries(owner,{committed=false}={}) {
       const {rows,people}=await this.snapshot(owner,undefined,{committed}),summaries=[];
       for(const row of rows){const ledger=new Map(row.events.map(event=>[event.id,event]));const latest=row.records.filter(record=>ledger.get(record.bodyEvent)?.body).sort((a,b)=>order(b,a))[0];if(!latest)continue;
-        summaries.push({id:latest.id,roomId:row.roomId,attachmentType:ledger.get(latest.bodyEvent).attachmentType || '',attachmentMime:ledger.get(latest.bodyEvent).attachmentMime || '',attachmentPreview:ledger.get(latest.bodyEvent).attachmentPreview || '',text:ledger.get(latest.bodyEvent).body.slice(0,200),timestamp:latest.time?new Date(latest.time).toISOString():'',authorSelf:latest.sender===owner,author:latest.sender===owner?'You':people[latest.sender]?.name || ''});}
+        summaries.push({id:latest.id,roomId:row.roomId,attachmentType:ledger.get(latest.bodyEvent).attachmentType || '',attachmentMime:ledger.get(latest.bodyEvent).attachmentMime || '',attachmentPreview:ledger.get(latest.bodyEvent).attachmentPreview || '',...(ledger.get(latest.bodyEvent).attachmentWidth?{attachmentWidth:ledger.get(latest.bodyEvent).attachmentWidth,attachmentHeight:ledger.get(latest.bodyEvent).attachmentHeight}:{}),text:ledger.get(latest.bodyEvent).body.slice(0,200),timestamp:latest.time?new Date(latest.time).toISOString():'',authorSelf:latest.sender===owner,author:latest.sender===owner?'You':people[latest.sender]?.name || ''});}
       summaries.sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0) || a.roomId.localeCompare(b.roomId));
       return {owner,persistent:this.persistent,summaries};
     }
