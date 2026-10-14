@@ -424,6 +424,18 @@ test('image matches and People summaries show stable lazy thumbnails instead of 
   c.resetSaved();assert.equal(c.mediaView.images.size,0);
 });
 
+test('loaded image proportions remeasure virtual results without rerunning search or moving its anchor',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;
+  await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'learn-aspect',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:1791433000000,content:{body:'aspect.jpeg',msgtype:'m.image',url:'https://example.invalid/aspect'}}]});await p.search('has:image');
+  const row=p.find('[data-key="message:alex:learn-aspect"]'),img=row.querySelector('img.media-image');
+  row.getBoundingClientRect=()=>({height:48+img.height+22});c.results.scrollTop=9;
+  const searches=p.searches.length,requests=p.requests.length;
+  Object.defineProperties(img,{naturalWidth:{value:500},naturalHeight:{value:1000}});img.dispatchEvent(new p.w.Event('load'));await p.tick(0);
+  assert.equal(img.width,64);assert.equal(img.height,128);assert.equal(c.items.find(item=>item.key==='message:alex:learn-aspect').height,198);
+  assert.equal(c.results.scrollTop,9);assert.equal(p.searches.length,searches);assert.equal(p.requests.length,requests);
+  c.render();assert.equal(p.find('.media-image'),img);assert.equal(img.height,128);
+});
+
 
 test('returning from an opened conversation keeps only one navigation rail',async t=>{
   const p=await setup(t,{scope:'people'}),c=p.control;await p.search('alex');

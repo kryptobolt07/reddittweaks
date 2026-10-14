@@ -141,14 +141,14 @@
   }
   class SearchControl {
     constructor(container, kind) {
-      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.8.3'});
+      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.8.4'});
       this.container = container; this.kind = kind; this.room = ''; this.cache = directory; this.active = -1; this.hits = []; this.loading = false;
       this.complete = kind === 'list' && directoryComplete;
       this.rows = new Map();
       this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;this.scope='people';this.savedHits=[];this.savedTotal=0;this.savedGeneration=0;this.savedOwner=undefined;this.savedLoading=false;
       this.mediaView=globalThis.RCSMediaPreview?new RCSMediaPreview.View():null;this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
-      this.host.setAttribute('data-rcs-version','0.8.3');
+      this.host.setAttribute('data-rcs-version','0.8.4');
       const shadow = this.host.attachShadow({mode:'open'});
       const style = node('style', '', css+(globalThis.RCSMediaPreview?.styles || '')); shadow.append(style);
       this.toggle = node('button', 'toggle', 'Search messages'); this.toggle.type = 'button';
@@ -424,7 +424,7 @@
           this.rows.set(key,row);
         }
         row.position=i;row.result.classList.toggle('active',i===this.active);row.result.hidden=false;
-        const signature=signaturePrefix+JSON.stringify([hit.attachmentType,hit.attachmentPreview,hit.attachmentMime,hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName]);
+        const signature=signaturePrefix+JSON.stringify([hit.attachmentType,hit.attachmentPreview,hit.attachmentMime,hit.attachmentWidth,hit.attachmentHeight,hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName]);
         if(row.signature!==signature) {
           row.signature=signature;
           row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query,{shortTermsWholeWord:false}) : document.createTextNode(partnerName || (hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable')));
@@ -442,7 +442,7 @@
           if(row.preview) {
             const max=excerptMax-(this.kind==='messages' && hit.authorSelf ? 5 : 0);
             const snippet=C.excerpt?.(hit.text,query,{...this.queryOptions,max}) || {text:hit.text.slice(0,max)};
-            const sender=C.messageSender(hit,partner || this.cache.get(hit.roomId) || {});row.preview.classList.toggle('has-image',hit.attachmentType==='image');if(hit.attachmentType==='image' && this.mediaView)row.preview.replaceChildren(this.mediaView.render(hit,{prefix:sender.prefix}));else row.preview.replaceChildren(...(sender.prefix?[node('span','you-prefix',sender.prefix)]:[]),highlight(snippet.text,query,{...this.queryOptions,ranges:snippet.ranges}));
+            const sender=C.messageSender(hit,partner || this.cache.get(hit.roomId) || {});row.preview.classList.toggle('has-image',hit.attachmentType==='image');if(hit.attachmentType==='image' && this.mediaView)row.preview.replaceChildren(this.mediaView.render(hit,{owner:this.savedOwner || globalThis.RCSDirectory?.getOwner?.(),prefix:sender.prefix}));else row.preview.replaceChildren(...(sender.prefix?[node('span','you-prefix',sender.prefix)]:[]),highlight(snippet.text,query,{...this.queryOptions,ranges:snippet.ranges}));
             row.preview.classList.toggle('link-snippet',/(?:https?:\/\/|www\.)/i.test(hit.text));
             row.preview.title=hit.text;row.result.setAttribute('aria-label',`${sender.label} sent: ${hit.attachmentType==='image'?(globalThis.RCSMediaPreview?.label(hit) || 'Image'):snippet.text}. In ${partnerName || this.cache.get(hit.roomId)?.name || 'Saved conversation'}. ${C.fullTimestamp(hit.timestamp)}. Open message.`);
           }

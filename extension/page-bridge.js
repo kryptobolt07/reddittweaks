@@ -172,24 +172,31 @@
       return url.href;
     }catch{return '';}
   }
+  function imageDimensions(info){
+    const w=info?.w ?? info?.width,h=info?.h ?? info?.height;
+    return Number.isFinite(w) && Number.isFinite(h) && w>=1 && h>=1 && w<=100000 && h<=100000?{attachmentWidth:Math.round(w),attachmentHeight:Math.round(h)}:{};
+  }
   function previewMetadata(content,type,client){
     const attachmentType=type==='m.sticker'?'image':({'m.image':'image','m.video':'video','m.audio':'audio','m.file':'file'}[content?.msgtype] || '');
     const attachmentMime=typeof content?.info?.mimetype==='string'?content.info.mimetype.slice(0,200).trim().toLowerCase().split(';')[0]:'';
-    let attachmentPreview='';
-    if(attachmentType==='image')for(let source of [content?.url,content?.info?.thumbnail_url,content?.rcs_preview_url]){
+    let attachmentPreview='',dimensions={};
+    if(attachmentType==='image')for(const [reference,info]of [[content?.url,content?.info],[content?.info?.thumbnail_url,content?.info?.thumbnail_info],[content?.rcs_preview_url,content?.info]]){
+      let source=reference;
       // Request a bounded high-density preview from the original media, rather
       // than resizing an already-small thumbnail. Never download bytes here.
       if(typeof source==='string' && source.startsWith('mxc://'))try{source=client?.mxcUrlToHttp?.(source,384,256,'scale') || '';}catch{source='';}
-      attachmentPreview=previewURL(source);if(attachmentPreview)break;
+      attachmentPreview=previewURL(source);if(attachmentPreview){dimensions=imageDimensions(info);break;}
     }
-    return {attachmentType,attachmentMime,attachmentPreview};
+    return {attachmentType,attachmentMime,attachmentPreview,...dimensions};
   }
   function compactCacheEvent(value,roomId,client) {
     const raw=value?.event || value;
     if(!raw?.event_id || !['m.room.message','m.sticker','m.room.redaction'].includes(raw.type))return;
     const id=raw.room_id || value?.getRoomId?.() || roomId;if(!id)return;
     const content=raw.content || {},keep=source=>{
-      const result={};for(const key of ['body','msgtype','m.relates_to'])if(source?.[key]!==undefined)result[key]=source[key];if(typeof source?.info?.mimetype==='string')result.info={mimetype:source.info.mimetype.slice(0,200)};const media=previewMetadata(source,raw.type,client);if(media.attachmentPreview)result.rcs_preview_url=media.attachmentPreview;return result;
+      const result={};for(const key of ['body','msgtype','m.relates_to'])if(source?.[key]!==undefined)result[key]=source[key];if(typeof source?.info?.mimetype==='string')result.info={mimetype:source.info.mimetype.slice(0,200)};
+      const media=previewMetadata(source,raw.type,client);if(media.attachmentPreview)result.rcs_preview_url=media.attachmentPreview;
+      if(media.attachmentWidth){result.info={...result.info,w:media.attachmentWidth,h:media.attachmentHeight};}return result;
     };
     const saved={event_id:raw.event_id,room_id:id,type:raw.type,sender:raw.sender,origin_server_ts:raw.origin_server_ts,seq_id:raw.seq_id,content:keep(content)};
     if(content['m.new_content'])saved.content['m.new_content']=keep(content['m.new_content']);
