@@ -78,13 +78,13 @@
       for(const record of directory.values()) {
         for(const person of record.identities || [])if(eligible(person))people.set(person.id,person);
         if(record.type==='direct' && record.accountUnavailable && record.historicalName && record.participantIds?.length===1) {
-          const person={id:record.participantIds[0],name:record.name,accountUnavailable:true,historicalName:true};
+          const person={id:record.participantIds[0],name:record.name,avatar:record.avatar || '',accountUnavailable:true,historicalName:true};
           if(eligible(person)){people.set(person.id,people.get(person.id)||person);rooms.set(record.id,people.get(person.id));}
         }
       }
       if(!people.size && !restoring){clear();return;}
       const bindings=await RCSData.request('native-bindings',{owner,
-        people:[...people.values()].map(p=>({id:p.id,name:p.name})),rooms:[...rooms].map(([id,p])=>({id,person:p.id})),restoring}).promise;
+        people:[...people.values()].map(p=>({id:p.id,name:p.name,avatar:p.avatar || ''})),rooms:[...rooms].map(([id,p])=>({id,person:p.id})),restoring}).promise;
       if(epoch!==generation || owner && bindings.owner!==owner)return;
       for(const patch of [...patches])if(!patch.node.isConnected)restore(patch);
       for(const patch of [...attributePatches])if(!patch.target.isConnected)restoreAttribute(patch);
