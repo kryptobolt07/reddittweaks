@@ -284,8 +284,10 @@
     .results-status .status { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
     .results-status .icon-button { width:20px;height:20px;flex:none; }
     .results-status .icon-button svg { width:12px;height:12px; }
-    .results-status .icon-button.busy svg { animation:rcs-refresh-busy 1.2s linear infinite; }
-    @keyframes rcs-refresh-busy { to { transform:rotate(360deg); } }
+    /* Rotate a fixed HTML box on its own layer, not the SVG paint surface. */
+    .results-status .refresh-motion { display:grid;place-items:center;width:12px;height:12px;flex:none;transform-origin:50% 50%;backface-visibility:hidden; }
+    .results-status .icon-button.busy .refresh-motion { will-change:transform;animation:rcs-refresh-busy 1.2s linear infinite; }
+    @keyframes rcs-refresh-busy { from { transform:translate3d(0,0,0) rotate(0deg); } to { transform:translate3d(0,0,0) rotate(360deg); } }
     .result-row { position:relative; display:flex; align-items:center; gap:var(--rcs-row-gap,var(--spacer-xs,8px)); width:100%; height:var(--rcs-row-min-height,64px);padding:var(--rcs-row-padding-block,var(--spacer-xs,8px)) var(--rcs-row-padding-inline,var(--spacer-sm,12px));text-align:left; background:var(--rcs-bg); border:0; }
     .chat-result { height:100%; }
     .result-row:hover,.message-result:hover,.recent-row:hover { background:var(--rcs-hover); }

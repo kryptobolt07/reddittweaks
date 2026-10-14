@@ -1,3 +1,18 @@
+# 0.8.6 design test
+
+- Preserve the visible result’s screen position when decoded image previews change height. Commit updated row/spacer geometry before assigning a corrected scroll offset, avoiding browser clamping against the old shorter list near the bottom.
+- Reuse virtual spacer nodes and temporarily reserve the track while reconciling rows, avoiding transient shortening. Remeasure only changed image rows and preserve unrelated cached heights. Skip redundant scroll assignments so ordinary scrolling is not interrupted.
+- Align the outer message result at the top as well as its avatar/name content. Images in a visible row expand downward; images below the viewport do not move it. Individual-chat search captures its visible row before changing image geometry and compensates for changes above it, with browser scroll anchoring disabled on that result menu.
+- Keep existing dimension hints, shimmer, proportional previews, search/import behavior and native chat navigation. No additional network requests, storage schema or history rebuild.
+
+Same-version cosmetic follow-up: rotate Refresh inside a fixed 12 px HTML wrapper with an explicit center, a 3D transform and a busy-only compositor hint rather than rotating the SVG paint surface directly. Keep the existing linear cadence, idle icon, reduced-motion behavior and truthful activity labels. This amendment adds no JavaScript animation loop or data requests. All 57 unified interface tests pass; live animation FPS was not profiled.
+
+Version choice: PATCH to 0.8.6 for image-loading scroll stability; keep 0.8.6 for the requested animation amendment.
+
+Validation: all 328 tests pass. A synthetic browser-clamp regression reproduces a 64 px visible-row shift with the prior implementation and passes with the fix. Fixtures cover image changes above/in/below the viewport, near-bottom restoration, persistent spacers, unrelated height retention, individual-search anchoring and capture-before-reveal ordering. All 19 JavaScript scripts parse. Archive integrity and source/stable-folder/ZIP equality pass for all 25 assets; the convenience ZIP matches the versioned bundle. No Brave artifact check was performed.
+
+Limitations: validation uses synthetic layout and scroll-clamping fixtures rather than signed-in browser pixel rendering. Missing or incorrect dimension hints can still require a first-load preview size correction; the surrounding viewport is anchored during that correction. Reload the extension and refresh Reddit to apply this export. Saved-history coverage remains incomplete.
+
 # 0.8.5 design test
 
 - Replace the raw “Extension context invalidated” error and perpetual search label with a clear instruction to refresh the Reddit tab after the extension is reloaded or updated. Preserve loaded results, latch the discarded transport state and stop repeated worker calls, capture buffering and scheduled search retries in that tab.
