@@ -80,3 +80,57 @@ test('shared People matching accepts maps from another realm',()=>{
   const {RCSGlobalSearchModel:{matchPeople}}=environment();const records=new Map([['one',{id:'one',name:'Katwamc',type:'direct'}]]);
   assert.deepEqual(plain(matchPeople(records,'kat').map(record=>record.id)),['one']);
 });
+
+const filterRecords=()=>[
+  {id:'group-unread',name:'Zulu team',type:'group',participants:['CoffeeFriend'],unread:true,timestamp:40},
+  {id:'group-read',name:'Alpha team',type:'group',aliases:['Coffee club'],timestamp:50},
+  {id:'group-request',name:'Group invite',type:'group',membership:'invite',unreadCount:2,timestamp:10},
+  {id:'direct-unread',name:'Beta friend',type:'direct',isUnread:true,timestamp:20},
+  {id:'direct-request',name:'Charlie invite',type:'reddit_titled_direct',status:'pending',timestamp:30},
+  {id:'unavailable',name:'Retained friend',type:'direct',accountUnavailable:true,timestamp:5}
+];
+
+test('chat type and status combine independently, including direct and group requests',()=>{
+  const {RCSGlobalSearchModel:{matchPeople,roomAllowed}}=environment();
+  const records=filterRecords(),ids=options=>plain(matchPeople(records,'',options).map(record=>record.id));
+  assert.deepEqual(ids({chatType:'groups',status:'unread'}),['group-unread','group-request']);
+  assert.deepEqual(ids({chatType:'groups',status:'requests'}),['group-request']);
+  assert.deepEqual(ids({chatType:'direct',status:'requests'}),['direct-request']);
+  assert.equal(roomAllowed(records[2],{chatType:'groups'}),true);
+  assert.equal(roomAllowed(records[4],{chatType:'direct'}),true);
+  assert.equal(roomAllowed(records[5],{chatType:'direct',status:'unavailable'}),true);
+  assert.equal(roomAllowed(records[0]),true);
+  // Keep the old single-filter contract for existing consumers.
+  assert.deepEqual(ids({filter:'groups'}),['group-read','group-unread']);
+  assert.deepEqual(ids({filter:'direct'}),['direct-unread','unavailable']);
+  assert.deepEqual(ids({filter:'requests'}),['direct-request','group-request']);
+  assert.deepEqual(ids({filter:record=>record.timestamp>15,status:'unread'}),['group-unread','direct-unread']);
+});
+
+test('counts retain the other dimension and use the same literal name search across realms',()=>{
+  const {RCSGlobalSearchModel:{chatFilterCounts,matchPeople}}=environment(),records=filterRecords();
+  const map=new Map(records.map(record=>[record.id,record]));
+  assert.deepEqual(plain(chatFilterCounts(map,'',{chatType:'groups',status:'unread'})),{
+    types:{all:3,direct:1,groups:2},statuses:{all:3,unread:2,requests:1,unavailable:0}
+  });
+  assert.deepEqual(plain(chatFilterCounts(map,'coffee',{chatType:'groups',status:'unread'})),{
+    types:{all:1,direct:0,groups:1},statuses:{all:2,unread:1,requests:0,unavailable:0}
+  });
+  const literal=[{name:'a.*',type:'direct'},{name:'abc',type:'group'}];
+  assert.equal(chatFilterCounts(literal,'a.*').types.all,1);
+  for(const query of ['from:Bob','has:image','before:2026-10-01']){
+    assert.equal(chatFilterCounts(map,query).types.all,0);
+    assert.equal(matchPeople(map,query).length,0);
+  }
+  assert.deepEqual(plain(chatFilterCounts([])),{types:{all:0,direct:0,groups:0},statuses:{all:0,unread:0,requests:0,unavailable:0}});
+});
+
+test('alphabetical and unread-first chat sorts retain chronology as a tie breaker',()=>{
+  const {RCSGlobalSearchModel:{matchPeople}}=environment(),records=filterRecords();
+  const ids=sort=>plain(matchPeople(records,'',{sort}).map(record=>record.id));
+  assert.deepEqual(ids('alphabetical'),['group-read','direct-unread','direct-request','group-request','unavailable','group-unread']);
+  assert.deepEqual(ids('unread'),['group-unread','direct-unread','group-request','group-read','direct-request','unavailable']);
+  assert.deepEqual(ids('newest'),['group-read','group-unread','direct-request','direct-unread','group-request','unavailable']);
+  assert.deepEqual(ids('oldest'),['unavailable','group-request','direct-unread','direct-request','group-unread','group-read']);
+  assert.deepEqual(ids((a,b)=>a.id.localeCompare(b.id)),[...records].sort((a,b)=>a.id.localeCompare(b.id)).map(record=>record.id));
+});
