@@ -17,7 +17,7 @@ function setup(t,{group=false}={}){
 }
 test('room filters and date share the search field with independent active states',t=>{
   const {control:c,tools}=setup(t);assert.equal(tools.filterButton.parentElement,c.input.parentElement);assert.equal(c.dateToggle.parentElement,c.input.parentElement);assert.equal(tools.filterButton.textContent,'');assert.equal(c.dateToggle.textContent,'');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
-  tools.filterButton.click();assert.equal(tools.popover.getAttribute('aria-label'),'Search filters');assert.ok(tools.popover.querySelector('[data-value="from:"]'));tools.popover.querySelector('[data-value="sort"]').click();tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(c.queryOptions.sort,'oldest');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'true');tools.sort='newest';c.dates={from:'2026-10-01',to:''};tools.sync();assert.equal(c.dateToggle.hidden,false);assert.equal(c.dateChip.parentNode,tools.senderChips);assert.equal(tools.controlButtons.date.getAttribute('aria-pressed'),'true');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
+  tools.filterButton.click();assert.equal(tools.popover.getAttribute('aria-label'),'Search filters');assert.ok(tools.popover.querySelector('[data-value="from:"]'));tools.popover.querySelector('[data-value="sort"]').click();tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(c.queryOptions.sort,'oldest');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'true');tools.sort='newest';c.dates={from:'2026-10-01',to:''};tools.sync();assert.equal(c.dateToggle.hidden,false);assert.equal(c.dateChip.parentNode,tools.senderChips);assert.ok(c.dateChip.querySelector(':scope > .applied-filter-icon'));assert.equal(tools.controlButtons.date.getAttribute('aria-pressed'),'true');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
 });
 test('room sender dropdown preserves message terms, supports multiple senders and Any clears only senders',t=>{
   const {control:c,tools}=setup(t,{group:true});c.input.value='coffee ';
@@ -56,7 +56,7 @@ test('room menu exposes every supported message type and shared sort, without gl
   const {control:c,tools}=setup(t);
   for(const type of ['image','gif','link']){
     tools.showMenu('filter');tools.popover.querySelector('[data-value="contains"]').click();const option=tools.popover.querySelector('[data-value="has:'+type+'"]');assert.ok(option,type);assert.equal(tools.popover.querySelector('[data-value="has:video"],[data-value="has:audio"],[data-value="has:file"]'),null);option.click();
-    assert.ok(tools.queryValue().includes('has:'+type));assert.equal(tools.popover.hidden,true);
+    assert.ok(tools.queryValue().includes('has:'+type));const glyph=tools.senderChips.querySelector('.room-type-chip > .applied-filter-icon');assert.ok(glyph);assert.equal(glyph.getAttribute('aria-hidden'),'true');assert.equal(tools.popover.hidden,true);
     tools.showMenu('filter');tools.popover.querySelector('[data-value="contains"]').click();assert.equal(tools.popover.querySelector('[data-value="has:'+type+'"]').getAttribute('aria-checked'),'true');
     assert.equal(tools.popover.querySelector('[data-value="groups"],[data-value="requests"],[data-value="unread"]'),null);
     tools.closeMenu();
@@ -76,7 +76,7 @@ test('room autocomplete supports all operators, filtered media choices and keybo
 test('room Filters use confirmed local counts, badges, removable sort and Reset without losing dates or text',t=>{
   const {control:c,tools}=setup(t);c.input.value='coffee';c.dates={from:'2026-10-01',to:''};c.messageFilterCounts=()=>({image:2,gif:0,link:1,video:0,audio:0,file:0});tools.sync();tools.showMenu('filter');tools.popover.querySelector('[data-value="contains"]').click();
   const image=tools.popover.querySelector('[data-value="has:image"]');assert.equal(image.querySelector('.menu-option-count').textContent,'2');assert.equal(tools.popover.querySelector('[data-value="has:gif"]').disabled,true);image.click();assert.equal(tools.filterButton.dataset.filterCount,'1');
-  tools.showMenu('filter');tools.popover.querySelector('[data-value="sort"]').click();tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(tools.filterButton.dataset.filterCount,'2');assert.ok(tools.senderChips.querySelector('[aria-label="Remove sort filter"]'));
+  tools.showMenu('filter');tools.popover.querySelector('[data-value="sort"]').click();tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(tools.filterButton.dataset.filterCount,'2');assert.ok(tools.senderChips.querySelector('[aria-label="Remove sort filter"]').parentElement.querySelector(':scope > .applied-filter-icon'));
   tools.showMenu('filter');tools.popover.querySelector('[aria-label="Reset filters"]').click();assert.equal(c.input.value,'coffee');assert.equal(c.dates.from,'2026-10-01');assert.equal(tools.queryState.filters.length,0);assert.equal(tools.sort,'newest');assert.equal(tools.filterButton.dataset.filterCount,'');assert.equal(tools.controlButtons.date.getAttribute('aria-pressed'),'true');
 });
 test('room submenu Escape returns to its category before another Escape closes filters',t=>{

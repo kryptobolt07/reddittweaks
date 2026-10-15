@@ -182,9 +182,9 @@
     mark { background:#ffcc804d;color:inherit;border-radius:2px;font-weight:400; }
     .link-snippet { line-break:anywhere; }
     .menu-choice-row { display:grid;grid-template-columns:minmax(0,1fr);gap:3px;padding:0 1px 4px; }
-    .menu-choice { display:flex;align-items:center;gap:5px;min-width:0;min-height:28px;border:1px solid var(--rcs-line,#dfe6e9);border-radius:6px;padding:4px 5px;color:var(--rcs-text,#172328);background:color-mix(in srgb,var(--rcs-soft,#f6f8f9) 60%,var(--rcs-bg,#fff));font:inherit;font-size:11px;text-align:left;cursor:pointer; }
+    .menu-choice { display:flex;align-items:center;gap:8px;width:100%;min-width:0;min-height:32px;border:0;border-radius:6px;padding:6px 7px;color:var(--rcs-text,#172328);background:transparent;font:inherit;font-size:12px;text-align:left;cursor:pointer; }
     .menu-choice:hover { background:var(--rcs-hover); }
-    .menu-choice[aria-checked=true] { border-color:color-mix(in srgb,var(--rcs-accent,#ff4500) 22%,var(--rcs-line));background:color-mix(in srgb,var(--rcs-accent,#ff4500) 6%,var(--rcs-bg));color:var(--rcs-text);font-weight:600; }
+    .menu-choice[aria-checked=true] { background:var(--rcs-soft,#f6f8f9);color:var(--rcs-text);font-weight:600; }
     .menu-choice:disabled{color:var(--rcs-muted);border-color:transparent;background:transparent;cursor:default}
     .filter-menu-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px}
     .filter-menu-header .menu-title{margin-bottom:3px;flex:1}
@@ -197,7 +197,7 @@
     .menu-reset{display:inline-flex;align-items:center;justify-content:center;min-width:0;width:auto;height:auto;min-height:0;font:inherit;font-size:11px;line-height:1.4;color:var(--rcs-accent,#ff4500);padding:4px 6px;border:0;border-radius:5px;background:transparent;box-shadow:none;cursor:pointer}
     .menu-reset:hover{background:var(--rcs-hover)}
     .menu-reset:disabled{color:var(--rcs-muted,#52656c);opacity:.55;cursor:default;background:transparent}
-    .menu-choice>svg{width:13px;height:13px;flex:none}
+    .menu-choice>svg{width:15px;height:15px;flex:none}
     .menu-choice-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:inherit}
     .menu-check{width:10px;flex:none;color:var(--rcs-accent,#ff4500);font-size:11px}
     .menu-option-count{flex:none;font-size:9px;font-variant-numeric:tabular-nums;color:var(--rcs-muted)}
