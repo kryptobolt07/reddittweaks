@@ -188,7 +188,9 @@
     .menu-choice:disabled{color:var(--rcs-muted);border-color:transparent;background:transparent;cursor:default}
     .filter-menu-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px}
     .filter-menu-header .menu-title{margin-bottom:3px;flex:1}
-    .menu-back{width:22px;height:22px;flex:none}
+    .menu-back{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;min-height:22px;padding:0;flex:none;border:0;border-radius:50%;background:transparent;box-shadow:none;color:var(--rcs-muted,#52656c);cursor:pointer}
+    .menu-back:hover{background:var(--rcs-hover,#eff3f5)}
+    .menu-back:focus-visible{outline:2px solid color-mix(in srgb,var(--rcs-accent,#ff4500) 60%,transparent);outline-offset:1px}
     .menu-back svg{width:13px;height:13px;transform:rotate(90deg)}
     .menu-selection{font-size:10px;color:var(--rcs-muted);white-space:nowrap}
     .operator-option>svg:last-child{width:12px;height:12px;transform:rotate(-90deg)}
