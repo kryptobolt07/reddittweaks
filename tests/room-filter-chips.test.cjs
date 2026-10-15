@@ -6,7 +6,7 @@ const {JSDOM}=require('jsdom');
 function setup(t,{group=false}={}){
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat',runScripts:'outside-only'}),w=dom.window;
   w.HTMLElement.prototype.scrollIntoView=function(){};
-  for(const file of ['search-core.js','unified-search.js'])w.eval(fs.readFileSync(path.join(__dirname,'../extension',file),'utf8'));
+  for(const file of ['search-core.js','global-search-model.js','unified-search.js'])w.eval(fs.readFileSync(path.join(__dirname,'../extension',file),'utf8'));
   const el=tag=>w.document.createElement(tag),host=el('div'),shadow=host.attachShadow({mode:'open'}),bar=el('div'),field=el('div'),input=el('input'),filterBar=el('div'),dateToggle=el('button'),dateChip=el('span'),dateLabel=el('button'),dateRemove=el('button'),results=el('div'),status=el('div');field.className='field';field.append(input);bar.append(field,dateToggle);dateChip.append(dateLabel,dateRemove);shadow.append(bar,filterBar,results,status);w.document.body.append(host);
   let renders=0,loads=0,navigation=0,closed=0;const control={host,bar,filterBar,input,dateToggle,dateChip,dateChipLabel:dateLabel,dateRemove,results,status,room:'room',hits:[],dates:{from:'',to:''},datePicker:{open:false,close(){this.open=false;closed++;}},render(){renders++;control.tools?.sync();},ensureData(){loads++;}};
   input.addEventListener('input',()=>control.render());shadow.addEventListener('keydown',()=>navigation++);
@@ -26,16 +26,19 @@ test('room filter chips separate sender, date and sort with independent active s
 test('room sender dropdown preserves message terms, supports multiple senders and Anyone clears only senders',t=>{
   const {control:c,tools}=setup(t,{group:true});c.input.value='coffee ';
   tools.fromButton.click();assert.deepEqual([...tools.popover.querySelectorAll('button')].map(el=>el.textContent),['Anyone','You','Other people','Alex','Sam']);
-  tools.popover.querySelector('[data-value="from:me"]').click();assert.equal(c.input.value,'coffee from:me ');assert.equal(tools.fromButton.textContent,'From: You');assert.equal(tools.sort,'newest');
-  tools.fromButton.click();tools.popover.querySelector('[data-value="from:Sam"]').click();assert.equal(c.input.value,'coffee from:me from:Sam ');assert.equal(tools.fromButton.textContent,'From: 2 people');assert.equal(tools.senderChips.querySelectorAll('.sender-chip').length,2);
+  tools.popover.querySelector('[data-value="from:me"]').click();assert.equal(c.input.value,'coffee ');assert.equal(tools.queryValue(),'from:me coffee ');assert.equal(tools.fromButton.textContent,'From: You');assert.equal(tools.sort,'newest');
+  tools.fromButton.click();tools.popover.querySelector('[data-value="from:Sam"]').click();assert.equal(c.input.value,'coffee ');assert.equal(tools.queryState.filters.length,2);assert.equal(tools.fromButton.textContent,'From: 2 people');assert.equal(tools.senderChips.querySelectorAll('.sender-chip').length,2);
   tools.fromButton.click();tools.popover.querySelector('[data-value="all"]').click();assert.equal(c.input.value,'coffee ');assert.equal(tools.fromButton.textContent,'From: Anyone');assert.equal(tools.senderChips.querySelectorAll('.sender-chip').length,0);
 });
 test('room menu keyboard focus and Escape peel off the popup before result navigation',t=>{
-  const {control:c,tools,key,counts}=setup(t);tools.fromButton.focus();tools.fromButton.click();key('ArrowDown',tools.fromButton);assert.equal(c.host.shadowRoot.activeElement.textContent,'Anyone');key('ArrowDown',c.host.shadowRoot.activeElement);assert.equal(c.host.shadowRoot.activeElement.textContent,'You');key('Enter',c.host.shadowRoot.activeElement);assert.equal(c.input.value,'from:me ');assert.equal(counts().navigation,0);
+  const {control:c,tools,key,counts}=setup(t);tools.fromButton.focus();tools.fromButton.click();key('ArrowDown',tools.fromButton);assert.equal(c.host.shadowRoot.activeElement.textContent,'Anyone');key('ArrowDown',c.host.shadowRoot.activeElement);assert.equal(c.host.shadowRoot.activeElement.textContent,'You');key('Enter',c.host.shadowRoot.activeElement);assert.equal(c.input.value,'');assert.equal(tools.queryValue(),'from:me');assert.equal(counts().navigation,0);
   tools.sortButton.click();key('Escape');assert.equal(tools.popover.hidden,true);assert.equal(c.host.shadowRoot.activeElement,tools.sortButton);assert.equal(counts().navigation,0);
   c.datePicker.open=true;key('Escape');assert.equal(c.datePicker.open,false);assert.equal(counts().closed>0,true);assert.equal(counts().navigation,0);
   key('Escape');assert.equal(counts().navigation,1);
 });
 test('typing from keeps autocomplete and sender selection query semantics',t=>{
-  const {w,control:c,tools,key}=setup(t);c.input.value='coffee from:al';c.input.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(tools.valueChoices().length,1);assert.equal(tools.valueChoices()[0].token,'from:Alex');key('Enter');assert.equal(c.input.value,'coffee from:Alex ');assert.equal(tools.fromButton.textContent,'From: Alex');
+  const {w,control:c,tools,key}=setup(t);c.input.value='coffee from:al';c.input.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(tools.valueChoices().length,1);assert.equal(tools.valueChoices()[0].token,'from:Alex');key('Enter');assert.equal(c.input.value,'coffee');assert.equal(tools.queryValue(),'from:Alex coffee');assert.equal(tools.fromButton.textContent,'From: Alex');
+});
+test('completed typed media filters remain visible and removable beside sender tags',t=>{
+  const {w,control:c,tools}=setup(t);c.input.value='photo has:image ';c.input.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(c.input.value,'photo  ');assert.equal(tools.queryValue(),'has:image photo  ');assert.equal(tools.senderChips.hidden,false);assert.equal(tools.senderChips.querySelector('.room-type-chip').textContent,'Images');tools.sync();assert.equal(tools.senderChips.querySelectorAll('.room-type-chip').length,1);tools.senderChips.querySelector('[aria-label="Remove image filter"]').click();assert.equal(tools.queryValue(),'photo  ');assert.equal(tools.senderChips.hidden,true);
 });

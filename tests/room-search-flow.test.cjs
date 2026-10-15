@@ -7,7 +7,7 @@ function setup(t){
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat',runScripts:'outside-only',pretendToBeVisual:true}),w=dom.window;
   t.after(()=>dom.window.close());w.matchMedia=()=>({matches:true});w.HTMLElement.prototype.scrollIntoView=function(){this.dataset.scrolled='true';};
   for(const file of ['search-core.js','global-search-model.js','adapter.js','room-header-actions.js','date-picker.js','unified-search-styles.js','unified-search.js'])w.eval(fs.readFileSync('extension/'+file,'utf8'));
-  w.eval(fs.readFileSync('demo/fixture.js','utf8'));const api=w.ChatFixture.build(w.document.body),calls=[];
+  w.eval(fs.readFileSync('demo/fixture.js','utf8'));const api=w.ChatFixture.build(w.document.body),calls=[];for(const message of w.RCSAdapter.messages(api.room)){const image=w.document.createElement('img');image.src='https://example.invalid/'+(message.author==='You'?'self':'other')+'.png';w.RCSAdapter.query('.user-avatar',message.element).append(image);}
   w.RCSData={request(method,args){calls.push({method,...args});return {promise:new Promise(()=>{}),cancel(){}};}};
   w.eval(fs.readFileSync('extension/content.js','utf8'));
   const host=w.RCSAdapter.query('[data-rcs-ui="messages"]',api.room),root=host.shadowRoot,input=root.querySelector('input'),trigger=w.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button');
@@ -15,9 +15,9 @@ function setup(t){
   const search=async query=>{trigger.click();input.value=query;input.dispatchEvent(new w.Event('input'));await wait(170);};
   return {w,api,root,input,trigger,calls,key,search};
 }
-test('room list has one result status, sender names, no repeated avatars or jump controls, and immediate local navigation during blocked history',async t=>{
+test('room list has one result status, sender avatars/names, no redundant jump controls, and immediate local navigation during blocked history',async t=>{
   const p=setup(t);await p.search('coffee');
-  assert.equal(p.root.querySelectorAll('.result').length,2);assert.equal(p.root.querySelector('.result .avatar'),null);assert.equal(p.root.querySelector('.result .name').textContent,'You');assert.equal(p.root.querySelector('.preview .you-prefix'),null);
+  assert.equal(p.root.querySelectorAll('.result').length,2);assert.equal(p.root.querySelectorAll('.result .avatar').length,2);assert.equal(p.root.querySelector('.result .name').textContent,'You');assert.equal(p.root.querySelector('.preview .you-prefix'),null);assert.deepEqual([...p.root.querySelectorAll('.result .avatar img')].map(image=>image.getAttribute('src')),['https://example.invalid/self.png','https://example.invalid/other.png']);
   assert.equal(p.root.querySelector('.bar .count,.bar .match-arrow,[aria-label="Close message search"]'),null);assert.match(p.root.querySelector('[role=status]').textContent,/2 results/);assert.equal(p.root.querySelector('.room-filter-bar').hidden,false);assert.equal(p.trigger.getAttribute('aria-expanded'),'true');
   p.root.querySelector('.result').click();assert.equal(p.root.querySelector('.panel').hidden,true);assert.ok(p.w.RCSAdapter.messages(p.api.room).some(message=>message.element.dataset.scrolled==='true'));assert.equal(p.calls.some(call=>call.method==='jump'),false);
   p.input.click();assert.equal(p.root.querySelector('.panel').hidden,false);assert.equal(p.root.querySelectorAll('.result').length,2);
@@ -45,4 +45,10 @@ test('message reveal expands native text and paints exact matches in the text sh
 });
 test('upward keyboard navigation keeps the whole result below its sticky day header',async t=>{
   const p=setup(t);await p.search('coffee');const results=p.root.querySelector('.results');results.scrollTop=100;results.getBoundingClientRect=()=>({top:50,bottom:250});p.root.querySelector('.day-heading').getBoundingClientRect=()=>({height:28});const rows=[...p.root.querySelectorAll('.result')];rows[1].getBoundingClientRect=()=>({top:60,bottom:115});p.key('ArrowUp');assert.equal(results.scrollTop,82);assert.equal(p.root.querySelector('.result.active'),rows[1]);
+});
+test('selected senders use a separate tag rail and keep the input editable without losing message filtering',async t=>{
+  const p=setup(t);await p.search('coffee');p.root.querySelector('[data-control=from]').click();p.root.querySelector('[data-value="from:them"]').click();
+  assert.equal(p.input.value,'coffee');assert.equal(p.root.querySelectorAll('.result').length,1);assert.equal(p.root.querySelector('.result .name').textContent,'alex_morgan');assert.equal(p.root.querySelector('.field .sender-chips'),null);assert.equal(p.root.querySelector('.field').classList.contains('has-senders'),false);assert.equal(p.root.querySelector('.room-applied-filters .sender-chip-value').textContent,'Other people');
+  p.root.querySelector('[aria-label="Clear search"]').click();assert.equal(p.input.value,'');assert.equal(p.root.querySelectorAll('.result').length,3);assert.ok([...p.root.querySelectorAll('.result .name')].every(name=>name.textContent==='alex_morgan'));
+  p.root.querySelector('[aria-label="Remove sender them"]').click();assert.equal(p.root.querySelector('.room-applied-filters').hidden,true);assert.equal(p.root.querySelector('.panel').hidden,true);
 });

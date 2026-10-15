@@ -211,7 +211,7 @@ test('individual room tools insert operators and use the current result panel fo
   assert.equal(p.requests.length,before);assert.equal(renders,0);assert.equal(loads,0);assert.equal(tools.fromButton.textContent,'From: Anyone');assert.equal(date.textContent,'Date');
   tools.fromButton.click();assert.equal(tools.popover.getAttribute('aria-label'),'Filter messages by sender');tools.closeMenu();input.value='from:';input.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(loads,0);assert.equal(tools.suggestions.hidden,true);assert.ok(results.querySelector('.sender-result'));
   input.value='from:al';input.dispatchEvent(new w.Event('input',{bubbles:true}));assert.match(results.textContent,/alex_morgan/);assert.doesNotMatch(results.textContent,/jules_designs/);
-  input.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true}));assert.equal(input.value,'from:alex_morgan ');assert.equal(loads,1);assert.equal(navigation,0);assert.equal(p.requests.length,before);
+  input.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true}));assert.equal(input.value,'');assert.equal(tools.queryValue(),'from:alex_morgan');assert.equal(loads,1);assert.equal(navigation,0);assert.equal(p.requests.length,before);
   input.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true}));assert.equal(navigation,1);
   tools.sortButton.click();tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(room.queryOptions.sort,'oldest');tools.destroy();assert.equal(shadow.querySelector('.query-tools-overlay'),null);assert.equal(shadow.querySelector('.query-filter'),null);
 });
