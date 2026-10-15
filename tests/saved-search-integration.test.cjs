@@ -5,6 +5,7 @@ const {JSDOM}=require('jsdom');
 const {IDBFactory,IDBKeyRange}=require('fake-indexeddb');
 const source=file=>fs.readFileSync(file,'utf8');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function until(predicate){const deadline=Date.now()+3000;while(!predicate()){if(Date.now()>deadline)throw Error('Timed out waiting for saved search results');await wait(10);}}
 function worker(t,idb=new IDBFactory()){
   const listeners=[],tabs=new Map();
   const context=vm.createContext({indexedDB:idb,IDBKeyRange,TextEncoder,crypto,URL});
@@ -63,14 +64,14 @@ test('worker committed reads bypass paused mutations while captures and clear re
 test('real global interface searches captured messages and receives redactions without directory or history reads',async t=>{
   const broker=worker(t),env=page(t,broker,1);await wait(30);
   env.emit(event('$visible','saved coffee'));await env.W.RCSMessages.flush();
-  for(const file of ['extension/adapter.js','extension/date-picker.js','extension/content.js'])env.W.eval(source(file));
+  for(const file of ['extension/adapter.js','extension/date-picker.js','extension/global-search-model.js','extension/media-preview.js','extension/unified-search-styles.js','extension/unified-search.js','extension/content.js'])env.W.eval(source(file));
   await wait(50);env.api.calls.length=0;
   const root=env.W.RCSAdapter.query('[data-rcs-ui="list"]',env.api.nav).shadowRoot;
-  root.querySelector('[data-scope="all"]').click();const input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new env.W.Event('input'));await wait(160);
-  assert.equal(root.querySelectorAll('.result').length,1);assert.equal(root.querySelector('.name').textContent,'You');assert.equal(env.api.calls.length,0);
+  root.querySelector('[data-scope="all"]').click();const input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new env.W.Event('input'));await until(()=>root.querySelectorAll('.message-result').length===1);
+  assert.equal(root.querySelectorAll('.message-result').length,1);assert.equal(root.querySelector('.message-name').textContent,env.W.ChatFixture.conversations[0].name);assert.match(root.querySelector('.snippet').textContent,/You:.*saved coffee/);assert.equal(env.api.calls.length,0);
   assert.equal(root.querySelector('.coverage'),null);
-  env.emit(event('$remove','',{type:'m.room.redaction',redacts:'$visible'}));await env.W.RCSMessages.flush();await wait(160);
-  assert.equal(root.querySelectorAll('.result').length,0);assert.equal(env.api.calls.length,0);
+  env.emit(event('$remove','',{type:'m.room.redaction',redacts:'$visible'}));await env.W.RCSMessages.flush();await until(()=>root.querySelectorAll('.message-result').length===0);
+  assert.equal(root.querySelectorAll('.message-result').length,0);assert.equal(env.api.calls.length,0);
 });
 test('large native cache reconciles in durable chunks and is read again without duplicate rewrites on reload',async t=>{
   const broker=worker(t),send=broker.send;
