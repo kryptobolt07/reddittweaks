@@ -3,10 +3,10 @@ const assert=require('node:assert/strict');
 const {JSDOM}=require('jsdom');
 const {readFileSync}=require('node:fs');
 const {join}=require('node:path');
-function setup(t) {
+function setup(t,options={}) {
   const dom=new JSDOM('<!doctype html><body></body>',{runScripts:'outside-only'});t.after(()=>dom.window.close());const W=dom.window;
   for(const name of ['search-core.js','date-picker.js'])W.eval(readFileSync(join(__dirname,'../extension',name),'utf8'));
-  const changes=[],picker=new W.RCSDatePicker({onChange:(dates,label)=>changes.push({dates:JSON.parse(JSON.stringify(dates)),label})});W.document.body.append(picker.element);picker.show();
+  const changes=[],picker=new W.RCSDatePicker({...options,onChange:(dates,label)=>changes.push({dates:JSON.parse(JSON.stringify(dates)),label})});W.document.body.append(picker.element);picker.show();
   const month=(y,m)=>{picker.element.querySelector('.calendar-year').click();picker.element.querySelector(`[data-year="${y}"]`).click();picker.element.querySelector('.calendar-month').click();picker.element.querySelector(`[data-month="${m}"]`).click();};
   return {W,picker,changes,month};
 }
@@ -69,4 +69,41 @@ test('quick-range keyboard navigation and Escape preserve the applied filter and
 });
 test('compact months omit only unused calendar weeks, retaining every date and needed sixth weeks',t=>{
   const {picker,month}=setup(t);for(const [m,days,cells]of [[1,28,28],[9,31,35],[4,31,42]]){month(2026,m);const grid=picker.element.querySelector('.calendar-grid');assert.equal(grid.children.length,cells);assert.equal(grid.querySelectorAll('[data-date]').length,days);assert.equal(grid.querySelectorAll('[tabindex="0"]').length,1);}
+});
+
+
+test('chat calendar shows four immediate quick ranges and starts with On',t=>{
+  const {picker,changes}=setup(t,{chatMode:true});picker.today=()=> '2026-10-14';picker.render();
+  assert.equal(picker.draft.mode,'On');assert.equal(picker.element.querySelector('.calendar-quick'),null);
+  assert.deepEqual([...picker.element.querySelectorAll('[data-preset]')].map(button=>button.dataset.preset),['Today','Yesterday','Last 7 days','Last 30 days']);
+  assert.equal(picker.element.querySelector('.calendar-apply').disabled,true);
+  picker.element.querySelector('[data-preset="Yesterday"]').click();assert.equal(picker.draft.mode,'On');assert.equal(picker.draft.start,'2026-10-13');assert.equal(changes.length,0);
+  assert.ok(picker.element.querySelector('.calendar-grid'));assert.equal(picker.element.querySelector('.calendar-apply').disabled,false);
+  picker.element.querySelector('[data-preset="Last 7 days"]').click();assert.equal(picker.draft.mode,'Between');picker.apply();assert.deepEqual(changes[0].dates,{from:'2026-10-08',to:'2026-10-14'});
+  picker.reset();assert.equal(picker.draft.mode,'On');
+});
+test('chat calendar excludes future days and keyboard movement beyond today',t=>{
+  const {W,picker,month}=setup(t,{chatMode:true});picker.today=()=> '2026-10-14';month(2026,9);
+  assert.equal(picker.element.querySelector('[data-date="2026-10-15"]').disabled,true);picker.choose('2026-10-15');assert.equal(picker.draft.start,'');
+  picker.focusDay('2026-10-14');W.document.activeElement.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));assert.equal(W.document.activeElement.dataset.date,'2026-10-14');
+  picker.chooseRange({start:'2026-10-01',end:'2026-10-31'});assert.equal(picker.draft.start,'');
+  for(const range of picker.quickRanges())assert.ok(range.end<='2026-10-14');
+  picker.draft={mode:'After',start:'2026-10-14',end:''};assert.equal(picker.bounds(),null);
+});
+test('cached-day dots never restrict incomplete history, verified bounds are optional',t=>{
+  let availability={days:['2026-10-08'],min:'2026-10-08',max:'2026-10-09'};
+  const {picker,month}=setup(t,{chatMode:true,getAvailability:()=>availability});picker.today=()=> '2026-10-14';month(2026,9);
+  assert.equal(picker.element.querySelector('[data-date="2026-10-01"]').disabled,false);assert.equal(picker.element.querySelector('[data-date="2026-10-14"]').disabled,false);
+  assert.ok(picker.element.querySelector('[data-date="2026-10-08"].has-messages'));
+  availability={...availability,verified:true};picker.render();assert.equal(picker.element.querySelector('[data-date="2026-10-01"]').disabled,true);assert.equal(picker.element.querySelector('[data-date="2026-10-14"]').disabled,true);
+  assert.equal(picker.element.querySelector('[data-preset="Last 7 days"]').disabled,true);
+});
+test('chat range instruction describes the next step above the calendar',t=>{
+  const {picker}=setup(t,{chatMode:true});picker.today=()=> '2026-10-14';picker.element.querySelector('[data-mode="Between"]').click();
+  assert.equal(picker.element.querySelector('.calendar-instruction').textContent,'Choose a start date');picker.choose('2026-10-05');assert.equal(picker.element.querySelector('.calendar-instruction').textContent,'Now choose an end date');assert.equal(picker.element.querySelector('.calendar-apply').disabled,true);
+  picker.choose('2026-10-08');assert.equal(picker.element.querySelector('.calendar-instruction').textContent,'Range ready · Apply to search');assert.equal(picker.element.querySelector('.calendar-apply').disabled,false);
+  const children=[...picker.element.children];assert.ok(children.indexOf(picker.element.querySelector('.calendar-instruction'))<children.indexOf(picker.element.querySelector('.calendar-grid')));
+});
+test('chat calendar can anchor directly below the triggering date chip',t=>{
+  const {picker}=setup(t,{chatMode:true,getAnchor:()=>({left:55,bottom:150})}),root=picker.element;picker.getBounds=()=>({left:20,right:400,top:120,bottom:500});root.getBoundingClientRect=()=>({left:30,right:294,top:80,bottom:380,width:264,height:300});Object.defineProperties(root,{offsetWidth:{value:264},offsetHeight:{value:300},offsetTop:{value:80},offsetLeft:{value:30}});root.style.top='80px';picker.place();assert.equal(root.style.top,'154px');assert.equal(root.style.left,'55px');
 });
