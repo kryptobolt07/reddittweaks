@@ -1,3 +1,11 @@
+# 0.12.2 design test
+
+- While a global or individual filter menu or calendar is open, any click outside that surface dismisses it and is consumed, preventing accidental activation underneath.
+
+Version choice: PATCH to 0.12.2 for a user-visible interaction fix. No storage schema change.
+
+Validation: changed JavaScript syntax and package integrity checked; automated tests were not run for this quick edit.
+
 # 0.12.1 design test
 
 - Prevent outside clicks from activating Reddit UI underneath an open global or individual filter menu. The outside pointer now dismisses the menu and its matching click is suppressed.
