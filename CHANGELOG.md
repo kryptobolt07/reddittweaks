@@ -1,6 +1,6 @@
 # 0.12.3 design test
 
-- Put filter autocomplete icons at the left without menu-arrow rotation. Date suggestions now show a calendar icon and concise labels such as Today, Yesterday, This month and This year.
+- Put filter autocomplete icons at the left without menu-arrow rotation. Date suggestions retain the full before/after date token alongside a calendar icon and concise labels such as Today, Yesterday, This month and This year.
 
 Version choice: PATCH to 0.12.3 for a user-visible search interface correction. No storage schema change.
 
