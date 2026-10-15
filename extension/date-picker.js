@@ -54,14 +54,14 @@
     chooseRange(range){if(!this.selectable(range.start)||!this.selectable(range.end)||range.end<range.start)return;this.draft={mode:this.chatMode&&range.start===range.end?'On':'Between',start:range.start,end:this.chatMode&&range.start===range.end?'':range.end};const start=parse(range.start);this.view=validDate(start.getFullYear(),start.getMonth()+1,1);this.chooser='';this.render();(this.element.querySelector(`[data-preset="${range.label}"]`)||this.element.querySelector('.calendar-quick'))?.focus({preventScroll:true});}
     actions(){const actions=make('div','calendar-actions'),clear=make('button','calendar-clear','Clear'),quick=make('button','calendar-quick'),apply=make('button','calendar-apply','Apply');clear.type=quick.type=apply.type='button';clear.addEventListener('click',()=>this.reset());quick.append(glyph(this.chooser==='quick'?'back':'clock'),make('span','',this.chooser==='quick'?'Calendar':'Quick ranges'));quick.setAttribute('aria-label',this.chooser==='quick'?'Back to calendar':'Quick date ranges');quick.title=quick.getAttribute('aria-label');quick.setAttribute('aria-expanded',String(this.chooser==='quick'));quick.setAttribute('aria-controls','calendar-quick-ranges');quick.addEventListener('click',()=>this.toggleQuick());apply.disabled=!this.bounds();apply.addEventListener('click',()=>this.apply());if(this.chatMode)actions.append(clear,apply);else actions.append(clear,quick,apply);return actions;}
     get open(){return !this.element.hidden;}
-    show() {
-      this.chooser='';this.draft={...this.applied};if(parse(this.draft.start)){const day=parse(this.draft.start);this.view=validDate(day.getFullYear(),day.getMonth()+1,1);}
+    show(mode='') {
+      this.chooser='';this.draft=mode?{mode,start:'',end:''}:{...this.applied};if(parse(this.draft.start)){const day=parse(this.draft.start);this.view=validDate(day.getFullYear(),day.getMonth()+1,1);}else if(mode){const today=new Date();this.view=validDate(today.getFullYear(),today.getMonth()+1,1);}
       this.element.hidden=false;this.render();this.element.scrollTop=0;this.startPosition();const day=this.element.querySelector('[data-date].selected')||this.element.querySelector('[data-date].today')||this.element.querySelector('[data-date]');if(day)this.focusDay(day.dataset.date);
     }
     close(restoreFocus=true){this.stopPosition();this.element.hidden=true;this.onClose?.(restoreFocus);}
     reset(){this.chooser='';this.applied={mode:this.chatMode?'On':'Between',start:'',end:''};this.draft={...this.applied};this.onChange?.({from:'',to:''},'');this.render();}
     focusDay(value){const next=this.element.querySelector(`[data-date="${value}"]`);if(!next||next.disabled)return;for(const day of this.element.querySelectorAll('[data-date]'))day.tabIndex=-1;next.tabIndex=0;next.focus({preventScroll:true});}
-    apply(){const bounds=this.bounds();if(!bounds)return;this.applied={...this.draft};this.onChange?.(bounds,this.summary());this.close();}
+    apply(){const bounds=this.bounds();if(!bounds)return;this.applied={...this.draft};this.onChange?.(bounds,this.summary(),{...this.applied});this.close();}
     choose(value) {
       if(!this.selectable(value))return;
       if(this.draft.mode!=='Between' || !this.draft.start || this.draft.end)this.draft={...this.draft,start:value,end:''};

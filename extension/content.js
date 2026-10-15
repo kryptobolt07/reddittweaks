@@ -185,14 +185,14 @@
   }
   class SearchControl {
     constructor(container, kind) {
-      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.12.3'});
+      if(kind==='list' && globalThis.RCSUnifiedSearch)return new RCSUnifiedSearch(container,{cache:directory,adapter:A,version:'0.12.4'});
       this.container = container; this.kind = kind; this.room = ''; this.cache = directory; this.active = -1; this.hits = []; this.loading = false;
       this.complete = kind === 'list' && directoryComplete;
       this.rows = new Map();
       this.browseOpen=false;this.renderLimit=50;this.lastQuery=undefined;this.scope='people';this.savedHits=[];this.savedTotal=0;this.savedGeneration=0;this.savedOwner=undefined;this.savedLoading=false;
       this.mediaView=globalThis.RCSMediaPreview?new RCSMediaPreview.View({onBeforeResize:()=>this.captureImageViewport(),onResize:()=>this.restoreImageViewport()}):null;this.pendingAvatarSources=new Map();
       this.host = node('div'); this.host.setAttribute('data-rcs-ui', kind);
-      this.host.setAttribute('data-rcs-version','0.12.3');
+      this.host.setAttribute('data-rcs-version','0.12.4');
       const shadow = this.host.attachShadow({mode:'open'});
       const style = node('style', '', css+(globalThis.RCSRefreshStyles || '')+(globalThis.RCSLoadingStyles || '')+(globalThis.RCSMediaPreview?.styles || '')); shadow.append(style);
       this.toggle = node('button', 'toggle', 'Search messages'); this.toggle.type = 'button';
@@ -218,7 +218,7 @@
           getAnchor:()=>{const anchor=this.dateToggle.hidden?this.tools?.controlButtons?.filter:this.dateToggle;return (anchor || this.input.closest('.field') || this.dateChip).getBoundingClientRect();},
           getAvailability:()=>({days:[...new Set([...(index.rooms.get(this.room)?.values() || [])].map(message=>{const date=new Date(message.timestamp);return Number.isFinite(date.getTime())?`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`:'';}).filter(Boolean))]}),
           getBounds:()=>{const rect=this.container.getBoundingClientRect();if(!rect.width||!rect.height)return;return {left:rect.left,right:rect.right,top:Math.max(rect.top,this.host.getBoundingClientRect().bottom,A.query(A.selectors.header,this.container)?.getBoundingClientRect().bottom||rect.top),bottom:rect.bottom};},
-          onChange:(dates,label)=>{this.cancelInput();this.resultsDismissed=false;this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
+          onChange:(dates,label,selection)=>{if(this.tools?.completeDateOperator?.(selection))return;this.cancelInput();this.resultsDismissed=false;this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
           onClose:restoreFocus=>{this.dateToggle.setAttribute('aria-expanded','false');this.render();if(restoreFocus)(this.dateToggle.hidden?this.dateChipLabel:this.dateToggle).focus({preventScroll:true});}
         });
         this.dateToggle=icon('calendar','Filter by date',()=>{
