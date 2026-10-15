@@ -139,7 +139,7 @@
     .menu-title { font-size:11px;color:var(--rcs-text);margin:3px 7px 6px; }
     .menu-section-title { margin:4px 7px; font-size:10px; color:var(--rcs-muted,#52656c); font-weight:600; letter-spacing:.2px; }
     .menu-section-title:not(:first-child) { padding-top:3px; border:0; }
-    .menu-option { display:flex; align-items:center; gap:8px; width:100%; min-height:32px; padding:6px 7px; color:var(--rcs-text,#172328); text-align:left; border:0; border-radius:6px; background:transparent; font-size:12px; cursor:pointer; }
+    .menu-option,.menu-choice { box-sizing:border-box; display:flex; align-items:center; gap:8px; width:100%; min-height:32px; padding:6px 7px; color:var(--rcs-text,#172328); text-align:left; border:0; border-radius:6px; background:transparent; font-family:inherit; font-size:12px; line-height:normal; font-weight:400; cursor:pointer; }
     .menu-option:hover { background:var(--rcs-hover,#eff3f5); }
     .menu-option[aria-checked=true],.menu-option.active { background:var(--rcs-soft,#f6f8f9); font-weight:600; }
     .menu-option[aria-checked=true]::after { content:'✓'; margin-left:auto; color:var(--rcs-accent,#ff4500); }
@@ -181,8 +181,8 @@
     .sender-chip button:focus-visible { outline:2px solid var(--rcs-focus,#167cb0);outline-offset:1px; }
     mark { background:#ffcc804d;color:inherit;border-radius:2px;font-weight:400; }
     .link-snippet { line-break:anywhere; }
-    .menu-choice-row { display:grid;grid-template-columns:minmax(0,1fr);gap:3px;padding:0 1px 4px; }
-    .menu-choice { display:flex;align-items:center;gap:8px;width:100%;min-width:0;min-height:32px;border:0;border-radius:6px;padding:6px 7px;color:var(--rcs-text,#172328);background:transparent;font:inherit;font-size:12px;text-align:left;cursor:pointer; }
+    .menu-choice-row { display:grid;grid-template-columns:minmax(0,1fr);gap:0;padding:0; }
+    .menu-choice { min-width:0; }
     .menu-choice:hover { background:var(--rcs-hover); }
     .menu-choice[aria-checked=true] { background:var(--rcs-soft,#f6f8f9);color:var(--rcs-text);font-weight:600; }
     .menu-choice:disabled{color:var(--rcs-muted);border-color:transparent;background:transparent;cursor:default}

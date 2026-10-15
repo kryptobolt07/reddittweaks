@@ -12,7 +12,6 @@
   // Mobile routing can detach the sidebar. Retain its controller only within
   // the same document, authenticated account and native chat shell.
   const retainedLists = new Map();
-  const roomRecentSearches = new Map();
   function listContext(container){for(let node=container;node;node=node.parentElement || node.getRootNode?.().host){if(node.localName==='rs-app' || node.id==='resizable')return node;}return document.body || document.documentElement;}
   function clearRetainedLists(){for(const {control} of retainedLists.values())control.destroy();retainedLists.clear();}
   const observed = new Map();
@@ -149,11 +148,6 @@
     .room-search-back:hover { background:var(--rcs-hover); }
     :host([data-header-search]) .field { height:clamp(28px,calc(var(--rcs-native-header-height,52px) - 12px),40px); }
     :host([data-header-search]) .field input { height:100%;max-height:100%; }
-    .room-recent-title { margin:14px 12px 6px;font-size:11px;font-weight:600;color:var(--rcs-muted); }
-    .room-recent { display:flex;align-items:center;gap:12px;width:100%;min-height:42px;padding:9px 12px;border:0;background:transparent;color:var(--rcs-text);text-align:left;font:var(--rcs-row-title-font,12px/1.5 var(--font-sans,Arial,sans-serif)); }
-    .room-recent svg { color:var(--rcs-muted); }
-    .room-recent:hover { background:var(--rcs-hover); }
-    .room-recent:focus-visible { outline:0;background:var(--rcs-hover);box-shadow:inset 3px 0 color-mix(in srgb,var(--rcs-accent) 45%,transparent); }
     .room-coverage[hidden] { display:none; }
     :host([data-rcs-ui=message-trigger]) .icon[aria-expanded=true] { color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 10%,var(--rcs-bg)); }
     @media(prefers-color-scheme:dark) { :host { --rcs-bg:var(--color-neutral-background,#0e1113); --rcs-soft:var(--color-neutral-background-weak,#181c1f); --rcs-text:var(--color-neutral-content-strong,#eef1f3); --rcs-muted:var(--color-neutral-content-weak,#a0b0b5); --rcs-line:var(--color-neutral-border-weak,#30383c); --rcs-hover:var(--color-neutral-background-hover,#2a3236); } }
@@ -282,7 +276,6 @@
           return;
         }
         const inResults=this.results.contains(event.target),arrow=['ArrowDown','ArrowUp'].includes(event.key);
-        const recentRows=[...this.results.querySelectorAll('.room-recent')];if(!this.panel.hidden && recentRows.length && (event.target===this.input || inResults) && (arrow || event.key==='Enter')){event.preventDefault();event.stopPropagation();const position=recentRows.indexOf(shadow.activeElement);if(event.key==='Enter')recentRows[Math.max(0,position)]?.click();else recentRows[position<0?(event.key==='ArrowDown'?0:recentRows.length-1):Math.max(0,Math.min(recentRows.length-1,position+(event.key==='ArrowDown'?1:-1)))]?.focus();return;}
 
         if (!this.panel.hidden && ((arrow && (this.bar.contains(event.target) || inResults)) || event.key==='Enter' && (event.target===this.input || inResults))) {
           event.preventDefault(); event.stopPropagation();
@@ -417,9 +410,6 @@
       if(!this.hiddenHeader){const height=A.searchToolbarHeight?.(this.container) || header.getBoundingClientRect().height;if(height>0)this.host.style.setProperty('--rcs-native-header-height',height+'px');this.hiddenHeader={header,width:this.layoutWidth,display:header.style.getPropertyValue('display'),priority:header.style.getPropertyPriority('display')};header.style.setProperty('display','none','important');}
       this.host.setAttribute('data-header-search','');this.host.hidden=false;if(this.host.parentNode!==header.parentNode || this.host.nextSibling!==header)header.parentNode.insertBefore(this.host,header);
     }
-    recentRoomKey(){const owner=globalThis.RCSDirectory?.getOwner?.() || this.savedOwner;return owner?owner+'\0'+this.room:null;}
-    saveRoomRecent(){const key=this.recentRoomKey(),query=this.queryValue().trim();if(!key || !query)return;const previous=roomRecentSearches.get(key) || [];roomRecentSearches.delete(key);roomRecentSearches.set(key,[query,...previous.filter(value=>value!==query)].slice(0,5));this.recentQueries=roomRecentSearches.get(key);while(roomRecentSearches.size>40)roomRecentSearches.delete(roomRecentSearches.keys().next().value);}
-    renderRoomRecents(){const key=this.recentRoomKey(),queries=key?roomRecentSearches.get(key) || []:[];this.recentQueries=queries;this.results.replaceChildren();this.meta.hidden=true;this.coverage.hidden=true;this.panel.hidden=this.resultsDismissed || this.bar.hidden;this.input.setAttribute('aria-expanded',String(!this.panel.hidden));if(!queries.length)return;this.results.append(node('h3','room-recent-title','Recent searches'));for(const query of queries){const row=node('button','room-recent');row.type='button';row.setAttribute('aria-label','Search for '+query);row.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5v5h5M4 10a8 8 0 1 1 1 7M12 7v5l3 2"/></svg>';row.append(node('span','',query));row.addEventListener('click',()=>{this.tools?.queryState.clear();this.input.value=query;this.input.dispatchEvent(new Event('input',{bubbles:true}));this.input.focus({preventScroll:true});});this.results.append(row);}}
     updateLayout() {
       let compact=false;
       for(let current=this.container;current;current=current.parentElement || current.getRootNode()?.host) {
@@ -471,7 +461,7 @@
         const available = this.container.getBoundingClientRect().bottom - this.host.getBoundingClientRect().bottom;
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-room-results-height',`${available>0?Math.max(0,available):320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
-      if(this.kind==='messages' && !query && !bounds.active){this.hits=[];this.active=-1;this.renderRoomRecents();if(this.count)this.count.textContent='';if(this.prev)this.prev.disabled=this.next.disabled=true;return;}if(this.meta)this.meta.hidden=false;
+      if(this.meta)this.meta.hidden=false;
       this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
         const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
         if(this.queryOptions?.sort==='oldest')return -newest;
@@ -480,7 +470,7 @@
       });
       if(selected)this.active=this.hits.findIndex(hit=>this.rowKey(hit)===selected);
       if(this.kind==='list' && !this.isGlobal)this.hits=this.hits.filter(hit=>!(!hit.historicalName && ['[deleted]','Someone','Username unavailable'].includes(hit.name) && (hit.identityPending || !hit.accountUnavailable || this.loading)));
-      const showing=this.kind==='list' ? this.isGlobal || this.browseOpen : Boolean(query || bounds.active);
+      const showing=this.kind==='list' ? this.isGlobal || this.browseOpen : Boolean(query || bounds.active || this.kind==='messages' && !this.bar.hidden && !this.resultsDismissed);
       this.input.setAttribute('aria-expanded', String(showing));
       // The calendar overlays the global view. Hiding its opaque panel would
       // reveal Reddit's native list underneath while choosing a date.
@@ -569,7 +559,7 @@
       // the same decoded avatar. No src assignment occurs during normal sync.
       const visible=new Set(wanted);
       for(const heading of dayHeaders.values())if(!visible.has(heading))heading.remove();
-      for(const row of this.rows.values()){row.result.hidden=!visible.has(row.result);row.result.classList.toggle('result',visible.has(row.result));}
+      for(const row of this.rows.values()){const isVis=visible.has(row.result);row.result.hidden=!isVis;row.result.classList.toggle('result',isVis);if(!isVis)row.result.remove();}
       for(const extra of this.results.querySelectorAll('.empty,.hint,.saved-more'))extra.remove();
       let position=this.results.firstElementChild;
       for(const result of wanted) {
@@ -577,7 +567,7 @@
         position=result.nextElementSibling;
       }
       if(this.isGlobal && !this.hits.length)this.results.append(node('div','empty',this.savedLoading ? 'Searching saved messages…' : this.notice || (this.savedStats?.messages ? 'No matching saved messages. Try another word.' : 'No saved messages yet. Messages Reddit loads will become searchable here.')));
-      else if (!this.hits.length) this.results.append(node('div', 'empty', this.loading ? this.kind==='list' ? 'Loading your conversations…' : 'Searching your history in the background…' : this.kind === 'list' ? 'No matching usernames. Try a shorter name.' : `No messages match ${query ? '“'+query+'”' : 'these dates'}. Try removing a filter.`));
+      else if (!this.hits.length) this.results.append(node('div', 'empty', this.loading ? this.kind==='list' ? 'Loading your conversations…' : 'Searching your history in the background…' : this.kind === 'list' ? 'No matching usernames. Try a shorter name.' : !query && !bounds.active ? 'No recent messages are available yet.' : `No messages match ${query ? '“'+query+'”' : 'these dates'}. Try removing a filter.`));
       if(this.isGlobal && this.savedHasMore){const more=node('button','load saved-more',this.savedLoading ? 'Loading…' : `Load more (${this.savedHits.length} of ${this.savedTotal})`);more.disabled=this.savedLoading;more.addEventListener('click',()=>this.querySaved(true));this.results.append(more);}
       if(this.hits.length>this.renderLimit)this.results.append(node('div','hint',`Showing ${this.renderLimit} of ${this.hits.length}. Scroll for more.`));
     }
@@ -601,7 +591,7 @@
           else throw Error('Reddit chat is not connected yet. Please retry.');
           this.input.value = ''; this.render();this.dismiss();
         } catch(error) { this.status.textContent=error.message; }
-      } else {this.saveRoomRecent(); this.render(); this.jump(hit); }
+      } else { this.render(); this.jump(hit); }
     }
     async jump(hit) {
       const navigation=this.navigationGeneration=(this.navigationGeneration || 0)+1;
@@ -671,7 +661,7 @@
     destroy() { this.restoreHeaderSearch();cancelAnimationFrame(this.scrollFrame);this.headerActions?.destroy();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;document.removeEventListener('keydown',this.shortcut,true);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
-    if(value.accountChanged){clearRetainedLists();roomRecentSearches.clear();}
+    if(value.accountChanged)clearRetainedLists();
     if(value.fromStorage || value.restored) {
       for(const record of value.records || [])directory.set(record.id,{...directory.get(record.id),...record});
       for(const control of controls.values())if(!control.panel.hidden)control.render();
