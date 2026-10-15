@@ -170,8 +170,8 @@ test('individual message search uses sticky days with time-only rows and dates e
   const expected=[33,34].map(minute=>new Date(2026,9,8,9,minute).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}));
   assert.deepEqual(rows.map(row=>row.querySelector('.time').textContent).sort(),expected.sort());
   for(const row of rows)assert.match(row.querySelector('.time').title,/Thu.*Oct.*8.*2026/);
-  root.querySelector('[data-control="filter"]').click();root.querySelector('[data-value="relevant"]').click();assert.equal(root.querySelector('.day-heading'),null);
+  root.querySelector('[data-control="filter"]').click();root.querySelector('[data-value="sort"]').click();root.querySelector('[data-value="relevant"]').click();assert.equal(root.querySelector('.day-heading'),null);
   for(const row of visibleRows(root))assert.match(row.querySelector('.time').textContent,/,/);
-  root.querySelector('[data-control="filter"]').click();root.querySelector('[data-value="oldest"]').click();assert.equal(root.querySelectorAll('.day-heading').length,1);
+  root.querySelector('[data-control="filter"]').click();root.querySelector('[data-value="sort"]').click();root.querySelector('[data-value="oldest"]').click();assert.equal(root.querySelectorAll('.day-heading').length,1);
   assert.equal(visibleRows(root)[0],rows[1],'changing sort reuses mounted sender/snippet result nodes');
 });
