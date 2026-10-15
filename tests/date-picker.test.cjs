@@ -100,8 +100,8 @@ test('cached-day dots never restrict incomplete history, verified bounds are opt
 });
 test('chat range instruction describes the next step above the calendar',t=>{
   const {picker}=setup(t,{chatMode:true});picker.today=()=> '2026-10-14';picker.element.querySelector('[data-mode="Between"]').click();
-  assert.equal(picker.element.querySelector('.calendar-instruction').textContent,'Choose a start date');picker.choose('2026-10-05');assert.equal(picker.element.querySelector('.calendar-instruction').textContent,'Now choose an end date');assert.equal(picker.element.querySelector('.calendar-apply').disabled,true);
-  picker.choose('2026-10-08');assert.equal(picker.element.querySelector('.calendar-instruction').textContent,'Range ready · Apply to search');assert.equal(picker.element.querySelector('.calendar-apply').disabled,false);
+  assert.equal(picker.element.querySelector('.calendar-instruction').textContent,'Choose a start date');picker.choose('2026-10-05');assert.match(picker.element.querySelector('.calendar-instruction').textContent,/5.*→ select end/);assert.equal(picker.element.querySelector('.calendar-summary'),null);assert.equal(picker.element.querySelector('.calendar-apply').disabled,true);
+  picker.choose('2026-10-08');assert.match(picker.element.querySelector('.calendar-instruction').textContent,/5.*→.*8/);assert.equal(picker.element.querySelector('.calendar-apply').disabled,false);
   const children=[...picker.element.children];assert.ok(children.indexOf(picker.element.querySelector('.calendar-instruction'))<children.indexOf(picker.element.querySelector('.calendar-grid')));
 });
 test('chat calendar can anchor directly below the triggering date chip',t=>{
