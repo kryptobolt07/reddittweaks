@@ -1,3 +1,18 @@
+# 0.12.0 design test
+
+- Give both filter menus compact icon choices, explicit selected checks, contextual saved-data counts, Reset, an applied-filter badge and removable tags. Apply choices immediately. Keep search text and dates when resetting menu filters.
+- Separate chat type from status so Groups and Unread can be combined. Move Requests into Status, use Any consistently and explain that Unavailable means deleted or suspended rather than blocked. Show unavailable-account indicators as icons with full tooltips.
+- Remember chat/status/sort choices per tab for the current account and page session. Add A–Z and Unread first in People, keep Relevant in message scopes, hide the calendar in People, shorten the placeholder and anchor popovers to their controls.
+- Support compact completion for every implemented operator: from, has, before and after. Selecting an operator inserts it; sender values use People-style rows with avatars, attachment values use matching icons, and dates have suggestions. Complete filters become removable tags. Before excludes the chosen day; after includes it. Multiple senders remain alternatives and other conditions combine with AND.
+- Expose the same supported attachment filters in global and individual search: Images, GIFs, Links, Videos, Audio and Files. Calculate counts during the existing local-search traversal while retaining text/sender/date/room conditions and excluding the currently selected attachment type. Keep selected zero-count options removable.
+- Resolve You from the native account profile even before any own messages have been imported. Reuse already-loaded native profile data, prefer the current avatar, retain the saved fallback and clear retained identity on account changes or saved-data removal.
+
+Version choice: MINOR to 0.12.0 for expanded shared filter menus and operator completion. No storage schema change, extra profile requests, sync loop or background history download. Reload the extension and refresh existing Reddit tabs.
+
+Validation: all 412 tests pass. Coverage includes native/saved self-profile precedence and isolation, composed type/status filters and contextual counts, operator completion, selected-zero removal, Reset with retained text/dates, per-tab state and accurate counts without extra queries, dormant message-filter controls in People, Back/Escape, native jumps, redactions through the current global interface, and existing cache/history/media/scroll regressions. All 20 scripts parse. Synthetic Chrome checks 820/420/320 px layouts: global and individual menus stay within their chat width without horizontal clipping or an internal scrollbar; Contains uses the same compact popover with seven icon choices and a Back control. Archive CRC integrity and source/stable-folder/ZIP byte equality pass for all 26 assets; the convenience archive matches.
+
+Limitations: option counts describe currently cached data, not complete server history. Unknown counts remain selectable; zero saved-match counts do not prove that older inaccessible messages do not exist. Per-tab choices last for the page session and are cleared on account changes. Visual checks use synthetic fixtures rather than the signed-in browser. Only operators supported by Reddit chat's captured data are offered; Discord-specific polls, embeds and forwarding are not implied.
+
 # 0.11.0 design test
 
 - Integrate individual-chat search into the native header area with a back button and a full-width field. Preserve the original header nodes, handlers and inline display values; restore them on Back, close, room changes and teardown. Match native header height and remeasure it when the chat width changes.
