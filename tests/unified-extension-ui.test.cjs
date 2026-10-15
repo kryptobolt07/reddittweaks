@@ -381,7 +381,7 @@ test('global media menu and autocomplete stay limited to Reddit types even when 
   const p=await setup(t,{scope:'messages'}),c=p.control;const events=[['video','m.video','video/mp4'],['audio','m.audio','audio/ogg'],['file','m.file','application/pdf'],['gif','m.image','image/gif']].map(([id,msgtype,mimetype])=>({event_id:'review-'+id,type:'m.room.message',sender:'@t2_alex:reddit.com',origin_server_ts:1791432000000,content:{body:'review '+id,msgtype,info:{mimetype}}}));
   await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events});await p.search('review');await p.click('[data-control="filter"]');await p.click('[data-value="contains"]');
   for(const type of ['gif','image','link'])assert.ok(c.popover.querySelector('[data-value="has:'+type+'"]'));for(const type of ['video','audio','file']){assert.equal(c.popover.querySelector('[data-value="has:'+type+'"]'),null);}
-  await p.click('[data-value="has:gif"]');await settle();assert.equal(c.input.value.trim(),'review');assert.equal(c.savedTotal,1);assert.equal(c.savedHits[0].attachmentMime,'image/gif');assert.ok(p.find('[aria-label="Remove gif filter"]'));
+  await p.click('[data-value="has:gif"]');await settle();assert.equal(c.input.value.trim(),'review');assert.equal(c.savedTotal,1);assert.equal(c.savedHits[0].attachmentMime,'image/gif');assert.ok(p.find('[aria-label="Remove gif filter"]').parentElement.querySelector(':scope > .applied-filter-icon'));
   await p.click('[aria-label="Remove gif filter"]');await settle();assert.equal(c.savedTotal,4);for(const type of ['video','audio','file']){p.type('has:'+type.slice(0,2));assert.equal(c.suggestions.hidden,true);}
 });
 
@@ -767,7 +767,7 @@ test('media filter counts exclude the current has selection and Reset preserves 
   await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'media-reset-image',type:'m.room.message',sender:'@t2_alex:reddit.com',origin_server_ts:1791432000000,content:{body:'media reset',msgtype:'m.image'}},{event_id:'media-reset-link',type:'m.room.message',sender:'@t2_alex:reddit.com',origin_server_ts:1791432000000,content:{body:'media reset https://example.test',msgtype:'m.text'}}]});
   await p.search('media reset');await p.click('[data-control="filter"]');await p.click('[data-value="contains"]');assert.equal(p.find('[data-value="has:image"] .menu-option-count').textContent,'1');assert.equal(p.find('[data-value="has:gif"]').disabled,true);await p.click('[data-value="has:image"]');
   c.dates.from='2026-10-01';c.invalidate();await settle();await p.click('[data-control="filter"]');await p.click('[data-value="contains"]');assert.equal(p.find('[data-value="has:link"] .menu-option-count').textContent,'1');assert.equal(c.controlButtons.filter.dataset.filterCount,'1');
-  await p.click('[aria-label="Reset filters"]');assert.equal(c.input.value,'media reset');assert.equal(c.queryState.filters.length,0);assert.equal(c.dates.from,'2026-10-01');assert.equal(c.controlButtons.filter.dataset.filterCount,'');assert.equal(c.controlButtons.date.getAttribute('aria-pressed'),'true');assert.equal(c.savedTotal,2);
+  await p.click('[aria-label="Reset filters"]');assert.equal(c.input.value,'media reset');assert.equal(c.queryState.filters.length,0);assert.equal(c.dates.from,'2026-10-01');assert.equal(c.controlButtons.filter.dataset.filterCount,'');assert.equal(c.controlButtons.date.getAttribute('aria-pressed'),'true');assert.ok(c.chips.querySelector('[aria-label="Remove date filter"]').parentElement.querySelector(':scope > .applied-filter-icon'));assert.equal(c.savedTotal,2);
 });
 
 
@@ -779,7 +779,7 @@ test('global filter popover aligns to its trigger rather than the panel center',
 test('Groups and Unread compose independently with removable chips and a two-filter badge',async t=>{
   const p=await setup(t,{scope:'people'}),c=p.control;p.cache.set('study-group',{id:'study-group',name:'Study group',type:'group',membership:'join',unreadCount:2});await p.search('study');
   await p.click('[data-control="filter"]');await p.click('[data-value="groups"]');await p.click('[data-control="filter"]');await p.click('[data-value="unread"]');
-  assert.equal(c.chatType,'groups');assert.equal(c.filter,'unread');assert.equal(c.people().length,1);assert.equal(c.controlButtons.filter.dataset.filterCount,'2');assert.match(c.chips.textContent,/Groups/);assert.match(c.chips.textContent,/Unread/);
+  assert.equal(c.chatType,'groups');assert.equal(c.filter,'unread');assert.equal(c.people().length,1);assert.equal(c.controlButtons.filter.dataset.filterCount,'2');assert.match(c.chips.textContent,/Groups/);assert.match(c.chips.textContent,/Unread/);for(const chip of c.chips.querySelectorAll('.filter-chip'))assert.equal(chip.querySelector(':scope > .applied-filter-icon').getAttribute('aria-hidden'),'true');
   await p.click('[aria-label="Remove conversation filter"]');assert.equal(c.chatType,'groups');assert.equal(c.filter,'all');assert.equal(c.controlButtons.filter.dataset.filterCount,'1');await p.click('[aria-label="Remove chat type filter"]');assert.equal(c.chatType,'all');assert.equal(c.controlButtons.filter.dataset.filterCount,'');
 });
 
