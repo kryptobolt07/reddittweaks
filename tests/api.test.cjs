@@ -91,6 +91,58 @@ test('message navigation uses the native exact-event loader before routing and p
   assert.deepEqual(steps,[['load','alex','alex-remote-0'],['route','/room/alex/event/alex-remote-0/thread']]);
   assert.equal(result.route,'/room/alex/event/alex-remote-0/thread');assert.deepEqual(progress,['Opening message…']);assert.equal(env.scrollWrites,0);
 });
+test('saved-result navigation proceeds while initial sync and native cache import are still pending',async t=>{
+  const env=setup({compact:true});t.after(()=>env.dom.window.close());const {W,api}=env;
+  const client=api.app.querySelector('rs-matrix-client').client;
+  client.isInitialSyncComplete=()=>false;
+  client.syncApi={savedSyncPromise:new Promise(()=>{})};
+  let loaded=0;client.fetchRoomEvent=async()=>{loaded++;};
+  const directory=W.RCSData.request('conversations');const directoryResult=directory.promise.catch(error=>error.message);
+  const navigation=W.RCSData.request('jump',{roomId:'alex',eventId:'alex-remote-0'});
+  const result=await Promise.race([navigation.promise,new Promise((_,reject)=>setTimeout(()=>reject(Error('Navigation waited for bulk startup work')),150))]);
+  assert.equal(result.route,'/room/alex/event/alex-remote-0');assert.equal(loaded,1);
+  assert.equal(api.calls.some(call=>call.method==='rooms'),false,'directory must still wait for verified startup readiness');
+  assert.equal(env.scrollWrites,0);directory.cancel();assert.equal(await directoryResult,'Search cancelled');
+});
+test('navigation still waits for an authenticated client and a callable native router',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const {W,api}=env;
+  const client=api.app.querySelector('rs-matrix-client').client,router=api.app.querySelector('rs-history');
+  const authed=client.http.authedRequest,navigate=router.navigate;let routes=0;
+  client.http.authedRequest=null;router.navigate=null;client.isInitialSyncComplete=()=>false;
+  const task=W.RCSData.request('open',{roomId:'river'});await new Promise(resolve=>setTimeout(resolve,30));
+  assert.equal(api.active.id,'alex');client.http.authedRequest=authed;
+  await tick();assert.equal(api.active.id,'alex','authentication alone must not bypass router readiness');
+  router.navigate=async route=>{routes++;return navigate(route);};
+  const result=await task.promise;assert.equal(result.route,'/room/river');assert.equal(routes,1);assert.equal(env.scrollWrites,0);
+});
+test('an event already loaded in Reddit navigates without another exact-event request',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const {W,api}=env;
+  const client=api.app.querySelector('rs-matrix-client').client,room=client.getRoom('alex');
+  room.findEventById=id=>id==='alex-remote-0'?{getId:()=>id}:undefined;
+  const getRoom=client.getRoom;client.getRoom=id=>id==='alex'?room:getRoom(id);
+  let loads=0;client.fetchRoomEvent=async()=>{loads++;throw Error('Unnecessary request');};
+  client.syncApi={savedSyncPromise:new Promise(()=>{})};
+  const result=await Promise.race([W.RCSData.request('jump',{roomId:'alex',eventId:'alex-remote-0',thread:true}).promise,new Promise((_,reject)=>setTimeout(()=>reject(Error('Navigation waited for saved cache pages')),150))]);
+  assert.equal(result.route,'/room/alex/event/alex-remote-0/thread');assert.equal(loads,0);assert.equal(env.scrollWrites,0);
+});
+test('uncached exact events use the interactive request slot while directory discovery is in flight',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const {W,api}=env;
+  const client=api.app.querySelector('rs-matrix-client').client;let finishDirectory,loading=false;
+  client.getRoomList=()=>new Promise(resolve=>{finishDirectory=resolve;});
+  client.fetchRoomEvent=async()=>{loading=true;};
+  const priorities=[];
+  W.chrome={runtime:{sendMessage:async value=>{
+    if(value.action==='traffic-acquire'){priorities.push(value.priority);return {ok:true,token:value.priority};}
+    return {ok:true};
+  }}};
+  const directory=W.RCSData.request('conversations');const directoryResult=directory.promise.catch(error=>error.message);
+  await new Promise(resolve=>setTimeout(resolve,30));assert.ok(finishDirectory);
+  const result=await W.RCSData.request('jump',{roomId:'alex',eventId:'missing-from-native-cache'}).promise;
+  assert.equal(result.route,'/room/alex/event/missing-from-native-cache');assert.equal(loading,true);
+  assert.deepEqual(priorities,['background','interactive']);assert.equal(env.scrollWrites,0);
+  directory.cancel();finishDirectory({rooms:[]});assert.equal(await directoryResult,'Search cancelled');
+  await new Promise(resolve=>setTimeout(resolve,30));
+});
 test('unavailable exact events fail visibly without navigating to a false successful jump',async t=>{
   const env=setup();t.after(()=>env.dom.window.close());const {W,api}=env;
   const client=api.app.querySelector('rs-matrix-client').client;
