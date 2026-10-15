@@ -22,6 +22,7 @@
   let openListRequested = false;
   const icons = {
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+    refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.55-2L20 8M4 16l2.35 3A7 7 0 0 0 17.9 17"/>',
     close: '<path d="m6 6 12 12M6 18 18 6"/>',
     up: '<path d="m6 14 6-6 6 6"/>',
     down: '<path d="m6 10 6 6 6-6"/>',
@@ -118,17 +119,11 @@
     .room-applied-filters .sender-chip,.room-applied-filters .room-type-chip { flex:0 0 auto;max-width:min(260px,75vw);min-height:25px;font-size:10px;padding:2px 4px 2px 8px; }
     .room-applied-filters .room-add-sender { display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;padding:0;border:1px solid var(--rcs-line);border-radius:50%;color:var(--rcs-muted);background:var(--rcs-bg); }
     .room-add-sender svg { width:13px;height:13px; }
-    .room-filter-bar { display:flex;align-items:center;gap:5px;padding:0 8px 6px;background:var(--rcs-bg); }
-    .room-filter-bar[hidden] { display:none; }
-    .room-filter-chip { display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:0;max-width:42%;min-height:27px;padding:4px 7px;border:1px solid var(--rcs-line);border-radius:6px;background:transparent;color:var(--rcs-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-    .room-filter-chip:hover { background:var(--rcs-soft); }
-    .room-filter-bar .date-chip { min-width:0;max-width:40%;min-height:27px;border-radius:6px;padding-block:0; }
-    .room-filter-bar .date-chip-edit { padding-block:2px; }
-    :host([data-rcs-ui=messages]) .message-panel { left:0;right:0;top:100%;transform:none;width:100%;height:var(--rcs-room-results-height,320px);margin:0;border:0;border-top:1px solid var(--rcs-line);border-radius:0;box-shadow:none;display:flex;flex-direction:column; }
+    :host([data-rcs-ui=messages]) .message-panel { left:0;right:0;top:100%;transform:none;width:100%;height:var(--rcs-room-results-height,320px);margin:0;border:0;border-radius:0;box-shadow:none;display:flex;flex-direction:column; }
     :host([data-rcs-ui=messages]) .message-panel .results { flex:1;min-height:0;max-height:none;padding:0;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--rcs-muted) 28%,transparent) transparent; }
     :host([data-rcs-ui=messages]) .message-panel .results::-webkit-scrollbar { width:5px; }
     :host([data-rcs-ui=messages]) .message-panel .results::-webkit-scrollbar-thumb { border-radius:4px;background:color-mix(in srgb,var(--rcs-muted) 28%,transparent); }
-    :host([data-rcs-ui=messages]) .message-panel .meta { padding:4px 10px;min-height:32px; }
+    :host([data-rcs-ui=messages]) .message-panel .meta { padding:0 8px;min-height:24px;border:0;font:var(--rcs-row-time-font,var(--font-10,10px/1.5 var(--font-sans,Arial,sans-serif))); }
     :host([data-rcs-ui=messages]) .message-panel .result { padding:var(--rcs-row-padding-block,8px) var(--rcs-row-padding-inline,12px);gap:var(--rcs-row-gap,8px);min-height:var(--rcs-row-min-height,64px); }
     :host([data-rcs-ui=messages]) .message-panel .name { flex:1;min-width:0;color:var(--rcs-row-title-color,var(--rcs-text));font:var(--rcs-row-title-font,var(--font-12,12px/1.5 var(--font-sans,Arial,sans-serif)));font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
     :host([data-rcs-ui=messages]) .message-heading { flex-wrap:nowrap; }
@@ -138,7 +133,19 @@
     :host([data-rcs-ui=messages]) mark { background:color-mix(in srgb,var(--rcs-accent) 22%,var(--rcs-bg));font-weight:650; }
     :host([data-rcs-ui=messages]) .result.active { background:color-mix(in srgb,var(--rcs-accent) 5%,var(--rcs-bg)); }
     :host([data-rcs-ui=messages]) .result.active::before { inset-block:6px;background:color-mix(in srgb,var(--rcs-accent) 55%,transparent); }
-    .room-coverage { padding:5px 10px;border-top:1px solid var(--rcs-line);font-size:10px;color:var(--rcs-muted); }
+    .room-coverage { padding:5px 10px;font-size:10px;color:var(--rcs-muted); }
+    :host([data-rcs-ui=messages]) .room-refresh { display:grid;place-items:center;width:20px;height:20px;min-height:20px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--rcs-muted); }
+    .room-refresh svg { width:12px;height:12px; }
+    .room-refresh .refresh-motion { display:grid;place-items:center;width:12px;height:12px;transform-origin:center;backface-visibility:hidden; }
+    :host([data-rcs-ui=messages]) .field > .icon { width:24px;height:24px; }
+    :host([data-rcs-ui=messages]) .field > .icon svg { width:14px;height:14px; }
+    :host([data-rcs-ui=messages]) .field > .icon[aria-label="Search"] { height:28px; }
+    :host([data-rcs-ui=messages]) .field > .icon[aria-label="Search"] svg { width:18px;height:18px; }
+    :host([data-rcs-ui=messages]) .field > .room-filter-toggle,:host([data-rcs-ui=messages]) .field > .room-date-toggle { width:26px;height:26px; }
+    :host([data-rcs-ui=messages]) .room-filter-toggle svg,:host([data-rcs-ui=messages]) .room-date-toggle svg { width:16px;height:16px; }
+    :host([data-rcs-ui=messages]) .field input { flex:1;width:0;font:var(--rcs-row-title-font,var(--font-12,12px/1.5 var(--font-sans,Arial,sans-serif))); }
+    @keyframes rcs-room-refresh { to { transform:rotate(360deg); } }
+    @media(prefers-reduced-motion:no-preference) { .room-refresh.busy .refresh-motion { will-change:transform;animation:rcs-room-refresh 1.2s linear infinite; } }
     .room-coverage[hidden] { display:none; }
     :host([data-rcs-ui=message-trigger]) .icon[aria-expanded=true] { color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 10%,var(--rcs-bg)); }
     @media(prefers-color-scheme:dark) { :host { --rcs-bg:var(--color-neutral-background,#0e1113); --rcs-soft:var(--color-neutral-background-weak,#181c1f); --rcs-text:var(--color-neutral-content-strong,#eef1f3); --rcs-muted:var(--color-neutral-content-weak,#a0b0b5); --rcs-line:var(--color-neutral-border-weak,#30383c); --rcs-hover:var(--color-neutral-background-hover,#2a3236); } }
@@ -186,8 +193,8 @@
       this.toggle.firstChild.replaceWith(this.toggle.firstChild.firstChild);
       this.toggle.setAttribute('aria-expanded', 'false'); this.toggle.addEventListener('click', () => this.open());
       this.bar = node('div', 'bar');
-      if(kind==='messages'){this.filterBar=node('div','room-filter-bar');this.filterBar.setAttribute('role','group');this.filterBar.setAttribute('aria-label','Message search filters');this.filterBar.hidden=true;}
-      const field = node('label', 'field');
+      if(kind==='messages'){this.appliedFilters=node('div','room-applied-filters');this.appliedFilters.hidden=true;this.appliedFilters.setAttribute('aria-label','Applied message filters');}
+      const field = node('div', 'field');
       const searchIcon = icon('search', 'Search', () => {this.input.focus();this.showResults();});
       searchIcon.tabIndex = -1;
       this.input = node('input'); this.input.type = 'search'; this.input.autocomplete = 'off'; this.input.spellcheck = false;
@@ -210,19 +217,19 @@
           if(this.datePicker.open)this.datePicker.close();else{this.datePicker.show();this.dateToggle.setAttribute('aria-expanded','true');this.render();}
         });
         this.dateToggle.setAttribute('aria-expanded','false');
-        if(kind==='messages')this.filterBar.append(this.dateToggle);else{this.bar.append(this.dateToggle);this.dateToggle.hidden=true;}
+        if(kind==='messages')field.append(this.dateToggle);else{this.bar.append(this.dateToggle);this.dateToggle.hidden=true;}
         this.dateChip=node('span','date-chip');this.dateChip.hidden=true;
         this.dateChipLabel=node('button','date-chip-edit');this.dateChipLabel.type='button';this.dateChipLabel.addEventListener('click',()=>this.dateToggle.click());
         this.dateRemove=icon('close','Remove date filter',()=>{this.datePicker.reset();this.render();this.dateToggle.focus({preventScroll:true});});this.dateRemove.classList.add('date-remove');this.dateChip.append(this.dateChipLabel,this.dateRemove);
       }
       this.panel = node('section', 'panel'); this.panel.setAttribute('aria-label', `${label} results`);
       const meta = node('div', 'meta'); this.status = node('span'); this.status.setAttribute('role', 'status'); this.status.setAttribute('aria-live','polite'); meta.append(this.status);
-      this.load = node('button', 'load', 'Refresh'); this.load.type = 'button';
-      this.load.addEventListener('click', () => {this.cancelInput();this.loading ? this.cancelLoad(true) : this.ensureData(true);});if(this.dateChip){if(kind==='messages')this.filterBar.append(this.dateChip);else meta.append(this.dateChip);}meta.append(this.load);
+      this.load = node('button', 'load', 'Refresh'); this.load.type = 'button';this.updateLoad();
+      this.load.addEventListener('click', () => {this.cancelInput();this.loading ? this.cancelLoad(true) : this.ensureData(true);});if(this.dateChip){if(kind==='messages')this.appliedFilters.append(this.dateChip);else meta.append(this.dateChip);}meta.append(this.load);
       if (kind === 'list') this.panel.classList.add('conversation-panel');
       else this.panel.classList.add('message-panel');
       this.results = node('div', 'results'); this.results.id = 'rcs-results';
-      this.panel.append(meta,this.results);if(kind==='messages'){this.coverage=node('div','room-coverage','Saved messages only · History may be incomplete');this.panel.append(this.coverage);}shadow.append(this.toggle,this.bar);if(this.filterBar)shadow.append(this.filterBar);
+      this.panel.append(meta,this.results);if(kind==='messages'){this.coverage=node('div','room-coverage','Saved messages only · History may be incomplete');this.panel.append(this.coverage);}shadow.append(this.toggle,this.bar);if(this.appliedFilters)shadow.append(this.appliedFilters);
       if(kind==='list'){this.scopeBar=node('div','scope');this.scopeBar.setAttribute('aria-label','Search scope');for(const [value,label] of [['people','People'],['all','All chats']]){const button=node('button','',label);button.type='button';button.dataset.scope=value;button.setAttribute('aria-pressed',String(value===this.scope));button.addEventListener('click',()=>this.setScope(value));this.scopeBar.append(button);}shadow.append(this.scopeBar);}if(this.datePicker)shadow.append(this.datePicker.element,node('style','',RCSDatePicker.styles));shadow.append(this.panel);
       this.toggle.hidden = kind === 'list'; this.bar.hidden = kind === 'messages'; this.panel.hidden = true;
       if (kind === 'messages') {
@@ -285,6 +292,7 @@
       this.sync();
       if (kind === 'list') this.ensureData(false,true);
     }
+    updateLoad(){if(this.kind!=='messages'){this.load.textContent=this.loading?'Stop':'Refresh';return;}const label=this.loading?'Stop searching messages':'Refresh messages';this.load.title=label;this.load.setAttribute('aria-label',label);this.load.classList.add('room-refresh');this.load.classList.toggle('busy',this.loading);if(!this.load.querySelector('svg'))this.load.innerHTML=`<span class="refresh-motion"><svg viewBox="0 0 24 24" aria-hidden="true">${icons.refresh}</svg></span>`;}
     cancelInput(){clearTimeout(this.inputTimer);this.inputTimer=null;this.inputPending=false;this.results?.setAttribute('aria-busy','false');}
     queueInput(){
       this.cancelInput();this.clear.hidden=!this.input.value.trim();
@@ -378,7 +386,7 @@
       })();
       return this.roomSavedPromise;
     }
-    open() { this.resultsDismissed=false;if(this.filterBar)this.filterBar.hidden=false;this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true'); this.ensureData(); this.render(); this.input.focus(); }
+    open() { this.resultsDismissed=false;this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true'); this.ensureData(); this.render(); this.input.focus(); }
     showResults() {this.resultsDismissed=false;this.stoppedByUser=false;if(this.kind==='list')this.browseOpen=true;this.ensureData();this.render();}
     dismiss() {
       // All chats is the selected sidebar view, rather than a transient menu.
@@ -386,7 +394,7 @@
       if(this.isGlobal)return;
       this.cancelInput();this.resultsDismissed=true;this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
     }
-    close(focus = true) { this.tools?.queryState?.clear();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;this.cancelLoad();if(this.filterBar)this.filterBar.hidden=true; this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:this.kind==='messages'?'On':'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
+    close(focus = true) { this.tools?.queryState?.clear();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;this.cancelLoad();if(this.appliedFilters)this.appliedFilters.hidden=true; this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:this.kind==='messages'?'On':'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
     updateLayout() {
       let compact=false;
       for(let current=this.container;current;current=current.parentElement || current.getRootNode()?.host) {
@@ -432,7 +440,7 @@
       const dates=this.dates || {from:'',to:''},bounds=C.dateBounds(dates),searchKey=JSON.stringify([query,dates]);
       if(searchKey!==this.lastQuery){this.renderLimit=50;this.lastQuery=searchKey;}
       const selected=this.hits[this.active] ? this.rowKey(this.hits[this.active]) : '';
-      if(this.dateToggle){this.dateToggle.classList.toggle('filtered',bounds.active);this.dateToggle.setAttribute('aria-pressed',String(bounds.active));this.dateChip.hidden=!bounds.active || this.kind==='list' && !this.isGlobal;this.dateChipLabel.textContent=this.datePicker.compactSummary();this.dateChip.title=this.dateLabel || '';this.dateChipLabel.setAttribute('aria-label',`Edit date filter: ${this.dateLabel || ''}`);this.dateChipLabel.setAttribute('aria-haspopup','dialog');this.dateChipLabel.setAttribute('aria-expanded',String(this.datePicker.open));}
+      if(this.dateToggle){this.dateToggle.classList.toggle('filtered',bounds.active);this.dateToggle.setAttribute('aria-pressed',String(bounds.active));this.dateChip.hidden=!bounds.active || this.kind==='list' && !this.isGlobal;this.dateChipLabel.textContent=this.datePicker.compactSummary();this.dateChip.title=this.dateLabel || '';this.dateChipLabel.setAttribute('aria-label',`Edit date filter: ${this.dateLabel || ''}`);this.dateChipLabel.setAttribute('aria-haspopup','dialog');this.dateChipLabel.setAttribute('aria-expanded',String(this.datePicker.open));if(this.appliedFilters && !this.tools)this.appliedFilters.hidden=!bounds.active || this.bar.hidden;}
       if (this.kind === 'list') {
         const available = this.container.getBoundingClientRect().bottom - this.host.getBoundingClientRect().bottom;
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
@@ -459,7 +467,7 @@
       if(this.kind==='list' && this.loading && !this.refreshing && globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete)this.status.textContent=`${this.hits.length} saved conversations · ${this.progress.startsWith('Waiting') ? this.progress.replace(/\s*\(\d+\)$/,'') : this.progress.includes('dates') ? 'Updating dates…' : 'Checking updates…'}`;
       if(this.kind==='messages'){this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.hits.length} result${this.hits.length===1?'':'s'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;this.coverage.hidden=this.complete;this.coverage.textContent='Saved messages only · History may be incomplete';}
       if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || (!this.savedStats && this.savedLoading ? 'Searching saved messages…' : `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedSavingError ? ' · Saving paused' : this.savedImporting ? ' · Saving cached messages…' : this.savedLoading ? ' · Searching…' : ''}`);
-      if(this.isGlobal)this.load.textContent='Refresh';
+      if(this.isGlobal)this.updateLoad();
       this.status.title=this.savedSavingError ? `${this.status.textContent} · ${this.savedSavingError}` : this.status.textContent;
       const wanted=[],dayHeaders=new Map([...this.results.querySelectorAll('.day-heading')].map(el=>[el.dataset.day,el]));let lastDay=null;
       const chronological=this.messageMode && this.queryOptions?.sort!=='relevant';
@@ -593,7 +601,7 @@
       this.cancelInput();
       if(showNotice)this.stoppedByUser=true;
       this.savedGeneration++;clearTimeout(this.savedTimer);this.savedLoading=false;this.savedDirty=false;this.savedKey='';
-      this.dataTask?.cancel();this.dataTask=null;this.loading=false;this.load.textContent='Refresh';
+      this.dataTask?.cancel();this.dataTask=null;this.loading=false;this.updateLoad();
       if(showNotice) {this.notice='Search stopped. Results may be incomplete.';this.render();}
     }
     async ensureData(force=false,reconcile=false) {
@@ -606,7 +614,7 @@
       if(!globalThis.RCSData || this.loading || (this.complete && !force && !reconcile) || this.kind==='messages' && !force && this.dateCompleteKey===dateKey) return;
       this.refreshing=force;
       this.stoppedByUser=false;
-      this.loading=true;this.notice='';this.progress='';this.load.textContent='Stop';
+      this.loading=true;this.notice='';this.progress='';this.updateLoad();
       const room=this.room;
       const task=(this.kind==='list' && globalThis.RCSDirectory ? RCSDirectory.load(force,progress=>{
         if(this.dataTask!==task)return;
@@ -630,7 +638,7 @@
           if(!this.complete)this.notice=records.some(record=>record.status==='invite-pending')?'Some chat requests are pending. Available conversations remain searchable.':'Some usernames are unavailable. Saved matches remain searchable.';
         } else {index.replace(room,records,records.historyMeta || {});this.complete=records.historyMeta?.complete!==false;this.dateCompleteKey=records.historyMeta?.dateComplete ? JSON.stringify(records.historyMeta.dates || {}) : '';if(this.complete)completeRooms.add(room);}
       } catch(error) { if(this.dataTask===task)this.notice=error.message; }
-      finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.load.textContent='Refresh';if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
+      finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.updateLoad();if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
     destroy() { this.headerActions?.destroy();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;document.removeEventListener('keydown',this.shortcut,true);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
