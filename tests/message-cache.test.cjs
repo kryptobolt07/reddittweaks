@@ -127,6 +127,18 @@ function clientHarness({store,nativeImport,marked=false,ingestGate,readGate}={})
   win.eval(fs.readFileSync('extension/message-cache-client.js','utf8'));
   return {dom,win,store,calls,nativeArgs,emit,setActive(value){active=value;},fail(count){failures=count;},get imports(){return imports;},get marks(){return marks;},change(message){changed(message);}};
 }
+test('self profile remains available without matching self messages and resets across accounts and Clear',async t=>{
+  const h=clientHarness({marked:true}),api=h.win.RCSMessages;
+  t.after(()=>h.dom.window.close());
+  await h.store.ingest(batch([event('$partner','hello',1000,{sender:other})],{identities:[{id:owner,name:'You',self:true,avatar:'https://example.test/self.png'}]}));
+  const result=await api.search({query:'missing'});
+  assert.equal(result.total,0);assert.equal(result.selfIdentity.id,owner);
+  assert.equal(api.getSelfIdentity().avatar,'https://example.test/self.png');
+  const copy=api.getSelfIdentity();copy.avatar='changed';assert.equal(api.getSelfIdentity().avatar,'https://example.test/self.png');
+  h.setActive(other);await api.room(roomId);assert.equal(api.getSelfIdentity(),null);
+  h.setActive(owner);await api.search({});assert.equal(api.getSelfIdentity().id,owner);
+  await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});assert.equal(api.getSelfIdentity(),null);
+});
 test('failed captures leave committed data readable; explicit flush or a new batch retries without account leakage',async()=>{
   const h=clientHarness({marked:true}),api=h.win.RCSMessages;
   h.fail(1);h.emit(batch([event('$retry','retained')]));await new Promise(resolve=>setTimeout(resolve,0));

@@ -41,3 +41,14 @@ test('completed typed media filters remain visible and removable alongside sende
 test('filter menu aligns with its button below the toolbar including applied filter tags',t=>{
   const {control:c,tools}=setup(t);c.host.getBoundingClientRect=()=>({left:100,right:420,width:320,bottom:180});tools.field.getBoundingClientRect=()=>({bottom:148});tools.filterButton.getBoundingClientRect=()=>({right:372});tools.filterButton.click();assert.equal(tools.popover.style.right,'48px');assert.equal(tools.popover.style.left,'');assert.equal(tools.popover.style.top,'4px');
 });
+test('You uses the saved account profile even when only other senders match, including refreshed chips',t=>{
+  const {w,control:c,tools}=setup(t);let avatar='https://example.test/self.png';
+  w.RCSMessages={getSelfIdentity:()=>({id:'@self:reddit.com',name:'You',avatar})};
+  c.hits=[{author:'Alex',avatar:'https://example.test/alex.png'}];tools.sync();
+  assert.equal(tools.senderChoices().find(choice=>choice.name==='me').avatar,avatar);
+  tools.showMenu('from');assert.equal(tools.popover.querySelector('[data-value="from:me"] img').src,avatar);
+  tools.popover.querySelector('[data-value="from:me"]').click();assert.equal(tools.senderChips.querySelector('img').src,avatar);
+  avatar='https://example.test/self-new.png';tools.sync();assert.equal(tools.senderChips.querySelector('img').src,avatar);
+  c.hits=[{authorSelf:true},{authorSelf:true,avatar:'https://example.test/fallback.png'}];w.RCSMessages.getSelfIdentity=()=>null;tools.sync();
+  assert.equal(tools.senderChoices().find(choice=>choice.name==='me').avatar,'https://example.test/fallback.png');
+});

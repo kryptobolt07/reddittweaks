@@ -4,7 +4,7 @@
   const dimensionPatches=new Map();let dimensionTimer=null,dimensionsRunning=false;
   const MAX_BATCHES=500,MAX_EVENTS=10000,MAX_BYTES=8*1024*1024;
   let contextError=null;
-  let owner=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
+  let owner=null,selfIdentity=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
   const runtime=globalThis.chrome?.runtime,memory=!runtime?.sendMessage?new RCSMessageStore.Store({indexedDB:null}):null;
   const notify=value=>{if(owner && value.owner && value.owner!==owner)return;for(const listener of subscribers)try{listener(value);}catch{}};
   function discard(account){for(let i=pending.length-1;i>=0;i--)if(!account || pending[i].batch.owner===account)pending.splice(i,1);for(const [key,item]of dimensionPatches)if(!account || item.owner===account){dimensionPatches.delete(key);item.resolve({changed:false});}}
@@ -19,7 +19,7 @@
     if(contextError)throw contextError;
     const value=await RCSData.request('identity-context').promise;
     if(!RCSMessageStore.ownerOK(value?.owner))throw Error('Authenticated Reddit account unavailable');
-    if(owner!==value.owner){if(owner){discard(owner);preparing.delete(owner);initializations.delete(owner);}owner=value.owner;readRevision++;writeError=null;if(overflowError?.account!==owner)overflowError=null;notify({owner,accountChanged:true});}
+    if(owner!==value.owner){if(owner){discard(owner);preparing.delete(owner);initializations.delete(owner);}owner=value.owner;selfIdentity=null;readRevision++;writeError=null;if(overflowError?.account!==owner)overflowError=null;notify({owner,accountChanged:true});}
     return owner;
   }
   async function call(action,parameters={}) {
@@ -66,7 +66,7 @@
       const accounts=message.owner?[message.owner]:new Set([owner,...initializations.keys(),...imports.keys(),...importRequests.keys(),...clearedAccounts,...pending.map(item=>item.batch.owner)]);
       discard(message.owner);
       for(const account of accounts)if(account){initializations.delete(account);preparing.delete(account);captureGaps.delete(account);clearedAccounts.add(account);importRequests.get(account)?.cancel?.();imports.set(account,{available:false,cleared:true});}
-      if(affectsActive){readRevision++;writeError=null;overflowError=null;document.dispatchEvent(new CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:message.owner || owner})}));}
+      if(affectsActive){selfIdentity=null;readRevision++;writeError=null;overflowError=null;document.dispatchEvent(new CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:message.owner || owner})}));}
     }
     if(affectsActive)notify({owner,changed:true,cleared:message.cleared,roomIds:message.roomIds});
   });
@@ -122,6 +122,7 @@
     const {retryWrites,...options}=parameters,result=await call(action,{...options,owner:active});
     if(await context()!==active)throw Error('Reddit account changed. Please retry.');
     if(revision!==readRevision)throw Error('Saved messages changed. Please retry.');
+    if(result.selfIdentity?.id===active)selfIdentity={...result.selfIdentity};
     return {...result,importing:preparing.has(active),savingPending:pending.length>0,savingError:writeError?.message || '',captureIncomplete:captureGaps.has(active)};
   }
   async function saveDimensionPatches(){
@@ -144,6 +145,6 @@
     });
   }
   window.addEventListener('pagehide',event=>{if(!event.persisted){clearTimeout(dimensionTimer);for(const item of dimensionPatches.values())item.resolve({changed:false});dimensionPatches.clear();}});
-  globalThis.RCSMessages=Object.freeze({ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),rememberImageDimensions,flush,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
+  globalThis.RCSMessages=Object.freeze({getSelfIdentity:()=>selfIdentity?.id===owner?{...selfIdentity}:null,ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),rememberImageDimensions,flush,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
   document.dispatchEvent(new CustomEvent('rcs-message-cache-listening'));
 })();

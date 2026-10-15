@@ -289,6 +289,13 @@ test('multiple selected sender chips match alternatives and remove one sender wi
   assert.ok(c.savedHits.every(record=>record.authorSelf || record.author==='alex_morgan'));
   await p.click('[aria-label="Remove sender me"]');await p.tick(180);assert.equal(c.senderChips.querySelectorAll('.sender-chip').length,1);assert.match(c.input.value,/coffee/);assert.doesNotMatch(c.input.value,/from:me/);assert.ok(c.savedHits.length);assert.ok(c.savedHits.every(record=>record.author==='alex_morgan'));
 });
+test('global You picker and tag use the account avatar without a self message in the results',async t=>{
+  const p=await setup(t),c=p.control,avatar='https://example.test/own.png';
+  p.w.RCSMessages.getSelfIdentity=()=>({id:'@t2_me:reddit.com',name:'You',avatar});
+  await p.search('from:');const choice=c.valueChoices().find(choice=>choice.token==='from:me');
+  assert.equal(choice.avatar,avatar);assert.equal(c.valueRow(choice,'own-picker').querySelector('img').src,avatar);
+  c.selectValue(choice);await p.tick(180);assert.equal(c.senderChips.querySelector('img').src,avatar);
+});
 
 test('match windows expose long URL substrings and People title matches while live sync retains clickable nodes',async t=>{
   const p=await setup(t),c=p.control,text='https://example.invalid/'+ 'a'.repeat(280)+'TARGET'+ 'z'.repeat(200);
