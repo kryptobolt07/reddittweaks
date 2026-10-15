@@ -47,6 +47,7 @@
       "run_at": "document_idle",
       "js": [
         "adapter.js",
+        "room-header-actions.js",
         "native-labels.js",
         "date-picker.js",
         "global-search-model.js",

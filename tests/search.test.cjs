@@ -73,13 +73,13 @@ test('list search filters usernames rather than previews; keyboard selection ope
   assert.equal(W.RCSAdapter.queryAll('[data-rcs-ui="list"]',api.nav).length,1);
   dom.window.close();
 });
-test('message search finds and jumps to matches, clears, and resets when a reused room changes',async()=>{
-  const dom=environment();const W=dom.window;const api=W.ChatFixture.build(W.document.body);W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
+test('message search finds and jumps to matches, clears, and resets when a reused room changes',async t=>{
+  const dom=environment();t.after(()=>dom.window.close());const W=dom.window;const api=W.ChatFixture.build(W.document.body);W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
   const trigger=W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button');trigger.click();
   const host=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room);const control=host.shadowRoot;const input=control.querySelector('input');
   assert.equal(host.parentElement.localName,'main');assert.equal(host.hidden,false);
   input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(control.querySelectorAll('.result').length,2);assert.ok(control.querySelector('mark'));
-  input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}));assert.equal(control.querySelector('.count').textContent,'2/2');
+  input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true}));assert.equal(control.querySelector('.result.active'),control.querySelectorAll('.result')[1]);assert.match(control.querySelector('[role=status]').textContent,/2 results/);
   assert.equal(W.RCSAdapter.messages(api.room)[2].element.dataset.scrolled,undefined);assert.equal(control.querySelector('.panel').hidden,false);
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
   assert.equal(W.RCSAdapter.messages(api.room)[2].element.dataset.scrolled,'true');
@@ -110,7 +110,7 @@ test('room snippets fit narrow results around a deep URL match and retain nodes 
   const results=control.querySelector('.results');results.getBoundingClientRect=()=>({width:300});
   const input=control.querySelector('input');input.value='MATCHPOINT';input.dispatchEvent(new W.Event('input'));await tick(170);
   const preview=control.querySelector('.preview'),mark=preview.querySelector('mark');
-  assert.equal(mark.textContent,'MATCHPOINT');assert.ok(preview.textContent.length<=65);assert.ok(preview.textContent.startsWith('…'));
+  assert.equal(mark.textContent,'MATCHPOINT');assert.ok(preview.textContent.length<=135);assert.ok(preview.textContent.startsWith('…'));
   api.appendMessage('alex_morgan','Unrelated live message','unrelated');await tick();
   assert.equal(control.querySelector('.preview'),preview);assert.equal(preview.querySelector('mark'),mark);
   dom.window.close();
@@ -160,7 +160,7 @@ test('arrow keys within focused result rows change selection and keep the menu o
   const dom=environment();t.after(()=>dom.window.close());const W=dom.window,api=W.ChatFixture.build(W.document.body);W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));const first=root.querySelector('.result.active');first.focus();first.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
-  assert.equal(root.querySelector('.count').textContent,'2/2');assert.equal(root.activeElement,root.querySelector('.result.active'));assert.equal(root.querySelector('.panel').hidden,false);assert.equal(W.RCSAdapter.messages(api.room).some(m=>m.element.dataset.scrolled),false);
+  assert.equal(root.querySelector('.result.active'),root.querySelectorAll('.result')[1]);assert.equal(root.activeElement,root.querySelector('.result.active'));assert.equal(root.querySelector('.panel').hidden,false);assert.equal(W.RCSAdapter.messages(api.room).some(m=>m.element.dataset.scrolled),false);
   root.activeElement.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));assert.equal(root.querySelector('.panel').hidden,true);assert.equal(W.RCSAdapter.messages(api.room).some(m=>m.element.dataset.scrolled),true);
 });
 test('authoritative replacement preserves known native identities and shares them only by verified sender',t=>{

@@ -71,7 +71,6 @@
     .time { display:block; color:var(--rcs-muted); font-size:11px; font-weight:400; margin-top:2px; } .hint,.empty { color:var(--rcs-muted); padding:20px 16px; font-size:12px; text-align:center; }
     mark { background:#ffcc804d; color:inherit; border-radius:2px; } .count { font-size:11px; color:var(--rcs-muted); white-space:nowrap; }
     :host([data-rcs-ui=messages]) .bar { width:100%;padding:6px 8px 2px;gap:4px; }
-    :host([data-rcs-ui=messages]) .count { flex:0 0 11ch;inline-size:11ch;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:center;font-variant-numeric:tabular-nums; }
     :host([data-rcs-ui=messages]) .field { height:40px; }
     :host([data-rcs-ui=messages]) input { height:36px;font-size:12px; }
     .date-chip { max-width:52%;color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 8%,var(--rcs-bg));border-color:color-mix(in srgb,var(--rcs-accent) 20%,var(--rcs-line)); }
@@ -114,6 +113,28 @@
     :host([data-rcs-compact]) .date-chip .date-remove { width:20px;height:20px; }
     :host([data-rcs-ui=minimized-search]) .icon { width:24px;height:24px; }
     :host([data-rcs-ui=minimized-search]) svg { width:16px;height:16px; }
+    :host([data-rcs-ui=messages]) .bar { padding:6px 8px 3px; }
+    .room-filter-bar { display:flex;align-items:center;gap:5px;padding:0 8px 6px;background:var(--rcs-bg); }
+    .room-filter-bar[hidden] { display:none; }
+    .room-filter-chip { display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:0;max-width:42%;min-height:27px;padding:4px 7px;border:1px solid var(--rcs-line);border-radius:6px;background:transparent;color:var(--rcs-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .room-filter-chip:hover { background:var(--rcs-soft); }
+    .room-filter-bar .date-chip { min-width:0;max-width:40%;min-height:27px;border-radius:6px;padding-block:0; }
+    .room-filter-bar .date-chip-edit { padding-block:2px; }
+    :host([data-rcs-ui=messages]) .message-panel { left:0;right:0;top:100%;transform:none;width:100%;height:var(--rcs-room-results-height,320px);margin:0;border:0;border-top:1px solid var(--rcs-line);border-radius:0;box-shadow:none;display:flex;flex-direction:column; }
+    :host([data-rcs-ui=messages]) .message-panel .results { flex:1;min-height:0;max-height:none;padding:0;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--rcs-muted) 28%,transparent) transparent; }
+    :host([data-rcs-ui=messages]) .message-panel .results::-webkit-scrollbar { width:5px; }
+    :host([data-rcs-ui=messages]) .message-panel .results::-webkit-scrollbar-thumb { border-radius:4px;background:color-mix(in srgb,var(--rcs-muted) 28%,transparent); }
+    :host([data-rcs-ui=messages]) .message-panel .meta { padding:4px 10px;min-height:32px; }
+    :host([data-rcs-ui=messages]) .message-panel .result { padding:10px 12px;gap:0; }
+    :host([data-rcs-ui=messages]) .message-panel .name { flex:1;min-width:0;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    :host([data-rcs-ui=messages]) .message-heading { flex-wrap:nowrap; }
+    :host([data-rcs-ui=messages]) .message-panel .preview { -webkit-line-clamp:3;font-size:12px;line-height:1.45; }
+    :host([data-rcs-ui=messages]) mark { background:color-mix(in srgb,var(--rcs-accent) 22%,var(--rcs-bg));font-weight:650; }
+    :host([data-rcs-ui=messages]) .result.active { background:color-mix(in srgb,var(--rcs-accent) 5%,var(--rcs-bg)); }
+    :host([data-rcs-ui=messages]) .result.active::before { inset-block:6px;background:color-mix(in srgb,var(--rcs-accent) 55%,transparent); }
+    .room-coverage { padding:5px 10px;border-top:1px solid var(--rcs-line);font-size:10px;color:var(--rcs-muted); }
+    .room-coverage[hidden] { display:none; }
+    :host([data-rcs-ui=message-trigger]) .icon[aria-expanded=true] { color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 10%,var(--rcs-bg)); }
     @media(prefers-color-scheme:dark) { :host { --rcs-bg:var(--color-neutral-background,#0e1113); --rcs-soft:var(--color-neutral-background-weak,#181c1f); --rcs-text:var(--color-neutral-content-strong,#eef1f3); --rcs-muted:var(--color-neutral-content-weak,#a0b0b5); --rcs-line:var(--color-neutral-border-weak,#30383c); --rcs-hover:var(--color-neutral-background-hover,#2a3236); } }
     @media(prefers-reduced-motion:no-preference) { .result,.icon { transition:background 100ms; } }
   `;
@@ -159,6 +180,7 @@
       this.toggle.firstChild.replaceWith(this.toggle.firstChild.firstChild);
       this.toggle.setAttribute('aria-expanded', 'false'); this.toggle.addEventListener('click', () => this.open());
       this.bar = node('div', 'bar');
+      if(kind==='messages'){this.filterBar=node('div','room-filter-bar');this.filterBar.setAttribute('role','group');this.filterBar.setAttribute('aria-label','Message search filters');this.filterBar.hidden=true;}
       const field = node('label', 'field');
       const searchIcon = icon('search', 'Search', () => {this.input.focus();this.showResults();});
       searchIcon.tabIndex = -1;
@@ -171,17 +193,18 @@
       if (kind === 'messages' || kind === 'list') {
         this.dates={from:'',to:''};
         this.datePicker=new RCSDatePicker({
+          chatMode:kind==='messages',
+          getAnchor:()=>(this.dateToggle.hidden?this.dateChip:this.dateToggle).getBoundingClientRect(),
+          getAvailability:()=>({days:[...new Set([...(index.rooms.get(this.room)?.values() || [])].map(message=>{const date=new Date(message.timestamp);return Number.isFinite(date.getTime())?`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`:'';}).filter(Boolean))]}),
           getBounds:()=>{const rect=this.container.getBoundingClientRect();if(!rect.width||!rect.height)return;return {left:rect.left,right:rect.right,top:Math.max(rect.top,this.bar.getBoundingClientRect().bottom,A.query(A.selectors.header,this.container)?.getBoundingClientRect().bottom||rect.top),bottom:rect.bottom};},
-          onChange:(dates,label)=>{this.cancelInput();this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
-          onClose:restoreFocus=>{this.dateToggle.setAttribute('aria-expanded','false');this.render();if(restoreFocus)this.dateToggle.focus({preventScroll:true});}
+          onChange:(dates,label)=>{this.cancelInput();this.resultsDismissed=false;this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
+          onClose:restoreFocus=>{this.dateToggle.setAttribute('aria-expanded','false');this.render();if(restoreFocus)(this.dateToggle.hidden?this.dateChipLabel:this.dateToggle).focus({preventScroll:true});}
         });
         this.dateToggle=icon('calendar','Filter by date',()=>{
           if(this.datePicker.open)this.datePicker.close();else{this.datePicker.show();this.dateToggle.setAttribute('aria-expanded','true');this.render();}
         });
         this.dateToggle.setAttribute('aria-expanded','false');
-        this.count=node('span','count');
-        this.prev=icon('up','Previous match',()=>this.move(-1,true));this.next=icon('down','Next match',()=>this.move(1,true));
-        this.bar.append(this.dateToggle);if(kind==='messages')this.bar.append(this.count,this.prev,this.next,icon('close','Close message search',()=>this.close()));else this.dateToggle.hidden=true;
+        if(kind==='messages')this.filterBar.append(this.dateToggle);else{this.bar.append(this.dateToggle);this.dateToggle.hidden=true;}
         this.dateChip=node('span','date-chip');this.dateChip.hidden=true;
         this.dateChipLabel=node('button','date-chip-edit');this.dateChipLabel.type='button';this.dateChipLabel.addEventListener('click',()=>this.dateToggle.click());
         this.dateRemove=icon('close','Remove date filter',()=>{this.datePicker.reset();this.render();this.dateToggle.focus({preventScroll:true});});this.dateRemove.classList.add('date-remove');this.dateChip.append(this.dateChipLabel,this.dateRemove);
@@ -189,11 +212,11 @@
       this.panel = node('section', 'panel'); this.panel.setAttribute('aria-label', `${label} results`);
       const meta = node('div', 'meta'); this.status = node('span'); this.status.setAttribute('role', 'status'); this.status.setAttribute('aria-live','polite'); meta.append(this.status);
       this.load = node('button', 'load', 'Refresh'); this.load.type = 'button';
-      this.load.addEventListener('click', () => {this.cancelInput();this.loading ? this.cancelLoad(true) : this.ensureData(true);});if(this.dateChip)meta.append(this.dateChip);meta.append(this.load);
+      this.load.addEventListener('click', () => {this.cancelInput();this.loading ? this.cancelLoad(true) : this.ensureData(true);});if(this.dateChip){if(kind==='messages')this.filterBar.append(this.dateChip);else meta.append(this.dateChip);}meta.append(this.load);
       if (kind === 'list') this.panel.classList.add('conversation-panel');
       else this.panel.classList.add('message-panel');
       this.results = node('div', 'results'); this.results.id = 'rcs-results';
-      this.panel.append(meta,this.results); shadow.append(this.toggle,this.bar);
+      this.panel.append(meta,this.results);if(kind==='messages'){this.coverage=node('div','room-coverage','Saved messages only · History may be incomplete');this.panel.append(this.coverage);}shadow.append(this.toggle,this.bar);if(this.filterBar)shadow.append(this.filterBar);
       if(kind==='list'){this.scopeBar=node('div','scope');this.scopeBar.setAttribute('aria-label','Search scope');for(const [value,label] of [['people','People'],['all','All chats']]){const button=node('button','',label);button.type='button';button.dataset.scope=value;button.setAttribute('aria-pressed',String(value===this.scope));button.addEventListener('click',()=>this.setScope(value));this.scopeBar.append(button);}shadow.append(this.scopeBar);}if(this.datePicker)shadow.append(this.datePicker.element,node('style','',RCSDatePicker.styles));shadow.append(this.panel);
       this.toggle.hidden = kind === 'list'; this.bar.hidden = kind === 'messages'; this.panel.hidden = true;
       if (kind === 'messages') {
@@ -202,14 +225,15 @@
           this.triggerHost = node('span'); this.triggerHost.setAttribute('data-rcs-ui','message-trigger');
           this.triggerHost.style.cssText = 'display:inline-flex;flex-shrink:0;align-items:center;';
           const triggerRoot = this.triggerHost.attachShadow({mode:'open'});
-          this.trigger = icon('search','Search messages',() => this.open()); this.trigger.setAttribute('aria-expanded','false');
+          this.trigger = icon('search','Search messages',() => this.bar.hidden?this.open():this.close()); this.trigger.setAttribute('aria-expanded','false');
           triggerRoot.append(node('style','',css),this.trigger);
           const actions = header.lastElementChild;
           (actions?.classList.contains('flex') ? actions : header).prepend(this.triggerHost);
           this.toggle.hidden = true; this.host.hidden = true;
         }
       }
-      this.input.addEventListener('input', () => {this.active=-1;if(this.kind==='messages'){this.queueInput();return;}this.browseOpen=true;this.render();if(this.isGlobal)this.ensureData();});
+      if(kind==='messages')this.headerActions=globalThis.RCSRoomHeaderActions?.attach(container,{adapter:A});
+      this.input.addEventListener('input', () => {this.resultsDismissed=false;this.active=-1;if(this.kind==='messages'){this.queueInput();return;}this.browseOpen=true;this.render();if(this.isGlobal)this.ensureData();});
       this.input.addEventListener('focus', () => this.showResults());
       this.input.addEventListener('click', () => this.showResults());
       if(globalThis.IntersectionObserver)this.avatarObserver=new IntersectionObserver(entries=>{
@@ -230,6 +254,7 @@
           event.preventDefault();event.stopPropagation();
           if(this.datePicker?.open)this.datePicker.close();
           else if(this.isGlobal)this.input.blur();
+          else if(this.kind==='messages' && !this.panel.hidden){this.input.focus({preventScroll:true});this.dismiss();}
           else this.kind === 'list' ? this.dismiss() : this.close();
           return;
         }
@@ -242,6 +267,8 @@
           } else {this.move(event.key === 'ArrowUp' ? -1 : 1);if(this.results.contains(event.target))this.hits[this.active] && this.rows.get(this.rowKey(this.hits[this.active]))?.result.focus({preventScroll:true});}
         }
       });
+      this.shortcut=event=>{if(this.kind!=='messages' || !(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase()!=='f' || !event.composedPath().includes(this.container))return;event.preventDefault();event.stopPropagation();this.open();};
+      if(kind==='messages')document.addEventListener('keydown',this.shortcut,true);
       this.outside = event => { if (!event.composedPath().includes(this.host)){if(this.datePicker?.open)this.datePicker.close(false);this.dismiss();} };
       document.addEventListener('pointerdown', this.outside);
       const point = A.mountPoint(container, kind === 'messages' ? A.selectors.header : 'rs-room-list-header');
@@ -344,15 +371,15 @@
       })();
       return this.roomSavedPromise;
     }
-    open() { this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true'); this.ensureData(); this.render(); this.input.focus(); }
-    showResults() {this.stoppedByUser=false;if(this.kind==='list')this.browseOpen=true;this.ensureData();this.render();}
+    open() { this.resultsDismissed=false;if(this.filterBar)this.filterBar.hidden=false;this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true'); this.ensureData(); this.render(); this.input.focus(); }
+    showResults() {this.resultsDismissed=false;this.stoppedByUser=false;if(this.kind==='list')this.browseOpen=true;this.ensureData();this.render();}
     dismiss() {
       // All chats is the selected sidebar view, rather than a transient menu.
       // Keep it mounted when focus moves to the room or a result is opened.
       if(this.isGlobal)return;
-      this.cancelInput();this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
+      this.cancelInput();this.resultsDismissed=true;this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
     }
-    close(focus = true) { this.cancelLoad(); this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
+    close(focus = true) { this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;this.cancelLoad();if(this.filterBar)this.filterBar.hidden=true; this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:this.kind==='messages'?'On':'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
     updateLayout() {
       let compact=false;
       for(let current=this.container;current;current=current.parentElement || current.getRootNode()?.host) {
@@ -361,7 +388,7 @@
       const width=this.container.getBoundingClientRect().width;
       if(this.kind==='messages' && width>0 && width<=440)compact=true;
       this.host.toggleAttribute('data-rcs-compact',compact);
-      this.triggerHost?.toggleAttribute('data-rcs-compact',compact);
+      this.triggerHost?.toggleAttribute('data-rcs-compact',compact);this.headerActions?.sync();
     }
     sync() {
       this.updateLayout();
@@ -397,11 +424,11 @@
       const dates=this.dates || {from:'',to:''},bounds=C.dateBounds(dates),searchKey=JSON.stringify([query,dates]);
       if(searchKey!==this.lastQuery){this.renderLimit=50;this.lastQuery=searchKey;}
       const selected=this.hits[this.active] ? this.rowKey(this.hits[this.active]) : '';
-      if(this.dateToggle){this.dateToggle.classList.toggle('filtered',bounds.active);this.dateToggle.setAttribute('aria-pressed',String(bounds.active));this.dateChip.hidden=!bounds.active || this.kind==='list' && !this.isGlobal;this.dateChipLabel.textContent=this.datePicker.compactSummary();this.dateChip.title=this.dateLabel || '';this.dateChipLabel.setAttribute('aria-label',`Edit date filter: ${this.dateLabel || ''}`);}
+      if(this.dateToggle){this.dateToggle.classList.toggle('filtered',bounds.active);this.dateToggle.setAttribute('aria-pressed',String(bounds.active));this.dateChip.hidden=!bounds.active || this.kind==='list' && !this.isGlobal;this.dateChipLabel.textContent=this.datePicker.compactSummary();this.dateChip.title=this.dateLabel || '';this.dateChipLabel.setAttribute('aria-label',`Edit date filter: ${this.dateLabel || ''}`);this.dateChipLabel.setAttribute('aria-haspopup','dialog');this.dateChipLabel.setAttribute('aria-expanded',String(this.datePicker.open));}
       if (this.kind === 'list') {
         const available = this.container.getBoundingClientRect().bottom - this.host.getBoundingClientRect().bottom;
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
-      } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
+      } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-room-results-height',`${available>0?Math.max(0,available):320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
       if(this.kind==='messages' && !query && !bounds.active){this.hits=[];this.active=-1;this.panel.hidden=true;this.input.setAttribute('aria-expanded','false');if(this.count)this.count.textContent='';if(this.prev)this.prev.disabled=this.next.disabled=true;return;}
       this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
         const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
@@ -415,14 +442,14 @@
       this.input.setAttribute('aria-expanded', String(showing));
       // The calendar overlays the global view. Hiding its opaque panel would
       // reveal Reddit's native list underneath while choosing a date.
-      this.panel.hidden = !showing || !this.isGlobal && Boolean(this.datePicker?.open);
+      this.panel.hidden = !showing || this.kind==='messages' && (this.resultsDismissed || this.bar.hidden) || this.kind!=='messages' && !this.isGlobal && Boolean(this.datePicker?.open);
       if (this.count) this.count.textContent = showing ? `${Math.max(0,this.active + 1)}/${this.hits.length}` : '';
       if (this.prev) { this.prev.disabled = !showing || !this.hits.length; this.next.disabled = this.prev.disabled; }
       if (!showing) return;
       if(this.tools?.renderValueChoices?.())return;
       this.status.textContent = this.kind==='list' && globalThis.RCSDirectory?.getStartup?.().pending ? 'Restoring saved usernames…' : this.loading ? this.progress || (this.kind === 'list' ? 'Searching all conversations…' : 'Searching all messages…') : this.notice || `${this.hits.length} ${this.kind === 'list' ? 'conversation' : 'message'}${this.hits.length === 1 ? '' : 's'}${this.complete ? '' : ' · still connecting'}`;
       if(this.kind==='list' && this.loading && !this.refreshing && globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete)this.status.textContent=`${this.hits.length} saved conversations · ${this.progress.startsWith('Waiting') ? this.progress.replace(/\s*\(\d+\)$/,'') : this.progress.includes('dates') ? 'Updating dates…' : 'Checking updates…'}`;
-      if(this.kind==='messages')this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.hits.length} match${this.hits.length===1?'':'es'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;
+      if(this.kind==='messages'){this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.hits.length} result${this.hits.length===1?'':'s'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;this.coverage.hidden=this.complete;this.coverage.textContent='Saved messages only · History may be incomplete';}
       if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || (!this.savedStats && this.savedLoading ? 'Searching saved messages…' : `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedSavingError ? ' · Saving paused' : this.savedImporting ? ' · Saving cached messages…' : this.savedLoading ? ' · Searching…' : ''}`);
       if(this.isGlobal)this.load.textContent='Refresh';
       this.status.title=this.savedSavingError ? `${this.status.textContent} · ${this.savedSavingError}` : this.status.textContent;
@@ -432,7 +459,7 @@
       const partnerName=partner?.name || (this.kind==='messages' ? A.text(A.query('.room-name',this.container)) : '');
       const partnerAvatar=this.kind==='messages' ? partner?.avatar || A.query('.user-avatar img, rs-user-avatar img, header img',this.container)?.getAttribute('src') : '';
       const resultWidth=this.results.getBoundingClientRect().width || this.container.getBoundingClientRect().width || 320;
-      const excerptMax=Math.max(48,Math.min(180,Math.floor((resultWidth-90)/6*2-8)));
+      const excerptMax=Math.max(48,Math.min(240,Math.floor((resultWidth-(this.kind==='messages'?24:90))/6*(this.kind==='messages'?3:2)-8)));
       const signaturePrefix=JSON.stringify([query,this.queryOptions,partnerName,partner?.type,excerptMax,this.messageMode ? false : this.loading]);
       for (const [i, hit] of this.hits.slice(0,this.renderLimit).entries()) {
         if(chronological){const day=C.dayKey(hit.timestamp);if(day!==lastDay){let heading=dayHeaders.get(day);if(!heading){heading=node('h3','day-heading');heading.dataset.day=day;}heading.textContent=C.dayLabel(hit.timestamp);wanted.push(heading);lastDay=day;}}
@@ -444,7 +471,7 @@
           const name=node('span','name');const caption=node('span','time');
           if(this.messageMode){const heading=node('span','message-heading');heading.append(name,caption);copy.append(heading);}else copy.append(name,caption);
           row={result,copy,name,caption};
-          row.avatar=node('span','avatar');row.avatar.setAttribute('aria-hidden','true');result.append(row.avatar);
+          if(this.kind!=='messages'){row.avatar=node('span','avatar');row.avatar.setAttribute('aria-hidden','true');result.append(row.avatar);}
           if(this.messageMode) {row.preview=node('span','preview');copy.append(row.preview);}
           result.append(copy);result.addEventListener('click',()=>this.activate(row.position));
           this.rows.set(key,row);
@@ -453,7 +480,7 @@
         const signature=signaturePrefix+JSON.stringify([hit.attachmentType,hit.attachmentPreview,hit.attachmentMime,hit.attachmentWidth,hit.attachmentHeight,hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName]);
         if(row.signature!==signature) {
           row.signature=signature;
-          row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query,{shortTermsWholeWord:false}) : document.createTextNode(partnerName || (hit.authorSelf ? 'You' : hit.author?.startsWith('@') ? 'Sender unavailable' : hit.author || 'Sender unavailable')));
+          row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query,{shortTermsWholeWord:false}) : document.createTextNode(this.kind==='messages' ? C.messageSender(hit,partner || {}).label : partnerName || C.messageSender(hit,partner || {}).label));
           row.caption.textContent=!this.messageMode ? (hit.accountUnavailable ? hit.historicalName ? 'Unavailable account · Retained username' : 'Unavailable account' : 'Open conversation') : hit.timestamp ? C.messageTime(hit.timestamp,{sort:this.queryOptions?.sort}) : '';
           if(!this.messageMode && hit.timestamp && Number.isFinite(new Date(hit.timestamp).getTime())) {
             row.caption.textContent=`${this.formatTime(hit.timestamp)}${hit.accountUnavailable ? ' · Unavailable account' : ''}`;
@@ -468,7 +495,7 @@
           if(row.preview) {
             const max=excerptMax-(this.kind==='messages' && hit.authorSelf ? 5 : 0);
             const snippet=C.excerpt?.(hit.text,query,{...this.queryOptions,max}) || {text:hit.text.slice(0,max)};
-            const sender=C.messageSender(hit,partner || this.cache.get(hit.roomId) || {});row.preview.classList.toggle('has-image',hit.attachmentType==='image');if(hit.attachmentType==='image' && this.mediaView)row.preview.replaceChildren(this.mediaView.render(hit,{owner:this.savedOwner || globalThis.RCSDirectory?.getOwner?.(),prefix:sender.prefix}));else row.preview.replaceChildren(...(sender.prefix?[node('span','you-prefix',sender.prefix)]:[]),highlight(snippet.text,query,{...this.queryOptions,ranges:snippet.ranges}));
+            const sender=C.messageSender(hit,partner || this.cache.get(hit.roomId) || {});row.preview.classList.toggle('has-image',hit.attachmentType==='image');if(hit.attachmentType==='image' && this.mediaView)row.preview.replaceChildren(this.mediaView.render(hit,{owner:this.savedOwner || globalThis.RCSDirectory?.getOwner?.(),prefix:this.kind==='messages'?'':sender.prefix}));else row.preview.replaceChildren(...(sender.prefix && this.kind!=='messages'?[node('span','you-prefix',sender.prefix)]:[]),highlight(snippet.text,query,{...this.queryOptions,ranges:snippet.ranges}));
             row.preview.classList.toggle('link-snippet',/(?:https?:\/\/|www\.)/i.test(hit.text));
             row.preview.title=hit.text;row.result.setAttribute('aria-label',`${sender.label} sent: ${hit.attachmentType==='image'?(globalThis.RCSMediaPreview?.label(hit) || 'Image'):snippet.text}. In ${partnerName || this.cache.get(hit.roomId)?.name || 'Saved conversation'}. ${C.fullTimestamp(hit.timestamp)}. Open message.`);
           }
@@ -508,7 +535,7 @@
         position=result.nextElementSibling;
       }
       if(this.isGlobal && !this.hits.length)this.results.append(node('div','empty',this.savedLoading ? 'Searching saved messages…' : this.notice || (this.savedStats?.messages ? 'No matching saved messages. Try another word.' : 'No saved messages yet. Messages Reddit loads will become searchable here.')));
-      else if (!this.hits.length) this.results.append(node('div', 'empty', this.loading ? this.kind==='list' ? 'Loading your conversations…' : 'Searching your history in the background…' : this.kind === 'list' ? 'No matching usernames. Try a shorter name.' : 'No matching messages. Try another word.'));
+      else if (!this.hits.length) this.results.append(node('div', 'empty', this.loading ? this.kind==='list' ? 'Loading your conversations…' : 'Searching your history in the background…' : this.kind === 'list' ? 'No matching usernames. Try a shorter name.' : `No messages match ${query ? '“'+query+'”' : 'these dates'}. Try removing a filter.`));
       if(this.isGlobal && this.savedHasMore){const more=node('button','load saved-more',this.savedLoading ? 'Loading…' : `Load more (${this.savedHits.length} of ${this.savedTotal})`);more.disabled=this.savedLoading;more.addEventListener('click',()=>this.querySaved(true));this.results.append(more);}
       if(this.hits.length>this.renderLimit)this.results.append(node('div','hint',`Showing ${this.renderLimit} of ${this.hits.length}. Scroll for more.`));
     }
@@ -519,7 +546,7 @@
       if(next>=this.renderLimit)this.renderLimit=Math.ceil((next+1)/50)*50;
       this.active=next;this.render();
       const result=this.rows.get(this.rowKey(this.hits[this.active]))?.result;
-      if(result){const row=result.getBoundingClientRect(),viewport=this.results.getBoundingClientRect();if(row.top<viewport.top)this.results.scrollTop-=viewport.top-row.top;else if(row.bottom>viewport.bottom)this.results.scrollTop+=row.bottom-viewport.bottom;}
+      if(result){const row=result.getBoundingClientRect(),viewport=this.results.getBoundingClientRect(),sticky=this.results.querySelector('.day-heading')?.getBoundingClientRect().height || 0,top=viewport.top+sticky;if(row.top<top)this.results.scrollTop-=top-row.top;else if(row.bottom>viewport.bottom)this.results.scrollTop+=row.bottom-viewport.bottom;}
       if (this.kind === 'messages' && jump) this.jump(this.hits[this.active]);
     }
     async activate(i) {
@@ -535,16 +562,25 @@
       } else { this.render(); this.jump(hit); }
     }
     async jump(hit) {
+      const navigation=this.navigationGeneration=(this.navigationGeneration || 0)+1;
+      this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);
+      const room=hit.roomId || this.room;
+      const reveal=(attempts=40)=>{
+        if(navigation!==this.navigationGeneration || !this.host.isConnected)return false;
+        const current=A.roomKey(this.container)===room && A.messages(this.container,{includeNontext:true}).find(message=>message.id===hit.id);
+        if(current){this.dismiss();A.revealMessage?.(current.element,this.input.value,this.queryOptions || {});return true;}
+        if(attempts>0)this.jumpRetry=setTimeout(()=>reveal(attempts-1),100);
+        else this.status.textContent='Message could not be displayed. Retry opening it.';
+        return false;
+      };
+      if(A.roomKey(this.container)===room && A.messages(this.container,{includeNontext:true}).some(message=>message.id===hit.id)){reveal(0);return;}
       if (globalThis.RCSData) {
         this.status.textContent='Opening message…';
-        try { await RCSData.request('jump',{roomId:hit.roomId || this.room,eventId:hit.id,thread:Boolean(hit.thread)},progress=>{if(progress.label)this.status.textContent=progress.label;}).promise;this.dismiss(); }
-        catch(error) { this.status.textContent=error.message; }
+        try {this.jumpTask=RCSData.request('jump',{roomId:room,eventId:hit.id,thread:Boolean(hit.thread)},progress=>{if(navigation===this.navigationGeneration && progress.label)this.status.textContent=progress.label;});await this.jumpTask.promise;if(navigation!==this.navigationGeneration)return;this.dismiss();reveal();}
+        catch(error) {if(navigation===this.navigationGeneration)this.status.textContent=error.message;}
         return;
       }
-      const current = A.messages(this.container).find(message => message.id === hit.id);
-      if (!current) { this.status.textContent = 'Reddit chat is not connected yet. Please retry.'; return; }
-      this.dismiss();
-      current.element.scrollIntoView({block:'center',behavior:'instant'});
+      this.status.textContent = 'Reddit chat is not connected yet. Please retry.';
     }
     cancelLoad(showNotice=false) {
       this.cancelInput();
@@ -590,7 +626,7 @@
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.load.textContent='Refresh';if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
-    destroy() { this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
+    destroy() { this.headerActions?.destroy();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;document.removeEventListener('keydown',this.shortcut,true);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
     if(value.accountChanged)clearRetainedLists();

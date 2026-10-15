@@ -193,5 +193,32 @@
     }
     return null;
   }
-  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, chatListMetrics, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, scrollContainer});
+  let messageHighlight,highlightTimer;
+  function revealMessage(element,query='',options={},expanded=false){
+    // Use native expansion controls and paint highlights without rewriting the
+    // client's message DOM, which belongs to its renderer.
+    let expanding=false;
+    if(!expanded)for(const button of queryAll('button',element))if(visible(button) && /^(?:read|show) more(?:\s*…|\s*\.\.\.)?$/i.test((button.textContent || button.getAttribute('aria-label') || '').trim())){button.click();expanding=true;}
+    if(expanding){requestAnimationFrame(()=>{if(element.isConnected)revealMessage(element,query,options,true);});return;}
+    element.scrollIntoView?.({block:'center',behavior:'instant'});
+    if(!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)element.animate?.([{backgroundColor:'#ff450033'},{backgroundColor:'transparent'}],{duration:1700,easing:'ease-out'});
+    if(!globalThis.CSS?.highlights || !globalThis.Highlight)return;
+    clearTimeout(highlightTimer);const ranges=[];
+    const bodies=queryAll(selectors.body,element).filter(body=>!queryAll(selectors.body,element).some(other=>other!==body && other.contains(body)));
+    for(const body of bodies){
+      const nodes=[];const visit=node=>{if(node.nodeType===3){nodes.push(node);return;}if(node.nodeType!==1 && node.nodeType!==11)return;if(node.nodeType===1 && node.matches('button,style,script,[data-rcs-ui]'))return;if(node.shadowRoot){visit(node.shadowRoot);return;}if(node.nodeType===1 && node.tagName==='SLOT'){const assigned=node.assignedNodes({flatten:true});if(assigned.length){assigned.forEach(visit);return;}}node.childNodes.forEach(visit);};visit(body);
+      const trees=new Map();for(const node of nodes){const root=node.getRootNode();if(!trees.has(root))trees.set(root,[]);trees.get(root).push(node);}
+      for(const [root,parts]of trees){
+        const value=parts.map(node=>node.textContent).join('');let matched=false;
+        for(const [start,end]of globalThis.RCSCore?.highlightRanges(value,query,options) || []){
+          let offset=0;const range=document.createRange();let opened=false;
+          for(const node of parts){const next=offset+node.length;if(!opened && start<next){range.setStart(node,start-offset);opened=true;}if(opened && end<=next){range.setEnd(node,end-offset);ranges.push(range);matched=true;break;}offset=next;}
+        }
+        if(matched && !root.querySelector('style[data-rcs-hit-style]')){const style=document.createElement('style');style.dataset.rcsHitStyle='';style.textContent='::highlight(rcs-message-match){background-color:#ff45004d;color:inherit}';(root.head || root).append(style);}
+      }
+    }
+    messageHighlight=new Highlight(...ranges);CSS.highlights.set('rcs-message-match',messageHighlight);const current=messageHighlight;
+    highlightTimer=setTimeout(()=>{if(CSS.highlights.get('rcs-message-match')===current)CSS.highlights.delete('rcs-message-match');},2400);
+  }
+  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, chatListMetrics, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, revealMessage, scrollContainer});
 })();

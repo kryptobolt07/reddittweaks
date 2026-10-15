@@ -65,7 +65,7 @@ test('live edits remove old words and display new matches in an open message sea
   input.value='chocolate';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(control.querySelectorAll('.result').length,1);
   await tick(200);assert.equal(control.querySelectorAll('.result').length,1,'DOM resynchronization preserves the server edit');
 });
-test('message matches appear while later pages are still blocked, with compact sender icons and highlights',async t=>{
+test('message matches appear while later pages are still blocked, with compact sender names and highlights',async t=>{
   const {W,api,client}=setup(t,{content:true});await tick(250);
   const read=client.http.authedRequest;let release;
   client.http.authedRequest=async(method,path,params)=>{if(path==='/rooms/alex/events' && params.seq!==undefined)await new Promise(resolve=>release=resolve);return read(method,path,params);};
@@ -73,21 +73,21 @@ test('message matches appear while later pages are still blocked, with compact s
   const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');
   input.value='meet';input.dispatchEvent(new W.Event('input'));await tick(170);
   assert.equal(typeof release,'function');assert.equal(root.querySelectorAll('.result').length,1);
-  assert.ok(root.querySelector('.result .avatar'));assert.ok(root.querySelector('.result mark'));
-  assert.match(root.querySelector('[role="status"]').textContent,/1 match.*Searching/);
+  assert.equal(root.querySelector('.result .avatar'),null);assert.ok(root.querySelector('.result .name').textContent);assert.ok(root.querySelector('.result mark'));
+  assert.match(root.querySelector('[role="status"]').textContent,/1 result.*Searching/);
   assert.equal(root.querySelector('.panel .load').textContent,'Stop');
   root.querySelector('.panel .load').click();await tick(80);
   release();
 });
-test('calendar filters work without text and reuse loaded history and decoded sender images',async t=>{
+test('calendar filters work without text and reuse loaded history and stable snippet nodes',async t=>{
   const {W,api}=setup(t,{content:true});await tick(250);
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();await tick(150);
   const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');
-  input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);const image=root.querySelector('.result img'),calls=api.calls.length;
+  input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);const image=root.querySelector('.result .preview'),calls=api.calls.length;
   root.querySelector('[aria-label="Filter by date"]').click();
   setDateSegments(root,'start','2026-10-08');setDateSegments(root,'end','2026-10-08');root.querySelector('.calendar-apply').click();
-  assert.equal(root.querySelector('.date-chip').parentElement,root.querySelector('.meta'));
-  assert.equal(root.querySelectorAll('.result').length,2);assert.equal(root.querySelector('.result img'),image);
+  assert.equal(root.querySelector('.date-chip').parentElement,root.querySelector('.room-filter-bar'));
+  assert.equal(root.querySelectorAll('.result').length,2);assert.equal(root.querySelector('.result .preview'),image);
   input.value='';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(root.querySelector('.panel').hidden,false);
   assert.equal(root.querySelectorAll('.result').length,7);
   root.querySelector('[aria-label="Filter by date"]').click();setDateMode(root,'After');setDateSegments(root,'start','2026-10-08');root.querySelector('.calendar-apply').click();assert.equal(root.querySelectorAll('.result').length,0);
@@ -244,9 +244,9 @@ test('late saved identities update open completed search results without downloa
   const request=W.RCSData.request;W.RCSData={request:(method,...args)=>method==='conversations'?{promise:Promise.resolve([]),cancel:()=>{}}:request(method,...args)};
   W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));await tick(150);
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
-  assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'),'conversation title is primary even while sender metadata is pending');const reads=api.calls.filter(c=>c.path==='/rooms/alex/events').length;
+  assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'),'room rows expose unresolved sender without guessing from conversation title');const reads=api.calls.filter(c=>c.path==='/rooms/alex/events').length;
   await W.RCSData.request('prime-directory',{owner:client.getUserId(),records:[],identities:[{id:'@t2_alex:reddit.com',name:'alex_morgan',avatar:'https://example.com/late.png',availabilityKnown:true}]}).promise;
-  assert.equal([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'),false);assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'));assert.ok([...root.querySelectorAll('.avatar img')].some(image=>image.getAttribute('src')==='https://example.com/late.png'));
+  assert.equal([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'),false);assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'));assert.equal(root.querySelector('.avatar'),null);
   await tick(50);assert.equal(api.calls.filter(c=>c.path==='/rooms/alex/events').length,reads);
 });
 test('unbound grouped native rows do not create unknown duplicate results while cached events are searched',async t=>{
@@ -258,7 +258,7 @@ test('unbound grouped native rows do not create unknown duplicate results while 
   W.eval(source('extension/date-picker.js'));W.eval(source('extension/content.js'));await tick(150);
   A.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=A.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
   try {assert.equal([...root.querySelectorAll('.result .name')].filter(n=>n.textContent==='Sender unavailable').length,0);assert.equal(root.querySelectorAll('.result').length,2);}
-  finally {root.querySelector('[aria-label="Close message search"]').click();release?.();await tick(100);}
+  finally {input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));release?.();await tick(100);}
 });
 test('native event bindings update recycled rows independently of deleted-account label patches',async t=>{
   const {W,api}=setup(t);await W.RCSData.request('identity-context').promise;const calls=api.calls.length;
