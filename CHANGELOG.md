@@ -1,3 +1,17 @@
+# 0.10.0 design test
+
+- Remove startup navigation waits on initial sync and the bulk saved-cache pass. Keep authentication/router readiness, exact-event failure handling and interactive request coordination. Skip redundant native event lookup when that event is already loaded; reveal visible room messages directly.
+- Make individual search a full-width results view over the thread with one result status. Remove the extra close button and Ctrl+F-style counter/arrows. Preserve the native identity header, show an active search icon and support room-scoped Ctrl/Cmd+F. Esc peels the calendar/filter popup, results, then search.
+- Add compact From/Date/Sort controls with independent active values, multi-sender selection and existing typing shortcuts. Use sender names without repeated room avatars, match-centered three-line snippets, stronger orange highlights, sticky day headings, lightweight scrollbars and a quiet incomplete-coverage footer. Native message navigation expands recognized Read more controls and briefly paints hits without rewriting message text.
+- Default the room calendar to On, expose Today/Yesterday/Last 7/Last 30 days, disable future days, mark cached message days, use a neutral disabled Apply state and anchor it to the date control. Earlier uncached dates remain selectable. Global calendar behavior is preserved.
+- Compact recognized settings/popout native buttons into an accessible ⋯ menu in rooms at most 440 px wide. Retain native handlers and restore original presentation when wide or destroyed.
+
+Version choice: MINOR to 0.10.0 for the substantial individual-search interface expansion. No storage schema change. Reload the extension and refresh existing Reddit tabs.
+
+Validation: all 374 tests pass, including blocked-startup navigation, native-event reuse, sender/date/sort chips, keyboard layers, exact local jumps, shadow-text highlights, calendar bounds and native action restoration. All 20 extension scripts parse. Synthetic headless Chrome checks 820/420/320 px room widths: results span the room and reach its bottom, controls and quick ranges fit, and future days are disabled. Archive integrity and source/stable-folder/ZIP equality pass for all 26 assets; the convenience archive matches.
+
+Limitations: uncached/inaccessible events can still require or fail Reddit requests; server cooldowns remain respected. Native action grouping and Read more expansion only apply to recognized accessible controls. Per-word thread highlights require the browser Custom Highlight API and accessible text roots. Cached-day dots describe available saved data, not complete history. Rendered checks use synthetic fixtures, not a signed-in Brave session.
+
 # 0.9.1 design test
 
 - Keep the restored month-grid interaction and refine its structure: flat mode tabs with the same solid active/faded hover underline as People/All/Messages, softly squared date selections, softer range fills, compact month/year selectors and footer controls, and orange keyboard cues instead of inherited blue outlines. Use #ff4500 for selected dates and Apply, with neutral text on active mode/chooser labels. Selected choices have a solid side accent; keyboard previews have a faded accent.
