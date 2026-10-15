@@ -1,8 +1,8 @@
-# Chat Search for Reddit — 0.12.3 design test
+# Chat Search for Reddit — 0.12.4 design test
 
 ## Load in Brave
 
-Extract `artifacts/reddit-chat-search-v0.12.3.zip` and load its folder through **Load unpacked** in `brave://extensions`. After reloading or updating the extension, refresh existing Reddit tabs so their scripts reconnect to the current extension. An invalidated tab displays a page-refresh instruction and stops retrying; the result Refresh button cannot repair a discarded browser extension context. Refresh shows activity for local queries, previews, capture saving and native-cache import, with progress-specific tooltips and reduced-motion support. Import progress is also shown briefly in the compact status line. Status-only updates do not rerun searches; refreshing message results rereads saved data and does not force another full import.
+Extract `artifacts/reddit-chat-search-v0.12.4.zip` and load its folder through **Load unpacked** in `brave://extensions`. After reloading or updating the extension, refresh existing Reddit tabs so their scripts reconnect to the current extension. An invalidated tab displays a page-refresh instruction and stops retrying; the result Refresh button cannot repair a discarded browser extension context. Refresh shows activity for local queries, previews, capture saving and native-cache import, with progress-specific tooltips and reduced-motion support. Import progress is also shown briefly in the compact status line. Status-only updates do not rerun searches; refreshing message results rereads saved data and does not force another full import.
 
 For an existing installation, replace the files in its current unpacked folder, choose **Reload** on the same extension card, and refresh Reddit tabs. Keeping the same installation preserves its saved directory and enables migration from 0.2.4. Loading another folder as a separate extension creates separate storage; disable the older installation to avoid duplicate controls.
 
