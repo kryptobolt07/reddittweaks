@@ -75,7 +75,7 @@ test('message matches appear while later pages are still blocked, with compact s
   assert.equal(typeof release,'function');assert.equal(root.querySelectorAll('.result').length,1);
   assert.ok(root.querySelector('.result .avatar'));assert.ok(root.querySelector('.result .name').textContent);assert.ok(root.querySelector('.result mark'));
   assert.match(root.querySelector('[role="status"]').textContent,/1 result.*Searching/);
-  assert.equal(root.querySelector('.panel .load').textContent,'Stop');
+  assert.equal(root.querySelector('.panel .load').getAttribute('aria-label'),'Stop searching messages');assert.equal(root.querySelector('.panel .load').textContent,'');
   root.querySelector('.panel .load').click();await tick(80);
   release();
 });
@@ -86,7 +86,7 @@ test('calendar filters work without text and reuse loaded history and stable sni
   input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);const image=root.querySelector('.result .preview'),calls=api.calls.length;
   root.querySelector('[aria-label="Filter by date"]').click();
   setDateSegments(root,'start','2026-10-08');setDateSegments(root,'end','2026-10-08');root.querySelector('.calendar-apply').click();
-  assert.equal(root.querySelector('.date-chip').parentElement,root.querySelector('.room-filter-bar'));
+  assert.equal(root.querySelector('.date-chip').parentElement,root.querySelector('.room-applied-filters'));
   assert.equal(root.querySelectorAll('.result').length,2);assert.equal(root.querySelector('.result .preview'),image);
   input.value='';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(root.querySelector('.panel').hidden,false);
   assert.equal(root.querySelectorAll('.result').length,7);
