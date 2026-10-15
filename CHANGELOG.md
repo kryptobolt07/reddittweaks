@@ -1,3 +1,11 @@
+# 0.12.4 design test
+
+- Put a Custom date choice first in before/after suggestions and open the app calendar in that operator mode. Applying a day keeps its full before/after date expression in the search. Match secondary menu row spacing and text sizing to the primary menu.
+
+Version choice: PATCH to 0.12.4 for a user-visible search interaction improvement. No storage schema change.
+
+Validation: changed JavaScript syntax and package integrity checked; automated tests were not run for this quick edit.
+
 # 0.12.3 design test
 
 - Put filter autocomplete icons at the left without menu-arrow rotation. Date suggestions retain the full before/after date token alongside a calendar icon and concise labels such as Today, Yesterday, This month and This year.
