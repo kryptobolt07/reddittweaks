@@ -208,12 +208,12 @@ test('individual room tools insert operators and use the current result panel fo
   let renders=0,loads=0,navigation=0;const room={host,bar,input,dateToggle:date,results,status,dates:{from:'',to:''},room:'alex',hits:[],active:-1,render(){renders++;room.tools?.sync();room.tools?.renderValueChoices();},ensureData(){if(!room.tools?.valuePicker() && room.tools?.suggestions.hidden!==false)loads++;}};
   input.addEventListener('input',()=>{room.render();room.ensureData();});room.datePicker=new w.RCSDatePicker({onChange:()=>{},onClose:()=>{}});shadow.append(room.datePicker.element);shadow.addEventListener('keydown',()=>{navigation++;});
   const before=p.requests.length,tools=w.RCSUnifiedSearch.decorateMessageControl(room,{cache:p.cache,adapter:w.RCSAdapter});t.after(()=>tools.destroy());
-  assert.equal(p.requests.length,before);assert.equal(renders,0);assert.equal(loads,0);assert.equal(tools.filterButton.textContent,'');assert.equal(date.textContent,'');
-  tools.filterButton.click();assert.deepEqual([...tools.popover.querySelectorAll('.menu-section-title')].map(el=>el.textContent),['Filters','Contains','Sort by']);tools.popover.querySelector('[data-value="from:"]').click();assert.equal(input.value,'from:');assert.equal(loads,0);assert.equal(tools.suggestions.hidden,true);assert.ok(results.querySelector('.sender-result'));
+  assert.equal(p.requests.length,before);assert.equal(renders,0);assert.equal(loads,0);assert.equal(tools.fromButton.textContent,'From: Anyone');assert.equal(date.textContent,'Date');
+  tools.fromButton.click();assert.equal(tools.popover.getAttribute('aria-label'),'Filter messages by sender');tools.closeMenu();input.value='from:';input.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(loads,0);assert.equal(tools.suggestions.hidden,true);assert.ok(results.querySelector('.sender-result'));
   input.value='from:al';input.dispatchEvent(new w.Event('input',{bubbles:true}));assert.match(results.textContent,/alex_morgan/);assert.doesNotMatch(results.textContent,/jules_designs/);
   input.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true}));assert.equal(input.value,'from:alex_morgan ');assert.equal(loads,1);assert.equal(navigation,0);assert.equal(p.requests.length,before);
   input.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true}));assert.equal(navigation,1);
-  tools.filterButton.click();tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(room.queryOptions.sort,'oldest');tools.destroy();assert.equal(shadow.querySelector('.query-tools-overlay'),null);assert.equal(shadow.querySelector('.query-filter'),null);
+  tools.sortButton.click();tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(room.queryOptions.sort,'oldest');tools.destroy();assert.equal(shadow.querySelector('.query-tools-overlay'),null);assert.equal(shadow.querySelector('.query-filter'),null);
 });
 
 test('native selected-chat state follows Reddit navigation and keyboard movement styles the current result',async t=>{
