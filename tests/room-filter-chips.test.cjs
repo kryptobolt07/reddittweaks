@@ -68,7 +68,7 @@ test('room autocomplete supports all operators, filtered media choices and keybo
   for(const operator of ['from','has','before','after']){type('coffee '+operator.slice(0,-1));assert.equal(tools.suggestions.hidden,true);type('coffee '+operator);assert.equal(tools.suggestionOptions[0].token,operator+':');assert.ok(tools.suggestions.querySelector('svg'));}
   type('coffee has');key('Enter');assert.equal(c.input.value,'coffee has:');assert.equal(tools.suggestionOptions.length,3);
   type('coffee has:li');assert.equal(tools.suggestionOptions.length,1);key('ArrowDown');key('Enter');assert.equal(tools.queryValue(),'has:link coffee ');
-  tools.queryState.clear();type('coffee after:');assert.ok(tools.suggestionOptions.every(option=>/^after:\d{4}-\d{2}-\d{2}$/.test(option.token)));key('Enter');
+  tools.queryState.clear();type('coffee after:');assert.equal(tools.suggestionOptions[0].token,'Custom');assert.ok(tools.suggestionOptions.slice(1).every(option=>/^after:\d{4}-\d{2}-\d{2}$/.test(option.token)));key('ArrowDown');key('ArrowDown');key('Enter');
   assert.ok(tools.queryState.filters.some(item=>item.kind==='after'));assert.equal(tools.controlButtons.date.getAttribute('aria-pressed'),'true');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
 });
 

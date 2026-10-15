@@ -185,7 +185,7 @@ test('global media and date operator completion preserves message terms and expo
   p.type('coffee has');await p.key('Enter');assert.equal(c.input.value,'coffee has:');assert.equal(c.suggestionOptions.length,3);
   p.type('coffee has:gi');assert.equal(c.suggestionOptions.length,1);await p.key('ArrowDown');await p.key('Enter');await p.tick(180);
   assert.equal(c.queryValue(),'has:gif coffee ');assert.equal(c.suggestions.hidden,true);assert.match(c.chips.textContent,/GIFs/);
-  c.queryState.clear();p.type('coffee before:');assert.ok(c.suggestionOptions.length>0);await p.key('Enter');await p.tick(180);
+  c.queryState.clear();p.type('coffee before:');assert.ok(c.suggestionOptions.length>0);await p.key('ArrowDown');await p.key('ArrowDown');await p.key('Enter');await p.tick(180);
   assert.match(c.queryValue(),/^before:\d{4}-\d{2}-\d{2} coffee /);assert.equal(c.controlButtons.date.getAttribute('aria-pressed'),'true');assert.equal(c.controlButtons.filter.getAttribute('aria-pressed'),'false');
   c.chips.querySelector('.filter-chip button').click();assert.equal(c.queryValue(),'coffee ');
   assert.equal(p.requests.some(item=>item.method==='history'),false);
