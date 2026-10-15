@@ -17,17 +17,17 @@ function setup(t,{group=false}={}){
 }
 test('room filters and date share the search field with independent active states',t=>{
   const {control:c,tools}=setup(t);assert.equal(tools.filterButton.parentElement,c.input.parentElement);assert.equal(c.dateToggle.parentElement,c.input.parentElement);assert.equal(tools.filterButton.textContent,'');assert.equal(c.dateToggle.textContent,'');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
-  tools.filterButton.click();assert.equal(tools.popover.getAttribute('aria-label'),'Search filters');assert.ok(tools.popover.querySelector('[data-value="from:"]'));tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(c.queryOptions.sort,'oldest');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'true');tools.sort='newest';c.dates={from:'2026-10-01',to:''};tools.sync();assert.equal(c.dateToggle.hidden,false);assert.equal(c.dateChip.parentNode,tools.senderChips);assert.equal(c.dateToggle.getAttribute('aria-pressed'),'true');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
+  tools.filterButton.click();assert.equal(tools.popover.getAttribute('aria-label'),'Search filters');assert.ok(tools.popover.querySelector('[data-value="from:"]'));tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(c.queryOptions.sort,'oldest');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'true');tools.sort='newest';c.dates={from:'2026-10-01',to:''};tools.sync();assert.equal(c.dateToggle.hidden,false);assert.equal(c.dateChip.parentNode,tools.senderChips);assert.equal(tools.controlButtons.date.getAttribute('aria-pressed'),'true');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
 });
-test('room sender dropdown preserves message terms, supports multiple senders and Anyone clears only senders',t=>{
+test('room sender dropdown preserves message terms, supports multiple senders and Any clears only senders',t=>{
   const {control:c,tools}=setup(t,{group:true});c.input.value='coffee ';
-  tools.showMenu('from');assert.deepEqual([...tools.popover.querySelectorAll('button')].map(el=>el.textContent),['Anyone','You','Other people','Alex','Sam']);
+  tools.showMenu('from');assert.deepEqual([...tools.popover.querySelectorAll('button')].map(el=>el.textContent),['Any','You','Other people','Alex','Sam']);
   tools.popover.querySelector('[data-value="from:me"]').click();assert.equal(c.input.value,'coffee ');assert.equal(tools.queryValue(),'from:me coffee ');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'true');assert.equal(tools.sort,'newest');
   tools.showMenu('from');tools.popover.querySelector('[data-value="from:Sam"]').click();assert.equal(c.input.value,'coffee ');assert.equal(tools.queryState.filters.length,2);assert.equal(tools.filterButton.getAttribute('aria-pressed'),'true');assert.equal(tools.senderChips.querySelectorAll('.sender-chip').length,2);assert.equal(tools.senderChips.hidden,false);
   tools.showMenu('from');tools.popover.querySelector('[data-value="all"]').click();assert.equal(c.input.value,'coffee ');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');assert.equal(tools.senderChips.querySelectorAll('.sender-chip').length,0);
 });
 test('room menu keyboard focus and Escape peel off the popup before result navigation',t=>{
-  const {control:c,tools,key,counts}=setup(t);tools.filterButton.focus();key('ArrowDown',tools.filterButton);assert.equal(c.host.shadowRoot.activeElement.textContent,'From a person');key('Enter',c.host.shadowRoot.activeElement);key('ArrowDown',tools.filterButton);assert.equal(c.host.shadowRoot.activeElement.textContent,'Anyone');key('ArrowDown',c.host.shadowRoot.activeElement);assert.equal(c.host.shadowRoot.activeElement.textContent,'You');key('Enter',c.host.shadowRoot.activeElement);assert.equal(c.input.value,'');assert.equal(tools.queryValue(),'from:me');assert.equal(counts().navigation,0);
+  const {control:c,tools,key,counts}=setup(t);tools.filterButton.focus();key('ArrowDown',tools.filterButton);assert.equal(c.host.shadowRoot.activeElement.textContent,'From a person');key('Enter',c.host.shadowRoot.activeElement);key('ArrowDown',tools.filterButton);assert.equal(c.host.shadowRoot.activeElement.textContent,'Any');key('ArrowDown',c.host.shadowRoot.activeElement);assert.equal(c.host.shadowRoot.activeElement.textContent,'You');key('Enter',c.host.shadowRoot.activeElement);assert.equal(c.input.value,'');assert.equal(tools.queryValue(),'from:me');assert.equal(counts().navigation,0);
   tools.filterButton.click();key('Escape');assert.equal(tools.popover.hidden,true);assert.equal(c.host.shadowRoot.activeElement,tools.filterButton);assert.equal(counts().navigation,0);
   c.datePicker.open=true;key('Escape');assert.equal(c.datePicker.open,false);assert.equal(counts().closed>0,true);assert.equal(counts().navigation,0);
   key('Escape');assert.equal(counts().navigation,1);
@@ -55,9 +55,9 @@ test('You uses the saved account profile even when only other senders match, inc
 test('room menu exposes every supported message type and shared sort, without global conversation filters',t=>{
   const {control:c,tools}=setup(t);
   for(const type of ['image','gif','link','video','audio','file']){
-    tools.showMenu('filter');const option=tools.popover.querySelector('[data-value="has:'+type+'"]');assert.ok(option,type);option.click();
+    tools.showMenu('filter');tools.popover.querySelector('[data-value="contains"]').click();const option=tools.popover.querySelector('[data-value="has:'+type+'"]');assert.ok(option,type);option.click();
     assert.ok(tools.queryValue().includes('has:'+type));assert.equal(tools.popover.hidden,true);
-    tools.showMenu('filter');assert.equal(tools.popover.querySelector('[data-value="has:'+type+'"]').getAttribute('aria-checked'),'true');
+    tools.showMenu('filter');tools.popover.querySelector('[data-value="contains"]').click();assert.equal(tools.popover.querySelector('[data-value="has:'+type+'"]').getAttribute('aria-checked'),'true');
     assert.equal(tools.popover.querySelector('[data-value="groups"],[data-value="requests"],[data-value="unread"]'),null);
     tools.closeMenu();
   }
@@ -69,5 +69,13 @@ test('room autocomplete supports all operators, filtered media choices and keybo
   type('coffee has');key('Enter');assert.equal(c.input.value,'coffee has:');assert.equal(tools.suggestionOptions.length,6);
   type('coffee has:vid');assert.equal(tools.suggestionOptions.length,1);key('ArrowDown');key('Enter');assert.equal(tools.queryValue(),'has:video coffee ');
   tools.queryState.clear();type('coffee after:');assert.ok(tools.suggestionOptions.every(option=>/^after:\d{4}-\d{2}-\d{2}$/.test(option.token)));key('Enter');
-  assert.ok(tools.queryState.filters.some(item=>item.kind==='after'));assert.equal(c.dateToggle.getAttribute('aria-pressed'),'true');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
+  assert.ok(tools.queryState.filters.some(item=>item.kind==='after'));assert.equal(tools.controlButtons.date.getAttribute('aria-pressed'),'true');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
+});
+
+
+test('room Filters use confirmed local counts, badges, removable sort and Reset without losing dates or text',t=>{
+  const {control:c,tools}=setup(t);c.input.value='coffee';c.dates={from:'2026-10-01',to:''};c.messageFilterCounts=()=>({image:2,gif:0,link:1,video:0,audio:0,file:0});tools.sync();tools.showMenu('filter');tools.popover.querySelector('[data-value="contains"]').click();
+  const image=tools.popover.querySelector('[data-value="has:image"]');assert.equal(image.querySelector('.menu-option-count').textContent,'2');assert.equal(tools.popover.querySelector('[data-value="has:gif"]').disabled,true);image.click();assert.equal(tools.filterButton.dataset.filterCount,'1');
+  tools.showMenu('filter');tools.popover.querySelector('[data-value="oldest"]').click();assert.equal(tools.filterButton.dataset.filterCount,'2');assert.ok(tools.senderChips.querySelector('[aria-label="Remove sort filter"]'));
+  tools.showMenu('filter');tools.popover.querySelector('[aria-label="Reset filters"]').click();assert.equal(c.input.value,'coffee');assert.equal(c.dates.from,'2026-10-01');assert.equal(tools.queryState.filters.length,0);assert.equal(tools.sort,'newest');assert.equal(tools.filterButton.dataset.filterCount,'');assert.equal(tools.controlButtons.date.getAttribute('aria-pressed'),'true');
 });

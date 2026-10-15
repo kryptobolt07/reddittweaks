@@ -459,7 +459,7 @@
       }
       if ((this.queryValue().trim() || this.dates?.from || this.dates?.to) && !this.panel.hidden) this.render();
     }
-    messageFilterCounts(){return C.countMediaTypes(index.rooms.get(this.room)?.values() || [],this.queryValue(),{...this.queryOptions,dates:this.dates});}
+    messageFilterCounts(){const records=index.rooms.get(this.room);return records?C.countMediaTypes(records.values(),this.queryValue(),{...this.queryOptions,dates:this.dates}):null;}
     render() {
       if(this.inputPending)return;
       const query = this.queryValue().trim(); this.clear.hidden = !this.input.value.trim();this.tools?.sync?.();
