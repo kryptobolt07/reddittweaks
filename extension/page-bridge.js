@@ -1054,7 +1054,12 @@
           primeCache(ctx,request);
           RCSNativeIdentities.update(ctx,request);
         }
-        emit(request,{result:{owner}});return;
+        // Use only profile data already present in Reddit's native client. The
+        // account can have no saved messages yet, and its current avatar should
+        // win over an older retained membership/profile snapshot.
+        let avatar='';
+        try{const person=historyIdentity(ctx,owner);avatar=safeImage(ctx.client.getUser?.(owner)?.avatarUrl,ctx.client) || person.avatar;}catch{ /* Profile changes must not block authenticated cache reads. */ }
+        emit(request,{result:{owner,selfIdentity:{id:owner,name:'You',self:true,avatar}}});return;
       }
       const ctx=await ready(job,{navigation:['open','jump'].includes(request.method)});const owner=ctx.client.getUserId();let result;
       job.ctx=ctx;job.owner=owner;
