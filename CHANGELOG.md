@@ -1,3 +1,11 @@
+# 0.12.1 design test
+
+- Prevent outside clicks from activating Reddit UI underneath an open global or individual filter menu. The outside pointer now dismisses the menu and its matching click is suppressed.
+
+Version choice: PATCH to 0.12.1 for a user-visible interaction fix. No storage schema change.
+
+Validation: JavaScript syntax and package integrity checked; automated tests were not run for this quick edit.
+
 # 0.12.0 design test
 
 - Add matching icons to every applied filter tag in global and individual search, retaining sender avatars. Remove the orange applied-filter number badges from the filter icon and scope tabs. Give both filter menus full-width icon rows, explicit selected checks, contextual saved-data counts, Reset, active-filter accents and removable tags. Open Chat type, Status and Sort in separate option views, with the same flat, borderless rows as the main menu; Escape returns to the main menu before closing it. Apply choices immediately. Keep search text and dates when resetting menu filters.
