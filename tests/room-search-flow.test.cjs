@@ -63,7 +63,7 @@ test('new room queries and sort changes reset scroll and selection while native 
   const p=setup(t);await p.search('coffee');const results=p.root.querySelector('.results');p.key('ArrowDown');results.scrollTop=125;
   p.input.value='tomorrow';p.input.dispatchEvent(new p.w.Event('input'));assert.equal(results.scrollTop,0);await wait(170);assert.equal(results.scrollTop,0);assert.equal(p.root.querySelector('.result.active'),null);
   results.scrollTop=40;p.api.appendMessage('alex_morgan','tomorrow works', 'added-result');await wait(130);assert.equal(results.scrollTop,40);
-  p.root.querySelector('[data-control=filter]').click();p.root.querySelector('[data-value=oldest]').click();assert.equal(results.scrollTop,0);
+  p.root.querySelector('[data-control=filter]').click();p.root.querySelector('[data-value=sort]').click();p.root.querySelector('[data-value=oldest]').click();assert.equal(results.scrollTop,0);
 });
 
 test('header search replaces native header in place and Back restores the original nodes and styles',async t=>{

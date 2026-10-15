@@ -181,7 +181,7 @@
     .sender-chip button:focus-visible { outline:2px solid var(--rcs-focus,#167cb0);outline-offset:1px; }
     mark { background:#ffcc804d;color:inherit;border-radius:2px;font-weight:400; }
     .link-snippet { line-break:anywhere; }
-    .menu-choice-row { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;padding:0 1px 4px; }
+    .menu-choice-row { display:grid;grid-template-columns:minmax(0,1fr);gap:3px;padding:0 1px 4px; }
     .menu-choice { display:flex;align-items:center;gap:5px;min-width:0;min-height:28px;border:1px solid var(--rcs-line,#dfe6e9);border-radius:6px;padding:4px 5px;color:var(--rcs-text,#172328);background:color-mix(in srgb,var(--rcs-soft,#f6f8f9) 60%,var(--rcs-bg,#fff));font:inherit;font-size:11px;text-align:left;cursor:pointer; }
     .menu-choice:hover { background:var(--rcs-hover); }
     .menu-choice[aria-checked=true] { border-color:color-mix(in srgb,var(--rcs-accent,#ff4500) 22%,var(--rcs-line));background:color-mix(in srgb,var(--rcs-accent,#ff4500) 6%,var(--rcs-bg));color:var(--rcs-text);font-weight:600; }
