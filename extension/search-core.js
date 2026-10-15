@@ -76,8 +76,18 @@
     const ranges=found.reduce((all,next)=>{const last=all.at(-1);if(last && next[0]<=last[1])last[1]=Math.max(last[1],next[1]);else all.push(next);return all;},[]);
     return {ranges,complete,matchedTerms};
   }
-  function prepareQuery(query='',{from='all',wholeWord=false,shortTermsWholeWord=true,dates={}}={},conversation={}){
+  const mediaKinds=Object.freeze({image:1,gif:2,link:4,video:8,audio:16,file:32});
+  const mediaEntries=Object.entries(mediaKinds);
+  const mediaQueryFlags=parsed=>mediaEntries.reduce((mask,[type,flag])=>mask | (parsed['has'+type[0].toUpperCase()+type.slice(1)]?flag:0),0);
+  function mediaFlags(record){const type=record.attachmentType;let flags=(type==='image' || type==='video' || type==='audio' || type==='file')?mediaKinds[type]:0;if(record.attachmentType==='image' && record.attachmentMime==='image/gif')flags|=mediaKinds.gif;if(/\b(?:https?:\/\/|www\.)\S+/i.test(record.text || ''))flags|=mediaKinds.link;return flags;}
+  function countMediaTypes(records,query='',options={},conversation={}){
+    const counts=Object.fromEntries(Object.keys(mediaKinds).map(type=>[type,0])),match=prepareQuery(query,{...options,ignoreMedia:true},conversation);
+    for(const record of records)if(record.text && match(record)){const flags=mediaFlags(record);for(const [type,flag]of mediaEntries)if(flags & flag)counts[type]++;}
+    return counts;
+  }
+  function prepareQuery(query='',{from='all',wholeWord=false,shortTermsWholeWord=true,dates={},ignoreMedia=false}={},conversation={}){
     const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates),needles=needlesFor(parsed),boundaries=needles.map(term=>requiresBoundary(term,{wholeWord,shortTermsWholeWord}));
+    const wantedMedia=ignoreMedia?0:mediaQueryFlags(parsed);
     const start=Math.max(bounds.start,...parsed.after.map(date=>dateBounds({from:date}).start)),end=Math.min(bounds.end,...parsed.before.map(date=>dateBounds({from:date}).start));
     const dated=bounds.active || parsed.after.length>0 || parsed.before.length>0;
     if(parsed.invalid || bounds.invalid)return ()=>false;
@@ -89,8 +99,7 @@
       if(parsed.from.length && !parsed.from.some(sender=>sender==='me'?self:sender==='them'?!self:!self && (matches(record.author || record.sender,sender) || !record.author && matches(conversation.name,sender))))return false;
       if(dated){const time=typeof record.timestamp==='number'?record.timestamp:new Date(record.timestamp ?? record.at).getTime();if(!(Number.isFinite(time) && time>=start && time<end))return false;}
       const text=String(record.text || '');
-      if(parsed.hasLink && !/\b(?:https?:\/\/|www\.)\S+/i.test(text) || parsed.hasImage && record.attachmentType!=='image' || parsed.hasFile && record.attachmentType!=='file')return false;
-      if(parsed.hasVideo && record.attachmentType!=='video' || parsed.hasAudio && record.attachmentType!=='audio' || parsed.hasGif && !(record.attachmentType==='image' && record.attachmentMime==='image/gif'))return false;
+      if(wantedMedia && (mediaFlags(record)&wantedMedia)!==wantedMedia)return false;
       if(!needles.length)return true;
       // Keep normalization identical to highlighting. Sender normalization
       // strips u/ and whitespace, but message bodies must retain them.
@@ -199,5 +208,5 @@
     }
     clear() { this.rooms.clear();this.redacted.clear();this.metadata.clear(); }
   }
-  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, prepareQuery, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
+  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, prepareQuery, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
 })();
