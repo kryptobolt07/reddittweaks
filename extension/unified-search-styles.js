@@ -201,9 +201,6 @@
     .menu-choice-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:inherit}
     .menu-check{width:10px;flex:none;color:var(--rcs-accent,#ff4500);font-size:11px}
     .menu-option-count{flex:none;font-size:9px;font-variant-numeric:tabular-nums;color:var(--rcs-muted)}
-    [data-filter-count]{position:relative}
-    [data-filter-count]:not([data-filter-count=""])::after{content:attr(data-filter-count);position:absolute;right:-2px;top:-2px;min-width:12px;height:12px;padding:0 2px;display:grid;place-items:center;border-radius:7px;background:var(--rcs-accent,#ff4500);color:#211109;font:8px/1 Arial,sans-serif;pointer-events:none}
-    .scope-tab[data-filter-count]:not([data-filter-count=""])::after{right:3px;top:0;min-width:10px;height:10px;font-size:7px}
     .row-snippet,.row-title,.menu-choice-label{ text-overflow:ellipsis; }
     .row-title mark,.row-snippet mark,.menu-choice-label mark{color:inherit}
     .row-meta.unavailable-marker{overflow:visible;display:inline-flex;align-items:center;flex:none;width:14px;max-width:14px}
