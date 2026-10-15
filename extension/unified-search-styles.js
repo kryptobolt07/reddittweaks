@@ -196,8 +196,10 @@
   `;
   globalThis.RCSUnifiedStyles += `
     :host { z-index:1; isolation:isolate; }
-    .bar.unified-search { display:block; padding:7px 12px 0; container:rcs-search / inline-size; }
-    .bar.unified-search .field { width:100%; height:40px; }
+    .bar.unified-search { display:block; padding:0 12px; container:rcs-search / inline-size; }
+    .bar.unified-search .search-toolbar { display:flex;align-items:center;height:var(--rcs-native-header-height,52px); }
+    .bar.unified-search .field { width:100%; height:clamp(28px,calc(var(--rcs-native-header-height,52px) - 12px),40px); }
+    .bar.unified-search .field input { height:100%;max-height:100%; }
     .field .search-controls { display:flex;flex-wrap:nowrap;gap:1px;padding:0;margin:0;flex-shrink:0; }
     .field .control-pill { padding:0;border:0;border-radius:50%;width:26px;height:26px;min-height:26px; }
     .field .control-pill svg { width:16px;height:16px; }
@@ -309,7 +311,7 @@
     .empty-state > svg { margin:0 auto 12px; width:28px; height:28px; }
     .empty-state h2 { margin:0 0 6px; color:var(--rcs-text); font-size:14px; }
     .empty-state p { margin:0 0 12px; font-size:11px; line-height:1.55; }
-    :host([data-rcs-compact]) .bar.unified-search { display:block; padding:5px 14px 0; }
+    :host([data-rcs-compact]) .bar.unified-search { display:block; padding:0 14px; }
     :host([data-rcs-compact]) .scope.scope-tabs { gap:4px;margin:5px 0 0;padding:0;border-bottom:1px solid var(--rcs-line); }
   ` + globalThis.RCSUnifiedToolStyles + (globalThis.RCSMediaPreview?.styles || "");
 })();

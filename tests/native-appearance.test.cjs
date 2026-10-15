@@ -15,3 +15,11 @@ test('chat appearance reads native sidebar typography across shadow roots and fo
   root.replaceChildren(build(18,72));const b=w.RCSAdapter.chatListMetrics(nav);assert.equal(b['--rcs-row-title-size'],'18px');assert.equal(b['--rcs-row-min-height'],'72px');
   root.replaceChildren();assert.equal(w.RCSAdapter.chatListMetrics(nav),null);
 });
+
+test('search toolbars use the local native header height in CSS pixels through hiding, resizing and replacement',t=>{
+  const dom=new JSDOM('<body></body>',{runScripts:'outside-only',url:'https://www.reddit.com/chat'}),w=dom.window;t.after(()=>w.close());w.eval(fs.readFileSync(path.join(__dirname,'../extension/adapter.js'),'utf8'));
+  const build=height=>{const app=w.document.createElement('rs-app'),root=app.attachShadow({mode:'open'}),nav=w.document.createElement('rs-rooms-nav'),room=w.document.createElement('rs-room');room.innerHTML='<main><header>Person</header></main>';root.append(nav,room);w.document.body.append(app);const header=room.querySelector('header');header.style.cssText='height:'+height+'px;box-sizing:border-box';header.getBoundingClientRect=()=>({width:640,height:height*2});return {nav,room,header};};
+  const a=build(48),b=build(64);assert.equal(w.RCSAdapter.searchToolbarHeight(a.nav),48);assert.equal(w.RCSAdapter.searchToolbarHeight(b.nav),64,'each chat shell uses its own room');
+  b.header.style.display='none';assert.equal(w.RCSAdapter.searchToolbarHeight(b.nav),64,'search may hide the native header');b.header.style.display='block';b.header.style.height='56px';w.document.body.style.setProperty('--fixture-resize','1');assert.equal(w.RCSAdapter.searchToolbarHeight(b.nav),56);
+  const next=w.document.createElement('header');next.style.cssText='height:40px;padding:3px;border:1px solid;box-sizing:content-box';b.header.replaceWith(next);assert.equal(w.RCSAdapter.searchToolbarHeight(b.nav),48,'replacement includes padding and border without applying display scale twice');assert.equal(w.RCSAdapter.searchToolbarHeight(b.room),48);
+});

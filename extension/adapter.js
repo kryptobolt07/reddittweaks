@@ -96,6 +96,23 @@
     if(refs.avatar){const avatar=getComputedStyle(refs.avatar),size=parseFloat(avatar.width) || refs.avatar.offsetWidth;if(size>0)values['--rcs-row-avatar-size']=size+'px';}
     return values;
   }
+  const toolbarHeaders=new WeakMap(),toolbarHeights=new WeakMap();
+  // Measure CSS pixels rather than the transformed on-screen size. Room search
+  // temporarily hides the native header, so retain its last measured height.
+  function searchToolbarHeight(container){
+    let ref=toolbarHeaders.get(container);
+    if(!ref?.header?.isConnected || !ref.room && Date.now()-ref.checked>250){
+      let scope=container;for(let current=container;current;current=current.parentElement || current.getRootNode?.().host){scope=current;if(current.localName==='rs-app' || current.id==='resizable')break;}
+      const own=container.matches(selectors.room)?container:null,room=own || queryAll(selectors.room,scope).find(visible),header=room && query(selectors.header,room);
+      ref={header:header || query('rs-room-list-header,rs-rooms-nav-filter,.nav-head',container),room:Boolean(header),checked:Date.now()};toolbarHeaders.set(container,ref);
+    }
+    const header=ref.header;if(!header)return 0;const style=getComputedStyle(header);
+    const rect=header.getBoundingClientRect();let height=parseFloat(style.height);
+    if(Number.isFinite(height) && style.boxSizing!=='border-box')height+=['paddingTop','paddingBottom','borderTopWidth','borderBottomWidth'].reduce((sum,key)=>sum+(parseFloat(style[key]) || 0),0);
+    if(!(height>0) && style.display==='none')return toolbarHeights.get(header) || 0;
+    if(!(height>0)){const scale=header.offsetWidth && rect.width?rect.width/header.offsetWidth:1;height=header.offsetHeight || rect.height/scale;}
+    if(height>0)toolbarHeights.set(header,height);return height>0?height:toolbarHeights.get(header) || 0;
+  }
   function roomKey(room) {
     return room.getAttribute('room') || room.getAttribute('room-id') || room.getAttribute('channel-id') || room.getAttribute('data-room-id') || room.getAttribute('data-rcs-room-id') ||
       query('[room-id]', room)?.getAttribute('room-id') ||
@@ -220,5 +237,5 @@
     messageHighlight=new Highlight(...ranges);CSS.highlights.set('rcs-message-match',messageHighlight);const current=messageHighlight;
     highlightTimer=setTimeout(()=>{if(CSS.highlights.get('rcs-message-match')===current)CSS.highlights.delete('rcs-message-match');},2400);
   }
-  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, chatListMetrics, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, revealMessage, scrollContainer});
+  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, chatListMetrics, searchToolbarHeight, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, revealMessage, scrollContainer});
 })();
