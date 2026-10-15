@@ -23,7 +23,7 @@
   let openListRequested = false;
   const icons = {
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/>',
-    refresh: '<path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5"/>',
+    refresh: '<path d="M20 8a8.9443 8.9443 0 1 0 0 8M20 3v5h-5"/>',
     back: '<path d="m14 5-7 7 7 7"/>',
     close: '<path d="m6 6 12 12M6 18 18 6"/>',
     up: '<path d="m6 14 6-6 6 6"/>',
@@ -133,8 +133,8 @@
     :host([data-rcs-ui=messages]) .message-panel .avatar { width:var(--rcs-row-avatar-size,32px);height:var(--rcs-row-avatar-size,32px);flex:0 0 var(--rcs-row-avatar-size,32px);margin-top:0; }
     :host([data-rcs-ui=messages]) .message-panel .time { color:var(--rcs-row-time-color,var(--rcs-muted));font:var(--rcs-row-time-font,var(--font-10,10px/1.5 var(--font-sans,Arial,sans-serif))); }
     :host([data-rcs-ui=messages]) mark { background:color-mix(in srgb,var(--rcs-accent) 22%,var(--rcs-bg));font-weight:650; }
-    :host([data-rcs-ui=messages]) .result.active { background:color-mix(in srgb,var(--rcs-accent) 5%,var(--rcs-bg)); }
-    :host([data-rcs-ui=messages]) .result.active::before { inset-block:6px;background:color-mix(in srgb,var(--rcs-accent) 55%,transparent); }
+    :host([data-rcs-ui=messages]) .result.active { background:var(--rcs-soft); }
+    :host([data-rcs-ui=messages]) .result.active::before { inset-block:8px;background:color-mix(in srgb,var(--rcs-accent) 35%,transparent); }
     .room-coverage { padding:5px 10px;font-size:10px;color:var(--rcs-muted); }
     :host([data-rcs-ui=messages]) .field > .icon { width:24px;height:24px; }
     :host([data-rcs-ui=messages]) .field > .icon svg { width:14px;height:14px; }
