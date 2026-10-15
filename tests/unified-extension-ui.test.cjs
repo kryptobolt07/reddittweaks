@@ -177,8 +177,18 @@ test('operator commands insert query tokens and sender values use main avatar ro
   await p.key('Enter');assert.equal(p.control.input.value,'coffee from:');assert.equal(p.control.suggestions.hidden,true);assert.ok(p.find('.sender-result .avatar'));assert.match(p.control.status.textContent,/Choose a sender/);
   p.cache.set('space',{id:'space',name:'Coffee Person',type:'direct'});p.control.senderChoicesCache=null;p.type('coffee from:Co');await p.tick(180);assert.match(p.find('.sender-result').textContent,/Coffee Person/);
   await p.key('ArrowDown');assert.ok(p.find('.sender-result.keyboard-focus'));await p.key('Enter');assert.equal(p.control.input.value,'coffee');assert.equal(p.control.queryValue(),'from:"Coffee Person" coffee');assert.equal(p.requests.length,calls);
-  for(const query of ['has','has:','before','before:','after','after:']){p.type(query);assert.equal(p.control.suggestions.hidden,true);assert.equal(p.control.valuePicker(),null);}
+  for(const query of ['has','has:','before','before:','after','after:']){p.type(query);assert.equal(p.control.suggestions.hidden,false);assert.equal(p.control.valuePicker(),null);}
   await p.search('alex');await p.click('[data-scope="people"]');p.type('from');assert.equal(p.control.scope,'people');assert.equal(p.control.suggestions.hidden,false);assert.equal(p.requests.filter(item=>item.method==='history').length,0);
+});
+test('global media and date operator completion preserves message terms and exposes removable tags',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;
+  p.type('coffee has');await p.key('Enter');assert.equal(c.input.value,'coffee has:');assert.equal(c.suggestionOptions.length,6);
+  p.type('coffee has:aud');assert.equal(c.suggestionOptions.length,1);await p.key('ArrowDown');await p.key('Enter');await p.tick(180);
+  assert.equal(c.queryValue(),'has:audio coffee ');assert.equal(c.suggestions.hidden,true);assert.match(c.chips.textContent,/Audio/);
+  c.queryState.clear();p.type('coffee before:');assert.ok(c.suggestionOptions.length>0);await p.key('Enter');await p.tick(180);
+  assert.match(c.queryValue(),/^before:\d{4}-\d{2}-\d{2} coffee /);assert.equal(c.controlButtons.date.getAttribute('aria-pressed'),'true');assert.equal(c.controlButtons.filter.getAttribute('aria-pressed'),'false');
+  c.chips.querySelector('.filter-chip button').click();assert.equal(c.queryValue(),'coffee ');
+  assert.equal(p.requests.some(item=>item.method==='history'),false);
 });
 
 test('in-flight capture updates coalesce without restarting requests and preserve committed results',async t=>{

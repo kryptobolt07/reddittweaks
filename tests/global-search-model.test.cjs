@@ -38,6 +38,18 @@ test('recognized media values commit at token end and only one media type remain
   assert.equal(state.apply('has','pdf'),null);assert.equal(state.apply('from',''),null);
   const filters=state.filters;filters[0].value='altered';assert.equal(state.filters[0].value,'Bob');
 });
+test('date operators become removable validated filters without changing matching boundaries',()=>{
+  const {RCSGlobalSearchModel:{QueryState},RCSCore:C}=environment(),state=new QueryState();
+  assert.equal(state.ingestDraft('coffee after:2026-10-01 before:2026-11-01'),'coffee  ');
+  assert.deepEqual(plain(state.filters.map(item=>item.kind)),['after','before']);
+  assert.equal(C.matchesQuery({text:'coffee',timestamp:'2026-10-01T12:00:00'},state.query('coffee')),true);
+  assert.equal(C.matchesQuery({text:'coffee',timestamp:'2026-11-01T12:00:00'},state.query('coffee')),false);
+  assert.equal(state.ingestDraft('before:2026-10-15'),'');assert.equal(state.filters.length,3);
+  assert.equal(C.matchesQuery({text:'coffee',timestamp:'2026-10-20T12:00:00'},state.query('coffee')),false);
+  assert.equal(state.ingestDraft('before:2026-02-30 '),'before:2026-02-30 ');
+  assert.equal(state.ingestDraft('"before:2026-10-01"'),'"before:2026-10-01"');
+  assert.equal(state.remove('before:2026-10-15'),true);assert.equal(state.filters.length,2);
+});
 
 test('People and All share literal, phrase, alias, participant and unavailable matching',()=>{
   const {RCSGlobalSearchModel:{matchPeople}}=environment();

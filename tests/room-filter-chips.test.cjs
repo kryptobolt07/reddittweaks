@@ -52,3 +52,22 @@ test('You uses the saved account profile even when only other senders match, inc
   c.hits=[{authorSelf:true},{authorSelf:true,avatar:'https://example.test/fallback.png'}];w.RCSMessages.getSelfIdentity=()=>null;tools.sync();
   assert.equal(tools.senderChoices().find(choice=>choice.name==='me').avatar,'https://example.test/fallback.png');
 });
+test('room menu exposes every supported message type and shared sort, without global conversation filters',t=>{
+  const {control:c,tools}=setup(t);
+  for(const type of ['image','gif','link','video','audio','file']){
+    tools.showMenu('filter');const option=tools.popover.querySelector('[data-value="has:'+type+'"]');assert.ok(option,type);option.click();
+    assert.ok(tools.queryValue().includes('has:'+type));assert.equal(tools.popover.hidden,true);
+    tools.showMenu('filter');assert.equal(tools.popover.querySelector('[data-value="has:'+type+'"]').getAttribute('aria-checked'),'true');
+    assert.equal(tools.popover.querySelector('[data-value="groups"],[data-value="requests"],[data-value="unread"]'),null);
+    tools.closeMenu();
+  }
+  assert.ok(tools.senderChips.textContent.includes('Files'));tools.senderChips.querySelector('[aria-label="Remove file filter"]').click();assert.equal(tools.queryValue(),'');
+});
+test('room autocomplete supports all operators, filtered media choices and keyboard acceptance',t=>{
+  const {w,control:c,tools,key}=setup(t),type=value=>{c.input.value=value;c.input.dispatchEvent(new w.Event('input',{bubbles:true}));};
+  for(const operator of ['from','has','before','after']){type('coffee '+operator.slice(0,-1));assert.equal(tools.suggestions.hidden,true);type('coffee '+operator);assert.equal(tools.suggestionOptions[0].token,operator+':');assert.ok(tools.suggestions.querySelector('svg'));}
+  type('coffee has');key('Enter');assert.equal(c.input.value,'coffee has:');assert.equal(tools.suggestionOptions.length,6);
+  type('coffee has:vid');assert.equal(tools.suggestionOptions.length,1);key('ArrowDown');key('Enter');assert.equal(tools.queryValue(),'has:video coffee ');
+  tools.queryState.clear();type('coffee after:');assert.ok(tools.suggestionOptions.every(option=>/^after:\d{4}-\d{2}-\d{2}$/.test(option.token)));key('Enter');
+  assert.ok(tools.queryState.filters.some(item=>item.kind==='after'));assert.equal(c.dateToggle.getAttribute('aria-pressed'),'true');assert.equal(tools.filterButton.getAttribute('aria-pressed'),'false');
+});
