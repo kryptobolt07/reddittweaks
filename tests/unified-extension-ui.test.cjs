@@ -237,7 +237,7 @@ test('calendar applies dates independently of filter accent and People ignores d
   assert.equal(c.input.value,'alex');assert.equal(c.datePicker.open,false);assert.equal(c.dates.from,'2026-10-08');assert.equal(c.dates.to,'2026-10-09');
   assert.equal(p.find('[data-control="date"]').getAttribute('aria-pressed'),'true');assert.ok(p.find('[data-control="date"]').classList.contains('active'));
   assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'false');assert.equal(p.find('[data-control="filter"]').classList.contains('active'),false);
-  await p.click('[data-scope="people"]');assert.equal(c.people().length,2);assert.equal(p.find('[data-control="date"]').hidden,true);assert.equal(p.find('[data-control="date"]').disabled,true);assert.equal(c.chips.hidden,false);
+  await p.click('[data-scope="people"]');assert.equal(c.people().length,2);assert.equal(p.find('[data-control="date"]').hidden,true);assert.equal(p.find('[data-control="date"]').disabled,true);assert.equal(c.chips.hidden,true);
   await p.click('[data-control="filter"]');await p.click('[data-value="unread"]');assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'true');
   await p.click('[data-scope="messages"]');assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'false');assert.equal(p.find('[data-control="date"]').getAttribute('aria-pressed'),'true');
   await p.search('coffee from:me ');assert.equal(p.find('[data-control="filter"]').getAttribute('aria-pressed'),'true');
@@ -795,6 +795,12 @@ test('Contains opens a compact same-popover submenu and Back restores the primar
   const p=await setup(t,{scope:'all'}),c=p.control;await p.click('[data-control="filter"]');assert.ok(c.popover.querySelector('[data-value="contains"]'));assert.equal(c.popover.querySelector('[data-value="has:image"]'),null);assert.ok(c.popover.querySelector('[data-value="groups"]'));
   await p.click('[data-value="contains"]');assert.equal(c.popover.querySelectorAll('.media-choices [role="menuitemradio"]').length,7);assert.equal(c.popover.querySelector('[data-value="groups"]'),null);assert.equal(c.controlButtons.filter.getAttribute('aria-expanded'),'true');
   await p.click('[aria-label="Back to filters"]');assert.ok(c.popover.querySelector('[data-value="groups"]'));assert.equal(c.shadow.activeElement.dataset.value,'contains');await p.key('Escape');assert.equal(c.popover.hidden,true);assert.equal(c.shadow.activeElement,c.controlButtons.filter);
+});
+test('People hides dormant message/date tags and Add sender while keeping those selections for Messages',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;
+  c.queryState.apply('from','me');c.queryState.apply('has','image');c.dates.from='2026-10-01';c.invalidate();await settle();
+  await p.click('[data-scope="people"]');assert.equal(c.chips.hidden,true);assert.equal(c.chips.childElementCount,0);assert.equal(c.controlButtons.filter.dataset.filterCount,'');assert.equal(c.controlButtons.date.hidden,true);
+  await p.click('[data-scope="messages"]');assert.equal(c.chips.hidden,false);assert.equal(c.queryState.filters.length,2);assert.equal(c.dates.from,'2026-10-01');assert.ok(c.chips.querySelector('[aria-label="Add sender"]'));assert.equal(c.controlButtons.filter.dataset.filterCount,'2');assert.equal(c.controlButtons.date.getAttribute('aria-pressed'),'true');
 });
 
 

@@ -196,6 +196,7 @@
     .operator-option>svg:last-child{width:12px;height:12px;transform:rotate(-90deg)}
     .menu-reset{display:inline-flex;align-items:center;justify-content:center;min-width:0;width:auto;height:auto;min-height:0;font:inherit;font-size:11px;line-height:1.4;color:var(--rcs-accent,#ff4500);padding:4px 6px;border:0;border-radius:5px;background:transparent;box-shadow:none;cursor:pointer}
     .menu-reset:hover{background:var(--rcs-hover)}
+    .menu-reset:disabled{color:var(--rcs-muted,#52656c);opacity:.55;cursor:default;background:transparent}
     .menu-choice>svg{width:13px;height:13px;flex:none}
     .menu-choice-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:inherit}
     .menu-check{width:10px;flex:none;color:var(--rcs-accent,#ff4500);font-size:11px}
