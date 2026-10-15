@@ -1,3 +1,16 @@
+# 0.11.0 design test
+
+- Integrate individual-chat search into the native header area with a back button and a full-width field. Preserve the original header nodes, handlers and inline display values; restore them on Back, close, room changes and teardown. Match native header height and remeasure it when the chat width changes.
+- Use one horizontally scrollable Date/From/Sort row. Active controls have a soft tint and Reddit-orange underline. From opens a compact avatar-backed dropdown with multiple senders, Anyone reset and a selected-name/count label. Sort has its own dropdown. Retain typed sender/media filters, debouncing, existing sender result rows and native message jumps.
+- Open dates with a compact range menu: Any time, Today, Last 7 days, Last 30 days, Last 3 months and Custom dates. Apply commits the range; dismissal retains the previous filter. Custom dates reuses the existing orange-accented calendar, date modes, cached-day hints and future-date limits. Keep the global calendar unchanged.
+- Show recent successful room searches in the empty search view, with keyboard reuse. Bound this page-session history to five queries per room and forty account/room entries. Clear it on account changes. Clearing text returns to this view without closing search.
+
+Version choice: MINOR to 0.11.0 for the header-based search flow, scrollable filter row and preset-first date view. No storage schema change, new sync loop or background history download. Global search and image presentation are unchanged. Reload the extension and refresh existing Reddit tabs.
+
+Validation: all 386 tests pass. Coverage includes native header restoration, Back/Escape, recent-search account isolation and keyboard reuse, sender alternatives, filter/sort states, preset Apply/cancellation, custom-calendar behavior, month-end ranges and existing search/storage/navigation regressions. All 20 scripts parse. Synthetic headless Chrome checks 820/420/320 px rooms: search starts at the native header position, filters scroll instead of wrapping, sender menus and preset/custom calendars stay bounded, and the full-width result view reaches the room bottom. Archive integrity and source/stable-folder/ZIP equality pass for all 26 assets; the convenience ZIP matches.
+
+Limitations: recent room queries last only for the current page session and are recorded when opening a match. Live Reddit authentication and exact-event accessibility still govern message retrieval. Visual checks use synthetic fixtures, not the signed-in browser. Date menus remain compact and bounded to the chat panel.
+
 # 0.10.0 design test
 
 - Remove startup navigation waits on initial sync and the bulk saved-cache pass. Keep authentication/router readiness, exact-event failure handling and interactive request coordination. Skip redundant native event lookup when that event is already loaded; reveal visible room messages directly.
