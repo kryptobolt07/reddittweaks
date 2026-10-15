@@ -28,6 +28,11 @@
         const key='has:'+value,item={key,kind,value,label:mediaLabels[value],token:key};
         this.applied.set(key,item);return {...item};
       }
+      if(kind==='before' || kind==='after'){
+        value=String(value ?? '').trim();if(!value || core().dateBounds({from:value}).invalid)return null;
+        const key=kind+':'+value,label=(kind==='before'?'Before ':'On or after ')+core().dayLabel(value+'T12:00:00'),item={key,kind,value,label,token:key};
+        this.applied.set(key,item);return {...item};
+      }
       return null;
     }
     remove(key){return this.applied.delete(key);}
@@ -39,10 +44,10 @@
         if(/\s/.test(draft[index])){index++;continue;}
         const tokenStart=index;let quoted=false;
         while(index<draft.length){const char=draft[index];if(char==='"')quoted=!quoted;if(!quoted && /\s/.test(char))break;index++;}
-        const token=draft.slice(tokenStart,index),operator=token.match(/^(from|has):(.*)$/i);
+        const token=draft.slice(tokenStart,index),operator=token.match(/^(from|has|before|after):(.*)$/i);
         if(!operator || quoted)continue;
         const kind=operator[1].toLowerCase(),value=operator[2];
-        const complete=index<draft.length || commit || kind==='has' && mediaTypes.includes(core().normalize(value).replace(/s$/,''));
+        const complete=index<draft.length || commit || kind==='has' && mediaTypes.includes(core().normalize(value).replace(/s$/,'')) || (kind==='before' || kind==='after') && value && !core().dateBounds({from:value}).invalid;
         if(complete && this.apply(kind,value)){output+=draft.slice(start,tokenStart);start=index;}
       }
       return output+draft.slice(start);
