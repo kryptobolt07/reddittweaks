@@ -66,7 +66,7 @@ test('empty-field browsing progressively reveals the entire local directory with
   const root=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav).shadowRoot,input=root.querySelector('input');
   assert.equal(root.querySelector('.panel').hidden,true);input.focus();assert.equal(root.querySelector('.panel').hidden,false);
   assert.equal(root.querySelectorAll('.result').length,50);const count=api.calls.length;
-  for(let i=0;i<4;i++)root.querySelector('.results').dispatchEvent(new W.Event('scroll'));
+  for(let i=0;i<4;i++){root.querySelector('.results').dispatchEvent(new W.Event('scroll'));await tick(25);}
   assert.equal(root.querySelectorAll('.result').length,201);assert.equal(api.calls.length,count);
   input.value='no-such-person';input.dispatchEvent(new W.Event('input'));assert.equal(root.querySelectorAll('.result').length,0);
   root.querySelector('[aria-label="Clear search"]').click();assert.equal(input.value,'');assert.equal(root.querySelectorAll('.result').length,50);assert.equal(api.calls.length,count);

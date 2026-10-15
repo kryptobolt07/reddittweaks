@@ -698,3 +698,30 @@ test('quick dates remain a local draft until Apply and reuse the existing saved-
   picker.element.querySelector('.calendar-quick').click();picker.element.querySelector('[data-preset="Last 7 days"]').click();await settle();assert.equal(p.searches.length,searches);assert.equal(p.requests.length,requests);assert.equal(c.dates.from,'');assert.equal(c.dates.to,'');assert.equal(picker.open,true);
   picker.element.querySelector('.calendar-apply').click();await settle();assert.equal(c.dates.from,'2026-10-08');assert.equal(c.dates.to,'2026-10-14');assert.equal(p.searches.length,searches+1);assert.equal(p.requests.length,requests);assert.ok(p.find('[aria-label="Remove date filter"]'));await p.click('[aria-label="Remove date filter"]');assert.equal(c.dates.from,'');assert.equal(c.dates.to,'');assert.equal(c.input.value,'coffee');
 });
+
+test('a new query discards old mobile return positions but same-query refresh retains the current viewport',async t=>{
+  const p=await setup(t,{scope:'messages',large:true}),c=p.control;await p.search('coffee');
+  const anchor=c.items.filter(item=>item.kind==='message')[70];c.results.scrollTop=anchor.offset+7;c.lastScrollTop=c.results.scrollTop;
+  c.returnViewport=c.captureViewport();c.resumeViewport=c.returnViewport;c.pendingResumeViewport=c.returnViewport;c.active=anchor.key;
+  p.type('tomorrow');assert.equal(c.results.scrollTop,0);assert.equal(c.lastScrollTop,0);assert.equal(c.active,'');assert.equal(c.returnViewport,null);assert.equal(c.resumeViewport,null);assert.equal(c.pendingResumeViewport,null);
+  await p.tick(180);assert.equal(c.results.scrollTop,0);c.suspend();c.resume();assert.equal(c.results.scrollTop,0);
+  c.results.scrollTop=37;c.invalidate();await settle();assert.equal(c.results.scrollTop,37,'same-query refresh does not restart the list');
+  c.sort='oldest';c.invalidate();await settle();assert.equal(c.results.scrollTop,0,'changing sort starts at the new first result');
+});
+
+test('background query completion anchors where the user scrolled during the read, without restoring its starting position',async t=>{
+  const p=await setup(t,{scope:'messages',large:true}),c=p.control;await p.search('coffee');
+  const original=p.w.RCSMessages.search;let release;p.w.RCSMessages.search=parameters=>new Promise(resolve=>{release=async()=>resolve(await original(parameters));});
+  c.results.scrollTop=150;c.dirty=true;const refresh=c.searchSaved();assert.ok(release);
+  const target=c.items.filter(item=>item.kind==='message')[90];c.results.scrollTop=target.offset+9;c.renderWindow();
+  await release();await refresh;await settle();const updated=c.items.find(item=>item.key===target.key);assert.equal(c.results.scrollTop,updated.offset+9);
+});
+
+test('scroll events coalesce into one passive-frame update while a saved query is running',async t=>{
+  const p=await setup(t,{scope:'messages',large:true}),c=p.control;await p.search('coffee');
+  let renders=0;const render=c.renderWindow.bind(c);c.renderWindow=(...args)=>{renders++;return render(...args);};
+  const search=p.w.RCSMessages.search;let release;p.w.RCSMessages.search=parameters=>new Promise(resolve=>{release=async()=>resolve(await search(parameters));});c.dirty=true;const pending=c.searchSaved();renders=0;const parameters=c.parameters.bind(c);c.parameters=()=>{throw Error('scroll should not rebuild search filters');};
+  for(let i=0;i<20;i++){c.results.scrollTop=1000+i*10;c.results.dispatchEvent(new p.w.Event('scroll'));}
+  assert.equal(renders,0);await p.tick(0);assert.equal(renders,1);assert.equal(c.results.scrollTop,1190);assert.ok(c.shadow.querySelectorAll('.message-result').length<20);c.parameters=parameters;
+  await release();await pending;assert.equal(c.results.scrollTop,1190);
+});
