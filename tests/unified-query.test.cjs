@@ -21,6 +21,22 @@ test('unified query operators compose with sender controls and inclusive legacy 
   assert.equal(C.matchesQuery({...record,author:'You',authorSelf:true},'from:me'),true);
   assert.equal(C.matchesQuery({...record,author:'Alice',authorSelf:undefined,sender:'me'},'from:me'),true);
 });
+test('media counts ignore selected attachment type but retain sender, terms, dates and exact native types',async()=>{
+  const {RCSCore:C,RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null});
+  await store.ingest({owner,roomId:room,identities:[{id:them,name:'Bob'}],events:[
+    {...event('image','coffee.jpg',noon(11)),content:{body:'coffee.jpg',msgtype:'m.image',info:{mimetype:'image/jpeg'}}},
+    {...event('gif','coffee.gif',noon(11)),content:{body:'coffee.gif',msgtype:'m.image',info:{mimetype:'image/gif'}}},
+    {...event('video','coffee.mp4',noon(11)),content:{body:'coffee.mp4',msgtype:'m.video'}},
+    event('link','coffee https://example.test',noon(11)),event('self','coffee https://example.test',noon(11),owner),
+    event('older','coffee https://example.test',noon(10)),event('unrelated','tea https://example.test',noon(11))]});
+  await store.ingest({owner,roomId:'!elsewhere:reddit.com',events:[event('other-room','coffee https://example.test',noon(11),them,'!elsewhere:reddit.com')]});
+  const query='coffee from:bob after:2026-10-11 has:video',result=await store.search(owner,{query,roomIds:[room],limit:1});
+  assert.equal(result.total,1);assert.deepEqual(plain(result.mediaCounts),{image:2,gif:1,link:1,video:1,audio:0,file:0});
+  const messages=(await store.room(owner,room)).records;
+  assert.deepEqual(plain(C.countMediaTypes(messages,query)),plain(result.mediaCounts));
+  assert.equal(C.matchesQuery({text:'plain',attachmentType:'link'},'has:link'),false);
+  assert.equal(C.matchesQuery({text:'named.gif',attachmentType:'gif'},'has:gif'),false);
+});
 
 test('quoted phrases, conjunctive text and Unicode whole words keep original highlight offsets',()=>{
   const {RCSCore:C}=environment(),text='A ＣＯＦＦＥＥ tomorrow and coffeehouse, café ☕.';
