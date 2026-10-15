@@ -1,3 +1,11 @@
+# 0.12.3 design test
+
+- Put filter autocomplete icons at the left without menu-arrow rotation. Date suggestions now show a calendar icon and concise labels such as Today, Yesterday, This month and This year.
+
+Version choice: PATCH to 0.12.3 for a user-visible search interface correction. No storage schema change.
+
+Validation: JavaScript syntax and package integrity checked; automated tests were not run for this quick edit.
+
 # 0.12.2 design test
 
 - While a global or individual filter menu or calendar is open, any click outside that surface dismisses it and is consumed, preventing accidental activation underneath.
