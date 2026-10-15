@@ -215,7 +215,7 @@
         this.dates={from:'',to:''};
         this.datePicker=new RCSDatePicker({
           chatMode:kind==='messages',
-          getAnchor:()=>(this.dateToggle.hidden?this.dateChip:this.dateToggle).getBoundingClientRect(),
+          getAnchor:()=>{const anchor=this.dateToggle.hidden?this.tools?.controlButtons?.filter:this.dateToggle;return (anchor || this.input.closest('.field') || this.dateChip).getBoundingClientRect();},
           getAvailability:()=>({days:[...new Set([...(index.rooms.get(this.room)?.values() || [])].map(message=>{const date=new Date(message.timestamp);return Number.isFinite(date.getTime())?`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`:'';}).filter(Boolean))]}),
           getBounds:()=>{const rect=this.container.getBoundingClientRect();if(!rect.width||!rect.height)return;return {left:rect.left,right:rect.right,top:Math.max(rect.top,this.host.getBoundingClientRect().bottom,A.query(A.selectors.header,this.container)?.getBoundingClientRect().bottom||rect.top),bottom:rect.bottom};},
           onChange:(dates,label)=>{this.cancelInput();this.resultsDismissed=false;this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
