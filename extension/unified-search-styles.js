@@ -350,7 +350,7 @@
   globalThis.RCSRefreshStyles=`
     .rcs-refresh{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;min-height:20px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--rcs-muted);cursor:pointer}
     .rcs-refresh:hover{background:var(--rcs-hover);color:var(--rcs-text)}
-    .rcs-refresh svg{width:12px;height:12px}
+    .rcs-refresh .refresh-motion > svg{display:block;width:12px;height:12px}
     .rcs-refresh .refresh-motion{display:grid;place-items:center;width:12px;height:12px;flex:none;transform-origin:50% 50%;backface-visibility:hidden}
     .rcs-refresh.busy .refresh-motion{will-change:transform;animation:rcs-refresh-busy 1.2s linear infinite}
     @keyframes rcs-refresh-busy{from{transform:translate3d(0,0,0) rotate(0deg)}to{transform:translate3d(0,0,0) rotate(360deg)}}
