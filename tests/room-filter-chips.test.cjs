@@ -38,3 +38,6 @@ test('typing from keeps autocomplete and sender selection query semantics',t=>{
 test('completed typed media filters remain visible and removable beside sender tags',t=>{
   const {w,control:c,tools}=setup(t);c.input.value='photo has:image ';c.input.dispatchEvent(new w.Event('input',{bubbles:true}));assert.equal(c.input.value,'photo  ');assert.equal(tools.queryValue(),'has:image photo  ');assert.equal(tools.senderChips.hidden,false);assert.equal(tools.senderChips.querySelector('.room-type-chip').textContent,'Images');tools.sync();assert.equal(tools.senderChips.querySelectorAll('.room-type-chip').length,1);tools.senderChips.querySelector('[aria-label="Remove image filter"]').click();assert.equal(tools.queryValue(),'photo  ');assert.equal(tools.senderChips.hidden,true);
 });
+test('filter menu follows its button below the field even when applied tags extend the toolbar',t=>{
+  const {control:c,tools}=setup(t);c.host.getBoundingClientRect=()=>({left:100,right:420,width:320,bottom:180});tools.field.getBoundingClientRect=()=>({bottom:148});tools.filterButton.getBoundingClientRect=()=>({right:372});tools.filterButton.click();assert.equal(tools.popover.style.right,'48px');assert.equal(tools.popover.style.left,'');assert.equal(tools.popover.style.top,'-28px');
+});

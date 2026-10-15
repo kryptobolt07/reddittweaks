@@ -52,3 +52,16 @@ test('selected senders use a separate tag rail and keep the input editable witho
   p.root.querySelector('[aria-label="Clear search"]').click();assert.equal(p.input.value,'');assert.equal(p.root.querySelectorAll('.result').length,3);assert.ok([...p.root.querySelectorAll('.result .name')].every(name=>name.textContent==='alex_morgan'));
   p.root.querySelector('[aria-label="Remove sender them"]').click();assert.equal(p.root.querySelector('.room-applied-filters').hidden,true);assert.equal(p.root.querySelector('.panel').hidden,true);
 });
+test('room refresh and loading placeholders reuse the global search presentation',async t=>{
+  const p=setup(t);await p.search('coffee');const globalRoot=p.w.RCSAdapter.query('[data-rcs-ui="list"]',p.api.nav).shadowRoot;
+  assert.equal(p.root.querySelector('.room-refresh svg').outerHTML,globalRoot.querySelector('.rcs-refresh svg').outerHTML);
+  p.input.value='missing';p.input.dispatchEvent(new p.w.Event('input'));const skeleton=p.root.querySelector('.skeleton-list');assert.ok(skeleton);assert.equal(skeleton.querySelectorAll('.skeleton-row').length,7);assert.equal(p.root.querySelector('.results').getAttribute('aria-busy'),'true');assert.ok(p.root.querySelector('.room-refresh').classList.contains('busy'));
+  await wait(170);assert.equal(p.root.querySelector('.skeleton-list'),skeleton,'pending history retains one placeholder');p.root.querySelector('.room-refresh').click();assert.equal(p.root.querySelector('.skeleton-list'),null);assert.match(p.root.querySelector('.empty').textContent,/No messages match/);
+});
+
+test('new room queries and sort changes reset scroll and selection while native updates preserve the same query position',async t=>{
+  const p=setup(t);await p.search('coffee');const results=p.root.querySelector('.results');p.key('ArrowDown');results.scrollTop=125;
+  p.input.value='tomorrow';p.input.dispatchEvent(new p.w.Event('input'));assert.equal(results.scrollTop,0);await wait(170);assert.equal(results.scrollTop,0);assert.equal(p.root.querySelector('.result.active'),null);
+  results.scrollTop=40;p.api.appendMessage('alex_morgan','tomorrow works', 'added-result');await wait(130);assert.equal(results.scrollTop,40);
+  p.root.querySelector('[data-control=filter]').click();p.root.querySelector('[data-value=oldest]').click();assert.equal(results.scrollTop,0);
+});
