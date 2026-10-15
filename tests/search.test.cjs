@@ -83,7 +83,7 @@ test('message search finds and jumps to matches, clears, and resets when a reuse
   assert.equal(W.RCSAdapter.messages(api.room)[2].element.dataset.scrolled,undefined);assert.equal(control.querySelector('.panel').hidden,false);
   input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
   assert.equal(W.RCSAdapter.messages(api.room)[2].element.dataset.scrolled,'true');
-  control.querySelector('[aria-label="Clear search"]').click();assert.equal(input.value,'');assert.equal(control.querySelector('.panel').hidden,true);
+  control.querySelector('[aria-label="Clear search"]').click();assert.equal(input.value,'');assert.equal(control.querySelector('.panel').hidden,false);assert.equal(control.querySelectorAll('.result').length,0);
   input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);api.select('jules');await tick();
   const next=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot;
   assert.equal(next.querySelector('input').value,'');

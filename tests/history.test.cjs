@@ -91,7 +91,7 @@ test('calendar filters work without text and reuse loaded history and stable sni
   input.value='';input.dispatchEvent(new W.Event('input'));await tick(170);assert.equal(root.querySelector('.panel').hidden,false);
   assert.equal(root.querySelectorAll('.result').length,7);
   root.querySelector('[aria-label="Filter by date"]').click();setDateMode(root,'After');setDateSegments(root,'start','2026-10-08');root.querySelector('.calendar-apply').click();assert.equal(root.querySelectorAll('.result').length,0);
-  root.querySelector('[aria-label="Filter by date"]').click();root.querySelector('.calendar-clear').click();root.querySelector('.date-popover').dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(root.querySelector('.panel').hidden,true);
+  root.querySelector('[aria-label="Filter by date"]').click();root.querySelector('.calendar-clear').click();root.querySelector('.date-popover').dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(root.querySelector('.panel').hidden,false);assert.equal(root.querySelectorAll('.result').length,0);
   assert.equal(api.calls.length,calls);
 });
 test('message history finishes without a profile controller and never waits for optional sender metadata',async t=>{

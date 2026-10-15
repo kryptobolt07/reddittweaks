@@ -107,3 +107,16 @@ test('chat range instruction describes the next step above the calendar',t=>{
 test('chat calendar can anchor directly below the triggering date chip',t=>{
   const {picker}=setup(t,{chatMode:true,getAnchor:()=>({left:55,bottom:150})}),root=picker.element;picker.getBounds=()=>({left:20,right:400,top:120,bottom:500});root.getBoundingClientRect=()=>({left:30,right:294,top:80,bottom:380,width:264,height:300});Object.defineProperties(root,{offsetWidth:{value:264},offsetHeight:{value:300},offsetTop:{value:80},offsetLeft:{value:30}});root.style.top='80px';picker.place();assert.equal(root.style.top,'154px');assert.equal(root.style.left,'55px');
 });
+
+test('room preset-first date view applies ranges only on Apply and offers custom calendar without affecting global defaults',t=>{
+  const {picker,changes,W}=setup(t,{chatMode:true,presetFirst:true});assert.equal(picker.element.querySelector('.calendar-grid'),null);assert.equal(picker.element.querySelectorAll('[data-range]').length,6);
+  picker.element.querySelector('[data-range=week]').click();assert.equal(changes.length,0);const expected=picker.menuRanges().find(range=>range.key==='week');picker.element.querySelector('.calendar-apply').click();assert.deepEqual(changes.at(-1).dates,{from:expected.start,to:expected.end});assert.equal(picker.open,false);
+  picker.show();assert.equal(picker.element.querySelector('[data-range=week]').getAttribute('aria-checked'),'true');picker.element.querySelector('[data-range=today]').click();picker.element.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));picker.show();assert.equal(picker.element.querySelector('[data-range=week]').getAttribute('aria-checked'),'true','dismissal keeps the applied range');
+  picker.element.querySelector('[data-range=custom]').click();assert.ok(picker.element.querySelector('.calendar-grid'));assert.ok(picker.element.querySelector('[data-mode=Between]'));assert.ok([...picker.element.querySelectorAll('[data-date]')].filter(day=>day.dataset.date>picker.today()).every(day=>day.disabled));picker.element.querySelector('.date-menu-back').click();assert.ok(picker.element.querySelector('[data-range=any]'));
+  picker.element.querySelector('[data-range=any]').click();picker.element.querySelector('.calendar-apply').click();assert.deepEqual(changes.at(-1).dates,{from:'',to:''});assert.equal(picker.open,false);
+  const global=new W.RCSDatePicker();W.document.body.append(global.element);global.show();assert.ok(global.element.querySelector('.calendar-grid'));assert.equal(global.element.querySelector('.date-range-options'),null);global.close();
+});
+
+test('preset range keyboard navigation and rolling three-month range handle month ends',t=>{
+  const {picker,W}=setup(t,{chatMode:true,presetFirst:true});picker.today=()=> '2026-05-31';picker.render();const range=picker.menuRanges().find(range=>range.key==='quarter');assert.equal(range.start,'2026-02-28');assert.equal(range.end,'2026-05-31');const today=picker.element.querySelector('[data-range=today]');today.focus();today.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));assert.equal(W.document.activeElement.dataset.range,'week');
+});

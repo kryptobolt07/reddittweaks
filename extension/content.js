@@ -12,6 +12,7 @@
   // Mobile routing can detach the sidebar. Retain its controller only within
   // the same document, authenticated account and native chat shell.
   const retainedLists = new Map();
+  const roomRecentSearches = new Map();
   function listContext(container){for(let node=container;node;node=node.parentElement || node.getRootNode?.().host){if(node.localName==='rs-app' || node.id==='resizable')return node;}return document.body || document.documentElement;}
   function clearRetainedLists(){for(const {control} of retainedLists.values())control.destroy();retainedLists.clear();}
   const observed = new Map();
@@ -23,6 +24,7 @@
   const icons = {
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/>',
     refresh: '<path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5"/>',
+    back: '<path d="m14 5-7 7 7 7"/>',
     close: '<path d="m6 6 12 12M6 18 18 6"/>',
     up: '<path d="m6 14 6-6 6 6"/>',
     down: '<path d="m6 10 6 6 6-6"/>',
@@ -141,6 +143,26 @@
     :host([data-rcs-ui=messages]) .field > .room-filter-toggle,:host([data-rcs-ui=messages]) .field > .room-date-toggle { width:26px;height:26px; }
     :host([data-rcs-ui=messages]) .room-filter-toggle svg,:host([data-rcs-ui=messages]) .room-date-toggle svg { width:16px;height:16px; }
     :host([data-rcs-ui=messages]) .field input { flex:1;width:0;font:var(--rcs-row-title-font,var(--font-12,12px/1.5 var(--font-sans,Arial,sans-serif))); }
+
+    :host([data-header-search]) .bar { min-height:var(--rcs-native-header-height,52px);padding:6px 8px;gap:6px; }
+    :host([data-header-search]) .room-search-back { flex:0 0 28px;width:28px;height:32px;padding:4px;border:0;border-radius:50%;background:transparent;color:var(--rcs-muted); }
+    .room-search-back:hover { background:var(--rcs-hover); }
+    :host([data-header-search]) .field { height:40px; }
+    .room-filter-rail { display:flex;align-items:center;gap:6px;min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain;padding:2px 10px 8px;background:var(--rcs-bg); }
+    .room-filter-rail::-webkit-scrollbar { display:none; }
+    .room-filter-rail .room-filter-control { position:relative;display:inline-flex;align-items:center;gap:5px;flex:none;width:auto;max-width:180px;min-height:28px;padding:4px 8px;border:0;border-radius:7px;background:var(--rcs-soft);color:var(--rcs-text);font:var(--rcs-row-time-font,12px/1.4 var(--font-sans,Arial,sans-serif));white-space:nowrap; }
+    .room-filter-control > span { min-width:0;overflow:hidden;text-overflow:ellipsis; }
+    .room-filter-rail .room-filter-control svg { width:14px;height:14px;flex:none; }
+    .room-filter-rail .room-filter-control .avatar { width:16px;height:16px;flex:none; }
+    .room-filter-rail .room-filter-control:hover { background:var(--rcs-hover); }
+    .room-filter-rail .room-filter-control[aria-pressed=true] { color:var(--rcs-text);background:color-mix(in srgb,var(--rcs-accent) 8%,var(--rcs-bg)); }
+    .room-filter-control[aria-pressed=true]::after { content:'';position:absolute;bottom:0;left:8px;right:8px;height:2px;background:var(--rcs-accent);border-radius:2px; }
+    .room-filter-rail .room-applied-filters { width:auto;height:28px;padding:0;overflow:visible;flex:none; }
+    .room-recent-title { margin:14px 12px 6px;font-size:11px;font-weight:600;color:var(--rcs-muted); }
+    .room-recent { display:flex;align-items:center;gap:12px;width:100%;min-height:42px;padding:9px 12px;border:0;background:transparent;color:var(--rcs-text);text-align:left;font:var(--rcs-row-title-font,12px/1.5 var(--font-sans,Arial,sans-serif)); }
+    .room-recent svg { color:var(--rcs-muted); }
+    .room-recent:hover { background:var(--rcs-hover); }
+    .room-recent:focus-visible { outline:0;background:var(--rcs-hover);box-shadow:inset 3px 0 color-mix(in srgb,var(--rcs-accent) 45%,transparent); }
     .room-coverage[hidden] { display:none; }
     :host([data-rcs-ui=message-trigger]) .icon[aria-expanded=true] { color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 10%,var(--rcs-bg)); }
     @media(prefers-color-scheme:dark) { :host { --rcs-bg:var(--color-neutral-background,#0e1113); --rcs-soft:var(--color-neutral-background-weak,#181c1f); --rcs-text:var(--color-neutral-content-strong,#eef1f3); --rcs-muted:var(--color-neutral-content-weak,#a0b0b5); --rcs-line:var(--color-neutral-border-weak,#30383c); --rcs-hover:var(--color-neutral-background-hover,#2a3236); } }
@@ -188,23 +210,23 @@
       this.toggle.firstChild.replaceWith(this.toggle.firstChild.firstChild);
       this.toggle.setAttribute('aria-expanded', 'false'); this.toggle.addEventListener('click', () => this.open());
       this.bar = node('div', 'bar');
-      if(kind==='messages'){this.appliedFilters=node('div','room-applied-filters');this.appliedFilters.hidden=true;this.appliedFilters.setAttribute('aria-label','Applied message filters');}
+      if(kind==='messages'){this.back=icon('back','Back to conversation',()=>this.close());this.back.classList.add('room-search-back');this.bar.append(this.back);this.appliedFilters=node('div','room-applied-filters');this.appliedFilters.hidden=true;this.appliedFilters.setAttribute('aria-label','Applied message filters');}
       const field = node('div', 'field');
       const searchIcon = icon('search', 'Search', () => {this.input.focus();this.showResults();});
       searchIcon.tabIndex = -1;
       this.input = node('input'); this.input.type = 'search'; this.input.autocomplete = 'off'; this.input.spellcheck = false;
-      const label = kind === 'list' ? 'Search usernames' : 'Search messages';
+      const label = kind === 'list' ? 'Search usernames' : 'Search in this chat';
       this.input.placeholder = label; this.input.setAttribute('aria-label', label);
       this.input.setAttribute('aria-controls', 'rcs-results'); this.input.setAttribute('aria-expanded', 'false');
-      this.clear = icon('close', 'Clear search', () => { this.cancelInput();this.input.value = '';if(this.kind==='messages' && !this.dates?.from && !this.dates?.to)this.cancelLoad(); this.render();if(this.isGlobal)this.ensureData();this.input.focus(); }); this.clear.hidden = true;
+      this.clear = icon('close', 'Clear search', () => { this.resultsDismissed=false;this.cancelInput();this.input.value = '';if(this.kind==='messages' && !this.dates?.from && !this.dates?.to)this.cancelLoad(); this.render();if(this.isGlobal)this.ensureData();this.input.focus(); }); this.clear.hidden = true;
       field.append(searchIcon, this.input, this.clear); this.bar.append(field);
       if (kind === 'messages' || kind === 'list') {
         this.dates={from:'',to:''};
         this.datePicker=new RCSDatePicker({
-          chatMode:kind==='messages',
+          chatMode:kind==='messages',presetFirst:kind==='messages',
           getAnchor:()=>(this.dateToggle.hidden?this.dateChip:this.dateToggle).getBoundingClientRect(),
           getAvailability:()=>({days:[...new Set([...(index.rooms.get(this.room)?.values() || [])].map(message=>{const date=new Date(message.timestamp);return Number.isFinite(date.getTime())?`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`:'';}).filter(Boolean))]}),
-          getBounds:()=>{const rect=this.container.getBoundingClientRect();if(!rect.width||!rect.height)return;return {left:rect.left,right:rect.right,top:Math.max(rect.top,this.bar.getBoundingClientRect().bottom,A.query(A.selectors.header,this.container)?.getBoundingClientRect().bottom||rect.top),bottom:rect.bottom};},
+          getBounds:()=>{const rect=this.container.getBoundingClientRect();if(!rect.width||!rect.height)return;return {left:rect.left,right:rect.right,top:Math.max(rect.top,this.host.getBoundingClientRect().bottom,A.query(A.selectors.header,this.container)?.getBoundingClientRect().bottom||rect.top),bottom:rect.bottom};},
           onChange:(dates,label)=>{this.cancelInput();this.resultsDismissed=false;this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);this.render();if(!this.bar.hidden)this.ensureData();},
           onClose:restoreFocus=>{this.dateToggle.setAttribute('aria-expanded','false');this.render();if(restoreFocus)(this.dateToggle.hidden?this.dateChipLabel:this.dateToggle).focus({preventScroll:true});}
         });
@@ -218,7 +240,7 @@
         this.dateRemove=icon('close','Remove date filter',()=>{this.datePicker.reset();this.render();this.dateToggle.focus({preventScroll:true});});this.dateRemove.classList.add('date-remove');this.dateChip.append(this.dateChipLabel,this.dateRemove);
       }
       this.panel = node('section', 'panel'); this.panel.setAttribute('aria-label', `${label} results`);
-      const meta = node('div', 'meta'); this.status = node('span'); this.status.setAttribute('role', 'status'); this.status.setAttribute('aria-live','polite'); meta.append(this.status);
+      const meta = node('div', 'meta'); this.status = node('span'); this.status.setAttribute('role', 'status'); this.status.setAttribute('aria-live','polite');this.meta=meta; meta.append(this.status);
       this.load=kind==='messages' && globalThis.RCSUnifiedSearch?.createRefreshButton ? RCSUnifiedSearch.createRefreshButton('Refresh messages',null) : node('button','load','Refresh');this.load.classList.add('load');this.load.type='button';this.updateLoad();
       this.load.addEventListener('click', () => {this.cancelInput();this.loading ? this.cancelLoad(true) : this.ensureData(true);});if(this.dateChip){if(kind==='messages')this.appliedFilters.append(this.dateChip);else meta.append(this.dateChip);}meta.append(this.load);
       if (kind === 'list') this.panel.classList.add('conversation-panel');
@@ -269,6 +291,8 @@
           return;
         }
         const inResults=this.results.contains(event.target),arrow=['ArrowDown','ArrowUp'].includes(event.key);
+        const recentRows=[...this.results.querySelectorAll('.room-recent')];if(!this.panel.hidden && recentRows.length && (event.target===this.input || inResults) && (arrow || event.key==='Enter')){event.preventDefault();event.stopPropagation();const position=recentRows.indexOf(shadow.activeElement);if(event.key==='Enter')recentRows[Math.max(0,position)]?.click();else recentRows[position<0?(event.key==='ArrowDown'?0:recentRows.length-1):Math.max(0,Math.min(recentRows.length-1,position+(event.key==='ArrowDown'?1:-1)))]?.focus();return;}
+
         if (!this.panel.hidden && ((arrow && (this.bar.contains(event.target) || inResults)) || event.key==='Enter' && (event.target===this.input || inResults))) {
           event.preventDefault(); event.stopPropagation();
           if (event.key === 'Enter') {
@@ -294,7 +318,7 @@
     queueInput(){
       this.cancelInput();this.clear.hidden=!this.input.value.trim();this.results.scrollTop=0;this.imageViewport=null;
       if(!this.queryValue().trim() && !this.dates?.from && !this.dates?.to){this.cancelLoad();this.render();return;}
-      this.inputPending=true;this.updateLoad();this.results.setAttribute('aria-busy','true');this.panel.hidden=Boolean(this.datePicker?.open);this.input.setAttribute('aria-expanded','true');if(!this.panel.hidden){this.status.textContent='Searching messages…';this.showLoadingResults();}
+      this.inputPending=true;if(this.meta)this.meta.hidden=false;this.updateLoad();this.results.setAttribute('aria-busy','true');this.panel.hidden=Boolean(this.datePicker?.open);this.input.setAttribute('aria-expanded','true');if(!this.panel.hidden){this.status.textContent='Searching messages…';this.showLoadingResults();}
       this.inputTimer=setTimeout(()=>{if(this.host.isConnected)this.flushInput();else this.cancelInput();},150);
     }
     showLoadingResults(){if(!globalThis.RCSUnifiedSearch?.createLoadingSkeleton)return;if(!this.loadingSkeleton)this.loadingSkeleton=RCSUnifiedSearch.createLoadingSkeleton();if(this.loadingSkeleton.parentNode!==this.results){this.results.replaceChildren(this.loadingSkeleton);this.results.scrollTop=0;}this.results.setAttribute('aria-busy','true');}
@@ -384,7 +408,7 @@
       })();
       return this.roomSavedPromise;
     }
-    open() { this.resultsDismissed=false;this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true'); this.ensureData(); this.render(); this.input.focus(); }
+    open() { this.resultsDismissed=false;this.stoppedByUser=false;this.browseOpen=this.kind==='list';this.host.hidden = false; this.bar.hidden = false; this.toggle.hidden = true; this.toggle.setAttribute('aria-expanded','true'); this.trigger?.setAttribute('aria-expanded','true');this.syncHeaderSearch();this.tools?.sync?.(); this.ensureData(); this.render(); this.input.focus(); }
     showResults() {this.resultsDismissed=false;this.stoppedByUser=false;if(this.kind==='list')this.browseOpen=true;this.ensureData();this.render();}
     dismiss() {
       // All chats is the selected sidebar view, rather than a transient menu.
@@ -392,13 +416,25 @@
       if(this.isGlobal)return;
       this.cancelInput();this.resultsDismissed=true;this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
     }
-    close(focus = true) { this.tools?.queryState?.clear();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;this.cancelLoad();if(this.appliedFilters)this.appliedFilters.hidden=true; this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:this.kind==='messages'?'On':'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
+    close(focus = true) { this.tools?.closeMenu?.();this.tools?.closeSuggestions?.();this.tools?.queryState?.clear();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;this.cancelLoad();if(this.appliedFilters)this.appliedFilters.hidden=true; this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:this.kind==='messages'?'On':'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true;this.syncHeaderSearch();if(this.tools?.filterRail)this.tools.filterRail.hidden=true; this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
+    restoreHeaderSearch(){const saved=this.hiddenHeader;if(!saved)return;const {header,display,priority}=saved;if(header.style.getPropertyValue('display')==='none' && header.style.getPropertyPriority('display')==='important'){if(display)header.style.setProperty('display',display,priority);else header.style.removeProperty('display');}this.hiddenHeader=null;this.host.removeAttribute('data-header-search');}
+    syncHeaderSearch(){
+      if(this.kind!=='messages')return;const header=A.query(A.selectors.header,this.container),active=!this.bar.hidden && Boolean(header);
+      if(this.hiddenHeader && (!active || this.hiddenHeader.header!==header))this.restoreHeaderSearch();
+      if(!active)return;
+      if(this.hiddenHeader && this.hiddenHeader.width!==this.layoutWidth){const {display,priority}=this.hiddenHeader;if(display)header.style.setProperty('display',display,priority);else header.style.removeProperty('display');const height=header.getBoundingClientRect().height;if(height>0)this.host.style.setProperty('--rcs-native-header-height',height+'px');this.hiddenHeader.width=this.layoutWidth;header.style.setProperty('display','none','important');}
+      if(!this.hiddenHeader){const height=header.getBoundingClientRect().height;if(height>0)this.host.style.setProperty('--rcs-native-header-height',height+'px');this.hiddenHeader={header,width:this.layoutWidth,display:header.style.getPropertyValue('display'),priority:header.style.getPropertyPriority('display')};header.style.setProperty('display','none','important');}
+      this.host.setAttribute('data-header-search','');this.host.hidden=false;if(this.host.parentNode!==header.parentNode || this.host.nextSibling!==header)header.parentNode.insertBefore(this.host,header);
+    }
+    recentRoomKey(){const owner=globalThis.RCSDirectory?.getOwner?.() || this.savedOwner;return owner?owner+'\0'+this.room:null;}
+    saveRoomRecent(){const key=this.recentRoomKey(),query=this.queryValue().trim();if(!key || !query)return;const previous=roomRecentSearches.get(key) || [];roomRecentSearches.delete(key);roomRecentSearches.set(key,[query,...previous.filter(value=>value!==query)].slice(0,5));this.recentQueries=roomRecentSearches.get(key);while(roomRecentSearches.size>40)roomRecentSearches.delete(roomRecentSearches.keys().next().value);}
+    renderRoomRecents(){const key=this.recentRoomKey(),queries=key?roomRecentSearches.get(key) || []:[];this.recentQueries=queries;this.results.replaceChildren();this.meta.hidden=true;this.coverage.hidden=true;this.panel.hidden=this.resultsDismissed || this.bar.hidden;this.input.setAttribute('aria-expanded',String(!this.panel.hidden));if(!queries.length)return;this.results.append(node('h3','room-recent-title','Recent searches'));for(const query of queries){const row=node('button','room-recent');row.type='button';row.setAttribute('aria-label','Search for '+query);row.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5v5h5M4 10a8 8 0 1 1 1 7M12 7v5l3 2"/></svg>';row.append(node('span','',query));row.addEventListener('click',()=>{this.tools?.queryState.clear();this.input.value=query;this.input.dispatchEvent(new Event('input',{bubbles:true}));this.input.focus({preventScroll:true});});this.results.append(row);}}
     updateLayout() {
       let compact=false;
       for(let current=this.container;current;current=current.parentElement || current.getRootNode()?.host) {
         if(current.id==='resizable'){compact=true;break;}
       }
-      const width=this.container.getBoundingClientRect().width;
+      const width=this.container.getBoundingClientRect().width;this.layoutWidth=width;
       if(this.kind==='messages' && width>0 && width<=440)compact=true;
       this.host.toggleAttribute('data-rcs-compact',compact);
       this.triggerHost?.toggleAttribute('data-rcs-compact',compact);this.headerActions?.sync();
@@ -408,7 +444,7 @@
       this.updateLayout();
       // Hydration can finish after document_idle; align the search bar once the
       // real header and virtual scroller arrive instead of leaving it above Chats.
-      const point=A.mountPoint(this.container,this.kind==='messages' ? A.selectors.header : 'rs-room-list-header');this.host.hidden=point.ready===false;
+      this.syncHeaderSearch();const point=A.mountPoint(this.container,this.kind==='messages' ? A.selectors.header : 'rs-room-list-header');if(this.hiddenHeader){point.before=this.hiddenHeader.header;point.ready=true;}this.host.hidden=point.ready===false;
       if(point.before!==this.host && (this.host.parentNode!==point.parent || this.host.nextSibling!==point.before)) point.parent.insertBefore(this.host,point.before);
       A.syncSearchLayer?.(this.container,this.host,this.kind==='messages'?A.selectors.header:'rs-room-list-header, rs-rooms-nav-filter');
       if (this.kind === 'list') {
@@ -438,12 +474,12 @@
       const dates=this.dates || {from:'',to:''},bounds=C.dateBounds(dates),searchKey=JSON.stringify([query,dates,this.queryOptions]);
       if(searchKey!==this.lastQuery){this.renderLimit=50;if(this.kind==='messages' && this.lastQuery!==undefined){this.results.scrollTop=0;this.imageViewport=null;this.active=-1;}this.lastQuery=searchKey;}
       const selected=this.hits[this.active] ? this.rowKey(this.hits[this.active]) : '';
-      if(this.dateToggle){this.dateToggle.classList.toggle('filtered',bounds.active);this.dateToggle.setAttribute('aria-pressed',String(bounds.active));this.dateChip.hidden=!bounds.active || this.kind==='list' && !this.isGlobal;this.dateChipLabel.textContent=this.datePicker.compactSummary();this.dateChip.title=this.dateLabel || '';this.dateChipLabel.setAttribute('aria-label',`Edit date filter: ${this.dateLabel || ''}`);this.dateChipLabel.setAttribute('aria-haspopup','dialog');this.dateChipLabel.setAttribute('aria-expanded',String(this.datePicker.open));if(this.appliedFilters && !this.tools)this.appliedFilters.hidden=!bounds.active || this.bar.hidden;}
+      if(this.dateToggle){this.dateToggle.classList.toggle('filtered',bounds.active);this.dateToggle.setAttribute('aria-pressed',String(bounds.active));this.dateChip.hidden=Boolean(this.tools?.filterRail) || !bounds.active || this.kind==='list' && !this.isGlobal;this.dateChipLabel.textContent=this.datePicker.compactSummary();this.dateChip.title=this.dateLabel || '';this.dateChipLabel.setAttribute('aria-label',`Edit date filter: ${this.dateLabel || ''}`);this.dateChipLabel.setAttribute('aria-haspopup','dialog');this.dateChipLabel.setAttribute('aria-expanded',String(this.datePicker.open));if(this.appliedFilters && !this.tools)this.appliedFilters.hidden=!bounds.active || this.bar.hidden;}
       if (this.kind === 'list') {
         const available = this.container.getBoundingClientRect().bottom - this.host.getBoundingClientRect().bottom;
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-room-results-height',`${available>0?Math.max(0,available):320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
-      if(this.kind==='messages' && !query && !bounds.active){this.hits=[];this.active=-1;this.panel.hidden=true;this.input.setAttribute('aria-expanded','false');if(this.count)this.count.textContent='';if(this.prev)this.prev.disabled=this.next.disabled=true;return;}
+      if(this.kind==='messages' && !query && !bounds.active){this.hits=[];this.active=-1;this.renderRoomRecents();if(this.count)this.count.textContent='';if(this.prev)this.prev.disabled=this.next.disabled=true;return;}if(this.meta)this.meta.hidden=false;
       this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
         const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
         if(this.queryOptions?.sort==='oldest')return -newest;
@@ -573,7 +609,7 @@
           else throw Error('Reddit chat is not connected yet. Please retry.');
           this.input.value = ''; this.render();this.dismiss();
         } catch(error) { this.status.textContent=error.message; }
-      } else { this.render(); this.jump(hit); }
+      } else {this.saveRoomRecent(); this.render(); this.jump(hit); }
     }
     async jump(hit) {
       const navigation=this.navigationGeneration=(this.navigationGeneration || 0)+1;
@@ -640,10 +676,10 @@
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.updateLoad();if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
-    destroy() { cancelAnimationFrame(this.scrollFrame);this.headerActions?.destroy();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;document.removeEventListener('keydown',this.shortcut,true);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
+    destroy() { this.restoreHeaderSearch();cancelAnimationFrame(this.scrollFrame);this.headerActions?.destroy();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;document.removeEventListener('keydown',this.shortcut,true);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
-    if(value.accountChanged)clearRetainedLists();
+    if(value.accountChanged){clearRetainedLists();roomRecentSearches.clear();}
     if(value.fromStorage || value.restored) {
       for(const record of value.records || [])directory.set(record.id,{...directory.get(record.id),...record});
       for(const control of controls.values())if(!control.panel.hidden)control.render();
