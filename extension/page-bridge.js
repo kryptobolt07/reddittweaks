@@ -76,13 +76,14 @@
     }
     throw problem('Reddit chat is still connecting. Try search again in a moment.');
   }
-  async function ready(job) {
+  async function ready(job,{navigation=false}={}) {
     for (let i=0;i<120;i++) {
       check(job); const current=context();
-      if (current.client?.http?.authedRequest && current.history?.navigate && current.client.getUserId?.() && current.client.isInitialSyncComplete?.()) {
-        // PREPARED can be emitted after the first IndexedDB cache page. Wait for
-        // all native cache pages so old chats don't depend on viewport hydration.
-        await current.client.syncApi?.savedSyncPromise;
+      if (typeof current.client?.http?.authedRequest==='function' && typeof current.history?.navigate==='function' && current.client.getUserId?.() && (navigation || current.client.isInitialSyncComplete?.())) {
+        // Directory/history reads need all native cache pages. Native navigation
+        // can initialize its own target once the authenticated router exists;
+        // waiting for unrelated startup sync/cache pages blocks saved results.
+        if(!navigation)await current.client.syncApi?.savedSyncPromise;
         check(job);return current;
       }
       await delay(250);
@@ -856,6 +857,13 @@
     for(const record of records)knownConversations.set(record.id,record);
     return records;
   }
+  function nativeEventLoaded(ctx,roomId,eventId) {
+    const room=ctx.client.getRoom?.(roomId);
+    // Persistent search/history caches cannot establish that Reddit can already
+    // render this event. Only skip its loader for an event in the native model.
+    try {return Boolean(room?.findEventById?.(eventId) || room?.getUnfilteredTimelineSet?.()?.findEventById?.(eventId));}
+    catch {return false;}
+  }
   async function prepareNavigation(ctx,job,roomId) {
     if(ctx.client.getRoom?.(roomId))return;
     const record=knownConversations.get(roomId);
@@ -1048,7 +1056,7 @@
         }
         emit(request,{result:{owner}});return;
       }
-      const ctx=await ready(job);const owner=ctx.client.getUserId();let result;
+      const ctx=await ready(job,{navigation:['open','jump'].includes(request.method)});const owner=ctx.client.getUserId();let result;
       job.ctx=ctx;job.owner=owner;
       if(knownOwner!==owner){knownConversations.clear();knownRoomStates.clear();histories.clear();knownOwner=owner;}
       watchDirectory(ctx);
@@ -1064,15 +1072,17 @@
         job.stage='navigation';
         await prepareNavigation(ctx,job,request.roomId);
         if(request.method==='jump' && typeof ctx.client.fetchRoomEvent==='function' &&
-          (typeof ctx.client.getRoom!=='function' || ctx.client.getRoom(request.roomId))) {
+          (typeof ctx.client.getRoom!=='function' || ctx.client.getRoom(request.roomId)) &&
+          !nativeEventLoaded(ctx,request.roomId,request.eventId)) {
           // Reddit's exact-event loader hydrates the native timeline around the
           // selected event. Route changes alone can resolve before that load
           // fails, leaving the search UI reporting a jump that never happened.
           job.stage='selected message';
           emit(request,{progress:{label:'Opening message…'}});
-          await ctx.client.fetchRoomEvent(request.roomId,request.eventId);
+          await retryRead(()=>ctx.client.fetchRoomEvent(request.roomId,request.eventId),job);
           check(job);
         }
+        check(job);
         const route=`/room/${encodeURIComponent(request.roomId)}${request.method==='jump' ? `/event/${encodeURIComponent(request.eventId)}${request.thread ? '/thread' : ''}` : ''}`;
         await ctx.history.navigate(route);result={route};
       }
