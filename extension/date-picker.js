@@ -42,7 +42,7 @@
     // Only verified:true permits min/max limits; chat mode always excludes future days.
     availability(){const supplied=this.getAvailability?.()||{},min=supplied.verified===true&&parse(supplied.min)?supplied.min:'',suppliedMax=supplied.verified===true&&parse(supplied.max)?supplied.max:'';return {min,max:this.chatMode?(suppliedMax&&suppliedMax<this.today()?suppliedMax:this.today()):suppliedMax,days:new Set(Array.from(supplied.days||[]).filter(value=>parse(value)))};}
     selectable(value,availability=this.availability()){return Boolean(parse(value)&&(!availability.min||value>=availability.min)&&(!availability.max||value<=availability.max));}
-    instruction(){const {mode,start,end}=this.draft;if(mode==='Between')return !start?'Choose a start date':!end?'Now choose an end date':'Range ready · Apply to search';return !start?`Choose a date · ${mode.toLowerCase()}`:'Date ready · Apply to search';}
+    instruction(){const {mode,start,end}=this.draft,short=value=>parse(value)?.toLocaleDateString(undefined,{month:'short',day:'numeric'}) || '';if(mode==='Between')return !start?'Choose a start date':!end?`${short(start)} → select end`:`${short(start)} → ${short(end)}`;return !start?`Choose a date · ${mode.toLowerCase()}`:`${mode} ${short(start)}`;}
     visibleRanges(){const today=this.today();return [{label:'Today',start:today,end:today},{label:'Yesterday',start:shift(today,-1),end:shift(today,-1)},{label:'Last 7 days',start:shift(today,-6),end:today},{label:'Last 30 days',start:shift(today,-29),end:today}];}
     presets(){const choices=make('div','calendar-presets calendar-visible-presets');choices.setAttribute('role','group');choices.setAttribute('aria-label','Quick date ranges');for(const range of this.visibleRanges()){const button=make('button','calendar-preset',range.label);button.type='button';button.dataset.preset=range.label;button.disabled=!this.selectable(range.start)||!this.selectable(range.end);button.setAttribute('aria-pressed',String(this.draft.start===range.start&&(this.draft.mode==='On'?range.start===range.end:this.draft.mode==='Between'&&this.draft.end===range.end)));button.addEventListener('click',()=>this.chooseRange(range));choices.append(button);}return choices;}
     quickRanges(){
@@ -154,7 +154,7 @@
       (grid.querySelector('.selected:not(:disabled)')||grid.querySelector('.today:not(:disabled)')||grid.querySelector('[data-date]:not(:disabled)'))?.setAttribute('tabindex','0');
       while(grid.children.length%7)grid.append(make('span','calendar-blank'));
       const summary=make('div','calendar-summary',this.summary());summary.setAttribute('aria-live','polite');
-      if(this.chatMode){const instruction=make('div','calendar-instruction',this.instruction());instruction.setAttribute('aria-live','polite');instruction.setAttribute('aria-atomic','true');root.append(modesBar,this.presets(),nav,instruction,week,grid,summary,this.actions());}else root.append(modesBar,nav,week,grid,summary,this.actions());this.queuePosition();
+      if(this.chatMode){const instruction=make('div','calendar-instruction',this.instruction());instruction.setAttribute('aria-live','polite');instruction.setAttribute('aria-atomic','true');root.append(modesBar,this.presets(),nav,instruction,week,grid,this.actions());}else root.append(modesBar,nav,week,grid,summary,this.actions());this.queuePosition();
     }
   }
   DatePicker.styles=`
