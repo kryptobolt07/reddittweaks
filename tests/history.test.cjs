@@ -73,7 +73,7 @@ test('message matches appear while later pages are still blocked, with compact s
   const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');
   input.value='meet';input.dispatchEvent(new W.Event('input'));await tick(170);
   assert.equal(typeof release,'function');assert.equal(root.querySelectorAll('.result').length,1);
-  assert.equal(root.querySelector('.result .avatar'),null);assert.ok(root.querySelector('.result .name').textContent);assert.ok(root.querySelector('.result mark'));
+  assert.ok(root.querySelector('.result .avatar'));assert.ok(root.querySelector('.result .name').textContent);assert.ok(root.querySelector('.result mark'));
   assert.match(root.querySelector('[role="status"]').textContent,/1 result.*Searching/);
   assert.equal(root.querySelector('.panel .load').textContent,'Stop');
   root.querySelector('.panel .load').click();await tick(80);
@@ -246,7 +246,7 @@ test('late saved identities update open completed search results without downloa
   W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button').click();const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await tick(170);
   assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'),'room rows expose unresolved sender without guessing from conversation title');const reads=api.calls.filter(c=>c.path==='/rooms/alex/events').length;
   await W.RCSData.request('prime-directory',{owner:client.getUserId(),records:[],identities:[{id:'@t2_alex:reddit.com',name:'alex_morgan',avatar:'https://example.com/late.png',availabilityKnown:true}]}).promise;
-  assert.equal([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'),false);assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'));assert.equal(root.querySelector('.avatar'),null);
+  assert.equal([...root.querySelectorAll('.name')].some(n=>n.textContent==='Sender unavailable'),false);assert.ok([...root.querySelectorAll('.name')].some(n=>n.textContent==='alex_morgan'));assert.ok([...root.querySelectorAll('.avatar img')].some(image=>image.getAttribute('src')==='https://example.com/late.png'));
   await tick(50);assert.equal(api.calls.filter(c=>c.path==='/rooms/alex/events').length,reads);
 });
 test('unbound grouped native rows do not create unknown duplicate results while cached events are searched',async t=>{
