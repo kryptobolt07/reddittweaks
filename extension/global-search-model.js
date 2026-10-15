@@ -58,22 +58,46 @@
     }
   }
   const timestamp = record => typeof record?.timestamp==='number'?record.timestamp:Date.parse(record?.timestamp || '') || 0;
-  const direct = record => ['direct','reddit_titled_direct'].includes(record.type);
+  const direct = record => ['direct','reddit_titled_direct'].includes(record.type)
+    || (!record.type || record.type==='request') && (record.participantIds?.length || record.participants?.length || 0)<=1;
   const request = record => record.membership==='invite' || /request|invite|pending/i.test(record.status || '') || record.type==='request';
-  function roomAllowed(record,filter){
+  const unread = record => record.unread===true || record.isUnread===true || Number(record.unreadCount)>0;
+  function legacyRoomAllowed(record,filter){
     if(typeof filter==='function')return filter(record);
-    return !filter || filter==='all' || filter==='unread' && (record.unread===true || record.isUnread===true || Number(record.unreadCount)>0)
-      || filter==='groups' && !direct(record) && !request(record) || filter==='requests' && request(record)
-      || filter==='direct' && direct(record) && !request(record) || filter==='unavailable' && record.accountUnavailable;
+    const nativeDirect=['direct','reddit_titled_direct'].includes(record.type);
+    return !filter || filter==='all' || filter==='unread' && unread(record)
+      || filter==='groups' && !nativeDirect && !request(record) || filter==='requests' && request(record)
+      || filter==='direct' && nativeDirect && !request(record) || filter==='unavailable' && record.accountUnavailable;
   }
-  function matchPeople(records,draft='',{filter='all',sort='newest',wholeWord=false}={}){
+  function roomAllowed(record,{chatType='all',status='all'}={}){
+    return (chatType==='all' || chatType==='direct' && direct(record) || chatType==='groups' && !direct(record))
+      && (status==='all' || status==='unread' && unread(record) || status==='requests' && request(record) || status==='unavailable' && Boolean(record.accountUnavailable));
+  }
+  const recordList = records => records && typeof records.values==='function' && !Array.isArray(records)?[...records.values()]:[...records || []];
+  function peoplePredicate(draft,{wholeWord=false}={}){
     const parsed=core().parseQuery(draft);
     // These operators describe messages; People and All use the same name query.
-    if(parsed.invalid || parsed.from.length || parsed.after.length || parsed.before.length || mediaTypes.some(type=>parsed['has'+type[0].toUpperCase()+type.slice(1)]))return [];
+    if(parsed.invalid || parsed.from.length || parsed.after.length || parsed.before.length || mediaTypes.some(type=>parsed['has'+type[0].toUpperCase()+type.slice(1)]))return ()=>false;
     const predicate=core().prepareQuery(parsed,{wholeWord,shortTermsWholeWord:false});
-    const list=records && typeof records.values==='function' && !Array.isArray(records)?[...records.values()]:[...records];
-    return list.filter(record=>roomAllowed(record,filter) && predicate({text:[record.name,...record.participants || [],...record.aliases || [],...(record.accountUnavailable?['deleted unavailable retained username']:[])].join(' ')}))
-      .sort(typeof sort==='function'?sort:(a,b)=>sort==='oldest'?timestamp(a)-timestamp(b):timestamp(b)-timestamp(a));
+    return record=>predicate({text:[record.name,...record.participants || [],...record.aliases || [],...(record.accountUnavailable?['deleted unavailable retained username']:[])].join(' ')});
   }
-  globalThis.RCSGlobalSearchModel=Object.freeze({QueryState,matchPeople,mediaTypes});
+  function chatFilterCounts(records,draft='',{chatType='all',status='all',wholeWord=false}={}){
+    const counts={types:{all:0,direct:0,groups:0},statuses:{all:0,unread:0,requests:0,unavailable:0}};
+    const matches=peoplePredicate(draft,{wholeWord});
+    for(const record of recordList(records)){
+      if(!matches(record))continue;
+      for(const type of Object.keys(counts.types))if(roomAllowed(record,{chatType:type,status}))counts.types[type]++;
+      for(const state of Object.keys(counts.statuses))if(roomAllowed(record,{chatType,status:state}))counts.statuses[state]++;
+    }
+    return counts;
+  }
+  function matchPeople(records,draft='',{filter='all',chatType='all',status='all',sort='newest',wholeWord=false}={}){
+    const matches=peoplePredicate(draft,{wholeWord});
+    const newest=(a,b)=>timestamp(b)-timestamp(a);
+    const compare=typeof sort==='function'?sort:sort==='oldest'?(a,b)=>timestamp(a)-timestamp(b)
+      :sort==='alphabetical'?(a,b)=>String(a.name || '').localeCompare(String(b.name || ''),undefined,{sensitivity:'base'}) || newest(a,b)
+      :sort==='unread'?(a,b)=>Number(unread(b))-Number(unread(a)) || newest(a,b):newest;
+    return recordList(records).filter(record=>legacyRoomAllowed(record,filter) && roomAllowed(record,{chatType,status}) && matches(record)).sort(compare);
+  }
+  globalThis.RCSGlobalSearchModel=Object.freeze({QueryState,matchPeople,roomAllowed,chatFilterCounts,mediaTypes});
 })();
