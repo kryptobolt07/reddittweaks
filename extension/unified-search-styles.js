@@ -381,4 +381,28 @@
   globalThis.RCSUnifiedStyles+=globalThis.RCSRefreshStyles+globalThis.RCSLoadingStyles;
   globalThis.RCSUnifiedStyles+=rail;
   globalThis.RCSUnifiedToolStyles+=rail;
+  // Apply the same control geometry after each host's layout rules. In
+  // particular, room .icon rules must not shrink its filter/date glyphs.
+  const searchSizing=`
+    :host([data-rcs-ui]) .bar.unified-search { padding-inline:8px; }
+    :host([data-rcs-ui]) .field { height:clamp(28px,calc(var(--rcs-native-header-height,52px) - 12px),40px);padding:0 10px;gap:8px;border-radius:22px;font:var(--rcs-row-title-font,var(--font-12,12px/1.5 var(--font-sans,Arial,sans-serif))); }
+    :host([data-rcs-ui]) .field input { flex:1;min-width:0;width:0;height:100%;max-height:100%;padding:0;margin:0;font:inherit; }
+    :host([data-rcs-ui]) .field .search-controls { min-height:0; }
+    :host([data-rcs-ui]) .field :is(.icon,.icon-button) { width:24px;height:24px; }
+    :host([data-rcs-ui]) .field :is(.icon,.icon-button) svg { width:14px;height:14px; }
+    :host([data-rcs-ui]) .field :is(.search-icon,[aria-label="Search"]) { width:24px;height:28px; }
+    :host([data-rcs-ui]) .field :is(.search-icon,[aria-label="Search"]) svg { width:18px;height:18px; }
+    :host([data-rcs-ui]) .field :is(.filter-icon,.date-icon,.room-filter-toggle,.room-date-toggle) { display:inline-flex;align-items:center;justify-content:center;flex:0 0 26px;width:26px;height:26px;min-height:26px;padding:0;font:inherit; }
+    :host([data-rcs-ui]) .field :is(.filter-icon,.date-icon,.room-filter-toggle,.room-date-toggle) svg { width:16px;height:16px; }
+    :host([data-rcs-ui]) .menu-popover { width:min(260px,calc(100% - 16px));max-height:min(520px,75vh);padding:6px;font:var(--rcs-row-title-font,var(--font-12,12px/1.5 var(--font-sans,Arial,sans-serif))); }
+    .room-menu-choice { display:flex;align-items:center;gap:8px; }
+    .room-menu-choice>svg,.room-menu-choice>.avatar { width:22px;height:22px;flex:0 0 22px; }
+    .room-menu-choice>span { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis; }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters) > .sender-chip { min-height:25px;padding:2px 4px 2px 8px;font-size:var(--rcs-row-time-size,10px);line-height:1.35; }
+    :host([data-rcs-ui]) .sender-chip-avatar { flex:0 0 17px;width:17px;height:17px; }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters) .sender-chip > button { flex:0 0 18px;width:18px;height:18px; }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters) .sender-chip > button svg { width:11px;height:11px; }
+  `;
+  globalThis.RCSUnifiedStyles+=searchSizing;
+  globalThis.RCSUnifiedToolStyles+=searchSizing;
 })();

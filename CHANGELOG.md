@@ -1,3 +1,15 @@
+# 0.12.5 design test
+
+- Keep individual chat result lists bounded to the visible region, with cached measurements and reusable avatars. Scrolling no longer grows and rebuilds an increasingly large list. Incoming result updates wait until scrolling settles; new messages above the viewport preserve the visible message.
+- Load additional global saved-result pages quietly, without restarting the main refresh animation or replacing existing rows. Keep the match count visible during unrelated conversation checks and reduce per-frame list scanning and day-header rebuilding.
+- Keep the loading placeholder visible while individual search checks saved messages and native history, including searches started through sender/date filters, so a temporary empty read does not flash “no results.”
+
+- Share control sizing between global and individual search: native-header-based field height, input padding and type, filter/date glyphs, menu widths, option rows and sender tags.
+
+Version choice: PATCH to 0.12.5 for scrolling performance and loading reliability fixes. No storage schema change. The cosmetic sizing amendment retains this version.
+
+Validation: all 417 automated tests passed, including large synthetic lists, scroll anchoring, pagination, delayed reads, keyboard navigation, and native identity updates. JavaScript syntax and archive integrity/source-to-stable-folder equality verified. Synthetic headless Chrome verifies matching field, icon, input, menu and option-row geometry at 320/420/820 px panel widths and 40/52/64 px native header heights. Live Reddit/Brave performance was not measured; saved-history coverage remains incomplete.
+
 # 0.12.4 design test
 
 - Put a Custom date choice first in before/after suggestions and open the app calendar in that operator mode. Applying a day keeps its full before/after date expression in the search. Match secondary menu row spacing and text sizing to the primary menu.
