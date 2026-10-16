@@ -743,6 +743,17 @@ test('scroll events coalesce into one passive-frame update while a saved query i
   await release();await pending;assert.equal(c.results.scrollTop,1190);
 });
 
+test('global pagination appends quietly without changing the refresh indicator or current viewport',async t=>{
+  const p=await setup(t,{scope:'messages',large:true}),c=p.control;await p.search('coffee');
+  assert.ok(c.hasMore);const original=p.w.RCSMessages.search;let release;
+  p.w.RCSMessages.search=parameters=>new Promise(resolve=>{release=async()=>resolve(await original(parameters));});
+  c.results.scrollTop=c.totalHeight-400;c.renderWindow();const top=c.results.scrollTop,count=c.savedHits.length,status=c.status.textContent;
+  const pending=c.searchSaved(true);assert.equal(c.refresh.classList.contains('busy'),false);assert.equal(c.status.textContent,status);assert.equal(c.shadow.querySelector('.skeleton-list'),null);
+  assert.match(c.shadow.querySelector('.load-more').textContent,/Loading more/);await release();await pending;
+  assert.ok(c.savedHits.length>count);assert.equal(c.results.scrollTop,top);assert.ok(c.shadow.querySelectorAll('.message-result').length<25);
+  c.loading=true;c.updateControls();assert.doesNotMatch(c.status.textContent,/Checking saved conversations/);assert.equal(c.refresh.classList.contains('busy'),false);
+});
+
 
 test('filter rows show exact cached counts, selected checks and separate chat type/status with instant Reset',async t=>{
   const p=await setup(t,{scope:'people'}),c=p.control;await p.search('alex');
