@@ -15,6 +15,29 @@ function setup(t){
   const search=async query=>{trigger.click();input.value=query;input.dispatchEvent(new w.Event('input'));await wait(170);};
   return {w,api,root,input,trigger,calls,key,search};
 }
+test('large room results keep a bounded window and scrolling never rereads storage or starts history',async t=>{
+  const p=setup(t);let reads=0;
+  const records=Array.from({length:600},(_,i)=>({id:'scroll-'+i,text:'scroll result '+i,author:'alex_morgan',timestamp:new Date(1791432000000+i*60000).toISOString()}));
+  p.w.RCSMessages={room:async()=>{reads++;return {records};}};
+  await p.search('scroll');const results=p.root.querySelector('.results'),calls=p.calls.length,initialReads=reads;
+  assert.ok(p.root.querySelectorAll('.result').length<25);assert.ok(p.root.querySelectorAll('.room-spacer').length===2);
+  const first=p.root.querySelector('.result');
+  for(let i=0;i<20;i++){results.scrollTop=18000+i*10;results.dispatchEvent(new p.w.Event('scroll'));}
+  await wait(40);assert.ok(p.root.querySelectorAll('.result').length<25);assert.notEqual(p.root.querySelector('.result'),first);assert.equal(p.calls.length,calls);assert.equal(reads,initialReads);assert.equal(results.scrollTop,18190);
+  const anchor=p.root.querySelector('.result');
+  p.w.document.dispatchEvent(new p.w.CustomEvent('rcs-history-changed',{detail:JSON.stringify({roomId:'alex',identityOnly:true,complete:false,records:[{id:'new-top',text:'scroll newly arrived result',author:'alex_morgan',timestamp:new Date(1791432000000+600*60000).toISOString()}]})}));
+  await wait(40);assert.equal(results.scrollTop,18190,'data updates wait while scrolling is active');
+  await wait(280);assert.equal(p.root.querySelector('.result'),anchor,'new messages above preserve the visible content');assert.ok(results.scrollTop>18190);
+  p.key('ArrowUp');const active=p.root.querySelector('.result.active');assert.ok(active);assert.match(active.textContent,/scroll result 0/);p.key('Enter');assert.equal(p.calls.at(-1).eventId,'scroll-0');
+});
+test('room search keeps its loading placeholder until saved data and history settle',async t=>{
+  const p=setup(t);let resolveSaved,resolveHistory;
+  p.w.RCSMessages={room:()=>new Promise(resolve=>{resolveSaved=resolve;})};
+  p.w.RCSData.request=(method,args)=>({promise:new Promise(resolve=>{if(method==='history')resolveHistory=resolve;}),cancel(){}});
+  await p.search('you deferred');assert.ok(p.root.querySelector('.skeleton-list'));assert.equal(p.root.querySelector('.empty'),null);
+  resolveSaved({records:[]});await wait(20);assert.ok(resolveHistory);assert.ok(p.root.querySelector('.skeleton-list'));assert.equal(p.root.querySelector('.empty'),null);
+  resolveHistory([{id:'later-you',author:'alex_morgan',text:'you deferred can find this',timestamp:'2026-10-14T10:00:00Z'}]);await wait(20);assert.equal(p.root.querySelector('.skeleton-list'),null);assert.match(p.root.querySelector('.result').textContent,/you deferred can find this/);
+});
 test('room list has one result status, sender avatars/names, no redundant jump controls, and immediate local navigation during blocked history',async t=>{
   const p=setup(t);await p.search('coffee');
   assert.equal(p.root.querySelectorAll('.result').length,2);assert.equal(p.root.querySelectorAll('.result .avatar').length,2);assert.equal(p.root.querySelector('.result .name').textContent,'You');assert.equal(p.root.querySelector('.preview .you-prefix'),null);assert.deepEqual([...p.root.querySelectorAll('.result .avatar img')].map(image=>image.getAttribute('src')),['https://example.invalid/self.png','https://example.invalid/other.png']);
