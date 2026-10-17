@@ -317,7 +317,9 @@
   async function importNativeHistory(ctx,job) {
     // Read the verified native schema directly. Reddit's high-level loader
     // races network; its degradable store wrapper can clear DB on failure.
-    await ctx.client.syncApi?.savedSyncPromise;check(job);
+    // An open native database already supports a consistent readonly snapshot.
+    // Its startup/network sync may remain pending; it must not gate cache reads.
+    check(job);
     const db=ctx.client.store?.backend?.db;
     if(db?.name!=='reddit-chat-store' || !db.objectStoreNames?.contains('room_timeline'))return {available:false,retryable:true,imported:0};
     let lastKey,imported=0,scanned=0,malformed=false;
@@ -330,11 +332,12 @@
       guard();
       const chunk=await new Promise((resolve,reject)=>{
         let transaction;const rows=[];let key,finished=false;
+        const timeout=setTimeout(()=>{try{transaction?.abort();}catch{}reject(problem('Reading Reddit’s local cache timed out. Saved messages remain available.'));},10000);
         try {
           transaction=db.transaction('room_timeline','readonly');
           const store=transaction.objectStore('room_timeline');
           if(JSON.stringify(store.keyPath)!==JSON.stringify(['room_id','scope','parent_id','seq_id'])){
-            transaction.abort();resolve({unavailable:true});return;
+            clearTimeout(timeout);transaction.abort();resolve({unavailable:true});return;
           }
           const request=store.openCursor(lastKey===undefined ? undefined : IDBKeyRange.lowerBound(lastKey,true));
           request.onsuccess=()=>{
@@ -345,11 +348,11 @@
               if(rows.length<200)cursor.continue();
             }catch(error){reject(error);transaction.abort();}
           };
-          request.onerror=()=>reject(request.error);
-          transaction.oncomplete=()=>resolve({rows,key,finished});
-          transaction.onerror=()=>reject(transaction.error || problem('Reddit’s local cache could not be read.'));
-          transaction.onabort=()=>reject(transaction.error || problem('Reddit’s local cache read was interrupted.'));
-        }catch(error){reject(error);}
+          request.onerror=()=>{clearTimeout(timeout);reject(request.error);};
+          transaction.oncomplete=()=>{clearTimeout(timeout);resolve({rows,key,finished});};
+          transaction.onerror=()=>{clearTimeout(timeout);reject(transaction.error || problem('Reddit’s local cache could not be read.'));};
+          transaction.onabort=()=>{clearTimeout(timeout);reject(transaction.error || problem('Reddit’s local cache read was interrupted.'));};
+        }catch(error){clearTimeout(timeout);reject(error);}
       });
       guard();if(chunk.unavailable)return {available:false,imported};
       const rooms=new Map();

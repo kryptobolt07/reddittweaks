@@ -73,6 +73,18 @@ test('real global interface searches captured messages and receives redactions w
   env.emit(event('$remove','',{type:'m.room.redaction',redacts:'$visible'}));await env.W.RCSMessages.flush();await until(()=>root.querySelectorAll('.message-result').length===0);
   assert.equal(root.querySelectorAll('.message-result').length,0);assert.equal(env.api.calls.length,0);
 });
+test('global results stay usable during a blocked cache reconciliation despite unfinished Reddit startup sync',async t=>{
+  const broker=worker(t),owner='@t2_me:reddit.com',sender={id:'test-extension',url:'https://www.reddit.com/chat/',tab:{id:1}};
+  await broker.send({scope:'rcs-messages',action:'ingest',owner,roomId:'alex',events:[event('$old','already saved coffee')]},sender);
+  const factory=new IDBFactory(),db=await new Promise((resolve,reject)=>{const open=factory.open('reddit-chat-store',1);open.onupgradeneeded=()=>open.result.createObjectStore('room_timeline',{keyPath:['room_id','scope','parent_id','seq_id']});open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});t.after(()=>db.close());
+  await new Promise(resolve=>{const tx=db.transaction('room_timeline','readwrite');tx.objectStore('room_timeline').put({room_id:'alex',scope:'',parent_id:'',seq_id:1,content:event('$new','newly cached coffee')});tx.oncomplete=resolve;});
+  let release;const gate=new Promise(resolve=>release=resolve),send=broker.send;t.after(()=>release());broker.send=(message,...args)=>message.action==='ingest'?gate.then(()=>send(message,...args)):send(message,...args);
+  const env=page(t,broker,1,owner,(client,W)=>{client.getRooms=()=>[];client.store={backend:{db}};client.syncApi={...client.syncApi,savedSyncPromise:new Promise(()=>{})};W.IDBKeyRange=IDBKeyRange;});
+  for(const file of ['extension/adapter.js','extension/date-picker.js','extension/global-search-model.js','extension/media-preview.js','extension/unified-search-styles.js','extension/unified-search.js','extension/content.js'])env.W.eval(source(file));
+  const root=env.W.RCSAdapter.query('[data-rcs-ui="list"]',env.api.nav).shadowRoot;root.querySelector('[data-scope="messages"]').click();
+  await until(()=>root.querySelectorAll('.message-result').length===1);assert.match(root.querySelector('.snippet').textContent,/already saved coffee/);assert.equal(root.querySelector('.skeleton-list'),null);assert.match(root.querySelector('.status').textContent,/Checking cache/);
+  release();await env.W.RCSMessages.ready();await until(()=>root.querySelectorAll('.message-result').length===2);assert.equal(root.querySelector('.skeleton-list'),null);assert.equal(env.api.calls.length,0);
+});
 test('large native cache reconciles in durable chunks and is read again without duplicate rewrites on reload',async t=>{
   const broker=worker(t),send=broker.send;
   broker.send=async(message,sender)=>{if(message.action==='ingest')await wait(2);return send(message,sender);};

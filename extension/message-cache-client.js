@@ -2,6 +2,7 @@
 (() => {
   const subscribers=new Set(),initializations=new Map(),preparing=new Set(),imports=new Map(),importRequests=new Map(),attachments=new Map(),clearedAccounts=new Set(),captureGaps=new Set(),pending=[];
   const dimensionPatches=new Map();let dimensionTimer=null,dimensionsRunning=false;
+  const cacheErrors=new Map(),cacheProgress=new Map();
   const MAX_BATCHES=500,MAX_EVENTS=10000,MAX_BYTES=8*1024*1024;
   let contextError=null;
   let owner=null,selfIdentity=null,nativeSelfIdentity=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
@@ -27,7 +28,11 @@
   }
   async function call(action,parameters={}) {
     if(contextError)throw contextError;
-    if(runtime?.sendMessage)try{const value=await runtime.sendMessage({scope:'rcs-messages',...parameters,action});if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;}catch(error){throw transportError(error);}
+    if(runtime?.sendMessage){let timer;const reading=['search','room','stats','summaries'].includes(action);
+      try{const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(reading?'Reading saved messages took too long. Saved data is kept; try Refresh.':'Saving messages took too long. Saved data is kept; try Refresh.')),reading?15000:30000);});
+        const value=await Promise.race([runtime.sendMessage({scope:'rcs-messages',...parameters,action}),timeout]);if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;
+      }catch(error){throw transportError(error);}finally{clearTimeout(timer);}
+    }
     if(action==='ingest')return memory.ingest(parameters);
     if(action==='image-dimensions')return memory.rememberDimensions(parameters);
     if(action==='summaries')return memory.summaries(parameters.owner,{committed:true});
@@ -68,7 +73,7 @@
     if(message.cleared){
       const accounts=message.owner?[message.owner]:new Set([owner,...initializations.keys(),...imports.keys(),...importRequests.keys(),...clearedAccounts,...pending.map(item=>item.batch.owner)]);
       discard(message.owner);
-      for(const account of accounts)if(account){initializations.delete(account);preparing.delete(account);captureGaps.delete(account);clearedAccounts.add(account);importRequests.get(account)?.cancel?.();imports.set(account,{available:false,cleared:true});}
+      for(const account of accounts)if(account){initializations.delete(account);preparing.delete(account);cacheErrors.delete(account);cacheProgress.delete(account);captureGaps.delete(account);clearedAccounts.add(account);importRequests.get(account)?.cancel?.();imports.set(account,{available:false,cleared:true});}
       if(affectsActive){selfIdentity=null;nativeSelfIdentity=null;readRevision++;writeError=null;overflowError=null;document.dispatchEvent(new CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:message.owner || owner})}));}
     }
     if(affectsActive)notify({owner,changed:true,cleared:message.cleared,roomIds:message.roomIds});
@@ -88,16 +93,22 @@
   });
   async function ensureReady(active) {
     if(!initializations.has(active)){
-      preparing.add(active);
-      const current=()=>initializations.get(active)===task && owner===active && !clearedAccounts.has(active);
-      const task=(async()=>{await flush();
+      preparing.add(active);cacheErrors.delete(active);cacheProgress.delete(active);
+      let timer,expired=false;
+      const current=()=>!expired && initializations.get(active)===task && owner===active && !clearedAccounts.has(active);
+      let rejectStalled;
+      const stalled=new Promise((_,reject)=>{rejectStalled=reject;});
+      const touch=()=>{clearTimeout(timer);timer=setTimeout(()=>{expired=true;const error=Error('Reddit’s local cache check stopped responding. Saved messages remain available; try Refresh.');rejectStalled(error);if(initializations.get(active)===task)importRequests.get(active)?.cancel?.();},45000);};
+      touch();
+      const work=(async()=>{await flush();
         // Completion records a successful past read, not future freshness.
         // Reconcile local cached events once for each new page attachment.
-        if(!memory && current()){if(!imports.has(active)){let request;try{request=RCSData.request('cache-native-history',{owner:active,awaitCache:true});importRequests.set(active,request);const result=await request.promise;if(current())imports.set(active,result);}catch(error){if(current()){imports.set(active,{available:false});notify({owner:active,error:error.message});}}finally{if(importRequests.get(active)===request)importRequests.delete(active);}}
+        if(!memory && current()){if(!imports.has(active)){let request;try{request=RCSData.request('cache-native-history',{owner:active,awaitCache:true},progress=>{if(!current())return;touch();const value={loaded:Number(progress.loaded) || 0,scanned:Number(progress.scanned) || 0};cacheProgress.set(active,value);notify({owner:active,statusOnly:true,importing:true,cacheProgress:value});});importRequests.set(active,request);const result=await request.promise;if(current()){imports.set(active,result);if(result.available===false)cacheErrors.set(active,result.retryable?'Reddit’s local cache is not ready. Saved messages remain available.':'Some of Reddit’s local cache could not be checked. Saved messages remain available.');}}catch(error){if(current()){imports.set(active,{available:false});cacheErrors.set(active,error.message);}}finally{if(importRequests.get(active)===request)importRequests.delete(active);}}
           await flush();if(current() && !captureGaps.has(active) && imports.get(active)?.available===true){if(await context()!==active)throw Error('Reddit account changed. Please retry.');if(current())await call('mark-native-import-complete',{owner:active});}}
         return {owner:active};
-      })();initializations.set(active,task);notify({owner:active,statusOnly:true,importing:true});
-      task.then(()=>{if(initializations.get(active)===task){preparing.delete(active);notify({owner:active,changed:true,importing:false});}},()=>{if(initializations.get(active)===task){preparing.delete(active);initializations.delete(active);notify({owner:active,statusOnly:true,importing:false});}});
+      })();
+      const task=Promise.race([work,stalled]).finally(()=>clearTimeout(timer));initializations.set(active,task);notify({owner:active,statusOnly:true,importing:true,cacheError:''});
+      task.then(()=>{if(initializations.get(active)===task){preparing.delete(active);notify({owner:active,changed:true,importing:false,cacheProgress:null,cacheError:cacheErrors.get(active) || ''});}},error=>{if(initializations.get(active)===task){preparing.delete(active);cacheErrors.set(active,error.message);notify({owner:active,statusOnly:true,importing:false,cacheProgress:null,cacheError:error.message});}});
     }
     return initializations.get(active);
   }
@@ -118,15 +129,16 @@
   async function read(action,parameters={},waitForImport=false) {
     const active=await context(),revision=readRevision;
     if(parameters.retryWrites && pending.length && !draining)schedule();
+    if((parameters.retryWrites || waitForImport) && cacheErrors.has(active)){importRequests.get(active)?.cancel?.();initializations.delete(active);if(parameters.retryWrites || imports.get(active)?.available!==true)imports.delete(active);cacheErrors.delete(active);cacheProgress.delete(active);}
     const initialization=waitForImport || !writeError && !overflowError?ensureReady(active):null;
     // Interactive reads never drain captures. Only ready()/flush() and native
     // producer acknowledgements establish that pending messages are saved.
-    if(waitForImport){await initialization;await flush();}else initialization?.catch(error=>notify({owner:active,error:error.message}));
+    if(waitForImport){await initialization;await flush();}else initialization?.catch(()=>{});
     const {retryWrites,...options}=parameters,result=await call(action,{...options,owner:active});
     if(await context()!==active)throw Error('Reddit account changed. Please retry.');
     if(revision!==readRevision)throw Error('Saved messages changed. Please retry.');
     if(result.selfIdentity?.id===active)selfIdentity={...result.selfIdentity,...nativeSelfIdentity,avatar:nativeSelfIdentity?.avatar || result.selfIdentity.avatar || selfIdentity?.avatar || ''};
-    return {...result,importing:preparing.has(active),savingPending:pending.length>0,savingError:writeError?.message || '',captureIncomplete:captureGaps.has(active)};
+    return {...result,importing:preparing.has(active),cacheProgress:preparing.has(active)?cacheProgress.get(active):null,cacheError:cacheErrors.get(active) || '',savingPending:pending.length>0,savingError:writeError?.message || '',captureIncomplete:captureGaps.has(active)};
   }
   async function saveDimensionPatches(){
     dimensionTimer=null;if(dimensionsRunning || !dimensionPatches.size)return;dimensionsRunning=true;
