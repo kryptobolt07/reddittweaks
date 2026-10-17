@@ -612,9 +612,9 @@ test('refresh shows local query activity and import progress without extra direc
   assert.equal(c.refresh.getAttribute('aria-busy'),'true');assert.equal(c.refresh.disabled,true);assert.match(c.refresh.title,/Searching saved/);
   p.pending.shift()();await settle();const searches=p.searches.length,requests=p.requests.length;
   p.emit({owner:c.owner,statusOnly:true,importing:true});
-  assert.equal(c.refresh.classList.contains('busy'),true);assert.match(c.status.textContent,/Importing cached messages/);assert.match(c.refresh.title,/Importing/);
+  assert.equal(c.refresh.classList.contains('busy'),true);assert.match(c.status.textContent,/Checking cache/);assert.match(c.refresh.title,/Checking Reddit/);
   await p.tick(1000);assert.equal(p.searches.length,searches);assert.equal(p.requests.length,requests,'progress does not build another directory');
-  p.emit({owner:c.owner,statusOnly:true,importing:false});assert.equal(c.refresh.getAttribute('aria-busy'),'false');assert.doesNotMatch(c.status.textContent,/Importing/);
+  p.emit({owner:c.owner,statusOnly:true,importing:false});assert.equal(c.refresh.getAttribute('aria-busy'),'false');assert.doesNotMatch(c.status.textContent,/Checking cache/);
   c.refresh.click();await settle();assert.equal(p.searches.length,searches+1);assert.equal(c.refresh.getAttribute('aria-busy'),'true');
   p.pending.shift()();await settle();assert.equal(c.refresh.getAttribute('aria-busy'),'false');assert.equal(p.requests.length,requests);
 });
@@ -752,6 +752,15 @@ test('global pagination appends quietly without changing the refresh indicator o
   assert.match(c.shadow.querySelector('.load-more').textContent,/Loading more/);await release();await pending;
   assert.ok(c.savedHits.length>count);assert.equal(c.results.scrollTop,top);assert.ok(c.shadow.querySelectorAll('.message-result').length<25);
   c.loading=true;c.updateControls();assert.doesNotMatch(c.status.textContent,/Checking saved conversations/);assert.equal(c.refresh.classList.contains('busy'),false);
+});
+test('failed saved reads replace the placeholder with a recoverable state and do not loop on native sync',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control,original=p.w.RCSMessages.search;let calls=0;
+  p.w.RCSMessages.search=async()=>{calls++;throw Error('Reading saved messages took too long. Try Refresh.');};
+  await p.search('coffee');assert.equal(c.searching,false);assert.equal(c.shadow.querySelector('.skeleton-list'),null);assert.match(p.find('.empty-state').textContent,/Saved search unavailable/);assert.equal(calls,1);
+  c.sync();c.render();await settle();assert.equal(calls,1);
+  p.w.RCSMessages.search=original;await p.click('.rcs-refresh');assert.ok(c.savedHits.length>0);assert.equal(c.searchError,'');
+  const row=p.find('.message-result');p.emit({owner:c.owner,statusOnly:true,importing:true,cacheProgress:{loaded:12,scanned:20}});assert.equal(p.find('.message-result'),row);assert.match(c.status.title,/20 records checked/);
+  p.emit({owner:c.owner,statusOnly:true,importing:false,cacheError:'Cache check paused. Try Refresh.'});assert.equal(p.find('.message-result'),row);assert.match(c.status.title,/Cache check paused/);
 });
 
 

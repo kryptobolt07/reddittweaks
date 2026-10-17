@@ -122,7 +122,7 @@ function clientHarness({store,nativeImport,marked=false,ingestGate,readGate}={})
   for(const file of ['search-core.js','message-store.js'])win.eval(fs.readFileSync(`extension/${file}`,'utf8'));
   store ||= new win.RCSMessageStore.Store({indexedDB:null});let active=owner,changed,failures=0,imports=0,marks=0;const calls=[],nativeArgs=[];
   const emit=value=>win.document.dispatchEvent(new win.CustomEvent('rcs-message-cache-batch',{detail:JSON.stringify(value)}));
-  win.RCSData={request(method,parameters){if(method==='identity-context')return {promise:Promise.resolve({owner:active})};if(method==='cache-native-history'){nativeArgs.push(parameters);imports++;return {promise:Promise.resolve().then(()=>nativeImport?.(emit)).then(result=>result?.available===false?result:{available:true})};}throw Error('Unexpected native method');}};
+  win.RCSData={request(method,parameters,onProgress){if(method==='identity-context')return {promise:Promise.resolve({owner:active})};if(method==='cache-native-history'){nativeArgs.push(parameters);imports++;return {promise:Promise.resolve().then(()=>nativeImport?.(emit,onProgress)).then(result=>result?.available===false?result:{available:true})};}throw Error('Unexpected native method');}};
   win.chrome={runtime:{onMessage:{addListener(fn){changed=fn;}},async sendMessage(msg){calls.push(msg.action);if(msg.action==='stats'){const value=await store.stats(msg.owner,{committed:true});return {ok:true,...value,nativeImportComplete:marked || value.nativeImportComplete};}if(msg.action==='search'){const value=await store.search(msg.owner,{...msg,committed:true});await readGate;return {ok:true,...value};}if(msg.action==='room')return {ok:true,...await store.room(msg.owner,msg.roomId,undefined,{committed:true})};if(msg.action==='mark-native-import-complete'){marks++;return {ok:true,nativeImportComplete:await store.importState(msg.owner,true)};}if(msg.action==='ingest'){await ingestGate;if(failures-->0)return {ok:false,error:'Transient quota failure'};return {ok:true,...await store.ingest(msg)};}}}};
   win.eval(fs.readFileSync('extension/message-cache-client.js','utf8'));
   return {dom,win,store,calls,nativeArgs,emit,setActive(value){active=value;},fail(count){failures=count;},get imports(){return imports;},get marks(){return marks;},change(message){changed(message);}};
@@ -138,6 +138,18 @@ test('self profile remains available without matching self messages and resets a
   h.setActive(other);await api.room(roomId);assert.equal(api.getSelfIdentity(),null);
   h.setActive(owner);await api.search({});assert.equal(api.getSelfIdentity().id,owner);
   await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});assert.equal(api.getSelfIdentity(),null);
+});
+test('a stalled cache check settles its activity while committed results remain usable and Refresh retries',async t=>{
+  let attempts=0;const h=clientHarness({nativeImport:async(_emit,progress)=>{attempts++;progress?.({loaded:12,scanned:20});if(attempts===1)await new Promise(()=>{});return {available:true};}});t.after(()=>h.dom.window.close());
+  const timer=h.win.setTimeout.bind(h.win);h.win.setTimeout=(fn,ms,...args)=>timer(fn,ms===45000?20:ms,...args);
+  await h.store.ingest(batch([event('$cached','already saved coffee')]));const notices=[];h.win.RCSMessages.subscribe(value=>notices.push(value));
+  const initial=await h.win.RCSMessages.search({query:'coffee'});assert.equal(initial.total,1);assert.equal(initial.importing,true);
+  await new Promise(resolve=>setTimeout(resolve,40));const paused=await h.win.RCSMessages.search({query:'coffee'});assert.equal(paused.total,1);assert.equal(paused.importing,false);assert.match(paused.cacheError,/stopped responding/);assert.equal(attempts,1);assert.equal(h.marks,0);assert.ok(notices.some(value=>value.cacheProgress?.scanned===20));
+  await h.win.RCSMessages.search({query:'coffee',retryWrites:true});await h.win.RCSMessages.ready();assert.equal(attempts,2);assert.equal(h.marks,1);assert.equal((await h.win.RCSMessages.search({query:'coffee'})).cacheError,'');
+});
+test('a stalled saved-message transport fails with a retryable error while other committed reads work',async t=>{
+  const h=clientHarness({readGate:new Promise(()=>{})});t.after(()=>h.dom.window.close());const timer=h.win.setTimeout.bind(h.win);h.win.setTimeout=(fn,ms,...args)=>timer(fn,ms===15000?5:ms,...args);
+  await h.store.ingest(batch([event('$cached','kept in storage')]));await assert.rejects(h.win.RCSMessages.search({}),/Reading saved messages took too long/);assert.equal((await h.win.RCSMessages.room(roomId)).records.length,1);
 });
 test('failed captures leave committed data readable; explicit flush or a new batch retries without account leakage',async()=>{
   const h=clientHarness({marked:true}),api=h.win.RCSMessages;

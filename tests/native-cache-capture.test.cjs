@@ -97,12 +97,19 @@ test('local native IndexedDB import reads bounded readonly transactions and neve
   const env=setup();t.after(()=>env.dom.window.close());const db=await nativeDb(env.W);t.after(()=>db.close());
   const modes=[],transaction=db.transaction.bind(db);db.transaction=(names,mode,...args)=>{modes.push(mode);return transaction(names,mode,...args);};
   env.client.store={backend:{db},getTimelineEvents:()=>assert.fail('degradable wrapper called')};
+  env.client.syncApi={...env.client.syncApi,savedSyncPromise:new Promise(()=>{})};
   env.client.http.authedRequest=()=>assert.fail('network called');env.client.getRoomList=()=>assert.fail('directory called');
-  const progress=[],result=await env.W.RCSData.request('cache-native-history',{},value=>progress.push(value.loaded)).promise;
+  let timeout;const progress=[],result=await Promise.race([env.W.RCSData.request('cache-native-history',{},value=>progress.push(value.loaded)).promise,new Promise((_,reject)=>timeout=setTimeout(()=>reject(Error('local cache waited for native startup sync')),1000))]).finally(()=>clearTimeout(timeout));
   assert.equal(result.available,true);assert.equal(result.imported,451);assert.deepEqual(progress,[200,400,451]);
   assert.deepEqual(modes,['readonly','readonly','readonly']);assert.equal(env.batches.flatMap(batch=>batch.events).length,451);
   assert.equal(env.batches.every(batch=>batch.events.every(event=>event.room_id==='local-only')),true);
   assert.equal(env.batches.some(batch=>batch.coverage),false);assert.equal(env.api.calls.length,0);
+});
+test('a stalled native cache cursor stops without marking import complete or waiting indefinitely',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());let aborted=0;
+  const timer=env.W.setTimeout.bind(env.W);env.W.setTimeout=(fn,ms,...args)=>timer(fn,ms===10000?5:ms,...args);
+  env.client.store={backend:{db:{name:'reddit-chat-store',objectStoreNames:{contains:()=>true},transaction(){return {objectStore:()=>({keyPath:['room_id','scope','parent_id','seq_id'],openCursor:()=>({})}),abort(){aborted++;}};}}}};
+  await assert.rejects(env.W.RCSData.request('cache-native-history').promise,/local cache timed out/);assert.equal(aborted,1);assert.equal(env.api.calls.length,0);
 });
 test('unsupported or malformed native cache remains retryable and never marks coverage complete',async t=>{
   const env=setup();t.after(()=>env.dom.window.close());
