@@ -151,6 +151,11 @@ test('a stalled saved-message transport fails with a retryable error while other
   const h=clientHarness({readGate:new Promise(()=>{})});t.after(()=>h.dom.window.close());const timer=h.win.setTimeout.bind(h.win);h.win.setTimeout=(fn,ms,...args)=>timer(fn,ms===15000?5:ms,...args);
   await h.store.ingest(batch([event('$cached','kept in storage')]));await assert.rejects(h.win.RCSMessages.search({}),/Reading saved messages took too long/);assert.equal((await h.win.RCSMessages.room(roomId)).records.length,1);
 });
+test('successful capture acknowledgements keep a long active reconciliation from being reported as stalled',async t=>{
+  const h=clientHarness({nativeImport:async emit=>{for(let i=0;i<5;i++){await new Promise(resolve=>setTimeout(resolve,10));emit(batch([event('$active-'+i,'active import')]));await h.win.RCSMessages.flush();}return {available:true};}});t.after(()=>h.dom.window.close());
+  const timer=h.win.setTimeout.bind(h.win);h.win.setTimeout=(fn,ms,...args)=>timer(fn,ms===45000?30:ms,...args);
+  await h.win.RCSMessages.ready();const result=await h.win.RCSMessages.search({});assert.equal(result.total,5);assert.equal(result.cacheError,'');assert.equal(h.marks,1);
+});
 test('failed captures leave committed data readable; explicit flush or a new batch retries without account leakage',async()=>{
   const h=clientHarness({marked:true}),api=h.win.RCSMessages;
   h.fail(1);h.emit(batch([event('$retry','retained')]));await new Promise(resolve=>setTimeout(resolve,0));

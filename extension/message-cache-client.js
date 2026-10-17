@@ -2,7 +2,7 @@
 (() => {
   const subscribers=new Set(),initializations=new Map(),preparing=new Set(),imports=new Map(),importRequests=new Map(),attachments=new Map(),clearedAccounts=new Set(),captureGaps=new Set(),pending=[];
   const dimensionPatches=new Map();let dimensionTimer=null,dimensionsRunning=false;
-  const cacheErrors=new Map(),cacheProgress=new Map();
+  const cacheErrors=new Map(),cacheProgress=new Map(),cacheActivity=new Map();
   const MAX_BATCHES=500,MAX_EVENTS=10000,MAX_BYTES=8*1024*1024;
   let contextError=null;
   let owner=null,selfIdentity=null,nativeSelfIdentity=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
@@ -43,7 +43,7 @@
   }
   async function drain() {
     while(pending.length){const item=pending[0],active=await context();if(!pending.includes(item))continue;if(item.batch.owner!==active){pending.splice(pending.indexOf(item),1);continue;}
-      let result;item.inFlight=true;try{result=await call('ingest',item.batch);}finally{item.inFlight=false;}const index=pending.indexOf(item);if(index>=0)pending.splice(index,1);writeError=null;if(result.changed!==false)notify({owner:active,changed:true,roomIds:result.roomIds});}
+      let result;item.inFlight=true;try{result=await call('ingest',item.batch);}finally{item.inFlight=false;}const index=pending.indexOf(item);if(index>=0)pending.splice(index,1);writeError=null;cacheActivity.get(active)?.();if(result.changed!==false)notify({owner:active,changed:true,roomIds:result.roomIds});}
   }
   function schedule(){if(contextError)return Promise.reject(contextError);if(draining)return queue;draining=true;notify({owner,statusOnly:true,savingPending:pending.length>0});queue=queue.then(drain).catch(error=>{writeError=error;notify({owner,error:error.message});}).finally(()=>{draining=false;notify({owner,statusOnly:true,savingPending:pending.length>0});});return queue;}
   function enqueue(batch) {
@@ -98,7 +98,7 @@
       const current=()=>!expired && initializations.get(active)===task && owner===active && !clearedAccounts.has(active);
       let rejectStalled;
       const stalled=new Promise((_,reject)=>{rejectStalled=reject;});
-      const touch=()=>{clearTimeout(timer);timer=setTimeout(()=>{expired=true;const error=Error('Reddit’s local cache check stopped responding. Saved messages remain available; try Refresh.');rejectStalled(error);if(initializations.get(active)===task)importRequests.get(active)?.cancel?.();},45000);};
+      const touch=()=>{if(expired)return;clearTimeout(timer);timer=setTimeout(()=>{expired=true;const error=Error('Reddit’s local cache check stopped responding. Saved messages remain available; try Refresh.');rejectStalled(error);if(initializations.get(active)===task)importRequests.get(active)?.cancel?.();},45000);};
       touch();
       const work=(async()=>{await flush();
         // Completion records a successful past read, not future freshness.
@@ -107,7 +107,7 @@
           await flush();if(current() && !captureGaps.has(active) && imports.get(active)?.available===true){if(await context()!==active)throw Error('Reddit account changed. Please retry.');if(current())await call('mark-native-import-complete',{owner:active});}}
         return {owner:active};
       })();
-      const task=Promise.race([work,stalled]).finally(()=>clearTimeout(timer));initializations.set(active,task);notify({owner:active,statusOnly:true,importing:true,cacheError:''});
+      const task=Promise.race([work,stalled]).finally(()=>{clearTimeout(timer);if(cacheActivity.get(active)===touch)cacheActivity.delete(active);});initializations.set(active,task);cacheActivity.set(active,touch);notify({owner:active,statusOnly:true,importing:true,cacheError:''});
       task.then(()=>{if(initializations.get(active)===task){preparing.delete(active);notify({owner:active,changed:true,importing:false,cacheProgress:null,cacheError:cacheErrors.get(active) || ''});}},error=>{if(initializations.get(active)===task){preparing.delete(active);cacheErrors.set(active,error.message);notify({owner:active,statusOnly:true,importing:false,cacheProgress:null,cacheError:error.message});}});
     }
     return initializations.get(active);
