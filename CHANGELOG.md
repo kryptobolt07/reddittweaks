@@ -1,3 +1,13 @@
+# 0.12.6 design test
+
+- Reconcile Reddit’s open local cache without waiting for its startup-sync promise. Saved message searches and previews remain available while captured/cache updates are saved. Each page attachment still checks for messages, edits and redactions missed while the extension was inactive; it does not start a server-history build or another sync loop.
+- Label reconciliation Checking cache, expose checked-record progress in the status tooltip, and show a paused explanation when a check fails. Refresh retries a failed cache check. Empty partial caches explain that messages can still arrive.
+- Bound stalled native cursor transactions, extension read/write transport and idle reconciliation. Preserve committed data and pending captures, stop the busy state, and never mark a failed pass complete. Failed search reads replace placeholders with a recoverable state and do not restart on ordinary native renders.
+
+Version choice: PATCH to 0.12.6 for startup/cache reconciliation reliability. No storage schema change or cache reset.
+
+Validation: all 423 tests pass. New regressions cover an open native database with a startup-sync promise that never resolves, a stuck native cursor, stalled transport, a stalled reconciliation with explicit retry, sustained durable-write progress that keeps a large active import alive, and the real global interface showing committed results while native-cache writes are deliberately blocked. All extension JavaScript parses; archive integrity and source/stable-folder/archive byte equality verified for 26 assets. Validation is synthetic; live Reddit startup recovery was not measured. Saved history remains incomplete.
+
 # 0.12.5 design test
 
 - Keep individual chat result lists bounded to the visible region, with cached measurements and reusable avatars. Scrolling no longer grows and rebuilds an increasingly large list. Incoming result updates wait until scrolling settles; new messages above the viewport preserve the visible message.
