@@ -1,3 +1,13 @@
+# 0.12.7 design test
+
+- Isolate native-cache importer abort/error events from Reddit’s database handlers. The running Reddit client closes its backend when an abort reaches the database; importer read failures, timeouts and cancellations must not shut down Reddit’s own connection. Unsupported-schema reads now finish without an unnecessary abort.
+- Stop a partial import if Reddit replaces its database handle, and explain a closed connection without marking the failed pass complete. Existing saved messages remain available; native reconnection and explicit Refresh can retry the check without a second sync loop or database reset.
+- Reopen the extension-owned database once if transaction creation encounters a closed handle. Discard connections on abnormal closure and yield them on version changes. Retry only before requests have started, preserving queued writes, account isolation and stored data.
+
+Version choice: PATCH to 0.12.7 for database connection reliability. No storage schema change or cache reset.
+
+Validation: all 429 tests pass, including reproduced abort propagation with Reddit-equivalent shutdown handling, native handle replacement, closed native handles, extension read/write recovery, abnormal closure and version-change handling. All extension JavaScript parses; archive integrity and source/stable-folder/archive byte equality verified. Live Brave inspection confirmed Reddit’s abort/close handlers, and an isolated readonly cancellation left its connection usable with those handlers unchanged. The original intermittent error was not reproduced in the fresh live tab; synthetic regressions reproduce the failure mechanism. Saved-history coverage remains incomplete.
+
 # 0.12.6 design test
 
 - Reconcile Reddit’s open local cache without waiting for its startup-sync promise. Saved message searches and previews remain available while captured/cache updates are saved. Each page attachment still checks for messages, edits and redactions missed while the extension was inactive; it does not start a server-history build or another sync loop.
