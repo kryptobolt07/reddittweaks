@@ -6,7 +6,7 @@
 
 Version choice: PATCH to 0.12.7 for database connection reliability. No storage schema change or cache reset.
 
-Validation: all 429 tests pass, including reproduced abort propagation with Reddit-equivalent shutdown handling, native handle replacement, closed native handles, extension read/write recovery, abnormal closure and version-change handling. All extension JavaScript parses; archive integrity and source/stable-folder/archive byte equality verified. Live Brave inspection confirmed Reddit’s abort/close handlers, and an isolated readonly cancellation left its connection usable with those handlers unchanged. The original intermittent error was not reproduced in the fresh live tab; synthetic regressions reproduce the failure mechanism. Saved-history coverage remains incomplete.
+Validation: all 429 tests pass, including reproduced abort propagation with Reddit-equivalent shutdown handling, native handle replacement, closed native handles, extension read/write recovery, abnormal closure and version-change handling. All extension JavaScript parses; archive integrity and source/stable-folder/archive byte equality verified. Live Brave inspection confirmed Reddit’s abort/close handlers, and an isolated readonly cancellation left its connection usable with those handlers unchanged. After reloading the existing Brave installation, version 0.12.7 completed native-cache reconciliation, retained saved messages, returned saved-search results without cache/saving errors and left Reddit’s database readable. The original intermittent error was not reproduced in the fresh live tab; synthetic regressions reproduce the failure mechanism. Saved-history coverage remains incomplete.
 
 # 0.12.6 design test
 
