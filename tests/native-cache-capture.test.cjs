@@ -111,6 +111,26 @@ test('a stalled native cache cursor stops without marking import complete or wai
   env.client.store={backend:{db:{name:'reddit-chat-store',objectStoreNames:{contains:()=>true},transaction(){return {objectStore:()=>({keyPath:['room_id','scope','parent_id','seq_id'],openCursor:()=>({})}),abort(){aborted++;}};}}}};
   await assert.rejects(env.W.RCSData.request('cache-native-history').promise,/local cache timed out/);assert.equal(aborted,1);assert.equal(env.api.calls.length,0);
 });
+test('an importer cursor failure cannot bubble its abort into Reddit’s database shutdown handler',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const db=await nativeDb(env.W,2);t.after(()=>db.close());
+  let nativeAborts=0;db.onabort=()=>{nativeAborts++;db.close();};
+  env.client.store={backend:{db}};
+  const transaction=db.transaction.bind(db);let fail=true;
+  db.transaction=(...args)=>{const tx=transaction(...args);if(fail){fail=false;const objectStore=tx.objectStore.bind(tx);tx.objectStore=name=>{const store=objectStore(name),open=store.openCursor.bind(store);store.openCursor=(...args)=>{return new Proxy(open(...args),{get(target,key){if(key==='result')throw Error('Synthetic cursor failure');return Reflect.get(target,key);}});};return store;};}return tx;};
+  await assert.rejects(env.W.RCSData.request('cache-native-history').promise,/Unable to load Reddit/);await wait(10);
+  assert.equal(nativeAborts,0);assert.equal((await env.W.RCSData.request('cache-native-history').promise).imported,2);assert.equal(env.api.calls.length,0);
+});
+test('native database replacement stops a partial pass and retries from the replacement without claiming completeness',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const db=await nativeDb(env.W),replacement=await nativeDb(env.W,3);t.after(()=>{db.close();replacement.close();});
+  env.client.store={backend:{db}};
+  await assert.rejects(env.W.RCSData.request('cache-native-history',{},()=>{db.close();env.client.store.backend.db=replacement;}).promise,/local cache connection changed/);
+  assert.equal(env.batches.flatMap(batch=>batch.events).length,200);
+  assert.equal((await env.W.RCSData.request('cache-native-history').promise).imported,3);assert.equal(env.api.calls.length,0);
+});
+test('a closed native handle produces a recoverable explanation without opening or clearing Reddit’s database',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const db=await nativeDb(env.W,1);db.close();env.client.store={backend:{db}};
+  await assert.rejects(env.W.RCSData.request('cache-native-history').promise,/local cache connection closed.*Saved messages remain available/);assert.equal(env.api.calls.length,0);
+});
 test('unsupported or malformed native cache remains retryable and never marks coverage complete',async t=>{
   const env=setup();t.after(()=>env.dom.window.close());
   assert.equal((await env.W.RCSData.request('cache-native-history').promise).available,false);
