@@ -7,6 +7,25 @@ function model(){const ctx=vm.createContext({indexedDB,IDBKeyRange,TextEncoder,c
 const owner='@alice:reddit.com',other='@bob:reddit.com',roomId='!room:reddit.com';
 const event=(id,body,time=1000,extras={})=>({event_id:id,room_id:roomId,type:'m.room.message',sender:owner,origin_server_ts:time,content:{body},...extras});
 const batch=(events,extra={})=>({owner,roomId,events,...extra});
+test('closed extension database handles reopen for reads and queued writes without losing accounts or import state',async()=>{
+  const {Store}=model(),store=new Store({name:crypto.randomUUID()});
+  await store.ingest(batch([event('$saved','saved body')]));await store.ingest({owner:other,roomId,events:[event('$other','other body')]});await store.importState(owner,true);
+  (await store.db()).close();
+  const results=await Promise.all([store.search(owner),store.search(other)]);assert.deepEqual(results.map(r=>r.total),[1,1]);assert.equal(await store.importState(owner),true);
+  (await store.db()).close();await store.ingest(batch([event('$new','new body')]));assert.equal((await store.stats(owner)).stats.messages,2);
+  (await store.db()).close();assert.equal((await store.stats()).accounts,2);
+  (await store.db()).close();await store.clear(owner);assert.equal((await store.search(other)).total,1);assert.equal((await store.search(owner)).total,0);(await store.db()).close();
+});
+test('abnormal extension connection closure discards the cached handle',async()=>{
+  const {forceCloseDatabase}=require('fake-indexeddb'),{Store}=model(),store=new Store({name:crypto.randomUUID()});await store.ingest(batch([event('$saved','saved body')]));
+  const old=await store.db();forceCloseDatabase(old);await new Promise(resolve=>setImmediate(resolve));
+  assert.notEqual(await store.db(),old);assert.equal((await store.search(owner)).total,1);(await store.db()).close();
+});
+test('extension database yields its connection to a version change',async()=>{
+  const {IDBVersionChangeEvent}=require('fake-indexeddb'),{Store}=model(),store=new Store({name:crypto.randomUUID()});await store.ingest(batch([event('$saved','saved body')]));
+  const old=await store.db();old.dispatchEvent(new IDBVersionChangeEvent('versionchange',{oldVersion:1,newVersion:2}));
+  assert.throws(()=>old.transaction('rooms'),{name:'InvalidStateError'});assert.notEqual(await store.db(),old);assert.equal((await store.search(owner)).total,1);(await store.db()).close();
+});
 test('IndexedDB persists on restart, scopes accounts, deduplicates and keeps body references',async()=>{
   const {Store}=model(),name=crypto.randomUUID(),store=new Store({name});
   await store.ingest(batch([event('$one','Café FIRST')]));await store.ingest(batch([event('$one','ignored duplicate')]));
