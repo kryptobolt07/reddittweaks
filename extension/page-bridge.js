@@ -327,6 +327,7 @@
     const guard=()=>{
       check(job);
       if(matrixHost && (!matrixHost.isConnected || matrixHost.client!==ctx.client) || ctx.client.getUserId()!==job.owner)throw problem('Reddit account changed. Please retry.');
+      if(ctx.client.store?.backend?.db!==db)throw problem('Reddit’s local cache connection changed. Saved messages remain available; try Refresh.');
     };
     while(true) {
       guard();
@@ -335,9 +336,14 @@
         const timeout=setTimeout(()=>{try{transaction?.abort();}catch{}reject(problem('Reading Reddit’s local cache timed out. Saved messages remain available.'));},10000);
         try {
           transaction=db.transaction('room_timeline','readonly');
+          // Reddit closes its entire backend when a transaction abort bubbles
+          // to db.onabort. Our readonly cancellations/errors belong to this
+          // importer only; never tear down the authenticated native store.
+          transaction.onabort=event=>{event.stopPropagation();clearTimeout(timeout);reject(transaction.error || problem('Reddit’s local cache read was interrupted.'));};
+          transaction.onerror=event=>{event.stopPropagation();clearTimeout(timeout);reject(transaction.error || problem('Reddit’s local cache could not be read.'));};
           const store=transaction.objectStore('room_timeline');
           if(JSON.stringify(store.keyPath)!==JSON.stringify(['room_id','scope','parent_id','seq_id'])){
-            clearTimeout(timeout);transaction.abort();resolve({unavailable:true});return;
+            clearTimeout(timeout);resolve({unavailable:true});return;
           }
           const request=store.openCursor(lastKey===undefined ? undefined : IDBKeyRange.lowerBound(lastKey,true));
           request.onsuccess=()=>{
@@ -350,9 +356,7 @@
           };
           request.onerror=()=>{clearTimeout(timeout);reject(request.error);};
           transaction.oncomplete=()=>{clearTimeout(timeout);resolve({rows,key,finished});};
-          transaction.onerror=()=>{clearTimeout(timeout);reject(transaction.error || problem('Reddit’s local cache could not be read.'));};
-          transaction.onabort=()=>{clearTimeout(timeout);reject(transaction.error || problem('Reddit’s local cache read was interrupted.'));};
-        }catch(error){clearTimeout(timeout);reject(error);}
+        }catch(error){clearTimeout(timeout);reject(error?.name==='InvalidStateError'?problem('Reddit’s local cache connection closed. Saved messages remain available; try Refresh after Reddit reconnects.'):error);}
       });
       guard();if(chunk.unavailable)return {available:false,imported};
       const rooms=new Map();
