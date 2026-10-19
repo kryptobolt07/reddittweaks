@@ -1,3 +1,12 @@
+# 0.12.8 design test
+
+- Exclude Reddit’s temporary local message IDs from new saved captures, native-cache import and individual search. Observe native local-echo updates so confirmed messages are captured under their server-assigned IDs.
+- Hide previously saved temporary records from global results, room results, summaries and message counts without clearing the stored event ledger. Reject a stale temporary-result jump locally rather than calling Reddit’s selected-message endpoint with an invalid ID.
+
+Version choice: PATCH to 0.12.8 for a confirmed message-navigation bug. No storage schema change, cache reset or changes to Reddit’s send methods.
+
+Validation: all 435 tests pass. New regressions cover pending capture, confirmation capture, native-cache reconciliation, legacy saved entries, room search and navigation with no server request. All extension JavaScript parses; archive integrity and source/stable-folder/archive byte equality verified. Live Brave inspection found the reported HTTP 400 M_INVALID_PARAM response for a tilde-prefixed event ID and confirmed Reddit’s local-ID generation in its running client. No messages were sent during diagnosis; synthetic fixtures cover sending/confirmation transitions. Saved history remains incomplete.
+
 # 0.12.7 design test
 
 - Isolate native-cache importer abort/error events from Reddit’s database handlers. The running Reddit client closes its backend when an abort reaches the database; importer read failures, timeouts and cancellations must not shut down Reddit’s own connection. Unsupported-schema reads now finish without an unnecessary abort.
