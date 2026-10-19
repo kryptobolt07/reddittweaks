@@ -12,6 +12,13 @@ function environment() {
 }
 const tick = () => new Promise(resolve=>setTimeout(resolve,220));
 const plain = value => JSON.parse(JSON.stringify(value));
+test('room search ignores local echo IDs until a confirmed server ID arrives',t=>{
+  const dom=environment();t.after(()=>dom.window.close());const index=new dom.window.RCSCore.MessageIndex();
+  index.upsert('room',[{id:'~room:m123',text:'pending'}]);assert.equal(index.search('room','').length,0);
+  index.upsert('room',[{id:'$confirmed',text:'sent'}]);assert.equal(index.search('room','').length,1);
+  dom.window.eval(source('extension/history-store.js'));const history=new dom.window.RCSHistoryStore(),room=history.get('@alice:reddit.com','room');
+  assert.equal(history.accept(room,{event_id:'~room:m123',type:'m.room.message',content:{body:'pending'}}).length,0);assert.equal(room.events.size,0);
+});
 test('message dates include both selected local days and support open ranges, date-only searches, and invalid input',()=>{
   const dom=environment(),W=dom.window,C=W.RCSCore,index=new C.MessageIndex(Infinity);
   const stamp=(day,h=0,m=0,s=0,ms=0)=>new W.Date(2026,9,day,h,m,s,ms).toISOString();

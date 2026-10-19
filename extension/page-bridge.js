@@ -131,14 +131,14 @@
       if(watchedClient!==client || watchedOwner!==owner || client.getUserId()!==owner || matrixHost && (!matrixHost.isConnected || matrixHost.client!==client))return;
       operation(...values);
     }catch{ /* Future native event models must fail open. */ }};
-    if(client.on)for(const type of ['sync','Room','deleteRoom','accountData','Room.name','Room.timeline','Room.receipt','Room.unreadNotifications','Room.redaction','Thread.update','Thread.newReply','RoomState.events','RoomMember.name','event']) {
+    if(client.on)for(const type of ['sync','Room','deleteRoom','accountData','Room.name','Room.timeline','Room.localEchoUpdated','Room.receipt','Room.unreadNotifications','Room.redaction','Thread.update','Thread.newReply','RoomState.events','RoomMember.name','event']) {
       const handler=guarded((...values)=>{
         if(type==='Room.receipt' || type==='Room.unreadNotifications'){
           document.dispatchEvent(new CustomEvent('rcs-conversation-activity',{detail:JSON.stringify(directoryContext(ctx))}));return;
         }
         if(type==='event')nativeHistoryEvent(values[0]);
         else {
-          if(['Room.timeline','Room.redaction','RoomState.events'].includes(type))nativeHistoryEvent(values[0],values[1]?.roomId);
+          if(['Room.timeline','Room.localEchoUpdated','Room.redaction','RoomState.events'].includes(type))nativeHistoryEvent(values[0],values[1]?.roomId);
           if(type==='Thread.update' || type==='Thread.newReply'){
             const thread=values.find(value=>value?.rootEvent),root=thread?.rootEvent;
             if(root)nativeHistoryEvent(root,thread.roomId);
@@ -192,7 +192,7 @@
   }
   function compactCacheEvent(value,roomId,client) {
     const raw=value?.event || value;
-    if(!raw?.event_id || !['m.room.message','m.sticker','m.room.redaction'].includes(raw.type))return;
+    if(typeof raw?.event_id!=='string' || !raw.event_id || raw.event_id.startsWith('~') || !['m.room.message','m.sticker','m.room.redaction'].includes(raw.type))return;
     const id=raw.room_id || value?.getRoomId?.() || roomId;if(!id)return;
     const content=raw.content || {},keep=source=>{
       const result={};for(const key of ['body','msgtype','m.relates_to'])if(source?.[key]!==undefined)result[key]=source[key];if(typeof source?.info?.mimetype==='string')result.info={mimetype:source.info.mimetype.slice(0,200)};
@@ -364,6 +364,7 @@
         scanned++;
         if(typeof row?.room_id!=='string' || !row.content || typeof row.content!=='object'){malformed=true;continue;}
         if(!['m.room.message','m.sticker','m.room.redaction'].includes(row.content.type))continue;
+        if(typeof row.content.event_id==='string' && row.content.event_id.startsWith('~'))continue;
         const event=compactCacheEvent(row.content,row.room_id,ctx.client);
         if(!event){malformed=true;continue;}
         if(!rooms.has(event.room_id))rooms.set(event.room_id,[]);
@@ -421,7 +422,7 @@
   function nativeHistoryEvent(value,roomId) {
     const event=value?.event || value;
     const id=event?.room_id || value?.getRoomId?.() || roomId;
-    if(!id || !event?.event_id || !watchedClient)return;
+    if(!id || typeof event?.event_id!=='string' || !event.event_id || event.event_id.startsWith('~') || !watchedClient)return;
     const raw={...event,room_id:id};
     const ctx={client:watchedClient},owner=watchedClient.getUserId();
     if(owner!==watchedOwner)return;
@@ -1049,6 +1050,7 @@
     if (request.method==='jump' && (typeof request.eventId!=='string' || request.eventId.length>1000)) return;
     const job={cancelled:false,stage:'connection',request,priority:['history','open','jump'].includes(request.method)?'interactive':'background'};running.set(key,job);
     try {
+      if(request.method==='jump' && request.eventId.startsWith('~'))throw problem('This result has a temporary Reddit message ID. Open the conversation to check its send status.');
       if(['identity-context','identity-snapshot','cache-native-history'].includes(request.method)) {
         const ctx=await identityReady(job),owner=ctx.client.getUserId();watchDirectory(ctx);
         if(request.method==='cache-native-history') {
