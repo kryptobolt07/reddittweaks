@@ -159,6 +159,7 @@
   class MessageIndex {
     constructor(limit = 5000,onEvict=()=>{}) { this.limit = limit; this.rooms = new Map();this.redacted=new Map();this.metadata=new Map();this.onEvict=onEvict; }
     upsert(room, messages,{dom=false,authoritative=false,redacted=[]}={}) {
+      messages=messages.filter(message=>!message.id?.startsWith('~'));
       if(dom)messages=messages.filter(message=>!message.provisional);
       if (!this.rooms.has(room)){this.rooms.set(room,new Map());this.metadata.set(room,{complete:false});}
       const index = this.rooms.get(room);

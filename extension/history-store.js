@@ -22,7 +22,7 @@
       return room.scopes.get(parent);
     }
     accept(room,event) {
-      if(!event?.event_id)return [];
+      if(!event?.event_id || event.event_id.startsWith('~'))return [];
       room.events.set(event.event_id,event);
       const changed=new Set([event.event_id]);
       if(event.type==='m.room.redaction') {

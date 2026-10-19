@@ -7,6 +7,20 @@ function model(){const ctx=vm.createContext({indexedDB,IDBKeyRange,TextEncoder,c
 const owner='@alice:reddit.com',other='@bob:reddit.com',roomId='!room:reddit.com';
 const event=(id,body,time=1000,extras={})=>({event_id:id,room_id:roomId,type:'m.room.message',sender:owner,origin_server_ts:time,content:{body},...extras});
 const batch=(events,extra={})=>({owner,roomId,events,...extra});
+test('temporary Reddit local echoes are not persisted as searchable messages',async()=>{
+  const {Store}=model(),store=new Store({name:crypto.randomUUID()});
+  await store.ingest(batch([event('~!room:reddit.com:m123','pending text'),event('$sent','confirmed text')]));
+  assert.equal((await store.search(owner)).total,1);assert.equal((await store.room(owner,roomId)).records[0].id,'$sent');
+  assert.equal((await store.snapshot(owner)).rows[0].events.some(e=>e.id.startsWith('~')),false);(await store.db()).close();
+});
+test('legacy temporary entries are hidden from global, room, summary and count reads without clearing saved data',async()=>{
+  const {Store,compact}=model(),store=new Store({name:crypto.randomUUID()}),db=await store.db();
+  const saved=compact(event('$sent','confirmed text')),pending={...saved,id:'~!room:reddit.com:m123',body:'pending text',time:2000};
+  await new Promise((resolve,reject)=>{const tx=db.transaction('rooms','readwrite');tx.objectStore('rooms').put({owner,roomId,events:[saved,pending],records:[saved,pending].map(e=>({id:e.id,bodyEvent:e.id,sender:e.sender,time:e.time})),coverage:{complete:false}});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+  assert.equal((await store.search(owner,{query:'pending'})).total,0);assert.equal((await store.search(owner)).total,1);assert.equal((await store.room(owner,roomId)).records.length,1);
+  assert.equal((await store.summaries(owner)).summaries[0].id,'$sent');assert.equal((await store.stats(owner)).stats.messages,1);
+  const raw=await new Promise(resolve=>{const req=db.transaction('rooms').objectStore('rooms').get([owner,roomId]);req.onsuccess=()=>resolve(req.result);});assert.equal(raw.events.length,2);assert.equal(raw.records.length,2);db.close();
+});
 test('closed extension database handles reopen for reads and queued writes without losing accounts or import state',async()=>{
   const {Store}=model(),store=new Store({name:crypto.randomUUID()});
   await store.ingest(batch([event('$saved','saved body')]));await store.ingest({owner:other,roomId,events:[event('$other','other body')]});await store.importState(owner,true);

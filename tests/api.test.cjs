@@ -91,6 +91,11 @@ test('message navigation uses the native exact-event loader before routing and p
   assert.deepEqual(steps,[['load','alex','alex-remote-0'],['route','/room/alex/event/alex-remote-0/thread']]);
   assert.equal(result.route,'/room/alex/event/alex-remote-0/thread');assert.deepEqual(progress,['Opening message…']);assert.equal(env.scrollWrites,0);
 });
+test('temporary local message IDs never reach the native exact-event endpoint or router',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const {W,api}=env,client=api.app.querySelector('rs-matrix-client').client;
+  client.fetchRoomEvent=()=>assert.fail('temporary ID sent to server');api.app.querySelector('rs-history').navigate=()=>assert.fail('temporary ID routed');
+  await assert.rejects(W.RCSData.request('jump',{roomId:'alex',eventId:'~alex:m123'}).promise,/temporary Reddit message ID/);assert.equal(api.calls.length,0);
+});
 test('saved-result navigation proceeds while initial sync and native cache import are still pending',async t=>{
   const env=setup({compact:true});t.after(()=>env.dom.window.close());const {W,api}=env;
   const client=api.app.querySelector('rs-matrix-client').client;

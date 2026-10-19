@@ -40,6 +40,14 @@ test('startup captures loaded native timelines and threads without profile, hist
   assert.equal(env.api.calls.length,0);assert.equal(env.batches.some(batch=>batch.coverage?.complete),false);
   env.client.emit('sync');assert.equal(env.batches.length,1,'unchanged loaded snapshots do not write again');
 });
+test('pending local echoes are skipped and native confirmation captures their server ID',async t=>{
+  const env=setup(client=>{client.getRooms=()=>[{roomId:'startup',getLiveTimeline:()=>({getEvents:()=>[message('~startup:m123','startup')]}),getThreads:()=>[]}];});t.after(()=>env.dom.window.close());await wait(20);
+  assert.equal(env.batches.flatMap(b=>b.events).length,0);
+  env.client.emit('Room.localEchoUpdated',{event:message('~startup:m123','startup')},{roomId:'startup'});
+  assert.equal(env.batches.flatMap(b=>b.events).length,0);
+  env.client.emit('Room.localEchoUpdated',{event:message('$confirmed','startup')},{roomId:'startup'});
+  assert.deepEqual(env.batches.flatMap(b=>b.events.map(e=>e.event_id)),['$confirmed']);assert.equal(env.api.calls.length,0);
+});
 test('native events for unsearched rooms bind room IDs, deduplicate snapshots, and preserve changed/redacted content',async t=>{
   const env=setup();t.after(()=>env.dom.window.close());await wait(20);
   const raw=message('live');delete raw.room_id;
@@ -110,6 +118,11 @@ test('a stalled native cache cursor stops without marking import complete or wai
   const timer=env.W.setTimeout.bind(env.W);env.W.setTimeout=(fn,ms,...args)=>timer(fn,ms===10000?5:ms,...args);
   env.client.store={backend:{db:{name:'reddit-chat-store',objectStoreNames:{contains:()=>true},transaction(){return {objectStore:()=>({keyPath:['room_id','scope','parent_id','seq_id'],openCursor:()=>({})}),abort(){aborted++;}};}}}};
   await assert.rejects(env.W.RCSData.request('cache-native-history').promise,/local cache timed out/);assert.equal(aborted,1);assert.equal(env.api.calls.length,0);
+});
+test('local-only IDs in Reddit’s cache are skipped without treating reconciliation as malformed',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const db=await nativeDb(env.W,1);t.after(()=>db.close());env.client.store={backend:{db}};
+  await new Promise(resolve=>{const tx=db.transaction('room_timeline','readwrite');tx.objectStore('room_timeline').put({room_id:'local-only',scope:'',parent_id:'',seq_id:2,content:message('~local-only:m123')});tx.oncomplete=resolve;});
+  const result=await env.W.RCSData.request('cache-native-history').promise;assert.equal(result.available,true);assert.equal(result.imported,1);assert.equal(env.batches.flatMap(b=>b.events).length,1);
 });
 test('an importer cursor failure cannot bubble its abort into Reddit’s database shutdown handler',async t=>{
   const env=setup();t.after(()=>env.dom.window.close());const db=await nativeDb(env.W,2);t.after(()=>db.close());

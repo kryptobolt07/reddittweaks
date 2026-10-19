@@ -2,6 +2,10 @@
 (() => {
   const ownerOK=value=>typeof value==='string' && /^@[^:\s]{1,200}:[^\s]{1,200}$/.test(value);
   const str=(value,max=1000)=>typeof value==='string'?value.slice(0,max):'';
+  const serverRecord=record=>!record.id.startsWith('~') && !record.bodyEvent?.startsWith('~');
+  // Older versions captured local echoes before Reddit assigned a server ID.
+  // Hide those legacy records on read without deleting the saved event ledger.
+  const searchableRows=rows=>rows.map(row=>row.records.some(record=>!serverRecord(record))?{...row,records:row.records.filter(serverRecord)}:row);
   function previewURL(value){
     if(typeof value!=='string' || !value || value.length>2000)return '';
     try{const url=new URL(value);if(url.protocol!=='https:' || url.username || url.password || url.hash)return '';
@@ -11,7 +15,7 @@
   }
   function compact(raw,roomId) {
     if(!raw || !['m.room.message','m.sticker','m.room.redaction'].includes(raw.type))return null;
-    const id=str(raw.event_id),room=str(raw.room_id || roomId);if(!id || !room)return null;
+    const id=str(raw.event_id),room=str(raw.room_id || roomId);if(!id || id.startsWith('~') || !room)return null;
     const content=raw.content || {},relation=content['m.relates_to'] || {},bodyContent=content['m.new_content'] || content;
     const attachmentType=raw.type==='m.sticker'?'image':({'m.image':'image','m.video':'video','m.audio':'audio','m.file':'file'}[bodyContent.msgtype] || '');
     // Only native type/MIME metadata classifies attachments; never guess from
@@ -51,7 +55,7 @@
     }
     row.events=[...ledger.values()];
     // Materialized metadata references a single stored body; edits do not duplicate message text.
-    row.records=row.events.filter(event=>event.type!=='m.room.redaction' && !event.replaces && !removed.has(event.id) && (edits.get(event.id)?.body || event.body)).map(event=>({id:event.id,bodyEvent:edits.get(event.id)?.id || event.id,sender:event.sender,time:event.time,thread:event.thread,threadRoot:event.threadRoot}));
+    row.records=row.events.filter(event=>!event.id.startsWith('~') && event.type!=='m.room.redaction' && !event.replaces && !removed.has(event.id) && (edits.get(event.id)?.body || event.body)).map(event=>({id:event.id,bodyEvent:edits.get(event.id)?.id || event.id,sender:event.sender,time:event.time,thread:event.thread,threadRoot:event.threadRoot})).filter(serverRecord);
     // Any unverified incoming batch may contain a gap (including unseen thread replies).
     row.coverage=coverage ? {complete:coverage.complete===true,dateComplete:coverage.dateComplete===true,dates:{from:str(coverage.dates?.from,10),to:str(coverage.dates?.to,10)}} : {complete:false,dateComplete:false};
     delete row.approxBytes;row.approxBytes=bytes(row);return row;
@@ -148,10 +152,10 @@
     }
     async snapshot(owner,roomId,{committed=false}={}) {
       if(!ownerOK(owner))throw Error('Invalid account');if(!committed)await this.queue;
-      const tx=await this.transaction(['rooms','identities']);if(!tx)return {rows:[...this.memory.values()].filter(row=>row.owner===owner && (!roomId || row.roomId===roomId)),people:this.identities.get(owner)?.people || {},identityBytes:this.identities.get(owner)?.approxBytes || 0,nativeReconciledAt:this.identities.get(owner)?.nativeReconciledAt || 0,nativeImportComplete:Boolean(this.identities.get(owner)?.nativeImportComplete)};
+      const tx=await this.transaction(['rooms','identities']);if(!tx)return {rows:searchableRows([...this.memory.values()].filter(row=>row.owner===owner && (!roomId || row.roomId===roomId))),people:this.identities.get(owner)?.people || {},identityBytes:this.identities.get(owner)?.approxBytes || 0,nativeReconciledAt:this.identities.get(owner)?.nativeReconciledAt || 0,nativeImportComplete:Boolean(this.identities.get(owner)?.nativeImportComplete)};
       // IndexedDB still orders this readonly transaction against an active
       // write. Future queued captures cannot delay this committed snapshot.
-      const [found,identities]=await Promise.all([request(roomId?tx.objectStore('rooms').get([owner,roomId]):tx.objectStore('rooms').getAll(IDBKeyRange.bound([owner,''],[owner,'\uffff']))),request(tx.objectStore('identities').get(owner))]);const rows=roomId?(found?[found]:[]):found;return {rows,people:identities?.people || {},identityBytes:identities?.approxBytes || 0,nativeReconciledAt:identities?.nativeReconciledAt || 0,nativeImportComplete:Boolean(identities?.nativeImportComplete)};
+      const [found,identities]=await Promise.all([request(roomId?tx.objectStore('rooms').get([owner,roomId]):tx.objectStore('rooms').getAll(IDBKeyRange.bound([owner,''],[owner,'\uffff']))),request(tx.objectStore('identities').get(owner))]);const rows=searchableRows(roomId?(found?[found]:[]):found);return {rows,people:identities?.people || {},identityBytes:identities?.approxBytes || 0,nativeReconciledAt:identities?.nativeReconciledAt || 0,nativeImportComplete:Boolean(identities?.nativeImportComplete)};
     }
     async search(owner,{query='',roomId,roomIds,dates={},from='all',wholeWord=false,sort='newest',grouped=false,limit=200,offset=0,committed=false}={},directory) {
       if(typeof query!=='string' || query.length>1000 || !Number.isInteger(limit) || limit<1 || limit>500 || !Number.isInteger(offset) || offset<0 || offset>1000000 || !['all','me','them'].includes(from) || !['newest','oldest','relevant'].includes(sort) || roomIds!==undefined && (!Array.isArray(roomIds) || roomIds.some(id=>typeof id!=='string' || !id || id.length>1000)))throw Error('Invalid message query');
@@ -197,7 +201,7 @@
     }
     statistics(rows,people,identityBytes) {return {messages:rows.reduce((sum,row)=>sum+row.records.length,0),rooms:rows.length,completeRooms:rows.filter(row=>row.coverage.complete).length,approxBytes:rows.reduce((sum,row)=>sum+(row.approxBytes ?? bytes(row)),0)+(identityBytes ?? (Array.isArray(people)?people.reduce((sum,person)=>sum+(person.approxBytes ?? bytes(person)),0):bytes(people)))};}
     async importState(owner,mark=false) {await this.queue;const tx=await this.transaction('identities',mark?'readwrite':'readonly');if(!tx){const saved=this.identities.get(owner) || {owner,people:{}};if(mark){saved.nativeImportComplete=true;saved.nativeReconciledAt=Date.now();delete saved.approxBytes;saved.approxBytes=bytes(saved);this.identities.set(owner,saved);}return mark || Boolean(saved.nativeImportComplete);}const completion=done(tx);const saved=await request(tx.objectStore('identities').get(owner)) || {owner,people:{}};if(mark){saved.nativeImportComplete=true;saved.nativeReconciledAt=Date.now();delete saved.approxBytes;saved.approxBytes=bytes(saved);tx.objectStore('identities').put(saved);}await completion;return mark || Boolean(saved.nativeImportComplete);}
-    async stats(owner,{committed=false}={}) {if(owner){const {rows,people,identityBytes,nativeReconciledAt,nativeImportComplete}=await this.snapshot(owner,undefined,{committed});return {owner,persistent:this.persistent,nativeImportComplete,nativeReconciledAt,stats:this.statistics(rows,people,identityBytes)};}if(!committed)await this.queue;const tx=await this.transaction(['rooms','identities']);const [rows,people]=tx?await Promise.all([request(tx.objectStore('rooms').getAll()),request(tx.objectStore('identities').getAll())]):[[...this.memory.values()],[...this.identities.values()]];return {persistent:this.persistent,accounts:new Set([...rows.map(row=>row.owner),...people.map(person=>person.owner)]).size,stats:this.statistics(rows,people)};}
+    async stats(owner,{committed=false}={}) {if(owner){const {rows,people,identityBytes,nativeReconciledAt,nativeImportComplete}=await this.snapshot(owner,undefined,{committed});return {owner,persistent:this.persistent,nativeImportComplete,nativeReconciledAt,stats:this.statistics(rows,people,identityBytes)};}if(!committed)await this.queue;const tx=await this.transaction(['rooms','identities']);const [rows,people]=tx?await Promise.all([request(tx.objectStore('rooms').getAll()),request(tx.objectStore('identities').getAll())]):[[...this.memory.values()],[...this.identities.values()]];return {persistent:this.persistent,accounts:new Set([...rows.map(row=>row.owner),...people.map(person=>person.owner)]).size,stats:this.statistics(searchableRows(rows),people)};}
     async clear(owner) {await this.queue;const tx=await this.transaction(['rooms','identities'],'readwrite');if(!tx){for(const [key,row]of this.memory)if(!owner || row.owner===owner)this.memory.delete(key);if(owner)this.identities.delete(owner);else this.identities.clear();return;}
       const completion=done(tx);if(!owner){tx.objectStore('rooms').clear();tx.objectStore('identities').clear();}else{const rows=await request(tx.objectStore('rooms').getAll());for(const row of rows)if(row.owner===owner)tx.objectStore('rooms').delete([owner,row.roomId]);tx.objectStore('identities').delete(owner);}await completion;}
   }
