@@ -5,7 +5,7 @@
 
 Version choice: PATCH to 0.12.8 for a confirmed message-navigation bug. No storage schema change, cache reset or changes to Reddit’s send methods.
 
-Validation: all 435 tests pass. New regressions cover pending capture, confirmation capture, native-cache reconciliation, legacy saved entries, room search and navigation with no server request. All extension JavaScript parses; archive integrity and source/stable-folder/archive byte equality verified. Live Brave inspection found the reported HTTP 400 M_INVALID_PARAM response for a tilde-prefixed event ID and confirmed Reddit’s local-ID generation in its running client. No messages were sent during diagnosis; synthetic fixtures cover sending/confirmation transitions. Saved history remains incomplete.
+Validation: all 435 tests pass. New regressions cover pending capture, confirmation capture, native-cache reconciliation, legacy saved entries, room search and navigation with no server request. All extension JavaScript parses; archive integrity and source/stable-folder/archive byte equality verified. Live Brave inspection found the reported HTTP 400 M_INVALID_PARAM response for a tilde-prefixed event ID and confirmed Reddit’s local-ID generation in its running client. After reloading the existing Brave installation, the affected window ran 0.12.8, displayed saved results without the navigation error, excluded temporary IDs from the returned search page and rejected a synthetic temporary jump locally. No messages were sent during diagnosis; synthetic fixtures cover sending/confirmation transitions. Saved history remains incomplete.
 
 # 0.12.7 design test
 
