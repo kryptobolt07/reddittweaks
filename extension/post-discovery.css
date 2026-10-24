@@ -48,3 +48,12 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 [data-rt-ui="activity-empty"][hidden]{display:none!important}
 
 shreddit-sort-dropdown[data-rt-comment-sort-suppressed]{display:none!important}
+
+/* Gate native insertions before their first paint; retain nodes and native stack. */
+shreddit-feed[data-rt-activity="hidden"]>:not([data-rt-ui]):is(shreddit-post,shreddit-profile-comment,:has(shreddit-post,shreddit-profile-comment)),
+shreddit-feed[data-rt-activity="deleted"]>:not([data-rt-ui]):not([data-rt-activity-match]):is(shreddit-post,shreddit-profile-comment,:has(shreddit-post,shreddit-profile-comment)){display:none!important}
+/* The sentinel stays measurable when Reddit already owns the visible halo. */
+.rt-native-loading[hidden],shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]>.rt-native-loading{display:none!important}
+shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]{min-height:1px}
+
+.rt-native-card:is([data-rt-native-state="idle"],[data-rt-native-state="queued"],[data-rt-native-state="loading"]){display:none!important}
