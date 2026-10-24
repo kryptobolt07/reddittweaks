@@ -1,3 +1,15 @@
+# 0.18.2 preview
+
+- Verify archive item status with Reddit's authenticated native card fragments rather than the legacy info endpoint, which can return HTTP 403 while card rendering works. Share in-flight reads and a bounded, transient page-world fragment cache between status checks and rendering. Preserve archive text provenance, author/identity checks, restrictions and explicit unknown status. Show optional verification limitations quietly without treating archive discovery as a failed load.
+- Apply Activity filtering to the native feed before paint, including newly inserted and hydrated cards, without removing native cards from the client list. Preserve original visibility through virtualization placeholder swaps and restore it on All, cleanup or opt-out.
+- Retain populated extension card objects when a native duplicate arrives, including objects held in Reddit's internal virtualization stack. Do not expose unfinished cards after a duplicate race. Reverse scrolling can restore the same hydrated objects without clearing and rebuilding their contents.
+- Keep the tail sentinel measurable while a native continuation loader owns the visible halo. Loader ownership no longer changes merely because a loader is outside the viewport, preventing adjacent native and extension halos from appearing together during scrolling. Native component hidden states receive an explicit display rule.
+- Isolate cancellation among consumers sharing a native read. A status deadline cannot cancel a card still using the response; completed verification evidence survives a partial timeout. Physical fragment requests remain bounded to two; server cooldowns and route cancellation remain enforced.
+
+Version choice: PATCH to 0.18.2 for archive verification, pre-paint filtering, retained-card scrolling and duplicate-loader reliability corrections. No new permissions, persistent data schema or chat sync behavior.
+
+Validation: all 630 tests pass, including 157 discovery/native-bridge checks. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave inspection confirmed the blocked JSON/native-fragment distinction, adjacent native/extension loaders, and Reddit's retained virtualization stack and same-object restoration contract. Final installed 0.18.2 verification requires reloading the unpacked extension. Reddit may still refuse or omit individual fragments, and missing verification remains unknown; archive coverage is incomplete. Undocumented client contracts can change.
+
 # 0.18.1 preview
 
 - Keep one native Reddit halo at the end of the feed while cards and further pages load, including comments in Overview. Stage unfinished cards outside the visible feed and publish ready cards in order. Reattach the same tail if native reconciliation removes or overtakes it; dormant, hidden and offscreen native loader components do not suppress it. Observe native loader shadow completion so continuation can resume without another scroll.
