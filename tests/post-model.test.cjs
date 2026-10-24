@@ -42,3 +42,9 @@ test('profile sorts use dates for New, scores for Top and Reddit order for Hot',
  assert.deepEqual(ids('new'),['recent','middle','older']);assert.deepEqual(ids('top'),['older','middle','recent']);assert.deepEqual(ids('hot'),['older','recent','middle']);
  const ranged=m.mergePosts(data,[post({id:'ancient',created_utc:1600000000,score:1000})],{username:'Example',sort:'top',range:'day',now:1700000150});assert.equal(ranged.some(p=>p.id==='ancient'),false);
 });
+
+test('comment parent identities preserve native fullnames and normalize archive bare IDs without confusing top-level comments',()=>{
+ const m=model(),base={id:'child',author:'Example',created_utc:1700000000,link_id:'t3_post',body:'Reply'};
+ for(const [input,expected] of [['t1_Parent','t1_parent'],['parent','t1_parent'],['post','t3_post'],['t3_post','t3_post'],[null,'t3_post'],['','t3_post'],['../../bad','']])assert.equal(m.normalizeComment({...base,parent_id:input},{source:'arctic-shift'}).parentId,expected);
+ assert.equal(m.normalizeComment(base).parentId,'');
+});

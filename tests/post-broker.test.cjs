@@ -94,3 +94,19 @@ test('archive author requests allow same-profile SPA tabs while rejecting other 
  assert.equal((await e.send({}, {url:'https://www.reddit.com/user/Other/',tab:{url:'https://www.reddit.com/user/Example/comments/'}})).code,'forbidden');
  assert.equal((await e.send({action:'archive-ids',ids:['abc12']},{url:'https://www.reddit.com/comments/abc12/',tab:{url:'https://www.reddit.com/user/Example/comments/'}})).code,'forbidden');
 });
+
+test('reply archive lookup joins only previously discovered child parents and projects compact author context',async()=>{
+ const e=env({fetcher:async url=>new URL(url).pathname.endsWith('/search')?response([row({id:'child1',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'}),row({id:'child2',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'})]):response([row({id:'parent',author:'Recipient',link_id:'t3_post'})])}),sender={tab:{id:7,url:'https://www.reddit.com/user/Example/comments/'}};
+ assert.equal((await e.send({action:'archive-parents',children:['child1']},sender)).code,'forbidden');assert.equal(e.calls.length,0);await e.send({kind:'comment'},sender);
+ const value=await e.send({action:'archive-parents',children:['child1','child2']},sender);assert.equal(value.ok,true);assert.equal(value.posts[0].author,'Recipient');assert.equal(value.posts[0].body,'');const [url,options]=e.calls[1];assert.equal(new URL(url).pathname,'/api/comments/ids');assert.equal(new URL(url).searchParams.get('ids'),'parent');assert.equal(new URL(url).searchParams.get('fields'),'id,author,link_id,created_utc');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');await e.send({action:'archive-parents',children:['child2']},sender);assert.equal(e.calls.length,2);
+});
+test('reply archive lookup cannot request arbitrary parents, cross tabs/profiles or reuse proofs after opt-out',async()=>{
+ const e=env({fetcher:async()=>response([row({id:'child',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'})])}),sender={tab:{id:7,url:'https://www.reddit.com/user/Example/'}};await e.send({kind:'comment'},sender);
+ for(const [message,source] of [[{children:['unknown']},sender],[{children:['child']},{tab:{id:8,url:sender.tab.url}}],[{children:['child'],username:'Other'},sender],[{children:['child']},{...sender,frameId:1}]])assert.equal((await e.send({action:'archive-parents',...message},source)).code,'forbidden');
+ assert.equal((await e.send({action:'archive-parents',children:['../../bad']},sender)).code,'invalid-request');assert.equal(e.calls.length,1);e.changeSettings({postDiscovery:true,archiveDiscovery:false});assert.equal((await e.send({action:'archive-parents',children:['child']},sender)).code,'disabled');e.changeSettings({postDiscovery:true,archiveDiscovery:true});assert.equal((await e.send({action:'archive-parents',children:['child']},sender)).code,'forbidden');assert.equal(e.calls.length,1);
+});
+test('reply archive results must belong to the child thread and opting out discards an in-flight result',async()=>{
+ let release;const e=env({fetcher:async url=>new URL(url).pathname.endsWith('/search')?response([row({id:'child',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'})]):new Promise(r=>release=r)}),sender={tab:{id:9,url:'https://www.reddit.com/user/Example/'}};await e.send({kind:'comment'},sender);
+ const pending=e.send({action:'archive-parents',children:['child']},sender);await new Promise(r=>setImmediate(r));release(response([row({id:'parent',author:'Wrong',link_id:'t3_other'})]));assert.equal((await pending).posts.length,0);
+ e.changeSettings({postDiscovery:true,archiveDiscovery:true});await e.send({kind:'comment'},sender);const second=e.send({action:'archive-parents',children:['child']},sender);await new Promise(r=>setImmediate(r));e.changeSettings({postDiscovery:true,archiveDiscovery:false});release(response([row({id:'parent',author:'Recipient',link_id:'t3_post'})]));assert.equal((await second).code,'disabled');
+});
