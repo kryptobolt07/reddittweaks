@@ -83,3 +83,15 @@ test('native card request budget and server cooldown defer work instead of faili
  const last=nativeTarget(e,{id:'item12',target:'rt-native-last'}),paused=await e.send({action:'render-card',username:'Example',kind:'post',postId:'item12',target:last.id});assert.equal(paused.deferred,true);assert.ok(paused.retryAfterMs>0);assert.equal(e.calls.length,12);
  const limited=setup(t,{fetcher:async()=>({ok:false,status:429,headers:new Headers({'Retry-After':'42'})})}),slot=nativeTarget(limited),response=await limited.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(response.deferred,true);assert.ok(response.retryAfterMs>=41000);assert.equal(limited.calls.length,1);
 });
+
+function navigationTarget(e){const root=e.W.document.createElement('div');root.dataset.rtUi='archive-profile';const target=e.W.document.createElement('div');target.id='rt-nav-fixture';target.dataset.rtUi='profile-navigation';root.append(target);e.W.document.body.append(root);e.W.customElements.define('faceplate-partial',class extends e.W.HTMLElement{_renderContent(text){this.innerHTML=text;}});return target;}
+test('native navigation attaches only Reddit sidebar markup from a fixed same-origin page read',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<main id="home">Synthetic unrelated feed</main><flex-left-nav-container id="left-sidebar-container"><reddit-sidebar-nav><a href="/">Home</a></reddit-sidebar-nav></flex-left-nav-container>')}),target=navigationTarget(e);
+ const result=await e.send({action:'render-navigation',username:'Example',target:target.id});assert.equal(result.ok,true);assert.equal(result.rendered,true);assert.equal(result.html,undefined);assert.ok(target.querySelector('flex-left-nav-container'));assert.equal(target.querySelector('#home'),null);assert.equal(target.textContent.includes('unrelated'),false);const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/');assert.equal(options.credentials,'include');assert.equal(options.redirect,'error');
+});
+test('navigation rejects foreign targets and profile changes but survives same-profile tab changes',async t=>{
+ let resolve;const e=setup(t,{fetcher:()=>new Promise(r=>resolve=r)}),target=navigationTarget(e);
+ for(const input of [{username:'Other'},{target:'main'},{target:'rt-nav-missing'}])assert.equal((await e.send({action:'render-navigation',username:'Example',target:target.id,...input})).ok,false);assert.equal(e.calls.length,0);
+ const pending=e.send({action:'render-navigation',username:'Example',target:target.id});e.W.history.pushState({},'','/user/Example/comments/');resolve(nativeResponse('<flex-left-nav-container id="left-sidebar-container">Native</flex-left-nav-container>'));assert.equal((await pending).rendered,true);
+ const stale=e.send({action:'render-navigation',username:'Example',target:target.id});e.W.history.pushState({},'','/user/Other/');resolve(nativeResponse('<flex-left-nav-container id="left-sidebar-container">Wrong scope</flex-left-nav-container>'));assert.equal((await stale).ok,false);assert.equal(target.textContent.includes('Wrong scope'),false);
+});

@@ -240,12 +240,12 @@ test('deleted profiles use archive discovery with native tabs and native card hy
  const requests=[];let nativeRenders=0;
  const {W,d,calls}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},archive:async input=>{requests.push(input);return {posts:input.kind==='comment'?[comment()]:[raw()],hasMore:false};},nativeRender:async(post,node)=>{nativeRenders++;node.innerHTML='<shreddit-post><span slot="credit-bar"></span><button>Share</button></shreddit-post>';}});
  await d.ready;d.reset();const notice=deletedPage(W);d.autoDiscover=true;d.scan();await new Promise(r=>setImmediate(r));
- assert.equal(d.archiveOnly,true);assert.equal(d.archiveShell.tagName,'MAIN');assert.equal(notice.dataset.rtArchiveNotice,'true');assert.equal(d.archiveShell.querySelector('h1').textContent,'Example');
+ assert.equal(d.archiveOnly,true);assert.equal(d.archiveMain.tagName,'MAIN');assert.equal(notice.dataset.rtArchiveNotice,'true');assert.equal(d.archiveShell.querySelector('h1').textContent,'Example');
  assert.deepEqual(requests.map(r=>r.kind),['post']); // The current route is Posts.
- await new Promise(r=>setImmediate(r));assert.equal(calls.length,0);assert.equal(nativeRenders,1);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,1);assert.ok(d.archiveShell.querySelector('faceplate-tabgroup[for="profile-feed-tabs"]'));assert.equal(d.feed.tagName,'SHREDDIT-FEED');
+ await new Promise(r=>setImmediate(r));assert.ok(calls.every(call=>call.action==='render-navigation'));assert.equal(nativeRenders,1);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,1);assert.ok(d.archiveShell.querySelector('faceplate-tabgroup[for="profile-feed-tabs"]'));assert.equal(d.feed.tagName,'SHREDDIT-FEED');
  assert.match(d.feed.textContent,/Public text/);assert.ok(d.feed.querySelector('shreddit-post button'));assert.match(d.feed.querySelector('[data-rt-source]').title,/Current Reddit status unknown/);assert.equal(d.feed.querySelector('.rt-archive-card'),null);
- await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(calls.length,0);assert.equal(nativeRenders,1);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,1);assert.ok(d.archiveShell.querySelector('faceplate-tabgroup[for="profile-feed-tabs"]'));assert.equal(d.feed.tagName,'SHREDDIT-FEED');
- d.reset();assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);assert.equal(W.document.querySelector('main[data-rt-ui="archive-profile"]'),null);
+ await d.loadReddit();await new Promise(r=>setImmediate(r));assert.ok(calls.every(call=>call.action==='render-navigation'));assert.equal(nativeRenders,1);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,1);assert.ok(d.archiveShell.querySelector('faceplate-tabgroup[for="profile-feed-tabs"]'));assert.equal(d.feed.tagName,'SHREDDIT-FEED');
+ d.reset();assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);assert.equal(W.document.querySelector('[data-rt-ui="archive-profile"]'),null);
 });
 test('deleted-account Overview combines archived posts/comments and empty/error states stay explicit',async t=>{
  let fail=false,empty=false;const requests=[];
@@ -256,7 +256,7 @@ test('deleted-account Overview combines archived posts/comments and empty/error 
 });
 test('deleted-profile archive opt-out, route changes and replaced native notices clean up safely',async t=>{
  let resolve;const {W,d,calls}=setup(t,{settings:{archiveDiscovery:true},archive:()=>new Promise(r=>resolve=r)});await d.ready;d.reset();let notice=deletedPage(W);d.scan();const load=d.loadArchive();
- d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false,archiveDiscovery:true}}},'local');resolve({posts:[raw()],hasMore:false});await load;assert.equal(W.document.querySelector('main[data-rt-ui="archive-profile"]'),null);assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);assert.equal(calls.length,0);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false,archiveDiscovery:true}}},'local');resolve({posts:[raw()],hasMore:false});await load;assert.equal(W.document.querySelector('[data-rt-ui="archive-profile"]'),null);assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);assert.equal(calls.length,0);
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:true,archiveDiscovery:false}}},'local');assert.equal(d.discover.disabled,true);assert.match(d.archiveEmpty.textContent,/Enable/);assert.equal(d.archiveEmpty.hidden,false);
  const oldShell=d.archiveShell;notice=deletedPage(W);d.scan();assert.notEqual(d.archiveShell,oldShell);assert.equal(oldShell.isConnected,false);
  W.history.pushState({},'','/user/Other/saved/');d.scan();assert.equal(d.archiveShell,null);assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);
@@ -278,7 +278,7 @@ test('archive-only missing fragments use native components with inert historical
 });
 test('deleted-profile tabs remount their native selected state and request the correct archived kind',async t=>{
  const requests=[];const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{archiveDiscovery:true},archive:async input=>{requests.push(input.kind);return {posts:[],hasMore:false};}});await d.ready;d.reset();const notice=deletedPage(W);d.scan();await d.loadArchive();
- for(const [path,kind,index] of [['/user/Example/submitted/','post','2'],['/user/Example/comments/','comment','3']]){W.history.pushState({},'',path);d.scan();await d.loadArchive();assert.equal(requests.at(-1),kind);assert.equal(d.archiveShell.querySelector('faceplate-tabgroup').getAttribute('pageindex'),index);assert.equal(d.archiveShell.querySelector('faceplate-tabpanel').getAttribute('pageindex'),index);assert.equal(d.archiveShell.querySelectorAll('[faceplate-tab-selected]').length,1);assert.equal(W.document.querySelectorAll('main[data-rt-ui="archive-profile"]').length,1);assert.equal(notice.dataset.rtArchiveNotice,'true');}
+ for(const [path,kind,index] of [['/user/Example/submitted/','post','2'],['/user/Example/comments/','comment','3']]){W.history.pushState({},'',path);d.scan();await d.loadArchive();assert.equal(requests.at(-1),kind);assert.equal(d.archiveShell.querySelector('faceplate-tabgroup').getAttribute('pageindex'),index);assert.equal(d.archiveShell.querySelector('faceplate-tabpanel').getAttribute('pageindex'),index);assert.equal(d.archiveShell.querySelectorAll('[faceplate-tab-selected]').length,1);assert.equal(W.document.querySelectorAll('[data-rt-ui="archive-profile"]').length,1);assert.equal(notice.dataset.rtArchiveNotice,'true');}
 });
 
 test('early guard detaches native deletion notices, mounts from their anchors and restores on opt-out',async t=>{
@@ -301,4 +301,15 @@ test('deleted header avatars use only the active account snapshot and handle fai
  d.updateProfileAvatar({owner:'@other:reddit.com',records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/wrong.png'}]});assert.equal(d.avatarImage,first);
  owner='@new:reddit.com';d.updateProfileAvatar();assert.equal(d.avatarImage,null);assert.equal(d.avatarPlaceholder.hidden,false);
  d.updateProfileAvatar({owner,records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/broken.png'}]});const broken=d.avatarImage;broken.dispatchEvent(new W.Event('error'));assert.equal(d.avatarImage,null);d.updateProfileAvatar({owner,records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/broken.png'}]});assert.equal(d.avatarImage,null);
+});
+
+test('deleted desktop layout retains native navigation across tabs and labels loaded archive statistics',async t=>{
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{archiveDiscovery:true},archive:async input=>({posts:input.kind==='comment'?[comment()]:[raw()],hasMore:false}),reddit:async input=>{assert.equal(input.action,'render-navigation');const target=W.document.getElementById(input.target);target.innerHTML='<flex-left-nav-container id="left-sidebar-container"><a href="/">Home</a></flex-left-nav-container>';return {rendered:true};}});
+ await d.ready;d.reset();deletedPage(W);d.scan();await d.loadNavigation();await d.loadArchive();await new Promise(r=>setImmediate(r));const nav=d.profileNavigation,home=nav.querySelector('a');const observer=new W.MutationObserver(()=>{});observer.observe(d.archiveShell.querySelector('aside'),{subtree:true,childList:true});d.scan();d.scan();assert.equal(observer.takeRecords().length,0);observer.disconnect();assert.equal(nav.dataset.state,'ready');assert.ok(d.archiveShell.classList.contains('grid-container'));assert.ok(d.archiveShell.querySelector('aside#right-sidebar-container'));assert.equal(d.archiveStats.posts.textContent,'1');assert.equal(d.archiveStats.comments.textContent,'1');assert.notEqual(d.archiveStats.oldest.textContent,'—');assert.match(d.archiveShell.querySelector('aside').textContent,/Partial archive coverage/);
+ W.history.pushState({},'','/user/Example/comments/');d.scan();assert.equal(d.profileNavigation,nav);assert.equal(nav.querySelector('a'),home);assert.equal(nav.dataset.state,'ready');assert.equal(W.document.querySelectorAll('#left-sidebar-container').length,1);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(nav.isConnected,false);assert.equal(d.profileNavigation,null);
+});
+test('native navigation failures keep usable common links and provide an explicit retry',async t=>{
+ let fail=true;const {W,d}=setup(t,{reddit:async()=>{if(fail)throw Error('Offline');return {rendered:true};}});await d.ready;d.reset();deletedPage(W);d.scan();d.loadNavigation();await new Promise(r=>setImmediate(r));assert.equal(d.profileNavigation.dataset.state,'failed');assert.match(d.profileNavigation.textContent,/Home/);assert.match(d.profileNavigation.textContent,/Popular/);assert.ok(d.profileNavigation.querySelector('button'));assert.ok(d.host.isConnected);
+ fail=false;d.profileNavigation.querySelector('button').click();await new Promise(r=>setImmediate(r));assert.equal(d.profileNavigation.dataset.state,'ready');
 });
