@@ -19,7 +19,7 @@
     const matches=person=>[person.name,...(Array.isArray(person.aliases)?person.aliases:[])].some(name=>typeof name==='string' && name.replace(/^u\//i,'').toLowerCase()===username.toLowerCase());
     const people=Array.isArray(entry.identities)?entry.identities:Object.values(entry.identities || {});
     for(const person of people)if(matches(person)){const avatar=avatarUrl(person.avatar);if(avatar)return avatar;}
-    for(const record of entry.records || entry.conversations || []){if(!['direct','reddit_titled_direct'].includes(record.type) && record.participantIds?.length!==1)continue;for(const person of record.identities || [])if(matches(person)){const avatar=avatarUrl(person.avatar);if(avatar)return avatar;}if(matches(record)){const avatar=avatarUrl(record.avatar);if(avatar)return avatar;}}
+    for(const record of entry.records || entry.conversations || []){for(const person of record.identities || [])if(matches(person)){const avatar=avatarUrl(person.avatar);if(avatar)return avatar;}if(!['direct','reddit_titled_direct'].includes(record.type) && (record.type || record.participantIds?.length!==1))continue;if(matches(record)){const avatar=avatarUrl(record.avatar);if(avatar)return avatar;}}
     return '';
   }
   function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true};}
