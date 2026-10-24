@@ -1,3 +1,39 @@
+const SETTINGS_KEY='rt-settings-v1';
+const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false};
+
+async function loadSettings() {
+  const controls=[...document.querySelectorAll('[data-setting]')],status=document.querySelector('#settings-status');
+  if(!controls.length)return;
+  for(const control of controls)control.disabled=true;
+  if(!globalThis.chrome?.storage?.local?.get||!globalThis.chrome?.storage?.local?.set){
+    status.textContent='Settings storage unavailable.';status.classList.add('error');return;
+  }
+  let loaded=false;
+  try {
+    const stored=await chrome.storage.local.get(SETTINGS_KEY),settings={...SETTINGS_DEFAULTS,...(stored?.[SETTINGS_KEY]||{})};
+    for(const control of controls)control.checked=Boolean(settings[control.dataset.setting]);
+    loaded=true;status.textContent='Settings saved automatically.';
+    for(const control of controls)control.addEventListener('change',()=>saveSetting(control));
+  } catch {
+    status.textContent='Could not load settings. Reopen the popup to retry.';status.classList.add('error');
+  } finally {for(const control of controls)control.disabled=!loaded;}
+}
+
+let settingsWrite=Promise.resolve();
+function saveSetting(control) {
+  const status=document.querySelector('#settings-status'),key=control.dataset.setting,next=control.checked;
+  control.disabled=true;status.classList.remove('error');status.textContent='Saving…';
+  settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{
+    const storage=globalThis.chrome?.storage?.local;
+    if(!storage?.get||!storage?.set)throw Error('storage unavailable');
+    const latest=await storage.get(SETTINGS_KEY),merged={...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY]||{}),[key]:next};
+    await storage.set({[SETTINGS_KEY]:merged});
+  }).then(()=>{status.textContent='Settings saved automatically.';},()=>{
+    control.checked=!next;status.textContent='Could not save this setting. Please retry.';status.classList.add('error');
+  }).finally(()=>{control.disabled=false;});
+  return settingsWrite;
+}
+
 async function updateMessageStats() {
   const element=document.querySelector('#message-stats');
   try {
@@ -24,4 +60,5 @@ document.querySelector('#clear-messages').addEventListener('click',async()=>{
   } catch {status.textContent='Could not clear saved messages. Please retry.';}
   finally {button.disabled=false;}
 });
+loadSettings();
 updateMessageStats();

@@ -1,3 +1,43 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chat Search for Reddit</title><link rel="stylesheet" href="popup.css"></head>
-<body><div class="brand"><span class="logo">⌕</span><strong>Chat Search for Reddit</strong></div><p>Find a person. Find a message.</p><ol><li>Open Reddit chat, in the corner or full screen.</li><li>Use <strong>Search chats and messages</strong>, then choose <strong>People</strong> or <strong>Messages</strong>.</li><li>Search inside a conversation to load additional history.</li></ol><section class="note cache-info" aria-labelledby="saved-search-heading"><h2 id="saved-search-heading">Saved messages only</h2><p>History may be incomplete. Messages become searchable after Reddit or a conversation search loads them. Older messages, chats, or threads may be missing.</p><p>The cache stays on this device and is scoped to your Reddit account. Refreshing search results does not build a complete archive.</p></section><a href="https://www.reddit.com/chat/" target="_blank" rel="noopener noreferrer">Open Reddit chat ↗</a><p id="message-stats" class="note" role="status">Checking saved messages…</p><div class="cache-actions"><button id="clear-messages" type="button">Clear saved messages</button><button id="clear-cache" type="button">Clear saved usernames</button></div><p id="cache-status" role="status"></p><footer>Saved on this device · No account setup<br>Independent extension, unaffiliated with Reddit.</footer><script src="popup.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Reddit Tweaks</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="brand">
+    <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h9M17 7h3M4 17h3m5 0h8M13 4v6M7 14v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+    <div><strong>Reddit Tweaks</strong><span class="tagline">Small tools for Reddit</span></div>
+  </header>
+
+  <main>
+    <section class="category" aria-labelledby="posts-heading">
+      <div class="category-heading"><h1 id="posts-heading">Posts</h1><span class="category-hint">Discovery</span></div>
+      <div class="setting-row">
+        <div class="setting-copy"><label for="post-discovery">Discover public posts</label><p>Find public posts beyond the loaded profile feed.</p></div>
+        <input class="switch" type="checkbox" id="post-discovery" data-setting="postDiscovery" aria-label="Discover public posts">
+      </div>
+      <div class="setting-row setting-subrow">
+        <div class="setting-copy"><label for="archive-discovery">Search Arctic Shift archive</label><p>Queries the viewed public username or post ID. Archive availability is incomplete.</p></div>
+        <input class="switch" type="checkbox" id="archive-discovery" data-setting="archiveDiscovery" aria-label="Search Arctic Shift archive">
+      </div>
+      <p id="settings-status" class="settings-status" role="status" aria-live="polite">Loading settings…</p>
+      <p class="provenance">Uses the public profile or post currently open on Reddit.</p>
+    </section>
+
+    <section class="category chat-category" aria-labelledby="chat-heading">
+      <div class="category-heading"><h2 id="chat-heading">Chat</h2><span class="category-hint">Saved on this device</span></div>
+      <p class="chat-intro">Search the messages Reddit has loaded. History may be incomplete; search inside a conversation to load more.</p>
+      <details class="cache-details"><summary>About saved chat history</summary><p class="note cache-info"><strong>Saved messages only</strong><br>History may be incomplete. Messages become searchable after Reddit or a conversation search loads them. Older messages, chats, or threads may be missing. The cache stays on this device and is scoped to your Reddit account.</p></details>
+      <a class="chat-link" href="https://www.reddit.com/chat/" target="_blank" rel="noopener noreferrer">Open Reddit chat <span aria-hidden="true">↗</span></a>
+      <p id="message-stats" class="message-stats" role="status">Checking saved messages…</p>
+      <div class="cache-actions"><button id="clear-messages" type="button">Clear saved messages</button><button id="clear-cache" type="button">Clear saved usernames</button></div>
+      <p id="cache-status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <footer>Independent extension, unaffiliated with Reddit.</footer>
+  <script src="popup.js"></script>
+</body>
+</html>
