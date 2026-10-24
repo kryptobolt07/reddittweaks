@@ -1,3 +1,13 @@
+# 0.15.0 preview
+
+- Handle Reddit's explicit deleted-account pages, which omit both the main landmark and native feed. Add a compact archive-only Overview/Posts/Comments view and restore the native notice on opt-out or navigation. Generic missing-page/network errors stay untouched.
+- Automatically search the viewed username only when both discovery and Arctic Shift are enabled. Reuse credential-free, bounded archive requests and explicit pagination. Disabled archives send no requests and show the relevant setting.
+- Render attributed archive text, dates, historical scores and source links without Reddit search, status, native-card requests or fabricated live voting controls. Preserve unknown current item status, NSFW/spoiler restrictions, existing results after a failed refresh and incomplete-coverage wording.
+
+Version choice: MINOR to 0.15.0 for the new deleted-account archive view. No storage-schema change or new persistence.
+
+Validation: all 515 tests pass; all 31 extension/demo JavaScript files parse. ZIP integrity, aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave confirmed that the reported profile is deleted and has no native feed. A synthetic Brave preview rendered mixed archived posts/comments in date order. Direct Arctic Shift API probes returned HTTP 403 and Brave blocked direct API navigation; recovery coverage for the example username remains unverified. The updated installed extension requires manual reload. Archive availability/coverage and Reddit's deletion-page markup can change.
+
 # 0.14.2 preview
 
 - Fix profile discovery failing to mount after the early-notice change. Installed Brave tracing showed the shared model executing only in MAIN when both registrations used document start; the isolated discovery script exited before creating its controls/results. Restore its established idle registration for Posts, Comments and Overview.
