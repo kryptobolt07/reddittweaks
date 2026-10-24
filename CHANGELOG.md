@@ -1,3 +1,14 @@
+# 0.14.1 preview
+
+- Cooperate with Reddit's native feed virtualization instead of reinserting detached cards after their height placeholders. Preserve loaded cards, native date anchors and duplicate identities as the user scrolls; restore existing content without another hydration request. Recover a card whose request was interrupted while it was virtualized.
+- Put the source/status marker just before the native Join and overflow controls. Use distinct, visible crossed-eye, trash, barred-circle and archive icons for profile-omitted activity, verified deletion, verified removal and unverified archive snapshots, with descriptive accessible labels.
+- Hide Reddit's styled empty-profile panel while discoveries are visible, restoring its original state on cleanup. Leave native media markup and controls intact.
+- End the attachment animation without a persistent transform/opacity stacking context so native menus can overlap subsequent cards. Play it only on initial hydration, rather than again after scrolling back.
+
+Version choice: PATCH to 0.14.1 for the scrolling/stacking reliability fixes. No chat schema change, cache reset or additional sync loop.
+
+Validation: all 496 tests pass, including native placeholder replacement/restoration, preserved DOM/request counts, virtualized opt-out, interrupted hydration and icon placement/state. All 30 extension/demo JavaScript files parse. ZIP integrity, compatibility aliases and source/stable-folder/archive byte equality pass for 31 assets. Live Brave diagnosis reproduced repeated native placeholders and reinsertion while scrolling, and confirmed the native virtualization mechanism and persistent animation transform. Final installed-build verification follows extension reload. Reddit's internal fragment endpoints and virtualization markup may change; archive coverage remains incomplete.
+
 # 0.14.0 preview
 
 - Fix discovery initialization under the existing trusted-only storage policy. Content scripts receive only normalized feature preferences through the worker; private chat storage remains protected. Preference changes propagate to mounted profile views, and failed initialization offers Retry instead of silently disappearing.
