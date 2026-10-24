@@ -31,7 +31,8 @@
   }
   function unavailableNotice(){for(const [notice,anchor] of notices)if(anchor.isConnected){const state=notice.querySelector('img[alt="Deleted user"]')?'deleted':notice.id==='shreddit-forbidden'?'banned':'';if(state)return {notice,anchor,state};}return null;}
   function setEnabled(value){revision++;const next=value===true,changed=next!==enabled;enabled=next;refresh(changed?undefined:[]);}
-  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,unavailableNotice});
+  const emptyTemplate=()=>[...notices.keys()].find(n=>n.id==='empty-feed-content' && n.querySelector('[data-testid="empty-state-creative"]'))?.cloneNode(true) || null;
+  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,unavailableNotice,emptyTemplate});
   // Observe the Document: the root may not exist yet at document_start.
   const observer=new MutationObserver(refresh);observer.observe(document,{childList:true,subtree:true});
   window.addEventListener('popstate',refresh);document.addEventListener('reddit:route',refresh);
