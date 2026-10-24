@@ -1,3 +1,16 @@
+# 0.14.0 preview
+
+- Fix discovery initialization under the existing trusted-only storage policy. Content scripts receive only normalized feature preferences through the worker; private chat storage remains protected. Preference changes propagate to mounted profile views, and failed initialization offers Retry instead of silently disappearing.
+- Discover public comments using Reddit's native author-search partial endpoint, including modern long t1 IDs. Add Arctic Shift comment lookup and source-safe post/comment identity, parent links and independent cursors.
+- Show a bounded initial selection automatically: posts on Posts, comments on Comments, and both on Overview. Preserve partial successes, cancel stale route work and hide the native empty placeholder only while additional activity is visible.
+- Merge missing discoveries directly into Reddit’s feed instead of a separate results block. Recognize native profile-comment IDs, preserve pinned cards and native ownership, defer older results past the loaded date window, and remount cleanly when Reddit replaces its feed. Use compact status/icon controls.
+- Replace simplified result cards with Reddit’s real profile-feed post and comment fragments, hydrated by its own component loader. Preserve native media, icons, action controls, vote state and observed view mode; keep authenticated markup in the page world. Hydrate nearby cards at bounded concurrency, remove duplicate native IDs, and show native placeholders with reduced-motion-aware attachment instead of a visible checking message.
+- Fix the popup's intrinsic sizing with a stable 360px root/body width, shorten descriptions and clarify that discovery includes posts and comments. Retain chat controls, settings and caches.
+
+Version choice: MINOR to 0.14.0 because this adds public and archived comment discovery alongside reliability/UI corrections. No chat schema change or cache reset.
+
+Validation: all 492 tests pass. All 26 extension/preview JavaScript files parse. Live Brave diagnosis reproduced the blocked content-script storage read, verified successful Reddit post and comment requests on the reported curated profile, and received a successful Arctic Shift post page. The synthetic popup preview measured a single-line brand, 360px body width and 542px body height. ZIP integrity and source/stable-folder/archive byte equality pass for 31 assets. Archive coverage remains incomplete; Native post and comment fragment endpoints and component hydration were verified in live Brave without voting or posting. Final installed-build verification follows reloading the extension. Internal native endpoints may change; unavailable cards offer an explicit retry/link rather than imitation actions.
+
 # 0.13.0 preview
 
 - Rebrand the extension as **Reddit Tweaks**, with orange sliders artwork and separate Posts and Chat sections. Keep the existing unpacked installation path, account-scoped chat data, and cache-management actions.

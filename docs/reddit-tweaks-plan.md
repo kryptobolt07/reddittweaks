@@ -19,7 +19,7 @@
 - Add a small inline discovery action in the profile feed. Show additional posts in that feed's layout, using Reddit typography, color tokens, spacing and native post elements where feasible. Do not replace profile controls, insert a large separate extension panel or alter existing post content.
 - Use compact icon indicators with accessible labels/tooltips for search provenance, archived snapshots and confirmed deleted/removed states. A post discovered outside the current feed is labelled as such, without guessing author intent.
 - Preserve live content. An optional archived text snapshot is separate from live content and clearly identifies its source. On detail pages, fetch archive text only by explicit action with archive discovery enabled.
-- Render text safely. Never insert API-supplied HTML, copy live interactive controls, impersonate votes, auto-play media, expose spoilers/NSFW thumbnails without respecting their flags, or claim complete history.
+- Render text safely. Keep archive text inert. Obtain native cards only from fixed same-origin Reddit fragment endpoints and let Reddit’s own renderer hydrate its controls and modules in the page world. Do not copy another post’s interactive state or invent votes/actions. Preserve native media restrictions and never claim complete history.
 - Use explicit Load more. Debounce DOM observation, cancel stale SPA work, deduplicate against native and injected IDs, and remove extension UI when its feature is disabled.
 
 ## Data and requests
@@ -55,3 +55,21 @@ No reference UI or code is copied. Availability and response schemas can change;
 The provider/model, inline profile and detail integration, and popup rebrand are implemented in separate commits. Current public API fields were checked against Arctic Shift's documentation; unsupported field projections were removed. Provider opt-out gates are checked again after queueing and before returning results. Snapshot restrictions combine current and archived NSFW/spoiler flags.
 
 Synthetic tests cover the provider and UI cases above, including delayed settings, route changes and pagination bounds. Brave confirmed current profile/feed and post slot structure, and the synthetic preview was inspected in wide/narrow and light/dark layouts. Direct browser navigation to Reddit's search JSON endpoint was blocked by the client; no restriction was bypassed. Live extension requests and end-to-end recovery remain to be checked after reloading the installed extension. Arctic Shift responses were probed during research, but availability varies by environment. The new host permission is limited to its public API origin.
+
+## 0.14.0 follow-up diagnosis and correction
+
+Live inspection reproduced a storage-boundary defect: the content script could not read `chrome.storage.local` because the existing chat broker restricts it to trusted contexts. The swallowed settings error left discovery disabled. A normalized two-boolean settings message and worker-to-tab updates now bridge that boundary without exposing or weakening chat storage. Failed initialization displays an explicit retry state.
+
+The reported curated profile returned public posts from Reddit search, ten comments through its native search partial endpoint, and a successful Arctic Shift post page. Comment discovery now parses inert native search cards, validates authors and opaque cursors, supports modern long t1 IDs, and uses the archive comments endpoint with its documented field projection. Profile routes distinguish Posts, Comments and Overview; automatic initial reads are bounded, stale work is discarded, and explicit pagination remains incomplete.
+
+The popup's viewport-relative maximum width could collapse its content during intrinsic sizing. Both root and body now specify a stable 360 CSS-pixel intrinsic width. A real-browser synthetic preview measures a single-line brand and a 542-pixel popup body with readable descriptions. No profile text or live diagnostics are committed.
+
+### Native-feed merge correction
+
+The first live follow-up exposed native `shreddit-profile-comment[comment-id]` identities that the initial deduplication missed. Keeping discoveries in a prepended section also placed old search results above recent native activity. The corrected adapter inserts only missing cards between native date anchors, leaves pinned and other native nodes in their original order, and defers discoveries older than the loaded native date window while pagination remains available. It restores placeholders and removes only owned cards on disable/navigation or native feed replacement. Status and icon controls share one compact row. Regression fixtures cover pinned cards, comment deduplication, date-window expansion, cleanup and feed replacement.
+
+### First-party card rendering
+
+The final integration uses the native `/svc/shreddit/partial-feed-post/t3_ID` endpoint with the observed profile view context/type, and `/svc/shreddit/comment/t1_ID?isProfile=true` for profile comments. Matching, bounded HTML remains in the page world and passes through the client’s own `faceplate-partial` fragment renderer; the extension receives only completion metadata. This loads the native modules, media, vote state, icons and menus rather than maintaining a second card design. Archive snapshots remain separately attributed plaintext.
+
+Only nearby, nonduplicate cards hydrate, with two requests in flight and a bounded request budget. Native arrival removes an injected duplicate’s native IDs. Native shimmer/progress elements cover pending cards; ordinary checking/result status stays available to assistive technology without a visible loading banner. A small attachment animation respects reduced motion. Failure provides a retry/link and never fabricates native actions. These internal Reddit endpoints can change, so the implementation validates returned identities and falls back explicitly.
