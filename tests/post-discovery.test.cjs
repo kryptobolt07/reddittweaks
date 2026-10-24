@@ -185,7 +185,7 @@ test('sort, range and layout changes reset scope and cancel an obsolete profile 
 
 test('Top merges by native score anchors while Hot keeps Reddit search order',async t=>{
  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/?sort=top'});await d.ready;
- d.feed.innerHTML='<article id="higher"><shreddit-post id="t3_high" score="100" created-timestamp="2023-01-01"></shreddit-post></article><article id="lower"><shreddit-post id="t3_low" score="10" created-timestamp="2026-01-01"></shreddit-post></article>';
+ d.feed.innerHTML='<article id="higher"><shreddit-post id="t3_high" score="100" created-timestamp="2023-01-01"></shreddit-post></article><article id="lower"><shreddit-profile-comment comment-id="t1_low"><shreddit-comment-action-row score="10"></shreddit-comment-action-row></shreddit-profile-comment></article>';
  d.live.set('middle',raw('middle',{score:50,created_utc:1700000000}));d.render();assert.equal(d.nodes.get('middle').previousElementSibling.id,'higher');assert.equal(d.nodes.get('middle').nextElementSibling.id,'lower');
  W.history.pushState({},'','?sort=hot');d.scan();d.live.set('first',raw('first',{created_utc:1700000000}));d.live.set('second',raw('second',{created_utc:1700000010}));d.render();assert.equal(d.nodes.get('first').nextElementSibling,d.nodes.get('second'));
 });
