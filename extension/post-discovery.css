@@ -35,13 +35,10 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-profile-avatar>img{width:64px;height:64px;max-width:64px;max-height:64px;object-fit:contain;border-radius:50%}
 .rt-profile-avatar>span{width:64px;height:64px;flex:none}
 .rt-profile-avatar .rt-unavailable-avatar{display:block;width:64px;height:64px;object-fit:contain;object-position:center;border-radius:50%}
-.rt-card-author-avatar{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:24px;height:24px;flex:none;margin-inline-end:4px}
-.rt-card-author-avatar .rt-unavailable-avatar{display:block;width:24px;height:24px;object-fit:contain;object-position:center;border-radius:50%}
 .rt-comment-source-host{position:relative}
 .rt-comment-source-host>.rt-post-indicator{position:absolute;top:8px;inset-inline-end:16px;margin:0;z-index:1}
 .rt-comment-source-credit{padding-inline-end:32px}
 
+.rt-native-placeholder faceplate-shimmer:not(:defined){display:block;background:var(--color-neutral-background-weak,#f2f4f5)}
 .rt-native-loading:not(:defined){display:block;min-height:112px}
 @media(prefers-reduced-motion:reduce){.rt-native-loading::before{animation:none!important}}
-
-[data-rt-author-avatar-replaced]{display:none!important}
