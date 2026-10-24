@@ -42,9 +42,13 @@
     const id=input.toLowerCase().replace(/^t1_/,''),linkId=idOf(raw.link_id || raw.linkId);
     const base=normalizePost({...raw,id:'comment',selftext:raw.body,permalink:undefined},{source});
     if(!base || !linkId)return null;
+    const parent=str(raw.parent_id ?? raw.parentId,40).toLowerCase();let parentId='';
+    if(/^t1_[a-z0-9]{1,32}$/.test(parent) || /^t3_[a-z0-9]{1,10}$/.test(parent))parentId=parent;
+    else if(/^[a-z0-9]{1,32}$/.test(parent))parentId=(parent===linkId?'t3_':'t1_')+parent;
+    else if(Object.hasOwn(raw,'parent_id') && (raw.parent_id==null || raw.parent_id===''))parentId='t3_'+linkId;
     return {...base,kind:'comment',id,fullname:'t1_'+id,linkId,title:str(raw.link_title ?? raw.title,1000),
       permalink:safeUrl(raw.permalink,true)||'https://www.reddit.com/comments/'+linkId+'/comment/'+id+'/',
-      parentId:str(raw.parent_id ?? raw.parentId,40)};
+      parentId};
   }
   const normalizeItem=(raw,options)=>raw?.kind==='comment' || /^t1_/i.test(raw?.name || raw?.fullname || raw?.id || '')?normalizeComment(raw,options):normalizePost(raw,options);
   function mergePosts(livePosts,archivePosts,{username,visibleIds=[],sort='new',range='all',now=Date.now()/1000}={}){
