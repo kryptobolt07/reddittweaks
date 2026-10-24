@@ -1,3 +1,14 @@
+# 0.18.1 preview
+
+- Keep one native Reddit halo at the end of the feed while cards and further pages load, including comments in Overview. Stage unfinished cards outside the visible feed and publish ready cards in order. Reattach the same tail if native reconciliation removes or overtakes it; dormant, hidden and offscreen native loader components do not suppress it. Observe native loader shadow completion so continuation can resume without another scroll.
+- Remove the eight-page lifetime cap and artificial rolling 8-read/30-card quotas. Continue on demand with validated source cursors, bounded concurrency, timeouts, route checks and Reddit Retry-After. Retain original native sort horizons for All activity and do not claim complete archive/history coverage.
+- Combine Comments sorting and Activity in one native dropdown at the existing sort position, showing the current sort such as New. Reuse the native button/caret, menu rows, Top submenu and positioning; restore the original sort control on opt-out, replacement and cleanup.
+- Make Deleted start opted-in Arctic Shift discovery, including after an in-flight Reddit read, and prefer archive continuation in that mode. Verify current deleted/removed status instead of treating every snapshot as deleted. Older filtered archive candidates are no longer held behind the unfiltered native feed horizon.
+
+Version choice: PATCH to 0.18.1 for user-visible loading/continuation and Deleted-filter reliability fixes, plus the requested Comments control correction. No permissions, storage schemas or private chat synchronization changes.
+
+Validation: all 606 tests pass, including 133 targeted discovery/native-bridge checks. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave inspection confirmed the native Comments sort button/caret and reproduced the missing archive lookup and separate controls on the reported profile. Final installed-build verification requires reloading the unpacked extension. The live Reddit metadata endpoint returned HTTP 403 during diagnosis; native card evidence can still qualify status, but failed or unavailable verification never proves deletion. Archive availability/coverage and undocumented native client contracts remain variable.
+
 # 0.18.0 preview
 
 - Preserve Reddit's Feed options trigger and sort/view rows. Add one Activity entry opening All activity, Hidden and Deleted within the same dropdown, with native icons, checkmark, Back and Escape behavior. Missing controls on deleted/banned profiles reuse Reddit-rendered controls with native Top/view actions; Comments uses the native icon-only variant beside View where available. Reduce Refresh to the adjacent 16px visual size.
