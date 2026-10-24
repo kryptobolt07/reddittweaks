@@ -1,4 +1,7 @@
 /* Reddit owns the cards. These styles apply only to extension controls and notes. */
+/* This native creative identifies the curated-profile Welcome panel. Keep other
+   empty/error states visible; do not wait for a successful discovery response. */
+html[data-rt-profile-discovery] main #empty-feed-content:has(img[src*="/shreddit/assets/snoo_wave."]){display:none!important}
 .rt-posts{font:inherit;color:var(--color-neutral-content,#333d42);margin-block:4px;min-width:0}
 .rt-posts [hidden],.rt-native-card[hidden],[data-rt-empty-suppressed],[data-rt-retired]{display:none!important}
 .rt-posts-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:4px;min-height:32px;position:relative}

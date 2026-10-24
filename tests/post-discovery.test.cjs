@@ -133,3 +133,26 @@ test('a card virtualized during hydration can recover when Reddit restores it',a
  await d.ready;await d.loadReddit();const card=d.nodes.get('abc12'),slot=W.document.createElement('div');slot.className='virtualized-placeholder';d.feed.replaceChild(slot,card);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[card]}]);reject(Error('Page changed. Try again.'));await new Promise(r=>setImmediate(r));assert.equal(card.dataset.rtNativeState,'idle');assert.equal(card.isConnected,false);
  d.feed.replaceChild(card,slot);d.trackVirtualization([{target:d.feed,addedNodes:[card],removedNodes:[slot]}]);d.scan();await new Promise(r=>setImmediate(r));assert.equal(card.dataset.rtNativeState,'ready');assert.equal(attempts,2);assert.ok(card.querySelector('shreddit-post'));
 });
+
+test('hidden-profile Welcome panels are suppressed before settings/results and after native replacement',async t=>{
+ let resolveSettings,resolveSearch;
+ const {W,d}=setup(t,{readSettings:()=>new Promise(resolve=>resolveSettings=resolve),reddit:()=>new Promise(resolve=>resolveSearch=resolve)});
+ const style=W.document.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(style);
+ const panel=()=>{const e=W.document.createElement('div');e.id='empty-feed-content';e.innerHTML='<img src="https://www.redditstatic.com/shreddit/assets/snoo_wave.png"><h2>Welcome!</h2><p>This profile keeps posts hidden.</p>';return e;};
+ let notice=panel();W.document.querySelector('shreddit-feed').append(notice);
+ assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),true);assert.equal(W.getComputedStyle(notice).display,'none');
+ resolveSettings({'rt-settings-v1':{postDiscovery:true}});await d.ready;const search=d.loadReddit();assert.equal(W.getComputedStyle(notice).display,'none');
+ const replacement=panel();notice.replaceWith(replacement);notice=replacement;
+ // No scan or provider completion is needed for replacement markup.
+ assert.equal(W.getComputedStyle(notice).display,'none');resolveSearch({posts:[],hasMore:false});await search;assert.equal(W.getComputedStyle(notice).display,'none');
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);assert.notEqual(W.getComputedStyle(notice).display,'none');
+});
+
+test('notice guard leaves other empty states and unsupported routes unchanged',async t=>{
+ const {W,d}=setup(t);await d.ready;const style=W.document.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(style);
+ const notice=W.document.createElement('div');notice.id='empty-feed-content';notice.innerHTML='<h2>No activity yet</h2>';W.document.querySelector('main').append(notice);assert.notEqual(W.getComputedStyle(notice).display,'none');
+ notice.innerHTML='<img src="https://www.redditstatic.com/shreddit/assets/snoo_wave.png"><h2>Welcome!</h2>';assert.equal(W.getComputedStyle(notice).display,'none');
+ W.history.pushState({},'','/user/Example/saved/');d.onRoute();assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);assert.notEqual(W.getComputedStyle(notice).display,'none');
+ W.history.pushState({},'','/user/Other/comments/');d.onRoute();assert.equal(W.getComputedStyle(notice).display,'none');d.destroy();assert.notEqual(W.getComputedStyle(notice).display,'none');
+ const block=JSON.parse(fs.readFileSync('extension/manifest.json','utf8')).content_scripts.find(block=>block.js.includes('post-discovery.js'));assert.equal(block.run_at,'document_start');
+});

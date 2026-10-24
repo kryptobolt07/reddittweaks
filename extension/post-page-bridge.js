@@ -57,7 +57,6 @@
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
     const now=Date.now();cardStarts=cardStarts.filter(t=>now-t<30000);
     if(now<cooldown || cardActive>=2 || cardStarts.length>=12)throw Error('Please wait before loading another native card.');
-    if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function')throw Error('Reddit’s native card renderer is not ready.');
     const url=new URL(comments?'/svc/shreddit/comment/'+fullname:'/svc/shreddit/partial-feed-post/'+fullname,location.origin);
     if(comments)url.searchParams.set('isProfile','true');else{
       const sample=[...document.querySelectorAll('main shreddit-feed shreddit-post')].find(node=>!node.closest('[data-rt-ui]'));
@@ -66,9 +65,17 @@
       url.searchParams.set('fvt',view && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(view)?view:'cardView');
     }
     const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
-    let timer;cardStarts.push(now);cardActive++;
+    let timer,definitionAbort;cardStarts.push(now);cardActive++;
     try{
       const operation=(async()=>{
+        // Discovery now mounts before Reddit's modules. Wait within the same
+        // bounded operation instead of failing early or fetching another copy.
+        if(!customElements.get('faceplate-partial'))await new Promise((resolve,reject)=>{
+          definitionAbort=()=>reject(Error('Native card request cancelled.'));controller.signal.addEventListener('abort',definitionAbort,{once:true});
+          if(controller.signal.aborted){definitionAbort();return;}customElements.whenDefined('faceplate-partial').then(resolve,reject);
+        });
+        if(location.pathname!==path || controller.signal.aborted || !target.isConnected)throw Error('Page changed. Try again.');
+        if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function')throw Error('Reddit’s native card renderer is not ready.');
         const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
         if(response.status===429){cooldown=Date.now()+60000;throw Error('Reddit rate limit reached. Try again later.');}
         if(!response.ok)throw Error(`Reddit could not render this card (HTTP ${response.status}).`);
@@ -86,7 +93,7 @@
       })();
       const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Native card loading timed out.'));},10000);});
       return await Promise.race([operation,timeout]);
-    }finally{cardActive--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
+    }finally{cardActive--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);if(definitionAbort)controller.signal.removeEventListener('abort',definitionAbort);}
   }
   async function read(input,signal){
     if(input.action==='render-card')return renderCard(input,signal);
