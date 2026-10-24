@@ -215,7 +215,7 @@ test('local card backpressure keeps native placeholders and resumes without Retr
  let attempts=0;const {d}=setup(t,{nativeRender:async(post,node)=>{attempts++;if(attempts===1)return {deferred:true,retryAfterMs:100};node.innerHTML=`<shreddit-post id="${post.fullname}"></shreddit-post>`;return {rendered:true};}});
  await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const node=d.nodes.get('abc12');assert.equal(node.dataset.rtNativeState,'queued');assert.ok(node.querySelector('.rt-native-placeholder'));assert.equal(node.querySelector('button'),null);
  await new Promise(r=>setTimeout(r,130));assert.equal(node.dataset.rtNativeState,'ready');assert.equal(attempts,2);
- const loader=d.loading.querySelector('faceplate-progress');assert.equal(loader.getAttribute('status'),'indeterminate');assert.equal(loader.classList.contains('animate-spin'),false);
+ assert.equal(d.loading.querySelector('faceplate-progress'),null);assert.equal(d.loading.querySelectorAll('.rt-native-placeholder').length,2);assert.ok(d.loading.querySelector('.shimmer-placeholder.bg-shimmer'));
 });
 
 test('scope changes cancel paused metadata without stale requests',async t=>{
@@ -279,4 +279,26 @@ test('archive-only missing fragments use native components with inert historical
 test('deleted-profile tabs remount their native selected state and request the correct archived kind',async t=>{
  const requests=[];const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{archiveDiscovery:true},archive:async input=>{requests.push(input.kind);return {posts:[],hasMore:false};}});await d.ready;d.reset();const notice=deletedPage(W);d.scan();await d.loadArchive();
  for(const [path,kind,index] of [['/user/Example/submitted/','post','2'],['/user/Example/comments/','comment','3']]){W.history.pushState({},'',path);d.scan();await d.loadArchive();assert.equal(requests.at(-1),kind);assert.equal(d.archiveShell.querySelector('faceplate-tabgroup').getAttribute('pageindex'),index);assert.equal(d.archiveShell.querySelector('faceplate-tabpanel').getAttribute('pageindex'),index);assert.equal(d.archiveShell.querySelectorAll('[faceplate-tab-selected]').length,1);assert.equal(W.document.querySelectorAll('main[data-rt-ui="archive-profile"]').length,1);assert.equal(notice.dataset.rtArchiveNotice,'true');}
+});
+
+test('early guard detaches native deletion notices, mounts from their anchors and restores on opt-out',async t=>{
+ const {W,d}=setup(t,{settings:{archiveDiscovery:true}});await d.ready;d.reset();const notice=deletedPage(W);W.chrome={runtime:{id:'fixture',sendMessage:async()=>({ok:true,settings:{postDiscovery:true}})}};
+ W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));assert.equal(notice.isConnected,false);assert.ok(W.RTProfileNoticeGuard.deletedNotice().anchor.isConnected);d.scan();assert.ok(d.archiveShell.isConnected);assert.equal(W.document.querySelector('img[alt="Deleted user"]'),null);
+ const replacement=W.document.createElement('div');replacement.innerHTML='<img alt="Deleted user"><h3>Deleted account</h3>';W.document.querySelector('shreddit-app').append(replacement);await new Promise(r=>setImmediate(r));assert.equal(replacement.isConnected,false);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(notice.isConnected,true);assert.equal(replacement.isConnected,true);
+});
+test('hidden-profile notices stay detached under native post overlays and restore when leaving the profile',async t=>{
+ const {W,d}=setup(t);await d.ready;const tabs=W.document.createElement('faceplate-tabgroup');tabs.id='profile-feed-tabgroup';W.document.querySelector('main').prepend(tabs);const notice=W.document.createElement('div');notice.id='empty-feed-content';notice.innerHTML='<img src="https://www.redditstatic.com/shreddit/assets/snoo_wave.png"><h2>Welcome!</h2>';d.feed.append(notice);
+ W.chrome={runtime:{id:'fixture',sendMessage:async()=>({ok:true,settings:{postDiscovery:true}})}};W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));assert.equal(notice.isConnected,false);const host=d.host;
+ W.history.pushState({},'','/r/example/comments/abc12/title/');W.document.dispatchEvent(new W.CustomEvent('reddit:route'));d.scan();assert.equal(d.host,host);assert.equal(notice.isConnected,false);assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),true);
+ W.history.pushState({},'','/user/Example/submitted/');d.scan();assert.equal(d.host,host);assert.equal(notice.isConnected,false);
+ W.history.pushState({},'','/r/example/');W.RTProfileNoticeGuard.refresh();d.scan();assert.equal(notice.isConnected,true);
+});
+test('deleted header avatars use only the active account snapshot and handle failed images without shifts',async t=>{
+ const {W,d}=setup(t);await d.ready;d.reset();deletedPage(W);let owner='@active:reddit.com',startup={owner:'@other:reddit.com',entry:{identities:[{name:'Example',avatar:'https://i.redd.it/other.png'}]}};
+ W.RCSDirectory={getOwner:()=>owner,getStartup:()=>startup};d.scan();assert.equal(d.avatarImage,null);
+ startup={owner,entry:{identities:[{name:'Example',avatar:'https://i.redd.it/saved.png'}]}};d.updateProfileAvatar();const first=d.avatarImage;assert.equal(first.src,'https://i.redd.it/saved.png');assert.equal(first.hidden,true);first.dispatchEvent(new W.Event('load'));assert.equal(first.hidden,false);assert.equal(d.avatarPlaceholder.hidden,true);
+ d.updateProfileAvatar({owner:'@other:reddit.com',records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/wrong.png'}]});assert.equal(d.avatarImage,first);
+ owner='@new:reddit.com';d.updateProfileAvatar();assert.equal(d.avatarImage,null);assert.equal(d.avatarPlaceholder.hidden,false);
+ d.updateProfileAvatar({owner,records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/broken.png'}]});const broken=d.avatarImage;broken.dispatchEvent(new W.Event('error'));assert.equal(d.avatarImage,null);d.updateProfileAvatar({owner,records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/broken.png'}]});assert.equal(d.avatarImage,null);
 });
