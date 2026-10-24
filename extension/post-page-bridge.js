@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.RTPostModel)return;
-  const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map();let active=0,cardActive=0,cooldown=0,starts=[],cardStarts=[];
+  const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map();let active=0,cardActive=0,cooldown=0,starts=[],cardStarts=[];
   function route(){
     const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
@@ -79,6 +79,29 @@
       const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.renderMode='contents';partial.style.display='contents';target.replaceChildren(partial);partial._renderContent(navigation.outerHTML);return {rendered:true};
     })(),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit navigation loading timed out.'));},10000);})]);}finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
+  async function renderControls(input,signal){
+    const context=route(),path=location.pathname+location.search,target=typeof input.target==='string' && /^rt-controls-[a-z0-9-]{1,60}$/i.test(input.target)?document.getElementById(input.target):null;
+    if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase() || target?.dataset.rtUi!=='profile-controls' || !target.closest('main'))throw Error('Open the matching public profile.');
+    if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function')return {deferred:true,retryAfterMs:250};
+    const params=new URLSearchParams(location.search),sort=params.get('sort') || 'new',range=params.get('t') || 'all',view=params.get('feedViewType') || 'cardView';
+    if(!['new','hot','top'].includes(sort) || !['hour','day','week','month','year','all'].includes(range) || !['cardView','compactView'].includes(view))throw Error('Unsupported native feed controls.');
+    const now=Date.now(),app=document.querySelector('shreddit-app'),key=[sort,range,view].join(':');for(const [k,v] of controlReads)if(v.app!==app || v.expires<=now)controlReads.delete(k);
+    let cached=controlReads.get(key);
+    if(!cached){
+      starts=starts.filter(t=>now-t<30000);if(now<cooldown || active>=2 || starts.length>=8)return {deferred:true,retryAfterMs:Math.max(250,now<cooldown?cooldown-now:starts.length>=8?starts[0]+30000-now:250)};
+      // A fixed public profile supplies Reddit's native profile controls even
+      // when the viewed account has no native feed. Never import its activity.
+      const url=new URL('/user/reddit/submitted/',location.origin);url.searchParams.set('sort',sort);if(sort==='top')url.searchParams.set('t',range);url.searchParams.set('feedViewType',view);
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);starts.push(now);active++;
+      const promise=(async()=>{const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/html'},signal:controller.signal});if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));throw Error('Reddit feed controls are rate limited.');}if(!response.ok)throw Error('Reddit feed controls could not be loaded.');const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),button=doc.querySelector('button[aria-label="Feed options"]'),dropdown=button?.closest('rpl-dropdown'),root=button?.closest('shreddit-layout-event-setter') || dropdown;if(!dropdown?.querySelector('.main-menu-container') || !root)throw Error('Reddit returned no native profile controls.');for(const node of root.querySelectorAll('script,ac-track,input,form'))node.remove();return root.outerHTML;})().finally(()=>{clearTimeout(timer);active--;});
+      cached={app,expires:now+30000,promise};if(controlReads.size>=4)controlReads.delete(controlReads.keys().next().value);controlReads.set(key,cached);promise.catch(()=>{if(controlReads.get(key)===cached)controlReads.delete(key);});
+    }
+    const doc=new DOMParser().parseFromString(await cached.promise,'text/html'),root=doc.body.firstElementChild;
+    if(signal?.aborted || path!==location.pathname+location.search || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
+    for(const row of root.querySelectorAll('rpl-menu-item[href]')){const old=new URL(row.getAttribute('href'),location.origin);if(old.origin!==location.origin || old.pathname!=='/user/reddit/submitted/')throw Error('Unexpected native control destination.');const next=new URL(path,location.origin);for(const name of ['sort','t','feedViewType'])if(old.searchParams.has(name))next.searchParams.set(name,old.searchParams.get(name));if(old.searchParams.has('sort') && old.searchParams.get('sort')!=='top')next.searchParams.delete('t');row.setAttribute('href',next.pathname+next.search);}
+    if(/\/comments\/?$/.test(location.pathname)){const button=root.querySelector('button[aria-label="Feed options"]'),icon=button?.querySelector('svg[icon-name="filter"]');if(!icon)throw Error('Reddit returned no native filter icon.');const wrapper=document.createElement('span');wrapper.className='flex items-center justify-center';wrapper.append(icon);button.replaceChildren(wrapper);button.classList.remove('button-bordered');button.classList.add('button-plain','w-xl');}
+    const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.renderMode='contents';partial.style.display='contents';target.replaceChildren(partial);partial._renderContent(root.outerHTML);return {rendered:true};
+  }
   function nativeCardUrl(comments,fullname){
     const tag=comments?'shreddit-profile-comment':'shreddit-post',sample=[...document.querySelectorAll('main '+tag)].find(node=>!node.closest('[data-rt-ui]'));
     // Prefer Reddit's own reload contract when present. Only replace the exact
@@ -90,7 +113,7 @@
     }catch{ /* Fall back to the last verified native endpoint. */ }}
     const url=new URL(comments?'/svc/shreddit/comment/'+fullname:'/svc/shreddit/partial-feed-post/'+fullname,location.origin);
     if(comments)url.searchParams.set('isProfile','true');else{
-      const view=sample?.getAttribute('view-type'),context=sample?.getAttribute('view-context');
+      const view=new URLSearchParams(location.search).get('feedViewType') || sample?.getAttribute('view-type'),context=sample?.getAttribute('view-context');
       url.searchParams.set('pvc',context && /^Profile[A-Za-z0-9]{0,24}$/.test(context)?context:'ProfileFeed2');
       url.searchParams.set('fvt',view && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(view)?view:'cardView');
     }
@@ -141,6 +164,7 @@
   async function read(input,signal){
     if(input.action==='render-card')return renderCard(input,signal);
     if(input.action==='render-navigation')return renderNavigation(input,signal);
+    if(input.action==='render-controls')return renderControls(input,signal);
     const context=route(),path=location.pathname+location.search;
     if(!context || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com','old.reddit.com'].includes(location.hostname))throw Error('Open a public Reddit profile or post.');
     const comments=input.kind==='comment';
@@ -192,7 +216,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['render-card','render-navigation','profile','info'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}
