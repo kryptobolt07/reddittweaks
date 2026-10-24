@@ -41,12 +41,25 @@ test('public comment status lookups use t1 identities and cannot escape post-det
  const e=setup(t,{url:'https://www.reddit.com/user/Example/comments/'});await e.send({action:'info',kind:'comment',ids:['19rktoupyflj9']});assert.equal(new URL(e.calls[0][0]).searchParams.get('id'),'t1_19rktoupyflj9');
  const detail=setup(t,{url:'https://www.reddit.com/comments/abc12/title/'});assert.equal((await detail.send({action:'info',kind:'comment',ids:['19rktoupyflj9']})).ok,false);assert.equal(detail.calls.length,0);
 });
-function nativeTarget(e,{kind='post',id='abc12',target='rt-native-fixture'}={}){
+function nativeTarget(e,{kind='post',id='abc12',target='rt-native-fixture',defineRenderer=true}={}){
  const w=e.W;let main=w.document.querySelector('main');if(!main){main=w.document.createElement('main');w.document.body.append(main);}const slot=w.document.createElement('div');slot.id=target;slot.dataset.rtUi='activity-item';slot.dataset.rtNativeFullname=(kind==='comment'?'t1_':'t3_')+id;main.append(slot);
- if(!w.customElements.get('faceplate-partial'))w.customElements.define('faceplate-partial',class extends w.HTMLElement{_renderContent(text){this.innerHTML=text;}});
+ if(defineRenderer && !w.customElements.get('faceplate-partial'))w.customElements.define('faceplate-partial',class extends w.HTMLElement{_renderContent(text){this.innerHTML=text;}});
  return slot;
 }
 const nativeResponse=(html,status=200)=>({ok:status===200,status,headers:new Headers({'content-type':'text/vnd.reddit.partial+html'}),text:async()=>html});
+test('early discovery waits for Reddit’s native fragment component before fetching',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<shreddit-post id="t3_abc12"></shreddit-post>')}),slot=nativeTarget(e,{defineRenderer:false});
+ const pending=e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,0);
+ e.W.customElements.define('faceplate-partial',class extends e.W.HTMLElement{_renderContent(text){this.innerHTML=text;}});
+ const result=await pending;assert.equal(result.rendered,true);assert.equal(e.calls.length,1);assert.ok(slot.querySelector('shreddit-post'));
+});
+test('cancelling early hydration releases the request before Reddit registers its renderer',async t=>{
+ const e=setup(t),slot=nativeTarget(e,{defineRenderer:false});let request;
+ e.W.document.addEventListener('rt-post-request',event=>{const input=JSON.parse(event.detail);if(input.action==='render-card')request=input;});
+ const pending=e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});
+ e.W.document.dispatchEvent(new e.W.CustomEvent('rt-post-request',{detail:JSON.stringify({...request,action:'cancel'})}));
+ let timer;try{const response=await Promise.race([pending,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Cancelled native-definition wait did not finish.')),1000);})]);assert.equal(response.ok,false);assert.match(response.error,/cancelled/);assert.equal(e.calls.length,0);}finally{clearTimeout(timer);}
+});
 test('native feed cards use the first-party profile renderer without returning authenticated HTML',async t=>{
  const e=setup(t,{fetcher:async()=>nativeResponse('<article><shreddit-post id="t3_abc12"><span slot="credit-bar">Native metadata</span><button aria-label="Upvote">↑</button><button>Share</button><img src="https://i.redd.it/synthetic.png"><input name="csrf_token" value="synthetic-only"></shreddit-post></article><hr>')});const slot=nativeTarget(e);
  const result=await e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(result.ok,true);assert.equal(result.rendered,true);assert.equal(result.html,undefined);assert.equal(JSON.stringify(result).includes('synthetic-only'),false);assert.ok(slot.querySelector('[aria-label=Upvote]'));assert.ok(slot.querySelector('img'));

@@ -78,7 +78,7 @@
         "https://new.reddit.com/*",
         "https://sh.reddit.com/*"
       ],
-      "run_at": "document_idle",
+      "run_at": "document_start",
       "js": [
         "post-model.js",
         "post-discovery.js"
