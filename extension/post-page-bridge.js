@@ -4,7 +4,7 @@
   if(window.top!==window || !globalThis.RTPostModel)return;
   // Bound simultaneous work and honor server cooldowns; cursor-driven scrolling
   // must not stall behind an unrelated lifetime or rolling card-count quota.
-  const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map();let active=0,cardActive=0,cooldown=0;
+  const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map(),statusReads=new Map(),nativeCardReads=new Map();let active=0,cardActive=0,cooldown=0;
   function route(){
     const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
@@ -127,6 +127,102 @@
     }
     return url;
   }
+  function nativeStatus(doc,comments,fullname,username){
+    const node=doc.querySelector(comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`);
+    if(!node)return null;
+    const author=node.getAttribute('author') || node.querySelector('shreddit-comment-action-row[author]')?.getAttribute('author') || '';
+    // A deleted account is not proof that this particular item was deleted.
+    // Likewise, absent content can be a gated or malformed fragment.
+    if(author && author!=='[deleted]' && author.toLowerCase()!==username.toLowerCase())return null;
+    const state=node.getAttribute('item-state')?.toLowerCase(),body=node.querySelector(comments?'[id$="-post-rtjson-content"],.md':'[slot="text-body"]'),text=body?.textContent?.trim();
+    const flag=name=>node.hasAttribute(name) && node.getAttribute(name)!=='false';
+    let status=flag('deleted') || state==='deleted' || text==='[deleted]'?'deleted':flag('removed') || state==='removed' || text==='[removed]'?'removed':'unknown';
+    if(status==='unknown' && (!state || ['normal','active','visible','available','unmoderated'].includes(state)) && M.validateUsername(author) && Number.isFinite(Date.parse(node.getAttribute('created-timestamp') || node.querySelector('faceplate-timeago[ts]')?.getAttribute('ts'))) && (comments?Boolean(text):Boolean(node.getAttribute('post-title'))))status='available';
+    if(status==='unknown')return null;
+    return {fullname,status,author,over18:flag('nsfw'),spoiler:flag('spoiler')};
+  }
+  function rememberStatus(path,fullname,status){
+    if(!status)return;
+    const now=Date.now();for(const [key,value] of statusReads)if(value.expires<=now)statusReads.delete(key);
+    if(statusReads.size>=100)statusReads.delete(statusReads.keys().next().value);
+    statusReads.set(path+'|'+fullname,{status,expires:now+30000});
+  }
+  function trimNativeReads(path){
+    let size=0,count=0;const now=Date.now();
+    for(const [key,entry] of nativeCardReads){if(entry.pending)continue;if(entry.path!==path || entry.expires<=now)nativeCardReads.delete(key);else{size+=entry.size;count++;}}
+    // Authenticated fragments are transient page-world data, never persisted or
+    // sent over the bridge. Bound both their total size and their lifetime.
+    for(const [key,entry] of nativeCardReads){if(size<=5000000 && count<=25)break;if(entry.pending)continue;nativeCardReads.delete(key);size-=entry.size;count--;}
+  }
+  function waitNative(promise,signal,release=()=>{}){
+    return new Promise((resolve,reject)=>{
+      let settled=false;const finish=(callback,value)=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);release();callback(value);},cancel=()=>finish(reject,Error('Post request cancelled.'));
+      signal.addEventListener('abort',cancel,{once:true});promise.then(value=>finish(resolve,value),error=>finish(reject,error));if(signal.aborted)cancel();
+    });
+  }
+  function consumeNative(entry,signal){
+    // Each consumer cancels only its own wait. Abort the physical read when its
+    // last consumer leaves, so a status timeout cannot cancel an active render.
+    entry.consumers++;
+    return waitNative(entry.promise,signal,()=>{entry.consumers--;if(entry.pending && !entry.consumers)entry.controller.abort();});
+  }
+  async function nativeFragment(comments,fullname,path,signal){
+    const key=path+'|'+fullname;
+    while(true){
+      if(signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+      trimNativeReads(path);const cached=nativeCardReads.get(key);if(cached){if(cached.controller.signal.aborted){await waitNative(cached.promise.catch(()=>null),signal);continue;}return consumeNative(cached,signal);}
+      if(Date.now()<cooldown)return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};
+      if(cardActive<2)break;
+      // Join existing reads before taking a slot; a busy renderer is not
+      // evidence of an unknown status. Recheck the cache after a slot opens.
+      await waitNative(Promise.race([...nativeCardReads.values()].filter(entry=>entry.pending).map(entry=>entry.promise.catch(()=>null))),signal);
+    }
+    const url=nativeCardUrl(comments,fullname),entry={path,pending:true,size:0,expires:Infinity,controller:new AbortController(),consumers:0};cardActive++;
+    entry.promise=(async()=>{
+      const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:entry.controller.signal});
+      if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};}
+      if(!response.ok)throw Error(`Reddit could not render this card (HTTP ${response.status}).`);
+      if(response.headers.get('content-type')?.split(';')[0].trim()!=='text/vnd.reddit.partial+html')throw Error('Reddit returned no native card fragment.');
+      const text=await boundedText(response),doc=new DOMParser().parseFromString(text,'text/html'),selector=comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`;
+      if(!doc.querySelector(selector))throw Error('Reddit returned no matching native card.');
+      if(entry.controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+      entry.size=text.length;entry.expires=Date.now()+30000;return {text,url};
+    })().finally(()=>{cardActive--;entry.pending=false;if(!entry.size)nativeCardReads.delete(key);trimNativeReads(location.pathname+location.search);});
+    nativeCardReads.set(key,entry);return consumeNative(entry,signal);
+  }
+  async function readStatuses(input,signal){
+    const context=route(),path=location.pathname+location.search,comments=input.kind==='comment';
+    if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Open the matching public profile.');
+    if(!['post','comment'].includes(input.kind) || !Array.isArray(input.ids) || !input.ids.length || input.ids.length>25 || !input.ids.every(id=>comments?M.validateCommentId(id):M.validateId(id)))throw Error('Invalid public status IDs.');
+    const requestedIds=[...new Set(input.ids.map(id=>(comments?'t1_':'t3_')+id.toLowerCase().replace(/^t[13]_/,'')))],ids=requestedIds.slice(),statuses=[];
+    const now=Date.now();if(now<cooldown)throw Error('Reddit asked us to wait. Try again shortly.');
+    if(active>=2)return {deferred:true,retryAfterMs:250};
+    const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();active++;
+    let timer,timedOut=false;
+    try{
+      // One bounded, demand-driven batch. No background retry/sync loop, and no
+      // authenticated HTML leaves the page world. Share the card request budget.
+      const operation=Promise.all(Array.from({length:Math.min(2,ids.length)},async()=>{
+        while(ids.length){
+          const fullname=ids.shift();
+          if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+          let status=statusReads.get(path+'|'+fullname);status=status?.expires>Date.now()?status.status:null;
+          if(!status){const native=[...document.querySelectorAll(comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`)].find(node=>!node.closest('[data-rt-ui]'));if(native)status=nativeStatus({querySelector:()=>native},comments,fullname,input.username);}
+          if(!status){
+            try{const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(!fragment.deferred)status=nativeStatus(new DOMParser().parseFromString(fragment.text,'text/html'),comments,fullname,input.username);}
+            catch{ /* A failed or missing fragment establishes no current status. */ }
+          }
+          if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+          if(status){rememberStatus(path,fullname,status);statuses.push(status);}
+        }
+      }));
+      try{await Promise.race([operation,new Promise(resolve=>{timer=setTimeout(()=>{timedOut=true;controller.abort();resolve();},10000);})]);}
+      catch(error){if(!timedOut)throw error;}
+      if(signal?.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+      const verified=new Set(statuses.map(status=>status.fullname)),unknownIds=requestedIds.filter(id=>!verified.has(id));
+      return {statuses,unknownIds,incomplete:unknownIds.length>0,...(timedOut?{timedOut:true}:{}),source:'reddit'};
+    }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
+  }
   async function renderCard(input,signal){
     const context=route(),path=location.pathname+location.search,comments=input.kind==='comment';
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname))throw Error('Open a public Reddit profile.');
@@ -139,23 +235,20 @@
     const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node));
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
     const now=Date.now();
-    if(now<cooldown || cardActive>=2)return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:250)};
+    if(now<cooldown || cardActive>=2 && !nativeCardReads.has(path+'|'+fullname))return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:250)};
     if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function'){
       const since=rendererWaits.get(target) ?? now;rendererWaits.set(target,since);
       if(now-since>=10000)throw Error('Reddit’s native card renderer did not become ready. Retry after the page finishes loading.');
       return {deferred:true,reason:'renderer-startup',retryAfterMs:250};
     }
-    rendererWaits.delete(target);const url=nativeCardUrl(comments,fullname);
+    rendererWaits.delete(target);
     const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
-    let timer;cardActive++;
+    let timer;
     try{
       const operation=(async()=>{
-        const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
-        if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};}
-        if(!response.ok)throw Error(`Reddit could not render this card (HTTP ${response.status}).`);
-        if(response.headers.get('content-type')?.split(';')[0].trim()!=='text/vnd.reddit.partial+html')throw Error('Reddit returned no native card fragment.');
-        const text=await boundedText(response),doc=new DOMParser().parseFromString(text,'text/html');
-        if(!doc.querySelector(selector))throw Error('Reddit returned no matching native card.');
+        const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(fragment.deferred)return fragment;
+        const {text,url}=fragment,doc=new DOMParser().parseFromString(text,'text/html');
+        rememberStatus(path,fullname,nativeStatus(doc,comments,fullname,input.username));
         if(location.pathname+location.search!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
         if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
         // The authenticated HTML stays in Reddit's page world. Use its own trusted
@@ -167,10 +260,11 @@
       })();
       const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Native card loading timed out.'));},10000);});
       return await Promise.race([operation,timeout]);
-    }finally{cardActive--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
+    }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
   async function read(input,signal){
     if(input.action==='render-card')return renderCard(input,signal);
+    if(input.action==='status')return readStatuses(input,signal);
     if(input.action==='render-navigation')return renderNavigation(input,signal);
     if(input.action==='render-controls')return renderControls(input,signal);
     const context=route(),path=location.pathname+location.search;
@@ -224,7 +318,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}
