@@ -1,3 +1,13 @@
+# 0.16.0 preview
+
+- Extend native archive recovery to Reddit's explicit banned/suspended-account pages. Overview, Posts and Comments share the existing Arctic Shift opt-in, bounded pagination, native cards and desktop sidebars. Account bans never imply that each post/comment was deleted.
+- Replace unavailable-profile initials with Reddit's native ban-fill artwork. Available retained profile photos still take precedence, with the native icon retained on missing/failed photos.
+- Detach banned-account notices through nested page parsing, replacements and post overlays. Opt-out restores Reddit's original notice; unrelated forbidden/error pages remain untouched.
+
+Version choice: MINOR to 0.16.0 for archive discovery on an additional account state. No new permissions, persistence or storage-schema change.
+
+Validation: all 529 tests pass, including 50 targeted discovery checks. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive equality pass for 32 assets. Live Brave inspection verified the example's explicit banned-account marker and Reddit's exact ban-fill artwork. Installed recovery and archive coverage for the example require reloading the updated unpacked extension. Archive availability remains incomplete, and Reddit's native markup/endpoints can change.
+
 # 0.15.2 preview
 
 - Detach Reddit's deleted-account and curated-profile Welcome/hidden-posts notices before paint, including replacements and native post overlays. Restore the original notices on opt-out or leaving the profile.
