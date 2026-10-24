@@ -1,3 +1,13 @@
+# 0.15.1 preview
+
+- Fix deleted-profile Posts/Comments requests being rejected after SPA navigation. Brave can retain the original document sender URL while the current tab URL changes. Accept only supported tabs of the same requested profile across both URLs; retain origin, other-profile and unsupported-page checks.
+- Replace custom archive tabs, typography and card styling with Reddit's native tab group, panel, feed and server-rendered cards. Use the native main landmark and utility classes, including selected-tab and overflow controls. Arctic Shift remains the discovery provider.
+- When Reddit no longer returns a matching card, render archived text inside its native post/comment components and layout. Keep historical vote/action rows inert, retain archive attribution and restrictions, and avoid Retry-only archive rows.
+
+Version choice: PATCH to 0.15.1 for tab navigation and interface consistency corrections. No schema change or new persistence.
+
+Validation: all 518 tests pass, including 73 targeted discovery/provider/native-bridge checks. All 31 extension/demo JavaScript files parse; ZIP integrity, aliases and source/stable-folder/archive equality pass for 32 assets. Installed Brave reproduced the same-profile request rejection, returned 50 archive items on Overview, and confirmed a native post fragment succeeds while an older comment returns a native not-found state. Native tab classes, slots, comment action rows and post action boundaries were inspected against Reddit's actual UI; temporary DOM probes were removed. The updated installed bundle requires manual reload for final navigation/layout verification. Native internal components/endpoints and archive coverage may change.
+
 # 0.15.0 preview
 
 - Handle Reddit's explicit deleted-account pages, which omit both the main landmark and native feed. Add a compact archive-only Overview/Posts/Comments view and restore the native notice on opt-out or navigation. Generic missing-page/network errors stay untouched.
