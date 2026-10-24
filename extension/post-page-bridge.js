@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.RTPostModel)return;
-  const M=RTPostModel,jobs=new Map();let active=0,cardActive=0,cooldown=0,starts=[],cardStarts=[];
+  const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap();let active=0,cardActive=0,cooldown=0,starts=[],cardStarts=[];
   function route(){
     const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
@@ -61,6 +61,23 @@
       const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.renderMode='contents';partial.style.display='contents';target.replaceChildren(partial);partial._renderContent(navigation.outerHTML);return {rendered:true};
     })(),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit navigation loading timed out.'));},10000);})]);}finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
+  function nativeCardUrl(comments,fullname){
+    const tag=comments?'shreddit-profile-comment':'shreddit-post',sample=[...document.querySelectorAll('main '+tag)].find(node=>!node.closest('[data-rt-ui]'));
+    // Prefer Reddit's own reload contract when present. Only replace the exact
+    // item's terminal fullname; never accept arbitrary paths/query credentials.
+    const identity=sample?.getAttribute(comments?'comment-id':'id'),reload=sample?.getAttribute('reload-url');
+    if(identity && reload){try{
+      const url=new URL(reload,location.origin),prefix=comments?'t1_':'t3_',validIdentity=comments?M.validateCommentId(identity):M.validateId(identity);
+      if(validIdentity && identity.startsWith(prefix) && url.origin===location.origin && !url.username && !url.password && !url.hash && new RegExp('^/svc/shreddit/(?:[a-z][a-z0-9-]*/){1,3}'+identity+'$').test(url.pathname) && [...url.searchParams].every(([key,value])=>key==='isProfile'?value==='true':key==='pvc'?/^Profile[A-Za-z0-9]{0,24}$/.test(value):key==='fvt' && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(value))){url.pathname=url.pathname.slice(0,-identity.length)+fullname;return url;}
+    }catch{ /* Fall back to the last verified native endpoint. */ }}
+    const url=new URL(comments?'/svc/shreddit/comment/'+fullname:'/svc/shreddit/partial-feed-post/'+fullname,location.origin);
+    if(comments)url.searchParams.set('isProfile','true');else{
+      const view=sample?.getAttribute('view-type'),context=sample?.getAttribute('view-context');
+      url.searchParams.set('pvc',context && /^Profile[A-Za-z0-9]{0,24}$/.test(context)?context:'ProfileFeed2');
+      url.searchParams.set('fvt',view && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(view)?view:'cardView');
+    }
+    return url;
+  }
   async function renderCard(input,signal){
     const context=route(),path=location.pathname+location.search,comments=input.kind==='comment';
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname))throw Error('Open a public Reddit profile.');
@@ -74,14 +91,12 @@
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
     const now=Date.now();cardStarts=cardStarts.filter(t=>now-t<30000);
     if(now<cooldown || cardActive>=2 || cardStarts.length>=12)return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:cardStarts.length>=12?cardStarts[0]+30000-now:250)};
-    if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function')throw Error('Reddit’s native card renderer is not ready.');
-    const url=new URL(comments?'/svc/shreddit/comment/'+fullname:'/svc/shreddit/partial-feed-post/'+fullname,location.origin);
-    if(comments)url.searchParams.set('isProfile','true');else{
-      const sample=[...document.querySelectorAll('main shreddit-feed shreddit-post')].find(node=>!node.closest('[data-rt-ui]'));
-      const view=sample?.getAttribute('view-type'),context=sample?.getAttribute('view-context');
-      url.searchParams.set('pvc',context && /^Profile[A-Za-z0-9]{0,24}$/.test(context)?context:'ProfileFeed2');
-      url.searchParams.set('fvt',view && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(view)?view:'cardView');
+    if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function'){
+      const since=rendererWaits.get(target) ?? now;rendererWaits.set(target,since);
+      if(now-since>=10000)throw Error('Reddit’s native card renderer did not become ready. Retry after the page finishes loading.');
+      return {deferred:true,reason:'renderer-startup',retryAfterMs:250};
     }
+    rendererWaits.delete(target);const url=nativeCardUrl(comments,fullname);
     const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
     let timer;cardStarts.push(now);cardActive++;
     try{

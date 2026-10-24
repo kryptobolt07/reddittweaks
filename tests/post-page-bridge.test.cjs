@@ -95,3 +95,20 @@ test('navigation rejects foreign targets and profile changes but survives same-p
  const pending=e.send({action:'render-navigation',username:'Example',target:target.id});e.W.history.pushState({},'','/user/Example/comments/');resolve(nativeResponse('<flex-left-nav-container id="left-sidebar-container">Native</flex-left-nav-container>'));assert.equal((await pending).rendered,true);
  const stale=e.send({action:'render-navigation',username:'Example',target:target.id});e.W.history.pushState({},'','/user/Other/');resolve(nativeResponse('<flex-left-nav-container id="left-sidebar-container">Wrong scope</flex-left-nav-container>'));assert.equal((await stale).ok,false);assert.equal(target.textContent.includes('Wrong scope'),false);
 });
+
+test('native reload contracts follow compatible Reddit endpoint changes without recreating card markup',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<shreddit-profile-comment comment-id="t1_abc12"><span data-native-layout="new">Native community metadata</span></shreddit-profile-comment>')}),slot=nativeTarget(e,{kind:'comment'});
+ const sample=e.W.document.createElement('shreddit-profile-comment');sample.setAttribute('comment-id','t1_native');sample.setAttribute('reload-url','/svc/shreddit/profile-comment/card/t1_native?isProfile=true');e.W.document.querySelector('main').append(sample);
+ const result=await e.send({action:'render-card',username:'Example',kind:'comment',postId:'abc12',target:slot.id});assert.equal(result.rendered,true);const url=new URL(e.calls[0][0]);assert.equal(url.pathname,'/svc/shreddit/profile-comment/card/t1_abc12');assert.equal(url.searchParams.get('isProfile'),'true');assert.equal(slot.querySelector('[data-native-layout]').textContent,'Native community metadata');
+});
+test('native reload discovery rejects foreign, credential-bearing and unrelated endpoint templates',async t=>{
+ for(const reload of ['https://evil.test/svc/shreddit/comment/t1_native?isProfile=true','https://name:pass@www.reddit.com/svc/shreddit/comment/t1_native','/api/private/t1_native','/svc/shreddit/comment/t1_other','/svc/shreddit/comment/t1_native?token=private']){
+  const e=setup(t,{fetcher:async()=>nativeResponse('<shreddit-profile-comment comment-id="t1_abc12"></shreddit-profile-comment>')}),slot=nativeTarget(e,{kind:'comment'}),sample=e.W.document.createElement('shreddit-profile-comment');sample.setAttribute('comment-id','t1_native');sample.setAttribute('reload-url',reload);e.W.document.querySelector('main').append(sample);
+  assert.equal((await e.send({action:'render-card',username:'Example',kind:'comment',postId:'abc12',target:slot.id})).rendered,true);assert.equal(new URL(e.calls[0][0]).href,'https://www.reddit.com/svc/shreddit/comment/t1_abc12?isProfile=true');
+ }
+});
+test('native renderer startup defers cards without requests or fallback and fails within a bounded interval',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<shreddit-post id="t3_abc12"></shreddit-post>')});e.W.document.body.innerHTML='<main><div id="rt-native-fixture" data-rt-ui="activity-item" data-rt-native-fullname="t3_abc12"></div></main>';const input={action:'render-card',username:'Example',kind:'post',postId:'abc12',target:'rt-native-fixture'},now=e.W.Date.now();e.W.Date.now=()=>now;
+ const waiting=await e.send(input);assert.equal(waiting.deferred,true);assert.equal(waiting.reason,'renderer-startup');assert.equal(e.calls.length,0);e.W.Date.now=()=>now+10001;assert.match((await e.send(input)).error,/did not become ready/);assert.equal(e.calls.length,0);
+ e.W.customElements.define('faceplate-partial',class extends e.W.HTMLElement{_renderContent(html){this.innerHTML=html;}});assert.equal((await e.send(input)).rendered,true);assert.equal(e.calls.length,1);
+});
