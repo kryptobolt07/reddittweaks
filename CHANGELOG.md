@@ -1,3 +1,12 @@
+# 0.18.3 preview
+
+- Preserve extension-discovered hidden/deleted/archive cards and active filters while Reddit keeps the outgoing native profile feed visible during a tab change. The URL and selected tab can change ahead of the data; bind cleanup/remount to the actual native feed handoff instead.
+- Recognize replacement feeds and in-place native content replacement, retain virtualized native identities, preserve state on canceled tab changes, and prevent late outgoing responses from entering the incoming tab. Unavailable-account archive views keep their existing owned-tab behavior; other account transitions and opt-out still clean up immediately.
+
+Version choice: PATCH to 0.18.3 for a visible native profile tab-transition reliability fix. No permissions, persistent storage or request-policy changes.
+
+Validation: all 636 tests pass, including 115 discovery tests and six new tab-handoff regressions. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave tracing with temporary latency reproduced the old behavior: the URL/selection changed, extension cards disappeared while the same Posts feed remained connected, and Reddit replaced that feed later. Temporary diagnostics and network throttling were removed. Final installed-build verification requires an extension reload; undocumented native view ownership contracts can change.
+
 # 0.18.2 preview
 
 - Verify archive item status with Reddit's authenticated native card fragments rather than the legacy info endpoint, which can return HTTP 403 while card rendering works. Share in-flight reads and a bounded, transient page-world fragment cache between status checks and rendering. Preserve archive text provenance, author/identity checks, restrictions and explicit unknown status. Show optional verification limitations quietly without treating archive discovery as a failed load.
