@@ -12,7 +12,11 @@
     const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(location.pathname);
     // Notifications and other native overlays can change the URL before replacing
     // the underlying profile. Never restore its notice during that transition.
-    for(const [notice,anchor] of notices)if(!anchor.isConnected)notices.delete(notice);
+    for(const [notice,anchor] of notices)if(!anchor.isConnected){
+      // Reddit may retain this detached native view for Back navigation. Put its
+      // notice back into that off-document view before releasing our anchor.
+      if(anchor.parentNode)anchor.replaceWith(notice);notices.delete(notice);
+    }
     const underlying=document.querySelector('#profile-feed-tabgroup,[data-rt-ui="archive-profile"]'),active=enabled && Boolean(profile || underlying || notices.size);
     document.documentElement?.toggleAttribute('data-rt-profile-discovery',active);
     for(const [notice,anchor] of notices){if(!anchor.isConnected){notices.delete(notice);continue;}if(!active){anchor.replaceWith(notice);notices.delete(notice);}}
