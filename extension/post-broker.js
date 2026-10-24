@@ -15,10 +15,12 @@
     if(sender?.id!==chrome.runtime.id || sender.frameId!=null && sender.frameId!==0)return false;
     try{const url=new URL(sender.url);if(url.protocol!=='https:' || !['reddit.com','www.reddit.com','old.reddit.com','new.reddit.com','sh.reddit.com'].includes(url.hostname) || url.port)return false;
       if(sender.origin && sender.origin!==url.origin)return false;
-      if(sender.tab?.url){const tabUrl=new URL(sender.tab.url);if(tabUrl.origin!==url.origin || tabUrl.pathname!==url.pathname)return false;}
-      if(ids){const detail=url.pathname.match(/^\/(?:(?:r|user)\/[^/]+\/)?comments\/([a-z0-9]+)(?:\/.*)?$/i);return Boolean(detail && ids.length===1 && detail[1].toLowerCase()===ids[0]);}
-      const match=url.pathname.match(/^\/user\/([A-Za-z0-9_-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
-      return Boolean(match && match[1].toLowerCase()===username.toLowerCase());
+      const tabUrl=sender.tab?.url?new URL(sender.tab.url):url;if(tabUrl.origin!==url.origin)return false;
+      if(ids){if(tabUrl.pathname!==url.pathname)return false;const detail=url.pathname.match(/^\/(?:(?:r|user)\/[^/]+\/)?comments\/([a-z0-9]+)(?:\/.*)?$/i);return Boolean(detail && ids.length===1 && detail[1].toLowerCase()===ids[0]);}
+      // sender.url may remain the content script's document-start URL after SPA
+      // navigation. Both URLs must still be supported tabs of this same profile.
+      const profile=path=>path.match(/^\/user\/([A-Za-z0-9_-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
+      return [url,tabUrl].every(current=>profile(current.pathname)?.[1].toLowerCase()===username.toLowerCase());
     }catch{return false;}
   }
   async function slot(){if(active>=2)await new Promise(resolve=>waiters.push(resolve));else active++;return ()=>{const next=waiters.shift();if(next)next();else active--;};}

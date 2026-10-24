@@ -83,3 +83,14 @@ test('settings changes reach registered Reddit tabs without exposing trusted cha
  e.changeSettings({postDiscovery:false,archiveDiscovery:false,privateChats:['secret']});await new Promise(r=>setImmediate(r));
  assert.equal(e.notifications.length,1);assert.equal(e.notifications[0][0],5);const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,archiveDiscovery:false}});
 });
+
+test('archive author requests allow same-profile SPA tabs while rejecting other profiles and unsupported pages',async()=>{
+ const e=env();
+ for(const suffix of ['submitted/','comments/','']){
+  const result=await e.send({}, {url:'https://www.reddit.com/user/Example/',tab:{url:'https://www.reddit.com/user/Example/'+suffix}});assert.equal(result.ok,true);
+ }
+ assert.equal((await e.send({}, {url:'https://www.reddit.com/user/Example/comments/',tab:{url:'https://www.reddit.com/user/Example/'}})).ok,true);
+ for(const target of ['https://www.reddit.com/user/Other/comments/','https://www.reddit.com/user/Example/saved/','https://www.reddit.com/r/example/','https://evil.test/user/Example/'])assert.equal((await e.send({}, {tab:{url:target}})).code,'forbidden');
+ assert.equal((await e.send({}, {url:'https://www.reddit.com/user/Other/',tab:{url:'https://www.reddit.com/user/Example/comments/'}})).code,'forbidden');
+ assert.equal((await e.send({action:'archive-ids',ids:['abc12']},{url:'https://www.reddit.com/comments/abc12/',tab:{url:'https://www.reddit.com/user/Example/comments/'}})).code,'forbidden');
+});
