@@ -29,3 +29,10 @@ test('restriction flags are conservative across live and archive snapshots',()=>
   assert.equal(merged.over18,true);assert.equal(merged.spoiler,true);assert.equal(merged.archivedBody,'Original body');
  }
 });
+test('modern comment IDs, parent links and post/comment identity remain distinct',()=>{
+ const m=model(),comment=m.normalizeComment({id:'t1_19rktoupyflj9',author:'Example',created_utc:1700000000,body:'A comment',link_id:'t3_abc12'});
+ assert.equal(comment.id,'19rktoupyflj9');assert.equal(comment.kind,'comment');assert.match(comment.permalink,/abc12\/comment\/19rktoupyflj9/);assert.equal(m.validateCommentId('t1_'+ 'x'.repeat(33)),false);
+ assert.equal(m.normalizeComment({id:'one',author:'Example',created_utc:1700000000,link_id:'bad!'}),null);
+ const shared={...comment,id:'abc12',fullname:'t1_abc12'};
+ const merged=m.mergePosts([post(),shared],[],{username:'Example',visibleIds:['t3_abc12']});assert.equal(merged.length,2);assert.equal(merged.find(p=>p.kind==='comment').visible,false);
+});
