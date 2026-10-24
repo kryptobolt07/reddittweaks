@@ -63,3 +63,14 @@ Use the same staged, ordered ready-prefix publication for every profile view, in
 Deleted activity must start the opted-in archive search, waiting for an ongoing Reddit read rather than dropping the request. Prefer archive continuation in this mode and verify current deletion/removal from Reddit metadata/native cards. Archive existence alone remains insufficient evidence of deletion; errors and unknown status must not be presented as complete history.
 
 Validation includes multiple pages beyond both former limits, a single tail intersection spanning 72 comments, mixed Overview hydration, loader suppression/reattachment, archive opt-out and status qualification, and replacement/cleanup of the native Comments sort control. Final installed verification requires a reload of the unpacked extension.
+
+
+## Follow-up: retained cards and a shared loader (0.18.2)
+
+The native feed's virtualization controller retains `{node, placeholder, height}` entries in `topStack` and restores those same objects on reverse scrolling. Do not clear a ready extension card merely because Reddit later supplies a duplicate. Keep filtered/published cards in the feed or its native stack, preserving hydrated content and identity. Transfer the original hidden state across native placeholder swaps so switching back to All restores the original visibility. Unfinished duplicate-race cards remain staged until ready.
+
+Set the active Activity scope on the native feed itself. CSS gates newly inserted native cards immediately, and a scoped mutation observer qualifies Deleted cards before paint, without waiting for the general delayed discovery scan. Preserve native nodes; remove the gate and restore original flags on All, route cleanup or opt-out. Ignore extension-owned mutation work in the fast observer.
+
+Keep the tail sentinel measurable when a native continuation loader is present, but suppress its extension halo with an explicit native loading owner. Ownership does not depend on viewport position, preventing two loaders from becoming visible together while scrolling. Observe native loader shadow completion and apply a strong hidden rule to native component hosts.
+
+Archive status verification now uses authenticated native fragments rather than the blocked legacy info endpoint. Status checks and rendering share bounded physical reads and a transient page-world cache; HTML never crosses the bridge. Keep archive text provenance, merge only status/restriction evidence, and leave unverified states unknown with a quiet completeness tooltip. Independent consumer cancellation and partial timeout results preserve usable cards and proofs.
