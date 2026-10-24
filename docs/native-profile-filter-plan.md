@@ -1,6 +1,6 @@
 # Native profile filter correction plan
 
-Status: implementation plan; runtime code is unchanged by this document.
+Status: implemented on the working branch for 0.18.0; final installed visual verification requires reloading the bundle.
 
 ## Goal
 
@@ -41,3 +41,12 @@ Reddit's empty profile presentation uses an `rpl` empty-state wrapper, `data-tes
 ## Delivery
 
 Implement native control integration and state/empty behavior as coherent commits with relevant tests, then run the full suite, JavaScript syntax checks, archive integrity and source/stable-folder/archive byte equality. Rebuild the existing `artifacts/reddit-chat-search/` installation. Treat these as corrections to the current unreleased 0.17.0 bundle, keeping its version unless implementation reveals a separately justified behavior expansion. Record any native-contract/provider limitations and distinguish synthetic checks from installed live verification.
+
+
+## Added scope and implementation record
+
+The user added loading throughput, persistent bottom continuation and default deleted-content recovery after this plan. The foreground native renderer now permits 30 starts per 30 seconds while retaining two concurrent requests and server cooldowns, so a 25-card page no longer forces two local 30-second pauses. Overview renders successful sources independently; archive records render before optional metadata; prepared groups publish their ordered ready prefix. The bottom continuation lives on every profile feed and offers explicit Retry/Continue loading rather than disappearing at a pause or local bound. Source failures survive secondary completions and Back.
+
+Missing feed controls reuse the actual first-party profile-control fragment from a fixed public Reddit profile, retargeted to the current profile inside the page world. Scripts, unrelated feed HTML and source tracking actions are excluded; native Top/view declarative behavior is retained. Existing triggers/rows are preserved. Comments selects Reddit's inspected icon-only trigger variant. A temporary Brave probe verified that native fragment initialization retains the working Top submenu and bottom-start native positioning; the probe was removed. Empty states clone a retained native creative when available, otherwise use its last-verified native rpl structure and classes with a distinct identity.
+
+The new restoreDeletedContent preference defaults on only inside the existing archiveDiscovery opt-in. Automatic recovery is limited to visible, verified deleted/removed items, deduplicates scoped IDs, preserves current native content restrictions and drops stale/opted-out results. The worker validates matching profile, author, kind, at most 25 IDs and settings at queue/fetch/delivery, retaining archive cooldown/concurrency/timeout rules. Open post pages wait for the exact hydrated native identity before one lookup. No content/credential storage schema or permission change. The additional user-facing preference justifies the minor 0.18.0 bundle rather than leaving these as cosmetic 0.17.0 refinements.
