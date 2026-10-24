@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Chat Search for Reddit",
+  "name": "Reddit Tweaks",
   "version": "0.12.8",
-  "description": "Find conversations and search saved messages across Reddit chats with a small, native-looking interface.",
+  "description": "Native Reddit tweaks: chat search, public profile post discovery and optional Arctic Shift snapshots.",
   "content_scripts": [
     {
       "matches": [
@@ -56,10 +56,40 @@
         "unified-search.js",
         "content.js"
       ]
+    },
+    {
+      "matches": [
+        "https://reddit.com/*",
+        "https://www.reddit.com/*",
+        "https://new.reddit.com/*",
+        "https://sh.reddit.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "js": [
+        "post-model.js",
+        "post-page-bridge.js"
+      ]
+    },
+    {
+      "matches": [
+        "https://reddit.com/*",
+        "https://www.reddit.com/*",
+        "https://new.reddit.com/*",
+        "https://sh.reddit.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "post-model.js",
+        "post-discovery.js"
+      ],
+      "css": [
+        "post-discovery.css"
+      ]
     }
   ],
   "action": {
-    "default_title": "Chat Search for Reddit",
+    "default_title": "Reddit Tweaks",
     "default_popup": "popup.html"
   },
   "icons": {
@@ -73,5 +103,8 @@
   "background": {
     "service_worker": "cache-broker.js"
   },
-  "version_name": "0.12.8 design test"
+  "version_name": "0.12.8 design test",
+  "host_permissions": [
+    "https://arctic-shift.photon-reddit.com/*"
+  ]
 }
