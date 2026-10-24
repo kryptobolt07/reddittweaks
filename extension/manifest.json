@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Reddit Tweaks",
-  "version": "0.18.2",
+  "version": "0.18.3",
   "description": "Native Reddit tweaks: chat search, public profile activity discovery and optional Arctic Shift snapshots.",
   "content_scripts": [
     {
