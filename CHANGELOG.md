@@ -1,3 +1,17 @@
+# 0.14.2 preview
+
+- Fix profile discovery failing to mount after the early-notice change. Installed Brave tracing showed the shared model executing only in MAIN when both registrations used document start; the isolated discovery script exited before creating its controls/results. Restore its established idle registration for Posts, Comments and Overview.
+- Run a uniquely named, model-independent notice guard at document start. It works before the document root exists, suppresses the curated-profile Welcome panel during settings/search and native replacement, respects newer opt-out updates and follows profile SPA routes.
+- Return native card hydration to its established startup path; keep native media, controls, virtualization and source/status indicators unchanged.
+- Scope profile discovery to New/Hot/Top, Top time range and native view mode. Forward validated sorting to Reddit, discard obsolete same-path query responses, use current post/comment scores for Top and preserve public-search order for Hot without changing native card order.
+- Pause native-card/local request queues at existing concurrency and request budgets instead of filling the feed with Retry rows. Cancel paused work on scope changes. Honor server Retry-After with one retry, then expose one paused explanation and an explicit Refresh action; no indefinite rate-limit retry loop. Keep genuine-error Retry buttons from shrinking under long titles.
+- Add Reddit-styled feed separators to placeholders and comment fragments that omit them, without duplicating server-supplied rules. Keep separators attached through native virtualization and cleanup. Hydrate nearby discoveries serially in feed order so later cards cannot finish ahead of earlier ones.
+- Use Reddit’s own indeterminate progress animation with equal 20px host/graphic sizes and no extra outer rotation.
+
+Version choice: PATCH to 0.14.2 for confirmed initialization, feed-scope and loading regressions. No chat schema change, cache reset or new server sync loop.
+
+Validation: all 511 tests pass, including isolated-model registration timing, model-free/root-free guard startup, opt-out races, profile route changes, sort/range cancellation, ranked post/comment anchors, paused queues, bounded server cooldowns, reversed visibility notifications and separator lifecycle/deduplication. All 31 extension/demo JavaScript files parse. ZIP integrity, aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave tracing reproduced the missing isolated model in the previous build. The installed recovery build was verified rendering Posts and Overview on the reported curated profile with the Welcome notice hidden. Live GET probes confirmed Hot endpoints respond successfully; results/coverage vary. A temporary native-loader probe measured a 20×20px host and graphic, no outer animation and Reddit’s own track animation; it was removed. Installed Top/All Time, Hot and New transitions rebuilt the feed without Retry rows. The final separator/serial-hydration follow-up requires another extension reload for live verification. Reddit's internal rendering endpoints and markup may change; archive coverage remains incomplete.
+
 # 0.14.1 preview
 
 - Cooperate with Reddit's native feed virtualization instead of reinserting detached cards after their height placeholders. Preserve loaded cards, native date anchors and duplicate identities as the user scrolls; restore existing content without another hydration request. Recover a card whose request was interrupted while it was virtualized.
