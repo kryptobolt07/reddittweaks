@@ -57,6 +57,16 @@
       const response=await fetch(new URL('/',location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/html'},signal:controller.signal});
       if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));throw Error('Reddit navigation is rate limited.');}
       if(!response.ok)throw Error('Reddit navigation could not be loaded.');const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),navigation=doc.querySelector('flex-left-nav-container#left-sidebar-container');if(!navigation)throw Error('Reddit returned no native navigation.');
+      // The grid's own bootstrap registers flex-left-nav-container. Its HTML
+      // alone produces a sidebar whose controls look correct but do nothing.
+      const bootstrap=navigation.closest('.grid-container')?.previousElementSibling;
+      if(!customElements.get('flex-left-nav-container')){
+        const src=bootstrap?.getAttribute('src') || '',prefix=bootstrap?.getAttribute('data-prefix') || '',chunks=src.startsWith('concat:')?src.slice(7).split(','):[];
+        if(bootstrap?.tagName!=='FACEPLATE-LOADER' || !chunks.length || chunks.length>512 || !chunks.every(id=>/^[A-Za-z0-9_-]{1,80}$/.test(id)) || !/^[A-Za-z0-9_-]{1,30}\/$/.test(prefix) || typeof window.SML?.load!=='function')throw Error('Reddit’s navigation controller is unavailable.');
+        await window.SML.load(chunks,prefix,'auto');
+        if(!customElements.get('flex-left-nav-container'))throw Error('Reddit’s navigation controller could not be initialized.');
+      }
+
       const current=route();if(controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target || target.closest('[data-rt-ui="archive-profile"]')!==shell || current?.username && current.username.toLowerCase()!==input.username.toLowerCase() || !current?.username && !current?.id)throw Error('Page changed. Try again.');
       const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.renderMode='contents';partial.style.display='contents';target.replaceChildren(partial);partial._renderContent(navigation.outerHTML);return {rendered:true};
     })(),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit navigation loading timed out.'));},10000);})]);}finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
