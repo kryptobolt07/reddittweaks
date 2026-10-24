@@ -1,3 +1,14 @@
+# 0.17.0 preview
+
+- Add All activity, Hidden and Deleted choices to Reddit's native Feed options menu. Reuse native menu components, preserve original cards and restore them on opt-out. Hidden covers public results absent from the loaded feed; Deleted includes verified deleted/removed items and excludes unknown archive snapshots.
+- Use monochrome native hide/delete indicators without colored backgrounds or a help cursor. Match the chat search refresh glyph and size.
+- Reuse Reddit's actual continuation-loading component; remove orphan loaders on remount and suppress an additional halo during native feed reload. Retain hydrated sidebar DOM across profile transitions and prepare validated eager native modules before revealing sidebar text.
+- Start independent Overview reads together and prepare hidden card groups in two existing native renderer slots. Reveal groups in order before optional reply metadata settles. Keep request/page budgets, native pagination, completed cards and partial Back restoration; reject stale parallel completions.
+
+Version choice: MINOR to 0.17.0 for the new profile activity filters, bundled with loading and navigation reliability improvements. No new permissions, persistent profile data, chat sync loop or storage-schema change.
+
+Validation: all 570 tests pass, including 131 targeted model/discovery/bridge/broker checks. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave inspection confirmed Reddit's native Feed options structure, hide/delete paths, Boolean deletion property and continuation component rendering its own halo. Installed 0.17.0 visual/end-to-end checks require reloading the updated unpacked extension. Provider availability and archive coverage remain incomplete, filters cover discovered/loaded activity, and Reddit's undocumented native contracts can change. Optional metadata failures do not hold up ready cards.
+
 # 0.16.4 preview
 
 - Hydrate Reddit's native grid controller with the recovered left sidebar, restoring collapse, hover and saved navigation behavior. Discover validated native bootstrap metadata rather than copying new event handlers.
