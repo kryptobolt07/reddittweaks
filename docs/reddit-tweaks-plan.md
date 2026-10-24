@@ -49,3 +49,9 @@
 - Arctic Shift dataset notes: https://github.com/ArthurHeitmann/arctic_shift/blob/master/file_content_explanations.md
 
 No reference UI or code is copied. Availability and response schemas can change; archived content can be missing or stale. Public API access and use remain subject to the providers' rules. Historical private chat research and reference clones must remain ignored and uncommitted.
+
+## Implemented outcome
+
+The provider/model, inline profile and detail integration, and popup rebrand are implemented in separate commits. Current public API fields were checked against Arctic Shift's documentation; unsupported field projections were removed. Provider opt-out gates are checked again after queueing and before returning results. Snapshot restrictions combine current and archived NSFW/spoiler flags.
+
+Synthetic tests cover the provider and UI cases above, including delayed settings, route changes and pagination bounds. Brave confirmed current profile/feed and post slot structure, and the synthetic preview was inspected in wide/narrow and light/dark layouts. Direct browser navigation to Reddit's search JSON endpoint was blocked by the client; no restriction was bypassed. Live extension requests and end-to-end recovery remain to be checked after reloading the installed extension. Arctic Shift responses were probed during research, but availability varies by environment. The new host permission is limited to its public API origin.

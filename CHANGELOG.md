@@ -1,3 +1,17 @@
+# 0.13.0 preview
+
+- Rebrand the extension as **Reddit Tweaks**, with orange sliders artwork and separate Posts and Chat sections. Keep the existing unpacked installation path, account-scoped chat data, and cache-management actions.
+- Discover additional public posts from modern Reddit profiles through bounded author-search requests. Insert native-styled results inline, deduplicate against loaded posts, and use small source/status icons without guessing whether an author hid a post.
+- Add opt-in Arctic Shift profile and post-ID lookups. Keep archived text in separate, collapsed snapshots, prefer current Reddit metadata, and require a verified status before labelling a post deleted or removed. Preserve NSFW/spoiler restrictions from both sources.
+- Validate routes, source records, settings and cursors; bound response sizes, concurrency, pagination and timeouts. Drop stale SPA results, recheck opt-out after queueing, and respect rate limits. No archive bodies, browsing history, new credentials or chat sync loops are persisted.
+- Name new ZIP exports Reddit Tweaks while retaining the stable `artifacts/reddit-chat-search/` folder and compatibility ZIP alias. Validate registered CSS assets during packaging.
+
+Version choice: MINOR to 0.13.0 for post discovery and the expanded extension interface. No chat storage schema change or cache reset.
+
+Validation: all 471 tests pass (435 existing plus 36 new). All 25 extension/preview JavaScript files parse. ZIP integrity and source/stable-folder/archive byte equality verified for 31 assets. Brave inspection confirmed current public profile/feed and post component structure; synthetic wide/narrow and light/dark previews were inspected. The reference clone and live research remain ignored.
+
+Limitations: full live extension recovery was not verified after a browser reload. Direct navigation to Reddit's search JSON endpoint was blocked by the client; no restriction was bypassed. Arctic Shift coverage and availability vary, and public API requests may fail or be rate limited. This release covers modern Reddit public profile Overview/Posts views and post details, not private Hidden lists, private communities, comment discovery or old Reddit. A selection or failed lookup never establishes complete history or current deletion.
+
 # 0.12.8 design test
 
 - Exclude Reddit’s temporary local message IDs from new saved captures, native-cache import and individual search. Observe native local-echo updates so confirmed messages are captured under their server-assigned IDs.
