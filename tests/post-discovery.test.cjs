@@ -11,7 +11,7 @@ function setup(t,{url='https://www.reddit.com/user/Example/submitted/',settings=
 }
 test('profile discovery is explicit, deduplicates native posts and stays inline',async t=>{
   const {W,d,calls}=setup(t);await d.ready;assert.equal(calls.length,0);assert.equal(d.host.nextElementSibling,d.feed);
-  await d.loadReddit();assert.equal(calls.length,1);assert.equal((d.feed || d.results).querySelectorAll('.rt-native-card:not([hidden])').length,1);assert.match(d.status.textContent,/1 additional post/);assert.ok(d.nodes.get('abc12').querySelector('shreddit-post'));assert.match((d.feed || d.results).querySelector('[role=img]').title,/public Reddit search/);
+  await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(calls.length,1);assert.equal((d.feed || d.results).querySelectorAll('.rt-native-card:not([hidden])').length,1);assert.match(d.status.textContent,/1 additional post/);assert.ok(d.nodes.get('abc12').querySelector('shreddit-post'));assert.match((d.feed || d.results).querySelector('[role=img]').title,/public Reddit search/);
   const native=W.document.createElement('shreddit-post');native.id='t3_abc12';W.document.querySelector('shreddit-feed').append(native);d.scan();assert.equal(d.nodes.get('abc12').hidden,true);assert.equal(W.document.querySelectorAll('shreddit-post[id="t3_abc12"]').length,1);
 });
 test('pagination uses Reddit cursors while refresh starts at the newest page',async t=>{
@@ -19,7 +19,7 @@ test('pagination uses Reddit cursors while refresh starts at the newest page',as
   assert.equal(calls[0].after,undefined);assert.equal(calls[1].after,'t3_abc12');assert.equal(calls[2].after,undefined);assert.equal(d.moreReddit,true);
 });
 test('archived text and current deletion status remain separately attributed',async t=>{
-  const {d}=setup(t,{settings:{archiveDiscovery:true},reddit:async()=>({posts:[raw('old12',{selftext:'[removed]'})]})});await d.ready;await d.loadArchive();
+  const {d}=setup(t,{settings:{archiveDiscovery:true},reddit:async()=>({posts:[raw('old12',{selftext:'[removed]'})]})});await d.ready;await d.loadArchive();await new Promise(r=>setImmediate(r));
   assert.match((d.feed || d.results).textContent,/Archived text · Arctic Shift/);assert.match((d.feed || d.results).querySelector('[role=img]').title,/Removed on Reddit/);assert.equal((d.feed || d.results).querySelector('details').open,false);
 });
 test('archive failures preserve visible public results and expose a retryable error',async t=>{
@@ -92,9 +92,30 @@ test('default discovery and native rendering communicate end to end without tran
  const d=new w.RTPostDiscovery.Discovery({observe:false,readSettings:async()=>({'rt-settings-v1':{postDiscovery:true}})});await d.ready;await d.loadReddit();await new Promise(r=>setTimeout(r,10));
  const node=d.nodes.get('abc12');assert.equal(node.dataset.rtNativeState,'ready');assert.ok(node.querySelector('[aria-label=Upvote]'));assert.ok(node.querySelector('[data-rt-source]'));assert.equal(node.parentElement,d.feed);assert.deepEqual(calls.map(u=>u.pathname),['/search.json','/svc/shreddit/partial-feed-post/t3_abc12']);d.destroy();
 });
-test('native hydration runs at most two cards concurrently and does not restart ready cards',async t=>{
- const releases=[];let active=0,peak=0,count=0;const {W,d}=setup(t,{reddit:async()=>({posts:Array.from({length:5},(_,i)=>raw('item'+i)),hasMore:false}),nativeRender:async(post,node)=>{count++;active++;peak=Math.max(peak,active);await new Promise(r=>releases.push(r));active--;const native=node.ownerDocument.createElement('shreddit-post');native.id=post.fullname;node.replaceChildren(native);}});
- await d.ready;await d.loadReddit();assert.equal(count,2);releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));assert.equal(count,4);releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));assert.equal(peak,2);assert.equal(count,5);d.scan();assert.equal(count,5);assert.equal(W.document.querySelectorAll('shreddit-post[id^=t3_item]').length,5);
+test('native hydration attaches cards in feed order with one request in flight and never restarts ready cards',async t=>{
+ const releases=[],order=[];let active=0,peak=0;
+ const {W,d}=setup(t,{reddit:async()=>({posts:Array.from({length:5},(_,i)=>raw('item'+i,{created_utc:1700000000-i})),hasMore:false}),nativeRender:async(post,node)=>{order.push(post.id);active++;peak=Math.max(peak,active);await new Promise(r=>releases.push(r));active--;const native=node.ownerDocument.createElement('shreddit-post');native.id=post.fullname;node.replaceChildren(native);}});
+ await d.ready;d.nativeObserver={observe(){},disconnect(){}};await d.loadReddit();
+ // Visibility notifications may arrive in reverse order. Queue the entire batch
+ // before draining, and prefer document order over observer delivery order.
+ [...d.nodes.values()].reverse().forEach(node=>d.queueNative(node));await new Promise(r=>setImmediate(r));
+ assert.deepEqual(order,['item0']);
+ for(let i=0;i<5;i++){assert.equal(releases.length,1);releases.shift()();await new Promise(r=>setImmediate(r));}
+ assert.equal(peak,1);assert.deepEqual(order,['item0','item1','item2','item3','item4']);d.scan();assert.equal(order.length,5);assert.equal(W.document.querySelectorAll('shreddit-post[id^=t3_item]').length,5);
+});
+
+test('cards supply native feed separators without duplicating server rules or confusing body rules',async t=>{
+ const {W,d}=setup(t);await d.ready;
+ const node=d.card({id:'test',fullname:'t3_test'}),placeholderRule=node.querySelector('[data-rt-separator]');
+ assert.equal(placeholderRule.className,'border-0 border-b-sm border-solid border-b-neutral-border-weak');
+ node.innerHTML='<faceplate-partial><article><shreddit-post><div slot="text-body"><hr></div></shreddit-post></article></faceplate-partial>';
+ d.ensureSeparator(node);const rule=node.querySelector('[data-rt-separator]');assert.equal(rule,node.lastElementChild);assert.equal(node.querySelectorAll('hr').length,2);
+ d.ensureSeparator(node);assert.equal(node.querySelectorAll('[data-rt-separator]').length,1);
+ const supplied=W.document.createElement('hr');node.querySelector('faceplate-partial').append(supplied);d.ensureSeparator(node);assert.equal(node.querySelector('[data-rt-separator]'),null);assert.equal(supplied.isConnected,false);
+ // Comments omit the feed-level rule. The generated one stays with the wrapper
+ // through native virtualization and opt-out rather than becoming an orphan.
+ node.innerHTML='<faceplate-partial><shreddit-profile-comment></shreddit-profile-comment></faceplate-partial>';d.ensureSeparator(node);d.feed.append(node);d.nodes.set('test',node);
+ const separator=node.lastElementChild,slot=W.document.createElement('div');slot.className='virtualized-placeholder';node.replaceWith(slot);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[node]}]);assert.equal(separator.parentElement,node);slot.replaceWith(node);d.trackVirtualization([{target:d.feed,addedNodes:[node],removedNodes:[slot]}]);assert.equal(node.lastElementChild,separator);d.reset();assert.equal(separator.isConnected,false);
 });
 
 test('Reddit virtualization retains loaded cards and native date anchors without reinsertion or refetch',async t=>{
