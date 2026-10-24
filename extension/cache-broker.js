@@ -167,3 +167,6 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   const result=reading?handleMessages(message,sender):messageQueue.then(()=>handleMessages(message,sender));if(!reading)messageQueue=result.catch(()=>{});
   result.then(value=>respond({ok:true,...value}),error=>respond({ok:false,error:error?.message || 'Unable to save messages. Please retry.'}));return true;
 });
+
+/* Public post archives have their own bounded transport and never join chat queues. */
+importScripts('post-broker.js');
