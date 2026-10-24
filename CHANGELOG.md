@@ -1,3 +1,14 @@
+# 0.15.2 preview
+
+- Detach Reddit's deleted-account and curated-profile Welcome/hidden-posts notices before paint, including replacements and native post overlays. Restore the original notices on opt-out or leaving the profile.
+- Reuse available active-account chat identity avatars and matching native post icons for deleted profiles. Preserve avatar space while loading, reject unsafe URLs and group conversation images, and retain a neutral fallback when no photo is available. Arctic Shift does not provide profile images.
+- Restore Reddit's responsive desktop columns and native left navigation on deleted profiles. The right panel shows explicitly labeled counts and date ranges for loaded archive records, with incomplete-coverage context. Keep navigation stable across profile tabs and provide usable links plus explicit Retry on failure.
+- Use Reddit's shimmer placeholders for discovery and card loading. Avoid redundant full-document notice scans and repeated archive-statistic DOM writes.
+
+Version choice: PATCH to 0.15.2 for existing profile-view reliability and native interface corrections. No new permissions, persistence or storage-schema change.
+
+Validation: all 526 tests pass, including 71 targeted profile/model/native-bridge checks. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave inspection verified native layout/navigation markup and the same-origin navigation fragment. Installed verification requires reloading the updated unpacked extension. Retained-avatar recovery depends on existing matching identity hints and active native chat context; archive coverage and Reddit's internal markup/endpoints remain incomplete or changeable.
+
 # 0.15.1 preview
 
 - Fix deleted-profile Posts/Comments requests being rejected after SPA navigation. Brave can retain the original document sender URL while the current tab URL changes. Accept only supported tabs of the same requested profile across both URLs; retain origin, other-profile and unsupported-page checks.
