@@ -77,11 +77,19 @@ test('profile search forwards validated sort and time range and rejects obsolete
  let resolve;const stale=setup(t,{fetcher:()=>new Promise(r=>resolve=r)}),pending=stale.send({action:'profile',username:'Example'});stale.W.history.pushState({},'','?sort=top');resolve({ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({data:{children:[]}})});assert.match((await pending).error,/Page changed/);
 });
 
-test('native card request budget and server cooldown defer work instead of failing cards',async t=>{
+test('native card budget renders a full page before deferring the thirty-first request',async t=>{
  const e=setup(t,{fetcher:async url=>nativeResponse(`<shreddit-post id="${new URL(url).pathname.split('/').pop()}"></shreddit-post>`)});
- for(let i=0;i<12;i++){const slot=nativeTarget(e,{id:'item'+i,target:'rt-native-'+i});assert.equal((await e.send({action:'render-card',username:'Example',kind:'post',postId:'item'+i,target:slot.id})).rendered,true);}
- const last=nativeTarget(e,{id:'item12',target:'rt-native-last'}),paused=await e.send({action:'render-card',username:'Example',kind:'post',postId:'item12',target:last.id});assert.equal(paused.deferred,true);assert.ok(paused.retryAfterMs>0);assert.equal(e.calls.length,12);
- const limited=setup(t,{fetcher:async()=>({ok:false,status:429,headers:new Headers({'Retry-After':'42'})})}),slot=nativeTarget(limited),response=await limited.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(response.deferred,true);assert.ok(response.retryAfterMs>=41000);assert.equal(limited.calls.length,1);
+ let now=e.W.Date.now();e.W.Date.now=()=>now;
+ for(let i=0;i<30;i++){const slot=nativeTarget(e,{id:'item'+i,target:'rt-native-'+i});assert.equal((await e.send({action:'render-card',username:'Example',kind:'post',postId:'item'+i,target:slot.id})).rendered,true);if(i===24)assert.equal(e.calls.length,25);}
+ const last=nativeTarget(e,{id:'item30',target:'rt-native-last'}),input={action:'render-card',username:'Example',kind:'post',postId:'item30',target:last.id},paused=await e.send(input);assert.equal(paused.deferred,true);assert.equal(paused.retryAfterMs,30000);assert.equal(e.calls.length,30);
+ now+=30000;assert.equal((await e.send(input)).rendered,true);assert.equal(e.calls.length,31);
+});
+test('native card server cooldown still defers requests until Retry-After expires',async t=>{
+ let requests=0;const limited=setup(t,{fetcher:async()=>++requests===1?{ok:false,status:429,headers:new Headers({'Retry-After':'42'})}:nativeResponse('<shreddit-post id="t3_abc12"></shreddit-post>')}),slot=nativeTarget(limited),input={action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id};
+ let now=limited.W.Date.now();limited.W.Date.now=()=>now;
+ const response=await limited.send(input);assert.equal(response.deferred,true);assert.equal(response.reason,'rate-limit');assert.equal(response.retryAfterMs,42000);assert.equal(limited.calls.length,1);
+ now+=41000;const waiting=await limited.send(input);assert.equal(waiting.deferred,true);assert.equal(waiting.retryAfterMs,1000);assert.equal(limited.calls.length,1);
+ now+=1000;assert.equal((await limited.send(input)).rendered,true);assert.equal(limited.calls.length,2);
 });
 
 function navigationTarget(e,{controllerReady=true}={}){if(controllerReady && !e.W.customElements.get('flex-left-nav-container'))e.W.customElements.define('flex-left-nav-container',class extends e.W.HTMLElement{});const root=e.W.document.createElement('div');root.dataset.rtUi='archive-profile';const target=e.W.document.createElement('div');target.id='rt-nav-fixture';target.dataset.rtUi='profile-navigation';root.append(target);e.W.document.body.append(root);if(!e.W.customElements.get('faceplate-partial'))e.W.customElements.define('faceplate-partial',class extends e.W.HTMLElement{_renderContent(text){this.innerHTML=text;}});return target;}
