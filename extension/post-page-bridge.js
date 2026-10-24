@@ -23,7 +23,7 @@
       try{
         const context=JSON.parse(card.closest('search-telemetry-tracker')?.getAttribute('data-faceplate-tracking-context') || '{}');
         const content=card.querySelector('[data-testid="search-comment-content"]');
-        const author=card.querySelector('a[href^="/user/"]')?.textContent?.trim() || card.querySelector('a[href="#"]')?.textContent?.trim();
+        const author=[...card.querySelectorAll('a[href="#"],a[href^="/user/"]')].find(a=>!a.closest('[id$="-post-rtjson-content"]'))?.textContent?.trim();
         if(author?.toLowerCase()!==username.toLowerCase())continue;
         const parts=[...content.querySelectorAll('[id$="-post-rtjson-content"] p')].map(p=>p.textContent.trim());
         const body=parts.length?parts.join('\n\n'):content.querySelector('[id$="-post-rtjson-content"]')?.textContent?.trim();
