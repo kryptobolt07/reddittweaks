@@ -36,3 +36,9 @@ test('modern comment IDs, parent links and post/comment identity remain distinct
  const shared={...comment,id:'abc12',fullname:'t1_abc12'};
  const merged=m.mergePosts([post(),shared],[],{username:'Example',visibleIds:['t3_abc12']});assert.equal(merged.length,2);assert.equal(merged.find(p=>p.kind==='comment').visible,false);
 });
+test('profile sorts use dates for New, scores for Top and Reddit order for Hot',()=>{
+ const m=model(),data=[post({id:'older',created_utc:1700000000,score:100}),post({id:'recent',created_utc:1700000100,score:1}),post({id:'middle',created_utc:1700000050,score:10})];
+ const ids=sort=>Array.from(m.mergePosts(data,[],{username:'Example',sort}),p=>p.id);
+ assert.deepEqual(ids('new'),['recent','middle','older']);assert.deepEqual(ids('top'),['older','middle','recent']);assert.deepEqual(ids('hot'),['older','recent','middle']);
+ const ranged=m.mergePosts(data,[post({id:'ancient',created_utc:1600000000,score:1000})],{username:'Example',sort:'top',range:'day',now:1700000150});assert.equal(ranged.some(p=>p.id==='ancient'),false);
+});

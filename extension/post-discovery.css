@@ -13,7 +13,7 @@ html[data-rt-profile-discovery] main #empty-feed-content:has(img[src*="/shreddit
 .rt-posts-status{font-size:12px;margin:0 auto 0 0;line-height:1.5;color:var(--color-neutral-content-weak,#576f76)}
 .rt-posts-status[data-error=false]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .rt-posts-status[data-error=true]{color:var(--color-danger-content,#b32424)}.rt-posts-status:empty{display:none}
-.rt-post-loading{display:flex;justify-content:center;padding:12px}.rt-post-loading faceplate-progress{width:20px;height:20px}
+.rt-post-loading{display:flex;justify-content:center;padding:12px}.rt-post-loading faceplate-progress{--loader-size:20px;display:block;flex:none;width:20px;height:20px}
 .rt-native-card{min-width:0;overflow-anchor:auto}.rt-native-placeholder{display:flex;gap:12px;align-items:flex-start;min-height:112px;padding:16px}
 .rt-native-enter{animation:rt-native-appear .16s ease-out}
 .rt-native-card:focus-within{animation:none}
@@ -22,5 +22,5 @@ html[data-rt-profile-discovery] main #empty-feed-content:has(img[src*="/shreddit
 .rt-post-indicator[data-state=deleted],.rt-post-indicator[data-state=removed]{color:var(--color-danger-content,#b32424)}
 .rt-post-snapshot{font-size:14px;margin:10px 16px;line-height:1.5}.rt-post-snapshot summary{color:var(--color-neutral-content-weak,#576f76);cursor:pointer;font-size:12px;display:list-item}
 .rt-post-snapshot pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}.rt-post-source{font-size:11px;color:var(--color-neutral-content-weak,#576f76)}
-.rt-native-unavailable{font:inherit;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px}.rt-native-unavailable a{color:inherit}.rt-native-unavailable button{font:inherit;color:inherit;border:0;border-radius:16px;background:var(--color-neutral-background-hover,#f2f4f5);padding:6px 12px;cursor:pointer}
+.rt-native-unavailable{font:inherit;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px}.rt-native-unavailable a{color:inherit;min-width:0;flex:1;overflow-wrap:anywhere}.rt-native-unavailable button{font:inherit;color:inherit;flex:none;white-space:nowrap;border:0;border-radius:16px;background:var(--color-neutral-background-hover,#f2f4f5);padding:6px 12px;cursor:pointer}
 @media(prefers-reduced-motion:reduce){.rt-native-enter{animation:none}}
