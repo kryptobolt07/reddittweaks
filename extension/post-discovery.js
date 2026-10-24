@@ -36,6 +36,12 @@
     const s=document.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('viewBox','0 0 24 24');s.dataset.icon=kind;s.setAttribute('aria-hidden','true');
     const p=document.createElementNS(s.namespaceURI,'path');p.setAttribute('d',kind==='refresh'?'M20 7V3l-3 3a8 8 0 1 0 2 10M20 3v6h-6':kind==='archive'?'M4 8h16v12H4zM3 4h18v4H3zM9 12h6':kind==='deleted'?'M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7':kind==='hidden'?'M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M7 5.5A11 11 0 0 1 12 4c5 0 9 8 9 8a20 20 0 0 1-3.4 4.3M5 7a22 22 0 0 0-2 5s4 8 9 8a10 10 0 0 0 4-1':kind==='removed'?'M5 5l14 14M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20':'M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6');s.append(p);return s;
   }
+  function unavailableAvatar(){
+    const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    for(const [name,value] of Object.entries({rpl:'',fill:'currentColor',height:'32',width:'32',viewBox:'0 0 20 20','icon-name':'ban-fill','aria-hidden':'true'}))icon.setAttribute(name,value);
+    // Reddit's native banned-account artwork, without document-specific clip IDs.
+    const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M19.188 10.304a2.63 2.63 0 00-.776-1.873 2.825 2.825 0 00-1.493-.796c-.881-.156-1.77-.372-2.493-.899-1.177-.858-1.891-2.091-2.04-3.487-.065-.627-.374-1.236-.865-1.708-1.05-1.01-2.747-.91-3.776.12L3.905 5.5a2.63 2.63 0 00-.775 1.873c0 .707.275 1.372.776 1.872a2.792 2.792 0 001.664.82c.332.036.648.12.957.224l-4.901 4.9a2.25 2.25 0 103.182 3.18l4.9-4.9c.102.31.187.626.223.959.065.607.356 1.198.82 1.663a2.638 2.638 0 001.873.773c.678 0 1.357-.258 1.873-.773l3.915-3.915c.5-.5.776-1.165.776-1.872Z');icon.append(path);return icon;
+  }
   function button(text,run,icon){const b=make('button','',text);b.type='button';if(icon)b.prepend(glyph(icon));b.addEventListener('click',run);return b;}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   class Discovery {
@@ -58,7 +64,7 @@
     }
     ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
     schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.scan();},60);}
-    reset({retainNavigation=false}={}){this.profileNavigation?.remove();if(!retainNavigation)this.profileNavigation=null;else if(this.profileNavigation?.dataset.state==='loading')this.profileNavigation.dataset.state='idle';this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();this.archiveNotice=this.archiveNoticeAnchor=this.archiveShell=this.archiveMain=this.archiveStats=this.avatarSlot=this.avatarImage=null;this.avatarOwner=this.avatarSource='';this.failedAvatars=new Set();this.profileOverlay=false;this.archiveOnly=false;this.generation++;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
+    reset({retainNavigation=false}={}){this.profileNavigation?.remove();if(!retainNavigation)this.profileNavigation=null;else if(this.profileNavigation?.dataset.state==='loading')this.profileNavigation.dataset.state='idle';this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();this.archiveNotice=this.archiveNoticeAnchor=this.archiveShell=this.archiveMain=this.archiveStats=this.avatarSlot=this.avatarImage=null;this.avatarOwner=this.avatarSource='';this.failedAvatars=new Set();this.profileOverlay=false;this.archiveOnly=false;this.accountState='';this.generation++;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
@@ -83,11 +89,11 @@
       this.reset({retainNavigation});
       let main=document.querySelector('main#main-content,main[role="main"],main');
       if(!main && context.kind==='profile'){
-        // Deleted-account pages omit both main and shreddit-feed. Require the
-        // observed native deletion marker; generic 404/network pages stay native.
+        // Unavailable-account pages omit both main and shreddit-feed. Require an
+        // explicit native account marker; generic 404/network pages stay native.
         const marker=document.querySelector('shreddit-app > div > img[alt="Deleted user"]');
-        const retained=globalThis.RTProfileNoticeGuard?.deletedNotice?.();
-        if(retained)main=this.mountArchiveProfile(context,retained.notice,retained.anchor);else if(marker && marker.parentElement.querySelector('h3'))main=this.mountArchiveProfile(context,marker.parentElement);
+        const retained=globalThis.RTProfileNoticeGuard?.unavailableNotice?.(),banned=document.querySelector('shreddit-app > #shreddit-forbidden:has(svg[icon-name="ban-fill"])');
+        if(retained)main=this.mountArchiveProfile(context,retained.notice,retained.anchor,retained.state);else if(marker && marker.parentElement.querySelector('h3'))main=this.mountArchiveProfile(context,marker.parentElement);else if(banned && /^This account (?:has been (?:banned|suspended)|is suspended)$/i.test(banned.querySelector('#shreddit-forbidden-title')?.textContent.trim()))main=this.mountArchiveProfile(context,banned,banned,'banned');
       }
       if(!main)return;
       let target=context.kind==='profile'?main.querySelector('shreddit-feed,[data-rt-archive-feed]'):main.querySelector('shreddit-post');
@@ -101,7 +107,7 @@
       this.discover.title=context.kind==='profile'?'Find public '+noun+' through Reddit search, including activity omitted from this profile feed':'Look for a separate archived snapshot without replacing the current post';
       if(context.kind==='post' && !this.settings.archiveDiscovery && !this.settingsError){this.discover.disabled=true;this.discover.title='Enable Arctic Shift archive discovery in Reddit Tweaks to check this post.';}
       this.discover.setAttribute('aria-label',this.discover.textContent);this.discover.textContent='';this.discover.append(glyph(context.kind==='profile'?'refresh':'archive'));
-      if(this.archiveOnly){this.discover.setAttribute('aria-label','Search archive');this.discover.title='Find archived public posts and comments for this deleted account';this.discover.replaceChildren(glyph('archive'));this.discover.disabled=!this.settingsError && !this.settings.archiveDiscovery;}
+      if(this.archiveOnly){this.discover.setAttribute('aria-label','Search archive');this.discover.title='Find archived public posts and comments for this unavailable account';this.discover.replaceChildren(glyph('archive'));this.discover.disabled=!this.settingsError && !this.settings.archiveDiscovery;}
       toolbar.append(this.discover);
       if(context.kind==='profile' && !this.archiveOnly && this.settings.archiveDiscovery){this.archiveButton=button('Search archive',()=>this.loadArchive(),'archive');this.archiveButton.title='Send this public username to Arctic Shift to look for older snapshots';this.archiveButton.setAttribute('aria-label','Search archive');this.archiveButton.textContent='';this.archiveButton.append(glyph('archive'));toolbar.append(this.archiveButton);}else this.archiveButton=null;
       this.status=make('p','rt-posts-status');this.status.setAttribute('role','status');
@@ -114,14 +120,14 @@
       if(this.settingsError)this.setStatus('Discovery settings could not be loaded. Select Retry discovery.',true);
       else if(context.kind==='profile' && this.autoDiscover)queueMicrotask(()=>{if(this.host===host){if(this.archiveOnly){if(this.settings.archiveDiscovery)this.loadArchive();}else this.loadReddit();}});
     }
-    mountArchiveProfile(context,notice,anchor=notice){
-      this.archiveOnly=true;this.archiveNotice=notice;this.archiveNoticeAnchor=anchor;
-      const layout=this.archiveShell=make('div','grid-container theme-rpl grid flex-nav-expanded');layout.dataset.rtUi='archive-profile';layout.dataset.rtUsername=context.username;layout.dir='ltr';
+    mountArchiveProfile(context,notice,anchor=notice,state='deleted'){
+      this.accountState=state;this.archiveOnly=true;this.archiveNotice=notice;this.archiveNoticeAnchor=anchor;
+      const layout=this.archiveShell=make('div','grid-container theme-rpl grid flex-nav-expanded');layout.dataset.rtUi='archive-profile';layout.dataset.rtUsername=context.username;layout.dataset.rtAccountState=state;layout.dir='ltr';
       const subgrid=make('div','subgrid-container m:col-start-2 box-border flex flex-col order-2 w-full m:w-[1120px] xs:px-md m:px-lg mx-auto min-h-[calc(100dvh_-_var(--shreddit-header-height))] justify-stretch');subgrid.id='subgrid-container';
       const columns=make('div','main-container gap-lg w-full flex-1 grid place-content-between grid-cols-[minmax(0,1fr)] fixed-sidebar xs:[&.fixed-sidebar]:grid-cols-[minmax(0,756px)_minmax(0,316px)] xs:[&.flex-sidebar]:grid-cols-[minmax(0,756px)_auto]');
       const shell=this.archiveMain=make('main','main w-full min-w-0');shell.id='main-content';
       const header=make('div','px-md relative pt-md flex pb-md items-end'),copy=make('div','w-full'),title=make('h1','text-24 font-bold m-0',context.username),name=make('p','m-0 text-14 text-neutral-content-weak font-semibold','u/'+context.username);
-      title.dataset.testid='profile-display-name';name.dataset.testid='profile-prefixed-name';copy.append(title,name,make('p','text-12 text-neutral-content-weak my-xs','Arctic Shift archive · Coverage may be incomplete'));this.avatarSlot=make('div','flex items-center justify-center shrink-0 w-[74px] min-h-4xl overflow-hidden pe-md relative');this.avatarPlaceholder=make('span','flex items-center justify-center rounded-full bg-neutral-background-selected text-neutral-content-weak w-4xl h-4xl',context.username.slice(0,1).toUpperCase());this.avatarPlaceholder.setAttribute('aria-label','Profile picture unavailable');this.avatarSlot.append(this.avatarPlaceholder);header.append(this.avatarSlot,copy);
+      title.dataset.testid='profile-display-name';name.dataset.testid='profile-prefixed-name';copy.append(title,name,make('p','text-12 text-neutral-content-weak my-xs','Arctic Shift archive · Coverage may be incomplete'));this.avatarSlot=make('div','flex items-center justify-center shrink-0 w-[74px] min-h-4xl overflow-hidden pe-md relative');this.avatarPlaceholder=make('span','flex items-center justify-center rounded-full bg-[color:var(--color-tone-6)] text-neutral-content-weak w-4xl h-4xl');this.avatarPlaceholder.setAttribute('role','img');this.avatarPlaceholder.setAttribute('aria-label',(state==='banned'?'Banned or suspended':'Deleted')+' account · Profile picture unavailable');this.avatarPlaceholder.append(unavailableAvatar());this.avatarSlot.append(this.avatarPlaceholder);header.append(this.avatarSlot,copy);
       const tabsContainer=make('div','mx-2xs my-md'),tabs=make('faceplate-tabgroup','nd:flex nd:gap-xs nd:w-fit');tabs.id='profile-feed-tabgroup';tabs.setAttribute('slot','tabs');tabs.setAttribute('for','profile-feed-tabs');
       const views=[['overview','Overview',''],['posts','Posts','submitted/'],['comments','Comments','comments/']],index=views.findIndex(([view])=>view===context.view)+1;tabs.setAttribute('pageindex',String(index));
       for(const [i,[view,label,suffix]] of views.entries()){

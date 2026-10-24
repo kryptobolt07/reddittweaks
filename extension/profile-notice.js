@@ -3,6 +3,11 @@
   'use strict';
   if(window.top!==window || !globalThis.chrome?.runtime?.id)return;
   let enabled=true,revision=0;const notices=new Map();
+  const unavailableSelector='shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3),shreddit-app > #shreddit-forbidden:has(svg[icon-name="ban-fill"]):has(#shreddit-forbidden-title)';
+  function unavailableState(notice){
+    if(notice.matches('shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3)'))return 'deleted';
+    return notice.matches('shreddit-app > #shreddit-forbidden:has(svg[icon-name="ban-fill"])') && /^This account (?:has been (?:banned|suspended)|is suspended)$/i.test(notice.querySelector('#shreddit-forbidden-title')?.textContent.trim())?'banned':'';
+  }
   function refresh(records){
     const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(location.pathname),post=/^\/(?:(?:r|user)\/[^/]+\/)?comments\//i.test(location.pathname);
     // A native post modal changes the URL while the profile remains underneath.
@@ -10,15 +15,15 @@
     document.documentElement?.toggleAttribute('data-rt-profile-discovery',active);
     for(const [notice,anchor] of notices){if(!anchor.isConnected){notices.delete(notice);continue;}if(!active){anchor.replaceWith(notice);notices.delete(notice);}}
     if(!active)return;
-    const selector='main #empty-feed-content:has(img[src*="/shreddit/assets/snoo_wave."]),shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3)',candidates=new Set();
-    if(Array.isArray(records)){for(const record of records){if(record.target.nodeType===1 && record.target.matches(selector))candidates.add(record.target);for(const node of record.addedNodes)if(node.nodeType===1){if(node.matches(selector))candidates.add(node);for(const notice of node.querySelectorAll(selector))candidates.add(notice);}}}else for(const notice of document.querySelectorAll(selector))candidates.add(notice);
-    for(const notice of candidates){if(!notice.isConnected)continue;
+    const selector='main #empty-feed-content:has(img[src*="/shreddit/assets/snoo_wave."]),'+unavailableSelector,candidates=new Set();
+    if(Array.isArray(records)){for(const record of records){if(record.target.nodeType===1){const parent=record.target.closest(selector);if(parent)candidates.add(parent);}for(const node of record.addedNodes)if(node.nodeType===1){if(node.matches(selector))candidates.add(node);for(const notice of node.querySelectorAll(selector))candidates.add(notice);}}}else for(const notice of document.querySelectorAll(selector))candidates.add(notice);
+    for(const notice of candidates){if(!notice.isConnected || notice.id==='shreddit-forbidden' && !unavailableState(notice))continue;
       const anchor=document.createComment('rt-profile-notice');notice.replaceWith(anchor);notices.set(notice,anchor);
     }
   }
-  function deletedNotice(){for(const [notice,anchor] of notices)if(anchor.isConnected && notice.querySelector('img[alt="Deleted user"]'))return {notice,anchor};return null;}
+  function unavailableNotice(){for(const [notice,anchor] of notices)if(anchor.isConnected){const state=notice.querySelector('img[alt="Deleted user"]')?'deleted':notice.id==='shreddit-forbidden'?'banned':'';if(state)return {notice,anchor,state};}return null;}
   function setEnabled(value){revision++;const next=value===true,changed=next!==enabled;enabled=next;refresh(changed?undefined:[]);}
-  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,deletedNotice});
+  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,unavailableNotice});
   // Observe the Document: the root may not exist yet at document_start.
   const observer=new MutationObserver(refresh);observer.observe(document,{childList:true,subtree:true});
   window.addEventListener('popstate',refresh);document.addEventListener('reddit:route',refresh);
