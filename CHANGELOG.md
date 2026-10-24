@@ -1,3 +1,13 @@
+# 0.16.4 preview
+
+- Hydrate Reddit's native grid controller with the recovered left sidebar, restoring collapse, hover and saved navigation behavior. Discover validated native bootstrap metadata rather than copying new event handlers.
+- Restore missing comment author and “replied to” headers. Reuse loaded parents, batch native lookups and use the enabled archive provider for unresolved parents, restricted to children already discovered on this profile/tab. Preserve complete native headers and verify thread identity.
+- Match native profile continuation: one halo at the feed tail, six prepared cards revealed together, then the next bounded group/page as scrolling reaches it. Keep completed cards and partial Back state; pause failures and avoid false empty states, placeholder-filled scrollbars and loader anchoring jumps. Native feeds keep their own pagination.
+
+Version choice: PATCH to 0.16.4 for existing profile metadata, navigation and loading corrections. No new permissions, persistence or schema change.
+
+Validation: all 556 tests pass, including 117 targeted model/discovery/bridge/broker checks. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live inspection verified native reply markup, the continuation loader and the missing grid bootstrap; loading it restored collapse/expand, and the original preference was restored. Reddit metadata returned HTTP 403; direct archive diagnostics were blocked, so provider-dependent installed recipient recovery and final appearance still require reloading the bundle. Missing archive data remains incomplete; Reddit's undocumented contracts can change. Temporary relationship proofs expire in ten minutes or when worker memory is released.
+
 # 0.16.3 preview
 
 - Correct the loading hierarchy: use one native Snoo halo for initial feed loading and quiet native shimmer skeletons for pending cards.
