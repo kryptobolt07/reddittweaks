@@ -84,7 +84,7 @@ test('native card request budget and server cooldown defer work instead of faili
  const limited=setup(t,{fetcher:async()=>({ok:false,status:429,headers:new Headers({'Retry-After':'42'})})}),slot=nativeTarget(limited),response=await limited.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(response.deferred,true);assert.ok(response.retryAfterMs>=41000);assert.equal(limited.calls.length,1);
 });
 
-function navigationTarget(e,{controllerReady=true}={}){if(controllerReady)e.W.customElements.define('flex-left-nav-container',class extends e.W.HTMLElement{});const root=e.W.document.createElement('div');root.dataset.rtUi='archive-profile';const target=e.W.document.createElement('div');target.id='rt-nav-fixture';target.dataset.rtUi='profile-navigation';root.append(target);e.W.document.body.append(root);e.W.customElements.define('faceplate-partial',class extends e.W.HTMLElement{_renderContent(text){this.innerHTML=text;}});return target;}
+function navigationTarget(e,{controllerReady=true}={}){if(controllerReady && !e.W.customElements.get('flex-left-nav-container'))e.W.customElements.define('flex-left-nav-container',class extends e.W.HTMLElement{});const root=e.W.document.createElement('div');root.dataset.rtUi='archive-profile';const target=e.W.document.createElement('div');target.id='rt-nav-fixture';target.dataset.rtUi='profile-navigation';root.append(target);e.W.document.body.append(root);if(!e.W.customElements.get('faceplate-partial'))e.W.customElements.define('faceplate-partial',class extends e.W.HTMLElement{_renderContent(text){this.innerHTML=text;}});return target;}
 test('native navigation attaches only Reddit sidebar markup from a fixed same-origin page read',async t=>{
  const e=setup(t,{fetcher:async()=>nativeResponse('<main id="home">Synthetic unrelated feed</main><flex-left-nav-container id="left-sidebar-container"><reddit-sidebar-nav><a href="/">Home</a></reddit-sidebar-nav></flex-left-nav-container>')}),target=navigationTarget(e);
  const result=await e.send({action:'render-navigation',username:'Example',target:target.id});assert.equal(result.ok,true);assert.equal(result.rendered,true);assert.equal(result.html,undefined);assert.ok(target.querySelector('flex-left-nav-container'));assert.equal(target.querySelector('#home'),null);assert.equal(target.textContent.includes('unrelated'),false);const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/');assert.equal(options.credentials,'include');assert.equal(options.redirect,'error');
@@ -94,6 +94,13 @@ test('navigation rejects foreign targets and profile changes but survives same-p
  for(const input of [{username:'Other'},{target:'main'},{target:'rt-nav-missing'}])assert.equal((await e.send({action:'render-navigation',username:'Example',target:target.id,...input})).ok,false);assert.equal(e.calls.length,0);
  const pending=e.send({action:'render-navigation',username:'Example',target:target.id});e.W.history.pushState({},'','/user/Example/comments/');resolve(nativeResponse('<flex-left-nav-container id="left-sidebar-container">Native</flex-left-nav-container>'));assert.equal((await pending).rendered,true);
  const stale=e.send({action:'render-navigation',username:'Example',target:target.id});e.W.history.pushState({},'','/user/Other/');resolve(nativeResponse('<flex-left-nav-container id="left-sidebar-container">Wrong scope</flex-left-nav-container>'));assert.equal((await stale).ok,false);assert.equal(target.textContent.includes('Wrong scope'),false);
+});
+test('navigation reads reuse cached responses across profile targets sharing a lease',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<flex-left-nav-container id="left-sidebar-container"><a href="/">Home</a></flex-left-nav-container>')});
+ const first=navigationTarget(e),second=navigationTarget(e,{controllerReady:false});second.id='rt-nav-second';
+ const r1=await e.send({action:'render-navigation',username:'Example',target:first.id,navigationLease:'lease-1'});assert.equal(r1.rendered,true);
+ const r2=await e.send({action:'render-navigation',username:'Example',target:second.id,navigationLease:'lease-1'});assert.equal(r2.rendered,true);
+ assert.equal(e.calls.length,1);
 });
 
 test('native reload contracts follow compatible Reddit endpoint changes without recreating card markup',async t=>{
@@ -123,4 +130,12 @@ test('invalid native navigation bootstrap cannot execute arbitrary scripts or re
  for(const [src,prefix] of [['https://evil.test/code.js','en-US/'],['concat:../bad','en-US/'],['concat:Native','../../'],['concat:Native','en-US/']]){
   const e=setup(t,{fetcher:async()=>nativeResponse(`<faceplate-loader src="${src}" data-prefix="${prefix}"><script>bad()</script></faceplate-loader><div class="grid-container"><flex-left-nav-container id="left-sidebar-container"></flex-left-nav-container></div>`)}),target=navigationTarget(e,{controllerReady:false});let calls=0;e.W.SML={load:async()=>{calls++;}};const result=await e.send({action:'render-navigation',username:'Example',target:target.id});assert.equal(result.ok,false);assert.equal(target.childElementCount,0);assert.equal(calls,src==='concat:Native'&&prefix==='en-US/'?1:0);
  }
+});
+
+test('navigation preloads native eager modules before attaching sidebar text and never re-executes response scripts',async t=>{
+ let release;const e=setup(t,{fetcher:async()=>nativeResponse('<flex-left-nav-container id="left-sidebar-container"><faceplate-loader loading="eager" src="concat:CommonNav_1,Section-2" data-prefix="en-US/"><script>bad()</script></faceplate-loader><a href="/">Home</a></flex-left-nav-container>')}),target=navigationTarget(e),calls=[];e.W.SML={load:(chunks,prefix)=>{calls.push({chunks:Array.from(chunks),prefix});return new Promise(r=>release=r);}};
+ const pending=e.send({action:'render-navigation',username:'Example',target:target.id,navigationLease:'test'});await new Promise(r=>setImmediate(r));assert.equal(target.childElementCount,0);assert.equal(calls.length,1);assert.deepEqual(calls[0].chunks,['CommonNav_1','Section-2']);release();assert.equal((await pending).rendered,true);assert.equal(target.querySelector('script'),null);assert.equal(target.textContent,'Home');
+});
+test('navigation leases and expiry prevent stale cache reuse beyond the current scope',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<flex-left-nav-container id="left-sidebar-container">Native</flex-left-nav-container>')}),target=navigationTarget(e);let now=10000;e.W.Date.now=()=>now;const input={action:'render-navigation',username:'Example',target:target.id,navigationLease:'first'};await e.send(input);await e.send(input);assert.equal(e.calls.length,1);await e.send({...input,navigationLease:'second'});assert.equal(e.calls.length,2);now+=30001;await e.send({...input,navigationLease:'second'});assert.equal(e.calls.length,3);
 });
