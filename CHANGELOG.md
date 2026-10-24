@@ -1,3 +1,14 @@
+# 0.16.1 preview
+
+- Keep hidden/banned profile notices detached while Notifications and other native overlays/transitions change the URL. Retain the profile until Reddit replaces its underlying DOM; opt-out restores the original notice.
+- Use Reddit's default profile-fill silhouette instead of a ban-action hammer. Prevent generic card avatars from replacing it, and fix avatar sizing/hidden styles that could display both icon and photo at once.
+- Replace repeated profile archive-text sections and header copy with compact source/status icons. Comment indicators sit at the right of native headers; fallback cards include Reddit's community icon or a matching already-loaded community image.
+- Display available recovered deleted-comment text in its native body, including comments already present in Reddit's feed. Preserve current live text and original nodes for opt-out restoration; retain restrictions and avoid invented text when the archive has only deletion markers.
+
+Version choice: PATCH to 0.16.1 for native presentation, navigation and recovery reliability corrections. No new permissions, persistence or storage-schema change.
+
+Validation: all 534 tests pass, including 55 targeted discovery checks. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave reproduced notification-triggered notice restoration and the overlapping generic-avatar defect, and verified native profile/community glyphs and layout. Installed verification requires reloading the updated unpacked extension. Archive coverage remains incomplete; content captured only after deletion cannot be reconstructed, and Reddit's internal markup/endpoints may change.
+
 # 0.16.0 preview
 
 - Extend native archive recovery to Reddit's explicit banned/suspended-account pages. Overview, Posts and Comments share the existing Arctic Shift opt-in, bounded pagination, native cards and desktop sidebars. Account bans never imply that each post/comment was deleted.
