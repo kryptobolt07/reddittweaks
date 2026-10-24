@@ -14,7 +14,7 @@
     }catch{return '';}
   }
   function avatarUrl(value){const url=safeUrl(value);return url.startsWith('https://')?url:'';}
-  function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true};}
+  function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true,restoreDeletedContent:raw?.restoreDeletedContent!==false};}
   function snapshotStatus(raw,body){
     if(body==='[deleted]' || raw.removed_by_category==='deleted' || raw.status==='deleted')return 'deleted';
     if(body==='[removed]' || raw.removed_by_category || raw.status==='removed')return 'removed';

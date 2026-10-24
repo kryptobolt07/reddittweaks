@@ -21,15 +21,24 @@ function popup(t,{settings,storageFailure=false,runtimeFailure=false}={}){
 
 test('Reddit Tweaks popup loads defaults and persists individual changes while preserving other settings',async t=>{
   const p=popup(t);await settle();
-  const post=p.w.document.querySelector('#post-discovery'),archive=p.w.document.querySelector('#archive-discovery');
-  assert.equal(post.checked,true);assert.equal(archive.checked,false);
+  const post=p.w.document.querySelector('#post-discovery'),archive=p.w.document.querySelector('#archive-discovery'),restore=p.w.document.querySelector('#restore-deleted-content');
+  assert.equal(post.checked,true);assert.equal(archive.checked,false);assert.equal(restore.checked,true);
   archive.checked=true;archive.dispatchEvent(new p.w.Event('change'));
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:true,archiveDiscovery:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true});
   post.checked=false;post.dispatchEvent(new p.w.Event('change'));
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:true,restoreDeletedContent:true});
   assert.equal(p.w.document.querySelector('#settings-status').textContent,'Settings saved automatically.');
+});
+
+test('automatic restoration stays independent of archive opt-in and serialized writes preserve unknown fields',async t=>{
+  const p=popup(t,{settings:{'rt-settings-v1':{archiveDiscovery:false,restoreDeletedContent:false,futureOption:'preserve'}}});await settle();
+  const restore=p.w.document.querySelector('#restore-deleted-content'),post=p.w.document.querySelector('#post-discovery');
+  assert.equal(restore.checked,false);assert.match(restore.previousElementSibling.textContent,/Requires Arctic Shift enabled/);
+  restore.checked=true;restore.dispatchEvent(new p.w.Event('change'));post.checked=false;post.dispatchEvent(new p.w.Event('change'));await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,futureOption:'preserve'});
+  const reopened=popup(t,{settings:p.state});await settle();assert.equal(reopened.w.document.querySelector('#restore-deleted-content').checked,true);assert.equal(reopened.w.document.querySelector('#archive-discovery').checked,false);
 });
 
 test('Reddit Tweaks popup reports settings storage failures and restores the failed toggle',async t=>{

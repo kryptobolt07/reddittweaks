@@ -1,5 +1,5 @@
 const SETTINGS_KEY='rt-settings-v1';
-const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false};
+const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true};
 
 async function loadSettings() {
   const controls=[...document.querySelectorAll('[data-setting]')],status=document.querySelector('#settings-status');
@@ -11,7 +11,7 @@ async function loadSettings() {
   let loaded=false;
   try {
     const stored=await chrome.storage.local.get(SETTINGS_KEY),settings={...SETTINGS_DEFAULTS,...(stored?.[SETTINGS_KEY]||{})};
-    for(const control of controls)control.checked=Boolean(settings[control.dataset.setting]);
+    for(const control of controls)control.checked=control.dataset.setting==='restoreDeletedContent'?settings.restoreDeletedContent!==false:Boolean(settings[control.dataset.setting]);
     loaded=true;status.textContent='Settings saved automatically.';
     for(const control of controls)control.addEventListener('change',()=>saveSetting(control));
   } catch {

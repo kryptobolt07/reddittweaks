@@ -67,9 +67,13 @@ test('opting out while a global request slot is queued prevents another fetch',a
 });
 test('content scripts read only normalized preferences through the trusted worker even with archives off',async()=>{
  const e=env({settings:{postDiscovery:true,archiveDiscovery:false,privateChatData:'never expose'}}),result=await e.send({action:'get-settings'});
- assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(result.settings)),{postDiscovery:true,archiveDiscovery:false});assert.equal(e.calls.length,0);
+ assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(result.settings)),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(e.calls.length,0);
  assert.equal((await e.send({action:'get-settings'},{id:'foreign'})).code,'forbidden');
  assert.equal((await e.send({action:'get-settings'},{url:'https://evil.test/'})).code,'forbidden');
+});
+test('automatic restoration preference never enables archive requests without archive opt-in',async()=>{
+ const e=env({settings:{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true}});assert.equal((await e.send()).code,'disabled');assert.equal(e.calls.length,0);
+ e.setSettings({postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:false});const result=await e.send({action:'get-settings'});assert.equal(result.settings.restoreDeletedContent,false);assert.equal(e.calls.length,0);
 });
 test('archived comments use their own endpoint, projection, identity and profile route',async()=>{
  const e=env({fetcher:async()=>response([row({id:'19rktoupyflj9',body:'Archived comment',link_id:'t3_abc12'})])});
@@ -81,7 +85,7 @@ test('archived comments use their own endpoint, projection, identity and profile
 test('settings changes reach registered Reddit tabs without exposing trusted chat storage',async()=>{
  const e=env();await e.send({action:'get-settings'},{tab:{id:5,url:'https://www.reddit.com/user/Example/'}});
  e.changeSettings({postDiscovery:false,archiveDiscovery:false,privateChats:['secret']});await new Promise(r=>setImmediate(r));
- assert.equal(e.notifications.length,1);assert.equal(e.notifications[0][0],5);const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,archiveDiscovery:false}});
+ assert.equal(e.notifications.length,1);assert.equal(e.notifications[0][0],5);const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true}});
 });
 
 test('archive author requests allow same-profile SPA tabs while rejecting other profiles and unsupported pages',async()=>{
@@ -109,4 +113,35 @@ test('reply archive results must belong to the child thread and opting out disca
  let release;const e=env({fetcher:async url=>new URL(url).pathname.endsWith('/search')?response([row({id:'child',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'})]):new Promise(r=>release=r)}),sender={tab:{id:9,url:'https://www.reddit.com/user/Example/'}};await e.send({kind:'comment'},sender);
  const pending=e.send({action:'archive-parents',children:['child']},sender);await new Promise(r=>setImmediate(r));release(response([row({id:'parent',author:'Wrong',link_id:'t3_other'})]));assert.equal((await pending).posts.length,0);
  e.changeSettings({postDiscovery:true,archiveDiscovery:true});await e.send({kind:'comment'},sender);const second=e.send({action:'archive-parents',children:['child']},sender);await new Promise(r=>setImmediate(r));e.changeSettings({postDiscovery:true,archiveDiscovery:false});release(response([row({id:'parent',author:'Recipient',link_id:'t3_post'})]));assert.equal((await second).code,'disabled');
+});
+
+test('automatic recovery validates bounded IDs and requires the matching active public profile',async()=>{
+ const e=env(),message={action:'archive-recover',kind:'post',ids:['t3_abc12']};
+ for(const source of [{id:'foreign'},{frameId:1},{origin:'https://evil.test'},{url:'https://www.reddit.com/comments/abc12/'},{tab:{url:'https://www.reddit.com/user/Other/'}},{url:'https://www.reddit.com/user/Other/',tab:{url:'https://www.reddit.com/user/Example/'}},{tab:{url:'https://www.reddit.com/user/Example/saved/'}}])assert.equal((await e.send(message,source)).code,'forbidden');
+ for(const input of [{kind:'video'},{kind:null},{username:'bad/name'},{ids:[]},{ids:['../../bad']},{ids:['t1_abc12']},{ids:'abc12'},{ids:Array.from({length:26},(_,i)=>'item'+i)}])assert.equal((await e.send({...message,...input})).code,'invalid-request');assert.equal(e.calls.length,0);
+ assert.equal((await e.send(message,{tab:{url:'https://www.reddit.com/user/Example/comments/'}})).ok,true);
+ assert.equal((await e.send({action:'archive-ids',ids:['abc12']})).code,'forbidden');
+});
+test('automatic recovery deduplicates a page of IDs and filters all returned rows to that profile author',async()=>{
+ let release;const e=env({fetcher:()=>new Promise(r=>release=r)}),ids=Array.from({length:25},(_,i)=>'item'+i),message={action:'archive-recover',kind:'post',ids};
+ const first=e.send(message),same=e.send({...message,ids:ids.map(id=>'t3_'+id.toUpperCase()).reverse()});await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,1);
+ const [url,options]=e.calls[0],target=new URL(url);assert.equal(target.pathname,'/api/posts/ids');assert.equal(target.searchParams.get('ids').split(',').length,25);assert.equal(options.credentials,'omit');
+ release(response([row({id:'item0'}),row({id:'item1',author:'Other'}),row({id:'unrequested'})]));const result=await first;assert.equal(result.ok,true);assert.deepEqual(Array.from(result.posts,p=>p.id),['item0']);await same;await e.send(message);assert.equal(e.calls.length,1);
+ const other=e.send({...message,username:'Other'},{url:'https://www.reddit.com/user/Other/'});await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,2);release(response([row({id:'item0',author:'Other'})]));assert.equal((await other).posts[0].author,'Other');
+});
+test('automatic recovery uses comment IDs and a separate cache from post recovery',async()=>{
+ const e=env({fetcher:async()=>response([row({body:'Archived comment',link_id:'t3_post'})])});
+ const comment=await e.send({action:'archive-recover',kind:'comment',ids:['t1_abc12']});assert.equal(comment.ok,true);assert.equal(comment.posts[0].kind,'comment');assert.equal(new URL(e.calls[0][0]).pathname,'/api/comments/ids');
+ await e.send({action:'archive-recover',kind:'post',ids:['abc12']});assert.equal(e.calls.length,2);assert.equal(new URL(e.calls[1][0]).pathname,'/api/posts/ids');
+});
+test('automatic recovery enforces archive and restoration opt-outs before fetch and cached delivery',async()=>{
+ const e=env(),message={action:'archive-recover',kind:'post',ids:['abc12']};assert.equal((await e.send(message)).ok,true);
+ for(const settings of [{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true},{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:false},{postDiscovery:false,archiveDiscovery:true,restoreDeletedContent:true}]){e.setSettings(settings);assert.equal((await e.send(message)).code,'disabled');}assert.equal(e.calls.length,1);
+});
+test('queued and in-flight automatic recovery rechecks settings and current profile',async()=>{
+ const releases=[],e=env({fetcher:()=>new Promise(r=>releases.push(r))}),message={action:'archive-recover',kind:'post',ids:['abc12']};
+ const busy=e.send(),other=e.send({username:'Other'},{url:'https://www.reddit.com/user/Other/'});await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,2);
+ const queued=e.send(message);await new Promise(r=>setImmediate(r));e.setSettings({postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:false});releases.splice(0).forEach(r=>r(response([])));await Promise.all([busy,other]);assert.equal((await queued).code,'disabled');assert.equal(e.calls.length,2);
+ e.setSettings({postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true});const source={tab:{url:'https://www.reddit.com/user/Example/'}},pending=e.send(message,source);await new Promise(r=>setImmediate(r));source.tab.url='https://www.reddit.com/user/Other/';releases.shift()(response([row()]));assert.equal((await pending).code,'forbidden');
+ const inFlight=e.send(message);await new Promise(r=>setImmediate(r));e.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});releases.shift()(response([row()]));assert.equal((await inFlight).code,'disabled');
 });
