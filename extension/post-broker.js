@@ -3,7 +3,7 @@
   'use strict';
   if(!globalThis.RTPostModel)importScripts('post-model.js');
   const Model=globalThis.RTPostModel,limit=25,ttl=30000,timeoutMs=12000;
-  const pending=new Map(),cache=new Map(),profiles=new Map();
+  const pending=new Map(),cache=new Map(),profiles=new Map(),subscribers=new Set();
   let active=0,cooldownUntil=0;const waiters=[];
   function fail(message,code='archive-error',extra={}){return {ok:false,error:message,code,incomplete:true,...extra};}
   async function enabled(){
@@ -17,7 +17,7 @@
       if(sender.origin && sender.origin!==url.origin)return false;
       if(sender.tab?.url){const tabUrl=new URL(sender.tab.url);if(tabUrl.origin!==url.origin || tabUrl.pathname!==url.pathname)return false;}
       if(ids){const detail=url.pathname.match(/^\/(?:(?:r|user)\/[^/]+\/)?comments\/([a-z0-9]+)(?:\/.*)?$/i);return Boolean(detail && ids.length===1 && detail[1].toLowerCase()===ids[0]);}
-      const match=url.pathname.match(/^\/user\/([A-Za-z0-9_-]{1,20})(?:\/submitted)?\/?$/i);
+      const match=url.pathname.match(/^\/user\/([A-Za-z0-9_-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
       return Boolean(match && match[1].toLowerCase()===username.toLowerCase());
     }catch{return false;}
   }
@@ -30,14 +30,14 @@
     if(response.status===429 && until<=now)until=now+60000;
     if(response.status===429 || response.headers?.get('X-RateLimit-Remaining')==='0')cooldownUntil=Math.max(cooldownUntil,until);
   }
-  async function request(username,before,ids){
+  async function request(username,before,ids,kind='post'){
     const release=await slot();
     try{
       if(!await enabled())return disabled();
       if(cooldownUntil>Date.now())return fail('Archive requests are cooling down.','rate-limited',{retryAt:cooldownUntil});
-      const url=new URL('https://arctic-shift.photon-reddit.com/api/posts/'+(ids?'ids':'search'));
+      const url=new URL('https://arctic-shift.photon-reddit.com/api/'+(kind==='comment'?'comments':'posts')+'/'+(ids?'ids':'search'));
       if(ids)url.searchParams.set('ids',ids.join(','));else{url.searchParams.set('author',username);url.searchParams.set('sort','desc');url.searchParams.set('limit',String(limit));if(before!=null)url.searchParams.set('before',String(before));}
-      url.searchParams.set('md2html','false');url.searchParams.set('fields','id,author,subreddit,title,selftext,created_utc,url,over_18,spoiler,score,num_comments');
+      url.searchParams.set('md2html','false');url.searchParams.set('fields',kind==='comment'?'id,author,subreddit,body,created_utc,link_id,parent_id,score':'id,author,subreddit,title,selftext,created_utc,url,over_18,spoiler,score,num_comments');
       const controller=new AbortController();let timer;
       try{
         const timedOut=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Archive request timed out.'));},timeoutMs);});
@@ -54,7 +54,7 @@
           if(text.length>3000000)return fail('Archive response is too large.','invalid-response');
           let json;try{json=JSON.parse(text);}catch{return fail('Invalid archive response.','invalid-response');}
           if(!Array.isArray(json?.data) || json.data.length>100)return fail('Invalid archive response.','invalid-response');
-          const raw=json.data.slice(0,limit),posts=raw.map(item=>Model.normalizePost(item,{source:'arctic-shift'})).filter(post=>post && (ids?ids.includes(post.id):post.author.toLowerCase()===username && (before==null || post.created<before)));
+          const raw=json.data.slice(0,limit),posts=raw.map(item=>(kind==='comment'?Model.normalizeComment:Model.normalizePost)(item,{source:'arctic-shift'})).filter(post=>post && (ids?ids.includes(post.id):post.author.toLowerCase()===username && (before==null || post.created<before)));
           const oldest=posts.length?Math.min(...posts.map(post=>post.created)):null,hasMore=!ids && json.data.length>=limit;
           // before is exclusive. Overlap the oldest second so same-second records are never silently skipped.
           // A stalled overlap must be shown to the user; this API cannot prove exhaustion within that second.
@@ -69,6 +69,14 @@
   }
   async function handle(message,sender){
     if(message?.scope!=='rt-posts')return;
+    if(message.action==='get-settings'){
+      let u;try{u=new URL(sender?.url);}catch{}
+      if(sender?.id!==chrome.runtime.id || sender.frameId!==0 || u?.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(u?.hostname) || u.port || sender.origin && sender.origin!==u.origin)return fail('Settings require a Reddit page.','forbidden');
+      if(Number.isInteger(sender.tab?.id)){if(subscribers.size>=30)subscribers.delete(subscribers.values().next().value);subscribers.add(sender.tab.id);}
+      const stored=await chrome.storage.local.get('rt-settings-v1');return {ok:true,settings:Model.normalizeSettings(stored['rt-settings-v1'])};
+    }
+    const kind=message.kind || 'post';
+    if(!['post','comment'].includes(kind) || message.action==='archive-ids' && kind!=='post')return fail('Invalid content type.','invalid-request');
     if(!['archive-profile','archive-ids'].includes(message.action))return fail('Unknown archive action.','invalid-request');
     const ids=message.action==='archive-ids'?message.ids:null;
     if(message.action==='archive-ids' && (!Array.isArray(ids)||ids.length!==1||!ids.every(Model.validateId)))return fail('Invalid post IDs.','invalid-request');
@@ -78,18 +86,26 @@
     if(before!=null && (typeof before!=='number'||!Number.isSafeInteger(before)||before<=0||before>32503680000))return fail('Invalid archive cursor.','invalid-request');
     if(!authorized(sender,username,normalizedIds))return fail('Archive requests require the matching Reddit profile.','forbidden');
     if(!await enabled())return disabled();
-    const profileKey=ids?'ids:'+normalizedIds.join(','):username,key=profileKey+':'+(before??'initial'),now=Date.now();
+    const profileKey=ids?'ids:'+normalizedIds.join(','):kind+':'+username,key=profileKey+':'+(before??'initial'),now=Date.now();
     for(const [key,value] of cache)if(value.expires<=now)cache.delete(key);
     if(cache.has(key))return cache.get(key).value;
     if(pending.has(key))return pending.get(key);
     if(pending.size>=50)return fail('Too many archive requests.','busy');
-    const previous=profiles.get(profileKey)||Promise.resolve(),operation=previous.catch(()=>{}).then(()=>request(username,before,normalizedIds));
+    const previous=profiles.get(profileKey)||Promise.resolve(),operation=previous.catch(()=>{}).then(()=>request(username,before,normalizedIds,kind));
     pending.set(key,operation);profiles.set(profileKey,operation);
     try{const value=await operation;if(!await enabled())return disabled();if(value.ok){if(cache.size>=50)cache.delete(cache.keys().next().value);cache.set(key,{value,expires:Date.now()+ttl});}return value;}
     finally{pending.delete(key);if(profiles.get(profileKey)===operation)profiles.delete(profileKey);}
   }
+  // Only the two public preferences cross the worker boundary. Chat storage stays trusted-only.
+  chrome.storage.onChanged?.addListener((changes,area)=>{
+    if(area!=='local' || !changes['rt-settings-v1'])return;
+    cache.clear();
+    for(const id of subscribers){
+      Promise.resolve(chrome.tabs?.sendMessage(id,{scope:'rt-posts',action:'settings-changed',settings:Model.normalizeSettings(changes['rt-settings-v1'].newValue)},{frameId:0})).catch(()=>subscribers.delete(id));
+    }
+  });
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     if(message?.scope!=='rt-posts')return;
-    handle(message,sender).then(async value=>sendResponse(value?.ok && !await enabled()?disabled():value),()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
+    handle(message,sender).then(async value=>sendResponse(message.action!=='get-settings' && value?.ok && !await enabled()?disabled():value),()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
   });
 })();

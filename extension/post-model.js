@@ -3,6 +3,7 @@
   'use strict';
   const validateUsername=value=>typeof value==='string' && /^[A-Za-z0-9_-]{1,20}$/.test(value);
   const validateId=value=>typeof value==='string' && /^(?:t3_)?[a-z0-9]{1,10}$/i.test(value);
+  const validateCommentId=value=>typeof value==='string' && /^(?:t1_)?[a-z0-9]{1,32}$/i.test(value);
   const idOf=value=>validateId(value)?value.toLowerCase().replace(/^t3_/,''):'';
   const str=(value,max)=>typeof value==='string'?value.slice(0,max).replace(/\u0000/g,''):'';
   function safeUrl(value,redditOnly=false){
@@ -32,18 +33,31 @@
     if(source==='arctic-shift')result.archiveStatus=['available','deleted','removed','unknown'].includes(raw.archiveStatus)?raw.archiveStatus:status;
     return result;
   }
+  function normalizeComment(raw,{source='reddit'}={}){
+    raw=raw?.data || raw;
+    if(!raw || typeof raw!=='object' || !['reddit','arctic-shift'].includes(source))return null;
+    const input=raw.id || raw.name || raw.fullname;
+    if(!validateCommentId(input))return null;
+    const id=input.toLowerCase().replace(/^t1_/,''),linkId=idOf(raw.link_id || raw.linkId);
+    const base=normalizePost({...raw,id:'comment',selftext:raw.body,permalink:undefined},{source});
+    if(!base || !linkId)return null;
+    return {...base,kind:'comment',id,fullname:'t1_'+id,linkId,title:str(raw.link_title ?? raw.title,1000),
+      permalink:safeUrl(raw.permalink,true)||'https://www.reddit.com/comments/'+linkId+'/comment/'+id+'/',
+      parentId:str(raw.parent_id ?? raw.parentId,40)};
+  }
+  const normalizeItem=(raw,options)=>raw?.kind==='comment' || /^t1_/i.test(raw?.name || raw?.fullname || raw?.id || '')?normalizeComment(raw,options):normalizePost(raw,options);
   function mergePosts(livePosts,archivePosts,{username,visibleIds=[]}={}){
     if(!validateUsername(username))return [];
     const same=post=>post.author.toLowerCase()===username.toLowerCase();
-    const visible=new Set(Array.from(visibleIds,idOf).filter(Boolean)),posts=new Map();
-    for(const raw of Array.isArray(archivePosts)?archivePosts:[]){const post=normalizePost(raw,{source:'arctic-shift'});if(post && same(post))posts.set(post.id,{...post,archiveAvailable:true});}
-    for(const raw of Array.isArray(livePosts)?livePosts:[]){const post=normalizePost(raw,{source:'reddit'});if(!post)continue;const archived=posts.get(post.id);
+    const visible=new Set(Array.from(visibleIds,value=>String(value).toLowerCase())),posts=new Map();
+    for(const raw of Array.isArray(archivePosts)?archivePosts:[]){const post=normalizeItem(raw,{source:'arctic-shift'});if(post && same(post))posts.set(post.fullname,{...post,archiveAvailable:true});}
+    for(const raw of Array.isArray(livePosts)?livePosts:[]){const post=normalizeItem(raw,{source:'reddit'});if(!post)continue;const archived=posts.get(post.fullname);
       if(!same(post) && !(post.author==='[deleted]' && archived))continue;
       const merged={...post,over18:post.over18 || archived?.over18===true,spoiler:post.spoiler || archived?.spoiler===true,archiveAvailable:Boolean(archived)};
       if(archived && ['deleted','removed'].includes(post.status) && archived.body && !['[deleted]','[removed]'].includes(archived.body)){merged.archivedBody=archived.body;merged.archivedBodySource='arctic-shift';merged.archiveAuthor=archived.author;}
-      posts.set(post.id,merged);
+      posts.set(post.fullname,merged);
     }
-    return [...posts.values()].map(post=>({...post,visible:visible.has(post.id),outsideVisibleFeed:!visible.has(post.id)})).sort((a,b)=>b.created-a.created || a.id.localeCompare(b.id));
+    return [...posts.values()].map(post=>({...post,visible:visible.has(post.fullname) || post.kind!=='comment' && visible.has(post.id),outsideVisibleFeed:!visible.has(post.fullname) && !(post.kind!=='comment' && visible.has(post.id))})).sort((a,b)=>b.created-a.created || a.fullname.localeCompare(b.fullname));
   }
-  globalThis.RTPostModel=Object.freeze({validateUsername,validateId,normalizePost,mergePosts,normalizeSettings});
+  globalThis.RTPostModel=Object.freeze({validateUsername,validateId,validateCommentId,normalizePost,normalizeComment,normalizeItem,mergePosts,normalizeSettings});
 })();

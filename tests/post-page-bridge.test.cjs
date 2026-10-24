@@ -24,3 +24,20 @@ test('rate limits cool down future reads without an automatic retry loop',async 
 test('a response from a previous SPA route is not returned as current data',async t=>{
   let resolve;const e=setup(t,{fetcher:()=>new Promise(r=>resolve=r)}),request=e.send({action:'profile',username:'Example'});e.W.history.pushState({},'','/user/Other/');resolve({ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({data:{children:[]}})});assert.match((await request).error,/Page changed/);
 });
+function nativeCommentHtml({author='Example',next='/svc/shreddit/search/?q=author%3A%22Example%22&type=comments&sort=new&cursor=opaque_cursor'}={}){
+ const context=JSON.stringify({comment:{id:'t1_19rktoupyflj9',post_id:'t3_abc12'},post:{id:'t3_abc12',title:'Parent post',nsfw:false,spoiler:false},subreddit:{name:'example'}});
+ return `<search-telemetry-tracker data-faceplate-tracking-context='${context}'><div data-testid="search-sdui-comment-unit"><a href="#">${author}</a><a aria-labelledby="comment-content-one" href="/r/example/comments/abc12/title/19rktoupyflj9/"></a><div data-testid="search-comment-content"><div id="search-comment-one-post-rtjson-content"><p>Public &lt;img onerror=bad()&gt; comment</p></div><faceplate-timeago ts="2026-10-23T14:56:27Z"></faceplate-timeago><faceplate-number number="4"></faceplate-number></div></div></search-telemetry-tracker><faceplate-partial loading="lazy" src='${next}'></faceplate-partial>`;
+}
+test('native comment search parses inert public cards and follows only its opaque cursor',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/user/Example/comments/',fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>nativeCommentHtml()})});
+ const result=await e.send({action:'profile',kind:'comment',username:'Example'});assert.equal(result.ok,true);assert.equal(result.posts.length,1);assert.equal(result.posts[0].fullname,'t1_19rktoupyflj9');assert.equal(result.posts[0].body,'Public <img onerror=bad()> comment');assert.equal(result.after,'opaque_cursor');
+ await e.send({action:'profile',kind:'comment',username:'Example',after:result.after});const u=new URL(e.calls[1][0]);assert.equal(u.pathname,'/svc/shreddit/search/');assert.equal(u.searchParams.get('cursor'),'opaque_cursor');assert.equal(u.searchParams.get('type'),'comments');
+});
+test('native comment search refuses foreign authors and external pagination',async t=>{
+ const foreign=setup(t,{fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>nativeCommentHtml({author:'Other'})})});assert.equal((await foreign.send({action:'profile',kind:'comment',username:'Example'})).ok,false);
+ const e=setup(t,{fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>nativeCommentHtml({next:'https://evil.test/?cursor=bad'})})});assert.equal((await e.send({action:'profile',kind:'comment',username:'Example'})).after,null);
+});
+test('public comment status lookups use t1 identities and cannot escape post-detail scope',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/user/Example/comments/'});await e.send({action:'info',kind:'comment',ids:['19rktoupyflj9']});assert.equal(new URL(e.calls[0][0]).searchParams.get('id'),'t1_19rktoupyflj9');
+ const detail=setup(t,{url:'https://www.reddit.com/comments/abc12/title/'});assert.equal((await detail.send({action:'info',kind:'comment',ids:['19rktoupyflj9']})).ok,false);assert.equal(detail.calls.length,0);
+});
