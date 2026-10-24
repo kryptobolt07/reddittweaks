@@ -108,7 +108,7 @@
     const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node));
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
     const now=Date.now();cardStarts=cardStarts.filter(t=>now-t<30000);
-    if(now<cooldown || cardActive>=2 || cardStarts.length>=12)return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:cardStarts.length>=12?cardStarts[0]+30000-now:250)};
+    if(now<cooldown || cardActive>=2 || cardStarts.length>=30)return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:cardStarts.length>=30?cardStarts[0]+30000-now:250)};
     if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function'){
       const since=rendererWaits.get(target) ?? now;rendererWaits.set(target,since);
       if(now-since>=10000)throw Error('Reddit’s native card renderer did not become ready. Retry after the page finishes loading.');
