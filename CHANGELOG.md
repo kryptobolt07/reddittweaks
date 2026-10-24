@@ -1,3 +1,13 @@
+# 0.16.3 preview
+
+- Correct the loading hierarchy: use one native Snoo halo for initial feed loading and quiet native shimmer skeletons for pending cards.
+- Preserve Reddit-rendered card identities instead of injecting banned/deleted account artwork into community cards. Archive-only fallbacks use community icons for community activity and the owning user identity for profile-hosted posts. Keep unavailable-profile header artwork at its native 64px size.
+- Prefer validated compatible reload contracts from Reddit-owned cards, preserving native HTML/components and view settings. Defer renderer startup without requests or premature fallback cards, with a bounded failure instead of indefinite loading.
+
+Version choice: PATCH to 0.16.3 for native presentation and rendering reliability corrections. No new permissions, persistence or schema changes.
+
+Validation: all 542 tests pass, including 87 targeted model/discovery/bridge checks. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave inspection confirmed native community/profile-post identity layout, comment reload URLs and shimmer behavior. Installed visual verification requires reloading the extension. Native renderer/endpoint contracts remain undocumented; archive-only fallback markup cannot be guaranteed identical to future Reddit UI, and archive coverage remains incomplete.
+
 # 0.16.2 preview
 
 - Use Reddit's exact banned/suspended and deleted-account artwork in centered profile headers and card author identities. Remove conflicting generic avatars and the superseded retained-photo fallback; chat avatars are unchanged.
