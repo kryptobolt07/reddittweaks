@@ -6,9 +6,9 @@
   const pending=new Map(),cache=new Map(),profiles=new Map(),commentContexts=new Map(),subscribers=new Set();
   let active=0,cooldownUntil=0;const waiters=[];
   function fail(message,code='archive-error',extra={}){return {ok:false,error:message,code,incomplete:true,...extra};}
-  async function enabled(){
+  async function enabled(requireRestoration=false){
     const stored=await chrome.storage.local.get('rt-settings-v1'),settings=Model.normalizeSettings(stored['rt-settings-v1']);
-    const allowed=settings.postDiscovery && settings.archiveDiscovery;if(!allowed){cache.clear();commentContexts.clear();}return allowed;
+    const allowed=settings.postDiscovery && settings.archiveDiscovery;if(!allowed){cache.clear();commentContexts.clear();}return allowed && (!requireRestoration || settings.restoreDeletedContent);
   }
   const disabled=()=>fail('Enable archive discovery in Reddit Tweaks settings.','disabled');
   function authorized(sender,username,ids){
@@ -32,10 +32,11 @@
     if(response.status===429 && until<=now)until=now+60000;
     if(response.status===429 || response.headers?.get('X-RateLimit-Remaining')==='0')cooldownUntil=Math.max(cooldownUntil,until);
   }
-  async function request(username,before,ids,kind='post',{contextOnly=false}={}){
+  async function request(username,before,ids,kind='post',{contextOnly=false,recoverSender=null}={}){
     const release=await slot();
     try{
-      if(!await enabled())return disabled();
+      if(!await enabled(Boolean(recoverSender)))return disabled();
+      if(recoverSender && !authorized(recoverSender,username,null))return fail('Archive recovery requires the matching Reddit profile.','forbidden');
       if(cooldownUntil>Date.now())return fail('Archive requests are cooling down.','rate-limited',{retryAt:cooldownUntil});
       const url=new URL('https://arctic-shift.photon-reddit.com/api/'+(kind==='comment'?'comments':'posts')+'/'+(ids?'ids':'search'));
       if(ids)url.searchParams.set('ids',ids.join(','));else{url.searchParams.set('author',username);url.searchParams.set('sort','desc');url.searchParams.set('limit',String(limit));if(before!=null)url.searchParams.set('before',String(before));}
@@ -87,6 +88,23 @@
     const key='parents:'+contextKey(sender,username)+':'+ids.join(','),saved=cache.get(key);if(saved?.expires>Date.now())return saved.value;if(pending.has(key))return pending.get(key);if(pending.size>=50)return fail('Too many archive requests.','busy');
     const operation=request(username,null,ids,'comment',{contextOnly:true}).then(value=>{if(value.ok){value={...value,posts:value.posts.filter(p=>links.get(p.id)?.has(p.linkId))};if(cache.size>=50)cache.delete(cache.keys().next().value);cache.set(key,{value,expires:Date.now()+ttl});}return value;});pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
   }
+  async function archiveRecover(message,sender){
+    const kind=message.kind,validId=kind==='comment'?Model.validateCommentId:Model.validateId;
+    if(!['post','comment'].includes(kind) || !Model.validateUsername(message.username) || !Array.isArray(message.ids) || !message.ids.length || message.ids.length>25 || !message.ids.every(validId))return fail('Invalid recovery IDs.','invalid-request');
+    const username=message.username.toLowerCase(),ids=[...new Set(message.ids.map(id=>id.toLowerCase().replace(kind==='comment'?/^t1_/:/^t3_/,'')))].sort();
+    if(!authorized(sender,username,null))return fail('Archive recovery requires the matching Reddit profile.','forbidden');
+    if(!await enabled(true))return disabled();
+    const key='recover:'+username+':'+kind+':'+ids.join(','),saved=cache.get(key);
+    if(saved?.expires>Date.now())return saved.value;
+    if(pending.has(key))return pending.get(key);
+    if(pending.size>=50)return fail('Too many archive requests.','busy');
+    const operation=request(username,null,ids,kind,{recoverSender:sender}).then(async value=>{
+      if(!await enabled(true))return disabled();
+      if(!authorized(sender,username,null))return fail('Archive recovery requires the matching Reddit profile.','forbidden');
+      if(value.ok){value={...value,posts:value.posts.filter(post=>post.author.toLowerCase()===username)};if(cache.size>=50)cache.delete(cache.keys().next().value);cache.set(key,{value,expires:Date.now()+ttl});}return value;
+    });
+    pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
+  }
   async function handle(message,sender){
     if(message?.scope!=='rt-posts')return;
     if(message.action==='get-settings'){
@@ -96,6 +114,7 @@
       const stored=await chrome.storage.local.get('rt-settings-v1');return {ok:true,settings:Model.normalizeSettings(stored['rt-settings-v1'])};
     }
     if(message.action==='archive-parents')return archiveParents(message,sender);
+    if(message.action==='archive-recover')return archiveRecover(message,sender);
     const kind=message.kind || 'post';
     if(!['post','comment'].includes(kind) || message.action==='archive-ids' && kind!=='post')return fail('Invalid content type.','invalid-request');
     if(!['archive-profile','archive-ids'].includes(message.action))return fail('Unknown archive action.','invalid-request');
@@ -117,7 +136,7 @@
     try{const value=await operation;if(!await enabled())return disabled();if(value.ok){if(cache.size>=50)cache.delete(cache.keys().next().value);cache.set(key,{value,expires:Date.now()+ttl});}return value;}
     finally{pending.delete(key);if(profiles.get(profileKey)===operation)profiles.delete(profileKey);}
   }
-  // Only the two public preferences cross the worker boundary. Chat storage stays trusted-only.
+  // Only normalized public preferences cross the worker boundary. Chat storage stays trusted-only.
   chrome.storage.onChanged?.addListener((changes,area)=>{
     if(area!=='local' || !changes['rt-settings-v1'])return;
     cache.clear();commentContexts.clear();
@@ -127,6 +146,6 @@
   });
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     if(message?.scope!=='rt-posts')return;
-    handle(message,sender).then(async value=>{if(message.action!=='get-settings' && value?.ok && !await enabled())value=disabled();rememberCommentContexts(message,sender,value);sendResponse(value);},()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
+    handle(message,sender).then(async value=>{if(message.action!=='get-settings' && value?.ok && !await enabled(message.action==='archive-recover'))value=disabled();if(message.action==='archive-recover' && value?.ok && !authorized(sender,message.username,null))value=fail('Archive recovery requires the matching Reddit profile.','forbidden');rememberCommentContexts(message,sender,value);sendResponse(value);},()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
   });
 })();
