@@ -1,6 +1,6 @@
 /* Reddit owns the cards. These styles apply only to extension controls and notes. */
 .rt-posts{font:inherit;color:var(--color-neutral-content,#333d42);margin-block:4px;min-width:0}
-.rt-posts [hidden],.rt-native-card[hidden]{display:none!important}
+.rt-posts [hidden],.rt-native-card[hidden],[data-rt-empty-suppressed],[data-rt-retired]{display:none!important}
 .rt-posts-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:4px;min-height:32px;position:relative}
 .rt-posts button{font:inherit;color:inherit;display:inline-flex;justify-content:center;align-items:center;background:transparent;border:0;cursor:pointer;border-radius:50%;width:32px;height:32px;padding:8px}
 .rt-posts button:hover{background:var(--color-neutral-background-hover,#f2f4f5)}.rt-posts button:disabled{opacity:.55;cursor:wait}
@@ -12,11 +12,12 @@
 .rt-posts-status[data-error=true]{color:var(--color-danger-content,#b32424)}.rt-posts-status:empty{display:none}
 .rt-post-loading{display:flex;justify-content:center;padding:12px}.rt-post-loading faceplate-progress{width:20px;height:20px}
 .rt-native-card{min-width:0;overflow-anchor:auto}.rt-native-placeholder{display:flex;gap:12px;align-items:flex-start;min-height:112px;padding:16px}
-.rt-native-card[data-rt-native-state=ready]{animation:rt-native-appear .16s ease-out both}
-@keyframes rt-native-appear{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}
-.rt-post-indicator{display:inline-flex;align-items:center;margin-inline-start:6px;color:var(--color-neutral-content-weak,#576f76);cursor:help;vertical-align:middle}
-.rt-post-indicator[data-state=deleted],.rt-post-indicator[data-state=removed]{color:var(--color-caution-content,#9b6200)}
+.rt-native-enter{animation:rt-native-appear .16s ease-out}
+.rt-native-card:focus-within{animation:none}
+@keyframes rt-native-appear{from{opacity:0}to{opacity:1}}
+.rt-post-indicator{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:50%;margin-inline:0 8px;background:var(--color-neutral-background-selected,#e5ebee);color:var(--color-brand-background,#ff4500);cursor:help;vertical-align:middle}
+.rt-post-indicator[data-state=deleted],.rt-post-indicator[data-state=removed]{color:var(--color-danger-content,#b32424)}
 .rt-post-snapshot{font-size:14px;margin:10px 16px;line-height:1.5}.rt-post-snapshot summary{color:var(--color-neutral-content-weak,#576f76);cursor:pointer;font-size:12px;display:list-item}
 .rt-post-snapshot pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}.rt-post-source{font-size:11px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-native-unavailable{font:inherit;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px}.rt-native-unavailable a{color:inherit}.rt-native-unavailable button{font:inherit;color:inherit;border:0;border-radius:16px;background:var(--color-neutral-background-hover,#f2f4f5);padding:6px 12px;cursor:pointer}
-@media(prefers-reduced-motion:reduce){.rt-native-card[data-rt-native-state=ready]{animation:none}}
+@media(prefers-reduced-motion:reduce){.rt-native-enter{animation:none}}

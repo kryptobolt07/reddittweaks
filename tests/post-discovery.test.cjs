@@ -96,3 +96,40 @@ test('native hydration runs at most two cards concurrently and does not restart 
  const releases=[];let active=0,peak=0,count=0;const {W,d}=setup(t,{reddit:async()=>({posts:Array.from({length:5},(_,i)=>raw('item'+i)),hasMore:false}),nativeRender:async(post,node)=>{count++;active++;peak=Math.max(peak,active);await new Promise(r=>releases.push(r));active--;const native=node.ownerDocument.createElement('shreddit-post');native.id=post.fullname;node.replaceChildren(native);}});
  await d.ready;await d.loadReddit();assert.equal(count,2);releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));assert.equal(count,4);releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));assert.equal(peak,2);assert.equal(count,5);d.scan();assert.equal(count,5);assert.equal(W.document.querySelectorAll('shreddit-post[id^=t3_item]').length,5);
 });
+
+test('Reddit virtualization retains loaded cards and native date anchors without reinsertion or refetch',async t=>{
+ let renders=0;
+ const {W,d,calls}=setup(t,{reddit:async()=>({posts:[raw('middle',{created_utc:1700000020}),raw('past',{created_utc:1700000005})],hasMore:false}),nativeRender:async(post,node)=>{renders++;node.innerHTML=`<shreddit-post id="${post.fullname}"><span slot="credit-bar"></span></shreddit-post>`;}});
+ await d.ready;d.feed.innerHTML='<article><shreddit-post id="t3_native" created-timestamp="2023-11-14T22:13:30Z"></shreddit-post></article><shreddit-feed-load-more-observer cursor="opaque"></shreddit-feed-load-more-observer>';
+ const observer=new W.MutationObserver(records=>{d.trackVirtualization(records);d.scan();});observer.observe(d.feed,{childList:true});t.after(()=>observer.disconnect());
+ await d.loadReddit();await new Promise(r=>setImmediate(r));const card=d.nodes.get('middle'),content=card.firstElementChild,native=card.nextElementSibling;
+ const cardSlot=W.document.createElement('div');cardSlot.className='virtualized-placeholder';cardSlot.style.height='600px';
+ const nativeSlot=W.document.createElement('div');nativeSlot.className='virtualized-placeholder';nativeSlot.style.height='300px';
+ d.feed.replaceChild(cardSlot,card);d.feed.replaceChild(nativeSlot,native);await new Promise(r=>setImmediate(r));
+ assert.equal(card.isConnected,false);assert.equal(cardSlot.parentElement,d.feed);assert.equal(d.nodes.get('past').hidden,true);assert.equal(d.visibleIds().has('t3_native'),true);
+ for(let i=0;i<5;i++)d.scan();assert.equal(cardSlot.nextElementSibling,nativeSlot);assert.equal(renders,1);assert.equal(calls.length,1);assert.equal(d.nodes.get('middle'),card);
+ d.feed.replaceChild(native,nativeSlot);d.feed.replaceChild(card,cardSlot);await new Promise(r=>setImmediate(r));
+ assert.equal(card.firstElementChild,content);assert.equal(card.dataset.rtNativeState,'ready');assert.equal(renders,1);assert.equal(d.virtualNodes.size,0);assert.equal(d.feed.querySelectorAll('.virtualized-placeholder').length,0);
+});
+
+test('opt-out retires virtualized content without invalidating Reddit-owned replacement slots',async t=>{
+ const {W,d}=setup(t);await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const card=d.nodes.get('abc12'),slot=W.document.createElement('div');slot.className='virtualized-placeholder';d.feed.replaceChild(slot,card);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[card]}]);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(slot.isConnected,true);assert.equal(slot.dataset.rtRetired,'true');assert.equal(card.hidden,true);assert.equal(card.children.length,0);
+ assert.doesNotThrow(()=>slot.replaceWith(card));assert.equal(card.dataset.rtRetired,'true');assert.equal(card.querySelector('shreddit-post'),null);
+});
+
+test('source indicators precede native Join and overflow controls with distinct availability symbols',async t=>{
+ const {d}=setup(t,{nativeRender:async(post,node)=>{node.innerHTML=`<shreddit-post id="${post.fullname}"><span slot="credit-bar"><span>Community · Date</span><span data-actions><button>Join</button><span><shreddit-post-overflow-menu><button>Menu</button></shreddit-post-overflow-menu></span></span></span><div slot="post-media-container"><img width="640" height="480"></div></shreddit-post>`;}});
+ await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const node=d.nodes.get('abc12'),native=node.querySelector('shreddit-post'),media=node.querySelector('[slot=post-media-container]'),post=d.postMetadata.get('abc12');
+ let badge=node.querySelector('[data-rt-source]');assert.equal(badge.parentElement.hasAttribute('data-actions'),true);assert.equal(badge.nextElementSibling.textContent,'Join');assert.equal(badge.querySelector('svg').dataset.icon,'hidden');
+ d.decorateNative({...post,status:'deleted'},node);badge=node.querySelector('[data-rt-source]');assert.equal(badge.querySelector('svg').dataset.icon,'deleted');assert.match(badge.title,/Deleted/);
+ d.decorateNative({...post,status:'removed'},node);assert.equal(node.querySelector('[data-rt-source] svg').dataset.icon,'removed');assert.equal(node.querySelectorAll('[data-rt-source]').length,1);assert.equal(native.querySelector('[slot=post-media-container]'),media);
+ d.decorateNative({...post,source:'arctic-shift',status:'unknown'},node);assert.equal(node.querySelector('[data-rt-source] svg').dataset.icon,'archive');assert.match(node.querySelector('[data-rt-source]').title,/status unknown/);
+});
+
+test('a card virtualized during hydration can recover when Reddit restores it',async t=>{
+ let reject,attempts=0;
+ const {W,d}=setup(t,{nativeRender:async(post,node)=>{attempts++;if(attempts===1)await new Promise((_,fail)=>reject=fail);node.innerHTML=`<shreddit-post id="${post.fullname}"><span slot="credit-bar"></span></shreddit-post>`;}});
+ await d.ready;await d.loadReddit();const card=d.nodes.get('abc12'),slot=W.document.createElement('div');slot.className='virtualized-placeholder';d.feed.replaceChild(slot,card);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[card]}]);reject(Error('Page changed. Try again.'));await new Promise(r=>setImmediate(r));assert.equal(card.dataset.rtNativeState,'idle');assert.equal(card.isConnected,false);
+ d.feed.replaceChild(card,slot);d.trackVirtualization([{target:d.feed,addedNodes:[card],removedNodes:[slot]}]);d.scan();await new Promise(r=>setImmediate(r));assert.equal(card.dataset.rtNativeState,'ready');assert.equal(attempts,2);assert.ok(card.querySelector('shreddit-post'));
+});
