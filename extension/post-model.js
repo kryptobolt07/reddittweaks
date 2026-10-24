@@ -14,14 +14,6 @@
     }catch{return '';}
   }
   function avatarUrl(value){const url=safeUrl(value);return url.startsWith('https://')?url:'';}
-  function retainedAvatar(entry,username){
-    if(!validateUsername(username) || !entry)return '';
-    const matches=person=>[person.name,...(Array.isArray(person.aliases)?person.aliases:[])].some(name=>typeof name==='string' && name.replace(/^u\//i,'').toLowerCase()===username.toLowerCase());
-    const people=Array.isArray(entry.identities)?entry.identities:Object.values(entry.identities || {});
-    for(const person of people)if(matches(person)){const avatar=avatarUrl(person.avatar);if(avatar)return avatar;}
-    for(const record of entry.records || entry.conversations || []){for(const person of record.identities || [])if(matches(person)){const avatar=avatarUrl(person.avatar);if(avatar)return avatar;}if(!['direct','reddit_titled_direct'].includes(record.type) && (record.type || record.participantIds?.length!==1))continue;if(matches(record)){const avatar=avatarUrl(record.avatar);if(avatar)return avatar;}}
-    return '';
-  }
   function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true};}
   function snapshotStatus(raw,body){
     if(body==='[deleted]' || raw.removed_by_category==='deleted' || raw.status==='deleted')return 'deleted';
@@ -70,5 +62,5 @@
     const duration={hour:3600,day:86400,week:604800,month:2592000,year:31536000}[range],cutoff=sort==='top' && duration?now-duration:-Infinity;
     return [...posts.values()].filter(post=>post.created>=cutoff).map(post=>({...post,visible:visible.has(post.fullname) || post.kind!=='comment' && visible.has(post.id),outsideVisibleFeed:!visible.has(post.fullname) && !(post.kind!=='comment' && visible.has(post.id))})).sort((a,b)=>(sort==='top'?b.score-a.score:sort==='hot'?(rank.get(a.fullname)??Infinity)-(rank.get(b.fullname)??Infinity):0) || b.created-a.created || a.fullname.localeCompare(b.fullname));
   }
-  globalThis.RTPostModel=Object.freeze({avatarUrl,retainedAvatar,validateUsername,validateId,validateCommentId,normalizePost,normalizeComment,normalizeItem,mergePosts,normalizeSettings});
+  globalThis.RTPostModel=Object.freeze({avatarUrl,validateUsername,validateId,validateCommentId,normalizePost,normalizeComment,normalizeItem,mergePosts,normalizeSettings});
 })();

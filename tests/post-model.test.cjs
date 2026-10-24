@@ -42,12 +42,3 @@ test('profile sorts use dates for New, scores for Top and Reddit order for Hot',
  assert.deepEqual(ids('new'),['recent','middle','older']);assert.deepEqual(ids('top'),['older','middle','recent']);assert.deepEqual(ids('hot'),['older','recent','middle']);
  const ranged=m.mergePosts(data,[post({id:'ancient',created_utc:1600000000,score:1000})],{username:'Example',sort:'top',range:'day',now:1700000150});assert.equal(ranged.some(p=>p.id==='ancient'),false);
 });
-
-test('retained profile avatars match exact usernames/aliases and reject unsafe URLs and group images',()=>{
- const m=model();assert.equal(m.retainedAvatar({identities:{one:{name:'[deleted]',aliases:['u/Example'],avatar:'https://i.redd.it/avatar.png'}}},'example'),'https://i.redd.it/avatar.png');
- for(const avatar of ['http://example.test/a.png','javascript:bad()','https://user:pass@example.test/a.png'])assert.equal(m.retainedAvatar({identities:[{name:'Example',avatar}]},'Example'),'');
- assert.equal(m.retainedAvatar({identities:[{name:'ExampleOther',avatar:'https://i.redd.it/other.png'}],records:[{type:'group',name:'Example',avatar:'https://i.redd.it/group.png'}]},'Example'),'');
- assert.equal(m.retainedAvatar({records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/saved.png'}]},'EXAMPLE'),'https://i.redd.it/saved.png');
- assert.equal(m.retainedAvatar({records:[{type:'group',name:'Example',participantIds:['one'],avatar:'https://i.redd.it/group.png'}]},'Example'),'');
- assert.equal(m.retainedAvatar({records:[{type:'group',identities:[{name:'Example',avatar:'https://i.redd.it/member.png'}]}]},'Example'),'https://i.redd.it/member.png');
-});

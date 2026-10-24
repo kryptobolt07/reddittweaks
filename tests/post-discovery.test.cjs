@@ -80,8 +80,8 @@ test('native comments deduplicate by comment-id and discoveries merge between da
  d.reset();assert.ok(native.every(n=>n.parentElement===feed));assert.equal(feed.querySelectorAll('[data-rt-ui]').length,0);
 });
 
-test('replacing the native feed remounts controls and removes detached injected cards',async t=>{
- const {W,d}=setup(t);await d.ready;await d.loadReddit();const oldFeed=d.feed,oldCard=d.nodes.get('abc12');const replacement=W.document.createElement('shreddit-feed');oldFeed.replaceWith(replacement);d.scan();assert.equal(d.feed,replacement);assert.equal(oldCard.isConnected,false);assert.equal(d.nodes.size,0);assert.equal(d.host.nextElementSibling,replacement);assert.equal(W.document.querySelectorAll('[data-rt-ui=posts]').length,1);
+test('replacing the native feed remounts controls and restores loaded discoveries',async t=>{
+ const {W,d}=setup(t);await d.ready;await d.loadReddit();const oldFeed=d.feed,oldCard=d.nodes.get('abc12');const replacement=W.document.createElement('shreddit-feed');oldFeed.replaceWith(replacement);d.scan();assert.equal(d.feed,replacement);assert.equal(oldCard.isConnected,false);assert.equal(d.nodes.size,2);assert.equal(d.host.nextElementSibling,replacement);assert.equal(W.document.querySelectorAll('[data-rt-ui=posts]').length,1);
 });
 
 test('default discovery and native rendering communicate end to end without transport-id collisions',async t=>{
@@ -215,7 +215,7 @@ test('local card backpressure keeps native placeholders and resumes without Retr
  let attempts=0;const {d}=setup(t,{nativeRender:async(post,node)=>{attempts++;if(attempts===1)return {deferred:true,retryAfterMs:100};node.innerHTML=`<shreddit-post id="${post.fullname}"></shreddit-post>`;return {rendered:true};}});
  await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const node=d.nodes.get('abc12');assert.equal(node.dataset.rtNativeState,'queued');assert.ok(node.querySelector('.rt-native-placeholder'));assert.equal(node.querySelector('button'),null);
  await new Promise(r=>setTimeout(r,130));assert.equal(node.dataset.rtNativeState,'ready');assert.equal(attempts,2);
- assert.equal(d.loading.querySelector('faceplate-progress'),null);assert.equal(d.loading.querySelectorAll('.rt-native-placeholder').length,2);assert.ok(d.loading.querySelector('.shimmer-placeholder.bg-shimmer'));
+ assert.equal(d.loading.querySelector('faceplate-progress'),null);assert.equal(d.loading.querySelectorAll('.rt-native-placeholder').length,1);assert.ok(d.loading.querySelector('.shimmer-placeholder.bg-shimmer'));
 });
 
 test('scope changes cancel paused metadata without stale requests',async t=>{
@@ -294,13 +294,9 @@ test('hidden-profile notices stay detached under native post overlays and restor
  W.history.pushState({},'','/user/Example/submitted/');d.scan();assert.equal(d.host,host);assert.equal(notice.isConnected,false);
  W.history.pushState({},'','/r/example/');W.RTProfileNoticeGuard.refresh();d.scan();assert.equal(notice.isConnected,false);assert.equal(d.host,host);W.document.body.replaceChildren(W.document.createElement('main'));W.RTProfileNoticeGuard.refresh();d.scan();assert.equal(d.host,null);assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);
 });
-test('deleted header avatars use only the active account snapshot and handle failed images without shifts',async t=>{
- const {W,d}=setup(t);await d.ready;d.reset();deletedPage(W);let owner='@active:reddit.com',startup={owner:'@other:reddit.com',entry:{identities:[{name:'Example',avatar:'https://i.redd.it/other.png'}]}};
- W.RCSDirectory={getOwner:()=>owner,getStartup:()=>startup};d.scan();assert.equal(d.avatarImage,null);assert.ok(d.avatarPlaceholder.querySelector('svg[icon-name="profile-fill"]'));assert.match(d.avatarPlaceholder.getAttribute('aria-label'),/Deleted account/);
- startup={owner,entry:{identities:[{name:'Example',avatar:'https://i.redd.it/saved.png'}]}};d.updateProfileAvatar();const first=d.avatarImage;assert.equal(first.src,'https://i.redd.it/saved.png');assert.equal(first.hidden,true);first.dispatchEvent(new W.Event('load'));assert.equal(first.hidden,false);assert.equal(d.avatarPlaceholder.hidden,true);
- d.updateProfileAvatar({owner:'@other:reddit.com',records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/wrong.png'}]});assert.equal(d.avatarImage,first);
- owner='@new:reddit.com';d.updateProfileAvatar();assert.equal(d.avatarImage,null);assert.equal(d.avatarPlaceholder.hidden,false);
- d.updateProfileAvatar({owner,records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/broken.png'}]});const broken=d.avatarImage;broken.dispatchEvent(new W.Event('error'));assert.equal(d.avatarImage,null);d.updateProfileAvatar({owner,records:[{type:'direct',name:'Example',avatar:'https://i.redd.it/broken.png'}]});assert.equal(d.avatarImage,null);
+test('unavailable headers use the exact state-specific Reddit artwork and reject replacement photos',async t=>{
+ const {W,d}=setup(t);await d.ready;d.reset();deletedPage(W);d.scan();assert.equal(d.avatarPlaceholder.querySelector('img').src,'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_0.png');assert.match(d.avatarPlaceholder.getAttribute('aria-label'),/Deleted account/);assert.equal(d.avatarSlot.querySelectorAll('img').length,1);
+ d.reset();bannedPage(W);d.scan();assert.equal(d.avatarPlaceholder.querySelector('img').src,'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png');assert.ok(d.avatarSlot.parentElement.classList.contains('items-center'));
 });
 
 test('deleted desktop layout retains native navigation across tabs and labels loaded archive statistics',async t=>{
@@ -320,7 +316,7 @@ function bannedPage(W,{title='This account has been banned',icon='ban-fill'}={})
 }
 test('banned and suspended profiles use archive-only native feeds with the native unavailable-avatar icon',async t=>{
  const requests=[];const {W,d,calls}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{archiveDiscovery:true},archive:async input=>{requests.push(input.kind);return {posts:input.kind==='comment'?[comment()]:[raw()],hasMore:false};}});await d.ready;d.reset();const notice=bannedPage(W);d.scan();
- assert.equal(d.archiveOnly,true);assert.equal(d.accountState,'banned');assert.equal(d.archiveShell.dataset.rtAccountState,'banned');assert.ok(d.avatarPlaceholder.querySelector('svg[icon-name="profile-fill"][viewBox="0 0 20 20"][fill="currentColor"] path'));assert.equal(d.avatarPlaceholder.textContent,'');assert.match(d.avatarPlaceholder.getAttribute('aria-label'),/Banned or suspended/);
+ assert.equal(d.archiveOnly,true);assert.equal(d.accountState,'banned');assert.equal(d.archiveShell.dataset.rtAccountState,'banned');assert.equal(d.avatarPlaceholder.querySelector('img').src,'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png');assert.equal(d.avatarPlaceholder.textContent,'');assert.match(d.avatarPlaceholder.getAttribute('aria-label'),/Banned or suspended/);
  await d.loadArchive();await new Promise(r=>setImmediate(r));assert.deepEqual(requests,['post','comment']);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,2);assert.ok([...d.renderedPosts].every(post=>post.status==='unknown'));assert.equal(calls.length,0);
  for(const [path,kind] of [['/user/Example/submitted/','post'],['/user/Example/comments/','comment']]){W.history.pushState({},'',path);d.scan();await d.loadArchive();assert.equal(requests.at(-1),kind);assert.equal(d.accountState,'banned');}
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);assert.equal(d.archiveShell,null);
@@ -362,7 +358,36 @@ test('archive fallback cards retain native community avatars and compact source 
  const a=W.document.createElement('a');a.href='/r/example/';a.innerHTML='<img src="https://styles.redditmedia.com/fixture.png">';W.document.body.append(a);assert.equal(d.communityAvatar('example').querySelector('img').src,'https://styles.redditmedia.com/fixture.png');
 });
 test('generic card avatars cannot replace the native unavailable-profile silhouette',async t=>{
- const {W,d}=setup(t);await d.ready;d.reset();bannedPage(W);d.scan();assert.ok(d.avatarPlaceholder.querySelector('svg[icon-name="profile-fill"]'));d.setProfileAvatar('https://www.redditstatic.com/avatars/defaults/v2/avatar_default_7.png','chat');assert.equal(d.avatarImage,null);
- const post=W.RTPostModel.normalizePost(raw(),{source:'arctic-shift'}),node=d.card(post);node.innerHTML='<shreddit-post author="Example" icon="https://i.redd.it/foreign.png"><span slot="credit-bar"></span></shreddit-post>';d.decorateNative(post,node);assert.equal(d.avatarImage,null);assert.equal(d.avatarPlaceholder.hidden,false);
+ const {W,d}=setup(t);await d.ready;d.reset();bannedPage(W);d.scan();assert.equal(d.avatarPlaceholder.querySelector('img').src,'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png');assert.equal(d.avatarSlot.querySelectorAll('img').length,1);
+ const post=W.RTPostModel.normalizePost(raw(),{source:'arctic-shift'}),node=d.card(post);node.innerHTML='<shreddit-post author="Example" icon="https://i.redd.it/foreign.png"><span slot="credit-bar"></span></shreddit-post>';d.decorateNative(post,node);assert.equal(d.avatarSlot.querySelectorAll('img').length,1);assert.equal(d.avatarPlaceholder.hidden,false);
+ node.querySelector('[slot="credit-bar"]').innerHTML='<a href="/user/Example/"><span avatar><img src="https://i.redd.it/generic.png"></span>Example</a>';d.decorateNative(post,node);assert.ok(node.querySelector('[data-rt-author-avatar-replaced]'));assert.equal(node.querySelector('[data-rt-author-avatar] img').src,'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png');
  const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/\.rt-profile-avatar>\[hidden\]\{display:none!important\}/);assert.match(css,/\.rt-profile-avatar>img\{width:64px;height:64px/);
+});
+
+test('user-profile post URLs preserve their underlying recovered profile',async t=>{
+ const {W,d}=setup(t,{settings:{archiveDiscovery:true}});await d.ready;d.reset();bannedPage(W);d.scan();await d.loadArchive();await new Promise(r=>setImmediate(r));const shell=d.archiveShell,host=d.host;
+ W.history.pushState({},'','/user/Example/comments/abc12/title/');d.scan();assert.equal(d.archiveShell,shell);assert.equal(d.host,host);assert.equal(d.profileOverlay,true);
+ W.history.pushState({},'','/user/Example/submitted/');d.scan();assert.equal(d.host,host);assert.equal(d.nodes.size,1);
+});
+test('Back restores loaded pages and rendered cards when Reddit reconnects a cached unavailable-profile view',async t=>{
+ let requests=0,renders=0;const {W,d}=setup(t,{settings:{archiveDiscovery:true},archive:async input=>{requests++;return {posts:[raw(input.before?'older':'first')],before:input.before?1600000000:1700000000,hasMore:!input.before};},nativeRender:async(post,node)=>{renders++;node.innerHTML='<shreddit-post id="'+post.fullname+'"><span slot="credit-bar"><span></span></span><div slot="text-body">Rendered native text</div></shreddit-post>';}});
+ await d.ready;d.reset();const notice=bannedPage(W),nativeView=W.document.querySelector('shreddit-app');W.chrome={runtime:{id:'fixture',sendMessage:async()=>({ok:true,settings:{postDiscovery:true}})}};W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));d.scan();await d.loadArchive();await new Promise(r=>setImmediate(r));await d.loadMore();await new Promise(r=>setImmediate(r));assert.equal(renders,2);assert.equal(requests,2);const keys=[...d.nodes.keys()];d.rememberProfile();
+ W.history.pushState({},'','/user/Example/comments/first/title/');W.document.body.innerHTML='<main id="main-content"><shreddit-post id="t3_first"></shreddit-post></main>';W.RTProfileNoticeGuard.refresh();d.scan();assert.equal(nativeView.querySelector('#shreddit-forbidden'),notice);assert.equal(notice.isConnected,false);assert.ok(d.profileStates.size);
+ W.history.pushState({},'','/user/Example/submitted/');W.document.body.replaceChildren(nativeView);W.RTProfileNoticeGuard.refresh();d.scan();await new Promise(r=>setImmediate(r));assert.equal(d.archiveOnly,true);assert.equal(d.nodes.size,2);assert.deepEqual([...d.nodes.keys()],keys);assert.ok([...d.nodes.values()].every(node=>node.dataset.rtNativeState==='ready' && node.isConnected));assert.equal(d.beforeByKind.post,1600000000);assert.equal(d.pages,2);assert.equal(d.moreArchive,false);assert.equal(requests,2);assert.equal(renders,2);assert.equal(notice.isConnected,false);assert.equal(d.feed.querySelectorAll('[data-rt-source]').length,2);
+});
+test('saved profile views are bounded, owner-scoped and cleared by preference changes',async t=>{
+ const {W,d}=setup(t);await d.ready;let owner='account-a';W.RCSDirectory={getOwner:()=>owner};await d.loadReddit();await new Promise(r=>setImmediate(r));
+ for(let i=0;i<6;i++){d.context={...d.context,key:'profile:example:'+i};d.rememberProfile();}assert.equal(d.profileStates.size,4);const context=d.context;owner='account-b';assert.equal(d.restoreProfile(context),false);owner='account-a';assert.equal(d.restoreProfile(context),true);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(d.profileStates.size,0);
+});
+test('unavailable author artwork appears inside both native and fallback cards with centered native sizes',async t=>{
+ const {W,d}=setup(t);await d.ready;
+ for(const [state,url] of [['banned','https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png'],['deleted','https://www.redditstatic.com/avatars/defaults/v2/avatar_default_0.png']]){
+  d.reset();if(state==='banned')bannedPage(W);else deletedPage(W);d.scan();const header=d.avatarPlaceholder.querySelector('img');assert.equal(header.src,url);assert.equal(header.width,64);assert.equal(header.height,64);
+  for(const raw of [comment(),{id:'post',author:'Example',created_utc:1700000000,title:'Post',selftext:'Body',subreddit:'example'}]){const p=W.RTPostModel.normalizeItem(raw,{source:'arctic-shift'}),node=d.card(p);d.renderArchivedNative(p,node);d.decorateNative(p,node);d.decorateNative(p,node);const image=node.querySelector('[data-rt-author-avatar] img');assert.equal(image.src,url);assert.equal(image.width,24);assert.equal(image.height,24);assert.equal(node.querySelectorAll('[data-rt-author-avatar]').length,1);}
+ }
+});
+test('profile-card loading reuses Reddit Snoo halo component and respects reduced motion',async t=>{
+ const {W,d}=setup(t);await d.ready;let p=d.placeholder();assert.equal(p.tagName,'SHREDDIT-LOADING');assert.equal(p.hasAttribute('data-animated'),true);assert.ok(p.querySelector('.shimmer-placeholder'));assert.equal(p.querySelector('faceplate-progress'),null);
+ W.matchMedia=()=>({matches:true});p=d.placeholder();assert.equal(p.hasAttribute('data-animated'),false);assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/prefers-reduced-motion:reduce.*rt-native-loading::before\{animation:none!important/s);
 });
