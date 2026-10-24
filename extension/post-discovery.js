@@ -57,7 +57,7 @@
     }
     ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
     schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.scan();},60);}
-    reset(){this.generation++;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
+    reset(){this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();this.archiveNotice=this.archiveShell=null;this.archiveOnly=false;this.generation++;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
@@ -75,22 +75,30 @@
       this.syncProfileNotice();
       const context=pageRoute();
       if((!this.settings.postDiscovery && !this.settingsError) || !context || location.hostname==='old.reddit.com'){if(this.host || this.context)this.reset();return;}
-      if(this.context?.key===context.key && this.host?.isConnected && (!this.feed || this.feed.isConnected)){this.deduplicate();return;}
+      if(this.context?.key===context.key && this.host?.isConnected && (!this.feed || this.feed.isConnected) && (!this.archiveOnly || this.archiveNotice?.isConnected)){this.deduplicate();return;}
       this.reset();
-      const main=document.querySelector('main#main-content,main[role="main"],main');if(!main)return;
-      let target=context.kind==='profile'?main.querySelector('shreddit-feed'):main.querySelector('shreddit-post');
+      let main=document.querySelector('main#main-content,main[role="main"],main');
+      if(!main && context.kind==='profile'){
+        // Deleted-account pages omit both main and shreddit-feed. Require the
+        // observed native deletion marker; generic 404/network pages stay native.
+        const marker=document.querySelector('shreddit-app > div > img[alt="Deleted user"]');
+        if(marker && marker.parentElement.querySelector('h3'))main=this.mountArchiveProfile(context,marker.parentElement);
+      }
+      if(!main)return;
+      let target=context.kind==='profile'?main.querySelector('shreddit-feed,[data-rt-archive-feed]'):main.querySelector('shreddit-post');
       if(!target)return;
       this.context=context;this.feed=context.kind==='profile'?target:null;
       if(this.feed && typeof IntersectionObserver==='function')this.nativeObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){this.nativeObserver.unobserve(entry.target);this.queueNative(entry.target);}},{rootMargin:'400px'});this.live=new Map();this.archived=new Map();
       const host=this.host=make('section','rt-posts');host.dataset.rtUi='posts';host.setAttribute('aria-label',context.kind==='profile'?'Additional public activity':'Archived post snapshot');
       const toolbar=this.toolbar=make('div','rt-posts-toolbar');
       const noun=context.view==='comments'?'comments':context.view==='overview'?'activity':'posts';
-      this.discover=button(this.settingsError?'Retry discovery':context.kind==='profile'?'Discover '+noun:'Check archived post',()=>this.settingsError?this.retrySettings():context.kind==='profile'?this.loadReddit():this.loadDetail(),'search');
+      this.discover=button(this.settingsError?'Retry discovery':context.kind==='profile'?'Discover '+noun:'Check archived post',()=>this.settingsError?this.retrySettings():this.archiveOnly?this.loadArchive():context.kind==='profile'?this.loadReddit():this.loadDetail(),'search');
       this.discover.title=context.kind==='profile'?'Find public '+noun+' through Reddit search, including activity omitted from this profile feed':'Look for a separate archived snapshot without replacing the current post';
       if(context.kind==='post' && !this.settings.archiveDiscovery && !this.settingsError){this.discover.disabled=true;this.discover.title='Enable Arctic Shift archive discovery in Reddit Tweaks to check this post.';}
       this.discover.setAttribute('aria-label',this.discover.textContent);this.discover.textContent='';this.discover.append(glyph(context.kind==='profile'?'refresh':'archive'));
+      if(this.archiveOnly){this.discover.setAttribute('aria-label','Search archive');this.discover.title='Find archived public posts and comments for this deleted account';this.discover.replaceChildren(glyph('archive'));this.discover.disabled=!this.settingsError && !this.settings.archiveDiscovery;}
       toolbar.append(this.discover);
-      if(context.kind==='profile' && this.settings.archiveDiscovery){this.archiveButton=button('Search archive',()=>this.loadArchive(),'archive');this.archiveButton.title='Send this public username to Arctic Shift to look for older snapshots';this.archiveButton.setAttribute('aria-label','Search archive');this.archiveButton.textContent='';this.archiveButton.append(glyph('archive'));toolbar.append(this.archiveButton);}else this.archiveButton=null;
+      if(context.kind==='profile' && !this.archiveOnly && this.settings.archiveDiscovery){this.archiveButton=button('Search archive',()=>this.loadArchive(),'archive');this.archiveButton.title='Send this public username to Arctic Shift to look for older snapshots';this.archiveButton.setAttribute('aria-label','Search archive');this.archiveButton.textContent='';this.archiveButton.append(glyph('archive'));toolbar.append(this.archiveButton);}else this.archiveButton=null;
       this.status=make('p','rt-posts-status');this.status.setAttribute('role','status');
       this.results=make('div','rt-posts-results');this.loading=make('div','rt-post-loading');this.loading.hidden=true;this.loading.setAttribute('aria-label','Loading posts');const progress=make('faceplate-progress');progress.setAttribute('status','indeterminate');this.loading.append(progress);
       this.more=button('Load more',()=>this.loadMore());this.more.className='rt-posts-more';this.more.hidden=true;
@@ -98,7 +106,17 @@
       if(context.kind==='profile'){target.before(host);this.results.hidden=true;this.more.textContent='More discoveries';toolbar.append(this.more);}else target.after(host);
       this.emptyFeed=main.querySelector('#empty-feed-content');this.emptyWasHidden=this.emptyFeed?.hidden;
       if(this.settingsError)this.setStatus('Discovery settings could not be loaded. Select Retry discovery.',true);
-      else if(context.kind==='profile' && this.autoDiscover)queueMicrotask(()=>{if(this.host===host)this.loadReddit();});
+      else if(context.kind==='profile' && this.autoDiscover)queueMicrotask(()=>{if(this.host===host){if(this.archiveOnly){if(this.settings.archiveDiscovery)this.loadArchive();}else this.loadReddit();}});
+    }
+    mountArchiveProfile(context,notice){
+      this.archiveOnly=true;this.archiveNotice=notice;
+      const shell=this.archiveShell=make('main','rt-archive-profile');shell.id='rt-archived-profile';shell.dataset.rtUi='archive-profile';
+      const title=make('h1','','u/'+context.username),note=make('p','rt-archive-profile-note','Deleted account · Archived public activity. Coverage may be incomplete; individual posts may still exist on Reddit.');
+      const tabs=make('nav','rt-archive-tabs');tabs.setAttribute('aria-label','Archived activity');
+      for(const [view,label,suffix] of [['overview','Overview',''],['posts','Posts','submitted/'],['comments','Comments','comments/']]){const tab=link(label,'/user/'+context.username+'/'+suffix);if(view===context.view)tab.setAttribute('aria-current','page');tabs.append(tab);}
+      const feed=make('div','rt-archive-feed');feed.dataset.rtArchiveFeed='true';
+      this.archiveEmpty=make('p','rt-archive-empty',this.settings.archiveDiscovery?'':'Enable “Search Arctic Shift archive” in Reddit Tweaks to look up this username.');this.archiveEmpty.hidden=this.settings.archiveDiscovery;
+      shell.append(title,note,tabs,this.archiveEmpty,feed);notice.before(shell);notice.setAttribute('data-rt-archive-notice','true');return shell;
     }
     retrySettings(){this.reset();return this.loadSettings();}
     kinds(){return this.context.view==='overview'?['post','comment']:[this.context.view==='comments'?'comment':'post'];}
@@ -151,7 +169,8 @@
     }
     summarize(){
       const {count=0,deferred=0}=this.summaryCounts || {},noun=this.context.view==='comments'?(count===1?'comment':'comments'):this.context.view==='overview'?(count===1?'item':'items'):count===1?'post':'posts';
-      this.setStatus(count?`${count} additional ${noun}`:'Activity checked');
+      this.setStatus(count?`${count} ${this.archiveOnly?'archived':'additional'} ${noun}`:'Activity checked');
+      if(this.archiveOnly && this.settings.archiveDiscovery){this.archiveEmpty.hidden=!this.archiveLoaded || count>0;this.archiveEmpty.textContent='No archived activity found for this username. Archive coverage may be incomplete.';}
       this.status.title=(deferred?`${deferred} older discoveries will appear when Reddit loads that part of the feed. `:'')+'Search and archive coverage may be incomplete.';
     }
     setStatus(text,error=false){this.status.textContent=text;this.status.dataset.error=String(error);}
@@ -168,7 +187,7 @@
       catch(error){if(generation===this.generation && pageRoute()?.key===this.context?.key)this.setStatus(error.message,true);}
       finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.loading.hidden=true;this.discover.disabled=false;if(this.archiveButton)this.archiveButton.disabled=false;this.more.disabled=false;}}
     }
-    loadReddit({more=false}={}){if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}if(this.pages>=8){this.setStatus('Showing a bounded selection. History is incomplete.');return;}return this.run(async current=>{
+    loadReddit({more=false}={}){if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}if(this.pages>=8){this.setStatus('Showing a bounded selection. History is incomplete.');return;}return this.run(async current=>{
       const errors=[];let succeeded=false;
       for(const kind of this.kinds()){
         if(this.pages>=8 || more && !this.redMore[kind])continue;
@@ -194,7 +213,7 @@
         try{const before=more?this.beforeByKind[kind]:null,result=await this.archive({action:'archive-profile',username:this.context.username,kind,...(before?{before}:{})});if(!current())return;
           const page=[];for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'arctic-shift'});if(p){this.archived.set(itemKey(p),p);page.push(p);}}
           this.beforeByKind[kind]=result.before;this.archiveMore[kind]=Boolean(result.hasMore && !result.cursorStalled);this.archiveLoaded=true;
-          if(page.length){try{const live=await this.request({action:'info',kind,ids:page.map(p=>p.id)});if(!current())return;for(const raw of live.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(p)this.live.set(itemKey(p),p);}}catch{if(!current())return;warnings.push('Current Reddit status could not be checked.');}}
+          if(page.length && !this.archiveOnly){try{const live=await this.request({action:'info',kind,ids:page.map(p=>p.id)});if(!current())return;for(const raw of live.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(p)this.live.set(itemKey(p),p);}}catch{if(!current())return;warnings.push('Current Reddit status could not be checked.');}}
           if(result.cursorStalled)warnings.push('Archive pagination stopped at an ambiguous timestamp. History is incomplete.');
         }catch(error){if(!current())return;warnings.push(error.message);}
       }
@@ -203,7 +222,7 @@
     loadMore(){if(this.pages>=8){this.more.hidden=true;this.setStatus('Showing a bounded selection; history is incomplete.');return;}return this.moreReddit?this.loadReddit({more:true}):this.loadArchive({more:true});}
     render(){
       const posts=M.mergePosts([...this.live.values()],[...this.archived.values()],{username:this.context.username,visibleIds:this.visibleIds(),sort:this.context.sort,range:this.context.range});
-      for(const post of posts){const key=itemKey(post);this.postMetadata.set(key,post);const previous=this.nodes.get(key);if(previous){if(previous.dataset.rtNativeState==='ready')this.decorateNative(post,previous);continue;}const node=this.card(post);this.results.append(node);this.nodes.set(key,node);}
+      for(const post of posts){const key=itemKey(post);this.postMetadata.set(key,post);const previous=this.nodes.get(key);if(previous){if(previous.dataset.rtNativeState==='ready' && !this.archiveOnly)this.decorateNative(post,previous);continue;}const node=this.card(post);this.results.append(node);this.nodes.set(key,node);}
       this.renderedPosts=posts;
       this.deduplicate();this.more.hidden=!(this.moreReddit || this.moreArchive) || this.pages>=8;
       this.summarize();
@@ -213,7 +232,19 @@
       const badge=make('span','rt-post-indicator');badge.setAttribute('role','img');badge.setAttribute('aria-label',label);badge.title=label;badge.dataset.state=post.status;badge.append(glyph(removed?post.status:post.source==='arctic-shift'?'archive':'hidden'));return badge;
     }
     snapshot(text){const details=make('details','rt-post-snapshot');details.append(make('summary','','Archived text · Arctic Shift'),make('pre','',text),make('p','rt-post-source','Archived snapshot; it may differ from the original or current post.'));return details;}
+    archiveCard(post){
+      const card=make('article','rt-native-card rt-archive-card');card.dataset.rtUi='activity-item';card.dataset.key=itemKey(post);card.dataset.fullname=post.fullname;card.dataset.rtNativeState='ready';
+      const content=make('div','rt-archive-card-content'),header=make('div','rt-archive-credit'),identity=make('span');
+      if(post.subreddit)identity.append(link('r/'+post.subreddit,'/r/'+encodeURIComponent(post.subreddit)+'/'),document.createTextNode(' · '));
+      identity.append(document.createTextNode('u/'+post.author+' · '));const date=make('time','',new Date(post.created*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}));date.dateTime=new Date(post.created*1000).toISOString();identity.append(date);const badge=this.indicator(post);badge.dataset.rtSource='true';header.append(identity,badge);content.append(header);
+      const heading=make('h2');heading.append(link(post.title || (post.kind==='comment'?'Comment':'Archived post'),post.permalink));content.append(heading);
+      if(post.over18 || post.spoiler)content.append(make('p','rt-archive-profile-note','NSFW or spoiler snapshot · Open the source to review content restrictions.'));
+      else if(post.body && !['[removed]','[deleted]'].includes(post.body)){content.append(make('p','rt-archive-body',post.body.slice(0,600)+(post.body.length>600?'…':'')));if(post.body.length>600)content.append(this.snapshot(post.body));}
+      else content.append(make('p','rt-archive-profile-note','The archive has no original text for this item.'));
+      const footer=make('div','rt-archive-footer');footer.append(make('span','','Archived score: '+post.score),link(post.kind==='comment'?'Open comment ↗':'Open post ↗',post.permalink));content.append(footer);card.append(content);this.ensureSeparator(card);return card;
+    }
     card(post){
+      if(this.archiveOnly)return this.archiveCard(post);
       const card=make('div','rt-native-card');card.id='rt-native-'+crypto.randomUUID();card.dataset.rtUi='activity-item';card.dataset.postId=post.id;card.dataset.fullname=post.fullname;card.dataset.rtNativeFullname=post.fullname;card.dataset.rtNativeState='idle';card.dataset.key=itemKey(post);card.hidden=post.visible;
       card.setAttribute('aria-busy','true');
       const placeholder=make('div','rt-native-placeholder');placeholder.setAttribute('aria-label','Loading Reddit card');

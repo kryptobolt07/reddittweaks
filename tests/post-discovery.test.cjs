@@ -231,3 +231,38 @@ test('Hot refresh replaces the provider order without reverting to chronology',a
 test('repeated server rate limits pause with one explanation rather than retrying forever',async t=>{
  let attempts=0;const {d}=setup(t,{nativeRender:async()=>{attempts++;return {deferred:true,reason:'rate-limit',retryAfterMs:100};}});await d.ready;await d.loadReddit();await new Promise(r=>setTimeout(r,250));assert.equal(attempts,2);assert.equal(d.nativeBatch.blocked,true);assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/Refresh activity/);assert.equal(d.feed.querySelectorAll('.rt-native-unavailable').length,0);
 });
+
+function deletedPage(W,{marker='Deleted user'}={}){
+ W.document.body.innerHTML='<shreddit-app><div data-native-notice><img alt="'+marker+'"><h3>This user has deleted their account.</h3><a href="/">Go to home</a></div></shreddit-app>';
+ return W.document.querySelector('[data-native-notice]');
+}
+test('deleted profiles mount an archive-only feed without Reddit reads or native hydration',async t=>{
+ const requests=[];let nativeRenders=0;
+ const {W,d,calls}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},archive:async input=>{requests.push(input);return {posts:input.kind==='comment'?[comment()]:[raw()],hasMore:false};},nativeRender:()=>{nativeRenders++;throw Error('No native renderer on this page');}});
+ await d.ready;d.reset();const notice=deletedPage(W);d.autoDiscover=true;d.scan();await new Promise(r=>setImmediate(r));
+ assert.equal(d.archiveOnly,true);assert.equal(d.archiveShell.tagName,'MAIN');assert.equal(notice.dataset.rtArchiveNotice,'true');assert.equal(d.archiveShell.querySelector('h1').textContent,'u/Example');
+ assert.deepEqual(requests.map(r=>r.kind),['post']); // The current route is Posts.
+ assert.equal(calls.length,0);assert.equal(nativeRenders,0);assert.equal(d.feed.querySelectorAll('.rt-archive-card').length,1);
+ assert.match(d.feed.textContent,/Public text/);assert.match(d.feed.textContent,/Archived score: 7/);assert.match(d.feed.querySelector('[data-rt-source]').title,/Current Reddit status unknown/);assert.equal(d.feed.querySelector('button'),null);
+ await d.loadReddit();assert.equal(calls.length,0);assert.equal(nativeRenders,0);assert.equal(d.feed.querySelectorAll('.rt-archive-card').length,1);
+ d.reset();assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);assert.equal(W.document.querySelector('#rt-archived-profile'),null);
+});
+test('deleted-account Overview combines archived posts/comments and empty/error states stay explicit',async t=>{
+ let fail=false,empty=false;const requests=[];
+ const {W,d,calls}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{archiveDiscovery:true},archive:async input=>{requests.push(input);if(fail)throw Error('Archive unavailable');return {posts:empty?[]:input.kind==='comment'?[comment()]:[raw()],hasMore:false};}});
+ await d.ready;d.reset();deletedPage(W);d.scan();await d.loadArchive();assert.deepEqual(requests.map(r=>r.kind),['post','comment']);assert.equal(d.feed.children.length,2);assert.match(d.feed.textContent,/A discovered public comment/);assert.equal(calls.length,0);assert.equal(d.archiveEmpty.hidden,true);
+ fail=true;await d.loadArchive();assert.match(d.status.textContent,/Archive unavailable/);assert.equal(d.feed.children.length,2);
+ fail=false;empty=true;d.reset();d.scan();await d.loadArchive();assert.equal(d.archiveEmpty.hidden,false);assert.match(d.archiveEmpty.textContent,/No archived activity found/);assert.match(d.archiveEmpty.textContent,/incomplete/);
+});
+test('deleted-profile archive opt-out, route changes and replaced native notices clean up safely',async t=>{
+ let resolve;const {W,d,calls}=setup(t,{settings:{archiveDiscovery:true},archive:()=>new Promise(r=>resolve=r)});await d.ready;d.reset();let notice=deletedPage(W);d.scan();const load=d.loadArchive();
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false,archiveDiscovery:true}}},'local');resolve({posts:[raw()],hasMore:false});await load;assert.equal(W.document.querySelector('#rt-archived-profile'),null);assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);assert.equal(calls.length,0);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:true,archiveDiscovery:false}}},'local');assert.equal(d.discover.disabled,true);assert.match(d.archiveEmpty.textContent,/Enable/);assert.equal(d.archiveEmpty.hidden,false);
+ const oldShell=d.archiveShell;notice=deletedPage(W);d.scan();assert.notEqual(d.archiveShell,oldShell);assert.equal(oldShell.isConnected,false);
+ W.history.pushState({},'','/user/Other/saved/');d.scan();assert.equal(d.archiveShell,null);assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);
+});
+test('generic error pages are untouched and archive snapshots remain inert and restricted',async t=>{
+ const {W,d}=setup(t,{settings:{archiveDiscovery:true}});await d.ready;d.reset();const notice=deletedPage(W,{marker:'Page not found'});d.scan();assert.equal(d.host,null);assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);
+ notice.querySelector('img').alt='Deleted user';d.scan();const p=W.RTPostModel.normalizePost(raw('unsafe',{title:'<img onerror=bad()>',selftext:'<script>bad()</script>'}),{source:'arctic-shift'});const card=d.archiveCard(p);assert.equal(card.querySelector('img,script'),null);assert.match(card.textContent,/<script>/);assert.match(card.textContent,/<img onerror/);
+ for(const flag of ['over18','spoiler']){const restricted=d.archiveCard({...p,[flag]:true,body:'secret snapshot'});assert.equal(restricted.textContent.includes('secret snapshot'),false);assert.match(restricted.textContent,/NSFW or spoiler/);}
+});
