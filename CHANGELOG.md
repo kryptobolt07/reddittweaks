@@ -1,3 +1,13 @@
+# 0.16.2 preview
+
+- Use Reddit's exact banned/suspended and deleted-account artwork in centered profile headers and card author identities. Remove conflicting generic avatars and the superseded retained-photo fallback; chat avatars are unchanged.
+- Preserve `/user/.../comments/...` post overlays. Fix Back navigation when Reddit detaches and reconnects native profile views; restore loaded results, ready cards and pagination cursors without repeating archive/card-render requests. Keep the page-session cache bounded and owner-scoped, and clear it on account/settings changes.
+- Reuse Reddit's native Snoo logo and expanding/fading halo loader for profile-card loading, with reduced-motion handling and a shimmer fallback before component registration. Native chat startup was verified to use shimmer rows.
+
+Version choice: PATCH to 0.16.2 for existing profile artwork, return-navigation reliability and native loading corrections. No new permissions, persistence or schema change.
+
+Validation: all 538 tests pass, including 66 targeted model/discovery checks. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave component inspection confirmed the feed's native Snoo halo and the separate chat shimmer templates; the temporary probe and network throttling were removed. Back restoration and artwork behavior are covered by synthetic fixtures; installed end-to-end verification requires an extension reload. Cached views are document-session only, archive coverage remains incomplete, and Reddit's native markup/components may change.
+
 # 0.16.1 preview
 
 - Keep hidden/banned profile notices detached while Notifications and other native overlays/transitions change the URL. Retain the profile until Reddit replaces its underlying DOM; opt-out restores the original notice.
