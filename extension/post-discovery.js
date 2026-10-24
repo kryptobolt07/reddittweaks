@@ -126,7 +126,7 @@
       toolbar.append(this.discover);
       if(context.kind==='profile' && !this.archiveOnly && this.settings.archiveDiscovery){this.archiveButton=button('Search archive',()=>this.loadArchive(),'archive');this.archiveButton.title='Send this public username to Arctic Shift to look for older snapshots';this.archiveButton.setAttribute('aria-label','Search archive');this.archiveButton.textContent='';this.archiveButton.append(glyph('archive'));toolbar.append(this.archiveButton);}else this.archiveButton=null;
       this.status=make('p','rt-posts-status');this.status.setAttribute('role','status');
-      this.results=make('div','rt-posts-results');this.loading=make('div','rt-post-loading');this.loading.hidden=true;this.loading.setAttribute('aria-label','Loading posts');this.loading.append(this.placeholder());
+      this.results=make('div','rt-posts-results');this.loading=make('div','rt-post-loading');this.loading.hidden=true;this.loading.setAttribute('aria-label','Loading posts');this.loading.append(this.feedLoader());
       this.more=button('Load more',()=>this.loadMore());this.more.className='rt-posts-more';this.more.hidden=true;
       toolbar.append(this.status);host.append(toolbar,this.loading,this.results,this.more);
       if(context.kind==='profile'){target.before(host);this.results.hidden=true;this.more.textContent='More discoveries';toolbar.append(this.more);}else target.after(host);
@@ -305,7 +305,7 @@
     snapshot(text){const details=make('details','rt-post-snapshot');details.title='Text recovered from Arctic Shift · May differ from the current post';details.append(make('summary','','Recovered text'),make('pre','',text));return details;}
     communityAvatar(subreddit){
       const avatar=make('span','inline-flex items-center justify-center w-lg h-lg relative shrink-0');avatar.setAttribute('avatar','');
-      const href='/r/'+subreddit.toLowerCase()+'/',hint=[...document.querySelectorAll('a[href]')].find(a=>a.getAttribute('href')?.toLowerCase()===href && a.querySelector('img[src]'))?.querySelector('img[src]'),url=M.avatarUrl(hint?.getAttribute('src'));
+      const href='/r/'+subreddit.toLowerCase()+'/',sample=[...document.querySelectorAll('shreddit-post[subreddit-name]')].find(n=>n.getAttribute('subreddit-name')?.toLowerCase()===subreddit.toLowerCase()),hint=sample?.querySelector('[slot="credit-bar"] [avatar] img[src]') || [...document.querySelectorAll('a[href]')].find(a=>{try{return new URL(a.getAttribute('href'),location.origin).pathname.toLowerCase()===href && a.querySelector('img[src]');}catch{return false;}})?.querySelector('img[src]'),url=M.avatarUrl(hint?.getAttribute('src'));
       if(url){const image=make('img','mb-0 rounded-full overflow-hidden w-full h-full');image.src=url;image.alt='';image.width=image.height=24;image.loading='lazy';avatar.append(image);return avatar;}
       const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value] of Object.entries({rpl:'',fill:'currentColor',height:'24',width:'24',viewBox:'0 0 20 20','icon-name':'community-fill','aria-hidden':'true'}))icon.setAttribute(key,value);
       const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M11.977 13.79h-1.955l4.549-10.715a.81.81 0 00-.381-1.032C12.447 1.12 10.37.747 8.179 1.18c-3.612.716-6.471 3.68-7.059 7.316a9.01 9.01 0 0010.409 10.377c3.735-.616 6.741-3.635 7.347-7.371.453-2.8-.388-5.405-2.017-7.322a.505.505 0 00-.853.119l-4.029 9.49ZM9.98 8.118a1.752 1.752 0 00-1.148.167 1.664 1.664 0 00-.651.596 1.703 1.703 0 00-.258.948v3.96H5.998V6.322h1.876v1.074h.035c.251-.344.567-.628.948-.851a2.55 2.55 0 011.311-.335c.172 0 .335.014.488.042.153.028.267.058.342.09l-.774 1.849a.766.766 0 00-.244-.073Z');icon.append(path);avatar.append(icon);return avatar;
@@ -318,8 +318,8 @@
       const isComment=post.kind==='comment',native=make(isComment?'shreddit-profile-comment':'shreddit-post');
       const body=post.over18 || post.spoiler?'NSFW or spoiler snapshot · Open the source to review content restrictions.':(post.archivedBody || post.body) && !['[deleted]','[removed]'].includes(post.archivedBody || post.body)?(post.archivedBody || post.body):'The archive has no original text for this item.';
       const date=make('faceplate-timeago');date.setAttribute('ts',new Date(post.created*1000).toISOString());date.setAttribute('short','');
-      const community=link('r/'+post.subreddit,'/r/'+encodeURIComponent(post.subreddit)+'/','font-semibold text-12 text-neutral-content-strong no-underline hover:underline');
-      community.classList.add('inline-flex','items-center','gap-xs');community.prepend(this.communityAvatar(post.subreddit));
+      const profileName=/^u_([\w-]{1,20})$/i.exec(post.subreddit)?.[1],community=link(profileName?'u/'+profileName:'r/'+post.subreddit,profileName?'/user/'+profileName+'/':'/r/'+encodeURIComponent(post.subreddit)+'/','font-semibold text-12 text-neutral-content-strong no-underline hover:underline');
+      community.classList.add('inline-flex','items-center','gap-xs');community.prepend(profileName?this.profilePostAvatar(profileName):this.communityAvatar(post.subreddit));
       const author=link(post.author,'/user/'+post.author+'/','font-bold text-12 text-neutral-content-strong hover:underline');
       native.setAttribute('data-feed-element-id',post.fullname);
       if(isComment){
@@ -333,8 +333,8 @@
         const share=make('shreddit-comment-share-button');share.setAttribute('slot','comment-share');share.setAttribute('permalink',post.permalink);share.setAttribute('is-desktop-viewport','true');row.append(reply,share);actions.append(row);padding.append(credit,content,actions);inner.append(padding);native.append(inner);
       }else{
         native.className='block relative cursor-pointer group bg-neutral-background focus-within:bg-neutral-background-hover hover:bg-neutral-background-hover xs:rounded-4 px-md py-2xs my-2xs nd:visible';native.id=post.fullname;
-        for(const [key,value] of Object.entries({'permalink':post.permalink,'view-context':'ProfileFeed2','view-type':'cardView','post-type':'text','post-title':post.title,'author':post.author,'subreddit-name':post.subreddit,'subreddit-prefixed-name':'r/'+post.subreddit,'score':post.score,'comment-count':post.comments,'created-timestamp':new Date(post.created*1000).toISOString()}))native.setAttribute(key,String(value));
-        native.setAttribute('is-author-deleted','');const credit=make('span','flex justify-between text-12 min-h-[32px] mb-2xs -mt-2xs');credit.slot='credit-bar';const identity=make('span','flex items-center gap-xs');identity.append(community,document.createTextNode(' · '),date);credit.append(identity);
+        for(const [key,value] of Object.entries({'permalink':post.permalink,'view-context':'ProfileFeed2','view-type':'cardView','post-type':'text','post-title':post.title,'author':post.author,'subreddit-name':post.subreddit,'subreddit-prefixed-name':profileName?'u_'+profileName:'r/'+post.subreddit,'score':post.score,'comment-count':post.comments,'created-timestamp':new Date(post.created*1000).toISOString()}))native.setAttribute(key,String(value));
+        if(post.author==='[deleted]')native.setAttribute('is-author-deleted','');const credit=make('span','flex justify-between text-12 min-h-[32px] mb-2xs -mt-2xs');credit.slot='credit-bar';const identity=make('span','flex items-center gap-xs');identity.append(community,document.createTextNode(' · '),date);credit.append(identity);
         const title=link(post.title,post.permalink,'block text-neutral-content-strong m-0 visited:text-neutral-content-weak font-semibold text-16-scalable xs:text-18-scalable mb-2xs xs:mb-xs overflow-hidden');title.slot='title';const content=make('div','md whitespace-pre-wrap break-words');content.slot='text-body';content.append(make('p','',body));native.append(credit,title,content);
         // Keep the card inert until the native action bar is isolated. This
         // avoids even a frame of actionable voting on unverified snapshots.
@@ -349,8 +349,20 @@
       card.append(this.placeholder());this.ensureSeparator(card);return card;
     }
     placeholder(){
-      const placeholder=make('shreddit-loading','rt-native-loading'),fallback=make('div','rt-native-placeholder');placeholder.setAttribute('aria-label','Loading Reddit card');if(!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)placeholder.setAttribute('data-animated','');
-      const avatar=make('div','shimmer-placeholder h-lg w-lg bg-shimmer rounded-full'),lines=make('div','grow');lines.append(make('div','shimmer-placeholder bg-shimmer rounded-2 h-md w-[200px] max-w-full'),make('div','shimmer-placeholder bg-shimmer rounded-2 h-xs w-[160px] max-w-full mt-2xs'));fallback.append(avatar,lines);placeholder.append(fallback);return placeholder;
+      // Cards use quiet native shimmer rows. The animated Snoo belongs to the
+      // feed, never repeated for every pending item.
+      const placeholder=make('div','rt-native-placeholder');placeholder.setAttribute('aria-hidden','true');
+      const avatar=make('faceplate-shimmer','h-lg w-lg rounded-full shrink-0'),lines=make('div','grow');avatar.setAttribute('shape','circle');lines.append(make('faceplate-shimmer','block rounded-2 h-md w-[200px] max-w-full'),make('faceplate-shimmer','block rounded-2 h-xs w-[160px] max-w-full mt-2xs'));placeholder.append(avatar,lines);return placeholder;
+    }
+    feedLoader(){
+      const loader=make('shreddit-loading','rt-native-loading');loader.setAttribute('aria-label','Loading public activity');if(!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)loader.setAttribute('data-animated','');loader.append(this.placeholder());return loader;
+    }
+    profilePostAvatar(username){
+      const avatar=make('span','inline-flex items-center justify-center w-lg h-lg relative shrink-0');avatar.setAttribute('avatar','');
+      // Only profile-hosted posts use account artwork. Never modify Reddit's
+      // server-rendered author/community markup or borrow another user's photo.
+      const same=username.toLowerCase()===this.context.username.toLowerCase(),url=same?M.avatarUrl(this.avatarSlot?.querySelector('img')?.getAttribute('src') || document.querySelector('#profile-icon')?.getAttribute('src')):'';
+      const image=make('img','mb-0 rounded-full object-contain w-full h-full');image.src=url || unavailableAvatarUrl(same?this.accountState:'deleted');image.alt='';image.width=image.height=24;image.loading='lazy';avatar.append(image);return avatar;
     }
     queueNative(node){
       if(node.hidden || !node.isConnected || node.dataset.rtNativeState!=='idle')return;
@@ -410,7 +422,7 @@
     }
     restoreRecoveredBodies(){
       for(const [body,patch] of this.recoveredBodies || [])if(body.contains(patch.recovered))body.replaceChildren(...patch.original);
-      for(const native of this.nativeDecorations || []){native.querySelector('[data-rt-author-avatar]')?.remove();native.querySelector('[data-rt-author-avatar-replaced]')?.removeAttribute('data-rt-author-avatar-replaced');native.querySelector('[data-rt-author-identity]')?.remove();native.querySelector('[data-rt-source]')?.remove();native.querySelector('.rt-comment-source-credit')?.classList.remove('rt-comment-source-credit');native.querySelector('.rt-comment-source-host')?.classList.remove('rt-comment-source-host');}
+      for(const native of this.nativeDecorations || []){native.querySelector('[data-rt-source]')?.remove();native.querySelector('.rt-comment-source-credit')?.classList.remove('rt-comment-source-credit');native.querySelector('.rt-comment-source-host')?.classList.remove('rt-comment-source-host');}
       this.recoveredBodies=new Map();this.nativeDecorations=new Set();
     }
     recoverBody(post,native){
@@ -422,18 +434,10 @@
       const current=body.textContent.trim();if(!/^\[(deleted|removed)\]$/i.test(current) && !(current==='' && ['deleted','removed'].includes(post.status)))return false;
       const recovered=make('p','whitespace-pre-wrap break-words',text);recovered.dataset.rtRecoveredText='true';recovered.dataset.rtOriginalText=current;this.recoveredBodies.set(body,{original:[...body.childNodes],recovered});body.replaceChildren(recovered);return true;
     }
-    authorAvatar(native,post){
-      if(!this.accountState || native.querySelector('[data-rt-author-avatar]'))return;
-      const username=post.archiveAuthor || (post.author==='[deleted]'?this.context.username:post.author),path='/user/'+username.toLowerCase()+'/';
-      let author=[...native.querySelectorAll('a[href]')].find(a=>{try{return new URL(a.getAttribute('href'),location.origin).pathname.toLowerCase()===path;}catch{return false;}});
-      if(!author){const credit=native.querySelector('[slot="credit-bar"]')?.firstElementChild || native.querySelector('faceplate-timeago')?.parentElement;if(!credit)return;author=link(username,'/user/'+username+'/','inline-flex items-center font-bold text-12 text-neutral-content-strong');author.dataset.rtAuthorIdentity='true';credit.prepend(author);}
-      const previous=author.querySelector('[avatar],.fp-avatar-container');previous?.setAttribute('data-rt-author-avatar-replaced','');
-      const avatar=make('span','rt-card-author-avatar');avatar.dataset.rtAuthorAvatar='true';avatar.append(unavailableAvatar(this.accountState,24));author.prepend(avatar);
-    }
     decorateNative(post,node){
       node.querySelector('[data-rt-archive]')?.remove();
       const native=node.matches('shreddit-post,shreddit-profile-comment')?node:node.querySelector('shreddit-post,shreddit-profile-comment');if(!native)return;
-      this.authorAvatar(native,post);const recovered=this.recoverBody(post,native),label=this.indicator(post);if(recovered){label.title+=' · Text recovered from Arctic Shift';label.setAttribute('aria-label',label.title);}
+      const recovered=this.recoverBody(post,native),label=this.indicator(post);if(recovered){label.title+=' · Text recovered from Arctic Shift';label.setAttribute('aria-label',label.title);}
       let badge=node.querySelector('[data-rt-source]');if(!badge || badge.title!==label.title){if(badge)badge.replaceWith(label);badge=label;badge.dataset.rtSource='true';}
       if(native.matches('shreddit-profile-comment')){
         const host=native.firstElementChild || native,credit=host.querySelector('.text-12.relative') || host.firstElementChild;host.classList.add('rt-comment-source-host');credit?.classList.add('rt-comment-source-credit');if(badge.parentElement!==host)host.append(badge);

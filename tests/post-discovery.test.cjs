@@ -215,7 +215,7 @@ test('local card backpressure keeps native placeholders and resumes without Retr
  let attempts=0;const {d}=setup(t,{nativeRender:async(post,node)=>{attempts++;if(attempts===1)return {deferred:true,retryAfterMs:100};node.innerHTML=`<shreddit-post id="${post.fullname}"></shreddit-post>`;return {rendered:true};}});
  await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const node=d.nodes.get('abc12');assert.equal(node.dataset.rtNativeState,'queued');assert.ok(node.querySelector('.rt-native-placeholder'));assert.equal(node.querySelector('button'),null);
  await new Promise(r=>setTimeout(r,130));assert.equal(node.dataset.rtNativeState,'ready');assert.equal(attempts,2);
- assert.equal(d.loading.querySelector('faceplate-progress'),null);assert.equal(d.loading.querySelectorAll('.rt-native-placeholder').length,1);assert.ok(d.loading.querySelector('.shimmer-placeholder.bg-shimmer'));
+ assert.equal(d.loading.querySelector('faceplate-progress'),null);assert.equal(d.loading.querySelectorAll('.rt-native-placeholder').length,1);assert.ok(d.loading.querySelector('faceplate-shimmer'));
 });
 
 test('scope changes cancel paused metadata without stale requests',async t=>{
@@ -356,11 +356,12 @@ test('archive fallback cards retain native community avatars and compact source 
  const {W,d}=setup(t);await d.ready;
  for(const raw of [comment(),{id:'fixture',author:'Example',created_utc:1700000000,subreddit:'example',title:'Post',selftext:'Body'}]){const p=W.RTPostModel.normalizeItem(raw,{source:'arctic-shift'}),node=d.card(p);d.renderArchivedNative(p,node);d.decorateNative(p,node);assert.ok(node.querySelector('[avatar] svg[icon-name="community-fill"]'));assert.equal(node.querySelectorAll('[data-rt-source]').length,1);assert.equal(node.querySelector('details'),null);assert.equal(node.textContent.includes('Arctic Shift'),false);}
  const a=W.document.createElement('a');a.href='/r/example/';a.innerHTML='<img src="https://styles.redditmedia.com/fixture.png">';W.document.body.append(a);assert.equal(d.communityAvatar('example').querySelector('img').src,'https://styles.redditmedia.com/fixture.png');
+ const sample=W.document.createElement('shreddit-post');sample.setAttribute('subreddit-name','other');sample.innerHTML='<span slot="credit-bar"><div><span avatar><img src="https://styles.redditmedia.com/community.png"></span><a href="https://www.reddit.com/r/other/">r/other</a></div></span>';W.document.body.append(sample);assert.equal(d.communityAvatar('OTHER').querySelector('img').src,'https://styles.redditmedia.com/community.png');
 });
-test('generic card avatars cannot replace the native unavailable-profile silhouette',async t=>{
+test('native card avatars remain untouched and cannot replace the unavailable-profile header',async t=>{
  const {W,d}=setup(t);await d.ready;d.reset();bannedPage(W);d.scan();assert.equal(d.avatarPlaceholder.querySelector('img').src,'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png');assert.equal(d.avatarSlot.querySelectorAll('img').length,1);
  const post=W.RTPostModel.normalizePost(raw(),{source:'arctic-shift'}),node=d.card(post);node.innerHTML='<shreddit-post author="Example" icon="https://i.redd.it/foreign.png"><span slot="credit-bar"></span></shreddit-post>';d.decorateNative(post,node);assert.equal(d.avatarSlot.querySelectorAll('img').length,1);assert.equal(d.avatarPlaceholder.hidden,false);
- node.querySelector('[slot="credit-bar"]').innerHTML='<a href="/user/Example/"><span avatar><img src="https://i.redd.it/generic.png"></span>Example</a>';d.decorateNative(post,node);assert.ok(node.querySelector('[data-rt-author-avatar-replaced]'));assert.equal(node.querySelector('[data-rt-author-avatar] img').src,'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png');
+ node.querySelector('[slot="credit-bar"]').innerHTML='<a href="/user/Example/"><span avatar><img src="https://i.redd.it/generic.png"></span>Example</a>';d.decorateNative(post,node);assert.equal(node.querySelector('[data-rt-author-avatar-replaced],[data-rt-author-avatar]'),null);assert.equal(node.querySelector('[avatar] img').src,'https://i.redd.it/generic.png');
  const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/\.rt-profile-avatar>\[hidden\]\{display:none!important\}/);assert.match(css,/\.rt-profile-avatar>img\{width:64px;height:64px/);
 });
 
@@ -380,14 +381,22 @@ test('saved profile views are bounded, owner-scoped and cleared by preference ch
  for(let i=0;i<6;i++){d.context={...d.context,key:'profile:example:'+i};d.rememberProfile();}assert.equal(d.profileStates.size,4);const context=d.context;owner='account-b';assert.equal(d.restoreProfile(context),false);owner='account-a';assert.equal(d.restoreProfile(context),true);
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(d.profileStates.size,0);
 });
-test('unavailable author artwork appears inside both native and fallback cards with centered native sizes',async t=>{
+test('community fallback cards use community identity while profile-hosted posts use the profile identity',async t=>{
  const {W,d}=setup(t);await d.ready;
  for(const [state,url] of [['banned','https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png'],['deleted','https://www.redditstatic.com/avatars/defaults/v2/avatar_default_0.png']]){
   d.reset();if(state==='banned')bannedPage(W);else deletedPage(W);d.scan();const header=d.avatarPlaceholder.querySelector('img');assert.equal(header.src,url);assert.equal(header.width,64);assert.equal(header.height,64);
-  for(const raw of [comment(),{id:'post',author:'Example',created_utc:1700000000,title:'Post',selftext:'Body',subreddit:'example'}]){const p=W.RTPostModel.normalizeItem(raw,{source:'arctic-shift'}),node=d.card(p);d.renderArchivedNative(p,node);d.decorateNative(p,node);d.decorateNative(p,node);const image=node.querySelector('[data-rt-author-avatar] img');assert.equal(image.src,url);assert.equal(image.width,24);assert.equal(image.height,24);assert.equal(node.querySelectorAll('[data-rt-author-avatar]').length,1);}
+  for(const raw of [comment(),{id:'post',author:'Example',created_utc:1700000000,title:'Post',selftext:'Body',subreddit:'example'}]){const p=W.RTPostModel.normalizeItem(raw,{source:'arctic-shift'}),node=d.card(p);d.renderArchivedNative(p,node);d.decorateNative(p,node);d.decorateNative(p,node);assert.equal(node.querySelectorAll('[avatar]').length,1);assert.ok(node.querySelector('[avatar] [icon-name="community-fill"]'));assert.equal(node.querySelector('[avatar] img'),null);assert.equal(node.querySelector('[data-rt-author-avatar],[is-author-deleted]'),null);}
+  const post=W.RTPostModel.normalizePost({id:'ownpost',author:'Example',created_utc:1700000000,title:'Own profile post',subreddit:'u_Example'},{source:'arctic-shift'}),node=d.card(post);d.renderArchivedNative(post,node);d.decorateNative(post,node);const credit=node.querySelector('[slot="credit-bar"]');assert.equal(credit.querySelector('a').getAttribute('href'),'/user/Example/');assert.match(credit.textContent,/u\/Example/);assert.equal(credit.textContent.includes('r/u_'),false);assert.equal(credit.querySelector('img').src,url);assert.equal(credit.querySelector('img').width,24);assert.equal(node.querySelector('shreddit-post').getAttribute('subreddit-prefixed-name'),'u_Example');
+  const foreign=d.card(post);d.renderArchivedNative({...post,subreddit:'u_Other'},foreign);assert.equal(foreign.querySelector('[avatar] img').src,'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_0.png');
  }
 });
-test('profile-card loading reuses Reddit Snoo halo component and respects reduced motion',async t=>{
- const {W,d}=setup(t);await d.ready;let p=d.placeholder();assert.equal(p.tagName,'SHREDDIT-LOADING');assert.equal(p.hasAttribute('data-animated'),true);assert.ok(p.querySelector('.shimmer-placeholder'));assert.equal(p.querySelector('faceplate-progress'),null);
- W.matchMedia=()=>({matches:true});p=d.placeholder();assert.equal(p.hasAttribute('data-animated'),false);assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/prefers-reduced-motion:reduce.*rt-native-loading::before\{animation:none!important/s);
+test('only the feed uses the native Snoo halo; pending cards use quiet native shimmer rows',async t=>{
+ const {W,d}=setup(t);await d.ready;const loader=d.loading.querySelector('shreddit-loading');assert.ok(loader);assert.equal(loader.hasAttribute('data-animated'),true);
+ for(let i=0;i<3;i++){const card=d.card(W.RTPostModel.normalizePost(raw('item'+i)));d.feed.append(card);assert.equal(card.querySelector('shreddit-loading,shreddit-logo,faceplate-progress'),null);assert.equal(card.querySelectorAll('faceplate-shimmer').length,3);assert.equal(card.querySelector('.rt-native-placeholder').getAttribute('aria-hidden'),'true');}
+ assert.equal(W.document.querySelectorAll('shreddit-loading').length,1);W.matchMedia=()=>({matches:true});assert.equal(d.feedLoader().hasAttribute('data-animated'),false);assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/prefers-reduced-motion:reduce.*rt-native-loading::before\{animation:none!important/s);
+});
+
+test('decorating Reddit-rendered community and profile posts preserves their native identity nodes',async t=>{
+ const {W,d}=setup(t);await d.ready;d.reset();bannedPage(W);d.scan();
+ for(const subreddit of ['example','u_Example']){const post=W.RTPostModel.normalizePost(raw('nativepost',{subreddit}),{source:'arctic-shift'}),node=d.card(post);node.innerHTML='<shreddit-post><span slot="credit-bar"><span><a href="/r/example/"><span avatar><img src="https://styles.redditmedia.com/native.png"></span>Native identity</a></span><span><shreddit-post-overflow-menu></shreddit-post-overflow-menu></span></span><div slot="text-body">Current body</div></shreddit-post>';const identity=node.querySelector('a'),image=identity.querySelector('img'),before=identity.outerHTML;d.decorateNative(post,node);d.decorateNative(post,node);assert.equal(identity.outerHTML,before);assert.equal(node.querySelector('[avatar] img'),image);assert.equal(node.querySelectorAll('[avatar]').length,1);assert.equal(node.querySelectorAll('[data-rt-source]').length,1);assert.equal(node.querySelector('[slot="text-body"]').textContent,'Current body');}
 });
