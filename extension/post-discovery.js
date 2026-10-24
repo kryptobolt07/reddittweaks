@@ -66,7 +66,7 @@
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
-      }else node.remove();}this.virtualNodes=new Map();this.loading?.remove();this.loading=null;this.host?.remove();this.host=null;this.feed=null;this.context=null;this.live=new Map();this.archived=new Map();this.nodes.clear();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.busy=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;}
+      }else node.remove();}this.virtualNodes=new Map();this.loading?.remove();this.loading=null;this.host?.remove();this.host=null;this.feed=null;this.context=null;this.live=new Map();this.archived=new Map();this.nodes.clear();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;}
     rememberProfile(){
       if(this.context?.kind!=='profile' || !this.settings.postDiscovery || this.settingsError || !(this.loaded || this.archiveLoaded))return;
       const previous=this.profileStates.get(this.context.key),owner=globalThis.RCSDirectory?.getOwner?.() || '',signature=[this.generation,this.renderVersion || 0,this.pages,this.live.size,this.archived.size,this.activityFilter,JSON.stringify(this.sourceErrors || {}),this.publishedCards.size,[...this.nodes.values()].filter(node=>node.dataset.rtNativeState==='ready').length].join(':');
@@ -102,7 +102,7 @@
       if((context?.kind==='post' || context?.kind!=='profile' && !/^\/user\//i.test(location.pathname)) && this.context?.kind==='profile' && this.host?.isConnected && document.querySelector('#profile-feed-tabgroup')){this.profileOverlay=true;return;}
       if(this.profileOverlay && context?.key===this.context?.key){this.profileOverlay=false;if(!this.nativeBatch.active)for(const node of this.nodes.values())if(node.dataset.rtNativeState==='loading')node.dataset.rtNativeState='idle';for(const node of this.activeProfileBatch?.nodes || [])if(node.dataset.rtNativeState==='idle')this.queueNative(node);this.settleProfileBatch();}
       if((!this.settings.postDiscovery && !this.settingsError) || !context || location.hostname==='old.reddit.com'){if(this.host || this.context){if(this.settings.postDiscovery)this.rememberProfile();this.reset();}return;}
-      if(this.context?.key===context.key && this.host?.isConnected && (!this.feed || this.feed.isConnected) && (!this.archiveOnly || this.archiveNotice?.isConnected || this.archiveNoticeAnchor?.isConnected)){this.observeNativeLoading();this.ensureActivityMenu();this.deduplicate();this.drainNative(this.nativeBatch);return;}
+      if(this.context?.key===context.key && this.host?.isConnected && (!this.feed || this.feed.isConnected) && (!this.archiveOnly || this.archiveNotice?.isConnected || this.archiveNoticeAnchor?.isConnected)){this.observeNativeLoading();this.ensureActivityMenu();this.maybeRestoreDetail();this.deduplicate();this.drainNative(this.nativeBatch);return;}
       const retainNavigation=Boolean(this.profileNavigation && this.settings.postDiscovery && !this.settingsError);
       this.rememberProfile();this.reset({retainNavigation});
       let main=document.querySelector('main#main-content,main[role="main"],main');
@@ -142,7 +142,7 @@
       this.observeNativeLoading();this.ensureActivityMenu();
       if(this.settingsError)this.setStatus('Discovery settings could not be loaded. Select Retry discovery.',true);
       else if(context.kind==='profile' && this.autoDiscover && !restored)queueMicrotask(()=>{if(this.host===host){if(this.archiveOnly){if(this.settings.archiveDiscovery)this.loadArchive();}else this.loadReddit();}});
-      else if(context.kind==='post' && this.autoDiscover && this.settings.archiveDiscovery && this.settings.restoreDeletedContent && ['deleted','removed'].includes(this.verifiedStatus({fullname:'t3_'+context.id,status:'unknown'},target)))queueMicrotask(()=>{if(this.host===host)this.loadDetail();});
+      this.maybeRestoreDetail();
     }
     mountArchiveProfile(context,notice,anchor=notice,state='deleted'){
       this.accountState=state;this.archiveOnly=true;this.archiveNotice=notice;this.archiveNoticeAnchor=anchor;
@@ -407,7 +407,7 @@
       this.loading.hidden=this.nativeFeedLoading() || !continuation;
       const halo=this.loading.querySelector('.rt-native-loading');if(halo)halo.hidden=paused && !work;
       let note=this.loading.querySelector('[data-rt-continuation-note]');
-      if(paused && !work){if(!note){note=make('div','flex flex-col items-center justify-center text-center m-md text-body-1');note.dataset.rtContinuationNote='true';this.loading.append(note);}const message=networkBound?'Showing a bounded selection. More activity may be available.':'Loading paused. Use Refresh activity to retry.';if(note.textContent!==message)note.textContent=message;}else note?.remove();
+      if(paused && !work){if(!note){note=make('div','flex flex-col items-center justify-center text-center m-md text-body-1');note.dataset.rtContinuationNote='true';this.loading.append(note);}const message=networkBound?'Showing a bounded selection. More activity may be available.':'Loading paused. Use Refresh activity to retry.';if(note.dataset.message!==message){note.dataset.message=message;const retry=button(networkBound?'Continue loading':'Retry loading',()=>{if(networkBound){this.pages=0;this.batchAutoPaused=false;this.loadMore();}else this.discover.click();});retry.className='button button-small button-bordered mt-md';note.replaceChildren(make('div','',message),retry);}}else note?.remove();
       this.more.hidden=!continuation || Boolean(this.batchObserver && !paused);this.more.disabled=Boolean(this.busy || this.activeProfileBatch && !paused);if(networkBound)this.more.hidden=true;
       if(pending && !this.activeProfileBatch && !this.busy && !paused && this.publishedCards.size<6){this.advanceProfileBatch();return;}
       if(!this.activeProfileBatch && !this.busy && !paused && this.batchObserver && !this.loading.hidden && !this.batchFrame){const generation=this.generation;this.batchFrame=requestAnimationFrame(()=>{this.batchFrame=null;if(generation===this.generation && this.host?.isConnected && this.profileTailVisible())this.continueProfile();});}
@@ -618,6 +618,12 @@
         if(actions){if(badge.parentElement!==actions)actions.prepend(badge);}else if(badge.parentElement!==credit){badge.style.marginInlineStart='auto';credit.append(badge);}
       }
       if(node!==native)this.ensureSeparator(node);
+    }
+    maybeRestoreDetail(){
+      if(!this.autoDiscover || this.context?.kind!=='post' || !this.settings.archiveDiscovery || !this.settings.restoreDeletedContent || this.detailRecoveryStarted)return;
+      const context=this.context,native=document.querySelector('main shreddit-post[id="t3_'+context.id+'"]');
+      if(!['deleted','removed'].includes(this.verifiedStatus({fullname:'t3_'+context.id,status:'unknown'},native)))return;
+      this.detailRecoveryStarted=true;const generation=this.generation;queueMicrotask(()=>{if(generation===this.generation && pageRoute()?.key===context.key && this.host?.isConnected)this.loadDetail();});
     }
     loadDetail(){if(!this.settings.archiveDiscovery)return;return this.run(async current=>{
       const id=this.context.id,result=await this.archive({action:'archive-ids',ids:[id]});if(!current())return;
