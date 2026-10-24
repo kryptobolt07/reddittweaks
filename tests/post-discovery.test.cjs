@@ -215,7 +215,7 @@ test('local card backpressure keeps native placeholders and resumes without Retr
  let attempts=0;const {d}=setup(t,{nativeRender:async(post,node)=>{attempts++;if(attempts===1)return {deferred:true,retryAfterMs:100};node.innerHTML=`<shreddit-post id="${post.fullname}"></shreddit-post>`;return {rendered:true};}});
  await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const node=d.nodes.get('abc12');assert.equal(node.dataset.rtNativeState,'queued');assert.ok(node.querySelector('.rt-native-placeholder'));assert.equal(node.querySelector('button'),null);
  await new Promise(r=>setTimeout(r,130));assert.equal(node.dataset.rtNativeState,'ready');assert.equal(attempts,2);
- assert.equal(d.loading.querySelector('faceplate-progress'),null);assert.equal(d.loading.querySelectorAll('.rt-native-placeholder').length,1);assert.ok(d.loading.querySelector('faceplate-shimmer'));
+ assert.equal(d.loading.querySelector('faceplate-progress'),null);assert.equal(d.loading.querySelectorAll('shreddit-feed-page-loading').length,1);assert.equal(d.loading.querySelector('.rt-native-placeholder'),null);
 });
 
 test('scope changes cancel paused metadata without stale requests',async t=>{
@@ -390,10 +390,10 @@ test('community fallback cards use community identity while profile-hosted posts
   const foreign=d.card(post);d.renderArchivedNative({...post,subreddit:'u_Other'},foreign);assert.equal(foreign.querySelector('[avatar] img').src,'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_0.png');
  }
 });
-test('only the feed uses the native Snoo halo; pending cards use quiet native shimmer rows',async t=>{
- const {W,d}=setup(t);await d.ready;const loader=d.loading.querySelector('shreddit-loading');assert.ok(loader);assert.equal(loader.hasAttribute('data-animated'),true);
- for(let i=0;i<3;i++){const card=d.card(W.RTPostModel.normalizePost(raw('item'+i)));d.feed.append(card);assert.equal(card.querySelector('shreddit-loading,shreddit-logo,faceplate-progress'),null);assert.equal(card.querySelectorAll('faceplate-shimmer').length,3);assert.equal(card.querySelector('.rt-native-placeholder').getAttribute('aria-hidden'),'true');}
- assert.equal(W.document.querySelectorAll('shreddit-loading').length,1);W.matchMedia=()=>({matches:true});assert.equal(d.feedLoader().hasAttribute('data-animated'),false);assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/prefers-reduced-motion:reduce.*rt-native-loading::before\{animation:none!important/s);
+test('profile loading delegates to Reddit’s page loader without a second custom halo',async t=>{
+ const {W,d}=setup(t);await d.ready;const loader=d.loading.querySelector('shreddit-feed-page-loading');assert.ok(loader);assert.equal(loader.getAttribute('page-type'),'profile_posts');assert.equal(loader.querySelector('shreddit-loading,faceplate-shimmer'),null);
+ for(let i=0;i<3;i++){const card=d.card(W.RTPostModel.normalizePost(raw('item'+i)));d.feed.append(card);assert.equal(card.querySelector('shreddit-loading,shreddit-logo,faceplate-progress'),null);assert.equal(card.querySelectorAll('faceplate-shimmer').length,3);}
+ assert.equal(W.document.querySelectorAll('shreddit-loading').length,0);
 });
 
 test('decorating Reddit-rendered community and profile posts preserves their native identity nodes',async t=>{
@@ -422,10 +422,10 @@ test('reply metadata failures and stale responses never invent recipients or mut
 test('recovered profile loading publishes six ready cards together and loads the next group at the feed tail',async t=>{
  const releases=[],started=[],observed=[];let observer;
  const {W,d}=setup(t,{settings:{archiveDiscovery:true},archive:async()=>({posts:Array.from({length:13},(_,i)=>raw('batch'+i,{created_utc:1700000000-i})),hasMore:false}),nativeRender:async(post,node)=>{started.push(post.id);await new Promise(r=>releases.push(r));node.innerHTML='<shreddit-post id="'+post.fullname+'"><span slot="credit-bar">Native community</span></shreddit-post>';}});await d.ready;d.reset();deletedPage(W);W.IntersectionObserver=class{constructor(callback){observer=callback;}observe(node){observed.push(node);}disconnect(){}};d.scan();await d.loadArchive();await new Promise(r=>setImmediate(r));
- assert.equal(d.batchedProfile,true);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,0);assert.equal(d.feed.querySelectorAll('shreddit-loading').length,1);assert.equal(d.feed.querySelector('.rt-native-placeholder'),d.loading.querySelector('.rt-native-placeholder'));assert.equal(d.loading.slot,'load-after');assert.equal(d.loading.hidden,false);assert.equal(d.archiveEmpty.hidden,true);assert.equal(observed[0],d.loading);
- for(let i=0;i<6;i++){assert.equal(releases.length,1);releases.shift()();await new Promise(r=>setImmediate(r));if(i<5)assert.equal(d.feed.querySelectorAll('.rt-native-card').length,0);}
+ assert.equal(d.batchedProfile,true);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,0);assert.equal(d.feed.querySelectorAll('shreddit-feed-page-loading').length,1);assert.equal(d.feed.querySelector('shreddit-loading,.rt-native-placeholder'),null);assert.equal(d.loading.slot,'load-after');assert.equal(d.loading.hidden,false);assert.equal(d.archiveEmpty.hidden,true);assert.equal(observed[0],d.loading);
+ for(let i=0;i<6;i++){assert.equal(releases.length,Math.min(2,6-i));releases.shift()();await new Promise(r=>setImmediate(r));if(i<5)assert.equal(d.feed.querySelectorAll('.rt-native-card').length,0);}
  assert.equal(d.feed.querySelectorAll('.rt-native-card').length,6);assert.equal(started.length,6);const original=d.nodes.get('batch0').firstChild;
- observer([{target:d.loading,isIntersecting:true}]);await new Promise(r=>setImmediate(r));assert.equal(started.length,7);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,6);
+ observer([{target:d.loading,isIntersecting:true}]);await new Promise(r=>setImmediate(r));assert.equal(started.length,8);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,6);
  // Move the tail outside the prefetch area before the second group completes.
  d.loading.getBoundingClientRect=()=>({top:2000,bottom:2192});observer([{target:d.loading,isIntersecting:false}]);for(let i=0;i<6;i++){releases.shift()();await new Promise(r=>setImmediate(r));}
  assert.equal(d.feed.querySelectorAll('.rt-native-card').length,12);assert.equal(started.length,12);assert.equal(d.nodes.get('batch0').firstChild,original);assert.equal(d.loading.hidden,false);
@@ -443,11 +443,66 @@ test('profile continuation fetches the next bounded archive page only after stag
 test('partial batch progress is hidden, resumes from ready saved cards on Back and does not replay completed requests',async t=>{
  let releases=[],renders=0;const {W,d}=setup(t,{settings:{archiveDiscovery:true},archive:async()=>({posts:Array.from({length:3},(_,i)=>raw('rest'+i,{created_utc:1700000000-i})),hasMore:false}),nativeRender:async(post,node)=>{renders++;await new Promise(r=>releases.push(r));node.innerHTML='<shreddit-post id="'+post.fullname+'"><span slot="credit-bar"></span></shreddit-post>';}});await d.ready;d.reset();deletedPage(W);d.scan();await d.loadArchive();releases.shift()();await new Promise(r=>setImmediate(r));assert.equal(d.feed.querySelectorAll('.rt-native-card').length,0);d.rememberProfile();const saved=d.profileStates.get(d.context.key);assert.equal(saved.cards.size,1);assert.equal(saved.publishedCards.size,0);
  // Simulate a full native view replacement while an unfinished request is pending.
- d.reset();releases.shift()();await new Promise(r=>setImmediate(r));deletedPage(W);d.scan();await new Promise(r=>setImmediate(r));assert.equal(renders,3);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,0);for(let i=0;i<2;i++){releases.shift()();await new Promise(r=>setImmediate(r));}assert.equal(renders,4);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,3);assert.equal(d.loading.hidden,true);
+ d.reset();while(releases.length)releases.shift()();await new Promise(r=>setImmediate(r));deletedPage(W);d.scan();await new Promise(r=>setImmediate(r));assert.equal(renders,5);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,0);while(releases.length){releases.shift()();await new Promise(r=>setImmediate(r));}assert.equal(renders,5);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,3);assert.equal(d.loading.hidden,true);
 });
 
 test('blocked native parent lookup falls back to one opt-in archive batch without replacing valid native metadata',async t=>{
  const archiveCalls=[];const {W,d}=setup(t,{settings:{archiveDiscovery:true},reddit:async()=>{throw Error('Reddit HTTP 403');},archive:async input=>{archiveCalls.push(input);return {posts:[{...comment(),id:'parent',fullname:'t1_parent',author:'ArchivedRecipient'}]};}});await d.ready;
  const posts=['first','second'].map(id=>W.RTPostModel.normalizeComment({...comment(),id,fullname:'t1_'+id,parent_id:'t1_parent'},{source:'arctic-shift'}));for(const p of posts){const node=d.card(p);d.nodes.set(p.fullname,node);d.renderArchivedNative(p,node);d.decorateNative(p,node);}await d.enrichReplyContexts(posts);assert.equal(archiveCalls.length,1);assert.equal(archiveCalls[0].action,'archive-parents');assert.deepEqual(Array.from(archiveCalls[0].children),['first','second']);assert.match(d.nodes.get('t1_first').textContent,/Example replied to ArchivedRecipient/);await d.enrichReplyContexts(posts);assert.equal(archiveCalls.length,1);
  const noArchive=setup(t,{reddit:async()=>{throw Error('metadata unavailable');},archive:async()=>{throw Error('must not call archive');}});await noArchive.d.ready;await noArchive.d.enrichReplyContexts(posts);assert.equal(noArchive.d.replyArchiveChecked.size,0);
+});
+
+test('feed options dropdown adds native activity choices and filters between all, hidden and deleted',async t=>{
+ const {W,d}=setup(t,{reddit:async()=>({posts:[raw('live1',{selftext:'Normal post'}),raw('live2',{selftext:'[deleted]'})],hasMore:false})});
+ await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
+ const dropdown=d.toolbar.querySelector('rpl-dropdown[data-rt-activity-menu]');assert.ok(dropdown);
+ const items=dropdown.querySelectorAll('rpl-menu-item[data-rt-activity-filter]');assert.equal(items.length,3);
+ const [allItem,hiddenItem,deletedItem]=items;assert.equal(allItem.getAttribute('aria-checked'),'true');
+ assert.equal(d.nodes.get('live1').hidden,false);
+ deletedItem.click();assert.equal(d.activityFilter,'deleted');assert.equal(deletedItem.getAttribute('aria-checked'),'true');
+ assert.equal(d.nodes.get('live1').hidden,true);
+ assert.equal(d.nodes.get('live2').hidden,false);
+ allItem.click();assert.equal(d.activityFilter,'all');assert.equal(allItem.getAttribute('aria-checked'),'true');
+ assert.equal(d.nodes.get('live1').hidden,false);
+ assert.equal(d.nodes.get('live2').hidden,false);
+});
+
+test('duplicate native feed loading indicators suppress the extension loading halo',async t=>{
+ const {W,d}=setup(t);await d.ready;
+ const nativeLoader=W.document.createElement('shreddit-loading');
+ d.feed.append(nativeLoader);
+ assert.equal(d.nativeFeedLoading(),true);
+});
+
+test('profile Overview searches start together under existing provider budgets',async t=>{
+ const releases=[],requests=[];const {d}=setup(t,{url:'https://www.reddit.com/user/Example/',reddit:input=>{requests.push(input.kind);return new Promise(r=>releases.push(()=>r({posts:input.kind==='post'?[raw()]:[comment()],hasMore:false})));}});await d.ready;const loading=d.loadReddit();await new Promise(r=>setImmediate(r));assert.deepEqual(requests,['post','comment']);assert.equal(releases.length,2);releases[1]();releases[0]();await loading;assert.equal(d.live.size,2);assert.equal(d.pages,2);
+});
+test('ready recovered groups are published before optional reply metadata settles',async t=>{
+ let reply;const {W,d}=setup(t,{settings:{archiveDiscovery:true},archive:async()=>({posts:[{...comment(),parent_id:'t1_parent'}],hasMore:false}),reddit:()=>new Promise(r=>reply=r),nativeRender:async(post,node)=>{node.innerHTML='<shreddit-profile-comment comment-id="'+post.fullname+'"><span id="poster-info-fixture"></span></shreddit-profile-comment>';}});await d.ready;d.reset();deletedPage(W);d.scan();await d.loadArchive();await new Promise(r=>setImmediate(r));assert.equal(d.feed.querySelectorAll('.rt-native-card:not([hidden])').length,1);assert.equal(d.loading.hidden,true);assert.equal(typeof reply,'function');reply({posts:[{...comment(),id:'parent',fullname:'t1_parent',author:'Recipient'}]});await d.replyEnrichment;assert.match(d.feed.textContent,/Example replied to Recipient/);
+});
+test('a profile remount removes its old continuation loader and reuses native navigation across users',async t=>{
+ let navRequests=0;const {W,d}=setup(t,{settings:{archiveDiscovery:true},reddit:async input=>{if(input.action==='render-navigation'){navRequests++;return {rendered:true};}return {posts:[]};}});await d.ready;d.reset();deletedPage(W);d.autoDiscover=true;d.scan();await new Promise(r=>setImmediate(r));const nav=d.profileNavigation,lease=d.navigationLease,loader=d.loading;assert.equal(navRequests,1);assert.equal(nav.dataset.state,'ready');W.history.pushState({},'','/user/Other/submitted/');d.scan();await new Promise(r=>setImmediate(r));assert.equal(d.profileNavigation,nav);assert.equal(d.navigationLease,lease);assert.equal(navRequests,1);assert.equal(loader.isConnected,false);assert.equal(W.document.querySelectorAll('[data-rt-ui=profile-loading]').length,1);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(nav.isConnected,false);assert.notEqual(d.navigationLease,lease);
+});
+test('native feed reload hides the continuation loader immediately without another halo',async t=>{
+ const {W,d}=setup(t);await d.ready;const root=d.feed.attachShadow({mode:'open'});d.batchedProfile=true;d.busy=true;d.observeNativeLoading();d.updateProfileLoading();assert.equal(d.loading.hidden,false);root.innerHTML='<shreddit-loading></shreddit-loading>';await new Promise(r=>setImmediate(r));assert.equal(d.loading.hidden,true);root.replaceChildren();await new Promise(r=>setImmediate(r));assert.equal(d.loading.hidden,false);const old=d.loading;d.reset();assert.equal(old.isConnected,false);assert.equal(d.nativeLoadingObserver,null);
+});
+test('native Feed options receives matching status rows exactly once and restores filtered original cards on opt-out',async t=>{
+ const {W,d}=setup(t,{reddit:async()=>({posts:[raw('hiddenpost')],hasMore:false})});await d.ready;d.reset();const main=W.document.querySelector('main'),dropdown=W.document.createElement('rpl-dropdown');dropdown.innerHTML='<button aria-label="Feed options"></button><div slot="content"><rpl-menu><rpl-menu-item>New</rpl-menu-item></rpl-menu></div>';main.prepend(dropdown);d.feed=null;d.scan();const feed=d.feed;feed.innerHTML='<article id="original"><shreddit-post id="t3_native" created-timestamp="2023-11-14T22:13:20Z"><span slot="text-body">Current text</span></shreddit-post></article><article id="deleted"><shreddit-post id="t3_deleted" deleted created-timestamp="2023-11-14T22:13:20Z"><span slot="text-body">Removed text</span></shreddit-post></article>';const original=feed.querySelector('#original'),deleted=feed.querySelector('#deleted');await d.loadReddit();await new Promise(r=>setImmediate(r));const menu=dropdown.querySelector('rpl-menu');assert.equal(d.toolbar.querySelector('[data-rt-activity-menu]'),null);assert.equal(menu.querySelectorAll('[data-rt-activity-filter]').length,3);for(let i=0;i<4;i++)d.scan();assert.equal(menu.querySelectorAll('[data-rt-activity-filter]').length,3);
+ menu.querySelector('[data-rt-activity-filter=deleted]').click();assert.equal(original.hidden,true);assert.equal(deleted.hidden,false);assert.equal(original.hasAttribute('data-rt-filter-hidden'),true);menu.querySelector('[data-rt-activity-filter=hidden]').click();assert.equal(deleted.hidden,true);assert.equal(d.nodes.get('hiddenpost').hidden,false);d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(original.hidden,false);assert.equal(deleted.hidden,false);assert.equal(original.hasAttribute('data-rt-filter-hidden'),false);assert.equal(menu.querySelectorAll('[data-rt-activity-filter]').length,0);assert.equal(menu.textContent,'New');
+});
+test('unknown archive snapshots are not misclassified as hidden or deleted',async t=>{
+ const {W,d}=setup(t);await d.ready;const p=W.RTPostModel.normalizePost(raw('unknown'),{source:'arctic-shift'}),node=d.card(p);d.activityFilter='hidden';assert.equal(d.matchesActivity(p,node),false);d.activityFilter='deleted';assert.equal(d.matchesActivity(p,node),false);node.innerHTML='<shreddit-post deleted><span slot="credit-bar"></span></shreddit-post>';assert.equal(d.matchesActivity(p,node),true);
+});
+
+test('activity indicators reuse monochrome status paths and the chat refresh glyph',async t=>{
+ const {d}=setup(t);await d.ready;const refresh=d.discover.querySelector('svg');assert.equal(refresh.getAttribute('viewBox'),'0 0 24 24');assert.equal(refresh.querySelector('path').getAttribute('d'),'M20 8a8.9443 8.9443 0 1 0 0 8M20 3v5h-5');
+ for(const [filter,status] of [['hidden','live'],['deleted','deleted']]){const badge=d.indicator({source:'reddit',status}),option=d.activityMenu.querySelector('[data-rt-activity-filter='+filter+']');assert.equal(badge.querySelector('svg').getAttribute('viewBox'),'0 0 20 20');assert.equal(badge.querySelector('path').getAttribute('d'),option.querySelector('path').getAttribute('d'));assert.equal(badge.querySelector('svg').dataset.nativeIcon,'true');}
+});
+test('profile notice callbacks tolerate a discarded document',async()=>{
+ const dom=new JSDOM('<main></main>',{url:'https://www.reddit.com/user/Example/',runScripts:'outside-only'}),W=dom.window;W.chrome={runtime:{id:'fixture',sendMessage:async()=>({ok:true,settings:{postDiscovery:true}})}};W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));await new Promise(r=>setImmediate(r));const refresh=W.RTProfileNoticeGuard.refresh;W.close();assert.doesNotThrow(()=>refresh([]));
+});
+
+test('stale parallel discovery completion cannot render or set errors on a successor profile',async t=>{
+ const reject=[];const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',reddit:()=>new Promise((_,r)=>reject.push(r))});await d.ready;const pending=d.loadReddit();W.history.pushState({},'','/user/Other/');d.scan();let renders=0;const render=d.render.bind(d);d.render=(...args)=>{renders++;return render(...args);};d.setStatus('Successor status');for(const fail of reject)fail(Error('Old request failed'));await pending;assert.equal(renders,0);assert.equal(d.status.textContent,'Successor status');assert.equal(d.context.username,'Other');
 });
