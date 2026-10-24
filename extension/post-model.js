@@ -46,7 +46,7 @@
       parentId:str(raw.parent_id ?? raw.parentId,40)};
   }
   const normalizeItem=(raw,options)=>raw?.kind==='comment' || /^t1_/i.test(raw?.name || raw?.fullname || raw?.id || '')?normalizeComment(raw,options):normalizePost(raw,options);
-  function mergePosts(livePosts,archivePosts,{username,visibleIds=[]}={}){
+  function mergePosts(livePosts,archivePosts,{username,visibleIds=[],sort='new',range='all',now=Date.now()/1000}={}){
     if(!validateUsername(username))return [];
     const same=post=>post.author.toLowerCase()===username.toLowerCase();
     const visible=new Set(Array.from(visibleIds,value=>String(value).toLowerCase())),posts=new Map();
@@ -57,7 +57,9 @@
       if(archived && ['deleted','removed'].includes(post.status) && archived.body && !['[deleted]','[removed]'].includes(archived.body)){merged.archivedBody=archived.body;merged.archivedBodySource='arctic-shift';merged.archiveAuthor=archived.author;}
       posts.set(post.fullname,merged);
     }
-    return [...posts.values()].map(post=>({...post,visible:visible.has(post.fullname) || post.kind!=='comment' && visible.has(post.id),outsideVisibleFeed:!visible.has(post.fullname) && !(post.kind!=='comment' && visible.has(post.id))})).sort((a,b)=>b.created-a.created || a.fullname.localeCompare(b.fullname));
+    const rank=new Map();for(const raw of Array.isArray(livePosts)?livePosts:[]){const post=normalizeItem(raw,{source:'reddit'});if(post && !rank.has(post.fullname))rank.set(post.fullname,rank.size);}
+    const duration={hour:3600,day:86400,week:604800,month:2592000,year:31536000}[range],cutoff=sort==='top' && duration?now-duration:-Infinity;
+    return [...posts.values()].filter(post=>post.created>=cutoff).map(post=>({...post,visible:visible.has(post.fullname) || post.kind!=='comment' && visible.has(post.id),outsideVisibleFeed:!visible.has(post.fullname) && !(post.kind!=='comment' && visible.has(post.id))})).sort((a,b)=>(sort==='top'?b.score-a.score:sort==='hot'?(rank.get(a.fullname)??Infinity)-(rank.get(b.fullname)??Infinity):0) || b.created-a.created || a.fullname.localeCompare(b.fullname));
   }
   globalThis.RTPostModel=Object.freeze({validateUsername,validateId,validateCommentId,normalizePost,normalizeComment,normalizeItem,mergePosts,normalizeSettings});
 })();

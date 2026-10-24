@@ -175,3 +175,38 @@ test('early guard respects newer opt-out and profile SPA route changes independe
  W.RTProfileNoticeGuard.setEnabled(true);W.history.pushState({},'','/user/Example/saved/');W.document.dispatchEvent(new W.CustomEvent('reddit:route'));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);
  W.history.pushState({},'','/user/Example/comments/');W.document.dispatchEvent(new W.CustomEvent('reddit:route'));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),true);
 });
+
+test('sort, range and layout changes reset scope and cancel an obsolete profile search',async t=>{
+ let resolve;const {W,d,calls}=setup(t,{reddit:()=>new Promise(r=>resolve=r)});await d.ready;const old=d.loadReddit(),oldKey=d.context.key;
+ W.history.pushState({},'','?sort=top&t=year&feedViewType=compactView');d.scan();assert.notEqual(d.context.key,oldKey);assert.equal(d.context.sort,'top');assert.equal(d.context.range,'year');assert.equal(d.nodes.size,0);
+ resolve({posts:[raw()],hasMore:false});await old;assert.equal(d.nodes.size,0);assert.equal(calls[0].sort,'new');
+ const current=d.loadReddit();assert.equal(calls[1].sort,'top');assert.equal(calls[1].range,'year');resolve({posts:[],hasMore:false});await current;
+});
+
+test('Top merges by native score anchors while Hot keeps Reddit search order',async t=>{
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/?sort=top'});await d.ready;
+ d.feed.innerHTML='<article id="higher"><shreddit-post id="t3_high" score="100" created-timestamp="2023-01-01"></shreddit-post></article><article id="lower"><shreddit-post id="t3_low" score="10" created-timestamp="2026-01-01"></shreddit-post></article>';
+ d.live.set('middle',raw('middle',{score:50,created_utc:1700000000}));d.render();assert.equal(d.nodes.get('middle').previousElementSibling.id,'higher');assert.equal(d.nodes.get('middle').nextElementSibling.id,'lower');
+ W.history.pushState({},'','?sort=hot');d.scan();d.live.set('first',raw('first',{created_utc:1700000000}));d.live.set('second',raw('second',{created_utc:1700000010}));d.render();assert.equal(d.nodes.get('first').nextElementSibling,d.nodes.get('second'));
+});
+
+test('local card backpressure keeps native placeholders and resumes without Retry rows',async t=>{
+ let attempts=0;const {d}=setup(t,{nativeRender:async(post,node)=>{attempts++;if(attempts===1)return {deferred:true,retryAfterMs:100};node.innerHTML=`<shreddit-post id="${post.fullname}"></shreddit-post>`;return {rendered:true};}});
+ await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const node=d.nodes.get('abc12');assert.equal(node.dataset.rtNativeState,'queued');assert.ok(node.querySelector('.rt-native-placeholder'));assert.equal(node.querySelector('button'),null);
+ await new Promise(r=>setTimeout(r,130));assert.equal(node.dataset.rtNativeState,'ready');assert.equal(attempts,2);
+ const loader=d.loading.querySelector('faceplate-progress');assert.equal(loader.getAttribute('status'),'indeterminate');assert.equal(loader.classList.contains('animate-spin'),false);
+});
+
+test('scope changes cancel paused metadata without stale requests',async t=>{
+ const {W,d,calls}=setup(t,{reddit:async()=>({deferred:true,retryAfterMs:30000})});await d.ready;const pending=d.loadReddit();await new Promise(r=>setImmediate(r));W.history.pushState({},'','?sort=top');d.scan();await pending;assert.equal(calls.length,1);assert.equal(d.nodes.size,0);assert.equal(d.busy,false);
+});
+test('scope changes discard a paused native-card queue',async t=>{
+ let attempts=0;const {W,d}=setup(t,{nativeRender:async()=>{attempts++;return {deferred:true,retryAfterMs:100};}});await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(attempts,1);
+ W.history.pushState({},'','?sort=hot');d.scan();await new Promise(r=>setTimeout(r,130));assert.equal(attempts,1);assert.equal(d.nodes.size,0);
+});
+test('Hot refresh replaces the provider order without reverting to chronology',async t=>{
+ let reverse=false;const {d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/?sort=hot',reddit:async()=>({posts:(reverse?[raw('second'),raw('first')]:[raw('first'),raw('second')]),hasMore:false})});await d.ready;await d.loadReddit();assert.equal(d.renderedPosts[0].id,'first');reverse=true;await d.loadReddit();assert.equal(d.renderedPosts[0].id,'second');assert.equal(d.nodes.get('second').nextElementSibling,d.nodes.get('first'));
+});
+test('repeated server rate limits pause with one explanation rather than retrying forever',async t=>{
+ let attempts=0;const {d}=setup(t,{nativeRender:async()=>{attempts++;return {deferred:true,reason:'rate-limit',retryAfterMs:100};}});await d.ready;await d.loadReddit();await new Promise(r=>setTimeout(r,250));assert.equal(attempts,2);assert.equal(d.nativeBatch.blocked,true);assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/Refresh activity/);assert.equal(d.feed.querySelectorAll('.rt-native-unavailable').length,0);
+});

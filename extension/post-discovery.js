@@ -3,9 +3,11 @@
   'use strict';
   const M=globalThis.RTPostModel;if(!M)return;
   const key='rt-settings-v1';
-  function pageRoute(path=location.pathname){
+  function pageRoute(path=location.pathname,search=location.search){
     const profile=path.match(/^\/user\/([\w-]{1,20})(?:\/(submitted|comments))?\/?$/i);
-    if(profile){const view=profile[2]==='submitted'?'posts':profile[2]==='comments'?'comments':'overview';return {kind:'profile',view,username:profile[1],key:'profile:'+profile[1].toLowerCase()+':'+view};}
+    if(profile){const view=profile[2]==='submitted'?'posts':profile[2]==='comments'?'comments':'overview',params=new URLSearchParams(search);
+      const sort=['new','hot','top'].includes(params.get('sort'))?params.get('sort'):'new',range=sort==='top' && ['hour','day','week','month','year','all'].includes(params.get('t'))?params.get('t'):'all',layout=['cardView','compactView'].includes(params.get('feedViewType'))?params.get('feedViewType'):'';
+      return {kind:'profile',view,username:profile[1],sort,range,key:'profile:'+profile[1].toLowerCase()+':'+view+':'+sort+':'+range+':'+layout};}
     const detail=path.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return detail?{kind:'post',id:detail[1].toLowerCase(),key:'post:'+detail[1].toLowerCase()}:null;
   }
@@ -55,7 +57,7 @@
     }
     ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
     schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.scan();},60);}
-    reset(){this.generation++;this.nativeObserver?.disconnect();this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
+    reset(){this.generation++;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
@@ -90,7 +92,7 @@
       toolbar.append(this.discover);
       if(context.kind==='profile' && this.settings.archiveDiscovery){this.archiveButton=button('Search archive',()=>this.loadArchive(),'archive');this.archiveButton.title='Send this public username to Arctic Shift to look for older snapshots';this.archiveButton.setAttribute('aria-label','Search archive');this.archiveButton.textContent='';this.archiveButton.append(glyph('archive'));toolbar.append(this.archiveButton);}else this.archiveButton=null;
       this.status=make('p','rt-posts-status');this.status.setAttribute('role','status');
-      this.results=make('div','rt-posts-results');this.loading=make('div','rt-post-loading');this.loading.hidden=true;this.loading.setAttribute('aria-label','Loading posts');const progress=make('faceplate-progress','animate-spin');progress.setAttribute('value','20');progress.setAttribute('status','incomplete');this.loading.append(progress);
+      this.results=make('div','rt-posts-results');this.loading=make('div','rt-post-loading');this.loading.hidden=true;this.loading.setAttribute('aria-label','Loading posts');const progress=make('faceplate-progress');progress.setAttribute('status','indeterminate');this.loading.append(progress);
       this.more=button('Load more',()=>this.loadMore());this.more.className='rt-posts-more';this.more.hidden=true;
       toolbar.append(this.status);host.append(toolbar,this.loading,this.results,this.more);
       if(context.kind==='profile'){target.before(host);this.results.hidden=true;this.more.textContent='More discoveries';toolbar.append(this.more);}else target.after(host);
@@ -110,7 +112,8 @@
         if(!content)continue;
         const fullname=content.getAttribute('comment-id') || content.getAttribute('data-feed-element-id') || content.id;
         const timestamp=Date.parse(content.getAttribute('created-timestamp') || content.querySelector('faceplate-timeago[ts]')?.getAttribute('ts'))/1000;
-        entries.push({node:slot,fullname,timestamp,pinned:content.hasAttribute('stickied')});
+        const rawScore=content.getAttribute('score') ?? content.querySelector('faceplate-number[number]')?.getAttribute('number');
+        entries.push({node:slot,fullname,timestamp,score:rawScore==null?NaN:Number(rawScore),pinned:content.hasAttribute('stickied')});
       }
       return entries;
     }
@@ -123,20 +126,20 @@
     }
     deduplicate(){
       if(!this.host || this.context.kind!=='profile')return;
-      const entries=this.nativeEntries(),visible=this.visibleIds(),normal=entries.filter(e=>!e.pinned && Number.isFinite(e.timestamp));
+      const entries=this.nativeEntries(),visible=this.visibleIds(),sort=this.context.sort,normal=entries.filter(e=>!e.pinned && (sort==='top'?Number.isFinite(e.score):sort==='hot' || Number.isFinite(e.timestamp))),rank=new Map(this.renderedPosts.map((post,index)=>[post.fullname,index]));
       const continuation=this.feed.querySelector('shreddit-feed-load-more-observer[cursor],faceplate-partial[slot="load-after"][loading="lazy"][src]');
-      const horizon=continuation?(normal.length?Math.floor(Math.min(...normal.map(e=>e.timestamp))):Infinity):0;
+      const horizon=continuation && sort!=='hot'?(normal.length?Math.min(...normal.map(e=>sort==='top'?e.score:Math.floor(e.timestamp))):Infinity):-Infinity;
       const tail=continuation?(()=>{let n=continuation;while(n.parentElement && n.parentElement!==this.feed)n=n.parentElement;return n.parentElement===this.feed?n:null;})():null;
       const buckets=new Map();let count=0,deferred=0;
       for(const post of this.renderedPosts || []){
         const node=this.nodes.get(itemKey(post));if(!node)continue;
         const slot=this.feedSlot(node),virtualized=slot!==node;
-        const duplicate=visible.has(post.fullname),older=!duplicate && post.created<horizon;
+        const duplicate=visible.has(post.fullname),older=!duplicate && (sort==='top'?post.score:post.created)<horizon;
         node.hidden=duplicate || older;node.dataset.deferred=older?'older':'';
         if(virtualized)slot.hidden=node.hidden;
         if(node.hidden){this.nativeObserver?.unobserve(node);if(duplicate && node.dataset.rtNativeState==='ready'){node.replaceChildren();node.dataset.rtNativeState='idle';}if(older)deferred++;if(!virtualized && node.parentElement!==this.results)this.results.append(node);continue;}
         count++;
-        const target=normal.find(entry=>entry.timestamp<=post.created)?.node || tail;
+        const target=normal.find(entry=>sort==='top'?entry.score<=post.score:sort==='hot'?rank.has(entry.fullname) && rank.get(entry.fullname)>rank.get(post.fullname):entry.timestamp<=post.created)?.node || tail;
         if(!buckets.has(target))buckets.set(target,[]);buckets.get(target).push(slot);
       }
       // Reconcile only extension-owned cards. Reddit retains ownership and order of its nodes.
@@ -152,20 +155,30 @@
       this.status.title=(deferred?`${deferred} older discoveries will appear when Reddit loads that part of the feed. `:'')+'Search and archive coverage may be incomplete.';
     }
     setStatus(text,error=false){this.status.textContent=text;this.status.dataset.error=String(error);}
-    async request(parameters){const controller=new AbortController();this.controllers.add(controller);try{return await this.reddit(parameters,controller.signal);}finally{this.controllers.delete(controller);}}
+    async request(parameters){const controller=new AbortController();this.controllers.add(controller);try{
+      for(let attempt=0;;attempt++){
+        const result=await this.reddit(parameters,controller.signal);if(!result?.deferred || parameters.action==='render-card')return result;
+        if(attempt>=2)throw Error('Reddit requests are paused. Please try again shortly.');
+        await new Promise((resolve,reject)=>{const cancel=()=>{clearTimeout(timer);reject(Error('Post request cancelled.'));},timer=setTimeout(()=>{controller.signal.removeEventListener('abort',cancel);resolve();},Math.max(100,Math.min(30000,Number(result.retryAfterMs)||1000)));controller.signal.addEventListener('abort',cancel,{once:true});if(controller.signal.aborted)cancel();});
+      }
+    }finally{this.controllers.delete(controller);}}
     async run(task){
       if(this.busy)return;const generation=this.generation;this.busy=true;this.host.setAttribute('aria-busy','true');this.setStatus('Checking public activity…');this.loading.hidden=this.nativeEntries().length>0 || [...this.nodes.values()].some(n=>!n.hidden && n.parentElement===this.feed);this.discover.disabled=true;if(this.archiveButton)this.archiveButton.disabled=true;this.more.disabled=true;
-      try{await task(()=>generation===this.generation && this.host?.isConnected);}
-      catch(error){if(generation===this.generation)this.setStatus(error.message,true);}
+      try{await task(()=>generation===this.generation && pageRoute()?.key===this.context?.key && this.host?.isConnected);}
+      catch(error){if(generation===this.generation && pageRoute()?.key===this.context?.key)this.setStatus(error.message,true);}
       finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.loading.hidden=true;this.discover.disabled=false;if(this.archiveButton)this.archiveButton.disabled=false;this.more.disabled=false;}}
     }
-    loadReddit({more=false}={}){if(this.pages>=8){this.setStatus('Showing a bounded selection. History is incomplete.');return;}return this.run(async current=>{
+    loadReddit({more=false}={}){if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}if(this.pages>=8){this.setStatus('Showing a bounded selection. History is incomplete.');return;}return this.run(async current=>{
       const errors=[];let succeeded=false;
       for(const kind of this.kinds()){
         if(this.pages>=8 || more && !this.redMore[kind])continue;
         const old=more?this.afterByKind[kind]:null;this.pages++;
-        try{const result=await this.request({action:'profile',username:this.context.username,kind,...(old?{after:old}:{})});if(!current())return;
-          for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(p)this.live.set(itemKey(p),p);}
+        try{const result=await this.request({action:'profile',username:this.context.username,sort:this.context.sort,range:this.context.range,kind,...(old?{after:old}:{})});if(!current())return;
+          const incoming=new Map();for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(p){this.live.set(itemKey(p),p);incoming.set(itemKey(p),p);}}
+          if(!more && this.context.sort==='hot'){
+            const belongs=post=>(post.kind==='comment'?'comment':'post')===kind,group=new Map([...incoming,...[...this.live].filter(([id,p])=>belongs(p) && !incoming.has(id))]);
+            this.live=new Map(this.kinds().flatMap(type=>type===kind?[...group]:[...this.live].filter(([,p])=>(p.kind==='comment'?'comment':'post')===type)));
+          }
           this.afterByKind[kind]=result.after;this.redMore[kind]=Boolean(result.hasMore && result.after && result.after!==old);succeeded=true;
         }catch(error){if(!current())return;errors.push((kind==='comment'?'Comments: ':'Posts: ')+error.message);}
       }
@@ -189,7 +202,7 @@
     });}
     loadMore(){if(this.pages>=8){this.more.hidden=true;this.setStatus('Showing a bounded selection; history is incomplete.');return;}return this.moreReddit?this.loadReddit({more:true}):this.loadArchive({more:true});}
     render(){
-      const posts=M.mergePosts([...this.live.values()],[...this.archived.values()],{username:this.context.username,visibleIds:this.visibleIds()});
+      const posts=M.mergePosts([...this.live.values()],[...this.archived.values()],{username:this.context.username,visibleIds:this.visibleIds(),sort:this.context.sort,range:this.context.range});
       for(const post of posts){const key=itemKey(post);this.postMetadata.set(key,post);const previous=this.nodes.get(key);if(previous){if(previous.dataset.rtNativeState==='ready')this.decorateNative(post,previous);continue;}const node=this.card(post);this.results.append(node);this.nodes.set(key,node);}
       this.renderedPosts=posts;
       this.deduplicate();this.more.hidden=!(this.moreReddit || this.moreArchive) || this.pages>=8;
@@ -213,7 +226,8 @@
       node.dataset.rtNativeState='queued';this.nativeBatch.queue.push(node);this.drainNative(this.nativeBatch);
     }
     drainNative(batch){
-      if(batch!==this.nativeBatch)return;
+      if(batch!==this.nativeBatch || batch.blocked || pageRoute()?.key!==this.context?.key)return;
+      if(batch.resumeAt>Date.now()){clearTimeout(this.nativeResumeTimer);this.nativeResumeTimer=setTimeout(()=>this.drainNative(batch),batch.resumeAt-Date.now());return;}
       while(batch.active<2 && batch.queue.length){
         const node=batch.queue.shift(),post=this.postMetadata.get(node.dataset.key),generation=this.generation;
         if(!post || node.hidden || !node.isConnected){node.dataset.rtNativeState='idle';continue;}
@@ -221,14 +235,22 @@
         batch.active++;node.dataset.rtNativeState='loading';
         const operation=this.nativeRenderer?this.nativeRenderer(post,node):this.request({action:'render-card',username:this.context.username,kind:post.kind==='comment'?'comment':'post',postId:post.id,target:node.id});
         Promise.resolve(operation).then(result=>{
-          if(generation!==this.generation)return;
+          if(generation!==this.generation || pageRoute()?.key!==this.context?.key)return;
           if(!node.isConnected && (this.feedSlot(node)===node || !node.querySelector('shreddit-post,shreddit-profile-comment'))){if(this.feedSlot(node)!==node)node.dataset.rtNativeState='idle';return;}
+          if(result?.deferred){
+            node.dataset.rtNativeState='queued';batch.queue.push(node);const now=Date.now(),retryAt=now+Math.max(100,Math.min(3600000,Number(result.retryAfterMs)||1000));batch.resumeAt=Math.max(batch.resumeAt||0,retryAt);
+            if(result.reason==='rate-limit'){
+              if(batch.serverRetryAt && now>=batch.serverRetryAt){batch.blocked=true;this.setStatus('Reddit is limiting card requests. Select Refresh activity to retry.',true);}
+              else batch.serverRetryAt=retryAt;
+            }
+            return;
+          }
           if(result?.duplicate){node.dataset.rtNativeState='idle';node.replaceChildren();node.removeAttribute('aria-busy');this.deduplicate();return;}
           node.dataset.rtNativeState='ready';node.removeAttribute('aria-busy');this.decorateNative(this.postMetadata.get(node.dataset.key) || post,node);
           // An entrance effect must not replay when Reddit restores a virtualized card.
           if(node.isConnected){node.classList.add('rt-native-enter');const finish=()=>{node.classList.remove('rt-native-enter');node.removeEventListener('animationend',finish);};node.addEventListener('animationend',finish);setTimeout(finish,200);}
         },error=>{
-          if(generation!==this.generation)return;
+          if(generation!==this.generation || pageRoute()?.key!==this.context?.key)return;
           if(!node.isConnected){if(this.feedSlot(node)!==node)node.dataset.rtNativeState='idle';return;}
           node.dataset.rtNativeState='failed';node.removeAttribute('aria-busy');node.replaceChildren();
           const fallback=make('div','rt-native-unavailable');fallback.append(link(post.title || 'View comment on Reddit',post.permalink));

@@ -70,3 +70,16 @@ test('native hydration skips an identity already present in Reddit and rejects s
 test('native cards follow the client’s existing profile view mode',async t=>{
  const e=setup(t,{fetcher:async()=>nativeResponse('<article><shreddit-post id="t3_abc12"></shreddit-post></article>')}),slot=nativeTarget(e);const feed=e.W.document.createElement('shreddit-feed');feed.innerHTML='<shreddit-post id="t3_existing" view-type="compactView" view-context="ProfileFeed2"></shreddit-post>';e.W.document.querySelector('main').append(feed);await e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(new URL(e.calls[0][0]).searchParams.get('fvt'),'compactView');
 });
+
+test('profile search forwards validated sort and time range and rejects obsolete same-path responses',async t=>{
+ const e=setup(t);await e.send({action:'profile',username:'Example',sort:'top',range:'month'});let url=new URL(e.calls[0][0]);assert.equal(url.searchParams.get('sort'),'top');assert.equal(url.searchParams.get('t'),'month');
+ await e.send({action:'profile',username:'Example',sort:'hot'});assert.equal(new URL(e.calls[1][0]).searchParams.get('sort'),'hot');assert.equal((await e.send({action:'profile',username:'Example',sort:'arbitrary'})).ok,false);
+ let resolve;const stale=setup(t,{fetcher:()=>new Promise(r=>resolve=r)}),pending=stale.send({action:'profile',username:'Example'});stale.W.history.pushState({},'','?sort=top');resolve({ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({data:{children:[]}})});assert.match((await pending).error,/Page changed/);
+});
+
+test('native card request budget and server cooldown defer work instead of failing cards',async t=>{
+ const e=setup(t,{fetcher:async url=>nativeResponse(`<shreddit-post id="${new URL(url).pathname.split('/').pop()}"></shreddit-post>`)});
+ for(let i=0;i<12;i++){const slot=nativeTarget(e,{id:'item'+i,target:'rt-native-'+i});assert.equal((await e.send({action:'render-card',username:'Example',kind:'post',postId:'item'+i,target:slot.id})).rendered,true);}
+ const last=nativeTarget(e,{id:'item12',target:'rt-native-last'}),paused=await e.send({action:'render-card',username:'Example',kind:'post',postId:'item12',target:last.id});assert.equal(paused.deferred,true);assert.ok(paused.retryAfterMs>0);assert.equal(e.calls.length,12);
+ const limited=setup(t,{fetcher:async()=>({ok:false,status:429,headers:new Headers({'Retry-After':'42'})})}),slot=nativeTarget(limited),response=await limited.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(response.deferred,true);assert.ok(response.retryAfterMs>=41000);assert.equal(limited.calls.length,1);
+});
