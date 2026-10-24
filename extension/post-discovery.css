@@ -44,5 +44,5 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 [data-rt-ui="profile-navigation"][data-state="idle"] flex-left-nav-container,[data-rt-ui="profile-navigation"][data-state="loading"] flex-left-nav-container{visibility:hidden}
 
 .rt-activity-icon[data-native-icon]{fill:currentColor;stroke:none}
-.rt-posts-toolbar [data-icon="refresh"]{width:24px;height:24px;stroke-width:1.8}
-.rt-activity-dropdown{position:relative}.rt-activity-dropdown:not(:defined)>[slot="content"]{display:none}
+.rt-posts-toolbar [data-icon="refresh"]{width:16px;height:16px;stroke-width:1.8}
+[data-rt-ui="activity-empty"][hidden]{display:none!important}
