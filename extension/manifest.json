@@ -80,11 +80,23 @@
       ],
       "run_at": "document_start",
       "js": [
-        "post-model.js",
-        "post-discovery.js"
+        "profile-notice.js"
       ],
       "css": [
         "post-discovery.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://reddit.com/*",
+        "https://www.reddit.com/*",
+        "https://new.reddit.com/*",
+        "https://sh.reddit.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "post-model.js",
+        "post-discovery.js"
       ]
     }
   ],
