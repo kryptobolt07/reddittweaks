@@ -9,9 +9,11 @@
     return notice.matches('shreddit-app > #shreddit-forbidden:has(svg[icon-name="ban-fill"])') && /^This account (?:has been (?:banned|suspended)|is suspended)$/i.test(notice.querySelector('#shreddit-forbidden-title')?.textContent.trim())?'banned':'';
   }
   function refresh(records){
-    const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(location.pathname),post=/^\/(?:(?:r|user)\/[^/]+\/)?comments\//i.test(location.pathname);
-    // A native post modal changes the URL while the profile remains underneath.
-    const underlying=post && document.querySelector('#profile-feed-tabgroup,[data-rt-ui="archive-profile"]'),active=enabled && Boolean(profile || underlying);
+    const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(location.pathname);
+    // Notifications and other native overlays can change the URL before replacing
+    // the underlying profile. Never restore its notice during that transition.
+    for(const [notice,anchor] of notices)if(!anchor.isConnected)notices.delete(notice);
+    const underlying=document.querySelector('#profile-feed-tabgroup,[data-rt-ui="archive-profile"]'),active=enabled && Boolean(profile || underlying || notices.size);
     document.documentElement?.toggleAttribute('data-rt-profile-discovery',active);
     for(const [notice,anchor] of notices){if(!anchor.isConnected){notices.delete(notice);continue;}if(!active){anchor.replaceWith(notice);notices.delete(notice);}}
     if(!active)return;

@@ -38,9 +38,9 @@
   }
   function unavailableAvatar(){
     const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
-    for(const [name,value] of Object.entries({rpl:'',fill:'currentColor',height:'32',width:'32',viewBox:'0 0 20 20','icon-name':'ban-fill','aria-hidden':'true'}))icon.setAttribute(name,value);
-    // Reddit's native banned-account artwork, without document-specific clip IDs.
-    const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M19.188 10.304a2.63 2.63 0 00-.776-1.873 2.825 2.825 0 00-1.493-.796c-.881-.156-1.77-.372-2.493-.899-1.177-.858-1.891-2.091-2.04-3.487-.065-.627-.374-1.236-.865-1.708-1.05-1.01-2.747-.91-3.776.12L3.905 5.5a2.63 2.63 0 00-.775 1.873c0 .707.275 1.372.776 1.872a2.792 2.792 0 001.664.82c.332.036.648.12.957.224l-4.901 4.9a2.25 2.25 0 103.182 3.18l4.9-4.9c.102.31.187.626.223.959.065.607.356 1.198.82 1.663a2.638 2.638 0 001.873.773c.678 0 1.357-.258 1.873-.773l3.915-3.915c.5-.5.776-1.165.776-1.872Z');icon.append(path);return icon;
+    for(const [name,value] of Object.entries({rpl:'',fill:'currentColor',height:'64',width:'64',viewBox:'0 0 20 20','icon-name':'profile-fill','aria-hidden':'true'}))icon.setAttribute(name,value);
+    // Reddit's default unavailable-user profile silhouette (not the ban hammer).
+    const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M10 1c-4.96 0-9 4.04-9 9s4.04 9 9 9 9-4.04 9-9-4.04-9-9-9Zm0 4.5c1.52 0 2.75 1.23 2.75 2.75S11.52 11 10 11 7.25 9.77 7.25 8.25 8.48 5.5 10 5.5Zm-4.97 9.69C5.91 13.31 7.8 12 10 12c2.2 0 4.09 1.31 4.97 3.19A7.153 7.153 0 0110 17.2c-1.93 0-3.68-.77-4.97-2.01Z');icon.append(path);return icon;
   }
   function button(text,run,icon){const b=make('button','',text);b.type='button';if(icon)b.prepend(glyph(icon));b.addEventListener('click',run);return b;}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
@@ -64,7 +64,7 @@
     }
     ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
     schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.scan();},60);}
-    reset({retainNavigation=false}={}){this.profileNavigation?.remove();if(!retainNavigation)this.profileNavigation=null;else if(this.profileNavigation?.dataset.state==='loading')this.profileNavigation.dataset.state='idle';this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();this.archiveNotice=this.archiveNoticeAnchor=this.archiveShell=this.archiveMain=this.archiveStats=this.avatarSlot=this.avatarImage=null;this.avatarOwner=this.avatarSource='';this.failedAvatars=new Set();this.profileOverlay=false;this.archiveOnly=false;this.accountState='';this.generation++;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
+    reset({retainNavigation=false}={}){this.restoreRecoveredBodies();this.profileNavigation?.remove();if(!retainNavigation)this.profileNavigation=null;else if(this.profileNavigation?.dataset.state==='loading')this.profileNavigation.dataset.state='idle';this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();this.archiveNotice=this.archiveNoticeAnchor=this.archiveShell=this.archiveMain=this.archiveStats=this.avatarSlot=this.avatarImage=null;this.avatarOwner=this.avatarSource='';this.failedAvatars=new Set();this.profileOverlay=false;this.archiveOnly=false;this.accountState='';this.generation++;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
@@ -81,7 +81,7 @@
     scan(){
       this.syncProfileNotice();
       const context=pageRoute();
-      if(context?.kind==='post' && this.context?.kind==='profile' && this.host?.isConnected && document.querySelector('#profile-feed-tabgroup')){this.profileOverlay=true;return;}
+      if(context?.kind!=='profile' && !/^\/user\//i.test(location.pathname) && this.context?.kind==='profile' && this.host?.isConnected && document.querySelector('#profile-feed-tabgroup')){this.profileOverlay=true;return;}
       if(this.profileOverlay && context?.key===this.context?.key){this.profileOverlay=false;if(!this.nativeBatch.active)for(const node of this.nodes.values())if(node.dataset.rtNativeState==='loading')node.dataset.rtNativeState='idle';}
       if((!this.settings.postDiscovery && !this.settingsError) || !context || location.hostname==='old.reddit.com'){if(this.host || this.context)this.reset();return;}
       if(this.context?.key===context.key && this.host?.isConnected && (!this.feed || this.feed.isConnected) && (!this.archiveOnly || this.archiveNotice?.isConnected || this.archiveNoticeAnchor?.isConnected)){this.deduplicate();this.drainNative(this.nativeBatch);return;}
@@ -127,7 +127,7 @@
       const columns=make('div','main-container gap-lg w-full flex-1 grid place-content-between grid-cols-[minmax(0,1fr)] fixed-sidebar xs:[&.fixed-sidebar]:grid-cols-[minmax(0,756px)_minmax(0,316px)] xs:[&.flex-sidebar]:grid-cols-[minmax(0,756px)_auto]');
       const shell=this.archiveMain=make('main','main w-full min-w-0');shell.id='main-content';
       const header=make('div','px-md relative pt-md flex pb-md items-end'),copy=make('div','w-full'),title=make('h1','text-24 font-bold m-0',context.username),name=make('p','m-0 text-14 text-neutral-content-weak font-semibold','u/'+context.username);
-      title.dataset.testid='profile-display-name';name.dataset.testid='profile-prefixed-name';copy.append(title,name,make('p','text-12 text-neutral-content-weak my-xs','Arctic Shift archive · Coverage may be incomplete'));this.avatarSlot=make('div','flex items-center justify-center shrink-0 w-[74px] min-h-4xl overflow-hidden pe-md relative');this.avatarPlaceholder=make('span','flex items-center justify-center rounded-full bg-[color:var(--color-tone-6)] text-neutral-content-weak w-4xl h-4xl');this.avatarPlaceholder.setAttribute('role','img');this.avatarPlaceholder.setAttribute('aria-label',(state==='banned'?'Banned or suspended':'Deleted')+' account · Profile picture unavailable');this.avatarPlaceholder.append(unavailableAvatar());this.avatarSlot.append(this.avatarPlaceholder);header.append(this.avatarSlot,copy);
+      title.dataset.testid='profile-display-name';name.dataset.testid='profile-prefixed-name';copy.append(title,name);this.avatarSlot=make('div','rt-profile-avatar flex items-center justify-center shrink-0 w-[74px] min-h-4xl overflow-hidden pe-md relative');this.avatarPlaceholder=make('span','flex items-center justify-center text-neutral-content-weak w-4xl h-4xl');this.avatarPlaceholder.setAttribute('role','img');this.avatarPlaceholder.setAttribute('aria-label',(state==='banned'?'Banned or suspended':'Deleted')+' account · Profile picture unavailable');this.avatarPlaceholder.append(unavailableAvatar());this.avatarSlot.append(this.avatarPlaceholder);header.append(this.avatarSlot,copy);
       const tabsContainer=make('div','mx-2xs my-md'),tabs=make('faceplate-tabgroup','nd:flex nd:gap-xs nd:w-fit');tabs.id='profile-feed-tabgroup';tabs.setAttribute('slot','tabs');tabs.setAttribute('for','profile-feed-tabs');
       const views=[['overview','Overview',''],['posts','Posts','submitted/'],['comments','Comments','comments/']],index=views.findIndex(([view])=>view===context.view)+1;tabs.setAttribute('pageindex',String(index));
       for(const [i,[view,label,suffix]] of views.entries()){
@@ -171,7 +171,7 @@
     }
     updateArchiveSummary(){if(!this.archiveStats)return;const posts=this.renderedPosts || [],times=posts.map(p=>p.created),date=value=>new Date(value*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});const set=(key,value)=>{if(this.archiveStats[key].textContent!==value)this.archiveStats[key].textContent=value;};set('posts',String(posts.filter(p=>p.kind!=='comment').length));set('comments',String(posts.filter(p=>p.kind==='comment').length));set('oldest',times.length?date(Math.min(...times)):'—');set('newest',times.length?date(Math.max(...times)):'—');}
     setProfileAvatar(value,source){
-      const url=M.avatarUrl(value);if(!this.avatarSlot || !url || this.failedAvatars.has(url))return;
+      const url=M.avatarUrl(value);if(source==='native' || /\/avatars\/(?:defaults\/|avatar_default_)/i.test(url))return;if(!this.avatarSlot || !url || this.failedAvatars.has(url))return;
       if(this.avatarImage?.src===url)return;
       this.avatarImage?.remove();const image=this.avatarImage=make('img','block h-full m-0 object-contain max-w-full rtl-flip');image.id='profile-icon';image.alt=(this.context?.username || this.archiveShell.querySelector('h1').textContent)+' avatar';image.referrerPolicy='no-referrer';image.hidden=true;this.avatarSource=source;
       image.addEventListener('load',()=>{if(this.avatarImage===image && image.isConnected){image.hidden=false;this.avatarPlaceholder.hidden=true;}},{once:true});image.addEventListener('error',()=>{if(this.avatarImage===image){this.failedAvatars.add(url);image.remove();this.avatarImage=null;this.avatarPlaceholder.hidden=false;}},{once:true});this.avatarSlot.append(image);image.src=url;
@@ -221,7 +221,7 @@
         const duplicate=visible.has(post.fullname),older=!duplicate && (sort==='top'?post.score:post.created)<horizon;
         node.hidden=duplicate || older;node.dataset.deferred=older?'older':'';
         if(virtualized)slot.hidden=node.hidden;
-        if(node.hidden){this.nativeObserver?.unobserve(node);if(duplicate && node.dataset.rtNativeState==='ready'){node.replaceChildren();node.dataset.rtNativeState='idle';}if(older)deferred++;if(!virtualized && node.parentElement!==this.results)this.results.append(node);continue;}
+        if(node.hidden){if(duplicate){const entry=entries.find(e=>e.fullname===post.fullname),original=this.virtualNodes.get(entry?.node) || entry?.node,native=original?.matches('shreddit-post,shreddit-profile-comment')?original:original?.querySelector('shreddit-post,shreddit-profile-comment');if(native && this.recoverBody(post,native)){this.nativeDecorations.add(native);this.decorateNative(post,native);}}this.nativeObserver?.unobserve(node);if(duplicate && node.dataset.rtNativeState==='ready'){node.replaceChildren();node.dataset.rtNativeState='idle';}if(older)deferred++;if(!virtualized && node.parentElement!==this.results)this.results.append(node);continue;}
         count++;
         const target=normal.find(entry=>sort==='top'?entry.score<=post.score:sort==='hot'?rank.has(entry.fullname) && rank.get(entry.fullname)>rank.get(post.fullname):entry.timestamp<=post.created)?.node || tail;
         if(!buckets.has(target))buckets.set(target,[]);buckets.get(target).push(slot);
@@ -298,16 +298,24 @@
       const removed=['deleted','removed'].includes(post.status),label=removed?`${post.status==='deleted'?'Deleted':'Removed'} on Reddit`:post.source==='arctic-shift'?'Arctic Shift snapshot · Current Reddit status unknown':'Not shown in this profile feed · Found through public Reddit search';
       const badge=make('span','rt-post-indicator');badge.setAttribute('role','img');badge.setAttribute('aria-label',label);badge.title=label;badge.dataset.state=post.status;badge.append(glyph(removed?post.status:post.source==='arctic-shift'?'archive':'hidden'));return badge;
     }
-    snapshot(text){const details=make('details','rt-post-snapshot');details.append(make('summary','','Archived text · Arctic Shift'),make('pre','',text),make('p','rt-post-source','Archived snapshot; it may differ from the original or current post.'));return details;}
+    snapshot(text){const details=make('details','rt-post-snapshot');details.title='Text recovered from Arctic Shift · May differ from the current post';details.append(make('summary','','Recovered text'),make('pre','',text));return details;}
+    communityAvatar(subreddit){
+      const avatar=make('span','inline-flex items-center justify-center w-lg h-lg relative shrink-0');avatar.setAttribute('avatar','');
+      const href='/r/'+subreddit.toLowerCase()+'/',hint=[...document.querySelectorAll('a[href]')].find(a=>a.getAttribute('href')?.toLowerCase()===href && a.querySelector('img[src]'))?.querySelector('img[src]'),url=M.avatarUrl(hint?.getAttribute('src'));
+      if(url){const image=make('img','mb-0 rounded-full overflow-hidden w-full h-full');image.src=url;image.alt='';image.width=image.height=24;image.loading='lazy';avatar.append(image);return avatar;}
+      const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value] of Object.entries({rpl:'',fill:'currentColor',height:'24',width:'24',viewBox:'0 0 20 20','icon-name':'community-fill','aria-hidden':'true'}))icon.setAttribute(key,value);
+      const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M11.977 13.79h-1.955l4.549-10.715a.81.81 0 00-.381-1.032C12.447 1.12 10.37.747 8.179 1.18c-3.612.716-6.471 3.68-7.059 7.316a9.01 9.01 0 0010.409 10.377c3.735-.616 6.741-3.635 7.347-7.371.453-2.8-.388-5.405-2.017-7.322a.505.505 0 00-.853.119l-4.029 9.49ZM9.98 8.118a1.752 1.752 0 00-1.148.167 1.664 1.664 0 00-.651.596 1.703 1.703 0 00-.258.948v3.96H5.998V6.322h1.876v1.074h.035c.251-.344.567-.628.948-.851a2.55 2.55 0 011.311-.335c.172 0 .335.014.488.042.153.028.267.058.342.09l-.774 1.849a.766.766 0 00-.244-.073Z');icon.append(path);avatar.append(icon);return avatar;
+    }
     renderArchivedNative(post,node){
       // Reddit may no longer serve a fragment for this identity. Reuse its own
       // card components, layout classes and action row with historical values.
       // Archive strings are always text, never server HTML or executable markup.
       node.replaceChildren();node.dataset.rtArchiveFallback='true';node.dataset.rtNativeState='ready';node.removeAttribute('aria-busy');
       const isComment=post.kind==='comment',native=make(isComment?'shreddit-profile-comment':'shreddit-post');
-      const body=post.over18 || post.spoiler?'NSFW or spoiler snapshot · Open the source to review content restrictions.':post.body && !['[deleted]','[removed]'].includes(post.body)?post.body:'The archive has no original text for this item.';
+      const body=post.over18 || post.spoiler?'NSFW or spoiler snapshot · Open the source to review content restrictions.':(post.archivedBody || post.body) && !['[deleted]','[removed]'].includes(post.archivedBody || post.body)?(post.archivedBody || post.body):'The archive has no original text for this item.';
       const date=make('faceplate-timeago');date.setAttribute('ts',new Date(post.created*1000).toISOString());date.setAttribute('short','');
       const community=link('r/'+post.subreddit,'/r/'+encodeURIComponent(post.subreddit)+'/','font-semibold text-12 text-neutral-content-strong no-underline hover:underline');
+      community.classList.add('inline-flex','items-center','gap-xs');community.prepend(this.communityAvatar(post.subreddit));
       const author=link(post.author,'/user/'+post.author+'/','font-bold text-12 text-neutral-content-strong hover:underline');
       native.setAttribute('data-feed-element-id',post.fullname);
       if(isComment){
@@ -396,15 +404,32 @@
       // opt-out move/remove it together with its content.
       if(node.lastElementChild!==separator)node.append(separator);
     }
+    restoreRecoveredBodies(){
+      for(const [body,patch] of this.recoveredBodies || [])if(body.contains(patch.recovered))body.replaceChildren(...patch.original);
+      for(const native of this.nativeDecorations || []){native.querySelector('[data-rt-source]')?.remove();native.querySelector('.rt-comment-source-credit')?.classList.remove('rt-comment-source-credit');native.querySelector('.rt-comment-source-host')?.classList.remove('rt-comment-source-host');}
+      this.recoveredBodies=new Map();this.nativeDecorations=new Set();
+    }
+    recoverBody(post,native){
+      const text=post.archivedBody || (post.source==='arctic-shift'?post.body:'');
+      if(!text || ['[removed]','[deleted]'].includes(text) || post.over18 || post.spoiler)return false;
+      const body=native.querySelector(post.kind==='comment'?'[id$="-post-rtjson-content"],.md':'[slot="text-body"]');if(!body)return false;
+      const existing=this.recoveredBodies.get(body);if(existing && body.contains(existing.recovered)){if(existing.recovered.textContent!==text)existing.recovered.textContent=text;return true;}
+      const current=body.textContent.trim();if(!/^\[(deleted|removed)\]$/i.test(current) && !(current==='' && ['deleted','removed'].includes(post.status)))return false;
+      const recovered=make('p','whitespace-pre-wrap break-words',text);recovered.dataset.rtRecoveredText='true';this.recoveredBodies.set(body,{original:[...body.childNodes],recovered});body.replaceChildren(recovered);return true;
+    }
     decorateNative(post,node){
-      node.querySelector('[data-rt-source]')?.remove();node.querySelector('[data-rt-archive]')?.remove();
-      const native=node.querySelector('shreddit-post,shreddit-profile-comment');
-      if(this.archiveOnly && post.author.toLowerCase()===this.context.username.toLowerCase() && (native?.getAttribute('author')?.toLowerCase()===this.context.username.toLowerCase() || native?.hasAttribute('is-author-deleted')))this.setProfileAvatar(native.getAttribute('icon'),'native');
-      const credit=native?.querySelector('[slot="credit-bar"]') || native?.querySelector('faceplate-timeago')?.parentElement || native;
-      if(credit){const badge=this.indicator(post);badge.dataset.rtSource='true';let actions=credit.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==credit)actions=actions.parentElement;if(actions)actions.prepend(badge);else credit.append(badge);}
-      const archived=post.archivedBody || (post.source==='arctic-shift'?post.body:'');
-      if(node.dataset.rtArchiveFallback!=='true' && archived && !['[removed]','[deleted]'].includes(archived) && !post.over18 && !post.spoiler){const extra=this.snapshot(archived);extra.dataset.rtArchive='true';node.append(extra);}
-      this.ensureSeparator(node);
+      node.querySelector('[data-rt-archive]')?.remove();
+      const native=node.matches('shreddit-post,shreddit-profile-comment')?node:node.querySelector('shreddit-post,shreddit-profile-comment');if(!native)return;
+      const recovered=this.recoverBody(post,native),label=this.indicator(post);if(recovered){label.title+=' · Text recovered from Arctic Shift';label.setAttribute('aria-label',label.title);}
+      let badge=node.querySelector('[data-rt-source]');if(!badge || badge.title!==label.title){if(badge)badge.replaceWith(label);badge=label;badge.dataset.rtSource='true';}
+      if(native.matches('shreddit-profile-comment')){
+        const host=native.firstElementChild || native,credit=host.querySelector('.text-12.relative') || host.firstElementChild;host.classList.add('rt-comment-source-host');credit?.classList.add('rt-comment-source-credit');if(badge.parentElement!==host)host.append(badge);
+      }else{
+        const credit=native.querySelector('[slot="credit-bar"]') || native;
+        let actions=credit.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==credit)actions=actions.parentElement;
+        if(actions){if(badge.parentElement!==actions)actions.prepend(badge);}else if(badge.parentElement!==credit){badge.style.marginInlineStart='auto';credit.append(badge);}
+      }
+      if(node!==native)this.ensureSeparator(node);
     }
     loadDetail(){if(!this.settings.archiveDiscovery)return;return this.run(async current=>{
       const id=this.context.id,result=await this.archive({action:'archive-ids',ids:[id]});if(!current())return;

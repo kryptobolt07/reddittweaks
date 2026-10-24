@@ -28,3 +28,13 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 
 /* Native profile layout, cards, tabs and sidebars own their responsive sizing. */
 [data-rt-archive-notice]{display:none!important}
+
+/* Native display utilities override the UA hidden rule; constrain our avatar. */
+.rt-profile-avatar{box-sizing:border-box;flex:none;width:74px;height:64px;min-height:64px;padding-inline-end:10px}
+.rt-profile-avatar>[hidden]{display:none!important}
+.rt-profile-avatar>img{width:64px;height:64px;max-width:64px;max-height:64px;object-fit:contain;border-radius:50%}
+.rt-profile-avatar>span{width:64px;height:64px;flex:none}
+.rt-profile-avatar svg{width:64px;height:64px;fill:currentColor;stroke:none}
+.rt-comment-source-host{position:relative}
+.rt-comment-source-host>.rt-post-indicator{position:absolute;top:8px;inset-inline-end:16px;margin:0;z-index:1}
+.rt-comment-source-credit{padding-inline-end:32px}
