@@ -219,16 +219,21 @@
       const placeholder=make('div','rt-native-placeholder');placeholder.setAttribute('aria-label','Loading Reddit card');
       const avatar=make('div','shimmer-placeholder h-lg w-lg bg-shimmer rounded-full');
       const lines=make('div');lines.append(make('div','shimmer-placeholder bg-shimmer rounded-2 h-md w-[200px] max-w-full'),make('div','shimmer-placeholder bg-shimmer rounded-2 h-xs w-[160px] max-w-full mt-2xs'));
-      placeholder.append(avatar,lines);card.append(placeholder);return card;
+      placeholder.append(avatar,lines);card.append(placeholder);this.ensureSeparator(card);return card;
     }
     queueNative(node){
       if(node.hidden || !node.isConnected || node.dataset.rtNativeState!=='idle')return;
-      node.dataset.rtNativeState='queued';this.nativeBatch.queue.push(node);this.drainNative(this.nativeBatch);
+      node.dataset.rtNativeState='queued';const batch=this.nativeBatch;batch.queue.push(node);
+      // Collect the whole visibility notification before choosing the first card.
+      if(!batch.scheduled){batch.scheduled=true;queueMicrotask(()=>{batch.scheduled=false;this.drainNative(batch);});}
     }
     drainNative(batch){
       if(batch!==this.nativeBatch || batch.blocked || pageRoute()?.key!==this.context?.key)return;
       if(batch.resumeAt>Date.now()){clearTimeout(this.nativeResumeTimer);this.nativeResumeTimer=setTimeout(()=>this.drainNative(batch),batch.resumeAt-Date.now());return;}
-      while(batch.active<2 && batch.queue.length){
+      // Hydration attaches Reddit's markup itself, so serial requests also keep
+      // visible attachment in order, even when individual responses vary in speed.
+      batch.queue.sort((a,b)=>{const position=a.compareDocumentPosition(b);return position&4?-1:position&2?1:0;});
+      while(batch.active<1 && batch.queue.length){
         const node=batch.queue.shift(),post=this.postMetadata.get(node.dataset.key),generation=this.generation;
         if(!post || node.hidden || !node.isConnected){node.dataset.rtNativeState='idle';continue;}
         if(this.nativeObserver){const rect=node.getBoundingClientRect();if(rect.top>innerHeight+400 || rect.bottom< -400){node.dataset.rtNativeState='idle';this.nativeObserver.observe(node);continue;}}
@@ -255,9 +260,21 @@
           node.dataset.rtNativeState='failed';node.removeAttribute('aria-busy');node.replaceChildren();
           const fallback=make('div','rt-native-unavailable');fallback.append(link(post.title || 'View comment on Reddit',post.permalink));
           const retry=button('Retry',()=>{node.dataset.rtNativeState='idle';this.queueNative(node);});retry.title=error?.message || 'Reddit could not load this card.';fallback.append(retry);node.append(fallback);
-          const archived=post.archivedBody || (post.source==='arctic-shift'?post.body:'');if(archived && !post.over18 && !post.spoiler)node.append(this.snapshot(archived));
+          const archived=post.archivedBody || (post.source==='arctic-shift'?post.body:'');if(archived && !post.over18 && !post.spoiler)node.append(this.snapshot(archived));this.ensureSeparator(node);
         }).finally(()=>{batch.active--;this.drainNative(batch);});
       }
+    }
+    ensureSeparator(node){
+      const native=node.querySelector('shreddit-post,shreddit-profile-comment');
+      // Feed fragments differ: posts usually supply a rule; comments often do
+      // not. A rule inside the post body is content, never a feed separator.
+      const supplied=[...node.querySelectorAll('hr')].some(rule=>!rule.hasAttribute('data-rt-separator') && !native?.contains(rule) && !rule.closest('.rt-post-snapshot'));
+      let separator=node.querySelector('[data-rt-separator]');
+      if(supplied){separator?.remove();return;}
+      if(!separator){separator=make('hr','border-0 border-b-sm border-solid border-b-neutral-border-weak');separator.dataset.rtSeparator='true';}
+      // Keep the separator inside the card so native virtualization, hiding and
+      // opt-out move/remove it together with its content.
+      if(node.lastElementChild!==separator)node.append(separator);
     }
     decorateNative(post,node){
       node.querySelector('[data-rt-source]')?.remove();node.querySelector('[data-rt-archive]')?.remove();
@@ -266,6 +283,7 @@
       if(credit){const badge=this.indicator(post);badge.dataset.rtSource='true';let actions=credit.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==credit)actions=actions.parentElement;if(actions)actions.prepend(badge);else credit.append(badge);}
       const archived=post.archivedBody || (post.source==='arctic-shift'?post.body:'');
       if(archived && !['[removed]','[deleted]'].includes(archived) && !post.over18 && !post.spoiler){const extra=this.snapshot(archived);extra.dataset.rtArchive='true';node.append(extra);}
+      this.ensureSeparator(node);
     }
     loadDetail(){if(!this.settings.archiveDiscovery)return;return this.run(async current=>{
       const id=this.context.id,result=await this.archive({action:'archive-ids',ids:[id]});if(!current())return;
