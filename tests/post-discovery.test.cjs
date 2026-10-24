@@ -3,15 +3,16 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
 const raw=(id='abc12',extra={})=>({id,author:'Example',title:'A public post',selftext:'Public text',subreddit:'example',created_utc:1700000000,score:7,num_comments:2,...extra});
-function setup(t,{url='https://www.reddit.com/user/Example/submitted/',settings={postDiscovery:true,archiveDiscovery:false},reddit,archive,readSettings}={}){
+function setup(t,{url='https://www.reddit.com/user/Example/submitted/',settings={postDiscovery:true,archiveDiscovery:false},reddit,archive,readSettings,nativeRender}={}){
   const dom=new JSDOM('<main id="main-content"><shreddit-feed><shreddit-post id="t3_native"></shreddit-post></shreddit-feed></main>',{url,runScripts:'outside-only',pretendToBeVisual:true});const W=dom.window,calls=[];
   for(const file of ['post-model.js','post-discovery.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
-  const d=new W.RTPostDiscovery.Discovery({observe:false,readSettings:readSettings || (async()=>({'rt-settings-v1':settings})),reddit:async(...args)=>{calls.push(args[0]);return reddit?reddit(...args):{posts:[raw('native'),raw()],after:null,hasMore:false};},archive:archive || (async()=>({posts:[raw('old12')],hasMore:false}))});t.after(()=>{d.destroy();dom.window.close();});return {W,d,calls};
+  const nativeRenderer=nativeRender || (async(post,node)=>{const native=W.document.createElement(post.kind==='comment'?'shreddit-profile-comment':'shreddit-post');if(post.kind==='comment')native.setAttribute('comment-id',post.fullname);else native.id=post.fullname;const credit=W.document.createElement('span');credit.slot='credit-bar';const title=W.document.createElement('a');title.textContent=post.title || 'Comment';title.href=post.permalink;native.append(credit,title);if(!post.over18 && !post.spoiler){const body=W.document.createElement('p');body.textContent=post.source==='arctic-shift'?'Current native text':post.body;native.append(body);}node.replaceChildren(native);});
+  const d=new W.RTPostDiscovery.Discovery({nativeRenderer,observe:false,readSettings:readSettings || (async()=>({'rt-settings-v1':settings})),reddit:async(...args)=>{calls.push(args[0]);return reddit?reddit(...args):{posts:[raw('native'),raw()],after:null,hasMore:false};},archive:archive || (async()=>({posts:[raw('old12')],hasMore:false}))});t.after(()=>{d.destroy();dom.window.close();});return {W,d,calls};
 }
 test('profile discovery is explicit, deduplicates native posts and stays inline',async t=>{
   const {W,d,calls}=setup(t);await d.ready;assert.equal(calls.length,0);assert.equal(d.host.nextElementSibling,d.feed);
-  await d.loadReddit();assert.equal(calls.length,1);assert.equal((d.feed || d.results).querySelectorAll('.rt-discovered-post:not([hidden])').length,1);assert.match(d.status.textContent,/1 additional post/);assert.equal(d.nodes.get('abc12').querySelector('shreddit-post'),null);assert.match((d.feed || d.results).querySelector('[role=img]').title,/public Reddit search/);
-  const native=W.document.createElement('shreddit-post');native.id='t3_abc12';W.document.querySelector('shreddit-feed').append(native);d.scan();assert.equal(d.nodes.get('abc12').hidden,true);
+  await d.loadReddit();assert.equal(calls.length,1);assert.equal((d.feed || d.results).querySelectorAll('.rt-native-card:not([hidden])').length,1);assert.match(d.status.textContent,/1 additional post/);assert.ok(d.nodes.get('abc12').querySelector('shreddit-post'));assert.match((d.feed || d.results).querySelector('[role=img]').title,/public Reddit search/);
+  const native=W.document.createElement('shreddit-post');native.id='t3_abc12';W.document.querySelector('shreddit-feed').append(native);d.scan();assert.equal(d.nodes.get('abc12').hidden,true);assert.equal(W.document.querySelectorAll('shreddit-post[id="t3_abc12"]').length,1);
 });
 test('pagination uses Reddit cursors while refresh starts at the newest page',async t=>{
   const {d,calls}=setup(t,{reddit:async()=>({posts:[raw()],after:'t3_abc12',hasMore:true})});await d.ready;await d.loadReddit();await d.loadMore();await d.loadReddit();
@@ -81,4 +82,17 @@ test('native comments deduplicate by comment-id and discoveries merge between da
 
 test('replacing the native feed remounts controls and removes detached injected cards',async t=>{
  const {W,d}=setup(t);await d.ready;await d.loadReddit();const oldFeed=d.feed,oldCard=d.nodes.get('abc12');const replacement=W.document.createElement('shreddit-feed');oldFeed.replaceWith(replacement);d.scan();assert.equal(d.feed,replacement);assert.equal(oldCard.isConnected,false);assert.equal(d.nodes.size,0);assert.equal(d.host.nextElementSibling,replacement);assert.equal(W.document.querySelectorAll('[data-rt-ui=posts]').length,1);
+});
+
+test('default discovery and native rendering communicate end to end without transport-id collisions',async t=>{
+ const dom=new JSDOM('<main><shreddit-feed></shreddit-feed></main>',{url:'https://www.reddit.com/user/Example/submitted/',runScripts:'outside-only'}),w=dom.window,calls=[];t.after(()=>dom.window.close());w.AbortController=AbortController;
+ w.customElements.define('faceplate-partial',class extends w.HTMLElement{_renderContent(text){this.innerHTML=text;}});
+ w.fetch=async url=>{calls.push(new URL(url));return {ok:true,status:200,headers:new Headers({'content-type':url.includes('partial-feed-post')?'text/vnd.reddit.partial+html':'application/json'}),text:async()=>url.includes('partial-feed-post')?'<article><shreddit-post id="t3_abc12"><span slot="credit-bar">Native</span><button aria-label="Upvote">Upvote</button><button>Share</button></shreddit-post></article>':JSON.stringify({data:{children:[{kind:'t3',data:raw()}],after:null}})};};
+ for(const file of ['post-model.js','post-page-bridge.js','post-discovery.js'])w.eval(fs.readFileSync('extension/'+file,'utf8'));
+ const d=new w.RTPostDiscovery.Discovery({observe:false,readSettings:async()=>({'rt-settings-v1':{postDiscovery:true}})});await d.ready;await d.loadReddit();await new Promise(r=>setTimeout(r,10));
+ const node=d.nodes.get('abc12');assert.equal(node.dataset.rtNativeState,'ready');assert.ok(node.querySelector('[aria-label=Upvote]'));assert.ok(node.querySelector('[data-rt-source]'));assert.equal(node.parentElement,d.feed);assert.deepEqual(calls.map(u=>u.pathname),['/search.json','/svc/shreddit/partial-feed-post/t3_abc12']);d.destroy();
+});
+test('native hydration runs at most two cards concurrently and does not restart ready cards',async t=>{
+ const releases=[];let active=0,peak=0,count=0;const {W,d}=setup(t,{reddit:async()=>({posts:Array.from({length:5},(_,i)=>raw('item'+i)),hasMore:false}),nativeRender:async(post,node)=>{count++;active++;peak=Math.max(peak,active);await new Promise(r=>releases.push(r));active--;const native=node.ownerDocument.createElement('shreddit-post');native.id=post.fullname;node.replaceChildren(native);}});
+ await d.ready;await d.loadReddit();assert.equal(count,2);releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));assert.equal(count,4);releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));releases.splice(0).forEach(r=>r());await new Promise(r=>setImmediate(r));assert.equal(peak,2);assert.equal(count,5);d.scan();assert.equal(count,5);assert.equal(W.document.querySelectorAll('shreddit-post[id^=t3_item]').length,5);
 });

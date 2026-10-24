@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.RTPostModel)return;
-  const M=RTPostModel,jobs=new Map();let active=0,cooldown=0,starts=[];
+  const M=RTPostModel,jobs=new Map();let active=0,cardActive=0,cooldown=0,starts=[],cardStarts=[];
   function route(){
     const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
@@ -44,7 +44,52 @@
     }
     return {posts,after,hasMore:Boolean(after),incomplete:true,source:'reddit'};
   }
+  async function renderCard(input,signal){
+    const context=route(),path=location.pathname,comments=input.kind==='comment';
+    if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname))throw Error('Open a public Reddit profile.');
+    if(!context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Profile changed. Try again.');
+    if(!['post','comment'].includes(input.kind) || !(comments?M.validateCommentId(input.postId):M.validateId(input.postId)))throw Error('Invalid native card identity.');
+    if(typeof input.target!=='string' || !/^rt-native-[a-z0-9-]{1,60}$/i.test(input.target))throw Error('Invalid native card target.');
+    const fullname=(comments?'t1_':'t3_')+input.postId.toLowerCase().replace(/^t[13]_/,''),target=document.getElementById(input.target);
+    if(!target?.isConnected || target.dataset.rtUi!=='activity-item' || target.dataset.rtNativeFullname!==fullname || !target.closest('main'))throw Error('Native card target is no longer available.');
+    const selector=comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`;
+    const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node));
+    if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
+    const now=Date.now();cardStarts=cardStarts.filter(t=>now-t<30000);
+    if(now<cooldown || cardActive>=2 || cardStarts.length>=12)throw Error('Please wait before loading another native card.');
+    if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function')throw Error('Reddit’s native card renderer is not ready.');
+    const url=new URL(comments?'/svc/shreddit/comment/'+fullname:'/svc/shreddit/partial-feed-post/'+fullname,location.origin);
+    if(comments)url.searchParams.set('isProfile','true');else{
+      const sample=[...document.querySelectorAll('main shreddit-feed shreddit-post')].find(node=>!node.closest('[data-rt-ui]'));
+      const view=sample?.getAttribute('view-type'),context=sample?.getAttribute('view-context');
+      url.searchParams.set('pvc',context && /^Profile[A-Za-z0-9]{0,24}$/.test(context)?context:'ProfileFeed2');
+      url.searchParams.set('fvt',view && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(view)?view:'cardView');
+    }
+    const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
+    let timer;cardStarts.push(now);cardActive++;
+    try{
+      const operation=(async()=>{
+        const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
+        if(response.status===429){cooldown=Date.now()+60000;throw Error('Reddit rate limit reached. Try again later.');}
+        if(!response.ok)throw Error(`Reddit could not render this card (HTTP ${response.status}).`);
+        if(response.headers.get('content-type')?.split(';')[0].trim()!=='text/vnd.reddit.partial+html')throw Error('Reddit returned no native card fragment.');
+        const text=await boundedText(response),doc=new DOMParser().parseFromString(text,'text/html');
+        if(!doc.querySelector(selector))throw Error('Reddit returned no matching native card.');
+        if(location.pathname!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
+        if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
+        // The authenticated HTML stays in Reddit's page world. Use its own trusted
+        // fragment renderer so component modules, media and native actions hydrate.
+        const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.src=url.pathname+url.search;partial.renderMode='contents';
+        target.replaceChildren(partial);partial._renderContent(text);
+        if(!target.querySelector(selector))throw Error('Reddit could not attach its native card.');
+        target.dataset.rtNativeState='ready';return {rendered:true,fullname};
+      })();
+      const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Native card loading timed out.'));},10000);});
+      return await Promise.race([operation,timeout]);
+    }finally{cardActive--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
+  }
   async function read(input,signal){
+    if(input.action==='render-card')return renderCard(input,signal);
     const context=route(),path=location.pathname;
     if(!context || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com','old.reddit.com'].includes(location.hostname))throw Error('Open a public Reddit profile or post.');
     const comments=input.kind==='comment';
@@ -93,7 +138,8 @@
     if(typeof input?.channel!=='string' || input.channel.length>80 || typeof input.id!=='string' || input.id.length>80)return;
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
-    if(jobs.has(key) || jobs.size>=2)return;
+    if(jobs.has(key))return;
+    if(jobs.size>=4){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:'Please wait for the current Reddit request.'})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}

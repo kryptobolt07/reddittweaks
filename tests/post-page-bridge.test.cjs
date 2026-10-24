@@ -41,3 +41,32 @@ test('public comment status lookups use t1 identities and cannot escape post-det
  const e=setup(t,{url:'https://www.reddit.com/user/Example/comments/'});await e.send({action:'info',kind:'comment',ids:['19rktoupyflj9']});assert.equal(new URL(e.calls[0][0]).searchParams.get('id'),'t1_19rktoupyflj9');
  const detail=setup(t,{url:'https://www.reddit.com/comments/abc12/title/'});assert.equal((await detail.send({action:'info',kind:'comment',ids:['19rktoupyflj9']})).ok,false);assert.equal(detail.calls.length,0);
 });
+function nativeTarget(e,{kind='post',id='abc12',target='rt-native-fixture'}={}){
+ const w=e.W;let main=w.document.querySelector('main');if(!main){main=w.document.createElement('main');w.document.body.append(main);}const slot=w.document.createElement('div');slot.id=target;slot.dataset.rtUi='activity-item';slot.dataset.rtNativeFullname=(kind==='comment'?'t1_':'t3_')+id;main.append(slot);
+ if(!w.customElements.get('faceplate-partial'))w.customElements.define('faceplate-partial',class extends w.HTMLElement{_renderContent(text){this.innerHTML=text;}});
+ return slot;
+}
+const nativeResponse=(html,status=200)=>({ok:status===200,status,headers:new Headers({'content-type':'text/vnd.reddit.partial+html'}),text:async()=>html});
+test('native feed cards use the first-party profile renderer without returning authenticated HTML',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<article><shreddit-post id="t3_abc12"><span slot="credit-bar">Native metadata</span><button aria-label="Upvote">↑</button><button>Share</button><img src="https://i.redd.it/synthetic.png"><input name="csrf_token" value="synthetic-only"></shreddit-post></article><hr>')});const slot=nativeTarget(e);
+ const result=await e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(result.ok,true);assert.equal(result.rendered,true);assert.equal(result.html,undefined);assert.equal(JSON.stringify(result).includes('synthetic-only'),false);assert.ok(slot.querySelector('[aria-label=Upvote]'));assert.ok(slot.querySelector('img'));
+ const u=new URL(e.calls[0][0]);assert.equal(u.pathname,'/svc/shreddit/partial-feed-post/t3_abc12');assert.equal(u.searchParams.get('pvc'),'ProfileFeed2');assert.equal(u.searchParams.get('fvt'),'cardView');assert.equal(slot.dataset.rtNativeState,'ready');
+});
+test('native comment cards use the observed profile-comment endpoint and preserve native actions',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/user/Example/comments/',fetcher:async()=>nativeResponse('<article><shreddit-profile-comment comment-id="t1_19rktoupyflj9"><button aria-label="Downvote">↓</button><button>Share</button></shreddit-profile-comment></article>')}),slot=nativeTarget(e,{kind:'comment',id:'19rktoupyflj9'});
+ const r=await e.send({action:'render-card',username:'Example',kind:'comment',postId:'19rktoupyflj9',target:slot.id});assert.equal(r.rendered,true);const u=new URL(e.calls[0][0]);assert.equal(u.pathname,'/svc/shreddit/comment/t1_19rktoupyflj9');assert.equal(u.searchParams.get('isProfile'),'true');assert.ok(slot.querySelector('[aria-label=Downvote]'));
+});
+test('native renderer rejects arbitrary targets, identities and unrelated fragments',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<article>not a matching card</article>')}),slot=nativeTarget(e);
+ for(const input of [{target:'main'},{username:'Other'},{postId:'../bad'},{kind:'video'},{target:'rt-native-missing'}])assert.equal((await e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id,...input})).ok,false);assert.equal(e.calls.length,0);
+ assert.equal((await e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id})).ok,false);assert.equal(slot.childElementCount,0);
+});
+test('native hydration skips an identity already present in Reddit and rejects stale routes',async t=>{
+ let resolve;const e=setup(t,{fetcher:()=>new Promise(r=>resolve=r)}),slot=nativeTarget(e),native=e.W.document.createElement('shreddit-post');native.id='t3_abc12';e.W.document.querySelector('main').append(native);
+ const duplicate=await e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(duplicate.duplicate,true);assert.equal(e.calls.length,0);native.remove();
+ const pending=e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});e.W.history.pushState({},'','/user/Other/');resolve(nativeResponse('<shreddit-post id="t3_abc12"></shreddit-post>'));assert.equal((await pending).ok,false);assert.equal(slot.childElementCount,0);
+});
+
+test('native cards follow the client’s existing profile view mode',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<article><shreddit-post id="t3_abc12"></shreddit-post></article>')}),slot=nativeTarget(e);const feed=e.W.document.createElement('shreddit-feed');feed.innerHTML='<shreddit-post id="t3_existing" view-type="compactView" view-context="ProfileFeed2"></shreddit-post>';e.W.document.querySelector('main').append(feed);await e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(new URL(e.calls[0][0]).searchParams.get('fvt'),'compactView');
+});
