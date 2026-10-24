@@ -154,5 +154,24 @@ test('notice guard leaves other empty states and unsupported routes unchanged',a
  notice.innerHTML='<img src="https://www.redditstatic.com/shreddit/assets/snoo_wave.png"><h2>Welcome!</h2>';assert.equal(W.getComputedStyle(notice).display,'none');
  W.history.pushState({},'','/user/Example/saved/');d.onRoute();assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);assert.notEqual(W.getComputedStyle(notice).display,'none');
  W.history.pushState({},'','/user/Other/comments/');d.onRoute();assert.equal(W.getComputedStyle(notice).display,'none');d.destroy();assert.notEqual(W.getComputedStyle(notice).display,'none');
- const block=JSON.parse(fs.readFileSync('extension/manifest.json','utf8')).content_scripts.find(block=>block.js.includes('post-discovery.js'));assert.equal(block.run_at,'document_start');
+ const blocks=JSON.parse(fs.readFileSync('extension/manifest.json','utf8')).content_scripts;
+ const discovery=blocks.find(block=>block.js.includes('post-discovery.js')),guard=blocks.find(block=>block.js.includes('profile-notice.js')),bridge=blocks.find(block=>block.js.includes('post-page-bridge.js'));
+ assert.equal(guard.run_at,'document_start');assert.equal(discovery.run_at,'document_idle');assert.notEqual(discovery.run_at,bridge.run_at,'Chrome must execute the shared model separately in both worlds');assert.ok(guard.css.includes('post-discovery.css'));
+});
+
+test('early guard runs without the shared model, including before the document root exists',async t=>{
+ const dom=new JSDOM('',{url:'https://www.reddit.com/user/Example/submitted/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());let resolve;
+ W.chrome={runtime:{id:'fixture',sendMessage:()=>new Promise(r=>resolve=r)}};W.document.documentElement.remove();
+ assert.doesNotThrow(()=>W.eval(fs.readFileSync('extension/profile-notice.js','utf8')));assert.equal(W.RTPostModel,undefined);
+ const root=W.document.createElement('html');W.document.append(root);await new Promise(r=>setImmediate(r));assert.equal(root.hasAttribute('data-rt-profile-discovery'),true);
+ resolve({ok:true,settings:{postDiscovery:true}});await new Promise(r=>setImmediate(r));assert.equal(root.hasAttribute('data-rt-profile-discovery'),true);
+ W.RTProfileNoticeGuard.setEnabled(false);assert.equal(root.hasAttribute('data-rt-profile-discovery'),false);
+});
+
+test('early guard respects newer opt-out and profile SPA route changes independently of discovery',async t=>{
+ const dom=new JSDOM('',{url:'https://www.reddit.com/user/Example/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());let resolve;
+ W.chrome={runtime:{id:'fixture',sendMessage:()=>new Promise(r=>resolve=r)}};W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
+ W.RTProfileNoticeGuard.setEnabled(false);resolve({ok:true,settings:{postDiscovery:true}});await new Promise(r=>setImmediate(r));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);
+ W.RTProfileNoticeGuard.setEnabled(true);W.history.pushState({},'','/user/Example/saved/');W.document.dispatchEvent(new W.CustomEvent('reddit:route'));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);
+ W.history.pushState({},'','/user/Example/comments/');W.document.dispatchEvent(new W.CustomEvent('reddit:route'));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),true);
 });
