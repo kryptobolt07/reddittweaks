@@ -1,16 +1,26 @@
-# Chat Search for Reddit — 0.12.8 design test
+# Reddit Tweaks — 0.13.0 preview
 
 ## Load in Brave
 
-Extract `artifacts/reddit-chat-search-v0.12.8.zip` and load its folder through **Load unpacked** in `brave://extensions`. After reloading or updating the extension, refresh existing Reddit tabs so their scripts reconnect to the current extension. An invalidated tab displays a page-refresh instruction and stops retrying; the result Refresh button cannot repair a discarded browser extension context. Refresh shows activity for local queries, previews, capture saving and native-cache import, with progress-specific tooltips and reduced-motion support. Global saved-result pagination loads quietly at the bottom without restarting the main refresh indicator. Both search lists keep rendering bounded while scrolling; individual search defers incoming result updates until scrolling settles and retains its loading placeholder until saved/history reads have settled. Cache reconciliation is labeled Checking cache, with checked-record progress in its tooltip. A stalled check pauses with an explanation and can be retried through Refresh; already-saved results stay usable. Status-only updates do not rerun searches; refreshing message results rereads saved data and does not force another full import.
+Extract `artifacts/reddit-tweaks-v0.13.0.zip` and load its folder through **Load unpacked** in `brave://extensions`. After reloading or updating the extension, refresh existing Reddit tabs so their scripts reconnect to the current extension. An invalidated tab displays a page-refresh instruction and stops retrying; the result Refresh button cannot repair a discarded browser extension context. Refresh shows activity for local queries, previews, capture saving and native-cache import, with progress-specific tooltips and reduced-motion support. Global saved-result pagination loads quietly at the bottom without restarting the main refresh indicator. Both search lists keep rendering bounded while scrolling; individual search defers incoming result updates until scrolling settles and retains its loading placeholder until saved/history reads have settled. Cache reconciliation is labeled Checking cache, with checked-record progress in its tooltip. A stalled check pauses with an explanation and can be retried through Refresh; already-saved results stay usable. Status-only updates do not rerun searches; refreshing message results rereads saved data and does not force another full import.
 
 For an existing installation, replace the files in its current unpacked folder, choose **Reload** on the same extension card, and refresh Reddit tabs. Keeping the same installation preserves its saved directory and enables migration from 0.2.4. Loading another folder as a separate extension creates separate storage; disable the older installation to avoid duplicate controls.
 
-The generated `artifacts/reddit-chat-search/` folder and `artifacts/reddit-chat-search.zip` also contain the current build.
+The generated `artifacts/reddit-chat-search/` folder and `artifacts/reddit-tweaks.zip` also contain the current build.
 
-## Unified search design test
+## Post discovery
 
-This branch (`prototype/unified-chat-search`) builds the actual extension with the redesigned interface. The isolated experiment in `demo/prototype/` remains a separate synthetic reference.
+On a modern Reddit public profile's **Overview** or **Posts** tab, choose **Discover posts** to find public posts through Reddit author search. Additional results appear inline, with a small source/status icon. Posts absent from the loaded feed are not automatically labelled hidden or deleted; this does not expose private Hidden lists or private communities.
+
+Enable **Search Arctic Shift archive** in the popup to add **Search archive** on profiles and **Check archived post** on post pages. Requests share the viewed public username or post ID with Arctic Shift only when requested. Archived text is a separately attributed, collapsed snapshot; it never replaces Reddit's current post. Deleted/removed labels require current Reddit metadata, and otherwise the status remains unknown. Archive bodies and browsed profiles are not persisted. Existing chat caches and account isolation are unchanged.
+
+Discovery uses bounded pages and explicit Load more, respects rate limits, and reports incomplete coverage. API access can fail or archives may be missing; old Reddit and comment discovery are not included in this release. The popup retains chat cache controls and adds separate Posts preferences. The stable unpacked folder stays `artifacts/reddit-chat-search/` so updating the same installation preserves local chat data. The old unversioned ZIP alias is retained for compatibility.
+
+The implementation plan, request policy and primary references are in [docs/reddit-tweaks-plan.md](docs/reddit-tweaks-plan.md). Run `npm run preview` and open `/demo/tweaks/index.html` for a synthetic visual preview; it makes no provider requests.
+
+## Chat search
+
+The completed chat-search work is integrated into local `main`; the Reddit Tweaks expansion is on `codex/reddit-tweaks-post-discovery`. The isolated experiment in `demo/prototype/` remains a separate synthetic reference.
 
 Individual chat search replaces the identity header with **Back + Search in this chat** while open. Back restores Reddit’s original header and controls; Escape dismisses a popup, then results, then search. Global and individual search toolbars use the native room-header height in CSS pixels, including transformed/floating layouts and width changes. Both fields contain icon-only **Filters** and **Date** controls. Both filter menus contain From, Message contains and Sort; sender choices retain avatars and multiple selection. Applied sender/media/date filters appear as removable tags below the field, matching global search. Date opens our compact Reddit-accented calendar directly, with its existing quick ranges, date modes, explicit Apply and future-day limits. The empty room-search view retains recent successful searches scoped to the conversation and account for this page session.
 
