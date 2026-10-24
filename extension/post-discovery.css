@@ -46,3 +46,5 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-activity-icon[data-native-icon]{fill:currentColor;stroke:none}
 .rt-posts-toolbar [data-icon="refresh"]{width:16px;height:16px;stroke-width:1.8}
 [data-rt-ui="activity-empty"][hidden]{display:none!important}
+
+shreddit-sort-dropdown[data-rt-comment-sort-suppressed]{display:none!important}

@@ -2,7 +2,9 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.RTPostModel)return;
-  const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map();let active=0,cardActive=0,cooldown=0,starts=[],cardStarts=[];
+  // Bound simultaneous work and honor server cooldowns; cursor-driven scrolling
+  // must not stall behind an unrelated lifetime or rolling card-count quota.
+  const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map();let active=0,cardActive=0,cooldown=0;
   function route(){
     const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
@@ -59,9 +61,9 @@
     const context=route(),target=typeof input.target==='string' && /^rt-nav-[a-z0-9-]{1,60}$/i.test(input.target)?document.getElementById(input.target):null;
     const shell=target?.closest('[data-rt-ui="archive-profile"]');
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase() || target?.dataset.rtUi!=='profile-navigation' || !shell)throw Error('Open the matching archived profile.');
-    const now=Date.now();starts=starts.filter(time=>now-time<30000);if(now<cooldown || active>=2 || starts.length>=8)return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:starts.length>=8?starts[0]+30000-now:250)};
+    const now=Date.now();if(now<cooldown || active>=2)return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:250)};
     const Renderer=customElements.get('faceplate-partial');if(typeof Renderer?.prototype?._renderContent!=='function')throw Error('Reddit’s native renderer is not ready.');
-    const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();let timer;starts.push(now);active++;
+    const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();let timer;active++;
     try{return await Promise.race([(async()=>{
       // Only the native navigation fragment is attached. Homepage/feed markup,
       // credentials and personalized HTML never cross into the isolated world.
@@ -88,18 +90,24 @@
     const now=Date.now(),app=document.querySelector('shreddit-app'),key=[sort,range,view].join(':');for(const [k,v] of controlReads)if(v.app!==app || v.expires<=now)controlReads.delete(k);
     let cached=controlReads.get(key);
     if(!cached){
-      starts=starts.filter(t=>now-t<30000);if(now<cooldown || active>=2 || starts.length>=8)return {deferred:true,retryAfterMs:Math.max(250,now<cooldown?cooldown-now:starts.length>=8?starts[0]+30000-now:250)};
+      if(now<cooldown || active>=2)return {deferred:true,retryAfterMs:Math.max(250,now<cooldown?cooldown-now:250)};
       // A fixed public profile supplies Reddit's native profile controls even
       // when the viewed account has no native feed. Never import its activity.
       const url=new URL('/user/reddit/submitted/',location.origin);url.searchParams.set('sort',sort);if(sort==='top')url.searchParams.set('t',range);url.searchParams.set('feedViewType',view);
-      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);starts.push(now);active++;
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);active++;
       const promise=(async()=>{const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/html'},signal:controller.signal});if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));throw Error('Reddit feed controls are rate limited.');}if(!response.ok)throw Error('Reddit feed controls could not be loaded.');const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),button=doc.querySelector('button[aria-label="Feed options"]'),dropdown=button?.closest('rpl-dropdown'),root=button?.closest('shreddit-layout-event-setter') || dropdown;if(!dropdown?.querySelector('.main-menu-container') || !root)throw Error('Reddit returned no native profile controls.');for(const node of root.querySelectorAll('script,ac-track,input,form'))node.remove();return root.outerHTML;})().finally(()=>{clearTimeout(timer);active--;});
       cached={app,expires:now+30000,promise};if(controlReads.size>=4)controlReads.delete(controlReads.keys().next().value);controlReads.set(key,cached);promise.catch(()=>{if(controlReads.get(key)===cached)controlReads.delete(key);});
     }
     const doc=new DOMParser().parseFromString(await cached.promise,'text/html'),root=doc.body.firstElementChild;
     if(signal?.aborted || path!==location.pathname+location.search || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
     for(const row of root.querySelectorAll('rpl-menu-item[href]')){const old=new URL(row.getAttribute('href'),location.origin);if(old.origin!==location.origin || old.pathname!=='/user/reddit/submitted/')throw Error('Unexpected native control destination.');const next=new URL(path,location.origin);for(const name of ['sort','t','feedViewType'])if(old.searchParams.has(name))next.searchParams.set(name,old.searchParams.get(name));if(old.searchParams.has('sort') && old.searchParams.get('sort')!=='top')next.searchParams.delete('t');row.setAttribute('href',next.pathname+next.search);}
-    if(/\/comments\/?$/.test(location.pathname)){const button=root.querySelector('button[aria-label="Feed options"]'),icon=button?.querySelector('svg[icon-name="filter"]');if(!icon)throw Error('Reddit returned no native filter icon.');const wrapper=document.createElement('span');wrapper.className='flex items-center justify-center';wrapper.append(icon);button.replaceChildren(wrapper);button.classList.remove('button-bordered');button.classList.add('button-plain','w-xl');}
+    if(/\/comments\/?$/.test(location.pathname)){
+      const button=root.querySelector('button[aria-label="Feed options"]'),native=document.querySelector('main shreddit-sort-dropdown')?.shadowRoot?.querySelector('button');
+      if(!button)throw Error('Reddit returned no native feed trigger.');
+      if(native){const copy=native.cloneNode(true);copy.setAttribute('aria-label','Feed options');copy.setAttribute('aria-expanded','false');button.replaceWith(copy);}
+      else{const label=document.createElement('span');label.className='flex items-center gap-xs';label.textContent=sort[0].toUpperCase()+sort.slice(1);let caret=button.querySelector('svg[icon-name="caret-down"]')?.cloneNode(true);if(!caret){caret=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [name,value] of Object.entries({viewBox:'0 0 20 20',width:'16',height:'16',fill:'currentColor','icon-name':'caret-down','aria-hidden':'true'}))caret.setAttribute(name,value);const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d','M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7Z');caret.append(path);}label.append(caret);button.replaceChildren(label);button.classList.remove('button-bordered','w-xl');button.classList.add('button-plain');}
+      const heading=root.querySelector('.main-menu-container > div');if(heading)heading.textContent='Sort by';
+    }
     const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.renderMode='contents';partial.style.display='contents';target.replaceChildren(partial);partial._renderContent(root.outerHTML);return {rendered:true};
   }
   function nativeCardUrl(comments,fullname){
@@ -130,8 +138,8 @@
     const selector=comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`;
     const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node));
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
-    const now=Date.now();cardStarts=cardStarts.filter(t=>now-t<30000);
-    if(now<cooldown || cardActive>=2 || cardStarts.length>=30)return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:cardStarts.length>=30?cardStarts[0]+30000-now:250)};
+    const now=Date.now();
+    if(now<cooldown || cardActive>=2)return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:250)};
     if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function'){
       const since=rendererWaits.get(target) ?? now;rendererWaits.set(target,since);
       if(now-since>=10000)throw Error('Reddit’s native card renderer did not become ready. Retry after the page finishes loading.');
@@ -139,7 +147,7 @@
     }
     rendererWaits.delete(target);const url=nativeCardUrl(comments,fullname);
     const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
-    let timer;cardStarts.push(now);cardActive++;
+    let timer;cardActive++;
     try{
       const operation=(async()=>{
         const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
@@ -183,10 +191,10 @@
       if(context.id && (comments || ids.length!==1 || ids[0]!==context.id))throw Error('Post changed. Try again.');
       url.searchParams.set('id',ids.map(id=>(comments?'t1_':'t3_')+id).join(','));
     }else throw Error('Unknown public post operation.');
-    const now=Date.now();starts=starts.filter(time=>now-time<30000);
+    const now=Date.now();
     if(now<cooldown)throw Error('Reddit asked us to wait. Try again shortly.');
-    if(active>=2 || starts.length>=8)return {deferred:true,retryAfterMs:Math.max(100,starts.length>=8?starts[0]+30000-now:250)};
-    starts.push(now);active++;
+    if(active>=2)return {deferred:true,retryAfterMs:250};
+    active++;
     url.searchParams.set('raw_json','1');
     const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
     let timer;
