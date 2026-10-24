@@ -2,13 +2,21 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.chrome?.runtime?.id)return;
-  let enabled=true,revision=0;
+  let enabled=true,revision=0;const notices=new Map();
   function refresh(){
-    const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(location.pathname);
-    document.documentElement?.toggleAttribute('data-rt-profile-discovery',enabled && profile);
+    const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(location.pathname),post=/^\/(?:(?:r|user)\/[^/]+\/)?comments\//i.test(location.pathname);
+    // A native post modal changes the URL while the profile remains underneath.
+    const underlying=post && document.querySelector('#profile-feed-tabgroup,[data-rt-ui="archive-profile"]'),active=enabled && Boolean(profile || underlying);
+    document.documentElement?.toggleAttribute('data-rt-profile-discovery',active);
+    for(const [notice,anchor] of notices){if(!anchor.isConnected){notices.delete(notice);continue;}if(!active){anchor.replaceWith(notice);notices.delete(notice);}}
+    if(!active)return;
+    for(const notice of document.querySelectorAll('main #empty-feed-content:has(img[src*="/shreddit/assets/snoo_wave."]),shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3)')){
+      const anchor=document.createComment('rt-profile-notice');notice.replaceWith(anchor);notices.set(notice,anchor);
+    }
   }
+  function deletedNotice(){for(const [notice,anchor] of notices)if(anchor.isConnected && notice.querySelector('img[alt="Deleted user"]'))return {notice,anchor};return null;}
   function setEnabled(value){revision++;enabled=value===true;refresh();}
-  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled});
+  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,deletedNotice});
   // Observe the Document: the root may not exist yet at document_start.
   const observer=new MutationObserver(refresh);observer.observe(document,{childList:true,subtree:true});
   window.addEventListener('popstate',refresh);document.addEventListener('reddit:route',refresh);
