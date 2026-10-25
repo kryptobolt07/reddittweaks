@@ -10,6 +10,23 @@
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
+  let previousScrollY=window.scrollY,restoreFrame=null;
+  document.addEventListener('scroll',()=>{
+    const y=window.scrollY,up=y<previousScrollY;previousScrollY=y;
+    if(!up || restoreFrame!==null || !route()?.username || !document.documentElement.hasAttribute('data-rt-profile-discovery'))return;
+    const feed=document.querySelector('main shreddit-feed[data-rt-loading-owner]'),controller=feed?.virtualization;
+    if(!controller?.topStack?.length || typeof controller.update!=='function' || typeof requestAnimationFrame!=='function')return;
+    const path=location.pathname+location.search;
+    // Reddit retains the populated original nodes in its virtualization stack.
+    // Its normal scroll handler is throttled. On reverse scrolling, ask that
+    // same controller to restore them before paint instead of exposing its
+    // empty placeholders until a later scroll update. Never edit its stack.
+    restoreFrame=requestAnimationFrame(()=>{
+      restoreFrame=null;
+      if(path!==location.pathname+location.search || !feed.isConnected || feed.virtualization!==controller || !feed.hasAttribute('data-rt-loading-owner') || !document.documentElement.hasAttribute('data-rt-profile-discovery'))return;
+      try{Promise.resolve(controller.update()).catch(()=>{});}catch{ /* Native scrolling remains the fallback if this optional contract changes. */ }
+    });
+  },{passive:true});
   async function boundedText(response){
     if(Number(response.headers.get('content-length'))>2500000)throw Error('Reddit response is too large.');
     let text='';

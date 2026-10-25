@@ -3,6 +3,7 @@
   'use strict';
   const M=globalThis.RTPostModel;if(!M)return;
   const key='rt-settings-v1';
+  const profileBatchSize=25;
   function pageRoute(path=location.pathname,search=location.search){
     const profile=path.match(/^\/user\/([\w-]{1,20})(?:\/(submitted|comments))?\/?$/i);
     if(profile){const view=profile[2]==='submitted'?'posts':profile[2]==='comments'?'comments':'overview',params=new URLSearchParams(search);
@@ -153,7 +154,7 @@
       this.more=button('Load more',()=>this.batchedProfile?this.advanceProfileBatch(true):this.loadMore());this.more.className='rt-posts-more';this.more.hidden=true;
       toolbar.append(this.status);host.append(toolbar,this.loading,this.results,this.more);
       if(context.kind==='profile'){target.before(host);this.results.hidden=true;this.more.textContent='More discoveries';toolbar.append(this.more);}else target.after(host);
-      if(context.kind==='profile'){this.loading.dataset.rtUi='profile-loading';this.loading.slot='load-after';this.feed.append(this.loading);if(typeof IntersectionObserver==='function'){this.batchObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.target===this.loading){this.batchInView=entry.isIntersecting;if(entry.isIntersecting)this.continueProfile();}},{rootMargin:'200px'});this.batchObserver.observe(this.loading);}}
+      if(context.kind==='profile'){this.loading.dataset.rtUi='profile-loading';this.loading.slot='load-after';this.feed.append(this.loading);if(typeof IntersectionObserver==='function'){this.batchObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.target===this.loading){this.batchInView=entry.isIntersecting;if(entry.isIntersecting)this.continueProfile();}},{rootMargin:innerHeight*2+'px'});this.batchObserver.observe(this.loading);}}
       if(this.archiveOnly && this.autoDiscover)this.loadNavigation();
       this.emptyFeed=main.querySelector('#empty-feed-content');this.emptyWasHidden=this.emptyFeed?.hidden;
       const restored=context.kind==='profile' && this.restoreProfile(context);
@@ -340,7 +341,7 @@
       if(!this.host || this.context.kind!=='profile')return;
       this.syncActivityPresentation();
       const entries=this.nativeEntries(),visible=this.visibleIds(),sort=this.context.sort,normal=entries.filter(e=>!e.pinned && (sort==='top'?Number.isFinite(e.score):sort==='hot' || Number.isFinite(e.timestamp))),rank=new Map(this.renderedPosts.map((post,index)=>[post.fullname,index]));
-      const continuation=this.feed.querySelector('shreddit-feed-load-more-observer[cursor],faceplate-partial[slot="load-after"][loading="lazy"][src]');
+      const continuation=this.feed.querySelector('shreddit-feed-load-more-observer[cursor],faceplate-partial[slot="load-after"]:is([loading="lazy"],[loading="programmatic"])[src]');
       const horizon=continuation && sort!=='hot'?(normal.length?Math.min(...normal.map(e=>sort==='top'?e.score:Math.floor(e.timestamp))):sort==='new'?Infinity:-Infinity):-Infinity;
       const nativeTail=continuation?(()=>{let n=continuation;while(n.parentElement && n.parentElement!==this.feed)n=n.parentElement;return n.parentElement===this.feed?n:null;})():null;
       // Our sentinel is also a real tail. Using null here appended stable
@@ -351,7 +352,7 @@
       for(const post of this.renderedPosts || []){
         const node=this.nodes.get(itemKey(post));if(!node)continue;
         const slot=this.feedSlot(node),virtualized=slot!==node;
-        const duplicate=visible.has(post.fullname),older=this.activityFilter==='all' && !duplicate && (sort==='top'?post.score:post.created)<horizon;
+        const duplicate=visible.has(post.fullname),older=this.activityFilter==='all' && !duplicate && !this.publishedCards.has(itemKey(post)) && (sort==='top'?post.score:post.created)<horizon;
         const staged=this.batchedProfile && (!this.publishedCards.has(itemKey(post)) || !['ready','failed'].includes(node.dataset.rtNativeState));const matches=this.matchesActivity(post,node,visible),qualify=this.activityFilter==='deleted' && !duplicate && !older && !staged && !['deleted','removed'].includes(this.verifiedStatus(post,node.querySelector('shreddit-post,shreddit-profile-comment'))) && node.dataset.rtNativeState==='idle';node.hidden=duplicate || older || staged || !matches;
         if(qualify){node.dataset.rtQualify='true';this.queueNative(node);}node.dataset.deferred=older?'older':'';
         if(virtualized)slot.hidden=node.hidden;
@@ -435,11 +436,21 @@
     pendingProfilePosts(){
       const visible=this.visibleIds();return this.renderedPosts.filter(post=>{const node=this.nodes.get(itemKey(post));return node && (!this.publishedCards.has(itemKey(post)) || !['ready','failed'].includes(node.dataset.rtNativeState)) && !visible.has(post.fullname) && node.dataset.deferred!=='older';});
     }
-    profileTailVisible(){const rect=this.loading.getBoundingClientRect();return this.batchInView && rect.top<=innerHeight+200 && rect.bottom>=0;}
+    profileTailVisible(){const rect=this.loading.getBoundingClientRect();return this.batchInView && rect.top<=innerHeight*3 && rect.bottom>=0;}
     primaryFailure(){return Object.entries(this.sourceErrors || {}).some(([key,value])=>value && !/^(metadata-|recovery$)/.test(key));}
+    prefetchProfilePage(){
+      if(pageRoute()?.key!==this.context?.key || !this.activeProfileBatch || this.busy || this.batchAutoPaused || this.primaryFailure() || this.nativeBatch.blocked || !this.batchObserver || !this.profileTailVisible() || !(this.moreReddit || this.moreArchive))return;
+      // Overlap the next source read with hydration near the tail, with at most
+      // one page of unpublished discoveries already buffered. Deferred older
+      // items count too, so a native date horizon cannot trigger a history walk.
+      const visible=this.visibleIds(),buffered=this.renderedPosts.filter(post=>!this.publishedCards.has(itemKey(post)) && !visible.has(post.fullname)).length;
+      if(buffered<profileBatchSize)this.loadMore();
+    }
     continueProfile(force=false){
-      if(this.busy || this.nativeFeedLoading())return;
-      if(this.batchedProfile)return this.advanceProfileBatch(force);
+      // A native continuation halo can remain mounted before its request starts.
+      // It owns the visible loader, but must not block preparing our next page.
+      if(this.busy)return;
+      if(this.batchedProfile){this.prefetchProfilePage();return this.advanceProfileBatch(force);}
       if((this.moreReddit || this.moreArchive) && !this.batchAutoPaused)this.loadMore();
     }
     updateProfileLoading(){
@@ -455,7 +466,8 @@
       let note=this.loading.querySelector('[data-rt-continuation-note]');
       if(paused && !work){if(!note){note=make('div','flex flex-col items-center justify-center text-center m-md text-body-1');note.dataset.rtContinuationNote='true';this.loading.append(note);}const message='Loading paused. Use Refresh activity to retry.';if(note.dataset.message!==message){note.dataset.message=message;const retry=button('Retry loading',()=>this.discover.click());retry.className='button button-small button-bordered mt-md';note.replaceChildren(make('div','',message),retry);}}else note?.remove();
       this.more.hidden=!continuation || Boolean(this.batchObserver && !paused);this.more.disabled=Boolean(this.busy || this.activeProfileBatch && !paused);
-      if(pending && !this.activeProfileBatch && !this.busy && !paused && this.publishedCards.size<6){this.advanceProfileBatch();return;}
+      if(pending && !this.activeProfileBatch && !this.busy && !paused && this.publishedCards.size<profileBatchSize){this.advanceProfileBatch();return;}
+      this.prefetchProfilePage();
       if(!this.activeProfileBatch && !this.busy && !paused && this.batchObserver && !this.loading.hidden && !this.batchFrame){const generation=this.generation;this.batchFrame=requestAnimationFrame(()=>{this.batchFrame=null;if(generation===this.generation && this.host?.isConnected && this.profileTailVisible())this.continueProfile();});}
       this.updateActivityEmptyState();
     }
@@ -463,8 +475,8 @@
       if(!this.batchedProfile || pageRoute()?.key!==this.context?.key)return;
       if(force){this.batchAutoPaused=false;if(this.nativeBatch.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}}
       if(this.activeProfileBatch || this.nativeBatch.blocked || this.batchAutoPaused && !this.pendingProfilePosts().length)return;
-      if(!force && this.publishedCards.size>=6 && (!this.batchObserver || !this.profileTailVisible()))return;
-      const posts=this.pendingProfilePosts().slice(0,6);
+      if(!force && this.publishedCards.size>=profileBatchSize && (!this.batchObserver || !this.profileTailVisible()))return;
+      const posts=this.pendingProfilePosts().slice(0,profileBatchSize);
       if(!posts.length){if(this.renderedPosts.some(p=>this.nodes.get(itemKey(p))?.dataset.deferred==='older'))return;if(!this.busy && (this.moreReddit || this.moreArchive) && (force || this.batchObserver && this.profileTailVisible()))this.loadMore();return;}
       const group=this.activeProfileBatch={generation:this.generation,nodes:posts.map(p=>this.nodes.get(itemKey(p))),posts,enriching:false};this.loading.hidden=false;
       for(const node of group.nodes)if(!['ready','failed'].includes(node.dataset.rtNativeState))this.queueNative(node);
@@ -476,7 +488,7 @@
       while(ready<group.nodes.length && (['ready','failed'].includes(group.nodes[ready].dataset.rtNativeState) || visible.has(group.nodes[ready].dataset.fullname)))ready++;
       if(!ready)return;
       // Publish only the ready prefix. A slow later card cannot hold earlier
-      // content behind a six-card barrier or reorder the feed on completion.
+      // content behind a whole-page barrier or reorder the feed on completion.
       for(const node of group.nodes.splice(0,ready)){this.publishedCards.add(node.dataset.key);node.classList.add('rt-native-enter');setTimeout(()=>node.classList.remove('rt-native-enter'),200);}
       if(!group.nodes.length){group.enriching=true;this.activeProfileBatch=null;const current=()=>group.generation===this.generation && pageRoute()?.key===this.context?.key && this.host?.isConnected;this.replyEnrichment=Promise.resolve(this.replyEnrichment).catch(()=>{}).then(()=>current()?this.enrichReplyContexts(group.posts,current):undefined);}
       this.deduplicate();this.updateProfileLoading();
