@@ -74,19 +74,35 @@ function nativeCommentHtml({author='Example',next='/svc/shreddit/search/?q=autho
 }
 test('native comment search parses inert public cards and follows only its opaque cursor',async t=>{
  const e=setup(t,{url:'https://www.reddit.com/user/Example/comments/',fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>nativeCommentHtml()})});
- const result=await e.send({action:'profile',kind:'comment',username:'Example'});assert.equal(result.ok,true);assert.equal(result.posts.length,1);assert.equal(result.posts[0].fullname,'t1_19rktoupyflj9');assert.equal(result.posts[0].body,'Public <img onerror=bad()> comment');assert.equal(result.after,'opaque_cursor');
+ const result=await e.send({action:'profile',kind:'comment',username:'Example'});assert.equal(result.ok,true);assert.equal(result.posts.length,1);assert.equal(result.posts[0].fullname,'t1_19rktoupyflj9');assert.equal(result.posts[0].body,'Public <img onerror=bad()> comment');assert.equal(JSON.parse(result.after.slice(18)).cursor,'opaque_cursor');
  await e.send({action:'profile',kind:'comment',username:'Example',after:result.after});const u=new URL(e.calls[1][0]);assert.equal(u.pathname,'/svc/shreddit/search/');assert.equal(u.searchParams.get('cursor'),'opaque_cursor');assert.equal(u.searchParams.get('type'),'comments');
 });
 test('native comment search refuses foreign authors and external pagination',async t=>{
  const foreign=setup(t,{fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>nativeCommentHtml({author:'Other'})})});assert.equal((await foreign.send({action:'profile',kind:'comment',username:'Example'})).ok,false);
  const e=setup(t,{fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>nativeCommentHtml({next:'https://evil.test/?cursor=bad'})})});assert.equal((await e.send({action:'profile',kind:'comment',username:'Example'})).after,null);
 });
+test('public comment discovery omits credentials and separates HTTP cache and cursors from signed-in search',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse(nativeCommentHtml())});const pub=await e.send({action:'profile',kind:'comment',username:'Example',stream:'public'});assert.equal(pub.ok,true);assert.equal(pub.posts.length,1);assert.equal(e.calls[0][1].credentials,'omit');assert.equal(e.calls[0][1].cache,'no-store');assert.equal(e.calls[0][1].referrerPolicy,'no-referrer');assert.equal(JSON.parse(pub.after.slice(18)).stream,'public');
+ for(const extra of [{stream:'authenticated'},{stream:'public',sort:'hot'},{stream:'public',range:'day'}])assert.equal((await e.send({action:'profile',kind:'comment',username:'Example',after:pub.after,...extra})).ok,false);assert.equal(e.calls.length,1);
+ await e.send({action:'profile',kind:'comment',username:'Example',stream:'public',after:pub.after});assert.equal(new URL(e.calls[1][0]).searchParams.get('cursor'),'opaque_cursor');const auth=await e.send({action:'profile',kind:'comment',username:'Example'});assert.equal(e.calls[2][1].credentials,'include');assert.equal(e.calls[2][1].cache,'no-store');assert.equal(JSON.parse(auth.after.slice(18)).stream,'authenticated');assert.equal((await e.send({action:'profile',kind:'comment',username:'Example',stream:'public',after:auth.after})).ok,false);assert.equal((await e.send({action:'profile',kind:'post',username:'Example',stream:'public'})).ok,false);
+});
+test('comment discovery distinguishes empty searches from failed HTML and does not truncate native pages',async t=>{
+ for(const stream of ['authenticated','public']){const e=setup(t,{fetcher:async()=>nativeResponse('<h1>Try again later</h1>')});assert.equal((await e.send({action:'profile',kind:'comment',username:'Example',stream})).ok,false);}
+ const empty=setup(t,{fetcher:async()=>nativeResponse('<search-telemetry-tracker view-events="search/view/no_results" data-faceplate-tracking-context=\'{"action_info":{"reason":"empty"}}\'></search-telemetry-tracker>')});const result=await empty.send({action:'profile',kind:'comment',username:'Example',stream:'public'});assert.equal(result.ok,true);assert.equal(result.posts.length,0);assert.equal(result.hasMore,false);
+ const page=setup(t,{fetcher:async()=>nativeResponse(Array.from({length:27},(_,i)=>nativeCommentHtml().replaceAll('19rktoupyflj9','cmnt'+i)).join(''))});assert.equal((await page.send({action:'profile',kind:'comment',username:'Example',stream:'public'})).posts.length,27);
+});
+test('native card publication waits for its component definition and first render',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<shreddit-post id="t3_abc12">Native content</shreddit-post>')}),slot=nativeTarget(e,{defineCard:false});slot.dataset.rtNativeState='loading';let settled=false,finish;const result=e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id}).then(value=>{settled=true;return value;});await new Promise(r=>setImmediate(r));assert.ok(slot.querySelector('shreddit-post'));assert.equal(settled,false);assert.equal(slot.dataset.rtNativeState,'loading');e.W.customElements.define('shreddit-post',class extends e.W.HTMLElement{constructor(){super();this.updateComplete=new Promise(resolve=>finish=resolve);}});await new Promise(r=>setImmediate(r));assert.equal(settled,false);finish(true);assert.equal((await result).rendered,true);assert.equal(slot.dataset.rtNativeState,'ready');
+});
+test('native component readiness cannot publish into another route and a missing module times out',async t=>{
+ for(const mode of ['route','timeout']){const e=setup(t,{fetcher:async()=>nativeResponse('<shreddit-post id="t3_abc12">Native content</shreddit-post>')}),slot=nativeTarget(e,{defineCard:false});if(mode==='timeout'){const nativeTimer=e.W.setTimeout.bind(e.W);e.W.setTimeout=(cb,ms,...args)=>nativeTimer(cb,ms===10000?10:ms,...args);}const pending=e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});await new Promise(r=>setImmediate(r));if(mode==='route'){e.W.history.pushState({},'','/user/Other/');e.W.customElements.define('shreddit-post',class extends e.W.HTMLElement{});}const result=await pending;assert.equal(result.ok,false);assert.notEqual(slot.dataset.rtNativeState,'ready');assert.match(result.error,mode==='route'?/Page changed/:/timed out/);}
+});
 test('public comment status lookups use t1 identities and cannot escape post-detail scope',async t=>{
  const e=setup(t,{url:'https://www.reddit.com/user/Example/comments/'});await e.send({action:'info',kind:'comment',ids:['19rktoupyflj9']});assert.equal(new URL(e.calls[0][0]).searchParams.get('id'),'t1_19rktoupyflj9');
  const detail=setup(t,{url:'https://www.reddit.com/comments/abc12/title/'});assert.equal((await detail.send({action:'info',kind:'comment',ids:['19rktoupyflj9']})).ok,false);assert.equal(detail.calls.length,0);
 });
-function nativeTarget(e,{kind='post',id='abc12',target='rt-native-fixture'}={}){
- const w=e.W;let main=w.document.querySelector('main');if(!main){main=w.document.createElement('main');w.document.body.append(main);}const slot=w.document.createElement('div');slot.id=target;slot.dataset.rtUi='activity-item';slot.dataset.rtNativeFullname=(kind==='comment'?'t1_':'t3_')+id;main.append(slot);
+function nativeTarget(e,{kind='post',id='abc12',target='rt-native-fixture',defineCard=true}={}){
+ const w=e.W,tag=kind==='comment'?'shreddit-profile-comment':'shreddit-post';if(defineCard && !w.customElements.get(tag))w.customElements.define(tag,class extends w.HTMLElement{});let main=w.document.querySelector('main');if(!main){main=w.document.createElement('main');w.document.body.append(main);}const slot=w.document.createElement('div');slot.id=target;slot.dataset.rtUi='activity-item';slot.dataset.rtNativeFullname=(kind==='comment'?'t1_':'t3_')+id;main.append(slot);
  if(!w.customElements.get('faceplate-partial'))w.customElements.define('faceplate-partial',class extends w.HTMLElement{_renderContent(text){this.innerHTML=text;}});
  return slot;
 }
@@ -167,7 +183,7 @@ test('native reload discovery rejects foreign, credential-bearing and unrelated 
 test('native renderer startup defers cards without requests or fallback and fails within a bounded interval',async t=>{
  const e=setup(t,{fetcher:async()=>nativeResponse('<shreddit-post id="t3_abc12"></shreddit-post>')});e.W.document.body.innerHTML='<main><div id="rt-native-fixture" data-rt-ui="activity-item" data-rt-native-fullname="t3_abc12"></div></main>';const input={action:'render-card',username:'Example',kind:'post',postId:'abc12',target:'rt-native-fixture'},now=e.W.Date.now();e.W.Date.now=()=>now;
  const waiting=await e.send(input);assert.equal(waiting.deferred,true);assert.equal(waiting.reason,'renderer-startup');assert.equal(e.calls.length,0);e.W.Date.now=()=>now+10001;assert.match((await e.send(input)).error,/did not become ready/);assert.equal(e.calls.length,0);
- e.W.customElements.define('faceplate-partial',class extends e.W.HTMLElement{_renderContent(html){this.innerHTML=html;}});assert.equal((await e.send(input)).rendered,true);assert.equal(e.calls.length,1);
+ e.W.customElements.define('faceplate-partial',class extends e.W.HTMLElement{_renderContent(html){this.innerHTML=html;}});e.W.customElements.define('shreddit-post',class extends e.W.HTMLElement{});assert.equal((await e.send(input)).rendered,true);assert.equal(e.calls.length,1);
 });
 
 

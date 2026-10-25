@@ -63,18 +63,18 @@
     }
     ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
     schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.scan();},60);}
-    reset({retainNavigation=false}={}){this.feed?.removeAttribute('data-rt-activity');this.feed?.removeAttribute('data-rt-loading-owner');this.feedPresentationObserver?.disconnect();this.feedPresentationObserver=null;for(const [node,hidden] of this.filteredNative || []){node.hidden=hidden;node.removeAttribute('data-rt-filter-hidden');node.removeAttribute('data-rt-activity-match');const original=this.virtualNodes?.get(node);if(original){original.hidden=hidden;original.removeAttribute('data-rt-filter-hidden');original.removeAttribute('data-rt-activity-match');}}this.clearActivityMenu();this.controlsTarget?.remove();this.controlsTarget=null;if(this.commentSort){this.commentSort.node.hidden=this.commentSort.hidden;this.commentSort.node.removeAttribute('data-rt-comment-sort-suppressed');this.commentSort=null;}this.activityArchiveAttempted=false;this.activityEmpty?.remove();this.activityEmpty=null;this.activityFilter='all';this.filteredNative=new Map();this.postStatuses=new Map();this.restoreRecoveredBodies();this.profileNavigation?.remove();if(!retainNavigation){this.profileNavigation=null;this.navigationLease=crypto.randomUUID();}else if(this.profileNavigation?.dataset.state==='loading')this.profileNavigation.dataset.state='idle';this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();this.archiveNotice=this.archiveNoticeAnchor=this.archiveShell=this.archiveMain=this.archiveStats=this.avatarSlot=this.avatarPlaceholder=null;this.profileOverlay=false;this.profileTransition=false;this.presentedFeedNodes=null;this.archiveOnly=false;this.accountState='';this.generation++;this.recoveryObserver?.disconnect();this.recoveryObserver=null;this.recoveryObserved=new WeakSet();clearTimeout(this.recoveryTimer);this.recoveryTimer=null;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.batchObserver?.disconnect();this.batchObserver=null;this.nativeLoadingObserver?.disconnect();this.nativeLoadingObserver=null;this.nativeLoadingRoot=null;if(this.batchFrame)cancelAnimationFrame(this.batchFrame);this.batchFrame=null;this.activeProfileBatch=null;this.replyEnrichment=null;this.publishedCards=new Set();this.batchedProfile=false;this.batchInView=false;this.batchAutoPaused=false;this.forceProfileBatch=false;this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();this.replyContexts=new Map();this.replyAuthors=new Map();this.replyArchiveChecked=new Set();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
+    reset({retainNavigation=false}={}){this.flushVirtualization();this.feed?.removeAttribute('data-rt-activity');this.feed?.removeAttribute('data-rt-loading-owner');this.feedPresentationObserver?.disconnect();this.feedPresentationObserver=null;for(const [node,hidden] of this.filteredNative || []){node.hidden=hidden;node.removeAttribute('data-rt-filter-hidden');node.removeAttribute('data-rt-activity-match');const original=this.virtualNodes?.get(node);if(original){original.hidden=hidden;original.removeAttribute('data-rt-filter-hidden');original.removeAttribute('data-rt-activity-match');}}this.clearActivityMenu();this.controlsTarget?.remove();this.controlsTarget=null;if(this.commentSort){this.commentSort.node.hidden=this.commentSort.hidden;this.commentSort.node.removeAttribute('data-rt-comment-sort-suppressed');this.commentSort=null;}this.activityArchiveAttempted=false;this.activityEmpty?.remove();this.activityEmpty=null;this.activityFilter='all';this.filteredNative=new Map();this.postStatuses=new Map();this.restoreRecoveredBodies();this.profileNavigation?.remove();if(!retainNavigation){this.profileNavigation=null;this.navigationLease=crypto.randomUUID();}else if(this.profileNavigation?.dataset.state==='loading')this.profileNavigation.dataset.state='idle';this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();this.archiveNotice=this.archiveNoticeAnchor=this.archiveShell=this.archiveMain=this.archiveStats=this.avatarSlot=this.avatarPlaceholder=null;this.profileOverlay=false;this.profileTransition=false;this.presentedFeedNodes=null;this.archiveOnly=false;this.accountState='';this.generation++;this.recoveryObserver?.disconnect();this.recoveryObserver=null;this.recoveryObserved=new WeakSet();clearTimeout(this.recoveryTimer);this.recoveryTimer=null;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.batchObserver?.disconnect();this.batchObserver=null;this.nativeLoadingObserver?.disconnect();this.nativeLoadingObserver=null;this.nativeLoadingRoot=null;if(this.batchFrame)cancelAnimationFrame(this.batchFrame);this.batchFrame=null;this.activeProfileBatch=null;this.replyEnrichment=null;this.publishedCards=new Set();this.batchedProfile=false;this.batchInView=false;this.batchAutoPaused=false;this.forceProfileBatch=false;this.nativeBatch={active:0,queue:[]};this.postMetadata=new Map();this.replyContexts=new Map();this.replyAuthors=new Map();this.replyArchiveChecked=new Set();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
-      }else node.remove();}this.virtualNodes=new Map();this.loading?.remove();this.loading=null;this.host?.remove();this.host=null;this.feed=null;this.context=null;this.live=new Map();this.archived=new Map();this.nodes.clear();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;}
+      }else node.remove();}this.virtualNodes=new Map();this.loading?.remove();this.loading=null;this.host?.remove();this.host=null;this.feed=null;this.context=null;this.live=new Map();this.commentOrigins=new Map();this.archived=new Map();this.nodes.clear();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;}
     rememberProfile(){
       if(this.context?.kind!=='profile' || !this.settings.postDiscovery || this.settingsError || !(this.loaded || this.archiveLoaded))return;
       const previous=this.profileStates.get(this.context.key),owner=globalThis.RCSDirectory?.getOwner?.() || '',signature=[this.generation,this.renderVersion || 0,this.pages,this.live.size,this.archived.size,this.activityFilter,JSON.stringify(this.sourceErrors || {}),this.publishedCards.size,[...this.nodes.values()].filter(node=>node.dataset.rtNativeState==='ready').length].join(':');
       if(previous?.signature===signature && previous.owner===owner){if(pageRoute()?.key===this.context.key)previous.scrollY=window.scrollY || 0;return;}
       const saved={signature,owner,archiveOnly:this.archiveOnly,live:new Map(this.live),archived:new Map(this.archived),cards:new Map(),scrollY:pageRoute()?.key===this.context.key?window.scrollY || 0:previous?.scrollY || window.scrollY || 0};
       for(const name of ['loaded','archiveLoaded','pages','moreReddit','moreArchive'])saved[name]=this[name];
-      saved.sourceErrors={...this.sourceErrors};for(const name of ['afterByKind','beforeByKind','redMore','archiveMore'])saved[name]={...this[name]};saved.recoveryChecked=new Set(this.recoveryChecked);saved.activityFilter=this.activityFilter;saved.postStatuses=new Map(this.postStatuses);saved.publishedCards=new Set(this.publishedCards);saved.replyContexts=new Map(this.replyContexts);saved.replyAuthors=new Map(this.replyAuthors);saved.replyArchiveChecked=new Set(this.replyArchiveChecked);
+      saved.commentOrigins=new Map(this.commentOrigins);saved.sourceErrors={...this.sourceErrors};for(const name of ['afterByKind','beforeByKind','redMore','archiveMore'])saved[name]={...this[name]};saved.recoveryChecked=new Set(this.recoveryChecked);saved.activityFilter=this.activityFilter;saved.postStatuses=new Map(this.postStatuses);saved.publishedCards=new Set(this.publishedCards);saved.replyContexts=new Map(this.replyContexts);saved.replyAuthors=new Map(this.replyAuthors);saved.replyArchiveChecked=new Set(this.replyArchiveChecked);
       for(const [key,node] of this.nodes)if(node.dataset.rtNativeState==='ready'){const copy=node.cloneNode(true);copy.classList.remove('rt-native-enter');for(const script of copy.querySelectorAll('script'))script.remove();const partial=copy.firstElementChild;if(partial?.matches('faceplate-partial') && partial.querySelector('shreddit-post,shreddit-profile-comment'))partial.replaceWith(...partial.childNodes);saved.cards.set(key,copy);}
       saved.publishedCards=new Set([...saved.publishedCards].filter(key=>saved.cards.has(key)));
       this.profileStates.delete(this.context.key);this.profileStates.set(this.context.key,saved);
@@ -82,7 +82,7 @@
     }
     restoreProfile(context){
       const saved=this.profileStates.get(context.key);if(!saved || saved.owner!==(globalThis.RCSDirectory?.getOwner?.() || '') || saved.archiveOnly!==this.archiveOnly)return false;
-      this.profileStates.delete(context.key);this.sourceErrors={...saved.sourceErrors};this.recoveryChecked=new Set(saved.recoveryChecked);this.activityFilter=saved.activityFilter || 'all';this.postStatuses=saved.postStatuses || new Map();this.live=saved.live;this.archived=saved.archived;this.nodes=saved.cards;this.publishedCards=saved.publishedCards || new Set(saved.cards.keys());this.replyContexts=saved.replyContexts || new Map();this.replyAuthors=saved.replyAuthors || new Map();this.replyArchiveChecked=saved.replyArchiveChecked || new Set();
+      this.profileStates.delete(context.key);this.sourceErrors={...saved.sourceErrors};this.recoveryChecked=new Set(saved.recoveryChecked);this.activityFilter=saved.activityFilter || 'all';this.postStatuses=saved.postStatuses || new Map();this.live=saved.live;this.commentOrigins=saved.commentOrigins || new Map();this.archived=saved.archived;this.nodes=saved.cards;this.publishedCards=saved.publishedCards || new Set(saved.cards.keys());this.replyContexts=saved.replyContexts || new Map();this.replyAuthors=saved.replyAuthors || new Map();this.replyArchiveChecked=saved.replyArchiveChecked || new Set();
       for(const name of ['loaded','archiveLoaded','pages','moreReddit','moreArchive','afterByKind','beforeByKind','redMore','archiveMore'])this[name]=saved[name];
       for(const node of this.nodes.values())this.results.append(node);
       const generation=this.generation;if(saved.scrollY>0)requestAnimationFrame(()=>{if(generation===this.generation && pageRoute()?.key===context.key && window.scrollY===0)window.scrollTo({top:saved.scrollY,behavior:'instant'});});
@@ -92,11 +92,24 @@
       for(const record of records){
         if(record.target!==this.feed || record.addedNodes.length!==1 || record.removedNodes.length!==1)continue;
         const added=record.addedNodes[0],removed=record.removedNodes[0];
-        if(added.nodeType===1 && added.matches('.virtualized-placeholder')){this.virtualNodes.set(added,removed);if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}if(removed.dataset?.rtUi==='activity-item'){added.dataset.rtUi='activity-slot';added.hidden=removed.hidden;}if(removed.hasAttribute?.('data-rt-filter-hidden'))added.setAttribute('data-rt-filter-hidden','');if(removed.hasAttribute?.('data-rt-activity-match'))added.setAttribute('data-rt-activity-match','');}
+        if(added.nodeType===1 && added.matches('.virtualized-placeholder') && added.parentElement===this.feed){this.virtualNodes.set(added,removed);if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}if(removed.dataset?.rtUi==='activity-item'){added.dataset.rtUi='activity-slot';added.hidden=removed.hidden;}if(removed.hasAttribute?.('data-rt-filter-hidden'))added.setAttribute('data-rt-filter-hidden','');if(removed.hasAttribute?.('data-rt-activity-match'))added.setAttribute('data-rt-activity-match','');}
         else if(this.virtualNodes.get(removed)===added){if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}this.virtualNodes.delete(removed);}
       }
     }
-    feedSlot(node){for(const [placeholder,original] of this.virtualNodes || [])if(original===node && placeholder.parentElement===this.feed)return placeholder;return node;}
+    flushVirtualization(){
+      // A source promise may run before MutationObserver delivery. Consume the
+      // native swaps synchronously before locating/moving retained cards, so a
+      // detached original is never mistaken for an unmounted discovery.
+      if(this.flushingVirtualization)return;const records=this.feedPresentationObserver?.takeRecords();if(!records?.length)return;
+      this.flushingVirtualization=true;
+      try{this.trackVirtualization(records);
+        // Draining the observer also consumes native hydration/filter changes.
+        // Apply those before paint rather than dropping their presentation work.
+        if(this.activityFilter!=='all' && records.some(record=>!this.ownsMutation(record)))this.filterNativeEntries(this.nativeEntries());
+        if(records.some(record=>record.type==='childList' && [...record.addedNodes].some(node=>node.nodeType===1 && !node.closest?.('[data-rt-ui]'))))this.observeNativeLoading();
+      }finally{this.flushingVirtualization=false;}
+    }
+    feedSlot(node){this.flushVirtualization();for(const [placeholder,original] of this.virtualNodes || [])if(original===node && placeholder.parentElement===this.feed)return placeholder;return node;}
     capturePresentedFeed(){
       if(this.context?.kind==='profile' && pageRoute()?.key===this.context.key)this.presentedFeedNodes=new Set(this.nativeEntries().map(entry=>this.virtualNodes.get(entry.node) || entry.node));
     }
@@ -317,6 +330,7 @@
     kinds(){return this.context.view==='overview'?['post','comment']:[this.context.view==='comments'?'comment':'post'];}
     nativeEntries(){
       if(!this.feed)return [];
+      this.flushVirtualization();
       const entries=[];
       for(const slot of this.feed.children){
         const node=this.virtualNodes.get(slot) || slot;
@@ -376,11 +390,12 @@
       this.status.title=(deferred?`${deferred} older discoveries will appear when Reddit loads that part of the feed. `:'')+[...new Set(Object.entries(this.sourceErrors || {}).filter(([key,value])=>key.startsWith('metadata-') && value).map(([,value])=>value)),'Search and archive coverage may be incomplete.'].join(' ');
     }
     setStatus(text,error=false){this.status.textContent=text;this.status.dataset.error=String(error);}
-    async request(parameters){const controller=new AbortController();this.controllers.add(controller);try{
-      for(let attempt=0;;attempt++){
+    async request(parameters){const controller=new AbortController(),started=Date.now();this.controllers.add(controller);try{
+      for(;;){
+        if(Date.now()-started>=10000)throw Error('Reddit requests are paused. Please try again shortly.');
         const result=await this.reddit(parameters,controller.signal);if(!result?.deferred || parameters.action==='render-card')return result;
-        if(attempt>=2)throw Error('Reddit requests are paused. Please try again shortly.');
-        await new Promise((resolve,reject)=>{const cancel=()=>{clearTimeout(timer);reject(Error('Post request cancelled.'));},timer=setTimeout(()=>{controller.signal.removeEventListener('abort',cancel);resolve();},Math.max(100,Math.min(30000,Number(result.retryAfterMs)||1000)));controller.signal.addEventListener('abort',cancel,{once:true});if(controller.signal.aborted)cancel();});
+        const remaining=10000-(Date.now()-started);if(remaining<=0)throw Error('Reddit requests are paused. Please try again shortly.');
+        await new Promise((resolve,reject)=>{const cancel=()=>{clearTimeout(timer);reject(Error('Post request cancelled.'));},timer=setTimeout(()=>{controller.signal.removeEventListener('abort',cancel);resolve();},Math.min(remaining,Math.max(100,Number(result.retryAfterMs)||1000)));controller.signal.addEventListener('abort',cancel,{once:true});if(controller.signal.aborted)cancel();});
       }
     }finally{this.controllers.delete(controller);}}
     async run(task){
@@ -391,17 +406,21 @@
     }
     loadReddit({more=false}={}){if(!more){this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};}if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}return this.run(async current=>{
       const errors=[];let succeeded=false;
-      await Promise.all(this.kinds().map(async kind=>{
-        if(more && !this.redMore[kind])return;
-        const old=more?this.afterByKind[kind]:null;this.pages++;
-        try{const result=await this.request({action:'profile',username:this.context.username,sort:this.context.sort,range:this.context.range,kind,...(old?{after:old}:{})});if(!current())return;
-          const incoming=new Map();for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(p){this.live.set(itemKey(p),p);incoming.set(itemKey(p),p);}}
-          if(!more && this.context.sort==='hot'){
+      const streams=this.kinds().flatMap(kind=>kind==='comment'?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}]);
+      await Promise.all(streams.map(async ({kind,key,stream})=>{
+        if(more && !this.redMore[key])return;
+        const old=more?this.afterByKind[key]:null;this.pages++;
+        try{const result=await this.request({action:'profile',username:this.context.username,sort:this.context.sort,range:this.context.range,kind,...(stream?{stream}:{}),...(old?{after:old}:{})});if(!current())return;
+          const incoming=new Map();for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(!p || p.author.toLowerCase()!==this.context.username.toLowerCase())continue;const id=itemKey(p),previous=this.live.get(id);
+            if(stream==='public' && previous && this.commentOrigins.get(id)!=='public'){this.live.set(id,{...previous,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler});continue;}
+            const merged=previous?{...p,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler}:p;this.live.set(id,merged);incoming.set(id,merged);if(kind==='comment')this.commentOrigins.set(id,stream);
+          }
+          if(!more && this.context.sort==='hot' && stream!=='public'){
             const belongs=post=>(post.kind==='comment'?'comment':'post')===kind,group=new Map([...incoming,...[...this.live].filter(([id,p])=>belongs(p) && !incoming.has(id))]);
             this.live=new Map(this.kinds().flatMap(type=>type===kind?[...group]:[...this.live].filter(([,p])=>(p.kind==='comment'?'comment':'post')===type)));
           }
-          this.afterByKind[kind]=result.after;this.redMore[kind]=Boolean(result.hasMore && result.after && result.after!==old);succeeded=true;this.loaded=true;delete this.sourceErrors[kind];this.moreReddit=Object.values(this.redMore).some(Boolean);this.render();
-        }catch(error){if(!current())return;this.sourceErrors[kind]=error.message;errors.push((kind==='comment'?'Comments: ':'Posts: ')+error.message);}
+          this.afterByKind[key]=result.after;this.redMore[key]=Boolean(result.hasMore && result.after && result.after!==old);succeeded=true;this.loaded=true;delete this.sourceErrors[key];this.moreReddit=Object.values(this.redMore).some(Boolean);this.render();
+        }catch(error){if(!current())return;this.redMore[key]=false;this.sourceErrors[key]=error.message;errors.push((stream==='public'?'Public comments: ':kind==='comment'?'Comments: ':'Posts: ')+error.message);}
       }));
       if(!current())return;
       this.after=this.afterByKind.post;this.moreReddit=Object.values(this.redMore).some(Boolean);this.loaded=succeeded || this.loaded;this.render();
@@ -437,7 +456,7 @@
       const visible=this.visibleIds();return this.renderedPosts.filter(post=>{const node=this.nodes.get(itemKey(post));return node && (!this.publishedCards.has(itemKey(post)) || !['ready','failed'].includes(node.dataset.rtNativeState)) && !visible.has(post.fullname) && node.dataset.deferred!=='older';});
     }
     profileTailVisible(){const rect=this.loading.getBoundingClientRect();return this.batchInView && rect.top<=innerHeight*3 && rect.bottom>=0;}
-    primaryFailure(){return Object.entries(this.sourceErrors || {}).some(([key,value])=>value && !/^(metadata-|recovery$)/.test(key));}
+    primaryFailure(){return Object.entries(this.sourceErrors || {}).some(([key,value])=>value && !/^(metadata-|recovery$)/.test(key) && !(['post','comment','comment-public'].includes(key) && Object.values(this.redMore).some(Boolean)));}
     prefetchProfilePage(){
       if(pageRoute()?.key!==this.context?.key || !this.activeProfileBatch || this.busy || this.batchAutoPaused || this.primaryFailure() || this.nativeBatch.blocked || !this.batchObserver || !this.profileTailVisible() || !(this.moreReddit || this.moreArchive))return;
       // Overlap the next source read with hydration near the tail, with at most
