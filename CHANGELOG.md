@@ -1,3 +1,13 @@
+# 0.18.12 preview
+
+- Preserve the reading position across complete profile batch updates, including enrichment, native card visibility, filtering and loader handoff. Temporarily protect the feed height against intermediate bottom clamping and suppress native anchoring only during the synchronous update, then compensate the retained reading card once. Restore original inline style values and priorities; leave no permanent spacer.
+- Keep an already displayed discovery in its current slot while a matching incoming native duplicate is still gated, avoiding an empty gap before native handoff.
+- Suppress supplemental linear progress tracks in native feed/continuation components while retaining the Snoo halo. Scope shadow styles away from card/media roots, avoid duplicate injection and restore native presentation on opt-out.
+
+Version choice: PATCH to 0.18.12 for bottom-scroll stability and loading presentation in existing profile discovery. No permissions, persistent storage/schema or chat sync changes.
+
+Validation: all 706 tests pass, including 229 discovery/native-bridge checks. All 31 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Three scroll regressions fail on 0.18.11 and pass here: late enrichment, temporary bottom clamping and gated duplicate collapse. Additional coverage checks native halo retention, scoped media controls and loading-style cleanup. Validation used extension code and synthetic layout diagnostics without browser automation, as requested; the installed browser and exact screenshot element were not inspected live. Reload Reddit Tweaks and refresh Reddit to activate the bundle. Final document shortening at known exhaustion remains constrained by the browser's actual scroll range; no blank space is retained merely to preserve an impossible offset. Native response latency and search-index coverage remain external limitations.
+
 # 0.18.11 preview
 
 - Coordinate incoming native profile pages with discovered activity in New / All activity. Keep new native cards out of the displayed layout until discovery covers their dates and preceding discovered cards are ready, then reveal the combined chronological prefix. Retain the original native cards and already published discoveries through reverse scrolling and refresh.
