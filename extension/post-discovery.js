@@ -696,11 +696,16 @@
       // well as its Snoo halo. Keep only the halo; never style card/media roots.
       for(const root of [feed.shadowRoot,...[...feed.querySelectorAll('shreddit-feed-page-loading')].map(node=>node.shadowRoot)].filter(Boolean)){
         if([...this.nativeLoadingStyles].some(style=>style.parentNode===root))continue;
-        const style=make('style');style.dataset.rtUi='loading-style';style.textContent='faceplate-progress,progress{display:none!important}';root.append(style);this.nativeLoadingStyles.add(style);
+        const style=make('style');style.dataset.rtUi='loading-style';style.textContent='faceplate-progress,progress,hr{display:none!important}';root.append(style);this.nativeLoadingStyles.add(style);
       }
       const roots=[feed,feed.shadowRoot,...[...feed.querySelectorAll('shreddit-feed-page-loading')].filter(n=>!n.closest('[data-rt-ui]')).map(n=>n.shadowRoot)].filter(Boolean);if(this.nativeLoadingRoot?.feed===feed && roots.length===this.nativeLoadingRoot.roots.length && roots.every((root,i)=>root===this.nativeLoadingRoot.roots[i]))return;
       this.nativeLoadingObserver?.disconnect();this.nativeLoadingRoot={feed,roots};
-      this.nativeLoadingObserver=new MutationObserver(records=>{if(this.loading && records.some(r=>!this.ownsMutation(r)))this.updateProfileLoading();});
+      this.nativeLoadingObserver=new MutationObserver(records=>{
+        // Viewport preservation writes and restores these inline feed styles.
+        // Observing our own transaction would enqueue another transaction in
+        // every mutation microtask and starve rendering/input indefinitely.
+        if(this.loading && records.some(r=>!(r.type==='attributes' && r.attributeName==='style' && r.target===feed) && !this.ownsMutation(r)))this.updateProfileLoading();
+      });
       for(const root of roots)this.nativeLoadingObserver.observe(root,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','class','style']});
     }
     nativeFeedLoading(){
