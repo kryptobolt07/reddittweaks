@@ -75,6 +75,16 @@ test('worker committed reads bypass paused mutations while captures and clear re
   }finally{clearTimeout(timeout);release();await Promise.all([one,two,clearing]);}
   assert.deepEqual(order,['$one','$two']);assert.equal((await send('search')).total,0);
 });
+test('worker health responds independently of stalled saved storage without exposing account data',async t=>{
+  const broker=worker(t),sender={id:'test-extension',url:'https://www.reddit.com/chat/',tab:{id:1}};
+  broker.store.stats=()=>new Promise(()=>{});
+  broker.send({scope:'rcs-messages',action:'stats',owner:'@t2_me:reddit.com'},sender);
+  let timer;try{
+    const health=await Promise.race([broker.send({scope:'rcs-cache-health'},sender),new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('health check joined storage')),100))]);
+    assert.equal(JSON.stringify(health),JSON.stringify({ok:true}));
+    assert.equal(JSON.stringify(await broker.send({scope:'rcs-cache-health'},{...sender,id:'other-extension'})),JSON.stringify({ok:false}));
+  }finally{clearTimeout(timer);}
+});
 test('real global interface searches captured messages and receives redactions without directory or history reads',async t=>{
   const broker=worker(t),env=page(t,broker,1);await wait(30);
   env.emit(event('$visible','saved coffee'));await env.W.RCSMessages.flush();
