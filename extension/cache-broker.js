@@ -160,6 +160,9 @@ async function handleMessages(message,sender) {
   throw Error('Unknown message operation');
 }
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+  // Answer without opening storage or joining any queue. A timeout probe must
+  // distinguish a slow database read from a worker that cannot receive work.
+  if(message?.scope==='rcs-cache-health'){respond({ok:sender.id===chrome.runtime.id});return;}
   if(message?.scope!=='rcs-messages')return;
   // Reads see committed data without joining the capture/clear mutation queue.
   // Mutations retain their order and native producers still wait for their ack.

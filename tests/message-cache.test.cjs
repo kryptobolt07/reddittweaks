@@ -150,13 +150,13 @@ test('search estimates sum cached bytes without encoding saved messages again',a
   const store=new ctx.RCSMessageStore.Store({name:crypto.randomUUID()});await store.ingest(batch([event('$a','saved text')]));encodings=0;
   await store.search(owner);await store.search(owner,{roomId});await store.stats(owner);assert.equal(encodings,0);
 });
-function clientHarness({store,nativeImport,marked=false,ingestGate,readGate}={}){
+function clientHarness({store,nativeImport,marked=false,ingestGate,readGate,health=()=>({ok:true})}={}){
   const dom=new JSDOM('',{runScripts:'outside-only'}),win=dom.window;win.TextEncoder=TextEncoder;
   for(const file of ['search-core.js','message-store.js'])win.eval(fs.readFileSync(`extension/${file}`,'utf8'));
   store ||= new win.RCSMessageStore.Store({indexedDB:null});let active=owner,changed,failures=0,imports=0,marks=0;const calls=[],nativeArgs=[];
   const emit=value=>win.document.dispatchEvent(new win.CustomEvent('rcs-message-cache-batch',{detail:JSON.stringify(value)}));
   win.RCSData={request(method,parameters,onProgress){if(method==='identity-context')return {promise:Promise.resolve({owner:active})};if(method==='cache-native-history'){nativeArgs.push(parameters);imports++;return {promise:Promise.resolve().then(()=>nativeImport?.(emit,onProgress)).then(result=>result?.available===false?result:{available:true})};}throw Error('Unexpected native method');}};
-  win.chrome={runtime:{onMessage:{addListener(fn){changed=fn;}},async sendMessage(msg){calls.push(msg.action);if(msg.action==='stats'){const value=await store.stats(msg.owner,{committed:true});return {ok:true,...value,nativeImportComplete:marked || value.nativeImportComplete};}if(msg.action==='search'){const value=await store.search(msg.owner,{...msg,committed:true});await readGate;return {ok:true,...value};}if(msg.action==='room')return {ok:true,...await store.room(msg.owner,msg.roomId,undefined,{committed:true})};if(msg.action==='mark-native-import-complete'){marks++;return {ok:true,nativeImportComplete:await store.importState(msg.owner,true)};}if(msg.action==='ingest'){await ingestGate;if(failures-->0)return {ok:false,error:'Transient quota failure'};return {ok:true,...await store.ingest(msg)};}}}};
+  win.chrome={runtime:{onMessage:{addListener(fn){changed=fn;}},async sendMessage(msg){if(msg.scope==='rcs-cache-health')return health();calls.push(msg.action);if(msg.action==='stats'){const value=await store.stats(msg.owner,{committed:true});return {ok:true,...value,nativeImportComplete:marked || value.nativeImportComplete};}if(msg.action==='search'){const value=await store.search(msg.owner,{...msg,committed:true});await readGate;return {ok:true,...value};}if(msg.action==='room')return {ok:true,...await store.room(msg.owner,msg.roomId,undefined,{committed:true})};if(msg.action==='mark-native-import-complete'){marks++;return {ok:true,nativeImportComplete:await store.importState(msg.owner,true)};}if(msg.action==='ingest'){await ingestGate;if(failures-->0)return {ok:false,error:'Transient quota failure'};return {ok:true,...await store.ingest(msg)};}}}};
   win.eval(fs.readFileSync('extension/message-cache-client.js','utf8'));
   return {dom,win,store,calls,nativeArgs,emit,setActive(value){active=value;},fail(count){failures=count;},get imports(){return imports;},get marks(){return marks;},change(message){changed(message);}};
 }
@@ -183,6 +183,19 @@ test('a stalled cache check settles its activity while committed results remain 
 test('a stalled saved-message transport fails with a retryable error while other committed reads work',async t=>{
   const h=clientHarness({readGate:new Promise(()=>{})});t.after(()=>h.dom.window.close());const timer=h.win.setTimeout.bind(h.win);h.win.setTimeout=(fn,ms,...args)=>timer(fn,ms===15000?5:ms,...args);
   await h.store.ingest(batch([event('$cached','kept in storage')]));await assert.rejects(h.win.RCSMessages.search({}),/Reading saved messages took too long/);assert.equal((await h.win.RCSMessages.room(roomId)).records.length,1);
+});
+test('an unresponsive worker gives extension-reload instructions without losing saved data',async t=>{
+  let probes=0;const h=clientHarness({readGate:new Promise(()=>{}),health:()=>{probes++;return new Promise(()=>{});}});t.after(()=>h.dom.window.close());
+  const timer=h.win.setTimeout.bind(h.win);h.win.setTimeout=(fn,ms,...args)=>timer(fn,[15000,1000].includes(ms)?5:ms,...args);
+  await h.store.ingest(batch([event('$cached','kept in storage')]));
+  await Promise.all([1,2].map(()=>assert.rejects(h.win.RCSMessages.search({}),/background worker.*Reload Reddit Tweaks.*refresh this Reddit tab/)));
+  assert.equal(probes,1,'simultaneous read deadlines share one bounded worker probe');
+  assert.equal((await h.store.search(owner)).total,1);
+});
+test('health checking preserves terminal extension invalidation instead of offering a search retry',async t=>{
+  const h=clientHarness({readGate:new Promise(()=>{}),health:()=>{throw Error('Extension context invalidated.');}});t.after(()=>h.dom.window.close());
+  const timer=h.win.setTimeout.bind(h.win);h.win.setTimeout=(fn,ms,...args)=>timer(fn,ms===15000?5:ms,...args);
+  await assert.rejects(h.win.RCSMessages.search({}),error=>error.code==='RCS_CONTEXT_INVALIDATED');
 });
 test('successful capture acknowledgements keep a long active reconciliation from being reported as stalled',async t=>{
   const h=clientHarness({nativeImport:async emit=>{for(let i=0;i<5;i++){await new Promise(resolve=>setTimeout(resolve,10));emit(batch([event('$active-'+i,'active import')]));await h.win.RCSMessages.flush();}return {available:true};}});t.after(()=>h.dom.window.close());

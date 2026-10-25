@@ -4,7 +4,7 @@
   const dimensionPatches=new Map();let dimensionTimer=null,dimensionsRunning=false;
   const cacheErrors=new Map(),cacheProgress=new Map(),cacheActivity=new Map();
   const MAX_BATCHES=500,MAX_EVENTS=10000,MAX_BYTES=8*1024*1024;
-  let contextError=null;
+  let contextError=null,healthProbe=null;
   let owner=null,selfIdentity=null,nativeSelfIdentity=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
   const runtime=globalThis.chrome?.runtime,memory=!runtime?.sendMessage?new RCSMessageStore.Store({indexedDB:null}):null;
   const notify=value=>{if(owner && value.owner && value.owner!==owner)return;for(const listener of subscribers)try{listener(value);}catch{}};
@@ -26,12 +26,20 @@
     if(nativeSelfIdentity)selfIdentity={...selfIdentity,...nativeSelfIdentity,avatar:nativeSelfIdentity.avatar || selfIdentity?.avatar || ''};
     return owner;
   }
+  function workerResponsive(){
+    if(!healthProbe){let timer;healthProbe=(async()=>{
+      try{return await Promise.race([runtime.sendMessage({scope:'rcs-cache-health'}).then(value=>value?.ok===true),new Promise(resolve=>timer=setTimeout(()=>resolve(false),1000))]);}
+      catch(error){const failure=transportError(error);if(failure?.code==='RCS_CONTEXT_INVALIDATED')throw failure;return false;}
+      finally{clearTimeout(timer);}
+    })().finally(()=>{healthProbe=null;});}
+    return healthProbe;
+  }
   async function call(action,parameters={}) {
     if(contextError)throw contextError;
     if(runtime?.sendMessage){let timer;const reading=['search','room','stats','summaries'].includes(action);
-      try{const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(reading?'Reading saved messages took too long. Saved data is kept; try Refresh.':'Saving messages took too long. Saved data is kept; try Refresh.')),reading?15000:30000);});
+      try{const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(Error(reading?'Reading saved messages took too long. Saved data is kept; try Refresh.':'Saving messages took too long. Saved data is kept; try Refresh.'),{code:reading?'RCS_READ_TIMEOUT':'RCS_WRITE_TIMEOUT'})),reading?15000:30000);});
         const value=await Promise.race([runtime.sendMessage({scope:'rcs-messages',...parameters,action}),timeout]);if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;
-      }catch(error){throw transportError(error);}finally{clearTimeout(timer);}
+      }catch(error){if(error.code==='RCS_READ_TIMEOUT' && !await workerResponsive())throw Error('Reddit Tweaks’ background worker is not responding. Reload Reddit Tweaks, then refresh this Reddit tab. Saved data is kept.');throw transportError(error);}finally{clearTimeout(timer);}
     }
     if(action==='ingest')return memory.ingest(parameters);
     if(action==='image-dimensions')return memory.rememberDimensions(parameters);
