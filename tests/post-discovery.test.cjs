@@ -19,6 +19,15 @@ test('pagination uses Reddit cursors while refresh starts at the newest page',as
   const {d,calls}=setup(t,{reddit:async()=>({posts:[raw()],after:'t3_abc12',hasMore:true})});await d.ready;await d.loadReddit();await d.loadMore();await d.loadReddit();
   assert.equal(calls[0].after,undefined);assert.equal(calls[1].after,'t3_abc12');assert.equal(calls[2].after,undefined);assert.equal(d.moreReddit,true);
 });
+test('stable profile reconciliation never moves published cards around its own loading sentinel',async t=>{
+  const {W,d}=setup(t);await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
+  const card=d.nodes.get('abc12'),content=card.querySelector('shreddit-post'),observer=new W.MutationObserver(()=>{});observer.observe(d.feed,{childList:true});
+  d.deduplicate();d.deduplicate();
+  assert.equal(observer.takeRecords().length,0,'unchanged scans must not remove/reinsert cards or the tail');
+  const slot=W.document.createElement('div');slot.className='virtualized-placeholder';d.feed.replaceChild(slot,card);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[card]}]);observer.takeRecords();d.deduplicate();assert.equal(observer.takeRecords().length,0);
+  d.feed.replaceChild(card,slot);d.trackVirtualization([{target:d.feed,addedNodes:[card],removedNodes:[slot]}]);observer.takeRecords();d.deduplicate();
+  assert.equal(observer.takeRecords().length,0,'reverse scrolling restores the same card without another move');assert.equal(card.querySelector('shreddit-post'),content);assert.equal(d.feed.lastElementChild,d.loading);observer.disconnect();
+});
 test('archived text and current deletion status remain separately attributed',async t=>{
   const {d}=setup(t,{settings:{archiveDiscovery:true},nativeRender:async(post,node)=>{node.innerHTML='<shreddit-post><span slot="credit-bar"></span><p slot="text-body">[removed]</p></shreddit-post>';},reddit:async()=>({posts:[raw('old12',{selftext:'[removed]'})]})});await d.ready;await d.loadArchive();await new Promise(r=>setImmediate(r));
   assert.match((d.feed || d.results).textContent,/Public text/);assert.equal((d.feed || d.results).querySelector('details'),null);assert.match((d.feed || d.results).querySelector('[role=img]').title,/Removed on Reddit/);assert.match((d.feed || d.results).querySelector('[data-rt-source]').title,/Text recovered from Arctic Shift/);
