@@ -1,3 +1,12 @@
+# 0.18.13 preview
+
+- Fix the page-unresponsive regression introduced by 0.18.12 scroll preservation. The loading observer was responding to temporary inline feed-style writes by starting another viewport transaction, which wrote the same styles again and indefinitely restarted the mutation microtask. Exclude feed style records from loading-state triggers while retaining native loader visibility/content observations.
+- Hide the actual horizontal rules identified in the supplied inspector screenshot around the extension toolbar and native continuation. Include loader-owned shadow rules, retain card/body separators and restore native presentation on opt-out. The earlier progress-only selectors did not target this divider.
+
+Version choice: PATCH to 0.18.13 for the responsiveness regression and divider correction. No permissions, persistent storage/schema or chat sync changes.
+
+Validation: all 708 tests pass, including 231 discovery/native-bridge checks. All 31 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. A bounded regression detects six recursive callbacks on 0.18.12 versus none from viewport style writes with the fix, verifies timers run and confirms actual native loader changes remain observed. Divider checks preserve native halos and card/body rules and verify opt-out cleanup. Diagnosis used the supplied inspector screenshot and extension-level synthetic diagnostics; no browser automation or installed-build verification was performed. Reload Reddit Tweaks and refresh Reddit. If the previous build has frozen a tab, disable the extension and reload that tab before enabling the corrected build.
+
 # 0.18.12 preview
 
 - Preserve the reading position across complete profile batch updates, including enrichment, native card visibility, filtering and loader handoff. Temporarily protect the feed height against intermediate bottom clamping and suppress native anchoring only during the synchronous update, then compensate the retained reading card once. Restore original inline style values and priorities; leave no permanent spacer.
