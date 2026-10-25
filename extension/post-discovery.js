@@ -102,11 +102,11 @@
       // detached original is never mistaken for an unmounted discovery.
       if(this.flushingVirtualization)return;const records=this.feedPresentationObserver?.takeRecords();if(!records?.length)return;
       this.flushingVirtualization=true;
-      try{this.trackVirtualization(records);
+      try{this.withFeedViewport(()=>{this.trackVirtualization(records);
         // Draining the observer also consumes native hydration/filter changes.
         // Apply those before paint rather than dropping their presentation work.
         if(records.some(record=>!this.ownsMutation(record))){const entries=this.nativeEntries();this.syncNativeOrder(entries);if(this.activityFilter!=='all')this.filterNativeEntries(entries);}
-        if(records.some(record=>record.type==='childList' && [...record.addedNodes].some(node=>node.nodeType===1 && !node.closest?.('[data-rt-ui]'))))this.observeNativeLoading();
+        if(records.some(record=>record.type==='childList' && [...record.addedNodes].some(node=>node.nodeType===1 && !node.closest?.('[data-rt-ui]'))))this.observeNativeLoading();});
       }finally{this.flushingVirtualization=false;}
     }
     feedSlot(node){this.flushVirtualization();for(const [placeholder,original] of this.virtualNodes || [])if(original===node && placeholder.parentElement===this.feed)return placeholder;return node;}
@@ -401,8 +401,8 @@
     }
     deduplicate(){
       if(!this.host || this.context.kind!=='profile')return;
+      return this.withFeedViewport(()=>{
       this.syncActivityPresentation();
-      const viewport=this.captureFeedViewport();
       const entries=this.nativeEntries(),visible=this.visibleIds(),sort=this.context.sort,normal=entries.filter(e=>!e.pinned && (sort==='top'?Number.isFinite(e.score):sort==='hot' || Number.isFinite(e.timestamp))),rank=new Map(this.renderedPosts.map((post,index)=>[post.fullname,index]));
       this.syncNativeOrder(entries);
       const continuation=this.nativeContinuation();
@@ -416,22 +416,26 @@
       for(const post of this.renderedPosts || []){
         const node=this.nodes.get(itemKey(post));if(!node)continue;
         const slot=this.feedSlot(node),virtualized=slot!==node;
-        const duplicate=visible.has(post.fullname),older=this.activityFilter==='all' && !duplicate && !this.publishedCards.has(itemKey(post)) && (sort==='top'?post.score:post.created)<horizon;
+        const pendingDuplicate=this.publishedCards.has(itemKey(post)) && entries.some(entry=>entry.fullname===post.fullname && entry.node.hasAttribute('data-rt-order-pending'));
+        const duplicate=visible.has(post.fullname) && !pendingDuplicate,older=this.activityFilter==='all' && !duplicate && !this.publishedCards.has(itemKey(post)) && (sort==='top'?post.score:post.created)<horizon;
         const staged=this.batchedProfile && (!this.publishedCards.has(itemKey(post)) || !['ready','failed'].includes(node.dataset.rtNativeState));const matches=this.matchesActivity(post,node,visible),qualify=this.activityFilter==='deleted' && !duplicate && !older && !staged && !['deleted','removed'].includes(this.verifiedStatus(post,node.querySelector('shreddit-post,shreddit-profile-comment'))) && node.dataset.rtNativeState==='idle';node.hidden=duplicate || older || staged || !matches;
         if(qualify){node.dataset.rtQualify='true';this.queueNative(node);}node.dataset.deferred=older?'older':'';
         if(virtualized)slot.hidden=node.hidden;
         if(node.hidden){if(duplicate){const entry=entries.find(e=>e.fullname===post.fullname),original=this.virtualNodes.get(entry?.node) || entry?.node,native=original?.matches('shreddit-post,shreddit-profile-comment')?original:original?.querySelector('shreddit-post,shreddit-profile-comment');if(native && this.recoverBody(post,native)){this.nativeDecorations.add(native);this.decorateNative(post,native);}}this.nativeObserver?.unobserve(node);if(older)deferred++;if(!virtualized && !this.publishedCards.has(itemKey(post)) && node.parentElement!==this.results)this.results.append(node);continue;}
         count++;
+        // A newly fetched native duplicate may still be behind the merge gate.
+        // Retain its displayed peer in the same slot until native handoff.
+        if(pendingDuplicate && slot.parentElement===this.feed)continue;
         const target=normal.find(entry=>sort==='top'?entry.score<=post.score:sort==='hot'?rank.has(entry.fullname) && rank.get(entry.fullname)>rank.get(post.fullname):entry.timestamp<=post.created)?.node || tail;
         if(!buckets.has(target))buckets.set(target,[]);buckets.get(target).push(slot);
       }
       // Reconcile only extension-owned cards. Reddit retains ownership and order of its nodes.
       for(const [target,nodes] of buckets){let anchor=target;for(let i=nodes.length-1;i>=0;i--){const node=nodes[i];if(!this.virtualNodes.has(node) && (node.parentElement!==this.feed || node.nextElementSibling!==anchor))this.feed.insertBefore(node,anchor);anchor=node;}}
-      this.restoreFeedViewport(viewport);
       for(const nodes of buckets.values())for(const node of nodes)if(node.dataset.rtNativeState==='idle'){if(this.nativeObserver)this.nativeObserver.observe(node);else this.queueNative(node);}
       this.filterNativeEntries(entries);this.summaryCounts={count,deferred};this.updateActivityEmptyState();this.scheduleRecovery();
       if(this.emptyFeed){this.emptyFeed.hidden=this.activityFilter!=='all' || count>0 || this.emptyWasHidden;this.emptyFeed.toggleAttribute('data-rt-empty-suppressed',count>0);}
       if(!this.busy && this.status.dataset.error!=='true')this.summarize();this.updateProfileLoading();this.capturePresentedFeed();
+      });
     }
     summarize(){
       const {count=0,deferred=0}=this.summaryCounts || {},noun=this.context.view==='comments'?(count===1?'comment':'comments'):this.context.view==='overview'?(count===1?'item':'items'):count===1?'post':'posts';
@@ -535,18 +539,34 @@
       for(const node of this.feed.children){if(node.hidden || node===this.loading)continue;const rect=node.getBoundingClientRect();if(rect.height>0 && rect.bottom>56 && rect.top<innerHeight)return {node,top:rect.top,scrollY:window.scrollY};}
       return null;
     }
-    restoreFeedViewport(anchor){
-      if(!anchor || anchor.node.parentElement!==this.feed || anchor.node.hidden || window.scrollY!==anchor.scrollY)return;
-      const delta=anchor.node.getBoundingClientRect().top-anchor.top;
+    withFeedViewport(change){
+      if(!this.feed || this.feedViewportUpdate)return change();
+      const feed=this.feed,anchor=this.captureFeedViewport();if(!anchor)return change();
+      const properties=['min-height','overflow-anchor'],styles=properties.map(name=>[name,feed.style.getPropertyValue(name),feed.style.getPropertyPriority(name)]),height=feed.getBoundingClientRect().height;
+      const restore=name=>{const [,value,priority]=styles.find(style=>style[0]===name);if(value)feed.style.setProperty(name,value,priority);else feed.style.removeProperty(name);};
+      this.feedViewportUpdate=true;
+      // Reconciliation may hide a native tail before inserting its ready peers.
+      // Keep the document tall until the whole synchronous update is finished;
+      // otherwise bottom clamping changes scrollY between these operations.
+      feed.style.setProperty('min-height',height+'px','important');
+      feed.style.setProperty('overflow-anchor','none','important');
+      try{return change();}
+      finally{restore('min-height');try{if(this.feed===feed)this.restoreFeedViewport(anchor,true);}finally{restore('overflow-anchor');this.feedViewportUpdate=false;}}
+    }
+    restoreFeedViewport(anchor,layoutUpdate=false){
+      if(!anchor || anchor.node.parentElement!==this.feed || anchor.node.hidden || anchor.node.hasAttribute('data-rt-order-pending') || !layoutUpdate && window.scrollY!==anchor.scrollY)return;
+      const rect=anchor.node.getBoundingClientRect();if(rect.height<=0)return;const delta=rect.top-anchor.top;
       if(Math.abs(delta)>1)window.scrollBy({top:delta,behavior:'instant'});
     }
     render({reuseCards=false}={}){
+      return this.withFeedViewport(()=>{
       this.renderVersion=(this.renderVersion || 0)+1;
       const posts=M.mergePosts([...this.live.values()],[...this.archived.values()],{username:this.context.username,visibleIds:this.visibleIds(),sort:this.context.sort,range:this.context.range});
       for(const post of posts){const key=itemKey(post);this.postMetadata.set(key,post);const previous=this.nodes.get(key);if(previous){if(reuseCards)continue;if(previous.dataset.rtArchiveFallback==='true'){this.renderArchivedNative(post,previous);this.decorateNative(post,previous);}else if(previous.dataset.rtNativeState==='ready')this.decorateNative(post,previous);continue;}const node=this.card(post);this.results.append(node);this.nodes.set(key,node);}
       this.renderedPosts=posts;
       this.deduplicate();this.more.hidden=!this.hasMoreProfile();
       this.summarize();this.updateProfileLoading();this.updateActivityEmptyState();if(this.activeProfileBatch)this.settleProfileBatch();if(this.batchedProfile)this.advanceProfileBatch(this.forceProfileBatch===true);this.forceProfileBatch=false;
+      });
     }
     pendingProfilePosts(){
       const visible=this.visibleIds();return this.renderedPosts.filter(post=>{const node=this.nodes.get(itemKey(post));return node && this.eligibleProfilePost(post,node) && this.canPublishProfilePost(post) && (!this.publishedCards.has(itemKey(post)) || !['ready','failed'].includes(node.dataset.rtNativeState)) && !visible.has(post.fullname) && node.dataset.deferred!=='older';});
@@ -572,6 +592,7 @@
     }
     updateProfileLoading(){
       if(!this.feed || !this.loading)return;
+      return this.withFeedViewport(()=>{
       const pending=this.batchedProfile && this.pendingProfilePosts().length>0,more=this.hasMoreProfile();
       const paused=this.nativeBatch.blocked || (this.batchAutoPaused || this.primaryFailure()) && !pending && !this.activeProfileBatch;
       const work=this.busy || this.archiveBusy || this.activeProfileBatch || this.nativeBatch.active || this.nativeBatch.queue.length || this.metadataPending || this.recoveryActive;
@@ -587,6 +608,7 @@
       this.prefetchProfilePage();
       if(!this.activeProfileBatch && !this.busy && !this.archiveBusy && !this.metadataPending && !paused && this.batchObserver && !this.loading.hidden && !this.batchFrame){const generation=this.generation;this.batchFrame=requestAnimationFrame(()=>{this.batchFrame=null;if(generation===this.generation && this.host?.isConnected && this.profileTailVisible())this.continueProfile();});}
       this.updateActivityEmptyState();
+      });
     }
     advanceProfileBatch(force=false){
       if(!this.batchedProfile || pageRoute()?.key!==this.context?.key)return;
