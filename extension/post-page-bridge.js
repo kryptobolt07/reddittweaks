@@ -51,6 +51,13 @@
       return page;
     }catch{throw Error('Invalid Reddit page cursor. Refresh activity to start again.');}
   }
+  function commentPageCursor(cursor,stream,username,sort,range){return cursor?'rt-comment-search:'+JSON.stringify({cursor,stream,username:username.toLowerCase(),sort,range}):null;}
+  function readCommentCursor(value,stream,username,sort,range){
+    if(value==null)return null;
+    try{if(typeof value!=='string' || value.length>8192 || !value.startsWith('rt-comment-search:'))throw Error();const page=JSON.parse(value.slice(18));
+      if(page.stream!==stream || page.username!==username.toLowerCase() || page.sort!==sort || page.range!==range || typeof page.cursor!=='string' || !page.cursor || page.cursor.length>4096 || /[\u0000-\u001f]/.test(page.cursor))throw Error();return page.cursor;
+    }catch{throw Error('Invalid Reddit comment cursor. Refresh activity to start again.');}
+  }
   function postListing(text,username,{sort='new',range='all'}={}){
     const doc=new DOMParser().parseFromString(text,'text/html'),posts=[],seen=new Set();
     // Crossposts have no search-sdui-post test ID. Their outer view tracker is
@@ -79,10 +86,11 @@
     if(!cards.length && !cursor){const empty=doc.querySelector('search-telemetry-tracker[view-events="search/view/no_results"]');let reason;try{reason=JSON.parse(empty?.getAttribute('data-faceplate-tracking-context')).action_info?.reason;}catch{}if(reason!=='empty')throw Error('Reddit returned an unrecognized post search response.');}
     return {posts,after:postPageCursor(cursor,'shreddit',username,sort,range),hasMore:Boolean(cursor),incomplete:true,source:'reddit'};
   }
-  function commentListing(text,username,{sort='new',range='all'}={}){
-    const doc=new DOMParser().parseFromString(text,'text/html'),posts=[];
+  function commentListing(text,username,{sort='new',range='all',stream='authenticated'}={}){
+    const doc=new DOMParser().parseFromString(text,'text/html'),posts=[],seen=new Set();
     const cards=doc.querySelectorAll('[data-testid="search-sdui-comment-unit"]');
-    for(const card of [...cards].slice(0,25)){
+    if(cards.length>100)throw Error('Reddit returned an unexpected comment listing.');
+    for(const card of cards){
       try{
         const context=JSON.parse(card.closest('search-telemetry-tracker')?.getAttribute('data-faceplate-tracking-context') || '{}');
         const content=card.querySelector('[data-testid="search-comment-content"]');
@@ -91,20 +99,17 @@
         const parts=[...content.querySelectorAll('[id$="-post-rtjson-content"] p')].map(p=>p.textContent.trim());
         const body=parts.length?parts.join('\n\n'):content.querySelector('[id$="-post-rtjson-content"]')?.textContent?.trim();
         const post=M.normalizeComment({id:context.comment?.id,author,body,link_id:context.comment?.post_id || context.post?.id,
-          link_title:context.post?.title,subreddit:context.subreddit?.name,over_18:context.post?.nsfw,spoiler:context.post?.spoiler,
+          ...(Object.hasOwn(context.comment || {},'parent_id')?{parent_id:context.comment.parent_id}:{}),link_title:context.post?.title,subreddit:context.subreddit?.name,over_18:context.post?.nsfw===true || context.subreddit?.nsfw===true,spoiler:context.post?.spoiler,
           created_utc:Date.parse(content.querySelector('faceplate-timeago')?.getAttribute('ts'))/1000,
           score:Number(content.querySelector('faceplate-number')?.getAttribute('number')) || 0,
           permalink:card.querySelector('a[aria-labelledby^="comment-content-"]')?.getAttribute('href')});
-        if(post)posts.push(post);
+        if(post && !seen.has(post.fullname)){seen.add(post.fullname);posts.push(post);}
       }catch{ /* A malformed card cannot become an unsafe or misattributed result. */ }
     }
     if(cards.length && !posts.length)throw Error('Reddit’s comment format changed. Comments could not be read.');
-    let after=null;
-    for(const part of doc.querySelectorAll('faceplate-partial[loading="lazy"][src]')){
-      try{const u=new URL(part.getAttribute('src'),location.origin),cursor=u.searchParams.get('cursor');
-        if(u.origin===location.origin && u.pathname==='/svc/shreddit/search/' && u.searchParams.get('q')===`author:"${username}"` && u.searchParams.get('type')==='comments' && (u.searchParams.get('sort') || 'new')===sort && (sort!=='top' || (u.searchParams.get('t') || 'all')===range) && typeof cursor==='string' && cursor.length<=4096)after=cursor;
-      }catch{}
-    }
+    const cursor=searchCursor(doc,username,'comments',sort,range);
+    if(!cards.length && !cursor){let reason;try{reason=JSON.parse(doc.querySelector('search-telemetry-tracker[view-events="search/view/no_results"]')?.getAttribute('data-faceplate-tracking-context')).action_info?.reason;}catch{}if(reason!=='empty')throw Error('Reddit returned an unrecognized comment search response.');}
+    const after=commentPageCursor(cursor,stream,username,sort,range);
     return {posts,after,hasMore:Boolean(after),incomplete:true,source:'reddit'};
   }
   function navigationText(lease){
@@ -317,6 +322,10 @@
         const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.src=url.pathname+url.search;partial.renderMode='contents';
         target.replaceChildren(partial);partial._renderContent(text);
         if(!target.querySelector(selector))throw Error('Reddit could not attach its native card.');
+        const tag=comments?'shreddit-profile-comment':'shreddit-post';
+        await waitNative(customElements.whenDefined(tag),controller.signal);
+        const native=target.querySelector(selector);if(native?.updateComplete)await waitNative(Promise.resolve(native.updateComplete),controller.signal);
+        if(location.pathname+location.search!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target || !native || !target.contains(native))throw Error('Page changed. Try again.');
         target.dataset.rtNativeState='ready';return {rendered:true,fullname};
       })();
       const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Native card loading timed out.'));},10000);});
@@ -334,10 +343,12 @@
     const sort=input.sort ?? 'new',range=input.range ?? 'all';
     if(!['new','hot','top'].includes(sort) || !['hour','day','week','month','year','all'].includes(range))throw Error('Invalid public feed sort.');
     if(input.kind!=null && !['post','comment'].includes(input.kind))throw Error('Invalid content type.');
-    const url=new URL('/api/info.json',location.origin);let nativeSearch=false,postPage=null;
+    const stream=input.stream ?? 'authenticated';
+    if(input.stream!=null && (input.action!=='profile' || !comments || !['authenticated','public'].includes(stream)))throw Error('Invalid comment discovery stream.');
+    const url=new URL('/api/info.json',location.origin);let nativeSearch=false,postPage=null,commentCursor=null;
     if(input.action==='profile'){
       if(!context.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Profile changed. Try again.');
-      if(comments && input.after!=null && (typeof input.after!=='string' || input.after.length>4096 || /[\u0000-\u001f]/.test(input.after)))throw Error('Invalid Reddit page cursor.');
+      if(comments)commentCursor=readCommentCursor(input.after,stream,input.username,sort,range);
       if(!comments)postPage=readPostCursor(input.after,input.username,sort,range);
       // Signed-in Shreddit omits posts for explicitly blocked profiles in live
       // comparisons. Keep the existing authenticated JSON path for that case;
@@ -345,7 +356,7 @@
       const blocked=!comments && Boolean(document.querySelector('#right-sidebar-container faceplate-tracker[source="profile"][noun="unblock_user"]'));
       nativeSearch=comments || (postPage?.transport || (blocked?'json':'shreddit'))==='shreddit';
       url.pathname=nativeSearch?'/svc/shreddit/search/':'/search.json';url.searchParams.set('q',`author:"${input.username}"`);url.searchParams.set('type',comments?'comments':nativeSearch?'posts':'link');url.searchParams.set('sort',sort);if(sort==='top')url.searchParams.set('t',range);url.searchParams.set('limit','25');
-      if(input.after)url.searchParams.set(nativeSearch?'cursor':'after',comments?input.after:postPage.cursor);
+      if(input.after)url.searchParams.set(nativeSearch?'cursor':'after',comments?commentCursor:postPage.cursor);
     }else if(input.action==='info'){
       if(!Array.isArray(input.ids) || !input.ids.length || input.ids.length>25 || !input.ids.every(id=>comments?M.validateCommentId(id):M.validateId(id)))throw Error('Invalid public post IDs.');
       const ids=input.ids.map(id=>id.toLowerCase().replace(/^t[13]_/, ''));
@@ -361,12 +372,12 @@
     let timer;
     try{
       const operation=(async()=>{
-        const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:nativeSearch?'text/vnd.reddit.partial+html, text/html;q=0.9':'application/json'},signal:controller.signal});
+        const response=await fetch(url.href,{method:'GET',credentials:comments && nativeSearch && stream==='public'?'omit':'include',...(comments && nativeSearch?{cache:'no-store',referrerPolicy:'no-referrer'}:{}),redirect:'error',headers:{Accept:nativeSearch?'text/vnd.reddit.partial+html, text/html;q=0.9':'application/json'},signal:controller.signal});
         if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));throw Error('Reddit rate limit reached. Try again later.');}
         if(!response.ok)throw Error(`Reddit could not load public posts (HTTP ${response.status}).`);
         const text=await boundedText(response);
         if(location.pathname+location.search!==path || controller.signal.aborted)throw Error('Page changed. Try again.');
-        if(nativeSearch)return (comments?commentListing:postListing)(text,input.username,{sort,range});
+        if(nativeSearch)return (comments?commentListing:postListing)(text,input.username,{sort,range,stream});
         let data;try{data=JSON.parse(text);}catch{throw Error('Reddit returned an unexpected response.');}
         if(!Array.isArray(data?.data?.children) || data.data.children.length>100)throw Error('Reddit returned an unexpected post listing.');
         if(location.pathname+location.search!==path || controller.signal.aborted)throw Error('Page changed. Try again.');
