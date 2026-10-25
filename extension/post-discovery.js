@@ -99,19 +99,25 @@
     capturePresentedFeed(){
       if(this.context?.kind==='profile' && pageRoute()?.key===this.context.key)this.presentedFeedNodes=new Set(this.nativeEntries().map(entry=>this.virtualNodes.get(entry.node) || entry.node));
     }
-    outgoingProfileVisible(context){
-      if(this.archiveOnly || this.context?.kind!=='profile' || context?.kind!=='profile' || this.context.username.toLowerCase()!==context.username.toLowerCase() || this.context.view===context.view || !this.host?.isConnected || !this.feed?.isConnected)return false;
-      const main=this.feed.closest('main'),tabs=main?.querySelector('#profile-feed-tabgroup');
-      if(!tabs || tabs.closest('[data-rt-ui]') || main.querySelector('shreddit-feed')!==this.feed)return false;
+    presentedProfileVisible(){
+      if(this.context?.kind!=='profile' || !this.host?.isConnected || !this.feed?.isConnected)return false;
+      if(this.archiveOnly)return Boolean(this.archiveShell?.isConnected && this.archiveShell.contains(this.feed));
+      if(this.feed.closest('main')?.querySelector('shreddit-feed')!==this.feed)return false;
       const current=this.nativeEntries().map(entry=>this.virtualNodes.get(entry.node) || entry.node);
-      // Selection and URL change before Reddit swaps the outgoing feed. The
-      // retained native objects, including virtualized ones, identify that view.
+      // Route and header changes precede the feed replacement. Retained native
+      // objects (including virtualized ones) identify the outgoing view, even
+      // after Reddit removes its profile tabs. IDs can recur in the post view.
       return this.presentedFeedNodes?.size?current.some(node=>this.presentedFeedNodes.has(node)):current.length===0;
+    }
+    outgoingProfileVisible(context){
+      if(this.archiveOnly || context?.kind!=='profile' || this.context?.kind!=='profile' || this.context.username.toLowerCase()!==context.username.toLowerCase() || this.context.view===context.view)return false;
+      const tabs=this.feed?.closest('main')?.querySelector('#profile-feed-tabgroup');
+      return Boolean(tabs && !tabs.closest('[data-rt-ui]') && this.presentedProfileVisible());
     }
     scan(){
       this.syncProfileNotice();
       const context=pageRoute();
-      if((context?.kind==='post' || context?.kind!=='profile' && !/^\/user\//i.test(location.pathname)) && this.context?.kind==='profile' && this.host?.isConnected && document.querySelector('#profile-feed-tabgroup')){this.profileOverlay=true;return;}
+      if(this.settings.postDiscovery && (context?.kind==='post' || context?.kind!=='profile' && !/^\/user\//i.test(location.pathname)) && this.presentedProfileVisible()){this.profileOverlay=true;return;}
       if((this.profileOverlay || this.profileTransition) && context?.key===this.context?.key){this.profileOverlay=false;this.profileTransition=false;if(!this.nativeBatch.active)for(const node of this.nodes.values())if(node.dataset.rtNativeState==='loading')node.dataset.rtNativeState='idle';for(const node of this.activeProfileBatch?.nodes || [])if(node.dataset.rtNativeState==='idle')this.queueNative(node);this.settleProfileBatch();}
       if((!this.settings.postDiscovery && !this.settingsError) || !context || location.hostname==='old.reddit.com'){if(this.host || this.context){if(this.settings.postDiscovery)this.rememberProfile();this.reset();}return;}
       if(this.outgoingProfileVisible(context)){this.profileTransition=true;return;}
