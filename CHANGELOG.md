@@ -1,3 +1,15 @@
+# 0.18.7 preview
+
+- Supplement authenticated comment discovery with a cookie-free public Reddit search stream in Comments and Overview. A live uncached comparison for the reported chuggingdeemer profile returned zero signed-in cards and ten public cards from r/TheLaptopGuide; a matching authenticated native comment fragment also returned successfully.
+- Give each comment stream independent, scope-bound cursors, exhaustion/failure state and metadata precedence. Deduplicate full comment IDs, prefer signed-in metadata regardless of arrival order, preserve restriction flags and display successful sources progressively. Failed sources remain explicit and retry on Refresh without blocking healthy continuation. Keep cookies and account settings unchanged, bypass HTTP cache for both discovery variants, and retain authenticated native rendering/actions.
+- Preserve all returned native comment cards up to the existing response bound; validate empty/error responses and continuations, and retain available parent IDs for reply context. Allow bounded local provider backpressure to settle rather than failing a third Overview source after only two short waits.
+- Consume pending native virtualization swaps before reconciliation/cleanup so a concurrent result completion cannot reinsert an original card that Reddit has just placed in its retained scroll stack. Preserve consumed filter/hydration updates before paint and ignore obsolete placeholder records.
+- Wait for a native card's component definition and first render before publishing its populated prefix. Missing modules stay behind the shared loader until the existing timeout produces a retryable error; canceled or replaced views cannot receive the result.
+
+Version choice: PATCH to 0.18.7 for missing public-comment coverage and blank-region reliability fixes in existing profile discovery. No new permissions, persistent storage/schema changes or chat sync changes.
+
+Validation: all 670 tests pass, including 193 targeted discovery/native-bridge checks. All 31 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. The synchronous placeholder regression failed before the fix by reconnecting the detached original prematurely and passes afterward with the same populated object retained. Live Brave checked public versus signed-in comment search, author/community metadata and authenticated native rendering. Final installed-build UI verification requires reloading the extension and refreshing Reddit. Search/archive coverage remains incomplete; Reddit may refuse individual reads, and native response/rendering contracts can change.
+
 # 0.18.6 preview
 
 - Retain the combined native/search/archive profile feed while opening a post, even when Reddit removes the profile tabs ahead of the feed. Track actual native objects, including virtualized originals, until the post view takes over; canceled navigation preserves the same cards and filters, while replacement views and opt-out clean up immediately.
