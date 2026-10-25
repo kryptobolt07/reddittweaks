@@ -57,3 +57,9 @@ shreddit-feed[data-rt-activity="deleted"]>:not([data-rt-ui]):not([data-rt-activi
 shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]{min-height:1px}
 
 .rt-native-card:is([data-rt-native-state="idle"],[data-rt-native-state="queued"],[data-rt-native-state="loading"]){display:none!important}
+
+/* Publish a combined date prefix; retain native objects behind the shared halo. */
+[data-rt-order-pending]{display:none!important}
+shreddit-feed[data-rt-merge-waiting] shreddit-feed-load-more-observer:not([data-rt-ui] *),
+shreddit-feed[data-rt-merge-waiting] faceplate-partial[slot="load-after"]:not(:has(shreddit-post,shreddit-profile-comment)):not([data-rt-ui] *),
+shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui] *){display:none!important}
