@@ -21,6 +21,9 @@
       // that was emitted while nobody could persist it.
       captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();nativeCapture.snapshots.clear();
       seedNativeTimelines(nativeCapture.ctx,{force:true});
+      // The original connection announcement may have preceded the isolated
+      // consumer too. Replay it so disk-only history imports without search.
+      announceNativeCache(nativeCapture.ctx,{force:true});
     }
   });
   let watchedSignature='';
@@ -154,10 +157,10 @@
     seedNativeTimelines(ctx);
     announceNativeCache(ctx);
   }
-  function announceNativeCache(ctx) {
+  function announceNativeCache(ctx,{force=false}={}) {
     const state=nativeCapture;if(state?.client!==ctx.client || state.owner!==ctx.client.getUserId())return;
     const db=ctx.client.store?.backend?.db,sourceReady=db?.name==='reddit-chat-store' && db.objectStoreNames?.contains('room_timeline');
-    if(state.announced && (!sourceReady || state.localSource===db))return;
+    if(!force && state.announced && (!sourceReady || state.localSource===db))return;
     if(sourceReady && state.localSource && state.localSource!==db)state.attachment=crypto.randomUUID();
     state.announced=true;state.localSource=sourceReady?db:null;state.attachment ||= crypto.randomUUID();
     document.dispatchEvent(new CustomEvent('rcs-message-cache-connected',{detail:JSON.stringify({owner:state.owner,attachment:state.attachment,sourceReady:Boolean(sourceReady)})}));

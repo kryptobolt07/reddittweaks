@@ -17,7 +17,7 @@ function worker(t,idb=new IDBFactory()){
   const send=(message,sender)=>new Promise(resolve=>{for(const listener of listeners)listener(message,sender,resolve);});
   return {tabs,send,store:vm.runInContext('messages',context)};
 }
-function page(t,broker,id,owner='@t2_me:reddit.com',configure=()=>{}){
+function page(t,broker,id,owner='@t2_me:reddit.com',configure=()=>{},{deferConsumer=false}={}){
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat/',runScripts:'outside-only',pretendToBeVisual:true});
   t.after(()=>dom.window.close());const W=dom.window;W.TextEncoder=TextEncoder;W.matchMedia=()=>({matches:true});
   W.chrome={runtime:{sendMessage:message=>broker.send(message,{id:'test-extension',url:W.location.href,tab:{id}}),onMessage:{addListener:fn=>broker.tabs.set(id,fn)}}};
@@ -27,10 +27,24 @@ function page(t,broker,id,owner='@t2_me:reddit.com',configure=()=>{}){
   const handlers=new Map();client.on=(type,fn)=>{if(!handlers.has(type))handlers.set(type,new Set());handlers.get(type).add(fn);};client.off=(type,fn)=>handlers.get(type)?.delete(fn);
   const emit=event=>{for(const fn of handlers.get('event') || [])fn({event});};client.emitSync=()=>{for(const fn of handlers.get('sync') || [])fn();};
   // Register the isolated listener before native watchers start, as document_start does.
-  for(const file of ['extension/data-client.js','extension/message-store.js','extension/message-cache-client.js','extension/page-bridge.js'])W.eval(source(file));
-  return {W,api,client,emit};
+  for(const file of ['extension/data-client.js','extension/message-store.js'])W.eval(source(file));
+  const attachConsumer=()=>W.eval(source('extension/message-cache-client.js'));
+  if(!deferConsumer)attachConsumer();W.eval(source('extension/page-bridge.js'));
+  return {W,api,client,emit,attachConsumer};
 }
 const event=(id,body,extras={})=>({event_id:id,room_id:'alex',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:1791432000000,content:{body},...extras});
+test('a consumer attaching after native startup imports disk-only history without opening search',async t=>{
+  const broker=worker(t),factory=new IDBFactory(),db=await new Promise((resolve,reject)=>{const open=factory.open('reddit-chat-store',1);open.onupgradeneeded=()=>open.result.createObjectStore('room_timeline',{keyPath:['room_id','scope','parent_id','seq_id']});open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});t.after(()=>db.close());
+  await new Promise(resolve=>{const tx=db.transaction('room_timeline','readwrite');tx.objectStore('room_timeline').put({room_id:'alex',scope:'',parent_id:'',seq_id:1,content:event('$disk-only','saved before the consumer attached')});tx.oncomplete=resolve;});
+  const env=page(t,broker,1,undefined,(client,W)=>{client.getRooms=()=>[];client.store={backend:{db}};W.IDBKeyRange=IDBKeyRange;},{deferConsumer:true});
+  await wait(30);assert.equal((await broker.store.stats('@t2_me:reddit.com')).stats.messages,0);
+  const calls=[],send=broker.send;broker.send=(message,...args)=>{calls.push(message.action);return send(message,...args);};
+  env.attachConsumer();
+  await until(()=>calls.includes('mark-native-import-complete'));
+  assert.equal((await broker.store.search('@t2_me:reddit.com')).records[0].id,'$disk-only');
+  assert.equal(calls.includes('search'),false);assert.equal(env.api.calls.length,0);
+  env.client.emitSync();await wait(20);assert.equal(calls.filter(action=>action==='mark-native-import-complete').length,1,'sync heartbeats do not repeat the import');
+});
 test('native capture, worker persistence, reload and account isolation share global and room search',async t=>{
   const broker=worker(t),first=page(t,broker,1);await wait(30);
   first.emit(event('$one','saved coffee'));
