@@ -4,13 +4,48 @@ const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
 function setup(t,{url='https://www.reddit.com/user/Example/',fetcher}={}){
   const dom=new JSDOM('<body></body>',{url,runScripts:'outside-only'}),W=dom.window,calls=[];t.after(()=>W.close());W.AbortController=AbortController;
-  W.fetch=async(...args)=>{calls.push(args);return fetcher?fetcher(...args):{ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({data:{children:[{kind:'t3',data:{id:'abc12',author:'Example',title:'Public',created_utc:1700000000}}],after:'t3_abc12'}})};};
+  W.fetch=async(...args)=>{calls.push(args);return fetcher?fetcher(...args):{ok:true,status:200,headers:new Headers(),text:async()=>new URL(args[0]).pathname==='/svc/shreddit/search/'?nativePostHtml():JSON.stringify({data:{children:[{kind:'t3',data:{id:'abc12',author:'Example',title:'Public',created_utc:1700000000}}],after:'t3_abc12'}})};};
   for(const file of ['post-model.js','post-page-bridge.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
   function send(input){return new Promise(resolve=>{const id=crypto.randomUUID(),channel='test';const listener=e=>{const r=JSON.parse(e.detail);if(r.id!==id)return;W.document.removeEventListener('rt-post-response',listener);resolve(r);};W.document.addEventListener('rt-post-response',listener);W.document.dispatchEvent(new W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,...input})}));});}
   return {W,calls,send};
 }
 test('Reddit reads use a fixed same-origin GET and return only compact public posts',async t=>{
-  const e=setup(t),r=await e.send({action:'profile',username:'Example'});assert.equal(r.ok,true);assert.equal(r.posts[0].id,'abc12');const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/search.json');assert.equal(new URL(url).searchParams.get('q'),'author:"Example"');assert.equal(options.credentials,'include');assert.equal(options.method,'GET');assert.equal(r.cookie,undefined);
+  const e=setup(t),r=await e.send({action:'profile',username:'Example'});assert.equal(r.ok,true);assert.equal(r.posts[0].id,'abc12');const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/svc/shreddit/search/');assert.equal(new URL(url).searchParams.get('type'),'posts');assert.equal(new URL(url).searchParams.get('q'),'author:"Example"');assert.equal(options.credentials,'include');assert.equal(options.method,'GET');assert.equal(r.cookie,undefined);assert.equal(r.posts[0].body,'');assert.equal(r.posts[0].status,'unknown');
+});
+function nativePostHtml({id='abc12',author='Example',crosspost=false,embedded='',next='/svc/shreddit/search/?q=author%3A%22Example%22&type=posts&sort=new&cursor=opaque_post_cursor'}={}){
+ const context=JSON.stringify({post:{id:'t3_'+id,title:'Public',nsfw:false,spoiler:false},profile:{name:author},subreddit:{name:'example'}});
+ const tracker=`<search-telemetry-tracker data-faceplate-tracking-context='${context}'><a data-testid="post-title" href="/r/example/comments/${id}/public/">Public</a></search-telemetry-tracker>`;
+ return `<search-telemetry-tracker view-events="search/view/post" data-faceplate-tracking-context='${crosspost?JSON.stringify({post:{id:'t3_'+id,title:'Public'},subreddit:{name:'example'}}):context}'><div data-testid="${crosspost?'search-crosspost-unit':'search-post-unit'}">${tracker}<faceplate-timeago ts="2026-08-07T20:51:48.364000+0000"></faceplate-timeago>${embedded}<div data-testid="search-counter-row"><faceplate-number number="42"></faceplate-number><faceplate-number number="3"></faceplate-number></div></div></search-telemetry-tracker>`+(next?`<faceplate-partial loading="lazy" src='${next}'></faceplate-partial>`:'');
+}
+test('native post search reads outer crosspost metadata without importing embedded originals',async t=>{
+ const embedded=nativePostHtml({id:'other',author:'Example',next:''}).replace('view-events="search/view/post"','click-events="search/click/post"'),e=setup(t,{fetcher:async()=>nativeResponse(nativePostHtml({crosspost:true,embedded}))});
+ const result=await e.send({action:'profile',username:'Example'});assert.equal(result.ok,true);assert.equal(result.posts.length,1);assert.equal(result.posts[0].id,'abc12');assert.equal(result.posts[0].score,42);assert.equal(result.posts[0].comments,3);assert.equal(result.posts[0].created,1786135908);
+ await e.send({action:'profile',username:'Example',after:result.after});assert.equal(new URL(e.calls[1][0]).searchParams.get('cursor'),'opaque_post_cursor');
+ for(const input of [{username:'Example',sort:'top'}, {username:'Example',range:'day'}])assert.match((await e.send({action:'profile',...input,after:result.after})).error,/cursor/);
+});
+test('post continuations stay bound to transport, author, sort and time range',async t=>{
+ const e=setup(t),first=await e.send({action:'profile',username:'Example'});
+ e.W.document.body.innerHTML='<aside id="right-sidebar-container"><faceplate-tracker source="profile" noun="unblock_user"></faceplate-tracker></aside>';
+ await e.send({action:'profile',username:'Example',after:first.after});assert.equal(new URL(e.calls[1][0]).pathname,'/svc/shreddit/search/');
+ for(const patch of [{username:'other'},{transport:'external'},{cursor:'bad\nvalue'}]){const page={...JSON.parse(first.after.slice(15)),...patch};assert.equal((await e.send({action:'profile',username:'Example',after:'rt-post-search:'+JSON.stringify(page)})).ok,false);}
+ for(const next of ['https://evil.test/?cursor=bad','/svc/shreddit/search/?q=author%3A%22Other%22&type=posts&sort=new&cursor=bad','/svc/shreddit/search/?q=author%3A%22Example%22&type=comments&sort=new&cursor=bad']){
+  const foreign=setup(t,{fetcher:async()=>nativeResponse(nativePostHtml({next}))});assert.equal((await foreign.send({action:'profile',username:'Example'})).after,null);
+ }
+});
+test('a native page is not truncated at the old JSON page size',async t=>{
+ const html=Array.from({length:27},(_,i)=>nativePostHtml({id:'post'+i,next:''})).join(''),e=setup(t,{fetcher:async()=>nativeResponse(html)});
+ const result=await e.send({action:'profile',username:'Example'});assert.equal(result.ok,true);assert.equal(result.posts.length,27);
+});
+test('explicitly blocked profiles keep authenticated JSON coverage and transport across pagination',async t=>{
+ const e=setup(t);e.W.document.body.innerHTML='<aside id="right-sidebar-container"><faceplate-tracker source="profile" noun="unblock_user"><button>Blocked</button></faceplate-tracker></aside>';
+ const result=await e.send({action:'profile',username:'Example'});assert.equal(result.ok,true);assert.equal(new URL(e.calls[0][0]).pathname,'/search.json');assert.equal(e.calls[0][1].credentials,'include');e.W.document.body.replaceChildren();
+ await e.send({action:'profile',username:'Example',after:result.after});assert.equal(new URL(e.calls[1][0]).pathname,'/search.json');assert.equal(new URL(e.calls[1][0]).searchParams.get('after'),'t3_abc12');
+});
+test('native post search distinguishes genuine empty results from changed or unsafe HTML',async t=>{
+ for(const html of [nativePostHtml({author:'Other'}),nativePostHtml().replace('/r/example/comments/abc12/public/','https://evil.test/comments/abc12/'),'<h1>Sign in</h1>',nativePostHtml().replace('number="42"','number="bad"')]){
+  const e=setup(t,{fetcher:async()=>nativeResponse(html)});assert.equal((await e.send({action:'profile',username:'Example'})).ok,false);
+ }
+ const empty=setup(t,{fetcher:async()=>nativeResponse('<search-telemetry-tracker view-events="search/view/no_results" data-faceplate-tracking-context=\'{"action_info":{"reason":"empty"}}\'></search-telemetry-tracker>')});const result=await empty.send({action:'profile',username:'Example'});assert.equal(result.ok,true);assert.equal(result.posts.length,0);assert.equal(result.hasMore,false);assert.equal(result.incomplete,true);
 });
 test('invalid routes, usernames, cursors and arbitrary operations never fetch',async t=>{
   const e=setup(t);for(const input of [{action:'profile',username:'Other'},{action:'profile',username:'Example',after:'https://evil.test'},{action:'fetch',url:'https://evil.test'},{action:'info',ids:['../bad']}])assert.equal((await e.send(input)).ok,false);assert.equal(e.calls.length,0);
