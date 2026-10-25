@@ -1,3 +1,13 @@
+# 0.18.10 preview
+
+- Recover a native-card transport timeout, transient gateway error or failed fetch once before exposing a manual Retry row. Keep the pending card behind the shared native loader during recovery, preserve its identity and native actions on success, and retain explicit failures after the bounded retry. Manual Retry starts a fresh attempt; definitive missing/malformed cards, canceled views and rate-limit pauses do not enter the retry path.
+- Prepare up to four comment cards concurrently while retaining two physical post slots and a shared four-read ceiling across native render/status consumers. Keep status batches at two workers, native-fragment coalescing, bounded page-world caches and server cooldowns. Parallel responses still publish only the chronological ready prefix.
+- Correct current documentation of native throughput and remove obsolete rolling card-count quota descriptions. Search-page timeout recovery and bounded predictive prefetch from 0.18.9 remain in place.
+
+Version choice: PATCH to 0.18.10 for transient native-card recovery and comment-loading throughput in existing profile discovery. No permissions, persistent storage/schema or chat sync changes.
+
+Validation: all 695 tests pass, including 218 discovery/native-bridge checks. All 31 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. The timeout-recovery regression fails on 0.18.9 and passes with the fix. New checks cover bounded retries, manual recovery, definitive-error exclusions, four-comment ordered publication, mixed post/comment capacity, and status/render saturation without exceeding the shared physical ceiling. Live Brave identified the screenshot's exact native-card timeout; a later authenticated read returned the matching card successfully in about 0.36 seconds. Final installed-build verification requires reloading Reddit Tweaks and refreshing Reddit. Persistent native/API failures remain retryable, and server latency/coverage cannot be guaranteed.
+
 # 0.18.9 preview
 
 - Fix the 0.18.8 ordering regression when Reddit's native profile feed is populated and signed-in search returns an empty page with a valid continuation. Such a page retains its cursor but cannot establish an infinite date boundary that blocks healthy public-search discoveries. Older native-horizon deferrals also no longer strand newer candidates that need another source page.
