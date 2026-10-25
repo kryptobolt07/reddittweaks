@@ -39,6 +39,12 @@ In New / All activity, incoming native cards also wait for this shared chronolog
 
 Recognize both lazy and programmatic native continuations. Keep already-published cards visible through pager replacement, and retain the combined feed until Reddit actually replaces its native objects during post navigation. The extension requests the existing native virtualization controller's update on reverse-scroll animation frames; Reddit retains ownership of its original populated objects, placeholders and stack. This optional, feature-detected contract falls back to native scrolling if Reddit changes it. Server latency, missing coverage and native rendering failures can still delay a page; they do not establish history completeness.
 
+## Batch scroll stability
+
+Reconcile enrichment, native merge gates, ready-card insertion, filtering and loader handoff inside one synchronous viewport update. Capture the visible reading card before any of these changes; temporarily retain the feed height to prevent intermediate bottom clamping, suppress native scroll anchoring for this update and compensate the retained card once after layout settles. Restore existing inline min-height and overflow-anchor values and priorities immediately; no permanent spacer is added. Ordinary scrolling outside the update stays native. A published discovery retains its current slot while its matching native duplicate remains behind the merge gate, avoiding a gap before the duplicate can appear.
+
+Keep the Snoo halo while suppressing supplemental linear progress tracks in the feed and continuation components, including their open shadow roots. Styling excludes card/media component roots and is removed when discovery is disabled. Synthetic layout regressions cover late enrichment, nested loader updates and temporary height clamping; final behavior in the installed browser still needs checking after reload.
+
 ## Cookie-free comment discovery: implemented
 
 Comments and Overview now use two independent discovery streams: authenticated Reddit search and a cookie-free public supplement. A live uncached comparison on 25 October 2026 for example_profile returned zero signed-in comment cards and ten cookie-free cards from r/TheLaptopGuide. Reddit's authenticated `/svc/shreddit/comment/t1_ID?isProfile=true` renderer then returned a matching native card with its comment body. This verifies the supplement is useful for that profile; it does not prove anonymous search always returns more or that either search covers all history.
