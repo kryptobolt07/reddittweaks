@@ -67,14 +67,14 @@
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
-      }else node.remove();}this.virtualNodes=new Map();this.loading?.remove();this.loading=null;this.host?.remove();this.host=null;this.feed=null;this.context=null;this.live=new Map();this.commentOrigins=new Map();this.archived=new Map();this.nodes.clear();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;}
+      }else node.remove();}this.virtualNodes=new Map();this.loading?.remove();this.loading=null;this.host?.remove();this.host=null;this.feed=null;this.context=null;this.live=new Map();this.commentOrigins=new Map();this.archived=new Map();this.nodes.clear();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.archiveBusy=false;this.sourcePending=new Set();this.sourceFrontiers=new Map();this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;}
     rememberProfile(){
       if(this.context?.kind!=='profile' || !this.settings.postDiscovery || this.settingsError || !(this.loaded || this.archiveLoaded))return;
       const previous=this.profileStates.get(this.context.key),owner=globalThis.RCSDirectory?.getOwner?.() || '',signature=[this.generation,this.renderVersion || 0,this.pages,this.live.size,this.archived.size,this.activityFilter,JSON.stringify(this.sourceErrors || {}),this.publishedCards.size,[...this.nodes.values()].filter(node=>node.dataset.rtNativeState==='ready').length].join(':');
       if(previous?.signature===signature && previous.owner===owner){if(pageRoute()?.key===this.context.key)previous.scrollY=window.scrollY || 0;return;}
       const saved={signature,owner,archiveOnly:this.archiveOnly,live:new Map(this.live),archived:new Map(this.archived),cards:new Map(),scrollY:pageRoute()?.key===this.context.key?window.scrollY || 0:previous?.scrollY || window.scrollY || 0};
       for(const name of ['loaded','archiveLoaded','pages','moreReddit','moreArchive'])saved[name]=this[name];
-      saved.commentOrigins=new Map(this.commentOrigins);saved.sourceErrors={...this.sourceErrors};for(const name of ['afterByKind','beforeByKind','redMore','archiveMore'])saved[name]={...this[name]};saved.recoveryChecked=new Set(this.recoveryChecked);saved.activityFilter=this.activityFilter;saved.postStatuses=new Map(this.postStatuses);saved.publishedCards=new Set(this.publishedCards);saved.replyContexts=new Map(this.replyContexts);saved.replyAuthors=new Map(this.replyAuthors);saved.replyArchiveChecked=new Set(this.replyArchiveChecked);
+      saved.sourceFrontiers=new Map(this.sourceFrontiers);saved.commentOrigins=new Map(this.commentOrigins);saved.sourceErrors={...this.sourceErrors};for(const name of ['afterByKind','beforeByKind','redMore','archiveMore'])saved[name]={...this[name]};saved.recoveryChecked=new Set(this.recoveryChecked);saved.activityFilter=this.activityFilter;saved.postStatuses=new Map(this.postStatuses);saved.publishedCards=new Set(this.publishedCards);saved.replyContexts=new Map(this.replyContexts);saved.replyAuthors=new Map(this.replyAuthors);saved.replyArchiveChecked=new Set(this.replyArchiveChecked);
       for(const [key,node] of this.nodes)if(node.dataset.rtNativeState==='ready'){const copy=node.cloneNode(true);copy.classList.remove('rt-native-enter');for(const script of copy.querySelectorAll('script'))script.remove();const partial=copy.firstElementChild;if(partial?.matches('faceplate-partial') && partial.querySelector('shreddit-post,shreddit-profile-comment'))partial.replaceWith(...partial.childNodes);saved.cards.set(key,copy);}
       saved.publishedCards=new Set([...saved.publishedCards].filter(key=>saved.cards.has(key)));
       this.profileStates.delete(this.context.key);this.profileStates.set(this.context.key,saved);
@@ -82,7 +82,7 @@
     }
     restoreProfile(context){
       const saved=this.profileStates.get(context.key);if(!saved || saved.owner!==(globalThis.RCSDirectory?.getOwner?.() || '') || saved.archiveOnly!==this.archiveOnly)return false;
-      this.profileStates.delete(context.key);this.sourceErrors={...saved.sourceErrors};this.recoveryChecked=new Set(saved.recoveryChecked);this.activityFilter=saved.activityFilter || 'all';this.postStatuses=saved.postStatuses || new Map();this.live=saved.live;this.commentOrigins=saved.commentOrigins || new Map();this.archived=saved.archived;this.nodes=saved.cards;this.publishedCards=saved.publishedCards || new Set(saved.cards.keys());this.replyContexts=saved.replyContexts || new Map();this.replyAuthors=saved.replyAuthors || new Map();this.replyArchiveChecked=saved.replyArchiveChecked || new Set();
+      this.sourceFrontiers=saved.sourceFrontiers || new Map();this.profileStates.delete(context.key);this.sourceErrors={...saved.sourceErrors};this.recoveryChecked=new Set(saved.recoveryChecked);this.activityFilter=saved.activityFilter || 'all';this.postStatuses=saved.postStatuses || new Map();this.live=saved.live;this.commentOrigins=saved.commentOrigins || new Map();this.archived=saved.archived;this.nodes=saved.cards;this.publishedCards=saved.publishedCards || new Set(saved.cards.keys());this.replyContexts=saved.replyContexts || new Map();this.replyAuthors=saved.replyAuthors || new Map();this.replyArchiveChecked=saved.replyArchiveChecked || new Set();
       for(const name of ['loaded','archiveLoaded','pages','moreReddit','moreArchive','afterByKind','beforeByKind','redMore','archiveMore'])this[name]=saved[name];
       for(const node of this.nodes.values())this.results.append(node);
       const generation=this.generation;if(saved.scrollY>0)requestAnimationFrame(()=>{if(generation===this.generation && pageRoute()?.key===context.key && window.scrollY===0)window.scrollTo({top:saved.scrollY,behavior:'instant'});});
@@ -252,7 +252,7 @@
         const show=value=>{this.activityOpen=value;menu.classList.toggle('hidden',value);sub.classList.toggle('hidden',!value);activity.setAttribute('aria-expanded',String(value));(value?sub.querySelector('rpl-menu-item'):activity)?.focus({preventScroll:true});};
         activate(activity,()=>show(true));menu.append(activity);
         const back=row('Back','arrow-back');activate(back,()=>show(false));sub.append(back);
-        for(const [value,label,icon] of [['all','All activity','filter'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']]){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{this.activityFilter=value;this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();show(false);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});this.ensureActivityArchive();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
+        for(const [value,label,icon] of [['all','All activity','filter'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']]){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{if(this.activityFilter!==value){this.activityFilter=value;this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});}this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();show(false);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});this.ensureActivityArchive();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
         content.append(sub);this.activityMenuRows=[activity,sub];
         this.activityKeydown=event=>{if(event.key==='Escape' && this.activityOpen){event.preventDefault();event.stopImmediatePropagation();show(false);}};dropdown.addEventListener('keydown',this.activityKeydown,true);
         this.activityMenuObserver=new MutationObserver(()=>{if(!dropdown.hasAttribute('open') && this.activityOpen)show(false);});this.activityMenuObserver.observe(dropdown,{attributes:true,attributeFilter:['open']});
@@ -260,16 +260,16 @@
       for(const row of this.activityMenu.querySelectorAll('[data-rt-activity-filter]')){const checked=row.dataset.rtActivityFilter===this.activityFilter;if(row.getAttribute('aria-current')!==String(checked))row.setAttribute('aria-current',String(checked));let mark=row.querySelector('[data-rt-check]');if(checked && !mark){mark=glyph('checkmark');mark.dataset.rtCheck='true';row.firstElementChild.append(mark);}else if(!checked)mark?.remove();}
     }
     ensureActivityArchive(){
-      if(this.activityFilter!=='deleted' || !this.settings.archiveDiscovery || this.archiveLoaded || this.activityArchiveAttempted || this.busy)return;
+      if(this.activityFilter!=='deleted' || !this.settings.archiveDiscovery || this.archiveLoaded || this.activityArchiveAttempted || this.archiveBusy)return;
       this.activityArchiveAttempted=true;this.loadArchive();
     }
     updateActivityEmptyState(){
       if(!this.feed || this.activityFilter==='all'){if(this.activityEmpty)this.activityEmpty.hidden=true;return;}
       const nativeMatches=this.nativeEntries().some(e=>!e.node.hidden && !e.node.hasAttribute('data-rt-filter-hidden'));
       const ownMatches=[...this.nodes.values()].some(n=>!n.hidden && (this.feedSlot(n).parentElement===this.feed));
-      const working=this.busy || this.activeProfileBatch || this.metadataPending || this.recoveryActive || this.nativeBatch.active || this.nativeBatch.queue.length || this.nativeFeedLoading();
+      const working=this.busy || this.archiveBusy || this.activeProfileBatch || this.metadataPending || this.recoveryActive || this.nativeBatch.active || this.nativeBatch.queue.length || this.nativeFeedLoading();
       const errors=Object.values(this.sourceErrors || {}).some(Boolean) || this.status?.dataset.error==='true';
-      const show=!nativeMatches && !ownMatches && !working && !errors && !this.moreReddit && !this.moreArchive && (this.loaded || this.archiveLoaded);
+      const show=!nativeMatches && !ownMatches && !working && !errors && !this.hasMoreProfile() && (this.loaded || this.archiveLoaded);
       if(!show){if(this.activityEmpty)this.activityEmpty.hidden=true;return;}
       if(!this.activityEmpty){const empty=this.activityEmpty=make('div','mt-[100px] flex justify-center items-center flex-col');empty.dataset.rtUi='activity-empty';empty.setAttribute('role','status');
         // Reddit's native rpl empty-state structure; a separate identity keeps the
@@ -302,6 +302,13 @@
       if(!native)return stored || post.status;const state=native.getAttribute('item-state')?.toLowerCase(),body=native.querySelector(post.kind==='comment'?'[id$="-post-rtjson-content"],.md':'[slot="text-body"]'),text=body?.querySelector('[data-rt-original-text]')?.getAttribute('data-rt-original-text') || body?.textContent?.trim();
       const status=native.hasAttribute('deleted') && native.getAttribute('deleted')!=='false' || state==='deleted' || text==='[deleted]'?'deleted':state==='removed' || text==='[removed]'?'removed':'';if(status)this.postStatuses.set(post.fullname,status);return status || stored || post.status;
     }
+    eligibleProfilePost(post,node){
+      if(this.activityFilter!=='deleted')return true;
+      const status=this.verifiedStatus(post,node?.querySelector('shreddit-post,shreddit-profile-comment'));
+      // The archive supplies candidates, never proof of current deletion. Avoid
+      // spending the Deleted card budget on known available search results.
+      return ['deleted','removed'].includes(status) || status!=='available' && post.source==='arctic-shift';
+    }
     matchesActivity(post,node,visible=this.visibleIds()){
       if(this.activityFilter==='all')return true;const status=this.verifiedStatus(post,node?.matches?.('shreddit-post,shreddit-profile-comment')?node:node?.querySelector('shreddit-post,shreddit-profile-comment'));
       return this.activityFilter==='deleted'?['deleted','removed'].includes(status):(post.source==='reddit' || status==='available') && !['deleted','removed'].includes(status) && !visible.has(post.fullname);
@@ -328,6 +335,24 @@
     updateArchiveSummary(){if(!this.archiveStats)return;const posts=this.renderedPosts || [],times=posts.map(p=>p.created),date=value=>new Date(value*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});const set=(key,value)=>{if(this.archiveStats[key].textContent!==value)this.archiveStats[key].textContent=value;};set('posts',String(posts.filter(p=>p.kind!=='comment').length));set('comments',String(posts.filter(p=>p.kind==='comment').length));set('oldest',times.length?date(Math.min(...times)):'—');set('newest',times.length?date(Math.max(...times)):'—');}
     retrySettings(){this.reset();return this.loadSettings();}
     kinds(){return this.context.view==='overview'?['post','comment']:[this.context.view==='comments'?'comment':'post'];}
+    noteSourcePage(key,posts,more){
+      const values=posts.map(post=>this.context.sort==='top'?post.score:post.created).filter(Number.isFinite),previous=this.sourceFrontiers.get(key);
+      this.sourceFrontiers.set(key,{more,floor:more?(values.length?Math.min(...values):previous?.floor ?? Infinity):-Infinity});
+    }
+    publicationFloor(){
+      // Descending source pages have different depths. Only publish the shared
+      // covered prefix; a later page from a shallower stream can otherwise
+      // insert newer comments above already published posts (or vice versa).
+      const applies=key=>this.activityFilter!=='deleted' || key.startsWith('archive-');
+      let floor=-Infinity;
+      for(const key of this.sourcePending)if(applies(key) && !this.sourceFrontiers.has(key))return Infinity;
+      // Archive Top pages are chronological, not score-ordered. Only New
+      // has a comparable continuation boundary across every provider.
+      if(this.context.sort!=='new')return [...this.sourcePending].some(applies)?Infinity:-Infinity;
+      for(const [key,state] of this.sourceFrontiers)if(applies(key) && state.more)floor=Math.max(floor,state.floor);
+      return floor;
+    }
+    canPublishProfilePost(post){return (this.context.sort==='top'?post.score:post.created)>=this.publicationFloor();}
     nativeEntries(){
       if(!this.feed)return [];
       this.flushVirtualization();
@@ -354,6 +379,7 @@
     deduplicate(){
       if(!this.host || this.context.kind!=='profile')return;
       this.syncActivityPresentation();
+      const viewport=this.captureFeedViewport();
       const entries=this.nativeEntries(),visible=this.visibleIds(),sort=this.context.sort,normal=entries.filter(e=>!e.pinned && (sort==='top'?Number.isFinite(e.score):sort==='hot' || Number.isFinite(e.timestamp))),rank=new Map(this.renderedPosts.map((post,index)=>[post.fullname,index]));
       const continuation=this.feed.querySelector('shreddit-feed-load-more-observer[cursor],faceplate-partial[slot="load-after"]:is([loading="lazy"],[loading="programmatic"])[src]');
       const horizon=continuation && sort!=='hot'?(normal.length?Math.min(...normal.map(e=>sort==='top'?e.score:Math.floor(e.timestamp))):sort==='new'?Infinity:-Infinity):-Infinity;
@@ -377,6 +403,7 @@
       }
       // Reconcile only extension-owned cards. Reddit retains ownership and order of its nodes.
       for(const [target,nodes] of buckets){let anchor=target;for(let i=nodes.length-1;i>=0;i--){const node=nodes[i];if(!this.virtualNodes.has(node) && (node.parentElement!==this.feed || node.nextElementSibling!==anchor))this.feed.insertBefore(node,anchor);anchor=node;}}
+      this.restoreFeedViewport(viewport);
       for(const nodes of buckets.values())for(const node of nodes)if(node.dataset.rtNativeState==='idle'){if(this.nativeObserver)this.nativeObserver.observe(node);else this.queueNative(node);}
       this.filterNativeEntries(entries);this.summaryCounts={count,deferred};this.updateActivityEmptyState();this.scheduleRecovery();
       if(this.emptyFeed){this.emptyFeed.hidden=this.activityFilter!=='all' || count>0 || this.emptyWasHidden;this.emptyFeed.toggleAttribute('data-rt-empty-suppressed',count>0);}
@@ -402,16 +429,18 @@
       if(this.busy)return;this.batchAutoPaused=false;const generation=this.generation;this.busy=true;this.host.setAttribute('aria-busy','true');this.setStatus('Checking public activity…');this.updateProfileLoading();this.discover.disabled=true;if(this.archiveButton)this.archiveButton.disabled=true;this.more.disabled=true;this.updateActivityEmptyState();
       try{await task(()=>generation===this.generation && pageRoute()?.key===this.context?.key && this.host?.isConnected);}
       catch(error){if(generation===this.generation && pageRoute()?.key===this.context?.key){this.sourceErrors.request=error.message;this.setStatus(error.message,true);}}
-      finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.more.disabled=false;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;this.discover.disabled=false;if(this.archiveButton)this.archiveButton.disabled=false;this.ensureActivityArchive();}}
+      finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.more.disabled=false;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;this.discover.disabled=this.archiveBusy;if(this.archiveButton)this.archiveButton.disabled=this.archiveBusy;this.ensureActivityArchive();}}
     }
-    loadReddit({more=false}={}){if(!more){this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};}if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}return this.run(async current=>{
+    loadReddit({more=false}={}){if(this.busy)return;if(!more){this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};}if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
+      const frontier=this.publicationFloor(),streams=this.kinds().flatMap(kind=>kind==='comment'?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}]).filter(({key})=>!more || this.redMore[key] && (this.context.sort!=='new' || (this.sourceFrontiers.get(key)?.floor ?? Infinity)>=frontier));
+      for(const {key} of streams){if(!more)this.sourceFrontiers.delete(key);this.sourcePending.add(key);}
+      return this.run(async current=>{
       const errors=[];let succeeded=false;
-      const streams=this.kinds().flatMap(kind=>kind==='comment'?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}]);
       await Promise.all(streams.map(async ({kind,key,stream})=>{
         if(more && !this.redMore[key])return;
         const old=more?this.afterByKind[key]:null;this.pages++;
         try{const result=await this.request({action:'profile',username:this.context.username,sort:this.context.sort,range:this.context.range,kind,...(stream?{stream}:{}),...(old?{after:old}:{})});if(!current())return;
-          const incoming=new Map();for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(!p || p.author.toLowerCase()!==this.context.username.toLowerCase())continue;const id=itemKey(p),previous=this.live.get(id);
+          const incoming=new Map(),page=[];for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(!p || p.author.toLowerCase()!==this.context.username.toLowerCase())continue;page.push(p);const id=itemKey(p),previous=this.live.get(id);
             if(stream==='public' && previous && this.commentOrigins.get(id)!=='public'){this.live.set(id,{...previous,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler});continue;}
             const merged=previous?{...p,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler}:p;this.live.set(id,merged);incoming.set(id,merged);if(kind==='comment')this.commentOrigins.set(id,stream);
           }
@@ -419,46 +448,85 @@
             const belongs=post=>(post.kind==='comment'?'comment':'post')===kind,group=new Map([...incoming,...[...this.live].filter(([id,p])=>belongs(p) && !incoming.has(id))]);
             this.live=new Map(this.kinds().flatMap(type=>type===kind?[...group]:[...this.live].filter(([,p])=>(p.kind==='comment'?'comment':'post')===type)));
           }
-          this.afterByKind[key]=result.after;this.redMore[key]=Boolean(result.hasMore && result.after && result.after!==old);succeeded=true;this.loaded=true;delete this.sourceErrors[key];this.moreReddit=Object.values(this.redMore).some(Boolean);this.render();
-        }catch(error){if(!current())return;this.redMore[key]=false;this.sourceErrors[key]=error.message;errors.push((stream==='public'?'Public comments: ':kind==='comment'?'Comments: ':'Posts: ')+error.message);}
+          this.afterByKind[key]=result.after;this.redMore[key]=Boolean(result.hasMore && result.after && result.after!==old);this.noteSourcePage(key,page,this.redMore[key]);succeeded=true;this.loaded=true;delete this.sourceErrors[key];this.moreReddit=Object.values(this.redMore).some(Boolean);this.render();
+        }catch(error){if(!current())return;this.redMore[key]=false;this.noteSourcePage(key,[],false);this.sourceErrors[key]=error.message;errors.push((stream==='public'?'Public comments: ':kind==='comment'?'Comments: ':'Posts: ')+error.message);}
+        finally{if(current())this.sourcePending.delete(key);}
       }));
       if(!current())return;
       this.after=this.afterByKind.post;this.moreReddit=Object.values(this.redMore).some(Boolean);this.loaded=succeeded || this.loaded;this.render();
       if(errors.length)this.setStatus(errors.join(' '),true);
       this.discover.setAttribute('aria-label','Refresh activity');
     });}
-    loadArchive({more=false}={}){if(!this.settings.archiveDiscovery)return;if(!more){this.pages=0;this.sourceErrors={};}return this.run(async current=>{
-      const warnings=[];
-      await Promise.all(this.kinds().map(async kind=>{
-        if(more && !this.archiveMore[kind])return;
-        this.pages++;
-        try{const before=more?this.beforeByKind[kind]:null,result=await this.archive({action:'archive-profile',username:this.context.username,kind,...(before?{before}:{})});if(!current())return;
-          const page=[];for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'arctic-shift'});if(p){this.archived.set(itemKey(p),p);page.push(p);}}
-          this.beforeByKind[kind]=result.before;this.archiveMore[kind]=Boolean(result.hasMore && !result.cursorStalled);this.archiveLoaded=true;
-          delete this.sourceErrors['archive-'+kind];this.render();
-          if(page.length && !this.archiveOnly){this.metadataPending++;this.request({action:'status',username:this.context.username,kind,ids:page.map(p=>p.id)}).then(result=>{if(!current())return;const requested=new Map(page.map(p=>[p.fullname,p]));for(const evidence of result.statuses || []){const post=requested.get(evidence.fullname);if(!post || !['available','deleted','removed'].includes(evidence.status))continue;this.postStatuses.set(post.fullname,evidence.status);if(evidence.over18 || evidence.spoiler)this.archived.set(itemKey(post),{...post,over18:post.over18 || evidence.over18===true,spoiler:post.spoiler || evidence.spoiler===true});}if(result.unknownIds?.length)this.sourceErrors['metadata-'+kind]='Some archive items have unverified current Reddit status.';else delete this.sourceErrors['metadata-'+kind];this.render();},()=>{if(current()){this.sourceErrors['metadata-'+kind]='Some archive items have unverified current Reddit status.';this.summarize();}}).finally(()=>{if(current()){this.metadataPending--;this.updateProfileLoading();this.updateActivityEmptyState();}});}
-          if(result.cursorStalled){this.sourceErrors['archive-'+kind]='Archive pagination stopped at an ambiguous timestamp. History is incomplete.';warnings.push(this.sourceErrors['archive-'+kind]);}
-        }catch(error){if(!current())return;this.sourceErrors['archive-'+kind]=error.message;warnings.push(error.message);}
-      }));
-      if(!current())return;
-      this.moreArchive=Object.values(this.archiveMore).some(Boolean);this.render();if(warnings.length)this.setStatus(warnings.join(' '),true);
-    });}
-    loadMore(){if(this.batchedProfile)this.forceProfileBatch=true;return this.activityFilter==='deleted' && this.moreArchive?this.loadArchive({more:true}):this.moreReddit?this.loadReddit({more:true}):this.loadArchive({more:true});}
+    async verifyArchiveStatuses(page,kind,current){
+      this.metadataPending++;let unknown=false;
+      try{
+        // Return evidence as each native request pair completes. A slow later
+        // fragment must not hide already verified deleted activity for 10s.
+        for(let offset=0;offset<page.length && current();offset+=2){
+          const batch=page.slice(offset,offset+2),result=await this.request({action:'status',username:this.context.username,kind,ids:batch.map(p=>p.id)});if(!current())return;
+          const requested=new Map(batch.map(p=>[p.fullname,p])),verified=new Set();
+          for(const evidence of result.statuses || []){const post=requested.get(evidence.fullname);if(!post || !['available','deleted','removed'].includes(evidence.status))continue;verified.add(post.fullname);this.postStatuses.set(post.fullname,evidence.status);if(evidence.over18 || evidence.spoiler)this.archived.set(itemKey(post),{...this.archived.get(itemKey(post)),over18:post.over18 || evidence.over18===true,spoiler:post.spoiler || evidence.spoiler===true});}
+          unknown=unknown || verified.size<batch.length;
+          if(unknown)this.sourceErrors['metadata-'+kind]='Some archive items have unverified current Reddit status.';else delete this.sourceErrors['metadata-'+kind];this.render();
+        }
+      }catch{if(current()){this.sourceErrors['metadata-'+kind]='Some archive items have unverified current Reddit status.';this.summarize();}}
+      finally{if(current()){this.metadataPending--;this.updateProfileLoading();this.updateActivityEmptyState();}}
+    }
+    async loadArchive({more=false}={}){
+      if(!this.settings.archiveDiscovery || this.archiveBusy)return;
+      if(!more){if(!this.busy)this.pages=0;for(const key of Object.keys(this.sourceErrors))if(key.startsWith('archive-'))delete this.sourceErrors[key];}
+      const generation=this.generation,current=()=>generation===this.generation && pageRoute()?.key===this.context?.key && this.host?.isConnected;
+      const frontier=this.publicationFloor(),kinds=this.kinds().filter(kind=>!more || this.archiveMore[kind] && (this.context.sort!=='new' || (this.sourceFrontiers.get('archive-'+kind)?.floor ?? Infinity)>=frontier));for(const kind of kinds){if(!more)this.sourceFrontiers.delete('archive-'+kind);this.sourcePending.add('archive-'+kind);}
+      this.archiveBusy=true;this.batchAutoPaused=false;this.setStatus('Checking archived activity…');this.updateProfileLoading();this.discover.disabled=true;if(this.archiveButton)this.archiveButton.disabled=true;this.more.disabled=true;this.updateActivityEmptyState();
+      try{
+        const warnings=[];
+        await Promise.all(kinds.map(async kind=>{
+          this.pages++;
+          try{const before=more?this.beforeByKind[kind]:null,result=await this.archive({action:'archive-profile',username:this.context.username,kind,...(before?{before}:{})});if(!current())return;
+            const page=[];for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'arctic-shift'});if(p){this.archived.set(itemKey(p),p);page.push(p);}}
+            this.beforeByKind[kind]=result.before;this.archiveMore[kind]=Boolean(result.hasMore && !result.cursorStalled);this.archiveLoaded=true;this.moreArchive=Object.values(this.archiveMore).some(Boolean);this.noteSourcePage('archive-'+kind,page,this.archiveMore[kind]);
+            delete this.sourceErrors['archive-'+kind];this.render();
+            if(page.length && !this.archiveOnly)this.verifyArchiveStatuses(page,kind,current);
+            if(result.cursorStalled){this.sourceErrors['archive-'+kind]='Archive pagination stopped at an ambiguous timestamp. History is incomplete.';warnings.push(this.sourceErrors['archive-'+kind]);}
+          }catch(error){if(!current())return;this.archiveMore[kind]=false;this.noteSourcePage('archive-'+kind,[],false);this.sourceErrors['archive-'+kind]=error.message;warnings.push(error.message);}
+          finally{if(current())this.sourcePending.delete('archive-'+kind);}
+        }));
+        if(!current())return;
+        this.moreArchive=Object.values(this.archiveMore).some(Boolean);this.render();if(warnings.length)this.setStatus(warnings.join(' '),true);
+      }finally{if(generation===this.generation){this.archiveBusy=false;this.discover.disabled=this.busy;if(this.archiveButton)this.archiveButton.disabled=this.busy;this.more.disabled=this.busy;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;}}
+    }
+    hasMoreProfile(){return this.activityFilter==='deleted' && this.settings.archiveDiscovery?this.moreArchive:this.moreReddit || this.moreArchive;}
+    loadMore(){
+      if(this.batchedProfile)this.forceProfileBatch=true;
+      if(this.activityFilter==='deleted' && this.settings.archiveDiscovery)return !this.metadataPending && this.moreArchive?this.loadArchive({more:true}):undefined;
+      const floor=this.publicationFloor(),archiveFirst=this.context.sort==='new' && this.moreArchive && [...this.sourceFrontiers].some(([key,state])=>key.startsWith('archive-') && state.more && state.floor>=floor);
+      return archiveFirst?this.loadArchive({more:true}):this.moreReddit?this.loadReddit({more:true}):this.loadArchive({more:true});
+    }
+    captureFeedViewport(){
+      if(!this.feed || window.scrollY<=0)return null;
+      for(const node of this.feed.children){if(node.hidden || node===this.loading)continue;const rect=node.getBoundingClientRect();if(rect.height>0 && rect.bottom>56 && rect.top<innerHeight)return {node,top:rect.top,scrollY:window.scrollY};}
+      return null;
+    }
+    restoreFeedViewport(anchor){
+      if(!anchor || anchor.node.parentElement!==this.feed || anchor.node.hidden || window.scrollY!==anchor.scrollY)return;
+      const delta=anchor.node.getBoundingClientRect().top-anchor.top;
+      if(Math.abs(delta)>1)window.scrollBy({top:delta,behavior:'instant'});
+    }
     render({reuseCards=false}={}){
       this.renderVersion=(this.renderVersion || 0)+1;
       const posts=M.mergePosts([...this.live.values()],[...this.archived.values()],{username:this.context.username,visibleIds:this.visibleIds(),sort:this.context.sort,range:this.context.range});
       for(const post of posts){const key=itemKey(post);this.postMetadata.set(key,post);const previous=this.nodes.get(key);if(previous){if(reuseCards)continue;if(previous.dataset.rtArchiveFallback==='true'){this.renderArchivedNative(post,previous);this.decorateNative(post,previous);}else if(previous.dataset.rtNativeState==='ready')this.decorateNative(post,previous);continue;}const node=this.card(post);this.results.append(node);this.nodes.set(key,node);}
       this.renderedPosts=posts;
-      this.deduplicate();this.more.hidden=!(this.moreReddit || this.moreArchive);
-      this.summarize();this.updateProfileLoading();this.updateActivityEmptyState();if(this.batchedProfile)this.advanceProfileBatch(this.forceProfileBatch===true);this.forceProfileBatch=false;
+      this.deduplicate();this.more.hidden=!this.hasMoreProfile();
+      this.summarize();this.updateProfileLoading();this.updateActivityEmptyState();if(this.activeProfileBatch)this.settleProfileBatch();if(this.batchedProfile)this.advanceProfileBatch(this.forceProfileBatch===true);this.forceProfileBatch=false;
     }
     pendingProfilePosts(){
-      const visible=this.visibleIds();return this.renderedPosts.filter(post=>{const node=this.nodes.get(itemKey(post));return node && (!this.publishedCards.has(itemKey(post)) || !['ready','failed'].includes(node.dataset.rtNativeState)) && !visible.has(post.fullname) && node.dataset.deferred!=='older';});
+      const visible=this.visibleIds();return this.renderedPosts.filter(post=>{const node=this.nodes.get(itemKey(post));return node && this.eligibleProfilePost(post,node) && this.canPublishProfilePost(post) && (!this.publishedCards.has(itemKey(post)) || !['ready','failed'].includes(node.dataset.rtNativeState)) && !visible.has(post.fullname) && node.dataset.deferred!=='older';});
     }
     profileTailVisible(){const rect=this.loading.getBoundingClientRect();return this.batchInView && rect.top<=innerHeight*3 && rect.bottom>=0;}
     primaryFailure(){return Object.entries(this.sourceErrors || {}).some(([key,value])=>value && !/^(metadata-|recovery$)/.test(key) && !(['post','comment','comment-public'].includes(key) && Object.values(this.redMore).some(Boolean)));}
     prefetchProfilePage(){
-      if(pageRoute()?.key!==this.context?.key || !this.activeProfileBatch || this.busy || this.batchAutoPaused || this.primaryFailure() || this.nativeBatch.blocked || !this.batchObserver || !this.profileTailVisible() || !(this.moreReddit || this.moreArchive))return;
+      if(pageRoute()?.key!==this.context?.key || !this.activeProfileBatch || this.busy || this.archiveBusy || this.batchAutoPaused || this.primaryFailure() || this.nativeBatch.blocked || !this.batchObserver || !this.profileTailVisible() || !this.hasMoreProfile())return;
       // Overlap the next source read with hydration near the tail, with at most
       // one page of unpublished discoveries already buffered. Deferred older
       // items count too, so a native date horizon cannot trigger a history walk.
@@ -468,15 +536,15 @@
     continueProfile(force=false){
       // A native continuation halo can remain mounted before its request starts.
       // It owns the visible loader, but must not block preparing our next page.
-      if(this.busy)return;
+      if(this.busy || this.archiveBusy)return;
       if(this.batchedProfile){this.prefetchProfilePage();return this.advanceProfileBatch(force);}
-      if((this.moreReddit || this.moreArchive) && !this.batchAutoPaused)this.loadMore();
+      if(this.hasMoreProfile() && !this.batchAutoPaused)this.loadMore();
     }
     updateProfileLoading(){
       if(!this.feed || !this.loading)return;
-      const pending=this.batchedProfile && this.pendingProfilePosts().length>0,more=this.moreReddit || this.moreArchive;
+      const pending=this.batchedProfile && this.pendingProfilePosts().length>0,more=this.hasMoreProfile();
       const paused=this.nativeBatch.blocked || (this.batchAutoPaused || this.primaryFailure()) && !pending && !this.activeProfileBatch;
-      const work=this.busy || this.activeProfileBatch || this.nativeBatch.active || this.nativeBatch.queue.length || this.metadataPending || this.recoveryActive;
+      const work=this.busy || this.archiveBusy || this.activeProfileBatch || this.nativeBatch.active || this.nativeBatch.queue.length || this.metadataPending || this.recoveryActive;
       const continuation=Boolean(work || pending || more);
       if(this.loading.parentElement!==this.feed || this.loading!==this.feed.lastElementChild)this.feed.append(this.loading);
       const nativeLoading=this.nativeFeedLoading();if(this.loading.hidden===continuation)this.loading.hidden=!continuation;
@@ -484,10 +552,10 @@
       const halo=this.loading.querySelector('.rt-native-loading');if(halo && halo.hidden!==(nativeLoading || paused && !work))halo.hidden=nativeLoading || paused && !work;
       let note=this.loading.querySelector('[data-rt-continuation-note]');
       if(paused && !work){if(!note){note=make('div','flex flex-col items-center justify-center text-center m-md text-body-1');note.dataset.rtContinuationNote='true';this.loading.append(note);}const message='Loading paused. Use Refresh activity to retry.';if(note.dataset.message!==message){note.dataset.message=message;const retry=button('Retry loading',()=>this.discover.click());retry.className='button button-small button-bordered mt-md';note.replaceChildren(make('div','',message),retry);}}else note?.remove();
-      this.more.hidden=!continuation || Boolean(this.batchObserver && !paused);this.more.disabled=Boolean(this.busy || this.activeProfileBatch && !paused);
+      this.more.hidden=!continuation || Boolean(this.batchObserver && !paused);this.more.disabled=Boolean(this.busy || this.archiveBusy || this.activeProfileBatch && !paused);
       if(pending && !this.activeProfileBatch && !this.busy && !paused && this.publishedCards.size<profileBatchSize){this.advanceProfileBatch();return;}
       this.prefetchProfilePage();
-      if(!this.activeProfileBatch && !this.busy && !paused && this.batchObserver && !this.loading.hidden && !this.batchFrame){const generation=this.generation;this.batchFrame=requestAnimationFrame(()=>{this.batchFrame=null;if(generation===this.generation && this.host?.isConnected && this.profileTailVisible())this.continueProfile();});}
+      if(!this.activeProfileBatch && !this.busy && !this.archiveBusy && !this.metadataPending && !paused && this.batchObserver && !this.loading.hidden && !this.batchFrame){const generation=this.generation;this.batchFrame=requestAnimationFrame(()=>{this.batchFrame=null;if(generation===this.generation && this.host?.isConnected && this.profileTailVisible())this.continueProfile();});}
       this.updateActivityEmptyState();
     }
     advanceProfileBatch(force=false){
@@ -496,7 +564,7 @@
       if(this.activeProfileBatch || this.nativeBatch.blocked || this.batchAutoPaused && !this.pendingProfilePosts().length)return;
       if(!force && this.publishedCards.size>=profileBatchSize && (!this.batchObserver || !this.profileTailVisible()))return;
       const posts=this.pendingProfilePosts().slice(0,profileBatchSize);
-      if(!posts.length){if(this.renderedPosts.some(p=>this.nodes.get(itemKey(p))?.dataset.deferred==='older'))return;if(!this.busy && (this.moreReddit || this.moreArchive) && (force || this.batchObserver && this.profileTailVisible()))this.loadMore();return;}
+      if(!posts.length){if(this.renderedPosts.some(p=>this.nodes.get(itemKey(p))?.dataset.deferred==='older'))return;if(!this.busy && this.hasMoreProfile() && (force || this.batchObserver && this.profileTailVisible()))this.loadMore();return;}
       const group=this.activeProfileBatch={generation:this.generation,nodes:posts.map(p=>this.nodes.get(itemKey(p))),posts,enriching:false};this.loading.hidden=false;
       for(const node of group.nodes)if(!['ready','failed'].includes(node.dataset.rtNativeState))this.queueNative(node);
       this.settleProfileBatch();
@@ -504,7 +572,7 @@
     settleProfileBatch(){
       const group=this.activeProfileBatch;if(!group || group.enriching || group.generation!==this.generation || pageRoute()?.key!==this.context?.key)return;
       const visible=this.visibleIds();let ready=0;
-      while(ready<group.nodes.length && (['ready','failed'].includes(group.nodes[ready].dataset.rtNativeState) || visible.has(group.nodes[ready].dataset.fullname)))ready++;
+      while(ready<group.nodes.length && this.canPublishProfilePost(this.postMetadata.get(group.nodes[ready].dataset.key)) && (['ready','failed'].includes(group.nodes[ready].dataset.rtNativeState) || visible.has(group.nodes[ready].dataset.fullname)))ready++;
       if(!ready)return;
       // Publish only the ready prefix. A slow later card cannot hold earlier
       // content behind a whole-page barrier or reorder the feed on completion.
@@ -603,7 +671,8 @@
       if(batch.resumeAt>Date.now()){clearTimeout(this.nativeResumeTimer);this.nativeResumeTimer=setTimeout(()=>this.drainNative(batch),batch.resumeAt-Date.now());return;}
       // Prepare at most two native cards at once. Publish only the ready prefix
       // so later completions cannot expose gaps or per-card loading states.
-      batch.queue.sort((a,b)=>{const position=a.compareDocumentPosition(b);return position&4?-1:position&2?1:0;});
+      const order=new Map((this.activeProfileBatch?.nodes || []).map((node,index)=>[node,index]));
+      batch.queue.sort((a,b)=>{const priority=(order.get(a) ?? Infinity)-(order.get(b) ?? Infinity);if(priority)return priority;const position=a.compareDocumentPosition(b);return position&4?-1:position&2?1:0;});
       while(batch.active<(this.batchedProfile?2:1) && batch.queue.length){
         const node=batch.queue.shift(),post=this.postMetadata.get(node.dataset.key),generation=this.generation;
         if(!post || node.hidden && !this.activeProfileBatch?.nodes.includes(node) && node.dataset.rtQualify!=='true' || !node.isConnected){node.dataset.rtNativeState='idle';continue;}
