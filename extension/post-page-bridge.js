@@ -4,7 +4,7 @@
   if(window.top!==window || !globalThis.RTPostModel)return;
   // Bound simultaneous work and honor server cooldowns; cursor-driven scrolling
   // must not stall behind an unrelated lifetime or rolling card-count quota.
-  const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map(),statusReads=new Map(),nativeCardReads=new Map();let active=0,cardActive=0,cooldown=0;
+  const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map(),statusReads=new Map(),nativeCardReads=new Map();let active=0,cardActive=0,postCardActive=0,cooldown=0;
   function route(){
     const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
@@ -232,18 +232,21 @@
     entry.consumers++;
     return waitNative(entry.promise,signal,()=>{entry.consumers--;if(entry.pending && !entry.consumers)entry.controller.abort();});
   }
+  // Comments are small fragments; share four physical reads across render and
+  // status consumers, retaining the lower two-read limit for heavier posts.
+  function nativeCapacity(comments){return cardActive<4 && (comments || postCardActive<2);}
   async function nativeFragment(comments,fullname,path,signal){
     const key=path+'|'+fullname;
     while(true){
       if(signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
       trimNativeReads(path);const cached=nativeCardReads.get(key);if(cached){if(cached.controller.signal.aborted){await waitNative(cached.promise.catch(()=>null),signal);continue;}return consumeNative(cached,signal);}
       if(Date.now()<cooldown)return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};
-      if(cardActive<2)break;
+      if(nativeCapacity(comments))break;
       // Join existing reads before taking a slot; a busy renderer is not
       // evidence of an unknown status. Recheck the cache after a slot opens.
       await waitNative(Promise.race([...nativeCardReads.values()].filter(entry=>entry.pending).map(entry=>entry.promise.catch(()=>null))),signal);
     }
-    const url=nativeCardUrl(comments,fullname),entry={path,pending:true,size:0,expires:Infinity,controller:new AbortController(),consumers:0};cardActive++;
+    const url=nativeCardUrl(comments,fullname),entry={path,pending:true,size:0,expires:Infinity,controller:new AbortController(),consumers:0};cardActive++;if(!comments)postCardActive++;
     entry.promise=(async()=>{
       const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:entry.controller.signal});
       if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};}
@@ -253,7 +256,7 @@
       if(!doc.querySelector(selector))throw Error('Reddit returned no matching native card.');
       if(entry.controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
       entry.size=text.length;entry.expires=Date.now()+30000;return {text,url};
-    })().finally(()=>{cardActive--;entry.pending=false;if(!entry.size)nativeCardReads.delete(key);trimNativeReads(location.pathname+location.search);});
+    })().finally(()=>{cardActive--;if(!comments)postCardActive--;entry.pending=false;if(!entry.size)nativeCardReads.delete(key);trimNativeReads(location.pathname+location.search);});
     nativeCardReads.set(key,entry);return consumeNative(entry,signal);
   }
   async function readStatuses(input,signal){
@@ -301,7 +304,7 @@
     const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node));
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
     const now=Date.now();
-    if(now<cooldown || cardActive>=2 && !nativeCardReads.has(path+'|'+fullname))return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:250)};
+    if(now<cooldown || !nativeCapacity(comments) && !nativeCardReads.has(path+'|'+fullname))return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:250)};
     if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function'){
       const since=rendererWaits.get(target) ?? now;rendererWaits.set(target,since);
       if(now-since>=10000)throw Error('Reddit’s native card renderer did not become ready. Retry after the page finishes loading.');

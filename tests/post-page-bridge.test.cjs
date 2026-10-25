@@ -296,3 +296,22 @@ test('a changed route never receives partial status proofs when a batch deadline
  const e=setup(t,{fetcher:(url,options)=>new URL(url).pathname.endsWith('t3_one')?nativeResponse(statusPost('one')):new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Error('aborted')),{once:true}))}),timers=[];e.W.setTimeout=fn=>timers.push(fn);e.W.clearTimeout=()=>{};
  const status=e.send({action:'status',username:'Example',kind:'post',ids:['one','two']});await new Promise(resolve=>setImmediate(resolve));e.W.history.pushState({},'','/user/Other/');timers[0]();const result=await status;assert.equal(result.ok,false);assert.match(result.error,/Page changed/);assert.equal(result.statuses,undefined);
 });
+
+function stalledNativeReads(t){
+ const pending=[];let running=0,maximum=0;
+ const e=setup(t,{fetcher:url=>{running++;maximum=Math.max(maximum,running);const fullname=new URL(url).pathname.split('/').pop(),comment=fullname.startsWith('t1_');return new Promise(resolve=>pending.push(()=>{running--;resolve(nativeResponse(comment?`<shreddit-profile-comment comment-id="${fullname}" author="Example"><faceplate-timeago ts="2026-10-20T12:00:00Z"></faceplate-timeago><div class="md">Synthetic comment</div></shreddit-profile-comment>`:statusPost(fullname.slice(3))));}));}});
+ const render=(kind,id)=>{const target=nativeTarget(e,{kind,id,target:'rt-native-'+kind+'-'+id});return e.send({action:'render-card',username:'Example',kind,postId:id,target:target.id});};
+ return {e,pending,render,maximum:()=>maximum};
+}
+test('four native comment renders can load together while a fifth request defers',async t=>{
+ const {e,pending,render,maximum}=stalledNativeReads(t),reads=['one','two','three','four'].map(id=>render('comment',id));assert.equal(e.calls.length,4);assert.equal((await render('comment','five')).deferred,true);assert.equal(e.calls.length,4);assert.equal(maximum(),4);pending.splice(0).forEach(finish=>finish());for(const result of await Promise.all(reads)){assert.equal(result.rendered,true);assert.equal(result.html,undefined);}
+});
+test('post renders retain two physical slots while comments can use the remaining shared capacity',async t=>{
+ const {e,pending,render,maximum}=stalledNativeReads(t),posts=[render('post','one'),render('post','two')];assert.equal((await render('post','three')).deferred,true);assert.equal(e.calls.length,2);const comments=[render('comment','four'),render('comment','five')];assert.equal(e.calls.length,4);assert.equal((await render('comment','six')).deferred,true);assert.equal(maximum(),4);pending.splice(0).forEach(finish=>finish());for(const result of await Promise.all([...posts,...comments]))assert.equal(result.rendered,true);
+});
+test('two status workers and native comment renders share a four-read physical budget',async t=>{
+ const {e,pending,render,maximum}=stalledNativeReads(t),status=e.send({action:'status',username:'Example',kind:'comment',ids:['one','two','three']}),cards=[render('comment','four'),render('comment','five')];assert.equal(e.calls.length,4);assert.equal((await render('comment','six')).deferred,true);assert.equal(maximum(),4);pending.splice(0).forEach(finish=>finish());await new Promise(resolve=>setImmediate(resolve));assert.equal(e.calls.length,5,'the next status item starts only after capacity is released');assert.equal(pending.length,1);pending.splice(0).forEach(finish=>finish());assert.equal((await status).statuses.length,3);for(const result of await Promise.all(cards))assert.equal(result.rendered,true);assert.equal(maximum(),4);
+});
+test('a status worker waits when three comment renders leave only one physical slot',async t=>{
+ const {e,pending,render,maximum}=stalledNativeReads(t),cards=['one','two','three'].map(id=>render('comment',id)),status=e.send({action:'status',username:'Example',kind:'comment',ids:['four','five']});assert.equal(e.calls.length,4);pending.shift()();await new Promise(resolve=>setImmediate(resolve));assert.equal(e.calls.length,5);assert.equal(maximum(),4);pending.splice(0).forEach(finish=>finish());assert.equal((await status).statuses.length,2);for(const result of await Promise.all(cards))assert.equal(result.rendered,true);assert.equal(maximum(),4);
+});
