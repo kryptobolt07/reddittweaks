@@ -1,3 +1,14 @@
+# 0.18.4 preview
+
+- Replay the native chat-cache connection when the isolated storage listener attaches after the page-world client. This closes a startup race where loaded memory events were replayed, but disk-only history waited until a search opened. All/Messages and room search can remain closed while the extension imports Reddit’s existing local history and captures native events.
+- After a saved-read deadline, check worker responsiveness independently of storage queues. Slow reads retain the local Refresh action; an unresponsive worker receives extension-reload and tab-refresh instructions instead. Concurrent checks share one bounded probe, context invalidation stays terminal, and neither case clears saved data.
+- Refine selected filters in global and room search with a subtle accent background and stronger label weight, without check marks or a reserved indicator column. Sender, attachment, chat-type, status and sort choices retain their existing selection behavior. This cosmetic follow-up keeps version 0.18.4.
+- Preserve account checks, one reconciliation per native attachment, truthful incomplete coverage and the existing committed-read path. No second Reddit sync loop, network history crawl, storage-schema change or new permissions.
+
+Version choice: PATCH to 0.18.4 for background chat-capture startup reliability.
+
+Validation: all 640 tests pass, including independent worker health, concurrent probe deadlines, invalidated contexts and a startup regression reproduced failing before the fix with a deliberately late storage listener, disk-only history, no search calls and no repeated import on native sync. The filter refinement also passes 102 targeted search/interface checks. All 31 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave reproduced the reported 15-second saved-read timeout while Reddit’s client was ready, but even unrelated extension-worker messages stalled; that separate live worker failure still requires a restart diagnostic and is not claimed fixed by this handshake change.
+
 # 0.18.3 preview
 
 - Preserve extension-discovered hidden/deleted/archive cards and active filters while Reddit keeps the outgoing native profile feed visible during a tab change. The URL and selected tab can change ahead of the data; bind cleanup/remount to the actual native feed handoff instead.
