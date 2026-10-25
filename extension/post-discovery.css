@@ -40,6 +40,9 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 
 .rt-native-placeholder faceplate-shimmer:not(:defined){display:block;background:var(--color-neutral-background-weak,#f2f4f5)}
 .rt-native-loading:not(:defined){display:block;min-height:112px}
+/* Supplemental linear loading tracks are redundant with the native halo. */
+html[data-rt-profile-discovery] shreddit-feed>:is(faceplate-progress,progress),
+html[data-rt-profile-discovery] shreddit-feed faceplate-partial[slot="load-after"]:not([data-rt-ui] *):not(:has(shreddit-post,shreddit-profile-comment)) :is(faceplate-progress,progress){display:none!important}
 
 [data-rt-ui="profile-navigation"][data-state="idle"] flex-left-nav-container,[data-rt-ui="profile-navigation"][data-state="loading"] flex-left-nav-container{visibility:hidden}
 
