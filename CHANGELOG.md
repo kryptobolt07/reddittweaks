@@ -1,3 +1,14 @@
+# 0.18.8 preview
+
+- Coordinate New publication across posts, authenticated comments, public comments and opted-in archive streams. Establish initial source boundaries, publish only their shared chronological prefix and paginate the shallowest stream first. Hydrate native cards in combined order rather than staged DOM arrival order, so delayed comments do not push already-published older posts downward.
+- Retain source boundaries in the existing account-scoped page-session snapshot. Resume a ready batch when a temporary boundary clears, retain populated native objects and preserve the visible card's offset during reconciliation without overriding an intervening user scroll. Existing native virtualization and shared native halo ownership remain in place.
+- Start Deleted archive discovery alongside an in-flight Reddit search. Return native status evidence in incremental pairs rather than withholding a whole page behind a slow fragment, skip known available/search-only unknown candidates and drop irrelevant queued hydration on activity changes. Continue to require current deletion/removal proof before labeling a snapshot Deleted.
+- Stop Deleted continuation when the relevant archive source is exhausted; unrelated live-search cursors cannot leave its halo spinning forever. Wait for pending verification before advancing its archive cursor, avoid per-frame continuation retries during that wait, and keep failed/unknown checks explicitly incomplete and retryable.
+
+Version choice: PATCH to 0.18.8 for mixed-profile ordering, Deleted latency and loader reliability in the existing discovery feature. No permissions, persistent storage/schema or chat sync changes.
+
+Validation: all 680 tests pass, including 143 discovery checks. All 31 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Regressions cover unequal mixed-source depths, delayed initial comments, active-boundary resumption, incremental verification, activity-switch queue pruning, Deleted exhaustion, archive continuation, Top archive boundaries and viewport compensation. Live installed-build verification requires reloading Reddit Tweaks and refreshing Reddit. Search/archive coverage and current-status verification remain incomplete; network/native-fragment latency can still delay individual items. Top/Hot order currently loaded activity, since chronological archive pages cannot guarantee lifetime score/relevance ranking.
+
 # 0.18.7 preview
 
 - Supplement authenticated comment discovery with a cookie-free public Reddit search stream in Comments and Overview. A live uncached comparison for the reported example_profile profile returned zero signed-in cards and ten public cards from r/TheLaptopGuide; a matching authenticated native comment fragment also returned successfully.
