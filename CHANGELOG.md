@@ -1,3 +1,13 @@
+# 0.18.9 preview
+
+- Fix the 0.18.8 ordering regression when Reddit's native profile feed is populated and signed-in search returns an empty page with a valid continuation. Such a page retains its cursor but cannot establish an infinite date boundary that blocks healthy public-search discoveries. Older native-horizon deferrals also no longer strand newer candidates that need another source page.
+- Prime one additional cursor round on initial automatic discovery when the unpublished buffer has room, including archive-only profiles. Prefetch ahead of the feed tail between completed hydration batches as well as during active hydration, retaining the existing buffer, concurrency, cooldown and route-cancellation limits. Reddit still controls result page sizes; no larger unsupported Shreddit limit or full-history background walk is introduced.
+- Retry a timed-out Reddit discovery read once at the same scoped cursor without discarding populated cards. Cancellation, rate limits and malformed responses do not retry. Persistent failures remain explicit and incomplete. The reported Reddit timeout is the existing 10-second accepted-request deadline, distinct from queue deferral and archive timeout messages.
+
+Version choice: PATCH to 0.18.9 for mixed-feed visibility, predictive loading and transient timeout recovery in existing profile discovery. No permissions, persistent storage/schema or chat sync changes.
+
+Validation: all 687 tests pass, including 150 discovery checks. All 31 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. The new native-plus-empty-cursor regression fails on 0.18.8 and passes with the fix. Live Brave reproduced zero signed-in comment cards with a valid continuation, ten public comment cards and a populated native feed on chuggingdeemer. Tests also cover bounded distant initial look-ahead, predictive loading between batches, archive-only priming, preserved native objects, same-cursor retry, persistent errors, cancellation and rate-limit exclusions. Final installed-build verification requires reloading Reddit Tweaks and refreshing Reddit. Empty streams retain continuation but can wait behind nonempty source boundaries; source coverage and individual network/card latency remain incomplete.
+
 # 0.18.8 preview
 
 - Coordinate New publication across posts, authenticated comments, public comments and opted-in archive streams. Establish initial source boundaries, publish only their shared chronological prefix and paginate the shallowest stream first. Hydrate native cards in combined order rather than staged DOM arrival order, so delayed comments do not push already-published older posts downward.
