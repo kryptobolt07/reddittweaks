@@ -764,14 +764,14 @@ test('failed saved reads replace the placeholder with a recoverable state and do
 });
 
 
-test('filter rows show exact cached counts, selected checks and separate chat type/status with instant Reset',async t=>{
+test('filter rows show exact cached counts, selected states and separate chat type/status with instant Reset',async t=>{
   const p=await setup(t,{scope:'people'}),c=p.control;await p.search('alex');
   await p.click('[data-control="filter"]');await p.click('[data-value="chatType"]');
   const direct=c.popover.querySelector('[data-value="direct"]');assert.equal(direct.disabled,false);assert.ok(direct.querySelector('svg'));assert.equal(direct.querySelector('.menu-option-count').textContent,'2');
   const groups=c.popover.querySelector('[data-value="groups"]');assert.equal(groups.disabled,true);assert.match(groups.title,/saved chats/);
   direct.click();await settle();assert.equal(c.chatType,'direct');assert.equal(c.filter,'all');
   await p.click('[data-control="filter"]');await p.click('[data-value="unread"]');assert.equal(c.chatType,'direct');assert.equal(c.filter,'unread');assert.equal(c.controlButtons.filter.dataset.filterCount,'2');assert.equal(c.people().length,1);
-  await p.click('[data-control="filter"]');await p.click('[data-value="chatType"]');assert.equal(c.popover.querySelector('[data-value="direct"] .menu-check').textContent,'✓');await p.key('Escape');await p.click('[data-value="status"]');assert.equal(c.popover.querySelector('[data-value="unread"] .menu-check').textContent,'✓');assert.match(c.popover.querySelector('[data-value="unavailable"]').title,/Deleted or suspended.*Does not mean blocked/);
+  await p.click('[data-control="filter"]');await p.click('[data-value="chatType"]');assert.equal(c.popover.querySelector('[data-value="direct"]').getAttribute('aria-checked'),'true');await p.key('Escape');await p.click('[data-value="status"]');assert.equal(c.popover.querySelector('[data-value="unread"]').getAttribute('aria-checked'),'true');assert.match(c.popover.querySelector('[data-value="unavailable"]').title,/Deleted or suspended.*Does not mean blocked/);
   await p.click('[aria-label="Reset filters"]');assert.equal(c.chatType,'all');assert.equal(c.filter,'all');assert.equal(c.input.value,'alex');assert.equal(c.popover.hidden,true);assert.equal(c.controlButtons.filter.dataset.filterCount,'');assert.equal(c.people().length,2);
 });
 
