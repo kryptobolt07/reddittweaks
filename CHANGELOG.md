@@ -1,3 +1,15 @@
+# 0.18.5 preview
+
+- Use Reddit’s native Shreddit post search for ordinary/curated profile discovery after live result-ID/order comparisons across New, Hot and Top. Parse crossposts as outer results, exclude embedded originals, retain their own author/time/counters and restrictions, and follow only matching same-origin continuations. Full post cards and actions continue to use Reddit’s authenticated native renderer; search snippets are not fabricated as complete text or deletion proofs.
+- Preserve authenticated JSON discovery for explicitly blocked profile states: signed-in Shreddit returned fewer posts in the live comparison. Bind each post cursor to its transport, author, sort and time range so pagination cannot mix sources. Genuine empty searches are distinguished from changed/error HTML, and native pages are not silently truncated at the previous JSON page size.
+- Preserve archived-body restoration for metadata-only discovery: attach a matching author/ID Arctic Shift body only after native deletion/removal evidence, retain restriction flags and leave available native text unchanged.
+- Keep the extension’s loading sentinel as a stable insertion anchor when Reddit has no native continuation. Unchanged reconciliation previously moved published cards past the sentinel and then moved the sentinel back. Remove that unnecessary DOM churn, preserving hydrated card identity and placeholder restoration during reverse scrolling.
+- Document the proposed authenticated plus cookie-free comment discovery streams, with independent cursors/errors, ID deduplication, shared bounded scheduling, native authenticated rendering and incomplete-coverage handling. Comment credentials are unchanged in this bundle.
+
+Version choice: PATCH to 0.18.5 for profile discovery compatibility and scroll reliability. No persistent storage/schema changes, new permissions or additional chat sync loop.
+
+Validation: all 648 tests pass, including 179 targeted profile/model/bridge checks. All 31 extension/demo JavaScript files parse, and ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. The scroll regression reproduced eight unnecessary child-list changes across two unchanged scans before the fix and zero after it, including virtualized-card restoration. Live Brave compared public result IDs, native pagination, crosspost structure, Top’s empty state and signed-in/cookie-free differences; findings and coverage limits are in docs/profile-search-sources.md. Final installed-build scroll verification requires reloading the extension. Search/API coverage and undocumented native contracts remain incomplete/changeable; blocked detection depends on Reddit’s explicit current profile marker.
+
 # 0.18.4 preview
 
 - Replay the native chat-cache connection when the isolated storage listener attaches after the page-world client. This closes a startup race where loaded memory events were replayed, but disk-only history waited until a search opened. All/Messages and room search can remain closed while the extension imports Reddit’s existing local history and captures native events.
