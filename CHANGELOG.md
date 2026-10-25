@@ -1,3 +1,15 @@
+# 0.18.6 preview
+
+- Retain the combined native/search/archive profile feed while opening a post, even when Reddit removes the profile tabs ahead of the feed. Track actual native objects, including virtualized originals, until the post view takes over; canceled navigation preserves the same cards and filters, while replacement views and opt-out clean up immediately.
+- Recognize Reddit’s programmatic profile continuation alongside lazy continuations. Defer unpublished older discoveries to the appropriate native page, and keep published cards populated and visible through pagination-marker changes.
+- Prepare groups of up to 25 cards two viewports ahead, publish their ready prefix in order, and overlap a next source read with hydration near the tail. Bound the unpublished buffer, including deferred discoveries, so prefetch cannot become a history crawl. An idle native loading halo still owns the visible loading UI but no longer blocks extension continuation.
+- On reverse-scroll animation frames, ask Reddit’s existing virtualization controller to restore its retained original cards. Do not reconstruct cards, fetch them again, edit the native stack or implement a second virtualized list. Scope the optional adapter to enhanced profile feeds and reject queued work after route/view replacement or opt-out.
+- Document the observed native profile pagination and session-dependent owner presentation. Native and search page sizes differ, and deduplication/filtering means a source page cannot guarantee an identical number of new combined-feed cards.
+
+Version choice: PATCH to 0.18.6 for profile transition, pagination and scrolling reliability. No permissions, persistent storage/schema or chat sync changes.
+
+Validation: all 659 tests pass, including 182 targeted discovery/native-bridge checks. All 31 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave inspected mixed feeds, native 25-post continuations, retained virtualization objects/controllers, post navigation and authenticated/cookie-free owner-page presentation. Final installed-build verification requires reloading the extension and refreshing Reddit. The native controller is an undocumented, feature-detected contract; server latency, failed native fragments and incomplete search/archive coverage remain possible.
+
 # 0.18.5 preview
 
 - Use Reddit’s native Shreddit post search for ordinary/curated profile discovery after live result-ID/order comparisons across New, Hot and Top. Parse crossposts as outer results, exclude embedded originals, retain their own author/time/counters and restrictions, and follow only matching same-origin continuations. Full post cards and actions continue to use Reddit’s authenticated native renderer; search snippets are not fabricated as complete text or deletion proofs.
