@@ -1,3 +1,13 @@
+# 0.18.11 preview
+
+- Coordinate incoming native profile pages with discovered activity in New / All activity. Keep new native cards out of the displayed layout until discovery covers their dates and preceding discovered cards are ready, then reveal the combined chronological prefix. Retain the original native cards and already published discoveries through reverse scrolling and refresh.
+- Pause the native continuation while its new cards wait and retain one shared native halo. Predictive continuation now follows the combined displayed prefix rather than a distant, uncovered native tail. A full buffer of older deferred discoveries cannot strand the shallower search cursor. Ignore pagination markers embedded inside individual cards.
+- Remove temporary merge gates on filtering, navigation and opt-out, transfer them through native virtualization, and release native results after a failed initial discovery while keeping the source failure explicit and retryable.
+
+Version choice: PATCH to 0.18.11 for mixed-feed ordering and continuation reliability in existing profile discovery. No permissions, persistent storage/schema or chat sync changes.
+
+Validation: all 702 tests pass, including 225 discovery/native-bridge checks. All 31 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. The two mixed-feed regressions fail on 0.18.10 and pass with the fix. Additional checks cover automatic cursor progress, CSS and loader ownership, retained native identity, virtualization, full deferred buffers, failures, filtering and opt-out. This bundle was validated through extension code and synthetic diagnostics without browser automation, as requested; installed-build behavior was not rechecked live. Reload Reddit Tweaks and refresh Reddit to activate it. Search-index coverage and native response latency remain dependent on Reddit; source failures do not establish complete history. Chronological coordination applies to New, while Top and Hot retain their existing loaded-result ordering.
+
 # 0.18.10 preview
 
 - Recover a native-card transport timeout, transient gateway error or failed fetch once before exposing a manual Retry row. Keep the pending card behind the shared native loader during recovery, preserve its identity and native actions on success, and retain explicit failures after the bounded retry. Manual Retry starts a fresh attempt; definitive missing/malformed cards, canceled views and rate-limit pauses do not enter the retry path.
