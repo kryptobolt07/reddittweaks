@@ -32,6 +32,18 @@ test('archived text and current deletion status remain separately attributed',as
   const {d}=setup(t,{settings:{archiveDiscovery:true},nativeRender:async(post,node)=>{node.innerHTML='<shreddit-post><span slot="credit-bar"></span><p slot="text-body">[removed]</p></shreddit-post>';},reddit:async()=>({posts:[raw('old12',{selftext:'[removed]'})]})});await d.ready;await d.loadArchive();await new Promise(r=>setImmediate(r));
   assert.match((d.feed || d.results).textContent,/Public text/);assert.equal((d.feed || d.results).querySelector('details'),null);assert.match((d.feed || d.results).querySelector('[role=img]').title,/Removed on Reddit/);assert.match((d.feed || d.results).querySelector('[data-rt-source]').title,/Text recovered from Arctic Shift/);
 });
+test('metadata-only search results restore archived text only after native deletion proof',async t=>{
+ const {d}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},reddit:async()=>({posts:[raw('old12',{selftext:'',status:'unknown'})],hasMore:false}),nativeRender:async(post,node)=>{node.innerHTML='<shreddit-post><span slot="credit-bar"></span><p slot="text-body">[deleted]</p></shreddit-post>';}});
+ await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));await d.loadArchive();await new Promise(r=>setImmediate(r));
+ const node=d.nodes.get('old12');assert.match(node.querySelector('[slot="text-body"]').textContent,/Public text/);assert.match(node.querySelector('[data-rt-source]').title,/Deleted on Reddit.*Text recovered from Arctic Shift/);
+});
+test('unknown search metadata cannot replace available text or import another author’s archive body',async t=>{
+ for(const [body,author]of [['Live native text','Example'],['[deleted]','Other']]){
+  const {d}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},reddit:async()=>({posts:[raw('old12',{selftext:'',status:'unknown'})],hasMore:false}),archive:async()=>({posts:[raw('old12',{author,selftext:'Archived candidate'})],hasMore:false}),nativeRender:async(post,node)=>{node.innerHTML='<shreddit-post><span slot="credit-bar"></span><p slot="text-body">'+body+'</p></shreddit-post>';}});
+  await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));await d.loadArchive();await new Promise(r=>setImmediate(r));
+  assert.equal(d.nodes.get('old12').querySelector('[slot="text-body"]').textContent,body);
+ }
+});
 test('archive failures preserve visible public results and expose a retryable error',async t=>{
   const {d}=setup(t,{settings:{archiveDiscovery:true},archive:async()=>{throw Error('Archive is unavailable.');}});await d.ready;await d.loadReddit();await d.loadArchive();
   assert.equal(d.nodes.get('abc12').isConnected,true);assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/unavailable/);assert.equal(d.discover.disabled,false);

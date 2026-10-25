@@ -655,7 +655,13 @@
     decorateNative(post,node){
       node.querySelector('[data-rt-archive]')?.remove();
       const native=node.matches('shreddit-post,shreddit-profile-comment')?node:node.querySelector('shreddit-post,shreddit-profile-comment');if(!native)return;
-      post={...post,status:this.verifiedStatus(post,native)};this.repairReplyInfo(post,native);const recovered=this.recoverBody(post,native),label=this.indicator(post);if(recovered){label.title+=' · Text recovered from Arctic Shift';label.setAttribute('aria-label',label.title);}
+      post={...post,status:this.verifiedStatus(post,native)};
+      // Discovery-only HTML has no full body/deletion proof. Once the actual
+      // native card proves deletion, a separately obtained archive can restore
+      // its text even though the search record itself still has unknown status.
+      const archive=this.archived.get(itemKey(post));
+      if(this.context.kind==='profile' && ['deleted','removed'].includes(post.status) && archive?.source==='arctic-shift' && archive.fullname===post.fullname && archive.author.toLowerCase()===this.context.username.toLowerCase() && archive.body)post={...post,archivedBody:post.archivedBody || archive.body,over18:post.over18 || archive.over18,spoiler:post.spoiler || archive.spoiler};
+      this.repairReplyInfo(post,native);const recovered=this.recoverBody(post,native),label=this.indicator(post);if(recovered){label.title+=' · Text recovered from Arctic Shift';label.setAttribute('aria-label',label.title);}
       let badge=node.querySelector('[data-rt-source]');if(!badge || badge.title!==label.title){if(badge)badge.replaceWith(label);badge=label;badge.dataset.rtSource='true';}
       if(native.matches('shreddit-profile-comment')){
         const host=native.firstElementChild || native,credit=host.querySelector('.text-12.relative') || host.firstElementChild;host.classList.add('rt-comment-source-host');credit?.classList.add('rt-comment-source-credit');if(badge.parentElement!==host)host.append(badge);
