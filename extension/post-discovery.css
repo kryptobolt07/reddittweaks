@@ -77,3 +77,8 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 .rt-posts[data-rt-menu-ready] .rt-posts-toolbar>button:not(.rt-posts-more){display:none!important}
 .rt-posts[data-rt-menu-ready] .rt-posts-toolbar{min-height:0}
 .rt-posts[data-rt-menu-ready]:not(:has(.rt-posts-status[data-error=true],.rt-posts-notice:not([hidden]),.rt-posts-more:not([hidden])))){margin-block:0}
+
+/* Feed-bottom notes (waiting retries, paused loading): quiet, centered, one line where possible. */
+.rt-feed-note{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 12px;margin:16px;font-size:14px;line-height:20px;color:var(--color-neutral-content-weak,#576f76);text-align:center}
+.rt-feed-note-text{display:inline-flex;align-items:center;gap:6px}
+.rt-feed-note-text::before{content:"";flex:none;width:14px;height:14px;background-color:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 1a9 9 0 100 18 9 9 0 000-18Zm0 16.2a7.2 7.2 0 110-14.4 7.2 7.2 0 010 14.4ZM9.1 8.6h1.8v5.6H9.1V8.6Zm0-3.2h1.8v1.8H9.1V5.4Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 1a9 9 0 100 18 9 9 0 000-18Zm0 16.2a7.2 7.2 0 110-14.4 7.2 7.2 0 010 14.4ZM9.1 8.6h1.8v5.6H9.1V8.6Zm0-3.2h1.8v1.8H9.1V5.4Z'/%3E%3C/svg%3E") center/contain no-repeat}
