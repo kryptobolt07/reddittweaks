@@ -90,9 +90,9 @@
     }
     trackVirtualization(records){
       for(const record of records){
-        if(record.target!==this.feed || record.addedNodes.length!==1 || record.removedNodes.length!==1)continue;
+        if((record.target!==this.feed && !(record.target.matches?.('faceplate-batch') && record.target.parentElement===this.feed)) || record.addedNodes.length!==1 || record.removedNodes.length!==1)continue;
         const added=record.addedNodes[0],removed=record.removedNodes[0];
-        if(added.nodeType===1 && added.matches('.virtualized-placeholder') && added.parentElement===this.feed){this.virtualNodes.set(added,removed);if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}if(removed.dataset?.rtUi==='activity-item'){added.dataset.rtUi='activity-slot';added.hidden=removed.hidden;}if(removed.hasAttribute?.('data-rt-order-pending')){added.setAttribute('data-rt-order-pending','');this.mergePendingNodes.add(added);}if(removed.hasAttribute?.('data-rt-filter-hidden'))added.setAttribute('data-rt-filter-hidden','');if(removed.hasAttribute?.('data-rt-activity-match'))added.setAttribute('data-rt-activity-match','');}
+        if(added.nodeType===1 && added.matches('.virtualized-placeholder') && added.parentElement===record.target){this.virtualNodes.set(added,removed);if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}if(removed.dataset?.rtUi==='activity-item'){added.dataset.rtUi='activity-slot';added.hidden=removed.hidden;}if(removed.hasAttribute?.('data-rt-order-pending')){added.setAttribute('data-rt-order-pending','');this.mergePendingNodes.add(added);}if(removed.hasAttribute?.('data-rt-filter-hidden'))added.setAttribute('data-rt-filter-hidden','');if(removed.hasAttribute?.('data-rt-activity-match'))added.setAttribute('data-rt-activity-match','');}
         else if(this.virtualNodes.get(removed)===added){if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}this.virtualNodes.delete(removed);}
       }
     }
@@ -394,18 +394,21 @@
     }
     syncNativeRules(entries){
       if(!this.feed)return;
-      // Hidden cards can leave several native feed rules next to each other.
-      // Keep one at a visible card boundary, and none in an empty run.
+      // Reddit may append several rules separated only by empty pager observers.
+      // Traverse its native batch, but never descend into cards or other content.
       const slots=new Set(entries.map(entry=>entry.node)),previous=this.collapsedNativeRules || new Set(),collapsed=new Set();let rules=[],hiddenCard=false,leftVisible=false;
-      const finish=rightVisible=>{if(hiddenCard){const keep=leftVisible || rightVisible?1:0;for(const rule of rules.slice(keep))collapsed.add(rule);}rules=[];hiddenCard=false;};
-      for(const node of this.feed.children){
+      const finish=rightVisible=>{const keep=hiddenCard?(leftVisible || rightVisible?1:0):1;for(const rule of rules.slice(keep))collapsed.add(rule);rules=[];hiddenCard=false;};
+      const visit=(node,batch=null)=>{
         const original=this.virtualNodes.get(node) || node;
-        if(original.matches('hr.border-0.border-b-sm.border-solid.border-b-neutral-border-weak')){
-          rules.push(node);continue;
-        }
-        const native=slots.has(node),owned=['activity-item','activity-slot'].includes(node.dataset.rtUi),hidden=native && (node.hasAttribute('data-rt-order-pending') || node.hasAttribute('data-rt-filter-hidden')) || owned && (node.hidden || node.hasAttribute('data-rt-retired'));
-        if(hidden){hiddenCard=true;continue;}
+        if(original.matches('hr.border-0.border-b-sm.border-solid.border-b-neutral-border-weak')){rules.push(node);return;}
+        if(original.matches('shreddit-feed-load-more-observer') && !original.children.length && !original.textContent.trim() && node.getBoundingClientRect().height===0)return;
+        const native=slots.has(node) || Boolean(batch && (original.matches('article,shreddit-post,shreddit-profile-comment') || original.matches('shreddit-feed-load-more-observer') && original.querySelector('shreddit-post,shreddit-profile-comment'))),owned=['activity-item','activity-slot'].includes(node.dataset.rtUi);
+        const hidden=native && (node.hasAttribute('data-rt-order-pending') || node.hasAttribute('data-rt-filter-hidden') || batch?.hasAttribute('data-rt-order-pending') || batch?.hasAttribute('data-rt-filter-hidden')) || owned && (node.hidden || node.hasAttribute('data-rt-retired'));
+        if(hidden){hiddenCard=true;return;}
         const visible=native || owned;finish(visible);leftVisible=visible;
+      };
+      for(const node of this.feed.children){
+        if(node.matches('faceplate-batch')){for(const child of node.children)visit(child,node);}else visit(node);
       }
       finish(false);
       for(const node of previous)if(!collapsed.has(node))node.removeAttribute('data-rt-rule-collapsed');
