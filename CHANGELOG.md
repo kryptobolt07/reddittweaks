@@ -1,3 +1,12 @@
+# 0.18.16 preview
+
+- Preserve native card-bearing continuation wrappers while merge gating is active, and collapse orphaned native separator runs inside known nested feed batches and pager wrappers. Keep visible card boundaries and leave rules inside card and media content untouched. Nested virtualization retains original native cards and restores presentation on opt-out.
+- Live inspection of 0.18.15 showed 30 rules in a 25-card batch; eight approximately 0.555-pixel rules stacked between seven zero-height load-more observers. Each observer contained a native card, but merge-waiting styling hid the wrapper. The corrected installed bundle has not been verified in the browser.
+
+Version choice: PATCH to 0.18.16 for the profile-feed separator and card visibility reliability correction. No permissions or persistent storage/schema changes.
+
+Validation: all 713 tests pass, including nested separator, card-bearing wrapper and virtualization regressions. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live inspection confirmed the 0.18.15 cause, but browser access ended before the corrected CSS or complete installed bundle could be checked. A partial JavaScript diagnostic was applied to the existing tab; reload the extension and refresh Reddit to replace it and check the final appearance.
+
 # 0.18.15 preview
 
 - Collapse orphaned runs of standalone native profile-feed separator rules when extension filtering or merge gating hides intervening cards. Keep one boundary between visible cards, preserve normal native boundaries and unrelated rules, and restore rules on opt-out. Original and virtualized nodes remain in place; the extension does not generate separators.
