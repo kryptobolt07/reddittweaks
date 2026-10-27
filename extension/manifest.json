@@ -96,6 +96,7 @@
       "run_at": "document_idle",
       "js": [
         "post-model.js",
+        "markdown-lite.js",
         "post-discovery.js",
         "thread-restore.js"
       ]

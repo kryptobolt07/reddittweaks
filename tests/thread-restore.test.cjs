@@ -27,7 +27,7 @@ test('deleted and removed comment notices show archived text with Reddit body cl
  const gone=comment(doc,'t1_gone1'),body=gone.querySelector('.notice');
  assert.equal(body.querySelector('[data-rt-recovered-text]').className,'md text-14 native-body');assert.equal(body.querySelectorAll('p').length,2);assert.equal(body.querySelector('p').className,'native-p');assert.match(body.textContent,/Original words of t1_gone1/);
  const badge=gone.querySelector('[slot="commentMeta"] [data-rt-source]');assert.match(badge.title,/Deleted by its author on Reddit · Text from an Arctic Shift snapshot from .* · Originally posted by u\/Originalgone1/);assert.equal(badge.parentElement.className,'row');
- const kid=comment(doc,'t1_kid1');assert.match(kid.querySelector('.notice').textContent,/Original words of t1_kid1/);assert.match(kid.querySelector('[data-rt-source]').title,/^Removed by moderators/);assert.ok(kid.hasAttribute('collapsed'),'Reddit keeps its own collapsed state');
+ const kid=comment(doc,'t1_kid1');assert.match(kid.querySelector('.notice').textContent,/Original words of t1_kid1/);assert.match(kid.querySelector('[data-rt-source]').title,/^Removed by moderators/);assert.equal(kid.querySelector(':scope > details').open,true,'restored comments open so the text is visible');
  assert.equal(gone.querySelector(':scope > details > div .notice').textContent.includes('t1_kid1'),false,'a parent never takes a reply’s text');
  assert.equal(comment(doc,'t1_norm1').querySelector('p').textContent,'Hello there','normal comments are untouched');
  assert.equal(comment(doc,'t1_late1').querySelector('p').textContent,'[deleted]','an archive captured after deletion changes nothing');
@@ -37,7 +37,7 @@ test('nothing is requested without both archive opt-ins, and opting out restores
  const off=setup({settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:false}});await off.r.ready;await settle();assert.equal(off.calls.length,0);
  const {r,doc}=setup();await r.ready;await settle();assert.match(comment(doc,'t1_gone1').textContent,/Original words/);
  r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});
- assert.equal(comment(doc,'t1_gone1').querySelector('.notice p').textContent,'Comment deleted by user');assert.equal(doc.querySelector('[data-rt-source]'),null);
+ assert.equal(comment(doc,'t1_gone1').querySelector('.notice p').textContent,'Comment deleted by user');assert.equal(comment(doc,'t1_gone1').querySelector(':scope > details').open,false,'opt-out collapses it again');assert.equal(doc.querySelector('[data-rt-source]'),null);
 });
 test('only comments of the open post on post pages are considered',async()=>{
  const profile=setup({url:'https://www.reddit.com/user/Example/'});await profile.r.ready;await settle();assert.equal(profile.calls.length,0);
