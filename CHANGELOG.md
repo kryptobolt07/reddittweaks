@@ -1,3 +1,12 @@
+# 0.18.15 preview
+
+- Collapse orphaned runs of standalone native profile-feed separator rules when extension filtering or merge gating hides intervening cards. Keep one boundary between visible cards, preserve normal native boundaries and unrelated rules, and restore rules on opt-out. Original and virtualized nodes remain in place; the extension does not generate separators.
+- The supplied computed styles identify a one-pixel native rule with no margin. Synthetic fixtures reproduce stacking when hidden cards are skipped, but the number of rules in the live report and the final installed appearance remain unverified.
+
+Version choice: PATCH to 0.18.15 for the profile-feed separator reliability correction. No permissions or persistent storage/schema changes.
+
+Validation: all 711 tests pass, including synthetic separator regressions for hidden and gated cards, native boundaries, virtualization and opt-out restoration. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. No live browser or installed-build verification was performed; reload the extension and refresh Reddit to check the final appearance.
+
 # 0.18.14 preview
 
 - Keep profile feed borders supplied by Reddit. Remove generated card separators and stop hiding native horizontal rules around the feed, toolbar and loader; supplemental linear progress suppression remains scoped separately.
