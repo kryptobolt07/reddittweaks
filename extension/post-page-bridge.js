@@ -386,7 +386,31 @@
       return await Promise.race([operation,timeout]);
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
+  // Profile picture of an archived comment's original author, from Reddit's
+  // own user hover card. Only an https URL on Reddit's image hosts leaves the
+  // page world; results are cached per username.
+  const avatarReads=new Map(),avatarHosts=new Set(['styles.redditmedia.com','i.redd.it','preview.redd.it','www.redditstatic.com']);
+  async function userAvatar(input,signal){
+    if(!M.validateUsername(input.username))throw Error('Invalid username.');
+    const name=input.username.toLowerCase(),now=Date.now(),cached=avatarReads.get(name);
+    if(cached?.expires>now)return {avatar:cached.url};
+    if(now<cooldown)return {deferred:true,retryAfterMs:cooldown-now};
+    if(active>=2)return {deferred:true,retryAfterMs:250};
+    const controller=new AbortController(),cancel=()=>controller.abort(),timer=setTimeout(cancel,8000);signal?.addEventListener('abort',cancel,{once:true});active++;
+    try{
+      const response=await fetch(new URL('/svc/shreddit/user-hover-card/'+encodeURIComponent(input.username),location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
+      if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
+      let url='';
+      if(response.ok){
+        const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),img=doc.querySelector('[avatar] img[src],img[alt*="avatar" i][src]') || doc.querySelector('img[src]');
+        try{const candidate=new URL(img?.getAttribute('src') || '',location.origin);if(candidate.protocol==='https:' && avatarHosts.has(candidate.hostname))url=candidate.href;}catch{}
+      }
+      if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+1800000});
+      return {avatar:url};
+    }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
+  }
   async function read(input,signal){
+    if(input.action==='user-avatar')return userAvatar(input,signal);
     if(input.action==='render-card')return renderCard(input,signal);
     if(input.action==='status')return readStatuses(input,signal);
     if(input.action==='render-navigation')return renderNavigation(input,signal);
@@ -457,7 +481,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}

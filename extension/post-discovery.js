@@ -1084,7 +1084,7 @@
     });}
     destroy(){this.profileStates.clear();document.removeEventListener('click',this.onNavigate,true);this.avatarUnsubscribe?.();clearTimeout(this.timer);this.observer?.disconnect();globalThis.chrome?.runtime?.onMessage?.removeListener?.(this.onWorkerSettings);window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.removeListener?.(this.onSettings);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}
   }
-  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph});
+  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead});
   // Debug handle in the extension's isolated world only (not visible to Reddit's page).
   if(window.top===window && globalThis.chrome?.runtime?.id)Object.defineProperty(globalThis,'RTDiscoveryDebug',{value:new Discovery()});
 })();
