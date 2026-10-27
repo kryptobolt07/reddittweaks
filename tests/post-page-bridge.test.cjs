@@ -380,3 +380,14 @@ test('a hung info read gives up after its own deadline so fragments still prove 
  assert.equal(result.timedOut,undefined);assert.equal(result.statuses[0].status,'available');assert.equal(result.via,'native');
  await e.send({action:'status',username:'Example',kind:'post',ids:['two']});assert.equal(e.calls.filter(([url])=>new URL(url).pathname==='/api/info.json').length,1,'the stalled fast path is suspended');
 });
+test('native status recognizes Reddit’s current deletion notices, removal banners and removed titles',async t=>{
+ const comment=(id,flags,text)=>`<shreddit-profile-comment comment-id="t1_${id}" author="[deleted]" ${flags} created-timestamp="2026-10-20T12:00:00Z"><div><div><p>${text}</p></div></div></shreddit-profile-comment>`;
+ const pages={
+  t1_cdel:comment('cdel','is-comment-deleted','Comment deleted by user'),
+  t1_crem:comment('crem','is-comment-deleted','Comment removed by moderator'),
+  t3_prem:`<shreddit-post id="t3_prem" author="Example" post-title="[ Removed by moderator ]" post-type="link" created-timestamp="2026-10-20T12:00:00Z"><h1 slot="title">[ Removed by moderator ]</h1><div slot="post-removed-banner">Sorry, this post has been removed by the moderators.</div></shreddit-post>`};
+ const e=setup(t,{fetcher:async url=>{const u=new URL(url);if(u.pathname==='/api/info.json')return nativeResponse('',403);return nativeResponse(pages[u.pathname.split('/').pop()] || '<div></div>');}});
+ const comments=await e.send({action:'status',username:'Example',kind:'comment',ids:['cdel','crem']}),post=await e.send({action:'status',username:'Example',kind:'post',ids:['prem']});
+ const status=Object.fromEntries([...comments.statuses,...post.statuses].map(s=>[s.fullname,s.status]));
+ assert.equal(status.t1_cdel,'deleted');assert.equal(status.t1_crem,'removed');assert.equal(status.t3_prem,'removed');
+});

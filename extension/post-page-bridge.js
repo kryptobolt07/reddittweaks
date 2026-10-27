@@ -202,7 +202,11 @@
     if(author && author!=='[deleted]' && author.toLowerCase()!==username.toLowerCase())return null;
     const state=node.getAttribute('item-state')?.toLowerCase(),body=node.querySelector(comments?'[id$="-post-rtjson-content"],.md':'[slot="text-body"]'),text=body?.textContent?.trim();
     const flag=name=>node.hasAttribute(name) && node.getAttribute(name)!=='false';
-    let status=flag('deleted') || state==='deleted' || text==='[deleted]'?'deleted':flag('removed') || state==='removed' || text==='[removed]'?'removed':'unknown';
+    // Current Reddit shows notices ("Comment deleted by user", "[ Removed by moderator ]"
+    // titles, a removal banner) where older markup used [deleted]/[removed].
+    const deletedText=/^(?:\[deleted\]|comment deleted by user|\[\s*deleted by user\s*\])$/i,removedText=/^(?:\[removed\]|comment removed by moderator|\[\s*removed by (?:moderator|reddit)\s*\])$/i;
+    const notice=[...node.querySelectorAll('p')].map(p=>p.textContent.trim()).find(value=>deletedText.test(value) || removedText.test(value)) || '',title=node.getAttribute('post-title')?.trim() || '';
+    let status=(flag('deleted') || flag('is-comment-deleted')) && !removedText.test(notice) || state==='deleted' || deletedText.test(text || '') || deletedText.test(notice) || deletedText.test(title)?'deleted':flag('removed') || state==='removed' || removedText.test(text || '') || removedText.test(notice) || removedText.test(title) || Boolean(node.querySelector('[slot="post-removed-banner"]'))?'removed':'unknown';
     if(status==='unknown' && (!state || ['normal','active','visible','available','unmoderated'].includes(state)) && M.validateUsername(author) && Number.isFinite(Date.parse(node.getAttribute('created-timestamp') || node.querySelector('faceplate-timeago[ts]')?.getAttribute('ts'))) && (comments?Boolean(text):Boolean(node.getAttribute('post-title'))))status='available';
     if(status==='unknown')return null;
     return {fullname,status,author,over18:flag('nsfw'),spoiler:flag('spoiler')};

@@ -1148,3 +1148,25 @@ test('comment and archive cards without a native rule get one separator like Red
  for(const node of [d.nodes.get(comment().fullname),d.nodes.get('t1_second1')]){assert.equal(node.dataset.rtNativeState,'ready');const rules=node.querySelectorAll('hr');assert.equal(rules.length,1);assert.equal(rules[0],node.lastElementChild);assert.equal(rules[0].className,'border-0 border-b-sm border-solid border-b-neutral-border-weak');}
  const node=d.nodes.get(comment().fullname);d.decorateNative(d.postMetadata.get(comment().fullname),node);d.decorateNative(d.postMetadata.get(comment().fullname),node);assert.equal(node.querySelectorAll('hr').length,1,'repeated decoration never stacks rules');
 });
+
+test('profile cards with Reddit’s current notices show archived text, and removed posts get their title and body back',async t=>{
+ const archivedComment={...comment(),id:'gone1',fullname:'t1_gone1',body:'What I originally wrote',retrieved_on:1700086400};
+ const {d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},
+  reddit:async input=>input.action==='status'?{statuses:[],unknownIds:[]}:{posts:[],hasMore:false},
+  archive:async input=>input.kind==='comment'?{posts:[archivedComment],hasMore:false}:{posts:[raw('rem1',{title:'My original title',selftext:'My original body'})],hasMore:false},
+  nativeRender:async(post,node)=>{node.innerHTML=post.kind==='comment'?'<shreddit-profile-comment comment-id="t1_gone1" is-comment-deleted><div><span class="text-12 relative"></span><div><p>Comment deleted by user</p></div></div></shreddit-profile-comment>':'<shreddit-post id="t3_rem1" post-title="[ Removed by moderator ]"><span slot="credit-bar"></span><h1 slot="title">[ Removed by moderator ]</h1><div slot="post-removed-banner">Sorry, this post has been removed.</div></shreddit-post>';}});
+ await d.ready;await d.loadArchive();for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));
+ const c=d.nodes.get('t1_gone1');assert.match(c.textContent,/What I originally wrote/);assert.doesNotMatch(c.textContent,/Comment deleted by user/);assert.match(c.querySelector('[data-rt-source]').title,/Deleted on Reddit.*Text recovered from Arctic Shift.*Snapshot from/);
+ const p=d.nodes.get('rem1'),post=p.querySelector('shreddit-post');assert.equal(post.querySelector('[slot="title"]').textContent,'My original title');assert.equal(post.querySelector('[slot="text-body"]').textContent,'My original body');assert.match(p.querySelector('[data-rt-source]').title,/Removed on Reddit/);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:true,archiveDiscovery:false}}},'local');
+});
+
+test('a removed post page restores title and text inside Reddit’s post element, not a separate box',async t=>{
+ const {W,d}=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/removed_by_moderator/',settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},archive:async()=>({posts:[raw('abc12',{title:'Original title',selftext:'Original body'})]}),reddit:async()=>({posts:[]})});
+ await d.ready;const native=W.document.querySelector('shreddit-post');native.id='t3_abc12';native.setAttribute('author','Example');native.setAttribute('post-title','[ Removed by moderator ]');native.innerHTML='<h1 slot="title">[ Removed by moderator ]</h1><div slot="post-removed-banner">Sorry, this post has been removed.</div>';
+ await d.loadDetail();
+ assert.equal(native.querySelector('[slot="title"]').textContent,'Original title');assert.equal(native.querySelector('[slot="text-body"]').textContent,'Original body');assert.equal(d.results.querySelector('.rt-post-snapshot'),null,'no separate snapshot box');
+ d.restoreRecoveredBodies();assert.equal(native.querySelector('[slot="title"]').textContent,'[ Removed by moderator ]');assert.equal(native.querySelector('[slot="text-body"]'),null,'opt-out removes the added body');
+ const other=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/x/',settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},archive:async()=>({posts:[raw('abc12',{author:'Someone',title:'Not theirs'})]}),reddit:async()=>({posts:[]})});
+ await other.d.ready;const n2=other.W.document.querySelector('shreddit-post');n2.id='t3_abc12';n2.setAttribute('author','Example');n2.innerHTML='<h1 slot="title">[ Removed by moderator ]</h1><div slot="post-removed-banner">Removed.</div>';await other.d.loadDetail();assert.equal(n2.querySelector('[slot="title"]').textContent,'[ Removed by moderator ]','a snapshot from another author is never shown in place');
+});
