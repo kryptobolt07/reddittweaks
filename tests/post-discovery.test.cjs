@@ -1051,3 +1051,16 @@ test('Deleted keeps one page of unchecked candidates ahead instead of waiting fo
  d.verifyQueue=Array.from({length:25},(_,i)=>({...raw('q'+i),fullname:'t3_q'+i,kind:'post'}));assert.equal(d.loadMore(),undefined,'a full page of unchecked candidates is enough look-ahead');
  d.verifyQueue=d.verifyQueue.slice(0,3);d.beforeByKind={post:1700000000};await d.loadMore();assert.deepEqual(pages,[1700000000],'pending checks no longer block the next archive page');
 });
+
+test('a deleted item Reddit no longer serves keeps its archive snapshot in a native-looking card',async t=>{
+ const {d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>input.action==='status'?{statuses:[],unknownIds:[]}:{posts:[],hasMore:false},archive:async()=>({posts:[{...comment(),id:'gone1',fullname:'t1_gone1',body:'Original archived words',title:'The parent post',retrieved:1700086400}],hasMore:false}),nativeRender:async()=>{throw Error('Reddit returned no matching native card.');}});
+ await d.ready;await d.loadArchive();for(let i=0;i<3;i++)await new Promise(r=>setImmediate(r));
+ const node=d.nodes.get('t1_gone1');assert.equal(node.dataset.rtArchiveFallback,'true');assert.equal(node.querySelector('.rt-native-unavailable'),null);assert.equal(node.querySelector('details'),null);
+ assert.ok(node.querySelector('shreddit-profile-comment'));assert.match(node.textContent,/Original archived words/);assert.match(node.textContent,/The parent post/);
+ assert.match(node.querySelector('[data-rt-source]').title,/Arctic Shift snapshot.*Snapshot from/);
+});
+
+test('a card without archive text keeps a Reddit-styled retry row after a definitive failure',async t=>{
+ const {d}=setup(t,{nativeRender:async()=>{throw Error('Reddit could not render this card (HTTP 404).');}});await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
+ const node=d.nodes.get('abc12'),row=node.querySelector('.rt-native-unavailable');assert.equal(node.dataset.rtNativeState,'failed');assert.ok(row);assert.equal(row.querySelector('details'),null);assert.match(row.querySelector('button').className,/button-bordered/);assert.match(row.textContent,/couldn’t load/);
+});
