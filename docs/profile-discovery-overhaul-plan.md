@@ -1,5 +1,7 @@
 # Profile discovery overhaul plan (0.19.0)
 
+Status: implemented in 0.19.0 and validated with synthetic tests only. Section B is implemented inside `post-discovery.js` (per-source timing, a frontier-wide `loadMore`, joined in-flight loads), not as a separate `profile-sources.js` module. Section D adds a batched info read in the page bridge.
+
 Goal: profile Overview, Posts and Comments should feel like Reddit's own feed. The only visible differences should be the cues on hidden, deleted and removed items. Loading should never look slower or jumpier than the native feed.
 
 ## Diagnosis (0.18.17)
