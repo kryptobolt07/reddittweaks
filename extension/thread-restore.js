@@ -81,8 +81,11 @@
       // Reuse Reddit's own comment-body classes from a normal comment on this page.
       const sample=[...document.querySelectorAll('main shreddit-comment [id$="-post-rtjson-content"]')].find(node=>!node.closest('[data-rt-recovered-text]'));
       const recovered=make('div',sample?.className || 'md text-14');recovered.dataset.rtRecoveredText='true';
-      for(const part of text.split(/\n{2,}/)){const para=make('p',sample?.querySelector('p')?.className || '',part);para.style.whiteSpace='pre-wrap';recovered.append(para);}
+      if(globalThis.RTMarkdown)recovered.append(RTMarkdown.render(text));else for(const part of text.split(/\n{2,}/)){const para=make('p','',part);para.style.whiteSpace='pre-wrap';recovered.append(para);}
+      const pClass=sample?.querySelector('p')?.className;if(pClass)for(const para of recovered.querySelectorAll(':scope > p'))para.className=pClass;
       this.patches.set(body,{original:[...body.childNodes],comment});body.replaceChildren(recovered);
+      // Reddit collapses deleted comments; open restored ones so the text is visible.
+      const details=comment.querySelector(':scope > details');if(details && !details.open){details.open=true;this.patches.get(body).opened=details;}
       const meta=comment.querySelector('[slot="commentMeta"]');
       if(meta && !meta.querySelector('[data-rt-source]')){
         const when=archived.retrieved?' from '+new Date(archived.retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}):'';
@@ -95,7 +98,7 @@
       }
     }
     restoreAll(){
-      for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();}
+      for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;}
       this.patches.clear();
     }
     destroy(){this.observer?.disconnect();clearTimeout(this.timer);clearTimeout(this.retryTimer);window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);chrome.runtime.onMessage?.removeListener?.(this.onMessage);this.restoreAll();}

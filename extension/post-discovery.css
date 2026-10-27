@@ -88,3 +88,9 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 /* Cue on restored thread comments: sits in Reddit's comment meta row. */
 .rt-thread-indicator{width:20px;height:20px;margin-inline:4px 0}
 .rt-thread-indicator svg{width:14px;height:14px}
+
+/* Archived markdown inside Reddit cards; Reddit's .md styles cover most of it. */
+.rt-recovered-md>:first-child{margin-top:0}.rt-recovered-md>:last-child{margin-bottom:0}
+.rt-recovered-md blockquote{margin:8px 0;padding-inline-start:12px;border-inline-start:4px solid var(--color-neutral-border-weak,#e5ebee);color:var(--color-neutral-content-weak,#576f76)}
+.rt-recovered-md pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:8px 12px;border-radius:8px;background:var(--color-neutral-background-weak,#f2f4f5)}
+.rt-recovered-md a{color:var(--color-primary-plain,#0a449b);text-decoration:underline}
