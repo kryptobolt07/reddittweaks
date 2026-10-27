@@ -674,12 +674,12 @@
         native.setAttribute('inert','');const disable=()=>{const bar=native.shadowRoot?.querySelector('rpl-action-bar');if(!bar)return false;bar.setAttribute('inert','');bar.setAttribute('aria-disabled','true');bar.title='Archived values · Current actions unavailable';native.removeAttribute('inert');return true;};
         if(!disable())requestAnimationFrame(()=>{if(!disable())requestAnimationFrame(disable);});
       }
-      node.append(native);this.ensureSeparator(node);return native;
+      node.append(native);return native;
     }
     card(post){
       const card=make('div','rt-native-card');card.id='rt-native-'+crypto.randomUUID();card.dataset.rtUi='activity-item';card.dataset.postId=post.id;card.dataset.fullname=post.fullname;card.dataset.rtNativeFullname=post.fullname;card.dataset.rtNativeState='idle';card.dataset.key=itemKey(post);card.hidden=post.visible;
       card.setAttribute('aria-busy','true');
-      card.append(this.placeholder());this.ensureSeparator(card);return card;
+      card.append(this.placeholder());return card;
     }
     placeholder(){
       // Cards use quiet native shimmer rows. The animated Snoo belongs to the
@@ -696,7 +696,7 @@
       // well as its Snoo halo. Keep only the halo; never style card/media roots.
       for(const root of [feed.shadowRoot,...[...feed.querySelectorAll('shreddit-feed-page-loading')].map(node=>node.shadowRoot)].filter(Boolean)){
         if([...this.nativeLoadingStyles].some(style=>style.parentNode===root))continue;
-        const style=make('style');style.dataset.rtUi='loading-style';style.textContent='faceplate-progress,progress,hr{display:none!important}';root.append(style);this.nativeLoadingStyles.add(style);
+        const style=make('style');style.dataset.rtUi='loading-style';style.textContent='faceplate-progress,progress{display:none!important}';root.append(style);this.nativeLoadingStyles.add(style);
       }
       const roots=[feed,feed.shadowRoot,...[...feed.querySelectorAll('shreddit-feed-page-loading')].filter(n=>!n.closest('[data-rt-ui]')).map(n=>n.shadowRoot)].filter(Boolean);if(this.nativeLoadingRoot?.feed===feed && roots.length===this.nativeLoadingRoot.roots.length && roots.every((root,i)=>root===this.nativeLoadingRoot.roots[i]))return;
       this.nativeLoadingObserver?.disconnect();this.nativeLoadingRoot={feed,roots};
@@ -769,21 +769,9 @@
           node.dataset.rtNativeState='failed';node.removeAttribute('aria-busy');node.replaceChildren();
           const fallback=make('div','rt-native-unavailable');fallback.append(link(post.title || 'View comment on Reddit',post.permalink));
           const retry=button('Retry',()=>{this.nativeRetries.delete(node);node.dataset.rtNativeState='idle';this.queueNative(node);});retry.title=error?.message || 'Reddit could not load this card.';fallback.append(retry);node.append(fallback);
-          const archived=post.archivedBody || (post.source==='arctic-shift'?post.body:'');if(archived && !post.over18 && !post.spoiler)node.append(this.snapshot(archived));this.ensureSeparator(node);
+          const archived=post.archivedBody || (post.source==='arctic-shift'?post.body:'');if(archived && !post.over18 && !post.spoiler)node.append(this.snapshot(archived));
         }).finally(()=>{batch.active--;this.settleProfileBatch();this.deduplicate();this.drainNative(batch);this.updateProfileLoading();});
       }
-    }
-    ensureSeparator(node){
-      const native=node.querySelector('shreddit-post,shreddit-profile-comment');
-      // Feed fragments differ: posts usually supply a rule; comments often do
-      // not. A rule inside the post body is content, never a feed separator.
-      const supplied=[...node.querySelectorAll('hr')].some(rule=>!rule.hasAttribute('data-rt-separator') && !native?.contains(rule) && !rule.closest('.rt-post-snapshot'));
-      let separator=node.querySelector('[data-rt-separator]');
-      if(supplied){separator?.remove();return;}
-      if(!separator){separator=make('hr','border-0 border-b-sm border-solid border-b-neutral-border-weak');separator.dataset.rtSeparator='true';}
-      // Keep the separator inside the card so native virtualization, hiding and
-      // opt-out move/remove it together with its content.
-      if(node.lastElementChild!==separator)node.append(separator);
     }
     restoreRecoveredBodies(){
       for(const [info,original] of this.replyPatches || [])if(info.hasAttribute('data-rt-reply-info')){info.replaceChildren(...original);delete info.dataset.rtReplyInfo;delete info.dataset.rtReplySignature;}this.replyPatches=new Map();
@@ -843,7 +831,6 @@
         let actions=credit.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==credit)actions=actions.parentElement;
         if(actions){if(badge.parentElement!==actions)actions.prepend(badge);}else if(badge.parentElement!==credit){badge.style.marginInlineStart='auto';credit.append(badge);}
       }
-      if(node!==native)this.ensureSeparator(node);
     }
     maybeRestoreDetail(){
       if(!this.autoDiscover || this.context?.kind!=='post' || !this.settings.archiveDiscovery || !this.settings.restoreDeletedContent || this.detailRecoveryStarted)return;

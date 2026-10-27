@@ -6,14 +6,6 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-posts{font:inherit;color:var(--color-neutral-content,#333d42);margin-block:4px;min-width:0}
 .rt-posts [hidden],.rt-native-card[hidden],[data-rt-empty-suppressed],[data-rt-retired],[data-rt-filter-hidden]{display:none!important}
 .rt-posts-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:4px;min-height:32px;position:relative}
-/* Hide chrome dividers around our toolbar/continuation, not card separators. */
-html[data-rt-profile-discovery] hr:has(+[data-rt-ui="posts"]),
-html[data-rt-profile-discovery] [data-rt-ui="posts"]+hr,
-html[data-rt-profile-discovery] [data-rt-ui="posts"]>hr,
-html[data-rt-profile-discovery] .rt-posts-toolbar hr,
-html[data-rt-profile-discovery] .rt-post-loading hr,
-html[data-rt-profile-discovery] shreddit-feed>hr:first-child,
-html[data-rt-profile-discovery] shreddit-feed>hr:has(+[data-rt-ui="profile-loading"]:not([hidden])){display:none!important}
 .rt-posts button{font:inherit;color:inherit;display:inline-flex;justify-content:center;align-items:center;background:transparent;border:0;cursor:pointer;border-radius:50%;width:32px;height:32px;padding:8px}
 .rt-posts button:hover{background:var(--color-neutral-background-hover,#f2f4f5)}.rt-posts button:disabled{opacity:.55;cursor:wait}
 .rt-posts button:focus-visible,.rt-native-unavailable a:focus-visible,.rt-native-unavailable button:focus-visible,.rt-post-snapshot summary:focus-visible{outline:2px solid #ff4500;outline-offset:3px}
