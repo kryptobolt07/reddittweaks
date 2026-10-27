@@ -42,6 +42,9 @@
     const response=await archiveRead({action:'get-settings'});
     return {[key]:response.settings};
   }
+  // Reddit's current deletion notices, plus the legacy bracket placeholders.
+  const deletedNotice=/^(?:\[deleted\]|comment deleted by user|\[\s*deleted by user\s*\])$/i,removedNotice=/^(?:\[removed\]|comment removed by moderator|\[\s*removed by (?:moderator|reddit)\s*\])$/i;
+  const deletionNotice=text=>deletedNotice.test(text) || removedNotice.test(text);
   const itemKey=post=>post.kind==='comment'?post.fullname:post.id;
   const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;};
   const nativeStatusPaths={hidden:'M3.497 3.503a.9.9 0 10-1.273 1.273l.909.909A10.141 10.141 0 00.92 8.472a3.225 3.225 0 000 3.058A10.296 10.296 0 0010 16.973a10.13 10.13 0 003.709-.712l1.457 1.457a.897.897 0 001.274 0 .9.9 0 000-1.273L3.497 3.503ZM10 15.172a8.497 8.497 0 01-7.495-4.494 1.448 1.448 0 010-1.354 8.436 8.436 0 011.9-2.365l2.069 2.068c-.062.271-.105.55-.105.84a3.77 3.77 0 003.767 3.767c.29 0 .569-.043.84-.106l1.31 1.31a8.284 8.284 0 01-2.284.335L10 15.172Zm.476-7.237L8.874 6.333a3.722 3.722 0 011.26-.233 3.77 3.77 0 013.767 3.767c0 .444-.091.864-.233 1.26l-1.603-1.603a1.963 1.963 0 00-1.59-1.589Zm8.605 3.595a10.297 10.297 0 01-2.22 2.792L15.59 13.05a8.512 8.512 0 001.905-2.372 1.448 1.448 0 000-1.354A8.496 8.496 0 007.69 5.15L6.282 3.742A10.249 10.249 0 0110 3.028c3.8 0 7.28 2.087 9.08 5.444a3.225 3.225 0 010 3.058Z',deleted:'M15.2 15.7c0 .83-.67 1.5-1.5 1.5H6.3c-.83 0-1.5-.67-1.5-1.5V7.6H3v8.1C3 17.52 4.48 19 6.3 19h7.4c1.82 0 3.3-1.48 3.3-3.3V7.6h-1.8v8.1ZM17.5 5.8c.5 0 .9-.4.9-.9S18 4 17.5 4h-3.63c-.15-1.68-1.55-3-3.27-3H9.4C7.68 1 6.28 2.32 6.13 4H2.5c-.5 0-.9.4-.9.9s.4.9.9.9h15ZM7.93 4c.14-.68.75-1.2 1.47-1.2h1.2c.72 0 1.33.52 1.47 1.2H7.93Z'};
@@ -321,7 +324,9 @@
     verifiedStatus(post,native){
       if(['deleted','removed'].includes(post.status))return post.status;const stored=this.postStatuses.get(post.fullname);
       if(!native)return stored || post.status;const state=native.getAttribute('item-state')?.toLowerCase(),body=native.querySelector(post.kind==='comment'?'[id$="-post-rtjson-content"],.md':'[slot="text-body"]'),text=body?.querySelector('[data-rt-original-text]')?.getAttribute('data-rt-original-text') || body?.textContent?.trim();
-      const status=native.hasAttribute('deleted') && native.getAttribute('deleted')!=='false' || state==='deleted' || text==='[deleted]'?'deleted':state==='removed' || text==='[removed]'?'removed':'';if(status)this.postStatuses.set(post.fullname,status);return status || stored || post.status;
+      const title=native.getAttribute('post-title')?.trim() || '',banner=Boolean(native.querySelector('[slot="post-removed-banner"]')),notice=[...native.querySelectorAll('p')].map(p=>p.textContent.trim()).find(deletionNotice) || '';
+      const flagged=native.hasAttribute('deleted') && native.getAttribute('deleted')!=='false' || native.hasAttribute('is-comment-deleted');
+      const status=flagged && !removedNotice.test(notice) || state==='deleted' || deletedNotice.test(text || '') || deletedNotice.test(title) || deletedNotice.test(notice)?'deleted':state==='removed' || banner || removedNotice.test(text || '') || removedNotice.test(title) || removedNotice.test(notice)?'removed':'';if(status)this.postStatuses.set(post.fullname,status);return status || stored || post.status;
     }
     eligibleProfilePost(post,node){
       if(this.activityFilter!=='deleted')return true;
@@ -959,18 +964,36 @@
     }
     restoreRecoveredBodies(){
       for(const [info,original] of this.replyPatches || [])if(info.hasAttribute('data-rt-reply-info')){info.replaceChildren(...original);delete info.dataset.rtReplyInfo;delete info.dataset.rtReplySignature;}this.replyPatches=new Map();
-      for(const [body,patch] of this.recoveredBodies || [])if(body.contains(patch.recovered))body.replaceChildren(...patch.original);
+      for(const [body,patch] of this.recoveredBodies || [])if(body.contains(patch.recovered)){if(patch.created)body.remove();else body.replaceChildren(...patch.original);}
+      for(const [node,original] of this.recoveredTitles || [])if(node.querySelector('[data-rt-recovered-text]'))node.replaceChildren(...original);this.recoveredTitles=new Map();
       for(const native of this.nativeDecorations || []){native.querySelector('[data-rt-source]')?.remove();native.querySelector('.rt-comment-source-credit')?.classList.remove('rt-comment-source-credit');native.querySelector('.rt-comment-source-host')?.classList.remove('rt-comment-source-host');}
       this.recoveredBodies=new Map();this.nativeDecorations=new Set();
     }
+    // Show archived text where Reddit shows a deletion notice. The body can be
+    // Reddit's rich-text block, a plain notice paragraph (current comments) or
+    // missing entirely (removed posts), in which case Reddit's own text-body
+    // slot receives it. Live text is never replaced.
     recoverBody(post,native){
       const text=post.archivedBody || (post.source==='arctic-shift'?post.body:'');
-      if(!native || !text || ['[removed]','[deleted]'].includes(text) || post.over18 || post.spoiler || this.nativeRestrictions(native).restricted)return false;
-      const body=native.querySelector(post.kind==='comment'?'[id$="-post-rtjson-content"],.md':'[slot="text-body"]');if(!body)return false;
+      if(!native || !text || deletionNotice(text.trim()) || post.over18 || post.spoiler || this.nativeRestrictions(native).restricted)return false;
+      // An earlier restore in this card: keep it (the notice it replaced is gone).
+      for(const prior of native.querySelectorAll('[data-rt-recovered-text]')){if(prior.closest('[slot="title"]'))continue;const patch=this.recoveredBodies.get(prior.parentElement);if(patch?.recovered===prior){if(prior.textContent!==text)prior.textContent=text;return true;}}
+      let body=native.querySelector(post.kind==='comment'?'[id$="-post-rtjson-content"],.md':'[slot="text-body"]'),created=false;
+      const noticeParagraph=[...native.querySelectorAll('p')].find(p=>!p.closest('[data-rt-recovered-text],summary,[slot="commentMeta"],[slot="post-removed-banner"],[slot="title"]') && deletionNotice(p.textContent.trim()));
+      if(noticeParagraph && (!body || !body.textContent.trim()))body=noticeParagraph.parentElement;
+      if(!body && post.kind!=='comment' && ['deleted','removed'].includes(post.status)){body=make('div','md text-14 pb-xs');body.slot='text-body';created=true;}
+      if(!body)return false;
       const copied=body.querySelector('[data-rt-recovered-text][data-rt-original-text]');if(copied && !this.recoveredBodies.has(body))this.recoveredBodies.set(body,{original:[document.createTextNode(copied.dataset.rtOriginalText)],recovered:copied});
       const existing=this.recoveredBodies.get(body);if(existing && body.contains(existing.recovered)){if(existing.recovered.textContent!==text)existing.recovered.textContent=text;return true;}
-      const current=body.textContent.trim();if(!/^\[(deleted|removed)\]$/i.test(current) && !(current==='' && ['deleted','removed'].includes(post.status)))return false;
-      const recovered=make('p','whitespace-pre-wrap break-words',text);recovered.dataset.rtRecoveredText='true';recovered.dataset.rtOriginalText=current;this.recoveredBodies.set(body,{original:[...body.childNodes],recovered});body.replaceChildren(recovered);return true;
+      const current=body.textContent.trim();if(!created && !deletionNotice(current) && !(current==='' && ['deleted','removed'].includes(post.status)))return false;
+      if(created)native.append(body);
+      const recovered=make('p','whitespace-pre-wrap break-words',text);recovered.dataset.rtRecoveredText='true';recovered.dataset.rtOriginalText=current;this.recoveredBodies.set(body,{original:[...body.childNodes],recovered,created});body.replaceChildren(recovered);return true;
+    }
+    // Removed posts show "[ Removed by moderator ]" as their title.
+    recoverTitle(title,native){
+      const node=native?.querySelector('[slot="title"]');if(!node || !title || deletionNotice(title.trim()) || !deletionNotice(node.textContent.trim()))return false;
+      this.recoveredTitles ||= new Map();if(!this.recoveredTitles.has(node))this.recoveredTitles.set(node,[...node.childNodes]);
+      const text=make('span','',title);text.dataset.rtRecoveredText='true';node.replaceChildren(text);return true;
     }
     async enrichReplyContexts(posts,current=()=>true){
       const comments=posts.filter(p=>{if(p.kind!=='comment')return false;const info=this.nodes.get(itemKey(p))?.querySelector('[id^="poster-info-"]');return !info?.textContent.trim() || info.hasAttribute('data-rt-reply-info');});if(!comments.length)return;
@@ -1005,10 +1028,11 @@
       // native card proves deletion, a separately obtained archive can restore
       // its text even though the search record itself still has unknown status.
       const archive=this.archived.get(itemKey(post));
-      if(this.context.kind==='profile' && ['deleted','removed'].includes(post.status) && archive?.source==='arctic-shift' && archive.fullname===post.fullname && archive.author.toLowerCase()===this.context.username.toLowerCase() && archive.body)post={...post,archivedBody:post.archivedBody || archive.body,over18:post.over18 || archive.over18,spoiler:post.spoiler || archive.spoiler};
-      this.repairReplyInfo(post,native);const recovered=this.recoverBody(post,native),label=this.indicator(post),fallback=node.dataset?.rtArchiveFallback==='true';
-      if(recovered)label.title+=' · Text recovered from Arctic Shift';else if(fallback && post.source!=='arctic-shift')label.title+=' · Text from an Arctic Shift snapshot';
-      const retrieved=archive?.retrieved || post.retrieved;if(retrieved && (recovered || fallback || post.source==='arctic-shift'))label.title+=' · Snapshot from '+new Date(retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+      const owned=this.context.kind==='profile' && ['deleted','removed'].includes(post.status) && archive?.source==='arctic-shift' && archive.fullname===post.fullname && archive.author.toLowerCase()===this.context.username.toLowerCase();
+      if(owned && archive.body)post={...post,archivedBody:post.archivedBody || archive.body,over18:post.over18 || archive.over18,spoiler:post.spoiler || archive.spoiler};
+      this.repairReplyInfo(post,native);const recovered=this.recoverBody(post,native),titled=owned && post.kind!=='comment' && !post.over18 && !post.spoiler && this.recoverTitle(archive.title,native),label=this.indicator(post),fallback=node.dataset?.rtArchiveFallback==='true';
+      const titleShown=titled || Boolean(this.recoveredTitles?.has(native.querySelector('[slot="title"]')));if(recovered)label.title+=' · Text recovered from Arctic Shift';else if(titleShown)label.title+=' · Title recovered from Arctic Shift';else if(fallback && post.source!=='arctic-shift')label.title+=' · Text from an Arctic Shift snapshot';
+      const retrieved=archive?.retrieved || post.retrieved;if(retrieved && (recovered || titleShown || fallback || post.source==='arctic-shift'))label.title+=' · Snapshot from '+new Date(retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
       label.setAttribute('aria-label',label.title);
       let badge=node.querySelector('[data-rt-source]');if(!badge || badge.title!==label.title){if(badge)badge.replaceWith(label);badge=label;badge.dataset.rtSource='true';}
       if(native.matches('shreddit-profile-comment')){
@@ -1033,7 +1057,13 @@
       if(!current())return;
       this.results.replaceChildren();
       if(live?.status==='available'){this.setStatus('This post is available on Reddit. Its live content is unchanged.');return;}
-      if(native && live && this.settings.restoreDeletedContent && this.recoverBody({...live,archivedBody:archived.body,over18:live.over18 || archived.over18,spoiler:live.spoiler || archived.spoiler},native)){this.nativeDecorations.add(native);this.decorateNative({...live,archivedBody:archived.body},native);this.setStatus('Available archived text restored.');return;}
+      // Restore inside Reddit's own post element when the snapshot belongs to the same author.
+      const nativeAuthor=native?.getAttribute('author') || '',sameAuthor=!nativeAuthor || nativeAuthor==='[deleted]' || nativeAuthor.toLowerCase()===archived.author.toLowerCase();
+      if(native && live && sameAuthor && this.settings.restoreDeletedContent){
+        const shown={...live,archivedBody:archived.body,over18:live.over18 || archived.over18,spoiler:live.spoiler || archived.spoiler},safe=!shown.over18 && !shown.spoiler && !restrictions.restricted;
+        const body=this.recoverBody(shown,native),titled=safe && this.recoverTitle(archived.title,native);
+        if(body || titled){this.nativeDecorations.add(native);this.decorateNative({...live,archivedBody:archived.body,retrieved:archived.retrieved},native);this.setStatus(body?'Available archived text restored.':'Archived title restored.');return;}
+      }
       const note=make('div','rt-post-snapshot');note.append(this.indicator(live || archived));
       if(archived.over18 || archived.spoiler || live?.over18 || live?.spoiler || restrictions.restricted)note.append(make('p','rt-post-source','NSFW or spoiler snapshot · open the post’s source to review content restrictions.'));
       else if(archived.body && !['[deleted]','[removed]'].includes(archived.body))note.append(this.snapshot(archived.body));else note.append(make('p','rt-post-source','The archive has no original text for this post.'));
@@ -1041,6 +1071,6 @@
     });}
     destroy(){this.profileStates.clear();document.removeEventListener('click',this.onNavigate,true);this.avatarUnsubscribe?.();clearTimeout(this.timer);this.observer?.disconnect();globalThis.chrome?.runtime?.onMessage?.removeListener?.(this.onWorkerSettings);window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.removeListener?.(this.onSettings);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}
   }
-  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute});
+  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph});
   if(window.top===window && globalThis.chrome?.runtime?.id)new Discovery();
 })();
