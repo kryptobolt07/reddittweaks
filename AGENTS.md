@@ -1,6 +1,6 @@
 # Repository workflow
 
-Follow the user's current instructions first. Do not delegate unless the user explicitly authorizes subagents for the current task.
+Follow the user's current instructions first. The user has authorized subagents for work in this repository: use gpt-6.1-terra with high reasoning for all subagents, while the main agent manages and reviews the work. Follow any newer user instructions about delegation or model choice.
 
 ## Git and commits
 
