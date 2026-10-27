@@ -806,7 +806,8 @@ test('one timed-out discovery read retries the same continuation without discard
 });
 
 test('timeout recovery is bounded and does not retry rate limits or changed pages',async t=>{
- for(const [message,count]of [['Reddit request timed out. Try again.',2],['Reddit rate limit reached. Try again later.',1],['Reddit returned an unrecognized comment search response.',1]]){const {d,calls}=setup(t,{reddit:async()=>{throw Error(message);}});await d.ready;await d.loadReddit();assert.equal(calls.length,count);assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/timed out|rate limit|unrecognized/);}
+ // Immediate in-request retries stay bounded; transient failures then wait for a scheduled backoff retry instead of an error.
+ for(const [message,count,transient]of [['Reddit request timed out. Try again.',2,true],['Reddit rate limit reached. Try again later.',1,true],['Reddit returned an unrecognized comment search response.',1,false]]){const {d,calls}=setup(t,{reddit:async()=>{throw Error(message);}});await d.ready;await d.loadReddit();assert.equal(calls.length,count);assert.equal(d.status.dataset.error,String(!transient));if(transient){assert.equal(d.sourceRetries.get('post').attempts,1);assert.match(d.sourceRetries.get('post').note,/Retrying in/);d.clearSourceRetries();}else assert.match(d.status.textContent,/unrecognized/);}
  const {W,d,calls}=setup(t,{reddit:async()=>{W.history.pushState({},'','/user/Other/submitted/');d.scan();throw Error('Reddit request timed out. Try again.');}});await d.ready;await d.loadReddit();assert.equal(calls.filter(c=>c.action==='profile').length,1);assert.equal(d.context.username,'Other');assert.equal(d.nodes.size,0);
 });
 
@@ -828,7 +829,7 @@ test('retrying a failed first page leaves completed overview sources alone',asyn
 });
 
 test('continuation recovery excludes rate limits and cancels during its retry delay',async t=>{
- for(const message of ['Reddit rate limit reached. Try again later.','Reddit’s comment format changed. Comments could not be read.']){let attempts=0;const {d}=setup(t,{reddit:async input=>{if(!input.after)return {posts:[raw()],after:'next',hasMore:true};attempts++;throw Error(message);}});await d.ready;await d.loadReddit();await d.loadMore();assert.equal(attempts,1);assert.equal(d.status.dataset.error,'true');}
+ for(const message of ['Reddit rate limit reached. Try again later.','Reddit’s comment format changed. Comments could not be read.']){let attempts=0;const {d}=setup(t,{reddit:async input=>{if(!input.after)return {posts:[raw()],after:'next',hasMore:true};attempts++;throw Error(message);}});await d.ready;await d.loadReddit();await d.loadMore();assert.equal(attempts,1);const limited=/rate limit/.test(message);assert.equal(d.status.dataset.error,String(!limited));assert.equal(d.sourceRetries.has('post'),limited);d.clearSourceRetries();}
  let failed;const failure=new Promise(r=>failed=r),{W,d,calls}=setup(t,{reddit:async input=>{if(!input.after)return {posts:[raw()],after:'next',hasMore:true};failed();throw Error('Reddit returned an unrecognized post search response.');}});await d.ready;await d.loadReddit();const loading=d.loadMore();await failure;await Promise.resolve();W.history.pushState({},'','/user/Other/submitted/');d.scan();await loading;assert.equal(calls.filter(c=>c.after==='next').length,1);assert.equal(d.context.username,'Other');assert.equal(d.nodes.size,0);
 });
 
@@ -1089,6 +1090,36 @@ test('a blocked logged-out comment search becomes a quiet note, not a failure, a
 });
 
 test('other logged-out search failures stay explicit errors',async t=>{
- const {d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[],hasMore:false}),publicReddit:async()=>{throw Error('Reddit couldn’t load logged-out comment search (HTTP 500).');}});await d.ready;
- await d.loadReddit();assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/HTTP 500/);assert.equal(d.notice.hidden,true);
+ const {d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[],hasMore:false}),publicReddit:async()=>{throw Error('Reddit couldn’t load logged-out comment search (HTTP 404).');}});await d.ready;
+ await d.loadReddit();assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/HTTP 404/);assert.equal(d.notice.hidden,true);
+});
+
+test('an Arctic Shift rate limit shows a quiet note and retries the same cursor with backoff',async t=>{
+ const requests=[];let limited=true;const {d}=setup(t,{timing:{retryUnitMs:2},settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>input.action==='status'?{statuses:[],unknownIds:[]}:{posts:[],hasMore:false},archive:async input=>{requests.push(input.before);if(limited){limited=false;throw Object.assign(Error('Archive rate limit reached.'),{code:'rate-limited'});}return {posts:[raw('old12',{created_utc:1600000000})],hasMore:false};}});
+ await d.ready;d.activityFilter='deleted';await d.loadArchive();
+ assert.equal(d.status.dataset.error,'false','a rate limit is not a failure');assert.equal(d.primaryFailure(),false);
+ const note=d.loading.querySelector('[data-rt-continuation-note]');assert.match(note.textContent,/Arctic Shift is limiting requests\. Retrying in/);assert.match(note.textContent,/Retry now/);assert.equal(d.loading.hidden,false);assert.equal(d.loading.querySelector('.rt-native-loading').hidden,true,'no spinner while only waiting');
+ await new Promise(r=>setTimeout(r,80));await d.archiveRun;await new Promise(r=>setImmediate(r));
+ assert.equal(requests.length,2);assert.equal(d.archived.has('old12'),true);assert.equal(d.sourceRetries.size,0);assert.equal(d.loading.querySelector('[data-rt-continuation-note]'),null);
+});
+
+test('backoff gives up after a bounded number of attempts and then reports the failure',async t=>{
+ let attempts=0;const {d}=setup(t,{timing:{retryUnitMs:1},settings:{postDiscovery:true,archiveDiscovery:true},archive:async()=>{attempts++;throw Object.assign(Error('Archive request timed out.'),{code:'timeout'});}});
+ await d.ready;d.activityFilter='deleted';await d.loadArchive();
+ for(let i=0;i<10 && !d.sourceErrors['archive-post'];i++){await new Promise(r=>setTimeout(r,40));await d.archiveRun;}
+ assert.equal(attempts,6,'one request plus five scheduled retries');assert.match(d.sourceErrors['archive-post'],/timed out/);assert.equal(d.sourceRetries.size,0);
+ assert.match(d.loading.querySelector('[data-rt-continuation-note]').textContent,/Some archived items couldn’t be loaded/);
+});
+
+test('Retry now runs a waiting retry immediately',async t=>{
+ let attempts=0;const {d}=setup(t,{timing:{retryUnitMs:60000},reddit:async()=>{if(++attempts===1)throw Error('Reddit rate limit reached. Try again later.');return {posts:[raw()],hasMore:false};}});
+ await d.ready;await d.loadReddit();const note=d.loading.querySelector('[data-rt-continuation-note]');assert.match(note.textContent,/Reddit search is limiting requests/);
+ note.querySelector('button').click();await new Promise(r=>setImmediate(r));await d.redditRun;assert.equal(attempts,2);assert.equal(d.sourceRetries.size,0);assert.equal(d.nodes.has('abc12'),true);
+});
+
+test('the Deleted view never pauses on unrelated Reddit search errors',async t=>{
+ const {d}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>{if(input.action==='status')return {statuses:[],unknownIds:[]};throw Error('Reddit’s post search format changed. Posts could not be read safely.');},archive:async()=>({posts:[],before:1600000000,hasMore:true})});
+ await d.ready;await d.loadReddit();assert.equal(d.primaryFailure(),true,'All activity still reports the search failure');
+ d.activityFilter='deleted';d.batchAutoPaused=false;await d.loadArchive();d.updateProfileLoading();
+ assert.equal(d.primaryFailure(),false);const note=d.loading.querySelector('[data-rt-continuation-note]');assert.ok(!note || !/search results/.test(note.textContent));
 });
