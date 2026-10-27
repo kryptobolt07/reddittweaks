@@ -13,7 +13,7 @@ function env({fetcher,settings={postDiscovery:true,archiveDiscovery:true},fastTi
 function response(data,status=200,headers={}){return {ok:status===200,status,headers:{get:key=>headers[key]??null},async text(){return JSON.stringify({data});}};}
 test('broker uses fixed credential-free endpoint and sanitizes source/profile data',async()=>{
  const e=env({fetcher:async()=>response([row(),row({id:'foreign',author:'other'})])}),r=await e.send();assert.equal(r.ok,true);assert.equal(r.posts.length,1);assert.equal(r.incomplete,true);assert.equal(r.posts[0].status,'unknown');
- const [url,options]=e.calls[0];assert.equal(new URL(url).hostname,'arctic-shift.photon-reddit.com');assert.equal(new URL(url).searchParams.get('limit'),'25');assert.equal(options.credentials,'omit');assert.equal(options.referrerPolicy,'no-referrer');assert.equal(options.redirect,'error');
+ const [url,options]=e.calls[0];assert.equal(new URL(url).hostname,'arctic-shift.photon-reddit.com');assert.equal(new URL(url).searchParams.get('limit'),'100');assert.equal(options.credentials,'omit');assert.equal(options.referrerPolicy,'no-referrer');assert.equal(options.redirect,'error');
 });
 test('broker rejects foreign senders, origins, frames, profile mismatches and invalid inputs',async()=>{
  const e=env();for(const sender of [{id:'foreign'},{frameId:1},{url:'https://evil.test/user/Example'},{url:'https://www.reddit.com/user/other'},{origin:'https://evil.test'},{url:'http://www.reddit.com/user/Example'}])assert.equal((await e.send({},sender)).code,'forbidden');
@@ -32,7 +32,7 @@ test('timeout, malformed response, network failures and rate limits return incom
  const rate=env({fetcher:async()=>response([],429,{'Retry-After':'60'})});const r=await rate.send();assert.equal(r.code,'rate-limited');assert.ok(r.retryAt>Date.now());assert.equal((await rate.send({before:1700000000})).code,'rate-limited');assert.equal(rate.calls.length,1);
 });
 test('full same-second pages use overlap and explicitly flag stalled pagination without completeness',async()=>{
- const e=env({fetcher:async()=>response(Array.from({length:25},(_,i)=>row({id:(100+i).toString(36)})))}),first=await e.send();assert.equal(first.before,1700000001);assert.equal(first.hasMore,true);assert.equal(first.cursorStalled,false);
+ const e=env({fetcher:async()=>response(Array.from({length:100},(_,i)=>row({id:(100+i).toString(36)})))}),first=await e.send();assert.equal(first.before,1700000001);assert.equal(first.hasMore,true);assert.equal(first.cursorStalled,false);
  const next=await e.send({before:first.before});assert.equal(next.cursorStalled,true);assert.equal(next.incomplete,true);assert.match(next.paginationWarning,/overlaps/);
 });
 test('archive ID recovery accepts only one post matching the current detail URL',async()=>{
@@ -45,7 +45,7 @@ test('different pages serialize per profile and global fetch concurrency stays a
  await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,2);gates[0]();await first;await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,3);gates[1]();await other;await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,4);gates[2]();gates[3]();await Promise.all([second,third]);
 });
 test('API field projection contains exactly documented selectable post fields',async()=>{
- const e=env();await e.send();assert.equal(new URL(e.calls[0][0]).searchParams.get('fields'),'id,author,subreddit,title,selftext,created_utc,url,over_18,spoiler,score,num_comments');
+ const e=env();await e.send();assert.equal(new URL(e.calls[0][0]).searchParams.get('fields'),'id,author,subreddit,title,selftext,created_utc,url,over_18,spoiler,score,num_comments,retrieved_on');
 });
 test('ID lookup accepts a canonical user post permalink and verifies tab URL consistency',async()=>{
  const e=env(),url='https://www.reddit.com/user/Example/comments/abc12/title/';
@@ -78,7 +78,7 @@ test('automatic restoration preference never enables archive requests without ar
 test('archived comments use their own endpoint, projection, identity and profile route',async()=>{
  const e=env({fetcher:async()=>response([row({id:'19rktoupyflj9',body:'Archived comment',link_id:'t3_abc12'})])});
  const result=await e.send({kind:'comment'},{url:'https://www.reddit.com/user/Example/comments/'});assert.equal(result.ok,true);assert.equal(result.posts[0].kind,'comment');assert.equal(result.posts[0].body,'Archived comment');
- const url=new URL(e.calls[0][0]);assert.equal(url.pathname,'/api/comments/search');assert.equal(url.searchParams.get('fields'),'id,author,subreddit,body,created_utc,link_id,parent_id,score');
+ const url=new URL(e.calls[0][0]);assert.equal(url.pathname,'/api/comments/search');assert.equal(url.searchParams.get('fields'),'id,author,subreddit,body,created_utc,link_id,parent_id,score,retrieved_on');
  assert.equal((await e.send({kind:'video'})).code,'invalid-request');
 });
 
@@ -102,15 +102,17 @@ test('archive author requests allow same-profile SPA tabs while rejecting other 
 test('reply archive lookup joins only previously discovered child parents and projects compact author context',async()=>{
  const e=env({fetcher:async url=>new URL(url).pathname.endsWith('/search')?response([row({id:'child1',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'}),row({id:'child2',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'})]):response([row({id:'parent',author:'Recipient',link_id:'t3_post'})])}),sender={tab:{id:7,url:'https://www.reddit.com/user/Example/comments/'}};
  assert.equal((await e.send({action:'archive-parents',children:['child1']},sender)).code,'forbidden');assert.equal(e.calls.length,0);await e.send({kind:'comment'},sender);
- const value=await e.send({action:'archive-parents',children:['child1','child2']},sender);assert.equal(value.ok,true);assert.equal(value.posts[0].author,'Recipient');assert.equal(value.posts[0].body,'');const [url,options]=e.calls[1];assert.equal(new URL(url).pathname,'/api/comments/ids');assert.equal(new URL(url).searchParams.get('ids'),'parent');assert.equal(new URL(url).searchParams.get('fields'),'id,author,link_id,created_utc');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');await e.send({action:'archive-parents',children:['child2']},sender);assert.equal(e.calls.length,2);
+ const value=await e.send({action:'archive-parents',children:['child1','child2']},sender);assert.equal(value.ok,true);assert.equal(value.posts[0].author,'Recipient');assert.equal(value.posts[0].body,'');
+ // calls[1] is the comment page's best-effort parent-title lookup, so the parent proof lookup is calls[2].
+ const [url,options]=e.calls[2];assert.equal(new URL(url).pathname,'/api/comments/ids');assert.equal(new URL(url).searchParams.get('ids'),'parent');assert.equal(new URL(url).searchParams.get('fields'),'id,author,link_id,created_utc');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');await e.send({action:'archive-parents',children:['child2']},sender);assert.equal(e.calls.length,3);
 });
 test('reply archive lookup cannot request arbitrary parents, cross tabs/profiles or reuse proofs after opt-out',async()=>{
  const e=env({fetcher:async()=>response([row({id:'child',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'})])}),sender={tab:{id:7,url:'https://www.reddit.com/user/Example/'}};await e.send({kind:'comment'},sender);
  for(const [message,source] of [[{children:['unknown']},sender],[{children:['child']},{tab:{id:8,url:sender.tab.url}}],[{children:['child'],username:'Other'},sender],[{children:['child']},{...sender,frameId:1}]])assert.equal((await e.send({action:'archive-parents',...message},source)).code,'forbidden');
- assert.equal((await e.send({action:'archive-parents',children:['../../bad']},sender)).code,'invalid-request');assert.equal(e.calls.length,1);e.changeSettings({postDiscovery:true,archiveDiscovery:false});assert.equal((await e.send({action:'archive-parents',children:['child']},sender)).code,'disabled');e.changeSettings({postDiscovery:true,archiveDiscovery:true});assert.equal((await e.send({action:'archive-parents',children:['child']},sender)).code,'forbidden');assert.equal(e.calls.length,1);
+ assert.equal((await e.send({action:'archive-parents',children:['../../bad']},sender)).code,'invalid-request');assert.equal(e.calls.length,2);e.changeSettings({postDiscovery:true,archiveDiscovery:false});assert.equal((await e.send({action:'archive-parents',children:['child']},sender)).code,'disabled');e.changeSettings({postDiscovery:true,archiveDiscovery:true});assert.equal((await e.send({action:'archive-parents',children:['child']},sender)).code,'forbidden');assert.equal(e.calls.length,2);
 });
 test('reply archive results must belong to the child thread and opting out discards an in-flight result',async()=>{
- let release;const e=env({fetcher:async url=>new URL(url).pathname.endsWith('/search')?response([row({id:'child',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'})]):new Promise(r=>release=r)}),sender={tab:{id:9,url:'https://www.reddit.com/user/Example/'}};await e.send({kind:'comment'},sender);
+ let release;const e=env({fetcher:async url=>{const path=new URL(url).pathname;if(path.endsWith('/search'))return response([row({id:'child',body:'Reply',link_id:'t3_post',parent_id:'t1_parent'})]);if(path.endsWith('/posts/ids'))return response([]);return new Promise(r=>release=r);}}),sender={tab:{id:9,url:'https://www.reddit.com/user/Example/'}};await e.send({kind:'comment'},sender);
  const pending=e.send({action:'archive-parents',children:['child']},sender);await new Promise(r=>setImmediate(r));release(response([row({id:'parent',author:'Wrong',link_id:'t3_other'})]));assert.equal((await pending).posts.length,0);
  e.changeSettings({postDiscovery:true,archiveDiscovery:true});await e.send({kind:'comment'},sender);const second=e.send({action:'archive-parents',children:['child']},sender);await new Promise(r=>setImmediate(r));e.changeSettings({postDiscovery:true,archiveDiscovery:false});release(response([row({id:'parent',author:'Recipient',link_id:'t3_post'})]));assert.equal((await second).code,'disabled');
 });
@@ -132,7 +134,8 @@ test('automatic recovery deduplicates a page of IDs and filters all returned row
 test('automatic recovery uses comment IDs and a separate cache from post recovery',async()=>{
  const e=env({fetcher:async()=>response([row({body:'Archived comment',link_id:'t3_post'})])});
  const comment=await e.send({action:'archive-recover',kind:'comment',ids:['t1_abc12']});assert.equal(comment.ok,true);assert.equal(comment.posts[0].kind,'comment');assert.equal(new URL(e.calls[0][0]).pathname,'/api/comments/ids');
- await e.send({action:'archive-recover',kind:'post',ids:['abc12']});assert.equal(e.calls.length,2);assert.equal(new URL(e.calls[1][0]).pathname,'/api/posts/ids');
+ // calls[1] is the comment page's parent-title lookup, so the post recovery is the third request.
+ await e.send({action:'archive-recover',kind:'post',ids:['abc12']});assert.equal(e.calls.length,3);assert.equal(new URL(e.calls[2][0]).pathname,'/api/posts/ids');
 });
 test('automatic recovery enforces archive and restoration opt-outs before fetch and cached delivery',async()=>{
  const e=env(),message={action:'archive-recover',kind:'post',ids:['abc12']};assert.equal((await e.send(message)).ok,true);
@@ -144,4 +147,40 @@ test('queued and in-flight automatic recovery rechecks settings and current prof
  const queued=e.send(message);await new Promise(r=>setImmediate(r));e.setSettings({postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:false});releases.splice(0).forEach(r=>r(response([])));await Promise.all([busy,other]);assert.equal((await queued).code,'disabled');assert.equal(e.calls.length,2);
  e.setSettings({postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true});const source={tab:{url:'https://www.reddit.com/user/Example/'}},pending=e.send(message,source);await new Promise(r=>setImmediate(r));source.tab.url='https://www.reddit.com/user/Other/';releases.shift()(response([row()]));assert.equal((await pending).code,'forbidden');
  const inFlight=e.send(message);await new Promise(r=>setImmediate(r));e.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});releases.shift()(response([row()]));assert.equal((await inFlight).code,'disabled');
+});
+
+test('profile pages request the 100-record maximum and report more only when a full page returns',async()=>{
+ const short=env({fetcher:async()=>response(Array.from({length:99},(_,i)=>row({id:(200+i).toString(36)})))}),first=await short.send();
+ assert.equal(new URL(short.calls[0][0]).searchParams.get('limit'),'100');assert.equal(first.ok,true);assert.equal(first.hasMore,false);assert.equal(first.before,null);
+ const full=env({fetcher:async()=>response(Array.from({length:100},(_,i)=>row({id:(200+i).toString(36)})))}),page=await full.send();assert.equal(page.posts.length,100);assert.equal(page.hasMore,true);assert.equal(page.before,1700000001);
+});
+test('archive retrieval time becomes retrieved on posts and comments and invalid values are omitted',async()=>{
+ const post=await env({fetcher:async()=>response([row({retrieved_on:'1700000500'})])}).send();assert.equal(post.posts[0].retrieved,1700000500);
+ const comments=env({fetcher:async()=>response([row({id:'19rktoupyflj9',body:'Archived comment',link_id:'t3_abc12',retrieved_on:1700000600.9})])}),comment=await comments.send({kind:'comment'},{url:'https://www.reddit.com/user/Example/comments/'});
+ assert.equal(comment.posts[0].retrieved,1700000600);
+ const invalid=await env({fetcher:async()=>response([row({retrieved_on:'soon'})])}).send();assert.equal('retrieved' in invalid.posts[0],false);
+});
+test('comment archive rows borrow parent titles and NSFW flags from a bounded cached ID lookup',async()=>{
+ const lookups=[],e=env({fetcher:async url=>{const target=new URL(url);if(target.pathname.endsWith('/posts/ids')){lookups.push(target);return response([{id:'t3_post',title:'Parent title',subreddit:'example',over_18:true,spoiler:false},{id:'unrequested',title:'Not requested',over_18:true}]);}return response([row({id:'c1',body:'Reply',link_id:'t3_post'}),row({id:'c2',body:'Own title',link_id:'t3_post',link_title:'Own title'})]);}}),sender={url:'https://www.reddit.com/user/Example/comments/'};
+ const first=await e.send({kind:'comment'},sender);assert.equal(first.ok,true);assert.equal(first.posts.length,2);const [c1,c2]=first.posts;
+ assert.equal(c1.title,'Parent title');assert.equal(c1.over18,true);assert.equal(c1.spoiler,false);assert.equal(c2.title,'Own title');assert.equal(c2.over18,true);
+ assert.equal(lookups.length,1);assert.equal(lookups[0].pathname,'/api/posts/ids');assert.equal(lookups[0].searchParams.get('ids'),'post');assert.equal(lookups[0].searchParams.get('fields'),'id,title,subreddit,over_18,spoiler');
+ const [,options]=e.calls[1];assert.equal(options.credentials,'omit');assert.equal(options.referrerPolicy,'no-referrer');assert.equal(options.redirect,'error');
+ const second=await e.send({kind:'comment',before:1700000005},sender);assert.equal(second.posts[0].title,'Parent title');assert.equal(lookups.length,1);
+ e.changeSettings({postDiscovery:true,archiveDiscovery:false});e.changeSettings({postDiscovery:true,archiveDiscovery:true});await e.send({kind:'comment',before:1700000004},sender);assert.equal(lookups.length,2);
+});
+test('failed, rate-limited or hung comment title lookups leave the comment page successful with empty titles',async()=>{
+ const sender={url:'https://www.reddit.com/user/Example/comments/'},comment=()=>response([row({id:'c1',body:'Reply',link_id:'t3_post'})]);
+ const failing=env({fetcher:async url=>{if(new URL(url).pathname.endsWith('/posts/ids'))throw Error('offline');return comment();}}),offline=await failing.send({kind:'comment'},sender);
+ assert.equal(offline.ok,true);assert.equal(offline.posts[0].title,'');assert.equal(offline.posts[0].over18,false);
+ const limited=env({fetcher:async url=>new URL(url).pathname.endsWith('/posts/ids')?response([],429,{'Retry-After':'60'}):comment()}),throttled=await limited.send({kind:'comment'},sender);
+ assert.equal(throttled.ok,true);assert.equal(throttled.posts[0].title,'');assert.equal((await limited.send({kind:'comment',before:1700000005},sender)).code,'rate-limited');assert.equal(limited.calls.length,2);
+ const hung=env({fastTimeout:true,fetcher:async url=>new URL(url).pathname.endsWith('/posts/ids')?new Promise(()=>{}):comment()}),slow=await hung.send({kind:'comment'},sender);
+ assert.equal(slow.ok,true);assert.equal(slow.posts[0].title,'');
+});
+test('rate-limit reset timestamps set cooldown from epoch milliseconds or seconds and never shorten it',async()=>{
+ const future=Date.now()+120000,limited=env({fetcher:async()=>response([row()],429,{'X-RateLimit-Reset-At':String(future)})}),result=await limited.send();
+ assert.equal(result.code,'rate-limited');assert.equal(result.retryAt,future);assert.equal((await limited.send({before:1700000000})).code,'rate-limited');assert.equal(limited.calls.length,1);
+ const seconds=env({fetcher:async()=>response([row()],200,{'X-RateLimit-Remaining':'0','X-RateLimit-Reset-At':String(Math.floor((Date.now()+90000)/1000))})}),first=await seconds.send();
+ assert.equal(first.ok,true);const next=await seconds.send({before:1700000000});assert.equal(next.code,'rate-limited');assert.ok(next.retryAt>Date.now()+80000 && next.retryAt<=Date.now()+90000);
 });

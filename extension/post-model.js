@@ -6,6 +6,8 @@
   const validateCommentId=value=>typeof value==='string' && /^(?:t1_)?[a-z0-9]{1,32}$/i.test(value);
   const idOf=value=>validateId(value)?value.toLowerCase().replace(/^t3_/,''):'';
   const str=(value,max)=>typeof value==='string'?value.slice(0,max).replace(/\u0000/g,''):'';
+  // Archive retrieval time arrives as epoch seconds, sometimes as a numeric string. Anything else is omitted.
+  const retrievedAt=value=>{const number=typeof value==='number'?value:typeof value==='string' && /^\d+(?:\.\d+)?$/.test(value)?Number(value):NaN;return Number.isFinite(number)&&number>0&&number<=32503680000?Math.floor(number):0;};
   function safeUrl(value,redditOnly=false){
     if(typeof value!=='string' || value.length>4096 || !(redditOnly?/^(?:https:\/\/|\/(?!\/))/i:/^https?:\/\//i).test(value))return '';
     try{const url=new URL(value,'https://www.reddit.com');
@@ -31,7 +33,10 @@
       over18:raw.over_18===true||raw.over18===true,spoiler:raw.spoiler===true,score:Number.isFinite(Number(raw.score))?Math.max(-1e9,Math.min(1e9,Number(raw.score))):0,
       comments:Number.isFinite(Number(raw.num_comments ?? raw.comments))?Math.max(0,Math.min(1e9,Math.floor(Number(raw.num_comments ?? raw.comments)))):0,
       status:source==='arctic-shift'?'unknown':status,source,bodySource:source};
-    if(source==='arctic-shift')result.archiveStatus=['available','deleted','removed','unknown'].includes(raw.archiveStatus)?raw.archiveStatus:status;
+    if(source==='arctic-shift'){
+      result.archiveStatus=['available','deleted','removed','unknown'].includes(raw.archiveStatus)?raw.archiveStatus:status;
+      const retrieved=retrievedAt(raw.retrieved_on ?? raw.retrieved);if(retrieved)result.retrieved=retrieved;
+    }
     return result;
   }
   function normalizeComment(raw,{source='reddit'}={}){
@@ -50,6 +55,12 @@
       permalink:safeUrl(raw.permalink,true)||'https://www.reddit.com/comments/'+linkId+'/comment/'+id+'/',
       parentId};
   }
+  // Minimal parent-post facts for comment titles and restriction flags. Only the requested ID set is trusted by callers.
+  function normalizeLinkInfo(raw){
+    raw=raw?.data || raw;
+    if(!raw || typeof raw!=='object' || !validateId(raw.id))return null;
+    return {id:idOf(raw.id),title:str(raw.title,1000),subreddit:str(raw.subreddit,100),over18:raw.over_18===true||raw.over18===true,spoiler:raw.spoiler===true};
+  }
   const normalizeItem=(raw,options)=>raw?.kind==='comment' || /^t1_/i.test(raw?.name || raw?.fullname || raw?.id || '')?normalizeComment(raw,options):normalizePost(raw,options);
   function mergePosts(livePosts,archivePosts,{username,visibleIds=[],sort='new',range='all',now=Date.now()/1000}={}){
     if(!validateUsername(username))return [];
@@ -66,5 +77,5 @@
     const duration={hour:3600,day:86400,week:604800,month:2592000,year:31536000}[range],cutoff=sort==='top' && duration?now-duration:-Infinity;
     return [...posts.values()].filter(post=>post.created>=cutoff).map(post=>({...post,visible:visible.has(post.fullname) || post.kind!=='comment' && visible.has(post.id),outsideVisibleFeed:!visible.has(post.fullname) && !(post.kind!=='comment' && visible.has(post.id))})).sort((a,b)=>(sort==='top'?b.score-a.score:sort==='hot'?(rank.get(a.fullname)??Infinity)-(rank.get(b.fullname)??Infinity):0) || b.created-a.created || a.fullname.localeCompare(b.fullname));
   }
-  globalThis.RTPostModel=Object.freeze({avatarUrl,validateUsername,validateId,validateCommentId,normalizePost,normalizeComment,normalizeItem,mergePosts,normalizeSettings});
+  globalThis.RTPostModel=Object.freeze({avatarUrl,validateUsername,validateId,validateCommentId,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings});
 })();

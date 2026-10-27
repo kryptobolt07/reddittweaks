@@ -54,3 +54,26 @@ test('comment parent identities preserve native fullnames and normalize archive 
  for(const [input,expected] of [['t1_Parent','t1_parent'],['parent','t1_parent'],['post','t3_post'],['t3_post','t3_post'],[null,'t3_post'],['','t3_post'],['../../bad','']])assert.equal(m.normalizeComment({...base,parent_id:input},{source:'arctic-shift'}).parentId,expected);
  assert.equal(m.normalizeComment(base).parentId,'');
 });
+
+test('archive retrieval time is kept only for valid arctic-shift snapshots, including comments',()=>{
+ const m=model();
+ assert.equal(m.normalizePost(post({retrieved_on:1700000500.7}),{source:'arctic-shift'}).retrieved,1700000500);
+ assert.equal(m.normalizePost(post({retrieved_on:'1700000600'}),{source:'arctic-shift'}).retrieved,1700000600);
+ assert.equal(m.normalizePost(post({retrieved_on:32503680000}),{source:'arctic-shift'}).retrieved,32503680000);
+ assert.equal('retrieved' in m.normalizePost(post({retrieved_on:1700000700})),false);
+ for(const value of [0,-5,'',' ','12abc','1e9','0x10',NaN,Infinity,32503680001,'32503680001',null,{}])assert.equal('retrieved' in m.normalizePost(post({retrieved_on:value}),{source:'arctic-shift'}),false,String(value));
+ const comment={id:'t1_19rktoupyflj9',author:'Example',created_utc:1700000000,body:'A comment',link_id:'t3_abc12'};
+ assert.equal(m.normalizeComment({...comment,retrieved_on:'1700000800'},{source:'arctic-shift'}).retrieved,1700000800);
+ assert.equal('retrieved' in m.normalizeComment({...comment,retrieved_on:1700000800},{source:'reddit'}),false);
+ assert.equal('retrieved' in m.normalizeComment({...comment,retrieved_on:-1},{source:'arctic-shift'}),false);
+});
+test('parent link info accepts only valid post IDs and bounded text for comment titles',()=>{
+ const m=model();
+ assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeLinkInfo({id:'t3_ABC12',title:'x'.repeat(1200),subreddit:'example',over_18:true,spoiler:'yes'}))),{id:'abc12',title:'x'.repeat(1000),subreddit:'example',over18:true,spoiler:false});
+ assert.equal(m.normalizeLinkInfo({id:'bad!'}),null);assert.equal(m.normalizeLinkInfo(null),null);
+});
+
+test('archive retrieval time survives re-normalizing an already normalized record',()=>{
+  const M=model(),first=M.normalizeComment({id:'c1',author:'Example',body:'b',created_utc:1700000000,link_id:'t3_abc12',retrieved_on:1700000500,title:'Parent'},{source:'arctic-shift'});
+  const again=M.normalizeItem(first,{source:'arctic-shift'});assert.equal(again.retrieved,1700000500);assert.equal(again.title,'Parent');
+});
