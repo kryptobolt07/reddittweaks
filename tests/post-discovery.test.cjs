@@ -1123,3 +1123,21 @@ test('the Deleted view never pauses on unrelated Reddit search errors',async t=>
  d.activityFilter='deleted';d.batchAutoPaused=false;await d.loadArchive();d.updateProfileLoading();
  assert.equal(d.primaryFailure(),false);const note=d.loading.querySelector('[data-rt-continuation-note]');assert.ok(!note || !/search results/.test(note.textContent));
 });
+
+test('at the feed tail the reading position follows the last visible card, not the top one',async t=>{
+ const {W,d}=setup(t,{reddit:async()=>({posts:[raw('upper',{created_utc:1700000300}),raw('lower',{created_utc:1700000100})],hasMore:true,after:'next'})});await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
+ Object.defineProperty(W,'scrollY',{value:900,writable:true});const native=d.feed.querySelector('shreddit-post'),upper=d.nodes.get('upper'),lower=d.nodes.get('lower');
+ for(const node of d.feed.children)node.getBoundingClientRect=()=>({top:-500,bottom:-400,height:100});
+ upper.getBoundingClientRect=()=>({top:60,bottom:260,height:200});lower.getBoundingClientRect=()=>({top:300,bottom:500,height:200});d.loading.hidden=false;d.loading.getBoundingClientRect=()=>({top:520,bottom:640,height:120});
+ assert.equal(d.captureFeedViewport().node,lower,'the card just above the loader is the reading anchor');
+ d.loading.getBoundingClientRect=()=>({top:3000,bottom:3120,height:120});assert.equal(d.captureFeedViewport().node,upper,'away from the tail the top visible card anchors');
+ assert.ok(native);
+});
+
+test('published cards fade in and cards placed between existing ones get a brief highlight',async t=>{
+ const {W,d}=setup(t,{reddit:async()=>({posts:[raw('newer',{created_utc:1700000300}),raw('tail',{created_utc:1600000000})],hasMore:false})});await d.ready;
+ d.feed.querySelector('shreddit-post').setAttribute('created-timestamp',new Date(1700000200*1000).toISOString());await d.loadReddit();await new Promise(r=>setImmediate(r));
+ const newer=d.nodes.get('newer'),tail=d.nodes.get('tail');assert.ok(newer.classList.contains('rt-native-enter'));assert.ok(newer.classList.contains('rt-native-inserted'),'placed above a native card');assert.equal(tail.classList.contains('rt-native-inserted'),false,'the feed end is not highlighted');
+ const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/prefers-reduced-motion:reduce\)\{\.rt-native-enter\{animation:none\}\.rt-native-inserted::after\{display:none\}/);
+ d.rememberProfile();for(const copy of d.profileStates.get(d.context.key).cards.values())assert.equal(copy.classList.contains('rt-native-inserted'),false);
+});

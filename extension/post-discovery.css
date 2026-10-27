@@ -21,14 +21,16 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-posts-status[data-error=true]+.rt-posts-notice{margin-inline-start:12px}.rt-posts-status:empty{display:none}
 .rt-post-loading{display:block;padding:0;overflow-anchor:none}.rt-post-loading[hidden]{display:none!important}
 .rt-native-card{min-width:0;overflow-anchor:auto}.rt-native-placeholder{display:flex;gap:12px;align-items:flex-start;min-height:112px;padding:16px}
-.rt-native-enter{animation:rt-native-appear .16s ease-out}
+.rt-native-card{position:relative}.rt-native-enter{animation:rt-native-appear .26s cubic-bezier(.2,0,0,1) both}
 .rt-native-card:focus-within{animation:none}
-@keyframes rt-native-appear{from{opacity:0}to{opacity:1}}
+@keyframes rt-native-appear{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.rt-native-inserted::after{content:"";position:absolute;inset:0;border-radius:16px;pointer-events:none;background:color-mix(in srgb,var(--color-neutral-content-strong,#0f1a1c) 6%,transparent);animation:rt-native-settle 1.2s ease-out .2s both}
+@keyframes rt-native-settle{from{opacity:1}to{opacity:0}}
 .rt-post-indicator{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:50%;margin-inline:0 8px;background:transparent;color:var(--color-neutral-content-strong,#1a1a1b);vertical-align:middle}
 .rt-post-snapshot{font-size:14px;margin:10px 16px;line-height:1.5}.rt-post-snapshot summary{color:var(--color-neutral-content-weak,#576f76);cursor:pointer;font-size:12px;display:list-item}
 .rt-post-snapshot pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}.rt-post-source{font-size:11px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-native-unavailable{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px}.rt-native-unavailable a{min-width:0;overflow-wrap:anywhere}.rt-native-unavailable button{flex:none;white-space:nowrap}
-@media(prefers-reduced-motion:reduce){.rt-native-enter{animation:none}}
+@media(prefers-reduced-motion:reduce){.rt-native-enter{animation:none}.rt-native-inserted::after{display:none}}
 
 /* Native profile layout, cards, tabs and sidebars own their responsive sizing. */
 [data-rt-archive-notice]{display:none!important}
