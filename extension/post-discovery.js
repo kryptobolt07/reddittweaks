@@ -782,18 +782,32 @@
       if(!ready)return;
       // Publish only the ready prefix. A slow later card cannot hold earlier
       // content behind a whole-page barrier or reorder the feed on completion.
+      // Native cards already on screen before this publish; only insertions above
+      // one of them are animated.
+      const shown=new Set(this.nativeEntries().filter(e=>!e.node.hidden && !e.node.hasAttribute('data-rt-order-pending') && !e.node.hasAttribute('data-rt-filter-hidden')).map(e=>e.node));
       const entering=group.nodes.splice(0,ready);for(const node of entering)this.publishedCards.add(node.dataset.key);
       if(!group.nodes.length){group.enriching=true;this.activeProfileBatch=null;const current=()=>group.generation===this.generation && pageRoute()?.key===this.context?.key && this.host?.isConnected;this.replyEnrichment=Promise.resolve(this.replyEnrichment).catch(()=>{}).then(()=>current()?this.enrichReplyContexts(group.posts,current):undefined);}
-      this.deduplicate();this.animateEntrance(entering);this.updateProfileLoading();
+      this.deduplicate();this.animateEntrance(entering,shown);this.updateProfileLoading();
     }
-    // Fade new cards in; cards placed between existing ones also get a brief
-    // highlight so additions are noticeable without moving anything.
-    animateEntrance(nodes){
+    // Animate only cards that land between cards Reddit had already shown;
+    // cards at the feed end or alongside a new native page just appear.
+    animateEntrance(nodes,shown){
+      const entering=new Set(nodes);
       for(const node of nodes){const slot=this.feedSlot(node);if(slot!==node || node.hidden || node.parentElement!==this.feed)continue;
-        let next=node.nextElementSibling;while(next && (next.hidden || next.hasAttribute('data-rt-order-pending') || next.hasAttribute('data-rt-filter-hidden')))next=next.nextElementSibling;
-        const between=Boolean(next && next!==this.loading && !next.matches('faceplate-partial[slot="load-after"],shreddit-feed-load-more-observer:not(:has(shreddit-post,shreddit-profile-comment))'));
-        node.classList.add('rt-native-enter');node.classList.toggle('rt-native-inserted',between);clearTimeout(node.rtEnterTimer);node.rtEnterTimer=setTimeout(()=>node.classList.remove('rt-native-enter','rt-native-inserted'),1500);
+        let next=node.nextElementSibling;while(next && (entering.has(next) || next.hidden || next.hasAttribute('data-rt-order-pending') || next.hasAttribute('data-rt-filter-hidden')))next=next.nextElementSibling;
+        if(!next || !shown.has(next))continue;
+        node.classList.add('rt-native-enter','rt-native-inserted');clearTimeout(node.rtEnterTimer);node.rtEnterTimer=setTimeout(()=>node.classList.remove('rt-native-enter','rt-native-inserted'),1500);
       }
+    }
+    // Reddit separates feed cards with one native rule after each card. Post
+    // fragments bring theirs; comment fragments and our own fallbacks do not,
+    // so add exactly one with Reddit's classes when the card has none.
+    ensureCardRule(node){
+      if(!node?.matches?.('.rt-native-card'))return;
+      const own=node.querySelector(':scope > hr[data-rt-card-rule]'),native=[...node.querySelectorAll('hr')].some(rule=>rule!==own && !rule.closest('shreddit-post,shreddit-profile-comment'));
+      if(native){own?.remove();return;}
+      if(!own){const rule=make('hr','border-0 border-b-sm border-solid border-b-neutral-border-weak');rule.dataset.rtCardRule='true';node.append(rule);}
+      else if(own!==node.lastElementChild)node.append(own);
     }
     indicator(post){
       const removed=['deleted','removed'].includes(post.status),label=removed?`${post.status==='deleted'?'Deleted':'Removed'} on Reddit`:post.source==='arctic-shift'?(post.status==='available'?'Not shown in this profile feed · Available on Reddit · Arctic Shift snapshot':'Arctic Shift snapshot · Current Reddit status unknown'):'Not shown in this profile feed · Found through public Reddit search';
@@ -926,8 +940,6 @@
           }
           if(result?.duplicate){node.dataset.rtNativeState='idle';node.replaceChildren();node.removeAttribute('aria-busy');this.deduplicate();return;}
           node.dataset.rtNativeState='ready';this.nativeRetries.delete(node);delete node.dataset.rtQualify;node.removeAttribute('aria-busy');this.decorateNative(this.postMetadata.get(node.dataset.key) || post,node);
-          // An entrance effect must not replay when Reddit restores a virtualized card.
-          if(node.isConnected && !this.batchedProfile){node.classList.add('rt-native-enter');const finish=()=>{node.classList.remove('rt-native-enter');node.removeEventListener('animationend',finish);};node.addEventListener('animationend',finish);setTimeout(finish,200);}
         },error=>{
           if(generation!==this.generation || pageRoute()?.key!==this.context?.key)return;
           if(!node.isConnected){if(this.feedSlot(node)!==node)node.dataset.rtNativeState='idle';return;}
@@ -941,7 +953,7 @@
           if(this.archiveOnly && latest.source==='arctic-shift' || !transient && snapshot){const shown={...latest,archivedBody:snapshot || latest.archivedBody};this.renderArchivedNative(shown,node);this.decorateNative(shown,node);return;}
           node.dataset.rtNativeState='failed';node.removeAttribute('aria-busy');node.replaceChildren();
           const fallback=make('div','rt-native-unavailable px-md py-sm'),copy=make('div','min-w-0 flex flex-col');copy.append(link(latest.title || (latest.kind==='comment'?'View comment on Reddit':'View post on Reddit'),latest.permalink,'text-14 font-semibold text-neutral-content-strong no-underline hover:underline'),make('span','text-12 text-neutral-content-weak','Reddit couldn’t load this item right now.'));fallback.append(copy);
-          const retry=button('Retry',()=>{this.nativeRetries.delete(node);node.dataset.rtNativeState='idle';this.queueNative(node);});retry.className='button button-small button-bordered';retry.title=error?.message || 'Reddit could not load this card.';fallback.append(retry);node.append(fallback);
+          const retry=button('Retry',()=>{this.nativeRetries.delete(node);node.dataset.rtNativeState='idle';this.queueNative(node);});retry.className='button button-small button-bordered';retry.title=error?.message || 'Reddit could not load this card.';fallback.append(retry);node.append(fallback);this.ensureCardRule(node);
         }).finally(()=>{batch.active--;this.settleProfileBatch();this.deduplicate();this.drainNative(batch);this.updateProfileLoading();});
       }
     }
@@ -986,7 +998,7 @@
       const reply=/^t1_[a-z0-9]{1,32}$/i.test(parentId || '');info.replaceChildren(identity(author),document.createTextNode(reply?(replyTo?' replied to ':' replied'):' commented'));if(reply && replyTo)info.append(identity(replyTo));info.dataset.rtReplyInfo='true';info.dataset.rtReplySignature=signature;
     }
     decorateNative(post,node){
-      node.querySelector('[data-rt-archive]')?.remove();
+      node.querySelector('[data-rt-archive]')?.remove();this.ensureCardRule(node);
       const native=node.matches('shreddit-post,shreddit-profile-comment')?node:node.querySelector('shreddit-post,shreddit-profile-comment');if(!native)return;
       post={...post,status:this.verifiedStatus(post,native)};
       // Discovery-only HTML has no full body/deletion proof. Once the actual
