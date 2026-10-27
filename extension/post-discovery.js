@@ -468,13 +468,16 @@
       this.status.title=(deferred?`${deferred} older discoveries will appear when Reddit loads that part of the feed. `:'')+[...new Set(Object.entries(this.sourceErrors || {}).filter(([key,value])=>key.startsWith('metadata-') && value).map(([,value])=>value)),'Search and archive coverage may be incomplete.'].join(' ');
     }
     setStatus(text,error=false){this.status.textContent=text;this.status.dataset.error=String(error);}
-    async request(parameters){const controller=new AbortController();let started=Date.now(),timeoutRetries=0;this.controllers.add(controller);try{
+    async request(parameters){const controller=new AbortController();let started=Date.now(),timeoutRetries=0,responseRetries=0;this.controllers.add(controller);try{
       for(;;){
         if(Date.now()-started>=10000)throw Error('Reddit requests are paused. Please try again shortly.');
         let result;try{result=await this.reddit(parameters,controller.signal);}catch(error){
-          // Retry the same discovery cursor once after a transport timeout.
-          // Rate limits, cancellation and parsing errors must not be retried.
-          if(parameters.action==='profile' && !controller.signal.aborted && timeoutRetries<1 && /^(Reddit request timed out\. Try again\.|Public posts took too long to load\. Try again\.)$/.test(error.message)){timeoutRetries++;started=Date.now();continue;}throw error;
+          // A continuation can receive transient HTML without search markup.
+          // Retry that cursor once, never treating it as history exhaustion.
+          if(parameters.action==='profile' && !controller.signal.aborted && timeoutRetries<1 && /^(Reddit request timed out\. Try again\.|Public posts took too long to load\. Try again\.)$/.test(error.message)){timeoutRetries++;started=Date.now();continue;}
+          if(parameters.action==='profile' && parameters.after && !controller.signal.aborted && responseRetries<1 && /^Reddit returned an unrecognized (?:comment|post) search response\.$/.test(error.message)){
+            responseRetries++;await new Promise((resolve,reject)=>{const cancel=()=>{clearTimeout(timer);reject(Error('Post request cancelled.'));},timer=setTimeout(()=>{controller.signal.removeEventListener('abort',cancel);resolve();},350);controller.signal.addEventListener('abort',cancel,{once:true});if(controller.signal.aborted)cancel();});continue;
+          }throw error;
         }if(!result?.deferred || parameters.action==='render-card')return result;
         const remaining=10000-(Date.now()-started);if(remaining<=0)throw Error('Reddit requests are paused. Please try again shortly.');
         await new Promise((resolve,reject)=>{const cancel=()=>{clearTimeout(timer);reject(Error('Post request cancelled.'));},timer=setTimeout(()=>{controller.signal.removeEventListener('abort',cancel);resolve();},Math.min(remaining,Math.max(100,Number(result.retryAfterMs)||1000)));controller.signal.addEventListener('abort',cancel,{once:true});if(controller.signal.aborted)cancel();});
@@ -486,20 +489,20 @@
       catch(error){if(generation===this.generation && pageRoute()?.key===this.context?.key){this.sourceErrors.request=error.message;this.setStatus(error.message,true);}}
       finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.more.disabled=false;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;this.discover.disabled=this.archiveBusy;if(this.archiveButton)this.archiveButton.disabled=this.archiveBusy;this.ensureActivityArchive();}}
     }
-    loadReddit({more=false}={}){if(this.busy)return;if(!more){this.initialPrefetchDone=false;this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};}if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
-      const frontier=this.publicationFloor(),streams=this.kinds().flatMap(kind=>kind==='comment'?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}]).filter(({key})=>!more || this.redMore[key] && (this.context.sort!=='new' || (this.sourceFrontiers.get(key)?.floor ?? Infinity)>=frontier));
-      for(const {key} of streams){if(!more)this.sourceFrontiers.delete(key);this.sourcePending.add(key);}
+    loadReddit({more=false,retry=false}={}){if(this.busy)return;if(!more && !retry){this.initialPrefetchDone=false;this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};}if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
+      const frontier=this.publicationFloor(),streams=this.kinds().flatMap(kind=>kind==='comment'?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}]).filter(({key})=>retry?Boolean(this.sourceErrors[key]):!more || this.redMore[key] && (this.context.sort!=='new' || (this.sourceFrontiers.get(key)?.floor ?? Infinity)>=frontier));
+      for(const {key} of streams){if(!more && !retry)this.sourceFrontiers.delete(key);this.sourcePending.add(key);}
       return this.run(async current=>{
       const errors=[];let succeeded=false;
       await Promise.all(streams.map(async ({kind,key,stream})=>{
-        if(more && !this.redMore[key])return;
-        const old=more?this.afterByKind[key]:null;this.pages++;
+        if(more && !retry && !this.redMore[key])return;
+        const old=more || retry?this.afterByKind[key]:null;this.pages++;
         try{const result=await this.request({action:'profile',username:this.context.username,sort:this.context.sort,range:this.context.range,kind,...(stream?{stream}:{}),...(old?{after:old}:{})});if(!current())return;
           const incoming=new Map(),page=[];for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(!p || p.author.toLowerCase()!==this.context.username.toLowerCase())continue;page.push(p);const id=itemKey(p),previous=this.live.get(id);
             if(stream==='public' && previous && this.commentOrigins.get(id)!=='public'){this.live.set(id,{...previous,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler});continue;}
             const merged=previous?{...p,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler}:p;this.live.set(id,merged);incoming.set(id,merged);if(kind==='comment')this.commentOrigins.set(id,stream);
           }
-          if(!more && this.context.sort==='hot' && stream!=='public'){
+          if(!more && !retry && this.context.sort==='hot' && stream!=='public'){
             const belongs=post=>(post.kind==='comment'?'comment':'post')===kind,group=new Map([...incoming,...[...this.live].filter(([id,p])=>belongs(p) && !incoming.has(id))]);
             this.live=new Map(this.kinds().flatMap(type=>type===kind?[...group]:[...this.live].filter(([,p])=>(p.kind==='comment'?'comment':'post')===type)));
           }
@@ -625,7 +628,7 @@
       if(this.feed.dataset.rtLoadingOwner!==(nativeLoading?'native':'extension'))this.feed.dataset.rtLoadingOwner=nativeLoading?'native':'extension';
       const halo=this.loading.querySelector('.rt-native-loading');if(halo && halo.hidden!==(nativeLoading || paused && !work))halo.hidden=nativeLoading || paused && !work;
       let note=this.loading.querySelector('[data-rt-continuation-note]');
-      if(paused && !work){if(!note){note=make('div','flex flex-col items-center justify-center text-center m-md text-body-1');note.dataset.rtContinuationNote='true';this.loading.append(note);}const message='Loading paused. Use Refresh activity to retry.';if(note.dataset.message!==message){note.dataset.message=message;const retry=button('Retry loading',()=>this.discover.click());retry.className='button button-small button-bordered mt-md';note.replaceChildren(make('div','',message),retry);}}else note?.remove();
+      if(paused && !work){if(!note){note=make('div','flex flex-col items-center justify-center text-center m-md text-body-1');note.dataset.rtContinuationNote='true';this.loading.append(note);}const failedSearch=['post','comment','comment-public'].some(key=>this.sourceErrors[key]),message=failedSearch?'Some search results could not be loaded. Existing results are kept.':'Loading paused. Use Refresh activity to retry.';if(note.dataset.message!==message){note.dataset.message=message;const retry=button('Retry loading',()=>['post','comment','comment-public'].some(key=>this.sourceErrors[key])?this.loadReddit({retry:true}):this.discover.click());retry.className='button button-small button-bordered mt-md';note.replaceChildren(make('div','',message),retry);}}else note?.remove();
       this.more.hidden=!continuation || Boolean(this.batchObserver && !paused);this.more.disabled=Boolean(this.busy || this.archiveBusy || this.activeProfileBatch && !paused);
       if(pending && !this.activeProfileBatch && !this.busy && !paused && this.publishedCards.size<profileBatchSize){this.advanceProfileBatch();return;}
       this.prefetchProfilePage();
