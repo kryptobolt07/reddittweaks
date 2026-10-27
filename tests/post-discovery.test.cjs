@@ -1072,3 +1072,8 @@ test('Refresh lives in Reddit’s Feed options menu and reloads search and archi
  refresh.click();await Promise.all([d.redditRun,d.archiveRun]);assert.equal(calls.filter(c=>c.action==='profile').length,1);assert.equal(archiveCalls.length,1);
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(W.document.querySelector('[data-rt-ui="activity-refresh"]'),null,'opt-out removes the menu row');
 });
+
+test('Hot and Top keep Reddit ranking without automatic archive filler',async t=>{
+ for(const sort of ['hot','top']){let archived=0;const {d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/?sort='+sort,settings:{postDiscovery:true,archiveDiscovery:true},archive:async()=>{archived++;return {posts:[],hasMore:false};}});await d.ready;
+  await d.refreshActivity();assert.equal(archived,0,sort);d.activityFilter='deleted';await d.refreshActivity();assert.equal(archived,1,'Deleted still uses the archive in '+sort);}
+});
