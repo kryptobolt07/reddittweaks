@@ -81,7 +81,8 @@
       // Reuse Reddit's own comment-body classes from a normal comment on this page.
       const sample=[...document.querySelectorAll('main shreddit-comment [id$="-post-rtjson-content"]')].find(node=>!node.closest('[data-rt-recovered-text]'));
       const recovered=make('div',sample?.className || 'md text-14');recovered.dataset.rtRecoveredText='true';
-      if(globalThis.RTMarkdown)recovered.append(RTMarkdown.render(text));else for(const part of text.split(/\n{2,}/)){const para=make('p','',part);para.style.whiteSpace='pre-wrap';recovered.append(para);}
+      const rendered=globalThis.RTMarkdown?.fromHtml(archived.bodyHtml) || globalThis.RTMarkdown?.render(text);
+      if(rendered)recovered.append(rendered);else for(const part of text.split(/\n{2,}/)){const para=make('p','',part);para.style.whiteSpace='pre-wrap';recovered.append(para);}
       const pClass=sample?.querySelector('p')?.className;if(pClass)for(const para of recovered.querySelectorAll(':scope > p'))para.className=pClass;
       this.patches.set(body,{original:[...body.childNodes],comment});body.replaceChildren(recovered);
       // Reddit collapses deleted comments; open restored ones so the text is visible.

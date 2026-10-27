@@ -94,3 +94,5 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 .rt-recovered-md blockquote{margin:8px 0;padding-inline-start:12px;border-inline-start:4px solid var(--color-neutral-border-weak,#e5ebee);color:var(--color-neutral-content-weak,#576f76)}
 .rt-recovered-md pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:8px 12px;border-radius:8px;background:var(--color-neutral-background-weak,#f2f4f5)}
 .rt-recovered-md a{color:var(--color-primary-plain,#0a449b);text-decoration:underline}
+.rt-recovered-md table{border-collapse:collapse;margin:8px 0;display:block;overflow-x:auto}.rt-recovered-md th,.rt-recovered-md td{border:1px solid var(--color-neutral-border-weak,#e5ebee);padding:4px 8px}
+.rt-recovered-md .rt-spoiler{background:var(--color-neutral-content-strong,#1a1a1b);color:transparent;border-radius:4px;cursor:pointer}.rt-recovered-md .rt-spoiler:hover,.rt-recovered-md .rt-spoiler:focus{background:transparent;color:inherit}

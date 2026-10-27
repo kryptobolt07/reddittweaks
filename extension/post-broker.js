@@ -56,7 +56,8 @@
       if(cooldownUntil>Date.now())return fail('Archive requests are cooling down.','rate-limited',{retryAt:cooldownUntil});
       const url=new URL('https://arctic-shift.photon-reddit.com/api/'+(kind==='comment'?'comments':'posts')+'/'+(ids?'ids':'search'));
       if(ids)url.searchParams.set('ids',ids.join(','));else{url.searchParams.set('author',username);url.searchParams.set('sort','desc');url.searchParams.set('limit',String(limit));if(before!=null)url.searchParams.set('before',String(before));}
-      url.searchParams.set('md2html','false');url.searchParams.set('fields',contextOnly?'id,author,link_id,created_utc':kind==='comment'?'id,author,subreddit,body,created_utc,link_id,parent_id,score,retrieved_on':'id,author,subreddit,title,selftext,created_utc,url,over_18,spoiler,score,num_comments,retrieved_on');
+      // Arctic Shift's server-rendered markdown (body_html/selftext_html); the page sanitizes it.
+      url.searchParams.set('md2html',contextOnly?'false':'true');url.searchParams.set('fields',contextOnly?'id,author,link_id,created_utc':kind==='comment'?'id,author,subreddit,body,created_utc,link_id,parent_id,score,retrieved_on':'id,author,subreddit,title,selftext,created_utc,url,over_18,spoiler,score,num_comments,retrieved_on');
       const controller=new AbortController();let timer,value;
       try{
         const timedOut=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Archive request timed out.'));},timeoutMs);});

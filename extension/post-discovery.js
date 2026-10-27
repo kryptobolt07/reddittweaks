@@ -853,7 +853,7 @@
         const inner=make('div','hover:bg-neutral-background-hover relative rounded-4'),padding=make('div','px-md py-sm'),credit=make('div','text-12 relative w-fit'),context=make('div','flex items-center');
         const heading=make('h2','inline-block m-0');heading.append(link(post.title || 'View post',post.permalink,'text-neutral-content-strong font-normal hover:underline'));
         context.append(community,make('span','px-2xs',' • '),heading);const identity=make('div','text-neutral-content-weak inline-block ms-xl mt-2xs');const info=make('span');info.id='poster-info-'+post.fullname;info.dataset.rtReplyInfo='true';identity.append(info,document.createTextNode(' '),date);credit.append(context,identity);
-        const content=make('div','ms-[22px] mt-2xs ps-[10px] md'),text=make('div','md pt-xs pb-2xs break-words');text.append(snapshotText?this.archivedText(body):make('p','',body));content.append(text);
+        const content=make('div','ms-[22px] mt-2xs ps-[10px] md'),text=make('div','md pt-xs pb-2xs break-words');text.append(snapshotText?this.archivedText(body,post.archivedBodyHtml || post.bodyHtml):make('p','',body));content.append(text);
         const actions=make('div','block ms-lg relative'),row=make('shreddit-comment-action-row','block');row.setAttribute('comment-id',post.fullname);row.setAttribute('score',String(post.score));row.setAttribute('permalink',post.permalink);row.setAttribute('telemetry-source','profile');row.setAttribute('vote-state','NONE');row.setAttribute('is-desktop-viewport','true');row.setAttribute('inert','');row.setAttribute('aria-disabled','true');row.title='Archived values · Current actions unavailable';
         const reply=link('',post.permalink,'button rpl-cab border-sm text-label-2 button-plain-weak inline-flex items-center px-sm py-xs');reply.slot='comment-reply';reply.style.height='var(--size-button-sm-h)';const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value] of Object.entries({rpl:'','aria-hidden':'true','fill':'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','icon-name':'comment'}))icon.setAttribute(key,value);const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9Zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2Z');icon.append(path);const leading=make('span','flex text-body-1 me-2xs');leading.append(icon);reply.append(leading,make('span','rpl-cab--content','Reply'));
         const share=make('shreddit-comment-share-button');share.setAttribute('slot','comment-share');share.setAttribute('permalink',post.permalink);share.setAttribute('is-desktop-viewport','true');row.append(reply,share);actions.append(row);padding.append(credit,content,actions);inner.append(padding);native.append(inner);
@@ -861,7 +861,7 @@
         native.className='block relative cursor-pointer group bg-neutral-background focus-within:bg-neutral-background-hover hover:bg-neutral-background-hover xs:rounded-4 px-md py-2xs my-2xs nd:visible';native.id=post.fullname;
         for(const [key,value] of Object.entries({'permalink':post.permalink,'view-context':'ProfileFeed2','view-type':'cardView','post-type':'text','post-title':post.title,'author':post.author,'subreddit-name':post.subreddit,'subreddit-prefixed-name':profileName?'u_'+profileName:'r/'+post.subreddit,'score':post.score,'comment-count':post.comments,'created-timestamp':new Date(post.created*1000).toISOString()}))native.setAttribute(key,String(value));
         if(post.author==='[deleted]')native.setAttribute('is-author-deleted','');const credit=make('span','flex justify-between text-12 min-h-[32px] mb-2xs -mt-2xs');credit.slot='credit-bar';const identity=make('span','flex items-center gap-xs');identity.append(community,document.createTextNode(' · '),date);credit.append(identity);
-        const title=link(post.title,post.permalink,'block text-neutral-content-strong m-0 visited:text-neutral-content-weak font-semibold text-16-scalable xs:text-18-scalable mb-2xs xs:mb-xs overflow-hidden');title.slot='title';const content=make('div','md break-words');content.slot='text-body';content.append(snapshotText?this.archivedText(body):make('p','',body));native.append(credit,title,content);
+        const title=link(post.title,post.permalink,'block text-neutral-content-strong m-0 visited:text-neutral-content-weak font-semibold text-16-scalable xs:text-18-scalable mb-2xs xs:mb-xs overflow-hidden');title.slot='title';const content=make('div','md break-words');content.slot='text-body';content.append(snapshotText?this.archivedText(body,post.archivedBodyHtml || post.bodyHtml):make('p','',body));native.append(credit,title,content);
         // Keep the card inert until the native action bar is isolated. This
         // avoids even a frame of actionable voting on unverified snapshots.
         native.setAttribute('inert','');const disable=()=>{const bar=native.shadowRoot?.querySelector('rpl-action-bar');if(!bar)return false;bar.setAttribute('inert','');bar.setAttribute('aria-disabled','true');bar.title='Archived values · Current actions unavailable';native.removeAttribute('inert');return true;};
@@ -979,10 +979,10 @@
     // missing entirely (removed posts), in which case Reddit's own text-body
     // slot receives it. Live text is never replaced.
     recoverBody(post,native){
-      const text=post.archivedBody || (post.source==='arctic-shift'?post.body:'');
+      const text=post.archivedBody || (post.source==='arctic-shift'?post.body:''),html=post.archivedBody?post.archivedBodyHtml || '':post.source==='arctic-shift'?post.bodyHtml || '':'';
       if(!native || !text || deletionNotice(text.trim()) || post.over18 || post.spoiler || this.nativeRestrictions(native).restricted)return false;
       // An earlier restore in this card: keep it (the notice it replaced is gone).
-      for(const prior of native.querySelectorAll('[data-rt-recovered-text]')){if(prior.closest('[slot="title"]'))continue;const patch=this.recoveredBodies.get(prior.parentElement);if(patch?.recovered===prior){if(prior.dataset.rtSourceText!==text){const next=this.archivedText(text);next.dataset.rtOriginalText=prior.dataset.rtOriginalText || '';prior.replaceWith(next);patch.recovered=next;}return true;}}
+      for(const prior of native.querySelectorAll('[data-rt-recovered-text]')){if(prior.closest('[slot="title"]'))continue;const patch=this.recoveredBodies.get(prior.parentElement);if(patch?.recovered===prior){if(prior.dataset.rtSourceText!==text){const next=this.archivedText(text,html);next.dataset.rtOriginalText=prior.dataset.rtOriginalText || '';prior.replaceWith(next);patch.recovered=next;}return true;}}
       let body=native.querySelector(post.kind==='comment'?'[id$="-post-rtjson-content"],.md':'[slot="text-body"]'),created=false;
       const noticeParagraph=[...native.querySelectorAll('p')].find(p=>!p.closest('[data-rt-recovered-text],summary,[slot="commentMeta"],[slot="post-removed-banner"],[slot="title"]') && deletionNotice(p.textContent.trim()));
       if(noticeParagraph && (!body || !body.textContent.trim()))body=noticeParagraph.parentElement;
@@ -997,10 +997,11 @@
         for(const slot of ['post-recovery-section','post-removed-banner']){if(!native.shadowRoot || body.assignedSlot)break;body.slot=slot;}
         if(native.shadowRoot && !body.assignedSlot)body.removeAttribute('slot');
       }
-      const recovered=this.archivedText(text);recovered.dataset.rtOriginalText=current;this.recoveredBodies.set(body,{original:[...body.childNodes],recovered,created});body.replaceChildren(recovered);return true;
+      const recovered=this.archivedText(text,html);recovered.dataset.rtOriginalText=current;this.recoveredBodies.set(body,{original:[...body.childNodes],recovered,created});body.replaceChildren(recovered);return true;
     }
     // Archived markdown rendered like Reddit's body text (DOM nodes only).
-    archivedText(text){const el=make('div','rt-recovered-md');el.dataset.rtRecoveredText='true';el.dataset.rtSourceText=text;if(globalThis.RTMarkdown)el.append(RTMarkdown.render(text));else el.append(make('p','whitespace-pre-wrap break-words',text));return el;}
+    // Prefer the archive's server-rendered markdown (sanitized), then local rendering, then plain text.
+    archivedText(text,html=''){const el=make('div','rt-recovered-md');el.dataset.rtRecoveredText='true';el.dataset.rtSourceText=text;const rendered=globalThis.RTMarkdown?.fromHtml(html) || globalThis.RTMarkdown?.render(text);if(rendered)el.append(rendered);else el.append(make('p','whitespace-pre-wrap break-words',text));return el;}
     // Removed posts show "[ Removed by moderator ]" as their title.
     recoverTitle(title,native){
       const node=native?.querySelector('[slot="title"]');if(!node || !title || deletionNotice(title.trim()) || !deletionNotice(node.textContent.trim()))return false;
@@ -1041,7 +1042,7 @@
       // its text even though the search record itself still has unknown status.
       const archive=this.archived.get(itemKey(post));
       const owned=this.context.kind==='profile' && ['deleted','removed'].includes(post.status) && archive?.source==='arctic-shift' && archive.fullname===post.fullname && archive.author.toLowerCase()===this.context.username.toLowerCase();
-      if(owned && archive.body)post={...post,archivedBody:post.archivedBody || archive.body,over18:post.over18 || archive.over18,spoiler:post.spoiler || archive.spoiler};
+      if(owned && archive.body)post={...post,archivedBody:post.archivedBody || archive.body,archivedBodyHtml:post.archivedBodyHtml || archive.bodyHtml,over18:post.over18 || archive.over18,spoiler:post.spoiler || archive.spoiler};
       this.repairReplyInfo(post,native);const recovered=this.recoverBody(post,native),titled=owned && post.kind!=='comment' && !post.over18 && !post.spoiler && this.recoverTitle(archive.title,native),label=this.indicator(post),fallback=node.dataset?.rtArchiveFallback==='true';
       const titleShown=titled || Boolean(this.recoveredTitles?.has(native.querySelector('[slot="title"]')));if(recovered)label.title+=' · Text recovered from Arctic Shift';else if(titleShown)label.title+=' · Title recovered from Arctic Shift';else if(fallback && post.source!=='arctic-shift')label.title+=' · Text from an Arctic Shift snapshot';
       const retrieved=archive?.retrieved || post.retrieved;if(retrieved && (recovered || titleShown || fallback || post.source==='arctic-shift'))label.title+=' · Snapshot from '+new Date(retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
@@ -1072,7 +1073,7 @@
       // Restore inside Reddit's own post element when the snapshot belongs to the same author.
       const nativeAuthor=native?.getAttribute('author') || '',sameAuthor=!nativeAuthor || nativeAuthor==='[deleted]' || nativeAuthor.toLowerCase()===archived.author.toLowerCase();
       if(native && live && sameAuthor && this.settings.restoreDeletedContent){
-        const shown={...live,archivedBody:archived.body,over18:live.over18 || archived.over18,spoiler:live.spoiler || archived.spoiler},safe=!shown.over18 && !shown.spoiler && !restrictions.restricted;
+        const shown={...live,archivedBody:archived.body,archivedBodyHtml:archived.bodyHtml,over18:live.over18 || archived.over18,spoiler:live.spoiler || archived.spoiler},safe=!shown.over18 && !shown.spoiler && !restrictions.restricted;
         const body=this.recoverBody(shown,native),titled=safe && this.recoverTitle(archived.title,native);
         if(body || titled){this.nativeDecorations.add(native);this.decorateNative({...live,archivedBody:archived.body,retrieved:archived.retrieved},native);this.setStatus(body?'Available archived text restored.':'Archived title restored.');return;}
       }
