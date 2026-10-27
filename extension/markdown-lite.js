@@ -46,5 +46,31 @@
     flush();
     return fragment;
   }
-  globalThis.RTMarkdown=Object.freeze({render,decode});
+  // Rebuild archive-rendered HTML from an allowlist. The source document is
+  // inert (DOMParser runs no scripts and loads nothing); only text and
+  // formatting elements are recreated in the page document.
+  const keep=new Set(['P','BR','HR','STRONG','EM','DEL','CODE','PRE','BLOCKQUOTE','UL','OL','LI','H1','H2','H3','H4','H5','H6','SUP','SUB','TABLE','THEAD','TBODY','TR','TH','TD']),rename={B:'STRONG',I:'EM',S:'DEL',STRIKE:'DEL'},drop=new Set(['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','IMG','VIDEO','AUDIO','SVG','MATH','FORM','INPUT','BUTTON','TEXTAREA','SELECT','LINK','META','TEMPLATE','NOSCRIPT']);
+  function fromHtml(html,doc=globalThis.document){
+    if(typeof html!=='string' || !html || html.length>120000 || typeof DOMParser!=='function')return null;
+    const source=new DOMParser().parseFromString(html,'text/html').body,fragment=doc.createDocumentFragment();let budget=5000;
+    const copy=(from,to,depth)=>{
+      for(const node of from.childNodes){
+        if(--budget<0)return;
+        // Markdown backslash escapes that the archive renderer leaves in text (e.g. \+).
+        if(node.nodeType===3){to.append(doc.createTextNode(node.parentElement?.closest('code,pre')?node.textContent:node.textContent.replace(/\\([\\`*_{}\[\]()#+\-.!|~>^])/g,'$1')));continue;}
+        if(node.nodeType!==1)continue;
+        const tag=rename[node.tagName] || node.tagName;
+        if(drop.has(tag))continue;
+        if(depth>40){to.append(doc.createTextNode(node.textContent));continue;}
+        let el=null;
+        if(keep.has(tag)){el=doc.createElement(tag.toLowerCase());if((tag==='TH' || tag==='TD') && ['left','center','right'].includes(node.getAttribute('align')))el.style.textAlign=node.getAttribute('align');}
+        else if(tag==='A'){const href=safeHref(node.getAttribute('href') || '');if(href){el=doc.createElement('a');el.href=href;el.rel='noopener noreferrer nofollow';}}
+        else if(tag==='SPAN' && node.classList.contains('md-spoiler-text')){el=doc.createElement('span');el.className='rt-spoiler';el.tabIndex=0;}
+        if(el){copy(node,el,depth+1);to.append(el);}else copy(node,to,depth+1); // unknown wrappers (div.md, span) unwrap to their text
+      }
+    };
+    copy(source,fragment,0);
+    return fragment.childNodes.length?fragment:null;
+  }
+  globalThis.RTMarkdown=Object.freeze({render,decode,fromHtml});
 })();

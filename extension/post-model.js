@@ -36,6 +36,8 @@
     if(source==='arctic-shift'){
       result.archiveStatus=['available','deleted','removed','unknown'].includes(raw.archiveStatus)?raw.archiveStatus:status;
       const retrieved=retrievedAt(raw.retrieved_on ?? raw.retrieved);if(retrieved)result.retrieved=retrieved;
+      // Server-rendered markdown from the archive. Untrusted: pages must sanitize before display.
+      const html=str(raw.bodyHtml ?? raw.selftext_html ?? raw.body_html,120000);if(html)result.bodyHtml=html;
     }
     return result;
   }
@@ -70,7 +72,7 @@
     for(const raw of Array.isArray(livePosts)?livePosts:[]){const post=normalizeItem(raw,{source:'reddit'});if(!post)continue;const archived=posts.get(post.fullname);
       if(!same(post) && !(post.author==='[deleted]' && archived))continue;
       const merged={...post,over18:post.over18 || archived?.over18===true,spoiler:post.spoiler || archived?.spoiler===true,archiveAvailable:Boolean(archived)};
-      if(archived && ['deleted','removed'].includes(post.status) && archived.body && !['[deleted]','[removed]'].includes(archived.body)){merged.archivedBody=archived.body;merged.archivedBodySource='arctic-shift';merged.archiveAuthor=archived.author;}
+      if(archived && ['deleted','removed'].includes(post.status) && archived.body && !['[deleted]','[removed]'].includes(archived.body)){merged.archivedBody=archived.body;merged.archivedBodySource='arctic-shift';merged.archiveAuthor=archived.author;if(archived.bodyHtml)merged.archivedBodyHtml=archived.bodyHtml;}
       posts.set(post.fullname,merged);
     }
     const rank=new Map();for(const raw of Array.isArray(livePosts)?livePosts:[]){const post=normalizeItem(raw,{source:'reddit'});if(post && !rank.has(post.fullname))rank.set(post.fullname,rank.size);}
