@@ -1,3 +1,13 @@
+# 0.18.14 preview
+
+- Keep profile feed borders supplied by Reddit. Remove generated card separators and stop hiding native horizontal rules around the feed, toolbar and loader; supplemental linear progress suppression remains scoped separately.
+- Earlier fixes created rules with Reddit utility classes inside extension card wrappers and later hid some native rules. Matching classes alone do not establish matching layout. The precise cause of the reported vertical thickness has not been verified with computed styles.
+- Document observed profile-history visibility signals and their limits. No speculative request-skipping based on a profile visibility assumption is introduced; search and archive coverage remain incomplete.
+
+Version choice: PATCH to 0.18.14 for the profile border correction. No permissions or persistent storage/schema changes.
+
+Validation: all 708 tests pass. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Synthetic regressions cover native separators through hydration, filtering and virtualization, and preserve native rules around controls and the loader. No live browser or installed-build verification was performed; the precise visual cause of the reported thickness remains unverified. Reload the extension and refresh Reddit to apply the bundle.
+
 # 0.18.13 preview
 
 - Fix the page-unresponsive regression introduced by 0.18.12 scroll preservation. The loading observer was responding to temporary inline feed-style writes by starting another viewport transaction, which wrote the same styles again and indefinitely restarted the mutation microtask. Exclude feed style records from loading-state triggers while retaining native loader visibility/content observations.
