@@ -87,7 +87,7 @@
       const saved={signature,owner,archiveOnly:this.archiveOnly,live:new Map(this.live),archived:new Map(this.archived),cards:new Map(),scrollY:pageRoute()?.key===this.context.key?window.scrollY || 0:previous?.scrollY || window.scrollY || 0};
       for(const name of ['loaded','archiveLoaded','pages','moreReddit','moreArchive','initialPrefetchDone'])saved[name]=this[name];
       saved.sourceFrontiers=new Map(this.sourceFrontiers);saved.commentOrigins=new Map(this.commentOrigins);saved.sourceErrors={...this.sourceErrors};for(const name of ['afterByKind','beforeByKind','redMore','archiveMore'])saved[name]={...this[name]};saved.recoveryChecked=new Set(this.recoveryChecked);saved.activityFilter=this.activityFilter;saved.postStatuses=new Map(this.postStatuses);saved.publishedCards=new Set(this.publishedCards);saved.replyContexts=new Map(this.replyContexts);saved.replyAuthors=new Map(this.replyAuthors);saved.replyArchiveChecked=new Set(this.replyArchiveChecked);
-      for(const [key,node] of this.nodes)if(node.dataset.rtNativeState==='ready'){const copy=node.cloneNode(true);copy.classList.remove('rt-native-enter');for(const script of copy.querySelectorAll('script'))script.remove();const partial=copy.firstElementChild;if(partial?.matches('faceplate-partial') && partial.querySelector('shreddit-post,shreddit-profile-comment'))partial.replaceWith(...partial.childNodes);saved.cards.set(key,copy);}
+      for(const [key,node] of this.nodes)if(node.dataset.rtNativeState==='ready'){const copy=node.cloneNode(true);copy.classList.remove('rt-native-enter','rt-native-inserted');for(const script of copy.querySelectorAll('script'))script.remove();const partial=copy.firstElementChild;if(partial?.matches('faceplate-partial') && partial.querySelector('shreddit-post,shreddit-profile-comment'))partial.replaceWith(...partial.childNodes);saved.cards.set(key,copy);}
       saved.publishedCards=new Set([...saved.publishedCards].filter(key=>saved.cards.has(key)));
       this.profileStates.delete(this.context.key);this.profileStates.set(this.context.key,saved);
       while(this.profileStates.size>4 || [...this.profileStates.values()].reduce((count,state)=>count+state.cards.size,0)>250)this.profileStates.delete(this.profileStates.keys().next().value);
@@ -674,7 +674,10 @@
     }
     captureFeedViewport(){
       if(!this.feed || window.scrollY<=0)return null;
-      for(const node of this.feed.children){if(node.hidden || node===this.loading)continue;const rect=node.getBoundingClientRect();if(rect.height>0 && rect.bottom>56 && rect.top<innerHeight)return {node,top:rect.top,scrollY:window.scrollY};}
+      // Near the feed end the reader is looking at the last card above the
+      // loader, so keep that card fixed; elsewhere keep the top visible card.
+      const children=[...this.feed.children],tail=this.loading?.parentElement===this.feed && !this.loading.hidden?this.loading.getBoundingClientRect():null,atTail=Boolean(tail && tail.top<innerHeight && tail.bottom>0);
+      for(const node of atTail?children.reverse():children){if(node.hidden || node===this.loading)continue;const rect=node.getBoundingClientRect();if(rect.height>0 && rect.bottom>56 && rect.top<innerHeight)return {node,top:rect.top,scrollY:window.scrollY};}
       return null;
     }
     withFeedViewport(change){
@@ -779,9 +782,18 @@
       if(!ready)return;
       // Publish only the ready prefix. A slow later card cannot hold earlier
       // content behind a whole-page barrier or reorder the feed on completion.
-      for(const node of group.nodes.splice(0,ready)){this.publishedCards.add(node.dataset.key);node.classList.add('rt-native-enter');setTimeout(()=>node.classList.remove('rt-native-enter'),200);}
+      const entering=group.nodes.splice(0,ready);for(const node of entering)this.publishedCards.add(node.dataset.key);
       if(!group.nodes.length){group.enriching=true;this.activeProfileBatch=null;const current=()=>group.generation===this.generation && pageRoute()?.key===this.context?.key && this.host?.isConnected;this.replyEnrichment=Promise.resolve(this.replyEnrichment).catch(()=>{}).then(()=>current()?this.enrichReplyContexts(group.posts,current):undefined);}
-      this.deduplicate();this.updateProfileLoading();
+      this.deduplicate();this.animateEntrance(entering);this.updateProfileLoading();
+    }
+    // Fade new cards in; cards placed between existing ones also get a brief
+    // highlight so additions are noticeable without moving anything.
+    animateEntrance(nodes){
+      for(const node of nodes){const slot=this.feedSlot(node);if(slot!==node || node.hidden || node.parentElement!==this.feed)continue;
+        let next=node.nextElementSibling;while(next && (next.hidden || next.hasAttribute('data-rt-order-pending') || next.hasAttribute('data-rt-filter-hidden')))next=next.nextElementSibling;
+        const between=Boolean(next && next!==this.loading && !next.matches('faceplate-partial[slot="load-after"],shreddit-feed-load-more-observer:not(:has(shreddit-post,shreddit-profile-comment))'));
+        node.classList.add('rt-native-enter');node.classList.toggle('rt-native-inserted',between);clearTimeout(node.rtEnterTimer);node.rtEnterTimer=setTimeout(()=>node.classList.remove('rt-native-enter','rt-native-inserted'),1500);
+      }
     }
     indicator(post){
       const removed=['deleted','removed'].includes(post.status),label=removed?`${post.status==='deleted'?'Deleted':'Removed'} on Reddit`:post.source==='arctic-shift'?(post.status==='available'?'Not shown in this profile feed · Available on Reddit · Arctic Shift snapshot':'Arctic Shift snapshot · Current Reddit status unknown'):'Not shown in this profile feed · Found through public Reddit search';
