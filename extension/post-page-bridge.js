@@ -259,37 +259,84 @@
     })().finally(()=>{cardActive--;if(!comments)postCardActive--;entry.pending=false;if(!entry.size)nativeCardReads.delete(key);trimNativeReads(location.pathname+location.search);});
     nativeCardReads.set(key,entry);return consumeNative(entry,signal);
   }
+  // Cached evidence and rendered native cards already prove a status; they need no read.
+  function knownStatus(path,comments,fullname,username){
+    const cached=statusReads.get(path+'|'+fullname);if(cached?.expires>Date.now())return cached.status;
+    const native=[...document.querySelectorAll(comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`)].find(node=>!node.closest('[data-rt-ui]'));
+    return native?nativeStatus({querySelector:()=>native},comments,fullname,username):null;
+  }
+  // Legacy info is only a fast path. After any failure it is skipped for ten minutes; fragments remain the authority.
+  let infoBlockedUntil=0;
+  // One physical read covers every ID the cache and DOM could not prove. Only exact, authored
+  // public evidence resolves here; omitted, foreign-authored or ambiguous IDs stay for fragments.
+  async function infoStatuses(ids,comments,path,username,controller,signal){
+    if(!ids.length || Date.now()<infoBlockedUntil)return [];
+    const url=new URL('/api/info.json',location.origin);url.searchParams.set('id',ids.join(','));url.searchParams.set('raw_json','1');
+    // Its own short deadline leaves the batch time to fall back to fragments.
+    let children;const local=new AbortController(),link=()=>local.abort(),infoTimer=setTimeout(link,4000);controller.signal.addEventListener('abort',link,{once:true});if(controller.signal.aborted)link();
+    try{
+      const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'application/json'},signal:local.signal});
+      if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return [];}
+      if(!response.ok)throw Error(`Reddit info could not be loaded (HTTP ${response.status}).`);
+      const data=JSON.parse(await boundedText(response));
+      if(!Array.isArray(data?.data?.children) || data.data.children.length>100)throw Error('Reddit returned an unexpected info response.');
+      children=data.data.children;
+    }catch{
+      // Caller cancellation and route changes reject as before. Anything else, including our own deadline, disables only the fast path.
+      if(signal?.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+      infoBlockedUntil=Date.now()+600000;return [];
+    }finally{clearTimeout(infoTimer);controller.signal.removeEventListener('abort',link);}
+    if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+    const resolved=new Map();
+    for(const child of children){
+      if(child?.kind!==(comments?'t1':'t3'))continue;
+      const item=(comments?M.normalizeComment:M.normalizePost)(child.data,{source:'reddit'});
+      if(!item || !ids.includes(item.fullname) || resolved.has(item.fullname))continue;
+      // Authorship must match this profile. A deleted account proves only its own tombstones, never that its content is available.
+      const own=item.author.toLowerCase()===username.toLowerCase(),tombstone=item.author==='[deleted]' && item.status!=='available';
+      if((own || tombstone) && ['available','deleted','removed'].includes(item.status))resolved.set(item.fullname,{fullname:item.fullname,status:item.status,author:item.author,over18:item.over18,spoiler:item.spoiler});
+    }
+    return [...resolved.values()];
+  }
   async function readStatuses(input,signal){
     const context=route(),path=location.pathname+location.search,comments=input.kind==='comment';
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Open the matching public profile.');
     if(!['post','comment'].includes(input.kind) || !Array.isArray(input.ids) || !input.ids.length || input.ids.length>25 || !input.ids.every(id=>comments?M.validateCommentId(id):M.validateId(id)))throw Error('Invalid public status IDs.');
-    const requestedIds=[...new Set(input.ids.map(id=>(comments?'t1_':'t3_')+id.toLowerCase().replace(/^t[13]_/,'')))],ids=requestedIds.slice(),statuses=[];
+    const requestedIds=[...new Set(input.ids.map(id=>(comments?'t1_':'t3_')+id.toLowerCase().replace(/^t[13]_/,'')))],statuses=[];
     const now=Date.now();if(now<cooldown)throw Error('Reddit asked us to wait. Try again shortly.');
     if(active>=2)return {deferred:true,retryAfterMs:250};
     const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();active++;
-    let timer,timedOut=false;
+    let timer,timedOut=false,fragmentReads=false;
+    const remember=status=>{rememberStatus(path,status.fullname,status);statuses.push(status);};
     try{
       // One bounded, demand-driven batch. No background retry/sync loop, and no
-      // authenticated HTML leaves the page world. Share the card request budget.
-      const operation=Promise.all(Array.from({length:Math.min(2,ids.length)},async()=>{
-        while(ids.length){
-          const fullname=ids.shift();
-          if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
-          let status=statusReads.get(path+'|'+fullname);status=status?.expires>Date.now()?status.status:null;
-          if(!status){const native=[...document.querySelectorAll(comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`)].find(node=>!node.closest('[data-rt-ui]'));if(native)status=nativeStatus({querySelector:()=>native},comments,fullname,input.username);}
-          if(!status){
-            try{const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(!fragment.deferred)status=nativeStatus(new DOMParser().parseFromString(fragment.text,'text/html'),comments,fullname,input.username);}
-            catch{ /* A failed or missing fragment establishes no current status. */ }
+      // authenticated HTML leaves the page world. Known evidence costs no read; the
+      // rest share one info read, and only IDs it cannot prove reach the card budget.
+      const operation=(async()=>{
+        let ids=[];for(const fullname of requestedIds){const status=knownStatus(path,comments,fullname,input.username);if(status)remember(status);else ids.push(fullname);}
+        const fast=await infoStatuses(ids,comments,path,input.username,controller,signal);
+        fast.forEach(remember);ids=ids.filter(fullname=>!fast.some(status=>status.fullname===fullname));
+        await Promise.all(Array.from({length:Math.min(2,ids.length)},async()=>{
+          while(ids.length){
+            const fullname=ids.shift();
+            if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+            let status=knownStatus(path,comments,fullname,input.username);
+            if(!status){
+              fragmentReads=true;
+              try{const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(!fragment.deferred)status=nativeStatus(new DOMParser().parseFromString(fragment.text,'text/html'),comments,fullname,input.username);}
+              catch{ /* A failed or missing fragment establishes no current status. */ }
+            }
+            if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+            if(status)remember(status);
           }
-          if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
-          if(status){rememberStatus(path,fullname,status);statuses.push(status);}
-        }
-      }));
+        }));
+      })();
       try{await Promise.race([operation,new Promise(resolve=>{timer=setTimeout(()=>{timedOut=true;controller.abort();resolve();},10000);})]);}
       catch(error){if(!timedOut)throw error;}
       if(signal?.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
       const verified=new Set(statuses.map(status=>status.fullname)),unknownIds=requestedIds.filter(id=>!verified.has(id));
-      return {statuses,unknownIds,incomplete:unknownIds.length>0,...(timedOut?{timedOut:true}:{}),source:'reddit'};
+      // "info" means no native fragment was needed for any ID, so the caller may use a larger batch.
+      return {statuses,unknownIds,incomplete:unknownIds.length>0,...(timedOut?{timedOut:true}:{}),via:fragmentReads || unknownIds.length?'native':'info',source:'reddit'};
     }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
   async function renderCard(input,signal){
