@@ -1,0 +1,12 @@
+// Dev-only client for relay.mjs.
+// node scripts/live/cdp.mjs targets | attach <urlPart> | eval <session> <js|@file> | shot <session> <out.png> [selector] | nav <session> <url> | events <session> | raw <Method> '<json>' [session]
+import fs from 'node:fs';
+const call=async(method,params={},sessionId)=>{const r=await (await fetch('http://127.0.0.1:9333/',{method:'POST',body:JSON.stringify({method,params,sessionId})})).json();if(r.error)throw Error(JSON.stringify(r.error));return r.result;};
+const [cmd,a,b,c]=process.argv.slice(2);
+if(cmd==='targets'){for(const x of (await call('Target.getTargets')).targetInfos)console.log(x.type,x.targetId,x.url.slice(0,120));}
+else if(cmd==='attach'){const t=(await call('Target.getTargets')).targetInfos.find(x=>x.type==='page' && x.url.includes(a));if(!t)throw Error('no page matching '+a);const {sessionId}=await call('Target.attachToTarget',{targetId:t.targetId,flatten:true});await call('Runtime.enable',{},sessionId);await call('Page.enable',{},sessionId);console.log(sessionId,t.targetId,t.url);}
+else if(cmd==='eval'){const expression=b.startsWith('@')?fs.readFileSync(b.slice(1),'utf8'):b;const r=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true,userGesture:true,replMode:true},a);console.log(JSON.stringify(r.exceptionDetails?{exception:r.exceptionDetails.exception?.description || r.exceptionDetails.text}:r.result.value,null,1));}
+else if(cmd==='shot'){let clip;if(c){const r=await call('Runtime.evaluate',{expression:`(()=>{const e=document.querySelector(${JSON.stringify(c)});if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height,scale:1}})()`,returnByValue:true},a);clip=r.result.value || undefined;}const r=await call('Page.captureScreenshot',{format:'png',...(clip?{clip,captureBeyondViewport:true}:{})},a);fs.writeFileSync(b,Buffer.from(r.data,'base64'));console.log('saved',b);}
+else if(cmd==='nav'){await call('Page.navigate',{url:b},a);console.log('navigated');}
+else if(cmd==='events'){for(const e of await (await fetch('http://127.0.0.1:9333/events?session='+a)).json())console.log(e.method,JSON.stringify(e.params).slice(0,300));}
+else if(cmd==='raw'){console.log(JSON.stringify(await call(a,JSON.parse(b || '{}'),c),null,1));}
