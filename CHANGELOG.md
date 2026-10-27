@@ -1,3 +1,13 @@
+# 0.19.1 preview
+
+- Name the search that failed in Reddit request errors. The previous "Reddit could not load public posts (HTTP n)" also appeared for comment searches.
+- Treat an HTTP 403 from the cookie-free comment search as a pause, not a failure. That supplement is skipped for about ten minutes behind a muted note ("Some comments may be missing · Reddit is blocking logged-out search"), and its tooltip explains the cause. Signed-in search, the native feed and the archive continue, and coverage stays incomplete. Other failures remain explicit and retryable.
+- Show errors and notes as Reddit's secondary text with a small icon (only the error icon is red) instead of plain red text.
+
+Version choice: PATCH to 0.19.1 for a user-visible reliability and presentation correction. No permissions or persistent storage/schema changes.
+
+Validation: all 747 tests pass, including new checks that a 403 from the logged-out stream becomes a note and pauses for the session, and that other logged-out failures remain errors. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. No live browser verification was performed.
+
 # 0.19.0 preview
 
 - Merge Arctic Shift records into profile New views automatically whenever the archive preference is on, alongside Reddit search; Deleted uses the archive in every sort. The separate archive button is gone. **Refresh activity** moves into Reddit's **Feed options** menu, and the toolbar above the feed collapses unless an error or paused-loading Retry needs to show.
