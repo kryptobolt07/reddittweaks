@@ -1170,3 +1170,15 @@ test('a removed post page restores title and text inside Reddit’s post element
  const other=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/x/',settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},archive:async()=>({posts:[raw('abc12',{author:'Someone',title:'Not theirs'})]}),reddit:async()=>({posts:[]})});
  await other.d.ready;const n2=other.W.document.querySelector('shreddit-post');n2.id='t3_abc12';n2.setAttribute('author','Example');n2.innerHTML='<h1 slot="title">[ Removed by moderator ]</h1><div slot="post-removed-banner">Removed.</div>';await other.d.loadDetail();assert.equal(n2.querySelector('[slot="title"]').textContent,'[ Removed by moderator ]','a snapshot from another author is never shown in place');
 });
+
+test('cards hidden by a filter do not count as the first batch, so Deleted keeps filling',async t=>{
+ const ids=Array.from({length:30},(_,i)=>'p'+i);let archiveCalls=0;
+ const {d}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>input.action==='status'?{statuses:input.ids.map(id=>({fullname:'t3_'+id,status:id==='old1'?'deleted':'available'})),unknownIds:[],via:'info'}:{posts:ids.map((id,i)=>raw(id,{created_utc:1700000300-i})),hasMore:false},archive:async input=>{archiveCalls++;return {posts:[raw('old1',{created_utc:1600000000,selftext:'Archived words'})],hasMore:false};}});
+ await d.ready;await d.loadReddit();for(let i=0;i<6;i++)await new Promise(r=>setImmediate(r));assert.ok(d.publishedCards.size>=25,'All activity published a full batch');
+ d.activityMenu.querySelector('[data-rt-activity-filter="deleted"]').click();for(let i=0;i<10;i++)await new Promise(r=>setImmediate(r));
+ assert.equal(d.shownPublished()<=1,true);assert.equal(d.nodes.get('old1').hidden,false,'the verified deleted item is published even though hidden All cards exceed a batch');
+});
+test('a measurable loader on screen counts as visible even if the observer missed it',async t=>{
+ const {W,d}=setup(t);await d.ready;d.batchInView=false;d.loading.hidden=false;d.loading.getBoundingClientRect=()=>({top:300,bottom:420,height:120});assert.equal(d.profileTailVisible(),true);
+ d.loading.getBoundingClientRect=()=>({top:W.innerHeight*4,bottom:W.innerHeight*4+120,height:120});assert.equal(d.profileTailVisible(),false);
+});

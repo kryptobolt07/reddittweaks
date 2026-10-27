@@ -399,7 +399,7 @@
     if(input.kind!=null && !['post','comment'].includes(input.kind))throw Error('Invalid content type.');
     const stream=input.stream ?? 'authenticated';
     if(input.stream!=null && (input.action!=='profile' || !comments || !['authenticated','public'].includes(stream)))throw Error('Invalid comment discovery stream.');
-    const url=new URL('/api/info.json',location.origin);let nativeSearch=false,postPage=null,commentCursor=null;
+    const url=new URL('/api/info.json',location.origin);let nativeSearch=false,postPage=null,commentCursor=null,anonymous=false;
     if(input.action==='profile'){
       if(!context.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Profile changed. Try again.');
       if(comments)commentCursor=readCommentCursor(input.after,stream,input.username,sort,range);
@@ -408,7 +408,9 @@
       // comparisons. Keep the existing authenticated JSON path for that case;
       // the page cursor pins its transport until Refresh starts a new scope.
       const blocked=!comments && Boolean(document.querySelector('#right-sidebar-container faceplate-tracker[source="profile"][noun="unblock_user"]'));
-      nativeSearch=comments || (postPage?.transport || (blocked?'json':'shreddit'))==='shreddit';
+      // Blocked profiles: signed-in search omits their posts and the legacy JSON
+      // route now answers 403, so search them without credentials instead.
+      nativeSearch=comments || (postPage?.transport || 'shreddit')==='shreddit';anonymous=comments?stream==='public':blocked && nativeSearch;
       url.pathname=nativeSearch?'/svc/shreddit/search/':'/search.json';url.searchParams.set('q',`author:"${input.username}"`);url.searchParams.set('type',comments?'comments':nativeSearch?'posts':'link');url.searchParams.set('sort',sort);if(sort==='top')url.searchParams.set('t',range);url.searchParams.set('limit','25');
       if(input.after)url.searchParams.set(nativeSearch?'cursor':'after',comments?commentCursor:postPage.cursor);
     }else if(input.action==='info'){
@@ -426,7 +428,7 @@
     let timer;
     try{
       const operation=(async()=>{
-        const response=await fetch(url.href,{method:'GET',credentials:comments && nativeSearch && stream==='public'?'omit':'include',...(comments && nativeSearch?{cache:'no-store',referrerPolicy:'no-referrer'}:{}),redirect:'error',headers:{Accept:nativeSearch?'text/vnd.reddit.partial+html, text/html;q=0.9':'application/json'},signal:controller.signal});
+        const response=await fetch(url.href,{method:'GET',credentials:input.action==='profile' && anonymous?'omit':'include',...(input.action==='profile' && nativeSearch && (comments || anonymous)?{cache:'no-store',referrerPolicy:'no-referrer'}:{}),redirect:'error',headers:{Accept:nativeSearch?'text/vnd.reddit.partial+html, text/html;q=0.9':'application/json'},signal:controller.signal});
         if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));throw Error('Reddit rate limit reached. Try again later.');}
         if(!response.ok){
           // Name the source so the page can explain it; 403 means Reddit refused this request.

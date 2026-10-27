@@ -45,10 +45,11 @@ test('a native page is not truncated at the old JSON page size',async t=>{
  const html=Array.from({length:27},(_,i)=>nativePostHtml({id:'post'+i,next:''})).join(''),e=setup(t,{fetcher:async()=>nativeResponse(html)});
  const result=await e.send({action:'profile',username:'Example'});assert.equal(result.ok,true);assert.equal(result.posts.length,27);
 });
-test('explicitly blocked profiles keep authenticated JSON coverage and transport across pagination',async t=>{
- const e=setup(t);e.W.document.body.innerHTML='<aside id="right-sidebar-container"><faceplate-tracker source="profile" noun="unblock_user"><button>Blocked</button></faceplate-tracker></aside>';
- const result=await e.send({action:'profile',username:'Example'});assert.equal(result.ok,true);assert.equal(new URL(e.calls[0][0]).pathname,'/search.json');assert.equal(e.calls[0][1].credentials,'include');e.W.document.body.replaceChildren();
- await e.send({action:'profile',username:'Example',after:result.after});assert.equal(new URL(e.calls[1][0]).pathname,'/search.json');assert.equal(new URL(e.calls[1][0]).searchParams.get('after'),'t3_abc12');
+test('explicitly blocked profiles use credential-free native search because signed-in search omits them and legacy JSON is refused',async t=>{
+ const empty='<search-telemetry-tracker view-events="search/view/no_results" data-faceplate-tracking-context=\'{"action_info":{"reason":"empty"}}\'></search-telemetry-tracker>';
+ const e=setup(t,{fetcher:async()=>nativeResponse(empty)});e.W.document.body.innerHTML='<aside id="right-sidebar-container"><faceplate-tracker source="profile" noun="unblock_user"><button>Blocked</button></faceplate-tracker></aside>';
+ const result=await e.send({action:'profile',username:'Example'});assert.equal(result.ok,true);const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/svc/shreddit/search/');assert.equal(new URL(url).searchParams.get('type'),'posts');assert.equal(options.credentials,'omit');assert.equal(options.referrerPolicy,'no-referrer');assert.equal(options.cache,'no-store');
+ e.W.document.body.replaceChildren();await e.send({action:'profile',username:'Example'});assert.equal(e.calls[1][1].credentials,'include','unblocked profiles keep signed-in search');
 });
 test('native post search distinguishes genuine empty results from changed or unsafe HTML',async t=>{
  for(const html of [nativePostHtml({author:'Other'}),nativePostHtml().replace('/r/example/comments/abc12/public/','https://evil.test/comments/abc12/'),'<h1>Sign in</h1>',nativePostHtml().replace('number="42"','number="bad"')]){
