@@ -556,8 +556,13 @@ test('unknown archive snapshots are not misclassified as hidden or deleted',asyn
  const {W,d}=setup(t);await d.ready;const p=W.RTPostModel.normalizePost(raw('unknown'),{source:'arctic-shift'}),node=d.card(p);d.activityFilter='hidden';assert.equal(d.matchesActivity(p,node),false);d.activityFilter='deleted';assert.equal(d.matchesActivity(p,node),false);node.innerHTML='<shreddit-post deleted><span slot="credit-bar"></span></shreddit-post>';assert.equal(d.matchesActivity(p,node),true);
 });
 
-test('activity indicators reuse monochrome status paths and the chat refresh glyph',async t=>{
- const {d}=setup(t);await d.ready;const refresh=d.discover.querySelector('svg');assert.equal(refresh.getAttribute('viewBox'),'0 0 24 24');assert.equal(refresh.querySelector('path').getAttribute('d'),'M20 8a8.9443 8.9443 0 1 0 0 8M20 3v5h-5');
+test('extension icons are Reddit’s own 20px icons and the Activity menu adds one row',async t=>{
+ const {W,d}=setup(t);await d.ready;
+ for(const kind of ['refresh','archive','removed','activity','hidden','deleted']){const svg=d.discover.ownerDocument.defaultView.RTPostDiscovery.glyph(kind);assert.equal(svg.getAttribute('viewBox'),'0 0 20 20',kind);assert.equal(svg.dataset.nativeIcon,'true',kind);}
+ assert.equal(d.discover.querySelector('svg').dataset.nativeIcon,'true','Refresh uses Reddit’s rotate icon');
+ const main=d.activityMain,ours=[...main.children].filter(n=>n.dataset.rtUi);assert.equal(ours.length,1,'one Activity row in the main menu');assert.equal(ours[0].querySelector('[data-rt-activity-value]').textContent,'All');
+ assert.ok(d.activityMenu.querySelector('[data-rt-ui="activity-refresh"]'),'Refresh is inside the Activity submenu');
+ d.activityMenu.querySelector('[data-rt-activity-filter="deleted"]').click();assert.equal(ours[0].querySelector('[data-rt-activity-value]').textContent,'Deleted');
  for(const [filter,status] of [['hidden','live'],['deleted','deleted']]){const badge=d.indicator({source:'reddit',status}),option=d.activityMenu.querySelector('[data-rt-activity-filter='+filter+']');assert.equal(badge.querySelector('svg').getAttribute('viewBox'),'0 0 20 20');assert.equal(badge.querySelector('path').getAttribute('d'),option.querySelector('path').getAttribute('d'));assert.equal(badge.querySelector('svg').dataset.nativeIcon,'true');}
 });
 test('profile notice callbacks tolerate a discarded document',async()=>{
