@@ -63,6 +63,7 @@ shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]{min
 
 /* Publish a combined date prefix; retain native objects behind the shared halo. */
 [data-rt-order-pending]{display:none!important}
+[data-rt-rule-collapsed]{display:none!important}
 shreddit-feed[data-rt-merge-waiting] shreddit-feed-load-more-observer:not([data-rt-ui] *),
 shreddit-feed[data-rt-merge-waiting] faceplate-partial[slot="load-after"]:not(:has(shreddit-post,shreddit-profile-comment)):not([data-rt-ui] *),
 shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui] *){display:none!important}
