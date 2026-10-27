@@ -4,12 +4,15 @@ const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
 const nativeControls=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8');
 const raw=(id='abc12',extra={})=>({id,author:'Example',title:'A public post',selftext:'Public text',subreddit:'example',created_utc:1700000000,score:7,num_comments:2,...extra});
-function setup(t,{url='https://www.reddit.com/user/Example/submitted/',settings={postDiscovery:true,archiveDiscovery:false},reddit,publicReddit,archive,readSettings,nativeRender}={}){
+function setup(t,{url='https://www.reddit.com/user/Example/submitted/',settings={postDiscovery:true,archiveDiscovery:false},reddit,publicReddit,archive,readSettings,nativeRender,timing}={}){
   const dom=new JSDOM('<main id="main-content">'+nativeControls+'<shreddit-feed><shreddit-post id="t3_native"></shreddit-post></shreddit-feed></main>',{url,runScripts:'outside-only',pretendToBeVisual:true});const W=dom.window,calls=[];
   for(const file of ['post-model.js','post-discovery.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
   const nativeRenderer=nativeRender || (async(post,node)=>{const native=W.document.createElement(post.kind==='comment'?'shreddit-profile-comment':'shreddit-post');if(post.kind==='comment')native.setAttribute('comment-id',post.fullname);else native.id=post.fullname;const credit=W.document.createElement('span');credit.slot='credit-bar';const title=W.document.createElement('a');title.textContent=post.title || 'Comment';title.href=post.permalink;native.append(credit,title);if(!post.over18 && !post.spoiler){const body=W.document.createElement('p');if(post.kind==='comment')body.className='md';else body.slot='text-body';body.textContent=post.source==='arctic-shift'?'Current native text':post.body;native.append(body);}node.replaceChildren(native);});
-  const d=new W.RTPostDiscovery.Discovery({nativeRenderer,observe:false,readSettings:readSettings || (async()=>({'rt-settings-v1':settings})),reddit:async(...args)=>{calls.push(args[0]);if(args[0].action==='render-controls'){const target=W.document.getElementById(args[0].target);target.innerHTML=nativeControls;return {rendered:true};}if(args[0].stream==='public')return publicReddit?publicReddit(...args):{posts:[],after:null,hasMore:false};return reddit?reddit(...args):{posts:[raw('native'),raw()],after:null,hasMore:false};},archive:archive || (async()=>({posts:[raw('old12')],hasMore:false}))});t.after(()=>{d.destroy();dom.window.close();});return {W,d,calls};
+  const d=new W.RTPostDiscovery.Discovery({nativeRenderer,timing,observe:false,readSettings:readSettings || (async()=>({'rt-settings-v1':settings})),reddit:async(...args)=>{calls.push(args[0]);if(args[0].action==='render-controls'){const target=W.document.getElementById(args[0].target);target.innerHTML=nativeControls;return {rendered:true};}if(args[0].stream==='public')return publicReddit?publicReddit(...args):{posts:[],after:null,hasMore:false};return reddit?reddit(...args):{posts:[raw('native'),raw()],after:null,hasMore:false};},archive:archive || (async()=>({posts:[raw('old12')],hasMore:false}))});t.after(()=>{d.destroy();dom.window.close();});return {W,d,calls};
 }
+// The fixture's native card exists at mount. Gate tests treat it as a later
+// native page; cards Reddit has already painted are never gated.
+const arrivedLater=d=>{d.initialNative=new WeakSet();};
 test('profile discovery is explicit, deduplicates native posts and stays inline',async t=>{
   const {W,d,calls}=setup(t);await d.ready;assert.equal(calls.length,0);assert.equal(d.host.nextElementSibling,d.feed);
   await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(calls.length,1);assert.equal((d.feed || d.results).querySelectorAll('.rt-native-card:not([hidden])').length,1);assert.match(d.status.textContent,/1 additional post/);assert.ok(d.nodes.get('abc12').querySelector('shreddit-post'));assert.match((d.feed || d.results).querySelector('[role=img]').title,/public Reddit search/);
@@ -857,7 +860,7 @@ test('mixed native comment pages wait for the covered and hydrated combined pref
  let finishSearch,finishCard;const base=1700000000,c=(id,offset)=>({...comment(),id,fullname:'t1_'+id,created_utc:base+offset});
  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[],hasMore:false}),publicReddit:()=>new Promise(r=>finishSearch=r),nativeRender:async(post,node)=>{await new Promise(r=>finishCard=r);node.innerHTML='<shreddit-profile-comment comment-id="'+post.fullname+'"><div><span class="text-12 relative"></span></div></shreddit-profile-comment>';}});await d.ready;
  const native=d.feed.firstElementChild;native.setAttribute('created-timestamp',new Date((base+300)*1000).toISOString());
- const load=d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(native.hasAttribute('data-rt-order-pending'),true,'initial native dates wait for the public stream');
+ const load=d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(native.hasAttribute('data-rt-order-pending'),false,'cards Reddit already painted are never pulled back behind the gate');
  finishSearch({posts:[c('hidden',200)],after:'public-next',hasMore:true});await load;await new Promise(r=>setImmediate(r));assert.equal(native.hasAttribute('data-rt-order-pending'),false);
  const next=W.document.createElement('shreddit-profile-comment');next.setAttribute('comment-id','t1_nativeolder');next.setAttribute('created-timestamp',new Date((base+100)*1000).toISOString());d.feed.insertBefore(next,d.loading);await new Promise(r=>setImmediate(r));
  assert.equal(next.hasAttribute('data-rt-order-pending'),true,'a new native page is gated in its mutation microtask');assert.equal(d.feed.hasAttribute('data-rt-merge-waiting'),true);assert.equal(d.loading.hidden,false);
@@ -869,7 +872,7 @@ test('mixed native comment pages wait for the covered and hydrated combined pref
 test('the combined prefix continues searching while native cards and their next pager wait',async t=>{
  let intersect,finish,finishCard;const requests=[],base=1700000000;
  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[],hasMore:false}),publicReddit:input=>{requests.push(input);return input.after?new Promise(r=>finish=r):Promise.resolve({posts:Array.from({length:25},(_,i)=>({...comment(),id:'hidden'+i,fullname:'t1_hidden'+i,created_utc:base+100-i})),after:'public-next',hasMore:true});},nativeRender:async(post,node)=>{if(post.id==='nexthidden')await new Promise(r=>finishCard=r);node.innerHTML='<shreddit-profile-comment comment-id="'+post.fullname+'"><div><span class="text-12 relative"></span></div></shreddit-profile-comment>';}});await d.ready;d.reset();W.IntersectionObserver=class{constructor(callback){intersect=callback;}observe(){}disconnect(){}};d.scan();
- const native=d.feed.firstElementChild;native.setAttribute('created-timestamp',new Date((base-100)*1000).toISOString());const pager=W.document.createElement('faceplate-partial');pager.slot='load-after';pager.setAttribute('loading','programmatic');pager.setAttribute('src','/svc/shreddit/profiles/profile_comments-more-posts/new/?after=native-next');pager.innerHTML='<shreddit-feed-page-loading></shreddit-feed-page-loading>';d.feed.append(pager);
+ const native=d.feed.firstElementChild;arrivedLater(d);native.setAttribute('created-timestamp',new Date((base-100)*1000).toISOString());const pager=W.document.createElement('faceplate-partial');pager.slot='load-after';pager.setAttribute('loading','programmatic');pager.setAttribute('src','/svc/shreddit/profiles/profile_comments-more-posts/new/?after=native-next');pager.innerHTML='<shreddit-feed-page-loading></shreddit-feed-page-loading>';d.feed.append(pager);
  const style=W.document.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(style);d.loading.getBoundingClientRect=()=>({top:10000,bottom:10192});await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(d.publishedCards.size,25);assert.equal(requests.length,1);assert.equal(native.hasAttribute('data-rt-order-pending'),true);assert.equal(d.nativeFeedLoading(),false,'only the combined tail owns the halo while native pagination waits');assert.equal(W.getComputedStyle(native).display,'none');assert.equal(W.getComputedStyle(pager).display,'none');assert.notEqual(W.getComputedStyle(d.loading.querySelector('.rt-native-loading')).display,'none','the shared native halo remains visible');
  d.loading.getBoundingClientRect=()=>({top:W.innerHeight*2,bottom:W.innerHeight*2+192});intersect([{target:d.loading,isIntersecting:true}]);await new Promise(r=>setImmediate(r));assert.equal(requests.length,2);assert.equal(requests[1].after,'public-next');
  d.loading.getBoundingClientRect=()=>({top:10000,bottom:10192});intersect([{target:d.loading,isIntersecting:false}]);finish({posts:[{...comment(),id:'nexthidden',fullname:'t1_nexthidden',created_utc:base+50}],hasMore:false});await new Promise(r=>setImmediate(r));await new Promise(r=>setImmediate(r));assert.equal(native.hasAttribute('data-rt-order-pending'),true,'waiting hydration must not reveal the older native page');
@@ -877,7 +880,7 @@ test('the combined prefix continues searching while native cards and their next 
 });
 
 test('native merge gates survive virtualization and are removed by filtering or opt-out',async t=>{
- const {W,d}=setup(t,{reddit:async()=>({posts:[raw('hidden',{created_utc:1700000300})],after:'next',hasMore:true})});await d.ready;const native=d.feed.firstElementChild;native.setAttribute('created-timestamp',new Date(1700000200*1000).toISOString());await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(native.hasAttribute('data-rt-order-pending'),true);
+ const {W,d}=setup(t,{reddit:async()=>({posts:[raw('hidden',{created_utc:1700000300})],after:'next',hasMore:true})});await d.ready;const native=d.feed.firstElementChild;arrivedLater(d);native.setAttribute('created-timestamp',new Date(1700000200*1000).toISOString());await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(native.hasAttribute('data-rt-order-pending'),true);
  const slot=W.document.createElement('div');slot.className='virtualized-placeholder';d.feed.replaceChild(slot,native);await new Promise(r=>setImmediate(r));assert.equal(slot.hasAttribute('data-rt-order-pending'),true);assert.equal(d.virtualNodes.get(slot),native);
  d.feed.replaceChild(native,slot);await new Promise(r=>setImmediate(r));assert.equal(slot.hasAttribute('data-rt-order-pending'),false);assert.equal(d.mergePendingNodes.has(slot),false);assert.equal(native.hasAttribute('data-rt-order-pending'),true);
  d.activityFilter='hidden';d.deduplicate();assert.equal(native.hasAttribute('data-rt-order-pending'),false);assert.equal(native.hidden,true);d.activityFilter='all';d.deduplicate();assert.equal(native.hasAttribute('data-rt-order-pending'),true);
@@ -892,7 +895,7 @@ test('native pager detection ignores continuation markers embedded inside cards'
 });
 
 test('failed automatic discovery releases retained native cards with a retryable status',async t=>{
- const {d}=setup(t,{reddit:async()=>{throw Error('Reddit returned an unrecognized profile response.');}});await d.ready;const native=d.feed.firstElementChild;native.setAttribute('created-timestamp',new Date(1700000000*1000).toISOString());d.autoDiscover=true;d.deduplicate();assert.equal(native.hasAttribute('data-rt-order-pending'),true);
+ const {d}=setup(t,{reddit:async()=>{throw Error('Reddit returned an unrecognized profile response.');}});await d.ready;const native=d.feed.firstElementChild;arrivedLater(d);native.setAttribute('created-timestamp',new Date(1700000000*1000).toISOString());d.autoDiscover=true;d.deduplicate();assert.equal(native.hasAttribute('data-rt-order-pending'),true);
  await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(native.hasAttribute('data-rt-order-pending'),false);assert.equal(d.feed.hasAttribute('data-rt-merge-waiting'),false);assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/unrecognized/);assert.equal(d.discover.disabled,false);
 });
 
@@ -945,7 +948,7 @@ test('native separators remain visible around controls, feed and loader',async t
 });
 
 test('native standalone rules follow hidden feed runs through filtering, virtualization and opt-out',async t=>{
- const {W,d}=setup(t);await d.ready;const css=W.document.createElement('style');css.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(css);
+ const {W,d}=setup(t);await d.ready;arrivedLater(d);const css=W.document.createElement('style');css.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(css);
  const feed=d.feed,first=feed.querySelector('shreddit-post'),makeRule=()=>{const rule=W.document.createElement('hr');rule.className='border-0 border-b-sm border-solid border-b-neutral-border-weak';return rule;},makeCard=id=>{const node=W.document.createElement('shreddit-post');node.id='t3_'+id;node.setAttribute('created-timestamp',new Date(1700000000*1000).toISOString());return node;};
  first.setAttribute('created-timestamp',new Date(1700000000*1000).toISOString());const second=makeCard('second'),third=makeCard('third'),a=makeRule(),b=makeRule(),c=makeRule(),unrelated=W.document.createElement('hr');
  feed.insertBefore(a,first);feed.insertBefore(second,d.loading);feed.insertBefore(b,second);feed.insertBefore(c,d.loading);feed.insertBefore(third,d.loading);feed.insertBefore(unrelated,d.loading);
@@ -979,7 +982,7 @@ test('nested native batches collapse repeated pager rules without crossing card 
 });
 
 test('opt-out restores a native rule while its virtualization placeholder is still mounted',async t=>{
- const {W,d}=setup(t);await d.ready;const feed=d.feed,card=feed.querySelector('shreddit-post'),rule=W.document.createElement('hr');card.setAttribute('created-timestamp',new Date(1700000000*1000).toISOString());rule.className='border-0 border-b-sm border-solid border-b-neutral-border-weak';feed.insertBefore(rule,d.loading);d.autoDiscover=true;d.deduplicate();assert.equal(rule.hasAttribute('data-rt-rule-collapsed'),true);
+ const {W,d}=setup(t);await d.ready;arrivedLater(d);const feed=d.feed,card=feed.querySelector('shreddit-post'),rule=W.document.createElement('hr');card.setAttribute('created-timestamp',new Date(1700000000*1000).toISOString());rule.className='border-0 border-b-sm border-solid border-b-neutral-border-weak';feed.insertBefore(rule,d.loading);d.autoDiscover=true;d.deduplicate();assert.equal(rule.hasAttribute('data-rt-rule-collapsed'),true);
  const slot=W.document.createElement('div');slot.className='virtualized-placeholder';rule.replaceWith(slot);await new Promise(r=>setImmediate(r));assert.equal(d.virtualNodes.get(slot),rule);assert.equal(slot.hasAttribute('data-rt-rule-collapsed'),true);assert.equal(rule.hasAttribute('data-rt-rule-collapsed'),false);
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(slot.hasAttribute('data-rt-rule-collapsed'),false);assert.equal(rule.hasAttribute('data-rt-rule-collapsed'),false);slot.replaceWith(rule);assert.equal(rule.parentElement,feed);assert.equal(rule.className,'border-0 border-b-sm border-solid border-b-neutral-border-weak');
 });
@@ -988,4 +991,49 @@ test('scrolled viewport style transactions do not feed back into the loading obs
  const {W,d}=setup(t);await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const reader=d.nodes.get('abc12');Object.defineProperty(W,'scrollY',{value:500,writable:true});d.feed.getBoundingClientRect=()=>({height:1200});reader.getBoundingClientRect=()=>({top:80,bottom:280,height:200});
  let updates=0;const update=d.updateProfileLoading.bind(d);d.updateProfileLoading=()=>{if(++updates>5)d.nativeLoadingObserver.disconnect();return update();};d.render();updates=0;let timerRan=false;await new Promise(resolve=>W.setTimeout(()=>{timerRan=true;resolve();},0));assert.equal(timerRan,true);assert.equal(updates,0,'viewport min-height/overflow-anchor writes must not recursively schedule loader updates');
  const native=W.document.createElement('shreddit-feed-page-loading');native.attachShadow({mode:'open'}).innerHTML='<shreddit-loading></shreddit-loading>';d.feed.append(native);d.observeNativeLoading();await new Promise(r=>setImmediate(r));assert.ok(updates>0,'actual native loading changes remain observed');assert.ok(updates<=3,'native loading settles instead of restarting its own viewport transaction');
+});
+
+test('painted native cards stay visible while a later native page waits only for the bounded budget',async t=>{
+ let finish;const {W,d}=setup(t,{timing:{nativeWaitMs:30,sourceWaitMs:60000},reddit:()=>new Promise(r=>finish=r)});await d.ready;
+ const painted=d.feed.firstElementChild;painted.setAttribute('created-timestamp',new Date(1700000300*1000).toISOString());
+ d.autoDiscover=true;const load=d.loadReddit();d.deduplicate();
+ assert.equal(painted.hasAttribute('data-rt-order-pending'),false,'cards Reddit already painted are never hidden again');
+ const next=W.document.createElement('shreddit-post');next.id='t3_next';next.setAttribute('created-timestamp',new Date(1700000100*1000).toISOString());d.feed.insertBefore(next,d.loading);d.deduplicate();
+ assert.equal(next.hasAttribute('data-rt-order-pending'),true,'a later native page waits for discovery coverage');
+ await new Promise(r=>setTimeout(r,90));
+ assert.equal(next.hasAttribute('data-rt-order-pending'),false,'a silent source cannot hold the native page past its budget');assert.equal(d.feed.hasAttribute('data-rt-merge-waiting'),false);
+ finish({posts:[raw('late',{created_utc:1700000200})],hasMore:false});await load;await new Promise(r=>setImmediate(r));
+ assert.equal(d.nodes.get('late').hidden,false);assert.ok(d.nodes.get('late').compareDocumentPosition(next)&W.Node.DOCUMENT_POSITION_FOLLOWING,'a late discovery is still placed by date');assert.ok(painted.compareDocumentPosition(d.nodes.get('late'))&W.Node.DOCUMENT_POSITION_FOLLOWING);
+});
+
+test('an unanswered source stops holding back the other sources after its budget',async t=>{
+ const {d}=setup(t,{timing:{sourceWaitMs:30},settings:{postDiscovery:true,archiveDiscovery:true},reddit:async()=>({posts:[raw('found',{created_utc:1700000200})],hasMore:false}),archive:()=>new Promise(()=>{})});await d.ready;
+ d.loadArchive();await d.loadReddit();await new Promise(r=>setImmediate(r));
+ assert.equal(d.publishedCards.has('found'),false,'a fresh archive request still bounds the date order');
+ await new Promise(r=>setTimeout(r,90));await new Promise(r=>setImmediate(r));
+ assert.equal(d.publishedCards.has('found'),true);assert.equal(d.nodes.get('found').hidden,false);assert.equal(d.archiveBusy,true,'the archive request itself is not cancelled');
+});
+
+test('automatic discovery and Refresh start Reddit search and the archive together',async t=>{
+ const archiveCalls=[];const {d,calls}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},archive:async input=>{archiveCalls.push(input);return {posts:[raw('old12',{created_utc:1600000000})],hasMore:false};}});await d.ready;
+ d.reset();d.autoDiscover=true;d.scan();await new Promise(r=>setImmediate(r));await Promise.all([d.redditRun,d.archiveRun]);
+ assert.equal(calls.filter(c=>c.action==='profile').length,1);assert.equal(archiveCalls.length,1,'no archive button click is needed');assert.equal(d.archiveLoaded,true);
+ d.discover.click();await Promise.all([d.redditRun,d.archiveRun]);
+ assert.equal(calls.filter(c=>c.action==='profile').length,2);assert.equal(archiveCalls.length,2,'Refresh reloads both providers');assert.equal(archiveCalls[1].before,undefined);
+});
+
+test('archive discovery stays off without the opt-in setting',async t=>{
+ let archived=0;const {d}=setup(t,{archive:async()=>{archived++;return {posts:[],hasMore:false};}});await d.ready;
+ d.reset();d.autoDiscover=true;d.scan();await new Promise(r=>setImmediate(r));await d.redditRun;assert.equal(archived,0);
+});
+
+test('one provider in flight does not block the other provider’s continuation',async t=>{
+ let finishArchive;const archiveCalls=[];
+ const {d,calls}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>({posts:[raw(input.after?'second':'first',{created_utc:input.after?1700000100:1700000300})],after:input.after?null:'next',hasMore:!input.after}),archive:input=>{archiveCalls.push(input);return input.before?new Promise(r=>finishArchive=r):Promise.resolve({posts:[raw('archived',{created_utc:1700000300})],before:1700000300,hasMore:true});}});
+ await d.ready;await d.refreshActivity();await new Promise(r=>setImmediate(r));
+ const archiveMore=d.loadArchive({more:true});assert.equal(d.archiveBusy,true);
+ d.continueProfile(true);await d.redditRun;
+ assert.equal(calls.filter(c=>c.action==='profile' && c.after==='next').length,1,'Reddit search continues while the archive page is in flight');
+ assert.equal(d.loadArchive({more:true}),archiveMore,'a repeated archive request joins the in-flight page');
+ finishArchive({posts:[],hasMore:false});await archiveMore;assert.equal(archiveCalls.length,2);
 });

@@ -4,6 +4,11 @@
   const M=globalThis.RTPostModel;if(!M)return;
   const key='rt-settings-v1';
   const profileBatchSize=25;
+  // Bounded waits keep the combined feed in date order without letting a slow
+  // source stall it. Native continuation cards wait at most nativeWaitMs for
+  // discovery coverage; a discovery source that has not answered within
+  // sourceWaitMs stops holding back the other sources' publication.
+  const nativeWaitMs=1200,sourceWaitMs=2500;
   function pageRoute(path=location.pathname,search=location.search){
     const profile=path.match(/^\/user\/([\w-]{1,20})(?:\/(submitted|comments))?\/?$/i);
     if(profile){const view=profile[2]==='submitted'?'posts':profile[2]==='comments'?'comments':'overview',params=new URLSearchParams(search);
@@ -44,7 +49,8 @@
   function button(text,run,icon){const b=make('button','',text);b.type='button';if(icon)b.prepend(glyph(icon));b.addEventListener('click',run);return b;}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   class Discovery {
-    constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null}={}){
+    constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={}}={}){
+      this.nativeWaitMs=timing.nativeWaitMs ?? nativeWaitMs;this.sourceWaitMs=timing.sourceWaitMs ?? sourceWaitMs;
       this.navigationLease=crypto.randomUUID();this.profileStates=new Map();this.profileOwner=globalThis.RCSDirectory?.getOwner?.() || '';this.nativeRenderer=nativeRenderer;this.autoDiscover=autoDiscover;this.reddit=reddit;this.archive=archive;this.readSettings=readSettings;this.settings={postDiscovery:false,archiveDiscovery:false};this.settingsRevision=0;this.generation=0;this.controllers=new Set();this.nodes=new Map();this.host=null;
       this.settingsPending=true;this.syncProfileNotice();
       this.onRoute=()=>{this.rememberProfile();this.syncProfileNotice();this.schedule();};this.onNavigate=event=>{const a=event.target.closest?.('a[href]'),card=event.target.closest?.('shreddit-post');if(!this.feed?.contains(event.target) || event.target.closest?.('button,input'))return;try{const url=new URL(a?.href || card?.getAttribute('permalink'),location.href);if(url.origin===location.origin && pageRoute(url.pathname,'')?.kind==='post')this.rememberProfile();}catch{}};if(observe)document.addEventListener('click',this.onNavigate,true);this.onSettings=(changes,area)=>{if(area==='local' && changes[key]){this.profileStates.clear();this.settingsRevision++;this.settingsPending=false;this.settingsError=false;this.settings=M.normalizeSettings(changes[key].newValue);this.reset();this.scan();}};
@@ -67,7 +73,7 @@
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
-      }else node.remove();}this.virtualNodes=new Map();this.loading?.remove();this.loading=null;this.host?.remove();this.host=null;this.feed=null;this.context=null;this.live=new Map();this.commentOrigins=new Map();this.archived=new Map();this.nodes.clear();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.archiveBusy=false;this.initialPrefetchDone=false;this.sourcePending=new Set();this.sourceFrontiers=new Map();this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;}
+      }else node.remove();}this.virtualNodes=new Map();this.loading?.remove();this.loading=null;this.host?.remove();this.host=null;this.feed=null;this.context=null;this.live=new Map();this.commentOrigins=new Map();this.archived=new Map();this.nodes.clear();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.archiveBusy=false;this.initialPrefetchDone=false;this.sourcePending=new Set();this.sourceFrontiers=new Map();this.sourceStartedAt=new Map();this.nativeSeenAt=new WeakMap();this.initialNative=new WeakSet();clearTimeout(this.gateTimer);this.gateTimer=null;this.gateAt=Infinity;this.redditRun=null;this.archiveRun=null;this.verifyQueue=[];this.verifyActive=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;}
     rememberProfile(){
       if(this.context?.kind!=='profile' || !this.settings.postDiscovery || this.settingsError || !(this.loaded || this.archiveLoaded))return;
       const previous=this.profileStates.get(this.context.key),owner=globalThis.RCSDirectory?.getOwner?.() || '',signature=[this.generation,this.renderVersion || 0,this.pages,this.live.size,this.archived.size,this.activityFilter,JSON.stringify(this.sourceErrors || {}),this.publishedCards.size,[...this.nodes.values()].filter(node=>node.dataset.rtNativeState==='ready').length].join(':');
@@ -151,11 +157,15 @@
       if(!target)return;
       this.context=context;this.feed=context.kind==='profile'?target:null;
       this.batchedProfile=Boolean(this.feed);
+      // Cards Reddit has already painted are never pulled back behind the merge
+      // gate; hiding them would flash the feed. Later native pages still wait
+      // (briefly) for discovery coverage.
+      if(this.feed)for(const entry of this.nativeEntries())this.initialNative.add(entry.node);
       if(this.feed && !this.batchedProfile && typeof IntersectionObserver==='function')this.nativeObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){this.nativeObserver.unobserve(entry.target);this.queueNative(entry.target);}},{rootMargin:'400px'});this.live=new Map();this.archived=new Map();
       const host=this.host=make('section','rt-posts');host.dataset.rtUi='posts';host.setAttribute('aria-label',context.kind==='profile'?'Additional public activity':'Archived post snapshot');
       const toolbar=this.toolbar=make('div','rt-posts-toolbar');
       const noun=context.view==='comments'?'comments':context.view==='overview'?'activity':'posts';
-      this.discover=button(this.settingsError?'Retry discovery':context.kind==='profile'?'Discover '+noun:'Check archived post',()=>this.settingsError?this.retrySettings():this.archiveOnly?this.loadArchive():context.kind==='profile'?this.loadReddit():this.loadDetail(),'search');
+      this.discover=button(this.settingsError?'Retry discovery':context.kind==='profile'?'Discover '+noun:'Check archived post',()=>this.settingsError?this.retrySettings():this.archiveOnly?this.loadArchive():context.kind==='profile'?this.refreshActivity():this.loadDetail(),'search');
       this.discover.title=context.kind==='profile'?'Find public '+noun+' through Reddit search, including activity omitted from this profile feed':'Look for a separate archived snapshot without replacing the current post';
       if(context.kind==='post' && !this.settings.archiveDiscovery && !this.settingsError){this.discover.disabled=true;this.discover.title='Enable Arctic Shift archive discovery in Reddit Tweaks to check this post.';}
       this.discover.setAttribute('aria-label',this.discover.textContent);this.discover.textContent='';this.discover.append(glyph(context.kind==='profile'?'refresh':'archive'));
@@ -174,7 +184,7 @@
       if(restored)this.render({reuseCards:true});
       this.observeNativeLoading();this.observeFeedPresentation();this.ensureActivityMenu();
       if(this.settingsError)this.setStatus('Discovery settings could not be loaded. Select Retry discovery.',true);
-      else if(context.kind==='profile' && this.autoDiscover && !restored)queueMicrotask(()=>{if(this.host===host){if(this.archiveOnly){if(this.settings.archiveDiscovery)this.loadArchive();}else this.loadReddit();}});
+      else if(context.kind==='profile' && this.autoDiscover && !restored)queueMicrotask(()=>{if(this.host===host){if(this.archiveOnly){if(this.settings.archiveDiscovery)this.loadArchive();}else this.refreshActivity();}});
       this.maybeRestoreDetail();this.capturePresentedFeed();
     }
     mountArchiveProfile(context,notice,anchor=notice,state='deleted'){
@@ -345,14 +355,24 @@
       // insert newer comments above already published posts (or vice versa).
       // Empty cursor pages establish no date boundary. They remain pageable,
       // but must not pin a healthy stream behind an infinite publication floor.
+      // A request still unanswered after sourceWaitMs no longer holds the
+      // others back; its late results are placed by date when they arrive.
+      const now=Date.now(),waiting=key=>this.sourcePending.has(key) && !this.sourceOverdue(key,now);
       const applies=key=>this.activityFilter!=='deleted' || key.startsWith('archive-');
       let floor=-Infinity;
-      for(const key of this.sourcePending)if(applies(key) && !this.sourceFrontiers.has(key))return Infinity;
+      for(const key of this.sourcePending)if(applies(key) && !this.sourceFrontiers.has(key) && waiting(key))return Infinity;
       // Archive Top pages are chronological, not score-ordered. Only New
       // has a comparable continuation boundary across every provider.
-      if(this.context.sort!=='new')return [...this.sourcePending].some(applies)?Infinity:-Infinity;
-      for(const [key,state] of this.sourceFrontiers)if(applies(key) && state.more)floor=Math.max(floor,state.floor);
+      if(this.context.sort!=='new')return [...this.sourcePending].some(key=>applies(key) && waiting(key))?Infinity:-Infinity;
+      for(const [key,state] of this.sourceFrontiers)if(applies(key) && state.more && (!this.sourcePending.has(key) || waiting(key)))floor=Math.max(floor,state.floor);
       return floor;
+    }
+    sourceOverdue(key,now=Date.now()){const started=this.sourceStartedAt?.get(key);return started!=null && now-started>=this.sourceWaitMs;}
+    // One timer re-evaluates the merge gates when the earliest budget expires.
+    scheduleGate(delay){
+      const at=Date.now()+Math.max(0,delay);if(this.gateTimer && this.gateAt<=at)return;
+      clearTimeout(this.gateTimer);this.gateAt=at;const generation=this.generation;
+      this.gateTimer=setTimeout(()=>{this.gateTimer=null;this.gateAt=Infinity;if(generation!==this.generation || !this.host?.isConnected || pageRoute()?.key!==this.context?.key)return;this.render({reuseCards:true});},Math.max(0,delay)+16);
     }
     canPublishProfilePost(post){return (this.context.sort==='top'?post.score:post.created)>=this.publicationFloor();}
     nativeContinuation(){
@@ -365,8 +385,13 @@
       let boundary=enabled?this.publicationFloor():-Infinity;
       if(enabled && this.autoDiscover && !this.loaded && !this.archiveLoaded && !this.primaryFailure())boundary=Infinity;
       if(enabled){const next=this.renderedPosts.find(post=>!visible.has(post.fullname) && !this.publishedCards.has(itemKey(post)));if(next)boundary=Math.max(boundary,next.created);}
-      const previous=this.mergePendingNodes;this.mergePendingNodes=new Set();let waiting=false;
-      for(const entry of entries){const original=this.virtualNodes.get(entry.node) || entry.node,pending=enabled && !entry.pinned && Number.isFinite(entry.timestamp) && !this.publishedNative.has(original) && entry.timestamp<=boundary;
+      const previous=this.mergePendingNodes;this.mergePendingNodes=new Set();let waiting=false,release=Infinity;const now=Date.now();
+      for(const entry of entries){const original=this.virtualNodes.get(entry.node) || entry.node;let pending=enabled && !entry.pinned && Number.isFinite(entry.timestamp) && !this.publishedNative.has(original) && !this.initialNative.has(original) && entry.timestamp<=boundary;
+        if(pending){
+          // Reddit's own page never waits longer than the native budget.
+          if(!this.nativeSeenAt.has(original))this.nativeSeenAt.set(original,now);
+          const expires=this.nativeSeenAt.get(original)+this.nativeWaitMs;if(now>=expires)pending=false;else release=Math.min(release,expires);
+        }
         for(const node of new Set([entry.node,original])){node.toggleAttribute('data-rt-order-pending',pending);if(pending)this.mergePendingNodes.add(node);}
         if(pending)waiting=true;else if(enabled && (entry.pinned || Number.isFinite(entry.timestamp)))this.publishedNative.add(original);
       }
@@ -375,6 +400,7 @@
       // has not covered their dates. Otherwise invisible native pages can walk
       // ahead endlessly without increasing the displayed combined prefix.
       this.feed.toggleAttribute('data-rt-merge-waiting',waiting);
+      if(release<Infinity)this.scheduleGate(release-now);
     }
     nativeEntries(){
       if(!this.feed)return [];
@@ -489,10 +515,11 @@
       catch(error){if(generation===this.generation && pageRoute()?.key===this.context?.key){this.sourceErrors.request=error.message;this.setStatus(error.message,true);}}
       finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.more.disabled=false;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;this.discover.disabled=this.archiveBusy;if(this.archiveButton)this.archiveButton.disabled=this.archiveBusy;this.ensureActivityArchive();}}
     }
-    loadReddit({more=false,retry=false}={}){if(this.busy)return;if(!more && !retry){this.initialPrefetchDone=false;this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};}if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
+    loadReddit({more=false,retry=false}={}){if(this.busy)return this.redditRun;if(!more && !retry){this.initialPrefetchDone=false;this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};}if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
       const frontier=this.publicationFloor(),streams=this.kinds().flatMap(kind=>kind==='comment'?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}]).filter(({key})=>retry?Boolean(this.sourceErrors[key]):!more || this.redMore[key] && (this.context.sort!=='new' || (this.sourceFrontiers.get(key)?.floor ?? Infinity)>=frontier));
-      for(const {key} of streams){if(!more && !retry)this.sourceFrontiers.delete(key);this.sourcePending.add(key);}
-      return this.run(async current=>{
+      for(const {key} of streams){if(!more && !retry)this.sourceFrontiers.delete(key);this.sourcePending.add(key);this.sourceStartedAt.set(key,Date.now());}
+      if(streams.length)this.scheduleGate(this.sourceWaitMs);
+      return this.redditRun=this.run(async current=>{
       const errors=[];let succeeded=false;
       await Promise.all(streams.map(async ({kind,key,stream})=>{
         if(more && !retry && !this.redMore[key])return;
@@ -508,7 +535,7 @@
           }
           this.afterByKind[key]=result.after;this.redMore[key]=Boolean(result.hasMore && result.after && result.after!==old);this.noteSourcePage(key,page,this.redMore[key]);succeeded=true;this.loaded=true;delete this.sourceErrors[key];this.moreReddit=Object.values(this.redMore).some(Boolean);this.render();
         }catch(error){if(!current())return;this.redMore[key]=false;this.noteSourcePage(key,[],false);this.sourceErrors[key]=error.message;errors.push((stream==='public'?'Public comments: ':kind==='comment'?'Comments: ':'Posts: ')+error.message);}
-        finally{if(current())this.sourcePending.delete(key);}
+        finally{if(current()){this.sourcePending.delete(key);this.sourceStartedAt.delete(key);}}
       }));
       if(!current())return;
       this.after=this.afterByKind.post;this.moreReddit=Object.values(this.redMore).some(Boolean);this.loaded=succeeded || this.loaded;this.render();
@@ -530,11 +557,20 @@
       }catch{if(current()){this.sourceErrors['metadata-'+kind]='Some archive items have unverified current Reddit status.';this.summarize();}}
       finally{if(current()){this.metadataPending--;this.updateProfileLoading();this.updateActivityEmptyState();}}
     }
-    async loadArchive({more=false}={}){
-      if(!this.settings.archiveDiscovery || this.archiveBusy)return;
+    loadArchive(options){
+      if(!this.settings.archiveDiscovery)return;if(this.archiveBusy)return this.archiveRun;
+      return this.archiveRun=this.archivePage(options);
+    }
+    // Archive and Reddit search streams load independently; neither waits for
+    // the other's request to finish.
+    refreshActivity(){
+      const reddit=this.loadReddit(),archive=this.settings.archiveDiscovery && !this.archiveOnly?this.loadArchive():undefined;
+      return Promise.all([reddit,archive]);
+    }
+    async archivePage({more=false}={}){
       if(!more){this.initialPrefetchDone=false;if(!this.busy)this.pages=0;for(const key of Object.keys(this.sourceErrors))if(key.startsWith('archive-'))delete this.sourceErrors[key];}
       const generation=this.generation,current=()=>generation===this.generation && pageRoute()?.key===this.context?.key && this.host?.isConnected;
-      const frontier=this.publicationFloor(),kinds=this.kinds().filter(kind=>!more || this.archiveMore[kind] && (this.context.sort!=='new' || (this.sourceFrontiers.get('archive-'+kind)?.floor ?? Infinity)>=frontier));for(const kind of kinds){if(!more)this.sourceFrontiers.delete('archive-'+kind);this.sourcePending.add('archive-'+kind);}
+      const frontier=this.publicationFloor(),kinds=this.kinds().filter(kind=>!more || this.archiveMore[kind] && (this.context.sort!=='new' || (this.sourceFrontiers.get('archive-'+kind)?.floor ?? Infinity)>=frontier));for(const kind of kinds){if(!more)this.sourceFrontiers.delete('archive-'+kind);this.sourcePending.add('archive-'+kind);this.sourceStartedAt.set('archive-'+kind,Date.now());}if(kinds.length)this.scheduleGate(this.sourceWaitMs);
       this.archiveBusy=true;this.batchAutoPaused=false;this.setStatus('Checking archived activity…');this.updateProfileLoading();this.discover.disabled=true;if(this.archiveButton)this.archiveButton.disabled=true;this.more.disabled=true;this.updateActivityEmptyState();
       try{
         const warnings=[];
@@ -547,18 +583,35 @@
             if(page.length && !this.archiveOnly)this.verifyArchiveStatuses(page,kind,current);
             if(result.cursorStalled){this.sourceErrors['archive-'+kind]='Archive pagination stopped at an ambiguous timestamp. History is incomplete.';warnings.push(this.sourceErrors['archive-'+kind]);}
           }catch(error){if(!current())return;this.archiveMore[kind]=false;this.noteSourcePage('archive-'+kind,[],false);this.sourceErrors['archive-'+kind]=error.message;warnings.push(error.message);}
-          finally{if(current())this.sourcePending.delete('archive-'+kind);}
+          finally{if(current()){this.sourcePending.delete('archive-'+kind);this.sourceStartedAt.delete('archive-'+kind);}}
         }));
         if(!current())return;
         this.moreArchive=Object.values(this.archiveMore).some(Boolean);this.render();if(warnings.length)this.setStatus(warnings.join(' '),true);
       }finally{if(generation===this.generation){this.archiveBusy=false;this.discover.disabled=this.busy;if(this.archiveButton)this.archiveButton.disabled=this.busy;this.more.disabled=this.busy;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;}}
     }
     hasMoreProfile(){return this.activityFilter==='deleted' && this.settings.archiveDiscovery?this.moreArchive:this.moreReddit || this.moreArchive;}
+    // Advance every provider that has a stream at the shared frontier (the
+    // shallowest pending boundary). A busy provider never blocks the other.
     loadMore(){
       if(this.batchedProfile)this.forceProfileBatch=true;
-      if(this.activityFilter==='deleted' && this.settings.archiveDiscovery)return !this.metadataPending && this.moreArchive?this.loadArchive({more:true}):undefined;
-      const floor=this.publicationFloor(),archiveFirst=this.context.sort==='new' && this.moreArchive && [...this.sourceFrontiers].some(([key,state])=>key.startsWith('archive-') && state.more && state.floor>=floor);
-      return archiveFirst?this.loadArchive({more:true}):this.moreReddit?this.loadReddit({more:true}):this.loadArchive({more:true});
+      if(this.activityFilter==='deleted' && this.settings.archiveDiscovery){
+        // Keep at most one archive page of unchecked Deleted candidates ahead.
+        if(!this.moreArchive || this.archiveBusy || this.verifyQueue.length>=profileBatchSize)return;
+        return this.loadArchive({more:true});
+      }
+      const floor=this.publicationFloor(),ordered=this.context.sort==='new';
+      const atFrontier=(key,more)=>Boolean(more) && (!ordered || (this.sourceFrontiers.get(key)?.floor ?? Infinity)>=floor);
+      const archive=this.moreArchive && this.kinds().some(kind=>atFrontier('archive-'+kind,this.archiveMore[kind]));
+      const reddit=this.moreReddit && Object.keys(this.redMore).some(key=>atFrontier(key,this.redMore[key]));
+      const tasks=[];
+      if(archive && !this.archiveBusy)tasks.push(this.loadArchive({more:true}));
+      if(reddit && !this.busy)tasks.push(this.loadReddit({more:true}));
+      if(!tasks.length && !archive && !reddit && !this.busy && !this.archiveBusy){
+        // No comparable boundary (e.g. a source without one yet): keep the
+        // previous preference so continuation can still make progress.
+        if(this.moreReddit)tasks.push(this.loadReddit({more:true}));else if(this.moreArchive)tasks.push(this.loadArchive({more:true}));
+      }
+      return tasks.length?Promise.all(tasks):undefined;
     }
     captureFeedViewport(){
       if(!this.feed || window.scrollY<=0)return null;
@@ -600,19 +653,20 @@
     profileTailVisible(){const rect=this.loading.getBoundingClientRect();return this.batchInView && rect.top<=innerHeight*3 && rect.bottom>=0;}
     primaryFailure(){return Object.entries(this.sourceErrors || {}).some(([key,value])=>value && !/^(metadata-|recovery$)/.test(key) && !(['post','comment','comment-public'].includes(key) && Object.values(this.redMore).some(Boolean)));}
     prefetchProfilePage(){
-      if(pageRoute()?.key!==this.context?.key || this.busy || this.archiveBusy || this.metadataPending || this.batchAutoPaused || this.primaryFailure() || this.nativeBatch.blocked || !this.batchObserver || !this.hasMoreProfile())return;
+      if(pageRoute()?.key!==this.context?.key || this.busy && this.archiveBusy || this.batchAutoPaused || this.primaryFailure() || this.nativeBatch.blocked || !this.batchObserver || !this.hasMoreProfile())return;
       const initial=this.autoDiscover && (this.loaded || this.archiveLoaded) && !this.initialPrefetchDone;
       if(!initial && !this.profileTailVisible())return;
       // Prime one additional cursor page on initial automatic discovery. Later
       // reads start two viewports ahead even between hydration batches. Keep
       // one bounded unpublished buffer, including native-horizon deferrals.
       const visible=this.visibleIds(),buffered=this.renderedPosts.filter(post=>!this.publishedCards.has(itemKey(post)) && !visible.has(post.fullname)).length;
-      if(buffered<profileBatchSize){if(initial)this.initialPrefetchDone=true;this.loadMore();}
+      if(buffered<profileBatchSize && this.loadMore() && initial)this.initialPrefetchDone=true;
     }
     continueProfile(force=false){
       // A native continuation halo can remain mounted before its request starts.
       // It owns the visible loader, but must not block preparing our next page.
-      if(this.busy || this.archiveBusy)return;
+      // One provider's request in flight never blocks the other provider.
+      if(this.busy && this.archiveBusy)return;
       if(this.batchedProfile){this.prefetchProfilePage();return this.advanceProfileBatch(force);}
       if(this.hasMoreProfile() && !this.batchAutoPaused)this.loadMore();
     }
@@ -630,9 +684,9 @@
       let note=this.loading.querySelector('[data-rt-continuation-note]');
       if(paused && !work){if(!note){note=make('div','flex flex-col items-center justify-center text-center m-md text-body-1');note.dataset.rtContinuationNote='true';this.loading.append(note);}const failedSearch=['post','comment','comment-public'].some(key=>this.sourceErrors[key]),message=failedSearch?'Some search results could not be loaded. Existing results are kept.':'Loading paused. Use Refresh activity to retry.';if(note.dataset.message!==message){note.dataset.message=message;const retry=button('Retry loading',()=>['post','comment','comment-public'].some(key=>this.sourceErrors[key])?this.loadReddit({retry:true}):this.discover.click());retry.className='button button-small button-bordered mt-md';note.replaceChildren(make('div','',message),retry);}}else note?.remove();
       this.more.hidden=!continuation || Boolean(this.batchObserver && !paused);this.more.disabled=Boolean(this.busy || this.archiveBusy || this.activeProfileBatch && !paused);
-      if(pending && !this.activeProfileBatch && !this.busy && !paused && this.publishedCards.size<profileBatchSize){this.advanceProfileBatch();return;}
+      if(pending && !this.activeProfileBatch && !paused && this.publishedCards.size<profileBatchSize){this.advanceProfileBatch();return;}
       this.prefetchProfilePage();
-      if(!this.activeProfileBatch && !this.busy && !this.archiveBusy && !this.metadataPending && !paused && this.batchObserver && !this.loading.hidden && !this.batchFrame){const generation=this.generation;this.batchFrame=requestAnimationFrame(()=>{this.batchFrame=null;if(generation===this.generation && this.host?.isConnected && this.profileTailVisible())this.continueProfile();});}
+      if(!this.activeProfileBatch && !(this.busy && this.archiveBusy) && !paused && this.batchObserver && !this.loading.hidden && !this.batchFrame){const generation=this.generation;this.batchFrame=requestAnimationFrame(()=>{this.batchFrame=null;if(generation===this.generation && this.host?.isConnected && this.profileTailVisible())this.continueProfile();});}
       this.updateActivityEmptyState();
       });
     }
@@ -642,7 +696,7 @@
       if(this.activeProfileBatch || this.nativeBatch.blocked || this.batchAutoPaused && !this.pendingProfilePosts().length)return;
       if(!force && this.publishedCards.size>=profileBatchSize && (!this.batchObserver || !this.profileTailVisible()))return;
       const posts=this.pendingProfilePosts().slice(0,profileBatchSize);
-      if(!posts.length){const visible=this.visibleIds(),waitingBoundary=this.renderedPosts.some(p=>!visible.has(p.fullname) && !this.publishedCards.has(itemKey(p)) && this.nodes.get(itemKey(p))?.dataset.deferred!=='older' && this.eligibleProfilePost(p,this.nodes.get(itemKey(p))) && !this.canPublishProfilePost(p));if(!waitingBoundary && !this.mergePendingNodes.size && this.renderedPosts.some(p=>this.nodes.get(itemKey(p))?.dataset.deferred==='older'))return;if(!this.busy && this.hasMoreProfile() && (force || this.batchObserver && this.profileTailVisible()))this.loadMore();return;}
+      if(!posts.length){const visible=this.visibleIds(),waitingBoundary=this.renderedPosts.some(p=>!visible.has(p.fullname) && !this.publishedCards.has(itemKey(p)) && this.nodes.get(itemKey(p))?.dataset.deferred!=='older' && this.eligibleProfilePost(p,this.nodes.get(itemKey(p))) && !this.canPublishProfilePost(p));if(!waitingBoundary && !this.mergePendingNodes.size && this.renderedPosts.some(p=>this.nodes.get(itemKey(p))?.dataset.deferred==='older'))return;if(this.hasMoreProfile() && (force || this.batchObserver && this.profileTailVisible()))this.loadMore();return;}
       const group=this.activeProfileBatch={generation:this.generation,nodes:posts.map(p=>this.nodes.get(itemKey(p))),posts,enriching:false};this.loading.hidden=false;
       for(const node of group.nodes)if(!['ready','failed'].includes(node.dataset.rtNativeState))this.queueNative(node);
       this.settleProfileBatch();
