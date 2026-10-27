@@ -1,5 +1,5 @@
 // Dev-only client for relay.mjs.
-// node scripts/live/cdp.mjs targets | attach <urlPart> | eval <session> <js|@file> | shot <session> <out.png> [selector] | nav <session> <url> | events <session> | raw <Method> '<json>' [session]
+// node scripts/live/cdp.mjs xeval <session> <js> | targets | attach <urlPart> | eval <session> <js|@file> | shot <session> <out.png> [selector] | nav <session> <url> | events <session> | raw <Method> '<json>' [session]
 import fs from 'node:fs';
 const call=async(method,params={},sessionId)=>{const r=await (await fetch('http://127.0.0.1:9333/',{method:'POST',body:JSON.stringify({method,params,sessionId})})).json();if(r.error)throw Error(JSON.stringify(r.error));return r.result;};
 const [cmd,a,b,c]=process.argv.slice(2);
@@ -10,3 +10,5 @@ else if(cmd==='shot'){let clip;if(c){const r=await call('Runtime.evaluate',{expr
 else if(cmd==='nav'){await call('Page.navigate',{url:b},a);console.log('navigated');}
 else if(cmd==='events'){for(const e of await (await fetch('http://127.0.0.1:9333/events?session='+a)).json())console.log(e.method,JSON.stringify(e.params).slice(0,300));}
 else if(cmd==='raw'){console.log(JSON.stringify(await call(a,JSON.parse(b || '{}'),c),null,1));}
+// xeval <session> <js|@file>: evaluate inside the Reddit Tweaks isolated world (content-script context).
+if(cmd==='xeval'){const events=await (await fetch('http://127.0.0.1:9333/events')).json();const main=(await call('Page.getFrameTree',{},a)).frameTree.frame.id,candidates=events.filter(e=>e.method==='Runtime.executionContextCreated' && e.sessionId===a && e.params.context.auxData?.type==='isolated' && e.params.context.auxData?.frameId===main && /Reddit Tweaks/.test(e.params.context.name)).reverse();let ctx=null;for(const c of candidates){try{const r=await call('Runtime.evaluate',{expression:'typeof globalThis.RTDiscoveryDebug',contextId:c.params.context.id,returnByValue:true},a);if(r.result.value==='object'){ctx=c;break;}}catch{}}if(!ctx)throw Error('no Reddit Tweaks discovery context; reload the page after attach');const expression=b.startsWith('@')?fs.readFileSync(b.slice(1),'utf8'):b;const r=await call('Runtime.evaluate',{expression,contextId:ctx.params.context.id,awaitPromise:true,returnByValue:true,replMode:true},a);console.log(JSON.stringify(r.exceptionDetails?{exception:r.exceptionDetails.exception?.description || r.exceptionDetails.text}:r.result.value,null,1));}
