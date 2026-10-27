@@ -730,6 +730,12 @@
       const removed=['deleted','removed'].includes(post.status),label=removed?`${post.status==='deleted'?'Deleted':'Removed'} on Reddit`:post.source==='arctic-shift'?(post.status==='available'?'Not shown in this profile feed · Available on Reddit · Arctic Shift snapshot':'Arctic Shift snapshot · Current Reddit status unknown'):'Not shown in this profile feed · Found through public Reddit search';
       const badge=make('span','rt-post-indicator');badge.setAttribute('role','img');badge.setAttribute('aria-label',label);badge.title=label;badge.dataset.state=post.status;badge.append(glyph(removed?post.status:post.source==='arctic-shift' && post.status!=='available'?'archive':'hidden'));return badge;
     }
+    // Archive text for this exact item and author, never a placeholder.
+    snapshotText(post){
+      const archive=this.archived.get(itemKey(post)),own=archive?.source==='arctic-shift' && archive.fullname===post.fullname && archive.author?.toLowerCase()===this.context?.username?.toLowerCase();
+      const text=post.archivedBody || (post.source==='arctic-shift'?post.body:'') || (own?archive.body:'');
+      return text && !['[deleted]','[removed]'].includes(text)?text:'';
+    }
     snapshot(text){const details=make('details','rt-post-snapshot');details.title='Text recovered from Arctic Shift · May differ from the current post';details.open=this.settings.restoreDeletedContent===true;details.append(make('summary','','Recovered text'),make('pre','',text));return details;}
     communityAvatar(subreddit){
       const avatar=make('span','inline-flex items-center justify-center w-lg h-lg relative shrink-0');avatar.setAttribute('avatar','');
@@ -859,11 +865,14 @@
           const transient=/^(Native card loading timed out\.|Public posts took too long to load\. Try again\.|Reddit could not render this card \(HTTP 50[0234]\)\.|Failed to fetch)$/.test(error?.message || '');
           if(transient && !this.nativeRetries.has(node)){this.nativeRetries.set(node,1);node.dataset.rtNativeState='queued';batch.queue.push(node);return;}
           if(node.dataset.rtQualify==='true'){delete node.dataset.rtQualify;this.sourceErrors.qualification='Some items could not be checked on Reddit.';}
-          if(this.archiveOnly && post.source==='arctic-shift'){this.renderArchivedNative(this.postMetadata.get(node.dataset.key) || post,node);this.decorateNative(this.postMetadata.get(node.dataset.key) || post,node);return;}
+          // Reddit no longer serves this item (deleted comments commonly 404).
+          // With an archive snapshot, show it in Reddit's own card layout rather
+          // than a bare link; the cue states where the text came from.
+          const latest=this.postMetadata.get(node.dataset.key) || post,snapshot=this.snapshotText(latest);
+          if(this.archiveOnly && latest.source==='arctic-shift' || !transient && snapshot){const shown={...latest,archivedBody:snapshot || latest.archivedBody};this.renderArchivedNative(shown,node);this.decorateNative(shown,node);return;}
           node.dataset.rtNativeState='failed';node.removeAttribute('aria-busy');node.replaceChildren();
-          const fallback=make('div','rt-native-unavailable');fallback.append(link(post.title || 'View comment on Reddit',post.permalink));
-          const retry=button('Retry',()=>{this.nativeRetries.delete(node);node.dataset.rtNativeState='idle';this.queueNative(node);});retry.title=error?.message || 'Reddit could not load this card.';fallback.append(retry);node.append(fallback);
-          const archived=post.archivedBody || (post.source==='arctic-shift'?post.body:'');if(archived && !post.over18 && !post.spoiler)node.append(this.snapshot(archived));
+          const fallback=make('div','rt-native-unavailable px-md py-sm'),copy=make('div','min-w-0 flex flex-col');copy.append(link(latest.title || (latest.kind==='comment'?'View comment on Reddit':'View post on Reddit'),latest.permalink,'text-14 font-semibold text-neutral-content-strong no-underline hover:underline'),make('span','text-12 text-neutral-content-weak','Reddit couldn’t load this item right now.'));fallback.append(copy);
+          const retry=button('Retry',()=>{this.nativeRetries.delete(node);node.dataset.rtNativeState='idle';this.queueNative(node);});retry.className='button button-small button-bordered';retry.title=error?.message || 'Reddit could not load this card.';fallback.append(retry);node.append(fallback);
         }).finally(()=>{batch.active--;this.settleProfileBatch();this.deduplicate();this.drainNative(batch);this.updateProfileLoading();});
       }
     }
@@ -916,7 +925,10 @@
       // its text even though the search record itself still has unknown status.
       const archive=this.archived.get(itemKey(post));
       if(this.context.kind==='profile' && ['deleted','removed'].includes(post.status) && archive?.source==='arctic-shift' && archive.fullname===post.fullname && archive.author.toLowerCase()===this.context.username.toLowerCase() && archive.body)post={...post,archivedBody:post.archivedBody || archive.body,over18:post.over18 || archive.over18,spoiler:post.spoiler || archive.spoiler};
-      this.repairReplyInfo(post,native);const recovered=this.recoverBody(post,native),label=this.indicator(post);if(recovered){label.title+=' · Text recovered from Arctic Shift';label.setAttribute('aria-label',label.title);}
+      this.repairReplyInfo(post,native);const recovered=this.recoverBody(post,native),label=this.indicator(post),fallback=node.dataset?.rtArchiveFallback==='true';
+      if(recovered)label.title+=' · Text recovered from Arctic Shift';else if(fallback && post.source!=='arctic-shift')label.title+=' · Text from an Arctic Shift snapshot';
+      const retrieved=archive?.retrieved || post.retrieved;if(retrieved && (recovered || fallback || post.source==='arctic-shift'))label.title+=' · Snapshot from '+new Date(retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+      label.setAttribute('aria-label',label.title);
       let badge=node.querySelector('[data-rt-source]');if(!badge || badge.title!==label.title){if(badge)badge.replaceWith(label);badge=label;badge.dataset.rtSource='true';}
       if(native.matches('shreddit-profile-comment')){
         const host=native.firstElementChild || native,credit=host.querySelector('.text-12.relative') || host.firstElementChild;host.classList.add('rt-comment-source-host');credit?.classList.add('rt-comment-source-credit');if(badge.parentElement!==host)host.append(badge);
