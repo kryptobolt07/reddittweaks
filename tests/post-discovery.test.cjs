@@ -1077,3 +1077,18 @@ test('Hot and Top keep Reddit ranking without automatic archive filler',async t=
  for(const sort of ['hot','top']){let archived=0;const {d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/?sort='+sort,settings:{postDiscovery:true,archiveDiscovery:true},archive:async()=>{archived++;return {posts:[],hasMore:false};}});await d.ready;
   await d.refreshActivity();assert.equal(archived,0,sort);d.activityFilter='deleted';await d.refreshActivity();assert.equal(archived,1,'Deleted still uses the archive in '+sort);}
 });
+
+test('a blocked logged-out comment search becomes a quiet note, not a failure, and pauses for the session',async t=>{
+ let publicCalls=0;const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[comment()],hasMore:false}),publicReddit:async()=>{publicCalls++;throw Error('Reddit blocked logged-out comment search (HTTP 403).');}});await d.ready;
+ await d.loadReddit();await new Promise(r=>setImmediate(r));
+ assert.equal(d.status.dataset.error,'false','a blocked supplement is not shown as an error');assert.equal(d.primaryFailure(),false);assert.equal(d.sourceErrors['comment-public'],undefined);
+ assert.equal(d.notice.hidden,false);assert.match(d.notice.textContent,/Some comments may be missing/);assert.match(d.notice.title,/HTTP 403/);assert.equal(d.notice.getAttribute('role'),'note');
+ assert.equal(d.nodes.get(comment().fullname).hidden,false,'signed-in results still appear');
+ await d.loadReddit();assert.equal(publicCalls,1,'the blocked stream is skipped for a while');assert.equal(d.notice.hidden,false);
+ d.publicBlockedUntil=0;await d.loadReddit();assert.equal(publicCalls,2,'it is tried again after the pause');
+});
+
+test('other logged-out search failures stay explicit errors',async t=>{
+ const {d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[],hasMore:false}),publicReddit:async()=>{throw Error('Reddit couldn’t load logged-out comment search (HTTP 500).');}});await d.ready;
+ await d.loadReddit();assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/HTTP 500/);assert.equal(d.notice.hidden,true);
+});

@@ -424,7 +424,11 @@
       const operation=(async()=>{
         const response=await fetch(url.href,{method:'GET',credentials:comments && nativeSearch && stream==='public'?'omit':'include',...(comments && nativeSearch?{cache:'no-store',referrerPolicy:'no-referrer'}:{}),redirect:'error',headers:{Accept:nativeSearch?'text/vnd.reddit.partial+html, text/html;q=0.9':'application/json'},signal:controller.signal});
         if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));throw Error('Reddit rate limit reached. Try again later.');}
-        if(!response.ok)throw Error(`Reddit could not load public posts (HTTP ${response.status}).`);
+        if(!response.ok){
+          // Name the source so the page can explain it; 403 means Reddit refused this request.
+          const what=input.action==='profile'?(comments?(stream==='public'?'logged-out comment search':'comment search'):'post search'):'item details';
+          throw Error(response.status===403?`Reddit blocked ${what} (HTTP 403).`:`Reddit couldn’t load ${what} (HTTP ${response.status}).`);
+        }
         const text=await boundedText(response);
         if(location.pathname+location.search!==path || controller.signal.aborted)throw Error('Page changed. Try again.');
         if(nativeSearch)return (comments?commentListing:postListing)(text,input.username,{sort,range,stream});
