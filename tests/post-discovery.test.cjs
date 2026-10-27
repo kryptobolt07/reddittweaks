@@ -1064,3 +1064,11 @@ test('a card without archive text keeps a Reddit-styled retry row after a defini
  const {d}=setup(t,{nativeRender:async()=>{throw Error('Reddit could not render this card (HTTP 404).');}});await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
  const node=d.nodes.get('abc12'),row=node.querySelector('.rt-native-unavailable');assert.equal(node.dataset.rtNativeState,'failed');assert.ok(row);assert.equal(row.querySelector('details'),null);assert.match(row.querySelector('button').className,/button-bordered/);assert.match(row.textContent,/couldn’t load/);
 });
+
+test('Refresh lives in Reddit’s Feed options menu and reloads search and archive together',async t=>{
+ const archiveCalls=[];const {W,d,calls}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},archive:async input=>{archiveCalls.push(input);return {posts:[],hasMore:false};}});await d.ready;
+ assert.equal(d.archiveButton,null,'no separate archive button');assert.equal(d.host.hasAttribute('data-rt-menu-ready'),true);
+ const refresh=W.document.querySelector('[data-rt-ui="activity-refresh"]');assert.ok(refresh);assert.equal(refresh.closest('rpl-dropdown').querySelector('button[aria-label="Feed options"]')!=null,true);
+ refresh.click();await Promise.all([d.redditRun,d.archiveRun]);assert.equal(calls.filter(c=>c.action==='profile').length,1);assert.equal(archiveCalls.length,1);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(W.document.querySelector('[data-rt-ui="activity-refresh"]'),null,'opt-out removes the menu row');
+});

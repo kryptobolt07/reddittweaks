@@ -67,3 +67,8 @@ shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]{min
 shreddit-feed[data-rt-merge-waiting] shreddit-feed-load-more-observer:not(:has(shreddit-post,shreddit-profile-comment)):not([data-rt-ui] *),
 shreddit-feed[data-rt-merge-waiting] faceplate-partial[slot="load-after"]:not(:has(shreddit-post,shreddit-profile-comment)):not([data-rt-ui] *),
 shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui] *){display:none!important}
+
+/* With Refresh in Reddit's Feed options menu, the toolbar shows only errors. */
+.rt-posts[data-rt-menu-ready] .rt-posts-toolbar>button:not(.rt-posts-more){display:none!important}
+.rt-posts[data-rt-menu-ready] .rt-posts-toolbar{min-height:0}
+.rt-posts[data-rt-menu-ready]:not(:has(.rt-posts-status[data-error=true],.rt-posts-more:not([hidden]))){margin-block:0}
