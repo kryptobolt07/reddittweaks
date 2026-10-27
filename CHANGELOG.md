@@ -1,3 +1,12 @@
+# 0.18.17 preview
+
+- Retry an unrecognized profile-search continuation response once at the same cursor before showing a pause. Keep strict response validation, cancellation, server cooldowns and explicit repeated failures; an unknown response never counts as exhausted history.
+- Retry loading resumes only failed Reddit search sources at their retained cursors instead of restarting healthy sources from the newest page. Preserve existing cards and Hot ranking. Refresh activity retains its explicit refresh behavior.
+
+Version choice: PATCH to 0.18.17 for profile continuation recovery and retry reliability. No permissions, persistent storage/schema or chat sync changes.
+
+Validation: all 718 tests pass, including 241 discovery/native-bridge checks. Five new regressions cover transient recovery, bounded repeated failure, cursor-specific manual retry, Hot ordering, first-page recovery and cancellation/rate-limit exclusions; four recovery regressions fail against 0.18.16. All 31 extension/demo JavaScript files parse. ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 32 assets. Live Brave inspection found the reported profile paused on an unrecognized cookie-free comment-search response after the other sources ended. Re-reading the same cursor succeeded. Resuming that source in the existing 0.18.16 tab advanced from 28 to 33 source pages, preserved existing card objects and cleared the pause and source errors. The original failing response body was unavailable, so its precise HTML cause is unconfirmed. The complete 0.18.17 bundle still needs an extension reload and Reddit refresh; live recovery used the existing continuation path, while new retry behavior was validated with synthetic tests. Search coverage and server responses remain external limitations.
+
 # 0.18.16 preview
 
 - Preserve native card-bearing continuation wrappers while merge gating is active, and collapse orphaned native separator runs inside known nested feed batches and pager wrappers. Keep visible card boundaries and leave rules inside card and media content untouched. Nested virtualization retains original native cards and restores presentation on opt-out.
