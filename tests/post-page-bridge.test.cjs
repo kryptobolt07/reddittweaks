@@ -392,3 +392,11 @@ test('native status recognizes Reddit’s current deletion notices, removal bann
  const status=Object.fromEntries([...comments.statuses,...post.statuses].map(s=>[s.fullname,s.status]));
  assert.equal(status.t1_cdel,'deleted');assert.equal(status.t1_crem,'removed');assert.equal(status.t3_prem,'removed');
 });
+test('user hover cards supply only a Reddit-hosted https profile picture, cached per name',async t=>{
+ const card=src=>`<div><span avatar><img src="${src}" alt="User avatar"></span><p>karma</p></div>`;let src='https://styles.redditmedia.com/t5_1/styles/profileIcon_x.png';
+ const e=setup(t,{fetcher:async url=>nativeResponse(card(src))});
+ const first=await e.send({action:'user-avatar',username:'Someone'});assert.equal(first.avatar,'https://styles.redditmedia.com/t5_1/styles/profileIcon_x.png');assert.equal(new URL(e.calls[0][0]).pathname,'/svc/shreddit/user-hover-card/Someone');assert.equal(e.calls[0][1].credentials,'include');
+ await e.send({action:'user-avatar',username:'someone'});assert.equal(e.calls.length,1,'cached per username');
+ src='https://evil.example/track.png';assert.equal((await e.send({action:'user-avatar',username:'Other'})).avatar,'','foreign image hosts are rejected');
+ assert.equal((await e.send({action:'user-avatar',username:'bad name!'})).ok,false);
+});

@@ -18,8 +18,8 @@
   }
   async function readSettings(){return (await send({action:'get-settings'})).settings;}
   class ThreadRestore {
-    constructor({archive=send,settings=readSettings,observe=true,retryMs=15000}={}){
-      this.archive=archive;this.retryMs=retryMs;this.settings=null;this.postId='';this.patches=new Map();this.requested=new Set();this.queue=new Set();this.attempts=new Map();this.timer=null;
+    constructor({archive=send,reddit=(...args)=>globalThis.RTPostDiscovery?.redditRead?.(...args),settings=readSettings,observe=true,retryMs=15000}={}){
+      this.reddit=reddit;this.avatars=new Map();this.archive=archive;this.retryMs=retryMs;this.settings=null;this.postId='';this.patches=new Map();this.requested=new Set();this.queue=new Set();this.attempts=new Map();this.timer=null;
       if(observe){
         this.observer=new MutationObserver(records=>{if(records.some(r=>!this.ownsMutation(r)))this.schedule();});this.observer.observe(document.documentElement,{childList:true,subtree:true});
         this.onRoute=()=>this.schedule();window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);
@@ -84,7 +84,7 @@
       const rendered=globalThis.RTMarkdown?.fromHtml(archived.bodyHtml) || globalThis.RTMarkdown?.render(text);
       if(rendered)recovered.append(rendered);else for(const part of text.split(/\n{2,}/)){const para=make('p','',part);para.style.whiteSpace='pre-wrap';recovered.append(para);}
       const pClass=sample?.querySelector('p')?.className;if(pClass)for(const para of recovered.querySelectorAll(':scope > p'))para.className=pClass;
-      this.patches.set(body,{original:[...body.childNodes],comment});body.replaceChildren(recovered);
+      this.patches.set(body,{original:[...body.childNodes],comment,body});body.replaceChildren(recovered);
       // Reddit collapses deleted comments; open restored ones so the text is visible.
       const details=comment.querySelector(':scope > details');if(details && !details.open){details.open=true;this.patches.get(body).opened=details;}
       const meta=comment.querySelector('[slot="commentMeta"]');
@@ -97,9 +97,27 @@
         (meta.querySelector('shreddit-comment-badges')?.parentElement || meta).append(badge);
         this.patches.get(body).badge=badge;
       }
+      if(M.validateUsername(archived.author))this.restoreAuthor(comment,archived.author,this.patches.get(body));
+    }
+    // Show the archived author where Reddit shows [deleted]: a profile link
+    // styled like this page's author names, and their Reddit profile picture
+    // when Reddit still has one. A dotted underline and tooltip mark the source.
+    restoreAuthor(comment,author,patch){
+      const label=comment.querySelector('.author-name-meta span[dir],[slot="commentMeta"] span[dir]');
+      if(label && label.textContent.trim()==='[deleted]' && !patch.author){
+        const sample=[...document.querySelectorAll('main shreddit-comment [slot="commentMeta"] a[href^="https://www.reddit.com/user/"],main shreddit-comment [slot="commentMeta"] a[href^="/user/"]')].find(a=>!a.closest('[data-rt-archived-author]'));
+        const link=make('a',(sample?.className || 'font-bold text-neutral-content-strong')+' rt-archived-author');link.href='/user/'+author+'/';link.dir='auto';link.dataset.rtArchivedAuthor='true';link.title='Original author from an Arctic Shift snapshot';link.textContent=author;
+        patch.author={label,original:[...label.childNodes]};label.replaceChildren(link);
+      }
+      const holder=comment.querySelector('[slot="commentAvatar"] [avatar]');if(!holder || patch.avatar)return;
+      const show=url=>{if(!url || !holder.isConnected || patch.avatar || !this.patches.has(patch.body))return;const img=make('img','rt-archived-avatar');img.src=url;img.alt='';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';img.title='Profile picture of u/'+author;patch.avatar={holder,original:[...holder.childNodes]};holder.replaceChildren(img);};
+      const key=author.toLowerCase();if(this.avatars.has(key))return Promise.resolve(this.avatars.get(key)).then(show);
+      const lookup=(async()=>{for(let attempt=0;attempt<3;attempt++){try{const result=await this.reddit({action:'user-avatar',username:author});if(!result?.deferred)return result?.avatar || '';await new Promise(r=>setTimeout(r,Math.min(5000,result.retryAfterMs || 500)));}catch{return '';}}return '';})();
+      this.avatars.set(key,lookup);lookup.then(url=>{this.avatars.set(key,url);show(url);});
+      return lookup;
     }
     restoreAll(){
-      for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;}
+      for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;if(patch.author)patch.author.label.replaceChildren(...patch.author.original);if(patch.avatar)patch.avatar.holder.replaceChildren(...patch.avatar.original);}
       this.patches.clear();
     }
     destroy(){this.observer?.disconnect();clearTimeout(this.timer);clearTimeout(this.retryTimer);window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);chrome.runtime.onMessage?.removeListener?.(this.onMessage);this.restoreAll();}
