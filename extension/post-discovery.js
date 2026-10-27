@@ -542,20 +542,34 @@
       if(errors.length)this.setStatus(errors.join(' '),true);
       this.discover.setAttribute('aria-label','Refresh activity');
     });}
-    async verifyArchiveStatuses(page,kind,current){
-      this.metadataPending++;let unknown=false;
+    // Archive snapshots are candidates; Reddit's own evidence decides their
+    // current status. One queue serves every page. Batches use 25 IDs while the
+    // bridge answers them in a single read, and drop to native-fragment pairs
+    // (published as each pair finishes) once it reports per-card fallback.
+    verifyArchiveStatuses(page,{force=false}={}){
+      // Refresh re-checks known items; continuation pages skip them.
+      for(const post of page)if((force || !this.postStatuses.has(post.fullname)) && !this.verifyQueue.some(entry=>entry.fullname===post.fullname))this.verifyQueue.push(post);
+      return this.pumpVerification();
+    }
+    async pumpVerification(){
+      if(this.verifyActive || !this.verifyQueue.length || this.context?.kind!=='profile')return;
+      const generation=this.generation,context=this.context,current=()=>generation===this.generation && pageRoute()?.key===context.key && this.host?.isConnected;
+      this.verifyActive=true;this.metadataPending++;this.updateProfileLoading();const unresolved=new Set();
       try{
-        // Return evidence as each native request pair completes. A slow later
-        // fragment must not hide already verified deleted activity for 10s.
-        for(let offset=0;offset<page.length && current();offset+=2){
-          const batch=page.slice(offset,offset+2),result=await this.request({action:'status',username:this.context.username,kind,ids:batch.map(p=>p.id)});if(!current())return;
+        while(this.verifyQueue.length && current()){
+          const kind=this.verifyQueue[0].kind==='comment'?'comment':'post',size=this.statusBatch || profileBatchSize,batch=[];
+          while(batch.length<size && this.verifyQueue.length && (this.verifyQueue[0].kind==='comment'?'comment':'post')===kind)batch.push(this.verifyQueue.shift());
+          let result;
+          try{result=await this.request({action:'status',username:context.username,kind,ids:batch.map(p=>p.id)});}
+          catch{if(!current())return;unresolved.add(kind);this.sourceErrors['metadata-'+kind]='Some archive items have unverified current Reddit status.';this.summarize();continue;}
+          if(!current())return;
+          this.statusBatch=result.via==='info'?profileBatchSize:2;
           const requested=new Map(batch.map(p=>[p.fullname,p])),verified=new Set();
           for(const evidence of result.statuses || []){const post=requested.get(evidence.fullname);if(!post || !['available','deleted','removed'].includes(evidence.status))continue;verified.add(post.fullname);this.postStatuses.set(post.fullname,evidence.status);if(evidence.over18 || evidence.spoiler)this.archived.set(itemKey(post),{...this.archived.get(itemKey(post)),over18:post.over18 || evidence.over18===true,spoiler:post.spoiler || evidence.spoiler===true});}
-          unknown=unknown || verified.size<batch.length;
-          if(unknown)this.sourceErrors['metadata-'+kind]='Some archive items have unverified current Reddit status.';else delete this.sourceErrors['metadata-'+kind];this.render();
+          if(verified.size<batch.length){unresolved.add(kind);this.sourceErrors['metadata-'+kind]='Some archive items have unverified current Reddit status.';}else if(!unresolved.has(kind))delete this.sourceErrors['metadata-'+kind];
+          this.render();
         }
-      }catch{if(current()){this.sourceErrors['metadata-'+kind]='Some archive items have unverified current Reddit status.';this.summarize();}}
-      finally{if(current()){this.metadataPending--;this.updateProfileLoading();this.updateActivityEmptyState();}}
+      }finally{if(generation===this.generation){this.verifyActive=false;this.metadataPending--;if(current()){this.updateProfileLoading();this.updateActivityEmptyState();if(this.activityFilter==='deleted' && this.batchedProfile)this.advanceProfileBatch();}}}
     }
     loadArchive(options){
       if(!this.settings.archiveDiscovery)return;if(this.archiveBusy)return this.archiveRun;
@@ -580,7 +594,7 @@
             const page=[];for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'arctic-shift'});if(p){this.archived.set(itemKey(p),p);page.push(p);}}
             this.beforeByKind[kind]=result.before;this.archiveMore[kind]=Boolean(result.hasMore && !result.cursorStalled);this.archiveLoaded=true;this.moreArchive=Object.values(this.archiveMore).some(Boolean);this.noteSourcePage('archive-'+kind,page,this.archiveMore[kind]);
             delete this.sourceErrors['archive-'+kind];this.render();
-            if(page.length && !this.archiveOnly)this.verifyArchiveStatuses(page,kind,current);
+            if(page.length && !this.archiveOnly)this.verifyArchiveStatuses(page,{force:!more});
             if(result.cursorStalled){this.sourceErrors['archive-'+kind]='Archive pagination stopped at an ambiguous timestamp. History is incomplete.';warnings.push(this.sourceErrors['archive-'+kind]);}
           }catch(error){if(!current())return;this.archiveMore[kind]=false;this.noteSourcePage('archive-'+kind,[],false);this.sourceErrors['archive-'+kind]=error.message;warnings.push(error.message);}
           finally{if(current()){this.sourcePending.delete('archive-'+kind);this.sourceStartedAt.delete('archive-'+kind);}}

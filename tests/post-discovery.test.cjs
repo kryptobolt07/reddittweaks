@@ -727,8 +727,8 @@ test('an outgoing transition does not delay opt-out and never leaks late Posts r
 });
 
 test('archive status verification publishes each native pair before a slower later pair finishes',async t=>{
- let release;const checks=[];const {d}=setup(t,{settings:{archiveDiscovery:true},archive:async()=>({posts:['one','two','three','four'].map(id=>raw(id)),hasMore:false}),reddit:async input=>{if(input.action!=='status')return {posts:[]};checks.push(input.ids);if(checks.length===2)await new Promise(r=>release=r);return {statuses:input.ids.map(id=>({fullname:'t3_'+id,status:id==='one'?'deleted':'available'})),unknownIds:[]};}});
- await d.ready;await d.loadArchive();await new Promise(r=>setImmediate(r));assert.deepEqual(checks.map(ids=>Array.from(ids)),[['one','two'],['three','four']]);assert.equal(d.postStatuses.get('t3_one'),'deleted');assert.equal(d.postStatuses.has('t3_three'),false);assert.equal(d.metadataPending,1);release();await new Promise(r=>setImmediate(r));assert.equal(d.postStatuses.get('t3_three'),'available');assert.equal(d.metadataPending,0);
+ let release;const checks=[];const {d}=setup(t,{settings:{archiveDiscovery:true},archive:async()=>({posts:['one','two','three','four'].map(id=>raw(id)),hasMore:false}),reddit:async input=>{if(input.action!=='status')return {posts:[]};checks.push(input.ids);if(checks.length===2)await new Promise(r=>release=r);return {statuses:input.ids.map(id=>({fullname:'t3_'+id,status:id==='one'?'deleted':'available'})),unknownIds:[],via:'native'};}});
+ await d.ready;d.statusBatch=2;await d.loadArchive();await new Promise(r=>setImmediate(r));assert.deepEqual(checks.map(ids=>Array.from(ids)),[['one','two'],['three','four']]);assert.equal(d.postStatuses.get('t3_one'),'deleted');assert.equal(d.postStatuses.has('t3_three'),false);assert.equal(d.metadataPending,1);release();await new Promise(r=>setImmediate(r));assert.equal(d.postStatuses.get('t3_three'),'available');assert.equal(d.metadataPending,0);
 });
 test('Deleted card candidates exclude verified available and unverified search results',async t=>{
  const {d}=setup(t);await d.ready;d.activityFilter='deleted';const available={...raw('live'),fullname:'t3_live',source:'reddit',status:'available'},unknown={...available,status:'unknown'},archived={...unknown,source:'arctic-shift'};
@@ -1036,4 +1036,18 @@ test('one provider in flight does not block the other provider’s continuation'
  assert.equal(calls.filter(c=>c.action==='profile' && c.after==='next').length,1,'Reddit search continues while the archive page is in flight');
  assert.equal(d.loadArchive({more:true}),archiveMore,'a repeated archive request joins the in-flight page');
  finishArchive({posts:[],hasMore:false});await archiveMore;assert.equal(archiveCalls.length,2);
+});
+
+test('archive status checks send 25 IDs per request while the bridge answers in one read',async t=>{
+ const checks=[];const ids=Array.from({length:30},(_,i)=>'p'+i);
+ const {d}=setup(t,{settings:{archiveDiscovery:true},archive:async()=>({posts:ids.map((id,i)=>raw(id,{created_utc:1700000000-i})),hasMore:false}),reddit:async input=>{if(input.action!=='status')return {posts:[]};checks.push(input.ids.length);return {statuses:input.ids.map(id=>({fullname:'t3_'+id,status:'available'})),unknownIds:[],via:'info'};}});
+ await d.ready;await d.loadArchive();for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));
+ assert.deepEqual(checks,[25,5]);assert.equal(d.metadataPending,0);assert.equal(d.verifyQueue.length,0);assert.equal(d.postStatuses.get('t3_p29'),'available');
+});
+
+test('Deleted keeps one page of unchecked candidates ahead instead of waiting for every check',async t=>{
+ const pages=[];const {d}=setup(t,{settings:{archiveDiscovery:true},archive:async input=>{pages.push(input.before);return {posts:[],hasMore:false};}});await d.ready;
+ d.activityFilter='deleted';d.moreArchive=true;d.archiveMore={post:true};d.metadataPending=1;
+ d.verifyQueue=Array.from({length:25},(_,i)=>({...raw('q'+i),fullname:'t3_q'+i,kind:'post'}));assert.equal(d.loadMore(),undefined,'a full page of unchecked candidates is enough look-ahead');
+ d.verifyQueue=d.verifyQueue.slice(0,3);d.beforeByKind={post:1700000000};await d.loadMore();assert.deepEqual(pages,[1700000000],'pending checks no longer block the next archive page');
 });
