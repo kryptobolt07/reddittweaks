@@ -140,14 +140,14 @@ test('native hydration keeps a two-request bound and never publishes unfinished 
  assert.equal(peak,2);assert.deepEqual(order,['item0','item1','item2','item3','item4']);d.scan();assert.equal(order.length,5);assert.equal(W.document.querySelectorAll('shreddit-post[id^=t3_item]').length,5);
 });
 
-test('native separators survive hydration, filtering and virtualization without synthetic rules',async t=>{
+test('each extension card keeps exactly one native-style separator through hydration, filtering and virtualization',async t=>{
  let release;const {W,d}=setup(t,{reddit:async()=>({posts:[raw('good'),raw('bad')],hasMore:false}),nativeRender:async(post,node)=>{
   if(post.id==='bad')throw Error('Reddit returned no matching native card');
   await new Promise(r=>release=r);node.innerHTML='<faceplate-partial><article><shreddit-post id="t3_good"><span slot="credit-bar"></span></shreddit-post></article><hr class="border-0 border-b-sm border-solid border-b-neutral-border-weak"></faceplate-partial>';
  }});
  await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const card=d.nodes.get('good'),failed=d.nodes.get('bad');
- assert.equal(card.dataset.rtNativeState,'loading');assert.equal(card.querySelector('hr'),null,'pending card adds no rule');assert.equal(failed.dataset.rtNativeState,'failed');assert.equal(failed.querySelector('hr'),null,'fallback adds no rule');
- release();await new Promise(r=>setImmediate(r));const rule=card.querySelector('hr');assert.ok(rule);assert.equal(card.querySelectorAll('hr').length,1);
+ assert.equal(card.dataset.rtNativeState,'loading');assert.equal(card.querySelector('hr'),null,'pending card adds no rule');assert.equal(failed.dataset.rtNativeState,'failed');assert.equal(failed.querySelectorAll('hr').length,1,'a fallback row is separated like a native card');assert.equal(failed.lastElementChild.className,'border-0 border-b-sm border-solid border-b-neutral-border-weak');
+ release();await new Promise(r=>setImmediate(r));const rule=card.querySelector('hr');assert.ok(rule);assert.equal(card.querySelectorAll('hr').length,1,'a fragment that brings its own rule gets no second one');assert.equal(rule.hasAttribute('data-rt-card-rule'),false);
  d.render();assert.equal(card.querySelector('hr'),rule);d.activityMenu.querySelector('[data-rt-activity-filter="deleted"]').click();assert.equal(card.hidden,true);assert.equal(card.querySelector('hr'),rule);d.activityMenu.querySelector('[data-rt-activity-filter="all"]').click();assert.equal(card.hidden,false);
  const slot=W.document.createElement('div');slot.className='virtualized-placeholder';card.replaceWith(slot);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[card]}]);assert.equal(card.querySelector('hr'),rule);slot.replaceWith(card);d.trackVirtualization([{target:d.feed,addedNodes:[card],removedNodes:[slot]}]);d.render();assert.equal(card.querySelector('hr'),rule);assert.equal(card.querySelectorAll('hr').length,1);await new Promise(r=>setImmediate(r));
 });
@@ -1134,10 +1134,17 @@ test('at the feed tail the reading position follows the last visible card, not t
  assert.ok(native);
 });
 
-test('published cards fade in and cards placed between existing ones get a brief highlight',async t=>{
+test('only cards placed between cards Reddit already showed are animated',async t=>{
  const {W,d}=setup(t,{reddit:async()=>({posts:[raw('newer',{created_utc:1700000300}),raw('tail',{created_utc:1600000000})],hasMore:false})});await d.ready;
  d.feed.querySelector('shreddit-post').setAttribute('created-timestamp',new Date(1700000200*1000).toISOString());await d.loadReddit();await new Promise(r=>setImmediate(r));
- const newer=d.nodes.get('newer'),tail=d.nodes.get('tail');assert.ok(newer.classList.contains('rt-native-enter'));assert.ok(newer.classList.contains('rt-native-inserted'),'placed above a native card');assert.equal(tail.classList.contains('rt-native-inserted'),false,'the feed end is not highlighted');
+ const newer=d.nodes.get('newer'),tail=d.nodes.get('tail');assert.ok(newer.classList.contains('rt-native-enter'));assert.ok(newer.classList.contains('rt-native-inserted'),'placed above a native card');assert.equal(tail.classList.contains('rt-native-enter'),false,'cards at the feed end are not animated');assert.equal(tail.classList.contains('rt-native-inserted'),false);
  const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/prefers-reduced-motion:reduce\)\{\.rt-native-enter\{animation:none\}\.rt-native-inserted::after\{display:none\}/);
  d.rememberProfile();for(const copy of d.profileStates.get(d.context.key).cards.values())assert.equal(copy.classList.contains('rt-native-inserted'),false);
+});
+
+test('comment and archive cards without a native rule get one separator like Reddit’s cards',async t=>{
+ const {d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[comment(),{...comment(),id:'second1',fullname:'t1_second1',created_utc:1699999000}],hasMore:false})});
+ await d.ready;d.feed.querySelector('shreddit-post').remove();await d.loadReddit();await new Promise(r=>setImmediate(r));
+ for(const node of [d.nodes.get(comment().fullname),d.nodes.get('t1_second1')]){assert.equal(node.dataset.rtNativeState,'ready');const rules=node.querySelectorAll('hr');assert.equal(rules.length,1);assert.equal(rules[0],node.lastElementChild);assert.equal(rules[0].className,'border-0 border-b-sm border-solid border-b-neutral-border-weak');}
+ const node=d.nodes.get(comment().fullname);d.decorateNative(d.postMetadata.get(comment().fullname),node);d.decorateNative(d.postMetadata.get(comment().fullname),node);assert.equal(node.querySelectorAll('hr').length,1,'repeated decoration never stacks rules');
 });
