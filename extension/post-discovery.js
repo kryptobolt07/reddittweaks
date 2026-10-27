@@ -171,7 +171,9 @@
       this.discover.setAttribute('aria-label',this.discover.textContent);this.discover.textContent='';this.discover.append(glyph(context.kind==='profile'?'refresh':'archive'));
       if(this.archiveOnly){this.discover.setAttribute('aria-label','Search archive');this.discover.title='Find archived public posts and comments for this unavailable account';this.discover.replaceChildren(glyph('archive'));this.discover.disabled=!this.settingsError && !this.settings.archiveDiscovery;}
       toolbar.append(this.discover);
-      if(context.kind==='profile' && !this.archiveOnly && this.settings.archiveDiscovery){this.archiveButton=button('Search archive',()=>this.loadArchive(),'archive');this.archiveButton.title='Send this public username to Arctic Shift to look for older snapshots';this.archiveButton.setAttribute('aria-label','Search archive');this.archiveButton.textContent='';this.archiveButton.append(glyph('archive'));toolbar.append(this.archiveButton);}else this.archiveButton=null;
+      // The archive now loads with Reddit discovery whenever it is enabled;
+      // Refresh activity reloads both providers.
+      this.archiveButton=null;
       this.status=make('p','rt-posts-status');this.status.setAttribute('role','status');
       this.results=make('div','rt-posts-results');this.loading=make('div','rt-post-loading');this.loading.hidden=true;this.loading.setAttribute('aria-label','Loading posts');this.loading.append(this.feedLoader());
       this.more=button('Load more',()=>this.batchedProfile?this.advanceProfileBatch(true):this.loadMore());this.more.className='rt-posts-more';this.more.hidden=true;
@@ -239,7 +241,7 @@
     clearActivityMenu(){
       if(this.activityMain && this.activityOpen)this.activityMain.classList.remove('hidden');
       this.activityMenuObserver?.disconnect();if(this.activityDropdown && this.activityKeydown)this.activityDropdown.removeEventListener('keydown',this.activityKeydown,true);
-      for(const row of this.activityMenuRows || [])row.remove();this.activityMenuRows=[];this.activityMenu=null;this.activityMain=null;this.activityDropdown=null;this.activityOpen=false;
+      for(const row of this.activityMenuRows || [])row.remove();this.activityMenuRows=[];this.host?.removeAttribute('data-rt-menu-ready');this.activityMenu=null;this.activityMain=null;this.activityDropdown=null;this.activityOpen=false;
     }
     ensureActivityMenu(){
       if(this.context?.kind!=='profile' || !this.toolbar)return;
@@ -261,9 +263,11 @@
         const activity=row('Activity','filter','chevron-right');activity.dataset.rtActivity='true';activity.dataset.rtUi='activity-filter-option';activity.setAttribute('aria-haspopup','menu');
         const show=value=>{this.activityOpen=value;menu.classList.toggle('hidden',value);sub.classList.toggle('hidden',!value);activity.setAttribute('aria-expanded',String(value));(value?sub.querySelector('rpl-menu-item'):activity)?.focus({preventScroll:true});};
         activate(activity,()=>show(true));menu.append(activity);
+        // Refresh lives with Reddit's own feed options instead of extra page chrome.
+        const refresh=row('Refresh activity','refresh');refresh.dataset.rtUi='activity-refresh';activate(refresh,()=>{dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});if(!this.discover.disabled)this.discover.click();});menu.append(refresh);
         const back=row('Back','arrow-back');activate(back,()=>show(false));sub.append(back);
         for(const [value,label,icon] of [['all','All activity','filter'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']]){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{if(this.activityFilter!==value){this.activityFilter=value;this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});}this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();show(false);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});this.ensureActivityArchive();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
-        content.append(sub);this.activityMenuRows=[activity,sub];
+        content.append(sub);this.activityMenuRows=[activity,refresh,sub];this.host?.setAttribute('data-rt-menu-ready','');
         this.activityKeydown=event=>{if(event.key==='Escape' && this.activityOpen){event.preventDefault();event.stopImmediatePropagation();show(false);}};dropdown.addEventListener('keydown',this.activityKeydown,true);
         this.activityMenuObserver=new MutationObserver(()=>{if(!dropdown.hasAttribute('open') && this.activityOpen)show(false);});this.activityMenuObserver.observe(dropdown,{attributes:true,attributeFilter:['open']});
       }
