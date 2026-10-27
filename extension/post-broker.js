@@ -48,7 +48,7 @@
     }else text=await response.text();
     return text.length>3000000?null:text;
   }
-  async function request(username,before,ids,kind='post',{contextOnly=false,recoverSender=null}={}){
+  async function request(username,before,ids,kind='post',{contextOnly=false,recoverSender=null,titles=true}={}){
     const release=await slot();
     try{
       if(!await enabled(Boolean(recoverSender)))return disabled();
@@ -79,7 +79,7 @@
       }catch(error){return fail(controller.signal.aborted?'Archive request timed out.':'Archive service is unavailable.',controller.signal.aborted?'timeout':'network-error');}
       finally{clearTimeout(timer);}
       // Title fill has its own budget and runs after the page timer is cleared, so it never turns a page into a timeout.
-      if(value.ok && kind==='comment' && !contextOnly)await fillCommentTitles(value.posts);
+      if(value.ok && kind==='comment' && !contextOnly && titles)await fillCommentTitles(value.posts);
       return value;
     }finally{release();}
   }
@@ -114,6 +114,24 @@
     const missing=[...new Set(posts.map(post=>post.linkId).filter(id=>id && !titles.has(id)))].slice(0,100);
     if(missing.length && cooldownUntil<=now && await enabled())await lookupTitles(missing);
     for(const post of posts){const info=titles.get(post.linkId);if(!info || info.expires<=Date.now())continue;if(!post.title && info.title)post.title=info.title;if(info.over18)post.over18=true;if(info.spoiler)post.spoiler=true;}
+  }
+  // Thread restoration: archived text for deleted/removed comments shown on the
+  // open post page. Only that post's own page may ask, only for its comments.
+  async function archiveComments(message,sender){
+    if(!Model.validateId(message.postId) || !Array.isArray(message.ids) || !message.ids.length || message.ids.length>100 || !message.ids.every(Model.validateCommentId))return fail('Invalid comment IDs.','invalid-request');
+    const postId=message.postId.toLowerCase().replace(/^t3_/,''),ids=[...new Set(message.ids.map(id=>id.toLowerCase().replace(/^t1_/,'')))].sort();
+    if(!authorized(sender,'',[postId]))return fail('Comment recovery requires the matching Reddit post.','forbidden');
+    if(!await enabled(true))return disabled();
+    const key='thread:'+postId+':'+ids.join(','),saved=cache.get(key);
+    if(saved?.expires>Date.now())return saved.value;
+    if(pending.has(key))return pending.get(key);
+    if(pending.size>=50)return fail('Too many archive requests.','busy');
+    const operation=request('',null,ids,'comment',{titles:false}).then(async value=>{
+      if(!await enabled(true))return disabled();
+      if(value.ok){value={...value,posts:value.posts.filter(post=>post.linkId===postId)};if(cache.size>=50)cache.delete(cache.keys().next().value);cache.set(key,{value,expires:Date.now()+ttl});}
+      return value;
+    });
+    pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
   }
   const contextKey=(sender,username)=>sender.tab.id+':'+username.toLowerCase();
   function rememberCommentContexts(message,sender,value){
@@ -160,6 +178,7 @@
     }
     if(message.action==='archive-parents')return archiveParents(message,sender);
     if(message.action==='archive-recover')return archiveRecover(message,sender);
+    if(message.action==='archive-comments')return archiveComments(message,sender);
     const kind=message.kind || 'post';
     if(!['post','comment'].includes(kind) || message.action==='archive-ids' && kind!=='post')return fail('Invalid content type.','invalid-request');
     if(!['archive-profile','archive-ids'].includes(message.action))return fail('Unknown archive action.','invalid-request');
@@ -191,6 +210,6 @@
   });
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     if(message?.scope!=='rt-posts')return;
-    handle(message,sender).then(async value=>{if(message.action!=='get-settings' && value?.ok && !await enabled(message.action==='archive-recover'))value=disabled();if(message.action==='archive-recover' && value?.ok && !authorized(sender,message.username,null))value=fail('Archive recovery requires the matching Reddit profile.','forbidden');rememberCommentContexts(message,sender,value);sendResponse(value);},()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
+    handle(message,sender).then(async value=>{if(message.action!=='get-settings' && value?.ok && !await enabled(['archive-recover','archive-comments'].includes(message.action)))value=disabled();if(message.action==='archive-recover' && value?.ok && !authorized(sender,message.username,null))value=fail('Archive recovery requires the matching Reddit profile.','forbidden');rememberCommentContexts(message,sender,value);sendResponse(value);},()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
   });
 })();

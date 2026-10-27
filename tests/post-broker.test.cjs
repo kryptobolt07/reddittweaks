@@ -184,3 +184,14 @@ test('rate-limit reset timestamps set cooldown from epoch milliseconds or second
  const seconds=env({fetcher:async()=>response([row()],200,{'X-RateLimit-Remaining':'0','X-RateLimit-Reset-At':String(Math.floor((Date.now()+90000)/1000))})}),first=await seconds.send();
  assert.equal(first.ok,true);const next=await seconds.send({before:1700000000});assert.equal(next.code,'rate-limited');assert.ok(next.retryAt>Date.now()+80000 && next.retryAt<=Date.now()+90000);
 });
+test('thread comment recovery is limited to the open post page and its own comments',async()=>{
+ const rows=[{id:'aaa1',author:'Original',body:'Kept text',created_utc:1700000000,link_id:'t3_abc12',parent_id:'t3_abc12'},{id:'bbb2',author:'Other',body:'Elsewhere',created_utc:1700000000,link_id:'t3_zzz99',parent_id:'t3_zzz99'}];
+ const e=env({settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},fetcher:async()=>response(rows)}),detail={url:'https://www.reddit.com/r/example/comments/abc12/title/'};
+ const message={action:'archive-comments',postId:'t3_abc12',ids:['t1_aaa1','bbb2','aaa1']};
+ const result=await e.send(message,detail);assert.equal(result.ok,true);assert.equal(JSON.stringify(result.posts.map(p=>p.id)),'["aaa1"]','comments from another post are dropped');assert.equal(result.posts[0].body,'Kept text');
+ const url=new URL(e.calls[0][0]);assert.equal(url.pathname,'/api/comments/ids');assert.equal(url.searchParams.get('ids'),'aaa1,bbb2');assert.equal(e.calls.length,1,'no extra title lookup for thread pages');
+ assert.equal((await e.send(message)).code,'forbidden','a profile page cannot ask for thread comments');
+ assert.equal((await e.send({...message,postId:'zzz99'},detail)).code,'forbidden','another post id is rejected');
+ for(const bad of [{ids:[]},{ids:Array.from({length:101},(_,i)=>'c'+i)},{ids:['bad id']},{postId:'no!'}])assert.equal((await e.send({...message,...bad},detail)).code,'invalid-request');
+ e.setSettings({postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:false});assert.equal((await e.send(message,detail)).code,'disabled','automatic restoration must be on');
+});
