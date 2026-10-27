@@ -96,7 +96,8 @@
       "run_at": "document_idle",
       "js": [
         "post-model.js",
-        "post-discovery.js"
+        "post-discovery.js",
+        "thread-restore.js"
       ]
     }
   ],
