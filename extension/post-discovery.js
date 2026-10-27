@@ -581,8 +581,11 @@
     }
     // Archive and Reddit search streams load independently; neither waits for
     // the other's request to finish.
+    // Archive pages are chronological, so they merge automatically only into
+    // New (and Deleted); Hot/Top keep Reddit's ranking without archive filler.
     refreshActivity(){
-      const reddit=this.loadReddit(),archive=this.settings.archiveDiscovery && !this.archiveOnly?this.loadArchive():undefined;
+      const merge=this.settings.archiveDiscovery && !this.archiveOnly && (this.context?.sort==='new' || this.activityFilter==='deleted');
+      const reddit=this.loadReddit(),archive=merge?this.loadArchive():undefined;
       return Promise.all([reddit,archive]);
     }
     async archivePage({more=false}={}){
