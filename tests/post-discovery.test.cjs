@@ -137,18 +137,16 @@ test('native hydration keeps a two-request bound and never publishes unfinished 
  assert.equal(peak,2);assert.deepEqual(order,['item0','item1','item2','item3','item4']);d.scan();assert.equal(order.length,5);assert.equal(W.document.querySelectorAll('shreddit-post[id^=t3_item]').length,5);
 });
 
-test('cards supply native feed separators without duplicating server rules or confusing body rules',async t=>{
- const {W,d}=setup(t);await d.ready;
- const node=d.card({id:'test',fullname:'t3_test'}),placeholderRule=node.querySelector('[data-rt-separator]');
- assert.equal(placeholderRule.className,'border-0 border-b-sm border-solid border-b-neutral-border-weak');
- node.innerHTML='<faceplate-partial><article><shreddit-post><div slot="text-body"><hr></div></shreddit-post></article></faceplate-partial>';
- d.ensureSeparator(node);const rule=node.querySelector('[data-rt-separator]');assert.equal(rule,node.lastElementChild);assert.equal(node.querySelectorAll('hr').length,2);
- d.ensureSeparator(node);assert.equal(node.querySelectorAll('[data-rt-separator]').length,1);
- const supplied=W.document.createElement('hr');node.querySelector('faceplate-partial').append(supplied);d.ensureSeparator(node);assert.equal(node.querySelector('[data-rt-separator]'),null);assert.equal(supplied.isConnected,false);
- // Comments omit the feed-level rule. The generated one stays with the wrapper
- // through native virtualization and opt-out rather than becoming an orphan.
- node.innerHTML='<faceplate-partial><shreddit-profile-comment></shreddit-profile-comment></faceplate-partial>';d.ensureSeparator(node);d.feed.append(node);d.nodes.set('test',node);
- const separator=node.lastElementChild,slot=W.document.createElement('div');slot.className='virtualized-placeholder';node.replaceWith(slot);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[node]}]);assert.equal(separator.parentElement,node);slot.replaceWith(node);d.trackVirtualization([{target:d.feed,addedNodes:[node],removedNodes:[slot]}]);assert.equal(node.lastElementChild,separator);d.reset();assert.equal(separator.isConnected,false);
+test('native separators survive hydration, filtering and virtualization without synthetic rules',async t=>{
+ let release;const {W,d}=setup(t,{reddit:async()=>({posts:[raw('good'),raw('bad')],hasMore:false}),nativeRender:async(post,node)=>{
+  if(post.id==='bad')throw Error('Reddit returned no matching native card');
+  await new Promise(r=>release=r);node.innerHTML='<faceplate-partial><article><shreddit-post id="t3_good"><span slot="credit-bar"></span></shreddit-post></article><hr class="border-0 border-b-sm border-solid border-b-neutral-border-weak"></faceplate-partial>';
+ }});
+ await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const card=d.nodes.get('good'),failed=d.nodes.get('bad');
+ assert.equal(card.dataset.rtNativeState,'loading');assert.equal(card.querySelector('hr'),null,'pending card adds no rule');assert.equal(failed.dataset.rtNativeState,'failed');assert.equal(failed.querySelector('hr'),null,'fallback adds no rule');
+ release();await new Promise(r=>setImmediate(r));const rule=card.querySelector('hr');assert.ok(rule);assert.equal(card.querySelectorAll('hr').length,1);
+ d.render();assert.equal(card.querySelector('hr'),rule);d.activityMenu.querySelector('[data-rt-activity-filter="deleted"]').click();assert.equal(card.hidden,true);assert.equal(card.querySelector('hr'),rule);d.activityMenu.querySelector('[data-rt-activity-filter="all"]').click();assert.equal(card.hidden,false);
+ const slot=W.document.createElement('div');slot.className='virtualized-placeholder';card.replaceWith(slot);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[card]}]);assert.equal(card.querySelector('hr'),rule);slot.replaceWith(card);d.trackVirtualization([{target:d.feed,addedNodes:[card],removedNodes:[slot]}]);d.render();assert.equal(card.querySelector('hr'),rule);assert.equal(card.querySelectorAll('hr').length,1);await new Promise(r=>setImmediate(r));
 });
 
 test('Reddit virtualization retains loaded cards and native date anchors without reinsertion or refetch',async t=>{
@@ -163,7 +161,7 @@ test('Reddit virtualization retains loaded cards and native date anchors without
  assert.equal(card.isConnected,false);assert.equal(cardSlot.parentElement,d.feed);assert.equal(d.nodes.get('past').hidden,true);assert.equal(d.visibleIds().has('t3_native'),true);
  for(let i=0;i<5;i++)d.scan();assert.equal(cardSlot.nextElementSibling,nativeSlot);assert.equal(renders,1);assert.equal(calls.length,1);assert.equal(d.nodes.get('middle'),card);
  d.feed.replaceChild(native,nativeSlot);d.feed.replaceChild(card,cardSlot);await new Promise(r=>setImmediate(r));
- assert.equal(card.firstElementChild,content);assert.equal(card.dataset.rtNativeState,'ready');assert.equal(renders,1);assert.equal(d.virtualNodes.size,0);assert.equal(d.feed.querySelectorAll('.virtualized-placeholder').length,0);
+ assert.equal(card.firstElementChild,content);assert.equal(card.dataset.rtNativeState,'ready');assert.equal(renders,1);assert.equal(d.virtualNodes.size,0);assert.equal(d.feed.querySelectorAll('.virtualized-placeholder').length,0);observer.disconnect();
 });
 test('synchronous reconciliation cannot steal a populated card from a native placeholder before observers deliver',async t=>{
  const {W,d}=setup(t);await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const card=d.nodes.get('abc12'),body=card.firstElementChild,slot=W.document.createElement('div');slot.className='virtualized-placeholder';slot.style.height='600px';const stack=[{node:card,placeholder:slot,height:600}];card.replaceWith(slot);
@@ -917,12 +915,11 @@ test('profile loading suppresses supplemental progress bars while retaining halo
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(shadow.querySelector('style'),null);assert.equal(loader.shadowRoot.querySelector('style'),null);assert.notEqual(W.getComputedStyle(bar).display,'none');assert.ok(native.shadowRoot.querySelector('[data-video-progress]'));
 });
 
-test('toolbar and continuation rules are hidden without removing card or body separators',async t=>{
+test('native separators remain visible around controls, feed and loader',async t=>{
  const {W,d}=setup(t);await d.ready;const style=W.document.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(style);const rule=()=>{const hr=W.document.createElement('hr');hr.className='border-0 border-b-sm border-solid border-b-neutral-border-weak';return hr;};
  const before=rule(),after=rule(),toolbar=rule(),leading=rule(),tail=rule();d.host.before(before);d.host.after(after);d.toolbar.append(toolbar);d.feed.prepend(leading);d.feed.insertBefore(tail,d.loading);d.busy=true;d.updateProfileLoading();
- const loader=d.loading.firstElementChild;loader.attachShadow({mode:'open'}).innerHTML='<hr class="border-0 border-b-sm border-solid border-b-neutral-border-weak"><shreddit-loading></shreddit-loading>';d.observeNativeLoading();assert.match(loader.shadowRoot.querySelector('style').textContent,/progress,hr\{display:none!important\}/);assert.ok(loader.shadowRoot.querySelector('shreddit-loading'));
- for(const hr of [before,after,toolbar,leading,tail])assert.equal(W.getComputedStyle(hr).display,'none');const card=d.card({id:'rule',fullname:'t3_rule'}),body=W.document.createElement('shreddit-post');body.append(rule());card.prepend(body);d.feed.insertBefore(card,tail);for(const hr of card.querySelectorAll('hr'))assert.notEqual(W.getComputedStyle(hr).display,'none');
- d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.notEqual(W.getComputedStyle(before).display,'none');assert.notEqual(W.getComputedStyle(leading).display,'none');assert.equal(loader.shadowRoot.querySelector('style'),null);
+ const loader=d.loading.firstElementChild;loader.attachShadow({mode:'open'}).innerHTML='<hr class="border-0 border-b-sm border-solid border-b-neutral-border-weak"><shreddit-loading></shreddit-loading>';d.observeNativeLoading();assert.doesNotMatch(loader.shadowRoot.querySelector('style').textContent,/hr/);assert.ok(loader.shadowRoot.querySelector('shreddit-loading'));
+ for(const hr of [before,after,toolbar,leading,tail])assert.notEqual(W.getComputedStyle(hr).display,'none');
 });
 
 test('scrolled viewport style transactions do not feed back into the loading observer or starve timers',async t=>{
