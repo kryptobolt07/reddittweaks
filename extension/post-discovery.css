@@ -101,9 +101,12 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 .rt-archived-author,.rt-archived-author:visited{color:inherit;text-decoration:underline dotted;text-underline-offset:3px;text-decoration-thickness:1px}.rt-archived-author:hover{text-decoration-style:solid}
 
 /* Skeleton while an archived post/comment is looked up (Reddit-style shimmer). */
+/* Reddit's shimmer token can be translucent. Mix opaque theme colors for a
+   visible base in both themes, while leaving native shimmer animation intact. */
+html[data-rt-restore],.rt-skeleton{--rt-skeleton-base:color-mix(in srgb,var(--color-neutral-content-strong,#1a1a1b) 16%,var(--color-neutral-background,#fff))}
 @keyframes rt-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
 html[data-rt-restore] main shreddit-post:is([data-rt-pending],:has(> [slot="post-removed-banner"]):not([data-rt-settled])) > [slot="title"],
-html[data-rt-restore] main shreddit-comment[is-comment-deleted]:not([data-rt-settled]) > details > div > div > div > div > p{color:transparent!important;border-radius:8px;background:linear-gradient(90deg,var(--color-shimmer-background,#eaedef) 30%,color-mix(in srgb,var(--color-shimmer-background,#eaedef) 45%,var(--color-neutral-background,#fff)) 50%,var(--color-shimmer-background,#eaedef) 70%);background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite;user-select:none}
+html[data-rt-restore] main shreddit-comment[is-comment-deleted]:not([data-rt-settled]) > details > div > div > div > div > p{color:transparent!important;border-radius:8px;background:linear-gradient(90deg,var(--rt-skeleton-base) 30%,color-mix(in srgb,var(--rt-skeleton-base) 45%,var(--color-neutral-background,#fff)) 50%,var(--rt-skeleton-base) 70%);background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite;user-select:none}
 @media(prefers-reduced-motion:reduce){html[data-rt-restore] main shreddit-post > [slot="title"],shreddit-comment [data-rt-notice],html[data-rt-restore] main shreddit-comment > details p{animation:none!important}}
 /* Fallbacks for Reddit's own media utilities (archive-view.js builds Reddit's structure). */
 .rt-archived-media{position:relative;overflow:hidden;isolation:isolate;border-radius:16px;margin-block:8px}
@@ -116,7 +119,7 @@ html[data-rt-restore] main shreddit-comment[is-comment-deleted]:not([data-rt-set
 /* Skeleton lines while the archive is asked: the same design as the chat
    search result skeletons (pill shimmer, 9px rhythm, sweeping highlight). */
 .rt-skeleton{display:flex;flex-direction:column;gap:9px;padding:6px 0 10px}
-.rt-skeleton-line{position:relative;display:block;height:11px;overflow:hidden;border-radius:999px;background:var(--color-shimmer-background,var(--color-neutral-background-weak,#eaedef))}
+.rt-skeleton-line{position:relative;display:block;height:11px;overflow:hidden;border-radius:999px;background:var(--rt-skeleton-base)}
 .rt-skeleton-line:first-child{height:12px}
 .rt-skeleton-fallback::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent);animation:rt-skeleton-sweep 1.5s ease-in-out infinite}
 @keyframes rt-skeleton-sweep{to{transform:translateX(100%)}}
@@ -128,7 +131,7 @@ html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary
 html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]{visibility:hidden;position:relative}
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentAvatar"]::after,
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]::after,
-html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]::after{content:"";visibility:visible;position:absolute;inset-block-start:4px;inset-inline-start:0;width:32px;height:32px;border-radius:50%;background:var(--color-shimmer-background,var(--color-neutral-background-weak,#eaedef))}
+html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]::after{content:"";visibility:visible;position:absolute;inset-block-start:4px;inset-inline-start:0;width:32px;height:32px;border-radius:50%;background:var(--rt-skeleton-base)}
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]::after{width:min(160px,80%);height:12px;border-radius:999px;inset-block-start:10px}
 .rt-skeleton-line:not(:defined)::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent);animation:rt-skeleton-sweep 1.5s ease-in-out infinite}
 @media(prefers-reduced-motion:reduce){.rt-skeleton-fallback::after{display:none}}

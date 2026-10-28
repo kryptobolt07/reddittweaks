@@ -19,7 +19,8 @@
       notice.dataset.rtNotice='true';comment.setAttribute('data-rt-pending','');
       if([...comment.querySelectorAll('[data-rt-skeleton]')].some(n=>n.closest('shreddit-comment')===comment))continue;
       const skeleton=doc.createElement('div');skeleton.className='rt-skeleton';skeleton.dataset.rtSkeleton='true';skeleton.setAttribute('aria-hidden','true');
-      for(const width of [86,55]){const line=doc.createElement('faceplate-shimmer');line.className='rt-skeleton-line';line.style.width=width+'%';skeleton.append(line);}notice.after(skeleton);
+      const reduced=doc.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      for(const width of [86,55]){const line=doc.createElement(reduced?'span':'faceplate-shimmer');line.className='rt-skeleton-line'+(reduced?' rt-skeleton-fallback':'');if(!reduced)line.setAttribute('shape','pill');line.style.width=width+'%';skeleton.append(line);}notice.after(skeleton);
     }
   }
   function setRestoreEnabled(value){restoreRevision++;restore=value===true;refresh();}
