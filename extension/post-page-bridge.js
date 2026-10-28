@@ -10,40 +10,98 @@
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
-  let restoreFrame=null;
-  function schedulePlaceholderRestore(){
-    if(restoreFrame!==null || !route()?.username || !document.documentElement.hasAttribute('data-rt-profile-discovery'))return;
-    const feed=document.querySelector('main shreddit-feed[data-rt-loading-owner]'),controller=feed?.virtualization;
-    if(!controller?.topStack?.length || typeof controller.devirtualizeTopElements!=='function' || typeof requestAnimationFrame!=='function')return;
-    const path=location.pathname+location.search;
-    // Reddit's saved heights can differ from the placeholders' current layout,
-    // especially when filtered cards are hidden. Use their actual positions to
-    // choose a viewport of overscan, and let Reddit restore its own retained nodes.
-    restoreFrame=requestAnimationFrame(()=>{
-      restoreFrame=null;
-      if(path!==location.pathname+location.search || !feed.isConnected || feed.virtualization!==controller || !feed.hasAttribute('data-rt-loading-owner') || !document.documentElement.hasAttribute('data-rt-profile-discovery'))return;
-      const stack=controller.topStack;if(!Array.isArray(stack) || typeof controller.devirtualizeTopElements!=='function')return;
-      let budget=0,count=0,scanned=0;const limit=-Math.max(0,window.innerHeight || 0);
-      for(let i=stack.length-1;i>=0 && count<256 && scanned<8192;i--){
-        const entry=stack[i],slot=entry?.placeholder,height=entry?.height;
-        if(!slot || slot.parentElement!==feed || !Number.isFinite(height) || height<0 || typeof slot.getBoundingClientRect!=='function')break;
-        const rect=slot.getBoundingClientRect();if(!Number.isFinite(rect.bottom))break;
-        // Hidden placeholders still occupy a position in Reddit's stack and
-        // must be popped before the next visible placeholder can be reached.
-        if(rect.height>0 && rect.bottom<limit)break;
-        budget+=height;scanned++;if(height>0)count++;
-      }
-      // Zero-height loader entries need no restoration by themselves. Reddit's
-      // method passes through them when a later positive-height entry needs it.
-      if(!count || !Number.isFinite(budget))return;
-      const before=stack.length;
-      try{controller.devirtualizeTopElements(-budget);}catch{ return; }
-      // A very large jump is restored in bounded chunks. Stop if the native
-      // method made no progress or its contract changed.
-      if((count===256 || scanned===8192) && controller.topStack===stack && stack.length<before)schedulePlaceholderRestore();
-    });
+  // Reddit's feed virtualizer assumes its placeholders form one block at the top
+  // of the feed, in stack order. Discovery inserts and reorders cards, which
+  // breaks that: entries end up out of order, duplicated or detached, Reddit
+  // stops restoring at the first one out of range and readers see blank space
+  // (mostly when scrolling up). While discovery owns a profile feed, drive the
+  // same controller from the document instead: restore any placeholder near the
+  // viewport, wherever its stack entry is, and only virtualize cards far above.
+  // Entries keep Reddit's {node,placeholder,height} shape so its state survives.
+  let syncFrame=null,observedFeed=null;const managed=new WeakSet(),nativeMethods=new WeakMap();
+  const feedObserver=typeof MutationObserver==='function'?new MutationObserver(()=>scheduleFeedSync()):null;
+  function ownedFeed(feed){return Boolean(feed?.isConnected && feed.hasAttribute('data-rt-loading-owner') && route()?.username && document.documentElement.hasAttribute('data-rt-profile-discovery'));}
+  function currentFeed(){return document.querySelector('main shreddit-feed[data-rt-loading-owner]') || (observedFeed?.isConnected?observedFeed:null);}
+  function manageFeed(feed){
+    const controller=feed?.virtualization;
+    if(!controller || !Array.isArray(controller.topStack) || typeof controller._virtualizeTop!=='function')return null;
+    if(!nativeMethods.has(controller)){
+      const native=controller._virtualizeTop;nativeMethods.set(controller,native);
+      controller._virtualizeTop=function(distance){
+        if(ownedFeed(this.host)){scheduleFeedSync();return;}
+        // Discovery released the feed: restore everything we hold so Reddit
+        // restarts from a consistent, empty stack.
+        if(managed.has(this)){managed.delete(this);releaseFeed(this);}
+        return native.call(this,distance);
+      };
+    }
+    managed.add(controller);
+    if(observedFeed!==feed && feedObserver){feedObserver.disconnect();feedObserver.observe(feed,{childList:true});observedFeed=feed;}
+    return controller;
   }
-  document.addEventListener('scroll',schedulePlaceholderRestore,{passive:true});
+  function restoreEntry(feed,entry){
+    const {node,placeholder}=entry;
+    if(!placeholder?.isConnected)return false;
+    if(node?.nodeType===1 && !node.isConnected && !node.contains(placeholder))placeholder.replaceWith(node);
+    else placeholder.remove();
+    return true;
+  }
+  function releaseFeed(controller){
+    const stack=Array.isArray(controller.topStack)?controller.topStack:[];
+    for(let pass=0;pass<4 && stack.length;pass++){const entries=stack.splice(0);for(const entry of entries.reverse())if(entry && !restoreEntry(controller.host,entry) && entry.node?.nodeType===1 && !entry.node.isConnected)stack.push(entry);if(stack.length===entries.length)break;}
+    for(const placeholder of controller.host?.querySelectorAll?.(':scope > .virtualized-placeholder') || [])placeholder.remove();
+    controller.topStack=[];controller.topPadding=0;
+  }
+  function viewportAnchor(feed){
+    for(const child of feed.children){if(child.classList.contains('virtualized-placeholder'))continue;const rect=child.getBoundingClientRect();if(rect.height>0 && rect.bottom>0 && rect.top<window.innerHeight)return {child,top:rect.top};}
+    return null;
+  }
+  function syncFeed(){
+    const feed=currentFeed();
+    if(!ownedFeed(feed)){
+      const controller=feed?.virtualization;if(controller && managed.has(controller)){managed.delete(controller);releaseFeed(controller);}
+      return;
+    }
+    const controller=manageFeed(feed);if(!controller)return;
+    const height=Math.max(1,window.innerHeight || 0),restoreAbove=-1.5*height,restoreBelow=2.5*height,virtualizeAbove=-Math.max(3*height,height+1000);
+    const anchor=viewportAnchor(feed);let changed=false;
+    // Restore pass. A restored entry can itself be an older placeholder, so
+    // repeat until nothing near the viewport is left (bounded).
+    for(let pass=0;pass<8;pass++){
+      const stack=controller.topStack,byPlaceholder=new Map();for(const entry of stack)if(entry?.placeholder)byPlaceholder.set(entry.placeholder,entry);
+      const near=[];for(const placeholder of feed.querySelectorAll(':scope > .virtualized-placeholder')){const rect=placeholder.getBoundingClientRect();if(rect.bottom>restoreAbove && rect.top<restoreBelow)near.push(placeholder);}
+      // Entries whose placeholder left the document can never be restored by
+      // Reddit either (its replaceChild would throw); drop them.
+      const stale=stack.filter(entry=>!entry?.placeholder?.isConnected);
+      if(!near.length && !stale.length)break;
+      const done=new Set(stale);
+      for(const placeholder of near){const entry=byPlaceholder.get(placeholder);if(entry){restoreEntry(feed,entry);done.add(entry);}else placeholder.remove();changed=true;}
+      if(done.size){const keep=stack.filter(entry=>!done.has(entry));stack.length=0;stack.push(...keep);}
+    }
+    // Virtualize pass: only cards far above the viewport, the same distance
+    // Reddit uses. Our status/loader UI and empty elements stay mounted.
+    const pending=[];
+    for(const child of feed.children){
+      if(child.classList.contains('virtualized-placeholder') || child.dataset.rtUi && child.dataset.rtUi!=='activity-item')continue;
+      const rect=child.getBoundingClientRect();if(rect.height>0 && rect.top>=virtualizeAbove)break;
+      if(rect.height>0 && rect.bottom<virtualizeAbove)pending.push([child,rect.height]);
+    }
+    for(const [node,size] of pending){const placeholder=document.createElement('div');placeholder.className='virtualized-placeholder';placeholder.style.height=size+'px';feed.replaceChild(placeholder,node);controller.topStack.push({node,placeholder,height:size});changed=true;}
+    if(!changed)return;
+    controller.topPadding=controller.topStack.reduce((sum,entry)=>sum+(entry.placeholder?.isConnected && Number.isFinite(entry.height)?entry.height:0),0);
+    // Restored cards may differ from their saved heights; keep what the reader
+    // is looking at in place.
+    if(anchor?.child.isConnected){const delta=anchor.child.getBoundingClientRect().top-anchor.top;if(Math.abs(delta)>0.5)window.scrollBy({top:delta,behavior:'instant'});}
+  }
+  function scheduleFeedSync(){
+    if(syncFrame!==null || typeof requestAnimationFrame!=='function')return;
+    syncFrame=requestAnimationFrame(()=>{syncFrame=null;try{syncFeed();}catch{ /* Native virtualization remains if Reddit's contract changes. */ }});
+  }
+  document.addEventListener('scroll',scheduleFeedSync,{passive:true});
+  window.addEventListener('resize',scheduleFeedSync,{passive:true});
+  // Take over as soon as discovery marks a feed, before Reddit's next native
+  // pass can virtualize around inserted cards.
+  if(typeof MutationObserver==='function')new MutationObserver(scheduleFeedSync).observe(document.documentElement,{subtree:true,attributes:true,attributeFilter:['data-rt-loading-owner','data-rt-profile-discovery']});
   async function boundedText(response){
     if(Number(response.headers.get('content-length'))>2500000)throw Error('Reddit response is too large.');
     let text='';

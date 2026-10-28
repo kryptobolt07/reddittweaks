@@ -12,33 +12,45 @@ function setup(t,{url='https://www.reddit.com/user/Example/',fetcher}={}){
 test('Reddit reads use a fixed same-origin GET and return only compact public posts',async t=>{
   const e=setup(t),r=await e.send({action:'profile',username:'Example'});assert.equal(r.ok,true);assert.equal(r.posts[0].id,'abc12');const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/svc/shreddit/search/');assert.equal(new URL(url).searchParams.get('type'),'posts');assert.equal(new URL(url).searchParams.get('q'),'author:"Example"');assert.equal(options.credentials,'include');assert.equal(options.method,'GET');assert.equal(r.cookie,undefined);assert.equal(r.posts[0].body,'');assert.equal(r.posts[0].status,'unknown');
 });
-test('scroll restores native placeholders using their actual positions and saved heights',async t=>{
- const {W,calls}=setup(t);W.document.documentElement.setAttribute('data-rt-profile-discovery','');W.document.body.innerHTML='<main><shreddit-feed data-rt-loading-owner="extension"></shreddit-feed></main>';const feed=W.document.querySelector('shreddit-feed'),frames=[],stack=[],budgets=[];W.requestAnimationFrame=callback=>{frames.push(callback);return frames.length;};Object.defineProperty(W,'innerHeight',{value:500});
- for(const [bottom,height,shown] of [[-700,100,true],[-400,400,true],[0,900,false],[300,600,true]]){const placeholder=W.document.createElement('div'),node=W.document.createElement('shreddit-post');node.textContent='Already hydrated';placeholder.className='virtualized-placeholder';placeholder.getBoundingClientRect=()=>({bottom,height:shown?100:0});feed.append(placeholder);stack.push({node,placeholder,height});}
- feed.virtualization={topStack:stack,update:()=>assert.fail('do not await native update'),devirtualizeTopElements(t){budgets.push(t);while(t<0 && stack.length){const entry=stack.pop();t+=entry.height;entry.placeholder.replaceWith(entry.node);}}};
- W.scrollY=2000;W.document.dispatchEvent(new W.Event('scroll'));W.scrollY=1000;W.document.dispatchEvent(new W.Event('scroll'));assert.equal(frames.length,1);frames.shift()();assert.deepEqual(budgets,[-1900]);assert.equal(stack.length,1);assert.equal(feed.querySelectorAll('shreddit-post').length,3);assert.equal(calls.length,0);
- // Forward scrolling also repairs a placeholder left near the viewport.
- stack[0].placeholder.getBoundingClientRect=()=>({bottom:0,height:100});W.scrollY=1200;W.document.dispatchEvent(new W.Event('scroll'));frames.shift()();assert.deepEqual(budgets,[-1900,-100]);assert.equal(stack.length,0);
+function virtualFeed(t,{owned=true}={}){
+ const {W,calls}=setup(t);if(owned)W.document.documentElement.setAttribute('data-rt-profile-discovery','');
+ W.document.body.innerHTML=`<main><shreddit-feed${owned?' data-rt-loading-owner="extension"':''}></shreddit-feed></main>`;
+ const feed=W.document.querySelector('shreddit-feed'),frames=[],nativeCalls=[];W.requestAnimationFrame=callback=>{frames.push(callback);return frames.length;};
+ Object.defineProperty(W,'innerHeight',{value:600,configurable:true});W.scrollBy=()=>{};
+ const controller={host:feed,topStack:[],topPadding:0,_virtualizeTop(distance){nativeCalls.push(distance);}};feed.virtualization=controller;
+ const at=(element,top,height)=>{element.getBoundingClientRect=()=>({top,bottom:top+height,height});return element;};
+ const card=(name,top,height)=>{const node=W.document.createElement('article');node.id=name;return at(node,top,height);};
+ const held=(name,top,height)=>{const placeholder=at(W.document.createElement('div'),top,height);placeholder.className='virtualized-placeholder';const node=card(name,top,height);feed.append(placeholder);return {node,placeholder,height};};
+ const run=()=>{while(frames.length)frames.shift()();};
+ return {W,calls,feed,controller,nativeCalls,at,card,held,run};
+}
+test('owned profile feeds restore any placeholder near the viewport, whatever its stack order',async t=>{
+ const {W,feed,controller,held,card,run}=virtualFeed(t);
+ // Discovery reordered the feed: the entry nearest the viewport is buried
+ // under entries for placeholders far above, which stopped Reddit's own pop loop.
+ const near=held('near',-300,500),far=held('far',-9000,400),beyond=held('beyond',-8000,400);
+ const dup=held('dup',100,200);feed.append(dup.node);// card already back in the feed
+ const detachedPlaceholder=W.document.createElement('div');const detached={node:card('detached',0,100),placeholder:detachedPlaceholder,height:100};
+ controller.topStack.push(near,detached,dup,far,beyond);
+ W.document.dispatchEvent(new W.Event('scroll'));run();
+ assert.equal(near.node.parentElement,feed,'the visible card returns to its own position');assert.equal(near.placeholder.isConnected,false);
+ assert.equal(dup.placeholder.isConnected,false,'a duplicate placeholder is dropped, its card stays');assert.equal(feed.querySelectorAll('#dup').length,1);
+ assert.deepEqual(controller.topStack.map(entry=>entry.node.id),['far','beyond'],'far entries and nothing stale remain');
+ assert.equal(controller.topPadding,800);
 });
-test('zero-height native loader entries do not block restoring a visible card',async t=>{
- const {W}=setup(t);W.document.documentElement.setAttribute('data-rt-profile-discovery','');W.document.body.innerHTML='<main><shreddit-feed data-rt-loading-owner="extension"></shreddit-feed></main>';const feed=W.document.querySelector('shreddit-feed'),frames=[],stack=[],budgets=[];W.requestAnimationFrame=callback=>{frames.push(callback);return frames.length;};Object.defineProperty(W,'innerHeight',{value:500});
- const add=(height,bottom,actualHeight)=>{const placeholder=W.document.createElement('div');placeholder.getBoundingClientRect=()=>({bottom,height:actualHeight});feed.append(placeholder);stack.push({placeholder,node:W.document.createElement('div'),height});};
- add(100,-1000,100);add(1,-400,1);add(600,0,0);add(20,200,20);for(let i=0;i<112;i++)add(0,0,0);
- feed.virtualization={topStack:stack,devirtualizeTopElements(t){budgets.push(t);while(t<0 && stack.length){const entry=stack.pop();t+=entry.height;entry.placeholder.replaceWith(entry.node);}}};W.document.dispatchEvent(new W.Event('scroll'));frames.shift()();assert.deepEqual(budgets,[-621]);assert.equal(stack.length,1);assert.equal(stack[0].height,100);assert.equal(feed.children.length,116);
- // A stack of only zero-height entries needs no native restoration or retry.
- stack.length=0;for(let i=0;i<3;i++)add(0,0,0);W.document.dispatchEvent(new W.Event('scroll'));frames.shift()();assert.deepEqual(budgets,[-621]);assert.equal(frames.length,0);
+test('owned feeds virtualize only cards far above the viewport, in Reddit\'s entry shape',async t=>{
+ const {W,feed,controller,nativeCalls,card,run}=virtualFeed(t);
+ const old=card('old',-4000,500),recent=card('recent',-900,400),visible=card('visible',0,500),loader=card('loader',-5000,50);loader.dataset.rtUi='profile-loading';
+ feed.append(loader,old,recent,visible);await new Promise(resolve=>setTimeout(resolve,0));run();controller._virtualizeTop(5000);assert.deepEqual(nativeCalls,[],'native virtualization is replaced while discovery owns the feed');run();
+ assert.equal(old.isConnected,false);assert.equal(controller.topStack.length,1);const [entry]=controller.topStack;assert.equal(entry.node,old);assert.equal(entry.height,500);assert.equal(entry.placeholder.className,'virtualized-placeholder');assert.equal(entry.placeholder.style.height,'500px');
+ assert.ok(recent.isConnected && visible.isConnected && loader.isConnected,'nearby cards and extension UI stay mounted');
 });
-test('queued placeholder restoration cannot act on a replaced view, disabled discovery or changed native controller',async t=>{
- for(const change of ['route','removed','disabled','controller']){const {W}=setup(t);W.document.documentElement.setAttribute('data-rt-profile-discovery','');W.document.body.innerHTML='<main><shreddit-feed data-rt-loading-owner="extension"><div class="virtualized-placeholder"></div></shreddit-feed></main>';const feed=W.document.querySelector('shreddit-feed'),frames=[];let restores=0;feed.virtualization={topStack:[{placeholder:feed.firstElementChild,height:100}],devirtualizeTopElements:()=>restores++};W.requestAnimationFrame=callback=>{frames.push(callback);return frames.length;};W.document.dispatchEvent(new W.Event('scroll'));assert.equal(frames.length,1);if(change==='route')W.history.pushState({},'','/user/Other/');else if(change==='removed')feed.remove();else if(change==='disabled')W.document.documentElement.removeAttribute('data-rt-profile-discovery');else feed.virtualization={topStack:[],devirtualizeTopElements:()=>restores++};frames.shift()();assert.equal(restores,0);}
-});
-test('placeholder restoration ignores ordinary feeds and unsupported controllers',async t=>{
- const {W,calls}=setup(t);let frames=0;W.requestAnimationFrame=()=>frames++;W.document.body.innerHTML='<main><shreddit-feed></shreddit-feed></main>';const feed=W.document.querySelector('shreddit-feed');feed.virtualization={topStack:[{}],devirtualizeTopElements:()=>assert.fail('ordinary native feed')};for(const enabled of [false,true]){if(enabled)W.document.documentElement.setAttribute('data-rt-profile-discovery','');W.document.dispatchEvent(new W.Event('scroll'));}feed.setAttribute('data-rt-loading-owner','extension');delete feed.virtualization;W.document.dispatchEvent(new W.Event('scroll'));assert.equal(frames,0);assert.equal(calls.length,0);
-});
-test('large jumps restore in bounded chunks and stop if the native controller makes no progress',async t=>{
- const {W}=setup(t);W.document.documentElement.setAttribute('data-rt-profile-discovery','');W.document.body.innerHTML='<main><shreddit-feed data-rt-loading-owner="extension"></shreddit-feed></main>';const feed=W.document.querySelector('shreddit-feed'),frames=[],stack=[];W.requestAnimationFrame=callback=>{frames.push(callback);return frames.length;};
- for(let i=0;i<300;i++){const placeholder=W.document.createElement('div');placeholder.getBoundingClientRect=()=>({bottom:100,height:10});feed.append(placeholder);stack.push({placeholder,node:W.document.createElement('div'),height:10});}
- let restores=0;feed.virtualization={topStack:stack,devirtualizeTopElements(t){restores++;while(t<0 && stack.length){const entry=stack.pop();t+=entry.height;entry.placeholder.replaceWith(entry.node);}}};W.document.dispatchEvent(new W.Event('scroll'));frames.shift()();assert.equal(stack.length,44);assert.equal(frames.length,1);frames.shift()();assert.equal(stack.length,0);assert.equal(restores,2);
- const placeholder=W.document.createElement('div');placeholder.getBoundingClientRect=()=>({bottom:100,height:10});feed.append(placeholder);for(let i=0;i<256;i++)stack.push({placeholder,height:10});feed.virtualization.devirtualizeTopElements=()=>{};W.document.dispatchEvent(new W.Event('scroll'));frames.shift()();assert.equal(frames.length,0);
+test('ordinary feeds keep native virtualization, and releasing a feed restores what it holds',async t=>{
+ const plain=virtualFeed(t,{owned:false});plain.held('x',-200,100);plain.controller.topStack.push({node:plain.card('x',0,1),placeholder:plain.feed.firstElementChild,height:100});plain.W.document.dispatchEvent(new plain.W.Event('scroll'));plain.run();
+ assert.equal(plain.feed.firstElementChild.className,'virtualized-placeholder','an ordinary feed is untouched');assert.equal(plain.calls.length,0);
+ const {W,feed,controller,nativeCalls,held,run}=virtualFeed(t);const entry=held('kept',-9000,300);controller.topStack.push(entry);W.document.dispatchEvent(new W.Event('scroll'));run();assert.equal(entry.placeholder.isConnected,true);
+ W.document.documentElement.removeAttribute('data-rt-profile-discovery');controller._virtualizeTop(-50);
+ assert.equal(entry.node.parentElement,feed,'held cards return before Reddit resumes');assert.equal(controller.topStack.length,0);assert.equal(controller.topPadding,0);assert.deepEqual(nativeCalls,[-50]);
 });
 function nativePostHtml({id='abc12',author='Example',crosspost=false,embedded='',next='/svc/shreddit/search/?q=author%3A%22Example%22&type=posts&sort=new&cursor=opaque_post_cursor'}={}){
  const context=JSON.stringify({post:{id:'t3_'+id,title:'Public',nsfw:false,spoiler:false},profile:{name:author},subreddit:{name:'example'}});
