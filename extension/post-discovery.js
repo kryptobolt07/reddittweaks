@@ -93,7 +93,15 @@
       const saved={signature,owner,archiveOnly:this.archiveOnly,live:new Map(this.live),archived:new Map(this.archived),cards:new Map(),scrollY:pageRoute()?.key===this.context.key?window.scrollY || 0:previous?.scrollY || window.scrollY || 0};
       for(const name of ['loaded','archiveLoaded','pages','moreReddit','moreArchive','initialPrefetchDone'])saved[name]=this[name];
       saved.sourceFrontiers=new Map(this.sourceFrontiers);saved.commentOrigins=new Map(this.commentOrigins);saved.sourceErrors={...this.sourceErrors};for(const name of ['afterByKind','beforeByKind','redMore','archiveMore'])saved[name]={...this[name]};saved.recoveryChecked=new Set(this.recoveryChecked);saved.activityFilter=this.activityFilter;saved.postStatuses=new Map(this.postStatuses);saved.publishedCards=new Set(this.publishedCards);saved.replyContexts=new Map(this.replyContexts);saved.replyAuthors=new Map(this.replyAuthors);saved.replyArchiveChecked=new Set(this.replyArchiveChecked);
-      for(const [key,node] of this.nodes)if(node.dataset.rtNativeState==='ready'){const copy=node.cloneNode(true);copy.classList.remove('rt-native-enter','rt-native-inserted');for(const script of copy.querySelectorAll('script'))script.remove();const partial=copy.firstElementChild;if(partial?.matches('faceplate-partial') && partial.querySelector('shreddit-post,shreddit-profile-comment'))partial.replaceWith(...partial.childNodes);saved.cards.set(key,copy);}
+      // Keep the rendered cards themselves: moved custom elements keep their
+      // rendered state, so Back shows them instantly instead of re-rendering
+      // copies. Cards held by Reddit's virtualization are emptied by reset, so
+      // those few are copied as before.
+      for(const [key,node] of this.nodes)if(node.dataset.rtNativeState==='ready'){
+        node.classList.remove('rt-native-enter','rt-native-inserted');
+        if(this.feedSlot(node)===node){saved.cards.set(key,node);continue;}
+        const copy=node.cloneNode(true);for(const script of copy.querySelectorAll('script'))script.remove();const partial=copy.firstElementChild;if(partial?.matches('faceplate-partial') && partial.querySelector('shreddit-post,shreddit-profile-comment'))partial.replaceWith(...partial.childNodes);saved.cards.set(key,copy);
+      }
       saved.publishedCards=new Set([...saved.publishedCards].filter(key=>saved.cards.has(key)));
       this.profileStates.delete(this.context.key);this.profileStates.set(this.context.key,saved);
       while(this.profileStates.size>4 || [...this.profileStates.values()].reduce((count,state)=>count+state.cards.size,0)>250)this.profileStates.delete(this.profileStates.keys().next().value);
