@@ -1,3 +1,12 @@
+# 0.20.8 preview
+
+- No more blank space while scrolling profile results, especially upward. Discovery's inserted cards broke assumptions in Reddit's feed virtualizer (placeholders in one top block, in stack order), leaving out-of-order, duplicate and detached entries that Reddit stopped at. While discovery owns a profile feed, the page bridge now drives that same controller from the document: it restores any placeholder within ~1.5 viewports wherever its entry sits, drops stale entries, and only virtualizes cards far above the viewport, in Reddit's own entry shape. Other feeds keep native virtualization; a released feed is fully restored first. This replaces the 0.20.7 restore helper.
+- Back from a post or comment returns to the same place. Reddit keeps the profile feed while a post is open and restores its own scroll offset on Back, but discovery removed its cards on leaving and re-inserted them after return, so that offset was wrong by thousands of pixels. Opening a post now pauses discovery and leaves its cards in Reddit's retained feed; Reddit's restore then lands exactly. Other navigation still tears down and uses the remember/restore fallback.
+
+Version choice: PATCH to 0.20.8 for two user-visible reliability fixes; no new permissions, requests or storage changes.
+
+Validation: all 812 tests pass. Live Chrome on u/example_profile: 0 blank frames across ~5,700 wheel-scroll frames down and up plus fast flings, with no lost or duplicated cards; Back returned the reading card to its exact offset at 1,200 and 16,285 px. ZIP integrity and source/stable-folder/archive byte equality pass. Limitation: other kinds of navigation (for example profile → subreddit → Back) still use the older fallback and may not land exactly.
+
 # 0.20.7 preview
 
 - Restore already-loaded profile cards before their virtual placeholders enter the viewport. Use actual placeholder positions instead of repeating Reddit's cached-height calculation, which can drift after filtering or duplicate removal. Ask Reddit's own synchronous devirtualization method to reconnect its retained original nodes without waiting for feed hydration or another scroll event.
