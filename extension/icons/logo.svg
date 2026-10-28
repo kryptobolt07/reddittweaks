@@ -1,37 +1,100 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Reddit Tweaks mascot: an original antenna-topped tinkerer (gear antenna,
-       goggles, wrench) on Reddit orange. Not Reddit's Snoo. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Reddit Tweaks mascot: an antenna-topped tinkerer with glasses, a gear
+       antenna and an electrified screwdriver, among settings tiles. -->
   <defs>
+    <clipPath id="tile"><rect width="512" height="512" rx="112"/></clipPath>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ff7a3d"/>
-      <stop offset="1" stop-color="#ff3c00"/>
+      <stop offset="0" stop-color="#ff5a36"/><stop offset=".55" stop-color="#ff6a24"/><stop offset="1" stop-color="#ff8a1c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".55" r=".6">
+      <stop offset="0" stop-color="#ffb066" stop-opacity=".75"/><stop offset="1" stop-color="#ff7a2a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="skin" cx=".38" cy=".3" r=".85">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".6" stop-color="#f1f4f9"/><stop offset="1" stop-color="#cfd9e6"/>
+    </radialGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbfcfd"/><stop offset=".5" stop-color="#cdd5dd"/><stop offset="1" stop-color="#8e9aa6"/>
     </linearGradient>
     <linearGradient id="lens" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#8fe3ff"/>
-      <stop offset="1" stop-color="#3fa7e6"/>
+      <stop offset="0" stop-color="#d9f2ff" stop-opacity=".55"/><stop offset="1" stop-color="#8fd0f5" stop-opacity=".5"/>
     </linearGradient>
+    <radialGradient id="iris" cx=".42" cy=".38" r=".7">
+      <stop offset="0" stop-color="#c8704a"/><stop offset=".65" stop-color="#8a3a22"/><stop offset="1" stop-color="#4a1a10"/>
+    </radialGradient>
+    <linearGradient id="handle" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3f6fb5"/><stop offset=".5" stop-color="#2c548f"/><stop offset="1" stop-color="#1d3a66"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#8a2a00" flood-opacity=".35"/></filter>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9"/></filter>
+    <filter id="spark" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
   </defs>
-  <rect width="128" height="128" rx="30" fill="url(#bg)"/>
-  <!-- antenna with a gear tip -->
-  <path d="M66 44C67 33 73 26 82 23" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="88" cy="20" r="8.5" fill="none" stroke="#fff" stroke-width="5" stroke-dasharray="3.4 3.27"/>
-  <circle cx="88" cy="20" r="7" fill="#fff"/>
-  <circle cx="88" cy="20" r="2.8" fill="#ff5a1f"/>
-  <!-- head -->
-  <ellipse cx="64" cy="74" rx="42" ry="32" fill="#fff"/>
-  <!-- goggles strap and lenses -->
-  <rect x="22" y="58" width="84" height="9" rx="4.5" fill="#24313a"/>
-  <circle cx="48" cy="68" r="14" fill="#24313a"/>
-  <circle cx="80" cy="68" r="14" fill="#24313a"/>
-  <circle cx="48" cy="68" r="9.5" fill="url(#lens)"/>
-  <circle cx="80" cy="68" r="9.5" fill="url(#lens)"/>
-  <circle cx="44.5" cy="64.5" r="3" fill="#fff" opacity=".9"/>
-  <circle cx="76.5" cy="64.5" r="3" fill="#fff" opacity=".9"/>
-  <!-- smile -->
-  <path d="M54 90q10 8 20 0" fill="none" stroke="#24313a" stroke-width="4.5" stroke-linecap="round"/>
-  <!-- wrench -->
-  <g transform="translate(103 103) rotate(-45)">
-    <rect x="-3.6" y="-4" width="7.2" height="22" rx="3.6" fill="#fff"/>
-    <path d="M-9-10a9.5 9.5 0 1 0 18 0l-4.6 3.2h-8.8z" fill="#fff"/>
+  <g clip-path="url(#tile)">
+    <rect width="512" height="512" fill="url(#bg)"/>
+    <rect width="512" height="512" fill="url(#glow)"/>
+    <!-- circuit lines -->
+    <g fill="none" stroke="#ffe0cc" stroke-opacity=".28" stroke-width="2.5" stroke-linecap="round">
+      <path d="M0 150h70l26 26v64"/><path d="M512 210h-70l-20 20v70"/><path d="M40 512v-60l30-30h40"/><path d="M470 512v-50l-26-26"/>
+      <path d="M150 0v40l24 24h40"/><path d="M256 470a220 220 0 0 1-200-150"/><path d="M256 470a220 220 0 0 0 200-150"/>
+    </g>
+    <g fill="#ffe7d8" fill-opacity=".45"><circle cx="96" cy="240" r="5"/><circle cx="422" cy="300" r="5"/><circle cx="110" cy="422" r="5"/><circle cx="214" cy="64" r="5"/><circle cx="444" cy="436" r="5"/></g>
+    <!-- frosted settings tiles -->
+    <g fill="#fff" fill-opacity=".14" stroke="#fff" stroke-opacity=".28" stroke-width="2">
+      <rect x="56" y="58" width="84" height="84" rx="20"/><rect x="164" y="106" width="96" height="50" rx="16"/><rect x="58" y="176" width="66" height="66" rx="16"/>
+      <rect x="384" y="250" width="76" height="62" rx="16"/><rect x="40" y="324" width="118" height="76" rx="18"/><rect x="380" y="336" width="106" height="66" rx="18"/><rect x="64" y="430" width="70" height="52" rx="16"/>
+    </g>
+    <g fill="#fff" fill-opacity=".72">
+      <g transform="translate(98 100)"><circle r="16"/><g id="teeth"><rect x="-6" y="-26" width="12" height="12" rx="3"/><rect x="-6" y="14" width="12" height="12" rx="3"/><rect x="-26" y="-6" width="12" height="12" rx="3"/><rect x="14" y="-6" width="12" height="12" rx="3"/></g><use href="#teeth" transform="rotate(45)"/><circle r="7" fill="#ff7a3a"/></g>
+      <rect x="180" y="124" width="64" height="14" rx="7" fill-opacity=".45"/><circle cx="226" cy="131" r="12"/>
+      <g transform="translate(91 209) scale(.62)"><circle r="16"/><use href="#teeth"/><use href="#teeth" transform="rotate(45)"/><circle r="7" fill="#ff7a3a"/></g>
+      <path d="M412 268l-14 13 14 13M432 268l14 13-14 13" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="58" y="346" width="82" height="9" rx="4.5" fill-opacity=".45"/><circle cx="116" cy="350" r="10"/><rect x="58" y="370" width="82" height="9" rx="4.5" fill-opacity=".45"/><circle cx="82" cy="374" r="10"/>
+      <rect x="398" y="356" width="70" height="9" rx="4.5" fill-opacity=".45"/><circle cx="452" cy="360" r="10"/><rect x="398" y="376" width="70" height="9" rx="4.5" fill-opacity=".45"/><circle cx="418" cy="380" r="10"/>
+      <path d="M90 446l-12 10 12 10M108 446l12 10-12 10" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <!-- antenna and gear -->
+    <path d="M246 156C236 104 270 74 330 84" fill="none" stroke="#c9d3de" stroke-width="20" stroke-linecap="round"/>
+    <path d="M246 152C237 104 270 76 328 84" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="372" cy="84" r="58" fill="#7ff2ff" opacity=".35" filter="url(#soft)"/>
+    <g transform="translate(372 84)" filter="url(#shadow)">
+      <g fill="url(#metal)"><circle r="34"/><g id="gt"><rect x="-10" y="-50" width="20" height="22" rx="5"/><rect x="-10" y="28" width="20" height="22" rx="5"/><rect x="-50" y="-10" width="22" height="20" rx="5"/><rect x="28" y="-10" width="22" height="20" rx="5"/></g><use href="#gt" transform="rotate(45)"/></g>
+      <circle r="20" fill="#9aa7b3"/><circle r="15" fill="url(#metal)"/><circle r="8" fill="#6f7d8a"/>
+    </g>
+    <g filter="url(#spark)" stroke-linecap="round" stroke-width="4" fill="none">
+      <path d="M424 46l14-6M430 70l18 2M414 124l12 10M330 32l-6-12M432 102l16 8" stroke="#6ff1ff"/>
+      <path d="M346 24l4-14M436 84l14-2M420 140l6 12" stroke="#ffd36b"/>
+    </g>
+    <!-- ears, body and head -->
+    <g filter="url(#shadow)">
+      <circle cx="130" cy="196" r="44" fill="url(#skin)"/><circle cx="382" cy="196" r="44" fill="url(#skin)"/>
+      <ellipse cx="256" cy="500" rx="122" ry="96" fill="url(#skin)"/>
+      <ellipse cx="256" cy="262" rx="156" ry="116" fill="url(#skin)"/>
+    </g>
+    <!-- eyes behind glasses -->
+    <ellipse cx="188" cy="258" rx="26" ry="31" fill="url(#iris)"/><ellipse cx="324" cy="258" rx="26" ry="31" fill="url(#iris)"/>
+    <circle cx="180" cy="246" r="9" fill="#fff"/><circle cx="316" cy="246" r="9" fill="#fff"/><circle cx="196" cy="270" r="4" fill="#fff" opacity=".7"/><circle cx="332" cy="270" r="4" fill="#fff" opacity=".7"/>
+    <!-- glasses -->
+    <g fill="url(#lens)" stroke="#2c4f84" stroke-width="15" stroke-linejoin="round">
+      <rect x="120" y="210" width="134" height="96" rx="34"/><rect x="258" y="210" width="134" height="96" rx="34"/>
+    </g>
+    <path d="M250 232q6-8 12 0" fill="none" stroke="#2c4f84" stroke-width="13" stroke-linecap="round"/>
+    <path d="M122 234l-26-8M390 234l26-8" stroke="#2c4f84" stroke-width="12" stroke-linecap="round"/>
+    <g fill="#fff" opacity=".45"><path d="M146 226h26l-34 50v-26z"/><path d="M284 226h26l-34 50v-26z"/></g>
+    <g fill="none" stroke="#bfefff" stroke-opacity=".7" stroke-width="3" stroke-linecap="round"><path d="M216 290h22M352 290h22M362 280h12"/></g>
+    <!-- smile -->
+    <path d="M222 334q34 26 68 0" fill="none" stroke="#2a2f37" stroke-width="10" stroke-linecap="round"/>
+    <!-- screwdriver held in both hands -->
+    <g transform="translate(300 420) rotate(-40)">
+      <rect x="20" y="-7" width="118" height="14" rx="6" fill="url(#metal)"/>
+      <path d="M136-7l14 4v6l-14 4z" fill="#8e9aa6"/>
+      <rect x="-70" y="-17" width="96" height="34" rx="15" fill="url(#handle)"/>
+      <path d="M-58-8h70M-58 6h70" stroke="#6e9be0" stroke-opacity=".6" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <g filter="url(#spark)" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5">
+      <path d="M402 312l10 8-8 6 14 10-6 4 12 8" stroke="#dff6ff"/><path d="M396 330l-12 6 8 6-14 4" stroke="#8fe7ff"/><path d="M420 300l6-14 6 10 8-12" stroke="#bff0ff"/>
+    </g>
+    <g fill="url(#skin)" filter="url(#shadow)">
+      <ellipse cx="326" cy="402" rx="34" ry="28" transform="rotate(-30 326 402)"/>
+      <ellipse cx="236" cy="470" rx="34" ry="28" transform="rotate(-30 236 470)"/>
+    </g>
   </g>
 </svg>

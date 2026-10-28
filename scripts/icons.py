@@ -1,14 +1,29 @@
-"""Write the extension icons from the mascot logo.
+"""Write the extension icons from the mascot SVGs.
 
-Source: extension/icons/logo.svg (an original antenna-topped tinkerer with a
-gear antenna, goggles and a wrench; not Reddit's Snoo). scripts/assets/
-logo-512.png is that SVG rendered at 512px with a transparent background
-(rendered in Chrome via scripts/live). This script downsamples it."""
+extension/icons/logo.svg is the detailed mascot (128/48px icons);
+logo-small.svg is the toolbar-size simplification (32/16px). Both are
+rendered at 512px with headless Chrome (a throwaway profile), cached in
+scripts/assets/, then downsampled. Without Chrome the cached renders are used."""
 from pathlib import Path
+import shutil, subprocess, tempfile
 from PIL import Image
 
 root = Path(__file__).resolve().parents[1]
-source = Image.open(root / 'scripts' / 'assets' / 'logo-512.png').convert('RGBA')
-destination = root / 'extension' / 'icons'
-for size in (16, 32, 48, 128):
-    source.resize((size, size), Image.Resampling.LANCZOS).save(destination / f'{size}.png')
+icons, assets = root / 'extension' / 'icons', root / 'scripts' / 'assets'
+assets.mkdir(exist_ok=True)
+chrome = shutil.which('google-chrome') or shutil.which('chromium') or shutil.which('brave-browser')
+
+
+def render(name):
+    cached = assets / f'{name}-512.png'
+    if chrome:
+        with tempfile.TemporaryDirectory() as profile:
+            subprocess.run([chrome, '--headless=new', '--disable-gpu', '--no-first-run', f'--user-data-dir={profile}', '--hide-scrollbars',
+                            '--force-device-scale-factor=1', '--default-background-color=00000000', '--window-size=512,512',
+                            f'--screenshot={cached}', (icons / f'{name}.svg').as_uri()], check=True, capture_output=True, timeout=120)
+    return Image.open(cached).convert('RGBA')
+
+
+detailed, simple = render('logo'), render('logo-small')
+for size, source in ((128, detailed), (48, detailed), (32, simple), (16, simple)):
+    source.resize((size, size), Image.Resampling.LANCZOS).save(icons / f'{size}.png')
