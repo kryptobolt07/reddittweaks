@@ -1217,3 +1217,7 @@ test('removed image posts in profile cards get their Reddit-hosted image back, n
   const img=d.nodes.get('img1').querySelector('.rt-archived-media img');assert.equal(Boolean(img),expect);if(img){assert.equal(img.src,'https://i.redd.it/pic.jpeg');d.restoreRecoveredBodies();assert.equal(d.nodes.get('img1').querySelector('.rt-archived-media'),null);}
  }
 });
+
+test('pending source retry keeps published cards and the native prefix visible under one continuation loader',async t=>{
+ let release,reads=0;const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[],hasMore:false}),publicReddit:async()=>++reads===1?{posts:[comment()],hasMore:false}:new Promise(resolve=>release=resolve)});await d.ready;const style=W.document.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(style);await d.loadReddit();await new Promise(r=>setImmediate(r));const card=d.nodes.get(comment().fullname),content=card.firstElementChild,native=d.feed.firstElementChild;d.sourceErrors['comment-public']='Public search unavailable';const retry=d.loadReddit({retry:true});d.deduplicate();assert.equal(d.busy,true);assert.equal(card.hidden,false);assert.equal(card.firstElementChild,content);assert.notEqual(W.getComputedStyle(card).display,'none');assert.notEqual(W.getComputedStyle(native).display,'none');assert.equal(d.feed.querySelectorAll('shreddit-feed-page-loading').length,1);assert.equal(d.loading.hidden,false);release({posts:[],hasMore:false});await retry;
+});
