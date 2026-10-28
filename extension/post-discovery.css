@@ -120,5 +120,16 @@ html[data-rt-restore] main shreddit-comment[is-comment-deleted]:not([data-rt-set
 .rt-skeleton-line:first-child{height:12px}
 .rt-skeleton-fallback::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent);animation:rt-skeleton-sweep 1.5s ease-in-out infinite}
 @keyframes rt-skeleton-sweep{to{transform:translateX(100%)}}
-shreddit-comment[data-rt-pending] [data-rt-notice]{display:none}
+shreddit-comment[data-rt-pending] [data-rt-notice]:not(shreddit-comment[data-rt-settled] *){display:none}
+/* Keep the deleted avatar/name out of the first painted frame. These selectors
+   stop at the comment's own summary, so normal replies stay visible. */
+html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentAvatar"],
+html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"],
+html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]{visibility:hidden;position:relative}
+html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentAvatar"]::after,
+html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]::after,
+html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]::after{content:"";visibility:visible;position:absolute;inset-block-start:4px;inset-inline-start:0;width:32px;height:32px;border-radius:50%;background:var(--color-shimmer-background,var(--color-neutral-background-weak,#eaedef))}
+html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]::after{width:min(160px,80%);height:12px;border-radius:999px;inset-block-start:10px}
+.rt-skeleton-line:not(:defined)::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent);animation:rt-skeleton-sweep 1.5s ease-in-out infinite}
 @media(prefers-reduced-motion:reduce){.rt-skeleton-fallback::after{display:none}}
+@media(prefers-reduced-motion:reduce){.rt-skeleton-line:not(:defined)::after{display:none}}

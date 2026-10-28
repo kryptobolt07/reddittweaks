@@ -15,7 +15,7 @@ const archived=(id,body,extra={})=>({id,author:'Original'+id,body,created_utc:17
 function setup({url='https://www.reddit.com/r/example/comments/abc12/title/',settings={postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},archive,avatar=async()=>({avatar:'https://styles.redditmedia.com/t5_x/styles/profileIcon_a.png'})}={}){
  const dom=new JSDOM(thread,{url,runScripts:'outside-only'}),W=dom.window,calls=[];
  W.chrome={runtime:{id:'own',onMessage:{addListener(){},removeListener(){}},sendMessage:async()=>({ok:true})}};W.RTThreadRestoreDisabled=true;
- for(const file of ['post-model.js','post-discovery.js','thread-restore.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
+ for(const file of ['post-model.js','post-discovery.js','thread-restore.js']){W.chrome.runtime.id=file==='post-discovery.js'?'':'own';W.eval(fs.readFileSync('extension/'+file,'utf8'));}W.chrome.runtime.id='own';
  const avatarCalls=[];const r=new W.RTThreadRestore.ThreadRestore({observe:false,retryMs:5,reddit:async message=>{avatarCalls.push(message);return avatar(message);},settings:async()=>settings,archive:async message=>{calls.push(message);return archive?archive(message):{ok:true,posts:message.ids.map(id=>archived(id.slice(3),id==='t1_late1'?'[deleted]':'Original words of '+id+'\n\nSecond paragraph'))}}});
  return {W,r,calls,avatarCalls,doc:W.document};
 }
@@ -114,4 +114,36 @@ test('a removal banner that says the author deleted the post counts as deleted, 
  e.doc.querySelector('main').insertAdjacentHTML('afterbegin','<shreddit-post id="t3_abc12" author="[deleted]" post-title="Same title"><span slot="credit-bar"><span>[deleted]</span></span><h1 slot="title">Same title</h1><div slot="post-removed-banner">Sorry, this post was deleted by the person who originally posted it.</div></shreddit-post>');
  await e.r.ready;await settle();const badge=e.doc.querySelector('shreddit-post [data-rt-source]');assert.equal(badge.dataset.state,'deleted');assert.equal(badge.querySelector('svg').dataset.icon,'deleted');assert.match(badge.title,/^Deleted by its author/);
  const M=e.W.RTPostModel,div=e.doc.createElement('div');div.innerHTML='<shreddit-post><div slot="post-removed-banner">Sorry, this post has been removed by the moderators of r/x.</div></shreddit-post>';assert.equal(M.domStatus(div.firstElementChild),'removed');
+});
+
+test('early comment guard masks only each deleted comment until archive work settles, including new replies',async()=>{
+ const dom=new JSDOM(thread,{url:'https://www.reddit.com/r/example/comments/abc12/title/',runScripts:'outside-only'}),W=dom.window;let settings;
+ W.chrome={runtime:{id:'own',sendMessage:()=>new Promise(resolve=>settings=resolve)}};const style=W.document.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(style);
+ W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));assert.equal(W.document.querySelectorAll('[data-rt-pending]').length,0,'no restoration masking before preferences are known');
+ settings({ok:true,settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true}});await settle();
+ const gone=comment(W.document,'t1_gone1'),normal=comment(W.document,'t1_norm1');assert.equal(gone.hasAttribute('data-rt-pending'),true);assert.equal(gone.querySelectorAll(':scope > details .notice > [data-rt-skeleton]').length,2,'one skeleton each for parent and reply');assert.equal(W.getComputedStyle(gone.querySelector('[slot="commentMeta"]')).visibility,'hidden');assert.equal(W.getComputedStyle(gone.querySelector('[slot="commentAvatar"]')).visibility,'hidden');assert.equal(W.getComputedStyle(normal.querySelector('[slot="commentMeta"]')).visibility,'visible');assert.equal(normal.hasAttribute('data-rt-pending'),false);
+ const late=W.document.createElement('shreddit-comment');late.setAttribute('thingid','t1_new');late.setAttribute('postid','t3_abc12');late.innerHTML='<details><summary><div slot="commentMeta">[deleted]</div></summary><div class="notice"><p>[removed]</p></div></details>';W.document.querySelector('shreddit-comment-tree').append(late);await Promise.resolve();assert.equal(late.hasAttribute('data-rt-pending'),true,'mutation microtask precedes the delayed thread scan');
+ // A newer preference update cannot be undone by a stale guard settings read.
+ W.RTProfileNoticeGuard.setRestoreEnabled(false);assert.equal(W.document.documentElement.hasAttribute('data-rt-restore'),false);W.close();
+});
+
+test('pending comment skeletons survive transient archive retries without flashing the native identity',async()=>{
+ let reject;const {r,doc,W,calls}=setup({archive:()=>new Promise((resolve,fail)=>reject=fail)});W.eval(fs.readFileSync('extension/archive-view.js','utf8'));const style=doc.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');doc.head.append(style);await r.ready;await settle();
+ const gone=comment(doc,'t1_gone1');assert.equal(gone.querySelectorAll('.notice > [data-rt-skeleton]').length,2);assert.equal(W.getComputedStyle(gone.querySelector('[slot="commentMeta"]')).visibility,'hidden');reject(Object.assign(Error('Wait'),{code:'rate-limited',retryAt:Date.now()+10000}));await settle();
+ assert.equal(gone.hasAttribute('data-rt-pending'),true);assert.equal(gone.hasAttribute('data-rt-settled'),false);assert.ok(gone.querySelector('[data-rt-skeleton]'));await r.scan();assert.equal(calls.length,1,'ordinary scans do not bypass server retry backoff');r.destroy();W.close();
+});
+
+test('restored Snoovatars use Reddit headshot SVG clipping and retain an avatar placeholder during lookup',async()=>{
+ let release;const {r,doc,W}=setup({avatar:()=>new Promise(resolve=>release=resolve)});await r.ready;await settle();const gone=comment(doc,'t1_gone1'),slot=gone.querySelector('[slot="commentAvatar"]');assert.equal(gone.hasAttribute('data-rt-pending'),false,'body restoration need not wait for a picture');assert.equal(slot.hasAttribute('data-rt-avatar-pending'),true);
+ const url='https://cf.preview.redd.it/snoovatar/avatars/example-headshot.png?width=64&height=64&s=synthetic';release({avatar:url});await settle();const image=slot.querySelector('svg image');assert.equal(image.getAttribute('href'),url);assert.equal(image.getAttribute('height'),'100%');assert.equal(slot.querySelector('svg').getAttribute('viewBox'),'0 0 121 122');assert.equal(slot.querySelector('clipPath path').getAttribute('d').includes('59.5 122'),true);assert.equal(slot.hasAttribute('data-rt-avatar-pending'),false);r.destroy();W.close();
+});
+
+test('deleted comment Share gets its native permalink and identity without enabling votes or reply, and opt-out restores it',async()=>{
+ const {r,doc,W}=setup({archive:async()=>({ok:true,posts:[]})});const gone=comment(doc,'t1_gone1');const actions=doc.createElement('shreddit-comment-action-row');actions.setAttribute('disabled','');actions.innerHTML='<button disabled upvote>Vote</button><button disabled slot="comment-reply">Reply</button><shreddit-comment-share-button ssr slot="comment-share" disabled permalink="" source-id=""><button disabled aria-disabled="true">Share</button></shreddit-comment-share-button>';gone.querySelector(':scope > details').append(actions);await r.ready;await settle();
+ const share=actions.querySelector('shreddit-comment-share-button'),button=share.querySelector('button');assert.equal(share.getAttribute('permalink'),'/r/example/comments/abc12/comment/gone1/');assert.equal(share.getAttribute('source-id'),'t1_gone1');assert.equal(share.hasAttribute('disabled'),false);assert.equal(button.disabled,false);assert.equal(button.hasAttribute('aria-disabled'),false);assert.equal(actions.hasAttribute('disabled'),true);assert.equal(actions.querySelector('[upvote]').disabled,true);assert.equal(actions.querySelector('[slot="comment-reply"]').disabled,true);
+ r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(share.hasAttribute('disabled'),true);assert.equal(button.disabled,true);assert.equal(button.getAttribute('aria-disabled'),'true');assert.equal(share.getAttribute('permalink'),'');assert.equal(share.getAttribute('source-id'),'');r.destroy();W.close();
+});
+
+test('a delayed guard settings reply cannot re-enable restoration after a newer opt-out',async()=>{
+ const dom=new JSDOM(thread,{url:'https://www.reddit.com/r/example/comments/abc12/title/',runScripts:'outside-only'}),W=dom.window;let finish;W.chrome={runtime:{id:'own',sendMessage:()=>new Promise(resolve=>finish=resolve)}};W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));W.RTProfileNoticeGuard.setRestoreEnabled(false);finish({ok:true,settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true}});await settle();assert.equal(W.document.documentElement.hasAttribute('data-rt-restore'),false);assert.equal(W.document.querySelector('[data-rt-pending]'),null);W.close();
 });
