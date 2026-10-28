@@ -421,6 +421,18 @@ test('Back restores the same native or discovered card offset after recovered ca
   W.history.pushState({},'','/r/example/comments/extra/title/');W.document.body.innerHTML='<main id="main-content"><shreddit-post id="t3_extra"></shreddit-post></main>';d.scan();W.history.pushState({},'','/user/Example/submitted/');W.document.body.replaceChildren(profile);d.scan();const current=kind==='native'?d.feed.querySelector('shreddit-post:not([data-rt-ui] shreddit-post)'):d.nodes.get('extra');current.getBoundingClientRect=()=>({top:130-(W.scrollY-700),bottom:530-(W.scrollY-700),height:400});const moves=[];W.scrollBy=({top})=>{moves.push(top);W.scrollY+=top;};if(interrupt)W.dispatchEvent(new W.Event('wheel'));flush();flush();assert.deepEqual(moves,interrupt?[]:[210]);assert.equal(W.scrollY,interrupt?700:910);flush();assert.equal(moves.length,interrupt?0:1);
  }
 });
+test('opening a post leaves discovered cards in Reddit\'s retained feed and resumes on Back without scrolling',async t=>{
+ const {W,d}=setup(t,{reddit:async()=>({posts:[raw('extra')],hasMore:false})});await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));W.RTThreadRestore=W.RTThreadRestore || {};
+ const profile=W.document.querySelector('main'),feed=d.feed,extra=d.nodes.get('extra'),host=d.host;assert.equal(d.feedSlot(extra).parentElement,feed);
+ const moves=[];W.scrollBy=options=>moves.push(options);W.scrollTo=options=>moves.push(options);
+ W.history.pushState({},'','/r/example/comments/extra/title/');W.document.body.innerHTML='<main id="main-content"><shreddit-post id="t3_extra"></shreddit-post></main>';d.scan();
+ assert.equal(d.suspended,true);assert.equal(d.host,host);assert.equal(d.feedSlot(extra).parentElement,feed,'cards stay in the feed Reddit keeps for Back');
+ await d.render();assert.equal(moves.length,0,'late work never scrolls the post page');
+ W.history.pushState({},'','/user/Example/submitted/');W.document.body.replaceChildren(profile);d.scan();
+ assert.equal(d.suspended,false);assert.equal(d.host,host);assert.equal(d.feed,feed);assert.equal(d.feedSlot(extra).parentElement,feed);assert.equal(moves.length,0,'Reddit\'s own scroll restore stands');
+ // Another kind of page still tears down as before.
+ W.history.pushState({},'','/r/example/');W.document.body.replaceChildren(W.document.createElement('main'));d.scan();assert.equal(d.host,null);
+});
 test('Back recovers a replacement native card when archive data and deletion proof were retained',async t=>{
  const {W,d}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},reddit:async()=>({posts:[raw('native',{selftext:'',status:'unknown'})],hasMore:false}),archive:async()=>({posts:[raw('native',{selftext:'Recovered original'})],hasMore:false})});await d.ready;
  const native=d.feed.querySelector('shreddit-post');native.innerHTML='<p slot="text-body">[removed]</p>';await d.loadReddit();await d.loadArchive();await new Promise(r=>setImmediate(r));assert.equal(native.querySelector('[slot="text-body"]').textContent,'Recovered original');
