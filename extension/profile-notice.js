@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.chrome?.runtime?.id)return;
-  let enabled=true,revision=0;const notices=new Map();
+  let enabled=true,restore=false,revision=0;const notices=new Map();
   const unavailableSelector='shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3),shreddit-app > #shreddit-forbidden:has(svg[icon-name="ban-fill"]):has(#shreddit-forbidden-title)';
   function unavailableState(notice){
     if(notice.matches('shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3)'))return 'deleted';
@@ -12,6 +12,8 @@
     const doc=globalThis.document || window.document;if(!doc)return;
     const loc=window.location || globalThis.location;
     const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(loc?.pathname || '');
+    // Post pages: let CSS show a skeleton over removal titles until restoration settles.
+    doc.documentElement?.toggleAttribute('data-rt-restore',restore && /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/[a-z0-9]{1,10}(?:\/|$)/i.test(loc?.pathname || ''));
     // Notifications and other native overlays can change the URL before replacing
     // the underlying profile. Never restore its notice during that transition.
     for(const [notice,anchor] of notices)if(!anchor.isConnected){
@@ -40,6 +42,7 @@
   const initialRevision=revision;
   const failed=()=>{if(revision===initialRevision)setEnabled(false);};
   try{chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'}).then(response=>{
-    if(revision===initialRevision)setEnabled(response?.ok===true && response.settings?.postDiscovery!==false);
+    const s=response?.settings;restore=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true && s?.restoreDeletedContent!==false;
+    if(revision===initialRevision)setEnabled(response?.ok===true && response.settings?.postDiscovery!==false);else refresh([]);
   },failed);}catch{failed();}
 })();

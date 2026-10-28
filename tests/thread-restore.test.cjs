@@ -66,3 +66,29 @@ test('no picture keeps Reddit’s default avatar while the name is still restore
  const {r,doc}=setup({avatar:async()=>({avatar:''})});await r.ready;await settle();
  const gone=comment(doc,'t1_gone1');assert.equal(gone.querySelector('[data-rt-archived-author]').textContent,'Originalgone1');assert.ok(gone.querySelector('[avatar] svg.default'));
 });
+
+const removedPost=`<shreddit-post id="t3_abc12" author="Poster" post-title="[ Removed by moderator ]" post-type="link"><span slot="credit-bar"><span><shreddit-post-overflow-menu></shreddit-post-overflow-menu></span></span><h1 slot="title">[ Removed by moderator ]</h1><div slot="post-removed-banner">Sorry, this post has been removed by the moderators.</div></shreddit-post>`;
+function postSetup(record,extra={}){
+ const e=setup({archive:message=>message.action==='archive-ids'?{ok:true,posts:[{id:'abc12',author:'Poster',title:'Original title',selftext:'',url:'https://i.redd.it/abc.jpeg',created_utc:1700000000,retrieved_on:1700000100,...record}]}:{ok:true,posts:[]},...extra});
+ e.doc.querySelector('main').insertAdjacentHTML('afterbegin',removedPost);return e;
+}
+test('a removed post opened in any way gets its title, image and status cue back inside Reddit’s post element',async()=>{
+ const {r,doc,calls}=postSetup({});await r.ready;await settle();
+ const post=doc.querySelector('shreddit-post');assert.equal(post.querySelector('[slot="title"]').textContent,'Original title');
+ const img=post.querySelector('.rt-archived-media img');assert.equal(img.src,'https://i.redd.it/abc.jpeg');assert.equal(img.referrerPolicy,'no-referrer');
+ const badge=post.querySelector('[data-rt-source]');assert.equal(badge.dataset.state,'removed');assert.equal(badge.querySelector('svg').dataset.icon,'removed');assert.match(badge.title,/Removed by moderators on Reddit · Restored from an Arctic Shift snapshot/);assert.equal(badge.parentElement.querySelector('shreddit-post-overflow-menu')!==null,true);
+ assert.ok(calls.some(c=>c.action==='archive-ids' && c.ids[0]==='abc12'));assert.equal(post.hasAttribute('data-rt-settled'),true);assert.equal(post.hasAttribute('data-rt-pending'),false);
+ r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});
+ assert.equal(post.querySelector('[slot="title"]').textContent,'[ Removed by moderator ]');assert.equal(post.querySelector('.rt-archived-media'),null);assert.equal(post.querySelector('[data-rt-source]'),null);
+});
+test('restored post text uses the formatted body; NSFW or another author’s snapshot is never shown',async()=>{
+ const text=postSetup({selftext:'Hello **world**',url:''});text.doc.defaultView.eval(fs.readFileSync('extension/markdown-lite.js','utf8'));await text.r.ready;await settle();
+ assert.equal(text.doc.querySelector('shreddit-post [data-rt-recovered-text].rt-recovered-md strong').textContent,'world');
+ const nsfw=postSetup({over_18:true,selftext:'secret'});await nsfw.r.ready;await settle();const post=nsfw.doc.querySelector('shreddit-post');assert.equal(post.querySelector('.rt-archived-media'),null);assert.equal(post.textContent.includes('secret'),false);
+ const other=postSetup({author:'Someone'});await other.r.ready;await settle();assert.equal(other.doc.querySelector('shreddit-post [slot="title"]').textContent,'[ Removed by moderator ]');assert.equal(other.doc.querySelector('shreddit-post').hasAttribute('data-rt-settled'),true,'the skeleton always ends');
+});
+test('deleted comments show a skeleton while the archive is asked, then settle either way',async()=>{
+ let release;const {r,doc}=setup({archive:()=>new Promise(res=>release=res)});await r.ready;await settle();
+ const gone=comment(doc,'t1_gone1');assert.equal(gone.hasAttribute('data-rt-pending'),true);assert.equal(gone.querySelector('.notice p').dataset.rtNotice,'true');
+ release({ok:true,posts:[]});await settle();assert.equal(gone.hasAttribute('data-rt-pending'),false);assert.equal(gone.hasAttribute('data-rt-settled'),true);assert.equal(gone.querySelector('.notice p').textContent,'Comment deleted by user','nothing archived: Reddit’s notice returns');
+});
