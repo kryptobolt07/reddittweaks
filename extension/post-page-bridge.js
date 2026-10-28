@@ -382,24 +382,35 @@
       return await Promise.race([operation,timeout]);
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
-  // Profile picture of an archived comment's original author, from Reddit's
-  // own user hover card. Only an https URL on Reddit's image hosts leaves the
-  // page world; results are cached per username.
-  const avatarReads=new Map(),avatarHosts=new Set(['styles.redditmedia.com','i.redd.it','preview.redd.it','www.redditstatic.com']);
+  // Comment headshot of an archived comment's original author, from native
+  // markup or Reddit's profile data, with a hover-card fallback. Only an HTTPS
+  // URL on Reddit's image hosts leaves the page world; cache it per username.
+  const avatarReads=new Map(),avatarHosts=new Set(['styles.redditmedia.com','i.redd.it','preview.redd.it','cf.preview.redd.it','www.redditstatic.com']);
+  const safeAvatar=value=>{try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && avatarHosts.has(url.hostname) && (!url.pathname.includes('/snoovatar/avatars/') || /-headshot\.[a-z]+$/i.test(url.pathname))?url.href:'';}catch{return '';}};
   async function userAvatar(input,signal){
     if(!M.validateUsername(input.username))throw Error('Invalid username.');
     const name=input.username.toLowerCase(),now=Date.now(),cached=avatarReads.get(name);
+    // Reuse a native comment headshot (including its signed preview query)
+    // when this author already appears on the page. Never synthesize signatures.
+    for(const comment of document.querySelectorAll('shreddit-comment[author]'))if(comment.getAttribute('author')?.toLowerCase()===name){const slot=comment.querySelector('[slot="commentAvatar"]');if(slot?.closest('shreddit-comment')!==comment)continue;for(const image of slot?.querySelectorAll('image[href],img[src]') || []){const url=safeAvatar(image.getAttribute('href') || image.getAttribute('src'));if(url)return {avatar:url};}}
     if(cached?.expires>now)return {avatar:cached.url};
     if(now<cooldown)return {deferred:true,retryAfterMs:cooldown-now};
     if(active>=2)return {deferred:true,retryAfterMs:250};
     const controller=new AbortController(),cancel=()=>controller.abort(),timer=setTimeout(cancel,8000);signal?.addEventListener('abort',cancel,{once:true});active++;
     try{
+      // icon_img is Reddit's comment/avatar headshot; snoovatar_img and the
+      // hover card can contain the full-body artwork instead.
+      const profile=await fetch(new URL('/user/'+encodeURIComponent(input.username)+'/about.json?raw_json=1',location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'application/json'},signal:controller.signal});
+      if(profile.status===429){const retry=Number(profile.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
+      if(profile.ok){let data;try{data=JSON.parse(await boundedText(profile)).data;}catch{}const url=typeof data?.name==='string' && data.name.toLowerCase()===name?safeAvatar(data.icon_img):'';if(url){if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+1800000});return {avatar:url};}}
       const response=await fetch(new URL('/svc/shreddit/user-hover-card/'+encodeURIComponent(input.username),location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
       if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
       let url='';
       if(response.ok){
-        const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),img=doc.querySelector('[avatar] img[src],img[alt*="avatar" i][src]') || doc.querySelector('img[src]');
-        try{const candidate=new URL(img?.getAttribute('src') || '',location.origin);if(candidate.protocol==='https:' && avatarHosts.has(candidate.hostname))url=candidate.href;}catch{}
+        const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),img=doc.querySelector('[avatar] image[href],[avatar] img[src],img[alt*="avatar" i][src]') || doc.querySelector('img[src]');
+        const candidate=safeAvatar(img?.getAttribute('href') || img?.getAttribute('src'));
+        // An unavailable headshot keeps the native default, not a tiny full body.
+        if(candidate)url=candidate;
       }
       if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+1800000});
       return {avatar:url};

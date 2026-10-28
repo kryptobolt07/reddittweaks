@@ -395,8 +395,25 @@ test('native status recognizes Reddit’s current deletion notices, removal bann
 test('user hover cards supply only a Reddit-hosted https profile picture, cached per name',async t=>{
  const card=src=>`<div><span avatar><img src="${src}" alt="User avatar"></span><p>karma</p></div>`;let src='https://styles.redditmedia.com/t5_1/styles/profileIcon_x.png';
  const e=setup(t,{fetcher:async url=>nativeResponse(card(src))});
- const first=await e.send({action:'user-avatar',username:'Someone'});assert.equal(first.avatar,'https://styles.redditmedia.com/t5_1/styles/profileIcon_x.png');assert.equal(new URL(e.calls[0][0]).pathname,'/svc/shreddit/user-hover-card/Someone');assert.equal(e.calls[0][1].credentials,'include');
- await e.send({action:'user-avatar',username:'someone'});assert.equal(e.calls.length,1,'cached per username');
+ const first=await e.send({action:'user-avatar',username:'Someone'});assert.equal(first.avatar,'https://styles.redditmedia.com/t5_1/styles/profileIcon_x.png');assert.equal(new URL(e.calls[0][0]).pathname,'/user/Someone/about.json');assert.equal(new URL(e.calls[1][0]).pathname,'/svc/shreddit/user-hover-card/Someone');assert.equal(e.calls[0][1].credentials,'include');
+ await e.send({action:'user-avatar',username:'someone'});assert.equal(e.calls.length,2,'cached per username');
  src='https://evil.example/track.png';assert.equal((await e.send({action:'user-avatar',username:'Other'})).avatar,'','foreign image hosts are rejected');
  assert.equal((await e.send({action:'user-avatar',username:'bad name!'})).ok,false);
+});
+
+
+test('comment avatar lookup uses the profile icon headshot and reuses exact native signed SVG URLs',async t=>{
+ const head='https://i.redd.it/snoovatar/avatars/example-headshot.png',full='https://i.redd.it/snoovatar/avatars/example.png';
+ const e=setup(t,{fetcher:async()=>nativeResponse(JSON.stringify({data:{name:'Example',icon_img:head,snoovatar_img:full}}))});
+ assert.equal((await e.send({action:'user-avatar',username:'Example'})).avatar,head);assert.equal(e.calls.length,1);assert.equal(e.calls[0][1].redirect,'error');
+ const signed='https://cf.preview.redd.it/snoovatar/avatars/example-headshot.png?width=64&height=64&crop=smart&auto=webp&s=synthetic';
+ const comment=e.W.document.createElement('shreddit-comment');comment.setAttribute('author','Example');comment.innerHTML='<div slot="commentAvatar"><svg><image></image></svg></div>';comment.querySelector('image').setAttribute('href',signed);e.W.document.body.append(comment);
+ assert.equal((await e.send({action:'user-avatar',username:'example'})).avatar,signed);assert.equal(e.calls.length,1,'native signed URL needs no lookup');
+});
+
+test('avatar lookup rejects mismatched identities and full-body Snoovatars and respects cooldowns',async t=>{
+ const full='https://i.redd.it/snoovatar/avatars/example.png';
+ const e=setup(t,{fetcher:async url=>new URL(url).pathname.endsWith('/about.json')?nativeResponse(JSON.stringify({data:{name:'Other',icon_img:'https://styles.redditmedia.com/other.png'}})):nativeResponse('<img alt="User avatar" src="'+full+'">')});
+ assert.equal((await e.send({action:'user-avatar',username:'Example'})).avatar,'');assert.equal(e.calls.length,2);
+ const rate=setup(t,{fetcher:async()=>nativeResponse('',429,{'retry-after':'60'})});const result=await rate.send({action:'user-avatar',username:'Example'});assert.equal(result.deferred,true);assert.equal(rate.calls.length,1);await rate.send({action:'user-avatar',username:'Other'});assert.equal(rate.calls.length,1);
 });
