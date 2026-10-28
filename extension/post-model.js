@@ -73,9 +73,12 @@
     const flag=name=>node.hasAttribute(name) && node.getAttribute(name)!=='false',state=(node.getAttribute('item-state') || '').toLowerCase(),title=noticeStatus(node.getAttribute('post-title'));
     const owner='shreddit-comment,shreddit-profile-comment,shreddit-post';
     const notice=[...node.querySelectorAll('p')].filter(p=>(p.closest(owner) || node)===node && !p.closest('[data-rt-recovered-text]')).map(p=>noticeStatus(p.textContent)).find(Boolean) || '';
-    const banner=[...node.querySelectorAll('[slot="post-removed-banner"]')].some(el=>(el.closest(owner) || node)===node);
-    if((flag('deleted') || flag('is-comment-deleted')) && notice!=='removed' || state==='deleted' || notice==='deleted' || title==='deleted')return 'deleted';
-    if(flag('removed') || state==='removed' || banner || notice==='removed' || title==='removed')return 'removed';
+    // Reddit uses the same banner slot for both cases; only its wording differs
+    // ("deleted by the person who originally posted it" vs "removed by the moderators").
+    const bannerText=[...node.querySelectorAll('[slot="post-removed-banner"]')].filter(el=>(el.closest(owner) || node)===node).map(el=>el.textContent.replace(/\s+/g,' ').trim()).join(' ');
+    const banner=bannerText?(/\bdeleted\b/i.test(bannerText) && !/\bremoved\b/i.test(bannerText)?'deleted':'removed'):'';
+    if((flag('deleted') || flag('is-comment-deleted')) && notice!=='removed' || state==='deleted' || notice==='deleted' || title==='deleted' || banner==='deleted')return 'deleted';
+    if(flag('removed') || state==='removed' || banner==='removed' || notice==='removed' || title==='removed')return 'removed';
     return '';
   }
   const normalizeItem=(raw,options)=>raw?.kind==='comment' || /^t1_/i.test(raw?.name || raw?.fullname || raw?.id || '')?normalizeComment(raw,options):normalizePost(raw,options);

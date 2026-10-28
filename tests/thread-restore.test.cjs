@@ -108,3 +108,10 @@ test('a deleted post whose snapshot only names the author gets the author and it
  assert.equal(post.querySelector('[slot="text-body"]').textContent,'[deleted]','nothing invented for the body');
  e.r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(post.querySelector('.author-cls').textContent,'[deleted]');assert.equal(post.querySelector('[data-rt-source]'),null);
 });
+
+test('a removal banner that says the author deleted the post counts as deleted, not removed',async()=>{
+ const e=setup({archive:message=>message.action==='archive-ids'?{ok:true,posts:[{id:'abc12',author:'Poster',title:'Same title',selftext:'[deleted]',created_utc:1700000000}]}:{ok:true,posts:[]}});
+ e.doc.querySelector('main').insertAdjacentHTML('afterbegin','<shreddit-post id="t3_abc12" author="[deleted]" post-title="Same title"><span slot="credit-bar"><span>[deleted]</span></span><h1 slot="title">Same title</h1><div slot="post-removed-banner">Sorry, this post was deleted by the person who originally posted it.</div></shreddit-post>');
+ await e.r.ready;await settle();const badge=e.doc.querySelector('shreddit-post [data-rt-source]');assert.equal(badge.dataset.state,'deleted');assert.equal(badge.querySelector('svg').dataset.icon,'deleted');assert.match(badge.title,/^Deleted by its author/);
+ const M=e.W.RTPostModel,div=e.doc.createElement('div');div.innerHTML='<shreddit-post><div slot="post-removed-banner">Sorry, this post has been removed by the moderators of r/x.</div></shreddit-post>';assert.equal(M.domStatus(div.firstElementChild),'removed');
+});
