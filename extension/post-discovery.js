@@ -710,7 +710,7 @@
         const warnings=[];
         await Promise.all(kinds.map(async kind=>{
           this.pages++;
-          try{const before=more?this.beforeByKind[kind]:null,result=await this.archive({action:'archive-profile',username:this.context.username,kind,...(before?{before}:{})});if(!current())return;
+          try{const before=more?this.beforeByKind[kind]:null,result=await this.archive({action:'archive-profile',username:this.context.username,kind,...(before?{before}:{}),...(this.archiveForceUntil>Date.now()?{force:true}:{})});if(!current())return;
             const page=[];for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'arctic-shift'});if(p){this.archived.set(itemKey(p),p);page.push(p);}}
             this.beforeByKind[kind]=result.before;this.archiveMore[kind]=Boolean(result.hasMore && !result.cursorStalled);this.archiveLoaded=true;this.moreArchive=Object.values(this.archiveMore).some(Boolean);this.noteSourcePage('archive-'+kind,page,this.archiveMore[kind]);
             delete this.sourceErrors['archive-'+kind];this.clearSourceRetries(key=>key==='archive-'+kind);this.render();
@@ -729,16 +729,18 @@
     // the same cursor with backoff, showing a quiet note instead of an error.
     // After retryLimit attempts the failure is reported normally.
     transientFailure(error,provider){
-      if(provider==='archive')return ['rate-limited','timeout','network-error','http-error','busy'].includes(error?.code);
+      if(provider==='archive')return ['rate-limited','timeout','network-error','http-error','busy','maintenance','unavailable'].includes(error?.code);
       return /rate limit|asked us to wait|requests are paused|timed out|took too long|\(HTTP 5\d\d\)|Failed to fetch/i.test(error?.message || '');
     }
     scheduleSourceRetry(key,error,provider){
       if(!this.transientFailure(error,provider))return false;
       const previous=this.sourceRetries.get(key),attempts=(previous?.attempts || 0)+1;if(attempts>retryLimit){this.sourceRetries.delete(key);return false;}
       const limited=provider==='archive'?error.code==='rate-limited':/rate limit|asked us to wait|requests are paused/i.test(error.message),now=Date.now();
-      let delay=(limited?15:4)*this.retryUnitMs*2**(attempts-1);if(Number.isFinite(error.retryAt) && error.retryAt>now)delay=Math.max(delay,error.retryAt-now+500);delay=Math.min(delay,300000);
-      const name=provider==='archive'?'Arctic Shift':'Reddit search',wait=delay<60000?Math.ceil(delay/1000)+' seconds':'about '+Math.ceil(delay/60000)+' min';
-      const note=limited?`${name} is limiting requests. Retrying in ${wait}.`:`${name} isn’t responding. Retrying in ${wait}.`;
+      // A service that reports itself down gets minutes, not seconds.
+      const down=provider==='archive' && ['maintenance','unavailable'].includes(error.code);
+      let delay=(down?60:limited?15:4)*this.retryUnitMs*2**(attempts-1);if(Number.isFinite(error.retryAt) && error.retryAt>now)delay=Math.max(delay,error.retryAt-now+500);delay=Math.min(delay,300000);
+      const name=provider==='archive'?'Arctic Shift':'Reddit search',wait=delay<60000?Math.ceil(delay/1000)+' seconds':'about '+Math.max(1,Math.round(delay/60000))+' min';
+      const note=down?(error.code==='maintenance'?`${name} is down for maintenance. Retrying in ${wait}.`:`${name} is temporarily unavailable. Retrying in ${wait}.`):limited?`${name} is limiting requests. Retrying in ${wait}.`:`${name} isn’t responding. Retrying in ${wait}.`;
       clearTimeout(previous?.timer);const generation=this.generation,entry={attempts,at:now+delay,note,provider};
       entry.timer=setTimeout(()=>{entry.timer=null;if(generation!==this.generation || !this.host?.isConnected)return;this.retrySource(key);},delay);
       this.sourceRetries.set(key,entry);this.updateProfileLoading();return true;
@@ -853,7 +855,7 @@
         if(archiveView && failedArchive.length){message='Some archived items couldn’t be loaded. Existing results are kept.';label='Retry loading';action=()=>{for(const kind of failedArchive)delete this.sourceErrors['archive-'+kind];this.batchAutoPaused=false;this.archiveMore=Object.fromEntries(Object.entries(this.archiveMore).concat(failedArchive.map(kind=>[kind,true])));return this.archiveBusy?undefined:(this.archiveRun=this.archivePage({more:true,only:failedArchive}));};}
         else if(failedSearch){message='Some search results couldn’t be loaded. Existing results are kept.';label='Retry loading';action=()=>this.loadReddit({retry:true});}
         else{message='Loading paused.';label='Retry loading';action=()=>this.discover.click();}
-      }else if(retrying.length && !work){message=[...new Set(retrying.map(entry=>entry.note))].join(' ');label='Retry now';action=()=>{for(const [key,entry] of this.sourceRetries)if(entry.timer)this.retrySource(key);};}
+      }else if(retrying.length && !work){const soonest=new Map();for(const entry of retrying)if(!soonest.has(entry.provider) || entry.at<soonest.get(entry.provider).at)soonest.set(entry.provider,entry);message=[...soonest.values()].map(entry=>entry.note).join(' ');label='Retry now';action=()=>{this.archiveForceUntil=Date.now()+5000;for(const [key,entry] of this.sourceRetries)if(entry.timer)this.retrySource(key);};}
       // The button always runs the latest action.
       this.noteAction=action;
       // Most calls change nothing; only a real change pays for the viewport
