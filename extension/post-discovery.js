@@ -281,6 +281,10 @@
         const generation=this.generation;this.request({action:'render-controls',username:this.context.username,target:target.id}).then(result=>{if(generation!==this.generation)return;if(!result?.rendered)throw Error('Native controls are not ready.');this.ensureActivityMenu();}).catch(()=>{if(generation!==this.generation)return;const retry=button('Retry feed options',()=>{target.remove();this.controlsTarget=null;this.ensureActivityMenu();});retry.className='button button-small button-plain';target.replaceChildren(retry);});return;
       }
       if(this.context.view==='comments'){const sort=main?.querySelector('shreddit-sort-dropdown');if(this.commentSort && this.commentSort.node!==sort){this.commentSort.node.hidden=this.commentSort.hidden;this.commentSort.node.removeAttribute('data-rt-comment-sort-suppressed');this.commentSort=null;}if(sort && !this.commentSort){this.commentSort={node:sort,hidden:sort.hidden};sort.hidden=true;sort.dataset.rtCommentSortSuppressed='true';}}
+      // Our fetched copy of Reddit's control (Comments, unavailable accounts)
+      // doesn't get Reddit's popover positioning, so the open menu painted
+      // under the feed. Lift it, keeping its static position.
+      if(this.controlsTarget?.contains(dropdown) && dropdown.shadowRoot && ![...this.nativeLoadingStyles].some(style=>style.parentNode===dropdown.shadowRoot)){const style=make('style');style.dataset.rtUi='controls-style';style.textContent='#hovercard{position:absolute!important;z-index:20!important}';dropdown.shadowRoot.append(style);this.nativeLoadingStyles.add(style);}
       if(this.activityMain!==menu){
         this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;
         const content=menu.parentElement,subs=[];
@@ -1019,6 +1023,7 @@
       for(const [info,original] of this.replyPatches || [])if(info.hasAttribute('data-rt-reply-info')){info.replaceChildren(...original);delete info.dataset.rtReplyInfo;delete info.dataset.rtReplySignature;}this.replyPatches=new Map();
       for(const [body,patch] of this.recoveredBodies || [])if(body.contains(patch.recovered)){if(patch.created)body.remove();else body.replaceChildren(...patch.original);}
       for(const [node,original] of this.recoveredTitles || [])if(node.querySelector('[data-rt-recovered-text]'))node.replaceChildren(...original);this.recoveredTitles=new Map();
+      for(const figure of this.recoveredMedia || [])figure.remove();this.recoveredMedia=new Set();
       for(const native of this.nativeDecorations || []){native.querySelector('[data-rt-source]')?.remove();native.querySelector('.rt-comment-source-credit')?.classList.remove('rt-comment-source-credit');native.querySelector('.rt-comment-source-host')?.classList.remove('rt-comment-source-host');}
       this.recoveredBodies=new Map();this.nativeDecorations=new Set();
     }
@@ -1050,6 +1055,16 @@
     // Archived markdown rendered like Reddit's body text (DOM nodes only).
     // Prefer the archive's server-rendered markdown (sanitized), then local rendering, then plain text.
     archivedText(text,html=''){const el=make('div','rt-recovered-md');el.dataset.rtRecoveredText='true';el.dataset.rtSourceText=text;const rendered=globalThis.RTMarkdown?.fromHtml(html) || globalThis.RTMarkdown?.render(text);if(rendered)el.append(rendered);else el.append(make('p','whitespace-pre-wrap break-words',text));return el;}
+    // Removed image posts lose their media in the card; Reddit-hosted images
+    // usually remain, so show them where Reddit puts post media.
+    recoverImage(value,native){
+      if(!native || this.nativeRestrictions(native).restricted || native.querySelector('[slot="post-media-container"] img,[slot="post-media-container"] video,.rt-archived-media'))return false;
+      let url='';try{const parsed=new URL(value);if(parsed.protocol==='https:' && ['i.redd.it','preview.redd.it'].includes(parsed.hostname) && /\.(?:jpe?g|png|gif|webp)$/i.test(parsed.pathname))url=parsed.href;}catch{}
+      if(!url)return false;
+      const figure=make('figure','rt-archived-media');figure.dataset.rtRecoveredText='true';const img=make('img');img.src=url;img.alt='';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';figure.append(img);native.append(figure);
+      for(const slot of ['post-media-container','text-body','post-recovery-section']){figure.slot=slot;if(!native.shadowRoot || figure.assignedSlot)break;}
+      (this.recoveredMedia ||= new Set()).add(figure);return true;
+    }
     // Removed posts show "[ Removed by moderator ]" as their title.
     recoverTitle(title,native){
       const node=native?.querySelector('[slot="title"]');if(!node || !title || deletionNotice(title.trim()) || !deletionNotice(node.textContent.trim()))return false;
@@ -1091,7 +1106,7 @@
       const archive=this.archived.get(itemKey(post));
       const owned=this.context.kind==='profile' && ['deleted','removed'].includes(post.status) && archive?.source==='arctic-shift' && archive.fullname===post.fullname && archive.author.toLowerCase()===this.context.username.toLowerCase();
       if(owned && archive.body)post={...post,archivedBody:post.archivedBody || archive.body,archivedBodyHtml:post.archivedBodyHtml || archive.bodyHtml,over18:post.over18 || archive.over18,spoiler:post.spoiler || archive.spoiler};
-      this.repairReplyInfo(post,native);const recovered=this.recoverBody(post,native),titled=owned && post.kind!=='comment' && !post.over18 && !post.spoiler && this.recoverTitle(archive.title,native),label=this.indicator(post),fallback=node.dataset?.rtArchiveFallback==='true';
+      this.repairReplyInfo(post,native);const recovered=this.recoverBody(post,native),titled=owned && post.kind!=='comment' && !post.over18 && !post.spoiler && this.recoverTitle(archive.title,native),pictured=owned && post.kind!=='comment' && !post.over18 && !post.spoiler && this.recoverImage(archive.url,native),label=this.indicator(post),fallback=node.dataset?.rtArchiveFallback==='true';
       const titleShown=titled || Boolean(this.recoveredTitles?.has(native.querySelector('[slot="title"]')));if(recovered)label.title+=' · Text recovered from Arctic Shift';else if(titleShown)label.title+=' · Title recovered from Arctic Shift';else if(fallback && post.source!=='arctic-shift')label.title+=' · Text from an Arctic Shift snapshot';
       const retrieved=archive?.retrieved || post.retrieved;if(retrieved && (recovered || titleShown || fallback || post.source==='arctic-shift'))label.title+=' · Snapshot from '+new Date(retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
       label.setAttribute('aria-label',label.title);

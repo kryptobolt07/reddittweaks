@@ -1208,3 +1208,12 @@ test('All activity never pre-checks archive status that rendering already proves
  await d.ready;await d.loadArchive();await new Promise(r=>setImmediate(r));assert.equal(calls.filter(a=>a==='status').length,0,'no duplicate status fetches in All activity');
  d.activityMenu.querySelector('[data-rt-activity-filter="deleted"]').click();for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));assert.equal(calls.filter(a=>a==='status').length,1);assert.equal(d.postStatuses.get('t3_old12'),'deleted');
 });
+
+test('removed image posts in profile cards get their Reddit-hosted image back, never for NSFW',async t=>{
+ for(const [extra,expect] of [[{},true],[{over_18:true},false]]){
+  const {d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},reddit:async input=>input.action==='status'?{statuses:[],unknownIds:[]}:{posts:[],hasMore:false},archive:async input=>input.kind==='comment'?{posts:[],hasMore:false}:{posts:[raw('img1',{title:'Picture title',selftext:'',url:'https://i.redd.it/pic.jpeg',...extra})],hasMore:false},
+   nativeRender:async(post,node)=>{node.innerHTML='<shreddit-post id="t3_img1" post-title="[ Removed by moderator ]"><span slot="credit-bar"></span><h1 slot="title">[ Removed by moderator ]</h1><div slot="post-removed-banner">Removed.</div></shreddit-post>';}});
+  await d.ready;await d.loadArchive();for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));
+  const img=d.nodes.get('img1').querySelector('.rt-archived-media img');assert.equal(Boolean(img),expect);if(img){assert.equal(img.src,'https://i.redd.it/pic.jpeg');d.restoreRecoveredBodies();assert.equal(d.nodes.get('img1').querySelector('.rt-archived-media'),null);}
+ }
+});
