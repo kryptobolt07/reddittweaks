@@ -1156,6 +1156,16 @@ test('other logged-out search failures stay explicit errors',async t=>{
  await d.loadReddit();assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/HTTP 404/);assert.equal(d.notice.hidden,true);
 });
 
+test('Arctic Shift maintenance shows its own note, waits minutes and Retry now forces one probe',async t=>{
+ const requests=[];const {d}=setup(t,{timing:{retryUnitMs:1000},settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>input.action==='status'?{statuses:[],unknownIds:[]}:{posts:[],hasMore:false},archive:async input=>{requests.push(input);throw Object.assign(Error('Arctic Shift is down for maintenance.'),{code:'maintenance',retryAt:Date.now()+60000});}});
+ await d.ready;d.activityFilter='deleted';await d.loadArchive();
+ assert.equal(d.status.dataset.error,'false','maintenance is not reported as a failure');
+ const note=d.loading.querySelector('[data-rt-continuation-note]');assert.match(note.textContent,/Arctic Shift is down for maintenance\. Retrying in about 1 min\./);assert.doesNotMatch(note.textContent,/isn’t responding/);assert.equal(note.textContent.match(/down for maintenance/g).length,1,'one note per service, even with posts and comments both waiting');
+ const count=requests.length;assert.ok(requests.every(input=>!input.force));
+ note.querySelector('button').click();await d.archiveRun;await new Promise(r=>setImmediate(r));
+ assert.ok(requests.length>count && requests.slice(count).every(input=>input.force===true),'Retry now asks the broker to probe');
+ d.clearSourceRetries();
+});
 test('an Arctic Shift rate limit shows a quiet note and retries the same cursor with backoff',async t=>{
  const requests=[];let limited=true;const {d}=setup(t,{timing:{retryUnitMs:2},settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>input.action==='status'?{statuses:[],unknownIds:[]}:{posts:[],hasMore:false},archive:async input=>{requests.push(input.before);if(limited){limited=false;throw Object.assign(Error('Archive rate limit reached.'),{code:'rate-limited'});}return {posts:[raw('old12',{created_utc:1600000000})],hasMore:false};}});
  await d.ready;d.activityFilter='deleted';await d.loadArchive();

@@ -9,6 +9,20 @@
   const archiveInit={credentials:'omit',referrerPolicy:'no-referrer',redirect:'error'};
   const pending=new Map(),cache=new Map(),titles=new Map(),profiles=new Map(),commentContexts=new Map(),subscribers=new Set();
   let active=0,cooldownUntil=0;const waiters=[];
+  // Arctic Shift answers 503 {"error":"Under maintenance"} while it is down.
+  // Pause every archive request (all tabs) with growing backoff, so pages fail
+  // fast instead of re-requesting a service that is offline.
+  let unavailableUntil=0,unavailableCount=0,unavailableMaintenance=false;
+  const unavailable=()=>fail(unavailableMaintenance?'Arctic Shift is down for maintenance.':'Arctic Shift is temporarily unavailable.',unavailableMaintenance?'maintenance':'unavailable',{retryAt:unavailableUntil});
+  async function markUnavailable(response,controller,probe=false){
+    let text='';try{text=(await readBounded(response,controller)) || '';}catch{}
+    unavailableMaintenance=/maintenance/i.test(text.slice(0,2000));
+    // Requests already in flight report the same outage; count it once. A
+    // reader's explicit probe that fails starts the next, longer pause.
+    if(probe || unavailableUntil<=Date.now()){unavailableCount++;unavailableUntil=Date.now()+Math.min(60000*2**(unavailableCount-1),600000);}
+    return unavailable();
+  }
+  function markAvailable(){unavailableUntil=0;unavailableCount=0;unavailableMaintenance=false;}
   function fail(message,code='archive-error',extra={}){return {ok:false,error:message,code,incomplete:true,...extra};}
   async function enabled(requireRestoration=false){
     const stored=await chrome.storage.local.get('rt-settings-v1'),settings=Model.normalizeSettings(stored['rt-settings-v1']);
@@ -52,12 +66,14 @@
     }else text=await response.text();
     return text.length>3000000?null:text;
   }
-  async function request(username,before,ids,kind='post',{contextOnly=false,recoverSender=null,titles=true}={}){
+  async function request(username,before,ids,kind='post',{contextOnly=false,recoverSender=null,titles=true,force=false}={}){
     const release=await slot();
     try{
       if(!await enabled(Boolean(recoverSender)))return disabled();
       if(recoverSender && !authorized(recoverSender,username,null))return fail('Archive recovery requires the matching Reddit profile.','forbidden');
       if(cooldownUntil>Date.now())return fail('Archive requests are cooling down.','rate-limited',{retryAt:cooldownUntil});
+      // A reader's explicit Retry now may probe once during the pause.
+      if(unavailableUntil>Date.now() && !force)return unavailable();
       const url=new URL('https://arctic-shift.photon-reddit.com/api/'+(kind==='comment'?'comments':'posts')+'/'+(ids?'ids':'search'));
       if(ids)url.searchParams.set('ids',ids.join(','));else{url.searchParams.set('author',username);url.searchParams.set('sort','desc');url.searchParams.set('limit',String(limit));if(before!=null)url.searchParams.set('before',String(before));}
       // Arctic Shift's server-rendered markdown (body_html/selftext_html); the page sanitizes it.
@@ -71,10 +87,12 @@
         const timedOut=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Archive request timed out.'));},timeoutMs);});
         const operation=(async()=>{
           const response=await fetch(url.href,{...archiveInit,signal:controller.signal});cooldown(response);
+          if([502,503,504].includes(response.status))return markUnavailable(response,controller,force && unavailableUntil>Date.now());
           if(!response.ok)return fail(response.status===429?'Archive rate limit reached.':'Archive service could not load posts.',response.status===429?'rate-limited':'http-error',{retryAt:cooldownUntil||undefined});
           // Both transport text and accepted record count are bounded before normalization.
           const text=await readBounded(response,controller);if(text==null)return fail('Archive response is too large.','invalid-response');
           let json;try{json=JSON.parse(text);}catch{return fail('Invalid archive response.','invalid-response');}
+          markAvailable();
           if(!Array.isArray(json?.data) || json.data.length>100)return fail('Invalid archive response.','invalid-response');
           const raw=json.data.slice(0,limit),posts=raw.map(item=>(kind==='comment'?Model.normalizeComment:Model.normalizePost)(item,{source:'arctic-shift'})).filter(post=>post && (ids?ids.includes(post.id):post.author.toLowerCase()===username && (before==null || post.created<before)));
           const oldest=posts.length?Math.min(...posts.map(post=>post.created)):null,hasMore=!ids && json.data.length>=limit;
@@ -121,7 +139,7 @@
   async function fillCommentTitles(posts){
     const now=Date.now();for(const [id,entry] of titles)if(entry.expires<=now)titles.delete(id);
     const missing=[...new Set(posts.map(post=>post.linkId).filter(id=>id && !titles.has(id)))].slice(0,100);
-    if(missing.length && cooldownUntil<=now && await enabled())await lookupTitles(missing);
+    if(missing.length && cooldownUntil<=now && unavailableUntil<=now && await enabled())await lookupTitles(missing);
     for(const post of posts){const info=titles.get(post.linkId);if(!info || info.expires<=Date.now())continue;if(!post.title && info.title)post.title=info.title;if(info.over18)post.over18=true;if(info.spoiler)post.spoiler=true;}
   }
   // Thread restoration: archived text for deleted/removed comments shown on the
@@ -204,7 +222,7 @@
     if(cache.has(key))return cache.get(key).value;
     if(pending.has(key))return pending.get(key);
     if(pending.size>=50)return fail('Too many archive requests.','busy');
-    const previous=profiles.get(profileKey)||Promise.resolve(),operation=previous.catch(()=>{}).then(()=>request(username,before,normalizedIds,kind));
+    const previous=profiles.get(profileKey)||Promise.resolve(),operation=previous.catch(()=>{}).then(()=>request(username,before,normalizedIds,kind,{force:message.force===true && !ids}));
     pending.set(key,operation);profiles.set(profileKey,operation);
     try{const value=await operation;if(!await enabled())return disabled();if(value.ok){if(cache.size>=50)cache.delete(cache.keys().next().value);cache.set(key,{value,expires:Date.now()+ttl});}return value;}
     finally{pending.delete(key);if(profiles.get(profileKey)===operation)profiles.delete(profileKey);}

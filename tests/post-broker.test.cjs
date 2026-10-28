@@ -209,3 +209,20 @@ test('archive media survives worker normalization',async()=>{
  const e=env({fetcher:async()=>response([row({url:'https://example.com/article',preview:{images:[{source:{url:'https://external-preview.redd.it/cover.jpg?width=640&amp;format=pjpg'}}]}})])});
  const result=await e.send();assert.equal(result.posts[0].media[0].url,'https://external-preview.redd.it/cover.jpg?width=640&format=pjpg');assert.equal(result.posts[0].media[0].kind,'preview');
 });
+
+test('Arctic Shift maintenance pauses archive requests with backoff; Retry now probes once and success resumes',async()=>{
+ let down=true;const maintenance=()=>({ok:false,status:503,headers:{get:()=>null},async text(){return JSON.stringify({data:null,error:'Under maintenance'});}});
+ const e=env({fetcher:async()=>down?maintenance():response([row()])});
+ const first=await e.send();assert.equal(first.ok,false);assert.equal(first.code,'maintenance');assert.match(first.error,/down for maintenance/);
+ assert.ok(first.retryAt-Date.now()>50000 && first.retryAt-Date.now()<=60000,'first pause is about a minute');
+ const paused=await e.send({kind:'comment'});assert.equal(paused.code,'maintenance');assert.equal(e.calls.length,1,'paused requests never reach the network');
+ const probe=await e.send({force:true});assert.equal(probe.code,'maintenance');assert.equal(e.calls.length,2,'Retry now probes once');assert.ok(probe.retryAt-Date.now()>100000,'the pause doubles');
+ down=false;const back=await e.send({force:true});assert.equal(back.ok,true);const after=await e.send({kind:'comment'});assert.equal(after.ok,true,'success lifts the pause for everyone');
+ const plain=env({fetcher:async()=>({ok:false,status:502,headers:{get:()=>null},async text(){return 'Bad gateway';}})});assert.equal((await plain.send()).code,'unavailable');
+});
+
+test('simultaneous requests that hit one outage count it once',async()=>{
+ const e=env({fetcher:async()=>({ok:false,status:503,headers:{get:()=>null},async text(){return '{"error":"Under maintenance"}';}})});
+ const [a,b]=await Promise.all([e.send(),e.send({kind:'comment'})]);assert.equal(e.calls.length,2);
+ for(const result of [a,b]){assert.equal(result.code,'maintenance');assert.ok(result.retryAt-Date.now()<=60000);}
+});
