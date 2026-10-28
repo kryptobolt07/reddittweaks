@@ -185,7 +185,7 @@ test('source indicators precede native Join and overflow controls with distinct 
  let badge=node.querySelector('[data-rt-source]');assert.equal(badge.parentElement.hasAttribute('data-actions'),true);assert.equal(badge.nextElementSibling.textContent,'Join');assert.equal(badge.querySelector('svg').dataset.icon,'hidden');
  d.decorateNative({...post,status:'deleted'},node);badge=node.querySelector('[data-rt-source]');assert.equal(badge.querySelector('svg').dataset.icon,'deleted');assert.match(badge.title,/Deleted/);
  d.decorateNative({...post,status:'removed'},node);assert.equal(node.querySelector('[data-rt-source] svg').dataset.icon,'removed');assert.equal(node.querySelectorAll('[data-rt-source]').length,1);assert.equal(native.querySelector('[slot=post-media-container]'),media);
- d.decorateNative({...post,source:'arctic-shift',status:'unknown'},node);assert.equal(node.querySelector('[data-rt-source] svg').dataset.icon,'archive');assert.match(node.querySelector('[data-rt-source]').title,/status unknown/);
+ d.decorateNative({...post,source:'arctic-shift',status:'unknown'},node);assert.equal(node.querySelector('[data-rt-source] svg').dataset.icon,'deleted','archive-only items use the deleted icon, never an archive box');assert.match(node.querySelector('[data-rt-source]').title,/status unknown/);
 });
 
 test('unfinished cards stay outside the native virtualization tree until hydrated',async t=>{
