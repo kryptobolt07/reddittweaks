@@ -1,3 +1,13 @@
+# 0.20.2 preview
+
+- Deleted and removed posts always show their status cue on the post page, even when the Arctic Shift snapshot adds no text (it was captured after deletion) or the post is not archived; the tooltip says which. A deleted post's [deleted] author is replaced by the archived username in Reddit's author style, and comments whose snapshot text is [deleted]/[removed] still gain their archived author and cue while keeping Reddit's notice. Reported case: r/LenovoLOQ 1xark12.
+- Tell author deletions from moderator removals by the wording of Reddit's banner (both use the same banner slot), so author-deleted posts show the trash cue instead of the ban cue.
+- New detailed mascot icon (antenna-topped tinkerer with glasses, gear antenna and screwdriver among settings tiles), with a simplified head-and-glasses variant for 16/32 px and the popup header. Icons are rendered from the SVG sources with headless Chrome.
+
+Version choice: PATCH to 0.20.2 for restoration and status corrections plus the icon artwork; no new permissions or storage changes.
+
+Validation: all 784 tests pass. Live Chrome check on r/LenovoLOQ 1xark12: trash cue, archived author TheBrokenChad in Reddit's author style, tooltip noting the snapshot adds nothing more. ZIP integrity and source/stable-folder/archive byte equality pass.
+
 # 0.20.1 preview
 
 - Show restored images exactly like Reddit's image posts: the same rounded frame and hairline border, an aspect-ratio box at the image's own proportions (minimum 220 px, capped to the viewport), a blurred dimmed backdrop and the contained image on black. Live check: a restored removed post renders in the same 620×319 box as a native image post. Applies on post pages and in profile cards.
