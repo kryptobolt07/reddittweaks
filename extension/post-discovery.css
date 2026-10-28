@@ -109,3 +109,6 @@ html[data-rt-restore] main shreddit-comment[is-comment-deleted]:not([data-rt-set
 @media(prefers-reduced-motion:reduce){html[data-rt-restore] main shreddit-post > [slot="title"],shreddit-comment [data-rt-notice],html[data-rt-restore] main shreddit-comment > details p{animation:none!important}}
 .rt-archived-media{margin:8px 0;display:flex;justify-content:center;background:var(--color-neutral-background-weak,#eaedef);border-radius:16px;overflow:hidden}
 .rt-archived-media img{display:block;max-width:100%;max-height:540px;object-fit:contain}
+
+/* Grouped Feed options submenus stay within the viewport. */
+.rt-activity-submenu{max-height:calc(100dvh - 180px);overflow-y:auto;overscroll-behavior:contain}
