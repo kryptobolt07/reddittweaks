@@ -26,10 +26,14 @@
     stage.append(backdrop,main);fill.append(stage);ratio.append(fill);root.append(ratio);
     return root;
   }
-  // Reddit-style skeleton lines (its own faceplate-shimmer element).
+  // Same skeleton design as the chat search results: Reddit's faceplate-shimmer
+  // in pill shape (title 55%, preview 86%, 9px apart), with a sweeping
+  // highlight fallback when the element isn't available or motion is reduced.
   function skeleton({lines=3,doc=globalThis.document}={}){
+    const view=doc.defaultView || globalThis,native=Boolean(view.customElements?.get('faceplate-shimmer')) && !view.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const box=doc.createElement('div');box.className='rt-skeleton';box.dataset.rtSkeleton='true';box.setAttribute('aria-hidden','true');
-    for(let i=0;i<lines;i++){const line=doc.createElement('faceplate-shimmer');line.className='rt-skeleton-line';line.setAttribute('shape','rectangle');line.style.width=[100,94,62,80][i % 4]+'%';box.append(line);}
+    const widths=lines<=2?[86,55]:[86,72,55];
+    for(let i=0;i<lines;i++){const line=doc.createElement(native?'faceplate-shimmer':'span');line.className='rt-skeleton-line skeleton-shimmer'+(native?'':' rt-skeleton-fallback');if(native)line.setAttribute('shape','pill');line.style.width=widths[i % widths.length]+'%';box.append(line);}
     return box;
   }
   globalThis.RTArchiveView=Object.freeze({image,imageUrl,skeleton});
