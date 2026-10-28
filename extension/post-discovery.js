@@ -1061,7 +1061,10 @@
       if(!native || this.nativeRestrictions(native).restricted || native.querySelector('[slot="post-media-container"] img,[slot="post-media-container"] video,.rt-archived-media'))return false;
       let url='';try{const parsed=new URL(value);if(parsed.protocol==='https:' && ['i.redd.it','preview.redd.it'].includes(parsed.hostname) && /\.(?:jpe?g|png|gif|webp)$/i.test(parsed.pathname))url=parsed.href;}catch{}
       if(!url)return false;
-      const figure=make('figure','rt-archived-media');figure.dataset.rtRecoveredText='true';const img=make('img');img.src=url;img.alt='';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';figure.append(img);native.append(figure);
+      // Reddit's own image-post media structure when available.
+      let figure=globalThis.RTArchiveView?.image(url,{alt:native.getAttribute('post-title') || ''});
+      if(!figure){figure=make('figure','rt-archived-media');figure.dataset.rtRecoveredText='true';const img=make('img');img.src=url;img.alt='';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';figure.append(img);}
+      native.append(figure);
       for(const slot of ['post-media-container','text-body','post-recovery-section']){figure.slot=slot;if(!native.shadowRoot || figure.assignedSlot)break;}
       (this.recoveredMedia ||= new Set()).add(figure);return true;
     }

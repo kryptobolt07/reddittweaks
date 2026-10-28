@@ -45,7 +45,7 @@
         if(!/^t1_[a-z0-9]{1,32}$/.test(id) || this.requested.has(id) || this.checked?.has(comment))continue;
         if(post && post!=='t3_'+postId){comment.setAttribute('data-rt-settled','');continue;}
         // Skeleton instead of Reddit's notice while the archive is asked.
-        const notice=this.noticeParagraph(comment);if(notice){this.queue.add(id);notice.dataset.rtNotice='true';comment.setAttribute('data-rt-pending','');}else{comment.setAttribute('data-rt-settled','');this.checked?.add(comment);}
+        const notice=this.noticeParagraph(comment);if(notice){this.queue.add(id);notice.dataset.rtNotice='true';comment.setAttribute('data-rt-pending','');const skeleton=globalThis.RTArchiveView?.skeleton({lines:2});if(skeleton)notice.after(skeleton);}else{comment.setAttribute('data-rt-settled','');this.checked?.add(comment);}
       }
       return this.flush();
     }
@@ -63,7 +63,7 @@
       try{
         while(this.queue.size && postId===this.postId && this.enabled()){
           const ids=[...this.queue].slice(0,100);for(const id of ids){this.queue.delete(id);this.requested.add(id);}
-          let result;const settle=()=>{for(const id of ids){const node=this.commentNode(id);if(node){node.removeAttribute('data-rt-pending');node.setAttribute('data-rt-settled','');}}};
+          let result;const settle=()=>{for(const id of ids){const node=this.commentNode(id);if(node){for(const skeleton of node.querySelectorAll('[data-rt-skeleton]'))if(skeleton.closest('shreddit-comment')===node)skeleton.remove();node.removeAttribute('data-rt-pending');node.setAttribute('data-rt-settled','');}}};
           try{result=await this.archive({action:'archive-comments',postId,ids});}
           catch(error){
             // Rate limits and timeouts retry later; anything else leaves Reddit's notice in place.
@@ -145,7 +145,9 @@
       const status=M.domStatus(native);this.postState={native,status};
       if(!status){native.setAttribute('data-rt-settled','');return;}
       native.setAttribute('data-rt-pending','');
-      const state=this.postState,settle=()=>{native.removeAttribute('data-rt-pending');native.setAttribute('data-rt-settled','');};
+      // Skeleton lines where the body goes while the archive is asked.
+      const skeleton=globalThis.RTArchiveView?.skeleton({lines:3});if(skeleton){native.append(skeleton);for(const slot of ['text-body','post-recovery-section','post-removed-banner']){skeleton.slot=slot;if(!native.shadowRoot || skeleton.assignedSlot)break;}}
+      const state=this.postState,settle=()=>{skeleton?.remove();native.removeAttribute('data-rt-pending');native.setAttribute('data-rt-settled','');};
       return Promise.resolve(this.archive({action:'archive-ids',ids:[postId]})).then(result=>{
         if(this.postState!==state || !this.enabled())return;
         const archived=(result?.posts || []).map(raw=>M.normalizePost(raw,{source:'arctic-shift'})).find(post=>post?.id===postId);if(!archived)return;
@@ -163,7 +165,8 @@
         }
         const image=this.archivedImage(archived.url);
         if(!restricted && image && !native.querySelector('[slot="post-media-container"] img,[slot="post-media-container"] video')){
-          const figure=make('figure','rt-archived-media');figure.dataset.rtRecoveredText='true';const img=make('img');img.src=image;img.alt=archived.title || '';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';figure.append(img);
+          const subreddit=native.getAttribute('subreddit-prefixed-name') || '',figure=globalThis.RTArchiveView?.image(image,{alt:(subreddit?subreddit+' - ':'')+(archived.title || '')}) || Object.assign(make('figure','rt-archived-media'),{innerHTML:''});
+          if(!figure.querySelector('img')){figure.dataset.rtRecoveredText='true';const img=make('img');img.src=image;img.alt=archived.title || '';img.referrerPolicy='no-referrer';figure.append(img);}
           place(figure,['post-media-container','text-body','post-recovery-section']);
         }
         if(!patch.title && !patch.added.length)return;
@@ -177,6 +180,7 @@
     }
     // Images Reddit hosts itself (removed posts usually keep their media URL).
     archivedImage(value){
+      if(globalThis.RTArchiveView)return RTArchiveView.imageUrl(value);
       try{const url=new URL(value);return url.protocol==='https:' && ['i.redd.it','preview.redd.it'].includes(url.hostname) && /\.(?:jpe?g|png|gif|webp)$/i.test(url.pathname)?url.href:'';}catch{return '';}
     }
     restoreAll(){
@@ -186,6 +190,7 @@
       this.patches.clear();
       for(const node of document.querySelectorAll('shreddit-comment[data-rt-pending],shreddit-comment[data-rt-settled]')){node.removeAttribute('data-rt-pending');node.removeAttribute('data-rt-settled');}
       for(const node of document.querySelectorAll('[data-rt-notice]'))delete node.dataset.rtNotice;
+      for(const node of document.querySelectorAll('main [data-rt-skeleton]'))node.remove();
     }
     destroy(){this.observer?.disconnect();clearTimeout(this.timer);clearTimeout(this.retryTimer);window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);chrome.runtime.onMessage?.removeListener?.(this.onMessage);this.restoreAll();}
   }
