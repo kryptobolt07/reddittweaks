@@ -19,12 +19,16 @@
     if(sender?.id!==chrome.runtime.id || sender.frameId!=null && sender.frameId!==0)return false;
     try{const url=new URL(sender.url);if(url.protocol!=='https:' || !['reddit.com','www.reddit.com','old.reddit.com','new.reddit.com','sh.reddit.com'].includes(url.hostname) || url.port)return false;
       if(sender.origin && sender.origin!==url.origin)return false;
-      const tabUrl=sender.tab?.url?new URL(sender.tab.url):url;if(tabUrl.origin!==url.origin)return false;
-      if(ids){if(tabUrl.pathname!==url.pathname)return false;const detail=url.pathname.match(/^\/(?:(?:r|user)\/[^/]+\/)?comments\/([a-z0-9]+)(?:\/.*)?$/i);return Boolean(detail && ids.length===1 && detail[1].toLowerCase()===ids[0]);}
-      // sender.url may remain the content script's document-start URL after SPA
-      // navigation. Both URLs must still be supported tabs of this same profile.
-      const profile=path=>path.match(/^\/user\/([A-Za-z0-9_-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
-      return [url,tabUrl].every(current=>profile(current.pathname)?.[1].toLowerCase()===username.toLowerCase());
+      // sender.url stays at the document's first URL after Reddit's in-page
+      // navigation (profile -> post, post -> profile). Our content script reports
+      // its current location (only extension scripts can message the worker);
+      // the tab URL is the fallback. The route must match that current page.
+      let current=sender.tab?.url?new URL(sender.tab.url):url;
+      if(typeof sender.page==='string')current=new URL(sender.page);
+      if(current.origin!==url.origin || current.protocol!=='https:')return false;
+      if(ids){const detail=current.pathname.match(/^\/(?:(?:r|user)\/[^/]+\/)?comments\/([a-z0-9]+)(?:\/.*)?$/i);return Boolean(detail && ids.length===1 && detail[1].toLowerCase()===ids[0]);}
+      const profile=current.pathname.match(/^\/user\/([A-Za-z0-9_-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
+      return profile?.[1].toLowerCase()===username.toLowerCase();
     }catch{return false;}
   }
   async function slot(){if(active>=2)await new Promise(resolve=>waiters.push(resolve));else active++;return ()=>{const next=waiters.shift();if(next)next();else active--;};}
@@ -211,6 +215,7 @@
   });
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     if(message?.scope!=='rt-posts')return;
+    sender={...sender,page:typeof message.pageUrl==='string' && message.pageUrl.length<4096?message.pageUrl:undefined};
     handle(message,sender).then(async value=>{if(message.action!=='get-settings' && value?.ok && !await enabled(['archive-recover','archive-comments'].includes(message.action)))value=disabled();if(message.action==='archive-recover' && value?.ok && !authorized(sender,message.username,null))value=fail('Archive recovery requires the matching Reddit profile.','forbidden');rememberCommentContexts(message,sender,value);sendResponse(value);},()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
   });
 })();

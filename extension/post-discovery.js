@@ -36,7 +36,7 @@
     });
   }
   async function archiveRead(parameters){
-    let timer;try{const response=await Promise.race([chrome.runtime.sendMessage({scope:'rt-posts',...parameters}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Archive request took too long. Try again.')),16000);})]);if(!response?.ok)throw Object.assign(Error(response?.error || 'Archive unavailable.'),{code:response?.code,retryAt:response?.retryAt});return response;}catch(error){if(/took too long/.test(error.message))error.code='timeout';throw error;}finally{clearTimeout(timer);}
+    let timer;try{const response=await Promise.race([chrome.runtime.sendMessage({scope:'rt-posts',...parameters,pageUrl:location.href}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Archive request took too long. Try again.')),16000);})]);if(!response?.ok)throw Object.assign(Error(response?.error || 'Archive unavailable.'),{code:response?.code,retryAt:response?.retryAt});return response;}catch(error){if(/took too long/.test(error.message))error.code='timeout';throw error;}finally{clearTimeout(timer);}
   }
   async function settingsRead(){
     const response=await archiveRead({action:'get-settings'});
