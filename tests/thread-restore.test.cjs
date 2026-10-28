@@ -92,3 +92,19 @@ test('deleted comments show a skeleton while the archive is asked, then settle e
  const gone=comment(doc,'t1_gone1');assert.equal(gone.hasAttribute('data-rt-pending'),true);assert.equal(gone.querySelector('.notice p').dataset.rtNotice,'true');
  release({ok:true,posts:[]});await settle();assert.equal(gone.hasAttribute('data-rt-pending'),false);assert.equal(gone.hasAttribute('data-rt-settled'),true);assert.equal(gone.querySelector('.notice p').textContent,'Comment deleted by user','nothing archived: Reddit’s notice returns');
 });
+
+test('a snapshot without text still restores the comment author and status cue, keeping Reddit’s notice',async()=>{
+ const {r,doc}=setup({archive:message=>({ok:true,posts:message.ids.map(id=>archived(id.slice(3),'[removed]'))})});await r.ready;await settle();
+ const gone=comment(doc,'t1_gone1');assert.equal(gone.querySelector('.notice p').textContent,'Comment deleted by user','no invented text');
+ assert.equal(gone.querySelector('[data-rt-archived-author]').textContent,'Originalgone1');assert.match(gone.querySelector('[data-rt-source]').title,/Deleted by its author on Reddit · The Arctic Shift snapshot has no text · Originally posted by u\/Originalgone1/);
+ r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(gone.querySelector('[data-rt-archived-author]'),null);assert.equal(gone.querySelector('.notice p').textContent,'Comment deleted by user');
+});
+test('a deleted post whose snapshot only names the author gets the author and its status cue',async()=>{
+ const e=setup({archive:message=>message.action==='archive-ids'?{ok:true,posts:[{id:'abc12',author:'TheBrokenChad',title:'Is this legit?',selftext:'[removed]',url:'https://www.reddit.com/gallery/abc12',created_utc:1700000000}]}:{ok:true,posts:[]}});
+ e.doc.querySelector('main').insertAdjacentHTML('afterbegin','<shreddit-post id="t3_abc12" author="[deleted]" post-title="Is this legit?"><span slot="credit-bar"><span class="author-cls">[deleted]</span><span><shreddit-post-overflow-menu></shreddit-post-overflow-menu></span></span><h1 slot="title">Is this legit?</h1><div slot="text-body"><p>[deleted]</p></div></shreddit-post>');
+ await e.r.ready;await settle();const post=e.doc.querySelector('shreddit-post'),link=post.querySelector('[data-rt-archived-author]');
+ assert.equal(link.textContent,'TheBrokenChad');assert.match(link.className,/author-cls/);assert.equal(new URL(link.href).pathname,'/user/TheBrokenChad/');
+ const badge=post.querySelector('[data-rt-source]');assert.equal(badge.dataset.state,'deleted');assert.match(badge.title,/Deleted by its author on Reddit · The Arctic Shift snapshot has nothing more · Originally posted by u\/TheBrokenChad/);
+ assert.equal(post.querySelector('[slot="text-body"]').textContent,'[deleted]','nothing invented for the body');
+ e.r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(post.querySelector('.author-cls').textContent,'[deleted]');assert.equal(post.querySelector('[data-rt-source]'),null);
+});

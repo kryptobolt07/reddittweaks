@@ -83,30 +83,35 @@
       }finally{this.flushing=false;}
     }
     apply(archived){
-      const text=archived.body?.trim();if(!text || placeholder.test(text))return; // captured after deletion: nothing to show
+      // A snapshot taken after deletion has no text, but still names the author.
+      const text=archived.body?.trim(),hasText=Boolean(text) && !placeholder.test(text),author=M.validateUsername(archived.author)?archived.author:'';
+      if(!hasText && !author)return;
       const comment=this.commentNode('t1_'+archived.id);if(!comment)return;
       const p=this.noticeParagraph(comment),body=p?.parentElement;if(!body || this.patches.has(body))return;
       const status=/removed/i.test(p.textContent)?'removed':'deleted';
+      this.patches.set(body,{original:[...body.childNodes],comment,body});
+      if(hasText){
       // Reuse Reddit's own comment-body classes from a normal comment on this page.
       const sample=[...document.querySelectorAll('main shreddit-comment [id$="-post-rtjson-content"]')].find(node=>!node.closest('[data-rt-recovered-text]'));
       const recovered=make('div',sample?.className || 'md text-14');recovered.dataset.rtRecoveredText='true';
       const rendered=globalThis.RTMarkdown?.fromHtml(archived.bodyHtml) || globalThis.RTMarkdown?.render(text);
       if(rendered)recovered.append(rendered);else for(const part of text.split(/\n{2,}/)){const para=make('p','',part);para.style.whiteSpace='pre-wrap';recovered.append(para);}
       const pClass=sample?.querySelector('p')?.className;if(pClass)for(const para of recovered.querySelectorAll(':scope > p'))para.className=pClass;
-      this.patches.set(body,{original:[...body.childNodes],comment,body});body.replaceChildren(recovered);
+      body.replaceChildren(recovered);
       // Reddit collapses deleted comments; open restored ones so the text is visible.
       const details=comment.querySelector(':scope > details');if(details && !details.open){details.open=true;this.patches.get(body).opened=details;}
+      }
       const meta=comment.querySelector('[slot="commentMeta"]');
       if(meta && !meta.querySelector('[data-rt-source]')){
         const when=archived.retrieved?' from '+new Date(archived.retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}):'';
         const by=M.validateUsername(archived.author)?' · Originally posted by u/'+archived.author:'';
-        const label=(status==='removed'?'Removed by moderators':'Deleted by its author')+' on Reddit · Text from an Arctic Shift snapshot'+when+by;
+        const label=(status==='removed'?'Removed by moderators':'Deleted by its author')+' on Reddit · '+(hasText?'Text from an Arctic Shift snapshot'+when:'The Arctic Shift snapshot has no text')+by;
         const badge=make('span','rt-post-indicator rt-thread-indicator');badge.dataset.rtSource='true';badge.dataset.state=status;badge.setAttribute('role','img');badge.setAttribute('aria-label',label);badge.title=label;
         const icon=globalThis.RTPostDiscovery?.glyph?.(status==='removed'?'removed':'deleted');if(icon)badge.append(icon);
         (meta.querySelector('shreddit-comment-badges')?.parentElement || meta).append(badge);
         this.patches.get(body).badge=badge;
       }
-      if(M.validateUsername(archived.author))this.restoreAuthor(comment,archived.author,this.patches.get(body));
+      if(author)this.restoreAuthor(comment,author,this.patches.get(body));
     }
     // Show the archived author where Reddit shows [deleted], built like a
     // native comment author: a nameplate profile link and Reddit's avatar
@@ -150,33 +155,45 @@
       const state=this.postState,settle=()=>{skeleton?.remove();native.removeAttribute('data-rt-pending');native.setAttribute('data-rt-settled','');};
       return Promise.resolve(this.archive({action:'archive-ids',ids:[postId]})).then(result=>{
         if(this.postState!==state || !this.enabled())return;
-        const archived=(result?.posts || []).map(raw=>M.normalizePost(raw,{source:'arctic-shift'})).find(post=>post?.id===postId);if(!archived)return;
-        const author=native.getAttribute('author') || '';if(author && author!=='[deleted]' && author.toLowerCase()!==archived.author.toLowerCase())return;
-        const restricted=archived.over18 || archived.spoiler || native.matches('[nsfw],[spoiler],[is-nsfw],[over-18]') || Boolean(native.querySelector('shreddit-content-gate,[slot="nsfw-blocker"]'));
-        const patch=state.patch={native,added:[],title:null};
+        const found=(result?.posts || []).map(raw=>M.normalizePost(raw,{source:'arctic-shift'})).find(post=>post?.id===postId);
+        const author=native.getAttribute('author') || '',archived=found && (!author || author==='[deleted]' || author.toLowerCase()===found.author.toLowerCase())?found:null;
+        const restricted=archived?.over18 || archived?.spoiler || native.matches('[nsfw],[spoiler],[is-nsfw],[over-18]') || Boolean(native.querySelector('shreddit-content-gate,[slot="nsfw-blocker"]'));
+        const patch=state.patch={native,added:[],title:null,author:null};
         const title=native.querySelector('[slot="title"]');
-        if(title && archived.title && M.noticeStatus(title.textContent) && !M.noticeStatus(archived.title)){patch.title={node:title,original:[...title.childNodes]};const text=make('span','',archived.title);text.dataset.rtRecoveredText='true';title.replaceChildren(text);}
+        if(archived && title && archived.title && M.noticeStatus(title.textContent) && !M.noticeStatus(archived.title)){patch.title={node:title,original:[...title.childNodes]};const text=make('span','',archived.title);text.dataset.rtRecoveredText='true';title.replaceChildren(text);}
         const place=(node,slots)=>{native.append(node);patch.added.push(node);for(const slot of slots){node.slot=slot;if(!native.shadowRoot || node.assignedSlot)return;}if(native.shadowRoot && !node.assignedSlot)node.removeAttribute('slot');};
-        const text=archived.body?.trim();
+        const text=archived?.body?.trim();
         if(!restricted && text && !M.noticeStatus(text) && !native.querySelector('[slot="text-body"] [data-rt-recovered-text]')){
           const body=make('div','md text-14 pb-xs rt-recovered-md');body.dataset.rtRecoveredText='true';
           const rendered=globalThis.RTMarkdown?.fromHtml(archived.bodyHtml) || globalThis.RTMarkdown?.render(text);if(rendered)body.append(rendered);else body.append(make('p','',text));
           place(body,['text-body','post-recovery-section','post-removed-banner']);
         }
-        const image=this.archivedImage(archived.url);
+        const image=archived?this.archivedImage(archived.url):'';
         if(!restricted && image && !native.querySelector('[slot="post-media-container"] img,[slot="post-media-container"] video')){
           const subreddit=native.getAttribute('subreddit-prefixed-name') || '',figure=globalThis.RTArchiveView?.image(image,{alt:(subreddit?subreddit+' - ':'')+(archived.title || '')}) || Object.assign(make('figure','rt-archived-media'),{innerHTML:''});
           if(!figure.querySelector('img')){figure.dataset.rtRecoveredText='true';const img=make('img');img.src=image;img.alt=archived.title || '';img.referrerPolicy='no-referrer';figure.append(img);}
           place(figure,['post-media-container','text-body','post-recovery-section']);
         }
-        if(!patch.title && !patch.added.length)return;
-        const when=archived.retrieved?' from '+new Date(archived.retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}):'';
-        const label=(status==='removed'?'Removed by moderators':'Deleted by its author')+' on Reddit · Restored from an Arctic Shift snapshot'+when;
+        // Deleted posts show [deleted] as their author; the snapshot still names them.
+        if(archived && M.validateUsername(archived.author))patch.author=this.restorePostAuthor(native,archived.author);
+        // The status cue always shows, even when the snapshot adds nothing else.
+        const when=archived?.retrieved?' from '+new Date(archived.retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}):'';
+        const restored=Boolean(patch.title || patch.added.length);
+        const detail=!archived?'Not in the Arctic Shift archive':restored?'Restored from an Arctic Shift snapshot'+when:'The Arctic Shift snapshot has nothing more'+when;
+        const label=(status==='removed'?'Removed by moderators':'Deleted by its author')+' on Reddit · '+detail+(archived && M.validateUsername(archived.author)?' · Originally posted by u/'+archived.author:'');
         const badge=make('span','rt-post-indicator');badge.dataset.rtSource='true';badge.dataset.state=status;badge.setAttribute('role','img');badge.setAttribute('aria-label',label);badge.title=label;
         const icon=globalThis.RTPostDiscovery?.glyph?.(status==='removed'?'removed':'deleted');if(icon)badge.append(icon);
         const credit=native.querySelector('[slot="credit-bar"]') || native;let actions=credit.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==credit)actions=actions.parentElement;
         if(actions)actions.prepend(badge);else{badge.style.marginInlineStart='auto';credit.append(badge);}patch.added.push(badge);
       }).catch(()=>{}).finally(()=>{if(this.postState===state)settle();});
+    }
+    // Replace the post header's [deleted] author with the archived username,
+    // keeping Reddit's element classes; the dotted underline marks it archived.
+    restorePostAuthor(native,author){
+      const credit=native.querySelector('[slot="credit-bar"]') || native;
+      const label=[...credit.querySelectorAll('a,span')].find(el=>el.childElementCount===0 && el.textContent.trim()==='[deleted]' && !el.closest('[data-rt-source]'));if(!label)return null;
+      const link=make('a',(label.className || '')+' rt-archived-author');link.href='https://www.reddit.com/user/'+author+'/';link.textContent=(label.textContent.trim().startsWith('u/')?'u/':'')+author;link.dataset.rtArchivedAuthor='true';link.title='Original author from an Arctic Shift snapshot';
+      label.replaceWith(link);return {label,link};
     }
     // Images Reddit hosts itself (removed posts usually keep their media URL).
     archivedImage(value){
@@ -184,7 +201,7 @@
       try{const url=new URL(value);return url.protocol==='https:' && ['i.redd.it','preview.redd.it'].includes(url.hostname) && /\.(?:jpe?g|png|gif|webp)$/i.test(url.pathname)?url.href:'';}catch{return '';}
     }
     restoreAll(){
-      const post=this.postState?.patch;if(post){for(const node of post.added)node.remove();if(post.title)post.title.node.replaceChildren(...post.title.original);}
+      const post=this.postState?.patch;if(post){for(const node of post.added)node.remove();if(post.title)post.title.node.replaceChildren(...post.title.original);if(post.author?.link.isConnected)post.author.link.replaceWith(post.author.label);}
       if(this.postState?.native){this.postState.native.removeAttribute('data-rt-pending');this.postState.native.removeAttribute('data-rt-settled');}this.postState=null;
       for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;if(patch.author?.link.isConnected)patch.author.link.replaceWith(patch.author.label);if(patch.avatar)patch.avatar.slot.replaceChildren(...patch.avatar.original);}
       this.patches.clear();
