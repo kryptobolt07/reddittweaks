@@ -98,7 +98,7 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 .rt-recovered-md .rt-spoiler{background:var(--color-neutral-content-strong,#1a1a1b);color:transparent;border-radius:4px;cursor:pointer}.rt-recovered-md .rt-spoiler:hover,.rt-recovered-md .rt-spoiler:focus{background:transparent;color:inherit}
 
 /* Archived author identity on restored thread comments. */
-.rt-archived-author{text-decoration:underline dotted;text-underline-offset:3px;text-decoration-thickness:1px}
+.rt-archived-author,.rt-archived-author:visited{color:inherit;text-decoration:underline dotted;text-underline-offset:3px;text-decoration-thickness:1px}.rt-archived-author:hover{text-decoration-style:solid}
 
 /* Skeleton while an archived post/comment is looked up (Reddit-style shimmer). */
 @keyframes rt-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
