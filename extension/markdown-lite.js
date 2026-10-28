@@ -28,10 +28,10 @@
     if(last<text.length)fragment.append(text.slice(last));
     return fragment;
   }
-  function render(source,doc=globalThis.document){
+  function render(source,doc=globalThis.document,paragraphReplacement=null){
     const fragment=doc.createDocumentFragment(),lines=decode(String(source || '')).replace(/\r\n?/g,'\n').split('\n');
     let i=0;const paragraph=[];
-    const flush=()=>{if(!paragraph.length)return;const p=doc.createElement('p');paragraph.forEach((line,index)=>{if(index)p.append(doc.createElement('br'));p.append(inline(line.trim(),doc));});fragment.append(p);paragraph.length=0;};
+    const flush=()=>{if(!paragraph.length)return;const replacement=paragraphReplacement?.(paragraph.join('\n').trim());if(replacement)fragment.append(replacement);else{const p=doc.createElement('p');paragraph.forEach((line,index)=>{if(index)p.append(doc.createElement('br'));p.append(inline(line.trim(),doc));});fragment.append(p);}paragraph.length=0;};
     while(i<lines.length){
       const line=lines[i];
       if(/^\s*```/.test(line)){flush();const code=[];i++;while(i<lines.length && !/^\s*```/.test(lines[i]))code.push(lines[i++]);i++;const pre=doc.createElement('pre'),c=doc.createElement('code');c.textContent=code.join('\n');pre.append(c);fragment.append(pre);continue;}
@@ -72,5 +72,22 @@
     copy(source,fragment,0);
     return fragment.childNodes.length?fragment:null;
   }
-  globalThis.RTMarkdown=Object.freeze({render,decode,fromHtml});
+  // Comment attachments are shown only when validated metadata names a body
+  // reference. Replace a media-only paragraph, while keeping ordinary links.
+  function renderComment(text,html,media,{restricted=false,doc=globalThis.document}={}){
+    const images=restricted?[]:(Array.isArray(media)?media:[]).filter(item=>item?.kind==='image' && globalThis.RTPostModel?.mediaUrl(item.url)).slice(0,20);
+    if(!images.length)return fromHtml(html,doc) || render(text,doc);
+    return render(text,doc,raw=>{
+      const marker=raw.match(/^!\[[^\]\n]*\]\(([^)\s]+)\)$/),reference=marker?marker[1]:raw,direct=globalThis.RTPostModel.mediaUrl(reference);
+      const id=direct?new URL(direct).pathname.split('/').pop().replace(/\.[^.]+$/,''):marker?reference:'';
+      const item=images.find(candidate=>new URL(globalThis.RTPostModel.mediaUrl(candidate.url)).pathname.split('/').pop().replace(/\.[^.]+$/,'')===id);
+      if(!item)return null;
+      const url=globalThis.RTPostModel.mediaUrl(item.url);
+      const figure=doc.createElement('div');figure.className='rt-comment-media';
+      const img=doc.createElement('img');img.src=url;img.alt='Comment image';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
+      img.style.cssText='max-width: 100%; max-height: 512px; width: auto; height: auto; border-radius: 8px; object-fit: contain;';
+      if(item.width && item.height){img.width=item.width;img.height=item.height;}figure.append(img);return figure;
+    });
+  }
+  globalThis.RTMarkdown=Object.freeze({render,decode,fromHtml,renderComment});
 })();

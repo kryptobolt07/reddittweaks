@@ -61,7 +61,11 @@
       const url=new URL('https://arctic-shift.photon-reddit.com/api/'+(kind==='comment'?'comments':'posts')+'/'+(ids?'ids':'search'));
       if(ids)url.searchParams.set('ids',ids.join(','));else{url.searchParams.set('author',username);url.searchParams.set('sort','desc');url.searchParams.set('limit',String(limit));if(before!=null)url.searchParams.set('before',String(before));}
       // Arctic Shift's server-rendered markdown (body_html/selftext_html); the page sanitizes it.
-      url.searchParams.set('md2html',contextOnly?'false':'true');url.searchParams.set('fields',contextOnly?'id,author,link_id,created_utc':kind==='comment'?'id,author,subreddit,body,created_utc,link_id,parent_id,score,retrieved_on':'id,author,subreddit,title,selftext,created_utc,url,over_18,spoiler,score,num_comments,retrieved_on');
+      url.searchParams.set('md2html',contextOnly?'false':'true');
+      // Media fields are not selectable individually; unprojected activity
+      // responses retain them. Context-only parent reads remain projected.
+      // Transport and accepted records remain bounded.
+      if(kind==='comment' && contextOnly)url.searchParams.set('fields','id,author,link_id,created_utc');
       const controller=new AbortController();let timer,value;
       try{
         const timedOut=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Archive request timed out.'));},timeoutMs);});

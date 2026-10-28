@@ -77,3 +77,34 @@ test('archive retrieval time survives re-normalizing an already normalized recor
   const M=model(),first=M.normalizeComment({id:'c1',author:'Example',body:'b',created_utc:1700000000,link_id:'t3_abc12',retrieved_on:1700000500,title:'Parent'},{source:'arctic-shift'});
   const again=M.normalizeItem(first,{source:'arctic-shift'});assert.equal(again.retrieved,1700000500);assert.equal(again.title,'Parent');
 });
+
+test('archive media preserves safe gallery order, image previews and thumbnail distinctions across normalization',()=>{
+ const m=model(), gallery=post({url:'https://www.reddit.com/gallery/abc12',gallery_data:{items:[{media_id:'b'},{media_id:'a'}]},media_metadata:{a:{e:'Image',m:'image/jpeg',s:{u:'https://preview.redd.it/a.jpg?width=600&amp;format=pjpg'}},b:{e:'Image',m:'image/png',s:{u:'https://i.redd.it/b.png'}}}});
+ const first=m.normalizePost(gallery,{source:'arctic-shift'}),again=m.normalizePost(first,{source:'arctic-shift'});
+ assert.deepEqual(JSON.parse(JSON.stringify(again.media)),[{url:'https://i.redd.it/b.png',kind:'image'},{url:'https://preview.redd.it/a.jpg?width=600&format=pjpg',kind:'image'}]);
+ const link=m.normalizePost(post({url:'https://example.com/article',preview:{images:[{source:{url:'https://external-preview.redd.it/image.jpg?width=100&amp;x=2'}}]},thumbnail:'https://b.thumbs.redditmedia.com/t.jpg'}),{source:'arctic-shift'});
+ assert.equal(link.media[0].kind,'preview');assert.equal(link.media[0].url,'https://external-preview.redd.it/image.jpg?width=100&x=2');
+ assert.equal(m.normalizePost(post({url:'https://example.com/article',thumbnail:'https://b.thumbs.redditmedia.com/t.jpg'})).media[0].kind,'thumbnail');
+ for(const url of ['https://example.com/image.jpg','http://i.redd.it/a.jpg','https://i.redd.it.evil.test/a.jpg','https://user@i.redd.it/a.jpg','https://i.redd.it/a.svg'])assert.equal(m.mediaUrl(url),'');
+});
+
+test('direct image media does not append a duplicate preview and retains gallery dimensions',()=>{
+ const m=model(),single=m.normalizePost(post({url:'https://i.redd.it/x.jpg',preview:{images:[{source:{url:'https://preview.redd.it/x.jpg?width=600'}}]}}));assert.equal(single.media.length,1);assert.equal(single.media[0].kind,'image');
+ const gallery=m.normalizePost(post({gallery_data:{items:[{media_id:'x'}]},media_metadata:{x:{e:'Image',m:'image/jpeg',s:{u:'https://i.redd.it/x.jpg',x:640,y:480}}}}));assert.equal(gallery.media[0].width,640);assert.equal(gallery.media[0].height,480);
+});
+
+test('Reddit video stream and poster data survive re-normalization and reject foreign or mismatched streams',()=>{
+ const m=model(),raw=post({post_hint:'hosted:video',is_video:true,url:'https://v.redd.it/clip',preview:{images:[{source:{url:'https://external-preview.redd.it/poster.png?x=1&amp;s=signed',width:405,height:720}}]},secure_media:{reddit_video:{hls_url:'https://v.redd.it/clip/HLSPlaylist.m3u8?a=1&amp;v=1',dash_url:'https://v.redd.it/clip/DASHPlaylist.mpd?a=signed',fallback_url:'https://v.redd.it/clip/CMAF_1080.mp4?source=fallback',width:1080,height:1920,has_audio:true,duration:8}}});
+ const first=m.normalizePost(raw,{source:'arctic-shift'}),again=m.normalizePost(first,{source:'arctic-shift'}),v=again.media[0];
+ assert.equal(again.media.length,1);assert.equal(v.kind,'video');assert.equal(v.poster,'https://external-preview.redd.it/poster.png?x=1&s=signed');assert.equal(v.hls,'https://v.redd.it/clip/HLSPlaylist.m3u8?a=1&v=1');assert.equal(v.dash,'https://v.redd.it/clip/DASHPlaylist.mpd?a=signed');assert.equal(v.fallback,'https://v.redd.it/clip/CMAF_1080.mp4?source=fallback');assert.equal(v.hasAudio,true);assert.equal(v.width,1080);assert.equal(v.height,1920);assert.equal(v.duration,8);
+ const bad=m.normalizePost(post({is_video:true,secure_media:{reddit_video:{hls_url:'https://evil.test/clip/HLSPlaylist.m3u8',dash_url:'https://v.redd.it/clip/DASHPlaylist.mpd',fallback_url:'https://v.redd.it/other/CMAF_1080.mp4'}}}));assert.equal(bad.media[0].hls,'');assert.equal(bad.media[0].fallback,'');assert.equal(bad.media[0].hasAudio,null);
+ assert.equal(m.videoUrl('https://v.redd.it.evil.test/clip/HLSPlaylist.m3u8','m3u8'),'');assert.ok(m.mediaUrl('https://cf.preview.redd.it/image.jpg'));
+ const image=m.normalizePost(post({post_hint:'image',url:'',preview:{images:[{source:{url:'https://preview.redd.it/image.jpg',width:716,height:940}}]}}));assert.equal(image.media[0].kind,'image');assert.equal(image.media[0].width,716);
+});
+test('comment media requires a body reference and validated Reddit image metadata',()=>{
+ const M=model();const url='https://preview.redd.it/synthetic123.jpeg?width=960&format=pjpg&s=signature';
+ const raw={id:'abc',author:'Example',created_utc:1700000000,link_id:'t3_post1',body:url,media_metadata:{synthetic123:{e:'Image',m:'image/jpeg',s:{u:url,x:960,y:1482}}}};
+ const image=M.normalizeComment(raw,{source:'arctic-shift'});assert.equal(image.media[0].url,url);assert.equal(image.media[0].width,960);assert.equal(M.normalizeComment(image,{source:'arctic-shift'}).media[0].height,1482);
+ assert.equal(M.normalizeComment({...raw,body:'Unrelated synthetic123'},{source:'arctic-shift'}).media.length,0);
+ assert.equal(M.normalizeComment({...raw,media_metadata:{synthetic123:{e:'Image',m:'image/jpeg',s:{u:'https://evil.example/synthetic123.jpeg'}}}},{source:'arctic-shift'}).media.length,0);
+});

@@ -16,6 +16,47 @@
     }catch{return '';}
   }
   function avatarUrl(value){const url=safeUrl(value);return url.startsWith('https://')?url:'';}
+  // Only Reddit's image hosts are loaded automatically. Archive URLs may contain
+  // HTML-escaped query separators; decoding those is not HTML execution.
+  function mediaUrl(value){
+    if(typeof value!=='string' || value.length>4096)return '';
+    try{const url=new URL(value.replace(/&amp;/gi,'&'));
+      return url.protocol==='https:' && !url.username && !url.password && !url.port && ['i.redd.it','preview.redd.it','cf.preview.redd.it','external-preview.redd.it','i.reddituploads.com','a.thumbs.redditmedia.com','b.thumbs.redditmedia.com'].includes(url.hostname) && /\.(?:jpe?g|png|gif|webp)$/i.test(url.pathname)?url.href:'';
+    }catch{return '';}
+  }
+  function videoUrl(value,extension){
+    if(typeof value!=='string' || value.length>4096)return '';
+    try{const url=new URL(value.replace(/&amp;/gi,'&'));
+      return url.protocol==='https:' && url.hostname==='v.redd.it' && !url.username && !url.password && !url.port && new RegExp('^/[a-z0-9]+/[^/]+\\.'+extension+'$','i').test(url.pathname)?url.href:'';
+    }catch{return '';}
+  }
+  function normalizeMedia(raw){
+    const result=[],seen=new Set();
+    const dims=(item,source)=>{const width=Number(source?.width ?? source?.x),height=Number(source?.height ?? source?.y);if(Number.isInteger(width) && width>0 && width<=20000 && Number.isInteger(height) && height>0 && height<=20000){item.width=width;item.height=height;}};
+    const add=(value,kind,dimensions)=>{const url=mediaUrl(value);if(url && !seen.has(url) && result.length<20){seen.add(url);const item={url,kind};dims(item,dimensions);result.push(item);}};
+    const addVideo=(source,poster)=>{
+      if(!source || result.length)return;
+      const hls=videoUrl(source.hls ?? source.hls_url,'m3u8'),dash=videoUrl(source.dash ?? source.dash_url,'mpd'),fallback=videoUrl(source.fallback ?? source.fallback_url,'mp4');
+      const first=hls || dash || fallback;if(!first)return;
+      const id=new URL(first).pathname.split('/')[1],same=value=>value && new URL(value).pathname.split('/')[1]===id?value:'';
+      const item={kind:'video',hls:same(hls),dash:same(dash),fallback:same(fallback),poster:mediaUrl(poster || source.poster),hasAudio:typeof source.hasAudio==='boolean'?source.hasAudio:typeof source.has_audio==='boolean'?source.has_audio:null};dims(item,source);
+      const duration=Number(source.duration);if(Number.isFinite(duration) && duration>0 && duration<=86400)item.duration=duration;
+      result.push(item);
+    };
+    // A second normalization happens across the worker boundary; validate again.
+    if(Array.isArray(raw.media))for(const item of raw.media.slice(0,20)){if(item?.kind==='video')addVideo(item);else if(['image','preview','thumbnail'].includes(item?.kind))add(item.url,item.kind,item);}
+    const preview=Array.isArray(raw.preview?.images)?raw.preview.images[0]?.source:null;
+    if(!result.length && (raw.is_video===true || raw.post_hint==='hosted:video'))addVideo(raw.secure_media?.reddit_video || raw.media?.reddit_video,preview?.url);
+    const items=Array.isArray(raw.gallery_data?.items)?raw.gallery_data.items.slice(0,20):[];
+    if(!result.length)for(const item of items){const id=item?.media_id;if(typeof id!=='string' || !/^[a-z0-9]{1,40}$/i.test(id))continue;const entry=raw.media_metadata?.[id];
+      if(entry?.e==='Image' && /^image\/(?:jpe?g|png|gif|webp)$/i.test(entry.m || ''))add(entry.s?.u,'image',entry.s);
+    }
+    if(!items.length && !result.length){const direct=mediaUrl(raw.url);if(direct && new URL(direct).hostname==='i.redd.it')add(direct,'image',preview);
+      if(!result.length && preview)add(preview.url,raw.post_hint==='image'?'image':'preview',preview);
+    }
+    if(!result.length)add(raw.thumbnail,'thumbnail');
+    return result;
+  }
   function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true,restoreDeletedContent:raw?.restoreDeletedContent!==false};}
   function snapshotStatus(raw,body){
     if(body==='[deleted]' || raw.removed_by_category==='deleted' || raw.status==='deleted')return 'deleted';
@@ -30,7 +71,7 @@
     const body=str(raw.selftext ?? raw.body,40000),status=snapshotStatus(raw,body);
     const result={id,fullname:'t3_'+id,author,subreddit:str(raw.subreddit,100),title:str(raw.title,1000),body,
       created:Math.floor(created),permalink:safeUrl(raw.permalink,true)||'https://www.reddit.com/comments/'+id+'/',url:safeUrl(raw.url),thumbnail:safeUrl(raw.thumbnail),
-      over18:raw.over_18===true||raw.over18===true,spoiler:raw.spoiler===true,score:Number.isFinite(Number(raw.score))?Math.max(-1e9,Math.min(1e9,Number(raw.score))):0,
+      media:normalizeMedia(raw),over18:raw.over_18===true||raw.over18===true,spoiler:raw.spoiler===true,score:Number.isFinite(Number(raw.score))?Math.max(-1e9,Math.min(1e9,Number(raw.score))):0,
       comments:Number.isFinite(Number(raw.num_comments ?? raw.comments))?Math.max(0,Math.min(1e9,Math.floor(Number(raw.num_comments ?? raw.comments)))):0,
       status:source==='arctic-shift'?'unknown':status,source,bodySource:source};
     if(source==='arctic-shift'){
@@ -49,6 +90,23 @@
     const id=input.toLowerCase().replace(/^t1_/,''),linkId=idOf(raw.link_id || raw.linkId);
     const base=normalizePost({...raw,id:'comment',selftext:raw.body,permalink:undefined},{source});
     if(!base || !linkId)return null;
+    // Comment image metadata is independent of post galleries. Only accept
+    // entries referenced by the body, and validate their Reddit-hosted source.
+    if(!base.media.length && raw.media_metadata && typeof raw.media_metadata==='object'){
+      const body=str(raw.body,40000), media=[];
+      for(const [key,entry] of Object.entries(raw.media_metadata).slice(0,100)){
+        if(!/^[a-z0-9]{1,40}$/i.test(key) || entry?.e!=='Image' || !/^image\/(?:jpe?g|png|gif|webp)$/i.test(entry.m || ''))continue;
+        const source=mediaUrl(entry.s?.u);if(!source)continue;
+        const path=new URL(source).pathname.split('/').pop()?.replace(/\.[^.]+$/,'');
+        const references=[...body.matchAll(/https:\/\/[^\s<>()]+/gi)].some(match=>{const ref=mediaUrl(match[0]);return ref && new URL(ref).pathname.split('/').pop()?.replace(/\.[^.]+$/,'')===key;});
+        const marker=new RegExp('!\\[[^\\]\\n]*\\]\\('+key+'\\)','i').test(body);
+        if(path!==key || !references && !marker)continue;
+        const item={url:source,kind:'image'},width=Number(entry.s?.x),height=Number(entry.s?.y);
+        if(Number.isInteger(width) && width>0 && width<=20000 && Number.isInteger(height) && height>0 && height<=20000){item.width=width;item.height=height;}
+        media.push(item);if(media.length===20)break;
+      }
+      base.media=media;
+    }
     const parent=str(raw.parent_id ?? raw.parentId,40).toLowerCase();let parentId='';
     if(/^t1_[a-z0-9]{1,32}$/.test(parent) || /^t3_[a-z0-9]{1,10}$/.test(parent))parentId=parent;
     else if(/^[a-z0-9]{1,32}$/.test(parent))parentId=(parent===linkId?'t3_':'t1_')+parent;
@@ -97,5 +155,5 @@
     const duration={hour:3600,day:86400,week:604800,month:2592000,year:31536000}[range],cutoff=sort==='top' && duration?now-duration:-Infinity;
     return [...posts.values()].filter(post=>post.created>=cutoff).map(post=>({...post,visible:visible.has(post.fullname) || post.kind!=='comment' && visible.has(post.id),outsideVisibleFeed:!visible.has(post.fullname) && !(post.kind!=='comment' && visible.has(post.id))})).sort((a,b)=>(sort==='top'?b.score-a.score:sort==='hot'?(rank.get(a.fullname)??Infinity)-(rank.get(b.fullname)??Infinity):0) || b.created-a.created || a.fullname.localeCompare(b.fullname));
   }
-  globalThis.RTPostModel=Object.freeze({noticeStatus,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings});
+  globalThis.RTPostModel=Object.freeze({noticeStatus,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings});
 })();
