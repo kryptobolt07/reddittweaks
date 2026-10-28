@@ -44,8 +44,8 @@ test('different pages serialize per profile and global fetch concurrency stays a
  const first=e.send(),second=e.send({before:1699999999}),other=e.send({username:'Other'},{url:'https://www.reddit.com/user/Other'}),third=e.send({username:'Third'},{url:'https://www.reddit.com/user/Third'});
  await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,2);gates[0]();await first;await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,3);gates[1]();await other;await new Promise(r=>setImmediate(r));assert.equal(e.calls.length,4);gates[2]();gates[3]();await Promise.all([second,third]);
 });
-test('API field projection contains exactly documented selectable post fields',async()=>{
- const e=env();await e.send();assert.equal(new URL(e.calls[0][0]).searchParams.get('fields'),'id,author,subreddit,title,selftext,created_utc,url,over_18,spoiler,score,num_comments,retrieved_on');
+test('post requests retain unprojected media fields',async()=>{
+ const e=env();await e.send();assert.equal(new URL(e.calls[0][0]).searchParams.has('fields'),false);
 });
 test('ID lookup accepts a canonical user post permalink and verifies tab URL consistency',async()=>{
  const e=env(),url='https://www.reddit.com/user/Example/comments/abc12/title/';
@@ -78,7 +78,7 @@ test('automatic restoration preference never enables archive requests without ar
 test('archived comments use their own endpoint, projection, identity and profile route',async()=>{
  const e=env({fetcher:async()=>response([row({id:'19rktoupyflj9',body:'Archived comment',link_id:'t3_abc12'})])});
  const result=await e.send({kind:'comment'},{url:'https://www.reddit.com/user/Example/comments/'});assert.equal(result.ok,true);assert.equal(result.posts[0].kind,'comment');assert.equal(result.posts[0].body,'Archived comment');
- const url=new URL(e.calls[0][0]);assert.equal(url.pathname,'/api/comments/search');assert.equal(url.searchParams.get('fields'),'id,author,subreddit,body,created_utc,link_id,parent_id,score,retrieved_on');
+ const url=new URL(e.calls[0][0]);assert.equal(url.pathname,'/api/comments/search');assert.equal(url.searchParams.has('fields'),false);
  assert.equal((await e.send({kind:'video'})).code,'invalid-request');
 });
 
@@ -203,4 +203,9 @@ test('requests follow the current page after Reddit’s in-page navigation (prof
  assert.equal((await e.send({pageUrl:'https://www.reddit.com/user/Example/'},{url:'https://www.reddit.com/r/example/comments/abc12/x/'})).ok,true,'profile opened from a post');
  assert.equal((await e.send({pageUrl:'https://www.reddit.com/user/Other/'},profileDoc)).code,'forbidden','another profile is refused');
  assert.equal((await e.send({pageUrl:'https://evil.test/user/Example/'},profileDoc)).code,'forbidden','another origin is refused');
+});
+
+test('archive media survives worker normalization',async()=>{
+ const e=env({fetcher:async()=>response([row({url:'https://example.com/article',preview:{images:[{source:{url:'https://external-preview.redd.it/cover.jpg?width=640&amp;format=pjpg'}}]}})])});
+ const result=await e.send();assert.equal(result.posts[0].media[0].url,'https://external-preview.redd.it/cover.jpg?width=640&format=pjpg');assert.equal(result.posts[0].media[0].kind,'preview');
 });

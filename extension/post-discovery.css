@@ -127,8 +127,11 @@ shreddit-comment[data-rt-pending] [data-rt-notice]:not(shreddit-comment[data-rt-
 /* Keep the deleted avatar/name out of the first painted frame. These selectors
    stop at the comment's own summary, so normal replies stay visible. */
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentAvatar"],
-html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"],
 html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]{visibility:hidden;position:relative}
+/* Reddit paints a selected comment's highlight on the metadata slot itself.
+   Hide its contents, rather than the slot, so that background stays visible. */
+html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]{position:relative;color:transparent}
+html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"] > *{visibility:hidden}
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentAvatar"]::after,
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]::after,
 html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]::after{content:"";visibility:visible;position:absolute;inset-block-start:4px;inset-inline-start:0;width:32px;height:32px;border-radius:50%;background:var(--rt-skeleton-base)}

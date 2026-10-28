@@ -97,7 +97,9 @@
       // Reuse Reddit's own comment-body classes from a normal comment on this page.
       const sample=[...document.querySelectorAll('main shreddit-comment [id$="-post-rtjson-content"]')].find(node=>!node.closest('[data-rt-recovered-text]'));
       const recovered=make('div',sample?.className || 'md text-14');recovered.dataset.rtRecoveredText='true';
-      const rendered=globalThis.RTMarkdown?.fromHtml(archived.bodyHtml) || globalThis.RTMarkdown?.render(text);
+      const post=comment.closest('main')?.querySelector('shreddit-post[id="t3_'+this.postId+'"]');
+      const restricted=archived.over18 || archived.spoiler || comment.matches('[nsfw],[spoiler],[is-nsfw],[over-18]') || post?.matches('[nsfw],[spoiler],[is-nsfw],[over-18]') || Boolean(comment.querySelector('shreddit-content-gate,[slot="nsfw-blocker"]') || post?.querySelector('shreddit-content-gate,[slot="nsfw-blocker"]'));
+      const rendered=globalThis.RTMarkdown?.renderComment(text,archived.bodyHtml,archived.media,{restricted});
       if(rendered)recovered.append(rendered);else for(const part of text.split(/\n{2,}/)){const para=make('p','',part);para.style.whiteSpace='pre-wrap';recovered.append(para);}
       const pClass=sample?.querySelector('p')?.className;if(pClass)for(const para of recovered.querySelectorAll(':scope > p'))para.className=pClass;
       body.replaceChildren(recovered);
@@ -184,11 +186,12 @@
           const rendered=globalThis.RTMarkdown?.fromHtml(archived.bodyHtml) || globalThis.RTMarkdown?.render(text);if(rendered)body.append(rendered);else body.append(make('p','',text));
           place(body,['text-body','post-recovery-section','post-removed-banner']);
         }
-        const image=archived?this.archivedImage(archived.url):'';
-        if(!restricted && image && !native.querySelector('[slot="post-media-container"] img,[slot="post-media-container"] video')){
-          const subreddit=native.getAttribute('subreddit-prefixed-name') || '',figure=globalThis.RTArchiveView?.image(image,{alt:(subreddit?subreddit+' - ':'')+(archived.title || '')}) || Object.assign(make('figure','rt-archived-media'),{innerHTML:''});
-          if(!figure.querySelector('img')){figure.dataset.rtRecoveredText='true';const img=make('img');img.src=image;img.alt=archived.title || '';img.referrerPolicy='no-referrer';figure.append(img);}
-          place(figure,['post-media-container','text-body','post-recovery-section']);
+        if(!restricted && archived?.media?.length && !native.querySelector('[slot="post-media-container"] img,[slot="post-media-container"] video')){
+          const subreddit=native.getAttribute('subreddit-prefixed-name') || '',alt=(subreddit?subreddit+' - ':'')+(archived.title || '');
+          let figure=globalThis.RTArchiveView?.media(archived.media,{alt,postId:archived.id});
+          // Minimal fallback for environments where the shared view is unavailable.
+          if(!figure){const safe=archived.media.filter(item=>M.mediaUrl(item.url));if(safe.length){figure=make('div','rt-archive-media-group rt-archived-media');figure.dataset.rtRecoveredText='true';for(const item of safe){const img=make('img');img.src=M.mediaUrl(item.url);img.alt=alt;img.loading='lazy';img.referrerPolicy='no-referrer';if(item.kind!=='image'){img.className='rt-archive-link-thumbnail';img.style.cssText='width: 140px; height: 100px; object-fit: cover;';}figure.append(img);}}}
+          if(figure)place(figure,['post-media-container','text-body','post-recovery-section']);
         }
         // Deleted posts show [deleted] as their author; the snapshot still names them.
         if(archived && M.validateUsername(archived.author))patch.author=this.restorePostAuthor(native,archived.author);
@@ -210,11 +213,6 @@
       const label=[...credit.querySelectorAll('a,span')].find(el=>el.childElementCount===0 && el.textContent.trim()==='[deleted]' && !el.closest('[data-rt-source]'));if(!label)return null;
       const link=make('a',(label.className || '')+' rt-archived-author');link.href='https://www.reddit.com/user/'+author+'/';link.textContent=(label.textContent.trim().startsWith('u/')?'u/':'')+author;link.dataset.rtArchivedAuthor='true';link.title='Original author from an Arctic Shift snapshot';
       label.replaceWith(link);return {label,link};
-    }
-    // Images Reddit hosts itself (removed posts usually keep their media URL).
-    archivedImage(value){
-      if(globalThis.RTArchiveView)return RTArchiveView.imageUrl(value);
-      try{const url=new URL(value);return url.protocol==='https:' && ['i.redd.it','preview.redd.it'].includes(url.hostname) && /\.(?:jpe?g|png|gif|webp)$/i.test(url.pathname)?url.href:'';}catch{return '';}
     }
     restoreAll(){
       clearTimeout(this.retryTimer);this.retryAt=0;for(const [node,attrs] of this.sharePatches){for(const [name,value] of attrs)if(value===null)node.removeAttribute(name);else node.setAttribute(name,value);}this.sharePatches.clear();this.shareComments=new WeakSet();

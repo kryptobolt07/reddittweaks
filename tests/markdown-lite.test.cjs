@@ -30,3 +30,15 @@ test('markdown backslash escapes left in archive HTML are removed outside code',
  box.append(W.RTMarkdown.fromHtml('<div class="md"><p>A \\+ B \\* C</p><pre><code>keep \\+ here</code></pre></div>',W.document));
  assert.equal(box.querySelector('p').textContent,'A + B * C');assert.equal(box.querySelector('code').textContent,'keep \\+ here');
 });
+
+test('comment images retain their place after headings and lists without replacing ordinary links',()=>{
+ const dom=new JSDOM('',{runScripts:'outside-only'}),W=dom.window;
+ for(const file of ['post-model.js','markdown-lite.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
+ const url='https://i.redd.it/synthetic123.jpg',media=[{kind:'image',url}],box=W.document.createElement('div');
+ box.append(W.RTMarkdown.renderComment('# Heading\n- item\n'+url+'\n\n[ordinary link]('+url+')','',media));
+ assert.deepEqual([...box.children].map(node=>node.tagName),['P','UL','DIV','P']);
+ assert.equal(box.querySelector('.rt-comment-media img').src,url);
+ assert.equal(box.querySelector('p a').textContent,'ordinary link');
+ const restricted=W.document.createElement('div');restricted.append(W.RTMarkdown.renderComment(url,'',media,{restricted:true}));assert.equal(restricted.querySelector('img'),null);
+ W.close();
+});

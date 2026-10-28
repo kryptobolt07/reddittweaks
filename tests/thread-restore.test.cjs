@@ -121,7 +121,7 @@ test('early comment guard masks only each deleted comment until archive work set
  W.chrome={runtime:{id:'own',sendMessage:()=>new Promise(resolve=>settings=resolve)}};const style=W.document.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(style);
  W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));assert.equal(W.document.querySelectorAll('[data-rt-pending]').length,0,'no restoration masking before preferences are known');
  settings({ok:true,settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true}});await settle();
- const gone=comment(W.document,'t1_gone1'),normal=comment(W.document,'t1_norm1');assert.equal(gone.hasAttribute('data-rt-pending'),true);assert.equal(gone.querySelectorAll(':scope > details .notice > [data-rt-skeleton]').length,2,'one skeleton each for parent and reply');assert.equal(W.getComputedStyle(gone.querySelector('[slot="commentMeta"]')).visibility,'hidden');assert.equal(W.getComputedStyle(gone.querySelector('[slot="commentAvatar"]')).visibility,'hidden');assert.equal(W.getComputedStyle(normal.querySelector('[slot="commentMeta"]')).visibility,'visible');assert.equal(normal.hasAttribute('data-rt-pending'),false);
+ const gone=comment(W.document,'t1_gone1'),normal=comment(W.document,'t1_norm1'),meta=gone.querySelector('[slot="commentMeta"]');meta.style.backgroundColor='rgb(255, 248, 220)';assert.equal(gone.hasAttribute('data-rt-pending'),true);assert.equal(gone.querySelectorAll(':scope > details .notice > [data-rt-skeleton]').length,2,'one skeleton each for parent and reply');assert.equal(W.getComputedStyle(meta).visibility,'visible','Reddit’s selected-comment background remains painted');assert.equal(W.getComputedStyle(meta).backgroundColor,'rgb(255, 248, 220)');assert.equal(W.getComputedStyle(meta.firstElementChild).visibility,'hidden','native identity stays masked');assert.equal(W.getComputedStyle(gone.querySelector('[slot="commentAvatar"]')).visibility,'hidden');assert.equal(W.getComputedStyle(normal.querySelector('[slot="commentMeta"]')).visibility,'visible');assert.equal(normal.hasAttribute('data-rt-pending'),false);
  const late=W.document.createElement('shreddit-comment');late.setAttribute('thingid','t1_new');late.setAttribute('postid','t3_abc12');late.innerHTML='<details><summary><div slot="commentMeta">[deleted]</div></summary><div class="notice"><p>[removed]</p></div></details>';W.document.querySelector('shreddit-comment-tree').append(late);await Promise.resolve();assert.equal(late.hasAttribute('data-rt-pending'),true,'mutation microtask precedes the delayed thread scan');
  // A newer preference update cannot be undone by a stale guard settings read.
  W.RTProfileNoticeGuard.setRestoreEnabled(false);assert.equal(W.document.documentElement.hasAttribute('data-rt-restore'),false);W.close();
@@ -129,7 +129,7 @@ test('early comment guard masks only each deleted comment until archive work set
 
 test('pending comment skeletons survive transient archive retries without flashing the native identity',async()=>{
  let reject;const {r,doc,W,calls}=setup({archive:()=>new Promise((resolve,fail)=>reject=fail)});W.eval(fs.readFileSync('extension/archive-view.js','utf8'));const style=doc.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');doc.head.append(style);await r.ready;await settle();
- const gone=comment(doc,'t1_gone1');assert.equal(gone.querySelectorAll('.notice > [data-rt-skeleton]').length,2);assert.equal(W.getComputedStyle(gone.querySelector('[slot="commentMeta"]')).visibility,'hidden');reject(Object.assign(Error('Wait'),{code:'rate-limited',retryAt:Date.now()+10000}));await settle();
+ const gone=comment(doc,'t1_gone1');assert.equal(gone.querySelectorAll('.notice > [data-rt-skeleton]').length,2);assert.equal(W.getComputedStyle(gone.querySelector('[slot="commentMeta"] > *')).visibility,'hidden');reject(Object.assign(Error('Wait'),{code:'rate-limited',retryAt:Date.now()+10000}));await settle();
  assert.equal(gone.hasAttribute('data-rt-pending'),true);assert.equal(gone.hasAttribute('data-rt-settled'),false);assert.ok(gone.querySelector('[data-rt-skeleton]'));await r.scan();assert.equal(calls.length,1,'ordinary scans do not bypass server retry backoff');r.destroy();W.close();
 });
 
@@ -150,4 +150,23 @@ test('a delayed guard settings reply cannot re-enable restoration after a newer 
 
 test('native replacement comments retain Share without another archive request',async()=>{
  const {r,doc,W,calls}=setup({archive:async()=>({ok:true,posts:[]})});const gone=comment(doc,'t1_gone1'),actions=doc.createElement('shreddit-comment-action-row');actions.setAttribute('disabled','');actions.innerHTML='<shreddit-comment-share-button disabled permalink="" source-id=""><button disabled>Share</button></shreddit-comment-share-button>';gone.querySelector('details').append(actions);const replacement=gone.cloneNode(true);await r.ready;await settle();const count=calls.length;gone.replaceWith(replacement);await r.scan();const share=replacement.querySelector('shreddit-comment-share-button');assert.equal(share.hasAttribute('disabled'),false);assert.equal(share.getAttribute('source-id'),'t1_gone1');assert.equal(share.querySelector('button').disabled,false);assert.equal(calls.length,count);r.destroy();W.close();
+});
+
+test('archived link previews and gallery images restore safely without embedding external URLs',async()=>{
+ const e=postSetup({url:'https://example.com/article',preview:{images:[{source:{url:'https://external-preview.redd.it/article.jpg?width=600&amp;format=pjpg'}}]}});e.W.eval(fs.readFileSync('extension/archive-view.js','utf8'));await e.r.ready;await settle();
+ const post=e.doc.querySelector('shreddit-post');assert.equal(post.querySelector('.rt-archive-link-thumbnail').src,'https://external-preview.redd.it/article.jpg?width=600&format=pjpg');assert.ok(post.querySelector('[data-testid=post-thumbnail]'));e.r.destroy();e.W.close();
+ const g=postSetup({url:'https://www.reddit.com/gallery/abc12',gallery_data:{items:[{media_id:'a'},{media_id:'b'}]},media_metadata:{a:{e:'Image',m:'image/jpeg',s:{u:'https://i.redd.it/a.jpg'}},b:{e:'Image',m:'image/png',s:{u:'https://i.redd.it/b.png'}}}});g.W.eval(fs.readFileSync('extension/archive-view.js','utf8'));await g.r.ready;await settle();assert.deepEqual([...g.doc.querySelectorAll('.rt-archive-media-group .preview-img')].map(img=>img.src),['https://i.redd.it/a.jpg','https://i.redd.it/b.png']);g.r.destroy();g.W.close();
+});
+test('restored video gives Reddit’s player the original post identity',async()=>{
+ const e=postSetup({url:'https://v.redd.it/clip',is_video:true,secure_media:{reddit_video:{hls_url:'https://v.redd.it/clip/HLSPlaylist.m3u8'}}});
+ e.W.eval(fs.readFileSync('extension/archive-view.js','utf8'));await e.r.ready;await settle();
+ assert.equal(e.doc.querySelector('shreddit-player').getAttribute('post-id'),'t3_abc12');e.r.destroy();e.W.close();
+});
+test('restored comment images use validated metadata and respect post restrictions',async()=>{
+ const url='https://preview.redd.it/synthetic123.jpeg?width=960&format=pjpg&s=signature';
+ const archive=message=>({ok:true,posts:message.ids.map(id=>archived(id.slice(3),url,{media_metadata:{synthetic123:{e:'Image',m:'image/jpeg',s:{u:url,x:960,y:1482}}}}))});
+ const e=setup({archive});e.W.eval(fs.readFileSync('extension/markdown-lite.js','utf8'));await e.r.ready;await settle();
+ const body=comment(e.doc,'t1_gone1').querySelector('.notice'),img=body.querySelector('img');assert.equal(img.src,url);assert.equal(img.width,960);assert.equal(img.height,1482);assert.equal(img.referrerPolicy,'no-referrer');assert.equal(body.textContent.includes(url),false);
+ e.r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(body.querySelector('img'),null);
+ const restricted=setup({archive});restricted.W.eval(fs.readFileSync('extension/markdown-lite.js','utf8'));restricted.doc.querySelector('main').insertAdjacentHTML('afterbegin','<shreddit-post id="t3_abc12" nsfw></shreddit-post>');await restricted.r.ready;await settle();assert.equal(comment(restricted.doc,'t1_gone1').querySelector('.notice img'),null);
 });
