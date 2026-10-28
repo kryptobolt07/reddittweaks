@@ -1,3 +1,12 @@
+# 0.20.3 preview
+
+- Popup settings share one left edge instead of indenting further on each level; dependent settings stay dimmed until the setting they need is on, with a small connector stub.
+- "About saved chat history" opens as an overlay instead of expanding in place, and status lines reserve their space, so the popup never grows a scrollbar or shifts. Default, overlay, long status and error states all measure 579 px in headless Chrome.
+
+Version choice: PATCH to 0.20.3 for popup layout corrections.
+
+Validation: all 784 tests pass; ZIP integrity and source/stable-folder/archive byte equality pass. Popup states rendered and measured in headless Chrome (light and dark); not yet checked on Windows fonts, where the headroom is about 20 px.
+
 # 0.20.2 preview
 
 - Deleted and removed posts always show their status cue on the post page, even when the Arctic Shift snapshot adds no text (it was captured after deletion) or the post is not archived; the tooltip says which. A deleted post's [deleted] author is replaced by the archived username in Reddit's author style, and comments whose snapshot text is [deleted]/[removed] still gain their archived author and cue while keeping Reddit's notice. Reported case: r/LenovoLOQ 1xark12.
