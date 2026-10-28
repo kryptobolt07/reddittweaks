@@ -1187,3 +1187,8 @@ test('a measurable loader on screen counts as visible even if the observer misse
  const {W,d}=setup(t);await d.ready;d.batchInView=false;d.loading.hidden=false;d.loading.getBoundingClientRect=()=>({top:300,bottom:420,height:120});assert.equal(d.profileTailVisible(),true);
  d.loading.getBoundingClientRect=()=>({top:W.innerHeight*4,bottom:W.innerHeight*4+120,height:120});assert.equal(d.profileTailVisible(),false);
 });
+
+test('post pages are left to the thread module when it is loaded, however the post was opened',async t=>{
+ const {W,d}=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/',settings:{postDiscovery:true,archiveDiscovery:true}});await d.ready;
+ W.RTThreadRestore={};d.reset();d.scan();assert.equal(d.host,null,'no separate post toolbar or snapshot box');assert.equal(d.context,null);
+});
