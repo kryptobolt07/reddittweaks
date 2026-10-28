@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Toolbar-size mascot: head, glasses and gear antenna only. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5a36"/><stop offset="1" stop-color="#ff8a1c"/></linearGradient>
+    <radialGradient id="skin" cx=".38" cy=".3" r=".9"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#d6dfea"/></radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <path d="M60 44C57 30 66 22 80 23" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+  <g transform="translate(92 22)" fill="#e8edf2"><circle r="12"/><g id="t"><rect x="-4" y="-17" width="8" height="8" rx="2"/><rect x="-4" y="9" width="8" height="8" rx="2"/><rect x="-17" y="-4" width="8" height="8" rx="2"/><rect x="9" y="-4" width="8" height="8" rx="2"/></g><use href="#t" transform="rotate(45)"/><circle r="5" fill="#8e9aa6"/></g>
+  <circle cx="30" cy="54" r="12" fill="url(#skin)"/><circle cx="98" cy="54" r="12" fill="url(#skin)"/>
+  <ellipse cx="64" cy="74" rx="42" ry="34" fill="url(#skin)"/>
+  <rect x="28" y="58" width="33" height="26" rx="10" fill="#bfe6fb" stroke="#2c4f84" stroke-width="5"/>
+  <rect x="67" y="58" width="33" height="26" rx="10" fill="#bfe6fb" stroke="#2c4f84" stroke-width="5"/>
+  <circle cx="44" cy="71" r="6.5" fill="#7a2e1c"/><circle cx="84" cy="71" r="6.5" fill="#7a2e1c"/><circle cx="42" cy="68.5" r="2.2" fill="#fff"/><circle cx="82" cy="68.5" r="2.2" fill="#fff"/>
+  <path d="M54 94q10 8 20 0" fill="none" stroke="#2a2f37" stroke-width="4" stroke-linecap="round"/>
+</svg>
