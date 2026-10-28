@@ -12,8 +12,9 @@ test('archived images use Reddit’s image-post media structure',()=>{
  Object.defineProperty(main,'naturalWidth',{value:640});Object.defineProperty(main,'naturalHeight',{value:755});main.dispatchEvent(new W.Event('load'));assert.equal(ratio.style.aspectRatio,'640 / 755','the image’s own proportions');
 });
 test('only Reddit-hosted https images are accepted, and skeletons use Reddit’s shimmer element',()=>{
+
  const W=view(),{imageUrl,skeleton}=W.RTArchiveView;
  assert.equal(imageUrl('https://i.redd.it/x.jpeg'),'https://i.redd.it/x.jpeg');assert.equal(imageUrl('https://preview.redd.it/x.webp?s=1'),'https://preview.redd.it/x.webp?s=1');
  for(const bad of ['http://i.redd.it/x.png','https://evil.example/x.png','https://i.redd.it/x.svg','javascript:alert(1)',''])assert.equal(imageUrl(bad),'',bad);
- const box=skeleton({lines:3,doc:W.document});assert.equal(box.dataset.rtSkeleton,'true');assert.equal(box.getAttribute('aria-hidden'),'true');assert.equal(box.querySelectorAll('faceplate-shimmer.rt-skeleton-line').length,3);
+ const box=skeleton({lines:3,doc:W.document});assert.equal(box.dataset.rtSkeleton,'true');assert.equal(box.getAttribute('aria-hidden'),'true');assert.equal(box.querySelectorAll('.rt-skeleton-line.skeleton-shimmer').length,3);assert.ok(box.querySelector('.rt-skeleton-fallback'),'sweep fallback without Reddit’s shimmer element');assert.deepEqual([...box.children].map(n=>n.style.width),['86%','72%','55%']);
 });
