@@ -1,3 +1,14 @@
+# 0.20.1 preview
+
+- Show restored images exactly like Reddit's image posts: the same rounded frame and hairline border, an aspect-ratio box at the image's own proportions (minimum 220 px, capped to the viewport), a blurred dimmed backdrop and the contained image on black. Live check: a restored removed post renders in the same 620×319 box as a native image post. Applies on post pages and in profile cards.
+- Give restore skeletons the same design as the chat search skeletons: Reddit's pill shimmer with the same rhythm and line widths, and the same sweeping-highlight fallback, shown where the body or comment text will appear.
+- Redesign the popup: grouped cards with icon tiles, Reddit-style switches, a nested hierarchy that dims dependent settings until the setting they need is on, a version chip, a compact chat row and light/dark themes. It fits Chrome's 600 px popup without scrolling.
+- Replace the extension icon with an original tinkerer mascot (gear antenna, goggles, wrench) on Reddit orange, legible at 16 px. It is not Reddit's Snoo, which is Reddit's trademark.
+
+Version choice: PATCH to 0.20.1 for presentation corrections and the redesigned popup and icon; no new behavior, permissions or storage changes.
+
+Validation: all 781 tests pass, including the media builder structure and URL validation, skeleton fallbacks and popup behavior. All extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass. The image layout, skeleton, popup (light and dark, 600 px) and icon sizes were checked live in Chrome.
+
 # 0.20.0 preview
 
 - Restore deleted and removed content on post pages. Comments Reddit shows as "Comment deleted by user" or "Comment removed by moderator" get their archived text, the original author's name and Reddit profile picture (in Reddit's own comment and avatar markup), and a status cue; restored comments open so the text is visible. Removed or deleted posts get their archived title, body and, for image posts, the Reddit-hosted image inside Reddit's post element. A Reddit-style shimmer replaces the notice while the archive is asked, and every path settles back to Reddit's notice when nothing is archived.
