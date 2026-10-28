@@ -93,7 +93,7 @@
         const by=M.validateUsername(archived.author)?' · Originally posted by u/'+archived.author:'';
         const label=(status==='removed'?'Removed by moderators':'Deleted by its author')+' on Reddit · Text from an Arctic Shift snapshot'+when+by;
         const badge=make('span','rt-post-indicator rt-thread-indicator');badge.dataset.rtSource='true';badge.dataset.state=status;badge.setAttribute('role','img');badge.setAttribute('aria-label',label);badge.title=label;
-        const icon=globalThis.RTPostDiscovery?.glyph?.('deleted');if(icon)badge.append(icon);
+        const icon=globalThis.RTPostDiscovery?.glyph?.(status==='removed'?'removed':'deleted');if(icon)badge.append(icon);
         (meta.querySelector('shreddit-comment-badges')?.parentElement || meta).append(badge);
         this.patches.get(body).badge=badge;
       }

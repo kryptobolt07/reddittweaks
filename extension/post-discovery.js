@@ -43,8 +43,7 @@
     return {[key]:response.settings};
   }
   // Reddit's current deletion notices, plus the legacy bracket placeholders.
-  const deletedNotice=/^(?:\[deleted\]|comment deleted by user|\[\s*deleted by user\s*\])$/i,removedNotice=/^(?:\[removed\]|comment removed by moderator|\[\s*removed by (?:moderator|reddit)\s*\])$/i;
-  const deletionNotice=text=>deletedNotice.test(text) || removedNotice.test(text);
+  const deletionNotice=text=>Boolean(M.noticeStatus(text));
   const itemKey=post=>post.kind==='comment'?post.fullname:post.id;
   const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;};
   const nativeStatusPaths={hidden:'M3.497 3.503a.9.9 0 10-1.273 1.273l.909.909A10.141 10.141 0 00.92 8.472a3.225 3.225 0 000 3.058A10.296 10.296 0 0010 16.973a10.13 10.13 0 003.709-.712l1.457 1.457a.897.897 0 001.274 0 .9.9 0 000-1.273L3.497 3.503ZM10 15.172a8.497 8.497 0 01-7.495-4.494 1.448 1.448 0 010-1.354 8.436 8.436 0 011.9-2.365l2.069 2.068c-.062.271-.105.55-.105.84a3.77 3.77 0 003.767 3.767c.29 0 .569-.043.84-.106l1.31 1.31a8.284 8.284 0 01-2.284.335L10 15.172Zm.476-7.237L8.874 6.333a3.722 3.722 0 011.26-.233 3.77 3.77 0 013.767 3.767c0 .444-.091.864-.233 1.26l-1.603-1.603a1.963 1.963 0 00-1.59-1.589Zm8.605 3.595a10.297 10.297 0 01-2.22 2.792L15.59 13.05a8.512 8.512 0 001.905-2.372 1.448 1.448 0 000-1.354A8.496 8.496 0 007.69 5.15L6.282 3.742A10.249 10.249 0 0110 3.028c3.8 0 7.28 2.087 9.08 5.444a3.225 3.225 0 010 3.058Z',deleted:'M15.2 15.7c0 .83-.67 1.5-1.5 1.5H6.3c-.83 0-1.5-.67-1.5-1.5V7.6H3v8.1C3 17.52 4.48 19 6.3 19h7.4c1.82 0 3.3-1.48 3.3-3.3V7.6h-1.8v8.1ZM17.5 5.8c.5 0 .9-.4.9-.9S18 4 17.5 4h-3.63c-.15-1.68-1.55-3-3.27-3H9.4C7.68 1 6.28 2.32 6.13 4H2.5c-.5 0-.9.4-.9.9s.4.9.9.9h15ZM7.93 4c.14-.68.75-1.2 1.47-1.2h1.2c.72 0 1.33.52 1.47 1.2H7.93Z'};
@@ -331,9 +330,8 @@
     verifiedStatus(post,native){
       if(['deleted','removed'].includes(post.status))return post.status;const stored=this.postStatuses.get(post.fullname);
       if(!native)return stored || post.status;const state=native.getAttribute('item-state')?.toLowerCase(),body=native.querySelector(post.kind==='comment'?'[id$="-post-rtjson-content"],.md':'[slot="text-body"]'),text=body?.querySelector('[data-rt-original-text]')?.getAttribute('data-rt-original-text') || body?.textContent?.trim();
-      const title=native.getAttribute('post-title')?.trim() || '',banner=Boolean(native.querySelector('[slot="post-removed-banner"]')),notice=[...native.querySelectorAll('p')].map(p=>p.textContent.trim()).find(deletionNotice) || '';
-      const flagged=native.hasAttribute('deleted') && native.getAttribute('deleted')!=='false' || native.hasAttribute('is-comment-deleted');
-      const status=flagged && !removedNotice.test(notice) || state==='deleted' || deletedNotice.test(text || '') || deletedNotice.test(title) || deletedNotice.test(notice)?'deleted':state==='removed' || banner || removedNotice.test(text || '') || removedNotice.test(title) || removedNotice.test(notice)?'removed':'';if(status)this.postStatuses.set(post.fullname,status);return status || stored || post.status;
+      // The restored body keeps Reddit's original notice in data-rt-original-text.
+      const status=M.domStatus(native) || M.noticeStatus(text);if(status)this.postStatuses.set(post.fullname,status);return status || stored || post.status;
     }
     eligibleProfilePost(post,node){
       if(this.activityFilter!=='deleted')return true;
@@ -828,7 +826,10 @@
     }
     indicator(post){
       const removed=['deleted','removed'].includes(post.status),label=removed?`${post.status==='deleted'?'Deleted':'Removed'} on Reddit`:post.source==='arctic-shift'?(post.status==='available'?'Not shown in this profile feed · Available on Reddit · Arctic Shift snapshot':'Arctic Shift snapshot · Current Reddit status unknown'):'Not shown in this profile feed · Found through public Reddit search';
-      const badge=make('span','rt-post-indicator');badge.setAttribute('role','img');badge.setAttribute('aria-label',label);badge.title=label;badge.dataset.state=post.status;badge.append(glyph(removed?post.status:post.source==='arctic-shift' && post.status!=='available'?'archive':'hidden'));return badge;
+      const badge=make('span','rt-post-indicator');badge.setAttribute('role','img');badge.setAttribute('aria-label',label);badge.title=label;badge.dataset.state=post.status;// One icon per real state: trash (deleted), ban (removed by moderators),
+      // eye-slash (available but hidden from the profile). Archive-only items
+      // with unconfirmed status are not on Reddit's profile, so they use the deleted icon.
+      badge.append(glyph(removed?post.status:post.source==='arctic-shift' && post.status!=='available'?'deleted':'hidden'));return badge;
     }
     // Archive text for this exact item and author, never a placeholder.
     snapshotText(post){

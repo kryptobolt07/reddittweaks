@@ -63,6 +63,21 @@
     if(!raw || typeof raw!=='object' || !validateId(raw.id))return null;
     return {id:idOf(raw.id),title:str(raw.title,1000),subreddit:str(raw.subreddit,100),over18:raw.over_18===true||raw.over18===true,spoiler:raw.spoiler===true};
   }
+  // Reddit's deletion evidence. Current markup shows notices ("Comment deleted by
+  // user", "[ Removed by moderator ]" titles, a removal banner); older markup
+  // used [deleted]/[removed]. Notices of nested replies never count.
+  const deletedNotice=/^(?:\[deleted\]|comment deleted by user|\[\s*deleted by user\s*\])$/i,removedNotice=/^(?:\[removed\]|comment removed by moderator|\[\s*removed by (?:moderator|reddit)\s*\])$/i;
+  const noticeStatus=text=>{const value=String(text || '').trim();return deletedNotice.test(value)?'deleted':removedNotice.test(value)?'removed':'';};
+  function domStatus(node){
+    if(!node?.querySelectorAll)return '';
+    const flag=name=>node.hasAttribute(name) && node.getAttribute(name)!=='false',state=(node.getAttribute('item-state') || '').toLowerCase(),title=noticeStatus(node.getAttribute('post-title'));
+    const owner='shreddit-comment,shreddit-profile-comment,shreddit-post';
+    const notice=[...node.querySelectorAll('p')].filter(p=>(p.closest(owner) || node)===node && !p.closest('[data-rt-recovered-text]')).map(p=>noticeStatus(p.textContent)).find(Boolean) || '';
+    const banner=[...node.querySelectorAll('[slot="post-removed-banner"]')].some(el=>(el.closest(owner) || node)===node);
+    if((flag('deleted') || flag('is-comment-deleted')) && notice!=='removed' || state==='deleted' || notice==='deleted' || title==='deleted')return 'deleted';
+    if(flag('removed') || state==='removed' || banner || notice==='removed' || title==='removed')return 'removed';
+    return '';
+  }
   const normalizeItem=(raw,options)=>raw?.kind==='comment' || /^t1_/i.test(raw?.name || raw?.fullname || raw?.id || '')?normalizeComment(raw,options):normalizePost(raw,options);
   function mergePosts(livePosts,archivePosts,{username,visibleIds=[],sort='new',range='all',now=Date.now()/1000}={}){
     if(!validateUsername(username))return [];
@@ -79,5 +94,5 @@
     const duration={hour:3600,day:86400,week:604800,month:2592000,year:31536000}[range],cutoff=sort==='top' && duration?now-duration:-Infinity;
     return [...posts.values()].filter(post=>post.created>=cutoff).map(post=>({...post,visible:visible.has(post.fullname) || post.kind!=='comment' && visible.has(post.id),outsideVisibleFeed:!visible.has(post.fullname) && !(post.kind!=='comment' && visible.has(post.id))})).sort((a,b)=>(sort==='top'?b.score-a.score:sort==='hot'?(rank.get(a.fullname)??Infinity)-(rank.get(b.fullname)??Infinity):0) || b.created-a.created || a.fullname.localeCompare(b.fullname));
   }
-  globalThis.RTPostModel=Object.freeze({avatarUrl,validateUsername,validateId,validateCommentId,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings});
+  globalThis.RTPostModel=Object.freeze({noticeStatus,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings});
 })();
