@@ -1,3 +1,12 @@
+# 0.20.7 preview
+
+- Restore already-loaded profile cards before their virtual placeholders enter the viewport. Use actual placeholder positions instead of repeating Reddit's cached-height calculation, which can drift after filtering or duplicate removal. Ask Reddit's own synchronous devirtualization method to reconnect its retained original nodes without waiting for feed hydration or another scroll event.
+- Apply one viewport of overscan in both scroll directions. Large jumps continue in bounded chunks only while the native controller makes progress. Traverse Reddit's zero-height loader entries without inventing heights or changing its stack. Cancel stale work after navigation, feed/controller replacement or disabling discovery; unsupported contracts keep Reddit's normal behavior. No additional search/card requests are introduced.
+
+Version choice: PATCH to 0.20.7 for a user-visible scrolling reliability fix. No permissions or storage/schema changes.
+
+Validation: all 813 tests pass, including 78 bridge checks. All 34 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 38 assets. Live Brave inspection on example_profile's Comments profile confirmed the native controller retains original nodes and zero-height loaders, and that cached placeholder heights differed from the displayed layout. A temporary current-code patch reduced four visible blank placeholders to zero before the next paint on a large reverse jump; five subsequent forward/reverse checks also found zero visible blank placeholders. The complete installed bundle still requires an extension reload and Reddit refresh. This repair depends on the inspected internal native controller contract; it safely does nothing when that contract is unavailable. An extreme run of more than 8,192 zero-height stack entries retains native fallback behavior. The stable local export includes the user's pre-existing uncommitted profile verification scheduling change, preserved outside these commits.
+
 # 0.20.6 preview
 
 - Restore the existing comment avatar strategy: reuse a matching native headshot, then identity-checked `about.json` `icon_img`, with the hover-card fallback. Keep the stronger skeleton contrast; alternative profile metadata remains research only.
