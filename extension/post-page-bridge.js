@@ -383,7 +383,7 @@
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
   // Comment headshot of an archived comment's original author, from native
-  // markup or Reddit's native profile fragment, with a hover-card fallback. Only an HTTPS
+  // markup or Reddit's profile data, with a hover-card fallback. Only an HTTPS
   // URL on Reddit's image hosts leaves the page world; cache it per username.
   const avatarReads=new Map(),avatarHosts=new Set(['styles.redditmedia.com','i.redd.it','preview.redd.it','cf.preview.redd.it','www.redditstatic.com']);
   const safeAvatar=value=>{try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && avatarHosts.has(url.hostname) && (!url.pathname.includes('/snoovatar/avatars/') || /-headshot\.[a-z]+$/i.test(url.pathname))?url.href:'';}catch{return '';}};
@@ -393,21 +393,16 @@
     // Reuse a native comment headshot (including its signed preview query)
     // when this author already appears on the page. Never synthesize signatures.
     for(const comment of document.querySelectorAll('shreddit-comment[author]'))if(comment.getAttribute('author')?.toLowerCase()===name){const slot=comment.querySelector('[slot="commentAvatar"]');if(slot?.closest('shreddit-comment')!==comment)continue;for(const image of slot?.querySelectorAll('image[href],img[src]') || []){const url=safeAvatar(image.getAttribute('href') || image.getAttribute('src'));if(url)return {avatar:url};}}
-    // Profile navigation already supplies an identity-bound headshot. Reuse it
-    // without a request; never mistake the signed-in viewer's icon for the author.
-    const profileAvatar=doc=>{for(const node of doc.querySelectorAll('reddit-page-data[data]')){try{const profile=JSON.parse(node.getAttribute('data')).profile;if(typeof profile?.name==='string' && profile.name.toLowerCase()===name){const url=safeAvatar(profile.icon);if(url)return url;}}catch{}}return '';};
-    const visible=profileAvatar(document);if(visible)return {avatar:visible};
     if(cached?.expires>now)return {avatar:cached.url};
     if(now<cooldown)return {deferred:true,retryAfterMs:cooldown-now};
     if(active>=2)return {deferred:true,retryAfterMs:250};
     const controller=new AbortController(),cancel=()=>controller.abort(),timer=setTimeout(cancel,8000);signal?.addEventListener('abort',cancel,{once:true});active++;
     try{
-      // Use the same partial HTML as native profile navigation, not the legacy
-      // public about.json API. Its profile.icon contains the signed headshot;
-      // the hover card may supply only unsuitable full-body Snoovatar artwork.
-      const profile=await fetch(new URL('/user/'+encodeURIComponent(input.username)+'/',location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
+      // icon_img is Reddit's comment/avatar headshot; snoovatar_img and the
+      // hover card can contain the full-body artwork instead.
+      const profile=await fetch(new URL('/user/'+encodeURIComponent(input.username)+'/about.json?raw_json=1',location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'application/json'},signal:controller.signal});
       if(profile.status===429){const retry=Number(profile.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
-      if(profile.ok){const doc=new DOMParser().parseFromString(await boundedText(profile),'text/html'),url=profileAvatar(doc);if(url){if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+1800000});return {avatar:url};}}
+      if(profile.ok){let data;try{data=JSON.parse(await boundedText(profile)).data;}catch{}const url=typeof data?.name==='string' && data.name.toLowerCase()===name?safeAvatar(data.icon_img):'';if(url){if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+1800000});return {avatar:url};}}
       const response=await fetch(new URL('/svc/shreddit/user-hover-card/'+encodeURIComponent(input.username),location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
       if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
       let url='';
