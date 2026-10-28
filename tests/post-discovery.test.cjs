@@ -928,10 +928,13 @@ test('a batch preserves its reading anchor through enrichment and nested loader 
  d.render();assert.deepEqual(moves,[120],'unchanged batches cannot correct the viewport again');
 });
 
-test('native loader handoff cannot clamp the bottom scroll position during a temporary height drop',async t=>{
+test('loader updates protect the reading position while they write, and skip layout work when nothing changes',async t=>{
  const {W,d}=setup(t);await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const reader=d.nodes.get('abc12'),feed=d.feed;let height=1200;Object.defineProperty(W,'innerHeight',{value:500});Object.defineProperty(W,'scrollY',{value:700,writable:true});feed.getBoundingClientRect=()=>({height});reader.getBoundingClientRect=()=>({top:80-(W.scrollY-700),bottom:480-(W.scrollY-700),height:400});
- const nativeLoading=d.nativeFeedLoading.bind(d),emptyState=d.updateActivityEmptyState.bind(d);d.moreReddit=true;d.nativeFeedLoading=()=>{height=500;const effectiveHeight=Math.max(height,parseFloat(feed.style.minHeight)||0);W.scrollY=Math.min(W.scrollY,Math.max(0,effectiveHeight-W.innerHeight));return nativeLoading();};d.updateActivityEmptyState=()=>{height=1200;return emptyState();};const moves=[];W.scrollBy=({top})=>{moves.push(top);W.scrollY+=top;};
- d.updateProfileLoading();assert.equal(W.scrollY,700,'temporary native/extension halo handoff must not pull the viewport upward');assert.equal(reader.getBoundingClientRect().top,80);assert.deepEqual(moves,[]);assert.equal(feed.style.minHeight,'');assert.equal(feed.style.overflowAnchor,'');
+ d.moreReddit=true;const moves=[];W.scrollBy=({top})=>{moves.push(top);W.scrollY+=top;};
+ // A write that temporarily drops the feed height (moving the loader) must not clamp the viewport.
+ feed.append(W.document.createElement('div'));const append=feed.append.bind(feed);feed.append=(...nodes)=>{height=500;const effective=Math.max(height,parseFloat(feed.style.minHeight)||0);W.scrollY=Math.min(W.scrollY,Math.max(0,effective-W.innerHeight));append(...nodes);height=1200;};
+ d.updateProfileLoading();assert.equal(W.scrollY,700,'the protected write keeps the reader in place');assert.equal(reader.getBoundingClientRect().top,80);assert.deepEqual(moves,[]);assert.equal(feed.style.minHeight,'');assert.equal(feed.style.overflowAnchor,'');assert.equal(feed.lastElementChild,d.loading);
+ await new Promise(r=>setImmediate(r));d.prefetchProfilePage=()=>{};d.flushVirtualization=()=>{};let transactions=0;const run=d.withFeedViewport.bind(d);d.withFeedViewport=fn=>{transactions++;return run(fn);};d.updateProfileLoading();assert.equal(transactions,0,'an unchanged loader runs no viewport transaction');
 });
 
 test('a gated native duplicate cannot collapse its already displayed peer during bottom pagination',async t=>{

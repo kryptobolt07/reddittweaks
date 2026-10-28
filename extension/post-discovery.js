@@ -64,7 +64,9 @@
       this.navigationLease=crypto.randomUUID();this.profileStates=new Map();this.profileOwner=globalThis.RCSDirectory?.getOwner?.() || '';this.nativeRenderer=nativeRenderer;this.autoDiscover=autoDiscover;this.reddit=reddit;this.archive=archive;this.readSettings=readSettings;this.settings={postDiscovery:false,archiveDiscovery:false};this.settingsRevision=0;this.generation=0;this.controllers=new Set();this.nodes=new Map();this.host=null;
       this.settingsPending=true;this.syncProfileNotice();
       this.onRoute=()=>{this.rememberProfile();this.syncProfileNotice();this.schedule();};this.onNavigate=event=>{const a=event.target.closest?.('a[href]'),card=event.target.closest?.('shreddit-post');if(!this.feed?.contains(event.target) || event.target.closest?.('button,input'))return;try{const url=new URL(a?.href || card?.getAttribute('permalink'),location.href);if(url.origin===location.origin && pageRoute(url.pathname,'')?.kind==='post')this.rememberProfile();}catch{}};if(observe)document.addEventListener('click',this.onNavigate,true);this.onSettings=(changes,area)=>{if(area==='local' && changes[key]){this.profileStates.clear();this.settingsRevision++;this.settingsPending=false;this.settingsError=false;this.settings=M.normalizeSettings(changes[key].newValue);this.reset();this.scan();}};
-      if(observe){this.observer=new MutationObserver(records=>{this.syncProfileNotice();this.trackVirtualization(records);if(records.some(r=>!this.ownsMutation(r)))this.schedule();});this.observer.observe(document.documentElement,{childList:true,subtree:true});window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.addListener(this.onSettings);}
+      // Changes inside the observed feed are handled by its own observer; only
+      // route/page-level changes need a scan.
+      if(observe){this.observer=new MutationObserver(records=>{this.syncProfileNotice();this.trackVirtualization(records);if(records.some(r=>!this.ownsMutation(r) && !(this.feedPresentationObserver && this.feed?.contains(r.target))))this.schedule();});this.observer.observe(document.documentElement,{childList:true,subtree:true});window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.addListener(this.onSettings);}
       this.onWorkerSettings=(message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===globalThis.chrome?.runtime?.id)this.onSettings({[key]:{newValue:message.settings}},'local');};
       if(observe)globalThis.chrome?.runtime?.onMessage?.addListener(this.onWorkerSettings);
       this.avatarUnsubscribe=globalThis.RCSDirectory?.onChange?.(value=>{const owner=globalThis.RCSDirectory?.getOwner?.() || '';if(value?.owner && value.owner!==owner)return;if(this.profileOwner!==owner){this.profileOwner=owner;this.profileStates.clear();this.reset({retainNavigation:false});this.scan();}});
@@ -108,8 +110,8 @@
       for(const record of records){
         if((record.target!==this.feed && !(record.target.matches?.('faceplate-batch') && record.target.parentElement===this.feed)) || record.addedNodes.length!==1 || record.removedNodes.length!==1)continue;
         const added=record.addedNodes[0],removed=record.removedNodes[0];
-        if(added.nodeType===1 && added.matches('.virtualized-placeholder') && added.parentElement===record.target){this.virtualNodes.set(added,removed);if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}if(removed.dataset?.rtUi==='activity-item'){added.dataset.rtUi='activity-slot';added.hidden=removed.hidden;}if(removed.hasAttribute?.('data-rt-order-pending')){added.setAttribute('data-rt-order-pending','');this.mergePendingNodes.add(added);}if(removed.hasAttribute?.('data-rt-filter-hidden'))added.setAttribute('data-rt-filter-hidden','');if(removed.hasAttribute?.('data-rt-activity-match'))added.setAttribute('data-rt-activity-match','');}
-        else if(this.virtualNodes.get(removed)===added){if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}this.virtualNodes.delete(removed);}
+        if(added.nodeType===1 && added.matches('.virtualized-placeholder') && added.parentElement===record.target){this.virtualNodes.set(added,removed);if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}if(removed.dataset?.rtUi==='activity-item'){added.dataset.rtUi='activity-slot';added.hidden=removed.hidden;}if(removed.hasAttribute?.('data-rt-order-pending')){added.setAttribute('data-rt-order-pending','');this.mergePendingNodes.add(added);}if(removed.hasAttribute?.('data-rt-filter-hidden'))added.setAttribute('data-rt-filter-hidden','');if(removed.hasAttribute?.('data-rt-rule-collapsed')){added.setAttribute('data-rt-rule-collapsed','');removed.removeAttribute('data-rt-rule-collapsed');this.collapsedNativeRules?.delete(removed);this.collapsedNativeRules?.add(added);}if(removed.hasAttribute?.('data-rt-activity-match'))added.setAttribute('data-rt-activity-match','');}
+        else if(this.virtualNodes.get(removed)===added){if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}if(removed.hasAttribute?.('data-rt-rule-collapsed')){added.setAttribute('data-rt-rule-collapsed','');removed.removeAttribute('data-rt-rule-collapsed');this.collapsedNativeRules?.delete(removed);this.collapsedNativeRules?.add(added);}this.virtualNodes.delete(removed);}
       }
     }
     flushVirtualization(){
@@ -369,7 +371,11 @@
     observeFeedPresentation(){
       if(this.feedPresentationObserver || !this.feed)return;const feed=this.feed;
       this.feedPresentationObserver=new MutationObserver(records=>{
-        if(this.feed!==feed)return;this.trackVirtualization(records);if(this.context?.key!==pageRoute()?.key){this.scan();return;}if(records.every(r=>this.ownsMutation(r)))return;
+        if(this.feed!==feed)return;this.trackVirtualization(records);if(this.context?.key!==pageRoute()?.key){this.scan();return;}
+        // Scrolling swaps cards for placeholders constantly. Those swaps carry our
+        // state over in trackVirtualization, so they need no reconciliation pass.
+        const swap=r=>r.type==='childList' && r.addedNodes.length===1 && r.removedNodes.length===1 && [r.addedNodes[0],r.removedNodes[0]].some(n=>n.nodeType===1 && n.matches('.virtualized-placeholder'));
+        if(records.every(r=>this.ownsMutation(r) || swap(r)))return;
         // CSS gates newly inserted native cards immediately. Qualify them in
         // this mutation microtask, before paint, without the general scan delay.
         this.deduplicate();
@@ -768,16 +774,11 @@
     }
     updateProfileLoading(){
       if(!this.feed || !this.loading)return;
-      return this.withFeedViewport(()=>{
       const pending=this.batchedProfile && this.pendingProfilePosts().length>0,more=this.hasMoreProfile();
       const paused=this.nativeBatch.blocked || (this.batchAutoPaused || this.primaryFailure()) && !pending && !this.activeProfileBatch;
       const work=this.busy || this.archiveBusy || this.activeProfileBatch || this.nativeBatch.active || this.nativeBatch.queue.length || this.metadataPending || this.recoveryActive;
       const retrying=this.waitingRetries(),continuation=Boolean(work || pending || more || this.mergePendingNodes.size || retrying.length);
-      if(this.loading.parentElement!==this.feed || this.loading!==this.feed.lastElementChild)this.feed.append(this.loading);
-      const nativeLoading=this.nativeFeedLoading();if(this.loading.hidden===continuation)this.loading.hidden=!continuation;
-      if(this.feed.dataset.rtLoadingOwner!==(nativeLoading?'native':'extension'))this.feed.dataset.rtLoadingOwner=nativeLoading?'native':'extension';
-      const halo=this.loading.querySelector('.rt-native-loading'),quiet=nativeLoading || (paused || retrying.length>0) && !work;if(halo && halo.hidden!==quiet)halo.hidden=quiet;
-      let note=this.loading.querySelector('[data-rt-continuation-note]');
+      const nativeLoading=this.nativeFeedLoading(),owner=nativeLoading?'native':'extension',halo=this.loading.querySelector('.rt-native-loading'),quiet=nativeLoading || (paused || retrying.length>0) && !work;
       const archiveView=this.activityFilter==='deleted' && this.settings.archiveDiscovery,failedArchive=this.kinds().filter(kind=>this.sourceErrors['archive-'+kind]),failedSearch=!archiveView && ['post','comment','comment-public'].some(key=>this.sourceErrors[key]);
       let message='',action=null,label='';
       if(paused && !work){
@@ -785,18 +786,28 @@
         else if(failedSearch){message='Some search results couldn’t be loaded. Existing results are kept.';label='Retry loading';action=()=>this.loadReddit({retry:true});}
         else{message='Loading paused.';label='Retry loading';action=()=>this.discover.click();}
       }else if(retrying.length && !work){message=[...new Set(retrying.map(entry=>entry.note))].join(' ');label='Retry now';action=()=>{for(const [key,entry] of this.sourceRetries)if(entry.timer)this.retrySource(key);};}
-      if(message){
-        if(!note){note=make('div','rt-feed-note');note.dataset.rtContinuationNote='true';note.setAttribute('role','status');this.loading.append(note);}
-        // The button always runs the latest action; rebuild only when the text changes.
-        this.noteAction=action;
-        if(note.dataset.message!==message){note.dataset.message=message;const retry=button(label,()=>this.noteAction?.());retry.className=label==='Retry now'?'button button-small button-plain':'button button-small button-bordered';note.replaceChildren(make('span','rt-feed-note-text',message),retry);}
-      }else note?.remove();
+      // The button always runs the latest action.
+      this.noteAction=action;
+      // Most calls change nothing; only a real change pays for the viewport
+      // transaction (which reads layout to keep the reading position).
+      const note=this.loading.querySelector('[data-rt-continuation-note]');
+      const dirty=this.loading.parentElement!==this.feed || this.loading!==this.feed.lastElementChild || this.loading.hidden===continuation || this.feed.dataset.rtLoadingOwner!==owner || Boolean(halo) && halo.hidden!==quiet || Boolean(message)!==Boolean(note) || Boolean(note) && note.dataset.message!==message;
+      if(dirty)this.withFeedViewport(()=>{
+        if(this.loading.parentElement!==this.feed || this.loading!==this.feed.lastElementChild)this.feed.append(this.loading);
+        if(this.loading.hidden===continuation)this.loading.hidden=!continuation;
+        if(this.feed.dataset.rtLoadingOwner!==owner)this.feed.dataset.rtLoadingOwner=owner;
+        if(halo && halo.hidden!==quiet)halo.hidden=quiet;
+        let current=this.loading.querySelector('[data-rt-continuation-note]');
+        if(message){
+          if(!current){current=make('div','rt-feed-note');current.dataset.rtContinuationNote='true';current.setAttribute('role','status');this.loading.append(current);}
+          if(current.dataset.message!==message){current.dataset.message=message;const retry=button(label,()=>this.noteAction?.());retry.className=label==='Retry now'?'button button-small button-plain':'button button-small button-bordered';current.replaceChildren(make('span','rt-feed-note-text',message),retry);}
+        }else current?.remove();
+      });
       this.more.hidden=!continuation || Boolean(this.batchObserver && !paused);this.more.disabled=Boolean(this.busy || this.archiveBusy || this.activeProfileBatch && !paused);
       if(pending && !this.activeProfileBatch && !paused && this.shownPublished()<profileBatchSize){this.advanceProfileBatch();return;}
       this.prefetchProfilePage();
       if(!this.activeProfileBatch && !(this.busy && this.archiveBusy) && !paused && this.batchObserver && !this.loading.hidden && !this.batchFrame){const generation=this.generation;this.batchFrame=requestAnimationFrame(()=>{this.batchFrame=null;if(generation===this.generation && this.host?.isConnected && this.profileTailVisible())this.continueProfile();});}
       this.updateActivityEmptyState();
-      });
     }
     advanceProfileBatch(force=false){
       if(!this.batchedProfile || pageRoute()?.key!==this.context?.key)return;
