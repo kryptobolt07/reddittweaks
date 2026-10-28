@@ -42,7 +42,7 @@ async function updateMessageStats() {
     const stats=result.stats || {},bytes=stats.approxBytes || 0;
     const size=bytes<1048576 ? `${Math.ceil(bytes/1024).toLocaleString()} KB` : `${(bytes/1048576).toFixed(1)} MB`;
     element.textContent=`${(stats.messages || 0).toLocaleString()} saved messages · ${(stats.rooms || 0).toLocaleString()} chats · ${size} estimated data`;
-  } catch {element.textContent='Saved-message statistics unavailable. Reopen this popup to retry.';}
+  } catch {element.textContent='Statistics unavailable. Reopen to retry.';}
 }
 document.querySelector('#clear-cache').addEventListener('click',async()=>{
   const status=document.querySelector('#cache-status');
@@ -60,6 +60,17 @@ document.querySelector('#clear-messages').addEventListener('click',async()=>{
   } catch {status.textContent='Could not clear saved messages. Please retry.';}
   finally {button.disabled=false;}
 });
+// About-history overlay: toggled by its trigger, the × button, Escape, or any click/focus outside it.
+const aboutWrap=document.querySelector('#cache-about'),aboutButton=document.querySelector('#cache-info-toggle'),aboutPanel=document.querySelector('#cache-info-panel');
+function setAbout(open,restoreFocus=false){
+  aboutPanel.hidden=!open;aboutButton.setAttribute('aria-expanded',String(open));
+  if(open)aboutPanel.querySelector('.popover-close').focus({preventScroll:true});else if(restoreFocus)aboutButton.focus({preventScroll:true});
+}
+aboutButton.addEventListener('click',()=>setAbout(aboutPanel.hidden));
+aboutPanel.querySelector('.popover-close').addEventListener('click',()=>setAbout(false,true));
+aboutWrap.addEventListener('focusout',event=>{if(!aboutPanel.hidden && !aboutWrap.contains(event.relatedTarget))setAbout(false);});
+document.addEventListener('click',event=>{if(!aboutPanel.hidden && !aboutWrap.contains(event.target))setAbout(false);});
+document.addEventListener('keydown',event=>{if(event.key==='Escape' && !aboutPanel.hidden)setAbout(false,true);});
 // Dependent settings look inactive until the setting they need is on.
 function syncDependencies(){
   for(const row of document.querySelectorAll('.setting-row[data-requires]')){
