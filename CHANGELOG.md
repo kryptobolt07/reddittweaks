@@ -1,3 +1,12 @@
+# 0.20.5 preview
+
+- Give archive restoration skeletons an opaque, theme-aware base instead of Reddit's nearly transparent shimmer token. Body, title and pending author/avatar placeholders remain visible in light and dark themes; native shimmer and reduced-motion support are retained.
+- Replace the comment avatar `about.json` lookup with the native profile HTML fragment's identity-matched `reddit-page-data.profile.icon`. Reuse matching metadata or comment headshots already on the page before fetching. Preserve exact signed headshot URLs, image-host validation, bounded reads, cache and server cooldowns, with the hover-card fallback. Restored usernames still come from the archive snapshot.
+
+Version choice: PATCH to 0.20.5 for avatar lookup reliability and restoration presentation corrections. No new permissions or storage/schema changes.
+
+Validation: all 795 tests pass, including 99 focused native-bridge/restoration checks. All 34 extension/demo JavaScript files parse; ZIP integrity, aliases and source/stable-folder/archive byte equality pass for 38 assets. Live Brave inspection confirmed that the reported account's native profile fragment provides its signed headshot, while its hover card only provides full-body artwork. A temporary comparison using Reddit's actual shimmer component confirmed clearer skeletons in both themes and was removed after capture. The complete installed bundle still requires an extension reload and Reddit refresh. Native profile HTML is an internal client contract, not a guaranteed public API, and is larger than the old JSON response; bounded reads and caching remain. Reddit's public Data API migration announcement does not specify a removal date for the signed-in website's particular about.json route. The stable local export includes the user's pre-existing uncommitted profile verification scheduling change; it remains preserved outside these commits.
+
 # 0.20.4 preview
 
 - Restore comment avatars using the author's native comment headshot, preserving signed preview URLs when present, or Reddit's matching profile `icon_img`. Reject the full-body `snoovatar_img` artwork and use Reddit's SVG headshot clipping. Keep cached, bounded lookups, host validation and page-world credentials.
