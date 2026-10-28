@@ -97,6 +97,7 @@
       "js": [
         "post-model.js",
         "markdown-lite.js",
+        "archive-view.js",
         "post-discovery.js",
         "thread-restore.js"
       ]

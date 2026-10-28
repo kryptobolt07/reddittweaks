@@ -103,11 +103,20 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 /* Skeleton while an archived post/comment is looked up (Reddit-style shimmer). */
 @keyframes rt-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
 html[data-rt-restore] main shreddit-post:is([data-rt-pending],:has(> [slot="post-removed-banner"]):not([data-rt-settled])) > [slot="title"],
-shreddit-comment[data-rt-pending] [data-rt-notice],
 html[data-rt-restore] main shreddit-comment[is-comment-deleted]:not([data-rt-settled]) > details > div > div > div > div > p{color:transparent!important;border-radius:8px;background:linear-gradient(90deg,var(--color-neutral-background-weak,#eaedef) 30%,var(--color-neutral-background-hover,#f6f7f8) 50%,var(--color-neutral-background-weak,#eaedef) 70%);background-size:200% 100%;animation:rt-shimmer 1.2s linear infinite;user-select:none}
 @media(prefers-reduced-motion:reduce){html[data-rt-restore] main shreddit-post > [slot="title"],shreddit-comment [data-rt-notice],html[data-rt-restore] main shreddit-comment > details p{animation:none!important}}
-.rt-archived-media{margin:8px 0;display:flex;justify-content:center;background:var(--color-neutral-background-weak,#eaedef);border-radius:16px;overflow:hidden}
-.rt-archived-media img{display:block;max-width:100%;max-height:540px;object-fit:contain}
+/* Fallbacks for Reddit's own media utilities (archive-view.js builds Reddit's structure). */
+.rt-archived-media{position:relative;overflow:hidden;isolation:isolate;border-radius:16px;margin-block:8px}
+.rt-archived-media .rt-media-backdrop{filter:blur(24px)}
+.rt-archived-media figure,.rt-archived-media>img{margin:0}
 
 /* Grouped Feed options submenus stay within the viewport. */
 .rt-activity-submenu{max-height:calc(100dvh - 180px);overflow-y:auto;overscroll-behavior:contain}
+
+/* Skeleton lines (Reddit's faceplate-shimmer) shown while the archive is asked. */
+.rt-skeleton{display:flex;flex-direction:column;gap:10px;padding:6px 0 10px}
+.rt-skeleton-line{display:block;height:12px;border-radius:999px;overflow:hidden}
+.rt-skeleton-line:first-child{height:14px}
+.rt-skeleton-line:not(:defined){background:linear-gradient(90deg,var(--color-neutral-background-weak,#eaedef) 30%,var(--color-neutral-background-hover,#f6f7f8) 50%,var(--color-neutral-background-weak,#eaedef) 70%);background-size:200% 100%;animation:rt-shimmer 1.2s linear infinite}
+shreddit-comment[data-rt-pending] [data-rt-notice]{display:none}
+@media(prefers-reduced-motion:reduce){.rt-skeleton-line{animation:none!important}}
