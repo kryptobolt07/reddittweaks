@@ -99,7 +99,6 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 
 /* Archived author identity on restored thread comments. */
 .rt-archived-author{text-decoration:underline dotted;text-underline-offset:3px;text-decoration-thickness:1px}
-.rt-archived-avatar{display:block;width:100%;height:100%;border-radius:9999px;object-fit:cover}
 
 /* Skeleton while an archived post/comment is looked up (Reddit-style shimmer). */
 @keyframes rt-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}

@@ -56,11 +56,11 @@ test('newly loaded replies are picked up on the next scan',async()=>{
 test('restored comments show the original author linked to their profile and their Reddit picture, marked as archived',async()=>{
  const {r,doc,avatarCalls}=setup();await r.ready;await settle();
  const gone=comment(doc,'t1_gone1'),link=gone.querySelector('.author-name-meta a[data-rt-archived-author]');
- assert.equal(link.textContent,'Originalgone1');assert.equal(new URL(link.href).pathname,'/user/Originalgone1/');assert.match(link.className,/native-author/);assert.match(link.className,/rt-archived-author/);assert.match(link.title,/Arctic Shift snapshot/);
- const img=gone.querySelector('[slot="commentAvatar"] [avatar] img');assert.equal(img.src,'https://styles.redditmedia.com/t5_x/styles/profileIcon_a.png');assert.equal(img.referrerPolicy,'no-referrer');assert.equal(gone.querySelector('[avatar] svg'),null);
+ assert.equal(link.textContent,'Originalgone1');assert.equal(new URL(link.href).pathname,'/user/Originalgone1/');assert.ok(link.querySelector('[data-testid="nameplate"] .truncate'),'native nameplate structure');assert.match(link.className,/text-neutral-content-strong/);assert.match(link.className,/rt-archived-author/);assert.match(link.title,/Arctic Shift snapshot/);assert.equal(gone.querySelector('.author-name-meta span[dir]')?.textContent.trim()==='[deleted]',false);
+ assert.equal(new URL(gone.querySelector('[slot="commentAvatar"] a').href).pathname,'/user/Originalgone1/','avatar links to the profile like native avatars');const img=gone.querySelector('[slot="commentAvatar"] [avatar] img');assert.equal(img.src,'https://styles.redditmedia.com/t5_x/styles/profileIcon_a.png');assert.equal(img.referrerPolicy,'no-referrer');assert.equal(gone.querySelector('[avatar] svg'),null);
  assert.ok(avatarCalls.some(c=>c.action==='user-avatar' && c.username==='Originalgone1'));
  r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});
- assert.equal(gone.querySelector('.author-name-meta span[dir]').textContent,'[deleted]');assert.ok(gone.querySelector('[avatar] svg.default'),'the default avatar returns');
+ assert.equal(gone.querySelector('.author-name-meta span[dir]').textContent,'[deleted]');assert.ok(gone.querySelector('[avatar] svg.default'),'the default avatar returns');assert.equal(gone.querySelector('[data-rt-archived-author]'),null);
 });
 test('no picture keeps Reddit’s default avatar while the name is still restored',async()=>{
  const {r,doc}=setup({avatar:async()=>({avatar:''})});await r.ready;await settle();
