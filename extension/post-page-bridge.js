@@ -10,23 +10,40 @@
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
-  let previousScrollY=window.scrollY,restoreFrame=null;
-  document.addEventListener('scroll',()=>{
-    const y=window.scrollY,up=y<previousScrollY;previousScrollY=y;
-    if(!up || restoreFrame!==null || !route()?.username || !document.documentElement.hasAttribute('data-rt-profile-discovery'))return;
+  let restoreFrame=null;
+  function schedulePlaceholderRestore(){
+    if(restoreFrame!==null || !route()?.username || !document.documentElement.hasAttribute('data-rt-profile-discovery'))return;
     const feed=document.querySelector('main shreddit-feed[data-rt-loading-owner]'),controller=feed?.virtualization;
-    if(!controller?.topStack?.length || typeof controller.update!=='function' || typeof requestAnimationFrame!=='function')return;
+    if(!controller?.topStack?.length || typeof controller.devirtualizeTopElements!=='function' || typeof requestAnimationFrame!=='function')return;
     const path=location.pathname+location.search;
-    // Reddit retains the populated original nodes in its virtualization stack.
-    // Its normal scroll handler is throttled. On reverse scrolling, ask that
-    // same controller to restore them before paint instead of exposing its
-    // empty placeholders until a later scroll update. Never edit its stack.
+    // Reddit's saved heights can differ from the placeholders' current layout,
+    // especially when filtered cards are hidden. Use their actual positions to
+    // choose a viewport of overscan, and let Reddit restore its own retained nodes.
     restoreFrame=requestAnimationFrame(()=>{
       restoreFrame=null;
       if(path!==location.pathname+location.search || !feed.isConnected || feed.virtualization!==controller || !feed.hasAttribute('data-rt-loading-owner') || !document.documentElement.hasAttribute('data-rt-profile-discovery'))return;
-      try{Promise.resolve(controller.update()).catch(()=>{});}catch{ /* Native scrolling remains the fallback if this optional contract changes. */ }
+      const stack=controller.topStack;if(!Array.isArray(stack) || typeof controller.devirtualizeTopElements!=='function')return;
+      let budget=0,count=0,scanned=0;const limit=-Math.max(0,window.innerHeight || 0);
+      for(let i=stack.length-1;i>=0 && count<256 && scanned<8192;i--){
+        const entry=stack[i],slot=entry?.placeholder,height=entry?.height;
+        if(!slot || slot.parentElement!==feed || !Number.isFinite(height) || height<0 || typeof slot.getBoundingClientRect!=='function')break;
+        const rect=slot.getBoundingClientRect();if(!Number.isFinite(rect.bottom))break;
+        // Hidden placeholders still occupy a position in Reddit's stack and
+        // must be popped before the next visible placeholder can be reached.
+        if(rect.height>0 && rect.bottom<limit)break;
+        budget+=height;scanned++;if(height>0)count++;
+      }
+      // Zero-height loader entries need no restoration by themselves. Reddit's
+      // method passes through them when a later positive-height entry needs it.
+      if(!count || !Number.isFinite(budget))return;
+      const before=stack.length;
+      try{controller.devirtualizeTopElements(-budget);}catch{ return; }
+      // A very large jump is restored in bounded chunks. Stop if the native
+      // method made no progress or its contract changed.
+      if((count===256 || scanned===8192) && controller.topStack===stack && stack.length<before)schedulePlaceholderRestore();
     });
-  },{passive:true});
+  }
+  document.addEventListener('scroll',schedulePlaceholderRestore,{passive:true});
   async function boundedText(response){
     if(Number(response.headers.get('content-length'))>2500000)throw Error('Reddit response is too large.');
     let text='';
