@@ -21,7 +21,8 @@
     constructor({archive=send,reddit=(...args)=>globalThis.RTPostDiscovery?.redditRead?.(...args),settings=readSettings,observe=true,retryMs=15000}={}){
       this.reddit=reddit;this.avatars=new Map();this.archive=archive;this.retryMs=retryMs;this.settings=null;this.postId='';this.patches=new Map();this.requested=new Set();this.queue=new Set();this.attempts=new Map();this.timer=null;
       if(observe){
-        this.observer=new MutationObserver(records=>{if(records.some(r=>!this.ownsMutation(r)))this.schedule();});this.observer.observe(document.documentElement,{childList:true,subtree:true});
+        // Only added elements can bring new comments or a new post.
+        this.observer=new MutationObserver(records=>{if(records.some(r=>!this.ownsMutation(r) && [...r.addedNodes].some(node=>node.nodeType===1)))this.schedule();});this.observer.observe(document.documentElement,{childList:true,subtree:true});
         this.onRoute=()=>this.schedule();window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);
         this.onMessage=(message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===chrome.runtime.id)this.setSettings(message.settings);};chrome.runtime.onMessage?.addListener(this.onMessage);
       }
@@ -35,15 +36,16 @@
     schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.scan();},200);}
     scan(){
       const postId=postIdOf();
-      if(postId!==this.postId){this.restoreAll();this.requested.clear();this.queue.clear();this.attempts.clear();this.postId=postId;this.postState=null;this.syncRootFlag();}
+      if(postId!==this.postId){this.restoreAll();this.requested.clear();this.queue.clear();this.attempts.clear();this.checked=new WeakSet();this.postId=postId;this.postState=null;this.syncRootFlag();}
       if(!postId || !this.enabled())return;
       this.restorePost();
       for(const comment of document.querySelectorAll('main shreddit-comment[thingid]')){
         const id=comment.getAttribute('thingid').toLowerCase(),post=comment.getAttribute('postid')?.toLowerCase();
-        if(!/^t1_[a-z0-9]{1,32}$/.test(id) || this.requested.has(id))continue;
+        // Comments already examined (no notice) are not re-read on every change.
+        if(!/^t1_[a-z0-9]{1,32}$/.test(id) || this.requested.has(id) || this.checked?.has(comment))continue;
         if(post && post!=='t3_'+postId){comment.setAttribute('data-rt-settled','');continue;}
         // Skeleton instead of Reddit's notice while the archive is asked.
-        const notice=this.noticeParagraph(comment);if(notice){this.queue.add(id);notice.dataset.rtNotice='true';comment.setAttribute('data-rt-pending','');}else comment.setAttribute('data-rt-settled','');
+        const notice=this.noticeParagraph(comment);if(notice){this.queue.add(id);notice.dataset.rtNotice='true';comment.setAttribute('data-rt-pending','');}else{comment.setAttribute('data-rt-settled','');this.checked?.add(comment);}
       }
       return this.flush();
     }
