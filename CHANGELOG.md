@@ -1,3 +1,11 @@
+# 0.20.9 preview
+
+- Arctic Shift maintenance is recognized: its 503 "Under maintenance" (and other 502/503/504 outages) pauses all archive requests for a minute, doubling up to ten, instead of retrying every few seconds. The feed shows one quiet note, "Arctic Shift is down for maintenance. Retrying in about 1 min.", with Retry now sending a single probe. The next successful response lifts the pause.
+
+Version choice: PATCH to 0.20.9 for a reliability fix; no new permissions or storage.
+
+Validation: all 815 tests pass. Live during an actual Arctic Shift maintenance window: a single maintenance note with the one-minute retry. ZIP integrity and source/stable-folder/archive byte equality pass.
+
 # 0.20.8 preview
 
 - No more blank space while scrolling profile results, especially upward. Discovery's inserted cards broke assumptions in Reddit's feed virtualizer (placeholders in one top block, in stack order), leaving out-of-order, duplicate and detached entries that Reddit stopped at. While discovery owns a profile feed, the page bridge now drives that same controller from the document: it restores any placeholder within ~1.5 viewports wherever its entry sits, drops stale entries, and only virtualizes cards far above the viewport, in Reddit's own entry shape. Other feeds keep native virtualization; a released feed is fully restored first. This replaces the 0.20.7 restore helper.
