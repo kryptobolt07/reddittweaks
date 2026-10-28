@@ -1,3 +1,14 @@
+# 0.20.6 preview
+
+- Restore the existing comment avatar strategy: reuse a matching native headshot, then identity-checked `about.json` `icon_img`, with the hover-card fallback. Keep the stronger skeleton contrast; alternative profile metadata remains research only.
+- Reapply recovered text, titles and media when returning to a profile, including retained native cards, native replacements and virtualized cards. Repeated reconciliation does not remount unchanged media. Restore the visible native or discovered card's viewport offset after Reddit reconnects the combined list; cancel the correction if the reader intervenes.
+- Retain Arctic Shift's image previews, gallery metadata, video posters/streams and comment attachments, which the former text-only field projection discarded. Normalize a bounded media list and validate Reddit HTTPS hosts and stream identities. Put compact profile previews in Reddit's actual thumbnail grid cell, use Reddit's HLS player on opened posts, and display body-referenced comment images inline. Preserve signed URLs and existing restrictions; no media files or profile bodies are persisted.
+- Keep the native selected-comment background painted while its author and content are loading, so the cream highlight covers the full skeleton instead of cutting off at the metadata row.
+
+Version choice: PATCH to 0.20.6 for restoration, return-position and media reliability corrections. No new permissions or storage/schema changes.
+
+Validation: all 811 tests pass. All 34 extension/demo JavaScript files parse; ZIP integrity, aliases and source/stable-folder/archive byte equality pass for 38 assets. Live Brave checks using temporary current-code patches confirmed retained recovered comments on Back with the same visible card and offset, a decoded 960×1482 inline comment image, a decoded native-sized profile thumbnail, and the uninterrupted native cream loading highlight. The complete installed bundle still requires an extension reload and Reddit refresh. Unprojected archive activity responses are larger but retain existing transport/record bounds; parent context requests stay projected. Archive availability remains incomplete, and expired signed video streams cannot be reconstructed. Opened archived galleries currently use ordered native image frames rather than Reddit's unverified carousel contract; image-bearing comments use the lightweight Markdown renderer, which may render complex formatting less faithfully than archive HTML. The stable local export includes the user's pre-existing uncommitted profile verification scheduling change; it remains preserved outside these commits.
+
 # 0.20.5 preview
 
 - Give archive restoration skeletons an opaque, theme-aware base instead of Reddit's nearly transparent shimmer token. Body, title and pending author/avatar placeholders remain visible in light and dark themes; native shimmer and reduced-motion support are retained.
