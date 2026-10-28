@@ -1,15 +1,14 @@
-"""Draw the extension's Reddit Tweaks sliders icon from geometry."""
-from pathlib import Path
-from PIL import Image, ImageDraw
+"""Write the extension icons from the mascot logo.
 
-destination = Path(__file__).resolve().parents[1] / 'extension' / 'icons'
-destination.mkdir(exist_ok=True)
-canvas = Image.new('RGBA', (512,512))
-draw = ImageDraw.Draw(canvas)
-draw.rounded_rectangle((8,8,504,504),radius=120,fill='#ff4500')
-# Sliders mark shared with the popup, legible at toolbar size.
-for y, knob in ((170,310),(342,202)):
-    draw.line((100,y,412,y),fill='white',width=28)
-    draw.rounded_rectangle((knob-15,y-56,knob+15,y+56),radius=15,fill='white')
-for size in (16,48,128):
-    canvas.resize((size,size),Image.Resampling.LANCZOS).save(destination/f'{size}.png')
+Source: extension/icons/logo.svg (an original antenna-topped tinkerer with a
+gear antenna, goggles and a wrench; not Reddit's Snoo). scripts/assets/
+logo-512.png is that SVG rendered at 512px with a transparent background
+(rendered in Chrome via scripts/live). This script downsamples it."""
+from pathlib import Path
+from PIL import Image
+
+root = Path(__file__).resolve().parents[1]
+source = Image.open(root / 'scripts' / 'assets' / 'logo-512.png').convert('RGBA')
+destination = root / 'extension' / 'icons'
+for size in (16, 32, 48, 128):
+    source.resize((size, size), Image.Resampling.LANCZOS).save(destination / f'{size}.png')

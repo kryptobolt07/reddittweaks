@@ -60,5 +60,15 @@ document.querySelector('#clear-messages').addEventListener('click',async()=>{
   } catch {status.textContent='Could not clear saved messages. Please retry.';}
   finally {button.disabled=false;}
 });
-loadSettings();
+// Dependent settings look inactive until the setting they need is on.
+function syncDependencies(){
+  for(const row of document.querySelectorAll('.setting-row[data-requires]')){
+    const parent=document.getElementById(row.dataset.requires),ancestor=parent?.closest('.setting-row[data-requires]');
+    const active=Boolean(parent?.checked) && (!ancestor || !ancestor.classList.contains('is-inactive'));
+    row.classList.toggle('is-inactive',!active);
+  }
+}
+document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]'))syncDependencies();});
+try{const manifest=globalThis.chrome?.runtime?.getManifest?.();const version=document.querySelector('#version');if(manifest && version)version.textContent='v'+(manifest.version_name || manifest.version).replace(/ preview$/,'');}catch{}
+loadSettings().then(syncDependencies);
 updateMessageStats();
