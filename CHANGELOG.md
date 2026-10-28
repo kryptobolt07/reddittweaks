@@ -1,3 +1,13 @@
+# 0.20.4 preview
+
+- Restore comment avatars using the author's native comment headshot, preserving signed preview URLs when present, or Reddit's matching profile `icon_img`. Reject the full-body `snoovatar_img` artwork and use Reddit's SVG headshot clipping. Keep cached, bounded lookups, host validation and page-world credentials.
+- Prepare deleted/removed comment notices in the document-start mutation guard after restoration preferences are known, before the delayed restorer scan. Mask the comment's own deleted avatar/name with placeholders while showing the body skeleton; normal replies remain visible. Keep the skeleton through bounded archive backoff and retain an avatar placeholder until its lookup settles. Empty archives and terminal failures restore Reddit's notice honestly.
+- Enable Reddit's native Share menu for deleted/removed comments by restoring its comment ID and permalink, without enabling voting or replying. Reapply sharing when Reddit replaces an already processed comment, without another archive read. Opt-out restores the original attributes and controls. Include an in-progress profile retry check that preserves published cards under one continuation loader.
+
+Version choice: PATCH to 0.20.4 for comment avatar, restoration presentation and native sharing corrections. No new permissions or storage/schema changes.
+
+Validation: all 793 tests pass, including 300 discovery/native-bridge/thread checks. All 34 extension/demo JavaScript files parse; ZIP integrity, both aliases and source/stable-folder/archive byte equality pass for 38 assets. Live Brave inspection confirmed the reported full-body hover-card image, the distinct profile headshot field, Reddit's signed native headshot markup and the deleted Share component's empty identity fields. Applying the Share identity repair in a temporary test tab opened the native Copy link / Share as post / Embed menu; votes and replies remained disabled. Initial pointer clicks were covered by the native chat overlay; the native control worked after uncovering it. The complete installed 0.20.4 bundle, cold-load paint sequence and final avatar appearance still require an extension reload and Reddit refresh. The stable local export includes the user's pre-existing, uncommitted profile verification scheduling change; that source edit is preserved and was not included in these commits.
+
 # 0.20.3 preview
 
 - Popup settings share one left edge instead of indenting further on each level; dependent settings stay dimmed until the setting they need is on, with a small connector stub.
