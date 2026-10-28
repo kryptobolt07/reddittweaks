@@ -95,7 +95,8 @@ test('archive author requests allow same-profile SPA tabs while rejecting other 
  }
  assert.equal((await e.send({}, {url:'https://www.reddit.com/user/Example/comments/',tab:{url:'https://www.reddit.com/user/Example/'}})).ok,true);
  for(const target of ['https://www.reddit.com/user/Other/comments/','https://www.reddit.com/user/Example/saved/','https://www.reddit.com/r/example/','https://evil.test/user/Example/'])assert.equal((await e.send({}, {tab:{url:target}})).code,'forbidden');
- assert.equal((await e.send({}, {url:'https://www.reddit.com/user/Other/',tab:{url:'https://www.reddit.com/user/Example/comments/'}})).code,'forbidden');
+ // In-page navigation from another profile: the current page decides.
+ assert.equal((await e.send({}, {url:'https://www.reddit.com/user/Other/',tab:{url:'https://www.reddit.com/user/Example/comments/'}})).ok,true);
  assert.equal((await e.send({action:'archive-ids',ids:['abc12']},{url:'https://www.reddit.com/comments/abc12/',tab:{url:'https://www.reddit.com/user/Example/comments/'}})).code,'forbidden');
 });
 
@@ -119,7 +120,7 @@ test('reply archive results must belong to the child thread and opting out disca
 
 test('automatic recovery validates bounded IDs and requires the matching active public profile',async()=>{
  const e=env(),message={action:'archive-recover',kind:'post',ids:['t3_abc12']};
- for(const source of [{id:'foreign'},{frameId:1},{origin:'https://evil.test'},{url:'https://www.reddit.com/comments/abc12/'},{tab:{url:'https://www.reddit.com/user/Other/'}},{url:'https://www.reddit.com/user/Other/',tab:{url:'https://www.reddit.com/user/Example/'}},{tab:{url:'https://www.reddit.com/user/Example/saved/'}}])assert.equal((await e.send(message,source)).code,'forbidden');
+ for(const source of [{id:'foreign'},{frameId:1},{origin:'https://evil.test'},{url:'https://www.reddit.com/comments/abc12/'},{tab:{url:'https://www.reddit.com/user/Other/'}},{tab:{url:'https://www.reddit.com/user/Example/saved/'}}])assert.equal((await e.send(message,source)).code,'forbidden');
  for(const input of [{kind:'video'},{kind:null},{username:'bad/name'},{ids:[]},{ids:['../../bad']},{ids:['t1_abc12']},{ids:'abc12'},{ids:Array.from({length:26},(_,i)=>'item'+i)}])assert.equal((await e.send({...message,...input})).code,'invalid-request');assert.equal(e.calls.length,0);
  assert.equal((await e.send(message,{tab:{url:'https://www.reddit.com/user/Example/comments/'}})).ok,true);
  assert.equal((await e.send({action:'archive-ids',ids:['abc12']})).code,'forbidden');
@@ -194,4 +195,12 @@ test('thread comment recovery is limited to the open post page and its own comme
  assert.equal((await e.send({...message,postId:'zzz99'},detail)).code,'forbidden','another post id is rejected');
  for(const bad of [{ids:[]},{ids:Array.from({length:101},(_,i)=>'c'+i)},{ids:['bad id']},{postId:'no!'}])assert.equal((await e.send({...message,...bad},detail)).code,'invalid-request');
  e.setSettings({postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:false});assert.equal((await e.send(message,detail)).code,'disabled','automatic restoration must be on');
+});
+test('requests follow the current page after Reddit’s in-page navigation (profile to post and back)',async()=>{
+ const e=env();const profileDoc={url:'https://www.reddit.com/user/Example/submitted/'};
+ assert.equal((await e.send({action:'archive-ids',ids:['abc12'],pageUrl:'https://www.reddit.com/r/example/comments/abc12/removed_by_moderator/'},profileDoc)).ok,true,'post opened from a profile');
+ assert.equal((await e.send({action:'archive-ids',ids:['zzz99'],pageUrl:'https://www.reddit.com/r/example/comments/abc12/x/'},profileDoc)).code,'forbidden','only the open post');
+ assert.equal((await e.send({pageUrl:'https://www.reddit.com/user/Example/'},{url:'https://www.reddit.com/r/example/comments/abc12/x/'})).ok,true,'profile opened from a post');
+ assert.equal((await e.send({pageUrl:'https://www.reddit.com/user/Other/'},profileDoc)).code,'forbidden','another profile is refused');
+ assert.equal((await e.send({pageUrl:'https://evil.test/user/Example/'},profileDoc)).code,'forbidden','another origin is refused');
 });
