@@ -108,18 +108,30 @@
       }
       if(M.validateUsername(archived.author))this.restoreAuthor(comment,archived.author,this.patches.get(body));
     }
-    // Show the archived author where Reddit shows [deleted]: a profile link
-    // styled like this page's author names, and their Reddit profile picture
-    // when Reddit still has one. A dotted underline and tooltip mark the source.
+    // Show the archived author where Reddit shows [deleted], built like a
+    // native comment author: a nameplate profile link and Reddit's avatar
+    // markup (snoovatar headshot on the avatar gradient, or a plain rounded
+    // image). A dotted underline and tooltip mark the identity as archived.
     restoreAuthor(comment,author,patch){
       const label=comment.querySelector('.author-name-meta span[dir],[slot="commentMeta"] span[dir]');
       if(label && label.textContent.trim()==='[deleted]' && !patch.author){
-        const sample=[...document.querySelectorAll('main shreddit-comment [slot="commentMeta"] a[href^="https://www.reddit.com/user/"],main shreddit-comment [slot="commentMeta"] a[href^="/user/"]')].find(a=>!a.closest('[data-rt-archived-author]'));
-        const link=make('a',(sample?.className || 'font-bold text-neutral-content-strong')+' rt-archived-author');link.href='/user/'+author+'/';link.dir='auto';link.dataset.rtArchivedAuthor='true';link.title='Original author from an Arctic Shift snapshot';link.textContent=author;
-        patch.author={label,original:[...label.childNodes]};label.replaceChildren(link);
+        const link=make('a','truncate font-bold text-neutral-content-strong text-12 focus-visible:-outline-offset-1 hover:underline rt-archived-author');link.href='https://www.reddit.com/user/'+author+'/';link.dir='auto';link.dataset.rtArchivedAuthor='true';link.setAttribute('aria-label',author+"'s profile");link.title='Original author from an Arctic Shift snapshot';
+        const plate=make('span','inline-flex items-center max-w-full whitespace-nowrap');plate.dir='auto';plate.dataset.testid='nameplate';plate.append(make('span','truncate',author));link.append(plate);
+        patch.author={label,link};label.replaceWith(link);
       }
-      const holder=comment.querySelector('[slot="commentAvatar"] [avatar]');if(!holder || patch.avatar)return;
-      const show=url=>{if(!url || !holder.isConnected || patch.avatar || !this.patches.has(patch.body))return;const img=make('img','rt-archived-avatar');img.src=url;img.alt='';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';img.title='Profile picture of u/'+author;patch.avatar={holder,original:[...holder.childNodes]};holder.replaceChildren(img);};
+      const slot=comment.querySelector('[slot="commentAvatar"]');if(!slot || patch.avatar)return;
+      const show=url=>{
+        if(!url || !slot.isConnected || patch.avatar || !this.patches.has(patch.body))return;
+        const anchor=make('a','flex items-center mt-2xs');anchor.href='https://www.reddit.com/user/'+author+'/';anchor.setAttribute('aria-label',author+"'s profile --- avatar");anchor.title='Profile picture of u/'+author;
+        const holder=make('span','inline-flex items-center justify-center w-xl h-xl relative');holder.setAttribute('rpl','');holder.setAttribute('avatar','');
+        const img=make('img','h-full w-full');img.src=url;img.alt='u/'+author+' avatar';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
+        if(/snoovatar|-headshot/i.test(url)){
+          const ring=make('span','inline-flex snoovatar relative fp-avatar-container rounded-full w-xl h-xl min-w-[2rem] min-h-[2rem] isolate box-content overflow-hidden'),frame=make('span','absolute start-0 end-0 bottom-0 mx-auto inline-flex shrink-0 justify-center box-border h-full w-full');
+          frame.append(make('span','rounded-full absolute h-full w-full inline-flex justify-center bg-[image:var(--color-avatar-gradient)]'));img.className='absolute bottom-0 w-xl h-xl object-cover';frame.append(img);ring.append(frame);holder.append(ring);
+        }else{const round=make('span','inline-block rounded-full relative h-full w-full overflow-hidden');round.setAttribute('rpl','');round.append(img);holder.append(round);}
+        anchor.append(holder);const row=make('div','flex flex-row items-center');row.append(anchor);
+        patch.avatar={slot,original:[...slot.childNodes]};slot.replaceChildren(row);
+      };
       const key=author.toLowerCase();if(this.avatars.has(key))return Promise.resolve(this.avatars.get(key)).then(show);
       const lookup=(async()=>{for(let attempt=0;attempt<3;attempt++){try{const result=await this.reddit({action:'user-avatar',username:author});if(!result?.deferred)return result?.avatar || '';await new Promise(r=>setTimeout(r,Math.min(5000,result.retryAfterMs || 500)));}catch{return '';}}return '';})();
       this.avatars.set(key,lookup);lookup.then(url=>{this.avatars.set(key,url);show(url);});
@@ -170,7 +182,7 @@
     restoreAll(){
       const post=this.postState?.patch;if(post){for(const node of post.added)node.remove();if(post.title)post.title.node.replaceChildren(...post.title.original);}
       if(this.postState?.native){this.postState.native.removeAttribute('data-rt-pending');this.postState.native.removeAttribute('data-rt-settled');}this.postState=null;
-      for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;if(patch.author)patch.author.label.replaceChildren(...patch.author.original);if(patch.avatar)patch.avatar.holder.replaceChildren(...patch.avatar.original);}
+      for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;if(patch.author?.link.isConnected)patch.author.link.replaceWith(patch.author.label);if(patch.avatar)patch.avatar.slot.replaceChildren(...patch.avatar.original);}
       this.patches.clear();
       for(const node of document.querySelectorAll('shreddit-comment[data-rt-pending],shreddit-comment[data-rt-settled]')){node.removeAttribute('data-rt-pending');node.removeAttribute('data-rt-settled');}
       for(const node of document.querySelectorAll('[data-rt-notice]'))delete node.dataset.rtNotice;
