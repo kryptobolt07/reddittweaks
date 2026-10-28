@@ -44,7 +44,7 @@
         // Comments already examined (no notice) are not re-read on every change.
         if(!/^t1_[a-z0-9]{1,32}$/.test(id))continue;
         if(post && post!=='t3_'+postId){comment.setAttribute('data-rt-settled','');continue;}
-        if(this.shareComments.has(comment))this.restoreShare(comment,id);
+        if(this.shareComments.has(comment) || this.requested.has(id))this.restoreShare(comment,id);
         if(this.requested.has(id) || this.checked?.has(comment))continue;
         if(M.domStatus(comment)){this.shareComments.add(comment);this.restoreShare(comment,id);}
         // Skeleton instead of Reddit's notice while the archive is asked.
