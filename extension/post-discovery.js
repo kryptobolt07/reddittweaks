@@ -252,9 +252,12 @@
       padding.append(stats,make('p','text-12 text-neutral-content-weak','Partial archive coverage. Counts and dates describe loaded records, not the complete account history.'),link('Arctic Shift','https://arctic-shift.photon-reddit.com/','text-12 hover:underline'));panel.append(padding);content.append(panel);sidebar.append(content);return sidebar;
     }
     clearActivityMenu(){
-      if(this.activityMain && this.activityOpen)this.activityMain.classList.remove('hidden');
+      if(this.activityMain && this.openSubmenu)this.activityMain.classList.remove('hidden');
       this.activityMenuObserver?.disconnect();if(this.activityDropdown && this.activityKeydown)this.activityDropdown.removeEventListener('keydown',this.activityKeydown,true);
-      for(const row of this.activityMenuRows || [])row.remove();this.activityMenuRows=[];this.host?.removeAttribute('data-rt-menu-ready');this.activityMenu=null;this.activityMain=null;this.activityDropdown=null;this.activityOpen=false;
+      // Return Reddit's own rows to their original places.
+      for(const group of this.menuGroups || []){for(const item of group.items)group.anchor.before(item);if(group.header)group.header.hidden=group.headerHidden;group.anchor.remove();}
+      this.menuGroups=[];
+      for(const row of this.activityMenuRows || [])row.remove();this.activityMenuRows=[];this.host?.removeAttribute('data-rt-menu-ready');this.activityMenu=null;this.activityMain=null;this.activityDropdown=null;this.activityOpen=false;this.openSubmenu=null;
     }
     ensureActivityMenu(){
       if(this.context?.kind!=='profile' || !this.toolbar)return;
@@ -270,24 +273,38 @@
       if(this.context.view==='comments'){const sort=main?.querySelector('shreddit-sort-dropdown');if(this.commentSort && this.commentSort.node!==sort){this.commentSort.node.hidden=this.commentSort.hidden;this.commentSort.node.removeAttribute('data-rt-comment-sort-suppressed');this.commentSort=null;}if(sort && !this.commentSort){this.commentSort={node:sort,hidden:sort.hidden};sort.hidden=true;sort.dataset.rtCommentSortSuppressed='true';}}
       if(this.activityMain!==menu){
         this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;
-        const content=menu.parentElement,sub=this.activityMenu=make('rpl-menu','rt-activity-submenu hidden');sub.dataset.rtUi='activity-filter-option';sub.setAttribute('wrap','');sub.setAttribute('role','menu');
-        const row=(label,icon,tail)=>{const el=make('rpl-menu-item','cursor-pointer'),body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs');for(const [k,v] of Object.entries({size:'medium',appearance:'default',truncate:'both','aria-label':label,'prevent-auto-close':''}))el.setAttribute(k,v);caption.append(glyph(icon),document.createTextNode(label));body.append(caption);if(tail)body.append(glyph(tail));el.tabIndex=-1;el.append(body);return el;};
+        const content=menu.parentElement,subs=[];
+        const row=(label,icon,tail)=>{const el=make('rpl-menu-item','cursor-pointer'),body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs');for(const [k,v] of Object.entries({size:'medium',appearance:'default',truncate:'both','aria-label':label,'prevent-auto-close':''}))el.setAttribute(k,v);caption.append(typeof icon==='string'?glyph(icon):icon,document.createTextNode(label));body.append(caption);if(tail)body.append(glyph(tail));el.tabIndex=-1;el.append(body);return el;};
         const activate=(el,fn)=>{el.addEventListener('click',fn);el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();event.stopImmediatePropagation();fn(event);}},true);};
-        const activity=row('Activity','activity','chevron-right');activity.dataset.rtActivity='true';activity.dataset.rtUi='activity-filter-option';activity.setAttribute('aria-haspopup','menu');
-        // Show the current choice beside the chevron, like Reddit's own Top row.
-        const current=make('span','text-12 text-neutral-content-weak ms-auto me-xs');current.dataset.rtActivityValue='true';activity.firstElementChild.insertBefore(current,activity.firstElementChild.lastElementChild);
-        const show=value=>{this.activityOpen=value;menu.classList.toggle('hidden',value);sub.classList.toggle('hidden',!value);activity.setAttribute('aria-expanded',String(value));(value?sub.querySelector('rpl-menu-item'):activity)?.focus({preventScroll:true});};
-        activate(activity,()=>show(true));menu.append(activity);
-
-        const back=row('Back','arrow-back');activate(back,()=>show(false));sub.append(back);
-        for(const [value,label,icon] of [['all','All activity','activity'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']]){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{if(this.activityFilter!==value){this.activityFilter=value;this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});}this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();show(false);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});this.ensureActivityArchive();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
-        // Refresh sits at the end of the Activity submenu, so the main menu gains one row only.
+        const submenu=()=>{const el=make('rpl-menu','rt-activity-submenu hidden');el.dataset.rtUi='activity-filter-option';el.setAttribute('wrap','');el.setAttribute('role','menu');subs.push(el);return el;};
+        // Top-style navigation: one submenu open at a time, inside the same dropdown.
+        const open=target=>{this.openSubmenu=target || null;this.activityOpen=target===this.activityMenu;menu.classList.toggle('hidden',Boolean(target));for(const sub of subs)sub.classList.toggle('hidden',sub!==target);for(const entry of this.activityMenuRows)if(entry.matches?.('rpl-menu-item'))entry.setAttribute('aria-expanded',String(entry.rtSubmenu===target));(target?target.querySelector('rpl-menu-item'):this.lastSubmenuRow)?.focus({preventScroll:true});};
+        const entry=(label,icon,sub)=>{const el=row(label,icon,'chevron-right');el.setAttribute('aria-haspopup','menu');el.rtSubmenu=sub;const value=make('span','text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';el.firstElementChild.insertBefore(value,el.firstElementChild.lastElementChild);activate(el,()=>{this.lastSubmenuRow=el;open(sub);});const back=row('Back','arrow-back');activate(back,()=>open(null));sub.append(back);return el;};
+        this.activityMenuRows=[];
+        // Group Reddit's own sections (sort, view) into Top-style submenus so the
+        // menu stays short. Its rows move (keeping their handlers) and are put back on teardown.
+        const groups=[];let current=null;
+        for(const node of [...menu.children]){if(node.dataset?.rtUi)continue;if(node.matches('rpl-menu-item')){if(!current)groups.push(current={header:null,items:[]});current.items.push(node);}else if(node.tagName==='DIV')groups.push(current={header:node,items:[]});}
+        const native=groups.filter(group=>group.items.length);
+        if(native.length>=2)for(const [index,group] of native.entries()){
+          const label=index===0?'Sort':group.header?.textContent.trim() || 'View',sub=submenu(),anchor=document.createComment('rt-menu-group');group.items[0].before(anchor);
+          const el=entry(label,'activity',sub);el.dataset.rtUi='menu-group';anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
+          if(index>0 && group.header){group.headerHidden=group.header.hidden;group.header.hidden=true;}
+          this.menuGroups.push({...group,anchor,row:el,sub});this.activityMenuRows.push(el,sub);
+        }
+        const sub=this.activityMenu=submenu(),activity=entry('Activity','activity',sub);activity.dataset.rtActivity='true';activity.dataset.rtUi='activity-filter-option';activity.querySelector('[data-rt-menu-value]').dataset.rtActivityValue='true';menu.append(activity);
+        for(const [value,label,icon] of [['all','All activity','activity'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']]){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{if(this.activityFilter!==value){this.activityFilter=value;this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});}this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();open(null);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});this.ensureActivityArchive();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
+        // Refresh sits at the end of the Activity submenu.
         const divider=make('div','my-xs border-0 border-t-sm border-solid border-neutral-border-weak');divider.setAttribute('role','separator');
-        const refresh=row('Refresh activity','refresh');refresh.dataset.rtUi='activity-refresh';activate(refresh,()=>{show(false);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});if(!this.discover.disabled)this.discover.click();});sub.append(divider,refresh);
-        content.append(sub);this.activityMenuRows=[activity,sub];this.host?.setAttribute('data-rt-menu-ready','');
-        this.activityKeydown=event=>{if(event.key==='Escape' && this.activityOpen){event.preventDefault();event.stopImmediatePropagation();show(false);}};dropdown.addEventListener('keydown',this.activityKeydown,true);
-        this.activityMenuObserver=new MutationObserver(()=>{if(!dropdown.hasAttribute('open') && this.activityOpen)show(false);});this.activityMenuObserver.observe(dropdown,{attributes:true,attributeFilter:['open']});
+        const refresh=row('Refresh activity','refresh');refresh.dataset.rtUi='activity-refresh';activate(refresh,()=>{open(null);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});if(!this.discover.disabled)this.discover.click();});sub.append(divider,refresh);
+        content.append(sub);this.activityMenuRows.push(activity,sub);this.host?.setAttribute('data-rt-menu-ready','');
+        this.activityKeydown=event=>{if(event.key==='Escape' && this.openSubmenu){event.preventDefault();event.stopImmediatePropagation();open(null);}};dropdown.addEventListener('keydown',this.activityKeydown,true);
+        // Close ours when the dropdown closes, or when Reddit opens its own submenu (Top) from ours.
+        this.activityMenuObserver=new MutationObserver(()=>{if(!this.openSubmenu)return;const nativeOpen=[...content.children].some(node=>node!==menu && !subs.includes(node) && node.matches('rpl-menu') && !node.classList.contains('hidden'));if(!dropdown.hasAttribute('open'))open(null);else if(nativeOpen){this.openSubmenu.classList.add('hidden');this.openSubmenu=null;this.activityOpen=false;}});
+        this.activityMenuObserver.observe(dropdown,{attributes:true,attributeFilter:['open','class'],subtree:true});
       }
+      // Current choice beside each group row (from Reddit's checkmarks) and its icon.
+      for(const group of this.menuGroups || []){const checked=group.items.find(item=>item.querySelector('svg[icon-name="checkmark"],[icon-name="checkmark"]') || item.getAttribute('aria-checked')==='true' || item.matches('[aria-current="true"],[aria-current="page"]'));const label=checked?.getAttribute('aria-label') || '';const value=group.row.querySelector('[data-rt-menu-value]');if(value.textContent!==label)value.textContent=label;const icon=checked?.querySelector('svg[icon-name]');const caption=group.row.firstElementChild.firstElementChild;if(icon && caption.firstElementChild?.getAttribute('icon-name')!==icon.getAttribute('icon-name')){const copy=icon.cloneNode(true);copy.removeAttribute('id');caption.firstElementChild.replaceWith(copy);}}
       const value=this.activityMain?.querySelector('[data-rt-activity-value]'),labels={all:'All',hidden:'Hidden',deleted:'Deleted'};if(value && value.textContent!==labels[this.activityFilter])value.textContent=labels[this.activityFilter];
       for(const row of this.activityMenu.querySelectorAll('[data-rt-activity-filter]')){const checked=row.dataset.rtActivityFilter===this.activityFilter;if(row.getAttribute('aria-current')!==String(checked))row.setAttribute('aria-current',String(checked));let mark=row.querySelector('[data-rt-check]');if(checked && !mark){mark=glyph('checkmark');mark.dataset.rtCheck='true';row.firstElementChild.append(mark);}else if(!checked)mark?.remove();}
     }
