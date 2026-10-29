@@ -1,3 +1,11 @@
+# 0.20.11 preview
+
+- Feed options no longer changes under the reader: Reddit's original rows stay invisible from the moment Reddit renders the menu until discovery has grouped it into Sort, View and Activity, instead of being visible for about half a second first. If discovery ever fails to take over, the rows reveal themselves after 2.5 s. Discovery also starts slightly sooner by reusing the settings read made at page start.
+
+Version choice: PATCH to 0.20.11 for a user-visible presentation fix; no new permissions or storage.
+
+Validation: all 816 tests pass. Live Chrome on a profile load: native rows hidden from 352 ms (menu rendered) until the grouped menu at 941 ms; the opened menu shows Sort · New, View · Card, Activity · All. ZIP integrity and source/stable-folder/archive byte equality pass.
+
 # 0.20.10 preview
 
 - Back returns to the same place after any navigation away from a profile, not only after opening a post: subreddit, home feed and another user's profile too. Reddit keeps the profile's feed element and restores it with its own scroll offset; discovery now parks its state with that feed instead of removing its cards and re-inserting copies, and resumes when the feed comes back. Up to four profile views are kept; older ones, and all of them when discovery is turned off or the account changes, are cleaned up properly.
