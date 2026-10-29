@@ -1392,3 +1392,22 @@ test('the status indicator stays last in the credit row when Reddit adds items a
 test('the credit-row badge has no outer margin so Reddit\'s row gap spaces it',()=>{
  const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/\[id\^="feed-post-credit-bar-"\]>\.rt-post-indicator\{margin:0/);
 });
+
+test('a deleted comment permalink plays Reddit\'s toast with our wording once restored, or the original otherwise',async t=>{
+  const page=async settings=>{
+    const dom=new JSDOM('',{url:'https://www.reddit.com/r/example/comments/abc12/title/comment/def34/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());
+    W.chrome={runtime:{id:'fixture',sendMessage:async()=>({ok:true,settings})}};W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
+    const alert=W.document.createElement('faceplate-alert');alert.setAttribute('level','notice');alert.setAttribute('message','This comment no longer exists');W.document.body.append(alert);
+    for(let i=0;i<3;i++)await new Promise(r=>setImmediate(r));
+    const shown=()=>[...W.document.querySelectorAll('faceplate-alert')].map(n=>n.getAttribute('message'));
+    return {W,alert,shown};
+  };
+  const on={postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true};
+  const restored=await page(on);assert.deepEqual(restored.shown(),[],'held until the restorer answers');
+  assert.equal(restored.W.RTProfileNoticeGuard.resolveCommentAlert('t1_other','deleted'),false);
+  assert.equal(restored.W.RTProfileNoticeGuard.resolveCommentAlert('t1_def34','deleted'),true);assert.deepEqual(restored.shown(),['Deleted comment retrieved from Arctic Shift']);
+  assert.equal(restored.W.document.querySelector('faceplate-alert').getAttribute('level'),'notice');
+  const missing=await page(on);missing.W.RTProfileNoticeGuard.resolveCommentAlert('t1_def34','');assert.deepEqual(missing.shown(),['This comment no longer exists']);
+  for(let i=0;i<2;i++)await new Promise(r=>setImmediate(r));assert.deepEqual(missing.shown(),['This comment no longer exists'],'a released toast is not held again');
+  const off=await page({...on,restoreDeletedContent:false});assert.deepEqual(off.shown(),['This comment no longer exists']);
+});

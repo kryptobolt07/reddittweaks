@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.chrome?.runtime?.id)return;
-  let enabled=true,restore=false,revision=0,restoreRevision=0;const notices=new Map();
+  let enabled=true,restore=false,settingsKnown=false,revision=0,restoreRevision=0;const notices=new Map();
   const unavailableSelector='shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3),shreddit-app > #shreddit-forbidden:has(svg[icon-name="ban-fill"]):has(#shreddit-forbidden-title)';
   function unavailableState(notice){
     if(notice.matches('shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3)'))return 'deleted';
@@ -31,13 +31,41 @@
       for(const width of [86,55]){const line=doc.createElement(reduced?'span':'faceplate-shimmer');line.className='rt-skeleton-line'+(reduced?' rt-skeleton-fallback':'');if(!reduced)line.setAttribute('shape','pill');line.style.width=width+'%';skeleton.append(line);}notice.after(skeleton);
     }
   }
-  function setRestoreEnabled(value){restoreRevision++;restore=value===true;refresh();}
+  // A deleted comment's permalink carries Reddit's own toast, <faceplate-alert message="This comment no
+  // longer exists">, which plays when Reddit's scripts start it. Hold it (it is parsed long before they
+  // load) until the restorer answers: then show Reddit's toast with our wording, or the original.
+  const permalinkComment=()=>(window.location || globalThis.location)?.pathname?.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/[a-z0-9]{1,10}\/(?:[^/]+\/)?comment\/([a-z0-9]{1,32})\/?$/i)?.[1]?.toLowerCase() || '';
+  const heldAlert={node:null,anchor:null,timer:0,id:'',resolved:''};
+  function releaseAlert(node){
+    const {anchor}=heldAlert;heldAlert.resolved=heldAlert.id;clearTimeout(heldAlert.timer);heldAlert.node=null;heldAlert.anchor=null;heldAlert.timer=0;
+    if(anchor?.isConnected)anchor.replaceWith(node);else anchor?.remove();
+  }
+  function holdAlert(doc){
+    if(heldAlert.node)return;
+    const id=permalinkComment();if(!id || heldAlert.resolved===id)return;
+    const alert=[...doc.querySelectorAll('faceplate-alert[message]:not([data-rt-ui])')].find(node=>/no longer exists/i.test(node.getAttribute('message') || ''));if(!alert)return;
+    const anchor=doc.createComment('rt-comment-alert');alert.replaceWith(anchor);
+    heldAlert.node=alert;heldAlert.anchor=anchor;heldAlert.id=id;
+    // Never lose Reddit's message: show it if no answer arrives in time.
+    heldAlert.timer=setTimeout(()=>resolveCommentAlert(id,''),10000);
+  }
+  // status: 'deleted' or 'removed' once the archive filled in this comment; '' to show Reddit's own toast.
+  function resolveCommentAlert(id,status){
+    if(!heldAlert.node || heldAlert.id!==String(id || '').toLowerCase().replace(/^t1_/,''))return false;
+    const original=heldAlert.node;
+    if(status!=='deleted' && status!=='removed'){releaseAlert(original);return true;}
+    const alert=original.cloneNode(false);alert.dataset.rtUi='comment-alert';
+    alert.setAttribute('message',(status==='removed'?'Removed':'Deleted')+' comment retrieved from Arctic Shift');releaseAlert(alert);return true;
+  }
+  function setRestoreEnabled(value){restoreRevision++;restore=value===true;refresh();if(!restore && heldAlert.node)releaseAlert(heldAlert.node);}
   function refresh(records){
     const doc=globalThis.document || window.document;if(!doc)return;
     const loc=window.location || globalThis.location;
     const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(loc?.pathname || '');
     // Post pages: let CSS show a skeleton over removal titles until restoration settles.
-    const restoreHere=restore && /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/[a-z0-9]{1,10}(?:\/|$)/i.test(loc?.pathname || '');doc.documentElement?.toggleAttribute('data-rt-restore',restoreHere);if(restoreHere)prepareComments(doc,records);
+    const restoreHere=restore && /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/[a-z0-9]{1,10}(?:\/|$)/i.test(loc?.pathname || '');
+    // Held before settings arrive (the toast must not play first); released if restoring turns out to be off.
+    if(enabled && (restore || !settingsKnown))holdAlert(doc);doc.documentElement?.toggleAttribute('data-rt-restore',restoreHere);if(restoreHere)prepareComments(doc,records);
     // Notifications and other native overlays can change the URL before replacing
     // the underlying profile. Never restore its notice during that transition.
     for(const [notice,anchor] of notices)if(!anchor.isConnected){
@@ -61,7 +89,7 @@
   function setEnabled(value){revision++;const next=value===true,changed=next!==enabled;enabled=next;refresh(changed?undefined:[]);}
   const emptyTemplate=()=>[...notices.keys()].find(n=>n.id==='empty-feed-content' && n.querySelector('[data-testid="empty-state-creative"]'))?.cloneNode(true) || null;
   let settings;try{settings=chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});}catch(error){settings=Promise.reject(error);}settings.catch(()=>{});
-  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,setRestoreEnabled,unavailableNotice,emptyTemplate,settings});
+  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,setRestoreEnabled,unavailableNotice,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
   // Observe the Document: the root may not exist yet at document_start.
   const observer=new MutationObserver(refresh);observer.observe(document,{childList:true,subtree:true});
   window.addEventListener('popstate',refresh);document.addEventListener('reddit:route',refresh);
@@ -70,6 +98,7 @@
   const failed=()=>{if(revision===initialRevision)setEnabled(false);};
   try{settings.then(response=>{
     const s=response?.settings;if(restoreRevision===initialRestoreRevision)restore=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true && s?.restoreDeletedContent!==false;
+    settingsKnown=true;if(!restore && heldAlert.node)releaseAlert(heldAlert.node);
     if(revision===initialRevision)setEnabled(response?.ok===true && response.settings?.postDiscovery!==false);else refresh([]);if(restore)refresh();
-  },failed);}catch{failed();}
+  },()=>{settingsKnown=true;if(heldAlert.node)releaseAlert(heldAlert.node);failed();});}catch{settingsKnown=true;failed();}
 })();

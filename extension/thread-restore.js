@@ -93,7 +93,9 @@
         while(this.queue.size && postId===this.postId && this.enabled()){
           const ids=[...this.queue].slice(0,100);for(const id of ids){this.queue.delete(id);this.requested.add(id);}
           // Every asked id always settles, whatever happens to one record.
-          const settle=()=>{if(postId!==this.postId)return;const nodes=this.commentNodes(ids);for(const id of ids){this.done.add(id);for(const node of nodes.get(id) || [])this.settleNode(node);}};
+          const settle=()=>{if(postId!==this.postId)return;const nodes=this.commentNodes(ids);for(const id of ids){this.done.add(id);for(const node of nodes.get(id) || [])this.settleNode(node);}
+            // Nothing restored for the permalinked comment: Reddit's own toast plays (a no-op once resolved).
+            const linked='t1_'+(globalThis.RTProfileNoticeGuard?.permalinkComment?.() || '');if(ids.includes(linked))globalThis.RTProfileNoticeGuard.resolveCommentAlert(linked,'');};
           let result;
           try{result=await this.archive({action:'archive-comments',postId,ids});}
           catch(error){
@@ -153,6 +155,8 @@
         this.patches.get(body).badge=badge;
       }
       if(author)this.restoreAuthor(comment,author,this.patches.get(body));
+      // On this comment's own permalink, Reddit's "no longer exists" toast now says where the text came from.
+      if(hasText)globalThis.RTProfileNoticeGuard?.resolveCommentAlert?.(archived.id,status);
     }
     // Status cue: keyboard focusable, named for assistive tech, glyph or (if the glyph
     // is unavailable) a short text mark instead of an empty box.
