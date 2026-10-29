@@ -1,3 +1,20 @@
+# 0.21.0 preview
+
+Work from the full review in docs/improvement-plan-2026-10.md (Phases 1, 2 and parts of 3, 4 and 6), done as five parallel workstreams.
+
+- Chat search calendar redesigned: one header row (On/Before/After/Between, one preset row, month-year heading), 32 px circular days with a continuous range band, today ring and saved-messages dot together, fixed six-row height, 12-14 px text, visible focus on every control, proper dark mode, no clipping in floating chat, ARIA grid semantics and Shift+PageUp/Down for years. Global search no longer offers future days; the Quick ranges sub-view became preset chips.
+- Deleted chat partners now show the username and avatar the extension saved while their account still existed, instead of "[deleted]" and the default avatar.
+- Post pages: one malformed archived comment no longer stops restoration of the others; spoilers in restored comments stay hidden until revealed (and are keyboard-accessible); restored text survives Reddit re-rendering a comment; Reddit's own notices are never shown as "restored text"; pending placeholders give way after about 5 s; cues say "Removed on Reddit" and only say "by its author" when Reddit does; badges are keyboard-focusable.
+- Profiles: the Hidden filter no longer labels items Reddit simply has not loaded yet; archive recovery retries quietly after transient failures (including Arctic Shift maintenance) instead of a permanent error; Refresh clears stale removed/deleted cues; settings changes apply once; archive-only items with unknown status use the archive icon. Discovery is several times faster on long profiles (jsdom: 400 cards 41.5 s -> 3.0 s).
+- Chat reliability and privacy: a huge server cooldown can no longer block chat directory loading indefinitely; missing history metadata counts as incomplete and global search shows "Partial history"; pages without chat no longer scan the page every 1.5 s; each tab reads only the signed-in account's saved directory; Clear saved messages also removes recent searches.
+- Popup: Clear actions ask for confirmation and say they apply to every Reddit account on this device; better contrast, forced-colors support and screen-reader links; unreadable settings show as unavailable.
+- Archive requests: server cooldowns capped at one hour and the Arctic Shift backoff survives service-worker restarts.
+- Tooling: deterministic, allowlisted packaging; minimum Chrome 111; hardened local dev relay and preview server.
+
+Version choice: MINOR to 0.21.0 for the redesigned calendar and the new confirm-before-clear behavior alongside many fixes; no new permissions, and no storage schema change.
+
+Validation: all 889 tests pass on a clean tree; jsdom timing for profile discovery as above; calendar and popup rendered in headless Chrome (light, dark, floating, narrow). Limitations: not yet re-checked live in Chrome for this release; deleted-account names can only be shown for people the extension saw before they deleted their account; plan items 3.1/3.2/3.4 (further discovery memoization), 3.8/3.10/3.11 (chat storage layout) and 5.2-5.4 (state split, module split) remain.
+
 # 0.20.12 preview
 
 - Leaving a profile while it is still loading and pressing Back now picks up where it stopped: unfinished searches restart, cards that were waiting to render finish, scheduled retries (including the Arctic Shift maintenance wait) keep their note and timing, and Refresh activity stays usable. Previously cards could stay as loading placeholders and the status could read "Activity checked" although loading had been cut off.
