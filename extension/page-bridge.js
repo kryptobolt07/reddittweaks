@@ -646,7 +646,7 @@
   // Reddit's chat profile reports isDeleted for deleted and suspended accounts alike. Its public hover card
   // tells them apart, but only people the user can actually see are looked up, once each, one request at a time.
   const classifier={wanted:new Map(),running:false,nextAt:0,pausedUntil:0,strikes:0};
-  const classifyGapMs=2500,classifyRetryMs=86400000,classifyLimitMs=3600000;
+  const classifyGapMs=2500,classifyRetryMs=86400000,classifyLimitMs=3600000,classifyTransientMs=600000;
   function classifyHoverCard(html) {
     let doc;try{doc=new DOMParser().parseFromString(html,'text/html');}catch{return '';}
     if(doc.querySelector('[avatar] img, img[src*="profileIcon"]'))return 'live';
@@ -687,6 +687,8 @@
         }
         classifier.strikes=0;
         const cache=profileCache(ctx),person=cache.get(id);if(!person)continue;
+        // Transient failures are not saved: try this person again in about ten minutes.
+        if(outcome.transient){cache.set(id,{...person,accountStateCheckedAt:Date.now()-classifyRetryMs+classifyTransientMs});continue;}
         // A definite answer is kept for good. Anything else is only a note that today's attempt is spent.
         const state=outcome.state==='deleted' || outcome.state==='banned' ? outcome.state : '',checked=Date.now();
         cache.set(id,{...person,accountState:state,accountStateCheckedAt:checked});
@@ -704,10 +706,11 @@
         const hint=response.headers?.get?.('Retry-After'),seconds=Number(hint),date=Date.parse(hint || '');
         return {limited:true,wait:Number.isFinite(seconds) && hint?.trim() ? seconds*1000 : Number.isFinite(date) ? Math.max(0,date-Date.now()) : 0};
       }
-      if(!response.ok)return {state:''};
+      // Only a real answer is recorded; a refusal or network failure is retried later.
+      if(!response.ok)return {state:'',transient:true};
       const html=await response.text();
       return {state:html.length>300000 ? '' : classifyHoverCard(html)};
-    } catch { return {state:''}; }
+    } catch { return {state:'',transient:true}; }
     finally {clearTimeout(timer);}
   }
   function nativeBindings(ctx,request) {
