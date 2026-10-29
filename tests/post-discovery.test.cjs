@@ -1316,3 +1316,28 @@ test('discovery reuses the document-start settings answer instead of asking the 
  W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));for(const file of ['post-model.js','post-discovery.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
  const d=W.RTDiscoveryDebug;await d.ready;try{assert.equal(d.settings.postDiscovery,true);assert.equal(asks,1,'one get-settings round trip per page');}finally{d.destroy();}
 });
+
+const leaveAndReturn=(W,d)=>{const profile=W.document.querySelector('main'),path=W.location.pathname;W.history.pushState({},'','/r/example/');W.document.body.innerHTML='<main id="main-content"></main>';d.scan();assert.equal(d.parked.size,1);W.history.pushState({},'',path);W.document.body.replaceChildren(profile);d.scan();};
+test('leaving during the first load restarts it on Back instead of claiming activity was checked',async t=>{
+ let calls=0;const {W,d}=setup(t,{reddit:(input,signal)=>new Promise((resolve,reject)=>{if(input.action!=='profile')return resolve({posts:[],hasMore:false});calls++;if(calls>1)return resolve({posts:[raw('later')],hasMore:false});signal?.addEventListener('abort',()=>reject(Error('Post request cancelled.')));})});
+ await d.ready;const first=d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(d.busy,true);
+ leaveAndReturn(W,d);await first.catch(()=>{});await new Promise(r=>setImmediate(r));await new Promise(r=>setImmediate(r));await d.redditRun;await new Promise(r=>setImmediate(r));
+ assert.equal(calls,2,'the interrupted first page is requested again');assert.equal(d.loaded,true);assert.ok(d.nodes.has('later'));assert.doesNotMatch(d.status.textContent,/checked/i,'never reports a dropped load as checked') ;
+});
+test('renders queued when leaving are queued again on Back and the batch publishes',async t=>{
+ const releases=[];const {W,d}=setup(t,{reddit:async()=>({posts:Array.from({length:6},(_,i)=>raw('q'+i,{created_utc:1700000000-i})),hasMore:false}),nativeRender:async(post,node)=>{await new Promise(r=>releases.push(r));node.innerHTML='<shreddit-post id="'+post.fullname+'"><span slot="credit-bar"></span></shreddit-post>';}});
+ await d.ready;d.loadReddit();await new Promise(r=>setImmediate(r));await new Promise(r=>setImmediate(r));assert.ok([...d.nodes.values()].some(node=>node.dataset.rtNativeState==='queued'),'some renders wait in the queue');
+ leaveAndReturn(W,d);for(let i=0;i<40 && [...d.nodes.values()].some(node=>node.dataset.rtNativeState!=='ready');i++){while(releases.length)releases.shift()();await new Promise(r=>setImmediate(r));}
+ assert.deepEqual([...d.nodes.values()].map(node=>node.dataset.rtNativeState),Array(6).fill('ready'));assert.equal(d.activeProfileBatch,null,'the batch settled and published');
+});
+test('a scheduled retry survives leaving and returning, with its note',async t=>{
+ const {W,d}=setup(t,{timing:{retryUnitMs:60000},reddit:async input=>{if(input.action==='profile')throw Error('Reddit returned an error (HTTP 503).');return {};}});
+ await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(d.sourceRetries.size,1);
+ leaveAndReturn(W,d);await new Promise(r=>setImmediate(r));
+ assert.equal(d.sourceRetries.size,1,'still scheduled');assert.ok([...d.sourceRetries.values()][0].timer,'re-armed');assert.match(d.loading.textContent,/Retrying in/);d.clearSourceRetries();
+});
+test('flags that describe in-flight work do not survive parking',async t=>{
+ const {W,d}=setup(t);await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
+ d.recoveryActive=true;d.recoveryTimer=123;d.batchFrame=77;d.discover.disabled=true;d.host.setAttribute('aria-busy','true');
+ leaveAndReturn(W,d);assert.equal(d.recoveryActive,false);assert.equal(d.recoveryTimer,null);assert.equal(d.batchFrame,null);assert.equal(d.discover.disabled,false);assert.equal(d.host.hasAttribute('aria-busy'),false);
+});

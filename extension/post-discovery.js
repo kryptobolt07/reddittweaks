@@ -109,7 +109,8 @@
     carryOver(state){
       if(!state || state.archiveOnly!==this.archiveOnly)return false;
       for(const name of ['live','archived','commentOrigins','nodes','publishedCards','replyContexts','replyAuthors','replyArchiveChecked','sourceFrontiers','sourceErrors','recoveryChecked','activityFilter','postStatuses','loaded','archiveLoaded','pages','moreReddit','moreArchive','initialPrefetchDone','afterByKind','beforeByKind','redMore','archiveMore'])if(name in state)this[name]=state[name];
-      for(const node of this.nodes.values()){node.classList.remove('rt-native-enter','rt-native-inserted');this.results.append(node);}
+      for(const node of this.nodes.values()){node.classList.remove('rt-native-enter','rt-native-inserted');if(['loading','queued'].includes(node.dataset.rtNativeState))node.dataset.rtNativeState='idle';this.results.append(node);}
+      const generation=this.generation;queueMicrotask(()=>this.resumeWork(generation,new Set(state.sourcePending || []),state.sourceRetries || new Map(),false));
       return true;
     }
     leaveProfile({retainNavigation=false,always=false}={}){
@@ -126,11 +127,17 @@
     adopt(feed,state){
       this.parked.delete(feed);for(const [key,value] of Object.entries(state))this[key]=value;
       if(!this.host.isConnected && !this.host.contains(feed))feed.before(this.host);
+      // Work cut off by parking, resumed below.
+      const interrupted=new Set(state.sourcePending || []),retries=state.sourceRetries || new Map(),firstLoad=!state.loaded && !state.archiveLoaded;
       // Fresh generation: anything still in flight from before parking is ignored.
       this.generation=++generationSeq;this.controllers=new Set();this.busy=this.archiveBusy=this.verifyActive=false;this.redditRun=this.archiveRun=null;
       this.sourcePending=new Set();this.metadataPending=0;this.replyEnrichment=null;this.profileOverlay=this.profileTransition=false;this.gateTimer=null;this.gateAt=Infinity;
-      for(const entry of this.sourceRetries?.values() || [])clearTimeout(entry.timer);this.sourceRetries=new Map();
-      this.nativeBatch={active:0,queue:[]};for(const node of this.nodes.values())if(node.dataset.rtNativeState==='loading')node.dataset.rtNativeState='idle';
+      // Flags and controls that only describe work in flight start clean.
+      this.recoveryActive=false;this.recoveryTimer=null;this.batchFrame=null;this.batchAutoPaused=false;this.forceProfileBatch=false;
+      if(this.discover)this.discover.disabled=false;if(this.more)this.more.disabled=false;this.host.removeAttribute('aria-busy');
+      for(const entry of retries.values())clearTimeout(entry.timer);this.sourceRetries=new Map();
+      // Queued and loading renders were dropped with the old queue; queue them again.
+      this.nativeBatch={active:0,queue:[]};for(const node of this.nodes.values())if(['loading','queued'].includes(node.dataset.rtNativeState))node.dataset.rtNativeState='idle';
       for(const key of ['feedPresentationObserver','nativeLoadingObserver','nativeLoadingRoot','recoveryObserver','nativeObserver'])this[key]=null;this.recoveryObserved=new WeakSet();
       // Rebuild the activity menu from Reddit's rows; it reconnects its observer.
       this.clearActivityMenu();this.observeBatchTail();
@@ -138,6 +145,22 @@
       // the same (re-stamped) batch.
       if(this.activeProfileBatch){this.activeProfileBatch.generation=this.generation;this.activeProfileBatch.enriching=false;}
       for(const node of this.activeProfileBatch?.nodes || [])if(node.dataset.rtNativeState==='idle')this.queueNative(node);this.settleProfileBatch();
+      const generation=this.generation;queueMicrotask(()=>this.resumeWork(generation,interrupted,retries,firstLoad));
+    }
+    // Continue what parking (or a feed replacement) interrupted: re-arm retries
+    // for their remaining wait, restart streams that were cut off mid-request,
+    // or the whole first load if it never finished. Never leave a view that
+    // claims "Activity checked" while something was dropped.
+    resumeWork(generation,interrupted,retries,firstLoad){
+      if(generation!==this.generation || !this.host?.isConnected)return;
+      for(const [key,entry] of retries){this.sourceRetries.set(key,entry);entry.timer=setTimeout(()=>{entry.timer=null;if(generation!==this.generation || !this.host?.isConnected)return;this.retrySource(key);},Math.max(0,(entry.at || 0)-Date.now()));}
+      if(firstLoad){if((interrupted.size || this.autoDiscover) && this.context?.kind==='profile'){if(this.archiveOnly){if(this.settings.archiveDiscovery)this.loadArchive();}else this.refreshActivity();}}
+      else{
+        const pending=[...interrupted].filter(key=>!retries.has(key)),reddit=pending.filter(key=>!key.startsWith('archive-')),archive=pending.filter(key=>key.startsWith('archive-')).map(key=>key.slice(8));
+        if(reddit.length)this.loadReddit({retry:true,keys:reddit});
+        if(archive.length && this.settings.archiveDiscovery){for(const kind of archive)this.archiveMore[kind]=true;this.archiveRun=this.archivePage({more:true,only:archive});}
+      }
+      this.pumpVerification();this.updateProfileLoading();
     }
     discardParked(state){
       const current=this.viewState(),navigation=this.profileNavigation;
@@ -1081,7 +1104,9 @@
           node.dataset.rtNativeState='failed';node.removeAttribute('aria-busy');node.replaceChildren();
           const fallback=make('div','rt-native-unavailable px-md py-sm'),copy=make('div','min-w-0 flex flex-col');copy.append(link(latest.title || (latest.kind==='comment'?'View comment on Reddit':'View post on Reddit'),latest.permalink,'text-14 font-semibold text-neutral-content-strong no-underline hover:underline'),make('span','text-12 text-neutral-content-weak','Reddit couldn’t load this item right now.'));fallback.append(copy);
           const retry=button('Retry',()=>{this.nativeRetries.delete(node);node.dataset.rtNativeState='idle';this.queueNative(node);});retry.className='button button-small button-bordered';retry.title=error?.message || 'Reddit could not load this card.';fallback.append(retry);node.append(fallback);this.ensureCardRule(node);
-        }).finally(()=>{batch.active--;this.settleProfileBatch();this.deduplicate();this.drainNative(batch);this.updateProfileLoading();});
+        }).finally(()=>{batch.active--;
+          // A render from a parked or replaced view must not reconcile the current one.
+          if(batch!==this.nativeBatch)return;this.settleProfileBatch();this.deduplicate();this.drainNative(batch);this.updateProfileLoading();});
       }
     }
     forgetRecoveredBodies(){this.replyPatches=new Map();this.recoveredTitles=new Map();this.recoveredMedia=new Set();this.recoveredBodies=new Map();this.nativeDecorations=new Set();}
