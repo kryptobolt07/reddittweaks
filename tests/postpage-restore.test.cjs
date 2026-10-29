@@ -138,7 +138,11 @@ test('status cues are keyboard focusable, named once, and the archived author is
  const e=setup();await e.r.ready;await settle();const node=comment(e.doc,'t1_a1'),badge=node.querySelector('[data-rt-source]');
  assert.equal(badge.tabIndex,0);assert.equal(badge.getAttribute('role'),'img');assert.match(badge.getAttribute('aria-label'),/^Deleted by its author on Reddit · Text from an Arctic Shift snapshot/);
  assert.equal(node.querySelector('[data-rt-archived-author]').getAttribute('aria-label'),'u/Originala1 (from archive)');
+ // Reddit's own profile card: its trigger wraps the name, and it reads the comment's author attribute.
+ assert.ok(node.querySelector('[data-rt-archived-author]').closest('.author-hovercard-trigger'));
+ assert.equal(node.getAttribute('author'),'Originala1');
  assert.match(comment(e.doc,'t1_b2').querySelector('[data-rt-source]').getAttribute('aria-label'),/^Removed on Reddit/);
+ e.r.restoreAll();assert.equal(node.getAttribute('author'),'[deleted]');assert.equal(node.querySelector('.author-hovercard-trigger'),null);
  e.r.destroy();e.W.close();
  const bare=setup({glyph:false});await bare.r.ready;await settle();const mark=comment(bare.doc,'t1_a1').querySelector('[data-rt-source] .rt-badge-fallback');assert.ok(mark,'text fallback instead of an empty box');assert.equal(mark.getAttribute('aria-hidden'),'true');bare.r.destroy();bare.W.close();
 });
