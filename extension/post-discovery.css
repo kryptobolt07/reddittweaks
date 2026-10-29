@@ -8,7 +8,7 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-posts-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:4px;min-height:32px;position:relative}
 .rt-posts button{font:inherit;color:inherit;display:inline-flex;justify-content:center;align-items:center;background:transparent;border:0;cursor:pointer;border-radius:50%;width:32px;height:32px;padding:8px}
 .rt-posts button:hover{background:var(--color-neutral-background-hover,#f2f4f5)}.rt-posts button:disabled{opacity:.55;cursor:wait}
-.rt-posts button:focus-visible,.rt-native-unavailable a:focus-visible,.rt-native-unavailable button:focus-visible,.rt-post-snapshot summary:focus-visible{outline:2px solid #ff4500;outline-offset:3px}
+.rt-posts button:focus-visible,.rt-post-indicator:focus-visible,.rt-native-unavailable a:focus-visible,.rt-native-unavailable button:focus-visible,.rt-post-snapshot summary:focus-visible{outline:2px solid #ff4500;outline-offset:3px}
 .rt-posts svg,.rt-post-indicator svg,.rt-activity-icon{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
 .rt-posts-toolbar>.rt-posts-more{width:auto;border-radius:16px;font-size:12px;padding:4px 10px;white-space:nowrap}
 .rt-posts-status{font-size:12px;margin:0 auto 0 0;line-height:1.5;color:var(--color-neutral-content-weak,#576f76)}
@@ -27,6 +27,9 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-native-inserted::after{content:"";position:absolute;inset:0;border-radius:16px;pointer-events:none;background:color-mix(in srgb,var(--color-neutral-content-strong,#0f1a1c) 6%,transparent);animation:rt-native-settle 1.2s ease-out .2s both}
 @keyframes rt-native-settle{from{opacity:1}to{opacity:0}}
 .rt-post-indicator{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:50%;margin-inline:0 8px;background:transparent;color:var(--color-neutral-content-strong,#1a1a1b);vertical-align:middle}
+.rt-post-indicator:focus-visible{border-radius:50%}
+.rt-badge-fallback{font:700 12px/1 var(--font-sans,system-ui,sans-serif);font-style:italic}
+.rt-post-indicator[data-rt-reserved]{visibility:hidden}
 .rt-post-snapshot{font-size:14px;margin:10px 16px;line-height:1.5}.rt-post-snapshot summary{color:var(--color-neutral-content-weak,#576f76);cursor:pointer;font-size:12px;display:list-item}
 .rt-post-snapshot pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}.rt-post-source{font-size:11px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-native-unavailable{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px}.rt-native-unavailable a{min-width:0;overflow-wrap:anywhere}.rt-native-unavailable button{flex:none;white-space:nowrap}
@@ -78,7 +81,7 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 /* With Refresh in Reddit's Feed options menu, the toolbar shows only errors. */
 .rt-posts[data-rt-menu-ready] .rt-posts-toolbar>button:not(.rt-posts-more){display:none!important}
 .rt-posts[data-rt-menu-ready] .rt-posts-toolbar{min-height:0}
-.rt-posts[data-rt-menu-ready]:not(:has(.rt-posts-status[data-error=true],.rt-posts-notice:not([hidden]),.rt-posts-more:not([hidden])))){margin-block:0}
+.rt-posts[data-rt-menu-ready]:not(:has(.rt-posts-status[data-error=true],.rt-posts-notice:not([hidden]),.rt-posts-more:not([hidden]))){margin-block:0}
 
 /* Feed-bottom notes (waiting retries, paused loading): quiet, centered, one line where possible. */
 .rt-feed-note{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 12px;margin:16px;font-size:14px;line-height:20px;color:var(--color-neutral-content-weak,#576f76);text-align:center}
@@ -93,9 +96,10 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 .rt-recovered-md>:first-child{margin-top:0}.rt-recovered-md>:last-child{margin-bottom:0}
 .rt-recovered-md blockquote{margin:8px 0;padding-inline-start:12px;border-inline-start:4px solid var(--color-neutral-border-weak,#e5ebee);color:var(--color-neutral-content-weak,#576f76)}
 .rt-recovered-md pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:8px 12px;border-radius:8px;background:var(--color-neutral-background-weak,#f2f4f5)}
-.rt-recovered-md a{color:var(--color-primary-plain,#0a449b);text-decoration:underline}
+.rt-recovered-md a{color:var(--color-primary-plain,inherit);text-decoration:underline}
 .rt-recovered-md table{border-collapse:collapse;margin:8px 0;display:block;overflow-x:auto}.rt-recovered-md th,.rt-recovered-md td{border:1px solid var(--color-neutral-border-weak,#e5ebee);padding:4px 8px}
-.rt-recovered-md .rt-spoiler{background:var(--color-neutral-content-strong,#1a1a1b);color:transparent;border-radius:4px;cursor:pointer}.rt-recovered-md .rt-spoiler:hover,.rt-recovered-md .rt-spoiler:focus{background:transparent;color:inherit}
+.rt-recovered-md .rt-spoiler{background:var(--color-neutral-content-strong,#1a1a1b);color:transparent;border-radius:4px;cursor:pointer}.rt-recovered-md .rt-spoiler:is(:hover,:focus,[data-revealed],[aria-expanded=true]){background:transparent;color:inherit}
+.rt-recovered-md .rt-spoiler:focus-visible{outline:2px solid #ff4500;outline-offset:1px}
 
 /* Archived author identity on restored thread comments. */
 .rt-archived-author,.rt-archived-author:visited{color:inherit;text-decoration:underline dotted;text-underline-offset:3px;text-decoration-thickness:1px}.rt-archived-author:hover{text-decoration-style:solid}
@@ -105,13 +109,20 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
    visible base in both themes, while leaving native shimmer animation intact. */
 html[data-rt-restore],.rt-skeleton{--rt-skeleton-base:color-mix(in srgb,var(--color-neutral-content-strong,#1a1a1b) 16%,var(--color-neutral-background,#fff))}
 @keyframes rt-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
-html[data-rt-restore] main shreddit-post:is([data-rt-pending],:has(> [slot="post-removed-banner"]):not([data-rt-settled])) > [slot="title"],
-html[data-rt-restore] main shreddit-comment[is-comment-deleted]:not([data-rt-settled]) > details > div > div > div > div > p{color:transparent!important;border-radius:8px;background:linear-gradient(90deg,var(--rt-skeleton-base) 30%,color-mix(in srgb,var(--rt-skeleton-base) 45%,var(--color-neutral-background,#fff)) 50%,var(--rt-skeleton-base) 70%);background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite;user-select:none}
-@media(prefers-reduced-motion:reduce){html[data-rt-restore] main shreddit-post > [slot="title"],shreddit-comment [data-rt-notice],html[data-rt-restore] main shreddit-comment > details p{animation:none!important}}
+/* Fail-safes: every hidden or masked pending state reveals itself after 6 s even if
+   scripts never settle it (the script itself settles visually after about 5 s). Colour
+   and gradient live in keyframes so the last frame falls back to Reddit's own values. */
+@keyframes rt-pending-title{0%,99.9%{color:transparent;background-image:linear-gradient(90deg,var(--rt-skeleton-base) 30%,color-mix(in srgb,var(--rt-skeleton-base) 45%,var(--color-neutral-background,#fff)) 50%,var(--rt-skeleton-base) 70%)}}
+/* Take-out-of-flow rather than display:none, which cannot run animations. */
+@keyframes rt-hold-show{to{position:static;visibility:visible;pointer-events:auto}}
+@keyframes rt-hold-gone{to{position:absolute;visibility:hidden;pointer-events:none}}
+@keyframes rt-hold-visible{to{visibility:visible}}
+@keyframes rt-hold-text{0%,99.9%{color:transparent}}
+html[data-rt-restore] main shreddit-post:is([data-rt-pending],:has(> [slot="post-removed-banner"]):not([data-rt-settled])) > [slot="title"]{border-radius:8px;background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite,rt-pending-title 6s forwards;user-select:none}
+@media(prefers-reduced-motion:reduce){html[data-rt-restore] main shreddit-post:is([data-rt-pending],:has(> [slot="post-removed-banner"]):not([data-rt-settled])) > [slot="title"]{animation:rt-pending-title 6s forwards}}
 /* Fallbacks for Reddit's own media utilities (archive-view.js builds Reddit's structure). */
 .rt-archived-media{position:relative;overflow:hidden;isolation:isolate;border-radius:16px;margin-block:8px}
 .rt-archived-media .rt-media-backdrop{filter:blur(24px)}
-.rt-archived-media figure,.rt-archived-media>img{margin:0}
 
 /* Grouped Feed options submenus stay within the viewport. */
 .rt-activity-submenu{max-height:calc(100dvh - 180px);overflow-y:auto;overscroll-behavior:contain}
@@ -121,24 +132,25 @@ html[data-rt-restore] main shreddit-comment[is-comment-deleted]:not([data-rt-set
 .rt-skeleton{display:flex;flex-direction:column;gap:9px;padding:6px 0 10px}
 .rt-skeleton-line{position:relative;display:block;height:11px;overflow:hidden;border-radius:999px;background:var(--rt-skeleton-base)}
 .rt-skeleton-line:first-child{height:12px}
-.rt-skeleton-fallback::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent);animation:rt-skeleton-sweep 1.5s ease-in-out infinite}
+.rt-skeleton-fallback::after,.rt-skeleton-line:not(:defined)::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent);animation:rt-skeleton-sweep 1.5s ease-in-out infinite}
 @keyframes rt-skeleton-sweep{to{transform:translateX(100%)}}
-shreddit-comment[data-rt-pending] [data-rt-notice]:not(shreddit-comment[data-rt-settled] *){display:none}
+@media(prefers-reduced-motion:reduce){.rt-skeleton-fallback::after,.rt-skeleton-line:not(:defined)::after{display:none}}
+/* The notice paragraph itself carries data-rt-hold (set with the skeleton, removed on
+   settle), so nested replies under an already-settled parent are held too. */
+[data-rt-notice][data-rt-hold]{position:absolute;visibility:hidden;pointer-events:none;animation:rt-hold-show 0s 6s forwards}
+shreddit-comment[data-rt-pending] .rt-skeleton,shreddit-post[data-rt-pending] .rt-skeleton{animation:rt-hold-gone 0s 6s forwards}
 /* Keep the deleted avatar/name out of the first painted frame. These selectors
    stop at the comment's own summary, so normal replies stay visible. */
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentAvatar"],
-html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]{visibility:hidden;position:relative}
+html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]{visibility:hidden;position:relative;animation:rt-hold-visible 0s 6s forwards}
 /* Reddit paints a selected comment's highlight on the metadata slot itself.
    Hide its contents, rather than the slot, so that background stays visible. */
-html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]{position:relative;color:transparent}
-html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"] > *{visibility:hidden}
+html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]{position:relative;animation:rt-hold-text 6s forwards}
+html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"] > *{visibility:hidden;animation:rt-hold-visible 0s 6s forwards}
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentAvatar"]::after,
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]::after,
-html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]::after{content:"";visibility:visible;position:absolute;inset-block-start:4px;inset-inline-start:0;width:32px;height:32px;border-radius:50%;background:var(--rt-skeleton-base)}
+html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]::after{content:"";visibility:visible;position:absolute;inset-block-start:4px;inset-inline-start:0;width:32px;height:32px;border-radius:50%;background:var(--rt-skeleton-base);animation:rt-hold-gone 0s 6s forwards}
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]::after{width:min(160px,80%);height:12px;border-radius:999px;inset-block-start:10px}
-.rt-skeleton-line:not(:defined)::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent);animation:rt-skeleton-sweep 1.5s ease-in-out infinite}
-@media(prefers-reduced-motion:reduce){.rt-skeleton-fallback::after{display:none}}
-@media(prefers-reduced-motion:reduce){.rt-skeleton-line:not(:defined)::after{display:none}}
 
 /* Feed options: until discovery has grouped Reddit's rows (Sort, View,
    Activity), keep the original rows invisible so the open menu never changes

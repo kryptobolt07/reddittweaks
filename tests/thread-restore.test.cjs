@@ -25,9 +25,9 @@ test('deleted and removed comment notices show archived text with Reddit body cl
  const {r,calls,doc}=setup();await r.ready;await settle();
  assert.equal(calls.length,1,'one batched archive request');assert.equal(calls[0].postId,'abc12');assert.deepEqual([...calls[0].ids].sort(),['t1_gone1','t1_kid1','t1_late1']);
  const gone=comment(doc,'t1_gone1'),body=gone.querySelector('.notice');
- assert.equal(body.querySelector('[data-rt-recovered-text]').className,'md text-14 native-body');assert.equal(body.querySelectorAll('p').length,2);assert.equal(body.querySelector('p').className,'native-p');assert.match(body.textContent,/Original words of t1_gone1/);
+ assert.equal(body.querySelector('[data-rt-recovered-text]').className,'md text-14 native-body rt-recovered-md','restored comments get the markdown/spoiler styling scope');assert.equal(body.querySelectorAll('p').length,2);assert.equal(body.querySelector('p').className,'native-p');assert.match(body.textContent,/Original words of t1_gone1/);
  const badge=gone.querySelector('[slot="commentMeta"] [data-rt-source]');assert.match(badge.title,/Deleted by its author on Reddit · Text from an Arctic Shift snapshot from .* · Originally posted by u\/Originalgone1/);assert.equal(badge.parentElement.className,'row');
- const kid=comment(doc,'t1_kid1');assert.match(kid.querySelector('.notice').textContent,/Original words of t1_kid1/);assert.match(kid.querySelector('[data-rt-source]').title,/^Removed by moderators/);assert.equal(kid.querySelector(':scope > details').open,true,'restored comments open so the text is visible');
+ const kid=comment(doc,'t1_kid1');assert.match(kid.querySelector('.notice').textContent,/Original words of t1_kid1/);assert.match(kid.querySelector('[data-rt-source]').title,/^Removed on Reddit/);assert.equal(kid.querySelector(':scope > details').open,true,'restored comments open so the text is visible');
  assert.equal(gone.querySelector(':scope > details > div .notice').textContent.includes('t1_kid1'),false,'a parent never takes a reply’s text');
  assert.equal(comment(doc,'t1_norm1').querySelector('p').textContent,'Hello there','normal comments are untouched');
  assert.equal(comment(doc,'t1_late1').querySelector('p').textContent,'[deleted]','an archive captured after deletion changes nothing');
@@ -76,7 +76,7 @@ test('a removed post opened in any way gets its title, image and status cue back
  const {r,doc,calls}=postSetup({});await r.ready;await settle();
  const post=doc.querySelector('shreddit-post');assert.equal(post.querySelector('[slot="title"]').textContent,'Original title');
  const img=post.querySelector('.rt-archived-media img');assert.equal(img.src,'https://i.redd.it/abc.jpeg');assert.equal(img.referrerPolicy,'no-referrer');
- const badge=post.querySelector('[data-rt-source]');assert.equal(badge.dataset.state,'removed');assert.equal(badge.querySelector('svg').dataset.icon,'removed');assert.match(badge.title,/Removed by moderators on Reddit · Restored from an Arctic Shift snapshot/);assert.equal(badge.parentElement.querySelector('shreddit-post-overflow-menu')!==null,true);
+ const badge=post.querySelector('[data-rt-source]');assert.equal(badge.dataset.state,'removed');assert.equal(badge.querySelector('svg').dataset.icon,'removed');assert.match(badge.title,/Removed on Reddit · Restored from an Arctic Shift snapshot/);assert.equal(badge.parentElement.querySelector('shreddit-post-overflow-menu')!==null,true);
  assert.ok(calls.some(c=>c.action==='archive-ids' && c.ids[0]==='abc12'));assert.equal(post.hasAttribute('data-rt-settled'),true);assert.equal(post.hasAttribute('data-rt-pending'),false);
  r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});
  assert.equal(post.querySelector('[slot="title"]').textContent,'[ Removed by moderator ]');assert.equal(post.querySelector('.rt-archived-media'),null);assert.equal(post.querySelector('[data-rt-source]'),null);
@@ -104,7 +104,7 @@ test('a deleted post whose snapshot only names the author gets the author and it
  e.doc.querySelector('main').insertAdjacentHTML('afterbegin','<shreddit-post id="t3_abc12" author="[deleted]" post-title="Is this legit?"><span slot="credit-bar"><span class="author-cls">[deleted]</span><span><shreddit-post-overflow-menu></shreddit-post-overflow-menu></span></span><h1 slot="title">Is this legit?</h1><div slot="text-body"><p>[deleted]</p></div></shreddit-post>');
  await e.r.ready;await settle();const post=e.doc.querySelector('shreddit-post'),link=post.querySelector('[data-rt-archived-author]');
  assert.equal(link.textContent,'TheBrokenChad');assert.match(link.className,/author-cls/);assert.equal(new URL(link.href).pathname,'/user/TheBrokenChad/');
- const badge=post.querySelector('[data-rt-source]');assert.equal(badge.dataset.state,'deleted');assert.match(badge.title,/Deleted by its author on Reddit · The Arctic Shift snapshot has nothing more · Originally posted by u\/TheBrokenChad/);
+ const badge=post.querySelector('[data-rt-source]');assert.equal(badge.dataset.state,'deleted');assert.match(badge.title,/Deleted on Reddit · The Arctic Shift snapshot has nothing more · Originally posted by u\/TheBrokenChad/);
  assert.equal(post.querySelector('[slot="text-body"]').textContent,'[deleted]','nothing invented for the body');
  e.r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(post.querySelector('.author-cls').textContent,'[deleted]');assert.equal(post.querySelector('[data-rt-source]'),null);
 });

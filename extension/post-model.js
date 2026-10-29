@@ -126,11 +126,23 @@
   // used [deleted]/[removed]. Notices of nested replies never count.
   const deletedNotice=/^(?:\[deleted\]|comment deleted by user|\[\s*deleted by user\s*\])$/i,removedNotice=/^(?:\[removed\]|comment removed by moderator|\[\s*removed by (?:moderator|reddit)\s*\])$/i;
   const noticeStatus=text=>{const value=String(text || '').trim();return deletedNotice.test(value)?'deleted':removedNotice.test(value)?'removed':'';};
+  // The item's own notice paragraph: only the first non-empty paragraph of its own
+  // body counts, so user text that is exactly "[removed]" in a later paragraph (or
+  // in a nested reply) is never mistaken for Reddit's notice.
+  function noticeParagraph(node){
+    if(!node?.querySelectorAll)return null;
+    const owner='shreddit-comment,shreddit-profile-comment,shreddit-post';
+    for(const p of node.querySelectorAll('p')){
+      if((p.closest(owner) || node)!==node || p.closest('summary,[slot="actionRow"],[slot="commentMeta"],[data-rt-recovered-text]') || !p.textContent.trim())continue;
+      return noticeStatus(p.textContent)?p:null;
+    }
+    return null;
+  }
   function domStatus(node){
     if(!node?.querySelectorAll)return '';
     const flag=name=>node.hasAttribute(name) && node.getAttribute(name)!=='false',state=(node.getAttribute('item-state') || '').toLowerCase(),title=noticeStatus(node.getAttribute('post-title'));
     const owner='shreddit-comment,shreddit-profile-comment,shreddit-post';
-    const notice=[...node.querySelectorAll('p')].filter(p=>(p.closest(owner) || node)===node && !p.closest('[data-rt-recovered-text]')).map(p=>noticeStatus(p.textContent)).find(Boolean) || '';
+    const notice=noticeStatus(noticeParagraph(node)?.textContent);
     // Reddit uses the same banner slot for both cases; only its wording differs
     // ("deleted by the person who originally posted it" vs "removed by the moderators").
     const bannerText=[...node.querySelectorAll('[slot="post-removed-banner"]')].filter(el=>(el.closest(owner) || node)===node).map(el=>el.textContent.replace(/\s+/g,' ').trim()).join(' ');
@@ -155,5 +167,5 @@
     const duration={hour:3600,day:86400,week:604800,month:2592000,year:31536000}[range],cutoff=sort==='top' && duration?now-duration:-Infinity;
     return [...posts.values()].filter(post=>post.created>=cutoff).map(post=>({...post,visible:visible.has(post.fullname) || post.kind!=='comment' && visible.has(post.id),outsideVisibleFeed:!visible.has(post.fullname) && !(post.kind!=='comment' && visible.has(post.id))})).sort((a,b)=>(sort==='top'?b.score-a.score:sort==='hot'?(rank.get(a.fullname)??Infinity)-(rank.get(b.fullname)??Infinity):0) || b.created-a.created || a.fullname.localeCompare(b.fullname));
   }
-  globalThis.RTPostModel=Object.freeze({noticeStatus,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings});
+  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings});
 })();
