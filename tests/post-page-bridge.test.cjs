@@ -41,7 +41,8 @@ test('owned profile feeds restore any placeholder near the viewport, whatever it
 test('owned feeds virtualize only cards far above the viewport, in Reddit\'s entry shape',async t=>{
  const {W,feed,controller,nativeCalls,card,run}=virtualFeed(t);
  const old=card('old',-4000,500),recent=card('recent',-900,400),visible=card('visible',0,500),loader=card('loader',-5000,50);loader.dataset.rtUi='profile-loading';
- feed.append(loader,old,recent,visible);await new Promise(resolve=>setTimeout(resolve,0));run();controller._virtualizeTop(5000);assert.deepEqual(nativeCalls,[],'native virtualization is replaced while discovery owns the feed');run();
+ feed.append(loader,old,recent,visible);await new Promise(resolve=>setTimeout(resolve,0));run();for(const held of controller.topStack)held.placeholder.getBoundingClientRect=()=>({top:-4000,bottom:-3500,height:held.height});// a real placeholder sits where its card was
+ controller._virtualizeTop(5000);assert.deepEqual(nativeCalls,[],'native virtualization is replaced while discovery owns the feed');run();
  assert.equal(old.isConnected,false);assert.equal(controller.topStack.length,1);const [entry]=controller.topStack;assert.equal(entry.node,old);assert.equal(entry.height,500);assert.equal(entry.placeholder.className,'virtualized-placeholder');assert.equal(entry.placeholder.style.height,'500px');
  assert.ok(recent.isConnected && visible.isConnected && loader.isConnected,'nearby cards and extension UI stay mounted');
 });
@@ -51,6 +52,18 @@ test('ordinary feeds keep native virtualization, and releasing a feed restores w
  const {W,feed,controller,nativeCalls,held,run}=virtualFeed(t);const entry=held('kept',-9000,300);controller.topStack.push(entry);W.document.dispatchEvent(new W.Event('scroll'));run();assert.equal(entry.placeholder.isConnected,true);
  W.document.documentElement.removeAttribute('data-rt-profile-discovery');controller._virtualizeTop(-50);
  assert.equal(entry.node.parentElement,feed,'held cards return before Reddit resumes');assert.equal(controller.topStack.length,0);assert.equal(controller.topPadding,0);assert.deepEqual(nativeCalls,[-50]);
+});
+test('a feed sync measures first, then writes, and does not wake itself',async t=>{
+ const {W,feed,controller,card,at,run}=virtualFeed(t);let frames=0;const log=[],raf=W.requestAnimationFrame;W.requestAnimationFrame=callback=>{frames++;return raf(callback);};
+ const tall=(name,top,height)=>{const node=card(name,top,height),measure=node.getBoundingClientRect;node.getBoundingClientRect=()=>{log.push('read');return measure();};return node;};
+ const old=tall('old',-4000,500),older=tall('older',-4600,500),visible=tall('visible',0,500);feed.append(old,older,visible);
+ const replace=feed.replaceChild.bind(feed);feed.replaceChild=(placeholder,node)=>{log.push('write');return replace(placeholder,node);};
+ await new Promise(resolve=>setTimeout(resolve,0));run();
+ assert.equal(controller.topStack.length,2,'both far cards were virtualized');
+ // Every measurement of the pass precedes every change, apart from the one that keeps the reader in place.
+ assert.match(log.join(),/^(read,)+write,write(,read)?$/);
+ frames=0;await new Promise(resolve=>setTimeout(resolve,0));assert.equal(frames,0,'its own changes schedule no further pass');
+ at(visible,0,500);feed.append(tall('later',600,300));await new Promise(resolve=>setTimeout(resolve,0));assert.equal(frames>0,true,'a change by someone else still does');
 });
 function nativePostHtml({id='abc12',author='Example',crosspost=false,embedded='',next='/svc/shreddit/search/?q=author%3A%22Example%22&type=posts&sort=new&cursor=opaque_post_cursor'}={}){
  const context=JSON.stringify({post:{id:'t3_'+id,title:'Public',nsfw:false,spoiler:false},profile:{name:author},subreddit:{name:'example'}});
