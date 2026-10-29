@@ -1,3 +1,30 @@
+# 0.23.0 preview
+
+- Chat: deleted and banned accounts are now actually saved as such. Since the first release, `directory-model.js` was listed for both the page world and the extension world at the same injection time. Chrome injected it only into the page world, so every answer reached storage as "no answer" and the markers fell back to "Unavailable account". The classifier also starts as soon as Reddit's chat client attaches.
+- Chat search: avatars that are already loaded appear immediately instead of starting as a letter and popping in.
+- Profiles: comments their author deleted are marked "Deleted on Reddit" instead of "Arctic Shift snapshot · Current Reddit status unknown". Reddit's legacy info endpoint now refuses these checks (403), and Reddit answers a deleted comment exactly like one that never existed. Archive comments that Reddit still serves are marked available. Reddit's "New" sort no longer flashes on the Comments tab before Feed options replaces it.
+- Profiles of unavailable accounts say plainly, in Reddit's own words, that the account was deleted or suspended, and show Reddit's own artwork (snoo-404 or the suspended snoo) instead of a default avatar.
+- Post pages: a restored comment author opens Reddit's own profile card (karma, cake day, Follow, Start chat) like any other author. Restored authors with a custom avatar show it: the hover card offers only the full-body Snoovatar, and the extension now uses its published headshot. On a deleted comment's permalink, Reddit's "This comment no longer exists" toast says "Deleted comment retrieved from Arctic Shift" once the text is restored. Otherwise it plays unchanged.
+- Docs: `docs/ghostddit-feature-gaps.md` lists 22 features from a live review of Ghostddit, with how we could build each.
+
+Version choice: MINOR to 0.23.0 for the new profile card, account-state line and toast wording, plus PATCH-level fixes. No new permissions and no storage schema change.
+
+Validation:
+- All 918 tests pass.
+- Checked live in Chrome:
+  - Pulse8279 is saved and shown as deleted after a reload.
+  - u/TheMLguy07's restored comments show the custom avatar and open Reddit's card.
+  - The deleted comment on u/TheMLguy07's profile shows the trash icon.
+  - The permalink toast shows the new wording.
+  - The Comments-tab sort never becomes visible.
+  - A deleted account's profile shows the new line and artwork.
+  - Chat search avatars are complete when inserted.
+
+Limitations:
+- A comment removed by its author can't be told apart from one hidden because the subreddit was banned or made private; both show as deleted.
+- The filter-pill × problem reported for chat search could not be reproduced. Sort, sender, typed-date and chat-list status pills all clear with a real mouse click.
+- Result rows are still rebuilt twice as results refresh; their avatars no longer flash.
+
 # 0.22.0 preview
 
 - Chat: unavailable accounts are now told apart. Reddit's chat data only says "deleted" for both deleted and banned accounts; the extension asks Reddit's small public hover card (about 2-3 KB, works signed out) once per person who is actually on screen and has a known username, then remembers the answer. Deleted accounts show a trash icon, banned accounts a circle-slash, and ones not yet known the person-x icon, labelled "Deleted account", "Banned account" or "Unavailable account" (plus "Retained username"). Requests run one at a time, at least 2.5 s apart, pause on rate limits, and failures retry after about ten minutes without being saved.
