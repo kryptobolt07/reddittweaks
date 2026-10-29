@@ -46,6 +46,7 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-profile-avatar>img{width:64px;height:64px;max-width:64px;max-height:64px;object-fit:contain;border-radius:50%}
 .rt-profile-avatar>span{width:64px;height:64px;flex:none}
 .rt-profile-avatar .rt-unavailable-avatar{display:block;width:64px;height:64px;object-fit:contain;object-position:center;border-radius:50%}
+.rt-account-state{line-height:16px}.rt-account-state>svg{flex:none;width:14px;height:14px}
 .rt-comment-source-host{position:relative}
 .rt-comment-source-host>.rt-post-indicator{position:absolute;top:8px;inset-inline-end:16px;margin:0;z-index:1}
 .rt-comment-source-credit{padding-inline-end:32px}

@@ -63,8 +63,21 @@
     const s=document.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('viewBox','0 0 24 24');s.dataset.icon=kind;s.classList.add('rt-activity-icon');s.setAttribute('aria-hidden','true');if(nativeStatusPaths[kind]){s.setAttribute('viewBox','0 0 20 20');s.dataset.nativeIcon='true';s.setAttribute('fill','currentColor');s.setAttribute('width','16');s.setAttribute('height','16');s.setAttribute('icon-name',kind);const path=document.createElementNS(s.namespaceURI,'path');path.setAttribute('d',nativeStatusPaths[kind]);s.append(path);return s;}
     const p=document.createElementNS(s.namespaceURI,'path');p.setAttribute('d',kind==='refresh'?'M20 8a8.9443 8.9443 0 1 0 0 8M20 3v5h-5':kind==='filter'?'M4 7h16M4 17h16M9 5v4M15 15v4':kind==='archive'?'M4 8h16v12H4zM3 4h18v4H3zM9 12h6':kind==='removed'?'M5 5l14 14M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20':'M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6');s.append(p);return s;
   }
-  const unavailableAvatarUrl=state=>state==='banned'?'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png':'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_0.png';
-  function unavailableAvatar(state,size=64){const image=make('img','rt-unavailable-avatar');image.src=unavailableAvatarUrl(state);image.width=image.height=size;image.alt='';image.decoding='async';image.referrerPolicy='no-referrer';return image;}
+  // Reddit's own artwork for unavailable accounts: the image on its own notice when there is one
+  // (deleted: snoo-404), otherwise the suspended snoo it uses in hover cards.
+  const unavailableAvatarUrl=(state,notice)=>{
+    const own=notice?.querySelector?.('img[src]')?.getAttribute('src');
+    try{const url=new URL(own,location.href);if(url.protocol==='https:' && url.hostname==='www.redditstatic.com' && /^\/shreddit\/assets\/[\w/-]+\.png$/.test(url.pathname))return url.href;}catch{}
+    return state==='banned'?'https://www.redditstatic.com/shreddit/assets/suspended-snoo.png':'https://www.redditstatic.com/shreddit/assets/mod/snoo-404.png';
+  };
+  // One clear line under the name, in Reddit's own words when its notice has them.
+  function accountStateLine(state,notice){
+    const own=notice?.querySelector?.('#shreddit-forbidden-title,h3')?.textContent?.replace(/\s+/g,' ').trim() || '';
+    const text=own && own.length<=120?own:state==='banned'?'This account has been suspended.':'This account has been deleted.';
+    const line=make('p','rt-account-state m-0 mt-2xs text-12 text-neutral-content-weak flex items-center gap-2xs');line.dataset.state=state;line.dataset.testid='profile-account-state';
+    line.append(glyph(state==='banned'?'removed':'deleted'),make('span','',text+' Showing archived public activity.'));return line;
+  }
+  function unavailableAvatar(state,size=64,notice=null){const image=make('img','rt-unavailable-avatar');image.src=unavailableAvatarUrl(state,notice);image.width=image.height=size;image.alt='';image.decoding='async';image.referrerPolicy='no-referrer';return image;}
   function button(text,run,icon){const b=make('button','',text);b.type='button';if(icon)b.prepend(glyph(icon));b.addEventListener('click',run);return b;}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
@@ -351,7 +364,7 @@
       const columns=make('div','main-container gap-lg w-full flex-1 grid place-content-between grid-cols-[minmax(0,1fr)] fixed-sidebar xs:[&.fixed-sidebar]:grid-cols-[minmax(0,756px)_minmax(0,316px)] xs:[&.flex-sidebar]:grid-cols-[minmax(0,756px)_auto]');
       const shell=this.archiveMain=make('main','main w-full min-w-0');shell.id='main-content';
       const header=make('div','px-md relative pt-md flex pb-md items-center'),copy=make('div','w-full min-w-0'),title=make('h1','text-24 font-bold m-0 break-words',context.username),name=make('p','m-0 text-14 text-neutral-content-weak font-semibold','u/'+context.username);
-      title.dataset.testid='profile-display-name';name.dataset.testid='profile-prefixed-name';copy.append(title,name);this.avatarSlot=make('div','rt-profile-avatar flex items-center justify-center shrink-0 w-[74px] min-h-4xl overflow-hidden pe-md relative');this.avatarPlaceholder=make('span','flex items-center justify-center text-neutral-content-weak w-4xl h-4xl');this.avatarPlaceholder.setAttribute('role','img');this.avatarPlaceholder.setAttribute('aria-label',(state==='banned'?'Banned or suspended':'Deleted')+' account · Profile picture unavailable');const profileIcon=unavailableAvatar(state);profileIcon.id='profile-icon';profileIcon.dataset.testid='profile-icon';this.avatarPlaceholder.append(profileIcon);this.avatarSlot.append(this.avatarPlaceholder);header.append(this.avatarSlot,copy);
+      title.dataset.testid='profile-display-name';name.dataset.testid='profile-prefixed-name';copy.append(title,name,accountStateLine(state,notice));this.avatarSlot=make('div','rt-profile-avatar flex items-center justify-center shrink-0 w-[74px] min-h-4xl overflow-hidden pe-md relative');this.avatarPlaceholder=make('span','flex items-center justify-center text-neutral-content-weak w-4xl h-4xl');this.avatarPlaceholder.setAttribute('role','img');this.avatarPlaceholder.setAttribute('aria-label',(state==='banned'?'Banned or suspended':'Deleted')+' account · Profile picture unavailable');const profileIcon=unavailableAvatar(state,64,notice);profileIcon.id='profile-icon';profileIcon.dataset.testid='profile-icon';this.avatarPlaceholder.append(profileIcon);this.avatarSlot.append(this.avatarPlaceholder);header.append(this.avatarSlot,copy);
       const tabsContainer=make('div','mx-2xs my-md'),tabs=make('faceplate-tabgroup','nd:flex nd:gap-xs nd:w-fit');tabs.id='profile-feed-tabgroup';tabs.setAttribute('slot','tabs');tabs.setAttribute('for','profile-feed-tabs');
       const views=[['overview','Overview',''],['posts','Posts','submitted/'],['comments','Comments','comments/']],index=views.findIndex(([view])=>view===context.view)+1;tabs.setAttribute('pageindex',String(index));
       for(const [i,[view,label,suffix]] of views.entries()){
@@ -1170,7 +1183,7 @@
       // Only profile-hosted posts use account artwork. Never modify Reddit's
       // server-rendered author/community markup or borrow another user's photo.
       const same=username.toLowerCase()===this.context.username.toLowerCase(),url=same?M.avatarUrl(this.avatarSlot?.querySelector('img')?.getAttribute('src') || document.querySelector('#profile-icon')?.getAttribute('src')):'';
-      const image=make('img','mb-0 rounded-full object-contain w-full h-full');image.src=url || unavailableAvatarUrl(same?this.accountState:'deleted');image.alt='';image.width=image.height=24;image.loading='lazy';avatar.append(image);return avatar;
+      const image=make('img','mb-0 rounded-full object-contain w-full h-full');image.src=url || (same?unavailableAvatarUrl(this.accountState,this.archiveNotice):'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_0.png');image.alt='';image.width=image.height=24;image.loading='lazy';avatar.append(image);return avatar;
     }
     queueNative(node){
       if(node.hidden && !this.activeProfileBatch?.nodes.includes(node) && node.dataset.rtQualify!=='true' || !node.isConnected || node.dataset.rtNativeState!=='idle')return;
