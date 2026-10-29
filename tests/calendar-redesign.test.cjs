@@ -72,16 +72,25 @@ test('the month and year chooser keep the popover height and the footer in place
   const {picker,q}=setup(t);const names=()=>[...picker.element.children].map(node=>node.className.split(' ')[0]);const before=names();q('.calendar-month').click();assert.deepEqual(names().map(n=>n==='calendar-body'?n:n),before);assert.equal(q('.calendar-footer')!==null,true);assert.equal(q('.calendar-apply')!==null,true);
   assert.equal(picker.element.querySelectorAll('.calendar-option').length,12);
 });
-test('styles: no text under 12px, six-row minimum height, square circular cells and no fixed year width',t=>{
+test('styles: compact footprint, readable text, Reddit accents and no fixed year width',t=>{
   const styles=css();
   const sizes=[...styles.matchAll(/font-size:\s*([\d.]+)px/g)].map(match=>Number(match[1]));assert.ok(sizes.length>=8);assert.ok(Math.min(...sizes)>=12,`smallest font ${Math.min(...sizes)}px`);
-  for(const match of styles.matchAll(/font:\s*(?:\d+\s+)?([\d.]+)px/g))assert.ok(Number(match[1])>=12);assert.ok(Math.max(...sizes)>=14,'heading text is 14px');
-  assert.match(styles,/--calendar-cell:32px/);assert.match(styles,/--calendar-cell:28px/);assert.match(styles,/pointer:coarse[^}]*--calendar-cell:36px/);assert.match(styles,/min-height:var\(--calendar-body\)/);assert.match(styles,/--calendar-body:calc\(var\(--calendar-head\) \+ var\(--calendar-cell\) \* 6\)/);
-  assert.match(styles,/gap:0\}/);assert.match(styles,/border-radius:16px/);assert.doesNotMatch(styles,/width:63px/);assert.doesNotMatch(styles,/#ff4500|#1a1a1b|#0002/);assert.match(styles,/var\(--color-brand-background,#d93900\)/);
+  for(const match of styles.matchAll(/font:\s*(?:\d+\s+)?([\d.]+)px/g))assert.ok(Number(match[1])>=12);
+  // Close to the original 264 px popover; floating chat narrower still.
+  assert.match(styles,/width:264px/);assert.match(styles,/:host\(\[data-rcs-compact\]\) \.date-popover\{[^}]*width:240px/);
+  assert.match(styles,/--calendar-cell:28px/);assert.match(styles,/--calendar-cell:26px/);assert.match(styles,/pointer:coarse[^}]*--calendar-cell:34px/);
+  assert.doesNotMatch(styles,/min-height:var\(--calendar-body\)/,'the grid fits the month instead of reserving empty rows');
+  assert.match(styles,/gap:0\}/);assert.doesNotMatch(styles,/width:63px/);assert.doesNotMatch(styles,/#1a1a1b|#0002/);
+  // Reddit's brand accent marks the active mode, today, the selection and Apply.
+  assert.match(styles,/--calendar-accent:var\(--color-brand-background,#d93900\)/);
+  assert.match(styles,/\.date-mode\[aria-checked=true\]\{[^}]*box-shadow:inset 0 -2px 0 var\(--calendar-accent\)/);
+  assert.match(styles,/\.calendar-day\.today\{color:var\(--calendar-accent\)/);assert.match(styles,/\.calendar-apply\{background:var\(--calendar-accent\)/);
+  // Presets stay on one row and scroll instead of wrapping into extra rows.
+  assert.match(styles,/\.calendar-presets\{[^}]*flex-wrap:nowrap[^}]*overflow-x:auto/);
   assert.match(styles,/focus-visible\{outline:2px solid var\(--calendar-focus\);outline-offset:-2px\}/);assert.match(styles,/\.calendar-day:focus-visible::before\{outline:2px/);
   assert.match(styles,/@container \(max-width:231px\)/);assert.match(styles,/wd-short\{display:inline\}/);
 });
-test('styles: transitions exist only under prefers-reduced-motion: no-preference and no underline remains on modes',t=>{
+test('styles: transitions exist only under prefers-reduced-motion: no-preference',t=>{
   const styles=css();const gated=styles.slice(styles.indexOf('@media (prefers-reduced-motion:no-preference)'));assert.ok(gated.includes('transition'));assert.equal(styles.slice(0,styles.indexOf('@media (prefers-reduced-motion:no-preference)')).includes('transition'),false);
-  assert.doesNotMatch(styles,/\.date-mode[^{]*\{[^}]*border-bottom/);assert.doesNotMatch(styles,/calendar-quick/);
+  assert.doesNotMatch(styles,/calendar-quick/);
 });

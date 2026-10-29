@@ -6,9 +6,38 @@
   let contextProvider=null,identityClient=null,pending=false;
   let eventBinder=null;const boundEventHosts=new WeakSet();
   const placeholder=value=>typeof value==='string' && ['[deleted]','Someone'].includes(value.trim());
+  // "…" only covers a short recovery window; after that Reddit's own label shows.
+  const pendingMs=6000;let pendingSince=0,pendingTimer=null;
+  const waiting=()=>pending && Date.now()-pendingSince<pendingMs;
+  function setPending(value){
+    const next=Boolean(value);if(next && !pending)pendingSince=Date.now();pending=next;clearTimeout(pendingTimer);
+    if(pending)pendingTimer=setTimeout(()=>{for(const host of hostsToRefresh)if(host.isConnected)host.requestUpdate?.();},pendingMs+50);
+  }
+  // A deleted account's membership record in a room Reddit already loaded
+  // usually keeps the name and avatar it had. Use it when no saved identity
+  // exists (for example a browser where the extension never saw the person).
+  const stateNames=new Map(),stateTtl=60000;
+  function stateIdentity(id) {
+    if(typeof id!=='string' || !/^@[^:\s]+:[^\s]+$/.test(id))return null;
+    const cached=stateNames.get(id);if(cached && Date.now()-cached.at<stateTtl)return cached.value;
+    let value=null;
+    try{
+      const client=identityClient || contextProvider?.()?.client;
+      for(const room of client?.getRooms?.() || []) {
+        const event=room.currentState?.getStateEvents?.('m.room.member',id);if(!event)continue;
+        const content=event.getContent?.() || {},profile=(event.getUnsigned?.() || {})['m.relations']?.['com.reddit.profile'];
+        const name=[profile?.username,content.displayname].map(v=>typeof v==='string'?v.replace(/^u\//i,'').trim():'').find(v=>/^[A-Za-z0-9_-]{3,20}$/.test(v) && !/^t2_/.test(v));
+        if(name){const avatar=safeAvatar(typeof profile?.icon_url==='string'?profile.icon_url:'');value={name,avatar,avatarView:{src:avatar,isSnoovatar:false}};break;}
+      }
+    }catch{ /* Reddit's client model changed: keep its own label. */ }
+    if(stateNames.size>500)stateNames.delete(stateNames.keys().next().value);
+    stateNames.set(id,{value,at:Date.now()});return value;
+  }
+  const seenPlaceholder=new Set();
   function currentPerson(id,room=false) {
     return identityClient?.getUserId?.()===owner ? (room ? rooms : people).get(id) : undefined;
   }
+  function fallbackPerson(id){return seenPlaceholder.has(id)?stateIdentity(id):null;}
   const currentName=(id,room=false)=>currentPerson(id,room)?.name;
   function safeAvatar(value){try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && !url.hash && ![...url.searchParams.keys()].some(key=>/token|auth|signature|credential|password|(?:^|[_-])key(?:$|[_-])/i.test(key))?url.href:'';}catch{return '';}}
 
@@ -25,27 +54,34 @@
     for(const users of [host.users,host.usersController]) {
       installed=hook(users,'getDisplayName',function(original,args){
         const recovered=currentName(args[0]);if(recovered)return recovered;
-        const value=original.apply(this,args);return pending && placeholder(value) ? '…' : value;
+        const value=original.apply(this,args);if(!placeholder(value))return value;
+        seenPlaceholder.add(args[0]);const kept=stateIdentity(args[0]);if(kept)return kept.name;
+        return waiting() ? '…' : value;
       }) || installed;
       installed=hook(users,'getAvatar',function(original,args){
-        const person=currentPerson(args[0]);
+        const person=currentPerson(args[0]) || fallbackPerson(args[0]);
         return person?.avatar ? person.avatarView : original.apply(this,args);
       }) || installed;
       installed=hook(users,'getRedditUser',function(original,args){
-        const profile=original.apply(this,args),person=currentPerson(args[0]);
-        return profile && (person || pending && placeholder(profile.displayName)) ? {...profile,displayName:person?.name || '…',...(person?.avatar?{avatar:{...profile.avatar,src:person.avatar,isSnoovatar:false,snoovatarSrc:undefined},snoovatarIcon:undefined}:{})} : profile;
+        const profile=original.apply(this,args);let person=currentPerson(args[0]);
+        if(!person && profile && placeholder(profile.displayName)){seenPlaceholder.add(args[0]);person=stateIdentity(args[0]);}
+        return profile && (person || waiting() && placeholder(profile.displayName)) ? {...profile,displayName:person?.name || '…',...(person?.avatar?{avatar:{...profile.avatar,src:person.avatar,isSnoovatar:false,snoovatarSrc:undefined},snoovatarIcon:undefined}:{})} : profile;
       }) || installed;
     }
     installed=hook(host.roomController,'getDirectRoomUsername',function(original,args){
       const recovered=currentName(this.roomId || this.getRoom?.()?.roomId,true);if(recovered)return recovered;
-      const value=original.apply(this,args);return pending && placeholder(value) ? '…' : value;
+      const value=original.apply(this,args);if(!placeholder(value))return value;
+      const room=this.getRoom?.(),me=room?.client?.getUserId?.() || identityClient?.getUserId?.(),other=room?.getJoinedMembers?.()?.concat(room?.getMembersWithMembership?.('leave') || []).map(m=>m.userId).find(id=>id && id!==me);
+      const kept=other && stateIdentity(other);if(kept){seenPlaceholder.add(other);return kept.name;}
+      return waiting() ? '…' : value;
     }) || installed;
     if(host.tagName==='RS-USERNAME')installed=hook(host,'render',function(original,args){
-      const recovered=currentName(this.getAttribute('user-id')) || (pending && placeholder(this.username) ? '…' : '');
+      const id=this.getAttribute('user-id'),fallback=placeholder(this.username)?(seenPlaceholder.add(id),stateIdentity(id)?.name):'';
+      const recovered=currentName(id) || fallback || (waiting() && placeholder(this.username) ? '…' : '');
       return recovered ? original.apply(new Proxy(this,{get:(target,key)=>key==='username' ? recovered : Reflect.get(target,key,target)}),args) : original.apply(this,args);
     }) || installed;
     if(host.tagName==='RS-USER-AVATAR')installed=hook(host,'render',function(original,args){
-      const avatar=currentPerson(this.getAttribute('user-id'))?.avatar;
+      const avatar=(currentPerson(this.getAttribute('user-id')) || fallbackPerson(this.getAttribute('user-id')))?.avatar;
       // Supply presentation inputs only; preserve native membership/profile flags.
       return avatar && !this.isCommunityAgent ? original.apply(new Proxy(this,{get:(target,key)=>key==='icon'?avatar:key==='snoovatar'?null:Reflect.get(target,key,target)}),args) : original.apply(this,args);
     }) || installed;
@@ -70,7 +106,7 @@
     for(const host of getContext().all('*').filter(e=>e.tagName.startsWith('RS-')))bindHost(host);
   }
   function clear() {
-    owner='';people.clear();rooms.clear();signature='';pending=false;identityClient=null;
+    owner='';people.clear();rooms.clear();signature='';setPending(false);identityClient=null;stateNames.clear();seenPlaceholder.clear();
     for(const {target,key,original,wrapper}of hooks.splice(0))if(target[key]===wrapper)target[key]=original;
     for(const host of hostsToRefresh)if(host.isConnected)host.requestUpdate?.();
     hostsToRefresh.clear();
@@ -95,7 +131,7 @@
     const valid=id=>typeof id==='string' && /^@[^:\s]+:[^\s]+$/.test(id) && id!==current;
     people=new Map((Array.isArray(request.people)?request.people:[]).filter(p=>valid(p?.id) && /^[A-Za-z0-9_-]{3,20}$/.test(p.name || '')).map(p=>{const avatar=safeAvatar(p.avatar),previous=people.get(p.id);return [p.id,previous?.name===p.name && previous.avatar===avatar?previous:{name:p.name,avatar,avatarView:{src:avatar,isSnoovatar:false}}];}));
     rooms=new Map((Array.isArray(request.rooms)?request.rooms:[]).filter(r=>typeof r?.id==='string' && r.id.length<=1000 && people.has(r.person)).map(r=>[r.id,people.get(r.person)]));
-    const next=JSON.stringify([[...people],[...rooms]]),changed=pending!==Boolean(request.restoring) || signature!==next;signature=next;pending=Boolean(request.restoring);
+    const next=JSON.stringify([[...people],[...rooms]]),changed=pending!==Boolean(request.restoring) || signature!==next;signature=next;setPending(request.restoring);
     const hosts=ctx.all('*').filter(e=>e.tagName.startsWith('RS-'));
     for(const host of hostsToRefresh)if(!host.isConnected)hostsToRefresh.delete(host);
     for(const host of hosts) {
@@ -105,6 +141,6 @@
     return {hooks:hooks.length};
   }
   document.addEventListener('rcs-native-identities-clear',clear);
-  document.addEventListener('rcs-native-identities-start',()=>{pending=true;});
+  document.addEventListener('rcs-native-identities-start',()=>setPending(true));
   globalThis.RCSNativeIdentities=Object.freeze({update,clear,configure});
 })();
