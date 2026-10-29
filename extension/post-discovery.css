@@ -30,6 +30,8 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-post-indicator:focus-visible{border-radius:50%}
 .rt-badge-fallback{font:700 12px/1 var(--font-sans,system-ui,sans-serif);font-style:italic}
 .rt-post-indicator[data-rt-reserved]{visibility:hidden}
+/* In Reddit's credit row the badge is an inline item; the row's own gap spaces it. */
+[id^="feed-post-credit-bar-"]>.rt-post-indicator{margin:0;width:24px;height:24px}
 .rt-post-snapshot{font-size:14px;margin:10px 16px;line-height:1.5}.rt-post-snapshot summary{color:var(--color-neutral-content-weak,#576f76);cursor:pointer;font-size:12px;display:list-item}
 .rt-post-snapshot pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}.rt-post-source{font-size:11px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-native-unavailable{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px}.rt-native-unavailable a{min-width:0;overflow-wrap:anywhere}.rt-native-unavailable button{flex:none;white-space:nowrap}

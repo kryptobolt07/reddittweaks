@@ -256,11 +256,13 @@
     if(signal?.aborted || path!==location.pathname+location.search || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
     for(const row of root.querySelectorAll('rpl-menu-item[href]')){const old=new URL(row.getAttribute('href'),location.origin);if(old.origin!==location.origin || old.pathname!=='/user/reddit/submitted/')throw Error('Unexpected native control destination.');const next=new URL(path,location.origin);for(const name of ['sort','t','feedViewType'])if(old.searchParams.has(name))next.searchParams.set(name,old.searchParams.get(name));if(old.searchParams.has('sort') && old.searchParams.get('sort')!=='top')next.searchParams.delete('t');row.setAttribute('href',next.pathname+next.search);}
     if(/\/comments\/?$/.test(location.pathname)){
-      const button=root.querySelector('button[aria-label="Feed options"]'),native=document.querySelector('main shreddit-sort-dropdown')?.shadowRoot?.querySelector('button');
-      if(!button)throw Error('Reddit returned no native feed trigger.');
-      if(native){const copy=native.cloneNode(true);copy.setAttribute('aria-label','Feed options');copy.setAttribute('aria-expanded','false');button.replaceWith(copy);}
-      else{const label=document.createElement('span');label.className='flex items-center gap-xs';label.textContent=sort[0].toUpperCase()+sort.slice(1);let caret=button.querySelector('svg[icon-name="caret-down"]')?.cloneNode(true);if(!caret){caret=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [name,value] of Object.entries({viewBox:'0 0 20 20',width:'16',height:'16',fill:'currentColor','icon-name':'caret-down','aria-hidden':'true'}))caret.setAttribute(name,value);const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d','M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7Z');caret.append(path);}label.append(caret);button.replaceChildren(label);button.classList.remove('button-bordered','w-xl');button.classList.add('button-plain');}
-      const heading=root.querySelector('.main-menu-container > div');if(heading)heading.textContent='Sort by';
+      // The Comments tab gets the same Feed options trigger and menu Reddit renders
+      // on Posts. Only the View section is dropped, because the Comments tab has
+      // no Card/Compact choice (unless Reddit shows its own layout control here).
+      if(!root.querySelector('button[aria-label="Feed options"]'))throw Error('Reddit returned no native feed trigger.');
+      const nativeView=[...document.querySelectorAll('main [aria-label="View"],main [data-testid="feed-view-toggle"],main shreddit-layout-switcher')].some(node=>!node.closest('shreddit-feed,[data-rt-ui]'));
+      const menu=root.querySelector('.main-menu-container');
+      if(menu && !nativeView){let drop=false;for(const node of [...menu.children]){if(node.tagName==='DIV'){drop=node.textContent.trim().toLowerCase()==='view';if(drop)node.remove();}else if(drop&&node.matches('rpl-menu-item'))node.remove();}}
     }
     const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.renderMode='contents';partial.style.display='contents';target.replaceChildren(partial);partial._renderContent(root.outerHTML);return {rendered:true};
   }
@@ -471,7 +473,7 @@
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
   // Comment headshot of an archived comment's original author, from native
-  // markup or Reddit's profile data, with a hover-card fallback. Only an HTTPS
+  // markup or the signed-out-safe user hover card. Only an HTTPS
   // URL on Reddit's image hosts leaves the page world; cache it per username.
   const avatarReads=new Map(),avatarHosts=new Set(['styles.redditmedia.com','i.redd.it','preview.redd.it','cf.preview.redd.it','www.redditstatic.com']);
   const safeAvatar=value=>{try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && avatarHosts.has(url.hostname) && (!url.pathname.includes('/snoovatar/avatars/') || /-headshot\.[a-z]+$/i.test(url.pathname))?url.href:'';}catch{return '';}};
@@ -486,21 +488,19 @@
     if(active>=2)return {deferred:true,retryAfterMs:250};
     const controller=new AbortController(),cancel=()=>controller.abort(),timer=setTimeout(cancel,8000);signal?.addEventListener('abort',cancel,{once:true});active++;
     try{
-      // icon_img is Reddit's comment/avatar headshot; snoovatar_img and the
-      // hover card can contain the full-body artwork instead.
-      const profile=await fetch(new URL('/user/'+encodeURIComponent(input.username)+'/about.json?raw_json=1',location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'application/json'},signal:controller.signal});
-      if(profile.status===429){const retry=Number(profile.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
-      if(profile.ok){let data;try{data=JSON.parse(await boundedText(profile)).data;}catch{}const url=typeof data?.name==='string' && data.name.toLowerCase()===name?safeAvatar(data.icon_img):'';if(url){if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+1800000});return {avatar:url};}}
+      // Reddit's hover card is served to signed-out visitors and is tiny; its
+      // [avatar] image is the profile headshot. Deleted and suspended accounts
+      // return a card without one. No /about.json: it is unavailable signed out.
       const response=await fetch(new URL('/svc/shreddit/user-hover-card/'+encodeURIComponent(input.username),location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
       if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
       let url='';
       if(response.ok){
-        const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),img=doc.querySelector('[avatar] image[href],[avatar] img[src],img[alt*="avatar" i][src]') || doc.querySelector('img[src]');
-        const candidate=safeAvatar(img?.getAttribute('href') || img?.getAttribute('src'));
-        // An unavailable headshot keeps the native default, not a tiny full body.
-        if(candidate)url=candidate;
+        const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),headshot=[...doc.querySelectorAll('[avatar] image[href],[avatar] img[src]')],pool=headshot.length?headshot:[...doc.querySelectorAll('img[alt*="avatar" i][src]')];
+        // The first safe headshot wins; a full-body Snoovatar is rejected by safeAvatar,
+        // so an unavailable headshot keeps the native default.
+        for(const img of pool){const candidate=safeAvatar(img.getAttribute('href') || img.getAttribute('src'));if(candidate){url=candidate;break;}}
       }
-      if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+1800000});
+      if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+(response.ok?1800000:60000)});
       return {avatar:url};
     }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }

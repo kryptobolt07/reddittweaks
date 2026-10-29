@@ -438,7 +438,8 @@
         const groups=[];let current=null;
         for(const node of [...menu.children]){if(node.dataset?.rtUi)continue;if(node.matches('rpl-menu-item')){if(!current)groups.push(current={header:null,items:[]});current.items.push(node);}else if(node.tagName==='DIV')groups.push(current={header:node,items:[]});}
         const native=groups.filter(group=>group.items.length);
-        if(native.length>=2)for(const [index,group] of native.entries()){
+        // Comments has no View section, so its single Sort group is grouped too.
+        if(native.length>=(this.context.view==='comments'?1:2))for(const [index,group] of native.entries()){
           const label=index===0?'Sort':group.header?.textContent.trim() || 'View',sub=submenu(),anchor=document.createComment('rt-menu-group');group.items[0].before(anchor);
           const el=entry(label,'activity',sub);el.dataset.rtUi='menu-group';anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
           if(index>0 && group.header){group.headerHidden=group.header.hidden;group.header.hidden=true;}
@@ -1332,8 +1333,14 @@
         const host=native.firstElementChild || native,credit=host.querySelector('.text-12.relative') || host.firstElementChild;host.classList.add('rt-comment-source-host');credit?.classList.add('rt-comment-source-credit');if(badge.parentElement!==host)host.append(badge);
       }else{
         const credit=native.querySelector('[slot="credit-bar"]') || native;
-        let actions=credit.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==credit)actions=actions.parentElement;
-        if(actions){if(badge.parentElement!==actions)actions.prepend(badge);}else if(badge.parentElement!==credit){badge.style.marginInlineStart='auto';credit.append(badge);}
+        // Reddit's credit slot is display:contents, so anything appended to it
+        // becomes its own grid item on a new line. Join the inner credit row
+        // (subreddit, time, pin) as its last inline item instead.
+        const row=credit.querySelector(':scope > [id^="feed-post-credit-bar-"], :scope > * > [id^="feed-post-credit-bar-"]') || (credit.matches('.contents')?credit.querySelector(':scope > .flex'):null),scope=row || credit;
+        let actions=scope.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==scope)actions=actions.parentElement;
+        if(actions){if(badge.parentElement!==actions)actions.prepend(badge);}
+        else if(row){if(badge.parentElement!==row || badge!==row.lastElementChild){badge.style.marginInlineStart='';row.append(badge);}}
+        else if(badge.parentElement!==credit){badge.style.marginInlineStart='auto';credit.append(badge);}
       }
     }
     maybeRestoreDetail(){

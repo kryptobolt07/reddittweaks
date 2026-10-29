@@ -255,7 +255,7 @@ function controlsTarget(e,id='rt-controls-fixture'){
  const main=e.W.document.querySelector('main') || e.W.document.body.appendChild(e.W.document.createElement('main')),target=e.W.document.createElement('div');target.id=id;target.dataset.rtUi='profile-controls';main.append(target);if(!e.W.customElements.get('faceplate-partial'))e.W.customElements.define('faceplate-partial',class extends e.W.HTMLElement{_renderContent(html){this.innerHTML=html;}});return target;
 }
 test('missing native controls reuse only the first-party menu fragment and retarget current profile links',async t=>{
- const html=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8').replace('</svg></button>','</svg>Feed options</button>')+'<main>Unrelated private feed</main>',e=setup(t,{url:'https://www.reddit.com/user/Example/comments/?sort=top&t=day&feedViewType=compactView',fetcher:async()=>nativeResponse(html)}),target=controlsTarget(e);const result=await e.send({action:'render-controls',username:'Example',target:target.id});assert.equal(result.rendered,true);assert.equal(result.html,undefined);assert.equal(JSON.stringify(result).includes('private'),false);assert.equal(target.textContent.includes('Unrelated'),false);assert.ok(target.querySelector('shreddit-layout-event-setter rpl-dropdown[placement="bottom-start"]'));assert.equal(target.querySelector('button').textContent.trim(),'Top');assert.equal(target.querySelector('button svg[icon-name="filter"]'),null);assert.ok(target.querySelector('button svg[icon-name="caret-down"]'));const source=new URL(e.calls[0][0]);assert.equal(source.pathname,'/user/reddit/submitted/');assert.equal(source.searchParams.get('feedViewType'),'compactView');for(const row of target.querySelectorAll('rpl-menu-item[href]'))assert.equal(new URL(row.getAttribute('href'),'https://www.reddit.com').pathname,'/user/Example/comments/');const second=controlsTarget(e,'rt-controls-second');assert.equal((await e.send({action:'render-controls',username:'Example',target:second.id})).rendered,true);assert.equal(e.calls.length,1);
+ const html=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8').replace('</svg></button>','</svg>Feed options</button>')+'<main>Unrelated private feed</main>',e=setup(t,{url:'https://www.reddit.com/user/Example/comments/?sort=top&t=day&feedViewType=compactView',fetcher:async()=>nativeResponse(html)}),target=controlsTarget(e);const result=await e.send({action:'render-controls',username:'Example',target:target.id});assert.equal(result.rendered,true);assert.equal(result.html,undefined);assert.equal(JSON.stringify(result).includes('private'),false);assert.equal(target.textContent.includes('Unrelated'),false);assert.ok(target.querySelector('shreddit-layout-event-setter rpl-dropdown[placement="bottom-start"]'));assert.equal(target.querySelector('button').getAttribute('aria-label'),'Feed options');assert.ok(target.querySelector('button svg[icon-name="filter"]'),'Comments keeps the Feed options icon like Posts');assert.equal(target.querySelector('button').textContent.trim(),'Feed options','not replaced by the sort label');assert.equal(target.querySelector('.main-menu-container > div').textContent.trim(),'Feed options');const source=new URL(e.calls[0][0]);assert.equal(source.pathname,'/user/reddit/submitted/');assert.equal(source.searchParams.get('feedViewType'),'compactView');for(const row of target.querySelectorAll('rpl-menu-item[href]'))assert.equal(new URL(row.getAttribute('href'),'https://www.reddit.com').pathname,'/user/Example/comments/');const second=controlsTarget(e,'rt-controls-second');assert.equal((await e.send({action:'render-controls',username:'Example',target:second.id})).rendered,true);assert.equal(e.calls.length,1);
 });
 test('native controls reject foreign targets, unsafe destinations and stale profile responses',async t=>{
  let release;const e=setup(t,{fetcher:()=>new Promise(r=>release=r)}),target=controlsTarget(e),input={action:'render-controls',username:'Example',target:target.id};for(const value of [{username:'Other'},{target:'main'},{target:'rt-controls-missing'}])assert.equal((await e.send({...input,...value})).ok,false);assert.equal(e.calls.length,0);const pending=e.send(input);e.W.history.pushState({},'','/user/Other/');release(nativeResponse(fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8')));assert.equal((await pending).ok,false);assert.equal(target.childElementCount,0);
@@ -268,8 +268,15 @@ test('unavailable native cards honor the selected compact view without borrowing
 test('demand-driven profile reads do not pause at the former eight-read window',async t=>{
  const e=setup(t);const now=e.W.Date.now();e.W.Date.now=()=>now;for(let i=0;i<16;i++)assert.equal((await e.send({action:'profile',username:'Example',kind:'post',sort:'new'})).ok,true);assert.equal(e.calls.length,16);
 });
-test('Comments combined trigger borrows the actual native sort button with its caret',async t=>{
- const html=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8'),e=setup(t,{url:'https://www.reddit.com/user/Example/comments/',fetcher:async()=>nativeResponse(html)}),target=controlsTarget(e),sort=e.W.document.createElement('shreddit-sort-dropdown');sort.attachShadow({mode:'open'}).innerHTML='<button aria-label="Sort by: New" class="button button-small button-plain"><span>New</span><svg icon-name="caret-down"></svg></button>';target.before(sort);const result=await e.send({action:'render-controls',username:'Example',target:target.id});assert.equal(result.rendered,true);const trigger=target.querySelector('button');assert.equal(trigger.textContent,'New');assert.equal(trigger.getAttribute('aria-label'),'Feed options');assert.ok(trigger.querySelector('[icon-name="caret-down"]'));assert.equal(sort.shadowRoot.querySelector('button').getAttribute('aria-label'),'Sort by: New');
+test('Comments keeps the fetched Feed options trigger and menu, leaving Reddit\'s sort button alone',async t=>{
+ const html=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8'),e=setup(t,{url:'https://www.reddit.com/user/Example/comments/?feedViewType=compactView',fetcher:async()=>nativeResponse(html)}),target=controlsTarget(e),sort=e.W.document.createElement('shreddit-sort-dropdown');sort.attachShadow({mode:'open'}).innerHTML='<button aria-label="Sort by: New" class="button button-small button-plain"><span>New</span><svg icon-name="caret-down"></svg></button>';target.before(sort);const result=await e.send({action:'render-controls',username:'Example',target:target.id});assert.equal(result.rendered,true);
+ const trigger=target.querySelector('button');assert.equal(trigger.getAttribute('aria-label'),'Feed options');assert.ok(trigger.querySelector('svg[icon-name="filter"]'));assert.equal(trigger.getAttribute('aria-expanded'),null);assert.equal(sort.shadowRoot.querySelector('button').getAttribute('aria-label'),'Sort by: New');
+ const menu=target.querySelector('.main-menu-container');assert.deepEqual([...menu.children].map(n=>n.getAttribute('aria-label') || n.textContent.trim()),['Feed options','New','Top'],'the View section does not apply to Comments');
+ const sortLink=menu.querySelector('rpl-menu-item[href]');assert.equal(new URL(sortLink.getAttribute('href'),'https://www.reddit.com').pathname,'/user/Example/comments/');
+});
+test('Comments keeps Reddit\'s View section when the page shows its own layout control',async t=>{
+ const html=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8'),e=setup(t,{url:'https://www.reddit.com/user/Example/comments/',fetcher:async()=>nativeResponse(html)}),target=controlsTarget(e),layout=e.W.document.createElement('shreddit-layout-switcher');target.before(layout);await e.send({action:'render-controls',username:'Example',target:target.id});
+ assert.deepEqual([...target.querySelector('.main-menu-container').children].map(n=>n.getAttribute('aria-label') || n.textContent.trim()),['Feed options','New','Top','View','Compact']);
 });
 
 const statusPost=(id='abc12',extra='',body='Public text',author='Example')=>`<shreddit-post id="t3_${id}" author="${author}" post-title="Synthetic public title" created-timestamp="2026-10-20T12:00:00Z" ${extra}><div slot="text-body">${body}</div><input name="csrf_token" value="synthetic-private"></shreddit-post>`;
@@ -439,25 +446,47 @@ test('native status recognizes Reddit’s current deletion notices, removal bann
 test('user hover cards supply only a Reddit-hosted https profile picture, cached per name',async t=>{
  const card=src=>`<div><span avatar><img src="${src}" alt="User avatar"></span><p>karma</p></div>`;let src='https://styles.redditmedia.com/t5_1/styles/profileIcon_x.png';
  const e=setup(t,{fetcher:async url=>nativeResponse(card(src))});
- const first=await e.send({action:'user-avatar',username:'Someone'});assert.equal(first.avatar,'https://styles.redditmedia.com/t5_1/styles/profileIcon_x.png');assert.equal(new URL(e.calls[0][0]).pathname,'/user/Someone/about.json');assert.equal(new URL(e.calls[1][0]).pathname,'/svc/shreddit/user-hover-card/Someone');assert.equal(e.calls[0][1].credentials,'include');
- await e.send({action:'user-avatar',username:'someone'});assert.equal(e.calls.length,2,'cached per username');
+ const first=await e.send({action:'user-avatar',username:'Someone'});assert.equal(first.avatar,'https://styles.redditmedia.com/t5_1/styles/profileIcon_x.png');assert.equal(new URL(e.calls[0][0]).pathname,'/svc/shreddit/user-hover-card/Someone');assert.equal(e.calls[0][1].credentials,'include');assert.equal(e.calls[0][1].redirect,'error');assert.match(e.calls[0][1].headers.Accept,/text\/vnd\.reddit\.partial\+html/);assert.equal(e.calls.length,1);
+ await e.send({action:'user-avatar',username:'someone'});assert.equal(e.calls.length,1,'cached per username');
  src='https://evil.example/track.png';assert.equal((await e.send({action:'user-avatar',username:'Other'})).avatar,'','foreign image hosts are rejected');
  assert.equal((await e.send({action:'user-avatar',username:'bad name!'})).ok,false);
 });
 
 
-test('comment avatar lookup uses the profile icon headshot and reuses exact native signed SVG URLs',async t=>{
- const head='https://i.redd.it/snoovatar/avatars/example-headshot.png',full='https://i.redd.it/snoovatar/avatars/example.png';
- const e=setup(t,{fetcher:async()=>nativeResponse(JSON.stringify({data:{name:'Example',icon_img:head,snoovatar_img:full}}))});
+test('comment avatar lookup uses the hover card headshot and reuses exact native signed SVG URLs',async t=>{
+ const head='https://styles.redditmedia.com/t5_1/styles/profileIcon_example.png?width=256&height=256&crop=256:256,smart&s=synthetic',body='https://i.redd.it/snoovatar/avatars/example.png';
+ const card=`<div class="hover-card"><span avatar><img alt="User avatar" src="${head}"></span><img alt="avatar body" src="${body}"><p>1,234 karma</p></div>`;
+ const e=setup(t,{fetcher:async()=>nativeResponse(card)});
  assert.equal((await e.send({action:'user-avatar',username:'Example'})).avatar,head);assert.equal(e.calls.length,1);assert.equal(e.calls[0][1].redirect,'error');
  const signed='https://cf.preview.redd.it/snoovatar/avatars/example-headshot.png?width=64&height=64&crop=smart&auto=webp&s=synthetic';
  const comment=e.W.document.createElement('shreddit-comment');comment.setAttribute('author','Example');comment.innerHTML='<div slot="commentAvatar"><svg><image></image></svg></div>';comment.querySelector('image').setAttribute('href',signed);e.W.document.body.append(comment);
  assert.equal((await e.send({action:'user-avatar',username:'example'})).avatar,signed);assert.equal(e.calls.length,1,'native signed URL needs no lookup');
 });
 
-test('avatar lookup rejects mismatched identities and full-body Snoovatars and respects cooldowns',async t=>{
+test('avatar lookup never requests about.json and prefers the [avatar] headshot over other images',async t=>{
+ const head='https://styles.redditmedia.com/t5_1/styles/profileIcon_example.png',other='https://i.redd.it/awards/gold.png';
+ const e=setup(t,{fetcher:async()=>nativeResponse(`<div><img alt="avatar badge" src="${other}"><span avatar><img src="${head}" alt=""></span></div>`)});
+ assert.equal((await e.send({action:'user-avatar',username:'Example'})).avatar,head);
+ for(const name of ['Deleted1','Suspended1'])await e.send({action:'user-avatar',username:name});
+ assert.equal(e.calls.every(([url])=>!/about\.json/.test(url) && new URL(url).pathname.startsWith('/svc/shreddit/user-hover-card/')),true);
+});
+
+test('deleted and suspended hover cards have no headshot and keep the native default',async t=>{
+ const cards={Gone:'<div class="p-md"><p>This account has been deleted.</p></div>',Banned:'<div class="p-md"><p>u/Banned has been suspended.</p></div>'};
+ const e=setup(t,{fetcher:async url=>nativeResponse(cards[decodeURIComponent(new URL(url).pathname.split('/').pop())])});
+ for(const name of Object.keys(cards))assert.equal((await e.send({action:'user-avatar',username:name})).avatar,'');
+ await e.send({action:'user-avatar',username:'Gone'});assert.equal(e.calls.length,2,'a missing headshot is cached too');
+});
+
+test('a failed hover card read returns no avatar and is retried after a short cache',async t=>{
+ let ok=false;const head='https://styles.redditmedia.com/t5_1/styles/profileIcon_late.png';
+ const e=setup(t,{fetcher:async()=>ok?nativeResponse('<span avatar><img src="'+head+'"></span>'):nativeResponse('',503)});
+ assert.equal((await e.send({action:'user-avatar',username:'Late'})).avatar,'');const now=e.W.Date.now();e.W.Date.now=()=>now+61000;ok=true;assert.equal((await e.send({action:'user-avatar',username:'Late'})).avatar,head);assert.equal(e.calls.length,2);
+});
+
+test('avatar lookup rejects full-body Snoovatars and foreign hosts and respects cooldowns',async t=>{
  const full='https://i.redd.it/snoovatar/avatars/example.png';
- const e=setup(t,{fetcher:async url=>new URL(url).pathname.endsWith('/about.json')?nativeResponse(JSON.stringify({data:{name:'Other',icon_img:'https://styles.redditmedia.com/other.png'}})):nativeResponse('<img alt="User avatar" src="'+full+'">')});
- assert.equal((await e.send({action:'user-avatar',username:'Example'})).avatar,'');assert.equal(e.calls.length,2);
+ const e=setup(t,{fetcher:async()=>nativeResponse('<span avatar><img alt="User avatar" src="'+full+'"></span><img alt="User avatar" src="https://evil.example/a.png">')});
+ assert.equal((await e.send({action:'user-avatar',username:'Example'})).avatar,'');assert.equal(e.calls.length,1);
  const rate=setup(t,{fetcher:async()=>nativeResponse('',429,{'retry-after':'60'})});const result=await rate.send({action:'user-avatar',username:'Example'});assert.equal(result.deferred,true);assert.equal(rate.calls.length,1);await rate.send({action:'user-avatar',username:'Other'});assert.equal(rate.calls.length,1);
 });
