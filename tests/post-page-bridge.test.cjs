@@ -484,9 +484,12 @@ test('a failed hover card read returns no avatar and is retried after a short ca
  assert.equal((await e.send({action:'user-avatar',username:'Late'})).avatar,'');const now=e.W.Date.now();e.W.Date.now=()=>now+61000;ok=true;assert.equal((await e.send({action:'user-avatar',username:'Late'})).avatar,head);assert.equal(e.calls.length,2);
 });
 
-test('avatar lookup rejects full-body Snoovatars and foreign hosts and respects cooldowns',async t=>{
- const full='https://i.redd.it/snoovatar/avatars/example.png';
- const e=setup(t,{fetcher:async()=>nativeResponse('<span avatar><img alt="User avatar" src="'+full+'"></span><img alt="User avatar" src="https://evil.example/a.png">')});
- assert.equal((await e.send({action:'user-avatar',username:'Example'})).avatar,'');assert.equal(e.calls.length,1);
+test('avatar lookup turns a full-body Snoovatar into its headshot, rejects foreign hosts and respects cooldowns',async t=>{
+ // The hover card lists a custom avatar as the full-body image; Reddit's comments use <id>-headshot.png.
+ const full='https://i.redd.it/snoovatar/avatars/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png?width=380';
+ const e=setup(t,{fetcher:async()=>nativeResponse('<img class="m-0" alt="u/Example avatar" src="'+full+'">')});
+ assert.equal((await e.send({action:'user-avatar',username:'Example'})).avatar,'https://i.redd.it/snoovatar/avatars/0a1b2c3d-4e5f-6789-abcd-ef0123456789-headshot.png');assert.equal(e.calls.length,1);
+ const foreign=setup(t,{fetcher:async()=>nativeResponse('<img alt="u/Example avatar" src="https://evil.example/snoovatar/avatars/x.png">')});
+ assert.equal((await foreign.send({action:'user-avatar',username:'Example'})).avatar,'');
  const rate=setup(t,{fetcher:async()=>nativeResponse('',429,{'retry-after':'60'})});const result=await rate.send({action:'user-avatar',username:'Example'});assert.equal(result.deferred,true);assert.equal(rate.calls.length,1);await rate.send({action:'user-avatar',username:'Other'});assert.equal(rate.calls.length,1);
 });

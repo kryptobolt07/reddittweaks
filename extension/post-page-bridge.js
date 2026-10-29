@@ -476,6 +476,9 @@
   // markup or the signed-out-safe user hover card. Only an HTTPS
   // URL on Reddit's image hosts leaves the page world; cache it per username.
   const avatarReads=new Map(),avatarHosts=new Set(['styles.redditmedia.com','i.redd.it','preview.redd.it','cf.preview.redd.it','www.redditstatic.com']);
+  // The hover card offers a custom avatar as the full-body Snoovatar; Reddit's
+  // comments use its headshot, published next to it as <id>-headshot.png.
+  const headshotOf=value=>{try{const url=new URL(value);if(url.hostname==='i.redd.it' && /^\/snoovatar\/avatars\/[0-9a-z-]+\.png$/i.test(url.pathname) && !/-headshot\.png$/i.test(url.pathname)){url.pathname=url.pathname.replace(/\.png$/i,'-headshot.png');url.search='';return url.href;}}catch{}return value;};
   const safeAvatar=value=>{try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && avatarHosts.has(url.hostname) && (!url.pathname.includes('/snoovatar/avatars/') || /-headshot\.[a-z]+$/i.test(url.pathname))?url.href:'';}catch{return '';}};
   async function userAvatar(input,signal){
     if(!M.validateUsername(input.username))throw Error('Invalid username.');
@@ -498,7 +501,7 @@
         const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),headshot=[...doc.querySelectorAll('[avatar] image[href],[avatar] img[src]')],pool=headshot.length?headshot:[...doc.querySelectorAll('img[alt*="avatar" i][src]')];
         // The first safe headshot wins; a full-body Snoovatar is rejected by safeAvatar,
         // so an unavailable headshot keeps the native default.
-        for(const img of pool){const candidate=safeAvatar(img.getAttribute('href') || img.getAttribute('src'));if(candidate){url=candidate;break;}}
+        for(const img of pool){const candidate=safeAvatar(headshotOf(img.getAttribute('href') || img.getAttribute('src')));if(candidate){url=candidate;break;}}
       }
       if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+(response.ok?1800000:60000)});
       return {avatar:url};
