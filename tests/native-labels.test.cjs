@@ -25,7 +25,9 @@ test('retained names and unavailable status appear in native rows, headers, and 
   const calls=api.calls.length;
   await W.RCSNativeLabels.update(directory,index);
   assert.equal(A.text(A.query('.room-name',row)),'Odd-Ratio-3098');
-  assert.equal(A.query('[data-rcs-ui="identity-status"]',row).textContent.trim(),'Unavailable');
+  // An icon with an accessible label, not a word; unclassified accounts keep the generic "unavailable" glyph.
+  const badge=A.query('[data-rcs-ui="identity-status"]',row);
+  assert.equal(badge.textContent.trim(),'');assert.equal(badge.getAttribute('aria-label'),'Unavailable account');assert.equal(badge.title,'Unavailable account · Retained username');assert.ok(badge.querySelector('svg'));
   assert.equal(A.query('a',row).getAttribute('aria-label'),'Direct chat with Odd-Ratio-3098');
   assert.equal(A.text(A.query('header .name',api.room)),'Odd-Ratio-3098');
   assert.equal(A.messages(api.room)[0].author,'Odd-Ratio-3098');

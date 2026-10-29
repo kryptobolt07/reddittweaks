@@ -478,7 +478,7 @@
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-room-results-height',`${available>0?Math.max(0,available):320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
       if(this.meta)this.meta.hidden=false;
-      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
+      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? entry.accountState==='banned' ? 'banned suspended unavailable account' : 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
         const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
         if(this.queryOptions?.sort==='oldest')return -newest;
         if(this.queryOptions?.sort==='relevant'){const score=record=>C.relevanceScore(record.text,query,{wholeWord:this.queryOptions?.wholeWord});return score(b)-score(a) || newest;}
@@ -541,16 +541,17 @@
           this.rows.set(key,row);
         }
         row.position=i;row.result.classList.toggle('active',i===this.active);row.result.hidden=false;
-        const signature=signaturePrefix+JSON.stringify([hit.attachmentType,hit.attachmentPreview,hit.attachmentMime,hit.attachmentWidth,hit.attachmentHeight,hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.historicalName]);
+        const signature=signaturePrefix+JSON.stringify([hit.attachmentType,hit.attachmentPreview,hit.attachmentMime,hit.attachmentWidth,hit.attachmentHeight,hit.name,hit.type,hit.membership,hit.status,hit.author,hit.authorSelf,this.cache.get(hit.roomId)?.name,hit.text,hit.timestamp,hit.accountUnavailable,hit.accountState,hit.historicalName]);
         if(row.signature!==signature) {
           row.signature=signature;
           row.name.replaceChildren(!this.messageMode ? highlight(hit.name,query,{shortTermsWholeWord:false}) : document.createTextNode(this.kind==='messages' ? C.messageSender(hit,partner || {}).label : partnerName || C.messageSender(hit,partner || {}).label));
-          row.caption.textContent=!this.messageMode ? (hit.accountUnavailable ? hit.historicalName ? 'Unavailable account · Retained username' : 'Unavailable account' : 'Open conversation') : hit.timestamp ? C.messageTime(hit.timestamp,{sort:this.queryOptions?.sort}) : '';
+          const unavailable=globalThis.RCSDirectoryModel?.accountMarker?.(hit.accountState).label || 'Unavailable account';
+          row.caption.textContent=!this.messageMode ? (hit.accountUnavailable ? hit.historicalName ? unavailable+' · Retained username' : unavailable : 'Open conversation') : hit.timestamp ? C.messageTime(hit.timestamp,{sort:this.queryOptions?.sort}) : '';
           if(!this.messageMode && hit.timestamp && Number.isFinite(new Date(hit.timestamp).getTime())) {
-            row.caption.textContent=`${this.formatTime(hit.timestamp)}${hit.accountUnavailable ? ' · Unavailable account' : ''}`;
+            row.caption.textContent=`${this.formatTime(hit.timestamp)}${hit.accountUnavailable ? ' · '+unavailable : ''}`;
             row.caption.title=`Last conversation activity · ${new Date(hit.timestamp).toLocaleString()}`;
           } else if(!this.messageMode && !this.loading) {
-            row.caption.textContent=hit.accountUnavailable ? 'Unavailable account · Date unavailable' : 'Date unavailable';
+            row.caption.textContent=hit.accountUnavailable ? unavailable+' · Date unavailable' : 'Date unavailable';
             row.caption.title='Reddit has not provided a message timestamp for this conversation.';
           } else row.caption.removeAttribute('title');
           if(this.messageMode)row.caption.title=C.fullTimestamp(hit.timestamp || NaN);
@@ -705,6 +706,17 @@
   }
   globalThis.RCSDirectory?.onChange(value=>{
     if(value.accountChanged)clearRetainedLists();
+    if(value.accountStates) {
+      // A deleted-or-banned lookup finished: reflect it in the shared records without reloading anything.
+      for(const state of value.accountStates)for(const [id,record] of directory) {
+        if(record.participantIds?.length!==1 || record.participantIds[0]!==state.id)continue;
+        directory.set(id,{...record,...(state.accountState ? {accountState:state.accountState} : {}),
+          identities:(record.identities || []).map(person=>person.id===state.id ? {...person,...(state.accountState ? {accountState:state.accountState} : {}),accountStateCheckedAt:state.accountStateCheckedAt} : person)});
+      }
+      for(const control of controls.values())if(!control.panel.hidden)control.render();
+      schedule();
+      return;
+    }
     if(value.fromStorage || value.restored) {
       for(const record of value.records || [])directory.set(record.id,{...directory.get(record.id),...record});
       for(const control of controls.values())if(!control.panel.hidden)control.render();

@@ -4,6 +4,20 @@
   const strings = values => [...new Set((Array.isArray(values) ? values : []).map(string).filter(Boolean))];
   const number = value => Number.isFinite(value) && value >= 0 ? value : 0;
   const image = value => /^https:\/\//.test(value || '') ? string(value) : '';
+  // Reddit's chat profile only says isDeleted; the public hover card tells a deleted account from a suspended one.
+  const accountStates=['deleted','banned'];
+  const accountState=value => accountStates.includes(value) ? value : '';
+  // One place for the wording and glyphs, shared by the search UI and the native chat list.
+  const markerPaths={
+    deleted:'<path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l.8 12.2a1.3 1.3 0 0 0 1.3 1.3h6.8a1.3 1.3 0 0 0 1.3-1.3L17.5 7M10 11v6M14 11v6"/>',
+    banned:'<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
+    unavailable:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 12-7m1 3 5 5m0-5-5 5"/>'
+  };
+  function accountMarker(state,historical=false) {
+    const kind=accountState(state) || 'unavailable',label={deleted:'Deleted account',banned:'Banned account',unavailable:'Unavailable account'}[kind];
+    return {kind,label,path:markerPaths[kind],title:label+(historical ? ' · Retained username' : ''),
+      detail:label+' · '+(kind==='deleted' ? 'The account was deleted.' : kind==='banned' ? 'Reddit suspended this account.' : 'Deleted or suspended. Does not mean blocked.')+(historical ? ' · Retained username' : '')};
+  }
   function identity(value) {
     if (!value || typeof value.id !== 'string' || !/^@[^:\s]+:[^\s]+$/.test(value.id)) return null;
     return {
@@ -13,6 +27,7 @@
       verifiedAt:number(value.verifiedAt), observedAt:number(value.observedAt),
       recoveryCheckedAt:number(value.recoveryCheckedAt), recoveryStatus:string(value.recoveryStatus),
       profileRetryAt:number(value.profileRetryAt), pending:Boolean(value.pending),
+      accountState:accountState(value.accountState), accountStateCheckedAt:number(value.accountStateCheckedAt),
       provenance:string(value.provenance)
     };
   }
@@ -27,11 +42,15 @@
     // but a newer record with its own real name (a retained member event) keeps its own avatar.
     const placeholderWinner=!winner.name || ['[deleted]','Someone','Username unavailable'].includes(winner.name);
     const avatar=winner.accountUnavailable && placeholderWinner ? other.avatar || winner.avatar : winner.avatar || other.avatar;
-    return {...other,...winner,name,avatar,
+    const unavailable=winner.availabilityKnown ? winner.accountUnavailable : other.accountUnavailable;
+    // The classification is a property of the account, not of one scan: a newer record that did not ask keeps it.
+    // A live account never carries one.
+    return {...other,...winner,name,avatar,accountState:unavailable ? winner.accountState || other.accountState : '',
+      accountStateCheckedAt:Math.max(before.accountStateCheckedAt,incoming.accountStateCheckedAt),
       aliases:strings([...before.aliases,...incoming.aliases,before.name,incoming.name]),
       historicalName:winner.accountUnavailable ? Boolean(name && name !== '[deleted]') : winner.historicalName,
       availabilityKnown:winner.availabilityKnown || other.availabilityKnown,
-      accountUnavailable:winner.availabilityKnown ? winner.accountUnavailable : other.accountUnavailable,
+      accountUnavailable:unavailable,
       verifiedAt:Math.max(before.verifiedAt,incoming.verifiedAt), observedAt:Math.max(before.observedAt,incoming.observedAt),
       recoveryCheckedAt:Math.max(before.recoveryCheckedAt,incoming.recoveryCheckedAt)
     };
@@ -81,9 +100,10 @@
       return {...record,name:record.name || person?.name || (direct ? 'Username unavailable' : 'Group chat'),
         avatar:record.avatar || person?.avatar || '',participants:people.map(p=>p.name).filter(Boolean),
         aliases:strings([...record.aliases,...people.flatMap(p=>p.aliases)]),identities:people,
-        historicalName:Boolean(person?.historicalName),accountUnavailable:Boolean(person?.accountUnavailable)};
+        historicalName:Boolean(person?.historicalName),accountUnavailable:Boolean(person?.accountUnavailable),
+        accountState:person?.accountUnavailable ? accountState(person.accountState) : ''};
     }).sort((a,b)=>b.timestamp-a.timestamp);
     return {...entry,records};
   }
-  globalThis.RCSDirectoryModel=Object.freeze({identity,mergeIdentity,normalise,view});
+  globalThis.RCSDirectoryModel=Object.freeze({identity,mergeIdentity,normalise,view,accountMarker,accountState});
 })();

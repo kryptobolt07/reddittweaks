@@ -121,7 +121,7 @@
     if(!owner || watchedClient===ctx.client && watchedOwner===owner)return;
     clearTimeout(watchTimer);
     if(watchedClient?.off)for(const [type,handler]of nativeHandlers)watchedClient.off(type,handler);
-    nativeHandlers.clear();changedRooms.clear();profileChangedRooms.clear();metadataVersion=0;
+    nativeHandlers.clear();changedRooms.clear();profileChangedRooms.clear();metadataVersion=0;classifier.wanted.clear();
     captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();
     watchedClient=ctx.client;watchedOwner=owner;
     nativeCapture={client:ctx.client,owner,ctx,pending:new Map(),snapshots:new Map(),task:null,recovery:null,incomplete:false,missing:new Set()};
@@ -547,7 +547,7 @@
     const live=person && !person.deleted && retainedUsername(person.name,true);
     const name=live || retained?.name || person?.name || '';
     const historical=!live && !!retained?.name;
-    return {name,avatar:historical ? retained.avatar || person?.avatar || '' : person?.avatar || retained?.avatar || '',aliases:[...new Set([...(person?.aliases || []),...(retained?.aliases || [])])],historical,unavailable:Boolean(person?.deleted)};
+    return {name,avatar:historical ? retained.avatar || person?.avatar || '' : person?.avatar || retained?.avatar || '',aliases:[...new Set([...(person?.aliases || []),...(retained?.aliases || [])])],historical,unavailable:Boolean(person?.deleted),accountState:person?.deleted ? person.accountState || '' : ''};
   }
   function profileCache(ctx) {
     const owner=ctx.client.getUserId();
@@ -597,6 +597,9 @@
           avatar:safeImage(profile?.snoovatarIcon?.src || profile?.avatar?.src || native?.avatarUrl,ctx.client),
           verifiedAt:profile ? Date.now() : 0,pending:!name || !profile && !nativeName,
           retryAfter:profile && name ? 0 : Date.now()+900000,provenance:profile ? 'native-profile' : 'native-member'};
+        // Reddit's profile cannot tell a deleted account from a suspended one; keep what the hover card said.
+        const before=cache.get(matrixId);
+        if(person.deleted && before)Object.assign(person,{accountState:before.accountState || '',accountStateCheckedAt:before.accountStateCheckedAt || 0});
         cache.set(matrixId,person);entries.set(matrixId,person);
       }
       publishIdentityChanges(ctx,new Set(batch));
@@ -612,7 +615,8 @@
       availabilityKnown:Boolean(person?.availabilityKnown),verifiedAt:person?.verifiedAt || 0,
       observedAt:retained?.time || 0,provenance:resolved.historical ? 'retained-member' : person?.provenance || '',
       recoveryCheckedAt:retained?.recoveryCheckedAt || 0,recoveryStatus:retained?.recoveryStatus || '',
-      profileRetryAt:person?.retryAfter || 0,pending:!resolved.name || Boolean(person?.pending)};
+      profileRetryAt:person?.retryAfter || 0,pending:!resolved.name || Boolean(person?.pending),
+      accountState:resolved.accountState,accountStateCheckedAt:person?.deleted ? person.accountStateCheckedAt || 0 : 0};
   }
   function primeCache(ctx,request) {
     const owner=ctx.client.getUserId();
@@ -623,7 +627,8 @@
       if(typeof raw?.id!=='string' || !/^@[^:\s]+:[^\s]+$/.test(raw.id) || raw.id===owner)continue;
       profileCache(ctx).set(raw.id,{name:raw.name || '',avatar:raw.avatar || '',aliases:raw.aliases || [],deleted:Boolean(raw.accountUnavailable),
         availabilityKnown:Boolean(raw.availabilityKnown),verifiedAt:raw.verifiedAt || 0,provenance:raw.provenance || 'saved-directory',
-        pending:Boolean(raw.pending || !raw.availabilityKnown),retryAfter:raw.profileRetryAt || 0});
+        pending:Boolean(raw.pending || !raw.availabilityKnown),retryAfter:raw.profileRetryAt || 0,
+        accountState:raw.accountUnavailable && ['deleted','banned'].includes(raw.accountState) ? raw.accountState : '',accountStateCheckedAt:Number.isFinite(raw.accountStateCheckedAt) ? raw.accountStateCheckedAt : 0});
       // Reddit scrubs member names once an account is deleted, so a real username saved while the
       // account was alive is the only copy left. Seed it as the retained identity, keeping its avatar,
       // unless a newer retained entry (for example from a member event) already exists.
@@ -637,6 +642,73 @@
     if(request.ackMetadataVersion===metadataVersion){changedRooms.clear();profileChangedRooms.clear();watchedSignature=JSON.stringify(directoryContext(ctx));}
     publishIdentityChanges(ctx,new Set((request.identities || []).map(person=>person.id)));
     return {owner};
+  }
+  // Reddit's chat profile reports isDeleted for deleted and suspended accounts alike. Its public hover card
+  // tells them apart, but only people the user can actually see are looked up, once each, one request at a time.
+  const classifier={wanted:new Map(),running:false,nextAt:0,pausedUntil:0,strikes:0};
+  const classifyGapMs=2500,classifyRetryMs=86400000,classifyLimitMs=3600000;
+  function classifyHoverCard(html) {
+    let doc;try{doc=new DOMParser().parseFromString(html,'text/html');}catch{return '';}
+    if(doc.querySelector('[avatar] img, img[src*="profileIcon"]'))return 'live';
+    const text=(doc.body?.textContent || '').toLowerCase();
+    return /\bsuspended\b/.test(text) ? 'banned' : /\bdeleted\b/.test(text) ? 'deleted' : '';
+  }
+  // The retained username to look up, or '' when this person needs no request (no name, live, or already known).
+  function classifiableName(ctx,id) {
+    const person=profileCache(ctx).get(id);
+    if(!person?.deleted || person.accountState || Date.now()-(person.accountStateCheckedAt || 0)<classifyRetryMs)return '';
+    const resolved=resolvedIdentity(id,person,ctx);
+    return resolved.unavailable && resolved.historical ? retainedUsername(resolved.name) : '';
+  }
+  function queueClassification(ctx,request) {
+    const owner=ctx.client.getUserId();
+    if(request.owner!==owner || !Array.isArray(request.ids) || request.ids.length>200 || request.ids.some(id=>typeof id!=='string' || id.length>1000))throw problem('Reddit account changed. Please retry.');
+    classifier.wanted.set(String(request.source || '').slice(0,20),request.ids);
+    pumpClassifier();return {owner};
+  }
+  async function pumpClassifier() {
+    if(classifier.running)return;classifier.running=true;
+    try {
+      while(watchedClient) {
+        const ctx={client:watchedClient},owner=watchedOwner;
+        if(watchedClient.getUserId()!==owner)break;
+        let id='',name='';
+        for(const ids of classifier.wanted.values())for(const candidate of ids)if(!id && (name=classifiableName(ctx,candidate)))id=candidate;
+        if(!id)break;
+        const wait=Math.max(classifier.nextAt,classifier.pausedUntil)-Date.now();
+        if(wait>0){await delay(Math.min(wait,60000));continue;}
+        classifier.nextAt=Date.now()+classifyGapMs;
+        const outcome=await requestHoverCard(name);
+        if(watchedClient!==ctx.client || watchedOwner!==owner)break;
+        if(outcome.limited){
+          classifier.strikes++;classifier.pausedUntil=Date.now()+Math.min(classifyLimitMs,Math.max(outcome.wait,30000*2**classifier.strikes));
+          if(classifier.strikes>=4){classifier.wanted.clear();break;}
+          continue;
+        }
+        classifier.strikes=0;
+        const cache=profileCache(ctx),person=cache.get(id);if(!person)continue;
+        // A definite answer is kept for good. Anything else is only a note that today's attempt is spent.
+        const state=outcome.state==='deleted' || outcome.state==='banned' ? outcome.state : '',checked=Date.now();
+        cache.set(id,{...person,accountState:state,accountStateCheckedAt:checked});
+        document.dispatchEvent(new CustomEvent('rcs-account-state',{detail:JSON.stringify({owner,states:[{id,accountState:state,accountStateCheckedAt:checked}]})}));
+      }
+    } catch { /* A classification must never disturb Reddit's own chat. */ }
+    finally {classifier.running=false;}
+  }
+  async function requestHoverCard(name) {
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
+    try {
+      const response=await fetch('https://www.reddit.com/svc/shreddit/user-hover-card/'+encodeURIComponent(name),{method:'GET',
+        headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},credentials:'omit',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',signal:controller.signal});
+      if(response.status===429) {
+        const hint=response.headers?.get?.('Retry-After'),seconds=Number(hint),date=Date.parse(hint || '');
+        return {limited:true,wait:Number.isFinite(seconds) && hint?.trim() ? seconds*1000 : Number.isFinite(date) ? Math.max(0,date-Date.now()) : 0};
+      }
+      if(!response.ok)return {state:''};
+      const html=await response.text();
+      return {state:html.length>300000 ? '' : classifyHoverCard(html)};
+    } catch { return {state:''}; }
+    finally {clearTimeout(timer);}
   }
   function nativeBindings(ctx,request) {
     RCSNativeIdentities.update(ctx,request);
@@ -738,7 +810,7 @@
       const membership=state.find(event=>event.type==='m.room.member' && event.state_key===own)?.content?.membership || raw.membership || native?.getMyMembership?.() || saved?.membership || '';
       return {id:raw.room_id,name,avatar,type,membership,...(unreadCount(native,raw)!==undefined ? {unreadCount:unreadCount(native,raw)} : {}),
         hidden:Boolean(native?.getAccountData?.('com.reddit.hidden_chat')?.getContent?.()?.hidden || saved?.hidden),
-        historicalName:directRoom && person.historical,accountUnavailable:directRoom && person.unavailable,
+        historicalName:directRoom && person.historical,accountUnavailable:directRoom && person.unavailable,accountState:directRoom && person.unavailable ? person.accountState : '',
         aliases:participants.flatMap(id=>resolvedIdentity(id,people.get(id),ctx).aliases),
         participantIds:participants,participants:participants.map(id=>resolvedIdentity(id,people.get(id),ctx).name).filter(Boolean),
         identities:participants.map(id=>identityRecord(id,people.get(id),ctx)),
@@ -1077,7 +1149,7 @@
     const key=`${request.channel}:${request.id}`;
     if (request.method==='cancel') { const job=running.get(key); if(job)job.cancelled=true;return; }
     if(request.method==='history-range'){const job=running.get(key);if(job){try{historyDateStart(request.dates);historyDateEnd(request.dates);job.requestedDates=request.dates || {};}catch{}}return;}
-    if (!['identity-context','identity-snapshot','cache-native-history','directory-context','prime-directory','conversations','activity','history','open','jump','native-bindings'].includes(request.method)) return;
+    if (!['identity-context','identity-snapshot','cache-native-history','directory-context','prime-directory','conversations','activity','history','open','jump','native-bindings','classify-accounts'].includes(request.method)) return;
     if (['history','open','jump'].includes(request.method) && (typeof request.roomId!=='string' || request.roomId.length>1000)) return;
     if(request.knownIds && (!Array.isArray(request.knownIds) || request.knownIds.some(id=>typeof id!=='string' || id.length>1000)))return;
     if (request.method==='jump' && (typeof request.eventId!=='string' || request.eventId.length>1000)) return;
@@ -1109,6 +1181,7 @@
       watchDirectory(ctx);
       if(request.method==='directory-context')result=directoryContext(ctx);
       else if(request.method==='native-bindings')result=nativeBindings(ctx,request);
+      else if(request.method==='classify-accounts')result=queueClassification(ctx,request);
       else if(request.method==='activity')result=await activity(ctx,job,request);
       else if(request.method==='prime-directory') {
         result=primeCache(ctx,request);

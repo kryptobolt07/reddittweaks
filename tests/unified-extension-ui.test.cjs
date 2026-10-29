@@ -855,3 +855,43 @@ test('sort-only tab differences retain valid message counts without another loca
   const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee');const expected=c.scopeCounts.messages.textContent,searches=p.searches.length;
   await p.click('[data-scope="people"]');c.sort='alphabetical';c.updateControls();assert.equal(c.scopeCounts.messages.textContent,expected);assert.equal(c.scopeButtons.messages.getAttribute('aria-label'),'Messages ('+c.savedTotal+')');assert.equal(p.searches.length,searches);
 });
+
+test('deleted, banned and unknown accounts get separate icons and labels; the marker is the last item of the row, preview or not',async t=>{
+  const p=await setup(t),c=p.control;p.w.eval(fs.readFileSync(path.join(__dirname,'..','extension/directory-model.js'),'utf8'));
+  const person=(id,state,historical=true)=>({id,name:'Retained'+id,type:'direct',participantIds:['@t2_'+id+':reddit.com'],accountUnavailable:true,historicalName:historical,accountState:state,timestamp:1791432000000});
+  for(const [id,state] of [['gone','deleted'],['barred','banned'],['mystery','']])p.cache.set(id,person(id,state));
+  await p.search('Retained');
+  const marker=id=>p.find('[data-key="chat:'+id+'"] .unavailable-marker');
+  assert.equal(marker('gone').getAttribute('aria-label'),'Deleted account');assert.match(marker('gone').title,/^Deleted account · The account was deleted\. · Retained username$/);
+  assert.equal(marker('barred').getAttribute('aria-label'),'Banned account');assert.match(marker('barred').title,/^Banned account · Reddit suspended this account\./);
+  assert.equal(marker('mystery').getAttribute('aria-label'),'Unavailable account');assert.match(marker('mystery').title,/Deleted or suspended\. Does not mean blocked\./);
+  assert.equal(new Set(['gone','barred','mystery'].map(id=>marker(id).innerHTML)).size,3,'three different glyphs');
+  // These rows have no preview text: the marker is the only item of its line, which the stylesheet pushes to the right edge.
+  for(const id of ['gone','barred','mystery']) {
+    const row=p.find('[data-key="chat:'+id+'"] .row-secondary');assert.equal(row.children.length,1);assert.equal(row.firstElementChild,marker(id));assert.ok(marker(id).classList.contains('row-meta'));
+  }
+  assert.match(p.w.RCSUnifiedStyles,/\.row-secondary \.row-meta\.unavailable-marker \{ margin-inline-start:auto;/);
+  // A message from the same person shows the same state.
+  p.cache.set('alex',{...p.cache.get('alex'),participantIds:['@t2_alex:reddit.com'],accountUnavailable:true,historicalName:true,accountState:'banned'});
+  await p.search('coffee');await p.click('[data-scope="messages"]');
+  assert.equal(p.find('.message-result[data-key^="message:alex:"] .unavailable-marker').getAttribute('aria-label'),'Banned account');
+});
+
+test('only unavailable people with a retained name on drawn rows are reported for classification',async t=>{
+  const p=await setup(t),c=p.control;p.w.eval(fs.readFileSync(path.join(__dirname,'..','extension/directory-model.js'),'utf8'));
+  const calls=[];p.w.RCSDirectory.classify=(source,ids)=>calls.push([source,[...ids]]);
+  const person=(id,extra)=>({id,name:'Retained'+id,type:'direct',participantIds:['@t2_'+id+':reddit.com'],accountUnavailable:true,historicalName:true,accountState:'',timestamp:1791432000000,...extra});
+  p.cache.set('gone',person('gone'));p.cache.set('known',person('known',{accountState:'deleted'}));p.cache.set('unnamed',person('unnamed',{historicalName:false}));
+  await p.search('Retained');
+  assert.deepEqual(calls.at(-1),['search',['@t2_gone:reddit.com']]);
+  await p.search('zzzz-no-match');
+  assert.deepEqual(calls.at(-1),['search',[]],'rows that are no longer drawn are withdrawn');
+});
+
+test('the phone layout makes the search bar 40 px high with Reddit side padding, and desktop stays as it was',async t=>{
+  const p=await setup(t);const css=p.w.RCSUnifiedStyles;
+  const phone=/@media \(max-width:767\.98px\) \{([\s\S]*?)\n    \}/.exec(css);assert.ok(phone,'a phone-only block');
+  assert.match(phone[1],/\.field \{ height:40px;min-height:40px;padding:0 12px/);assert.match(phone[1],/\.bar\.unified-search \{ padding-inline:12px/);
+  assert.match(phone[1],/:not\(\[data-rcs-compact\]\)/,'floating chat is excluded from the phone rules');
+  assert.match(css,/clamp\(28px,calc\(var\(--rcs-native-header-height,52px\) - 12px\),40px\)/,'the desktop rule is untouched');
+});
