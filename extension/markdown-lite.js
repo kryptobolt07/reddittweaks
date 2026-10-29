@@ -28,7 +28,9 @@
     if(last<text.length)fragment.append(text.slice(last));
     return fragment;
   }
-  function render(source,doc=globalThis.document,paragraphReplacement=null){
+  // Quotes nest at most 8 levels; deeper markers stay as text so hostile input cannot exhaust the stack.
+  const maxQuoteDepth=8;
+  function render(source,doc=globalThis.document,paragraphReplacement=null,depth=0){
     const fragment=doc.createDocumentFragment(),lines=decode(String(source || '')).replace(/\r\n?/g,'\n').split('\n');
     let i=0;const paragraph=[];
     const flush=()=>{if(!paragraph.length)return;const replacement=paragraphReplacement?.(paragraph.join('\n').trim());if(replacement)fragment.append(replacement);else{const p=doc.createElement('p');paragraph.forEach((line,index)=>{if(index)p.append(doc.createElement('br'));p.append(inline(line.trim(),doc));});fragment.append(p);}paragraph.length=0;};
@@ -37,7 +39,7 @@
       if(/^\s*```/.test(line)){flush();const code=[];i++;while(i<lines.length && !/^\s*```/.test(lines[i]))code.push(lines[i++]);i++;const pre=doc.createElement('pre'),c=doc.createElement('code');c.textContent=code.join('\n');pre.append(c);fragment.append(pre);continue;}
       if(!line.trim()){flush();i++;continue;}
       const heading=line.match(/^\s{0,3}#{1,6}\s+(.*)$/);if(heading){flush();const p=doc.createElement('p'),strong=doc.createElement('strong');strong.append(inline(heading[1],doc));p.append(strong);fragment.append(p);i++;continue;}
-      if(/^\s*>/.test(line)){flush();const quote=[];while(i<lines.length && /^\s*>/.test(lines[i]))quote.push(lines[i++].replace(/^\s*>\s?/,''));const block=doc.createElement('blockquote');block.append(render(quote.join('\n'),doc));fragment.append(block);continue;}
+      if(depth<maxQuoteDepth && /^\s*>/.test(line)){flush();const quote=[];while(i<lines.length && /^\s*>/.test(lines[i]))quote.push(lines[i++].replace(/^\s*>\s?/,''));const block=doc.createElement('blockquote');block.append(render(quote.join('\n'),doc,null,depth+1));fragment.append(block);continue;}
       const bullet=/^\s*[-*+]\s+(.*)$/,number=/^\s*\d{1,3}[.)]\s+(.*)$/;
       if(bullet.test(line) || number.test(line)){flush();const ordered=number.test(line),pattern=ordered?number:bullet,list=doc.createElement(ordered?'ol':'ul');while(i<lines.length && pattern.test(lines[i])){const li=doc.createElement('li');li.append(inline(lines[i].match(pattern)[1],doc));list.append(li);i++;}fragment.append(list);continue;}
       if(/^\s*(?:[-*_]\s*){3,}$/.test(line)){flush();fragment.append(doc.createElement('hr'));i++;continue;}
@@ -49,7 +51,19 @@
   // Rebuild archive-rendered HTML from an allowlist. The source document is
   // inert (DOMParser runs no scripts and loads nothing); only text and
   // formatting elements are recreated in the page document.
-  const keep=new Set(['P','BR','HR','STRONG','EM','DEL','CODE','PRE','BLOCKQUOTE','UL','OL','LI','H1','H2','H3','H4','H5','H6','SUP','SUB','TABLE','THEAD','TBODY','TR','TH','TD']),rename={B:'STRONG',I:'EM',S:'DEL',STRIKE:'DEL'},drop=new Set(['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','IMG','VIDEO','AUDIO','SVG','MATH','FORM','INPUT','BUTTON','TEXTAREA','SELECT','LINK','META','TEMPLATE','NOSCRIPT']);
+  const keep=new Set(['p','br','hr','strong','em','del','code','pre','blockquote','ul','ol','li','h1','h2','h3','h4','h5','h6','sup','sub','table','thead','tbody','tr','th','td']),rename={b:'strong',i:'em',s:'del',strike:'del'},drop=new Set(['script','style','iframe','object','embed','img','video','audio','svg','math','form','input','button','textarea','select','link','meta','template','noscript','title','xmp','noembed','noframes']);
+  const xhtml='http://www.w3.org/1999/xhtml';
+  // Spoiler: hidden by CSS until hover/focus, or revealed (and hidden again) by
+  // click, Enter or Space. aria-expanded mirrors the revealed state.
+  function spoiler(doc){
+    const el=doc.createElement('span');el.className='rt-spoiler';el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-expanded','false');
+    let pinned=false,hover=false,focus=false;const sync=()=>{el.setAttribute('aria-expanded',String(pinned || hover || focus));el.toggleAttribute('data-revealed',pinned);};
+    el.addEventListener('click',()=>{pinned=!pinned;sync();});
+    el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();pinned=!pinned;sync();}});
+    el.addEventListener('mouseenter',()=>{hover=true;sync();});el.addEventListener('mouseleave',()=>{hover=false;sync();});
+    el.addEventListener('focus',()=>{focus=true;sync();});el.addEventListener('blur',()=>{focus=false;sync();});
+    return el;
+  }
   function fromHtml(html,doc=globalThis.document){
     if(typeof html!=='string' || !html || html.length>120000 || typeof DOMParser!=='function')return null;
     const source=new DOMParser().parseFromString(html,'text/html').body,fragment=doc.createDocumentFragment();let budget=5000;
@@ -59,13 +73,15 @@
         // Markdown backslash escapes that the archive renderer leaves in text (e.g. \+).
         if(node.nodeType===3){to.append(doc.createTextNode(node.parentElement?.closest('code,pre')?node.textContent:node.textContent.replace(/\\([\\`*_{}\[\]()#+\-.!|~>^])/g,'$1')));continue;}
         if(node.nodeType!==1)continue;
-        const tag=rename[node.tagName] || node.tagName;
-        if(drop.has(tag))continue;
+        // Elements outside the XHTML namespace (svg/math foreign content) and
+        // raw-text or active elements vanish together with their text.
+        const name=node.localName.toLowerCase(),tag=rename[name] || name;
+        if(node.namespaceURI!==xhtml || drop.has(name))continue;
         if(depth>40){to.append(doc.createTextNode(node.textContent));continue;}
         let el=null;
-        if(keep.has(tag)){el=doc.createElement(tag.toLowerCase());if((tag==='TH' || tag==='TD') && ['left','center','right'].includes(node.getAttribute('align')))el.style.textAlign=node.getAttribute('align');}
-        else if(tag==='A'){const href=safeHref(node.getAttribute('href') || '');if(href){el=doc.createElement('a');el.href=href;el.rel='noopener noreferrer nofollow';}}
-        else if(tag==='SPAN' && node.classList.contains('md-spoiler-text')){el=doc.createElement('span');el.className='rt-spoiler';el.tabIndex=0;}
+        if(keep.has(tag)){el=doc.createElement(tag);if((tag==='th' || tag==='td') && ['left','center','right'].includes(node.getAttribute('align')))el.style.textAlign=node.getAttribute('align');}
+        else if(tag==='a'){const href=safeHref(node.getAttribute('href') || '');if(href){el=doc.createElement('a');el.href=href;el.rel='noopener noreferrer nofollow';}}
+        else if(tag==='span' && node.classList.contains('md-spoiler-text'))el=spoiler(doc);
         if(el){copy(node,el,depth+1);to.append(el);}else copy(node,to,depth+1); // unknown wrappers (div.md, span) unwrap to their text
       }
     };

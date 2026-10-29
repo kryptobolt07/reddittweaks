@@ -8,6 +8,14 @@
     if(notice.matches('shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3)'))return 'deleted';
     return notice.matches('shreddit-app > #shreddit-forbidden:has(svg[icon-name="ban-fill"])') && /^This account (?:has been (?:banned|suspended)|is suspended)$/i.test(notice.querySelector('#shreddit-forbidden-title')?.textContent.trim())?'banned':'';
   }
+  // This script runs at document_start, before post-model.js exists, so it keeps one small
+  // copy of the notice wording (same patterns as RTPostModel.noticeStatus). Once post-model
+  // has loaded into this same isolated world, its shared test is used instead.
+  const noticePattern=/^(?:\[deleted\]|comment deleted by user|\[\s*deleted by user\s*\]|\[removed\]|comment removed by moderator|\[\s*removed by (?:moderator|reddit)\s*\])$/i;
+  const isNotice=text=>globalThis.RTPostModel?.noticeStatus?Boolean(globalThis.RTPostModel.noticeStatus(text)):noticePattern.test(String(text || '').trim());
+  // A comment's own notice is its first non-empty own body paragraph; a later "[removed]"
+  // paragraph is user text.
+  const ownNotice=comment=>{for(const p of comment.querySelectorAll('p')){if(p.closest('shreddit-comment')!==comment || p.closest('summary,[slot="actionRow"],[slot="commentMeta"],[data-rt-recovered-text]') || !p.textContent.trim())continue;return isNotice(p.textContent)?p:null;}return null;};
   // Mark a comment's own removal notice in the mutation microtask, before
   // paint and before the slower document_idle restorer or its 200ms scan.
   function prepareComments(doc,records){
@@ -15,8 +23,8 @@
     if(Array.isArray(records)){for(const record of records){if(record.target.nodeType===1){const parent=record.target.closest(selector);if(parent)candidates.add(parent);}for(const node of record.addedNodes)if(node.nodeType===1){if(node.matches(selector))candidates.add(node);for(const comment of node.querySelectorAll(selector))candidates.add(comment);}}}else for(const comment of doc.querySelectorAll(selector))candidates.add(comment);
     const post=window.location.pathname.match(/\/comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.[1]?.toLowerCase();
     for(const comment of candidates){if(comment.hasAttribute('data-rt-settled') || comment.getAttribute('postid') && comment.getAttribute('postid').toLowerCase()!=='t3_'+post)continue;
-      const notice=[...comment.querySelectorAll('p')].find(p=>p.closest('shreddit-comment')===comment && !p.closest('summary,[slot="actionRow"],[slot="commentMeta"],[data-rt-recovered-text]') && /^(?:comment deleted by user|comment removed by moderator|\[deleted\]|\[removed\])$/i.test(p.textContent.trim()));if(!notice)continue;
-      notice.dataset.rtNotice='true';comment.setAttribute('data-rt-pending','');
+      const notice=ownNotice(comment);if(!notice)continue;
+      notice.dataset.rtNotice='true';notice.dataset.rtHold='';comment.setAttribute('data-rt-pending','');
       if([...comment.querySelectorAll('[data-rt-skeleton]')].some(n=>n.closest('shreddit-comment')===comment))continue;
       const skeleton=doc.createElement('div');skeleton.className='rt-skeleton';skeleton.dataset.rtSkeleton='true';skeleton.setAttribute('aria-hidden','true');
       const reduced=doc.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;

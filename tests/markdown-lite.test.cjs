@@ -42,3 +42,24 @@ test('comment images retain their place after headings and lists without replaci
  const restricted=W.document.createElement('div');restricted.append(W.RTMarkdown.renderComment(url,'',media,{restricted:true}));assert.equal(restricted.querySelector('img'),null);
  W.close();
 });
+
+test('deeply nested quotes are capped instead of overflowing the stack',()=>{
+ const render=md(),box=render('>'.repeat(10000)+' tail text');
+ assert.ok(box.querySelectorAll('blockquote').length<=8,'at most 8 quote levels');assert.ok(box.querySelectorAll('blockquote').length>0);assert.match(box.textContent,/tail text/,'deeper markers remain as text');
+ assert.doesNotThrow(()=>render('> '.repeat(9000)+'x'));
+});
+test('foreign-content and raw-text elements in archive HTML vanish together with their text',()=>{
+ const dom=new JSDOM('',{runScripts:'outside-only'});dom.window.eval(fs.readFileSync('extension/markdown-lite.js','utf8'));const W=dom.window;
+ const html='<svg><style>.x{}</style><script>alert(1)</script></svg><title>T</title><math><mi>m</mi></math><textarea>area</textarea><xmp>xmp</xmp><noembed>ne</noembed><noframes>nf</noframes><p>kept</p>';
+ const box=W.document.createElement('div');box.append(W.RTMarkdown.fromHtml(html,W.document));
+ for(const text of ['.x{}','alert(1)','T','m','area','xmp','ne','nf'])assert.equal(box.textContent.includes(text),false,text);
+ assert.equal(box.textContent,'kept');assert.equal(box.querySelector('svg,style,script,title,math'),null);
+});
+test('spoilers are operable buttons: click, Enter and Space reveal, with aria-expanded',()=>{
+ const dom=new JSDOM('',{runScripts:'outside-only'});dom.window.eval(fs.readFileSync('extension/markdown-lite.js','utf8'));const W=dom.window,box=W.document.createElement('div');
+ box.append(W.RTMarkdown.fromHtml('<p><span class="md-spoiler-text">hidden</span></p>',W.document));const el=box.querySelector('.rt-spoiler');
+ assert.equal(el.getAttribute('role'),'button');assert.equal(el.tabIndex,0);assert.equal(el.getAttribute('aria-expanded'),'false');
+ el.click();assert.equal(el.getAttribute('aria-expanded'),'true');el.click();assert.equal(el.getAttribute('aria-expanded'),'false');
+ const key=name=>el.dispatchEvent(new W.KeyboardEvent('keydown',{key:name,bubbles:true,cancelable:true}));key('Enter');assert.equal(el.getAttribute('aria-expanded'),'true');key(' ');assert.equal(el.getAttribute('aria-expanded'),'false');key('a');assert.equal(el.getAttribute('aria-expanded'),'false');
+ el.dispatchEvent(new W.Event('focus'));assert.equal(el.getAttribute('aria-expanded'),'true','focus reveals');el.dispatchEvent(new W.Event('blur'));assert.equal(el.getAttribute('aria-expanded'),'false');
+});

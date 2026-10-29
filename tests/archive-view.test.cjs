@@ -28,3 +28,12 @@ test('only Reddit-hosted https images are accepted, and skeletons use Reddit’s
  for(const bad of ['http://i.redd.it/x.png','https://evil.example/x.png','https://i.redd.it/x.svg','javascript:alert(1)',''])assert.equal(imageUrl(bad),'',bad);
  const box=skeleton({lines:3,doc:W.document});assert.equal(box.dataset.rtSkeleton,'true');assert.equal(box.getAttribute('aria-hidden'),'true');assert.equal(box.querySelectorAll('.rt-skeleton-line.skeleton-shimmer').length,3);assert.ok(box.querySelector('.rt-skeleton-fallback'),'sweep fallback without Reddit’s shimmer element');assert.deepEqual([...box.children].map(n=>n.style.width),['86%','72%','55%']);
 });
+
+test('image dimensions are accepted only as positive integers up to 20000; unknown proportions reserve 16:9',()=>{
+ const W=setup(),ratio=(opts)=>W.RTArchiveView.image('https://i.redd.it/abc.png',{doc:W.document,...opts}).querySelector('[data-aspect-ratio-container]');
+ assert.equal(ratio({width:640,height:480}).style.aspectRatio,'640 / 480');assert.equal(ratio({width:20000,height:1}).style.aspectRatio,'20000 / 1');
+ for(const [width,height] of [[0,0],[-5,10],[1.5,2],[20001,10],['640; background:url(//evil)','480'],['640','480} body{display:none'],[NaN,5],[undefined,undefined]])assert.equal(ratio({width,height}).style.aspectRatio,'16 / 9',JSON.stringify([width,height]));
+ const r=ratio({width:'x',height:'y'});assert.equal(r.getAttribute('style').includes('evil'),false);assert.equal(r.style.minHeight,'220px');
+ const root=W.RTArchiveView.image('https://i.redd.it/abc.png',{doc:W.document}),main=root.querySelectorAll('img')[1],box=root.querySelector('[data-aspect-ratio-container]');
+ Object.defineProperty(main,'naturalWidth',{value:99999});Object.defineProperty(main,'naturalHeight',{value:10});main.dispatchEvent(new W.Event('load'));assert.equal(box.style.aspectRatio,'16 / 9','an implausible natural size is ignored');
+});

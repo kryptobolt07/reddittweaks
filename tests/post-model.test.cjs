@@ -108,3 +108,15 @@ test('comment media requires a body reference and validated Reddit image metadat
  assert.equal(M.normalizeComment({...raw,body:'Unrelated synthetic123'},{source:'arctic-shift'}).media.length,0);
  assert.equal(M.normalizeComment({...raw,media_metadata:{synthetic123:{e:'Image',m:'image/jpeg',s:{u:'https://evil.example/synthetic123.jpeg'}}}},{source:'arctic-shift'}).media.length,0);
 });
+
+test('a notice counts only as the first own paragraph; later user text "[removed]" does not',()=>{
+ const {JSDOM}=require('jsdom');const dom=new JSDOM('',{runScripts:'outside-only'}),W=dom.window;W.eval(fs.readFileSync('extension/post-model.js','utf8'));
+ const status=html=>{const box=W.document.createElement('div');box.innerHTML=html;return W.RTPostModel.domStatus(box.firstElementChild);};
+ assert.equal(status('<shreddit-comment><div><p>[removed]</p></div></shreddit-comment>'),'removed');
+ assert.equal(status('<shreddit-comment><div><p>[ Removed by Reddit ]</p></div></shreddit-comment>'),'removed');
+ assert.equal(status('<shreddit-comment><div><p>Comment deleted by user</p></div></shreddit-comment>'),'deleted');
+ assert.equal(status('<shreddit-comment><div><p>I wrote:</p><p>[removed]</p></div></shreddit-comment>'),'');
+ assert.equal(status('<shreddit-comment><div><p>  </p><p>[deleted]</p></div></shreddit-comment>'),'deleted','blank paragraphs are skipped');
+ assert.equal(status('<shreddit-comment><div><p>Live text</p></div><shreddit-comment><div><p>[removed]</p></div></shreddit-comment></shreddit-comment>'),'','a nested reply’s notice never counts');
+ assert.equal(W.RTPostModel.noticeParagraph(null),null);
+});
