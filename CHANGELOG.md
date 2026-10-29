@@ -1,3 +1,12 @@
+# 0.20.10 preview
+
+- Back returns to the same place after any navigation away from a profile, not only after opening a post: subreddit, home feed and another user's profile too. Reddit keeps the profile's feed element and restores it with its own scroll offset; discovery now parks its state with that feed instead of removing its cards and re-inserting copies, and resumes when the feed comes back. Up to four profile views are kept; older ones, and all of them when discovery is turned off or the account changes, are cleaned up properly.
+- Simpler internals: the saved-copy restore path, card cloning and the post-Back scroll correction are gone.
+
+Version choice: PATCH to 0.20.10 for a user-visible reliability fix; no new permissions, requests or storage.
+
+Validation: all 814 tests pass. Live Chrome on u/chuggingdeemer: Back from a post, a subreddit, the home feed and another profile returned the reading card to its exact offset, up to 15,000 px deep, with one discovery header and the discovered cards in place. ZIP integrity and source/stable-folder/archive byte equality pass.
+
 # 0.20.9 preview
 
 - Arctic Shift maintenance is recognized: its 503 "Under maintenance" (and other 502/503/504 outages) pauses all archive requests for a minute, doubling up to ten, instead of retrying every few seconds. The feed shows one quiet note, "Arctic Shift is down for maintenance. Retrying in about 1 min.", with Retry now sending a single probe. The next successful response lifts the pause.
