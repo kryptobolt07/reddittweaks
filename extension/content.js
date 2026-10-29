@@ -20,6 +20,12 @@
   let stopped = false;
   let collapsedControl = null;
   let openListRequested = false;
+  // Avatars already decoded in this page (bounded). A browser-cached image reports complete as soon
+  // as its source is set, so the check costs no request; rows asking are already in the visible window.
+  const loadedAvatars=new Set();
+  const rememberAvatar=url=>{if(!url)return;loadedAvatars.delete(url);loadedAvatars.add(url);if(loadedAvatars.size>300)loadedAvatars.delete(loadedAvatars.values().next().value);};
+  const knownAvatar=url=>{if(!url)return false;if(loadedAvatars.has(url))return true;try{const probe=new Image();probe.referrerPolicy='no-referrer';probe.src=url;if(probe.complete && probe.naturalWidth>0){rememberAvatar(url);return true;}}catch{}return false;};
+
   const icons = {
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/>',
     refresh: '<path d="M20 8a8.9443 8.9443 0 1 0 0 8M20 3v5h-5"/>',
@@ -574,7 +580,10 @@
             const url=new URL(avatarUrl,location.href);
             if(avatarUrl && (url.protocol==='https:' || /^data:image\/(png|jpeg|webp|svg\+xml)[;,]/.test(avatarUrl))) {
               const image=node('img');image.alt='';image.referrerPolicy='no-referrer';
-              image.style.visibility='hidden';image.addEventListener('load',()=>{
+              // An avatar the browser already shows (Reddit's chat, or an earlier result) needs no
+              // placeholder letter, no hidden phase and no wait for the visibility observer.
+              if(knownAvatar(avatarUrl)){image.src=avatarUrl;image.decoding='sync';row.image=image;row.avatar.replaceChildren(image);wanted.push(row.result);continue;}
+              image.style.visibility='hidden';image.addEventListener('load',()=>{rememberAvatar(avatarUrl);
                 image.style.visibility='visible';
                 if(image.parentNode===row.avatar)for(const child of [...row.avatar.childNodes])if(child!==image)child.remove();
               },{once:true});
