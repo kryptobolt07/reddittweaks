@@ -259,7 +259,7 @@ test('people previews omit missing or older messages and update from existing sa
   const dom=new JSDOM(fs.readFileSync(path.join(__dirname,'../extension/popup.html'),'utf8'),{runScripts:'outside-only'}),w=dom.window;t.after(()=>dom.window.close());
   const calls=[];w.chrome={runtime:{sendMessage:async request=>{calls.push(request);return {ok:true,stats:{messages:42,rooms:3,approxBytes:2048}};}}};
   w.eval(fs.readFileSync(path.join(__dirname,'../extension/popup.js'),'utf8'));await settle();
-  assert.match(w.document.querySelector('.cache-info').textContent,/Saved messages only.*History may be incomplete.*scoped to your Reddit account/s);
+  assert.match(w.document.querySelector('.cache-info').textContent,/Saved messages only.*History may be incomplete.*every Reddit account on this device/s);
   assert.match(w.document.querySelector('#message-stats').textContent,/42 saved messages.*3 chats/);assert.equal(calls.length,1);assert.equal(calls[0].action,'stats');
 });
 
@@ -711,8 +711,8 @@ test('calendar chooser Escape stays inside the picker and does not dismiss globa
 });
 
 test('quick dates remain a local draft until Apply and reuse the existing saved-search path',async t=>{
-  const p=await setup(t),c=p.control;await p.search('coffee');await p.click('[data-control="date"]');const picker=c.datePicker;picker.today=()=> '2026-10-14';const searches=p.searches.length,requests=p.requests.length;
-  picker.element.querySelector('.calendar-quick').click();picker.element.querySelector('[data-preset="Last 7 days"]').click();await settle();assert.equal(p.searches.length,searches);assert.equal(p.requests.length,requests);assert.equal(c.dates.from,'');assert.equal(c.dates.to,'');assert.equal(picker.open,true);
+  const p=await setup(t),c=p.control;await p.search('coffee');await p.click('[data-control="date"]');const picker=c.datePicker;picker.today=()=> '2026-10-14';picker.render();const searches=p.searches.length,requests=p.requests.length;
+  assert.equal(picker.element.querySelector('.calendar-quick'),null);picker.element.querySelector('[data-preset="Last 7 days"]').click();await settle();assert.equal(p.searches.length,searches);assert.equal(p.requests.length,requests);assert.equal(c.dates.from,'');assert.equal(c.dates.to,'');assert.equal(picker.open,true);
   picker.element.querySelector('.calendar-apply').click();await settle();assert.equal(c.dates.from,'2026-10-08');assert.equal(c.dates.to,'2026-10-14');assert.equal(p.searches.length,searches+1);assert.equal(p.requests.length,requests);assert.ok(p.find('[aria-label="Remove date filter"]'));await p.click('[aria-label="Remove date filter"]');assert.equal(c.dates.from,'');assert.equal(c.dates.to,'');assert.equal(c.input.value,'coffee');
 });
 
