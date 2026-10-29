@@ -52,10 +52,8 @@
     for(const placeholder of controller.host?.querySelectorAll?.(':scope > .virtualized-placeholder') || [])placeholder.remove();
     controller.topStack=[];controller.topPadding=0;
   }
-  function viewportAnchor(feed){
-    for(const child of feed.children){if(child.classList.contains('virtualized-placeholder'))continue;const rect=child.getBoundingClientRect();if(rect.height>0 && rect.bottom>0 && rect.top<window.innerHeight)return {child,top:rect.top};}
-    return null;
-  }
+  // One pass: measure everything first, then change the DOM, then correct the
+  // scroll position. Measuring between writes would force a layout each time.
   function syncFeed(){
     const feed=currentFeed();
     if(!ownedFeed(feed)){
@@ -63,30 +61,45 @@
       return;
     }
     const controller=manageFeed(feed);if(!controller)return;
+    try{reconcileFeed(feed,controller);}
+    // Our own changes must not wake the observer into another pass.
+    finally{feedObserver?.takeRecords();}
+  }
+  function reconcileFeed(feed,controller){
     const height=Math.max(1,window.innerHeight || 0),restoreAbove=-1.5*height,restoreBelow=2.5*height,virtualizeAbove=-Math.max(3*height,height+1000);
-    const anchor=viewportAnchor(feed);let changed=false;
-    // Restore pass. A restored entry can itself be an older placeholder, so
-    // repeat until nothing near the viewport is left (bounded).
+    // Read phase.
+    const rows=[];let anchor=null;
+    for(let child=feed.firstElementChild;child;child=child.nextElementSibling){
+      const rect=child.getBoundingClientRect(),row={child,top:rect.top,bottom:rect.bottom,height:rect.height,placeholder:child.classList.contains('virtualized-placeholder')};rows.push(row);
+      if(!anchor && !row.placeholder && row.height>0 && row.bottom>0 && row.top<window.innerHeight)anchor={child,top:row.top};
+    }
+    // Virtualize candidates: only cards far above the viewport, the same distance
+    // Reddit uses. Our status/loader UI and empty elements stay mounted.
+    const pending=[];
+    for(const row of rows){
+      if(row.placeholder || row.child.dataset.rtUi && row.child.dataset.rtUi!=='activity-item')continue;
+      if(row.height>0 && row.top>=virtualizeAbove)break;
+      if(row.height>0 && row.bottom<virtualizeAbove)pending.push(row);
+    }
+    // Write phase. Restore any placeholder near the viewport; a restored entry
+    // can itself be an older placeholder, so look again only in that case (bounded).
+    let changed=false,nearRows=rows.filter(row=>row.placeholder && row.bottom>restoreAbove && row.top<restoreBelow);
     for(let pass=0;pass<8;pass++){
       const stack=controller.topStack,byPlaceholder=new Map();for(const entry of stack)if(entry?.placeholder)byPlaceholder.set(entry.placeholder,entry);
-      const near=[];for(const placeholder of feed.querySelectorAll(':scope > .virtualized-placeholder')){const rect=placeholder.getBoundingClientRect();if(rect.bottom>restoreAbove && rect.top<restoreBelow)near.push(placeholder);}
       // Entries whose placeholder left the document can never be restored by
       // Reddit either (its replaceChild would throw); drop them.
       const stale=stack.filter(entry=>!entry?.placeholder?.isConnected);
-      if(!near.length && !stale.length)break;
-      const done=new Set(stale);
-      for(const placeholder of near){const entry=byPlaceholder.get(placeholder);if(entry){restoreEntry(feed,entry);done.add(entry);}else placeholder.remove();changed=true;}
+      if(!nearRows.length && !stale.length)break;
+      const done=new Set(stale);let again=false;
+      for(const {child:placeholder} of nearRows){const entry=byPlaceholder.get(placeholder);if(entry){restoreEntry(feed,entry);done.add(entry);if(entry.node?.classList?.contains('virtualized-placeholder'))again=true;}else placeholder.remove();changed=true;}
       if(done.size){const keep=stack.filter(entry=>!done.has(entry));stack.length=0;stack.push(...keep);}
+      if(!again)break;
+      nearRows=[];for(const placeholder of feed.querySelectorAll(':scope > .virtualized-placeholder')){const rect=placeholder.getBoundingClientRect();if(rect.bottom>restoreAbove && rect.top<restoreBelow)nearRows.push({child:placeholder});}
     }
-    // Virtualize pass: only cards far above the viewport, the same distance
-    // Reddit uses. Our status/loader UI and empty elements stay mounted.
-    const pending=[];
-    for(const child of feed.children){
-      if(child.classList.contains('virtualized-placeholder') || child.dataset.rtUi && child.dataset.rtUi!=='activity-item')continue;
-      const rect=child.getBoundingClientRect();if(rect.height>0 && rect.top>=virtualizeAbove)break;
-      if(rect.height>0 && rect.bottom<virtualizeAbove)pending.push([child,rect.height]);
+    for(const {child:node,height:size} of pending){
+      if(node.parentElement!==feed)continue;
+      const placeholder=document.createElement('div');placeholder.className='virtualized-placeholder';placeholder.style.height=size+'px';feed.replaceChild(placeholder,node);controller.topStack.push({node,placeholder,height:size});changed=true;
     }
-    for(const [node,size] of pending){const placeholder=document.createElement('div');placeholder.className='virtualized-placeholder';placeholder.style.height=size+'px';feed.replaceChild(placeholder,node);controller.topStack.push({node,placeholder,height:size});changed=true;}
     if(!changed)return;
     controller.topPadding=controller.topStack.reduce((sum,entry)=>sum+(entry.placeholder?.isConnected && Number.isFinite(entry.height)?entry.height:0),0);
     // Restored cards may differ from their saved heights; keep what the reader
