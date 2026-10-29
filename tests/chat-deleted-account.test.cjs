@@ -79,3 +79,22 @@ test('directory merge keeps a retained avatar over the deleted-account default, 
   const winner=M.mergeIdentity(M.identity(live),M.identity(retained));
   assert.equal(winner.name,'Newer_Name');assert.equal(winner.avatar,'https://example.invalid/newer.png');
 });
+
+// A browser that never saw the person alive: no saved identity, only the
+// membership record Reddit's own client already loaded for the room.
+test('a deleted account takes its name and avatar from the room membership Reddit already loaded, and "…" never outlasts the recovery window',async t=>{
+  const {JSDOM}=require('jsdom');const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat/',runScripts:'outside-only'});t.after(()=>dom.window.close());const W=dom.window;
+  W.eval(require('node:fs').readFileSync(require('node:path').join(__dirname,'..','extension/native-identities.js'),'utf8'));
+  const deleted='@t2_gone:reddit.com',unknown='@t2_unknown:reddit.com',member={getContent:()=>({displayname:'Pulse8279',membership:'join'}),getUnsigned:()=>({'m.relations':{'com.reddit.profile':{username:'Pulse8279',icon_url:'https://styles.redditmedia.com/t5_1/styles/profileIcon_kept.png'}}})};
+  const client={getUserId:()=> '@t2_me:reddit.com',getRooms:()=>[{currentState:{getStateEvents:(type,id)=>type==='m.room.member' && id===deleted?member:null}}]};
+  class Users{getDisplayName(){return '[deleted]';}getAvatar(){return {src:'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_1.png'};}}
+  const host=W.document.createElement('div');Object.defineProperty(host,'tagName',{value:'RS-ROOM'});host.users=new Users();W.document.body.append(host);
+  let now=1000;W.Date.now=()=>now;
+  W.RCSNativeIdentities.configure(()=>({client,all:()=>[host]}));
+  assert.equal(host.users.getDisplayName(deleted),'Pulse8279');
+  assert.equal(host.users.getAvatar(deleted).src,'https://styles.redditmedia.com/t5_1/styles/profileIcon_kept.png');
+  W.document.dispatchEvent(new W.CustomEvent('rcs-native-identities-start'));
+  assert.equal(host.users.getDisplayName(unknown),'…','briefly held while a recovery may still answer');
+  now+=6001;assert.equal(host.users.getDisplayName(unknown),'[deleted]','Reddit\'s own label returns after the window');
+  assert.equal(host.users.getAvatar(unknown).src,'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_1.png');
+});
