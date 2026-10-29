@@ -63,6 +63,8 @@ html[data-rt-profile-discovery] shreddit-feed faceplate-partial[slot="load-after
 [data-rt-ui="activity-empty"][hidden]{display:none!important}
 
 shreddit-sort-dropdown[data-rt-comment-sort-suppressed]{display:none!important}
+/* Until Feed options replaces it (or 2.5 s pass), Reddit's Comments sort keeps its space but stays invisible. */
+html[data-rt-profile-comments] main shreddit-sort-dropdown:not([data-rt-ui] *){visibility:hidden;animation:rt-menu-reveal 0s 2.5s forwards}
 
 /* Gate native insertions before their first paint; retain nodes and native stack. */
 shreddit-feed[data-rt-activity="hidden"]>:not([data-rt-ui]):is(shreddit-post,shreddit-profile-comment,:has(shreddit-post,shreddit-profile-comment)),
