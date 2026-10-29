@@ -2,10 +2,10 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm');
 const row=(extra={})=>({id:'abc12',author:'Example',created_utc:1700000000,selftext:'Public archive',...extra});
-function env({fetcher,settings={postDiscovery:true,archiveDiscovery:true},fastTimeout=false}={}){
+function env({fetcher,settings={postDiscovery:true,archiveDiscovery:true},fastTimeout=false,session}={}){
  let listener,settingsListener,calls=[],stored=settings,notifications=[];
  const context=vm.createContext({URL,AbortController,Date,console,setTimeout:fastTimeout?(fn)=>setTimeout(fn,5):setTimeout,clearTimeout,
- chrome:{runtime:{id:'own',onMessage:{addListener(fn){listener=fn;}}},storage:{onChanged:{addListener(fn){settingsListener=fn;}},local:{async get(){return {'rt-settings-v1':stored};}}},tabs:{async sendMessage(...args){notifications.push(args);}}},
+ chrome:{runtime:{id:'own',onMessage:{addListener(fn){listener=fn;}}},storage:{...(session?{session:{async get(key){return {[key]:session[key]};},async set(values){Object.assign(session,JSON.parse(JSON.stringify(values)));}}}:{}),onChanged:{addListener(fn){settingsListener=fn;}},local:{async get(){return {'rt-settings-v1':stored};}}},tabs:{async sendMessage(...args){notifications.push(args);}}},
  fetch:async(...args)=>{calls.push(args);return fetcher?fetcher(...args):response([row()]);}});
  for(const file of ['post-model.js','post-broker.js'])vm.runInContext(fs.readFileSync('extension/'+file,'utf8'),context);
  return {calls,notifications,changeSettings(value){stored=value;settingsListener({'rt-settings-v1':{newValue:value}},'local');},setSettings(value){stored=value;},send(message={},sender={}){return new Promise(resolve=>{const result=listener({scope:'rt-posts',action:'archive-profile',username:'Example',...message},{id:'own',frameId:0,url:'https://www.reddit.com/user/Example/',...sender},resolve);if(result!==true)resolve(undefined);});}};
@@ -225,4 +225,32 @@ test('simultaneous requests that hit one outage count it once',async()=>{
  const e=env({fetcher:async()=>({ok:false,status:503,headers:{get:()=>null},async text(){return '{"error":"Under maintenance"}';}})});
  const [a,b]=await Promise.all([e.send(),e.send({kind:'comment'})]);assert.equal(e.calls.length,2);
  for(const result of [a,b]){assert.equal(result.code,'maintenance');assert.ok(result.retryAt-Date.now()<=60000);}
+});
+
+test('server cooldown headers are capped at one hour',async()=>{
+ for(const headers of [{'Retry-After':'99999999'},{'X-RateLimit-Reset':'4102444800'},{'X-RateLimit-Reset-At':'4102444800000'}]){
+  const e=env({fetcher:async()=>response([],429,headers)}),r=await e.send();assert.equal(r.code,'rate-limited');assert.ok(r.retryAt<=Date.now()+3600000+1000,'cooldown capped');assert.ok(r.retryAt>Date.now()+3500000);
+ }
+});
+test('rate-limit and maintenance backoff survive a service-worker restart through session storage',async()=>{
+ const session={};
+ const limited=env({session,fetcher:async()=>response([],429,{'Retry-After':'120'})});await limited.send();await new Promise(r=>setImmediate(r));
+ assert.ok(session['rt-archive-backoff-v1'].cooldownUntil>Date.now());
+ const restarted=env({session}),r=await restarted.send();assert.equal(r.code,'rate-limited');assert.equal(restarted.calls.length,0);
+ const s2={};const maint=env({session:s2,fetcher:async()=>({ok:false,status:503,headers:{get:()=>null},async text(){return '{"error":"Under maintenance"}';}})});
+ assert.equal((await maint.send()).code,'maintenance');await new Promise(r=>setImmediate(r));assert.equal(s2['rt-archive-backoff-v1'].unavailableCount,1);
+ const after=env({session:s2}),again=await after.send({before:1700000000});assert.equal(again.code,'maintenance');assert.equal(after.calls.length,0);
+});
+test('stored backoff is bounded and ignores malformed values',async()=>{
+ const e=env({session:{'rt-archive-backoff-v1':{cooldownUntil:Date.now()+9e12,unavailableUntil:'x',unavailableCount:'many'}}}),r=await e.send();
+ assert.equal(r.code,'rate-limited');assert.ok(r.retryAt<=Date.now()+3600000+1000);
+});
+test('the transport slot is released before parent-title lookups',async()=>{
+ const titleGates=[],e=env({fetcher:url=>{const u=new URL(url);if(u.pathname==='/api/posts/ids')return new Promise(resolve=>titleGates.push(()=>resolve(response([]))));return Promise.resolve(response([row({id:'19rktoupyflj9',author:u.searchParams.get('author'),body:'Archived comment',link_id:'t3_abc12'})]));}});
+ const comments=[1,2].map(i=>e.send({kind:'comment',username:'Example'+i},{url:'https://www.reddit.com/user/Example'+i+'/comments/'}));
+ await new Promise(r=>setTimeout(r,20));assert.equal(titleGates.length,2);
+ // Both slots would still be held if title lookups kept them; a third profile request must reach fetch now.
+ const third=e.send({username:'Third'},{url:'https://www.reddit.com/user/Third/'});await new Promise(r=>setTimeout(r,20));
+ assert.ok(e.calls.some(([url])=>new URL(url).searchParams.get('author')==='third'));
+ titleGates.forEach(g=>g());await Promise.all([...comments,third]);
 });

@@ -1,8 +1,9 @@
 /* Synthetic measurement only; never reads the browser or private messages. */
-const fs=require('node:fs'),vm=require('node:vm');
+const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const extensionDir=path.join(__dirname,'..','extension');
 const {IDBFactory,IDBKeyRange}=require('fake-indexeddb');
 const context=vm.createContext({indexedDB:new IDBFactory(),IDBKeyRange,TextEncoder});
-for(const file of ['search-core.js','message-store.js'])vm.runInContext(fs.readFileSync(`extension/${file}`,'utf8'),context);
+for(const file of ['search-core.js','message-store.js'])vm.runInContext(fs.readFileSync(path.join(extensionDir,file),'utf8'),context);
 (async()=>{
   const store=new context.RCSMessageStore.Store(),owner='@synthetic:reddit.com';
   const start=performance.now();
