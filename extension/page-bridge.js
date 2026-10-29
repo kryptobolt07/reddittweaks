@@ -624,8 +624,15 @@
       profileCache(ctx).set(raw.id,{name:raw.name || '',avatar:raw.avatar || '',aliases:raw.aliases || [],deleted:Boolean(raw.accountUnavailable),
         availabilityKnown:Boolean(raw.availabilityKnown),verifiedAt:raw.verifiedAt || 0,provenance:raw.provenance || 'saved-directory',
         pending:Boolean(raw.pending || !raw.availabilityKnown),retryAfter:raw.profileRetryAt || 0});
-      if(raw.historicalName || raw.provenance==='retained-member')identityCache(ctx).set(raw.id,{name:raw.name || '',avatar:raw.avatar || '',aliases:raw.aliases || [],
-        time:raw.observedAt || 0,recoveryCheckedAt:raw.recoveryCheckedAt || 0,recoveryStatus:raw.recoveryStatus || ''});
+      // Reddit scrubs member names once an account is deleted, so a real username saved while the
+      // account was alive is the only copy left. Seed it as the retained identity, keeping its avatar,
+      // unless a newer retained entry (for example from a member event) already exists.
+      const name=retainedUsername(raw.name,true),real=name && !['Someone','Unknown'].includes(name);
+      if(raw.historicalName || raw.provenance==='retained-member' || real) {
+        const time=raw.observedAt || raw.verifiedAt || 0,previous=identityCache(ctx).get(raw.id);
+        if(!previous?.name || time>=previous.time)identityCache(ctx).set(raw.id,{name:raw.name || '',avatar:raw.avatar || previous?.avatar || '',aliases:[...new Set([...(raw.aliases || []),...(previous?.aliases || [])])],
+          time,recoveryCheckedAt:raw.recoveryCheckedAt || previous?.recoveryCheckedAt || 0,recoveryStatus:raw.recoveryStatus || previous?.recoveryStatus || ''});
+      }
     }
     if(request.ackMetadataVersion===metadataVersion){changedRooms.clear();profileChangedRooms.clear();watchedSignature=JSON.stringify(directoryContext(ctx));}
     publishIdentityChanges(ctx,new Set((request.identities || []).map(person=>person.id)));
@@ -655,7 +662,8 @@
         const headers=error.headers || error.httpHeaders || error.response?.headers;
         const retryAfter=headers?.get?.('Retry-After') || headers?.['retry-after'] || headers?.['Retry-After'];
         const headerDelay=retryAfter===undefined ? 0 : Number.isFinite(Number(retryAfter)) ? Number(retryAfter)*1000 : Math.max(0,Date.parse(retryAfter)-Date.now());
-        const wait=Math.max(0,headerDelay||0,error.data?.retry_after_ms||0,error.retry_after_ms||0,(limited ? 30000 : 1000)*2**attempt);
+        // Server hints are advisory: never wait or block longer than an hour.
+        const wait=Math.min(3600000,Math.max(0,headerDelay||0,error.data?.retry_after_ms||0,error.retry_after_ms||0,(limited ? 30000 : 1000)*2**attempt));
         const until=Date.now()+wait;
         localCooldowns.set(job.owner,Math.max(localCooldowns.get(job.owner)||0,until));
         if(limited)await traffic('traffic-cooldown',job,{until});
@@ -1036,10 +1044,32 @@
     }
     state.failed=false;runNativeCapture(state);
   });
-  const observeNativeClient=()=>{try{const ctx=context();if(ctx.client?.getUserId?.()){watchDirectory(ctx);announceNativeCache(ctx);}}catch{ /* Native discovery is optional and fail open. */ }};
+  // Finding the floating chat shell scans every div, in every frame of every Reddit page.
+  // The 1.5 s tick stays, but it skips ticks (up to 20, i.e. 30 s) until chat exists:
+  // a chat component connecting (rcs-chat-present) or a chat starting resets it.
+  let chatSeen=false,observeTicks=1,skipTicks=0;
+  const observeNativeClient=()=>{
+    let live=chatSeen;
+    try{const ctx=context();if(ctx.client?.getUserId?.()){live=true;watchDirectory(ctx);announceNativeCache(ctx);}}catch{ /* Native discovery is optional and fail open. */ }
+    observeTicks=live ? 1 : Math.min(observeTicks*2,20);skipTicks=observeTicks-1;
+  };
+  const noteChat=()=>{if(chatSeen)return;chatSeen=true;observeTicks=1;setTimeout(observeNativeClient,0);document.dispatchEvent(new CustomEvent('rcs-chat-present'));};
+  if(globalThis.customElements?.define) {
+    const define=customElements.define;
+    customElements.define=function(name,constructor,...args){
+      try{
+        const proto=name.startsWith('rs-') && constructor?.prototype,original=proto && proto.connectedCallback;
+        if(typeof original==='function' && !Object.hasOwn(proto,'__rcsChatSeen')) {
+          Object.defineProperty(proto,'__rcsChatSeen',{value:true});
+          proto.connectedCallback=function(...args){noteChat();return original.apply(this,args);};
+        }
+      }catch{ /* Never block Reddit's own component registration. */ }
+      return define.call(this,name,constructor,...args);
+    };
+  }
   setTimeout(observeNativeClient,0);
-  setInterval(observeNativeClient,1500);
-  document.addEventListener('rcs-chat-starting',observeNativeClient);
+  setInterval(()=>{if(skipTicks>0)skipTicks--;else observeNativeClient();},1500);
+  document.addEventListener('rcs-chat-starting',()=>{chatSeen=true;observeNativeClient();});
   document.addEventListener(requestEvent,async event => {
     let request;
     try { request=JSON.parse(event.detail); } catch { return; }

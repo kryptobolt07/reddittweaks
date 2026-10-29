@@ -9,7 +9,6 @@
     if(!result?.ok)throw Error(result?.error || 'Username cache unavailable. Please retry.');
     return result;
   }
-  const preload=supported ? broker('bootstrap').catch(()=>({entries:{}})) : Promise.resolve({entries:{}});
   let startupReady=null;
   function ensureStartup() {
     if(!supported)return Promise.resolve();
@@ -23,7 +22,8 @@
     document.dispatchEvent(new CustomEvent('rcs-native-identities-start'));
     try {
       const context=await RCSData.request('identity-context').promise;
-      const {entries}=await preload,entry=entries[context.owner] || null;
+      // Only the signed-in account's saved directory crosses into this frame, and only once its owner is known.
+      const entry=(await broker('read',{owner:context.owner}).catch(()=>null))?.entry || null;
       const people=Object.values(entry?.identities || {}).filter(p=>p.accountUnavailable && p.historicalName);
       const rooms=(entry?.records || []).filter(r=>r.type==='direct' && r.accountUnavailable && r.historicalName && r.participantIds.length===1).map(r=>({id:r.id,person:r.participantIds[0]}));
       await RCSData.request('identity-snapshot',{owner:context.owner,people,rooms,records:entry?.records || [],identities:Object.values(entry?.identities || {}),restoring:!entry?.directoryComplete}).promise;
@@ -58,7 +58,7 @@
     if(job.token && value.records?.length) {
       const token=job.token;
       job.checkpoints=job.checkpoints.then(()=>broker('checkpoint',{owner:job.owner,token,records:value.records,identities:identities(value.records),
-        ...(Object.hasOwn(value,'directoryCursor') ? {directoryCursor:value.directoryCursor,discoveryComplete:value.discoveryComplete,activityComplete:value.discoveryComplete} : {}),
+        ...(Object.hasOwn(value,'directoryCursor') ? {directoryCursor:value.directoryCursor,discoveryComplete:value.discoveryComplete} : {}),
         ...(Object.hasOwn(value,'activityCursor') ? {activityCursor:value.activityCursor,activityComplete:value.activityComplete} : {})
       })).catch(()=>{});
     }

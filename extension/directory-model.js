@@ -23,7 +23,11 @@
     const winner = older ? before : incoming;
     const other = older ? incoming : before;
     const name = winner.name && !['[deleted]','Someone','Username unavailable'].includes(winner.name) ? winner.name : other.name || winner.name;
-    return {...other,...winner,name,avatar:winner.avatar || other.avatar,
+    // A deleted account's profile carries Reddit's default avatar. It never replaces a retained image,
+    // but a newer record with its own real name (a retained member event) keeps its own avatar.
+    const placeholderWinner=!winner.name || ['[deleted]','Someone','Username unavailable'].includes(winner.name);
+    const avatar=winner.accountUnavailable && placeholderWinner ? other.avatar || winner.avatar : winner.avatar || other.avatar;
+    return {...other,...winner,name,avatar,
       aliases:strings([...before.aliases,...incoming.aliases,before.name,incoming.name]),
       historicalName:winner.accountUnavailable ? Boolean(name && name !== '[deleted]') : winner.historicalName,
       availabilityKnown:winner.availabilityKnown || other.availabilityKnown,

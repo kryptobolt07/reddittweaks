@@ -484,6 +484,14 @@ test('People previews and status share compact rows without the common-word hint
   assert.doesNotMatch(c.status.textContent,/loaded/);assert.match(c.status.title,/loaded/);
   assert.equal(c.shadow.querySelector('.common-hint'),null);
 });
+test('partial saved-message coverage is a separate quiet note, never part of the status counts',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;await p.search('coffee');
+  const note=p.find('.coverage-note');
+  c.savedTotal=3;c.savedComplete=false;c.updateControls();
+  assert.equal(note.hidden,false);assert.match(note.title,/may be missing/);assert.doesNotMatch(c.status.textContent,/incomplete|Saved messages only/);
+  c.savedComplete=true;c.updateControls();assert.equal(note.hidden,true);
+  c.savedComplete=false;c.savedTotal=0;c.updateControls();assert.equal(note.hidden,true);
+});
 
 
 test('scope labels and reserved count slots stay mounted across count changes',async t=>{

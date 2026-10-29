@@ -316,7 +316,10 @@ test('completed room discovery is saved before profile resolution, so a stopped 
   assert.equal(cache.local.data['rcs-directory-v2:'+owner].directoryComplete,true);
   task.cancel();await tick(100);first.dom.window.close();
   const resumed=environment(cache,2);t.after(()=>resumed.dom.window.close());const records=await resumed.W.RCSDirectory.load().promise;
-  assert.equal(records.length,7);assert.equal(records.find(r=>r.id==='amey').name,'amey_bhoir');assert.equal(resumed.api.calls.length,0);
+  assert.equal(records.length,7);assert.equal(records.find(r=>r.id==='amey').name,'amey_bhoir');
+  // The interrupted run never fetched conversation dates, so discovery being complete must not mark dates complete:
+  // exactly one dates page is read now, and room discovery is not repeated.
+  assert.equal(resumed.api.calls.map(call=>call.method).join(),'rooms');assert.equal(resumed.api.calls[0].options.include.timeline,true);
 });
 test('the date backfill resumes its saved page after refresh and retains dates from earlier pages',async t=>{
   const cache=broker(),entry=await seedRecoveredCache(t,cache);entry.activityComplete=false;
