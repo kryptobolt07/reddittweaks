@@ -38,7 +38,11 @@
   async function archiveRead(parameters){
     let timer;try{const response=await Promise.race([chrome.runtime.sendMessage({scope:'rt-posts',...parameters,pageUrl:location.href}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Archive request took too long. Try again.')),16000);})]);if(!response?.ok)throw Object.assign(Error(response?.error || 'Archive unavailable.'),{code:response?.code,retryAt:response?.retryAt});return response;}catch(error){if(/took too long/.test(error.message))error.code='timeout';throw error;}finally{clearTimeout(timer);}
   }
+  let earlySettingsUsed=false;
   async function settingsRead(){
+    // The document_start guard already asked the worker; reuse that answer once.
+    const early=!earlySettingsUsed && globalThis.RTProfileNoticeGuard?.settings;earlySettingsUsed=true;
+    if(early){try{const response=await early;if(response?.ok && response.settings)return {[key]:response.settings};}catch{}}
     const response=await archiveRead({action:'get-settings'});
     return {[key]:response.settings};
   }
@@ -309,6 +313,8 @@
     }
     clearActivityMenu(){
       if(this.activityMain && this.openSubmenu)this.activityMain.classList.remove('hidden');
+      // Native rows return; mark the menu handled so the pre-hide never applies.
+      this.activityMain?.setAttribute('data-rt-menu-ready','');
       this.activityMenuObserver?.disconnect();if(this.activityDropdown && this.activityKeydown)this.activityDropdown.removeEventListener('keydown',this.activityKeydown,true);
       // Return Reddit's own rows to their original places.
       for(const group of this.menuGroups || []){for(const item of group.items)group.anchor.before(item);if(group.header)group.header.hidden=group.headerHidden;group.anchor.remove();}
@@ -361,7 +367,7 @@
         // Refresh sits at the end of the Activity submenu.
         const divider=make('div','my-xs border-0 border-t-sm border-solid border-neutral-border-weak');divider.setAttribute('role','separator');
         const refresh=row('Refresh activity','refresh');refresh.dataset.rtUi='activity-refresh';activate(refresh,()=>{open(null);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});if(!this.discover.disabled)this.discover.click();});sub.append(divider,refresh);
-        content.append(sub);this.activityMenuRows.push(activity,sub);this.host?.setAttribute('data-rt-menu-ready','');
+        content.append(sub);this.activityMenuRows.push(activity,sub);this.host?.setAttribute('data-rt-menu-ready','');menu.setAttribute('data-rt-menu-ready','');
         this.activityKeydown=event=>{if(event.key==='Escape' && this.openSubmenu){event.preventDefault();event.stopImmediatePropagation();open(null);}};dropdown.addEventListener('keydown',this.activityKeydown,true);
         // Close ours when the dropdown closes, or when Reddit opens its own submenu (Top) from ours.
         this.activityMenuObserver=new MutationObserver(()=>{if(!this.openSubmenu)return;const nativeOpen=[...content.children].some(node=>node!==menu && !subs.includes(node) && node.matches('rpl-menu') && !node.classList.contains('hidden'));if(!dropdown.hasAttribute('open'))open(null);else if(nativeOpen){this.openSubmenu.classList.add('hidden');this.openSubmenu=null;this.activityOpen=false;}});

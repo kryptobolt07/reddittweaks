@@ -139,3 +139,9 @@ html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary
 .rt-skeleton-line:not(:defined)::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent);animation:rt-skeleton-sweep 1.5s ease-in-out infinite}
 @media(prefers-reduced-motion:reduce){.rt-skeleton-fallback::after{display:none}}
 @media(prefers-reduced-motion:reduce){.rt-skeleton-line:not(:defined)::after{display:none}}
+
+/* Feed options: until discovery has grouped Reddit's rows (Sort, View,
+   Activity), keep the original rows invisible so the open menu never changes
+   under the reader. Reveals itself after 2.5 s if discovery never takes over. */
+@keyframes rt-menu-reveal{to{visibility:visible}}
+html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed options"]) rpl-menu.main-menu-container:not([data-rt-menu-ready])>:not([data-rt-ui]){visibility:hidden;animation:rt-menu-reveal 0s 2.5s forwards}

@@ -1140,7 +1140,7 @@ test('a card without archive text keeps a Reddit-styled retry row after a defini
 
 test('Refresh lives in Reddit’s Feed options menu and reloads search and archive together',async t=>{
  const archiveCalls=[];const {W,d,calls}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},archive:async input=>{archiveCalls.push(input);return {posts:[],hasMore:false};}});await d.ready;
- assert.equal(d.archiveButton,null,'no separate archive button');assert.equal(d.host.hasAttribute('data-rt-menu-ready'),true);
+ assert.equal(d.archiveButton,null,'no separate archive button');assert.equal(d.host.hasAttribute('data-rt-menu-ready'),true);const mainMenu=W.document.querySelector('rpl-menu.main-menu-container');assert.equal(mainMenu.hasAttribute('data-rt-menu-ready'),true,'the grouped menu is marked so the pre-hide stops');t.after(()=>assert.equal(mainMenu.hasAttribute('data-rt-menu-ready'),true,'restored native rows stay visible'));
  const refresh=W.document.querySelector('[data-rt-ui="activity-refresh"]');assert.ok(refresh);assert.equal(refresh.closest('rpl-dropdown').querySelector('button[aria-label="Feed options"]')!=null,true);
  refresh.click();await Promise.all([d.redditRun,d.archiveRun]);assert.equal(calls.filter(c=>c.action==='profile').length,1);assert.equal(archiveCalls.length,1);
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(W.document.querySelector('[data-rt-ui="activity-refresh"]'),null,'opt-out removes the menu row');
@@ -1301,4 +1301,18 @@ test('profile restored comments render archive images inline and remain restrict
   const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',settings:{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},reddit:async()=>({posts:[{id:'t1_image1',kind:'comment',author:'Example',body:'[removed]',created_utc:1700000000,link_id:'t3_abc12',over_18:restricted}],hasMore:false}),archive:async()=>({posts:[{id:'t1_image1',kind:'comment',author:'Example',body:url,created_utc:1700000000,link_id:'t3_abc12',media_metadata:{synthetic:{e:'Image',m:'image/jpeg',s:{u:url,x:960,y:1482}}}}],hasMore:false}),nativeRender:async(post,node)=>{node.innerHTML='<shreddit-profile-comment comment-id="'+post.fullname+'" is-comment-deleted><div><p class="md">[removed]</p></div></shreddit-profile-comment>';}});
   W.eval(fs.readFileSync('extension/markdown-lite.js','utf8'));await d.ready;await d.loadReddit();await d.loadArchive();await new Promise(r=>setImmediate(r));const card=d.nodes.get('t1_image1'),image=card.querySelector('.rt-comment-media img');if(restricted)assert.equal(image,null);else{assert.equal(image.src,url);assert.equal(image.height,1482);assert.equal(card.querySelector('.md').textContent.includes(url),false);}
  }
+});
+
+test('Reddit\'s original Feed options rows stay invisible until grouped, with a self-revealing fail-safe',()=>{
+ const css=fs.readFileSync('extension/post-discovery.css','utf8');
+ assert.match(css,/@keyframes rt-menu-reveal\{to\{visibility:visible\}\}/);
+ assert.match(css,/html\[data-rt-profile-discovery\] main rpl-dropdown:has\(> button\[aria-label="Feed options"\]\) rpl-menu\.main-menu-container:not\(\[data-rt-menu-ready\]\)>:not\(\[data-rt-ui\]\)\{visibility:hidden;animation:rt-menu-reveal 0s 2\.5s forwards\}/);
+ assert.doesNotMatch(css,/submenu-container[^{]*:not\(\[data-rt-menu-ready\]\)/,'Reddit\'s own submenus are never hidden');
+ const manifest=JSON.parse(fs.readFileSync('extension/manifest.json','utf8'));assert.ok(manifest.content_scripts.some(entry=>entry.run_at==='document_start' && (entry.css || []).includes('post-discovery.css')),'loaded before Reddit renders the menu');
+});
+test('discovery reuses the document-start settings answer instead of asking the worker again',async t=>{
+ const dom=new JSDOM('<main id="main-content"></main>',{url:'https://www.reddit.com/user/Example/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());let asks=0;
+ W.chrome={runtime:{id:'fixture',sendMessage:async message=>{if(message.action==='get-settings')asks++;return {ok:true,settings:{postDiscovery:true,archiveDiscovery:false}};}}};
+ W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));for(const file of ['post-model.js','post-discovery.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
+ const d=W.RTDiscoveryDebug;await d.ready;try{assert.equal(d.settings.postDiscovery,true);assert.equal(asks,1,'one get-settings round trip per page');}finally{d.destroy();}
 });
