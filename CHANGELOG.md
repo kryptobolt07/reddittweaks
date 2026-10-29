@@ -1,3 +1,15 @@
+# 0.22.0 preview
+
+- Chat: unavailable accounts are now told apart. Reddit's chat data only says "deleted" for both deleted and banned accounts; the extension asks Reddit's small public hover card (about 2-3 KB, works signed out) once per person who is actually on screen and has a known username, then remembers the answer. Deleted accounts show a trash icon, banned accounts a circle-slash, and ones not yet known the person-x icon, labelled "Deleted account", "Banned account" or "Unavailable account" (plus "Retained username"). Requests run one at a time, at least 2.5 s apart, pause on rate limits, and failures retry after about ten minutes without being saved.
+- Chat: the marker now also appears in Reddit's own chat list (right side of the preview line) and inline next to the name in the room header, intro and message authors; in search results it always sits at the right edge, also on rows without a preview. Searching "banned" or "suspended" finds banned accounts.
+- Phone layout: the chat search field is 40 px high, matching Reddit's mobile controls.
+- Profiles: in compact view the status cue sits inline in the subreddit row instead of on its own line; the Comments tab shows the same Feed options button and grouped Sort / Activity menu as Overview and Posts.
+- Archived-author avatars no longer use /user/<name>/about.json (unavailable signed out); they come from Reddit's hover card headshot.
+
+Version choice: MINOR to 0.22.0 for the new deleted/banned distinction and the chat-list markers; no new permissions; the saved directory gains an accountStates map (older data stays readable).
+
+Validation: all 911 tests pass; hover-card behaviour verified live for live, deleted and suspended accounts; chat markers verified live in Reddit's chat list, header and messages, and placement in the demo in full, floating and phone widths. Limitation: the end-to-end live check that a classification is saved and shown after reload, done after the fix in this release, is still pending (it was found and fixed from live evidence; the fix is covered by a regression test).
+
 # 0.21.1 preview
 
 - Calendar: compact again (264 px wide, 320 px tall for a five-week month; 240 px in floating chat), smaller than the pre-0.21 calendar, with Reddit's accents back: brand underline on the active On/Before/After/Between tab, today in the brand colour, brand selection and Apply. Days are rounded squares, presets stay on one row with short labels ("7 days"), and the status reads "Pick a day".
