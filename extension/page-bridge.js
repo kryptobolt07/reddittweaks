@@ -646,7 +646,7 @@
   // Reddit's chat profile reports isDeleted for deleted and suspended accounts alike. Its public hover card
   // tells them apart, but only people the user can actually see are looked up, once each, one request at a time.
   const classifier={wanted:new Map(),running:false,nextAt:0,pausedUntil:0,strikes:0};
-  const classifyGapMs=2500,classifyRetryMs=86400000,classifyLimitMs=3600000,classifyTransientMs=600000;
+  const classifyGapMs=2500,classifyRetryMs=86400000,classifyNoAnswerMs=3600000,classifyLimitMs=3600000,classifyTransientMs=600000;
   function classifyHoverCard(html) {
     let doc;try{doc=new DOMParser().parseFromString(html,'text/html');}catch{return '';}
     if(doc.querySelector('[avatar] img, img[src*="profileIcon"]'))return 'live';
@@ -656,7 +656,8 @@
   // The retained username to look up, or '' when this person needs no request (no name, live, or already known).
   function classifiableName(ctx,id) {
     const person=profileCache(ctx).get(id);
-    if(!person?.deleted || person.accountState || Date.now()-(person.accountStateCheckedAt || 0)<classifyRetryMs)return '';
+    // A check that produced no answer (including ones lost before 0.22.0) is retried after an hour.
+    if(!person?.deleted || person.accountState || Date.now()-(person.accountStateCheckedAt || 0)<classifyNoAnswerMs)return '';
     const resolved=resolvedIdentity(id,person,ctx);
     return resolved.unavailable && resolved.historical ? retainedUsername(resolved.name) : '';
   }
@@ -688,7 +689,7 @@
         classifier.strikes=0;
         const cache=profileCache(ctx),person=cache.get(id);if(!person)continue;
         // Transient failures are not saved: try this person again in about ten minutes.
-        if(outcome.transient){cache.set(id,{...person,accountStateCheckedAt:Date.now()-classifyRetryMs+classifyTransientMs});continue;}
+        if(outcome.transient){cache.set(id,{...person,accountStateCheckedAt:Date.now()-classifyNoAnswerMs+classifyTransientMs});continue;}
         // A definite answer is kept for good. Anything else is only a note that today's attempt is spent.
         const state=outcome.state==='deleted' || outcome.state==='banned' ? outcome.state : '',checked=Date.now();
         cache.set(id,{...person,accountState:state,accountStateCheckedAt:checked});
