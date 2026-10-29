@@ -177,6 +177,10 @@
         const link=make('a','truncate font-bold text-neutral-content-strong text-12 focus-visible:-outline-offset-1 hover:underline rt-archived-author');link.href='https://www.reddit.com/user/'+author+'/';link.dir='auto';link.dataset.rtArchivedAuthor='true';link.setAttribute('aria-label','u/'+author+' (from archive)');link.title='Original author from an Arctic Shift snapshot';
         const plate=make('span','inline-flex items-center max-w-full whitespace-nowrap');plate.dir='auto';plate.dataset.testid='nameplate';plate.append(make('span','truncate',author));link.append(plate);
         patch.author={label,link};label.replaceWith(link);
+        // Reddit opens its profile card from an author-hovercard-trigger, for the comment's author
+        // attribute. Give the restored name both, so its card shows like a native author's.
+        if(!link.closest('.author-hovercard-trigger')){const trigger=make('span','author-hovercard-trigger cursor-pointer');link.replaceWith(trigger);trigger.append(link);patch.author.trigger=trigger;}
+        if(comment.getAttribute('author')==='[deleted]'){patch.author.attribute={comment,value:'[deleted]'};comment.setAttribute('author',author);}
       }
       const slot=comment.querySelector('[slot="commentAvatar"]');if(!slot || patch.avatar)return;
       const show=url=>{
@@ -289,7 +293,7 @@
       clearTimeout(this.retryTimer);this.retryAt=0;for(const timer of this.holdTimers)clearTimeout(timer);this.holdTimers.clear();this.timed=new WeakSet();this.checked=new WeakSet();this.records.clear();this.done.clear();this.shown.clear();for(const [node,attrs] of this.sharePatches){for(const [name,value] of attrs)if(value===null)node.removeAttribute(name);else node.setAttribute(name,value);}this.sharePatches.clear();this.shareComments=new WeakSet();
       this.postState?.reserved?.remove();const post=this.postState?.patch;if(post){for(const node of post.added)node.remove();if(post.title)post.title.node.replaceChildren(...post.title.original);if(post.author?.link.isConnected)post.author.link.replaceWith(post.author.label);}
       if(this.postState?.native){this.postState.native.removeAttribute('data-rt-pending');this.postState.native.removeAttribute('data-rt-settled');}this.postState=null;
-      for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;if(patch.author?.link.isConnected)patch.author.link.replaceWith(patch.author.label);if(patch.avatar)patch.avatar.slot.replaceChildren(...patch.avatar.original);}
+      for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;if(patch.author?.trigger?.isConnected)patch.author.trigger.replaceWith(patch.author.link);if(patch.author?.link.isConnected)patch.author.link.replaceWith(patch.author.label);if(patch.author?.attribute)patch.author.attribute.comment.setAttribute('author',patch.author.attribute.value);if(patch.avatar)patch.avatar.slot.replaceChildren(...patch.avatar.original);}
       this.patches.clear();
       for(const node of document.querySelectorAll('shreddit-comment[data-rt-pending],shreddit-comment[data-rt-settled]')){node.removeAttribute('data-rt-pending');node.removeAttribute('data-rt-settled');}
       for(const node of document.querySelectorAll('[data-rt-avatar-pending]'))node.removeAttribute('data-rt-avatar-pending');

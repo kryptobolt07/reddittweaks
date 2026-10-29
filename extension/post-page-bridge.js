@@ -494,7 +494,8 @@
     const name=input.username.toLowerCase(),now=Date.now(),cached=avatarReads.get(name);
     // Reuse a native comment headshot (including its signed preview query)
     // when this author already appears on the page. Never synthesize signatures.
-    for(const comment of document.querySelectorAll('shreddit-comment[author]'))if(comment.getAttribute('author')?.toLowerCase()===name){const slot=comment.querySelector('[slot="commentAvatar"]');if(slot?.closest('shreddit-comment')!==comment)continue;for(const image of slot?.querySelectorAll('image[href],img[src]') || []){const url=safeAvatar(image.getAttribute('href') || image.getAttribute('src'));if(url)return {avatar:url};}}
+    // A restored comment carries its archived author but still Reddit's placeholder avatar: never reuse it.
+    for(const comment of document.querySelectorAll('shreddit-comment[author]:not([is-author-deleted])'))if(comment.getAttribute('author')?.toLowerCase()===name){const slot=comment.querySelector('[slot="commentAvatar"]');if(slot?.closest('shreddit-comment')!==comment)continue;for(const image of slot?.querySelectorAll('image[href],img[src]') || []){const url=safeAvatar(image.getAttribute('href') || image.getAttribute('src'));if(url)return {avatar:url};}}
     if(cached?.expires>now)return {avatar:cached.url};
     if(now<cooldown)return {deferred:true,retryAfterMs:cooldown-now};
     if(active>=2)return {deferred:true,retryAfterMs:250};
