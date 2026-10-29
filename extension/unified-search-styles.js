@@ -225,7 +225,6 @@
     .field .control-pill.active { color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 12%,var(--rcs-bg)); }
     .field .control-pill:hover { background:var(--rcs-hover); }
     .field input { font:var(--rcs-row-title-font); }
-    .date-mode[aria-pressed=true],.calendar-option[aria-pressed=true] { color:var(--rcs-accent); }
     .search-icon { display:flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:28px;padding:0;border:0;border-radius:50%;color:var(--rcs-muted);background:transparent; }
     .search-icon:hover { background:var(--rcs-hover); }
     .search-icon svg { width:18px; height:18px; }
@@ -337,7 +336,7 @@
 
 (() => {
   const rail=`
-    .scope-tab:focus-visible{outline:0;box-shadow:none}
+    .scope-tab:focus-visible{outline:2px solid var(--rcs-focus,#167cb0);outline-offset:-2px;box-shadow:none}
     .result-row:focus-visible,.message-open:focus-visible,.sender-result:focus-visible,.recent-row:focus-visible,.recent-row button:focus-visible{outline:0;box-shadow:none}
     .row.keyboard-focus,.message-row.keyboard-focus,.recent-row.keyboard-focus,.result-row.keyboard-focus,.message-result.keyboard-focus,.sender-result.keyboard-focus,.suggestion-option[aria-selected=true]{position:relative;outline:0;box-shadow:none}
     .result-row.selected:not(.selection-rail),.message-result.selected:not(.selection-rail){background:var(--rcs-bg)}
