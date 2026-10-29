@@ -1342,3 +1342,33 @@ test('flags that describe in-flight work do not survive parking',async t=>{
  d.recoveryActive=true;d.recoveryTimer=123;d.batchFrame=77;d.discover.disabled=true;d.host.setAttribute('aria-busy','true');
  leaveAndReturn(W,d);assert.equal(d.recoveryActive,false);assert.equal(d.recoveryTimer,null);assert.equal(d.batchFrame,null);assert.equal(d.discover.disabled,false);assert.equal(d.host.hasAttribute('aria-busy'),false);
 });
+
+test('Comments Feed options groups its Sort rows beside Activity, with no View group, like Posts',async t=>{
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/'});await d.ready;d.reset();
+ const menu=W.document.querySelector('main rpl-menu.main-menu-container');for(const node of [...menu.children])if(node.textContent.trim()==='View' || node.getAttribute('aria-label')==='Compact')node.remove();
+ d.scan();await new Promise(r=>setImmediate(r));
+ const dropdown=W.document.querySelector('main rpl-dropdown'),rows=[...dropdown.querySelector('.main-menu-container').children].filter(n=>n.matches('rpl-menu-item')).map(n=>n.getAttribute('aria-label'));
+ assert.deepEqual(rows,['Sort','Activity'],'sort rows live in a Sort submenu, like Overview and Posts');
+ const sortSub=[...dropdown.querySelectorAll('rpl-menu.rt-activity-submenu')].find(sub=>sub.querySelector('rpl-menu-item[aria-label="New"]'));assert.ok(sortSub);assert.equal(dropdown.querySelector('[data-rt-activity-filter="hidden"]')!=null && dropdown.querySelector('[data-rt-activity-filter="deleted"]')!=null && dropdown.querySelector('[data-rt-ui="activity-refresh"]')!=null,true);
+ assert.equal(dropdown.querySelector('button[aria-label="Feed options"]')!=null,true);
+});
+
+const creditRow=(extra='')=>`<div slot="credit-bar" class="contents"><div class="flex flex-wrap items-center gap-2xs text-12 min-h-[24px]" id="feed-post-credit-bar-t3_native"><span class="relative"><a href="/r/trains/">r/trains</a></span><span>•</span><faceplate-timeago>2mo ago</faceplate-timeago><shreddit-async-loader><shreddit-status-icons><rpl-tooltip content="Stickied post"><svg></svg></rpl-tooltip></shreddit-status-icons></shreddit-async-loader>${extra}</div></div>`;
+test('the status indicator sits inline at the end of Reddit\'s credit row in compact and card views',async t=>{
+ for(const view of ['compactView','cardView']){
+  const {d}=setup(t,{nativeRender:async(post,node)=>{node.innerHTML=`<shreddit-post id="${post.fullname}" view-type="${view}">${creditRow()}<div slot="title">T</div></shreddit-post>`;}});
+  await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));const node=d.nodes.get('abc12'),post=d.postMetadata.get('abc12'),slot=node.querySelector('[slot="credit-bar"]'),row=slot.firstElementChild,badge=node.querySelector('[data-rt-source]');
+  assert.equal(badge.parentElement,row,view+': inside the inner flex row');assert.equal(row.lastElementChild,badge,'after the pin and status icons');assert.equal(slot.children.length,1,'no extra grid item beside the row');
+  for(const status of ['deleted','removed'])d.decorateNative({...post,status},node);d.decorateNative({...post,source:'arctic-shift',status:'unknown'},node);
+  assert.equal(node.querySelectorAll('[data-rt-source]').length,1);assert.equal(row.lastElementChild,node.querySelector('[data-rt-source]'));assert.equal(slot.children.length,1);
+ }
+});
+test('the status indicator stays last in the credit row when Reddit adds items afterwards, and keeps the overflow menu placement in card rows',async t=>{
+ const {d}=setup(t,{nativeRender:async(post,node)=>{node.innerHTML=`<shreddit-post id="${post.fullname}">${creditRow()}</shreddit-post>`;}});await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
+ const node=d.nodes.get('abc12'),row=node.querySelector('#feed-post-credit-bar-t3_native'),late=row.ownerDocument.createElement('span');row.append(late);d.decorateNative({...d.postMetadata.get('abc12')},node);assert.equal(row.lastElementChild,node.querySelector('[data-rt-source]'));
+ const card=setup(t,{nativeRender:async(post,node)=>{node.innerHTML=`<shreddit-post id="${post.fullname}">${creditRow('<span data-actions><shreddit-post-overflow-menu></shreddit-post-overflow-menu></span>')}</shreddit-post>`;}});await card.d.ready;await card.d.loadReddit();await new Promise(r=>setImmediate(r));
+ const badge=card.d.nodes.get('abc12').querySelector('[data-rt-source]');assert.equal(badge.parentElement.hasAttribute('data-actions'),true);assert.equal(badge.nextElementSibling.localName,'shreddit-post-overflow-menu');
+});
+test('the credit-row badge has no outer margin so Reddit\'s row gap spaces it',()=>{
+ const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/\[id\^="feed-post-credit-bar-"\]>\.rt-post-indicator\{margin:0/);
+});
