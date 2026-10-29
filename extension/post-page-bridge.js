@@ -343,7 +343,12 @@
       if(!response.ok)throw Error(`Reddit could not render this card (HTTP ${response.status}).`);
       if(response.headers.get('content-type')?.split(';')[0].trim()!=='text/vnd.reddit.partial+html')throw Error('Reddit returned no native card fragment.');
       const text=await boundedText(response),doc=new DOMParser().parseFromString(text,'text/html'),selector=comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`;
-      if(!doc.querySelector(selector))throw Error('Reddit returned no matching native card.');
+      // Reddit answers a comment its author deleted exactly like an ID that never existed: a small
+      // shell with no comment card at all. Removed comments still get a card (body "[removed]").
+      if(!doc.querySelector(selector)){
+        if(!comments || doc.querySelector('shreddit-profile-comment,shreddit-comment') || text.length>65536)throw Error('Reddit returned no matching native card.');
+        entry.size=text.length;entry.expires=Date.now()+30000;return {missing:true};
+      }
       if(entry.controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
       entry.size=text.length;entry.expires=Date.now()+30000;return {text,url};
     })().finally(()=>{cardActive--;if(!comments)postCardActive--;entry.pending=false;if(!entry.size)nativeCardReads.delete(key);trimNativeReads(location.pathname+location.search);});
@@ -413,7 +418,7 @@
             let status=knownStatus(path,comments,fullname,input.username);
             if(!status){
               fragmentReads=true;
-              try{const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(!fragment.deferred)status=nativeStatus(new DOMParser().parseFromString(fragment.text,'text/html'),comments,fullname,input.username);}
+              try{const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(fragment.missing)status={fullname,status:'deleted',author:'[deleted]',over18:false,spoiler:false};else if(!fragment.deferred)status=nativeStatus(new DOMParser().parseFromString(fragment.text,'text/html'),comments,fullname,input.username);}
               catch{ /* A failed or missing fragment establishes no current status. */ }
             }
             if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
@@ -453,6 +458,7 @@
     try{
       const operation=(async()=>{
         const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(fragment.deferred)return fragment;
+        if(fragment.missing){rememberStatus(path,fullname,{fullname,status:'deleted',author:'[deleted]',over18:false,spoiler:false});throw Error('Reddit no longer has this comment.');}
         const {text,url}=fragment,doc=new DOMParser().parseFromString(text,'text/html');
         rememberStatus(path,fullname,nativeStatus(doc,comments,fullname,input.username));
         if(location.pathname+location.search!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');

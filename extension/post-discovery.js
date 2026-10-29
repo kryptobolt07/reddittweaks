@@ -1214,6 +1214,8 @@
           // Reddit no longer serves this item (deleted comments commonly 404).
           // With an archive snapshot, show it in Reddit's own card layout rather
           // than a bare link; the cue states where the text came from.
+          // Reddit answers a comment its author deleted with no card at all (removed ones keep a "[removed]" card).
+          const gone=error?.message==='Reddit no longer has this comment.';if(gone)this.postStatuses.set(post.fullname,'deleted');
           const latest=this.postMetadata.get(node.dataset.key) || post,snapshot=this.snapshotText(latest);
           if(this.archiveOnly && latest.source==='arctic-shift' || !transient && snapshot){const shown={...latest,archivedBody:snapshot || latest.archivedBody};this.renderArchivedNative(shown,node);this.decorateNative(shown,node);return;}
           node.dataset.rtNativeState='failed';node.removeAttribute('aria-busy');node.replaceChildren();
