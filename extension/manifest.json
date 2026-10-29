@@ -15,7 +15,6 @@
       "run_at": "document_start",
       "world": "MAIN",
       "js": [
-        "directory-model.js",
         "history-store.js",
         "native-identities.js",
         "page-bridge.js"

@@ -241,3 +241,16 @@ test('a saved deleted/banned answer survives directory refreshes that carry stal
   const record=(await cache.send({action:'read',owner})).entry.records.find(item=>item.id==='a');
   assert.equal(record.accountState,'deleted','the saved answer is what the chat shows');
 });
+
+test('each content script file loads once per injection time, so the isolated world gets the directory model', () => {
+  // Chrome injects a file listed in two same-time groups only once (into the first group's world).
+  // The model was listed for both worlds at document_start, so the isolated world never had it
+  // and every deleted/banned answer was saved as "no answer".
+  const groups=JSON.parse(readFileSync(join(__dirname,'..','extension','manifest.json'),'utf8')).content_scripts;
+  const seen=new Map();
+  for(const group of groups)for(const file of group.js || []) {
+    const key=(group.run_at || 'document_idle')+' '+file;
+    assert.ok(!seen.has(key),file+' is listed twice at '+(group.run_at || 'document_idle'));seen.set(key,group.world || 'ISOLATED');
+  }
+  assert.equal(seen.get('document_start directory-model.js'),'ISOLATED');
+});
