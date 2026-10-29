@@ -1,3 +1,11 @@
+# 0.20.12 preview
+
+- Leaving a profile while it is still loading and pressing Back now picks up where it stopped: unfinished searches restart, cards that were waiting to render finish, scheduled retries (including the Arctic Shift maintenance wait) keep their note and timing, and Refresh activity stays usable. Previously cards could stay as loading placeholders and the status could read "Activity checked" although loading had been cut off.
+
+Version choice: PATCH to 0.20.12 for a reliability fix to 0.20.10's profile parking.
+
+Validation: all 820 tests pass, including new cases for leaving mid-load, queued renders, scheduled retries and stale in-flight flags. ZIP integrity and source/stable-folder/archive byte equality pass. Not re-checked live in Chrome for this release; the scenarios were reproduced and verified in jsdom.
+
 # 0.20.11 preview
 
 - Feed options no longer changes under the reader: Reddit's original rows stay invisible from the moment Reddit renders the menu until discovery has grouped it into Sort, View and Activity, instead of being visible for about half a second first. If discovery ever fails to take over, the rows reveal themselves after 2.5 s. Discovery also starts slightly sooner by reusing the settings read made at page start.
