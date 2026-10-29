@@ -92,15 +92,18 @@ async function handle(message,sender) {
     // A classification of an unavailable account needs no directory lease: it only sets two fields on a person
     // already saved, and this handler runs inside the same serialized queue as every directory write.
     if(!entry || !Array.isArray(message.states))return {changed:false};
-    const identityMap={...entry.identities};let changed=false;
+    const identityMap={...entry.identities},accountStates={...(entry.accountStates || {})};let changed=false;
     for(const state of message.states.slice(0,50)) {
       const saved=identityMap[state?.id],kind=Model.accountState(state?.accountState);
       if(!saved?.accountUnavailable || !Number.isFinite(state.accountStateCheckedAt))continue;
-      if(saved.accountState===kind && saved.accountStateCheckedAt>=state.accountStateCheckedAt)continue;
-      identityMap[saved.id]=Model.identity({...saved,accountState:kind || saved.accountState,accountStateCheckedAt:state.accountStateCheckedAt});changed=true;
+      const known=accountStates[saved.id];
+      if(kind){if(known?.state===kind && known.checkedAt>=state.accountStateCheckedAt)continue;accountStates[saved.id]={state:kind,checkedAt:state.accountStateCheckedAt};}
+      // A check without an answer only records when it happened.
+      if(saved.accountStateCheckedAt>=state.accountStateCheckedAt && !kind)continue;
+      identityMap[saved.id]=Model.identity({...saved,accountState:kind || known?.state || saved.accountState,accountStateCheckedAt:state.accountStateCheckedAt});changed=true;
     }
     if(!changed)return {changed:false};
-    const saved=Model.normalise({...entry,identities:identityMap},owner);
+    const saved=Model.normalise({...entry,identities:identityMap,accountStates},owner);
     await chrome.storage.local.set({[key]:saved});return {changed:true,entry:Model.view(saved)};
   }
   const owns=Boolean(lease && lease.token===message.token && lease.holder===holder && lease.expires>now);
@@ -124,7 +127,7 @@ async function handle(message,sender) {
     const records=mergeRecords(previous?.records,message.records);
     const complete=message.action==='publish' && message.full===true || message.discoveryComplete===true;
     const directoryComplete=complete || Boolean(entry?.directoryComplete),activityComplete=message.activityComplete===true || Boolean(entry?.activityComplete);
-    const saved=Model.normalise({records,identities:identityMap,revision:message.revision || entry?.revision || '',
+    const saved=Model.normalise({records,identities:identityMap,accountStates:entry?.accountStates,revision:message.revision || entry?.revision || '',
       nativeRevision:message.nativeRevision || entry?.nativeRevision || '',
       directoryComplete,activityComplete,
       directoryCursor:directoryComplete ? null : Object.hasOwn(message,'directoryCursor') ? message.directoryCursor : entry?.directoryCursor,

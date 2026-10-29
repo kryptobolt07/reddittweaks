@@ -81,7 +81,13 @@
         status:string(item.status),lastSeq:string(item.lastSeq),identityPending:Boolean(item.identityPending)
       });
     }
-    return {schema:2,owner,conversations:[...records.values()],identities,
+    // Deleted/banned answers live in their own map: directory refreshes re-merge
+    // identities once per conversation, and must never be able to drop them.
+    const states=Object.create(null);
+    const keep=(id,state,checked)=>{const kind=accountState(state);if(typeof id!=='string' || !/^@[^:\s]+:[^\s]+$/.test(id) || id===owner || !kind)return;const at=number(checked);if(!states[id] || at>=states[id].checkedAt)states[id]={state:kind,checkedAt:at};};
+    for(const [id,item] of Object.entries(value?.accountStates || {}))keep(id,item?.state,item?.checkedAt);
+    for(const person of Object.values(identities))if(person.accountState)keep(person.id,person.accountState,person.accountStateCheckedAt);
+    return {schema:2,owner,conversations:[...records.values()],identities,accountStates:states,
       directoryComplete:Boolean(value.directoryComplete),
       activityComplete:Boolean(value.activityComplete),
       directoryCursor:typeof value.directoryCursor==='string' ? value.directoryCursor.slice(0,1000) : null,
@@ -92,7 +98,8 @@
   }
   function view(entry) {
     if (!entry) return null;
-    const identities=entry.identities || {};
+    const states=entry.accountStates || {},identities=Object.create(null);
+    for(const [id,person] of Object.entries(entry.identities || {})){const known=person.accountUnavailable && states[id];identities[id]=known?{...person,accountState:known.state,accountStateCheckedAt:Math.max(person.accountStateCheckedAt || 0,known.checkedAt || 0)}:person;}
     const records=entry.conversations.map(record=>{
       const people=record.participantIds.map(id=>identities[id]).filter(Boolean);
       const direct=['direct','reddit_titled_direct'].includes(record.type);
@@ -103,7 +110,7 @@
         historicalName:Boolean(person?.historicalName),accountUnavailable:Boolean(person?.accountUnavailable),
         accountState:person?.accountUnavailable ? accountState(person.accountState) : ''};
     }).sort((a,b)=>b.timestamp-a.timestamp);
-    return {...entry,records};
+    return {...entry,identities,records};
   }
   globalThis.RCSDirectoryModel=Object.freeze({identity,mergeIdentity,normalise,view,accountMarker,accountState});
 })();

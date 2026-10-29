@@ -127,7 +127,7 @@ test('nobody without a retained username is ever looked up, and a live hover car
   assert.equal(env.requests.length,2);
 });
 
-test('a rate limit pauses everything for Retry-After, and errors are given up quietly',async t=>{
+test('a rate limit pauses everything for Retry-After, and a failed request is retried after about ten minutes without being saved',async t=>{
   let call=0;
   const env=setup(t,{cards:{'Odd-Ratio-3098':()=>(++call===1?new Response('',{status:429,headers:{'Retry-After':'120'}}):new Response(deletedCard,{status:200})),'Calm_River_7':()=>{throw new TypeError('network down');}}});
   await people(env);await env.W.RCSData.request('identity-snapshot',{owner,people:[],rooms:[],records:[],identities:[]}).promise;
@@ -137,7 +137,10 @@ test('a rate limit pauses everything for Retry-After, and errors are given up qu
   assert.ok(times[1]-times[0]>=120000,'waited for Retry-After');assert.ok(times[2]-times[1]>=2500);
   const after=await people(env);assert.equal(after.byId('alex').accountState,'deleted');assert.equal(after.byId('jules').accountState,'','a failure is not an answer');
   env.W.RCSData.request('classify-accounts',{owner,source:'native',ids:[jules]}).promise;await env.settle(100);
-  assert.equal(env.requests.length,3,'not retried the same day');
+  assert.equal(env.requests.length,3,'not retried immediately');
+  assert.equal(after.byId('jules').accountStateCheckedAt||0,0,'a failed request is not saved as a check');
+  env.clock.advance(600001);env.W.RCSData.request('classify-accounts',{owner,source:'other',ids:[jules]}).promise;await env.settle(100);
+  assert.equal(env.requests.length,4,'retried after about ten minutes');
 });
 
 test('the answer is saved with the account, survives a reload and is never requested again',async t=>{
@@ -221,4 +224,20 @@ test('a banned account is found by "banned", a deleted or unclassified one by "d
   const M=dom.window.RCSGlobalSearchModel,records=[{id:'d',name:'A',accountUnavailable:true,accountState:'deleted'},{id:'b',name:'B',accountUnavailable:true,accountState:'banned'},{id:'u',name:'C',accountUnavailable:true}];
   const find=query=>M.matchPeople(new Map(records.map(record=>[record.id,record])),query,{filter:'all',chatType:'all',sort:'newest'}).map(record=>record.id).sort().slice();
   assert.deepEqual([...find('banned')],['b']);assert.deepEqual([...find('deleted')],['d','u']);
+});
+
+test('a saved deleted/banned answer survives directory refreshes that carry stale or group-chat copies of the person',async t=>{
+  const cache=broker(),key='rcs-directory-v2:'+owner;
+  const person={id:alex,name:'Odd-Ratio-3098',historicalName:true,accountUnavailable:true,availabilityKnown:true,verifiedAt:1};
+  let claim=await cache.send({action:'acquire',owner});
+  await cache.send({action:'publish',owner,token:claim.token,records:[{id:'a',type:'direct',participantIds:[alex]}],identities:[person],full:true});
+  await cache.send({action:'identity-state',owner,states:[{id:alex,accountState:'deleted',accountStateCheckedAt:50}]});
+  // Refresh copies built before the answer arrived (one per conversation the person is in), none carrying it.
+  claim=await cache.send({action:'acquire',owner});
+  const stale={...person,verifiedAt:60,accountState:'',accountStateCheckedAt:0},group={...stale,verifiedAt:61};
+  await cache.send({action:'checkpoint',owner,token:claim.token,records:[{id:'g',type:'group',participantIds:[alex,jules],identities:[group]},{id:'a',type:'direct',participantIds:[alex],identities:[stale]}],identities:[stale]});
+  const saved=cache.local.data[key];
+  assert.equal(saved.accountStates[alex].state,'deleted','kept in its own map');
+  const record=(await cache.send({action:'read',owner})).entry.records.find(item=>item.id==='a');
+  assert.equal(record.accountState,'deleted','the saved answer is what the chat shows');
 });
