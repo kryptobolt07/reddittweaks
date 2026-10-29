@@ -324,6 +324,17 @@ test('archive status joins both busy native renders and waits for remaining capa
 test('status fetched fragments render through Reddit native components without a second endpoint read',async t=>{
  const e=setup(t,{fetcher:async()=>nativeResponse(statusPost())}),result=await e.send({action:'status',username:'Example',kind:'post',ids:['abc12']});assert.equal(result.statuses[0].status,'available');const target=nativeTarget(e);assert.equal((await e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:target.id})).rendered,true);assert.equal(e.calls.length,2);assert.equal(target.querySelector('faceplate-partial').src,'/svc/shreddit/partial-feed-post/t3_abc12?pvc=ProfileFeed2&fvt=cardView');assert.equal(target.querySelector('shreddit-post').getAttribute('author'),'Example');
 });
+test('a comment Reddit answers with an empty shell is deleted; removed comments still get a card',async t=>{
+ // Reddit renders a comment its author deleted exactly like an ID that never existed: no card at all.
+ const shell='<faceplate-loader></faceplate-loader><ac-dispatch></ac-dispatch><script>SML.load([])</script>';
+ const card=(id,body)=>`<shreddit-profile-comment comment-id="${id}" author="[deleted]"><faceplate-timeago ts="2026-10-20T12:00:00Z"></faceplate-timeago><div class="md">${body}</div></shreddit-profile-comment>`;
+ const e=setup(t,{fetcher:async url=>{const id=new URL(url).pathname.split('/').pop();return id==='t1_gone'?nativeResponse(shell):id==='t1_modded'?nativeResponse(card(id,'[removed]')):id==='t1_other'?nativeResponse(card('t1_elsewhere','Synthetic')):nativeResponse('',403);}});
+ const result=await e.send({action:'status',username:'Example',kind:'comment',ids:['gone','modded','other','denied']});
+ const by=id=>result.statuses.find(p=>p.fullname===id)?.status;
+ assert.equal(by('t1_gone'),'deleted');assert.equal(by('t1_modded'),'removed');
+ // A card for another comment, or a refused read, proves nothing about this one.
+ assert.deepEqual(new Set(result.unknownIds),new Set(['t1_other','t1_denied']));
+});
 test('observed UNMODERATED comment state verifies available content, retaining unknown for unfamiliar states',async t=>{
  const e=setup(t,{fetcher:async url=>nativeResponse(`<shreddit-profile-comment comment-id="${new URL(url).pathname.split('/').pop()}" author="Example" item-state="${new URL(url).pathname.includes('normal')?'UNMODERATED':'GATED_NEW_STATE'}"><faceplate-timeago ts="2026-10-20T12:00:00Z"></faceplate-timeago><div class="md">Synthetic public comment</div></shreddit-profile-comment>`)});
  const result=await e.send({action:'status',username:'Example',kind:'comment',ids:['normal','unknown']});assert.equal(result.statuses.length,1);assert.equal(result.statuses[0].status,'available');assert.deepEqual(result.unknownIds,['t1_unknown']);

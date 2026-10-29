@@ -1134,6 +1134,14 @@ test('a deleted item Reddit no longer serves keeps its archive snapshot in a nat
  assert.match(node.querySelector('[data-rt-source]').title,/Arctic Shift snapshot.*Snapshot from/);
 });
 
+test('an archived comment Reddit no longer has is marked deleted in All activity, without a status request',async t=>{
+ const calls=[];const {d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>{calls.push(input.action);return input.action==='status'?{statuses:[],unknownIds:[]}:{posts:[],hasMore:false};},archive:async()=>({posts:[{...comment(),id:'gone2',fullname:'t1_gone2',body:'Original archived words',title:'The parent post',retrieved:1700086400}],hasMore:false}),nativeRender:async()=>{throw Error('Reddit no longer has this comment.');}});
+ await d.ready;await d.loadArchive();for(let i=0;i<3;i++)await new Promise(r=>setImmediate(r));
+ const node=d.nodes.get('t1_gone2');assert.equal(node.dataset.rtArchiveFallback,'true');assert.match(node.textContent,/Original archived words/);
+ assert.equal(d.postStatuses.get('t1_gone2'),'deleted');const badge=node.querySelector('.rt-post-indicator');assert.equal(badge.dataset.state,'deleted');assert.match(badge.title,/^Deleted on Reddit/);
+ assert.equal(calls.filter(a=>a==='status').length,0);
+});
+
 test('a card without archive text keeps a Reddit-styled retry row after a definitive failure',async t=>{
  const {d}=setup(t,{nativeRender:async()=>{throw Error('Reddit could not render this card (HTTP 404).');}});await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
  const node=d.nodes.get('abc12'),row=node.querySelector('.rt-native-unavailable');assert.equal(node.dataset.rtNativeState,'failed');assert.ok(row);assert.equal(row.querySelector('details'),null);assert.match(row.querySelector('button').className,/button-bordered/);assert.match(row.textContent,/couldn’t load/);
