@@ -121,9 +121,11 @@
     if(!owner || watchedClient===ctx.client && watchedOwner===owner)return;
     clearTimeout(watchTimer);
     if(watchedClient?.off)for(const [type,handler]of nativeHandlers)watchedClient.off(type,handler);
-    nativeHandlers.clear();changedRooms.clear();profileChangedRooms.clear();metadataVersion=0;classifier.wanted.clear();
+    nativeHandlers.clear();changedRooms.clear();profileChangedRooms.clear();metadataVersion=0;
+    // A different account's wanted list never carries over; the same account's (sent before its client attached) is kept.
+    if(watchedOwner && watchedOwner!==owner)classifier.wanted.clear();
     captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();
-    watchedClient=ctx.client;watchedOwner=owner;
+    watchedClient=ctx.client;watchedOwner=owner;queueMicrotask(()=>pumpClassifier());
     nativeCapture={client:ctx.client,owner,ctx,pending:new Map(),snapshots:new Map(),task:null,recovery:null,incomplete:false,missing:new Set()};
     if(knownOwner!==owner){knownConversations.clear();knownRoomStates.clear();histories.clear();knownOwner=owner;}
     watchedSignature=JSON.stringify(directoryContext(ctx));
