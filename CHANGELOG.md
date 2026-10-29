@@ -1,3 +1,12 @@
+# 0.21.1 preview
+
+- Calendar: compact again (264 px wide, 320 px tall for a five-week month; 240 px in floating chat), smaller than the pre-0.21 calendar, with Reddit's accents back: brand underline on the active On/Before/After/Between tab, today in the brand colour, brand selection and Apply. Days are rounded squares, presets stay on one row with short labels ("7 days"), and the status reads "Pick a day".
+- Deleted chat accounts: names and avatars now also come from the deleted account's membership record in chats Reddit has already loaded, so they show in a browser where the extension never saw the person before. The "…" placeholder lasts at most 6 s instead of the whole chat-list load.
+
+Version choice: PATCH to 0.21.1 for presentation and reliability corrections to 0.21.0.
+
+Validation: all 890 tests pass. Live Chrome: calendar measured 264x320 in the room search, checked in light and dark with a selected range; the deleted account's chat shows the retained name everywhere (no "[deleted]" left on the page). Limitation: the new membership-record path was verified with tests and by confirming the record keeps the name in Chrome; it is not yet checked in the second browser.
+
 # 0.21.0 preview
 
 Work from the full review in docs/improvement-plan-2026-10.md (Phases 1, 2 and parts of 3, 4 and 6), done as five parallel workstreams.
