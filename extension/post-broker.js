@@ -19,10 +19,28 @@
     unavailableMaintenance=/maintenance/i.test(text.slice(0,2000));
     // Requests already in flight report the same outage; count it once. A
     // reader's explicit probe that fails starts the next, longer pause.
-    if(probe || unavailableUntil<=Date.now()){unavailableCount++;unavailableUntil=Date.now()+Math.min(60000*2**(unavailableCount-1),600000);}
+    if(probe || unavailableUntil<=Date.now()){unavailableCount++;unavailableUntil=Date.now()+Math.min(60000*2**(unavailableCount-1),600000);persistBackoff();}
     return unavailable();
   }
-  function markAvailable(){unavailableUntil=0;unavailableCount=0;unavailableMaintenance=false;}
+  function markAvailable(){const dirty=unavailableUntil||unavailableCount;unavailableUntil=0;unavailableCount=0;unavailableMaintenance=false;if(dirty)persistBackoff();}
+  // Backoff state survives service-worker restarts through chrome.storage.session (memory-only, cleared with the browser session).
+  const backoffKey='rt-archive-backoff-v1',maxCooldown=3600000;
+  let backoffLoaded=null;
+  function persistBackoff(){
+    try{Promise.resolve(chrome.storage?.session?.set?.({[backoffKey]:{cooldownUntil,unavailableUntil,unavailableCount,unavailableMaintenance}})).catch(()=>{});}catch{}
+  }
+  // Read once at worker start; each request re-reads so another worker instance's newer state is honored.
+  async function loadBackoff(){
+    try{
+      const stored=await chrome.storage?.session?.get?.(backoffKey),saved=stored?.[backoffKey],now=Date.now();
+      if(!saved || typeof saved!=='object')return;
+      const bounded=value=>Number.isFinite(value)?Math.min(Math.max(0,value),now+maxCooldown):0;
+      cooldownUntil=Math.max(cooldownUntil,bounded(saved.cooldownUntil));
+      if(bounded(saved.unavailableUntil)>unavailableUntil){unavailableUntil=bounded(saved.unavailableUntil);unavailableMaintenance=saved.unavailableMaintenance===true;}
+      if(Number.isInteger(saved.unavailableCount))unavailableCount=Math.max(unavailableCount,Math.min(Math.max(0,saved.unavailableCount),20));
+    }catch{}
+  }
+  backoffLoaded=loadBackoff();
   function fail(message,code='archive-error',extra={}){return {ok:false,error:message,code,incomplete:true,...extra};}
   async function enabled(requireRestoration=false){
     const stored=await chrome.storage.local.get('rt-settings-v1'),settings=Model.normalizeSettings(stored['rt-settings-v1']);
@@ -54,7 +72,8 @@
     // X-RateLimit-Reset-At is an absolute epoch in milliseconds; values below 1e12 are read as epoch seconds.
     if(resetAt){const number=Number(resetAt);if(Number.isFinite(number) && number>0)until=Math.max(until,number<1e12?number*1000:number);}
     if(response.status===429 && until<=now)until=now+60000;
-    if(response.status===429 || response.headers?.get('X-RateLimit-Remaining')==='0')cooldownUntil=Math.max(cooldownUntil,until);
+    until=Math.min(until,now+maxCooldown);
+    if(response.status===429 || response.headers?.get('X-RateLimit-Remaining')==='0'){const before=cooldownUntil;cooldownUntil=Math.max(cooldownUntil,until);if(cooldownUntil!==before)persistBackoff();}
   }
   // Shared transport bound for every archive response: declared length first, then streamed bytes. Returns null when too large.
   async function readBounded(response,controller){
@@ -67,9 +86,10 @@
     return text.length>3000000?null:text;
   }
   async function request(username,before,ids,kind='post',{contextOnly=false,recoverSender=null,titles=true,force=false}={}){
-    const release=await slot();
+    const release=await slot();let released=false;const freeSlot=()=>{if(!released){released=true;release();}};
     try{
       if(!await enabled(Boolean(recoverSender)))return disabled();
+      await backoffLoaded;await loadBackoff();
       if(recoverSender && !authorized(recoverSender,username,null))return fail('Archive recovery requires the matching Reddit profile.','forbidden');
       if(cooldownUntil>Date.now())return fail('Archive requests are cooling down.','rate-limited',{retryAt:cooldownUntil});
       // A reader's explicit Retry now may probe once during the pause.
@@ -106,9 +126,11 @@
       }catch(error){return fail(controller.signal.aborted?'Archive request timed out.':'Archive service is unavailable.',controller.signal.aborted?'timeout':'network-error');}
       finally{clearTimeout(timer);}
       // Title fill has its own budget and runs after the page timer is cleared, so it never turns a page into a timeout.
+      // The transport slot is not held while parent titles are looked up.
+      freeSlot();
       if(value.ok && kind==='comment' && !contextOnly && titles)await fillCommentTitles(value.posts);
       return value;
-    }finally{release();}
+    }finally{freeSlot();}
   }
   // Best-effort parent titles and NSFW/spoiler flags for comment rows. Every failure leaves the page unchanged.
   async function lookupTitles(ids){

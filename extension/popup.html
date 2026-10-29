@@ -18,18 +18,18 @@
       <div class="card-heading"><h1 id="posts-heading">Profiles &amp; posts</h1><span class="category-hint">Discovery</span></div>
       <div class="setting-row">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8.5 2a6.5 6.5 0 0 1 5.18 10.43l3.94 3.95a.9.9 0 0 1-1.27 1.27l-3.95-3.94A6.5 6.5 0 1 1 8.5 2Zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg></span>
-        <div class="setting-copy"><label for="post-discovery">Discover public activity</label><p>Show public posts and comments a profile hides, merged in by date.</p></div>
-        <input class="switch" type="checkbox" id="post-discovery" data-setting="postDiscovery" aria-label="Discover public activity">
+        <div class="setting-copy"><label for="post-discovery">Discover public activity</label><p id="post-discovery-desc">Show public posts and comments a profile hides, merged in by date.</p></div>
+        <input class="switch" type="checkbox" id="post-discovery" data-setting="postDiscovery" aria-describedby="post-discovery-desc">
       </div>
       <div class="setting-row" data-requires="post-discovery">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h13A1.5 1.5 0 0 1 18 4.5v2A1.5 1.5 0 0 1 17 7.9V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.9A1.5 1.5 0 0 1 2 6.5v-2Zm2.8 3.7V15c0 .1.1.2.2.2h10c.1 0 .2-.1.2-.2V8.2H4.8ZM3.8 4.8v1.6h12.4V4.8H3.8Zm3.7 5.3c0-.5.4-.9.9-.9h3.2a.9.9 0 0 1 0 1.8H8.4a.9.9 0 0 1-.9-.9Z"/></svg></span>
-        <div class="setting-copy"><label for="archive-discovery">Search Arctic Shift archive</label><p>Find deleted and removed activity on Arctic Shift. Coverage may be incomplete.</p></div>
-        <input class="switch" type="checkbox" id="archive-discovery" data-setting="archiveDiscovery" aria-label="Search Arctic Shift archive">
+        <div class="setting-copy"><label for="archive-discovery">Search Arctic Shift archive</label><p id="archive-discovery-desc">Find deleted and removed activity on Arctic Shift. Coverage may be incomplete.</p></div>
+        <input class="switch" type="checkbox" id="archive-discovery" data-setting="archiveDiscovery" aria-describedby="archive-discovery-desc">
       </div>
       <div class="setting-row" data-requires="archive-discovery">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2.5a7.5 7.5 0 0 1 7.13 5.16.9.9 0 1 1-1.71.56A5.7 5.7 0 0 0 5.4 6.6h1.85a.9.9 0 0 1 0 1.8H3.3a.9.9 0 0 1-.9-.9V3.55a.9.9 0 0 1 1.8 0v1.6A7.48 7.48 0 0 1 10 2.5Zm-6.4 8.78a.9.9 0 0 1 1.13.58A5.7 5.7 0 0 0 14.6 13.4h-1.85a.9.9 0 0 1 0-1.8h3.95c.5 0 .9.4.9.9v3.95a.9.9 0 0 1-1.8 0v-1.6A7.48 7.48 0 0 1 3.03 12.4a.9.9 0 0 1 .57-1.13Z"/></svg></span>
-        <div class="setting-copy"><label for="restore-deleted-content">Restore deleted content automatically</label><p>Requires Arctic Shift enabled. Shows archived text, images and authors.</p></div>
-        <input class="switch" type="checkbox" id="restore-deleted-content" data-setting="restoreDeletedContent" aria-label="Restore deleted content automatically">
+        <div class="setting-copy"><label for="restore-deleted-content">Restore deleted content automatically</label><p id="restore-deleted-content-desc">Requires Arctic Shift enabled. Shows archived text, images and authors.</p></div>
+        <input class="switch" type="checkbox" id="restore-deleted-content" data-setting="restoreDeletedContent" aria-describedby="restore-deleted-content-desc">
       </div>
       <p id="settings-status" class="settings-status" role="status" aria-live="polite">Loading settings…</p>
     </section>
@@ -40,9 +40,9 @@
         <p class="chat-intro">Search loaded messages across all chats.</p>
         <div class="cache-about" id="cache-about">
           <button type="button" id="cache-info-toggle" class="info-trigger" aria-expanded="false" aria-controls="cache-info-panel" aria-label="About saved chat history" title="About saved chat history"><svg class="info-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.2v4.1"/><circle class="info-dot" cx="8" cy="4.9" r=".6"/></svg></button>
-          <div class="cache-popover" id="cache-info-panel" role="dialog" aria-labelledby="cache-info-title" hidden>
+          <div class="cache-popover" id="cache-info-panel" role="dialog" aria-labelledby="cache-info-title" tabindex="-1" hidden>
             <div class="popover-head"><strong id="cache-info-title">About saved chat history</strong><button type="button" class="popover-close" aria-label="Close">×</button></div>
-            <p class="note cache-info"><strong>Saved messages only.</strong> History may be incomplete: messages become searchable after Reddit or a conversation search loads them, so older messages, chats or threads may be missing. The cache stays on this device and is scoped to your Reddit account.</p>
+            <p class="note cache-info"><strong>Saved messages only.</strong> History may be incomplete: messages become searchable after Reddit or a conversation search loads them, so older messages, chats or threads may be missing. It stays on this device. Clear removes it for every Reddit account on this device.</p>
           </div>
         </div>
       </div>
