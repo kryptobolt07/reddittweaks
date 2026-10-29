@@ -360,7 +360,7 @@
         if(this.savedLoading){this.savedDirty=true;return;}
         this.savedKey='';if(this.browseOpen)this.querySaved(false,true);
       }
-      else if(this.kind==='messages' && !this.bar.hidden && (!value.roomIds || value.roomIds.includes(this.room)))this.readSavedRoom();
+      else if(this.kind==='messages' && !this.bar.hidden && (!value.roomIds || value.roomIds.includes(this.room)))this.queueRoomRead();
     }
     querySaved(more=false,background=false,retryWrites=false){
       if(this.contextInvalidated || !this.isGlobal || more && (this.savedLoading || !this.savedHasMore))return;
@@ -382,6 +382,13 @@
         }catch(error){if(generation===this.savedGeneration)this.notice=error.message;}
         finally{if(generation===this.savedGeneration && this.host.isConnected && globalThis.document){this.savedLoading=false;this.render();if(this.savedDirty){this.savedDirty=false;this.savedKey='';if(this.browseOpen)this.querySaved(false,true);}}}
       },more ? 0 : background && this.savedImporting && !retryWrites ? 500 : 100);
+    }
+    // An ingest burst into the open room would otherwise re-read the whole room per event:
+    // read at once, then fold everything that arrives within 500 ms into one trailing read.
+    queueRoomRead(){
+      if(this.roomReadTimer){this.roomReadDirty=true;return;}
+      this.readSavedRoom();
+      this.roomReadTimer=setTimeout(()=>{this.roomReadTimer=null;if(this.roomReadDirty){this.roomReadDirty=false;if(this.host.isConnected && !this.bar.hidden)this.queueRoomRead();}},500);
     }
     async readSavedRoom(){
       if(this.contextInvalidated || this.kind!=='messages' || !globalThis.RCSMessages)return;
@@ -656,7 +663,7 @@
       if(this.inputPending)return;
       if(this.tools?.suggestions?.hidden===false || this.tools?.valuePicker?.() || C.parseQuery(this.queryValue()).invalid)return;
       if(this.isGlobal){if(force)this.savedKey='';this.querySaved(false,force,force);return;}
-      if(this.kind==='messages'){const generation=this.savedGeneration;this.preparingSearch=(this.preparingSearch || 0)+1;this.updateLoad();try{await this.readSavedRoom();}finally{this.preparingSearch=Math.max(0,this.preparingSearch-1);this.updateLoad();}if(generation!==this.savedGeneration)return;}
+      if(this.kind==='messages'){const generation=this.savedGeneration;this.preparingSearch=(this.preparingSearch || 0)+1;this.updateLoad();try{await this.readSavedRoom();}finally{this.preparingSearch=Math.max(0,this.preparingSearch-1);this.updateLoad();}if(generation!==this.savedGeneration || !this.host.isConnected || !globalThis.document)return;}
       const dateKey=JSON.stringify(this.dates || {});
       if(this.kind==='messages' && !force && !this.queryValue().trim() && !this.dates?.from && !this.dates?.to){this.render();return;}
       if(!globalThis.RCSData || this.loading || (this.complete && !force && !reconcile) || this.kind==='messages' && !force && this.dateCompleteKey===dateKey){if(this.kind==='messages')this.render();return;}
@@ -684,12 +691,17 @@
           for(const record of records)this.cache.set(record.id,{...previous.get(record.id),...record});
           this.complete=!records.some(record=>record.identityPending);directoryComplete=this.complete;
           if(!this.complete)this.notice=records.some(record=>record.status==='invite-pending')?'Some chat requests are pending. Available conversations remain searchable.':'Some usernames are unavailable. Saved matches remain searchable.';
-        } else {index.replace(room,records,records.historyMeta || {});this.complete=records.historyMeta?.complete!==false;this.dateCompleteKey=records.historyMeta?.dateComplete ? JSON.stringify(records.historyMeta.dates || {}) : '';if(this.complete)completeRooms.add(room);}
+        } else {
+          // Only a verified-complete snapshot may drop messages it lacks. Missing or partial metadata is incomplete:
+          // merge what arrived, never hide or clear what the index already holds.
+          const verified=records.historyMeta?.complete===true;
+          if(verified)index.replace(room,records,records.historyMeta);else index.upsert(room,records,{authoritative:true,redacted:records.historyMeta?.redacted || []});
+          this.complete=verified;this.dateCompleteKey=records.historyMeta?.dateComplete ? JSON.stringify(records.historyMeta.dates || {}) : '';if(this.complete)completeRooms.add(room);else completeRooms.delete(room);}
       } catch(error) { if(this.dataTask===task)this.notice=error.message; }
-      finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;this.updateLoad();if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
+      finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;if(!globalThis.document || stopped)return;this.updateLoad();if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.roomItems=null;this.roomMeasurements?.clear();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
-    destroy() { clearTimeout(this.resultsUpdateTimer);this.restoreHeaderSearch();cancelAnimationFrame(this.scrollFrame);this.headerActions?.destroy();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;document.removeEventListener('keydown',this.shortcut,true);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
+    destroy() { clearTimeout(this.resultsUpdateTimer);clearTimeout(this.roomReadTimer);this.roomReadTimer=null;this.restoreHeaderSearch();cancelAnimationFrame(this.scrollFrame);this.headerActions?.destroy();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;document.removeEventListener('keydown',this.shortcut,true);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
   }
   globalThis.RCSDirectory?.onChange(value=>{
     if(value.accountChanged)clearRetainedLists();
@@ -717,7 +729,7 @@
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     const owner=globalThis.RCSDirectory?.getOwner();
     if(owner && value?.owner!==owner || typeof value?.roomId!=='string')return;
-    if(value.evicted){index.rooms.delete(value.roomId);index.redacted.delete(value.roomId);index.metadata.delete(value.roomId);completeRooms.delete(value.roomId);return;}
+    if(value.evicted){index.rooms.delete(value.roomId);index.redacted.delete(value.roomId);completeRooms.delete(value.roomId);return;}
     index.upsert(value.roomId,value.records || [],{authoritative:true,redacted:value.redacted || []});
     value.complete ? completeRooms.add(value.roomId) : completeRooms.delete(value.roomId);
     for(const control of controls.values())if(control.kind==='messages' && control.room===value.roomId) {
@@ -727,6 +739,14 @@
       if(!value.identityOnly && !value.complete && !control.bar.hidden && !control.stoppedByUser)control.ensureData();
     }
   });
+  // Ordinary Reddit pages have no chat. Finding the floating shell means scanning
+  // every div, so after a probe finds nothing the scan backs off (1.8 s up to 30 s)
+  // until chat appears, a candidate node is added, or the page announces its chat.
+  let idle=false,probeDelay=1800,probeAt=0;
+  const maxProbeDelay=30000;
+  const chatSelector='rs-app, rs-room, [data-testid="chat-room-list"], [data-testid="chat-room"]';
+  const wakeProbe=()=>{idle=false;probeDelay=1800;probeAt=0;};
+  const chatCandidate=node=>node.nodeType===1 && Boolean(node.shadowRoot || node.localName?.startsWith('rs-') || node.matches?.(chatSelector));
   function schedule() {
     if (scheduled || stopped) return; scheduled = true;
     refreshTimer=setTimeout(() => { refreshTimer=null;scheduled = false; refresh(); },120);
@@ -766,14 +786,23 @@
   }
   function mutationsChanged(records){
     if(stopped || !globalThis.document?.documentElement)return;
+    if(idle && Date.now()<probeAt){
+      // No chat on this page: only a node that could be chat (or its shell) is worth a scan.
+      if(!records.some(record=>record.type==='childList' && [...record.addedNodes].some(chatCandidate)))return;
+      wakeProbe();
+    }
     const native=records.filter(record=>!extensionNode(record.target) && !(record.type==='childList' && [...record.addedNodes,...record.removedNodes].length && [...record.addedNodes,...record.removedNodes].every(extensionNode)));
     if(!native.length)return;
     if(native.some(routeMutation))scheduleNavigation();else schedule();
   }
   function refresh() {
     if (stopped || !globalThis.document?.documentElement || document.hidden) return;
-    // On normal Reddit pages this only runs when a chat shell is present.
+    if (idle && Date.now()<probeAt) return;
     const roots = A.chatRoots();
+    if (!roots.length && !controls.size && !observed.size && !retainedLists.size && !collapsedControl && !openListRequested) {
+      idle=true;probeAt=Date.now()+probeDelay;probeDelay=Math.min(probeDelay*2,maxProbeDelay);return;
+    }
+    idle=false;probeDelay=1800;
     const liveRoots = new Set(roots);
     for (const [root, observer] of observed) if (!liveRoots.has(root)) { observer.disconnect(); observed.delete(root); }
     for (const root of roots) if (!observed.has(root)) {
@@ -825,9 +854,12 @@
   }
   // Shadow roots attached after an element is inserted don't emit DOM mutations.
   // A modest discovery heartbeat covers delayed Lit hydration without patching Reddit.
+  // The heartbeat's refresh returns immediately while the probe back-off applies, so it is a bare timer wake on pages without chat.
   const heartbeat = setInterval(refresh,1800);
   const observer = new MutationObserver(mutationsChanged); observer.observe(document,{childList:true,subtree:true});
   document.addEventListener('visibilitychange',schedule);
+  // Reddit's page world announces chat components as they connect.
+  for(const name of ['rcs-chat-present','rcs-chat-starting'])document.addEventListener(name,()=>{wakeProbe();schedule();});
   window.addEventListener('pagehide',event => {
     if (event.persisted) return;
     stopped = true; clearInterval(heartbeat);clearTimeout(refreshTimer);cancelAnimationFrame(navigationFrame);observer.disconnect();

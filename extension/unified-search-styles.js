@@ -290,6 +290,8 @@
     .field .icon-button svg { width:14px; height:14px; }
     .results-status { display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:24px;padding:0 8px;color:var(--rcs-muted);font:var(--rcs-row-time-font);flex-shrink:0; }
     .results-status .status { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    .results-status .coverage-note { flex:none;opacity:.85;font-style:italic;white-space:nowrap; }
+    .results-status .coverage-note[hidden] { display:none; }
     .results-status .icon-button { width:20px;height:20px;flex:none; }
     .results-status .icon-button svg { width:12px;height:12px; }
     .result-row { position:relative; display:flex; align-items:center; gap:var(--rcs-row-gap,var(--spacer-xs,8px)); width:100%; height:var(--rcs-row-min-height,64px);padding:var(--rcs-row-padding-block,var(--spacer-xs,8px)) var(--rcs-row-padding-inline,var(--spacer-sm,12px));text-align:left; background:var(--rcs-bg); border:0; }

@@ -6,6 +6,10 @@ const oldPrefix='rcs-directory-v1:';
 const leasePrefix='rcs-directory-lease:';
 const sessionPrefix='rcs-directory-session-v2:';
 const trafficPrefix='rcs-traffic-v1:';
+const cooldownPrefix='rcs-request-cooldown-v1:';
+const recentPrefix='rcs-unified-recent:';
+// A server hint or a page script can never block directory requests for longer than this.
+const maxCooldownMs=3600000;
 let queue=Promise.resolve();
 chrome.storage.local.setAccessLevel?.({accessLevel:'TRUSTED_CONTEXTS'});
 async function entryFor(owner) {
@@ -25,21 +29,15 @@ function mergeRecords(previous, additions) {
 }
 async function handle(message,sender) {
   if(sender.id!==chrome.runtime.id || message?.scope!=='rcs-directory')return;
-  if(message.action==='bootstrap') {
-    // Stays in the isolated extension world; only the authenticated account is sent to the page.
-    const saved=await chrome.storage.local.get(null),entries={};
-    for(const key of Object.keys(saved))if(key.startsWith(cachePrefix) || key.startsWith(oldPrefix)) {
-      const owner=key.slice(key.startsWith(cachePrefix)?cachePrefix.length:oldPrefix.length);
-      if(/^@[^:\s]{1,200}:[^\s]{1,200}$/.test(owner))entries[owner]=Model.view(await entryFor(owner));
-    }
-    return {entries};
-  }
   if(message.action==='clear') {
     if(sender.tab || !sender.url?.startsWith(chrome.runtime.getURL('')))throw Error('Open the extension popup to clear the cache.');
     const all=await chrome.storage.local.get(null);
-    await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(cachePrefix)||key.startsWith(oldPrefix)));
+    await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(cachePrefix)||key.startsWith(oldPrefix)||key.startsWith(cooldownPrefix)));
     const session=await chrome.storage.session.get(null);
     await chrome.storage.session.remove(Object.keys(session).filter(key=>key.startsWith(leasePrefix)||key.startsWith(sessionPrefix)));
+    // Traffic state keeps a session copy of the cooldown; clearing must end a lockout but not live permits.
+    const traffic={};for(const key of Object.keys(session))if(key.startsWith(trafficPrefix))traffic[key]={...session[key],cooldownUntil:0};
+    if(Object.keys(traffic).length)await chrome.storage.session.set(traffic);
     return {cleared:true};
   }
   const owner=message.owner;
@@ -56,14 +54,19 @@ async function handle(message,sender) {
   if(message.action.startsWith('traffic-')) {
     const key=trafficPrefix+owner;
     const traffic=(await chrome.storage.session.get(key))[key] || {permits:[],cooldownUntil:0};
-    const cooldownKey='rcs-request-cooldown-v1:'+owner;
+    const cooldownKey=cooldownPrefix+owner;
     const cooldown=(await chrome.storage.local.get(cooldownKey))[cooldownKey];
-    traffic.cooldownUntil=Math.max(traffic.cooldownUntil,cooldown?.until || 0);
+    // Values saved before the cap (or edited storage) are clamped on read as well.
+    const bounded=value=>Number.isFinite(value) && value>now ? Math.min(value,now+maxCooldownMs) : 0;
+    traffic.cooldownUntil=Math.max(bounded(traffic.cooldownUntil),bounded(cooldown?.until));
     traffic.permits=traffic.permits.filter(permit=>permit.expires>now);
     if(message.action==='traffic-cooldown') {
-      if(!Number.isFinite(message.until))throw Error('Invalid cooldown');
-      traffic.cooldownUntil=Math.max(traffic.cooldownUntil,message.until);
-      await chrome.storage.local.set({[cooldownKey]:{until:traffic.cooldownUntil}});
+      // Past or invalid hints are ignored rather than stored.
+      const until=bounded(message.until);
+      if(until>traffic.cooldownUntil) {
+        traffic.cooldownUntil=until;
+        await chrome.storage.local.set({[cooldownKey]:{until}});
+      }
     } else if(message.action==='traffic-acquire') {
       if(traffic.cooldownUntil>now)return {busy:true,waitMs:Math.min(1000,traffic.cooldownUntil-now),cooldown:true};
       if(traffic.permits.length>=2 || message.priority!=='interactive' && traffic.permits.some(p=>p.priority!=='interactive'))return {busy:true,waitMs:250};
@@ -142,7 +145,11 @@ async function handleMessages(message,sender) {
   if(message.action==='clear') {
     if(!popup)throw Error('Open the extension popup to clear saved messages.');
     if(message.owner && !RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
-    await messages.clear(message.owner);await notifyMessageTabs(message.owner || null,true);return {cleared:true};
+    await messages.clear(message.owner);
+    // Recent searches are typed message queries: they are cleared with the messages they came from.
+    if(message.owner)await chrome.storage.local.remove(recentPrefix+message.owner);
+    else {const all=await chrome.storage.local.get(null);await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(recentPrefix)));}
+    await notifyMessageTabs(message.owner || null,true);return {cleared:true};
   }
   if(message.action==='stats' && popup)return messages.stats(message.owner,{committed:true});
   if(!RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');

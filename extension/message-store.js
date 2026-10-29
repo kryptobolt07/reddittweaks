@@ -190,7 +190,7 @@
       const page=records.slice(offset,offset+limit),groups=[];
       for(const record of page)record.timestamp=Number.isFinite(record.timestamp)?new Date(record.timestamp).toISOString():'';
       if(grouped){const byRoom=new Map();for(const [id,total]of counts){const group={roomId:id,total,records:[]};byRoom.set(id,group);groups.push(group);}for(const record of page)byRoom.get(record.roomId).records.push(record);}
-      return {owner,selfIdentity:identity(people[owner]),persistent:this.persistent,records:page,total:records.length,hasMore:offset+limit<records.length,matchedRooms:counts.size,mediaCounts,availableMediaTypes:['image','gif','video','audio','file','link'].filter(type=>mediaTypes.has(type)),...(grouped?{groups}:{}),stats:this.statistics(rows,people,identityBytes),coverage:roomId?rows.find(row=>row.roomId===roomId)?.coverage || {complete:false,dateComplete:false}:{complete:false,unknownRooms:true,threadsVerified:false}};
+      return {owner,selfIdentity:identity(people[owner]),persistent:this.persistent,records:page,total:records.length,hasMore:offset+limit<records.length,matchedRooms:counts.size,mediaCounts,availableMediaTypes:['image','gif','video','audio','file','link'].filter(type=>mediaTypes.has(type)),...(grouped?{groups}:{}),stats:this.statistics(rows,people,identityBytes),coverage:roomId?rows.find(row=>row.roomId===roomId)?.coverage || {complete:false,dateComplete:false}:{complete:counts.size>0 && rows.every(row=>!counts.has(row.roomId) || row.coverage?.complete===true),unknownRooms:false,threadsVerified:false}};
     }
     async summaries(owner,{committed=false}={}) {
       const {rows,people}=await this.snapshot(owner,undefined,{committed}),summaries=[];

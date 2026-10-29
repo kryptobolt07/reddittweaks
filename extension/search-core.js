@@ -157,12 +157,12 @@
     const date=new Date(timestamp);return Number.isFinite(date.getTime())?date.toLocaleString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'Date unavailable';
   }
   class MessageIndex {
-    constructor(limit = 5000,onEvict=()=>{}) { this.limit = limit; this.rooms = new Map();this.redacted=new Map();this.metadata=new Map();this.onEvict=onEvict; }
+    constructor(limit = 5000,onEvict=()=>{}) { this.limit = limit; this.rooms = new Map();this.redacted=new Map();this.onEvict=onEvict; }
     upsert(room, messages,{dom=false,authoritative=false,redacted=[]}={}) {
       messages=messages.filter(message=>!message.id?.startsWith('~'));
       if(dom)messages=messages.filter(message=>!message.provisional);
-      if (!this.rooms.has(room)){this.rooms.set(room,new Map());this.metadata.set(room,{complete:false});}
-      const index = this.rooms.get(room);
+      // Re-insert on every upsert so Map order is least-recently-used: the room on screen is never the one evicted.
+      const index = this.rooms.get(room) || new Map();this.rooms.delete(room);this.rooms.set(room,index);
       if(!this.redacted.has(room))this.redacted.set(room,new Set());
       const removed=this.redacted.get(room);
       for(const id of redacted){removed.add(id);index.delete(id);}
@@ -193,7 +193,7 @@
       while (index.size > this.limit) index.delete(index.keys().next().value);
       // Keep no more than 20 conversations in memory.
       while (this.rooms.size > 20) {
-        const oldest=this.rooms.keys().next().value;this.rooms.delete(oldest);this.redacted.delete(oldest);this.metadata.delete(oldest);this.onEvict(oldest);
+        const oldest=this.rooms.keys().next().value;this.rooms.delete(oldest);this.redacted.delete(oldest);this.onEvict(oldest);
       }
     }
     search(room, query,dates={},options={}) {
@@ -205,9 +205,8 @@
       this.upsert(room,messages,{authoritative:true,redacted:metadata.redacted || []});
       const ids=new Set(messages.filter(message=>message.id && message.text).map(message=>message.id));
       for(const id of this.rooms.get(room).keys())if(!ids.has(id))this.rooms.get(room).delete(id);
-      this.metadata.set(room,{complete:metadata.complete!==false});
     }
-    clear() { this.rooms.clear();this.redacted.clear();this.metadata.clear(); }
+    clear() { this.rooms.clear();this.redacted.clear(); }
   }
   globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, prepareQuery, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
 })();
