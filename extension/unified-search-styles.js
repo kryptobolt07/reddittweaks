@@ -406,3 +406,23 @@
   globalThis.RCSUnifiedStyles+=searchSizing;
   globalThis.RCSUnifiedToolStyles+=searchSizing;
 })();
+
+(() => {
+  // Account markers (deleted / banned / unavailable) sit at the row's right edge, with or without a preview line.
+  const markers=`
+    .row-secondary .row-meta.unavailable-marker { margin-inline-start:auto;margin-inline-end:-2px;justify-content:flex-end;width:14px;max-width:14px; }
+    .row-meta.unavailable-marker svg,.unavailable-marker svg { width:14px;height:14px; }
+  `;
+  // Reddit's phone layout (below its tablet breakpoint) uses 40 px controls with 12 px side padding; the desktop and
+  // floating looks are unchanged. The floating chat is already 40 px through data-rcs-compact.
+  const phone=`
+    @media (max-width:767.98px) {
+      :host([data-rcs-ui="list"]:not([data-rcs-compact])) .bar.unified-search { padding-inline:12px; }
+      :host([data-rcs-ui="list"]:not([data-rcs-compact])) .bar.unified-search .search-toolbar { height:max(var(--rcs-native-header-height,52px),56px); }
+      :host([data-rcs-ui="list"]:not([data-rcs-compact])) .field { height:40px;min-height:40px;padding:0 12px;gap:10px; }
+      :host([data-rcs-ui="list"]:not([data-rcs-compact])) .field input { height:100%; }
+    }
+  `;
+  globalThis.RCSUnifiedStyles+=markers+phone;
+  globalThis.RCSUnifiedToolStyles+=markers+phone;
+})();

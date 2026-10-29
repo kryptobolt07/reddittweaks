@@ -152,6 +152,27 @@
     }
     for(const listener of listeners)listener({...value,accountChanged});
   });
+  // Which unavailable accounts are on screen. Only an id list crosses; the page world holds names, decides what
+  // still needs a lookup and throttles it. A source's list is re-sent only when it changes.
+  const classifySent=new Map();
+  function classify(source,ids) {
+    const owner=currentOwner;
+    if(!owner || !globalThis.RCSData || !Array.isArray(ids))return;
+    const list=[...new Set(ids.filter(id=>typeof id==='string' && /^@[^:\s]+:[^\s]+$/.test(id)))].slice(0,200).sort(),signature=owner+'\n'+list.join('\n');
+    if(classifySent.get(source)===signature)return;
+    classifySent.set(source,signature);
+    RCSData.request('classify-accounts',{owner,source,ids:list}).promise.catch(()=>{if(classifySent.get(source)===signature)classifySent.delete(source);});
+  }
+  document.addEventListener('rcs-account-state',async event=>{
+    let value;try{value=JSON.parse(event.detail);}catch{return;}
+    if(!currentOwner || value?.owner!==currentOwner || !Array.isArray(value.states))return;
+    const states=value.states.filter(state=>typeof state?.id==='string' && Number.isFinite(state.accountStateCheckedAt)).slice(0,50)
+      .map(state=>({id:state.id,accountState:globalThis.RCSDirectoryModel?.accountState(state.accountState) || '',accountStateCheckedAt:state.accountStateCheckedAt}));
+    if(!states.length)return;
+    for(const listener of listeners)listener({owner:currentOwner,accountStates:states});
+    // The classification outlives the page: store it with the saved identity (a no-op without a saved directory).
+    if(supported)broker('identity-state',{owner:currentOwner,states}).catch(()=>{});
+  });
   globalThis.chrome?.storage?.onChanged?.addListener(async(changes,area)=>{
     if(area!=='local' || !currentOwner || !changes['rcs-directory-v2:'+currentOwner])return;
     const owner=currentOwner;
@@ -168,7 +189,7 @@
       if(owner===currentOwner)for(const listener of listeners)listener({owner,reconcile:true});
     } catch { /* A later manual refresh can retry. */ }
   });
-  globalThis.RCSDirectory=Object.freeze({load,getOwner:()=>currentOwner,getStartup:()=>startup,onChange(listener){listeners.add(listener);return ()=>listeners.delete(listener);}});
+  globalThis.RCSDirectory=Object.freeze({load,classify,getOwner:()=>currentOwner,getStartup:()=>startup,onChange(listener){listeners.add(listener);return ()=>listeners.delete(listener);}});
   window.addEventListener('pagehide',event=>{if(!event.persisted && supported && currentOwner)broker('detach',{owner:currentOwner}).catch(()=>{});});
   if(supported) {
     document.addEventListener('rcs-chat-starting',ensureStartup);

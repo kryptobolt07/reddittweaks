@@ -79,7 +79,7 @@
     // These operators describe messages; People and All use the same name query.
     if(parsed.invalid || parsed.from.length || parsed.after.length || parsed.before.length || mediaTypes.some(type=>parsed['has'+type[0].toUpperCase()+type.slice(1)]))return ()=>false;
     const predicate=core().prepareQuery(parsed,{wholeWord,shortTermsWholeWord:false});
-    return record=>predicate({text:[record.name,...record.participants || [],...record.aliases || [],...(record.accountUnavailable?['deleted unavailable retained username']:[])].join(' ')});
+    return record=>predicate({text:[record.name,...record.participants || [],...record.aliases || [],...(record.accountUnavailable?[record.accountState==='banned' ? 'banned suspended unavailable retained username' : 'deleted unavailable retained username']:[])].join(' ')});
   }
   function chatFilterCounts(records,draft='',{chatType='all',status='all',wholeWord=false}={}){
     const counts={types:{all:0,direct:0,groups:0},statuses:{all:0,unread:0,requests:0,unavailable:0}};
