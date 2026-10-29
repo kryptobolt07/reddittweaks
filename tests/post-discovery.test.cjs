@@ -236,6 +236,10 @@ test('early guard respects newer opt-out and profile SPA route changes independe
  W.RTProfileNoticeGuard.setEnabled(false);resolve({ok:true,settings:{postDiscovery:true}});await new Promise(r=>setImmediate(r));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);
  W.RTProfileNoticeGuard.setEnabled(true);W.history.pushState({},'','/user/Example/saved/');W.document.dispatchEvent(new W.CustomEvent('reddit:route'));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);
  W.history.pushState({},'','/user/Example/comments/');W.document.dispatchEvent(new W.CustomEvent('reddit:route'));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),true);
+ // Comments tab: Reddit's sort button stays invisible until Feed options replaces it, with a timed reveal as a fallback.
+ assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-comments'),true);
+ const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/html\[data-rt-profile-comments\] main shreddit-sort-dropdown:not\(\[data-rt-ui\] \*\)\{visibility:hidden;animation:rt-menu-reveal 0s 2\.5s forwards\}/);
+ W.history.pushState({},'','/user/Example/submitted/');W.document.dispatchEvent(new W.CustomEvent('reddit:route'));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-comments'),false);
 });
 
 test('sort, range and layout changes reset scope and cancel an obsolete profile search',async t=>{
@@ -1139,6 +1143,14 @@ test('an archived comment Reddit no longer has is marked deleted in All activity
  await d.ready;await d.loadArchive();for(let i=0;i<3;i++)await new Promise(r=>setImmediate(r));
  const node=d.nodes.get('t1_gone2');assert.equal(node.dataset.rtArchiveFallback,'true');assert.match(node.textContent,/Original archived words/);
  assert.equal(d.postStatuses.get('t1_gone2'),'deleted');const badge=node.querySelector('.rt-post-indicator');assert.equal(badge.dataset.state,'deleted');assert.match(badge.title,/^Deleted on Reddit/);
+ assert.equal(calls.filter(a=>a==='status').length,0);
+});
+
+test('an archived comment Reddit still serves is shown as available, not as an unknown archive snapshot',async t=>{
+ const calls=[];const {d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>{calls.push(input.action);return input.action==='status'?{statuses:[],unknownIds:[]}:{posts:[],hasMore:false};},archive:async()=>({posts:[{...comment(),id:'live3',fullname:'t1_live3',body:'Still on Reddit'}],hasMore:false}),
+  nativeRender:async(post,node)=>{node.innerHTML='<shreddit-profile-comment comment-id="t1_live3"><div id="t1_live3-post-rtjson-content">Still on Reddit</div></shreddit-profile-comment>';return {rendered:true,fullname:'t1_live3',status:'available'};}});
+ await d.ready;await d.loadArchive();for(let i=0;i<3;i++)await new Promise(r=>setImmediate(r));
+ assert.equal(d.postStatuses.get('t1_live3'),'available');const badge=d.nodes.get('t1_live3').querySelector('.rt-post-indicator');assert.equal(badge.dataset.state,'available');assert.match(badge.title,/Available on Reddit/);
  assert.equal(calls.filter(a=>a==='status').length,0);
 });
 
