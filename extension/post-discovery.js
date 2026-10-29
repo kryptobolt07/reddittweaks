@@ -1204,6 +1204,7 @@
             return;
           }
           if(result?.duplicate){node.dataset.rtNativeState='idle';node.replaceChildren();node.removeAttribute('aria-busy');this.deduplicate();return;}
+          if(['available','deleted','removed'].includes(result?.status) && result.fullname===post.fullname)this.postStatuses.set(post.fullname,result.status);
           node.dataset.rtNativeState='ready';this.nativeRetries.delete(node);delete node.dataset.rtQualify;node.removeAttribute('aria-busy');this.decorateNative(this.postMetadata.get(node.dataset.key) || post,node);
         },error=>{
           if(generation!==this.generation || pageRoute()?.key!==this.context?.key)return;

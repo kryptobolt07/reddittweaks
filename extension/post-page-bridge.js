@@ -286,7 +286,9 @@
   function nativeStatus(doc,comments,fullname,username){
     const node=doc.querySelector(comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`);
     if(!node)return null;
-    const author=node.getAttribute('author') || node.querySelector('shreddit-comment-action-row[author]')?.getAttribute('author') || '';
+    // Profile comment cards no longer carry an author attribute; their poster line links the author first.
+    const poster=comments?node.querySelector('[id^="poster-info-"] a[href^="/user/"]')?.getAttribute('href')?.match(/^\/user\/([\w-]{1,20})\/?$/)?.[1]:'';
+    const author=node.getAttribute('author') || node.querySelector('shreddit-comment-action-row[author]')?.getAttribute('author') || poster || '';
     // A deleted account is not proof that this particular item was deleted.
     // Likewise, absent content can be a gated or malformed fragment.
     if(author && author!=='[deleted]' && author.toLowerCase()!==username.toLowerCase())return null;
@@ -460,7 +462,7 @@
         const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(fragment.deferred)return fragment;
         if(fragment.missing){rememberStatus(path,fullname,{fullname,status:'deleted',author:'[deleted]',over18:false,spoiler:false});throw Error('Reddit no longer has this comment.');}
         const {text,url}=fragment,doc=new DOMParser().parseFromString(text,'text/html');
-        rememberStatus(path,fullname,nativeStatus(doc,comments,fullname,input.username));
+        const evidence=nativeStatus(doc,comments,fullname,input.username);rememberStatus(path,fullname,evidence);
         if(location.pathname+location.search!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
         if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
         // The authenticated HTML stays in Reddit's page world. Use its own trusted
@@ -472,7 +474,8 @@
         await waitNative(customElements.whenDefined(tag),controller.signal);
         const native=target.querySelector(selector);if(native?.updateComplete)await waitNative(Promise.resolve(native.updateComplete),controller.signal);
         if(location.pathname+location.search!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target || !native || !target.contains(native))throw Error('Page changed. Try again.');
-        target.dataset.rtNativeState='ready';return {rendered:true,fullname};
+        // The card Reddit just served is current evidence: report what it proves (available, deleted or removed).
+        target.dataset.rtNativeState='ready';return {rendered:true,fullname,...(evidence?{status:evidence.status}:{})};
       })();
       const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Native card loading timed out.'));},10000);});
       return await Promise.race([operation,timeout]);
