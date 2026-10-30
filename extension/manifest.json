@@ -83,7 +83,8 @@
         "profile-notice.js"
       ],
       "css": [
-        "post-discovery.css"
+        "post-discovery.css",
+        "profile-search.css"
       ]
     },
     {
@@ -102,6 +103,7 @@
         "recent-searches.js",
         "feed-filters.js",
         "post-discovery.js",
+        "profile-search.js",
         "thread-restore.js"
       ]
     }

@@ -42,7 +42,7 @@ test('inferType and subreddit counts',t=>{
   const {W,F}=load();t.after(()=>W.close());
   assert.equal(F.inferType({postType:'gallery'}),'gallery');assert.equal(F.inferType({url:'https://example.com/a',permalink:'https://www.reddit.com/r/x/comments/abc/'}),'link');
   assert.equal(F.inferType({url:'https://www.reddit.com/r/x/comments/abc/',media:[]}),'text');assert.equal(F.inferType({media:[{kind:'image'},{kind:'image'}]}),'gallery');
-  assert.deepEqual(JSON.parse(JSON.stringify(F.mergeCounts([{key:'a',count:5},{key:'b',count:2}],[{subreddit:'B'},{subreddit:'c'}]))),[{key:'a',count:5},{key:'b',count:3},{key:'c',count:1}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(F.mergeCounts([{key:'a',count:5},{key:'b',count:2}],[{subreddit:'B'},{subreddit:'c'}]))),[{key:'a',count:5},{key:'b',count:2},{key:'c',count:1}]);
 });
 test('chips render a working x for each filter and one Clear filters',t=>{
   const {W,F}=load();t.after(()=>W.close());

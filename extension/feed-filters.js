@@ -86,7 +86,9 @@
   function mergeCounts(buckets,loaded=[]){
     const counts=new Map();
     for(const bucket of buckets||[]){const n=subName(bucket.key);if(!n)continue;const k=n.toLowerCase(),e=counts.get(k);if(e)e.count+=Number(bucket.count)||0;else counts.set(k,{key:n,count:Number(bucket.count)||0});}
-    for(const item of loaded){const n=subName(item.subreddit);if(!n)continue;const k=n.toLowerCase(),e=counts.get(k);if(e)e.count++;else counts.set(k,{key:n,count:1});}
+    // Loaded items are mostly already inside the archive totals: take the larger count, never the sum.
+    const seen=new Map();for(const item of loaded){const n=subName(item.subreddit);if(!n)continue;const k=n.toLowerCase(),e=seen.get(k);if(e)e.count++;else seen.set(k,{key:n,count:1});}
+    for(const [k,v] of seen){const e=counts.get(k);if(e)e.count=Math.max(e.count,v.count);else counts.set(k,v);}
     return [...counts.values()].sort((a,b)=>b.count-a.count || a.key.localeCompare(b.key));
   }
   const dayLabel=value=>{const [y,m,d]=value.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});};
