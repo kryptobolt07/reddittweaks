@@ -1,0 +1,38 @@
+/* Subreddit archive view (banned/private communities). Chips, glyphs and cards reuse post-discovery.css. */
+[data-rt-ui="subreddit-archive-action"]{margin-top:8px;width:100%}
+[data-rt-ui="subreddit-archive-action"] button{width:100%;cursor:pointer}
+.rt-sra-icon{width:64px;height:64px;border-radius:50%;object-fit:cover}
+.rt-sra-glyph{width:64px;height:64px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-state svg{width:16px;height:16px;flex:none}
+.rt-sra-controls{position:relative}
+.rt-sra-menu{position:absolute;top:100%;left:0;z-index:20;min-width:260px;max-height:70vh;overflow:auto;margin-top:4px;padding:8px 0;border-radius:16px;background:var(--color-neutral-background,#fff);box-shadow:0 4px 16px rgba(0,0,0,.2);border:1px solid var(--color-neutral-border-weak,#e5e8eb)}
+.rt-sra-menu[hidden],.rt-sra-recent[hidden],.rt-sra-hint[hidden],.rt-sra-clear[hidden]{display:none!important}
+.rt-sra-heading{padding:8px 16px 4px;font-weight:600;text-transform:none}
+.rt-sra-row{display:flex;align-items:center;min-height:40px;padding:0 16px;font-size:14px;color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-sra-row:hover,.rt-sra-row:focus-visible{background:var(--color-neutral-background-hover,#e8edef);outline:none}
+.rt-sra-row svg{width:16px;height:16px}
+.rt-sra-row [data-rt-check]{margin-inline-start:8px}
+.rt-sra-search{position:relative;margin:0 0 8px}
+.rt-sra-field{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border-radius:20px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-sra-field:hover{background:var(--color-secondary-background-hover,#d3dbde)}
+.rt-sra-field:focus-within{outline:1px solid var(--color-neutral-border-strong,#576f76);background:var(--color-neutral-background,#fff)}
+.rt-sra-search-icon{width:16px;height:16px;flex:none;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-input{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:14px}
+.rt-sra-clear,.rt-sra-recent-remove{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer}
+.rt-sra-clear:hover,.rt-sra-recent-remove:hover{background:var(--color-secondary-background-hover,#d3dbde)}
+.rt-sra-clear svg,.rt-sra-recent-remove svg{width:14px;height:14px}
+.rt-sra-recent{position:absolute;top:100%;left:0;right:0;z-index:20;margin-top:4px;padding:8px 0;border-radius:16px;background:var(--color-neutral-background,#fff);box-shadow:0 4px 16px rgba(0,0,0,.2);border:1px solid var(--color-neutral-border-weak,#e5e8eb)}
+.rt-sra-recent-item{display:flex;align-items:center;padding:0 12px 0 0}
+.rt-sra-recent-pick{flex:1;display:flex;align-items:center;gap:8px;min-width:0;min-height:40px;padding:0 16px;border:0;background:transparent;color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;font-size:14px;text-align:start;cursor:pointer}
+.rt-sra-recent-pick:hover{background:var(--color-neutral-background-hover,#e8edef)}
+.rt-sra-recent-pick span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-sra-recent-pick svg{width:16px;height:16px;flex:none}
+.rt-sra-recent-clear{display:block;margin:4px 16px 0;padding:0;border:0;background:transparent;color:var(--color-neutral-content-weak,#576f76);font-size:12px;font-weight:600;cursor:pointer}
+.rt-sra-recent-clear:hover{text-decoration:underline}
+.rt-sra-hint{margin:4px 16px 0;color:var(--color-danger-content,#b8001b)}
+.rt-sra-note,.rt-sra-searched,.rt-sra-error{margin:8px 16px}
+.rt-sra-error{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.rt-sra-foot{padding:8px 0 24px}
+.rt-sra-foot>.button{margin:8px 16px}
+.rt-sra-sentinel{height:1px}
+.rt-sra-foot .rt-skeleton{margin:12px 16px}
