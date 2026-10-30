@@ -184,11 +184,8 @@ Each implementation agent's prompt includes the AGENTS.md rules that apply to it
 - **Privacy.** Search terms and names go to Arctic Shift (and PullPush, if enabled). The existing "Search Arctic Shift archive" setting already covers Arctic Shift. PullPush would need its own off-by-default setting, with that stated in its label.
 - **Permission growth from PullPush.** Avoided unless decision 1 says yes.
 
-## 6. Decisions needed from you
+## 6. Decisions (agreed 2026-10-31)
 
-1. **PullPush.** It refuses automated clients today, and its message asks agents to buy a paid service. Pick one:
-   - Recommended: no PullPush in 0.24.0. Keep the adapter stub and decide after WS0 shows whether browser requests work.
-   - Opt-in fallback, off by default, used only when Arctic Shift is down.
-   - On by default.
-2. **Profile search location.** Recommended: augment Reddit's own "Search in u/name" results, decided by WS0. The alternative is a search field inside the profile feed.
-3. **Most Commented sort** (loaded items only). Recommended: last in WS3, droppable.
+1. **PullPush:** not in 0.24.0. WS2 keeps a disabled adapter stub. Revisit after WS0 reports whether browser requests work.
+2. **Profile search:** augment Reddit's own "Search in u/name" results page. Fall back to an in-feed field only if WS0 shows the page can't be augmented reliably.
+3. **Most Commented:** loaded items only, built last in WS3, and dropped if it doesn't fit.
