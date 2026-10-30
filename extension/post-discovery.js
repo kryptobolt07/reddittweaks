@@ -1563,7 +1563,19 @@
       try{globalThis.chrome?.runtime?.onMessage?.removeListener?.(this.onWorkerSettings);}catch{}try{globalThis.chrome?.storage?.onChanged?.removeListener?.(this.onSettings);}catch{}
       window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}
   }
-  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead});
+  // One archive item as the same Reddit-native card the profile archive draws, for pages that are not a
+  // profile (the subreddit archive). Inert actions, archive status badge, no live Reddit lookups.
+  function archiveCard(post){
+    const d=Object.create(Discovery.prototype);d.archived=new Map();d.context={kind:'archive',username:''};d.recoveredMedia=new Set();d.recoveredBodies=new Map();
+    const item={...post,source:'arctic-shift',status:post.status || 'available'},node=make('div','rt-native-card');node.dataset.rtUi='archive-item';node.dataset.fullname=item.fullname;
+    const native=d.renderArchivedNative(item,node);
+    // A snapshot's current Reddit status is unknown: use the archive badge, never a deleted/removed claim.
+    const badge=d.indicator({...item,status:'unknown'});badge.dataset.rtSource='true';
+    if(native.matches('shreddit-profile-comment')){const host=native.firstElementChild || native;host.classList.add('rt-comment-source-host');host.firstElementChild?.classList.add('rt-comment-source-credit');host.append(badge);}
+    else (native.querySelector('[slot="credit-bar"]') || native).append(badge);
+    return node;
+  }
+  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard});
   // Debug handle in the extension's isolated world only (not visible to Reddit's page).
   if(window.top===window && globalThis.chrome?.runtime?.id)Object.defineProperty(globalThis,'RTDiscoveryDebug',{value:new Discovery()});
 })();
