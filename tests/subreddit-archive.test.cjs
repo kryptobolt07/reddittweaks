@@ -209,3 +209,22 @@ test('RTPostDiscovery.archiveCard draws inert native-looking cards for non-profi
   assert.ok(native);assert.equal(native.getAttribute('subreddit-name'),'gone');assert.ok(native.hasAttribute('inert'));assert.match(card.textContent,/Body abc12/);assert.equal(card.querySelector('[data-rt-source]').dataset.state,'unknown');
   const reply=W.RTPostDiscovery.archiveCard(comment('c1',1400000000));assert.ok(reply.querySelector('shreddit-profile-comment'));assert.equal(reply.querySelector('shreddit-comment-action-row').hasAttribute('inert'),true);
 });
+
+// The popover uses the same rows, sections and chips as the profile Feed options menu (it has no Subreddit filter).
+test('Feed options popover: icon-less Date rows, sectioned multi-select Post type, shared chips',async()=>{
+  const now=Math.floor(Date.now()/1000);
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive&rt_date=year&rt_type=gif,poll',pages:()=>[{items:[post('a1',now-3600,{postType:'gif'}),post('a2',now-7200,{postType:'poll'}),post('a3',now-9000,{postType:'image'})],searchedBackTo:now-9000,hasMore:false,cursor:null}]}),{doc,W}=ctx;await tick();
+  const menu=ctx.sa.menuEl;ctx.sa.menuButton.click();
+  assert.deepEqual([...menu.querySelectorAll('[data-rt-section]')].map(n=>n.dataset.rtSection),['Sort','Date','Post type','Text','Media','Links']);
+  for(const row of menu.querySelectorAll('[data-rt-option="any"],[data-rt-option="24h"],[data-rt-option="year"],[data-rt-option="custom"]'))assert.equal(row.querySelector('.rt-menu-lead'),null);
+  const expect={text:'text-post',textmedia:'collection',poll:'list-bulleted',image:'image',video:'video',gallery:'gallery',link:'link',embed:'browser',crosspost:'rotate'};
+  for(const [id,name] of Object.entries(expect))assert.equal(menu.querySelector('[data-rt-option="'+id+'"] .rt-menu-lead').getAttribute('icon-name'),name,id);
+  assert.equal(menu.querySelector('[data-rt-option="gif"] .rt-gif-tag').textContent,'GIF');assert.equal(menu.querySelector('[data-rt-option="all"]').getAttribute('aria-label'),'All types');
+  assert.equal(menu.querySelector('[data-rt-option="gif"]').getAttribute('aria-checked'),'true');assert.equal(menu.querySelector('[data-rt-option="poll"]').getAttribute('aria-checked'),'true');
+  assert.deepEqual([...doc.querySelectorAll('shreddit-post')].map(p=>p.id).sort(),['t3_a1','t3_a2']);
+  // Multi-select keeps the popover open; a single choice closes it.
+  menu.querySelector('[data-rt-option="video"]').click();await tick();assert.equal(ctx.sa.menuOpen,true);assert.equal(new W.URLSearchParams(W.location.search).get('rt_type'),'gif,poll,video');
+  menu.querySelector('[data-rt-option="week"]').click();await tick();assert.equal(ctx.sa.menuOpen,false);
+  assert.equal(doc.querySelector('[data-rt-chip="type:gif"] .rt-gif-tag').textContent,'GIF');assert.equal(doc.querySelector('[data-rt-chip="date"] [icon-name="calendar"]')!==null,true);
+  assert.equal(doc.querySelector('[data-rt-filter-clear]').textContent,'Clear filters');assert.equal(menu.querySelector('[data-rt-sub-panel]'),null);
+});

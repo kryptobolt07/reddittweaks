@@ -206,13 +206,8 @@
     }
     buildMenu(){
       const f=globalThis.RTFeedFilters,menu=this.menuEl;menu.replaceChildren();
-      const row=(label,icon)=>{
-        const el=make('div','rt-sra-row cursor-pointer');el.setAttribute('role','menuitemradio');el.tabIndex=-1;
-        const body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs');caption.append(glyph(icon),document.createTextNode(label));body.append(caption);el.append(body);return el;
-      };
-      const activate=(el,fn)=>{el.addEventListener('click',event=>{event.preventDefault();fn(event);});el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();fn(event);}});};
-      const fx=this.fx={row,activate,glyph},current=()=>f.clone(this.filterState());this.menuRows={sort:new Map(),date:new Map(),type:new Map()};
-      const header=text=>{const h=make('div','rt-sra-heading text-12 text-neutral-content-weak',text);h.setAttribute('role','presentation');menu.append(h);};
+      const fx=this.fx=f.plainContext(glyph,{role:'menuitemradio'}),current=()=>f.clone(this.filterState());this.menuRows={sort:new Map(),date:new Map()};
+      const header=text=>{const h=f.sectionLabel(text);delete h.dataset.rtUi;menu.append(h);return h;};
       const option=(group,key,options)=>{const el=f.menuOption(fx,options);el.dataset.rtUi='filter-option';menu.append(el);this.menuRows[group].set(key,el);return el;};
       const close=()=>{this.closeMenu();this.menuButton.focus({preventScroll:true});};
       header('Sort');
@@ -220,21 +215,23 @@
       option('sort','old',{label:'Old',subtitle:'From the archive',icon:'archive',value:'old',onSelect:()=>{const next=current();next.sort='old';this.applyFilters(next,{top:false});close();}});
       option('sort','top',{label:'Top',subtitle:'Loaded items only',icon:'archive',value:'top',onSelect:()=>{const next=current();next.sort=null;this.applyFilters(next,{top:true});close();}});
       this.commentedRow=option('sort','comments',{label:'Most commented',subtitle:'Loaded items only',icon:'archive',value:'comments',onSelect:()=>{const next=current();next.sort='comments';this.applyFilters(next,{top:false});close();}});
+      // Date rows have no icons, as in Reddit's own time-range menus.
       header('Date');
-      option('date','any',{label:'Any time',icon:'calendar',value:'any',onSelect:()=>{const next=current();next.date=null;this.applyFilters(next);close();}});
-      for(const preset of f.presets)option('date',preset.id,{label:preset.label,icon:'calendar',value:preset.id,onSelect:()=>{const next=current();next.date=next.date?.preset===preset.id?null:{preset:preset.id};this.applyFilters(next);close();}});
-      option('date','custom',{label:'Custom…',icon:'calendar',value:'custom',onSelect:()=>{this.closeMenu();this.openDatePicker();}});
-      this.typeHeader=make('div','rt-sra-heading text-12 text-neutral-content-weak','Post type');this.typeHeader.setAttribute('role','presentation');menu.append(this.typeHeader);
-      option('type','all',{label:'All',icon:'posttype',value:'all',onSelect:()=>{const next=current();next.types=[];this.applyFilters(next);}});
-      for(const name of f.types)option('type',name,{label:f.typeLabels[name],icon:'posttype',value:name,onSelect:()=>{const next=current();next.types=next.types.includes(name)?next.types.filter(x=>x!==name):[...next.types,name];this.applyFilters(next);}});
+      option('date','any',{label:'Any time',icon:false,value:'any',onSelect:()=>{const next=current();next.date=null;this.applyFilters(next);close();}});
+      for(const preset of f.presets)option('date',preset.id,{label:preset.label,icon:false,value:preset.id,onSelect:()=>{const next=current();next.date=next.date?.preset===preset.id?null:{preset:preset.id};this.applyFilters(next);close();}});
+      option('date','custom',{label:'Custom…',icon:false,value:'custom',onSelect:()=>{this.closeMenu();this.openDatePicker();}});
+      // Post type: the same sectioned multi-select list as the profile menu; it stays open while picking.
+      this.typeHeader=header('Post type');
+      this.typeList=f.typeOptions(fx,{append:el=>menu.append(el),onClear:()=>{const next=current();next.types=[];this.applyFilters(next);},onToggle:name=>{const next=current();next.types=next.types.includes(name)?next.types.filter(x=>x!==name):[...next.types,name];this.applyFilters(next);}});
+      for(const el of this.typeList.elements)el.setAttribute('role',el.dataset.rtSection?'presentation':'menuitemcheckbox');
     }
     syncMenu(){
       const f=globalThis.RTFeedFilters;if(!f || !this.menuEl)return;const state=this.filterState(),mode=this.sortMode(),posts=this.tab==='posts';
       for(const [key,el] of this.menuRows.sort)f.markChecked(this.fx,el,key===mode);
       this.commentedRow.hidden=!posts;
       for(const [key,el] of this.menuRows.date)f.markChecked(this.fx,el,key==='any'?!state.date:key==='custom'?Boolean(state.date?.from):state.date?.preset===key);
-      for(const [key,el] of this.menuRows.type){el.hidden=!posts;f.markChecked(this.fx,el,key==='all'?!state.types.length:state.types.includes(key));}
-      this.typeHeader.hidden=!posts;
+      for(const el of this.typeList.elements)el.hidden=!posts;
+      this.typeList.sync(state.types);this.typeHeader.hidden=!posts;
     }
     renderChips(){
       const f=globalThis.RTFeedFilters;if(!f)return;
@@ -245,7 +242,7 @@
       if(this.top){
         const chip=make('span','rt-filter-chip'),remove=make('button','rt-filter-chip-remove');remove.type='button';remove.setAttribute('aria-label','Remove filter Top (loaded items)');remove.dataset.rtChipRemove='top';remove.append(glyph('close'));
         remove.addEventListener('click',event=>{event.preventDefault();this.applyFilters(this.filterState(),{top:false});});
-        chip.dataset.rtChip='top';chip.append(make('span','rt-filter-chip-label','Top (loaded items)'),remove);this.chipsEl.prepend(chip);this.chipsEl.hidden=false;
+        chip.dataset.rtChip='top';const icon=make('span','rt-filter-chip-icon');icon.setAttribute('aria-hidden','true');const art=f.svgIcon('archive',16);if(art)icon.append(art);chip.append(icon,make('span','rt-filter-chip-label','Top (loaded items)'),remove);this.chipsEl.prepend(chip);this.chipsEl.hidden=false;
         if(!this.chipsEl.querySelector('[data-rt-filter-clear]')){const clear=make('button','rt-filter-clear','Clear filters');clear.type='button';clear.dataset.rtFilterClear='true';clear.addEventListener('click',event=>{event.preventDefault();this.applyFilters(f.empty(),{top:false});});this.chipsEl.append(clear);}
       }
     }
