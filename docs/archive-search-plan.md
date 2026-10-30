@@ -87,10 +87,11 @@ Add groups to the menu we already own, in Reddit's row style, with checkmarks an
 
 - **Sort:** New / Hot / Top, as today (Reddit's), plus **Old** (oldest first). Old is backed by the archive, `sort=asc`. Its subtitle reads "From the archive" because Reddit can't reverse its own feed.
 - **Date:** presets for 24 hours, week, month and year, plus **Custom…**. Custom opens our existing chat calendar (`date-picker.js`, already restyled to Reddit). Native cards outside the range are hidden with `data-rt-filter-hidden`, and archive queries get `after`/`before`.
-- **Post type** (Posts and Overview tabs): All, Text, Image, Video, Gallery, Link, Crosspost.
-- **Subreddit:** a searchable list with counts from `archive-aggregate` (live Reddit items are added to those counts), up to 8 picks.
+- **Post type** (Posts and Overview tabs): multi-select in three sections. Text: Text, Text with media, Polls. Media: Images, GIFs, Videos, Galleries. Links: Links, Embedded media, Crossposts. "All types" clears the selection. Native cards and archive items share `RTFeedFilters.inferType`; unknown native values only match when no type is selected.
+- **Subreddit:** a searchable, scrolling list (Back and the search field share one header row) with community icons, counts from `archive-aggregate` (live Reddit items are added to those counts), selected rows pinned first, up to 8 picks.
   - One pick also narrows the archive query on the server.
-  - If the aggregate times out, show "Counts from loaded items".
+  - The footer names the real source: "Counts from the archive", "Counts from loaded items" (aggregate failed or unavailable) or "Loading counts…".
+  - Icons come from `RTCommunityIcons` (page first, then Reddit's community hover card, rate limited and cached).
 - **Active filters** show as Reddit-style chips under the menu button. Each has a working ×, and there's one "Clear filters".
 - **State:** filters are kept per profile and tab in the URL search params (`rt_date`, `rt_type`, `rt_sub`). Back/forward and reload then restore them, and Reddit's own params are left alone.
 - **Most Commented:** a loaded-items-only sort, labelled as such, low priority. It is the last item in this workstream and can be dropped.
