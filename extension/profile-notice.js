@@ -58,9 +58,28 @@
     alert.setAttribute('message',(status==='removed'?'Removed':'Deleted')+' comment retrieved from Arctic Shift');releaseAlert(alert);return true;
   }
   function setRestoreEnabled(value){restoreRevision++;restore=value===true;refresh();if(!restore && heldAlert.node)releaseAlert(heldAlert.node);}
+  // A banned/private community's notice is held from document_start when the archive view is requested by
+  // URL (rt_view=archive), so Reddit's modal never flashes before the subreddit archive mounts over it.
+  // subreddit-archive.js owns the modal afterwards; this only releases it if that never happens.
+  let archiveOn=true,holdExpired=false,holdTimer=0;
+  const holdAttr='data-rt-subreddit-hold',mountedAttr='data-rt-subreddit-mounted',modalWording=/\bis (?:banned|private)\.?$/i;
+  function releaseModal(modal){if(modal.hasAttribute(mountedAttr))return;modal.removeAttribute(holdAttr);modal.style.removeProperty('display');}
+  function holdModals(doc,loc){
+    const held=[...doc.querySelectorAll('guard-community-modal['+holdAttr+']')];
+    const wanted=enabled && archiveOn && !holdExpired && /^\/r\/[^/]+\/?$/i.test(loc?.pathname || '') && new URLSearchParams(loc?.search || '').get('rt_view')==='archive';
+    if(!wanted){for(const modal of held)releaseModal(modal);return;}
+    for(const modal of doc.querySelectorAll('guard-community-modal[subredditname]')){
+      // The title may not have been parsed yet: hold first, and let go once it names another state (e.g. quarantine).
+      const title=modal.querySelector('[slot="title"]')?.textContent.replace(/\s+/g,' ').trim() || '';
+      if(title && !modalWording.test(title)){if(modal.hasAttribute(holdAttr))releaseModal(modal);continue;}
+      if(!modal.hasAttribute(holdAttr)){modal.setAttribute(holdAttr,'true');modal.style.setProperty('display','none','important');}
+    }
+    if(!holdTimer)holdTimer=setTimeout(()=>{holdExpired=true;refresh([]);},10000);
+  }
   function refresh(records){
     const doc=globalThis.document || window.document;if(!doc)return;
     const loc=window.location || globalThis.location;
+    holdModals(doc,loc);
     const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(loc?.pathname || '');
     // Post pages: let CSS show a skeleton over removal titles until restoration settles.
     const restoreHere=restore && /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/[a-z0-9]{1,10}(?:\/|$)/i.test(loc?.pathname || '');
@@ -98,6 +117,7 @@
   const failed=()=>{if(revision===initialRevision)setEnabled(false);};
   try{settings.then(response=>{
     const s=response?.settings;if(restoreRevision===initialRestoreRevision)restore=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true && s?.restoreDeletedContent!==false;
+    archiveOn=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true;
     settingsKnown=true;if(!restore && heldAlert.node)releaseAlert(heldAlert.node);
     if(revision===initialRevision)setEnabled(response?.ok===true && response.settings?.postDiscovery!==false);else refresh([]);if(restore)refresh();
   },()=>{settingsKnown=true;if(heldAlert.node)releaseAlert(heldAlert.node);failed();});}catch{settingsKnown=true;failed();}
