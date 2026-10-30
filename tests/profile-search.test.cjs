@@ -84,7 +84,7 @@ test('Subreddit dropdown filters Reddit units and the archive section',async t=>
   assert.equal(btn.closest('[data-rt-profile-search-filter]').previousElementSibling.tagName.toLowerCase(),'faceplate-dropdown-menu');
   btn.click();
   const opts=[...D.querySelectorAll('[data-rt-sub-option]')].map(o=>o.dataset.rtSubOption+':'+o.lastChild.textContent);
-  assert.deepEqual(opts,['Alpha:10','Gamma:2','Beta:1']);
+  assert.deepEqual(opts,['Alpha:9','Gamma:2','Beta:1']);// archive totals already include visible items: the larger count, not the sum
   D.querySelector('[data-rt-sub-option="Gamma"]').click();await tick();
   assert.equal(W.location.search.includes('rt_sub=Gamma'),true);
   assert.equal(D.querySelector('[data-thingid="t3_r1"]').hasAttribute('data-rt-filter-hidden'),true);
