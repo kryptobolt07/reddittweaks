@@ -85,3 +85,12 @@ test('RTArchiveQuery is frozen and failures are not cached',async()=>{
  const {Q}=load();assert.ok(Object.isFrozen(Q));let n=0;const send=async()=>(++n===1?{ok:false,code:'busy'}:{ok:true,subreddit:{name:'a'}});
  await assert.rejects(Q.subreddit('abc',send));assert.equal((await Q.subreddit('abc',send)).ok,true);
 });
+
+test('the local fallback uses the shared grammar: OR, exclusions and phrases, with the archive query serialized',async()=>{
+ const ctx=vm.createContext({console,Date,setTimeout,clearTimeout,Promise,Intl,TextEncoder});vm.runInContext(fs.readFileSync('extension/search-core.js','utf8'),ctx);
+ const {Q}=load({core:ctx.RCSCore}),parsed=ctx.RCSCore.parseQuery('tea OR coffee -decaf "morning cup"');
+ const list=[item('a',2000000000,{title:'Morning cup of tea'}),item('b',1999999990,{title:'morning cup of decaf coffee'}),item('c',1999999980,{title:'coffee only'}),item('d',1999999970,{title:'A morning cup of coffee'})];
+ const b=backend(list,{timeoutText:true}),pages=await collect(Q.search({kind:'post',author:'example',parsed,send:b.send}));
+ assert.equal(b.calls[0].query,'tea OR coffee -decaf "morning cup"');
+ assert.deepEqual(pages.flatMap(p=>p.items.map(i=>i.id)),['a','d']);assert.ok(pages.every(p=>p.mode==='local'));
+});
