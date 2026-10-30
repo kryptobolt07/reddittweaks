@@ -80,7 +80,7 @@
     const doc=globalThis.document || window.document;if(!doc)return;
     const loc=window.location || globalThis.location;
     holdModals(doc,loc);
-    const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments))?\/?$/i.test(loc?.pathname || '');
+    const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments|search))?\/?$/i.test(loc?.pathname || '');
     // Post pages: let CSS show a skeleton over removal titles until restoration settles.
     const restoreHere=restore && /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/[a-z0-9]{1,10}(?:\/|$)/i.test(loc?.pathname || '');
     // Held before settings arrive (the toast must not play first); released if restoring turns out to be off.
