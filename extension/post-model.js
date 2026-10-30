@@ -63,6 +63,17 @@
     if(body==='[removed]' || raw.removed_by_category || raw.status==='removed')return 'removed';
     return raw.status==='unknown'?'unknown':'available';
   }
+  // Coarse post type for local filtering (Arctic Shift has no type filter). Already-normalized posts keep theirs.
+  const postTypes=['text','image','video','gallery','crosspost','link'];
+  function postTypeOf(raw){
+    if(postTypes.includes(raw.postType))return raw.postType;
+    if(raw.crosspost_parent || Array.isArray(raw.crosspost_parent_list) && raw.crosspost_parent_list.length)return 'crosspost';
+    if(raw.is_gallery===true || raw.gallery_data)return 'gallery';
+    let host='',path='';try{const url=new URL(String(raw.url_overridden_by_dest ?? raw.url ?? ''));host=url.hostname.toLowerCase();path=url.pathname;}catch{}
+    if(raw.is_video===true || ['hosted:video','rich:video'].includes(raw.post_hint) || host==='v.redd.it')return 'video';
+    if(raw.post_hint==='image' || ['i.redd.it','i.imgur.com','preview.redd.it'].includes(host) && /\.(?:jpe?g|png|gif|webp)$/i.test(path))return 'image';
+    return raw.is_self===true?'text':'link';
+  }
   function normalizePost(raw,{source='reddit'}={}){
     raw=raw?.data || raw;
     if(!raw || typeof raw!=='object' || !['reddit','arctic-shift'].includes(source))return null;
@@ -73,7 +84,7 @@
       created:Math.floor(created),permalink:safeUrl(raw.permalink,true)||'https://www.reddit.com/comments/'+id+'/',url:safeUrl(raw.url),thumbnail:safeUrl(raw.thumbnail),
       media:normalizeMedia(raw),over18:raw.over_18===true||raw.over18===true,spoiler:raw.spoiler===true,score:Number.isFinite(Number(raw.score))?Math.max(-1e9,Math.min(1e9,Number(raw.score))):0,
       comments:Number.isFinite(Number(raw.num_comments ?? raw.comments))?Math.max(0,Math.min(1e9,Math.floor(Number(raw.num_comments ?? raw.comments)))):0,
-      status:source==='arctic-shift'?'unknown':status,source,bodySource:source};
+      status:source==='arctic-shift'?'unknown':status,source,bodySource:source,postType:postTypeOf(raw)};
     if(source==='arctic-shift'){
       result.archiveStatus=['available','deleted','removed','unknown'].includes(raw.archiveStatus)?raw.archiveStatus:status;
       const retrieved=retrievedAt(raw.retrieved_on ?? raw.retrieved);if(retrieved)result.retrieved=retrieved;
@@ -111,6 +122,7 @@
     if(/^t1_[a-z0-9]{1,32}$/.test(parent) || /^t3_[a-z0-9]{1,10}$/.test(parent))parentId=parent;
     else if(/^[a-z0-9]{1,32}$/.test(parent))parentId=(parent===linkId?'t3_':'t1_')+parent;
     else if(Object.hasOwn(raw,'parent_id') && (raw.parent_id==null || raw.parent_id===''))parentId='t3_'+linkId;
+    delete base.postType;
     return {...base,kind:'comment',id,fullname:'t1_'+id,linkId,title:str(raw.link_title ?? raw.title,1000),
       permalink:safeUrl(raw.permalink,true)||'https://www.reddit.com/comments/'+linkId+'/comment/'+id+'/',
       parentId};
