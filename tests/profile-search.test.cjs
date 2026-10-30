@@ -40,7 +40,7 @@ test('URL maps to query: type, t, sort, r/ scope and filters',async t=>{
   const a=await boot({url:'https://www.reddit.com/user/Ann/search/?q=cat+-dog+r/Alpha&type=comments&t=week&sort=top'});t.after(()=>a.W.close());
   const c=a.calls[0];assert.equal(c.kind,'comment');assert.equal(c.author,'Ann');assert.equal(c.subreddit,'Alpha');assert.equal(c.sort,'desc');assert.equal(c.after,1700500000-604800);assert.deepEqual([...c.parsed.excluded],['dog']);assert.equal(c.postTypes,undefined);
   const m=await boot({url:'https://www.reddit.com/user/Ann/search/?q=cat&type=media&rt_sort=old&rt_sub=A,B'});t.after(()=>m.W.close());
-  assert.equal(m.calls[0].kind,'post');assert.deepEqual([...m.calls[0].postTypes],['image','video','gallery']);assert.equal(m.calls[0].sort,'asc');assert.equal(m.calls[0].subreddit,undefined);
+  assert.equal(m.calls[0].kind,'post');assert.deepEqual([...m.calls[0].postTypes],['image','gif','video','gallery']);assert.equal(m.calls[0].sort,'asc');assert.equal(m.calls[0].subreddit,undefined);
   assert.equal(m.calls[0].after,undefined);
 });
 test('dedupes against Reddit results and renders units with cues and highlights',async t=>{
@@ -83,7 +83,7 @@ test('Subreddit dropdown filters Reddit units and the archive section',async t=>
   assert.equal(btn.className.includes('button-small'),true);
   assert.equal(btn.closest('[data-rt-profile-search-filter]').previousElementSibling.tagName.toLowerCase(),'faceplate-dropdown-menu');
   btn.click();
-  const opts=[...D.querySelectorAll('[data-rt-sub-option]')].map(o=>o.dataset.rtSubOption+':'+o.lastChild.textContent);
+  const opts=[...D.querySelectorAll('[data-rt-sub-option]')].map(o=>o.dataset.rtSubOption+':'+o.querySelector('[data-rt-option-tail]').textContent);
   assert.deepEqual(opts,['Alpha:9','Gamma:2','Beta:1']);// archive totals already include visible items: the larger count, not the sum
   D.querySelector('[data-rt-sub-option="Gamma"]').click();await tick();
   assert.equal(W.location.search.includes('rt_sub=Gamma'),true);
@@ -148,4 +148,32 @@ test('new Reddit results appended later re-dedupe the section',async t=>{
   assert.deepEqual([...sec(D).querySelectorAll('[data-rt-archive-result]')].map(u=>u.dataset.rtArchiveResult),['t3_a2']);
   D.getElementById('list').insertAdjacentHTML('beforeend',commentUnit('c9','Alpha'));
   assert.equal(W.RTProfileSearch.unitInfo(D.querySelector('[data-testid="search-sdui-comment-unit"]')).id,'t1_c9');
+});
+
+// The Subreddit dropdown uses the same list component as the profile Feed options menu.
+test('Subreddit dropdown is the shared list: search header, scroll list, icons, pinned picks and 8-pick limit',async t=>{
+  const buckets=Array.from({length:12},(_,i)=>({key:'Sub'+String(i).padStart(2,'0'),count:50-i}));
+  const {W,D}=await boot({aggregate:async()=>({ok:true,buckets})});t.after(()=>W.close());
+  const asked=[];W.RTCommunityIcons={peek:()=>undefined,get:async name=>{asked.push(name);return name==='Sub02'?'https://styles.redditmedia.com/t5_2/styles/communityIcon_two.png':null;}};
+  D.querySelector('[data-rt-subreddit-filter]').click();await tick();
+  const panel=D.querySelector('.rt-profile-search-menu [data-rt-sub-panel]');assert.ok(panel);
+  const head=panel.querySelector('.rt-sub-head');assert.equal(head.querySelector('[data-rt-sub-back]'),null,'no Back inside a dropdown');assert.equal(head.querySelector('input').placeholder,'Search communities');
+  const list=panel.querySelector('.rt-sub-list'),rows=()=>[...list.querySelectorAll('[data-rt-sub-row]')];
+  assert.ok(rows().length>=12);assert.ok(rows().every(r=>r.querySelector('.rt-community-icon')));assert.equal(D.querySelector('[data-rt-counts-note]').textContent,'Counts from the archive');
+  await tick();assert.equal(rows().find(r=>r.dataset.rtSubRow==='Sub02').querySelector('img.rt-community-img').getAttribute('src'),'https://styles.redditmedia.com/t5_2/styles/communityIcon_two.png');
+  rows().find(r=>r.dataset.rtSubRow==='Sub05').click();await tick();
+  assert.equal(rows()[0].dataset.rtSubRow,'Sub05','picked rows are pinned first');assert.ok(rows()[0].querySelector('[data-rt-check]'));
+  for(const k of ['Sub00','Sub01','Sub02','Sub03','Sub04','Sub06','Sub07']){rows().find(r=>r.dataset.rtSubRow===k).click();await tick(2);}
+  assert.equal(W.location.search.match(/rt_sub=([^&]*)/)[1].split(',').length,8);
+  const blocked=rows().filter(r=>r.getAttribute('aria-disabled')==='true');assert.ok(blocked.length>=4);assert.match(blocked[0].title,/Up to 8 communities/);
+  blocked[0].click();await tick(2);assert.equal(W.location.search.match(/rt_sub=([^&]*)/)[1].split(',').length,8);
+  assert.match(D.querySelector('[data-rt-counts-note]').textContent,/Counts from the archive · Up to 8 communities/);
+  assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/\.rt-sub-list\{overflow-y:auto;overscroll-behavior:contain;max-height:min\(320px/);
+  assert.equal(D.querySelectorAll('.rt-sub-panel').length,1);D.querySelector('[data-rt-subreddit-filter]').click();D.querySelector('[data-rt-subreddit-filter]').click();await tick();assert.equal(D.querySelectorAll('.rt-sub-panel').length,1,'reopening reuses the panel');
+});
+test('Subreddit dropdown footer: Loading counts, then archive or loaded items, never the wrong one',async t=>{
+  let release;const gate=new Promise(r=>release=r);
+  const {W,D}=await boot({aggregate:async()=>{await gate;return {ok:true,buckets:[{key:'Alpha',count:9}]};}});t.after(()=>W.close());
+  D.querySelector('[data-rt-subreddit-filter]').click();assert.equal(D.querySelector('[data-rt-counts-note]').textContent,'Loading counts…');
+  release();await tick(30);assert.equal(D.querySelector('[data-rt-counts-note]').textContent,'Counts from the archive');
 });

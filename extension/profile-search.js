@@ -7,7 +7,7 @@
   if(globalThis.RTProfileSearch)return;
   const settingsKey='rt-settings-v1',tabs=['posts','comments','media'],sorts=['relevance','hot','top','new','comments'];
   const ranges={hour:3600,day:86400,week:604800,month:2592000,year:31536000};
-  const firstCount=3,initialPages=3,olderPages=10,mediaTypes=['image','video','gallery'];
+  const firstCount=3,initialPages=3,olderPages=10,mediaTypes=['image','gif','video','gallery'];
   const unitSelector='search-telemetry-tracker[data-testid="search-sdui-post"],[data-testid="search-sdui-comment-unit"]';
   const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
   const F=()=>globalThis.RTFeedFilters,Q=()=>globalThis.RTArchiveQuery,C=()=>globalThis.RCSCore;
@@ -265,24 +265,17 @@
     closeMenu(){const cur=this.current;if(!cur)return;cur.menuOpen=false;cur.button.setAttribute('aria-expanded','false');cur.menu.hidden=true;}
     buildMenu(cur){
       const f=F(),loaded=this.visible().loaded;
+      if(!cur.panel){
+        cur.panel=f.subredditPanel({ctx:f.plainContext(glyph),onToggle:key=>{
+          const on=cur.filters.subreddits.some(s=>s.toLowerCase()===key.toLowerCase());
+          const subs=on?cur.filters.subreddits.filter(s=>s.toLowerCase()!==key.toLowerCase()):[...cur.filters.subreddits,key].slice(0,f.maxSubreddits);
+          this.setFilters(cur,{...cur.filters,subreddits:subs});}});
+        cur.menu.append(cur.panel.el);
+      }
       const counts=cur.buckets?f.mergeCounts(cur.buckets,loaded):f.mergeCounts([],loaded);
       for(const s of cur.filters.subreddits)if(!counts.some(c=>c.key.toLowerCase()===s.toLowerCase()))counts.push({key:s,count:0});
-      cur.menu.replaceChildren();
-      const picked=new Set(cur.filters.subreddits.map(s=>s.toLowerCase())),full=picked.size>=f.maxSubreddits;
-      for(const {key,count} of counts.slice(0,40)){
-        const on=picked.has(key.toLowerCase()),row=make('button','rt-profile-search-option flex items-center justify-between w-full px-md py-xs text-14 text-neutral-content-strong cursor-pointer hover:bg-neutral-background-hover');
-        row.type='button';row.setAttribute('role','menuitemcheckbox');row.setAttribute('aria-checked',String(on));row.dataset.rtSubOption=key;
-        const name=make('span','flex items-center gap-xs'),text=make('span','','r/'+key);name.append(text);if(on){const check=glyph('checkmark');check.dataset.rtCheck='true';name.append(check);}
-        row.append(name,make('span','text-12 text-neutral-content-weak ms-md',count?String(count):''));
-        if(full&&!on)row.disabled=true;
-        row.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();
-          const subs=on?cur.filters.subreddits.filter(s=>s.toLowerCase()!==key.toLowerCase()):[...cur.filters.subreddits,key].slice(0,f.maxSubreddits);
-          this.setFilters(cur,{...cur.filters,subreddits:subs});});
-        cur.menu.append(row);
-      }
-      if(!counts.length)cur.menu.append(make('p','px-md py-xs text-12 text-neutral-content-weak','No subreddits yet'));
-      if(cur.countsFallback||!cur.buckets){const note=make('p','px-md py-xs text-12 text-neutral-content-weak',cur.countsFallback?'Counts from loaded items':'Counting in the archive…');note.dataset.rtCountsNote='true';cur.menu.append(note);}
-      if(full)cur.menu.append(make('p','px-md py-xs text-12 text-neutral-content-weak','Up to '+f.maxSubreddits+' subreddits'));
+      cur.panel.note.dataset.rtCountsNote='true';
+      cur.panel.render({entries:counts,picked:cur.filters.subreddits,source:cur.buckets?'archive':cur.countsFallback?'loaded':'loading'});
     }
 
     // ---------- section ----------
