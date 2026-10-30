@@ -217,6 +217,119 @@
     });
     pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
   }
+  // --- Archive search layer: text search, aggregates, subreddit metadata. Same slot, cooldown, backoff, timeout and size bound as request().
+  // A second source (e.g. a PullPush adapter) would plug in here by returning the same shapes; none is configured.
+  const searchSubreddit=/^[A-Za-z0-9_]{2,21}$/,searchTtl=30000;
+  const validTime=value=>typeof value==='number' && Number.isSafeInteger(value) && value>0 && value<=32503680000;
+  async function archiveFetch(path,params,onJson){
+    const release=await slot();
+    try{
+      if(!await enabled())return disabled();
+      await backoffLoaded;await loadBackoff();
+      if(cooldownUntil>Date.now())return fail('Archive requests are cooling down.','rate-limited',{retryAt:cooldownUntil});
+      if(unavailableUntil>Date.now())return unavailable();
+      const url=new URL('https://arctic-shift.photon-reddit.com/api/'+path);for(const [key,value] of Object.entries(params))if(value!=null && value!=='')url.searchParams.set(key,String(value));
+      const controller=new AbortController();let timer;
+      try{
+        const timedOut=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Archive request timed out.'));},timeoutMs);});
+        const operation=(async()=>{
+          const response=await fetch(url.href,{...archiveInit,signal:controller.signal});cooldown(response);
+          if([502,503,504].includes(response.status))return markUnavailable(response,controller);
+          const text=await readBounded(response,controller);if(text==null)return fail('Archive response is too large.','invalid-response');
+          let json;try{json=JSON.parse(text);}catch{json=null;}
+          // Arctic Shift reports a slow query as HTTP 422 {"data":null,"error":"Timeout. Maybe slow down a bit"}.
+          if(!response.ok && /time(?:d)?[ -]?out/i.test(String(json?.error || '')))return fail('The archive query timed out.','timeout');
+          if(!response.ok)return fail(response.status===429?'Archive rate limit reached.':'Archive service could not load results.',response.status===429?'rate-limited':'http-error',{retryAt:cooldownUntil||undefined});
+          markAvailable();
+          if(!Array.isArray(json?.data) || json.data.length>1000)return fail('Invalid archive response.','invalid-response');
+          return onJson(json.data);
+        })();
+        return await Promise.race([operation,timedOut]);
+      }catch(error){return fail(controller.signal.aborted?'Archive request timed out.':'Archive service is unavailable.',controller.signal.aborted?'timeout':'network-error');}
+      finally{clearTimeout(timer);}
+    }finally{release();}
+  }
+  // Any page of the signed-in Reddit site may use these reads; scoped data (author/subreddit) is validated per message.
+  function redditSender(sender){
+    if(sender?.id!==chrome.runtime.id || sender.frameId!=null && sender.frameId!==0 || !Number.isInteger(sender.tab?.id))return false;
+    try{const url=new URL(sender.url);return url.protocol==='https:' && !url.port && ['reddit.com','www.reddit.com'].includes(url.hostname) && (!sender.origin || sender.origin===url.origin);}catch{return false;}
+  }
+  // Validated scope shared by search and aggregate. Returns an error response or {kind,author,subreddit}.
+  function searchScope(message){
+    const kind=message.kind;if(!['post','comment'].includes(kind))return fail('Invalid content type.','invalid-request');
+    const author=message.author,subreddit=message.subreddit;
+    if(author!=null && !Model.validateUsername(author) || subreddit!=null && (typeof subreddit!=='string' || !searchSubreddit.test(subreddit)))return fail('Invalid archive scope.','invalid-request');
+    if(author==null && subreddit==null)return fail('An author or subreddit is required.','invalid-request');
+    for(const key of ['after','before'])if(message[key]!=null && !validTime(message[key]))return fail('Invalid archive cursor.','invalid-request');
+    return {kind,author:author?.toLowerCase(),subreddit:subreddit?.toLowerCase()};
+  }
+  async function cachedSearch(key,run){
+    const now=Date.now();for(const [id,value] of cache)if(value.expires<=now)cache.delete(id);
+    if(cache.has(key))return cache.get(key).value;
+    if(pending.has(key))return pending.get(key);
+    if(pending.size>=50)return fail('Too many archive requests.','busy');
+    const operation=run();pending.set(key,operation);
+    try{const value=await operation;if(!await enabled())return disabled();if(value.ok){if(cache.size>=50)cache.delete(cache.keys().next().value);cache.set(key,{value,expires:Date.now()+searchTtl});}return value;}
+    finally{pending.delete(key);}
+  }
+  async function archiveSearch(message,sender){
+    if(!redditSender(sender))return fail('Archive search requires a Reddit page.','forbidden');
+    const scope=searchScope(message);if(scope.ok===false)return scope;
+    const sort=message.sort==null?'desc':message.sort,query=message.query;
+    if(!['desc','asc'].includes(sort))return fail('Invalid sort.','invalid-request');
+    if(query!=null && (typeof query!=='string' || query.length>256 || /[\u0000-\u001f]/.test(query)))return fail('Invalid search text.','invalid-request');
+    const text=query?.trim() || '',{kind,author,subreddit}=scope,after=message.after,before=message.before;
+    const key=['search',kind,author||'',subreddit||'',text,after??'',before??'',sort].join('\u0001');
+    return cachedSearch(key,()=>archiveFetch(kind==='comment'?'comments/search':'posts/search',{author,subreddit,[kind==='comment'?'body':'query']:text,after,before,sort,limit,md2html:'true'},data=>{
+      const normalize=kind==='comment'?Model.normalizeComment:Model.normalizePost;
+      const posts=data.slice(0,limit).map(item=>normalize(item,{source:'arctic-shift'})).filter(post=>post && (!author || post.author.toLowerCase()===author) && (!subreddit || post.subreddit.toLowerCase()===subreddit)
+        && (before==null || post.created<before) && (after==null || post.created>after));
+      const hasMore=data.length>=limit,times=posts.map(post=>post.created);
+      // Bounds are exclusive. Overlap the boundary second so same-second records are never skipped; a stall is surfaced, never called complete.
+      const edge=times.length?(sort==='asc'?Math.max(...times)-1:Math.min(...times)+1):null,bound=sort==='asc'?after:before;
+      const cursor=hasMore && edge!=null && edge>0?edge:null,stalled=hasMore && (cursor==null || bound!=null && (sort==='asc'?cursor<=bound:cursor>=bound));
+      return {ok:true,posts,cursor,hasMore,sort,serverFiltered:Boolean(text),source:'arctic-shift',incomplete:true,cursorStalled:stalled,cursorMode:'exclusive-overlap-second'};
+    }).then(value=>value.ok===false && text && ['timeout','text-search-unavailable'].includes(value.code)?fail('Text search is unavailable for this scope.','text-search-unavailable'):value));
+  }
+  async function archiveAggregate(message,sender){
+    if(!redditSender(sender))return fail('Archive aggregates require a Reddit page.','forbidden');
+    const scope=searchScope(message);if(scope.ok===false)return scope;
+    if(!['subreddit','month'].includes(message.by))return fail('Invalid aggregate.','invalid-request');
+    const {kind,author,subreddit}=scope,month=message.by==='month',before=message.before,after=message.after ?? (month && before==null?1104537600:undefined);
+    const key=['aggregate',kind,author||'',subreddit||'',message.by,after??'',before??''].join('\u0001');
+    return cachedSearch(key,()=>archiveFetch((kind==='comment'?'comments':'posts')+'/search/aggregate',{author,subreddit,aggregate:month?'created_utc':'subreddit',frequency:month?'month':undefined,after,before,limit:month?undefined:100},data=>{
+      // Observed: counts are strings; created_utc keys are ISO instants at the server's local month start (e.g. 2022-12-31T23:00:00.000Z for 2023-01), so half a day is added before reading YYYY-MM.
+      const buckets=[];
+      for(const item of data){
+        const count=Number(item?.count);if(!Number.isFinite(count) || count<=0)continue;
+        let bucketKey;
+        if(month){const time=Date.parse(item.created_utc);if(!Number.isFinite(time))continue;bucketKey=new Date(time+43200000).toISOString().slice(0,7);}
+        else{bucketKey=typeof item.key==='string'?item.key.slice(0,100):'';if(!bucketKey)continue;}
+        buckets.push({key:bucketKey,count:Math.floor(count)});
+      }
+      buckets.sort(month?(a,b)=>a.key<b.key?-1:1:(a,b)=>b.count-a.count);
+      return {ok:true,buckets,by:message.by,source:'arctic-shift'};
+    }));
+  }
+  // Subreddit metadata: https icon only on a Reddit-owned host. An absent record (never archived) is not-found.
+  const iconHosts=/(?:^|\.)(?:redd\.it|redditmedia\.com|reddituploads\.com|reddit\.com|redditstatic\.com)$/i;
+  function iconUrl(value){
+    if(typeof value!=='string' || value.length>4096)return '';
+    try{const url=new URL(value.replace(/&amp;/gi,'&'));return url.protocol==='https:' && !url.username && !url.password && !url.port && iconHosts.test(url.hostname)?url.href:'';}catch{return '';}
+  }
+  async function archiveSubreddit(message,sender){
+    if(!redditSender(sender))return fail('Subreddit details require a Reddit page.','forbidden');
+    if(typeof message.name!=='string' || !searchSubreddit.test(message.name))return fail('Invalid subreddit name.','invalid-request');
+    const name=message.name.toLowerCase();
+    return cachedSearch('subreddit\u0001'+name,()=>archiveFetch('subreddits/search',{subreddit:name},data=>{
+      const raw=data.find(item=>String(item?.display_name || '').toLowerCase()===name);
+      if(!raw)return fail('This subreddit is not in the archive.','not-found');
+      const text=(value,max)=>typeof value==='string'?value.slice(0,max).replace(/\u0000/g,''):'',number=value=>Number.isFinite(Number(value)) && Number(value)>=0?Math.floor(Number(value)):0;
+      const subreddit={name:text(raw.display_name,21),title:text(raw.title,200),description:text(raw.public_description,500) || text(raw.description,2000),subscribers:number(raw.subscribers),created:number(raw.created_utc),over18:raw.over_18===true || raw.over18===true,icon:iconUrl(raw.community_icon) || iconUrl(raw.icon_img)};
+      if(!subreddit.icon)delete subreddit.icon;
+      return {ok:true,subreddit,source:'arctic-shift'};
+    }));
+  }
   async function handle(message,sender){
     if(message?.scope!=='rt-posts')return;
     if(message.action==='get-settings'){
@@ -228,6 +341,9 @@
     if(message.action==='archive-parents')return archiveParents(message,sender);
     if(message.action==='archive-recover')return archiveRecover(message,sender);
     if(message.action==='archive-comments')return archiveComments(message,sender);
+    if(message.action==='archive-search')return archiveSearch(message,sender);
+    if(message.action==='archive-aggregate')return archiveAggregate(message,sender);
+    if(message.action==='archive-subreddit')return archiveSubreddit(message,sender);
     const kind=message.kind || 'post';
     if(!['post','comment'].includes(kind) || message.action==='archive-ids' && kind!=='post')return fail('Invalid content type.','invalid-request');
     if(!['archive-profile','archive-ids'].includes(message.action))return fail('Unknown archive action.','invalid-request');
