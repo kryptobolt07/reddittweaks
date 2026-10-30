@@ -1575,7 +1575,7 @@
     else (native.querySelector('[slot="credit-bar"]') || native).append(badge);
     return node;
   }
-  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard});
+  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard,avatarHint:name=>avatarHints.get(String(name||'').toLowerCase())?.url || ''});
   // Debug handle in the extension's isolated world only (not visible to Reddit's page).
   if(window.top===window && globalThis.chrome?.runtime?.id)Object.defineProperty(globalThis,'RTDiscoveryDebug',{value:new Discovery()});
 })();
