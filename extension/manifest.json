@@ -102,6 +102,7 @@
         "archive-view.js",
         "archive-query.js",
         "recent-searches.js",
+        "community-icons.js",
         "feed-filters.js",
         "post-discovery.js",
         "profile-search.js",
