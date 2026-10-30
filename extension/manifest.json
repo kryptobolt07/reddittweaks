@@ -84,7 +84,8 @@
       ],
       "css": [
         "post-discovery.css",
-        "profile-search.css"
+        "profile-search.css",
+        "subreddit-archive.css"
       ]
     },
     {
@@ -104,6 +105,7 @@
         "feed-filters.js",
         "post-discovery.js",
         "profile-search.js",
+        "subreddit-archive.js",
         "thread-restore.js"
       ]
     }
