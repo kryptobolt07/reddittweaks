@@ -180,6 +180,11 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-posts-toolbar{flex-wrap:wrap}
 .rt-posts-toolbar .rt-posts-status[data-error=true],.rt-posts-toolbar .rt-posts-notice{flex:1 1 100%;margin-inline:0;position:static}
 
+/* Rows for menus outside Reddit's rpl-menu (profile search page, subreddit archive popover): same height, padding and hover. */
+.rt-menu-row{display:flex;align-items:center;box-sizing:border-box;min-height:48px;padding:0 16px;font-size:14px;line-height:20px;color:var(--color-neutral-content-strong,#0f1a1c);cursor:pointer;user-select:none}
+.rt-menu-row:hover,.rt-menu-row:focus-visible{background:var(--color-neutral-background-hover,#e8edef);outline:none}
+.rt-menu-row[aria-disabled="true"]{opacity:.45;cursor:not-allowed;background:transparent}
+.rt-menu-row[hidden]{display:none!important}
 /* Feed options menu rows: Reddit's icon size and a value that truncates instead of overlapping the label. */
 .rt-menu-lead{width:20px;height:20px;flex:none}
 .rt-menu-caption{flex:none;min-width:0}

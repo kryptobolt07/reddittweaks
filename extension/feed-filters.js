@@ -233,6 +233,21 @@
     let mark=el.querySelector('[data-rt-check]');
     if(checked && !mark){mark=ctx.glyph('checkmark');mark.dataset.rtCheck='true';(el.querySelector('[data-rt-check-slot]') || el.firstElementChild).append(mark);}else if(!checked)mark?.remove();
   }
+  // Menu rows for hosts without Reddit's rpl-menu-item (profile search page, subreddit archive popover): same structure, same CSS.
+  function plainContext(glyph,{role='menuitemcheckbox'}={}){
+    const mk=(cls)=>{const el=document.createElement('div');el.className=cls;return el;};
+    const row=(label,icon)=>{
+      const el=mk('rt-menu-row cursor-pointer'),body=mk('flex justify-between items-center w-full'),caption=mk('flex items-center gap-xs rt-menu-caption');
+      el.setAttribute('role',role);el.tabIndex=-1;el.setAttribute('aria-label',label);
+      const lead=typeof icon==='string'?(svgIcon(icon,20)||glyph(icon)):icon;lead?.classList?.add('rt-menu-lead');
+      caption.append(lead,document.createTextNode(label));body.append(caption);el.append(body);return el;
+    };
+    const activate=(el,fn)=>{
+      el.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();fn(event);});
+      el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();fn(event);}});
+    };
+    return {row,activate,glyph:name=>svgIcon(name,20) || glyph(name)};
+  }
   // Small non-interactive section title inside a menu (Reddit's menu-section-title style).
   function sectionLabel(text){
     const el=document.createElement('div');el.className='rt-menu-section text-12 font-semibold text-neutral-content-weak';el.setAttribute('role','presentation');el.dataset.rtUi='filter-option';el.dataset.rtSection=text;el.textContent=text;return el;
@@ -271,7 +286,7 @@
       for(const entry of rows){
         const on=pickedKeys.has(entry.key.toLowerCase()),icon=communityIcon(entry.key,24);
         const row=menuOption(ctx,{label:subLabel(entry.key),icon,checked:on,value:entry.key,tail:entry.count?String(entry.count):'',slot:true,onSelect:()=>{if(row.getAttribute('aria-disabled')==='true')return;onToggle(entry.key);}});
-        row.dataset.rtUi='filter-option';row.dataset.rtSubRow=entry.key;
+        row.dataset.rtUi='filter-option';row.dataset.rtSubRow=entry.key;row.dataset.rtSubOption=entry.key;
         if(full && !on){row.setAttribute('aria-disabled','true');row.setAttribute('disabled','');row.title='Up to '+max+' communities';}
         list.append(row);
         if(watch)watch.observe(icon);else if(index++<16)loadIcon(icon);
@@ -284,5 +299,5 @@
     return {el,list,note,input,back,head,render,reset(){input.value='';list.scrollTop=0;},get data(){return last;}};
   }
   const iconNames=Object.freeze([...Object.keys(iconPaths),'gif']);
-  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,menuOption,markChecked,sectionLabel,typeOptions,subredditPanel,communityIcon,svgIcon,iconNames,subName});
+  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,menuOption,markChecked,plainContext,sectionLabel,typeOptions,subredditPanel,communityIcon,svgIcon,iconNames,subName});
 })();
