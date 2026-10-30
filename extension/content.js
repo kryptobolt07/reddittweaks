@@ -174,6 +174,11 @@
     button.addEventListener('click', handler);
     return button;
   }
+  // Chat-list search keeps its substring matching; OR and -word queries use the shared grammar.
+  function listMatch(text, query) {
+    const parsed = C.parseQuery(query);
+    return parsed.hasOperators ? !parsed.invalid && C.matchesText(parsed, text, {shortTermsWholeWord:false}) : C.matches(text, query);
+  }
   function highlight(text, query, options={}) {
     const fragment = document.createDocumentFragment();
     let offset = 0;
@@ -484,7 +489,7 @@
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-room-results-height',`${available>0?Math.max(0,available):320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
       if(this.meta)this.meta.hidden=false;
-      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => C.matches([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? entry.accountState==='banned' ? 'banned suspended unavailable account' : 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
+      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => listMatch([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? entry.accountState==='banned' ? 'banned suspended unavailable account' : 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
         const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
         if(this.queryOptions?.sort==='oldest')return -newest;
         if(this.queryOptions?.sort==='relevant'){const score=record=>C.relevanceScore(record.text,query,{wholeWord:this.queryOptions?.wholeWord});return score(b)-score(a) || newest;}
@@ -503,7 +508,7 @@
       if(this.tools?.renderValueChoices?.())return;
       this.status.textContent = this.kind==='list' && globalThis.RCSDirectory?.getStartup?.().pending ? 'Restoring saved usernames…' : this.loading ? this.progress || (this.kind === 'list' ? 'Searching all conversations…' : 'Searching all messages…') : this.notice || `${this.hits.length} ${this.kind === 'list' ? 'conversation' : 'message'}${this.hits.length === 1 ? '' : 's'}${this.complete ? '' : ' · still connecting'}`;
       if(this.kind==='list' && this.loading && !this.refreshing && globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete)this.status.textContent=`${this.hits.length} saved conversations · ${this.progress.startsWith('Waiting') ? this.progress.replace(/\s*\(\d+\)$/,'') : this.progress.includes('dates') ? 'Updating dates…' : 'Checking updates…'}`;
-      if(this.kind==='messages'){this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || `${this.hits.length} result${this.hits.length===1?'':'s'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;this.coverage.hidden=this.complete;this.coverage.textContent='Saved messages only · History may be incomplete';}
+      if(this.kind==='messages'){this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : C.parseQuery(query).errors[0] || this.notice || `${this.hits.length} result${this.hits.length===1?'':'s'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;this.coverage.hidden=this.complete;this.coverage.textContent='Saved messages only · History may be incomplete';}
       if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || (!this.savedStats && this.savedLoading ? 'Searching saved messages…' : `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedSavingError ? ' · Saving paused' : this.savedImporting ? ' · Saving cached messages…' : this.savedLoading ? ' · Searching…' : ''}`);
       if(this.isGlobal)this.updateLoad();
       this.status.title=this.savedSavingError ? `${this.status.textContent} · ${this.savedSavingError}` : this.status.textContent;

@@ -29,18 +29,44 @@
     if(last)last.setDate(last.getDate()+1);
     return {start:first?.getTime()??-Infinity,end:last?.getTime()??Infinity,active:Boolean(from||to),invalid};
   }
-  function parseQuery(query='') {
-    const parsed={terms:[],phrases:[],from:[],after:[],before:[],hasLink:false,hasImage:false,hasFile:false,hasVideo:false,hasAudio:false,hasGif:false,invalid:false,errors:[]};
-    const tokens=String(query).match(/(?:[^\s"]*"[^"]*"|[^\s"]+)/g) || [];
+  const authorName=/^[A-Za-z0-9_-]{3,20}$/,subredditName=/^[A-Za-z0-9_]{2,21}$/;
+  // Words AND together; uppercase OR binds tighter than AND (a b OR c = a AND (b OR c)); -word and -"phrase" exclude.
+  function parseQuery(query='',{scopes=[]}={}) {
+    const parsed={terms:[],phrases:[],excluded:[],from:[],after:[],before:[],hasLink:false,hasImage:false,hasFile:false,hasVideo:false,hasAudio:false,hasGif:false,invalid:false,errors:[],expr:{type:'and',children:[]},hasOperators:false};
+    const scopeAuthor=scopes.includes('author'),scopeSubreddit=scopes.includes('subreddit');
+    if(scopeAuthor)parsed.authors=[];if(scopeSubreddit)parsed.subreddits=[];
+    const tokens=String(query).match(/(?:[^\s"]*"[^"]*"|[^\s"]+)/g) || [],seq=[];
     for(const token of tokens){
-      const operator=token.match(/^(from|after|before|has):(.*)$/i);
-      if(operator){const key=operator[1].toLowerCase(),value=operator[2].replace(/^"|"$/g,'');
+      const operator=token.match(/^(from|after|before|has):(.*)$/i),scope=(scopeAuthor||scopeSubreddit) && token.match(/^(?:(u\/|author:)|(r\/|subreddit:))(.*)$/i);
+      if(operator){seq.push('OP');const key=operator[1].toLowerCase(),value=operator[2].replace(/^"|"$/g,'');
         if(key==='has'){const kind=normalize(value).replace(/s$/,''),flag={link:'hasLink',image:'hasImage',file:'hasFile',video:'hasVideo',audio:'hasAudio',gif:'hasGif'}[kind];if(flag)parsed[flag]=true;else parsed.errors.push('Use has:link, has:image, has:gif, has:video, has:audio or has:file');}
         else if(key==='from'){if(value)parsed.from.push(normalize(value));else parsed.errors.push('Add a sender after from:');}
         else {if(!value || dateBounds({from:value}).invalid)parsed.errors.push('Use a valid YYYY-MM-DD date');parsed[key].push(value);}
-      }else if(token.startsWith('"') && token.endsWith('"')){if(token.length>2)parsed.phrases.push(token.slice(1,-1));}
-      else parsed.terms.push(token.replace(/"/g,''));
+      }else if(scope && (scope[1] ? scopeAuthor : scopeSubreddit)){seq.push('OP');
+        const value=scope[3].replace(/^"|"$/g,'');
+        if(scope[1]){if(authorName.test(value))parsed.authors.push(value);else parsed.errors.push('Use a valid username after u/');}
+        else if(subredditName.test(value))parsed.subreddits.push(value);else parsed.errors.push('Use a valid subreddit name after r/');
+      }else if(token==='OR')seq.push('OR');
+      else if(token.length>1 && token[0]==='-' && token.replace(/["-]/g,'')){
+        const rest=token.slice(1),phrase=rest.length>2 && rest.startsWith('"') && rest.endsWith('"'),text=phrase?rest.slice(1,-1):rest.replace(/"/g,'');
+        if(text){parsed.excluded.push(text);seq.push({type:'not',child:{type:phrase?'phrase':'term',text}});}
+      }else if(token.startsWith('"') && token.endsWith('"')){if(token.length>2){const text=token.slice(1,-1);parsed.phrases.push(text);seq.push({type:'phrase',text});}}
+      else{const text=token.replace(/"/g,'');parsed.terms.push(text);seq.push({type:'term',text});}
     }
+    const children=[];let group=[];
+    for(let i=0;i<seq.length;i++){const item=seq[i];
+      if(item==='OR'){
+        if(i===0 || i===seq.length-1 || typeof seq[i-1]!=='object' || typeof seq[i+1]!=='object'){if(!parsed.errors.includes('Put a word on both sides of OR'))parsed.errors.push('Put a word on both sides of OR');}
+        parsed.hasOperators=true;continue;
+      }
+      if(typeof item!=='object')continue;
+      group.push(item);
+      if(seq[i+1]!=='OR'){children.push(group.length>1?{type:'or',children:group}:group[0]);group=[];}
+    }
+    parsed.expr={type:'and',children};
+    if(parsed.excluded.length)parsed.hasOperators=true;
+    const filtered=parsed.from.length || parsed.after.length || parsed.before.length || parsed.hasLink || parsed.hasImage || parsed.hasFile || parsed.hasVideo || parsed.hasAudio || parsed.hasGif || parsed.authors?.length || parsed.subreddits?.length;
+    if(parsed.excluded.length && !parsed.terms.length && !parsed.phrases.length && !filtered)parsed.errors.push('Add a word to search for');
     parsed.invalid=parsed.errors.length>0;return parsed;
   }
   const wordCharacter=char=>Boolean(char && /[\p{L}\p{N}_]/u.test(char));
@@ -61,6 +87,32 @@
     return {value,starts,ends};
   }
   const needlesFor=parsed=>[...new Set([...parsed.terms,...parsed.phrases].map(normalize).filter(Boolean))];
+  const wordAt=(folded,term,bounded)=>{let offset=0;while((offset=folded.indexOf(term,offset))!==-1){const end=offset+term.length;if(!bounded || wordBoundary(folded,offset,end))return true;offset=end;}return false;};
+  // Compile the expression into a test over folded text; empty terms drop out, and a tree with nothing left is null (matches everything).
+  function compileExpr(node,options){
+    if(node.type==='term' || node.type==='phrase'){const needle=normalize(node.text);if(!needle)return null;const bounded=requiresBoundary(needle,options);return folded=>wordAt(folded,needle,bounded);}
+    if(node.type==='not'){const child=compileExpr(node.child,options);return child && (folded=>!child(folded));}
+    const tests=(node.children || []).map(child=>compileExpr(child,options)).filter(Boolean);
+    if(!tests.length)return null;
+    if(tests.length===1)return tests[0];
+    return node.type==='or'?folded=>tests.some(test=>test(folded)):folded=>tests.every(test=>test(folded));
+  }
+  const exprFor=parsed=>parsed.expr || {type:'and',children:[...parsed.terms.map(text=>({type:'term',text})),...parsed.phrases.map(text=>({type:'phrase',text}))]};
+  const foldedValue=text=>/[^\x00-\x7f]/.test(text)?foldedText(text).value:text.toLowerCase();
+  function textMatcher(parsed,options={}){const test=compileExpr(exprFor(parsed),options);return test?text=>test(foldedValue(String(text ?? ''))):()=>true;}
+  function matchesText(parsed,text,options={}){return textMatcher(typeof parsed==='object'?parsed:parseQuery(parsed),options)(text);}
+  function toArchiveQuery(parsed){
+    parsed=typeof parsed==='object'?parsed:parseQuery(parsed);
+    const quote=(node,phrase)=>phrase?'"'+node.text.replace(/"/g,'')+'"':node.text.replace(/"/g,'');
+    const atom=node=>{
+      if(node.type==='not'){const text=atom(node.child);return text && '-'+text;}
+      if(!normalize(node.text) || node.text==='-')return '';
+      return quote(node,node.type==='phrase' || /\s/.test(node.text));
+    };
+    const part=node=>node.type==='or'?node.children.map(atom).filter(Boolean).join(' OR '):atom(node);
+    if(!parsed.terms.length && !parsed.phrases.length)return '';
+    return exprFor(parsed).children.map(part).filter(Boolean).join(' ');
+  }
   const requiresBoundary=(term,{wholeWord=false,shortTermsWholeWord=true}={})=>wholeWord || shortTermsWholeWord && [...term].length<3;
   function queryRanges(text,needles,options={}){
     if(!needles.length)return {ranges:[],complete:true,matchedTerms:0};
@@ -86,7 +138,7 @@
     return counts;
   }
   function prepareQuery(query='',{from='all',wholeWord=false,shortTermsWholeWord=true,dates={},ignoreMedia=false}={},conversation={}){
-    const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates),needles=needlesFor(parsed),boundaries=needles.map(term=>requiresBoundary(term,{wholeWord,shortTermsWholeWord}));
+    const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates),matcher=textMatcher(parsed,{wholeWord,shortTermsWholeWord}),hasText=Boolean(compileExpr(exprFor(parsed),{}));
     const wantedMedia=ignoreMedia?0:mediaQueryFlags(parsed);
     const start=Math.max(bounds.start,...parsed.after.map(date=>dateBounds({from:date}).start)),end=Math.min(bounds.end,...parsed.before.map(date=>dateBounds({from:date}).start));
     const dated=bounds.active || parsed.after.length>0 || parsed.before.length>0;
@@ -100,11 +152,9 @@
       if(dated){const time=typeof record.timestamp==='number'?record.timestamp:new Date(record.timestamp ?? record.at).getTime();if(!(Number.isFinite(time) && time>=start && time<end))return false;}
       const text=String(record.text || '');
       if(wantedMedia && (mediaFlags(record)&wantedMedia)!==wantedMedia)return false;
-      if(!needles.length)return true;
       // Keep normalization identical to highlighting. Sender normalization
       // strips u/ and whitespace, but message bodies must retain them.
-      const folded=/[^\x00-\x7f]/.test(text)?foldedText(text).value:text.toLowerCase();
-      return needles.every((term,i)=>{let offset=0;while((offset=folded.indexOf(term,offset))!==-1){const end=offset+term.length;if(!boundaries[i] || wordBoundary(folded,offset,end))return true;offset=end;}return false;});
+      return !hasText || matcher(text);
     };
   }
   function matchesQuery(record,query='',options={},conversation={}){return prepareQuery(query,options,conversation)(record);}
@@ -208,5 +258,5 @@
     }
     clear() { this.rooms.clear();this.redacted.clear(); }
   }
-  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, prepareQuery, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
+  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, matchesText, toArchiveQuery, prepareQuery, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
 })();
