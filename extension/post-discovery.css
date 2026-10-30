@@ -162,3 +162,15 @@ html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary
    under the reader. Reveals itself after 2.5 s if discovery never takes over. */
 @keyframes rt-menu-reveal{to{visibility:visible}}
 html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed options"]) rpl-menu.main-menu-container:not([data-rt-menu-ready])>:not([data-rt-ui]){visibility:hidden;animation:rt-menu-reveal 0s 2.5s forwards}
+.rt-filter-chips{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 8px}
+.rt-filter-chips[hidden]{display:none!important}
+.rt-filter-chip{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:0 4px 0 12px;border-radius:16px;background:var(--color-secondary-background,#e5ebee);color:var(--color-secondary-content,#0f1a1c);font-size:14px;font-weight:600;line-height:20px}
+.rt-filter-chip-remove{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer}
+.rt-filter-chip-remove:hover{background:var(--color-secondary-background-hover,#d3dbde)}
+.rt-filter-chip-remove svg{width:14px;height:14px}
+.rt-filter-clear{padding:0 8px;min-height:32px;border:0;background:transparent;color:var(--color-neutral-content-weak,#576f76);font-size:14px;font-weight:600;cursor:pointer}
+.rt-filter-clear:hover{text-decoration:underline}
+.rt-filter-search-box{padding:4px 12px}
+.rt-filter-search{width:100%;box-sizing:border-box;height:32px;padding:0 12px;border:1px solid var(--color-neutral-border,#cfd8dc);border-radius:16px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;font-size:14px}
+.rt-filter-note{padding:4px 16px 8px}
+[data-rt-sort-old] rpl-menu-item svg[icon-name="checkmark"]:not([data-rt-check]){display:none}
