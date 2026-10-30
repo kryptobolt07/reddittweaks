@@ -270,7 +270,7 @@
     const el=mk('div','rt-sub-panel'),head=mk('div','rt-sub-head'),list=mk('div','rt-sub-list'),note=mk('div','rt-filter-note text-12 text-neutral-content-weak'),input=mk('input','rt-filter-search');
     el.dataset.rtUi='filter-option';el.dataset.rtSubPanel='true';list.dataset.rtSubList='true';list.setAttribute('role','group');list.setAttribute('aria-label','Communities');note.dataset.rtSubNote='true';head.dataset.rtSubHead='true';
     let back=null;
-    if(onBack){back=mk('button','rt-sub-back');back.type='button';back.dataset.rtSubBack='true';const arrow=svgIcon('arrow-back',20);arrow.classList.add('rt-menu-lead');back.append(arrow,mk('span','','Back'));back.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onBack();});head.append(back);}
+    if(onBack){back=mk('button','rt-sub-back');back.type='button';back.dataset.rtSubBack='true';back.setAttribute('aria-label','Back');back.title='Back';const arrow=svgIcon('arrow-back',20);back.append(arrow);back.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onBack();});head.append(back);}
     input.type='search';input.placeholder='Search communities';input.setAttribute('aria-label','Search communities');input.autocomplete='off';
     // Typing must not trigger the host menu's own keyboard handling.
     input.addEventListener('keydown',event=>{if(event.key!=='Escape')event.stopPropagation();});

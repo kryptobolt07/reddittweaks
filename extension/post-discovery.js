@@ -144,7 +144,7 @@
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
-      }else node.remove();}this.virtualNodes=new Map();if(undo){this.loading?.remove();this.host?.remove();}this.loading=null;this.host=null;this.feed=null;this.context=null;this.live=new Map();this.commentOrigins=new Map();this.archived=new Map();if(undo)this.nodes.clear();else this.nodes=new Map();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.sourceNotices={};for(const entry of this.sourceRetries?.values() || [])clearTimeout(entry.timer);this.sourceRetries=new Map();this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.archiveBusy=false;this.initialPrefetchDone=false;this.sourcePending=new Set();this.sourceFrontiers=new Map();this.sourceStartedAt=new Map();this.nativeSeenAt=new WeakMap();this.initialNative=new WeakSet();clearTimeout(this.gateTimer);this.gateTimer=null;this.gateAt=Infinity;this.redditRun=null;this.archiveRun=null;this.verifyQueue=[];this.verifyQueued=new Set();this.verifyRetry=[];this.recoveredKeys=new Set();this.mountSeen=null;this.verifyActive=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;this.archiveSig=undefined;this.rtChips=null;this.rtSearch=null;this.rtAgg=null;this.rtMenu=null;}
+      }else node.remove();}this.virtualNodes=new Map();if(undo){this.loading?.remove();this.host?.remove();this.rtChips?.remove();}this.loading=null;this.host=null;this.feed=null;this.context=null;this.live=new Map();this.commentOrigins=new Map();this.archived=new Map();if(undo)this.nodes.clear();else this.nodes=new Map();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.sourceNotices={};for(const entry of this.sourceRetries?.values() || [])clearTimeout(entry.timer);this.sourceRetries=new Map();this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.archiveBusy=false;this.initialPrefetchDone=false;this.sourcePending=new Set();this.sourceFrontiers=new Map();this.sourceStartedAt=new Map();this.nativeSeenAt=new WeakMap();this.initialNative=new WeakSet();clearTimeout(this.gateTimer);this.gateTimer=null;this.gateAt=Infinity;this.redditRun=null;this.archiveRun=null;this.verifyQueue=[];this.verifyQueued=new Set();this.verifyRetry=[];this.recoveredKeys=new Set();this.mountSeen=null;this.verifyActive=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;this.archiveSig=undefined;this.rtChips=null;this.rtSearch=null;this.rtAgg=null;this.rtMenu=null;}
     // Leaving a profile parks its whole discovery state with its feed element.
     // Reddit keeps that element (cards included) and puts it back on Back with
     // its own scroll restore, so nothing is removed, copied or re-inserted:
@@ -455,13 +455,14 @@
       // under the feed. Lift it, keeping its static position.
       if(this.controlsTarget?.contains(dropdown) && dropdown.shadowRoot && ![...this.nativeLoadingStyles].some(style=>style.parentNode===dropdown.shadowRoot)){const style=make('style');style.dataset.rtUi='controls-style';style.textContent='#hovercard{position:absolute!important;z-index:20!important}';dropdown.shadowRoot.append(style);this.nativeLoadingStyles.add(style);}
       if(this.activityMain!==menu){
-        this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;
+        this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;queueMicrotask(()=>this.placeFilterChips());
         const content=menu.parentElement,subs=[];
         const row=(label,icon,tail)=>{const el=make('rpl-menu-item','cursor-pointer'),body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs rt-menu-caption');for(const [k,v] of Object.entries({size:'medium',appearance:'default',truncate:'both','aria-label':label,'prevent-auto-close':''}))el.setAttribute(k,v);const lead=typeof icon==='string'?glyph(icon):icon;lead?.classList?.add('rt-menu-lead');caption.append(lead,document.createTextNode(label));body.append(caption);if(tail)body.append(glyph(tail));el.tabIndex=-1;el.append(body);return el;};
         const activate=(el,fn)=>{el.addEventListener('click',fn);el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();event.stopImmediatePropagation();fn(event);}},true);};
         const submenu=key=>{const el=make('rpl-menu','rt-activity-submenu hidden');el.dataset.rtUi='activity-filter-option';if(key)el.dataset.rtSubKey=key;el.setAttribute('wrap','');el.setAttribute('role','menu');subs.push(el);return el;};
         // Top-style navigation: one submenu open at a time, inside the same dropdown.
-        const open=target=>{this.openSubmenu=target || null;this.activityOpen=target===this.activityMenu;menu.classList.toggle('hidden',Boolean(target));for(const sub of subs)sub.classList.toggle('hidden',sub!==target);for(const entry of this.activityMenuRows)if(entry.matches?.('rpl-menu-item'))entry.setAttribute('aria-expanded',String(entry.rtSubmenu===target));(target?target.querySelector('rpl-menu-item'):this.lastSubmenuRow)?.focus({preventScroll:true});};
+        // A submenu keeps the main menu's height (its long lists scroll inside), so the menu never grows when you drill in.
+        const open=target=>{if(target && !menu.classList.contains('hidden')){const height=menu.getBoundingClientRect().height;if(height>0)target.style.setProperty('--rt-menu-height',Math.round(height)+'px');}this.openSubmenu=target || null;this.activityOpen=target===this.activityMenu;menu.classList.toggle('hidden',Boolean(target));for(const sub of subs)sub.classList.toggle('hidden',sub!==target);for(const entry of this.activityMenuRows)if(entry.matches?.('rpl-menu-item'))entry.setAttribute('aria-expanded',String(entry.rtSubmenu===target));(target?target.querySelector('rpl-menu-item'):this.lastSubmenuRow)?.focus({preventScroll:true});};
         const entry=(label,icon,sub,{back=true}={})=>{const el=row(label,icon,'chevron-right');el.setAttribute('aria-haspopup','menu');el.rtSubmenu=sub;const value=make('span','rt-menu-value text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';el.firstElementChild.insertBefore(value,el.firstElementChild.lastElementChild);activate(el,()=>{this.lastSubmenuRow=el;open(sub);el.rtOnOpen?.();});if(back){const backRow=row('Back','arrow-back');backRow.dataset.rtUi='submenu-back';activate(backRow,()=>open(null));sub.append(backRow);}return el;};
         this.activityMenuRows=[];this.purgeStaleMenu(content,menu);
         // Group Reddit's own sections (sort, view) into Top-style submenus so the
@@ -534,8 +535,21 @@
       this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});
       this.render({reuseCards:true});
     }
+    // Pills sit on the Feed options row, right of the button (like the chat search filter rail).
+    // The button can be wrapped in a narrow box (Comments tab), so climb to the full-width row first.
+    placeFilterChips(){
+      const chips=this.rtChips;if(!chips)return;
+      for(const stale of document.querySelectorAll('[data-rt-ui="filter-chips"]'))if(stale!==chips)stale.remove();
+      const up=node=>{const root=node.getRootNode();return node.parentNode===root && root!==document?root.host:node.parentElement;};
+      let node=this.activityDropdown?.isConnected?this.activityDropdown:null;
+      if(node){let guard=0;node=node.closest?.('shreddit-layout-event-setter') || node;
+        while(guard++<6){const parent=up(node);if(!parent || parent===document.body)break;const style=getComputedStyle(parent),width=parent.getBoundingClientRect().width;if(style.display!=='contents' && width>=320 && /flex/.test(style.display))break;node=parent;}
+        const parent=up(node);if(parent && parent!==document.body && /flex/.test(getComputedStyle(parent).display)){if(node.nextSibling!==chips)node.after(chips);chips.dataset.rtRail='true';return;}
+      }
+      delete chips.dataset.rtRail;if(this.host && chips.parentNode!==this.host)this.host.prepend(chips);
+    }
     renderFilterChips(){
-      const f=globalThis.RTFeedFilters;if(!f || !this.rtChips)return;
+      const f=globalThis.RTFeedFilters;if(!f || !this.rtChips)return;this.placeFilterChips();
       const shown={...(this.rtFilters || f.empty())};if(!this.oldSort())shown.sort=null;
       f.renderChips(this.rtChips,shown,{make,glyph,onChange:next=>this.setFilters(shown.sort?next:{...next,sort:this.rtFilters?.sort ?? null})});
     }
