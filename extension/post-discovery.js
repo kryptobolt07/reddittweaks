@@ -505,7 +505,7 @@
       if(!this.host?.isConnected)return;
       const generation=this.generation;
       // A changed archive query (date window, subreddit, direction) starts a fresh archive stream; what is loaded stays.
-      if(this.archiveSig!==undefined && this.archiveSigNow()!==this.archiveSig && this.settings.archiveDiscovery){
+      if((this.archiveSig!==undefined || this.oldSort()) && this.archiveSigNow()!==this.archiveSig && this.settings.archiveDiscovery){
         this.beforeByKind={};this.archiveMore={};this.moreArchive=false;if(this.sourceNotices)delete this.sourceNotices.searched;for(const kind of this.kinds())this.sourceFrontiers.delete('archive-'+kind);
         if(this.archiveOnly || this.freeMerge() || this.context.sort==='new' || this.activityFilter==='deleted'){const go=()=>{if(generation===this.generation)this.loadArchive();};if(this.archiveBusy)this.archiveRun.then(go,go);else go();}
       }
@@ -589,7 +589,7 @@
       set(m.date.get('any'),!state.date);for(const preset of f.presets)set(m.date.get(preset.id),state.date?.preset===preset.id);set(m.date.get('custom'),Boolean(state.date && !state.date.preset));
       set(m.all,!state.types.length);for(const [type,el] of m.types)set(el,state.types.includes(type));
       set(m.old,this.oldSort());
-      const value=(group,text)=>{const el=group?.el.querySelector('[data-rt-menu-value]');if(el && el.textContent!==text)el.textContent=text;};
+      const value=(group,text)=>{const el=(group?.el || group?.row)?.querySelector('[data-rt-menu-value]');if(el && el.textContent!==text)el.textContent=text;};
       value(m.groups.date,f.dateLabel(state.date));value(m.groups.type,state.types.length>1?state.types.length+' types':state.types.length?f.typeLabels[state.types[0]]:'');value(m.groups.sub,state.subreddits.length>1?state.subreddits.length+' communities':state.subreddits.length?'r/'+state.subreddits[0]:'');
       const sort=this.menuGroups?.[0];if(sort){sort.sub.toggleAttribute('data-rt-sort-old',this.oldSort());if(this.oldSort())value(sort,'Old');}
     }
