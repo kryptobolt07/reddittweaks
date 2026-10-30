@@ -98,6 +98,7 @@
         "post-model.js",
         "markdown-lite.js",
         "archive-view.js",
+        "recent-searches.js",
         "post-discovery.js",
         "thread-restore.js"
       ]

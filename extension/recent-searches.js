@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const prefix='rt-recent-v1:',perScope=8,perAccount=40,maxQuery=256;
-  const ownerOK=value=>typeof value==='string' && /^[A-Za-z0-9_:-]{1,64}$/.test(value);
+  const ownerOK=value=>typeof value==='string' && /^@?[A-Za-z0-9_.:-]{1,64}$/.test(value);
   const scopeOK=value=>typeof value==='string' && /^(profile|subreddit):[a-z0-9_-]{1,64}$/.test(value);
   const folded=query=>query.toLowerCase();
   const normal=query=>{const q=typeof query==='string'?query.trim():'';return q && q.length<=maxQuery?q:'';};

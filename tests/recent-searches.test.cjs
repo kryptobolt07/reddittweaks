@@ -97,11 +97,13 @@ test('invalid owners, scopes and queries are ignored without writing storage',as
   const {api,local}=recents();
   await api.add(owner,scope,'valid');
   const before=JSON.stringify(local.data);
-  for(const bad of ['','a'.repeat(65),'bad owner','@owner:reddit.com',null,42])assert.deepEqual(await api.add(bad,scope,'x'),[]);
+  for(const bad of ['','a'.repeat(65),'bad owner','@@owner',null,42])assert.deepEqual(await api.add(bad,scope,'x'),[]);
   for(const bad of ['profile:','PROFILE:Name','profile:has space','user:name','subreddit:'+'a'.repeat(65),'profile:Name',undefined,null])assert.deepEqual(await api.add(owner,bad,'x'),[]);
   assert.deepEqual(await api.list('bad owner',scope),[]);assert.deepEqual(await api.list(owner,'profile:Name'),[]);
   assert.deepEqual(await api.clear('bad owner'),[]);assert.deepEqual(await api.clear(owner,'profile:Name'),[]);
   assert.equal(JSON.stringify(local.data),before);
+  // The chat account id (@name:reddit.com) is the one owner string every feature shares.
+  assert.deepEqual((await api.add('@owner:reddit.com',scope,'kept')).map(e=>e.q),['kept']);
   assert.deepEqual(queries(await api.list(owner,scope)),['valid']);
 });
 
