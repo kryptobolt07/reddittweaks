@@ -119,3 +119,7 @@ test('message store search returns OR and NOT correct results',async()=>{
   assert.deepEqual(await ids('-water'),[]);
   assert.equal((await store.search(owner,{query:'coffee OR tea',sort:'relevant'})).total,3);
 });
+
+test('a missing query is no archive text and matches everything',()=>{
+ assert.equal(C.toArchiveQuery(null),'');assert.equal(C.toArchiveQuery(undefined),'');assert.equal(C.toArchiveQuery(''),'');assert.equal(C.matchesText(null,'anything'),true);
+});

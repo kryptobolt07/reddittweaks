@@ -100,8 +100,10 @@
   const exprFor=parsed=>parsed.expr || {type:'and',children:[...parsed.terms.map(text=>({type:'term',text})),...parsed.phrases.map(text=>({type:'phrase',text}))]};
   const foldedValue=text=>/[^\x00-\x7f]/.test(text)?foldedText(text).value:text.toLowerCase();
   function textMatcher(parsed,options={}){const test=compileExpr(exprFor(parsed),options);return test?text=>test(foldedValue(String(text ?? ''))):()=>true;}
-  function matchesText(parsed,text,options={}){return textMatcher(typeof parsed==='object'?parsed:parseQuery(parsed),options)(text);}
+  function matchesText(parsed,text,options={}){if(parsed==null)return true;return textMatcher(typeof parsed==='object'?parsed:parseQuery(parsed),options)(text);}
   function toArchiveQuery(parsed){
+    // No text (null/undefined/'') means no archive text query.
+    if(parsed==null || parsed==='')return '';
     parsed=typeof parsed==='object'?parsed:parseQuery(parsed);
     const quote=(node,phrase)=>phrase?'"'+node.text.replace(/"/g,'')+'"':node.text.replace(/"/g,'');
     const atom=node=>{
