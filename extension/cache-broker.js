@@ -8,6 +8,7 @@ const sessionPrefix='rcs-directory-session-v2:';
 const trafficPrefix='rcs-traffic-v1:';
 const cooldownPrefix='rcs-request-cooldown-v1:';
 const recentPrefix='rcs-unified-recent:';
+const scopedRecentPrefix='rt-recent-v1:';
 // A server hint or a page script can never block directory requests for longer than this.
 const maxCooldownMs=3600000;
 let queue=Promise.resolve();
@@ -165,8 +166,9 @@ async function handleMessages(message,sender) {
     if(message.owner && !RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
     await messages.clear(message.owner);
     // Recent searches are typed message queries: they are cleared with the messages they came from.
-    if(message.owner)await chrome.storage.local.remove(recentPrefix+message.owner);
-    else {const all=await chrome.storage.local.get(null);await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(recentPrefix)));}
+    // Profile and subreddit recents (rt-recent-v1:) are cleared the same way, for every scope.
+    if(message.owner)await chrome.storage.local.remove([recentPrefix+message.owner,scopedRecentPrefix+message.owner]);
+    else {const all=await chrome.storage.local.get(null);await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(recentPrefix) || key.startsWith(scopedRecentPrefix)));}
     await notifyMessageTabs(message.owner || null,true);return {cleared:true};
   }
   if(message.action==='stats' && popup)return messages.stats(message.owner,{committed:true});
