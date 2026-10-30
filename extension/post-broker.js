@@ -59,7 +59,7 @@
       if(typeof sender.page==='string')current=new URL(sender.page);
       if(current.origin!==url.origin || current.protocol!=='https:')return false;
       if(ids){const detail=current.pathname.match(/^\/(?:(?:r|user)\/[^/]+\/)?comments\/([a-z0-9]+)(?:\/.*)?$/i);return Boolean(detail && ids.length===1 && detail[1].toLowerCase()===ids[0]);}
-      const profile=current.pathname.match(/^\/user\/([A-Za-z0-9_-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
+      const profile=current.pathname.match(/^\/user\/([A-Za-z0-9_-]{1,20})(?:\/(?:submitted|comments|search))?\/?$/i);
       return profile?.[1].toLowerCase()===username.toLowerCase();
     }catch{return false;}
   }

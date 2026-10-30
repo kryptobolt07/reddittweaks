@@ -527,3 +527,23 @@ test('changing an extension filter (rt_* params) mid-read is not a page change; 
  await new Promise(r=>setImmediate(r));f.W.history.replaceState(f.W.history.state,'','/user/Example/?sort=top');again(nativeResponse(statusPost()));
  assert.equal((await other).ok,false);
 });
+test('profile search view: words join the author query, relevance sorts, and cursors stay bound to the query',async t=>{
+  const next=q=>'/svc/shreddit/search/?q='+encodeURIComponent(q)+'&type=posts&sort=relevance&cursor=opaque_search_cursor';
+  const e=setup(t,{url:'https://www.reddit.com/user/Example/search/?q=cats',fetcher:async url=>({ok:true,status:200,headers:new Headers(),text:async()=>nativePostHtml({next:next(new URL(url).searchParams.get('q'))})})});
+  const first=await e.send({action:'profile',username:'Example',kind:'post',query:'cats "big dogs"',sort:'relevance'});
+  assert.equal(first.ok,true);const url=new URL(e.calls[0][0]);
+  assert.equal(url.searchParams.get('q'),'author:"Example" cats "big dogs"');assert.equal(url.searchParams.get('sort'),'relevance');assert.equal(url.searchParams.has('t'),false);
+  assert.ok(first.after,'a relevance page continues');
+  const second=await e.send({action:'profile',username:'Example',kind:'post',query:'cats "big dogs"',sort:'relevance',after:first.after});assert.equal(second.ok,true);
+  assert.equal(new URL(e.calls[1][0]).searchParams.get('cursor'),'opaque_search_cursor');
+  const other=await e.send({action:'profile',username:'Example',kind:'post',query:'dogs',sort:'relevance',after:first.after});
+  assert.equal(other.ok,false);assert.match(other.error,/Invalid Reddit page cursor/);
+  const timed=await e.send({action:'profile',username:'Example',kind:'post',query:'cats',sort:'comments',range:'week'});assert.equal(timed.ok,true);
+  assert.equal(new URL(e.calls[2][0]).searchParams.get('t'),'week');assert.equal(new URL(e.calls[2][0]).searchParams.get('sort'),'comments');
+  const empty=await e.send({action:'profile',username:'Example',kind:'post',query:'',sort:'new'});assert.equal(empty.ok,true);assert.equal(new URL(e.calls[3][0]).searchParams.get('q'),'author:"Example"');
+});
+test('profile search view rejects control characters, oversized words and relevance outside search mode',async t=>{
+  const e=setup(t,{url:'https://www.reddit.com/user/Example/search/'});
+  for(const input of [{query:'a\nb'},{query:'x'.repeat(301)},{query:5}]){const r=await e.send({action:'profile',username:'Example',kind:'post',...input});assert.equal(r.ok,false);}
+  const r=await e.send({action:'profile',username:'Example',kind:'post',sort:'relevance'});assert.equal(r.ok,false);assert.equal(e.calls.length,0);
+});
