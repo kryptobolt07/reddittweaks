@@ -94,7 +94,7 @@ test('postType is derived from raw fields and survives re-normalization',()=>{
  const Model=(()=>{const ctx=vm.createContext({URL});vm.runInContext(fs.readFileSync('extension/post-model.js','utf8'),ctx);return ctx.RTPostModel;})();
  const type=extra=>Model.normalizePost({id:'a1',author:'Example',created_utc:1700000000,...extra},{source:'arctic-shift'}).postType;
  assert.equal(type({is_self:true}),'text');assert.equal(type({crosspost_parent:'t3_zzz',is_self:false}),'crosspost');assert.equal(type({is_gallery:true}),'gallery');assert.equal(type({gallery_data:{items:[]}}),'gallery');
- assert.equal(type({is_video:true}),'video');assert.equal(type({post_hint:'hosted:video'}),'video');assert.equal(type({post_hint:'rich:video'}),'video');
+ assert.equal(type({is_video:true}),'video');assert.equal(type({post_hint:'hosted:video'}),'video');assert.equal(type({post_hint:'rich:video'}),'embed');
  assert.equal(type({post_hint:'image'}),'image');assert.equal(type({url:'https://i.redd.it/abc.jpg'}),'image');assert.equal(type({url:'https://i.imgur.com/abc.png'}),'image');
  assert.equal(type({url:'https://example.com/article'}),'link');assert.equal(type({}),'link');assert.equal(type({is_self:false,url:'https://i.redd.it/x/'}),'link');
  assert.equal(Model.normalizePost(Model.normalizePost({id:'a1',author:'Example',created_utc:1700000000,is_video:true},{source:'arctic-shift'}),{source:'arctic-shift'}).postType,'video');

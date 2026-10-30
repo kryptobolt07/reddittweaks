@@ -1428,7 +1428,7 @@ test('filters add Date, Post type and Subreddit groups with Reddit-style checked
   for(const name of ['Date','Post type','Subreddit'])assert.ok(d.activityMain.parentElement.querySelector('[data-rt-filter-group="'+name+'"]'),name);
   const row=value=>d.activityMain.parentElement.querySelector('[data-rt-option="'+value+'"]');
   assert.equal(row('image').getAttribute('aria-checked'),'true');assert.ok(row('image').querySelector('[data-rt-check]'));assert.equal(row('all').getAttribute('aria-checked'),'false');assert.equal(row('week').getAttribute('aria-checked'),'true');assert.equal(row('any').getAttribute('aria-checked'),'false');
-  assert.equal(d.activityMain.querySelector('[data-rt-filter-group="Post type"] [data-rt-menu-value]').textContent,'Image');
+  assert.equal(d.activityMain.querySelector('[data-rt-filter-group="Post type"] [data-rt-menu-value]').textContent,'Images');
   row('text').click();assert.equal(W.location.search,'?rt_date=week&rt_type=image,text');assert.equal(row('text').getAttribute('aria-checked'),'true');
   row('all').click();assert.equal(W.location.search,'?rt_date=week');
 });
