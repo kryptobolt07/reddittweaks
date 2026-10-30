@@ -163,18 +163,24 @@ html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary
 @keyframes rt-menu-reveal{to{visibility:visible}}
 html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed options"]) rpl-menu.main-menu-container:not([data-rt-menu-ready])>:not([data-rt-ui]){visibility:hidden;animation:rt-menu-reveal 0s 2.5s forwards}
 /* Filter chips: one row under Feed options (Reddit chip style, same icons as the menu rows). */
-.rt-filter-chips{display:flex;flex:0 0 100%;flex-wrap:wrap;align-items:center;gap:8px;width:100%;box-sizing:border-box;margin:0 0 8px;position:relative;z-index:1}
+.rt-filter-chips{display:flex;flex:0 0 100%;flex-wrap:wrap;align-items:center;gap:6px;width:100%;box-sizing:border-box;margin:0 0 8px;position:relative;z-index:1}
+/* In the Feed options row: one scrollable line of pills to the right of the button, like the chat search filter rail. */
+.rt-filter-chips[data-rt-rail]{flex:1 1 auto;width:auto;min-width:0;flex-wrap:nowrap;margin:0 0 0 8px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-inline:contain;scrollbar-width:none}
+.rt-filter-chips[data-rt-rail]::-webkit-scrollbar{display:none}
 .rt-filter-chips[hidden]{display:none!important}
-.rt-filter-chip{display:inline-flex;flex:none;align-items:center;gap:6px;max-width:100%;min-height:32px;padding:0 4px 0 10px;border-radius:16px;background:var(--color-secondary-background,#e5ebee);color:var(--color-secondary-content,#0f1a1c);font-size:14px;font-weight:600;line-height:20px}
-.rt-filter-chip-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px;border-radius:50%;overflow:hidden}
-.rt-filter-chip-icon svg{width:16px;height:16px}
-.rt-filter-chip-icon .rt-community-img{width:16px;height:16px}
+/* Same pill as the chat search filters: tinted border and fill, small label, round remove button. */
+.rt-filter-chip{display:inline-flex;flex:0 0 auto;align-items:center;gap:5px;min-width:0;max-width:min(260px,75vw);min-height:26px;box-sizing:border-box;padding:2px 4px 2px 8px;border:1px solid color-mix(in srgb,#ff4500 22%,var(--color-neutral-border,#dfe6e9));border-radius:999px;background:color-mix(in srgb,#ff4500 6%,var(--color-neutral-background,#fff));color:var(--color-neutral-content-strong,#172328);font-size:12px;font-weight:400;line-height:1.35}
+.rt-filter-chip-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px;border-radius:50%;overflow:hidden;color:var(--color-neutral-content-weak,#52656c)}
+.rt-filter-chip-icon svg{width:14px;height:14px}
+.rt-filter-chip-icon img,.rt-filter-chip-icon .rt-community-img{width:16px;height:16px;object-fit:cover;object-position:50% 0%;border-radius:50%}
+.rt-filter-chip-icon:has(img){width:16px;height:16px}
 .rt-filter-chip-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rt-filter-chip-remove{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer}
-.rt-filter-chip-remove:hover{background:var(--color-secondary-background-hover,#d3dbde)}
-.rt-filter-chip-remove svg{width:14px;height:14px}
+.rt-filter-chip-remove{order:10;display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:18px;margin-left:1px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
+.rt-filter-chip-remove:hover{background:var(--color-neutral-background-hover,#eff3f5);color:var(--color-neutral-content-strong,#172328)}
+.rt-filter-chip-remove svg{width:11px;height:11px}
+.rt-filter-chip-remove:focus-visible{outline:2px solid var(--color-neutral-border-strong,#167cb0);outline-offset:1px}
 /* Clear filters is a text button that always shows its whole label (Reddit's button rules once clipped it to 32px). */
-.rt-filter-clear{display:inline-flex;align-items:center;flex:none;width:auto!important;min-width:max-content;max-width:none!important;min-height:32px;padding:0 8px;overflow:visible!important;white-space:nowrap;border:0;background:transparent;color:var(--color-neutral-content-weak,#576f76);font-size:14px;font-weight:600;cursor:pointer}
+.rt-filter-clear{display:inline-flex;align-items:center;flex:none;width:auto!important;min-width:max-content;max-width:none!important;min-height:26px;padding:0 6px;overflow:visible!important;white-space:nowrap;border:0;background:transparent;color:var(--color-neutral-content-weak,#576f76);font-size:12px;font-weight:600;cursor:pointer}
 .rt-filter-clear:hover{text-decoration:underline}
 /* The posts status line sits on its own line under the chips, never beside or behind them. */
 .rt-posts-toolbar{flex-wrap:wrap}
@@ -200,16 +206,25 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 /* Community icons: a fixed 24px circle, so the real icon replaces the placeholder without moving anything. */
 .rt-community-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--rt-icon-size,24px);height:var(--rt-icon-size,24px);border-radius:50%;overflow:hidden;color:var(--color-neutral-content-weak,#576f76)}
 .rt-community-icon.rt-menu-lead{width:var(--rt-icon-size,24px);height:var(--rt-icon-size,24px)}
-.rt-community-icon svg,.rt-community-icon .rt-community-img{width:100%;height:100%}
+.rt-community-icon{background:var(--color-neutral-background-weak,#f2f4f5)}
+.rt-community-icon svg{width:100%;height:100%}
+/* Community icons are square; profile Snoovatars are tall full-body images: crop both to a centred circle, head first. */
+.rt-community-icon img,.rt-community-icon .rt-community-img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 0%;border-radius:50%}
 .rt-community-img{display:block;object-fit:cover;border-radius:50%}
 /* Subreddit panel: Back and the pill search share one fixed header row; only the list scrolls. */
 .rt-activity-submenu[data-rt-panel]{max-height:none;overflow:visible}
+.rt-activity-submenu[data-rt-panel]:not(.hidden){display:flex;flex-direction:column;height:var(--rt-menu-height,auto);max-height:var(--rt-menu-height,none);box-sizing:border-box}
+.rt-activity-submenu[data-rt-panel]>.rt-sub-panel{flex:1 1 auto;min-height:0}
 .rt-sub-panel{display:flex;flex-direction:column;min-width:0}
 .rt-sub-head{display:flex;align-items:center;gap:8px;flex:none;padding:4px 12px 8px 4px}
 .rt-sub-back{display:inline-flex;align-items:center;gap:8px;flex:none;width:auto;min-width:max-content;padding:8px 12px;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;font-size:14px;line-height:20px;cursor:pointer;overflow:visible}
 .rt-sub-back:hover,.rt-sub-back:focus-visible{background:var(--color-neutral-background-hover,#e8edef);outline:none}
 .rt-sub-head .rt-filter-search{flex:1 1 auto;width:auto;min-width:0;height:32px}
-.rt-sub-list{overflow-y:auto;overscroll-behavior:contain;max-height:min(320px,calc(100dvh - 240px));scrollbar-width:thin}
+.rt-sub-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;max-height:min(320px,calc(100dvh - 240px));scrollbar-width:thin}
+.rt-activity-submenu[data-rt-panel] .rt-sub-list{max-height:none}
+.rt-sub-back{display:inline-flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer}
+.rt-sub-back:hover{background:var(--color-neutral-background-hover,#eaedef)}
+.rt-sub-back:focus-visible{outline:2px solid var(--color-neutral-border-strong,#0f1a1c);outline-offset:1px}
 .rt-sub-empty{padding:12px 16px}
 .rt-filter-search-box{padding:4px 12px}
 .rt-filter-search{width:100%;box-sizing:border-box;height:32px;padding:0 12px;border:1px solid var(--color-neutral-border,#cfd8dc);border-radius:16px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;font-size:14px}

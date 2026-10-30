@@ -168,7 +168,7 @@ test('Subreddit dropdown is the shared list: search header, scroll list, icons, 
   const blocked=rows().filter(r=>r.getAttribute('aria-disabled')==='true');assert.ok(blocked.length>=4);assert.match(blocked[0].title,/Up to 8 communities/);
   blocked[0].click();await tick(2);assert.equal(W.location.search.match(/rt_sub=([^&]*)/)[1].split(',').length,8);
   assert.match(D.querySelector('[data-rt-counts-note]').textContent,/Counts from the archive · Up to 8 communities/);
-  assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/\.rt-sub-list\{overflow-y:auto;overscroll-behavior:contain;max-height:min\(320px/);
+  assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/\.rt-sub-list\{[^}]*overflow-y:auto;overscroll-behavior:contain;max-height:min\(320px/);
   assert.equal(D.querySelectorAll('.rt-sub-panel').length,1);D.querySelector('[data-rt-subreddit-filter]').click();D.querySelector('[data-rt-subreddit-filter]').click();await tick();assert.equal(D.querySelectorAll('.rt-sub-panel').length,1,'reopening reuses the panel');
 });
 test('Subreddit dropdown footer: Loading counts, then archive or loaded items, never the wrong one',async t=>{

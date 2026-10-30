@@ -1552,7 +1552,7 @@ test('Subreddit submenu: header row, scrolling list, icons, pinned picks, 8-pick
   m.group('Subreddit').click();assert.equal(d.openSubmenu,panel);assert.equal(note.textContent,'Loading counts…');
   release();await tick(20);
   // One header row: Back on the left, the pill search on the right; the list is the only scroller.
-  const head=panel.querySelector('.rt-sub-head');assert.equal(head.firstElementChild.dataset.rtSubBack,'true');assert.equal(head.firstElementChild.textContent,'Back');assert.equal(head.lastElementChild.placeholder,'Search communities');assert.equal(panel.querySelectorAll('[data-rt-sub-back]').length,1);assert.equal(panel.querySelector('[aria-label="Back"][aria-haspopup]'),null);
+  const head=panel.querySelector('.rt-sub-head');assert.equal(head.firstElementChild.dataset.rtSubBack,'true');assert.equal(head.firstElementChild.getAttribute('aria-label'),'Back');assert.equal(head.lastElementChild.placeholder,'Search communities');assert.equal(panel.querySelectorAll('[data-rt-sub-back]').length,1);assert.equal(panel.querySelector('[aria-label="Back"][aria-haspopup]'),null);
   assert.equal(list.parentElement,panel.querySelector('.rt-sub-panel'));assert.ok(!head.contains(list));
   const css=cssRule('.rt-sub-list');assert.match(css,/overflow-y:auto/);assert.match(css,/overscroll-behavior:contain/);assert.match(css,/max-height:min\(320px,calc\(100dvh/);
   assert.match(cssRule('.rt-activity-submenu[data-rt-panel]'),/overflow:visible/);
