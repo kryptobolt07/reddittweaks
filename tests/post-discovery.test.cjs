@@ -5,9 +5,9 @@ const {JSDOM}=require('jsdom');
 const parkedState=(d,key)=>[...d.parked.values()].find(state=>state.context?.key===key);
 const nativeControls=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8');
 const raw=(id='abc12',extra={})=>({id,author:'Example',title:'A public post',selftext:'Public text',subreddit:'example',created_utc:1700000000,score:7,num_comments:2,...extra});
-function setup(t,{url='https://www.reddit.com/user/Example/submitted/',settings={postDiscovery:true,archiveDiscovery:false},reddit,publicReddit,archive,readSettings,nativeRender,timing}={}){
+function setup(t,{url='https://www.reddit.com/user/Example/submitted/',settings={postDiscovery:true,archiveDiscovery:false},reddit,publicReddit,archive,readSettings,nativeRender,timing,pre=[]}={}){
   const dom=new JSDOM('<main id="main-content">'+nativeControls+'<shreddit-feed><shreddit-post id="t3_native"></shreddit-post></shreddit-feed></main>',{url,runScripts:'outside-only',pretendToBeVisual:true});const W=dom.window,calls=[];
-  for(const file of ['post-model.js','post-discovery.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
+  for(const file of [...pre,'post-model.js','post-discovery.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
   const nativeRenderer=nativeRender || (async(post,node)=>{const native=W.document.createElement(post.kind==='comment'?'shreddit-profile-comment':'shreddit-post');if(post.kind==='comment')native.setAttribute('comment-id',post.fullname);else native.id=post.fullname;const credit=W.document.createElement('span');credit.slot='credit-bar';const title=W.document.createElement('a');title.textContent=post.title || 'Comment';title.href=post.permalink;native.append(credit,title);if(!post.over18 && !post.spoiler){const body=W.document.createElement('p');if(post.kind==='comment')body.className='md';else body.slot='text-body';body.textContent=post.source==='arctic-shift'?'Current native text':post.body;native.append(body);}node.replaceChildren(native);});
   const d=new W.RTPostDiscovery.Discovery({nativeRenderer,timing,observe:false,readSettings:readSettings || (async()=>({'rt-settings-v1':settings})),reddit:async(...args)=>{calls.push(args[0]);if(args[0].action==='render-controls'){const target=W.document.getElementById(args[0].target);target.innerHTML=nativeControls;return {rendered:true};}if(args[0].stream==='public')return publicReddit?publicReddit(...args):{posts:[],after:null,hasMore:false};return reddit?reddit(...args):{posts:[raw('native'),raw()],after:null,hasMore:false};},archive:archive || (async()=>({posts:[raw('old12')],hasMore:false}))});t.after(()=>{d.destroy();dom.window.close();});return {W,d,calls};
 }
@@ -1418,4 +1418,68 @@ test('an unavailable profile reuses the image on Reddit\'s own notice, never one
   d.reset();const notice=deletedPage(W);notice.querySelector('img').setAttribute('src',src);d.scan();
   assert.equal(d.avatarPlaceholder.querySelector('img').src,expect);
  }
+});
+// Feed filters (date, post type, subreddit, Old sort) in Reddit's Feed options menu.
+const filtered=(t,url,options={})=>{const made=setup(t,{url:'https://www.reddit.com/user/Example/submitted/'+url,pre:['feed-filters.js'],...options});return made;};
+const addNative=(W,d,id,{ts,type,sub}={})=>{const card=W.document.createElement('shreddit-post');card.id=id;if(ts)card.setAttribute('created-timestamp',new Date(ts*1000).toISOString());if(type)card.setAttribute('post-type',type);if(sub)card.setAttribute('subreddit-name',sub);d.feed.append(card);return card;};
+const chipRemove=(W,id)=>W.document.querySelector('[data-rt-chip="'+id+'"] button');
+test('filters add Date, Post type and Subreddit groups with Reddit-style checked rows',async t=>{
+  const {W,d}=filtered(t,'?rt_type=image&rt_date=week');await d.ready;
+  for(const name of ['Date','Post type','Subreddit'])assert.ok(d.activityMain.parentElement.querySelector('[data-rt-filter-group="'+name+'"]'),name);
+  const row=value=>d.activityMain.parentElement.querySelector('[data-rt-option="'+value+'"]');
+  assert.equal(row('image').getAttribute('aria-checked'),'true');assert.ok(row('image').querySelector('[data-rt-check]'));assert.equal(row('all').getAttribute('aria-checked'),'false');assert.equal(row('week').getAttribute('aria-checked'),'true');assert.equal(row('any').getAttribute('aria-checked'),'false');
+  assert.equal(d.activityMain.querySelector('[data-rt-filter-group="Post type"] [data-rt-menu-value]').textContent,'Image');
+  row('text').click();assert.equal(W.location.search,'?rt_date=week&rt_type=image,text');assert.equal(row('text').getAttribute('aria-checked'),'true');
+  row('all').click();assert.equal(W.location.search,'?rt_date=week');
+});
+test('native cards that fail the filters are hidden and chips restore them',async t=>{
+  const now=Math.floor(Date.now()/1000),{W,d}=filtered(t,'?rt_type=image&rt_sub=Alpha');await d.ready;
+  const ok=addNative(W,d,'t3_ok',{ts:now-60,type:'image',sub:'alpha'}),wrongType=addNative(W,d,'t3_text',{ts:now-60,type:'text',sub:'alpha'}),wrongSub=addNative(W,d,'t3_sub',{ts:now-60,type:'image',sub:'beta'});
+  d.deduplicate();
+  assert.equal(ok.hasAttribute('data-rt-filter-hidden'),false);assert.equal(wrongType.hasAttribute('data-rt-filter-hidden'),true);assert.equal(wrongSub.hasAttribute('data-rt-filter-hidden'),true);
+  const key=d.context.key,host=d.host;
+  // A real mouse click: the chip survives mousedown and the click removes it.
+  const x=chipRemove(W,'type:image');x.dispatchEvent(new W.MouseEvent('mousedown',{bubbles:true}));assert.ok(x.isConnected);x.click();
+  assert.equal(W.location.search,'?rt_sub=Alpha');assert.equal(wrongType.hasAttribute('data-rt-filter-hidden'),false);assert.equal(wrongSub.hasAttribute('data-rt-filter-hidden'),true);
+  assert.equal(d.context.key,key);assert.equal(d.host,host);
+  W.document.querySelector('[data-rt-filter-clear]').click();assert.equal(W.location.search,'');assert.equal(wrongSub.hasAttribute('data-rt-filter-hidden'),false);assert.equal(d.rtChips.hidden,true);
+});
+test('filters survive a context rescan, reload from the URL and follow back/forward',async t=>{
+  const {W,d}=filtered(t,'?sort=new&rt_type=video');await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
+  const key=d.context.key;d.scan();d.scan({cheap:true});assert.equal(d.context.key,key);assert.deepEqual([...d.rtFilters.types],['video']);
+  assert.equal(d.nodes.size>0,true);
+  W.history.replaceState(null,'','/user/Example/submitted/?sort=new&rt_type=gallery');d.scan();assert.deepEqual([...d.rtFilters.types],['gallery']);assert.equal(d.context.key,key);assert.ok(chipRemove(W,'type:gallery'));
+  W.history.replaceState(null,'','/user/Example/submitted/?sort=new');d.scan();assert.equal(d.rtActive(),false);
+});
+test('archive-backed filters search through RTArchiveQuery and Old lists the archive oldest first',async t=>{
+  const calls=[],made=filtered(t,'',{settings:{postDiscovery:true,archiveDiscovery:true}}),{W,d}=made;await d.ready;
+  const items=[raw('newer',{created_utc:1700000200}),raw('older',{created_utc:1700000100}),raw('oldest',{created_utc:1700000000})].map(r=>({...W.RTPostModel.normalizePost(r,{source:'arctic-shift'}),postType:'text'}));
+  W.RTArchiveQuery={async *search(args){calls.push(args);const asc=args.sort==='asc';yield {items:asc?[...items].reverse():items,searchedBackTo:asc?1700000200:1700000000,hasMore:false,serverFiltered:false,cursor:null,stalled:false,mode:'server'};},async aggregate(){return {ok:true,buckets:[],by:'subreddit',source:'server'};}};
+  d.clearActivityMenu();d.ensureActivityMenu();
+  const old=d.activityMain.parentElement.querySelector('[data-rt-option="old"]');assert.ok(old);assert.match(old.textContent,/From the archive/);
+  old.click();await new Promise(r=>setTimeout(r,20));
+  assert.equal(W.location.search,'?rt_sort=old');assert.equal(calls.at(-1).sort,'asc');assert.equal(d.renderedPosts.map(p=>p.id).join(),'oldest,older,newer');
+  assert.equal(d.feed.querySelector('shreddit-post#t3_native').closest('[data-rt-filter-hidden]')!==null,true);
+  assert.equal(old.getAttribute('aria-checked'),'true');assert.match(d.status.textContent+d.notice.textContent,/./);assert.match(d.status.textContent,/may be incomplete/);
+  // Date window and single subreddit go to the server; no sort param returns to newest first.
+  const next=W.RTFeedFilters.parse('?rt_date=2023-11-14..2023-11-15&rt_sub=Alpha');d.setFilters(next);await new Promise(r=>setTimeout(r,20));
+  const last=calls.at(-1);assert.equal(last.sort,'desc');assert.equal(last.subreddit,'Alpha');assert.equal(last.kind,'post');assert.ok(last.after<last.before);
+});
+test('subreddit options use aggregate counts and fall back to loaded items with a label',async t=>{
+  const {W,d}=filtered(t,'',{settings:{postDiscovery:true,archiveDiscovery:true}});await d.ready;
+  let fail=false;W.RTArchiveQuery={async *search(){},async aggregate(){if(fail)throw Object.assign(Error('slow'),{code:'timeout'});return {ok:true,buckets:[{key:'big',count:40},{key:'small',count:2}],by:'subreddit',source:'server'};}};
+  addNative(W,d,'t3_live',{ts:Math.floor(Date.now()/1000),type:'text',sub:'loadedonly'});
+  d.clearActivityMenu();d.ensureActivityMenu();
+  const group=d.activityMain.parentElement.querySelector('[data-rt-filter-group="Subreddit"]'),list=()=>[...d.rtMenu.sub.list.children].map(el=>el.textContent.trim());
+  group.click();await new Promise(r=>setTimeout(r,10));
+  assert.match(list()[0],/r\/big\s*40/);assert.ok(list().some(x=>/loadedonly/.test(x)));assert.match(d.rtMenu.sub.note.textContent,/archive/);
+  d.rtMenu.sub.list.firstElementChild.click();assert.equal(W.location.search,'?rt_sub=big');assert.equal(d.rtMenu.sub.list.firstElementChild.getAttribute('aria-checked'),'true');
+  fail=true;d.rtAgg=null;d.setFilters({...W.RTFeedFilters.empty()});group.click();await new Promise(r=>setTimeout(r,10));
+  assert.equal(d.rtMenu.sub.note.textContent,'Counts from loaded items');assert.ok(list().some(x=>/loadedonly/.test(x)));assert.ok(!list().some(x=>/big/.test(x)));
+  d.rtMenu.sub.input.value='loaded';d.rtMenu.sub.input.dispatchEvent(new W.Event('input'));assert.equal(list().length,1);
+});
+test('filters hiding everything show an empty state and never an unfiltered Activity checked',async t=>{
+  const {W,d}=filtered(t,'?rt_sub=nothing-here');await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
+  d.moreReddit=d.moreArchive=false;d.render({reuseCards:true});await new Promise(r=>setImmediate(r));
+  assert.ok(d.activityEmpty && !d.activityEmpty.hidden);assert.match(d.emptyTitle.textContent,/^No posts found$/);assert.match(d.status.textContent,/No matches in loaded activity/);
 });
