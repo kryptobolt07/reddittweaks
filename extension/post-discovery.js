@@ -60,6 +60,7 @@
   // Reddit's own icons (copied from its live icon set): remove, archive-fill, rotate, pie-chart.
   Object.assign(nativeStatusPaths,{"removed": "M16.38 16.34A8.967 8.967 0 0019 10c0-4.96-4.04-9-9-9-2.47 0-4.71 1-6.34 2.62 0 0-.01 0-.02.01s0 .01-.01.02a8.967 8.967 0 00-2.62 6.34c0 4.96 4.04 9 9 9 2.47 0 4.71-1 6.34-2.62 0 0 .01 0 .02-.01s0-.01.01-.02ZM17.2 10c0 1.66-.57 3.19-1.52 4.41L5.59 4.32A7.157 7.157 0 0110 2.8c3.97 0 7.2 3.23 7.2 7.2ZM2.8 10c0-1.66.57-3.19 1.52-4.41l10.09 10.09A7.157 7.157 0 0110 17.2c-3.97 0-7.2-3.23-7.2-7.2Z", "archive": "M15.7 1H4.3C2.48 1 1 2.48 1 4.3v2.76c0 .5.4.9.9.9H2v6.74C2 16.52 3.48 18 5.3 18h9.4c1.82 0 3.3-1.48 3.3-3.3V7.96h.1c.5 0 .9-.4.9-.9V4.3C19 2.48 17.52 1 15.7 1ZM13 11.87H7v-1.8h6v1.8Zm4.2-5.71H2.8V4.3c0-.83.67-1.5 1.5-1.5h11.4c.83 0 1.5.67 1.5 1.5v1.86Z", "refresh": "M18 10.1a.9.9 0 01-1.8 0c0-2.867-2.332-5.2-5.199-5.2H8.074l.564.564a.9.9 0 01-1.274 1.272l-2.1-2.1a.898.898 0 010-1.272l2.1-2.1a.9.9 0 111.273 1.272l-.564.564H11c3.859 0 7 3.14 7 7Zm-5.363 3.164a.9.9 0 10-1.273 1.272l.564.564H9.001a5.205 5.205 0 01-5.199-5.2.9.9 0 00-1.8 0c0 3.86 3.141 7 7 7h2.927l-.564.564a.9.9 0 001.274 1.272l2.1-2.1a.898.898 0 000-1.272l-2.102-2.1Z", "activity": "M10 1c-.5 0-.9.4-.9.9v.17C5.11 2.52 2 5.9 2 10c0 4.41 3.59 8 8 8 4.11 0 7.48-3.11 7.93-7.1h.17c.5 0 .9-.4.9-.9 0-4.96-4.04-9-9-9Zm.9 1.86c3.25.41 5.84 2.99 6.24 6.24H10.9V2.86ZM10 16.2c-3.42 0-6.2-2.78-6.2-6.2 0-3.11 2.31-5.69 5.3-6.12V10c0 .5.4.9.9.9h6.12c-.44 2.99-3.01 5.3-6.12 5.3Z"});
   function glyph(kind='search'){
+    if(!nativeStatusPaths[kind]){const shared=globalThis.RTFeedFilters?.svgIcon?.(kind,16);if(shared)return shared;}
     const s=document.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('viewBox','0 0 24 24');s.dataset.icon=kind;s.classList.add('rt-activity-icon');s.setAttribute('aria-hidden','true');if(nativeStatusPaths[kind]){s.setAttribute('viewBox','0 0 20 20');s.dataset.nativeIcon='true';s.setAttribute('fill','currentColor');s.setAttribute('width','16');s.setAttribute('height','16');s.setAttribute('icon-name',kind);const path=document.createElementNS(s.namespaceURI,'path');path.setAttribute('d',nativeStatusPaths[kind]);s.append(path);return s;}
     const p=document.createElementNS(s.namespaceURI,'path');p.setAttribute('d',kind==='refresh'?'M20 8a8.9443 8.9443 0 1 0 0 8M20 3v5h-5':kind==='filter'?'M4 7h16M4 17h16M9 5v4M15 15v4':kind==='archive'?'M4 8h16v12H4zM3 4h18v4H3zM9 12h6':kind==='removed'?'M5 5l14 14M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20':kind==='close'?'M6 6l12 12M18 6L6 18':kind==='calendar'?'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4':kind==='posttype'?'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4':kind==='community'?'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M9 16l3-8 3 8M10 13.5h4':'M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6');s.append(p);return s;
   }
@@ -409,6 +410,8 @@
       padding.append(stats,make('p','text-12 text-neutral-content-weak','Partial archive coverage. Counts and dates describe loaded records, not the complete account history.'),link('Arctic Shift','https://arctic-shift.photon-reddit.com/','text-12 hover:underline'));panel.append(padding);content.append(panel);sidebar.append(content);return sidebar;
     }
     clearActivityMenu(){
+      if(this.openSubmenu?.dataset?.rtSubKey && this.activityDropdown?.hasAttribute('open'))this.resumeSubmenu={key:this.openSubmenu.dataset.rtSubKey,at:Date.now()};
+      if(this.activityDropdown && this.activityTriggerClick)this.activityDropdown.removeEventListener('click',this.activityTriggerClick,true);
       if(this.activityMain && this.openSubmenu)this.activityMain.classList.remove('hidden');
       // Native rows return; mark the menu handled so the pre-hide never applies.
       this.activityMain?.setAttribute('data-rt-menu-ready','');
@@ -421,6 +424,19 @@
     detachActivityMenu(){
       // Leave the menu as it is in the parked view; only drop live references.
       this.activityMenuObserver?.disconnect();this.activityMenuObserver=null;this.menuGroups=[];this.activityMenuRows=[];this.activityMenu=this.activityMain=this.activityDropdown=null;this.activityOpen=false;this.openSubmenu=null;this.controlsTarget=null;
+    }
+    // Choosing an option closes Reddit's whole dropdown, whichever way it keeps its open state.
+    closeFeedMenu(dropdown,open){
+      open?.(null);
+      const shut=()=>{try{dropdown.close?.();}catch{}dropdown.removeAttribute('open');if(dropdown.open===true)try{dropdown.open=false;}catch{}};
+      shut();setTimeout(()=>{if(dropdown.isConnected && dropdown.hasAttribute('open'))shut();},0);
+      dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});
+    }
+    // A previous build (parked view, re-rendered menu) can leave our rows and submenus behind: put Reddit's rows back and remove them all.
+    purgeStaleMenu(content,menu){
+      for(const el of [...menu.querySelectorAll('[data-rt-ui="menu-group"]')]){const group=el.rtGroup;if(group){for(const item of group.group.items)group.anchor.before(item);if(group.group.header)group.group.header.hidden=group.group.headerHidden ?? false;group.anchor.remove();}}
+      for(const node of [...content.querySelectorAll(':scope > [data-rt-ui]')])node.remove();
+      for(const node of [...menu.querySelectorAll(':scope > [data-rt-ui]')])node.remove();
     }
     ensureActivityMenu(){
       if(this.context?.kind!=='profile' || !this.toolbar)return;
@@ -441,13 +457,13 @@
       if(this.activityMain!==menu){
         this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;
         const content=menu.parentElement,subs=[];
-        const row=(label,icon,tail)=>{const el=make('rpl-menu-item','cursor-pointer'),body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs');for(const [k,v] of Object.entries({size:'medium',appearance:'default',truncate:'both','aria-label':label,'prevent-auto-close':''}))el.setAttribute(k,v);caption.append(typeof icon==='string'?glyph(icon):icon,document.createTextNode(label));body.append(caption);if(tail)body.append(glyph(tail));el.tabIndex=-1;el.append(body);return el;};
+        const row=(label,icon,tail)=>{const el=make('rpl-menu-item','cursor-pointer'),body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs rt-menu-caption');for(const [k,v] of Object.entries({size:'medium',appearance:'default',truncate:'both','aria-label':label,'prevent-auto-close':''}))el.setAttribute(k,v);const lead=typeof icon==='string'?glyph(icon):icon;lead?.classList?.add('rt-menu-lead');caption.append(lead,document.createTextNode(label));body.append(caption);if(tail)body.append(glyph(tail));el.tabIndex=-1;el.append(body);return el;};
         const activate=(el,fn)=>{el.addEventListener('click',fn);el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();event.stopImmediatePropagation();fn(event);}},true);};
-        const submenu=()=>{const el=make('rpl-menu','rt-activity-submenu hidden');el.dataset.rtUi='activity-filter-option';el.setAttribute('wrap','');el.setAttribute('role','menu');subs.push(el);return el;};
+        const submenu=key=>{const el=make('rpl-menu','rt-activity-submenu hidden');el.dataset.rtUi='activity-filter-option';if(key)el.dataset.rtSubKey=key;el.setAttribute('wrap','');el.setAttribute('role','menu');subs.push(el);return el;};
         // Top-style navigation: one submenu open at a time, inside the same dropdown.
         const open=target=>{this.openSubmenu=target || null;this.activityOpen=target===this.activityMenu;menu.classList.toggle('hidden',Boolean(target));for(const sub of subs)sub.classList.toggle('hidden',sub!==target);for(const entry of this.activityMenuRows)if(entry.matches?.('rpl-menu-item'))entry.setAttribute('aria-expanded',String(entry.rtSubmenu===target));(target?target.querySelector('rpl-menu-item'):this.lastSubmenuRow)?.focus({preventScroll:true});};
-        const entry=(label,icon,sub)=>{const el=row(label,icon,'chevron-right');el.setAttribute('aria-haspopup','menu');el.rtSubmenu=sub;const value=make('span','text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';el.firstElementChild.insertBefore(value,el.firstElementChild.lastElementChild);activate(el,()=>{this.lastSubmenuRow=el;open(sub);el.rtOnOpen?.();});const back=row('Back','arrow-back');activate(back,()=>open(null));sub.append(back);return el;};
-        this.activityMenuRows=[];
+        const entry=(label,icon,sub,{back=true}={})=>{const el=row(label,icon,'chevron-right');el.setAttribute('aria-haspopup','menu');el.rtSubmenu=sub;const value=make('span','rt-menu-value text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';el.firstElementChild.insertBefore(value,el.firstElementChild.lastElementChild);activate(el,()=>{this.lastSubmenuRow=el;open(sub);el.rtOnOpen?.();});if(back){const backRow=row('Back','arrow-back');backRow.dataset.rtUi='submenu-back';activate(backRow,()=>open(null));sub.append(backRow);}return el;};
+        this.activityMenuRows=[];this.purgeStaleMenu(content,menu);
         // Group Reddit's own sections (sort, view) into Top-style submenus so the
         // menu stays short. Its rows move (keeping their handlers) and are put back on teardown.
         const groups=[];let current=null;
@@ -455,21 +471,26 @@
         const native=groups.filter(group=>group.items.length);
         // Comments has no View section, so its single Sort group is grouped too.
         if(native.length>=(this.context.view==='comments'?1:2))for(const [index,group] of native.entries()){
-          const label=index===0?'Sort':group.header?.textContent.trim() || 'View',sub=submenu(),anchor=document.createComment('rt-menu-group');group.items[0].before(anchor);
-          const el=entry(label,'activity',sub);el.dataset.rtUi='menu-group';anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
+          const label=index===0?'Sort':group.header?.textContent.trim() || 'View',sub=submenu(index===0?'sort':'view'),anchor=document.createComment('rt-menu-group');group.items[0].before(anchor);
+          const el=entry(label,'activity',sub);el.dataset.rtUi='menu-group';el.rtGroup={anchor,group};anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
           if(index>0 && group.header){group.headerHidden=group.header.hidden;group.header.hidden=true;}
           this.menuGroups.push({...group,anchor,row:el,sub});this.activityMenuRows.push(el,sub);
         }
-        const sub=this.activityMenu=submenu(),activity=entry('Activity','activity',sub);activity.dataset.rtActivity='true';activity.dataset.rtUi='activity-filter-option';activity.querySelector('[data-rt-menu-value]').dataset.rtActivityValue='true';menu.append(activity);
-        for(const [value,label,icon] of [['all','All activity','activity'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']]){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{if(this.activityFilter!==value){this.activityFilter=value;this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});}if(value!=='all' && !this.archiveOnly)this.verifyArchiveStatuses([...this.archived.values()].filter(post=>post.source==='arctic-shift'));this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();open(null);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});this.ensureActivityArchive();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
+        const sub=this.activityMenu=submenu('activity'),activity=entry('Activity','activity',sub);activity.dataset.rtActivity='true';activity.dataset.rtUi='activity-filter-option';activity.querySelector('[data-rt-menu-value]').dataset.rtActivityValue='true';menu.append(activity);
+        for(const [value,label,icon] of [['all','All activity','activity'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']]){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{if(this.activityFilter!==value){this.activityFilter=value;this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});}if(value!=='all' && !this.archiveOnly)this.verifyArchiveStatuses([...this.archived.values()].filter(post=>post.source==='arctic-shift'));this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();this.closeFeedMenu(dropdown,open);this.ensureActivityArchive();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
         // Refresh sits at the end of the Activity submenu.
         const divider=make('div','my-xs border-0 border-t-sm border-solid border-neutral-border-weak');divider.setAttribute('role','separator');
-        const refresh=row('Refresh activity','refresh');refresh.dataset.rtUi='activity-refresh';activate(refresh,()=>{open(null);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});if(!this.discover.disabled)this.discover.click();});sub.append(divider,refresh);
+        const refresh=row('Refresh activity','refresh');refresh.dataset.rtUi='activity-refresh';activate(refresh,()=>{this.closeFeedMenu(dropdown,open);if(!this.discover.disabled)this.discover.click();});sub.append(divider,refresh);
         content.append(sub);this.activityMenuRows.push(activity,sub);this.buildFilterMenu({row,activate,submenu,entry,open,content,menu,dropdown});this.host?.setAttribute('data-rt-menu-ready','');menu.setAttribute('data-rt-menu-ready','');
         this.activityKeydown=event=>{if(event.key==='Escape' && this.openSubmenu){event.preventDefault();event.stopImmediatePropagation();open(null);}};dropdown.addEventListener('keydown',this.activityKeydown,true);
+        // Opening Feed options always starts at the main menu; closing it resets too.
+        this.activityTriggerClick=event=>{if(event.target?.closest?.('button[aria-label="Feed options"]'))open(null);};dropdown.addEventListener('click',this.activityTriggerClick,true);
         // Close ours when the dropdown closes, or when Reddit opens its own submenu (Top) from ours.
-        this.activityMenuObserver=new MutationObserver(()=>{if(!this.openSubmenu)return;const nativeOpen=[...content.children].some(node=>node!==menu && !subs.includes(node) && node.matches('rpl-menu') && !node.classList.contains('hidden'));if(!dropdown.hasAttribute('open'))open(null);else if(nativeOpen){this.openSubmenu.classList.add('hidden');this.openSubmenu=null;this.activityOpen=false;}});
+        let wasOpen=dropdown.hasAttribute('open');
+        this.activityMenuObserver=new MutationObserver(()=>{const isOpen=dropdown.hasAttribute('open');if(isOpen!==wasOpen){wasOpen=isOpen;if(this.openSubmenu || menu.classList.contains('hidden'))open(null);return;}if(!this.openSubmenu)return;if(!isOpen){open(null);return;}const nativeOpen=[...content.children].some(node=>node!==menu && !subs.includes(node) && node.matches('rpl-menu') && !node.classList.contains('hidden'));if(nativeOpen){this.openSubmenu.classList.add('hidden');this.openSubmenu=null;this.activityOpen=false;}});
         this.activityMenuObserver.observe(dropdown,{attributes:true,attributeFilter:['open','class'],subtree:true});
+        // Reddit re-rendering its menu while ours was open (a filter just changed): come back to the same submenu.
+        const resume=this.resumeSubmenu;this.resumeSubmenu=null;if(resume && Date.now()-resume.at<2000 && dropdown.hasAttribute('open')){const target=subs.find(el=>el.dataset.rtSubKey===resume.key);if(target)open(target);}
       }
       // Current choice beside each group row (from Reddit's checkmarks) and its icon.
       for(const group of this.menuGroups || []){const checked=group.items.find(item=>item.querySelector('svg[icon-name="checkmark"],[icon-name="checkmark"]') || item.getAttribute('aria-checked')==='true' || item.matches('[aria-current="true"],[aria-current="page"]'));const label=checked?.getAttribute('aria-label') || '';const value=group.row.querySelector('[data-rt-menu-value]');if(value.textContent!==label)value.textContent=label;const icon=checked?.querySelector('svg[icon-name]');const caption=group.row.firstElementChild.firstElementChild;if(icon && caption.firstElementChild?.getAttribute('icon-name')!==icon.getAttribute('icon-name')){const copy=icon.cloneNode(true);copy.removeAttribute('id');caption.firstElementChild.replaceWith(copy);}}
@@ -489,7 +510,7 @@
     filterMatch(post){return !this.rtActive() || this.rtPredicate()(this.filterItem(post));}
     nativeItem(native,entry){
       const kind=native?.matches?.('shreddit-profile-comment')?'comment':'post',href=native?.querySelector?.('a[href^="/r/"]')?.getAttribute('href') || '';
-      return {kind,created:entry.timestamp,subreddit:native?.getAttribute('subreddit-name') || native?.getAttribute('subreddit-prefixed-name') || href.match(/^\/r\/([^/]+)/)?.[1] || '',postType:kind==='comment'?'':native?.getAttribute('post-type') || ''};
+      return {kind,created:entry.timestamp,subreddit:native?.getAttribute('subreddit-name') || native?.getAttribute('subreddit-prefixed-name') || href.match(/^\/r\/([^/]+)/)?.[1] || '',postType:kind==='comment'?'':native?(globalThis.RTFeedFilters?.inferType?.(native) ?? native.getAttribute('post-type')) || '':''};
     }
     syncFiltersFromUrl(){
       const f=globalThis.RTFeedFilters;if(!f || this.context?.kind!=='profile' || this.rtSearch===location.search)return;
@@ -553,10 +574,12 @@
       for(const entry of this.nativeEntries()){if(out.has(entry.fullname))continue;const slot=this.virtualNodes.get(entry.node) || entry.node,native=slot.matches('shreddit-post,shreddit-profile-comment')?slot:slot.querySelector('shreddit-post,shreddit-profile-comment');out.set(entry.fullname,{fullname:entry.fullname,subreddit:this.nativeItem(native,entry).subreddit});}
       return [...out.values()];
     }
+    // Where the numbers in the list come from: 'archive' only when this exact query's aggregate answered.
     subredditCounts(){
-      const f=globalThis.RTFeedFilters,loaded=this.loadedItems();
-      if(this.rtAgg?.state==='ok')return {source:'archive',entries:f.mergeCounts(this.rtAgg.buckets,loaded.filter(item=>!this.archived.has(item.fullname)))};
-      return {source:'loaded',entries:f.mergeCounts([],loaded)};
+      const f=globalThis.RTFeedFilters,loaded=this.loadedItems(),agg=this.rtAgg,current=agg && agg.key===this.aggKey();
+      if(current && agg.state==='ok')return {source:'archive',entries:f.mergeCounts(agg.buckets,loaded.filter(item=>!this.archived.has(item.fullname)))};
+      const waiting=Boolean(globalThis.RTArchiveQuery?.aggregate && this.settings.archiveDiscovery) && (!agg || !current || agg.state==='loading');
+      return {source:waiting?'loading':'loaded',entries:f.mergeCounts([],loaded)};
     }
     // Counts come from the archive's aggregate; if it is unavailable or slow, loaded items stand in.
     loadSubredditCounts(){
@@ -570,56 +593,48 @@
     }
     renderSubredditOptions(){
       const m=this.rtMenu,f=globalThis.RTFeedFilters;if(!m?.sub || !f)return;
-      const {list,note,input,fx}=m.sub,picked=this.rtFilters?.subreddits || [],term=f.subName(input.value).toLowerCase(),{source,entries}=this.subredditCounts();
-      const pickedKeys=new Set(picked.map(name=>name.toLowerCase())),byKey=new Map(entries.map(entry=>[entry.key.toLowerCase(),entry]));
-      const rows=[...picked.map(name=>byKey.get(name.toLowerCase()) || {key:name,count:0}),...entries.filter(entry=>!pickedKeys.has(entry.key.toLowerCase()) && (!term || entry.key.toLowerCase().includes(term)))].slice(0,60);
-      list.replaceChildren();
-      for(const entry of rows){
-        const checked=pickedKeys.has(entry.key.toLowerCase()),el=f.menuOption(fx,{label:'r/'+entry.key,subtitle:entry.count?String(entry.count):'',icon:'community',checked,value:entry.key,onSelect:()=>{
-          const next=f.clone(this.rtFilters || f.empty()),has=next.subreddits.findIndex(name=>name.toLowerCase()===entry.key.toLowerCase());
-          if(has>=0)next.subreddits.splice(has,1);else if(next.subreddits.length<f.maxSubreddits)next.subreddits.push(entry.key);else return;this.setFilters(next);}});
-        el.dataset.rtUi='filter-option';list.append(el);
-      }
-      const text=this.rtAgg?.state==='loading'?'Loading counts…':source==='archive'?'Counts from the archive and loaded items':'Counts from loaded items';
-      const full=picked.length>=f.maxSubreddits?' · Up to '+f.maxSubreddits+' communities':'';if(note.textContent!==text+full)note.textContent=text+full;
+      const {source,entries}=this.subredditCounts();
+      m.sub.panel.render({entries,picked:this.rtFilters?.subreddits || [],source});
     }
     syncFilterMenu(){
       const m=this.rtMenu,f=globalThis.RTFeedFilters;if(!m || !f)return;const state=this.rtFilters || f.empty(),fx=m.fx;
       const set=(el,on)=>el && f.markChecked(fx,el,on);
       set(m.date.get('any'),!state.date);for(const preset of f.presets)set(m.date.get(preset.id),state.date?.preset===preset.id);set(m.date.get('custom'),Boolean(state.date && !state.date.preset));
-      set(m.all,!state.types.length);for(const [type,el] of m.types)set(el,state.types.includes(type));
+      m.typeList?.sync(state.types);
       set(m.old,this.oldSort());
-      const value=(group,text)=>{const el=(group?.el || group?.row)?.querySelector('[data-rt-menu-value]');if(el && el.textContent!==text)el.textContent=text;};
-      value(m.groups.date,f.dateLabel(state.date));value(m.groups.type,state.types.length>1?state.types.length+' types':state.types.length?f.typeLabels[state.types[0]]:'');value(m.groups.sub,state.subreddits.length>1?state.subreddits.length+' communities':state.subreddits.length?'r/'+state.subreddits[0]:'');
+      const value=(group,text)=>{const el=(group?.el || group?.row)?.querySelector('[data-rt-menu-value]');if(el && el.textContent!==text){el.textContent=text;el.title=text;}};
+      const labels=f.valueLabels(state);value(m.groups.date,labels.date);value(m.groups.type,labels.type);value(m.groups.sub,labels.sub);
       const sort=this.menuGroups?.[0];if(sort){sort.sub.toggleAttribute('data-rt-sort-old',this.oldSort());if(this.oldSort())value(sort,'Old');}
     }
     buildFilterMenu({row,activate,submenu,entry,open,content,menu,dropdown}){
       const f=globalThis.RTFeedFilters;this.rtMenu=null;if(!f)return;
-      const fx={row,activate,glyph},current=()=>f.clone(this.rtFilters || f.empty()),m=this.rtMenu={fx,date:new Map(),types:new Map(),groups:{},sub:null,old:null,all:null};
-      const close=()=>{open(null);dropdown.removeAttribute('open');dropdown.querySelector('button[aria-label="Feed options"]')?.focus({preventScroll:true});};
+      const fx={row,activate,glyph},current=()=>f.clone(this.rtFilters || f.empty()),m=this.rtMenu={fx,date:new Map(),types:new Map(),groups:{},sub:null,old:null,all:null,typeList:null};
+      // Single choices close the whole menu; Post type and Subreddit are multi-select and stay open.
+      const close=()=>this.closeFeedMenu(dropdown,open);
       const option=(parent,options)=>{const el=f.menuOption(fx,options);el.dataset.rtUi='filter-option';parent.append(el);return el;};
-      const group=(label,icon,onOpen)=>{const sub=submenu(),el=entry(label,icon,sub);el.dataset.rtUi='filter-group';el.dataset.rtFilterGroup=label;if(onOpen)el.rtOnOpen=onOpen;content.append(sub);menu.append(el);this.activityMenuRows.push(el,sub);return {el,sub};};
+      const group=(label,icon,{key,back=true,onOpen}={})=>{const sub=submenu(key),el=entry(label,icon,sub,{back});el.dataset.rtUi='filter-group';el.dataset.rtFilterGroup=label;if(onOpen)el.rtOnOpen=onOpen;content.append(sub);menu.append(el);this.activityMenuRows.push(el,sub);return {el,sub};};
       // Old goes into Reddit's own Sort group. It needs the archive, so it is only offered when that can answer.
       const sortGroup=this.menuGroups?.[0];
       if(sortGroup && globalThis.RTArchiveQuery?.search && this.settings.archiveDiscovery){
         m.old=option(sortGroup.sub,{label:'Old',subtitle:'From the archive',icon:'archive',value:'old',onSelect:()=>{const next=current();next.sort=next.sort==='old'?null:'old';this.setFilters(next);close();}});
         for(const item of sortGroup.items)if(!item.rtSortHook){item.rtSortHook=()=>{if(this.rtFilters?.sort==='old'){const next=current();next.sort=null;this.setFilters(next);}};item.addEventListener('click',item.rtSortHook);}
       }
-      const date=m.groups.date=group('Date','calendar');
-      m.date.set('any',option(date.sub,{label:'Any time',icon:'calendar',value:'any',onSelect:()=>{const next=current();next.date=null;this.setFilters(next);close();}}));
-      for(const preset of f.presets)m.date.set(preset.id,option(date.sub,{label:preset.label,icon:'calendar',value:preset.id,onSelect:()=>{const next=current();next.date=next.date?.preset===preset.id?null:{preset:preset.id};this.setFilters(next);close();}}));
-      m.date.set('custom',option(date.sub,{label:'Custom…',icon:'calendar',value:'custom',onSelect:()=>{close();this.openDatePicker(dropdown);}}));
+      // Date: Reddit's own time-range menus have no icons, so neither do these rows.
+      const date=m.groups.date=group('Date','calendar',{key:'date'});
+      m.date.set('any',option(date.sub,{label:'Any time',icon:false,value:'any',onSelect:()=>{const next=current();next.date=null;this.setFilters(next);close();}}));
+      for(const preset of f.presets)m.date.set(preset.id,option(date.sub,{label:preset.label,icon:false,value:preset.id,onSelect:()=>{const next=current();next.date=next.date?.preset===preset.id?null:{preset:preset.id};this.setFilters(next);close();}}));
+      m.date.set('custom',option(date.sub,{label:'Custom…',icon:false,value:'custom',onSelect:()=>{close();this.openDatePicker(dropdown);}}));
       if(this.context.view!=='comments'){
-        const type=m.groups.type=group('Post type','posttype');
-        m.all=option(type.sub,{label:'All',icon:'posttype',value:'all',onSelect:()=>{const next=current();next.types=[];this.setFilters(next);}});
-        for(const name of f.types)m.types.set(name,option(type.sub,{label:f.typeLabels[name],icon:'posttype',value:name,onSelect:()=>{const next=current();next.types=next.types.includes(name)?next.types.filter(x=>x!==name):[...next.types,name];this.setFilters(next);}}));
+        const type=m.groups.type=group('Post type','text-post',{key:'type'});
+        m.typeList=f.typeOptions(fx,{append:el=>type.sub.append(el),onClear:()=>{const next=current();next.types=[];this.setFilters(next);},onToggle:name=>{const next=current();next.types=next.types.includes(name)?next.types.filter(x=>x!==name):[...next.types,name];this.setFilters(next);}});
+        m.all=m.typeList.all;m.types=m.typeList.rows;
       }
-      const community=m.groups.sub=group('Subreddit','community',()=>this.loadSubredditCounts());
-      const input=make('input','rt-filter-search'),box=make('div','rt-filter-search-box'),list=make('div'),note=make('div','rt-filter-note text-12 text-neutral-content-weak');
-      input.type='search';input.placeholder='Search communities';input.setAttribute('aria-label','Search communities');input.autocomplete='off';
-      // Typing must not trigger the menu's own keyboard handling.
-      input.addEventListener('keydown',event=>{if(event.key!=='Escape')event.stopPropagation();});input.addEventListener('input',()=>this.renderSubredditOptions());
-      for(const el of [box,list,note])el.dataset.rtUi='filter-option';box.append(input);community.sub.append(box,list,note);m.sub={input,list,note,fx};
+      // Subreddit: its own Back + search header, then a scrolling list with community icons.
+      const community=m.groups.sub=group('Subreddit','community-fill',{key:'sub',back:false,onOpen:()=>{m.sub.panel.reset();this.loadSubredditCounts();}});
+      const panel=f.subredditPanel({ctx:fx,onBack:()=>open(null),onToggle:name=>{
+        const next=current(),has=next.subreddits.findIndex(x=>x.toLowerCase()===name.toLowerCase());
+        if(has>=0)next.subreddits.splice(has,1);else if(next.subreddits.length<f.maxSubreddits)next.subreddits.push(name);else return;this.setFilters(next);}});
+      community.sub.dataset.rtPanel='true';community.sub.append(panel.el);m.sub={panel,input:panel.input,list:panel.list,note:panel.note,fx};
       this.renderSubredditOptions();
     }
     // Calendar for Custom…: Reddit Tweaks' own date picker in a shadow root over the page.

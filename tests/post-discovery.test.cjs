@@ -1483,3 +1483,153 @@ test('filters hiding everything show an empty state and never an unfiltered Acti
   d.moreReddit=d.moreArchive=false;d.render({reuseCards:true});await new Promise(r=>setImmediate(r));
   assert.ok(d.activityEmpty && !d.activityEmpty.hidden);assert.match(d.emptyTitle.textContent,/^No posts found$/);assert.match(d.status.textContent,/No matches in loaded activity/);
 });
+
+// Redesigned Feed options menus: rows, submenus, community icons, and the open/close regressions.
+const menuCss=fs.readFileSync('extension/post-discovery.css','utf8');
+const cssRule=selector=>{const at=menuCss.indexOf('\n'+selector+'{');assert.ok(at>=0,selector);return menuCss.slice(at,menuCss.indexOf('}',at));};
+const menuSetup=async(t,url='',options={})=>{
+  const made=filtered(t,url,{pre:['feed-filters.js','community-icons.js'],...options}),{W,d}=made;await d.ready;
+  const dropdown=W.document.querySelector('main rpl-dropdown');dropdown.setAttribute('open','');
+  const content=()=>d.activityMain.parentElement,sub=key=>content().querySelector('[data-rt-sub-key="'+key+'"]'),group=name=>d.activityMain.querySelector('[data-rt-filter-group="'+name+'"]');
+  const icon=el=>el.querySelector('svg[icon-name],[data-icon]')?.getAttribute('icon-name') || el.querySelector('[data-icon]')?.dataset.icon || '';
+  const shown=()=>[...content().children].filter(n=>n.matches('rpl-menu.rt-activity-submenu')&&!n.classList.contains('hidden'));
+  return {...made,dropdown,content,sub,group,icon,shown};
+};
+const tick=(ms=0)=>new Promise(r=>setTimeout(r,ms));
+test('main menu rows: Date, Post type and Subreddit with icons and right-aligned values',async t=>{
+  const m=await menuSetup(t);const {d}=m;
+  const names=[...d.activityMain.children].filter(n=>n.matches('rpl-menu-item')).map(n=>n.getAttribute('aria-label'));
+  assert.deepEqual(names.slice(-3),['Date','Post type','Subreddit']);assert.ok(names.indexOf('Activity')<names.indexOf('Date'));
+  assert.deepEqual([m.icon(m.group('Date')),m.icon(m.group('Post type')),m.icon(m.group('Subreddit'))],['calendar','text-post','community-fill']);
+  const value=name=>m.group(name).querySelector('[data-rt-menu-value]');
+  assert.deepEqual(['Date','Post type','Subreddit'].map(n=>value(n).textContent),['Any time','All','All']);
+  assert.ok(value('Date').classList.contains('rt-menu-value'));
+  assert.equal(m.group('Date').querySelector('.rt-menu-lead').getAttribute('width'),'16','icon box is sized to 20px by CSS');
+  assert.match(cssRule('.rt-menu-lead'),/width:20px;height:20px/);
+  const css=cssRule('.rt-menu-value');assert.match(css,/overflow:hidden/);assert.match(css,/text-overflow:ellipsis/);assert.match(css,/white-space:nowrap/);assert.match(cssRule('.rt-menu-caption'),/flex:none/);
+  const set=await menuSetup(t,'?rt_date=year&rt_type=image,gif,poll&rt_sub=announcements');
+  assert.deepEqual(['Date','Post type','Subreddit'].map(n=>set.group(n).querySelector('[data-rt-menu-value]').textContent),['Past year','3 types','r/announcements']);
+  const range=await menuSetup(t,'?rt_date=2026-10-01..2026-10-20&rt_type=image&rt_sub=a,b,c');
+  assert.match(range.group('Date').querySelector('[data-rt-menu-value]').textContent.replace(/ /g,' '),/^Oct 1 – Oct 20(,? 2026)?$/);assert.equal(range.group('Post type').querySelector('[data-rt-menu-value]').textContent,'Images');assert.equal(range.group('Subreddit').querySelector('[data-rt-menu-value]').textContent,'3 communities');
+});
+test('Date submenu: six single-choice rows without icons',async t=>{
+  const m=await menuSetup(t,'?rt_date=month');const rows=[...m.sub('date').querySelectorAll('[data-rt-option]')];
+  assert.deepEqual(rows.map(r=>r.dataset.rtOption),['any','24h','week','month','year','custom']);
+  assert.deepEqual(rows.map(r=>r.getAttribute('aria-label')),['Any time','Past 24 hours','Past week','Past month','Past year','Custom…']);
+  for(const row of rows)assert.equal(row.querySelector('.rt-menu-lead'),null,row.dataset.rtOption+' has no icon');
+  assert.deepEqual(rows.filter(r=>r.getAttribute('aria-checked')==='true').map(r=>r.dataset.rtOption),['month']);assert.equal(rows.filter(r=>r.querySelector('[data-rt-check]')).length,1);
+  assert.ok(m.sub('date').querySelector('[aria-label="Back"]'));
+});
+test('Post type submenu: sections, Reddit icons, multi-select that stays open and clears with All types',async t=>{
+  const m=await menuSetup(t);const {W,d}=m,type=m.sub('type');m.group('Post type').click();assert.equal(d.openSubmenu,type);
+  const kids=[...type.children].filter(n=>!n.matches('[data-rt-ui="submenu-back"]')).map(n=>n.dataset.rtSection?'#'+n.dataset.rtSection:n.dataset.rtOption);
+  assert.deepEqual(kids,['all','#Text','text','textmedia','poll','#Media','image','gif','video','gallery','#Links','link','embed','crosspost']);
+  assert.equal(type.querySelector('[data-rt-option="all"]').getAttribute('aria-label'),'All types');assert.equal(type.querySelector('[data-rt-option="all"] .rt-menu-lead'),null);
+  const expect={text:'text-post',textmedia:'collection',poll:'list-bulleted',image:'image',gif:'gif',video:'video',gallery:'gallery',link:'link',embed:'browser',crosspost:'rotate'};
+  for(const [id,name] of Object.entries(expect)){const row=type.querySelector('[data-rt-option="'+id+'"]');assert.equal(m.icon(row),name,id);}
+  const gif=type.querySelector('[data-rt-option="gif"] .rt-gif-tag');assert.equal(gif.textContent,'GIF');assert.match(cssRule('.rt-gif-tag'),/border:1\.5px solid currentColor/);
+  assert.deepEqual([...type.querySelectorAll('[data-rt-section]')].map(n=>n.getAttribute('role')),['presentation','presentation','presentation']);
+  const row=id=>type.querySelector('[data-rt-option="'+id+'"]');
+  row('image').click();row('gif').click();row('poll').click();
+  assert.equal(W.location.search,'?rt_type=image,gif,poll');assert.equal(d.openSubmenu,type);assert.ok(m.dropdown.hasAttribute('open'),'multi-select stays open');
+  assert.equal(m.group('Post type').querySelector('[data-rt-menu-value]').textContent,'3 types');assert.ok(W.document.querySelector('[data-rt-chip="type:gif"]'),'chips update live');
+  assert.equal(row('all').getAttribute('aria-checked'),'false');assert.deepEqual(['image','gif','poll'].map(id=>row(id).getAttribute('aria-checked')),['true','true','true']);
+  row('gif').click();assert.equal(W.location.search,'?rt_type=image,poll');
+  row('all').click();assert.equal(W.location.search,'');assert.equal(row('all').getAttribute('aria-checked'),'true');assert.ok(m.dropdown.hasAttribute('open'));
+});
+test('Post type is not offered on the Comments tab',async t=>{
+  const m=await menuSetup(t,'');m.d.context.view='comments';m.d.clearActivityMenu();m.d.ensureActivityMenu();
+  assert.equal(m.group('Post type'),null);assert.ok(m.group('Date'));
+});
+test('Subreddit submenu: header row, scrolling list, icons, pinned picks, 8-pick limit and a truthful footer',async t=>{
+  const buckets=Array.from({length:14},(_,i)=>({key:'sub'+String(i).padStart(2,'0'),count:100-i})).concat([{key:'u_spez',count:1}]);
+  const m=await menuSetup(t,'',{settings:{postDiscovery:true,archiveDiscovery:true}});const {W,d}=m;
+  let release;const gate=new Promise(r=>release=r);
+  W.RTArchiveQuery={async *search(){},async aggregate(){await gate;return {ok:true,buckets,by:'subreddit',source:'server'};}};
+  const asked=[];W.RTCommunityIcons={peek:()=>undefined,get:async name=>{asked.push(name);return name==='sub01'?'https://styles.redditmedia.com/t5_1/styles/communityIcon_one.png':null;}};
+  d.clearActivityMenu();d.ensureActivityMenu();dropdownOpen(m);
+  const panel=m.sub('sub'),list=d.rtMenu.sub.list,note=d.rtMenu.sub.note;
+  m.group('Subreddit').click();assert.equal(d.openSubmenu,panel);assert.equal(note.textContent,'Loading counts…');
+  release();await tick(20);
+  // One header row: Back on the left, the pill search on the right; the list is the only scroller.
+  const head=panel.querySelector('.rt-sub-head');assert.equal(head.firstElementChild.dataset.rtSubBack,'true');assert.equal(head.firstElementChild.textContent,'Back');assert.equal(head.lastElementChild.placeholder,'Search communities');assert.equal(panel.querySelectorAll('[data-rt-sub-back]').length,1);assert.equal(panel.querySelector('[aria-label="Back"][aria-haspopup]'),null);
+  assert.equal(list.parentElement,panel.querySelector('.rt-sub-panel'));assert.ok(!head.contains(list));
+  const css=cssRule('.rt-sub-list');assert.match(css,/overflow-y:auto/);assert.match(css,/overscroll-behavior:contain/);assert.match(css,/max-height:min\(320px,calc\(100dvh/);
+  assert.match(cssRule('.rt-activity-submenu[data-rt-panel]'),/overflow:visible/);
+  assert.equal(note.textContent,'Counts from the archive');
+  const rows=()=>[...list.querySelectorAll('[data-rt-sub-row]')];
+  assert.equal(rows().length,15);assert.match(rows()[0].textContent,/r\/sub00\s*100/);assert.ok(rows().every(r=>r.querySelector('.rt-community-icon')));
+  assert.equal(rows().find(r=>r.dataset.rtSubRow==='u_spez').querySelector('svg').getAttribute('icon-name'),'profile-fill');assert.match(rows().find(r=>r.dataset.rtSubRow==='u_spez').textContent,/u\/spez/);
+  assert.equal(rows()[0].querySelector('svg').getAttribute('icon-name'),'community-fill','placeholder until the icon loads');
+  await tick(10);assert.equal(rows().find(r=>r.dataset.rtSubRow==='sub01').querySelector('img.rt-community-img').getAttribute('src'),'https://styles.redditmedia.com/t5_1/styles/communityIcon_one.png');assert.ok(asked.includes('sub01'));
+  // Selected rows are pinned at the top and show a checkmark; the list scroll is kept.
+  rows().find(r=>r.dataset.rtSubRow==='sub05').click();assert.equal(W.location.search,'?rt_sub=sub05');assert.equal(rows()[0].dataset.rtSubRow,'sub05');assert.ok(rows()[0].querySelector('[data-rt-check]'));assert.equal(d.openSubmenu,panel);
+  for(const k of ['sub03','sub07','sub09','sub11','sub12','sub13','sub10'])rows().find(r=>r.dataset.rtSubRow===k).click();
+  assert.equal(d.rtFilters.subreddits.length,8);const blocked=rows().filter(r=>r.getAttribute('aria-disabled')==='true');assert.equal(blocked.length,15-8);assert.match(blocked[0].title,/Up to 8 communities/);assert.match(note.textContent,/Counts from the archive · Up to 8 communities/);
+  blocked[0].click();assert.equal(d.rtFilters.subreddits.length,8);rows()[0].click();assert.equal(d.rtFilters.subreddits.length,7);assert.equal(rows().filter(r=>r.getAttribute('aria-disabled')==='true').length,0);
+  // Search narrows the list and keeps the header.
+  d.rtMenu.sub.input.value='sub0';d.rtMenu.sub.input.dispatchEvent(new W.Event('input'));assert.ok(rows().every(r=>/sub0|u_spez/.test(r.dataset.rtSubRow)||d.rtFilters.subreddits.includes(r.dataset.rtSubRow)));
+  panel.querySelector('[data-rt-sub-back]').click();assert.equal(d.openSubmenu,null);
+});
+const dropdownOpen=m=>m.dropdown.setAttribute('open','');
+test('the footer never claims archive counts it does not have',async t=>{
+  const m=await menuSetup(t,'',{settings:{postDiscovery:true,archiveDiscovery:true}});const {W,d}=m;
+  W.RTArchiveQuery={async *search(){},async aggregate(){throw Object.assign(Error('slow'),{code:'timeout'});}};addNative(W,d,'t3_live',{ts:Math.floor(Date.now()/1000),type:'text',sub:'loadedonly'});
+  d.clearActivityMenu();d.ensureActivityMenu();m.group('Subreddit').click();await tick(10);
+  assert.equal(d.rtMenu.sub.note.textContent,'Counts from loaded items');
+  // A different query (the date window) invalidates earlier archive totals instead of mislabelling them.
+  W.RTArchiveQuery={async *search(){},async aggregate(){return {ok:true,buckets:[{key:'big',count:9}],by:'subreddit'};}};
+  d.rtAgg=null;m.group('Subreddit').click();await tick(10);assert.equal(d.rtMenu.sub.note.textContent,'Counts from the archive');
+  d.setFilters(W.RTFeedFilters.parse('?rt_date=week'));assert.equal(d.rtAgg,null);assert.notEqual(d.rtMenu.sub.note.textContent,'Counts from the archive');
+  const off=await menuSetup(t,'');addNative(off.W,off.d,'t3_x',{ts:Math.floor(Date.now()/1000),type:'text',sub:'zzz'});off.d.clearActivityMenu();off.d.ensureActivityMenu();off.group('Subreddit').click();assert.equal(off.d.rtMenu.sub.note.textContent,'Counts from loaded items');
+});
+test('choosing a single option closes the whole menu, multi-select lists stay open',async t=>{
+  const m=await menuSetup(t);const {W,d,dropdown}=m;let closed=0;
+  // Reddit's dropdown may ignore removeAttribute and only react to its own close().
+  dropdown.close=()=>{closed++;};
+  const reopen=()=>{dropdown.setAttribute('open','');};
+  for(const [group,option] of [['Date','week'],['Date','any'],['Date','year']]){m.group(group).click();m.sub('date').querySelector('[data-rt-option="'+option+'"]').click();assert.equal(dropdown.hasAttribute('open'),false,group+' '+option);assert.equal(d.openSubmenu,null);reopen();}
+  assert.ok(closed>=3);
+  m.group('Post type').click();m.sub('type').querySelector('[data-rt-option="image"]').click();assert.ok(dropdown.hasAttribute('open'));m.sub('type').querySelector('[data-rt-option="video"]').click();assert.ok(dropdown.hasAttribute('open'));
+  m.sub('type').querySelector('[aria-label="Back"]').click();assert.equal(d.openSubmenu,null);assert.ok(dropdown.hasAttribute('open'));
+  // Activity choices close too, even when the dropdown re-asserts itself for a tick.
+  d.activityMain.querySelector('[data-rt-activity]').click();let stubborn=true;dropdown.close=()=>{};const original=dropdown.removeAttribute.bind(dropdown);dropdown.removeAttribute=name=>{if(name==='open' && stubborn){stubborn=false;return;}original(name);};
+  d.activityMenu.querySelector('[data-rt-activity-filter="hidden"]').click();await tick(5);assert.equal(dropdown.hasAttribute('open'),false);
+});
+test('opening Feed options always starts at the main menu',async t=>{
+  const m=await menuSetup(t);const {W,d,dropdown}=m;
+  m.group('Post type').click();assert.equal(d.openSubmenu,m.sub('type'));assert.equal(m.shown().length,1);
+  // Closed and opened again by Reddit.
+  dropdown.removeAttribute('open');await tick(0);dropdown.setAttribute('open','');await tick(0);
+  assert.equal(d.openSubmenu,null);assert.equal(m.shown().length,0);assert.equal(d.activityMain.classList.contains('hidden'),false);
+  // A trigger click while a submenu is showing also lands on the main menu, and each row opens its own submenu only.
+  m.group('Subreddit').click();assert.equal(d.openSubmenu,m.sub('sub'));
+  dropdown.querySelector('button[aria-label="Feed options"]').click();assert.equal(d.openSubmenu,null);assert.equal(d.activityMain.classList.contains('hidden'),false);
+  for(const [name,key] of [['Date','date'],['Post type','type'],['Subreddit','sub'],['Activity','activity']]){m.group(name)?.click?.();if(name==='Activity')d.activityMain.querySelector('[data-rt-activity]').click();else;const open=m.shown();assert.equal(open.length,1,name);assert.equal(open[0].dataset.rtSubKey,key,name);open[0].querySelector('[aria-label="Back"],[data-rt-sub-back]').click();}
+  // If Reddit re-renders its menu while a filter list is open, the same list comes back.
+  m.group('Post type').click();d.clearActivityMenu();d.ensureActivityMenu();assert.equal(d.openSubmenu?.dataset.rtSubKey,'type');
+  d.clearActivityMenu();dropdown.removeAttribute('open');d.ensureActivityMenu();assert.equal(d.openSubmenu,null);
+});
+test('repeated opens and rebuilds never accumulate submenu elements',async t=>{
+  const m=await menuSetup(t,'',{settings:{postDiscovery:true,archiveDiscovery:true}});const {W,d,dropdown}=m;
+  W.RTArchiveQuery={async *search(){},async aggregate(){return {ok:true,buckets:[{key:'a',count:1}],by:'subreddit'};}};
+  const census=()=>({subs:W.document.querySelectorAll('rpl-menu.rt-activity-submenu').length,groups:W.document.querySelectorAll('[data-rt-filter-group]').length,back:W.document.querySelectorAll('[data-rt-ui="submenu-back"]').length,owned:W.document.querySelectorAll('[data-rt-ui]').length,items:dropdown.querySelectorAll('rpl-menu-item').length,panels:W.document.querySelectorAll('[data-rt-sub-panel]').length,native:W.document.querySelectorAll('.main-menu-container > rpl-menu-item').length});
+  d.clearActivityMenu();d.ensureActivityMenu();const first=census();assert.equal(first.groups,3);assert.equal(first.panels,1);
+  for(let i=0;i<5;i++){
+    for(const name of ['Date','Post type','Subreddit']){m.group(name).click();m.shown()[0].querySelector('[aria-label="Back"],[data-rt-sub-back]').click();}
+    dropdown.removeAttribute('open');dropdown.setAttribute('open','');d.ensureActivityMenu();
+    d.clearActivityMenu();d.ensureActivityMenu();
+    d.detachActivityMenu();d.ensureActivityMenu();
+  }
+  assert.deepEqual(census(),first);
+  assert.equal(d.menuGroups.length,2,'Sort and View are grouped again');assert.ok(d.menuGroups.every(g=>g.sub.querySelector('rpl-menu-item')),'Reddit\'s rows live in their group submenus');
+});
+test('chips use the menu icons and Clear filters is never clipped',async t=>{
+  const m=await menuSetup(t,'?rt_date=year&rt_type=gif,video&rt_sub=announcements');const {W,d}=m;
+  const chip=id=>W.document.querySelector('[data-rt-chip="'+id+'"]');
+  assert.equal(m.icon(chip('date')),'calendar');assert.equal(m.icon(chip('type:video')),'video');assert.equal(chip('type:gif').querySelector('.rt-gif-tag').textContent,'GIF');assert.equal(m.icon(chip('sub:announcements')),'community-fill');
+  assert.equal(chip('type:gif').querySelector('.rt-filter-chip-label').textContent,'GIFs');assert.equal(chip('sub:announcements').querySelector('.rt-filter-chip-label').textContent,'r/announcements');
+  const clear=W.document.querySelector('[data-rt-filter-clear]');assert.equal(clear.textContent,'Clear filters');
+  const css=cssRule('.rt-filter-clear');assert.doesNotMatch(css,/overflow:\s*hidden/);assert.match(css,/overflow:visible/);assert.match(css,/width:auto/);assert.match(css,/white-space:nowrap/);assert.match(css,/min-width:max-content/);assert.match(cssRule('.rt-filter-chips'),/flex:0 0 100%/);
+  assert.match(menuCss,/\n\.rt-posts-toolbar\{flex-wrap:wrap\}/);assert.match(cssRule('.rt-posts-toolbar .rt-posts-status[data-error=true],.rt-posts-toolbar .rt-posts-notice'),/flex:1 1 100%/);
+});
