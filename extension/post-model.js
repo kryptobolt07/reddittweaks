@@ -63,16 +63,28 @@
     if(body==='[removed]' || raw.removed_by_category || raw.status==='removed')return 'removed';
     return raw.status==='unknown'?'unknown':'available';
   }
-  // Coarse post type for local filtering (Arctic Shift has no type filter). Already-normalized posts keep theirs.
-  const postTypes=['text','image','video','gallery','crosspost','link'];
+  // Post type for local filtering (Arctic Shift has no type filter). Already-normalized posts keep theirs.
+  const postTypes=['text','textmedia','poll','image','gif','video','gallery','link','embed','crosspost'];
+  const embedHosts=/(^|\.)(youtube\.com|youtu\.be|vimeo\.com|streamable\.com|twitch\.tv|dailymotion\.com|dai\.ly|gfycat\.com|redgifs\.com|tiktok\.com|rumble\.com|soundcloud\.com|spotify\.com|twitter\.com|x\.com)$/i;
+  const embedProviders=/youtube|vimeo|streamable|twitch|dailymotion|gfycat|redgifs|tiktok|rumble|soundcloud|spotify|twitter/i;
   function postTypeOf(raw){
     if(postTypes.includes(raw.postType))return raw.postType;
     if(raw.crosspost_parent || Array.isArray(raw.crosspost_parent_list) && raw.crosspost_parent_list.length)return 'crosspost';
+    if(raw.poll_data && typeof raw.poll_data==='object')return 'poll';
     if(raw.is_gallery===true || raw.gallery_data)return 'gallery';
     let host='',path='';try{const url=new URL(String(raw.url_overridden_by_dest ?? raw.url ?? ''));host=url.hostname.toLowerCase();path=url.pathname;}catch{}
-    if(raw.is_video===true || ['hosted:video','rich:video'].includes(raw.post_hint) || host==='v.redd.it')return 'video';
+    const isSelf=raw.is_self===true,images=Array.isArray(raw.preview?.images)?raw.preview.images:[];
+    const previewPath=(()=>{try{return new URL(String(images[0]?.source?.url ?? '').replace(/&amp;/gi,'&')).pathname;}catch{return '';}})();
+    if(!isSelf && (/\.gif$/i.test(path) || /\.gif$/i.test(previewPath) || images[0]?.variants?.gif || raw.media?.reddit_video?.is_gif===true || raw.preview?.reddit_video_preview?.is_gif===true))return 'gif';
+    if(raw.is_video===true || raw.post_hint==='hosted:video' || host==='v.redd.it')return 'video';
+    const oembed=raw.secure_media?.oembed ?? raw.media?.oembed;
+    if(raw.post_hint==='rich:video' || oembed && embedProviders.test(String(oembed.provider_name ?? oembed.provider_url ?? '')) || !isSelf && embedHosts.test(host))return 'embed';
     if(raw.post_hint==='image' || ['i.redd.it','i.imgur.com','preview.redd.it'].includes(host) && /\.(?:jpe?g|png|gif|webp)$/i.test(path))return 'image';
-    return raw.is_self===true?'text':'link';
+    if(isSelf){
+      const inline=raw.media_metadata && typeof raw.media_metadata==='object' && Object.keys(raw.media_metadata).length>0 || /(?:https?:\/\/(?:preview|i)\.redd\.it\/\S+\.(?:jpe?g|png|gif|webp)|!\[[^\]]*\]\(https?:)/i.test(String(raw.selftext ?? ''));
+      return inline?'textmedia':'text';
+    }
+    return 'link';
   }
   function normalizePost(raw,{source='reddit'}={}){
     raw=raw?.data || raw;
