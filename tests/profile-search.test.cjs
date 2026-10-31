@@ -108,7 +108,7 @@ test('Relevance keeps client ranking ahead of archive-only matches; loaded-item 
 });
 test('Feed options reuses native groups, submenu size, pills and author aggregate',async t=>{
   const s=await boot(t);assert.ok(s.d.activityDropdown.querySelector('button[aria-label="Feed options"]'));assert.ok(s.d.activityMenu);assert.ok(s.d.rtMenu.groups.date);assert.ok(s.d.rtMenu.groups.type);assert.ok(s.d.rtMenu.groups.sub);assert.equal(s.d.rtChips.parentNode,s.d.controlsTarget);
-  s.d.activityMain.getBoundingClientRect=()=>({height:312});s.d.rtMenu.groups.sub.el.click();assert.equal(s.d.rtMenu.groups.sub.sub.style.getPropertyValue('--rt-menu-height'),'312px');await flush();assert.equal(s.aggregates[0].author,'Example');assert.match(s.d.rtMenu.sub.note.textContent,/Counts from the archive/);
+  s.d.activityMain.getBoundingClientRect=()=>({height:312});s.d.rtMenu.groups.sub.el.click();assert.equal(s.d.rtMenu.groups.sub.sub.style.getPropertyValue('--rt-menu-height'),'312px');await flush();assert.equal(s.aggregates[0].author,'Example');assert.match(s.d.rtMenu.sub.note.dataset.rtSource,/Counts from the archive/);
   s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha']});await flush();assert.match(s.d.rtChips.textContent,/Alpha/);assert.equal(s.d.rtChips.parentNode,s.d.controlsTarget);
 });
 test('invalid queries explain the problem without starting either source',async t=>{
