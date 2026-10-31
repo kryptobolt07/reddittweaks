@@ -565,7 +565,7 @@
       const popper=dropdown.shadowRoot?.querySelector('rpl-popper')?.shadowRoot;if(popper && ![...this.nativeLoadingStyles].some(style=>style.parentNode===popper)){const style=make('style');style.dataset.rtUi='popup-style';style.textContent='.popup{z-index:1000!important}';popper.append(style);this.nativeLoadingStyles.add(style);}
       if(this.activityMain!==menu){
         this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;queueMicrotask(()=>this.placeFilterChips());
-        const content=menu.parentElement,subs=[],polished=!this.isSearch();
+        const content=menu.parentElement,subs=[],polished=true;
         if(polished){menu.dataset.rtFeedOptions='true';content.dataset.rtFeedOptionsHost='true';}
         const row=(label,icon,tail)=>{const el=make('rpl-menu-item','cursor-pointer'),body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs rt-menu-caption');for(const [k,v] of Object.entries({size:'medium',appearance:'default',truncate:'both','aria-label':label,'prevent-auto-close':''}))el.setAttribute(k,v);const lead=typeof icon==='string'?glyph(icon):icon;lead?.classList?.add('rt-menu-lead');caption.append(lead,document.createTextNode(label));body.append(caption);if(tail)body.append(glyph(tail));el.tabIndex=-1;el.append(body);return el;};
         const activate=(el,fn)=>{el.addEventListener('click',fn);el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();event.stopImmediatePropagation();fn(event);}},true);};
@@ -776,7 +776,7 @@
     }
     buildFilterMenu({row,activate,submenu,entry,open,content,menu,dropdown}){
       const f=globalThis.RTFeedFilters;this.rtMenu=null;if(!f)return;
-      const polished=!this.isSearch(),fx={row,activate,glyph},current=()=>f.clone(this.rtFilters || f.empty()),m=this.rtMenu={fx,date:new Map(),types:new Map(),groups:{},sub:null,old:null,all:null,typeList:null};
+      const polished=true,fx={row,activate,glyph},current=()=>f.clone(this.rtFilters || f.empty()),m=this.rtMenu={fx,date:new Map(),types:new Map(),groups:{},sub:null,old:null,all:null,typeList:null};
       // Single choices close the whole menu; Post type and Subreddit are multi-select and stay open.
       const close=()=>this.closeFeedMenu(dropdown,open);
       const option=(parent,options)=>{const el=f.menuOption(fx,options);el.dataset.rtUi='filter-option';parent.append(el);return el;};

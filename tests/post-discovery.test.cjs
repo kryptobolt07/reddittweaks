@@ -1689,11 +1689,10 @@ test('wrapped submenu lists retain keyboard navigation, native handlers and tear
   m.group('Subreddit').click();const input=d.rtMenu.sub.input;input.focus();key(input,'Home');assert.equal(W.document.activeElement,input,'Home edits the query');key(input,'Escape');assert.equal(d.openSubmenu,null);
   d.clearActivityMenu();assert.equal(newRow.querySelector('svg'),svg,'native glyph identity and fill restored');newRow.click();assert.equal(clicks,2);
 });
-test('profile search retains its existing menu structure and icons',async t=>{
+test('profile search uses the same Feed options menu as the profile',async t=>{
   const {W,d}=setup(t,{pre:['feed-filters.js','community-icons.js']});await d.ready;d.context={...d.context,view:'search',q:'fixture'};d.clearActivityMenu();d.ensureActivityMenu();
-  assert.equal(W.document.querySelector('[data-rt-feed-options-host]'),null);
-  assert.equal(W.document.querySelector('[data-rt-menu-list]'),null);
-  assert.equal(d.rtMenu.sub.panel.head.lastElementChild,d.rtMenu.sub.input);
-  assert.equal(d.rtMenu.groups.sub.el.querySelector('.rt-menu-lead').dataset.icon,'community-fill');
-  assert.equal(d.rtMenu.groups.date.sub.querySelector('[data-rt-option="any"] .rt-menu-lead'),null);
+  assert.ok(W.document.querySelector('[data-rt-feed-options-host]'),'shared profile menu host');
+  assert.equal(d.rtMenu.sub.panel.head.lastElementChild.matches('.rt-filter-field'),true,'pill search field in the Subreddit header');
+  assert.equal(d.rtMenu.groups.sub.el.querySelector('.rt-menu-lead').dataset.icon,'community');
+  assert.equal(d.rtMenu.groups.date.sub.querySelector('[data-rt-option="any"] .rt-menu-lead').dataset.icon,'calendar');
 });
