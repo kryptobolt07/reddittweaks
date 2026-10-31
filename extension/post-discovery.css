@@ -233,9 +233,11 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 /* Profile Feed options: one width for Reddit's slot and every menu in it. */
 [data-rt-feed-options-host]{--rt-menu-width:min(272px,calc(100vw - 32px));width:var(--rt-menu-width)!important}
 [data-rt-feed-options-host]>rpl-menu{box-sizing:border-box;width:var(--rt-menu-width);min-width:0;max-width:var(--rt-menu-width)}
-.rt-activity-submenu[data-rt-feed-options]:not(.hidden){display:flex;flex-direction:column;box-sizing:border-box;height:var(--rt-menu-height,auto);max-height:min(var(--rt-menu-height,calc(100dvh - 180px)),calc(100dvh - 32px));overflow:hidden}
+/* Each submenu sizes to its own content; long lists (Subreddit) scroll inside a capped height. */
+.rt-activity-submenu[data-rt-feed-options]:not(.hidden){display:flex;flex-direction:column;box-sizing:border-box;height:auto;max-height:min(400px,calc(100dvh - 96px));overflow:hidden}
+[data-rt-feed-options]>.rt-sub-panel{flex:1 1 auto;min-height:0}
 [data-rt-feed-options] .rt-sub-list{max-height:none}
-[data-rt-feed-options] .rt-sub-head{min-height:48px;box-sizing:border-box;gap:6px;padding:8px 12px 8px 8px;background:var(--color-neutral-background,#fff)}
+[data-rt-feed-options] .rt-sub-head{min-height:44px;box-sizing:border-box;gap:6px;padding:8px 12px 8px 8px;background:var(--color-neutral-background,#fff)}
 [data-rt-feed-options] .rt-sub-back{flex-basis:28px;width:28px;height:28px}
 [data-rt-feed-options] .rt-sub-back svg{width:16px;height:16px}
 .rt-sub-title{min-width:0;font-size:14px;line-height:20px;font-weight:600;color:var(--color-neutral-content-strong,#0f1a1c)}
@@ -252,7 +254,8 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-filter-search-clear:hover{background:var(--color-neutral-background-hover,#eff3f5);color:var(--color-neutral-content-strong,#172328)}
 .rt-filter-search-clear:focus-visible{outline:2px solid var(--color-neutral-content-weak,#52656c);outline-offset:1px}
 .rt-filter-search-clear svg{width:12px;height:12px}
-[data-rt-feed-options] rpl-menu-item{min-height:48px;flex:none}
+/* Reddit's row sets min-height:var(--rem48) in its shadow DOM; 40px is Reddit's own compact row size. */
+[data-rt-feed-options] rpl-menu-item{--rem48:40px;min-height:40px;flex:none}
 [data-rt-feed-options] .rt-menu-caption{gap:8px}
 [data-rt-feed-options] .rt-menu-lead,[data-rt-feed-options] [data-rt-check]{width:16px;height:16px}
 [data-rt-feed-options] [data-rt-sub-row] .rt-menu-caption{flex:1 1 auto;min-width:0}
