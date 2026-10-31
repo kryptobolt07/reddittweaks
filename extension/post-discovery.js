@@ -424,7 +424,8 @@
       }
       // Some layouts have neither filter spacers nor sort links. Locate the
       // smallest shared row of native dropdown triggers in a sibling branch of
-      // the tabs. Require all three controls and stop at protected content.
+      // the tabs. Require sort and time controls (Safe Search is not always
+      // present) and stop at protected content.
       const tabs=document.getElementById('search-results-page-tabgroup');
       const triggers='button,[role="button"],[aria-haspopup],[slot="trigger"]';
       const kinds=node=>new Set([...node.querySelectorAll(triggers)].filter(el=>!el.closest('[data-rt-ui]')).map(el=>{
@@ -442,7 +443,7 @@
             for(let row=trigger.parentElement;row && sibling.contains(row);row=row.parentElement){
               if(checkedRows.has(row))break;checkedRows.add(row);
               if(row.matches('main,body,html') || row.querySelector('#search-results-page-tabgroup,[data-rt-ui],[data-testid="search-scope-switcher"],[data-testid="search-sdui-post"],[data-testid="search-sdui-comment-unit"]'))break;
-              if(kinds(row).size===3){hide(row);break;}
+              {const found=kinds(row);if(found.has('sort') && found.has('time')){hide(row);break;}}
             }
           }
         }
