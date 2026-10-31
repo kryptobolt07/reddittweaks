@@ -10,13 +10,13 @@ const raw=(id,extra={})=>({id,author:'Example',title:'Synthetic search post',sel
 // post and comment search units are children of the neutral result container.
 const page=`<div data-testid="search-results-filter-spacer-desktop"><faceplate-dropdown-menu id="native-sort"><button>Sort</button><a href="/user/Example/search/?sort=new">New</a></faceplate-dropdown-menu><faceplate-dropdown-menu id="native-time" hidden><a href="/user/Example/search/?t=week">Past week</a></faceplate-dropdown-menu></div>
 <main class="main"><faceplate-tabgroup id="search-results-page-tabgroup"><a id="search-results-page-tab-posts" href="?type=posts">Posts</a><a id="search-results-page-tab-comments" href="?type=comments">Comments</a><a id="search-results-page-tab-media" href="?type=media">Media</a></faceplate-tabgroup><div data-testid="search-scope-switcher">Show results from all of Reddit</div><div class="bg-neutral-background" id="native-results"><search-telemetry-tracker data-testid="search-sdui-post" data-thingid="t3_live"><div data-testid="search-post-unit">Native result</div></search-telemetry-tracker><div data-testid="search-sdui-comment-unit"><search-telemetry-tracker data-faceplate-tracking-context='{"comment":{"id":"t1_comment","post_id":"t3_parent"}}'></search-telemetry-tracker><div data-testid="search-comment-content">Synthetic comment</div></div><faceplate-partial loading="lazy" src="/search-more"></faceplate-partial></div></main>`;
-function setup(t,{url='https://www.reddit.com/user/Example/search/?q=words',settings={postDiscovery:true,archiveDiscovery:true},html=page,reddit,archive,renderer,aggregate,autoDiscover=false}={}){
+function setup(t,{url='https://www.reddit.com/user/Example/search/?q=words',settings={postDiscovery:true,archiveDiscovery:true},html=page,reddit,archive,renderer,aggregate,autoDiscover=false,observe=false}={}){
   const dom=new JSDOM(html,{url,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[],queries=[],aggregates=[];
   for(const file of ['search-core.js','post-model.js','feed-filters.js','post-discovery.js','profile-search.js'])W.eval(read(file));
   W.RTArchiveQuery={async *search(args){queries.push(args);const result=archive?await archive(args,queries.length):{items:[raw('live'),raw('archive',{created_utc:1600000000})],hasMore:false,searchedBackTo:1600000000};
     yield {...result,items:(result.items || []).map(p=>W.RTPostModel.normalizeItem(p,{source:'arctic-shift'}))};},async aggregate(args){aggregates.push(args);return aggregate?aggregate(args):{ok:true,buckets:[{key:'Alpha',count:9}]};}};
   const nativeRenderer=renderer || (async(post,node)=>{const native=W.document.createElement(post.kind==='comment'?'shreddit-profile-comment':'shreddit-post');native.setAttribute(post.kind==='comment'?'comment-id':'id',post.fullname);if(post.kind!=='comment')native.setAttribute('post-type',post.postType);native.innerHTML='<span slot="credit-bar"></span><p slot="text-body">Native synthetic body</p>';node.replaceChildren(native);return {fullname:post.fullname,status:'available'};});
-  const d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover,nativeRenderer,readSettings:async()=>({'rt-settings-v1':settings}),reddit:async args=>{calls.push(args);
+  const d=new W.RTPostDiscovery.Discovery({observe,autoDiscover,nativeRenderer,readSettings:async()=>({'rt-settings-v1':settings}),reddit:async args=>{calls.push(args);
     if(args.action==='render-controls'){W.document.getElementById(args.target).innerHTML=controls;return {rendered:true};}
     if(args.action==='render-navigation')return {rendered:true};
     if(args.action==='status')return {via:'info',statuses:args.ids.map(id=>({fullname:(args.kind==='comment'?'t1_':'t3_')+id,status:'available'}))};
@@ -167,4 +167,27 @@ test('refresh replaces client ranking for Relevance and rt_sort Hot',async t=>{
   for(const suffix of ['?q=words','?q=words&rt_sort=hot']){
     let reads=0;const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/'+suffix,reddit:async()=>({posts:(++reads===1?['first','second']:['second','first']).map(id=>raw(id)),hasMore:false}),archive:async()=>({items:[],hasMore:false})});await search(s);assert.deepEqual(shown(s.d),['t3_first','t3_second']);await search(s);assert.deepEqual(shown(s.d),['t3_second','t3_first']);
   }
+});
+
+const skeletonPage=`<faceplate-tabgroup id="search-results-page-tabgroup"><a href="?type=posts">Posts</a><a href="?type=comments">Comments</a><a href="?type=media">Media</a></faceplate-tabgroup>
+<div data-testid="search-results-filter-spacer-desktop"><div id="skeleton-sort">Relevance / All time / Safe Search Off</div></div>
+<main class="main"><div id="feedback">Did you find what you were looking for?<button>Yes</button><button>No</button></div><div class="bg-neutral-background" id="skeleton-results"><div id="skeleton">Loading placeholder</div></div></main>`;
+test('external search tabs and skeleton-only history mount and load without q, then restore',async t=>{
+  const s=await boot(t,{html:skeletonPage,url:'https://www.reddit.com/user/Example/search/',autoDiscover:true});
+  assert.equal(s.d.context.view,'search');assert.ok(s.d.searchFeed?.isConnected);
+  assert.equal(s.calls.find(c=>c.action==='profile').query,'');assert.equal(s.queries.length,1);
+  for(const id of ['skeleton-results','feedback','skeleton-sort'])assert.equal(s.D.getElementById(id).hidden,true,id);
+  assert.equal(s.D.getElementById('search-results-page-tabgroup').hidden,false);
+  assert.equal(s.d.feed.nextElementSibling.id,'skeleton-results');
+  s.W.history.pushState({},'','/r/Synthetic/');s.d.scan();
+  for(const id of ['skeleton-results','feedback','skeleton-sort'])assert.equal(s.D.getElementById(id).hidden,false,id);
+  assert.equal(s.D.querySelector('[data-rt-search-hidden]'),null);
+});
+test('late external search tabs trigger mounting and loading through the page observer',async t=>{
+  const s=await boot(t,{html:'<main><div class="bg-neutral-background">Loading placeholder</div></main>',observe:true,autoDiscover:true});
+  assert.equal(s.d.context,null);assert.equal(s.calls.length,0);
+  const tabs=s.D.createElement('faceplate-tabgroup');tabs.id='search-results-page-tabgroup';tabs.innerHTML='<a href="?type=posts">Posts</a>';s.D.body.prepend(tabs);
+  await new Promise(resolve=>s.W.setTimeout(resolve,150));await flush();
+  assert.equal(s.d.context.view,'search');assert.ok(s.d.searchFeed?.isConnected);
+  assert.equal(s.calls.find(c=>c.action==='profile').query,'words');assert.equal(s.queries.length,1);
 });
