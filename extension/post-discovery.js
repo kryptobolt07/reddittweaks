@@ -561,6 +561,8 @@
       // doesn't get Reddit's popover positioning, so the open menu painted
       // under the feed. Lift it, keeping its static position.
       if(this.controlsTarget?.contains(dropdown) && dropdown.shadowRoot && ![...this.nativeLoadingStyles].some(style=>style.parentNode===dropdown.shadowRoot)){const style=make('style');style.dataset.rtUi='controls-style';style.textContent='#hovercard{position:absolute!important;z-index:20!important}';dropdown.shadowRoot.append(style);this.nativeLoadingStyles.add(style);}
+      // Reddit's dropdown popup sits at z-index 1, so card buttons (z-10) and our chips painted over the open menu. Lift it.
+      const popper=dropdown.shadowRoot?.querySelector('rpl-popper')?.shadowRoot;if(popper && ![...this.nativeLoadingStyles].some(style=>style.parentNode===popper)){const style=make('style');style.dataset.rtUi='popup-style';style.textContent='.popup{z-index:1000!important}';popper.append(style);this.nativeLoadingStyles.add(style);}
       if(this.activityMain!==menu){
         this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;queueMicrotask(()=>this.placeFilterChips());
         const content=menu.parentElement,subs=[],polished=!this.isSearch();
@@ -569,7 +571,7 @@
         const activate=(el,fn)=>{el.addEventListener('click',fn);el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();event.stopImmediatePropagation();fn(event);}},true);};
         const submenu=key=>{const el=make('rpl-menu','rt-activity-submenu hidden');el.dataset.rtUi='activity-filter-option';if(key)el.dataset.rtSubKey=key;if(polished)el.dataset.rtFeedOptions='true';el.setAttribute('wrap','');el.setAttribute('role','menu');subs.push(el);return el;};
         // Top-style navigation: one submenu open at a time, inside the same dropdown.
-        // A submenu keeps the main menu's height (its long lists scroll inside), so the menu never grows when you drill in.
+        // Search-page submenus keep the main menu's height; profile Feed options submenus size to their own content (see CSS).
         const open=target=>{if(target && !menu.classList.contains('hidden')){const height=menu.getBoundingClientRect().height;if(height>0)target.style.setProperty('--rt-menu-height',Math.round(height)+'px');}this.openSubmenu=target || null;this.activityOpen=target===this.activityMenu;menu.classList.toggle('hidden',Boolean(target));for(const sub of subs)sub.classList.toggle('hidden',sub!==target);for(const entry of this.activityMenuRows)if(entry.matches?.('rpl-menu-item'))entry.setAttribute('aria-expanded',String(entry.rtSubmenu===target));(target?target.querySelector(polished?'.rt-sub-back,rpl-menu-item':'rpl-menu-item'):this.lastSubmenuRow)?.focus({preventScroll:true});};
         this.openFeedSubmenu=open;
         const entry=(label,icon,sub,{back=true}={})=>{const el=row(label,icon,'chevron-right');el.setAttribute('aria-haspopup','menu');el.rtSubmenu=sub;const value=make('span','rt-menu-value text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';el.firstElementChild.insertBefore(value,el.firstElementChild.lastElementChild);activate(el,()=>{this.lastSubmenuRow=el;open(sub);el.rtOnOpen?.();});if(back){if(polished && globalThis.RTFeedFilters?.submenuHeader){const header=globalThis.RTFeedFilters.submenuHeader(label,()=>open(null));header.head.dataset.rtUi='submenu-back';sub.append(header.head);}else{const backRow=row('Back','arrow-back');backRow.dataset.rtUi='submenu-back';activate(backRow,()=>open(null));sub.append(backRow);}}return el;};
@@ -585,15 +587,15 @@
           if(polished){
             group.rtIconRestores=[];
             for(const item of group.items){
-              const original=item.querySelector('svg[icon-name]:not([icon-name="checkmark"])'),name=original?.getAttribute('icon-name'),fallback=index===0?'caret-up-down':'classic';
-              const icon=globalThis.RTFeedFilters?.svgIcon?.(name==='new-fill'?'caret-up-down':name?.replace(/-fill$/,'') || fallback,16);
+              const original=item.querySelector('svg[icon-name]:not([icon-name="checkmark"])'),name=original?.getAttribute('icon-name'),fallback=index===0?'sort':'classic';
+              const icon=globalThis.RTFeedFilters?.svgIcon?.(name==='new-fill'?'new':name?.replace(/-fill$/,'') || fallback,16);
               if(!icon)continue;icon.classList.add('rt-menu-lead');
               const tabIndex=item.getAttribute('tabindex');item.tabIndex=-1;group.rtIconRestores.push(()=>{if(tabIndex==null)item.removeAttribute('tabindex');else item.setAttribute('tabindex',tabIndex);});
               if(original){original.replaceWith(icon);group.rtIconRestores.push(()=>icon.replaceWith(original));}
               else{const nodes=[...item.childNodes],body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs rt-menu-caption');caption.append(icon,...nodes);body.append(caption);item.append(body);group.rtIconRestores.push(()=>item.replaceChildren(...nodes));}
             }
           }
-          const el=entry(label,polished?(index===0?'caret-up-down':'card'):'activity',sub);el.dataset.rtUi='menu-group';el.rtGroup={anchor,group};anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
+          const el=entry(label,polished?(index===0?'sort':'card'):'activity',sub);el.dataset.rtUi='menu-group';el.rtGroup={anchor,group};anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
           if(index>0 && group.header){group.headerHidden=group.header.hidden;group.header.hidden=true;}
           this.menuGroups.push({...group,anchor,row:el,sub});this.activityMenuRows.push(el,sub);
         }

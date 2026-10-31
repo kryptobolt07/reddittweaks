@@ -1641,15 +1641,16 @@ test('profile menu uses one shared width, pinned headers and 16px outline glyphs
   assert.equal(d.activityMain.parentElement.dataset.rtFeedOptionsHost,'true');
   assert.match(cssRule('[data-rt-feed-options-host]'),/--rt-menu-width:min\(272px,calc\(100vw - 32px\)\)/);
   assert.match(cssRule('[data-rt-feed-options-host]>rpl-menu'),/width:var\(--rt-menu-width\)/);
-  assert.match(cssRule('.rt-activity-submenu[data-rt-feed-options]:not(.hidden)'),/height:var\(--rt-menu-height,auto\)/);
+  assert.match(cssRule('.rt-activity-submenu[data-rt-feed-options]:not(.hidden)'),/height:auto;max-height:min\(400px,calc\(100dvh - 96px\)\)/,'submenus size to their own content');
+  assert.match(cssRule('[data-rt-feed-options] rpl-menu-item'),/--rem48:40px;min-height:40px/);
   assert.match(cssRule('.rt-activity-submenu[data-rt-feed-options]:not(.hidden)'),/overflow:hidden/);
   assert.equal((menuCss.match(/\n\.rt-sub-back\{/g)||[]).length,1,'one base rule for the back button');
   assert.equal(menuCss.includes('.rt-filter-search-box'),false,'unused search wrapper rule removed');
   const rows=[...d.activityMain.children].filter(el=>el.matches('rpl-menu-item'));
-  assert.deepEqual(rows.map(el=>m.icon(el)),['caret-up-down','card','activity','calendar','text-post','community']);
+  assert.deepEqual(rows.map(el=>m.icon(el)),['sort','card','activity','calendar','text-post','community']);
   for(const row of rows){const icon=row.querySelector('.rt-menu-lead');assert.ok(icon);assert.equal(icon.getAttribute('width'),'16');}
   const nativeIcon=W.document.createElementNS('http://www.w3.org/2000/svg','svg');nativeIcon.setAttribute('icon-name','new-fill');d.menuGroups[0].items[0].append(nativeIcon);
-  d.ensureActivityMenu();assert.equal(m.icon(rows[0]),'caret-up-down','native selected glyph never replaces the outline Sort icon');
+  d.ensureActivityMenu();assert.equal(m.icon(rows[0]),'sort','native selected glyph never replaces the outline Sort icon');
   d.activityMain.getBoundingClientRect=()=>({height:340});
   for(const key of ['sort','view','activity','date','type','sub']){
     const sub=m.sub(key),row=rows.find(el=>el.rtSubmenu===sub);row.click();
@@ -1679,7 +1680,7 @@ test('wrapped submenu lists retain keyboard navigation, native handlers and tear
   const native=d.activityMain || W.document.querySelector('.main-menu-container'),newRow=native.querySelector('[aria-label="New"]');
   const svg=W.document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('icon-name','new-fill');newRow.prepend(svg);
   let clicks=0;newRow.addEventListener('click',()=>clicks++);d.ensureActivityMenu();
-  const sort=d.menuGroups[0];sort.row.click();assert.equal(newRow.querySelector('svg').dataset.icon,'caret-up-down');
+  const sort=d.menuGroups[0];sort.row.click();assert.equal(newRow.querySelector('svg').dataset.icon,'new');
   const key=(el,value)=>el.dispatchEvent(new W.KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true})),back=sort.sub.querySelector('.rt-sub-back');
   const list=sort.sub.querySelector('.rt-sub-list');list.getBoundingClientRect=()=>({top:100,bottom:200});newRow.getBoundingClientRect=()=>({top:100,bottom:148});sort.items.at(-1).getBoundingClientRect=()=>({top:210,bottom:258});
   key(back,'ArrowDown');assert.equal(W.document.activeElement,newRow);key(newRow,'End');assert.equal(W.document.activeElement,sort.items.at(-1));assert.equal(list.scrollTop,58,'keyboard reveals the focused row inside the list');key(W.document.activeElement,'Home');assert.equal(W.document.activeElement,back);
