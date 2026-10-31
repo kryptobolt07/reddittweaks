@@ -1667,7 +1667,8 @@ test('community field clears, shows a caption empty state and retains its outlin
   const box=panel.list.querySelector('.rt-sub-icon-box');box.querySelector('img').dispatchEvent(new W.Event('error'));assert.equal(box.querySelector('svg').dataset.icon,'community');
   panel.input.value='absent';panel.input.dispatchEvent(new W.Event('input'));assert.equal(panel.list.querySelector('.rt-sub-empty').textContent,'No communities match');
   assert.match(cssRule('[data-rt-feed-options] .rt-sub-icon-box img'),/object-position:center/);
-  assert.match(cssRule('.rt-filter-field'),/height:40px/);assert.match(cssRule('.rt-filter-field'),/border-radius:22px/);
+  assert.match(cssRule('.rt-filter-field'),/height:32px/);assert.match(cssRule('.rt-filter-field'),/border-radius:16px/);
+  assert.match(cssRule('[data-rt-feed-options] .rt-sub-icon-box img'),/position:absolute;inset:0/);assert.match(cssRule('[data-rt-feed-options] .rt-sub-icon-box'),/clip-path:circle\(50%/);
   assert.match(cssRule('.rt-filter-field:focus-within'),/border-color:var\(--color-neutral-content-weak/);
   assert.match(cssRule('.rt-filter-field .rt-filter-search:focus'),/outline:0;box-shadow:none/);
   assert.match(cssRule('[data-rt-feed-options] .rt-filter-note,[data-rt-feed-options] .rt-sub-empty'),/padding:8px 16px 8px 48px/);
