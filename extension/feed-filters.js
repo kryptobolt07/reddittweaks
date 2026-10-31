@@ -43,6 +43,7 @@
     for(const d of [].concat(paths)){const path=document.createElementNS(SVG,'path');path.setAttribute('d',d);if(name==='calendar')path.setAttribute('fill-rule','evenodd');s.append(path);}
     return s;
   }
+  const incomingHour={id:'hour',label:'Past hour',seconds:3600};
   const presets=Object.freeze([{id:'24h',label:'Past 24 hours',seconds:86400},{id:'week',label:'Past week',seconds:604800},{id:'month',label:'Past month',seconds:2592000},{id:'year',label:'Past year',seconds:31536000}]);
   const sorts=Object.freeze(['old','comments']),maxSubreddits=8;
   const isoDay=/^(\d{4})-(\d{2})-(\d{2})$/;
@@ -60,7 +61,7 @@
   }
   function parse(search){
     const p=new URLSearchParams(search||''),state=empty(),date=p.get(params.date);
-    if(presets.some(x=>x.id===date))state.date={preset:date};
+    if(date==='hour' || presets.some(x=>x.id===date))state.date={preset:date};
     else{const m=/^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(date||'');if(m && validDay(m[1]) && validDay(m[2]))state.date=m[1]<=m[2]?{from:m[1],to:m[2]}:{from:m[2],to:m[1]};}
     for(const raw of (p.get(params.types)||'').split(',')){const t=normalizeType(raw);if(t && !state.types.includes(t))state.types.push(t);}
     for(const s of (p.get(params.subreddits)||'').split(',')){const n=subName(s);if(n && state.subreddits.length<maxSubreddits && !state.subreddits.some(x=>x.toLowerCase()===n.toLowerCase()))state.subreddits.push(n);}
@@ -91,7 +92,7 @@
   // Inclusive seconds range {after,before}: after is the start, before is exclusive. Null when no date filter.
   function dateRange(state,now=Date.now()/1000){
     const date=state.date;if(!date)return null;
-    if(date.preset){const preset=presets.find(x=>x.id===date.preset);return preset?{after:Math.floor(now-preset.seconds),before:null}:null;}
+    if(date.preset){const preset=date.preset==='hour'?incomingHour:presets.find(x=>x.id===date.preset);return preset?{after:Math.floor(now-preset.seconds),before:null}:null;}
     const [fy,fm,fd]=date.from.split('-').map(Number),[ty,tm,td]=date.to.split('-').map(Number);
     return {after:Math.floor(new Date(fy,fm-1,fd).getTime()/1000),before:Math.floor(new Date(ty,tm-1,td+1).getTime()/1000)};
   }
@@ -151,12 +152,12 @@
   }
   const dayLabel=value=>{const [y,m,d]=value.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});};
   function dateLabel(date){
-    if(!date)return '';if(date.preset)return presets.find(x=>x.id===date.preset)?.label || '';
+    if(!date)return '';if(date.preset)return (date.preset==='hour'?incomingHour:presets.find(x=>x.id===date.preset))?.label || '';
     return date.from===date.to?dayLabel(date.from):dayLabel(date.from)+' – '+dayLabel(date.to);
   }
   // Short value for the main menu row: "Any time", "Past year", "Oct 1 – Oct 20" (years only when not this year).
   function dateShort(date,now=new Date()){
-    if(!date)return 'Any time';if(date.preset)return presets.find(x=>x.id===date.preset)?.label || 'Any time';
+    if(!date)return 'Any time';if(date.preset)return (date.preset==='hour'?incomingHour:presets.find(x=>x.id===date.preset))?.label || 'Any time';
     const day=value=>{const [y,m,d]=value.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString(undefined,y===now.getFullYear()?{month:'short',day:'numeric'}:{month:'short',day:'numeric',year:'numeric'});};
     return date.from===date.to?day(date.from):day(date.from)+' – '+day(date.to);
   }

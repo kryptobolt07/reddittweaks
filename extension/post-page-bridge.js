@@ -163,7 +163,7 @@
         const card=tracker.querySelector('[data-testid="search-crosspost-unit"],[data-testid="search-post-unit"]');
         const detail=[tracker,...tracker.querySelectorAll('search-telemetry-tracker')].map(node=>JSON.parse(node.getAttribute('data-faceplate-tracking-context') || '{}')).find(value=>value.post?.id===id && value.profile?.name);
         if(!M.validateId(id) || detail?.profile?.name?.toLowerCase()!==username.toLowerCase() || !card)throw Error();
-        const title=card.querySelector('a[data-testid="post-title"]'),permalink=new URL(title?.getAttribute('href'),location.origin);
+        const title=card.querySelector('a[data-testid="post-title"],a[data-testid="post-title-text"]'),permalink=new URL(title?.getAttribute('href'),location.origin);
         if(permalink.origin!==location.origin || permalink.pathname.match(/\/comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.[1]!==id.slice(3))throw Error();
         const crosspost=card.getAttribute('data-testid')==='search-crosspost-unit';
         const counter=card.querySelector(crosspost?':scope > [data-testid="search-counter-row"]':'[data-testid="search-counter-row"]'),numbers=[...counter.querySelectorAll('faceplate-number[number]')].map(node=>Number(node.getAttribute('number')));
@@ -244,7 +244,7 @@
     const context=route(),path=pageKey(),target=typeof input.target==='string' && /^rt-controls-[a-z0-9-]{1,60}$/i.test(input.target)?document.getElementById(input.target):null;
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase() || target?.dataset.rtUi!=='profile-controls' || !target.closest('main'))throw Error('Open the matching public profile.');
     if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function')return {deferred:true,retryAfterMs:250};
-    const params=new URLSearchParams(location.search),sort=params.get('sort') || 'new',range=params.get('t') || 'all',view=params.get('feedViewType') || 'cardView';
+    const params=new URLSearchParams(location.search),sort=/\/search\/?$/.test(location.pathname)?'new':params.get('sort') || 'new',range=params.get('t') || 'all',view=params.get('feedViewType') || 'cardView';
     if(!['new','hot','top'].includes(sort) || !['hour','day','week','month','year','all'].includes(range) || !['cardView','compactView'].includes(view))throw Error('Unsupported native feed controls.');
     const now=Date.now(),app=document.querySelector('shreddit-app'),key=[sort,range,view].join(':');for(const [k,v] of controlReads)if(v.app!==app || v.expires<=now)controlReads.delete(k);
     let cached=controlReads.get(key);
@@ -259,7 +259,7 @@
     }
     const doc=new DOMParser().parseFromString(await cached.promise,'text/html'),root=doc.body.firstElementChild;
     if(signal?.aborted || path!==pageKey() || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
-    for(const row of root.querySelectorAll('rpl-menu-item[href]')){const old=new URL(row.getAttribute('href'),location.origin);if(old.origin!==location.origin || old.pathname!=='/user/reddit/submitted/')throw Error('Unexpected native control destination.');const next=new URL(path,location.origin);for(const name of ['sort','t','feedViewType'])if(old.searchParams.has(name))next.searchParams.set(name,old.searchParams.get(name));if(old.searchParams.has('sort') && old.searchParams.get('sort')!=='top')next.searchParams.delete('t');row.setAttribute('href',next.pathname+next.search);}
+    for(const row of root.querySelectorAll('rpl-menu-item[href]')){const old=new URL(row.getAttribute('href'),location.origin);if(old.origin!==location.origin || old.pathname!=='/user/reddit/submitted/')throw Error('Unexpected native control destination.');const next=new URL(path,location.origin);if(/\/search\/?$/.test(location.pathname))next.search=location.search;for(const name of ['sort','t','feedViewType'])if(old.searchParams.has(name))next.searchParams.set(name,old.searchParams.get(name));if(old.searchParams.has('sort') && old.searchParams.get('sort')!=='top')next.searchParams.delete('t');row.setAttribute('href',next.pathname+next.search);}
     if(/\/comments\/?$/.test(location.pathname)){
       // The Comments tab gets the same Feed options trigger and menu Reddit renders
       // on Posts. Only the View section is dropped, because the Comments tab has
@@ -450,7 +450,7 @@
     const fullname=(comments?'t1_':'t3_')+input.postId.toLowerCase().replace(/^t[13]_/,''),target=document.getElementById(input.target);
     if(!target?.isConnected || target.dataset.rtUi!=='activity-item' || target.dataset.rtNativeFullname!==fullname || !target.closest('main'))throw Error('Native card target is no longer available.');
     const selector=comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`;
-    const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node));
+    const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node) && !node.closest('[data-rt-search-hidden]'));
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
     const now=Date.now();
     if(now<cooldown || !nativeCapacity(comments) && !nativeCardReads.has(path+'|'+fullname))return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:250)};
