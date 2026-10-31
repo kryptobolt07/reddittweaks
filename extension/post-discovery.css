@@ -192,7 +192,8 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-menu-row[aria-disabled="true"]{opacity:.45;cursor:not-allowed;background:transparent}
 .rt-menu-row[hidden]{display:none!important}
 /* Feed options menu rows: Reddit's icon size and a value that truncates instead of overlapping the label. */
-.rt-menu-lead{width:20px;height:20px;flex:none}
+/* Same 16px leading icon as Reddit's own Sort and View rows, so every label starts at the same x. */
+.rt-menu-lead{width:16px;height:16px;flex:none}
 .rt-menu-caption{flex:none;min-width:0}
 .rt-menu-value{flex:0 1 auto;min-width:0;max-width:55%;margin-inline-start:auto;padding-inline-start:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:end}
 [data-rt-check]{width:20px;height:20px;flex:none}
@@ -202,6 +203,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 [role="menuitemcheckbox"][aria-disabled="true"],rpl-menu-item[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
 /* GIF tag: Reddit's GIF button look, sized for the 20px icon slot (16px in chips). */
 .rt-gif-tag{display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:20px;height:14px;border:1.5px solid currentColor;border-radius:4px;font:700 9px/1 var(--font-sans,system-ui,sans-serif);letter-spacing:-.2px;color:inherit}
+.rt-menu-lead.rt-gif-tag,.rt-menu-lead .rt-gif-tag{width:16px;height:12px;border-width:1.25px;border-radius:3px;font-size:7.5px}
 .rt-filter-chip-icon .rt-gif-tag{width:16px;height:12px;border-width:1px;border-radius:3px;font-size:7px}
 /* Community icons: a fixed 24px circle, so the real icon replaces the placeholder without moving anything. */
 .rt-community-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--rt-icon-size,24px);height:var(--rt-icon-size,24px);border-radius:50%;overflow:hidden;color:var(--color-neutral-content-weak,#576f76)}
@@ -213,6 +215,9 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-community-img{display:block;object-fit:cover;border-radius:50%}
 /* Subreddit panel: Back and the pill search share one fixed header row; only the list scrolls. */
 .rt-activity-submenu[data-rt-panel]{max-height:none;overflow:visible}
+/* Every filter submenu keeps the main menu's height; longer lists scroll inside it with Back pinned on top. */
+.rt-activity-submenu[data-rt-sub-key]:not([data-rt-panel]):not(.hidden){max-height:var(--rt-menu-height,none);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.rt-activity-submenu[data-rt-sub-key]:not([data-rt-panel])>rpl-menu-item:first-child{position:sticky;top:0;z-index:1;background:var(--color-neutral-background,#fff)}
 .rt-activity-submenu[data-rt-panel]:not(.hidden){display:flex;flex-direction:column;height:var(--rt-menu-height,auto);max-height:var(--rt-menu-height,none);box-sizing:border-box}
 .rt-activity-submenu[data-rt-panel]>.rt-sub-panel{flex:1 1 auto;min-height:0}
 .rt-sub-panel{display:flex;flex-direction:column;min-width:0}
