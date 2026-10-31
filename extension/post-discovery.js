@@ -99,8 +99,11 @@
       this.onEmptyProfileSearch=event=>{
         if(this.orphaned() || this.settingsPending || this.settingsError || !this.settings.postDiscovery || !this.settings.archiveDiscovery || event.defaultPrevented || event.key!=='Enter' || event.repeat || event.isComposing || event.keyCode===229 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)return;
         const route=pageRoute(),path=event.composedPath();if(route?.kind!=='profile' || route.view==='search')return;
-        const input=path[0],form=path.find(node=>node.matches?.('form.reddit-search-bar')),host=path.find(node=>node.matches?.('reddit-search-large'));
-        if(!input?.matches?.('input[name="q"]') || input.value!=='' || !form || !host || !form.querySelector('#search-input-chip'))return;
+        const input=path[0],form=path.find(node=>node.matches?.('form')),host=path.find(node=>node.matches?.('reddit-search-large')),field=path.find(node=>node.matches?.('faceplate-search-input[name="q"]'));
+        // Hydrated search uses a textarea inside the field's shadow root; SSR
+        // uses a plain input. Require the current scope pill in either layout.
+        const scoped=field?.querySelector('#search-input-remove-filter') || form?.querySelector('#search-input-chip');
+        if(!input?.matches?.('input[name="q"],textarea[name="q"]') || input.value!=='' || !form || !host || !scoped)return;
         let scope;try{scope=JSON.parse(host.getAttribute('scope'));}catch{return;}
         if(scope?.type!=='profile' || String(scope.name || '').toLowerCase()!==route.username.toLowerCase() || String(scope.path || '').replace(/\/$/,'').toLowerCase()!=='/user/'+route.username.toLowerCase())return;
         event.preventDefault();event.stopImmediatePropagation();
