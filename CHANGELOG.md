@@ -1,3 +1,19 @@
+# 0.23.1 preview
+
+- Profile search: clicking the native search field on a profile and pressing Enter with no text now opens that author's search results. Both the server-rendered input and Reddit's hydrated shadow-root textarea are supported. Nonempty queries, other fields, removed author scopes, composition and modified Enter retain Reddit's handling. The action requires public activity and archive discovery to be enabled.
+
+Version choice: PATCH for a user-visible navigation bug fix. No new permissions or storage schema changes.
+
+Validation:
+- All 1067 tests pass, including empty Enter navigation, search-feed mounting and negative controls for both field structures.
+- Reproduced before the fix in signed-in Chrome with the installed extension: empty Enter on u/spez left the profile URL unchanged.
+- Reloaded the rebuilt extension and repeated the same real mouse/keyboard path: it opened `/user/spez/search/`, displayed native Posts/Comments/Media tabs and visible result cards (100 result nodes loaded).
+- Package integrity and source/unpacked/archive byte equality verified.
+
+Limitations:
+- This fixes empty profile-search navigation. It does not fix the separately observed Reddit response-format error for nonempty post queries.
+- Live validation used Chrome debugging; Brave was not separately tested.
+
 # 0.23.0 preview
 
 - Chat: deleted and banned accounts are now actually saved as such. Since the first release, `directory-model.js` was listed for both the page world and the extension world at the same injection time. Chrome injected it only into the page world, so every answer reached storage as "no answer" and the markers fell back to "Unavailable account". The classifier also starts as soon as Reddit's chat client attaches.
