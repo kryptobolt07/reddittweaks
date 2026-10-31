@@ -516,3 +516,14 @@ test('avatar lookup turns a full-body Snoovatar into its headshot, rejects forei
  assert.equal((await foreign.send({action:'user-avatar',username:'Example'})).avatar,'');
  const rate=setup(t,{fetcher:async()=>nativeResponse('',429,{'retry-after':'60'})});const result=await rate.send({action:'user-avatar',username:'Example'});assert.equal(result.deferred,true);assert.equal(rate.calls.length,1);await rate.send({action:'user-avatar',username:'Other'});assert.equal(rate.calls.length,1);
 });
+
+test('changing an extension filter (rt_* params) mid-read is not a page change; other params still are',async t=>{
+ let resolve;const e=setup(t,{fetcher:()=>new Promise(r=>resolve=r)});
+ const pending=e.send({action:'status',username:'Example',kind:'post',ids:['abc12']});
+ await new Promise(r=>setImmediate(r));e.W.history.replaceState(e.W.history.state,'','/user/Example/?rt_date=year&rt_type=image');
+ resolve(nativeResponse(statusPost('abc12','deleted','[deleted]','[deleted]')));
+ const result=await pending;assert.equal(result.ok,true,JSON.stringify(result));assert.doesNotMatch(String(result.error||''),/Page changed/);
+ let again;const f=setup(t,{fetcher:()=>new Promise(r=>again=r)}),other=f.send({action:'status',username:'Example',kind:'post',ids:['abc12']});
+ await new Promise(r=>setImmediate(r));f.W.history.replaceState(f.W.history.state,'','/user/Example/?sort=top');again(nativeResponse(statusPost()));
+ assert.equal((await other).ok,false);
+});

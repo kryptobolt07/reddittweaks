@@ -5,6 +5,9 @@
   // Bound simultaneous work and honor server cooldowns; cursor-driven scrolling
   // must not stall behind an unrelated lifetime or rolling card-count quota.
   const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map(),statusReads=new Map(),nativeCardReads=new Map();let active=0,cardActive=0,postCardActive=0,cooldown=0;
+  // The page a read belongs to. The extension's own rt_* filter params (written with replaceState) are not
+  // navigation, so changing a filter must not abort reads already in flight ("Page changed. Try again.").
+  function pageKey(){const params=new URLSearchParams(location.search);for(const key of [...params.keys()])if(key.startsWith('rt_'))params.delete(key);const rest=params.toString();return location.pathname+(rest?'?'+rest:'');}
   function route(){
     const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments))?\/?$/i);
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
@@ -236,7 +239,7 @@
     })(),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit navigation loading timed out.'));},10000);})]);}finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
   async function renderControls(input,signal){
-    const context=route(),path=location.pathname+location.search,target=typeof input.target==='string' && /^rt-controls-[a-z0-9-]{1,60}$/i.test(input.target)?document.getElementById(input.target):null;
+    const context=route(),path=pageKey(),target=typeof input.target==='string' && /^rt-controls-[a-z0-9-]{1,60}$/i.test(input.target)?document.getElementById(input.target):null;
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase() || target?.dataset.rtUi!=='profile-controls' || !target.closest('main'))throw Error('Open the matching public profile.');
     if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function')return {deferred:true,retryAfterMs:250};
     const params=new URLSearchParams(location.search),sort=params.get('sort') || 'new',range=params.get('t') || 'all',view=params.get('feedViewType') || 'cardView';
@@ -253,7 +256,7 @@
       cached={app,expires:now+30000,promise};if(controlReads.size>=4)controlReads.delete(controlReads.keys().next().value);controlReads.set(key,cached);promise.catch(()=>{if(controlReads.get(key)===cached)controlReads.delete(key);});
     }
     const doc=new DOMParser().parseFromString(await cached.promise,'text/html'),root=doc.body.firstElementChild;
-    if(signal?.aborted || path!==location.pathname+location.search || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
+    if(signal?.aborted || path!==pageKey() || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
     for(const row of root.querySelectorAll('rpl-menu-item[href]')){const old=new URL(row.getAttribute('href'),location.origin);if(old.origin!==location.origin || old.pathname!=='/user/reddit/submitted/')throw Error('Unexpected native control destination.');const next=new URL(path,location.origin);for(const name of ['sort','t','feedViewType'])if(old.searchParams.has(name))next.searchParams.set(name,old.searchParams.get(name));if(old.searchParams.has('sort') && old.searchParams.get('sort')!=='top')next.searchParams.delete('t');row.setAttribute('href',next.pathname+next.search);}
     if(/\/comments\/?$/.test(location.pathname)){
       // The Comments tab gets the same Feed options trigger and menu Reddit renders
@@ -330,7 +333,7 @@
   async function nativeFragment(comments,fullname,path,signal){
     const key=path+'|'+fullname;
     while(true){
-      if(signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+      if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
       trimNativeReads(path);const cached=nativeCardReads.get(key);if(cached){if(cached.controller.signal.aborted){await waitNative(cached.promise.catch(()=>null),signal);continue;}return consumeNative(cached,signal);}
       if(Date.now()<cooldown)return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};
       if(nativeCapacity(comments))break;
@@ -351,9 +354,9 @@
         if(!comments || doc.querySelector('shreddit-profile-comment,shreddit-comment') || text.length>65536)throw Error('Reddit returned no matching native card.');
         entry.size=text.length;entry.expires=Date.now()+30000;return {missing:true};
       }
-      if(entry.controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+      if(entry.controller.signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
       entry.size=text.length;entry.expires=Date.now()+30000;return {text,url};
-    })().finally(()=>{cardActive--;if(!comments)postCardActive--;entry.pending=false;if(!entry.size)nativeCardReads.delete(key);trimNativeReads(location.pathname+location.search);});
+    })().finally(()=>{cardActive--;if(!comments)postCardActive--;entry.pending=false;if(!entry.size)nativeCardReads.delete(key);trimNativeReads(pageKey());});
     nativeCardReads.set(key,entry);return consumeNative(entry,signal);
   }
   // Cached evidence and rendered native cards already prove a status; they need no read.
@@ -380,10 +383,10 @@
       children=data.data.children;
     }catch{
       // Caller cancellation and route changes reject as before. Anything else, including our own deadline, disables only the fast path.
-      if(signal?.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+      if(signal?.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
       infoBlockedUntil=Date.now()+600000;return [];
     }finally{clearTimeout(infoTimer);controller.signal.removeEventListener('abort',link);}
-    if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+    if(controller.signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
     const resolved=new Map();
     for(const child of children){
       if(child?.kind!==(comments?'t1':'t3'))continue;
@@ -396,7 +399,7 @@
     return [...resolved.values()];
   }
   async function readStatuses(input,signal){
-    const context=route(),path=location.pathname+location.search,comments=input.kind==='comment';
+    const context=route(),path=pageKey(),comments=input.kind==='comment';
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Open the matching public profile.');
     if(!['post','comment'].includes(input.kind) || !Array.isArray(input.ids) || !input.ids.length || input.ids.length>25 || !input.ids.every(id=>comments?M.validateCommentId(id):M.validateId(id)))throw Error('Invalid public status IDs.');
     const requestedIds=[...new Set(input.ids.map(id=>(comments?'t1_':'t3_')+id.toLowerCase().replace(/^t[13]_/,'')))],statuses=[];
@@ -416,28 +419,28 @@
         await Promise.all(Array.from({length:Math.min(2,ids.length)},async()=>{
           while(ids.length){
             const fullname=ids.shift();
-            if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+            if(controller.signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
             let status=knownStatus(path,comments,fullname,input.username);
             if(!status){
               fragmentReads=true;
               try{const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(fragment.missing)status={fullname,status:'deleted',author:'[deleted]',over18:false,spoiler:false};else if(!fragment.deferred)status=nativeStatus(new DOMParser().parseFromString(fragment.text,'text/html'),comments,fullname,input.username);}
               catch{ /* A failed or missing fragment establishes no current status. */ }
             }
-            if(controller.signal.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+            if(controller.signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
             if(status)remember(status);
           }
         }));
       })();
       try{await Promise.race([operation,new Promise(resolve=>{timer=setTimeout(()=>{timedOut=true;controller.abort();resolve();},10000);})]);}
       catch(error){if(!timedOut)throw error;}
-      if(signal?.aborted || location.pathname+location.search!==path)throw Error('Page changed. Try again.');
+      if(signal?.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
       const verified=new Set(statuses.map(status=>status.fullname)),unknownIds=requestedIds.filter(id=>!verified.has(id));
       // "info" means no native fragment was needed for any ID, so the caller may use a larger batch.
       return {statuses,unknownIds,incomplete:unknownIds.length>0,...(timedOut?{timedOut:true}:{}),via:fragmentReads || unknownIds.length?'native':'info',source:'reddit'};
     }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
   async function renderCard(input,signal){
-    const context=route(),path=location.pathname+location.search,comments=input.kind==='comment';
+    const context=route(),path=pageKey(),comments=input.kind==='comment';
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname))throw Error('Open a public Reddit profile.');
     if(!context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Profile changed. Try again.');
     if(!['post','comment'].includes(input.kind) || !(comments?M.validateCommentId(input.postId):M.validateId(input.postId)))throw Error('Invalid native card identity.');
@@ -463,7 +466,7 @@
         if(fragment.missing){rememberStatus(path,fullname,{fullname,status:'deleted',author:'[deleted]',over18:false,spoiler:false});throw Error('Reddit no longer has this comment.');}
         const {text,url}=fragment,doc=new DOMParser().parseFromString(text,'text/html');
         const evidence=nativeStatus(doc,comments,fullname,input.username);rememberStatus(path,fullname,evidence);
-        if(location.pathname+location.search!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
+        if(pageKey()!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
         if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
         // The authenticated HTML stays in Reddit's page world. Use its own trusted
         // fragment renderer so component modules, media and native actions hydrate.
@@ -473,7 +476,7 @@
         const tag=comments?'shreddit-profile-comment':'shreddit-post';
         await waitNative(customElements.whenDefined(tag),controller.signal);
         const native=target.querySelector(selector);if(native?.updateComplete)await waitNative(Promise.resolve(native.updateComplete),controller.signal);
-        if(location.pathname+location.search!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target || !native || !target.contains(native))throw Error('Page changed. Try again.');
+        if(pageKey()!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target || !native || !target.contains(native))throw Error('Page changed. Try again.');
         // The card Reddit just served is current evidence: report what it proves (available, deleted or removed).
         target.dataset.rtNativeState='ready';return {rendered:true,fullname,...(evidence?{status:evidence.status}:{})};
       })();
@@ -523,7 +526,7 @@
     if(input.action==='status')return readStatuses(input,signal);
     if(input.action==='render-navigation')return renderNavigation(input,signal);
     if(input.action==='render-controls')return renderControls(input,signal);
-    const context=route(),path=location.pathname+location.search;
+    const context=route(),path=pageKey();
     if(!context || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com','old.reddit.com'].includes(location.hostname))throw Error('Open a public Reddit profile or post.');
     const comments=input.kind==='comment';
     const sort=input.sort ?? 'new',range=input.range ?? 'all';
@@ -568,11 +571,11 @@
           throw Error(response.status===403?`Reddit blocked ${what} (HTTP 403).`:`Reddit couldn’t load ${what} (HTTP ${response.status}).`);
         }
         const text=await boundedText(response);
-        if(location.pathname+location.search!==path || controller.signal.aborted)throw Error('Page changed. Try again.');
+        if(pageKey()!==path || controller.signal.aborted)throw Error('Page changed. Try again.');
         if(nativeSearch)return (comments?commentListing:postListing)(text,input.username,{sort,range,stream});
         let data;try{data=JSON.parse(text);}catch{throw Error('Reddit returned an unexpected response.');}
         if(!Array.isArray(data?.data?.children) || data.data.children.length>100)throw Error('Reddit returned an unexpected post listing.');
-        if(location.pathname+location.search!==path || controller.signal.aborted)throw Error('Page changed. Try again.');
+        if(pageKey()!==path || controller.signal.aborted)throw Error('Page changed. Try again.');
         const posts=data.data.children.filter(item=>item.kind===(comments?'t1':'t3')).slice(0,25).map(item=>(comments?M.normalizeComment:M.normalizePost)(item.data,{source:'reddit'})).filter(Boolean);
         const filtered=input.action==='profile'?posts.filter(p=>p.author.toLowerCase()===input.username.toLowerCase()):posts.filter(p=>input.ids.some(id=>id.toLowerCase().replace(/^t[13]_/, '')===p.id));
         const cursor=typeof data.data.after==='string' && /^t3_[a-z0-9]{1,10}$/i.test(data.data.after)?data.data.after:null;

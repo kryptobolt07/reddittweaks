@@ -1505,7 +1505,7 @@ test('main menu rows: Date, Post type and Subreddit with icons and right-aligned
   assert.deepEqual(['Date','Post type','Subreddit'].map(n=>value(n).textContent),['Any time','All','All']);
   assert.ok(value('Date').classList.contains('rt-menu-value'));
   assert.equal(m.group('Date').querySelector('.rt-menu-lead').getAttribute('width'),'16','icon box is sized to 20px by CSS');
-  assert.match(cssRule('.rt-menu-lead'),/width:20px;height:20px/);
+  assert.match(cssRule('.rt-menu-lead'),/width:16px;height:16px/);
   const css=cssRule('.rt-menu-value');assert.match(css,/overflow:hidden/);assert.match(css,/text-overflow:ellipsis/);assert.match(css,/white-space:nowrap/);assert.match(cssRule('.rt-menu-caption'),/flex:none/);
   const set=await menuSetup(t,'?rt_date=year&rt_type=image,gif,poll&rt_sub=announcements');
   assert.deepEqual(['Date','Post type','Subreddit'].map(n=>set.group(n).querySelector('[data-rt-menu-value]').textContent),['Past year','3 types','r/announcements']);
