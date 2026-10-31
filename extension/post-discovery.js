@@ -401,17 +401,51 @@
     }
     suppressSearchPage(){
       if(!this.isSearch() || this.archiveOnly)return;
-      const hide=node=>{if(!node || node.closest('[data-rt-ui]') || node.querySelector('[data-rt-ui],#search-results-page-tabgroup'))return;
+      const hide=node=>{if(!node || node.matches('main,body,html,#search-results-page-tabgroup') || node.closest('[data-rt-ui],#search-results-page-tabgroup') || node.querySelector('[data-rt-ui],#search-results-page-tabgroup'))return;
         this.searchHidden ||= new Map();if(!this.searchHidden.has(node))this.searchHidden.set(node,node.hidden);node.hidden=true;node.setAttribute('data-rt-search-hidden','');};
       const main=this.feed.closest('main');
       for(const el of main?.children || [])if(el.matches('div.bg-neutral-background'))hide(el);
-      // Feedback markup varies. Match its own text rather than a broad ancestor
-      // (which could also contain the native tabs or our feed).
-      for(const el of main?.querySelectorAll('*') || [])if([...el.childNodes].some(n=>n.nodeType===3 && /did you find what you were looking for\?/i.test(n.textContent)))hide(el.closest('div,section,aside') || el);
+      // Keep the feedback actions and border with the question. Only climb
+      // through an isolated banner branch, never through other search content.
+      for(const el of main?.querySelectorAll('*') || [])if([...el.childNodes].some(n=>n.nodeType===3 && /did you find what you were looking for\?/i.test(n.textContent))){
+        let box=el.closest('div,section,aside') || el;
+        while(box.parentElement && box.parentElement!==main){
+          const parent=box.parentElement;
+          if(parent.matches('main,body,html') || parent.querySelector('[data-rt-ui],#search-results-page-tabgroup,[data-testid="search-scope-switcher"],[data-testid="search-sdui-post"],[data-testid="search-sdui-comment-unit"]'))break;
+          if([...parent.children].some(child=>child!==box && child.textContent.trim() && !child.matches('button,[role="button"]') && !child.querySelector('button,[role="button"]')))break;
+          box=parent;
+        }
+        hide(box);
+      }
       for(const unit of main?.querySelectorAll('[data-testid="search-sdui-post"],[data-testid="search-post-unit"],[data-testid="search-sdui-comment-unit"],#empty-search-results,shreddit-search-load-more,faceplate-partial[loading],shreddit-feed-load-more-observer') || [])hide(unit);
       // The search sort/time controls live outside main in some Reddit layouts.
       for(const spacer of document.querySelectorAll('[data-testid="search-results-filter-spacer-desktop"],[data-testid="search-results-filter-spacer-mobile"]')){
         for(const child of spacer.children)hide(child);
+      }
+      // Some layouts have neither filter spacers nor sort links. Locate the
+      // smallest shared row of native dropdown triggers in a sibling branch of
+      // the tabs. Require all three controls and stop at protected content.
+      const tabs=document.getElementById('search-results-page-tabgroup');
+      const triggers='button,[role="button"],[aria-haspopup],[slot="trigger"]';
+      const kinds=node=>new Set([...node.querySelectorAll(triggers)].filter(el=>!el.closest('[data-rt-ui]')).map(el=>{
+        const label=(el.getAttribute('aria-label') || el.textContent).trim();
+        if(/^(?:relevance|hot|top|new|most comments)(?:\s|$)/i.test(label))return 'sort';
+        if(/^(?:all time|past (?:hour|24 hours|day|week|month|year))(?:\s|$)/i.test(label))return 'time';
+        if(/^safe search(?:\s|$)/i.test(label))return 'safe';
+      }).filter(Boolean));
+      const checkedRows=new WeakSet();
+      for(let branch=tabs;branch?.parentElement && !branch.matches('body');branch=branch.parentElement){
+        for(const sibling of branch.parentElement.children){
+          if(sibling===branch || sibling.matches('[data-rt-ui]'))continue;
+          for(const trigger of sibling.querySelectorAll(triggers)){
+            if(trigger.closest('[data-rt-ui]'))continue;
+            for(let row=trigger.parentElement;row && sibling.contains(row);row=row.parentElement){
+              if(checkedRows.has(row))break;checkedRows.add(row);
+              if(row.matches('main,body,html') || row.querySelector('#search-results-page-tabgroup,[data-rt-ui],[data-testid="search-scope-switcher"],[data-testid="search-sdui-post"],[data-testid="search-sdui-comment-unit"]'))break;
+              if(kinds(row).size===3){hide(row);break;}
+            }
+          }
+        }
       }
       for(const anchor of document.querySelectorAll('a[href*="/search/"][href*="sort="],a[href*="/search/"][href*="t="]')){
         if(anchor.closest('[data-rt-ui],#search-results-page-tabgroup'))continue;
