@@ -2,178 +2,169 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
+const controls=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8');
 const read=f=>fs.readFileSync('extension/'+f,'utf8');
-const tick=(ms=15)=>new Promise(r=>setTimeout(r,ms));
-const track=o=>JSON.stringify(o).replace(/"/g,'&quot;');
-// Synthetic markup shaped like Reddit's scoped search page.
-const postUnit=(id,sub)=>`<search-telemetry-tracker data-testid="search-sdui-post" data-thingid="t3_${id}" data-faceplate-tracking-context="${track({post:{id:'t3_'+id,title:'Native '+id},subreddit:{name:sub}})}"><div data-testid="search-post-unit"><a href="/r/${sub}/">r/${sub}</a></div></search-telemetry-tracker>`;
-const commentUnit=(id,sub)=>`<div data-testid="search-sdui-comment-unit"><search-telemetry-tracker data-faceplate-tracking-context="${track({comment:{id:'t1_'+id,post_id:'t3_p'},post:{id:'t3_p'},subreddit:{name:sub}})}"></search-telemetry-tracker><a href="/r/${sub}/">r/${sub}</a></div>`;
-const page=units=>`<body><div data-testid="search-results-filter-spacer-desktop"><faceplate-dropdown-menu><button class="button-small pill">Sort</button><a href="/user/Ann/search/?q=cat&sort=new">New</a></faceplate-dropdown-menu><faceplate-dropdown-menu><button class="button-small pill">Time</button><a href="/user/Ann/search/?q=cat&t=day">Today</a></faceplate-dropdown-menu></div><main class="main"><div class="bg-neutral-background"><div id="list">${units}</div></div></main></body>`;
-const item=(n,over={})=>({kind:'post',id:'a'+n,fullname:'t3_a'+n,title:'Cats of day '+n,body:'I like cat things '+n,author:'Ann',subreddit:'Alpha',created:1700000000-n*1000,score:5,comments:2,permalink:'https://www.reddit.com/r/Alpha/comments/a'+n+'/cats/',postType:'text',status:'unknown',archiveStatus:'unknown',...over});
-function setup({url='https://www.reddit.com/user/Ann/search/?q=cat',units=postUnit('r1','Alpha')+postUnit('r2','Beta'),pages=null,archive=true,aggregate=null}={}){
-  const dom=new JSDOM(page(units),{url,runScripts:'outside-only',pretendToBeVisual:true});const W=dom.window;
-  W.__rtProfileSearchManual=true;
-  for(const f of ['search-core.js','feed-filters.js'])W.eval(read(f));
-  const calls=[];
-  W.RTArchiveQuery={
-    async *search(args){calls.push(args);const list=pages?pages(args,calls.length):[{items:[item(1),item(2),item(3),item(4)],searchedBackTo:1699000000,hasMore:false,cursor:null}];for(const p of list){if(p instanceof Error)throw p;yield p;}},
-    aggregate:aggregate||(async()=>({ok:true,buckets:[{key:'Alpha',count:9},{key:'Gamma',count:2}]}))
-  };
-  W.RTArchiveView={skeleton:()=>{const d=W.document.createElement('div');d.dataset.rtSkeleton='true';return d;}};
-  W.eval(read('profile-search.js'));
-  const ctl=new W.RTProfileSearch.ProfileSearch({read:async()=>({archiveDiscovery:archive}),observe:false,delay:1,now:()=>1700500000});
-  return {dom,W,calls,ctl,D:W.document};
+const flush=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setImmediate(r));};
+const raw=(id,extra={})=>({id,author:'Example',title:'Synthetic search post',selftext:'Synthetic words',subreddit:'Alpha',created_utc:1700000000,score:4,num_comments:2,is_self:true,...extra});
+// Synthetic shape from the recon: controls outside main; tabs/scope remain native;
+// post and comment search units are children of the neutral result container.
+const page=`<div data-testid="search-results-filter-spacer-desktop"><faceplate-dropdown-menu id="native-sort"><button>Sort</button><a href="/user/Example/search/?sort=new">New</a></faceplate-dropdown-menu><faceplate-dropdown-menu id="native-time" hidden><a href="/user/Example/search/?t=week">Past week</a></faceplate-dropdown-menu></div>
+<main class="main"><faceplate-tabgroup id="search-results-page-tabgroup"><a id="search-results-page-tab-posts" href="?type=posts">Posts</a><a id="search-results-page-tab-comments" href="?type=comments">Comments</a><a id="search-results-page-tab-media" href="?type=media">Media</a></faceplate-tabgroup><div data-testid="search-scope-switcher">Show results from all of Reddit</div><div class="bg-neutral-background" id="native-results"><search-telemetry-tracker data-testid="search-sdui-post" data-thingid="t3_live"><div data-testid="search-post-unit">Native result</div></search-telemetry-tracker><div data-testid="search-sdui-comment-unit"><search-telemetry-tracker data-faceplate-tracking-context='{"comment":{"id":"t1_comment","post_id":"t3_parent"}}'></search-telemetry-tracker><div data-testid="search-comment-content">Synthetic comment</div></div><faceplate-partial loading="lazy" src="/search-more"></faceplate-partial></div></main>`;
+function setup(t,{url='https://www.reddit.com/user/Example/search/?q=words',settings={postDiscovery:true,archiveDiscovery:true},html=page,reddit,archive,renderer,aggregate,autoDiscover=false}={}){
+  const dom=new JSDOM(html,{url,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[],queries=[],aggregates=[];
+  for(const file of ['search-core.js','post-model.js','feed-filters.js','post-discovery.js','profile-search.js'])W.eval(read(file));
+  W.RTArchiveQuery={async *search(args){queries.push(args);const result=archive?await archive(args,queries.length):{items:[raw('live'),raw('archive',{created_utc:1600000000})],hasMore:false,searchedBackTo:1600000000};
+    yield {...result,items:(result.items || []).map(p=>W.RTPostModel.normalizeItem(p,{source:'arctic-shift'}))};},async aggregate(args){aggregates.push(args);return aggregate?aggregate(args):{ok:true,buckets:[{key:'Alpha',count:9}]};}};
+  const nativeRenderer=renderer || (async(post,node)=>{const native=W.document.createElement(post.kind==='comment'?'shreddit-profile-comment':'shreddit-post');native.setAttribute(post.kind==='comment'?'comment-id':'id',post.fullname);if(post.kind!=='comment')native.setAttribute('post-type',post.postType);native.innerHTML='<span slot="credit-bar"></span><p slot="text-body">Native synthetic body</p>';node.replaceChildren(native);return {fullname:post.fullname,status:'available'};});
+  const d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover,nativeRenderer,readSettings:async()=>({'rt-settings-v1':settings}),reddit:async args=>{calls.push(args);
+    if(args.action==='render-controls'){W.document.getElementById(args.target).innerHTML=controls;return {rendered:true};}
+    if(args.action==='render-navigation')return {rendered:true};
+    if(args.action==='status')return {via:'info',statuses:args.ids.map(id=>({fullname:(args.kind==='comment'?'t1_':'t3_')+id,status:'available'}))};
+    return reddit?reddit(args):{posts:[raw('live')],hasMore:false};},archive:async()=>{throw Error('Search must use RTArchiveQuery, not archive-profile');}});
+  t.after(()=>{d.destroy();W.close();});return {W,D:W.document,d,calls,queries,aggregates};
 }
-const boot=async o=>{const s=setup(o);await s.ctl.load();await tick();return s;};
-const sec=D=>D.querySelector('[data-rt-profile-search]');
+async function boot(t,options){const s=setup(t,options);await s.d.ready;await flush();return s;}
+async function search(s){await s.d.refreshActivity();await flush();}
+const shown=d=>[...d.feed.children].filter(n=>n.dataset.rtUi==='activity-item' && !n.hidden).map(n=>n.dataset.fullname);
 
-test('activates only on the user search route with a query and the setting on',async t=>{
-  const base=setup();t.after(()=>base.W.close());const R=base.W.RTProfileSearch.routeOf;
-  assert.equal(R('/user/Ann/search/','?q=cat').username,'Ann');
-  assert.equal(R('/user/Ann/search/','?q='),null);assert.equal(R('/user/Ann/','?q=cat'),null);assert.equal(R('/search/','?q=cat'),null);assert.equal(R('/user/Ann/submitted/','?q=cat'),null);
-  const off=await boot({archive:false});t.after(()=>off.W.close());
-  assert.equal(sec(off.D),null);assert.equal(off.calls.length,0);assert.equal(off.D.querySelector('[data-rt-profile-search-filter]'),null);
-  const wrong=await boot({url:'https://www.reddit.com/user/Ann/?q=cat'});t.after(()=>wrong.W.close());
-  assert.equal(sec(wrong.D),null);assert.equal(wrong.calls.length,0);
+test('search route accepts absent/empty q and preserves query and native tab state',async t=>{
+  const {W}=await boot(t);const route=W.RTPostDiscovery.pageRoute;
+  for(const q of ['', '?q=']){const r=route('/user/Example/search/',q);assert.equal(r.view,'search');assert.equal(r.q,'');assert.equal(r.sort,'new');assert.equal(r.type,'posts');}
+  assert.equal(route('/user/Example/search/','?q=words&type=comments').type,'comments');
+  assert.equal(route('/user/Example/search/','?q=words&type=media').type,'media');
+  assert.equal(route('/search/','?q=words'),null);
+  assert.equal(route('/user/Example/search/','?q='+ 'x'.repeat(301)),null);
 });
-test('URL maps to query: type, t, sort, r/ scope and filters',async t=>{
-  const a=await boot({url:'https://www.reddit.com/user/Ann/search/?q=cat+-dog+r/Alpha&type=comments&t=week&sort=top'});t.after(()=>a.W.close());
-  const c=a.calls[0];assert.equal(c.kind,'comment');assert.equal(c.author,'Ann');assert.equal(c.subreddit,'Alpha');assert.equal(c.sort,'desc');assert.equal(c.after,1700500000-604800);assert.deepEqual([...c.parsed.excluded],['dog']);assert.equal(c.postTypes,undefined);
-  const m=await boot({url:'https://www.reddit.com/user/Ann/search/?q=cat&type=media&rt_sort=old&rt_sub=A,B'});t.after(()=>m.W.close());
-  assert.equal(m.calls[0].kind,'post');assert.deepEqual([...m.calls[0].postTypes],['image','gif','video','gallery']);assert.equal(m.calls[0].sort,'asc');assert.equal(m.calls[0].subreddit,undefined);
-  assert.equal(m.calls[0].after,undefined);
+test('plain search merges client and archive into one native feed, deduping fullnames',async t=>{
+  const s=await boot(t);await search(s);
+  assert.equal(s.calls.filter(c=>c.action==='profile').length,1);assert.equal(s.calls.find(c=>c.action==='profile').query,'words');assert.equal(s.calls.find(c=>c.action==='profile').sort,'relevance');
+  assert.equal(s.queries.length,1);assert.equal(s.queries[0].author,'Example');assert.deepEqual([...s.queries[0].parsed.terms],['words']);
+  assert.deepEqual(shown(s.d),['t3_live','t3_archive']);assert.equal(s.d.feed.querySelectorAll('#t3_live').length,1);assert.equal(s.d.nodes.get('live').querySelector('shreddit-post').id,'t3_live');
+  assert.equal(s.D.querySelector('[data-rt-profile-search]'),null);assert.doesNotMatch(s.D.body.textContent,/Not in these results/);
 });
-test('dedupes against Reddit results and renders units with cues and highlights',async t=>{
-  const {W,D}=await boot({pages:()=>[{items:[item(1,{fullname:'t3_r1',id:'r1'}),item(2),item(3,{body:'[deleted]'}),item(4,{archiveStatus:'removed'})],searchedBackTo:1699000000,hasMore:false}]});t.after(()=>W.close());
-  const s=sec(D);assert.ok(s);assert.equal(s.nextElementSibling.getAttribute('data-thingid'),'t3_r1');
-  assert.match(s.querySelector('h2').textContent,/Not in these results · from the archive/);
-  const units=[...s.querySelectorAll('[data-rt-archive-result]')];
-  assert.deepEqual(units.map(u=>u.dataset.rtArchiveResult),['t3_a2','t3_a3','t3_a4']);
-  assert.deepEqual(units.map(u=>u.dataset.rtStatus),['archive','deleted','removed']);
-  assert.equal(units[0].querySelector('[data-rt-status-cue]').textContent,'From the archive');
-  assert.equal(units[0].querySelector('a.absolute').getAttribute('href'),'/r/Alpha/comments/a2/cats/');
-  assert.ok(units[0].querySelector('faceplate-timeago[ts]'));assert.ok(units[0].querySelector('[data-testid="search-counter-row"]'));
-  assert.equal(units[0].querySelector('[data-testid="post-title-text"] strong').textContent.toLowerCase(),'cat');
-  assert.match(s.textContent,/Searched back to .*2023/);assert.doesNotMatch(s.textContent,/all results|complete/i);
-  assert.equal(s.querySelector('[data-rt-show-all]'),null);
+test('without q, search browses and filters author history from both sources',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/'});await search(s);
+  assert.equal(s.calls.find(c=>c.action==='profile').query,'');assert.equal(s.calls.find(c=>c.action==='profile').sort,'new');assert.equal(s.queries.length,1);assert.equal(s.queries[0].parsed.terms.length,0);assert.equal(shown(s.d).length,2);
+  assert.ok(s.d.rtMenu.groups.date);assert.ok(s.d.rtMenu.groups.type);assert.ok(s.d.rtMenu.groups.sub);assert.equal(s.d.rtMenu.searchSort.has('relevance'),false);
 });
-test('excluded words are not highlighted',async t=>{
-  const {W,D}=await boot({url:'https://www.reddit.com/user/Ann/search/?q=cat+-dog',pages:()=>[{items:[item(2,{title:'cat and dog',body:''})],hasMore:false,searchedBackTo:1}]});t.after(()=>W.close());
-  const bold=[...sec(D).querySelectorAll('strong')].map(x=>x.textContent.toLowerCase());assert.deepEqual(bold,['cat']);
+test('OR, exclusions and Old sort use only the archive',async t=>{
+  for(const suffix of ['?q=cat+OR+dog','?q=cat+-dog','?q=cat+-"exact+phrase"','?q=cat&rt_sort=old','?q=cat&sort=old']){
+    const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/'+suffix});await search(s);
+    assert.equal(s.calls.filter(c=>c.action==='profile').length,0,suffix);assert.equal(s.queries.length,1);assert.equal(s.d.clientSearchOn(),false);
+    if(suffix.includes('old')){assert.equal(s.queries[0].sort,'asc');assert.deepEqual(shown(s.d),['t3_archive','t3_live']);assert.match(s.d.notice.textContent,/Searched up to/);}
+  }
 });
-test('Show all expands in place and Search older continues from the cursor',async t=>{
-  const pages=(args,n)=>n===1
-    ?[{items:[1,2,3,4,5].map(i=>item(i)),searchedBackTo:1699000000,hasMore:true,cursor:1699000000}]
-    :[{items:[item(6),item(7)],searchedBackTo:1698000000,hasMore:false,cursor:null}];
-  const {W,D,calls}=await boot({pages});t.after(()=>W.close());
-  const s=sec(D);assert.equal(s.querySelectorAll('[data-rt-archive-result]').length,3);
-  assert.equal(calls[0].cursor,undefined);assert.equal(calls[0].maxPages,3);
-  assert.match(s.querySelector('[data-rt-show-all]').textContent,/\(5\)/);
-  s.querySelector('[data-rt-show-all]').click();
-  assert.equal(sec(D).querySelectorAll('[data-rt-archive-result]').length,5);assert.ok(sec(D).querySelector('[data-rt-search-older]'));
-  sec(D).querySelector('[data-rt-search-older]').click();await tick();
-  assert.equal(calls[1].cursor,1699000000);assert.equal(calls[1].maxPages,10);
-  assert.equal(sec(D).querySelectorAll('[data-rt-archive-result]').length,7);assert.equal(sec(D).querySelector('[data-rt-search-older]'),null);
-  assert.match(sec(D).textContent,/Searched back to/);
+test('deleted and banned accounts use archive profile shell with native search tabs',async t=>{
+  for(const html of ['<shreddit-app><div><img alt="Deleted user"><h3>This account has been deleted</h3></div></shreddit-app>', '<shreddit-app><div id="shreddit-forbidden"><svg icon-name="ban-fill"></svg><h3 id="shreddit-forbidden-title">This account has been suspended</h3></div></shreddit-app>']){
+    const s=await boot(t,{html});await search(s);assert.equal(s.d.archiveOnly,true);assert.equal(s.calls.filter(c=>c.action==='profile').length,0);assert.equal(s.queries.length,1);
+    assert.ok(s.D.querySelector('[data-rt-ui="archive-profile"]'));const tab=s.D.getElementById('search-results-page-tab-comments');assert.ok(tab);assert.match(tab.href,/\/user\/Example\/search\/\?q=words&type=comments/);assert.ok(s.d.feed.querySelector('shreddit-post'));
+  }
 });
-test('Subreddit dropdown filters Reddit units and the archive section',async t=>{
-  const pages=()=>[{items:[item(1),item(2,{subreddit:'Gamma'}),item(3)],searchedBackTo:5,hasMore:false}];
-  const {W,D,calls}=await boot({pages});t.after(()=>W.close());
-  const btn=D.querySelector('[data-rt-subreddit-filter]');assert.ok(btn);
-  assert.equal(btn.className.includes('button-small'),true);
-  assert.equal(btn.closest('[data-rt-profile-search-filter]').previousElementSibling.tagName.toLowerCase(),'faceplate-dropdown-menu');
-  btn.click();
-  const opts=[...D.querySelectorAll('[data-rt-sub-option]')].map(o=>o.dataset.rtSubOption+':'+o.querySelector('[data-rt-option-tail]').textContent);
-  assert.deepEqual(opts,['Alpha:9','Gamma:2','Beta:1']);// archive totals already include visible items: the larger count, not the sum
-  D.querySelector('[data-rt-sub-option="Gamma"]').click();await tick();
-  assert.equal(W.location.search.includes('rt_sub=Gamma'),true);
-  assert.equal(D.querySelector('[data-thingid="t3_r1"]').hasAttribute('data-rt-filter-hidden'),true);
-  assert.equal(D.querySelector('[data-thingid="t3_r2"]').hasAttribute('data-rt-filter-hidden'),true);
-  assert.equal(calls.length,2);assert.equal(calls[1].subreddit,'Gamma');
-  const chip=D.querySelector('[data-rt-chip="sub:gamma"]');assert.ok(chip);
-  chip.querySelector('[data-rt-chip-remove]').click();await tick();
-  assert.equal(W.location.search.includes('rt_sub'),false);assert.equal(D.querySelector('[data-rt-filter-hidden]'),null);assert.equal(calls.length,3);assert.equal(calls[2].subreddit,undefined);
+test('client cards are locally narrowed by Date, Post type and Subreddit',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words&rt_date=2023-11-01..2023-11-30&rt_type=image&rt_sub=Alpha',reddit:async()=>({posts:[raw('match',{is_self:false,post_hint:'image'}),raw('wrongsub',{is_self:false,post_hint:'image',subreddit:'Beta'}),raw('wrongtype'),raw('wrongdate',{is_self:false,post_hint:'image',created_utc:1600000000})],hasMore:false}),archive:async()=>({items:[],hasMore:false})});await search(s);
+  assert.deepEqual(shown(s.d),['t3_match']);assert.equal(s.queries[0].subreddit,'Alpha');assert.deepEqual([...s.queries[0].postTypes],['image']);assert.equal(s.queries[0].after,new Date(2023,10,1).getTime()/1000);assert.equal(s.queries[0].before,new Date(2023,11,1).getTime()/1000);
 });
-test('two subreddit picks narrow the archive items locally',async t=>{
-  const pages=()=>[{items:[item(1),item(2,{subreddit:'Gamma'}),item(3,{subreddit:'Delta'})],searchedBackTo:5,hasMore:false}];
-  const {W,D,calls}=await boot({url:'https://www.reddit.com/user/Ann/search/?q=cat&rt_sub=Gamma,Delta',pages});t.after(()=>W.close());
-  assert.equal(calls[0].subreddit,undefined);
-  assert.deepEqual([...sec(D).querySelectorAll('[data-rt-archive-result]')].map(u=>u.dataset.rtArchiveResult),['t3_a2','t3_a3']);
-  assert.equal(D.querySelectorAll('[data-rt-filter-hidden]').length,2);
+test('tab switching changes kind, drops old work and uses media post types',async t=>{
+  const s=await boot(t);await search(s);const old=s.d.feed;
+  s.W.history.pushState({},'','?q=words&type=comments');s.d.scan();await flush();await search(s);
+  assert.equal(old.isConnected,false);assert.equal(s.queries.at(-1).kind,'comment');assert.equal(s.calls.filter(c=>c.action==='profile').at(-1).kind,'comment');assert.equal(s.calls.some(c=>c.stream==='public'),false);assert.equal(s.d.rtMenu.groups.type,undefined);
+  s.W.history.pushState({},'','?q=words&type=media');s.d.scan();await flush();await search(s);
+  assert.equal(s.queries.at(-1).kind,'post');assert.deepEqual([...s.queries.at(-1).postTypes],['image','gif','video','gallery']);assert.deepEqual(shown(s.d),[]);
 });
-test('counts fall back to loaded items when the aggregate fails',async t=>{
-  const {W,D}=await boot({aggregate:async()=>{throw Object.assign(Error('t'),{code:'timeout'});}});t.after(()=>W.close());
-  D.querySelector('[data-rt-subreddit-filter]').click();
-  assert.equal(D.querySelector('[data-rt-counts-note]').textContent,'Counts from loaded items');
-  assert.deepEqual([...D.querySelectorAll('[data-rt-sub-option]')].map(o=>o.dataset.rtSubOption).sort(),['Alpha','Beta']);
+test('incoming Reddit sort/time map to filters; rt overrides preserve Reddit URL params',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words&type=posts&sort=comments&t=week&cId=synthetic'});
+  assert.equal(s.d.effectiveSort(),'comments');assert.equal(s.d.rtFilters.date.preset,'week');assert.match(s.d.rtMenu.searchSort.get('comments').textContent,/Loaded items only/);
+  s.d.setFilters({...s.d.rtFilters,sort:'old',date:null});await flush();
+  const p=new URLSearchParams(s.W.location.search);assert.equal(p.get('rt_sort'),'old');assert.equal(p.get('rt_date'),'all');assert.equal(p.get('sort'),'comments');assert.equal(p.get('t'),'week');assert.equal(p.get('q'),'words');assert.equal(p.get('type'),'posts');assert.equal(p.get('cId'),'synthetic');assert.equal(s.d.rtFilters.date,null);assert.equal(s.d.effectiveSort(),'old');
+  s.W.history.replaceState({},'','?q=words&sort=top&t=hour');s.d.scan();await flush();assert.equal(s.d.effectiveSort(),'top');assert.equal(s.d.rtFilters.date.preset,'hour');
 });
-test('SPA navigation re-mounts and aborts the stale search; leaving the route cleans up',async t=>{
-  let signal;const pages=args=>{signal=args.signal;return [{items:[item(2)],searchedBackTo:5,hasMore:false}];};
-  const {W,D,ctl,calls}=await boot({pages});t.after(()=>W.close());
-  const first=signal;assert.equal(first.aborted,false);
-  W.history.pushState(null,'','/user/Ann/search/?q=dog&type=comments');ctl.tick();await tick();
-  assert.equal(first.aborted,true);assert.equal(calls.length,2);assert.equal(calls[1].kind,'comment');assert.equal(D.querySelectorAll('[data-rt-profile-search]').length,1);
-  const second=signal;
-  W.history.pushState(null,'','/user/Ann/');ctl.tick();
-  assert.equal(second.aborted,true);assert.equal(sec(D),null);assert.equal(D.querySelector('[data-rt-profile-search-filter]'),null);
+test('native result list and sort/time controls hide reversibly; native tabs and scope stay usable',async t=>{
+  const s=await boot(t);const results=s.D.getElementById('native-results'),sort=s.D.getElementById('native-sort'),time=s.D.getElementById('native-time');
+  assert.equal(results.hidden,true);assert.equal(sort.hidden,true);assert.equal(time.hidden,true);assert.equal(s.D.getElementById('search-results-page-tabgroup').hidden,false);assert.equal(s.D.querySelector('[data-testid="search-scope-switcher"]').hidden,false);
+  const replacement=s.D.createElement('div');replacement.className='bg-neutral-background';replacement.textContent='SPA continuation';results.after(replacement);s.d.scan();assert.equal(replacement.hidden,true);
+  s.W.history.pushState({},'','/r/Synthetic/');s.d.scan();assert.equal(results.hidden,false);assert.equal(sort.hidden,false);assert.equal(time.hidden,true);assert.equal(replacement.hidden,false);assert.equal(s.D.querySelector('[data-rt-ui="search-feed"]'),null);assert.equal(s.D.querySelector('[data-rt-search-hidden]'),null);
 });
-test('the section is reserved with a skeleton while loading, and a late result is discarded after navigation',async t=>{
-  let release;const gate=new Promise(r=>{release=r;});
-  const {W,D,ctl}=setup();t.after(()=>W.close());
-  let first=true;W.RTArchiveQuery.search=async function*(){if(first){first=false;await gate;yield {items:[item(2)],searchedBackTo:5,hasMore:false};}else yield {items:[],searchedBackTo:5,hasMore:false};};
-  await ctl.load();await tick();
-  assert.ok(sec(D).querySelector('[data-rt-skeleton]'));assert.ok(sec(D).querySelector('h2'));
-  W.history.pushState(null,'','/user/Ann/search/?q=other');ctl.tick();await tick();
-  release();await tick();
-  assert.equal(D.querySelectorAll('[data-rt-archive-result]').length,0);
+test('archive setting off leaves Reddit search untouched and turning it off restores originals',async t=>{
+  const off=await boot(t,{settings:{postDiscovery:true,archiveDiscovery:false}});assert.equal(off.d.host,null);assert.equal(off.D.querySelector('[data-rt-search-hidden]'),null);assert.equal(off.calls.length,0);assert.equal(off.queries.length,0);assert.equal(off.D.getElementById('native-results').hidden,false);
+  const s=await boot(t);s.d.applySettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(s.d.host,null);assert.equal(s.D.getElementById('native-results').hidden,false);assert.equal(s.D.getElementById('native-sort').hidden,false);
 });
-test('errors show a quiet note with Retry that resumes the search',async t=>{
-  let n=0;const pages=()=>{n++;if(n===1)return [Object.assign(Error('Archive is busy'),{code:'rate-limited',retryAt:Date.now()+5000})];return [{items:[item(2)],searchedBackTo:5,hasMore:false}];};
-  const {W,D,calls}=await boot({pages});t.after(()=>W.close());
-  const note=D.querySelector('[data-rt-profile-search-error]');assert.ok(note);assert.match(note.textContent,/busy/i);assert.equal(note.classList.contains('text-neutral-content-weak'),true);
-  D.querySelector('[data-rt-retry]').click();await tick();
-  assert.equal(calls.length,2);assert.equal(D.querySelector('[data-rt-profile-search-error]'),null);assert.equal(D.querySelectorAll('[data-rt-archive-result]').length,1);
+test('status retains a searched date on exhausted windows without claiming full coverage',async t=>{
+  const s=await boot(t);await search(s);assert.match(s.d.notice.textContent,/Searched back to/);assert.equal(s.d.notice.hidden,false);assert.doesNotMatch(s.d.status.textContent+s.d.notice.textContent,/all results|history complete|search complete/i);
+  const old=s.d.notice.textContent;s.d.noteSearched({hasMore:false,searchedBackTo:null});s.d.summarize();assert.equal(s.d.notice.textContent,old);
 });
-test('turning the archive setting off removes everything; exclusion-only queries stay inert',async t=>{
-  const {W,D,ctl}=await boot();t.after(()=>W.close());
-  assert.ok(sec(D));ctl.applySettings({archiveDiscovery:false});await tick();
-  assert.equal(sec(D),null);assert.equal(D.querySelector('[data-rt-profile-search-filter]'),null);
-  const x=await boot({url:'https://www.reddit.com/user/Ann/search/?q=-dog'});t.after(()=>x.W.close());
-  assert.equal(x.calls.length,0);assert.equal(sec(x.D)?.hidden??true,true);
+test('empty state uses Reddit wording while failures remain retryable and incomplete',async t=>{
+  const s=await boot(t,{reddit:async()=>({posts:[],hasMore:false}),archive:async()=>({items:[],hasMore:false})});await search(s);assert.equal(s.d.activityEmpty.hidden,false);assert.match(s.d.emptyTitle.textContent,/couldn't find any results/);assert.match(s.d.activityEmpty.textContent,/coverage may be incomplete/);assert.doesNotMatch(s.d.notice.textContent,/1970/);
+  const fail=await boot(t,{archive:async()=>{throw Error('Archive temporarily unavailable');}});await search(fail);assert.equal(fail.d.status.dataset.error,'true');assert.match(fail.d.status.textContent,/unavailable/);assert.equal(fail.d.nodes.get('live').hidden,false);assert.equal(fail.d.activityEmpty?.hidden ?? true,true);
 });
-test('new Reddit results appended later re-dedupe the section',async t=>{
-  const {W,D,ctl}=await boot({pages:()=>[{items:[item(1),item(2)],searchedBackTo:5,hasMore:false}]});t.after(()=>W.close());
-  assert.equal(sec(D).querySelectorAll('[data-rt-archive-result]').length,2);
-  D.getElementById('list').insertAdjacentHTML('beforeend',postUnit('a1','Alpha'));ctl.maintain();
-  assert.deepEqual([...sec(D).querySelectorAll('[data-rt-archive-result]')].map(u=>u.dataset.rtArchiveResult),['t3_a2']);
-  D.getElementById('list').insertAdjacentHTML('beforeend',commentUnit('c9','Alpha'));
-  assert.equal(W.RTProfileSearch.unitInfo(D.querySelector('[data-testid="search-sdui-comment-unit"]')).id,'t1_c9');
+test('search pagination continues both cursors and caps each automatic window at ten pages',async t=>{
+  const s=await boot(t,{reddit:async args=>({posts:[],after:'cursor-'+(args.after || 'first'),hasMore:true}),archive:async(args,n)=>({items:[],cursor:1700000000-n,hasMore:true,searchedBackTo:1700000000-n})});await search(s);
+  for(let i=0;i<10;i++)await s.d.loadMore();await flush();
+  assert.equal(s.queries.length,11);assert.equal(s.calls.filter(c=>c.action==='profile').length,11);assert.equal(s.queries[1].cursor,1699999999);assert.equal(s.calls.filter(c=>c.action==='profile')[1].after,'cursor-first');assert.equal(s.d.hasMoreProfile(),true);assert.equal(s.d.searchBudgetPaused(),true);assert.match(s.d.loading.textContent,/Search older/);
+  await s.d.loadMore();assert.equal(s.queries.length,11);s.d.loading.querySelector('button').click();await flush();assert.equal(s.queries.length,12);assert.equal(s.d.searchBudgetPaused(),false);
+});
+test('Relevance keeps client ranking ahead of archive-only matches; loaded-item comment sort works',async t=>{
+  const s=await boot(t,{reddit:async()=>({posts:[raw('rank1',{created_utc:1500000000}),raw('rank2',{created_utc:1600000000})],hasMore:false}),archive:async()=>({items:[raw('newer',{created_utc:1800000000}),raw('older',{created_utc:1400000000})],hasMore:false})});await search(s);assert.deepEqual(shown(s.d),['t3_rank1','t3_rank2','t3_newer','t3_older']);
+  const c=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words&sort=comments',reddit:async()=>({posts:[raw('few',{num_comments:1}),raw('many',{num_comments:50})],hasMore:false}),archive:async()=>({items:[raw('mid',{num_comments:10})],hasMore:false})});await search(c);assert.deepEqual(shown(c.d),['t3_many','t3_mid','t3_few']);
+});
+test('Feed options reuses native groups, submenu size, pills and author aggregate',async t=>{
+  const s=await boot(t);assert.ok(s.d.activityDropdown.querySelector('button[aria-label="Feed options"]'));assert.ok(s.d.activityMenu);assert.ok(s.d.rtMenu.groups.date);assert.ok(s.d.rtMenu.groups.type);assert.ok(s.d.rtMenu.groups.sub);assert.equal(s.d.rtChips.parentNode,s.d.controlsTarget);
+  s.d.activityMain.getBoundingClientRect=()=>({height:312});s.d.rtMenu.groups.sub.el.click();assert.equal(s.d.rtMenu.groups.sub.sub.style.getPropertyValue('--rt-menu-height'),'312px');await flush();assert.equal(s.aggregates[0].author,'Example');assert.match(s.d.rtMenu.sub.note.textContent,/Counts from the archive/);
+  s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha']});await flush();assert.match(s.d.rtChips.textContent,/Alpha/);assert.equal(s.d.rtChips.parentNode,s.d.controlsTarget);
+});
+test('invalid queries explain the problem without starting either source',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=cat+OR'});await search(s);assert.equal(s.queries.length,0);assert.equal(s.calls.filter(c=>c.action==='profile').length,0);assert.match(s.d.status.textContent,/word on both sides/);
 });
 
-// The Subreddit dropdown uses the same list component as the profile Feed options menu.
-test('Subreddit dropdown is the shared list: search header, scroll list, icons, pinned picks and 8-pick limit',async t=>{
-  const buckets=Array.from({length:12},(_,i)=>({key:'Sub'+String(i).padStart(2,'0'),count:50-i}));
-  const {W,D}=await boot({aggregate:async()=>({ok:true,buckets})});t.after(()=>W.close());
-  const asked=[];W.RTCommunityIcons={peek:()=>undefined,get:async name=>{asked.push(name);return name==='Sub02'?'https://styles.redditmedia.com/t5_2/styles/communityIcon_two.png':null;}};
-  D.querySelector('[data-rt-subreddit-filter]').click();await tick();
-  const panel=D.querySelector('.rt-profile-search-menu [data-rt-sub-panel]');assert.ok(panel);
-  const head=panel.querySelector('.rt-sub-head');assert.equal(head.querySelector('[data-rt-sub-back]'),null,'no Back inside a dropdown');assert.equal(head.querySelector('input').placeholder,'Search communities');
-  const list=panel.querySelector('.rt-sub-list'),rows=()=>[...list.querySelectorAll('[data-rt-sub-row]')];
-  assert.ok(rows().length>=12);assert.ok(rows().every(r=>r.querySelector('.rt-community-icon')));assert.equal(D.querySelector('[data-rt-counts-note]').textContent,'Counts from the archive');
-  await tick();assert.equal(rows().find(r=>r.dataset.rtSubRow==='Sub02').querySelector('img.rt-community-img').getAttribute('src'),'https://styles.redditmedia.com/t5_2/styles/communityIcon_two.png');
-  rows().find(r=>r.dataset.rtSubRow==='Sub05').click();await tick();
-  assert.equal(rows()[0].dataset.rtSubRow,'Sub05','picked rows are pinned first');assert.ok(rows()[0].querySelector('[data-rt-check]'));
-  for(const k of ['Sub00','Sub01','Sub02','Sub03','Sub04','Sub06','Sub07']){rows().find(r=>r.dataset.rtSubRow===k).click();await tick(2);}
-  assert.equal(W.location.search.match(/rt_sub=([^&]*)/)[1].split(',').length,8);
-  const blocked=rows().filter(r=>r.getAttribute('aria-disabled')==='true');assert.ok(blocked.length>=4);assert.match(blocked[0].title,/Up to 8 communities/);
-  blocked[0].click();await tick(2);assert.equal(W.location.search.match(/rt_sub=([^&]*)/)[1].split(',').length,8);
-  assert.match(D.querySelector('[data-rt-counts-note]').textContent,/Counts from the archive · Up to 8 communities/);
-  assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/\.rt-sub-list\{[^}]*overflow-y:auto;overscroll-behavior:contain;max-height:min\(320px/);
-  assert.equal(D.querySelectorAll('.rt-sub-panel').length,1);D.querySelector('[data-rt-subreddit-filter]').click();D.querySelector('[data-rt-subreddit-filter]').click();await tick();assert.equal(D.querySelectorAll('.rt-sub-panel').length,1,'reopening reuses the panel');
+test('leaving while either source is in flight aborts it and ignores late answers',async t=>{
+  let finishReddit,finishArchive,signal;
+  const s=await boot(t,{reddit:async()=>new Promise(r=>{finishReddit=r;}),archive:async args=>{signal=args.signal;return new Promise(r=>{finishArchive=r;});}});
+  const pending=s.d.refreshActivity();await flush();const oldFeed=s.d.feed;
+  s.W.history.pushState({},'','/r/Synthetic/');s.d.scan();assert.equal(signal.aborted,true);assert.equal(oldFeed.isConnected,false);assert.equal(s.D.getElementById('native-results').hidden,false);
+  finishReddit({posts:[raw('late')],hasMore:false});finishArchive({items:[raw('latearchive')],hasMore:false});await pending;await flush();assert.equal(s.d.context,null);assert.equal(s.d.nodes.size,0);assert.equal(s.D.querySelector('#t3_late'),null);
 });
-test('Subreddit dropdown footer: Loading counts, then archive or loaded items, never the wrong one',async t=>{
-  let release;const gate=new Promise(r=>release=r);
-  const {W,D}=await boot({aggregate:async()=>{await gate;return {ok:true,buckets:[{key:'Alpha',count:9}]};}});t.after(()=>W.close());
-  D.querySelector('[data-rt-subreddit-filter]').click();assert.equal(D.querySelector('[data-rt-counts-note]').textContent,'Loading counts…');
-  release();await tick(30);assert.equal(D.querySelector('[data-rt-counts-note]').textContent,'Counts from the archive');
+test('post type filters wait for native type proof rather than guessing from search metadata',async t=>{
+  const rendered=[];const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words&rt_type=image',reddit:async()=>({posts:[raw('image'),raw('text')],hasMore:false}),archive:async()=>({items:[],hasMore:false}),renderer:async(post,node)=>{rendered.push(post.id);node.innerHTML='<shreddit-post id="'+post.fullname+'" post-type="'+(post.id==='image'?'image':'text')+'"><span slot="credit-bar"></span></shreddit-post>';}});await search(s);
+  assert.deepEqual(rendered,['image','text']);assert.deepEqual(shown(s.d),['t3_image']);
+});
+test('native comment cards merge by t1 fullname and keep one authenticated source',async t=>{
+  const comment=(id,body)=>({kind:'comment',id,author:'Example',body,link_id:'parent',parent_id:'t3_parent',subreddit:'Alpha',created_utc:1700000000});
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words&type=comments',reddit:async()=>({posts:[comment('c1','Synthetic client words')],hasMore:false}),archive:async()=>({items:[comment('c1','Synthetic archive words'),comment('c2','Other synthetic words')],hasMore:false})});await search(s);
+  assert.deepEqual(shown(s.d),['t1_c1','t1_c2']);assert.equal(s.d.feed.querySelectorAll('shreddit-profile-comment[comment-id="t1_c1"]').length,1);assert.equal(s.calls.filter(c=>c.action==='profile').length,1);assert.equal(s.queries[0].postTypes,undefined);
+});
+test('archive status cues follow current Reddit evidence and Deleted never includes an unverified item',async t=>{
+  const s=await boot(t,{reddit:async()=>({posts:[],hasMore:false}),archive:async()=>({items:[raw('gone'),raw('live')],hasMore:false}),renderer:async(post,node)=>{node.innerHTML='<shreddit-post id="'+post.fullname+'" post-type="text"><span slot="credit-bar"></span><div slot="text-body">'+(post.id==='gone'?'[removed]':'Current synthetic text')+'</div></shreddit-post>';}});await search(s);
+  assert.match(s.d.nodes.get('gone').querySelector('[data-rt-source]').title,/Removed on Reddit/);assert.match(s.d.nodes.get('gone').textContent,/Synthetic words/);
+  s.d.activityFilter='deleted';s.d.deduplicate();await flush();assert.deepEqual(shown(s.d),['t3_gone']);assert.doesNotMatch(s.d.nodes.get('live').querySelector('[data-rt-source]').title,/Deleted on Reddit|Removed on Reddit/);
+});
+test('archive fallback retains a native card and unknown status instead of inventing deletion',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words+-excluded',archive:async()=>({items:[raw('fallback')],hasMore:false}),renderer:async()=>{throw Error('Reddit could not render this card (HTTP 404).');}});await search(s);
+  const card=s.d.nodes.get('fallback');assert.ok(card.querySelector('shreddit-post'));assert.equal(card.dataset.rtArchiveFallback,'true');assert.doesNotMatch(card.querySelector('[data-rt-source]').title,/Deleted on Reddit|Removed on Reddit/);
+});
+test('author aggregate counts do not add archive snapshots a second time',async t=>{
+  const s=await boot(t);await search(s);s.d.loadSubredditCounts();await flush();assert.equal(s.d.subredditCounts().source,'archive');assert.equal(s.d.subredditCounts().entries.find(e=>e.key==='Alpha').count,9);
+});
+test('the early notice guard returns unavailable search pages when archive discovery is off',async t=>{
+  const dom=new JSDOM('<shreddit-app><div><img alt="Deleted user"><h3>This account has been deleted</h3></div></shreddit-app>',{url:'https://www.reddit.com/user/Example/search/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());
+  W.chrome={runtime:{id:'fixture',sendMessage:async()=>({ok:true,settings:{postDiscovery:true,archiveDiscovery:false}})}};W.eval(read('profile-notice.js'));await flush();assert.ok(W.document.querySelector('img[alt="Deleted user"]'));assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);
+});
+test('search mounts only after Reddit replaces an outgoing profile with search DOM',async t=>{
+  const s=await boot(t,{html:'<main>'+controls+'<shreddit-feed><shreddit-post id="t3_old"></shreddit-post></shreddit-feed></main>'});assert.equal(s.d.host,null);assert.equal(s.D.getElementById('t3_old').hidden,false);assert.equal(s.calls.length,0);
+  s.D.body.innerHTML=page;s.d.scan();await flush();assert.ok(s.d.host);assert.equal(s.D.getElementById('native-results').hidden,true);
+});
+test('multi-select filters keep their native submenu open at the same size after restarting sources',async t=>{
+  const s=await boot(t);s.d.activityDropdown.setAttribute('open','');await flush();s.d.activityMain.getBoundingClientRect=()=>({height:312});s.d.rtMenu.groups.type.el.click();assert.equal(s.d.openSubmenu.dataset.rtSubKey,'type');assert.equal(s.d.openSubmenu.style.getPropertyValue('--rt-menu-height'),'312px');
+  s.d.rtMenu.types.get('image').click();await flush();assert.deepEqual([...s.d.rtFilters.types],['image']);assert.equal(s.d.activityDropdown.hasAttribute('open'),true);assert.equal(s.d.openSubmenu.dataset.rtSubKey,'type');assert.equal(s.d.openSubmenu.classList.contains('hidden'),false);assert.equal(s.d.openSubmenu.style.getPropertyValue('--rt-menu-height'),'312px');assert.equal(s.d.rtMenu.groups.type.el.getAttribute('aria-expanded'),'true');
+});
+test('automatic discovery starts both sources on search and reports invalid unavailable-account queries',async t=>{
+  const s=await boot(t,{autoDiscover:true});await flush();assert.equal(s.calls.filter(c=>c.action==='profile').length,1);assert.equal(s.queries.length,1);assert.deepEqual(shown(s.d),['t3_live','t3_archive']);
+  const invalid=await boot(t,{autoDiscover:true,url:'https://www.reddit.com/user/Example/search/?q=cat+OR',html:'<shreddit-app><div><img alt="Deleted user"><h3>This account has been deleted</h3></div></shreddit-app>'});assert.match(invalid.d.status.textContent,/word on both sides/);assert.equal(invalid.queries.length,0);
+});
+test('ordinary client matches have no hidden-profile cue; Hidden shows verified archive-only matches',async t=>{
+  const s=await boot(t);await search(s);assert.equal(s.d.nodes.get('live').querySelector('[data-rt-source]'),null);assert.match(s.d.nodes.get('archive').querySelector('[data-rt-source]').title,/loaded search results/);assert.doesNotMatch(s.d.nodes.get('archive').querySelector('[data-rt-source]').title,/profile feed/);
+  s.d.activityFilter='hidden';s.d.deduplicate();await flush();assert.deepEqual(shown(s.d),['t3_archive']);
+});
+test('refresh replaces client ranking for Relevance and rt_sort Hot',async t=>{
+  for(const suffix of ['?q=words','?q=words&rt_sort=hot']){
+    let reads=0;const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/'+suffix,reddit:async()=>({posts:(++reads===1?['first','second']:['second','first']).map(id=>raw(id)),hasMore:false}),archive:async()=>({items:[],hasMore:false})});await search(s);assert.deepEqual(shown(s.d),['t3_first','t3_second']);await search(s);assert.deepEqual(shown(s.d),['t3_second','t3_first']);
+  }
 });

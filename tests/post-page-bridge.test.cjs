@@ -547,3 +547,16 @@ test('profile search view rejects control characters, oversized words and releva
   for(const input of [{query:'a\nb'},{query:'x'.repeat(301)},{query:5}]){const r=await e.send({action:'profile',username:'Example',kind:'post',...input});assert.equal(r.ok,false);}
   const r=await e.send({action:'profile',username:'Example',kind:'post',sort:'relevance'});assert.equal(r.ok,false);assert.equal(e.calls.length,0);
 });
+
+test('search Feed options accepts relevance and keeps the search state in native View links',async t=>{
+ const html=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8'),e=setup(t,{url:'https://www.reddit.com/user/Example/search/?q=synthetic&type=media&sort=relevance&t=week&rt_sub=Alpha',fetcher:async()=>nativeResponse(html)}),target=controlsTarget(e);
+ const result=await e.send({action:'render-controls',username:'Example',target:target.id});assert.equal(result.rendered,true);const href=new URL(target.querySelector('rpl-menu-item[href*="feedViewType"]').getAttribute('href'),'https://www.reddit.com');assert.equal(href.pathname,'/user/Example/search/');for(const [key,value] of Object.entries({q:'synthetic',type:'media',sort:'relevance',t:'week',rt_sub:'Alpha',feedViewType:'compactView'}))assert.equal(href.searchParams.get(key),value);
+});
+test('native card rendering ignores original cards hidden by the merged search view',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/user/Example/search/',fetcher:async()=>nativeResponse('<shreddit-post id="t3_abc12"><span slot="credit-bar">Native synthetic card</span></shreddit-post>')}),slot=nativeTarget(e),original=e.W.document.createElement('div');original.setAttribute('data-rt-search-hidden','');original.innerHTML='<shreddit-post id="t3_abc12"></shreddit-post>';slot.before(original);
+ const result=await e.send({action:'render-card',username:'Example',kind:'post',postId:'abc12',target:slot.id});assert.equal(result.rendered,true);assert.ok(slot.querySelector('shreddit-post'));assert.equal(original.isConnected,true);
+});
+test('scoped post search accepts the current post-title-text unit with the same identity checks',async t=>{
+ const html=nativePostHtml({next:''}).replace('data-testid="post-title"','data-testid="post-title-text"'),e=setup(t,{url:'https://www.reddit.com/user/Example/search/?q=synthetic',fetcher:async()=>nativeResponse(html)});
+ const result=await e.send({action:'profile',username:'Example',query:'synthetic',sort:'relevance'});assert.equal(result.ok,true);assert.equal(result.posts[0].fullname,'t3_abc12');
+});

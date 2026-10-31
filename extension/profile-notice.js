@@ -119,6 +119,6 @@
     const s=response?.settings;if(restoreRevision===initialRestoreRevision)restore=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true && s?.restoreDeletedContent!==false;
     archiveOn=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true;
     settingsKnown=true;if(!restore && heldAlert.node)releaseAlert(heldAlert.node);
-    if(revision===initialRevision)setEnabled(response?.ok===true && response.settings?.postDiscovery!==false);else refresh([]);if(restore)refresh();
+    if(revision===initialRevision)setEnabled(response?.ok===true && response.settings?.postDiscovery!==false && (!/^\/user\/[\w-]{1,20}\/search\/?$/i.test(window.location?.pathname || '') || archiveOn));else refresh([]);if(restore)refresh();
   },()=>{settingsKnown=true;if(heldAlert.node)releaseAlert(heldAlert.node);failed();});}catch{settingsKnown=true;failed();}
 })();
