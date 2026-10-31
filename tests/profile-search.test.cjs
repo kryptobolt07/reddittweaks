@@ -208,7 +208,11 @@ for(const outside of [false,true])for(const suffix of ['', '?q=laptop','?type=co
   if(outside)s.d.applySettings({postDiscovery:true,archiveDiscovery:false});else{s.W.history.pushState({},'','/r/Synthetic/');s.d.scan();}
   assert.equal(row.hidden,false);assert.equal(banner.hidden,false);assert.equal(s.D.querySelector('[data-rt-search-hidden]'),null);
 });
+test('structural filter suppression hides a sort and time row without Safe Search',async t=>{
+  const html=page.replace('</main>',structuralFilters.replace(/<span><faceplate-dropdown-menu><button slot="trigger">Safe Search Off ▾<\/button><\/faceplate-dropdown-menu><\/span>/,'')+'</main>');
+  const s=await boot(t,{html});s.d.scan();assert.equal(s.D.getElementById('filter-row').hidden,true);
+});
 test('structural filter suppression fails closed for incomplete rows and extension controls',async t=>{
-  const html=page.replace('</main>',structuralFilters.replace('Safe Search Off','Unrelated')+'<div data-rt-ui="fixture">'+structuralFilters.replace('filter-row','own-row')+'</div></main>');
+  const html=page.replace('</main>',structuralFilters.replace('All time','Unrelated')+'<div data-rt-ui="fixture">'+structuralFilters.replace('filter-row','own-row')+'</div></main>');
   const s=await boot(t,{html});assert.equal(s.D.getElementById('filter-row').hidden,false);assert.equal(s.D.getElementById('own-row').hidden,false);
 });
