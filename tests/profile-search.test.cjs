@@ -27,26 +27,27 @@ async function boot(t,options){const s=setup(t,options);await s.d.ready;await fl
 async function search(s){await s.d.refreshActivity();await flush();}
 const shown=d=>[...d.feed.children].filter(n=>n.dataset.rtUi==='activity-item' && !n.hidden).map(n=>n.dataset.fullname);
 
-function headerSearch(s){
+function headerSearch(s,hydrated=false){
   const host=s.D.createElement('reddit-search-large');host.setAttribute('scope',JSON.stringify({type:'profile',path:'/user/Example/',name:'Example'}));s.D.body.prepend(host);
   const root=host.attachShadow({mode:'open'});root.innerHTML='<form class="reddit-search-bar"><span id="search-input-chip">u/Example</span><input name="q"></form>';
+  if(hydrated){root.innerHTML='<form><faceplate-search-input name="q"><rpl-input-chip id="search-input-remove-filter">u/Example</rpl-input-chip></faceplate-search-input></form>';const field=root.querySelector('faceplate-search-input'),inner=field.attachShadow({mode:'open'});inner.innerHTML='<textarea name="q"></textarea>';return {host,root,input:inner.querySelector('textarea'),form:root.querySelector('form')};}
   return {host,root,input:root.querySelector('input'),form:root.querySelector('form')};
 }
 function enter(W,input,options={}){const event=new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true,...options});input.dispatchEvent(event);return event;}
-test('empty native scoped header Enter navigates to the search view and loads author history',async t=>{
-  const s=await boot(t,{url:'https://www.reddit.com/user/Example/',html:'<main></main>',autoDiscover:true});const {input}=headerSearch(s);let navigations=0;
+for(const hydrated of [false,true])test(`empty native scoped header Enter opens author history (${hydrated?'hydrated textarea':'SSR input'})`,async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/',html:'<main></main>',autoDiscover:true});const {input}=headerSearch(s,hydrated);let navigations=0;
   s.D.addEventListener('click',event=>{const anchor=event.target.closest('a');if(!anchor)return;event.preventDefault();navigations++;s.W.history.pushState({},'',anchor.href);s.D.body.innerHTML=page;s.d.scan();},true);
   const event=enter(s.W,input);await flush();
   assert.equal(event.defaultPrevented,true);assert.equal(navigations,1);assert.equal(s.W.location.pathname,'/user/Example/search/');assert.equal(s.d.context.view,'search');assert.equal(s.calls.find(c=>c.action==='profile').query,'');assert.equal(s.queries[0].author,'Example');
 });
-test('header handler leaves other input, scopes, settings and keyboard events to Reddit',async t=>{
-  const s=await boot(t,{url:'https://www.reddit.com/user/Example/',html:'<main></main>'});const {host,root,input,form}=headerSearch(s);let clicks=0;s.D.addEventListener('click',()=>clicks++);
+for(const hydrated of [false,true])test(`header handler preserves other input, scopes, settings and keys (${hydrated?'hydrated':'SSR'})`,async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/',html:'<main></main>'});const {host,root,input,form}=headerSearch(s,hydrated);let clicks=0;s.D.addEventListener('click',()=>clicks++);
   const unchanged=(node=input,opts={})=>assert.equal(enter(s.W,node,opts).defaultPrevented,false);
   for(const value of ['words',' ']){input.value=value;unchanged();}input.value='';
   for(const opts of [{key:'Escape'},{shiftKey:true},{ctrlKey:true},{altKey:true},{metaKey:true},{isComposing:true},{keyCode:229},{repeat:true}])unchanged(input,opts);
   const other=s.D.createElement('input');other.name='q';s.D.body.append(other);unchanged(other);
   input.name='other';unchanged();input.name='q';
-  const chip=root.querySelector('#search-input-chip');chip.remove();unchanged();form.prepend(chip);
+  const chip=root.querySelector('#search-input-chip,#search-input-remove-filter'),chipParent=chip.parentNode;chip.remove();unchanged();chipParent.prepend(chip);
   for(const scope of [{type:'subreddit',name:'Example',path:'/user/Example/'},{type:'profile',name:'Other',path:'/user/Example/'},{type:'profile',name:'Example',path:'/user/Other/'},null]){host.setAttribute('scope',JSON.stringify(scope));unchanged();}
   host.setAttribute('scope',JSON.stringify({type:'profile',name:'Example',path:'/user/Example/'}));
   for(const settings of [{postDiscovery:false,archiveDiscovery:true},{postDiscovery:true,archiveDiscovery:false}]){s.d.applySettings(settings);unchanged();}
