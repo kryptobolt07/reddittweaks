@@ -89,13 +89,23 @@
   function button(text,run,icon){const b=make('button','',text);b.type='button';if(icon)b.prepend(glyph(icon));b.addEventListener('click',run);return b;}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
-  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','profileOwner','observer','onRoute','onSettings','onWorkerSettings','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull']),parkLimit=4;let generationSeq=0;
+  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull']),parkLimit=4;let generationSeq=0;
   class Discovery {
     constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={}}={}){
       this.nativeWaitMs=timing.nativeWaitMs ?? nativeWaitMs;this.retryUnitMs=timing.retryUnitMs ?? 1000;this.sourceWaitMs=timing.sourceWaitMs ?? sourceWaitMs;
       this.runtimeId=globalThis.chrome?.runtime?.id;this.navigationLease=crypto.randomUUID();this.parked=new Map();this.profileOwner=globalThis.RCSDirectory?.getOwner?.() || '';this.nativeRenderer=nativeRenderer;this.autoDiscover=autoDiscover;this.reddit=reddit;this.archive=archive;this.readSettings=readSettings;this.settings={postDiscovery:false,archiveDiscovery:false};this.settingsRevision=0;this.generation=0;this.controllers=new Set();this.nodes=new Map();this.host=null;
       this.settingsPending=true;this.syncProfileNotice();
       this.onRoute=()=>{this.syncProfileNotice();this.schedule();};this.onSettings=(changes,area)=>{if(area==='local' && changes[key])this.applySettings(M.normalizeSettings(changes[key].newValue));};
+      this.onEmptyProfileSearch=event=>{
+        if(this.orphaned() || this.settingsPending || this.settingsError || !this.settings.postDiscovery || !this.settings.archiveDiscovery || event.defaultPrevented || event.key!=='Enter' || event.repeat || event.isComposing || event.keyCode===229 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)return;
+        const route=pageRoute(),path=event.composedPath();if(route?.kind!=='profile' || route.view==='search')return;
+        const input=path[0],form=path.find(node=>node.matches?.('form.reddit-search-bar')),host=path.find(node=>node.matches?.('reddit-search-large'));
+        if(!input?.matches?.('input[name="q"]') || input.value!=='' || !form || !host || !form.querySelector('#search-input-chip'))return;
+        let scope;try{scope=JSON.parse(host.getAttribute('scope'));}catch{return;}
+        if(scope?.type!=='profile' || String(scope.name || '').toLowerCase()!==route.username.toLowerCase() || String(scope.path || '').replace(/\/$/,'').toLowerCase()!=='/user/'+route.username.toLowerCase())return;
+        event.preventDefault();event.stopImmediatePropagation();
+        const anchor=document.createElement('a');anchor.href='/user/'+route.username+'/search/';anchor.hidden=true;document.body.append(anchor);try{anchor.click();}finally{anchor.remove();}
+      };document.addEventListener('keydown',this.onEmptyProfileSearch,true);
       // Changes inside the observed feed are handled by its own observer; only
       // route/page-level changes need a scan.
       if(observe){this.observer=new MutationObserver(records=>{if(this.orphaned())return;this.syncProfileNotice();if(this.feed)this.trackVirtualization(records);
@@ -1768,7 +1778,7 @@
     destroy(){this.dead=true;this.discardAllParked();this.avatarUnsubscribe?.();clearTimeout(this.timer);this.observer?.disconnect();
       // An orphaned script can no longer reach its extension's APIs.
       try{globalThis.chrome?.runtime?.onMessage?.removeListener?.(this.onWorkerSettings);}catch{}try{globalThis.chrome?.storage?.onChanged?.removeListener?.(this.onSettings);}catch{}
-      window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}
+      window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);document.removeEventListener('keydown',this.onEmptyProfileSearch,true);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}
   }
   // One archive item as the same Reddit-native card the profile archive draws, for pages that are not a
   // profile (the subreddit archive). Inert actions, archive status badge, no live Reddit lookups.
