@@ -220,7 +220,9 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-sub-head{display:flex;align-items:center;gap:8px;flex:none;padding:4px 12px 8px 4px}
 .rt-sub-back{display:inline-flex;align-items:center;justify-content:center;flex:0 0 32px;box-sizing:border-box;width:32px;height:32px;min-width:0;margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;cursor:pointer}
 .rt-sub-back:hover{background:var(--color-neutral-background-hover,#eaedef)}
-.rt-sub-back:focus-visible{outline:2px solid var(--color-neutral-border-strong,#0f1a1c);outline-offset:1px}
+/* A quiet focus ring, like the chat menus; Back takes focus when a panel opens. */
+.rt-sub-back:focus{outline:none}
+.rt-sub-back:focus-visible{outline:none;background:var(--color-neutral-background-hover,#eaedef);box-shadow:inset 0 0 0 1px var(--color-neutral-border,#cfd8dc)}
 .rt-sub-head>.rt-filter-search{flex:1 1 auto;width:auto;min-width:0}
 .rt-sub-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;max-height:min(320px,calc(100dvh - 240px));scrollbar-width:thin}
 .rt-activity-submenu[data-rt-panel] .rt-sub-list{max-height:none}
@@ -233,31 +235,33 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 [data-rt-feed-options-host]>rpl-menu{box-sizing:border-box;width:var(--rt-menu-width);min-width:0;max-width:var(--rt-menu-width)}
 .rt-activity-submenu[data-rt-feed-options]:not(.hidden){display:flex;flex-direction:column;box-sizing:border-box;height:var(--rt-menu-height,auto);max-height:min(var(--rt-menu-height,calc(100dvh - 180px)),calc(100dvh - 32px));overflow:hidden}
 [data-rt-feed-options] .rt-sub-list{max-height:none}
-[data-rt-feed-options] .rt-sub-head{min-height:56px;box-sizing:border-box;padding:8px 16px;background:var(--color-neutral-background,#fff)}
+[data-rt-feed-options] .rt-sub-head{min-height:48px;box-sizing:border-box;gap:6px;padding:8px 12px 8px 8px;background:var(--color-neutral-background,#fff)}
+[data-rt-feed-options] .rt-sub-back{flex-basis:28px;width:28px;height:28px}
 [data-rt-feed-options] .rt-sub-back svg{width:16px;height:16px}
 .rt-sub-title{min-width:0;font-size:14px;line-height:20px;font-weight:600;color:var(--color-neutral-content-strong,#0f1a1c)}
-/* The chat search field's 40px height, 22px radius, soft fill and quiet focus border. */
-.rt-filter-field{display:flex;flex:1 1 auto;min-width:0;height:40px;box-sizing:border-box;align-items:center;gap:8px;padding:0 11px;border:1px solid transparent;border-radius:22px;background:var(--color-neutral-background-weak,#f6f8f9)}
+/* The chat search field's soft fill and quiet focus border, at menu scale (32px, like the chat filter menus). */
+.rt-filter-field{display:flex;flex:1 1 auto;min-width:0;height:32px;box-sizing:border-box;align-items:center;gap:6px;padding:0 6px 0 10px;border:1px solid transparent;border-radius:16px;background:var(--color-neutral-background-weak,#f6f8f9)}
 .rt-filter-field:focus-within{border-color:var(--color-neutral-content-weak,#52656c)}
-.rt-filter-field .rt-filter-search{flex:1 1 auto;width:100%;min-width:0;height:38px;margin:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--color-neutral-content-strong,#172328);outline:0;box-shadow:none;font:var(--font-12,12px/1.5 var(--font-sans,Arial,sans-serif));appearance:none}
+.rt-filter-field .rt-filter-search{flex:1 1 auto;width:100%;min-width:0;height:30px;margin:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--color-neutral-content-strong,#172328);outline:0;box-shadow:none;font-family:inherit;font-size:13px;line-height:18px;appearance:none}
 .rt-filter-field .rt-filter-search:focus{outline:0;box-shadow:none}
 .rt-filter-field .rt-filter-search::placeholder{color:var(--color-neutral-content-weak,#52656c);opacity:1}
 .rt-filter-field .rt-filter-search::-webkit-search-cancel-button{appearance:none}
-.rt-filter-field>svg{display:block;flex:none;width:18px;height:18px;color:var(--color-neutral-content-weak,#52656c)}
-.rt-filter-search-clear{display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:24px;min-width:0;margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
+.rt-filter-field>svg{display:block;flex:none;width:16px;height:16px;color:var(--color-neutral-content-weak,#52656c)}
+.rt-filter-search-clear{display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;width:20px;height:20px;min-width:0;margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
 .rt-filter-search-clear[hidden]{display:none!important}
 .rt-filter-search-clear:hover{background:var(--color-neutral-background-hover,#eff3f5);color:var(--color-neutral-content-strong,#172328)}
 .rt-filter-search-clear:focus-visible{outline:2px solid var(--color-neutral-content-weak,#52656c);outline-offset:1px}
-.rt-filter-search-clear svg{width:14px;height:14px}
+.rt-filter-search-clear svg{width:12px;height:12px}
 [data-rt-feed-options] rpl-menu-item{min-height:48px;flex:none}
 [data-rt-feed-options] .rt-menu-caption{gap:8px}
 [data-rt-feed-options] .rt-menu-lead,[data-rt-feed-options] [data-rt-check]{width:16px;height:16px}
 [data-rt-feed-options] [data-rt-sub-row] .rt-menu-caption{flex:1 1 auto;min-width:0}
 .rt-sub-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Fixed, centered imagery and a themed outline fallback; never crop toward the top. */
-[data-rt-feed-options] .rt-sub-icon-box{width:24px;height:24px;background:var(--color-secondary-background,#e5ebee);color:var(--color-secondary-content,#0f1a1c)}
+/* The image is laid exactly over the circle and clipped to it, whatever Reddit's row styles do to inline images. */
+[data-rt-feed-options] .rt-sub-icon-box{position:relative;box-sizing:border-box;flex:0 0 24px;align-self:center;width:24px;height:24px;min-width:24px;max-width:24px;min-height:24px;max-height:24px;margin:0;padding:0;line-height:0;overflow:hidden;clip-path:circle(50% at 50% 50%);background:var(--color-secondary-background,#e5ebee);color:var(--color-secondary-content,#0f1a1c)}
 [data-rt-feed-options] .rt-sub-icon-box svg{display:block;width:16px;height:16px}
-[data-rt-feed-options] .rt-sub-icon-box img{width:100%;height:100%;object-fit:cover;object-position:center}
+[data-rt-feed-options] .rt-sub-icon-box img{position:absolute;inset:0;display:block;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:50%;object-fit:cover;object-position:center;transform:none}
 [data-rt-feed-options] .rt-opt-tail{color:var(--color-neutral-content-weak,#576f76);font-size:12px;line-height:16px;text-align:end}
 [data-rt-feed-options] .rt-filter-note,[data-rt-feed-options] .rt-sub-empty{flex:none;padding:8px 16px 8px 48px;color:var(--color-neutral-content-weak,#576f76);font-size:12px;line-height:16px}
 [data-rt-feed-options] .rt-filter-note[hidden]{display:none}
