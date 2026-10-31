@@ -389,10 +389,14 @@
       // A native feed lets the profile renderer own cards, hydration, virtualization
       // and the continuation sentinel, while Reddit retains its SPA search tabs.
       const existing=main.querySelector('[data-rt-archive-feed]');if(existing)return existing;
-      if(!main.querySelector('#search-results-page-tabgroup,[data-testid="search-sdui-post"],[data-testid="search-sdui-comment-unit"]'))return null;
+      // Tabs can be outside main, and an empty-query page may never render a
+      // result unit. Keep requiring native search evidence so outgoing profile
+      // DOM is left alone; the debounced page observer retries late arrivals.
+      if(!document.querySelector('#search-results-page-tabgroup') && !main.querySelector('[data-testid="search-sdui-post"],[data-testid="search-sdui-comment-unit"]'))return null;
       const feed=this.searchFeed=make('shreddit-feed','nd:visible');feed.dataset.rtUi='search-feed';
       const results=[...main.children].find(el=>el.matches('div.bg-neutral-background') && !el.querySelector('#search-results-page-tabgroup'));
-      if(results)results.before(feed);else main.append(feed);
+      const tabs=main.querySelector('#search-results-page-tabgroup');
+      if(results)results.before(feed);else if(tabs){let row=tabs;while(row.parentElement!==main)row=row.parentElement;row.after(feed);}else main.append(feed);
       return feed;
     }
     suppressSearchPage(){
@@ -401,6 +405,9 @@
         this.searchHidden ||= new Map();if(!this.searchHidden.has(node))this.searchHidden.set(node,node.hidden);node.hidden=true;node.setAttribute('data-rt-search-hidden','');};
       const main=this.feed.closest('main');
       for(const el of main?.children || [])if(el.matches('div.bg-neutral-background'))hide(el);
+      // Feedback markup varies. Match its own text rather than a broad ancestor
+      // (which could also contain the native tabs or our feed).
+      for(const el of main?.querySelectorAll('*') || [])if([...el.childNodes].some(n=>n.nodeType===3 && /did you find what you were looking for\?/i.test(n.textContent)))hide(el.closest('div,section,aside') || el);
       for(const unit of main?.querySelectorAll('[data-testid="search-sdui-post"],[data-testid="search-post-unit"],[data-testid="search-sdui-comment-unit"],#empty-search-results,shreddit-search-load-more,faceplate-partial[loading],shreddit-feed-load-more-observer') || [])hide(unit);
       // The search sort/time controls live outside main in some Reddit layouts.
       for(const spacer of document.querySelectorAll('[data-testid="search-results-filter-spacer-desktop"],[data-testid="search-results-filter-spacer-mobile"]')){
