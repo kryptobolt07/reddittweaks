@@ -283,7 +283,7 @@
   }
   const sourceNotes={archive:'Counts from the archive',loaded:'Counts from loaded items',loading:'Loading counts…',none:''};
   // Subreddit list: optional Back plus a pill search in one header row, then a scrolling list of
-  // community icon / name / count / check rows (picked rows pinned first), then a footer note.
+  // community icon / name / count / check rows (picked rows pinned first), then a (hidden) source note.
   function subredditPanel({ctx,onBack=null,onToggle,max=maxSubreddits,limit=200,nativeHeader=false}){
     const mk=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
     const header=nativeHeader && onBack?submenuHeader('',onBack):null;
@@ -321,7 +321,8 @@
       }
       if(!rows.length){const empty=mk('div','rt-sub-empty text-12 text-neutral-content-weak',term?(nativeHeader?'No communities match':'No matching communities'):'No communities yet');list.append(empty);}
       list.scrollTop=keepTop;
-      const text=sourceNotes[data.source]??'',tail=full?'Up to '+max+' communities':'';note.textContent=[text,tail].filter(Boolean).join(' · ');note.hidden=!note.textContent;
+      // The source label stays on the element for tests and diagnostics; it is not shown in the menu.
+      const text=sourceNotes[data.source]??'';note.dataset.rtSource=text;note.textContent='';note.hidden=true;
     };
     input.addEventListener('input',()=>{list.scrollTop=0;render();});
     return {el,list,note,input,back,head,render,reset(){input.value='';if(clear)clear.hidden=true;list.scrollTop=0;},get data(){return last;}};

@@ -1472,10 +1472,10 @@ test('subreddit options use aggregate counts and fall back to loaded items with 
   d.clearActivityMenu();d.ensureActivityMenu();
   const group=d.activityMain.parentElement.querySelector('[data-rt-filter-group="Subreddit"]'),list=()=>[...d.rtMenu.sub.list.children].map(el=>el.textContent.trim());
   group.click();await new Promise(r=>setTimeout(r,10));
-  assert.match(list()[0],/r\/big\s*40/);assert.ok(list().some(x=>/loadedonly/.test(x)));assert.match(d.rtMenu.sub.note.textContent,/archive/);
+  assert.match(list()[0],/r\/big\s*40/);assert.ok(list().some(x=>/loadedonly/.test(x)));assert.match(d.rtMenu.sub.note.dataset.rtSource,/archive/);
   d.rtMenu.sub.list.firstElementChild.click();assert.equal(W.location.search,'?rt_sub=big');assert.equal(d.rtMenu.sub.list.firstElementChild.getAttribute('aria-checked'),'true');
   fail=true;d.rtAgg=null;d.setFilters({...W.RTFeedFilters.empty()});group.click();await new Promise(r=>setTimeout(r,10));
-  assert.equal(d.rtMenu.sub.note.textContent,'Counts from loaded items');assert.ok(list().some(x=>/loadedonly/.test(x)));assert.ok(!list().some(x=>/big/.test(x)));
+  assert.equal(d.rtMenu.sub.note.dataset.rtSource,'Counts from loaded items');assert.ok(list().some(x=>/loadedonly/.test(x)));assert.ok(!list().some(x=>/big/.test(x)));
   d.rtMenu.sub.input.value='loaded';d.rtMenu.sub.input.dispatchEvent(new W.Event('input'));assert.equal(list().length,1);
 });
 test('filters hiding everything show an empty state and never an unfiltered Activity checked',async t=>{
@@ -1549,14 +1549,14 @@ test('Subreddit submenu: header row, scrolling list, icons, pinned picks, 8-pick
   const asked=[];W.RTCommunityIcons={peek:()=>undefined,get:async name=>{asked.push(name);return name==='sub01'?'https://styles.redditmedia.com/t5_1/styles/communityIcon_one.png':null;}};
   d.clearActivityMenu();d.ensureActivityMenu();dropdownOpen(m);
   const panel=m.sub('sub'),list=d.rtMenu.sub.list,note=d.rtMenu.sub.note;
-  m.group('Subreddit').click();assert.equal(d.openSubmenu,panel);assert.equal(note.textContent,'Loading counts…');
+  m.group('Subreddit').click();assert.equal(d.openSubmenu,panel);assert.equal(note.dataset.rtSource,'Loading counts…');
   release();await tick(20);
   // One header row: Back on the left, the pill search on the right; the list is the only scroller.
   const head=panel.querySelector('.rt-sub-head');assert.equal(head.firstElementChild.dataset.rtSubBack,'true');assert.equal(head.firstElementChild.getAttribute('aria-label'),'Back');assert.ok(head.lastElementChild.matches('.rt-filter-field'));assert.equal(head.querySelector('.rt-filter-search').placeholder,'Search communities');assert.equal(head.lastElementChild.children[0].dataset.icon,'search');assert.ok(head.lastElementChild.querySelector('.rt-filter-search-clear'));assert.equal(head.firstElementChild.querySelector('svg').getAttribute('width'),'16');assert.equal(panel.querySelectorAll('[data-rt-sub-back]').length,1);assert.equal(panel.querySelector('[aria-label="Back"][aria-haspopup]'),null);
   assert.equal(list.parentElement,panel.querySelector('.rt-sub-panel'));assert.ok(!head.contains(list));
   const css=cssRule('.rt-sub-list');assert.match(css,/overflow-y:auto/);assert.match(css,/overscroll-behavior:contain/);assert.match(css,/max-height:min\(320px,calc\(100dvh/);
   assert.match(cssRule('.rt-activity-submenu[data-rt-panel]'),/overflow:visible/);
-  assert.equal(note.textContent,'Counts from the archive');
+  assert.equal(note.dataset.rtSource,'Counts from the archive');
   const rows=()=>[...list.querySelectorAll('[data-rt-sub-row]')];
   assert.equal(rows().length,15);assert.match(rows()[0].textContent,/r\/sub00\s*100/);assert.ok(rows().every(r=>r.querySelector('.rt-community-icon')));
   assert.equal(rows().find(r=>r.dataset.rtSubRow==='u_spez').querySelector('svg').getAttribute('icon-name'),'profile-fill');assert.match(rows().find(r=>r.dataset.rtSubRow==='u_spez').textContent,/u\/spez/);
@@ -1565,7 +1565,7 @@ test('Subreddit submenu: header row, scrolling list, icons, pinned picks, 8-pick
   // Selected rows are pinned at the top and show a checkmark; the list scroll is kept.
   rows().find(r=>r.dataset.rtSubRow==='sub05').click();assert.equal(W.location.search,'?rt_sub=sub05');assert.equal(rows()[0].dataset.rtSubRow,'sub05');assert.ok(rows()[0].querySelector('[data-rt-check]'));assert.equal(d.openSubmenu,panel);
   for(const k of ['sub03','sub07','sub09','sub11','sub12','sub13','sub10'])rows().find(r=>r.dataset.rtSubRow===k).click();
-  assert.equal(d.rtFilters.subreddits.length,8);const blocked=rows().filter(r=>r.getAttribute('aria-disabled')==='true');assert.equal(blocked.length,15-8);assert.match(blocked[0].title,/Up to 8 communities/);assert.match(note.textContent,/Counts from the archive · Up to 8 communities/);
+  assert.equal(d.rtFilters.subreddits.length,8);const blocked=rows().filter(r=>r.getAttribute('aria-disabled')==='true');assert.equal(blocked.length,15-8);assert.match(blocked[0].title,/Up to 8 communities/);assert.match(note.dataset.rtSource,/Counts from the archive/);
   blocked[0].click();assert.equal(d.rtFilters.subreddits.length,8);rows()[0].click();assert.equal(d.rtFilters.subreddits.length,7);assert.equal(rows().filter(r=>r.getAttribute('aria-disabled')==='true').length,0);
   // Search narrows the list and keeps the header.
   d.rtMenu.sub.input.value='sub0';d.rtMenu.sub.input.dispatchEvent(new W.Event('input'));assert.ok(rows().every(r=>/sub0|u_spez/.test(r.dataset.rtSubRow)||d.rtFilters.subreddits.includes(r.dataset.rtSubRow)));
@@ -1577,12 +1577,12 @@ test('the footer never claims archive counts it does not have',async t=>{
   const m=await menuSetup(t,'',{settings:{postDiscovery:true,archiveDiscovery:true}});const {W,d}=m;
   W.RTArchiveQuery={async *search(){},async aggregate(){throw Object.assign(Error('slow'),{code:'timeout'});}};addNative(W,d,'t3_live',{ts:Math.floor(Date.now()/1000),type:'text',sub:'loadedonly'});
   d.clearActivityMenu();d.ensureActivityMenu();m.group('Subreddit').click();await tick(10);
-  assert.equal(d.rtMenu.sub.note.textContent,'Counts from loaded items');
+  assert.equal(d.rtMenu.sub.note.dataset.rtSource,'Counts from loaded items');
   // A different query (the date window) invalidates earlier archive totals instead of mislabelling them.
   W.RTArchiveQuery={async *search(){},async aggregate(){return {ok:true,buckets:[{key:'big',count:9}],by:'subreddit'};}};
-  d.rtAgg=null;m.group('Subreddit').click();await tick(10);assert.equal(d.rtMenu.sub.note.textContent,'Counts from the archive');
-  d.setFilters(W.RTFeedFilters.parse('?rt_date=week'));assert.equal(d.rtAgg,null);assert.notEqual(d.rtMenu.sub.note.textContent,'Counts from the archive');
-  const off=await menuSetup(t,'');addNative(off.W,off.d,'t3_x',{ts:Math.floor(Date.now()/1000),type:'text',sub:'zzz'});off.d.clearActivityMenu();off.d.ensureActivityMenu();off.group('Subreddit').click();assert.equal(off.d.rtMenu.sub.note.textContent,'Counts from loaded items');
+  d.rtAgg=null;m.group('Subreddit').click();await tick(10);assert.equal(d.rtMenu.sub.note.dataset.rtSource,'Counts from the archive');
+  d.setFilters(W.RTFeedFilters.parse('?rt_date=week'));assert.equal(d.rtAgg,null);assert.notEqual(d.rtMenu.sub.note.dataset.rtSource,'Counts from the archive');assert.equal(d.rtMenu.sub.note.hidden,true,'counts source is not shown in the menu');
+  const off=await menuSetup(t,'');addNative(off.W,off.d,'t3_x',{ts:Math.floor(Date.now()/1000),type:'text',sub:'zzz'});off.d.clearActivityMenu();off.d.ensureActivityMenu();off.group('Subreddit').click();assert.equal(off.d.rtMenu.sub.note.dataset.rtSource,'Counts from loaded items');
 });
 test('choosing a single option closes the whole menu, multi-select lists stay open',async t=>{
   const m=await menuSetup(t);const {W,d,dropdown}=m;let closed=0;
@@ -1643,6 +1643,7 @@ test('profile menu uses one shared width, pinned headers and 16px outline glyphs
   assert.match(cssRule('[data-rt-feed-options-host]>rpl-menu'),/width:var\(--rt-menu-width\)/);
   assert.match(cssRule('.rt-activity-submenu[data-rt-feed-options]:not(.hidden)'),/height:auto;max-height:min\(400px,calc\(100dvh - 96px\)\)/,'submenus size to their own content');
   assert.match(cssRule('[data-rt-feed-options] rpl-menu-item'),/--rem48:40px;min-height:40px/);
+  assert.match(cssRule('.rt-activity-submenu[data-rt-feed-options][data-rt-sub-key="sub"]:not(.hidden)'),/max-height:var\(--rt-menu-height,400px\)/,'Subreddit panel capped at the main menu height');
   assert.match(cssRule('.rt-activity-submenu[data-rt-feed-options]:not(.hidden)'),/overflow:hidden/);
   assert.equal((menuCss.match(/\n\.rt-sub-back\{/g)||[]).length,1,'one base rule for the back button');
   assert.equal(menuCss.includes('.rt-filter-search-box'),false,'unused search wrapper rule removed');

@@ -237,6 +237,8 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-activity-submenu[data-rt-feed-options]:not(.hidden){display:flex;flex-direction:column;box-sizing:border-box;height:auto;max-height:min(400px,calc(100dvh - 96px));overflow:hidden}
 [data-rt-feed-options]>.rt-sub-panel{flex:1 1 auto;min-height:0}
 [data-rt-feed-options] .rt-sub-list{max-height:none}
+/* The Subreddit panel is as tall as the main menu at most, and its list scrolls inside. */
+.rt-activity-submenu[data-rt-feed-options][data-rt-sub-key="sub"]:not(.hidden){height:var(--rt-menu-height,auto);max-height:var(--rt-menu-height,400px)}
 [data-rt-feed-options] .rt-sub-head{min-height:44px;box-sizing:border-box;gap:6px;padding:8px 12px 8px 8px;background:var(--color-neutral-background,#fff)}
 [data-rt-feed-options] .rt-sub-back{flex-basis:28px;width:28px;height:28px}
 [data-rt-feed-options] .rt-sub-back svg{width:16px;height:16px}
