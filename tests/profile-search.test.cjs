@@ -191,3 +191,24 @@ test('late external search tabs trigger mounting and loading through the page ob
   assert.equal(s.d.context.view,'search');assert.ok(s.d.searchFeed?.isConnected);
   assert.equal(s.calls.find(c=>c.action==='profile').query,'words');assert.equal(s.queries.length,1);
 });
+
+// Structural fallback fixture: approval was unavailable for a live DOM capture.
+const structuralFilters=`<div id="filter-row"><span><faceplate-dropdown-menu><button slot="trigger">Relevance ▾</button></faceplate-dropdown-menu></span><span><rpl-dropdown><button aria-haspopup="menu">All time ▾</button></rpl-dropdown></span><span><faceplate-dropdown-menu><button slot="trigger">Safe Search Off ▾</button></faceplate-dropdown-menu></span></div>`;
+for(const outside of [false,true])for(const suffix of ['', '?q=laptop','?type=comments'])test(`structural native filter row restores with tabs intact (${outside?'outside':'inside'} main, ${suffix || 'no query'})`,async t=>{
+  let html=page.replace(/<div data-testid="search-results-filter-spacer-desktop">[\s\S]*?<main class="main">/,'<main class="main">');
+  html=outside?structuralFilters+html:html.replace('<div data-testid="search-scope-switcher">',structuralFilters+'<div data-testid="search-scope-switcher">');
+  html=html.replace('</main>','<aside id="feedback-box"><div><p>Did you find what you were looking for?</p></div><div><button>Yes</button><button>No</button></div></aside></main>');
+  const s=await boot(t,{html,url:'https://www.reddit.com/user/Example/search/'+suffix});
+  const row=s.D.getElementById('filter-row'),banner=s.D.getElementById('feedback-box'),tabs=s.D.getElementById('search-results-page-tabgroup');
+  assert.equal(row.hidden,true);assert.equal(banner.hidden,true);
+  for(let el=tabs;el;el=el.parentElement)assert.equal(el.hidden,false,'tabs and ancestors stay visible');
+  assert.equal(tabs.querySelectorAll('a').length,3);
+  assert.equal(s.d.feed.hidden,false);assert.equal(s.d.host.hidden,false);
+  s.d.scan();assert.equal(row.hidden,true);
+  if(outside)s.d.applySettings({postDiscovery:true,archiveDiscovery:false});else{s.W.history.pushState({},'','/r/Synthetic/');s.d.scan();}
+  assert.equal(row.hidden,false);assert.equal(banner.hidden,false);assert.equal(s.D.querySelector('[data-rt-search-hidden]'),null);
+});
+test('structural filter suppression fails closed for incomplete rows and extension controls',async t=>{
+  const html=page.replace('</main>',structuralFilters.replace('Safe Search Off','Unrelated')+'<div data-rt-ui="fixture">'+structuralFilters.replace('filter-row','own-row')+'</div></main>');
+  const s=await boot(t,{html});assert.equal(s.D.getElementById('filter-row').hidden,false);assert.equal(s.D.getElementById('own-row').hidden,false);
+});
