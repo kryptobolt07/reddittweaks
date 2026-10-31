@@ -8,6 +8,7 @@ Validation:
 - All 1067 tests pass, including empty Enter navigation, search-feed mounting and negative controls for both field structures.
 - Reproduced before the fix in signed-in Chrome with the installed extension: empty Enter on u/spez left the profile URL unchanged.
 - Reloaded the rebuilt extension and repeated the same real mouse/keyboard path: it opened `/user/spez/search/`, displayed native Posts/Comments/Media tabs and visible result cards (100 result nodes loaded).
+- Direct signed-in fetch of `/user/spez/search/` with no query parameters returned HTTP 200, native search tabs and 4 native post units before extension processing.
 - Package integrity and source/unpacked/archive byte equality verified.
 
 Limitations:
