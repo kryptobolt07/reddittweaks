@@ -129,9 +129,6 @@ html[data-rt-restore] main shreddit-post:is([data-rt-pending],:has(> [slot="post
 .rt-archived-media{position:relative;overflow:hidden;isolation:isolate;border-radius:16px;margin-block:8px}
 .rt-archived-media .rt-media-backdrop{filter:blur(24px)}
 
-/* Grouped Feed options submenus stay within the viewport. */
-.rt-activity-submenu{max-height:calc(100dvh - 180px);overflow-y:auto;overscroll-behavior:contain}
-
 /* Skeleton lines while the archive is asked: the same design as the chat
    search result skeletons (pill shimmer, 9px rhythm, sweeping highlight). */
 .rt-skeleton{display:flex;flex-direction:column;gap:9px;padding:6px 0 10px}
@@ -206,34 +203,64 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-menu-lead.rt-gif-tag,.rt-menu-lead .rt-gif-tag{width:16px;height:12px;border-width:1.25px;border-radius:3px;font-size:7.5px}
 .rt-filter-chip-icon .rt-gif-tag{width:16px;height:12px;border-width:1px;border-radius:3px;font-size:7px}
 /* Community icons: a fixed 24px circle, so the real icon replaces the placeholder without moving anything. */
-.rt-community-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--rt-icon-size,24px);height:var(--rt-icon-size,24px);border-radius:50%;overflow:hidden;color:var(--color-neutral-content-weak,#576f76)}
+.rt-community-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--rt-icon-size,24px);height:var(--rt-icon-size,24px);border-radius:50%;overflow:hidden;background:var(--color-neutral-background-weak,#f2f4f5);color:var(--color-neutral-content-weak,#576f76)}
 .rt-community-icon.rt-menu-lead{width:var(--rt-icon-size,24px);height:var(--rt-icon-size,24px)}
-.rt-community-icon{background:var(--color-neutral-background-weak,#f2f4f5)}
 .rt-community-icon svg{width:100%;height:100%}
 /* Community icons are square; profile Snoovatars are tall full-body images: crop both to a centred circle, head first. */
 .rt-community-icon img,.rt-community-icon .rt-community-img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 0%;border-radius:50%}
 .rt-community-img{display:block;object-fit:cover;border-radius:50%}
-/* Subreddit panel: Back and the pill search share one fixed header row; only the list scrolls. */
+/* Shared submenu primitives. Legacy search-page menus keep their existing sizing. */
+.rt-activity-submenu{max-height:calc(100dvh - 180px);overflow-y:auto;overscroll-behavior:contain}
 .rt-activity-submenu[data-rt-panel]{max-height:none;overflow:visible}
-/* Every filter submenu keeps the main menu's height; longer lists scroll inside it with Back pinned on top. */
-.rt-activity-submenu[data-rt-sub-key]:not([data-rt-panel]):not(.hidden){max-height:var(--rt-menu-height,none);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
-.rt-activity-submenu[data-rt-sub-key]:not([data-rt-panel])>rpl-menu-item:first-child{position:sticky;top:0;z-index:1;background:var(--color-neutral-background,#fff)}
+.rt-activity-submenu[data-rt-sub-key]:not([data-rt-panel]):not([data-rt-feed-options]):not(.hidden){max-height:var(--rt-menu-height,none);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.rt-activity-submenu[data-rt-sub-key]:not([data-rt-panel]):not([data-rt-feed-options])>rpl-menu-item:first-child{position:sticky;top:0;z-index:1;background:var(--color-neutral-background,#fff)}
 .rt-activity-submenu[data-rt-panel]:not(.hidden){display:flex;flex-direction:column;height:var(--rt-menu-height,auto);max-height:var(--rt-menu-height,none);box-sizing:border-box}
 .rt-activity-submenu[data-rt-panel]>.rt-sub-panel{flex:1 1 auto;min-height:0}
 .rt-sub-panel{display:flex;flex-direction:column;min-width:0}
 .rt-sub-head{display:flex;align-items:center;gap:8px;flex:none;padding:4px 12px 8px 4px}
-.rt-sub-back{display:inline-flex;align-items:center;gap:8px;flex:none;width:auto;min-width:max-content;padding:8px 12px;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;font-size:14px;line-height:20px;cursor:pointer;overflow:visible}
-.rt-sub-back:hover,.rt-sub-back:focus-visible{background:var(--color-neutral-background-hover,#e8edef);outline:none}
-.rt-sub-head .rt-filter-search{flex:1 1 auto;width:auto;min-width:0;height:32px}
-.rt-sub-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;max-height:min(320px,calc(100dvh - 240px));scrollbar-width:thin}
-.rt-activity-submenu[data-rt-panel] .rt-sub-list{max-height:none}
-.rt-sub-back{display:inline-flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer}
+.rt-sub-back{display:inline-flex;align-items:center;justify-content:center;flex:0 0 32px;box-sizing:border-box;width:32px;height:32px;min-width:0;margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;cursor:pointer}
 .rt-sub-back:hover{background:var(--color-neutral-background-hover,#eaedef)}
 .rt-sub-back:focus-visible{outline:2px solid var(--color-neutral-border-strong,#0f1a1c);outline-offset:1px}
+.rt-sub-head>.rt-filter-search{flex:1 1 auto;width:auto;min-width:0}
+.rt-sub-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;max-height:min(320px,calc(100dvh - 240px));scrollbar-width:thin}
+.rt-activity-submenu[data-rt-panel] .rt-sub-list{max-height:none}
 .rt-sub-empty{padding:12px 16px}
-.rt-filter-search-box{padding:4px 12px}
 .rt-filter-search{width:100%;box-sizing:border-box;height:32px;padding:0 12px;border:1px solid var(--color-neutral-border,#cfd8dc);border-radius:16px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;font-size:14px}
 .rt-filter-note{padding:4px 16px 8px}
+
+/* Profile Feed options: one width for Reddit's slot and every menu in it. */
+[data-rt-feed-options-host]{--rt-menu-width:min(272px,calc(100vw - 32px));width:var(--rt-menu-width)!important}
+[data-rt-feed-options-host]>rpl-menu{box-sizing:border-box;width:var(--rt-menu-width);min-width:0;max-width:var(--rt-menu-width)}
+.rt-activity-submenu[data-rt-feed-options]:not(.hidden){display:flex;flex-direction:column;box-sizing:border-box;height:var(--rt-menu-height,auto);max-height:min(var(--rt-menu-height,calc(100dvh - 180px)),calc(100dvh - 32px));overflow:hidden}
+[data-rt-feed-options] .rt-sub-list{max-height:none}
+[data-rt-feed-options] .rt-sub-head{min-height:56px;box-sizing:border-box;padding:8px 16px;background:var(--color-neutral-background,#fff)}
+[data-rt-feed-options] .rt-sub-back svg{width:16px;height:16px}
+.rt-sub-title{min-width:0;font-size:14px;line-height:20px;font-weight:600;color:var(--color-neutral-content-strong,#0f1a1c)}
+/* The chat search field's 40px height, 22px radius, soft fill and quiet focus border. */
+.rt-filter-field{display:flex;flex:1 1 auto;min-width:0;height:40px;box-sizing:border-box;align-items:center;gap:8px;padding:0 11px;border:1px solid transparent;border-radius:22px;background:var(--color-neutral-background-weak,#f6f8f9)}
+.rt-filter-field:focus-within{border-color:var(--color-neutral-content-weak,#52656c)}
+.rt-filter-field .rt-filter-search{flex:1 1 auto;width:100%;min-width:0;height:38px;margin:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--color-neutral-content-strong,#172328);outline:0;box-shadow:none;font:var(--font-12,12px/1.5 var(--font-sans,Arial,sans-serif));appearance:none}
+.rt-filter-field .rt-filter-search:focus{outline:0;box-shadow:none}
+.rt-filter-field .rt-filter-search::placeholder{color:var(--color-neutral-content-weak,#52656c);opacity:1}
+.rt-filter-field .rt-filter-search::-webkit-search-cancel-button{appearance:none}
+.rt-filter-field>svg{display:block;flex:none;width:18px;height:18px;color:var(--color-neutral-content-weak,#52656c)}
+.rt-filter-search-clear{display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:24px;min-width:0;margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
+.rt-filter-search-clear[hidden]{display:none!important}
+.rt-filter-search-clear:hover{background:var(--color-neutral-background-hover,#eff3f5);color:var(--color-neutral-content-strong,#172328)}
+.rt-filter-search-clear:focus-visible{outline:2px solid var(--color-neutral-content-weak,#52656c);outline-offset:1px}
+.rt-filter-search-clear svg{width:14px;height:14px}
+[data-rt-feed-options] rpl-menu-item{min-height:48px;flex:none}
+[data-rt-feed-options] .rt-menu-caption{gap:8px}
+[data-rt-feed-options] .rt-menu-lead,[data-rt-feed-options] [data-rt-check]{width:16px;height:16px}
+[data-rt-feed-options] [data-rt-sub-row] .rt-menu-caption{flex:1 1 auto;min-width:0}
+.rt-sub-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Fixed, centered imagery and a themed outline fallback; never crop toward the top. */
+[data-rt-feed-options] .rt-sub-icon-box{width:24px;height:24px;background:var(--color-secondary-background,#e5ebee);color:var(--color-secondary-content,#0f1a1c)}
+[data-rt-feed-options] .rt-sub-icon-box svg{display:block;width:16px;height:16px}
+[data-rt-feed-options] .rt-sub-icon-box img{width:100%;height:100%;object-fit:cover;object-position:center}
+[data-rt-feed-options] .rt-opt-tail{color:var(--color-neutral-content-weak,#576f76);font-size:12px;line-height:16px;text-align:end}
+[data-rt-feed-options] .rt-filter-note,[data-rt-feed-options] .rt-sub-empty{flex:none;padding:8px 16px 8px 48px;color:var(--color-neutral-content-weak,#576f76);font-size:12px;line-height:16px}
+[data-rt-feed-options] .rt-filter-note[hidden]{display:none}
 [data-rt-sort-old] rpl-menu-item svg[icon-name="checkmark"]:not([data-rt-check]){display:none}
 
 /* Keep Reddit's SPA results mounted and reversible while the merged search feed owns presentation. */

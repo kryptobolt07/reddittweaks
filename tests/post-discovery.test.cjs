@@ -1500,11 +1500,11 @@ test('main menu rows: Date, Post type and Subreddit with icons and right-aligned
   const m=await menuSetup(t);const {d}=m;
   const names=[...d.activityMain.children].filter(n=>n.matches('rpl-menu-item')).map(n=>n.getAttribute('aria-label'));
   assert.deepEqual(names.slice(-3),['Date','Post type','Subreddit']);assert.ok(names.indexOf('Activity')<names.indexOf('Date'));
-  assert.deepEqual([m.icon(m.group('Date')),m.icon(m.group('Post type')),m.icon(m.group('Subreddit'))],['calendar','text-post','community-fill']);
+  assert.deepEqual([m.icon(m.group('Date')),m.icon(m.group('Post type')),m.icon(m.group('Subreddit'))],['calendar','text-post','community']);
   const value=name=>m.group(name).querySelector('[data-rt-menu-value]');
   assert.deepEqual(['Date','Post type','Subreddit'].map(n=>value(n).textContent),['Any time','All','All']);
   assert.ok(value('Date').classList.contains('rt-menu-value'));
-  assert.equal(m.group('Date').querySelector('.rt-menu-lead').getAttribute('width'),'16','icon box is sized to 20px by CSS');
+  assert.equal(m.group('Date').querySelector('.rt-menu-lead').getAttribute('width'),'16','leading glyph uses Reddit’s 16px menu size');
   assert.match(cssRule('.rt-menu-lead'),/width:16px;height:16px/);
   const css=cssRule('.rt-menu-value');assert.match(css,/overflow:hidden/);assert.match(css,/text-overflow:ellipsis/);assert.match(css,/white-space:nowrap/);assert.match(cssRule('.rt-menu-caption'),/flex:none/);
   const set=await menuSetup(t,'?rt_date=year&rt_type=image,gif,poll&rt_sub=announcements');
@@ -1512,19 +1512,19 @@ test('main menu rows: Date, Post type and Subreddit with icons and right-aligned
   const range=await menuSetup(t,'?rt_date=2026-10-01..2026-10-20&rt_type=image&rt_sub=a,b,c');
   assert.match(range.group('Date').querySelector('[data-rt-menu-value]').textContent.replace(/ /g,' '),/^Oct 1 – Oct 20(,? 2026)?$/);assert.equal(range.group('Post type').querySelector('[data-rt-menu-value]').textContent,'Images');assert.equal(range.group('Subreddit').querySelector('[data-rt-menu-value]').textContent,'3 communities');
 });
-test('Date submenu: six single-choice rows without icons',async t=>{
+test('Date submenu: six single-choice rows with shared outline icons',async t=>{
   const m=await menuSetup(t,'?rt_date=month');const rows=[...m.sub('date').querySelectorAll('[data-rt-option]')];
   assert.deepEqual(rows.map(r=>r.dataset.rtOption),['any','24h','week','month','year','custom']);
   assert.deepEqual(rows.map(r=>r.getAttribute('aria-label')),['Any time','Past 24 hours','Past week','Past month','Past year','Custom…']);
-  for(const row of rows)assert.equal(row.querySelector('.rt-menu-lead'),null,row.dataset.rtOption+' has no icon');
+  for(const row of rows){assert.equal(row.querySelector('.rt-menu-lead').dataset.icon,'calendar');assert.equal(row.querySelector('.rt-menu-lead').getAttribute('width'),'16');}
   assert.deepEqual(rows.filter(r=>r.getAttribute('aria-checked')==='true').map(r=>r.dataset.rtOption),['month']);assert.equal(rows.filter(r=>r.querySelector('[data-rt-check]')).length,1);
   assert.ok(m.sub('date').querySelector('[aria-label="Back"]'));
 });
 test('Post type submenu: sections, Reddit icons, multi-select that stays open and clears with All types',async t=>{
   const m=await menuSetup(t);const {W,d}=m,type=m.sub('type');m.group('Post type').click();assert.equal(d.openSubmenu,type);
-  const kids=[...type.children].filter(n=>!n.matches('[data-rt-ui="submenu-back"]')).map(n=>n.dataset.rtSection?'#'+n.dataset.rtSection:n.dataset.rtOption);
+  const kids=[...type.querySelector('[data-rt-menu-list]').children].map(n=>n.dataset.rtSection?'#'+n.dataset.rtSection:n.dataset.rtOption);
   assert.deepEqual(kids,['all','#Text','text','textmedia','poll','#Media','image','gif','video','gallery','#Links','link','embed','crosspost']);
-  assert.equal(type.querySelector('[data-rt-option="all"]').getAttribute('aria-label'),'All types');assert.equal(type.querySelector('[data-rt-option="all"] .rt-menu-lead'),null);
+  assert.equal(type.querySelector('[data-rt-option="all"]').getAttribute('aria-label'),'All types');assert.equal(type.querySelector('[data-rt-option="all"] .rt-menu-lead').dataset.icon,'text-post');
   const expect={text:'text-post',textmedia:'collection',poll:'list-bulleted',image:'image',gif:'gif',video:'video',gallery:'gallery',link:'link',embed:'browser',crosspost:'rotate'};
   for(const [id,name] of Object.entries(expect)){const row=type.querySelector('[data-rt-option="'+id+'"]');assert.equal(m.icon(row),name,id);}
   const gif=type.querySelector('[data-rt-option="gif"] .rt-gif-tag');assert.equal(gif.textContent,'GIF');assert.match(cssRule('.rt-gif-tag'),/border:1\.5px solid currentColor/);
@@ -1552,7 +1552,7 @@ test('Subreddit submenu: header row, scrolling list, icons, pinned picks, 8-pick
   m.group('Subreddit').click();assert.equal(d.openSubmenu,panel);assert.equal(note.textContent,'Loading counts…');
   release();await tick(20);
   // One header row: Back on the left, the pill search on the right; the list is the only scroller.
-  const head=panel.querySelector('.rt-sub-head');assert.equal(head.firstElementChild.dataset.rtSubBack,'true');assert.equal(head.firstElementChild.getAttribute('aria-label'),'Back');assert.equal(head.lastElementChild.placeholder,'Search communities');assert.equal(panel.querySelectorAll('[data-rt-sub-back]').length,1);assert.equal(panel.querySelector('[aria-label="Back"][aria-haspopup]'),null);
+  const head=panel.querySelector('.rt-sub-head');assert.equal(head.firstElementChild.dataset.rtSubBack,'true');assert.equal(head.firstElementChild.getAttribute('aria-label'),'Back');assert.ok(head.lastElementChild.matches('.rt-filter-field'));assert.equal(head.querySelector('.rt-filter-search').placeholder,'Search communities');assert.equal(head.lastElementChild.children[0].dataset.icon,'search');assert.ok(head.lastElementChild.querySelector('.rt-filter-search-clear'));assert.equal(head.firstElementChild.querySelector('svg').getAttribute('width'),'16');assert.equal(panel.querySelectorAll('[data-rt-sub-back]').length,1);assert.equal(panel.querySelector('[aria-label="Back"][aria-haspopup]'),null);
   assert.equal(list.parentElement,panel.querySelector('.rt-sub-panel'));assert.ok(!head.contains(list));
   const css=cssRule('.rt-sub-list');assert.match(css,/overflow-y:auto/);assert.match(css,/overscroll-behavior:contain/);assert.match(css,/max-height:min\(320px,calc\(100dvh/);
   assert.match(cssRule('.rt-activity-submenu[data-rt-panel]'),/overflow:visible/);
@@ -1560,7 +1560,7 @@ test('Subreddit submenu: header row, scrolling list, icons, pinned picks, 8-pick
   const rows=()=>[...list.querySelectorAll('[data-rt-sub-row]')];
   assert.equal(rows().length,15);assert.match(rows()[0].textContent,/r\/sub00\s*100/);assert.ok(rows().every(r=>r.querySelector('.rt-community-icon')));
   assert.equal(rows().find(r=>r.dataset.rtSubRow==='u_spez').querySelector('svg').getAttribute('icon-name'),'profile-fill');assert.match(rows().find(r=>r.dataset.rtSubRow==='u_spez').textContent,/u\/spez/);
-  assert.equal(rows()[0].querySelector('svg').getAttribute('icon-name'),'community-fill','placeholder until the icon loads');
+  assert.equal(rows()[0].querySelector('svg').getAttribute('icon-name'),'community','outline placeholder until the icon loads');assert.ok(rows().every(r=>r.querySelector('.rt-sub-icon-box')));assert.ok(rows().every(r=>r.querySelector('.rt-sub-name')));
   await tick(10);assert.equal(rows().find(r=>r.dataset.rtSubRow==='sub01').querySelector('img.rt-community-img').getAttribute('src'),'https://styles.redditmedia.com/t5_1/styles/communityIcon_one.png');assert.ok(asked.includes('sub01'));
   // Selected rows are pinned at the top and show a checkmark; the list scroll is kept.
   rows().find(r=>r.dataset.rtSubRow==='sub05').click();assert.equal(W.location.search,'?rt_sub=sub05');assert.equal(rows()[0].dataset.rtSubRow,'sub05');assert.ok(rows()[0].querySelector('[data-rt-check]'));assert.equal(d.openSubmenu,panel);
@@ -1569,6 +1569,7 @@ test('Subreddit submenu: header row, scrolling list, icons, pinned picks, 8-pick
   blocked[0].click();assert.equal(d.rtFilters.subreddits.length,8);rows()[0].click();assert.equal(d.rtFilters.subreddits.length,7);assert.equal(rows().filter(r=>r.getAttribute('aria-disabled')==='true').length,0);
   // Search narrows the list and keeps the header.
   d.rtMenu.sub.input.value='sub0';d.rtMenu.sub.input.dispatchEvent(new W.Event('input'));assert.ok(rows().every(r=>/sub0|u_spez/.test(r.dataset.rtSubRow)||d.rtFilters.subreddits.includes(r.dataset.rtSubRow)));
+  const clear=panel.querySelector('.rt-filter-search-clear');assert.equal(clear.hidden,false);clear.click();assert.equal(d.rtMenu.sub.input.value,'');assert.equal(clear.hidden,true);assert.equal(W.document.activeElement,d.rtMenu.sub.input);
   panel.querySelector('[data-rt-sub-back]').click();assert.equal(d.openSubmenu,null);
 });
 const dropdownOpen=m=>m.dropdown.setAttribute('open','');
@@ -1632,4 +1633,64 @@ test('chips use the menu icons and Clear filters is never clipped',async t=>{
   const clear=W.document.querySelector('[data-rt-filter-clear]');assert.equal(clear.textContent,'Clear filters');
   const css=cssRule('.rt-filter-clear');assert.doesNotMatch(css,/overflow:\s*hidden/);assert.match(css,/overflow:visible/);assert.match(css,/width:auto/);assert.match(css,/white-space:nowrap/);assert.match(css,/min-width:max-content/);assert.match(cssRule('.rt-filter-chips'),/flex:0 0 100%/);
   assert.match(menuCss,/\n\.rt-posts-toolbar\{flex-wrap:wrap\}/);assert.match(cssRule('.rt-posts-toolbar .rt-posts-status[data-error=true],.rt-posts-toolbar .rt-posts-notice'),/flex:1 1 100%/);
+});
+
+test('profile menu uses one shared width, pinned headers and 16px outline glyphs',async t=>{
+  const m=await menuSetup(t),{W,d}=m;
+  const nativeRows=d.menuGroups.flatMap(group=>group.items);
+  assert.equal(d.activityMain.parentElement.dataset.rtFeedOptionsHost,'true');
+  assert.match(cssRule('[data-rt-feed-options-host]'),/--rt-menu-width:min\(272px,calc\(100vw - 32px\)\)/);
+  assert.match(cssRule('[data-rt-feed-options-host]>rpl-menu'),/width:var\(--rt-menu-width\)/);
+  assert.match(cssRule('.rt-activity-submenu[data-rt-feed-options]:not(.hidden)'),/height:var\(--rt-menu-height,auto\)/);
+  assert.match(cssRule('.rt-activity-submenu[data-rt-feed-options]:not(.hidden)'),/overflow:hidden/);
+  assert.equal((menuCss.match(/\n\.rt-sub-back\{/g)||[]).length,1,'one base rule for the back button');
+  assert.equal(menuCss.includes('.rt-filter-search-box'),false,'unused search wrapper rule removed');
+  const rows=[...d.activityMain.children].filter(el=>el.matches('rpl-menu-item'));
+  assert.deepEqual(rows.map(el=>m.icon(el)),['caret-up-down','card','activity','calendar','text-post','community']);
+  for(const row of rows){const icon=row.querySelector('.rt-menu-lead');assert.ok(icon);assert.equal(icon.getAttribute('width'),'16');}
+  const nativeIcon=W.document.createElementNS('http://www.w3.org/2000/svg','svg');nativeIcon.setAttribute('icon-name','new-fill');d.menuGroups[0].items[0].append(nativeIcon);
+  d.ensureActivityMenu();assert.equal(m.icon(rows[0]),'caret-up-down','native selected glyph never replaces the outline Sort icon');
+  d.activityMain.getBoundingClientRect=()=>({height:340});
+  for(const key of ['sort','view','activity','date','type','sub']){
+    const sub=m.sub(key),row=rows.find(el=>el.rtSubmenu===sub);row.click();
+    assert.equal(sub.style.getPropertyValue('--rt-menu-height'),'340px',key);
+    const head=sub.querySelector('.rt-sub-head'),back=head.querySelector('.rt-sub-back'),list=sub.querySelector('.rt-sub-list');
+    assert.ok(head);assert.ok(list);assert.ok(!list.contains(head));assert.equal(W.document.activeElement,back,key+' opens on Back');
+    assert.equal(sub.querySelectorAll('.rt-sub-back').length,1);
+    back.click();assert.equal(W.document.activeElement,row,key+' restores focus');
+  }
+  d.clearActivityMenu();assert.ok(nativeRows.every(row=>row.isConnected));assert.equal(nativeRows[0].firstChild.nodeType,W.Node.TEXT_NODE,'original native presentation is restored');assert.equal(W.document.querySelector('[data-rt-feed-options-host]'),null);
+});
+test('community field clears, shows a caption empty state and retains its outline fallback on image failure',async t=>{
+  const m=await menuSetup(t),{W,d}=m;W.RTCommunityIcons={peek:()=> 'https://styles.redditmedia.com/t5_fixture/styles/communityIcon.png',get:async()=>null};
+  const panel=d.rtMenu.sub.panel;panel.render({entries:[{key:'fixture',count:3}],picked:[],source:'loaded'});
+  const box=panel.list.querySelector('.rt-sub-icon-box');box.querySelector('img').dispatchEvent(new W.Event('error'));assert.equal(box.querySelector('svg').dataset.icon,'community');
+  panel.input.value='absent';panel.input.dispatchEvent(new W.Event('input'));assert.equal(panel.list.querySelector('.rt-sub-empty').textContent,'No communities match');
+  assert.match(cssRule('[data-rt-feed-options] .rt-sub-icon-box img'),/object-position:center/);
+  assert.match(cssRule('.rt-filter-field'),/height:40px/);assert.match(cssRule('.rt-filter-field'),/border-radius:22px/);
+  assert.match(cssRule('.rt-filter-field:focus-within'),/border-color:var\(--color-neutral-content-weak/);
+  assert.match(cssRule('.rt-filter-field .rt-filter-search:focus'),/outline:0;box-shadow:none/);
+  assert.match(cssRule('[data-rt-feed-options] .rt-filter-note,[data-rt-feed-options] .rt-sub-empty'),/padding:8px 16px 8px 48px/);
+});
+test('wrapped submenu lists retain keyboard navigation, native handlers and teardown',async t=>{
+  const m=await menuSetup(t),{W,d}=m;
+  d.clearActivityMenu();
+  const native=d.activityMain || W.document.querySelector('.main-menu-container'),newRow=native.querySelector('[aria-label="New"]');
+  const svg=W.document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('icon-name','new-fill');newRow.prepend(svg);
+  let clicks=0;newRow.addEventListener('click',()=>clicks++);d.ensureActivityMenu();
+  const sort=d.menuGroups[0];sort.row.click();assert.equal(newRow.querySelector('svg').dataset.icon,'caret-up-down');
+  const key=(el,value)=>el.dispatchEvent(new W.KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true})),back=sort.sub.querySelector('.rt-sub-back');
+  const list=sort.sub.querySelector('.rt-sub-list');list.getBoundingClientRect=()=>({top:100,bottom:200});newRow.getBoundingClientRect=()=>({top:100,bottom:148});sort.items.at(-1).getBoundingClientRect=()=>({top:210,bottom:258});
+  key(back,'ArrowDown');assert.equal(W.document.activeElement,newRow);key(newRow,'End');assert.equal(W.document.activeElement,sort.items.at(-1));assert.equal(list.scrollTop,58,'keyboard reveals the focused row inside the list');key(W.document.activeElement,'Home');assert.equal(W.document.activeElement,back);
+  newRow.click();assert.equal(clicks,1);key(back,'Escape');assert.equal(W.document.activeElement,sort.row);
+  m.group('Subreddit').click();const input=d.rtMenu.sub.input;input.focus();key(input,'Home');assert.equal(W.document.activeElement,input,'Home edits the query');key(input,'Escape');assert.equal(d.openSubmenu,null);
+  d.clearActivityMenu();assert.equal(newRow.querySelector('svg'),svg,'native glyph identity and fill restored');newRow.click();assert.equal(clicks,2);
+});
+test('profile search retains its existing menu structure and icons',async t=>{
+  const {W,d}=setup(t,{pre:['feed-filters.js','community-icons.js']});await d.ready;d.context={...d.context,view:'search',q:'fixture'};d.clearActivityMenu();d.ensureActivityMenu();
+  assert.equal(W.document.querySelector('[data-rt-feed-options-host]'),null);
+  assert.equal(W.document.querySelector('[data-rt-menu-list]'),null);
+  assert.equal(d.rtMenu.sub.panel.head.lastElementChild,d.rtMenu.sub.input);
+  assert.equal(d.rtMenu.groups.sub.el.querySelector('.rt-menu-lead').dataset.icon,'community-fill');
+  assert.equal(d.rtMenu.groups.date.sub.querySelector('[data-rt-option="any"] .rt-menu-lead'),null);
 });

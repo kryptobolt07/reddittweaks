@@ -31,6 +31,14 @@
     'chevron-right':"M7.5 17.9a.898.898 0 01-.636-1.536L13.227 10 6.864 3.636a.898.898 0 010-1.272.898.898 0 011.272 0l7 7a.898.898 0 010 1.272l-7 7a.897.897 0 01-.636.264Z",
     'arrow-back':"M17.5 9.1H4.679l5.487-5.462a.898.898 0 00.003-1.272.898.898 0 00-1.272-.003l-7.032 7a.898.898 0 000 1.275l7.03 7a.896.896 0 001.273-.003.898.898 0 00-.002-1.272l-5.487-5.462h12.82a.9.9 0 000-1.8Z",
     'activity':"M10 1c-.5 0-.9.4-.9.9v.17C5.11 2.52 2 5.9 2 10c0 4.41 3.59 8 8 8 4.11 0 7.48-3.11 7.93-7.1h.17c.5 0 .9-.4.9-.9 0-4.96-4.04-9-9-9Zm.9 1.86c3.25.41 5.84 2.99 6.24 6.24H10.9V2.86ZM10 16.2c-3.42 0-6.2-2.78-6.2-6.2 0-3.11 2.31-5.69 5.3-6.12V10c0 .5.4.9.9.9h6.12c-.44 2.99-3.01 5.3-6.12 5.3Z",
+    // Reddit's outline glyphs; community uses its captured ring and r/ geometry.
+    'caret-up-down':"M13.21 8c-.23 0-.46-.09-.63-.26L10 5.16 7.42 7.74a.9.9 0 01-1.27 0 .9.9 0 010-1.27l3.21-3.21a.9.9 0 011.27 0l3.21 3.21A.894.894 0 0113.21 8ZM10 17c-.23 0-.46-.09-.63-.26l-3.21-3.21a.9.9 0 010-1.27.9.9 0 011.27 0l2.58 2.58 2.58-2.58a.9.9 0 011.27 0 .9.9 0 010 1.27l-3.21 3.21c-.17.17-.4.26-.63.26H10Z",
+    'search':"m18.736 17.464-3.483-3.483A7.961 7.961 0 0016.999 9 8 8 0 109 17a7.961 7.961 0 004.981-1.746l3.483 3.483a.9.9 0 101.272-1.273ZM9 15.2A6.207 6.207 0 012.8 9c0-3.419 2.781-6.2 6.2-6.2s6.2 2.781 6.2 6.2-2.781 6.2-6.2 6.2Z",
+    'close':"m11.273 10 5.363-5.363a.9.9 0 10-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 10-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 101.274 1.273L10 11.273l5.363 5.363a.897.897 0 001.274 0 .9.9 0 000-1.273L11.275 10h-.002Z",
+    'community':["M10 2.8c3.97 0 7.2 3.23 7.2 7.2s-3.23 7.2-7.2 7.2-7.2-3.23-7.2-7.2S6.03 2.8 10 2.8ZM10 1a9 9 0 10.001 18.001A9 9 0 0010 1Z","M9.98 8.118a1.752 1.752 0 00-1.148.167 1.664 1.664 0 00-.651.596 1.703 1.703 0 00-.258.948v3.96H5.998V6.322h1.876v1.074h.035c.251-.344.567-.628.948-.851a2.55 2.55 0 011.311-.335c.172 0 .335.014.488.042.153.028.267.058.342.09l-.774 1.849a.766.766 0 00-.244-.073Z","M11.977 13.79h-1.955l4.549-10.715 1.657.7-4.251 10.015Z"],
+    'classic':"M14.7 2H5.3C3.48 2 2 3.48 2 5.3v9.4C2 16.52 3.48 18 5.3 18h9.4c1.82 0 3.3-1.48 3.3-3.3V5.3C18 3.48 16.52 2 14.7 2ZM5.3 3.8h9.4c.83 0 1.5.67 1.5 1.5v1.43H3.8V5.3c0-.83.67-1.5 1.5-1.5Zm10.9 4.73v2.93H3.8V8.53h12.4Zm-1.5 7.67H5.3c-.83 0-1.5-.67-1.5-1.5v-1.43h12.4v1.43c0 .83-.67 1.5-1.5 1.5Z",
+    'hot':"M14.92 6.703c-1.905-1.562-2.146-2.81-1.933-4.701a.905.905 0 00-.28-.758.895.895 0 00-.773-.23c-3.256.587-5.18 2.649-5.735 6.14a16.896 16.896 0 01-.67-.697.895.895 0 00-.644-.294.911.911 0 00-.658.264c-1.444 1.445-2.334 3.867-2.214 6.029C2.192 15.69 4.758 19 10.002 19c3.79 0 6.54-1.64 7.627-4.498.997-2.625-.04-5.613-2.707-7.8h-.001Zm-6.958 8.76c0-1.097 1.033-2.402 2.037-3.451 1.01 1.054 2.049 2.363 2.049 3.45 0 .829-.645 1.735-2.048 1.735-1.39 0-2.038-.908-2.038-1.734Zm7.983-1.601A4.804 4.804 0 0113.7 16.39a3.38 3.38 0 00.148-.928c0-2.262-2.254-4.465-3.85-5.973-1.59 1.502-3.837 3.697-3.837 5.973 0 .298.056.596.136.89-1.671-.932-2.407-2.495-2.49-3.997-.073-1.334.364-2.838 1.106-3.94.678.553 1.559 1.076 2.4 1.224.29-1.636.772-3.105 1.155-3.998.535-1.248 1.413-2.087 2.658-2.553.024 1.76.635 3.35 2.654 5.005 2.049 1.68 2.877 3.89 2.165 5.768h-.001Z",
+    'top':"M17.1 11.03h-3.3V8.98h1.17a1.328 1.328 0 00.94-2.27l-5.27-5.28c-.34-.34-.94-.34-1.27 0L4.09 6.71c-.38.38-.49.95-.29 1.45.21.5.69.82 1.23.82H6.2v2.05H2.9a1.9 1.9 0 00-1.9 1.9v2.6c0 1.82 1.48 3.3 3.3 3.3h11.4c1.82 0 3.3-1.48 3.3-3.3v-2.6a1.9 1.9 0 00-1.9-1.9ZM10 3.34l3.83 3.84H12v7.85c0 1.1-.9 2-2 2s-2-.9-2-2V7.18H6.17L10 3.34ZM2.8 15.52v-2.6c0-.06.04-.1.1-.1h3.3v2.2c0 .74.22 1.42.58 2H4.3c-.83 0-1.5-.67-1.5-1.5Zm14.4 0c0 .83-.67 1.5-1.5 1.5h-2.48c.36-.58.58-1.26.58-2v-2.2h3.3c.05 0 .1.04.1.1v2.6Z",
     calendar:'M5.6 1h1.8v2H5.6V1Zm7 0h1.8v2h-1.8V1ZM5 3h10a3 3 0 013 3v9a3 3 0 01-3 3H5a3 3 0 01-3-3V6a3 3 0 013-3Zm0 1.8c-.72 0-1.2.48-1.2 1.2v.4h12.4V6c0-.72-.48-1.2-1.2-1.2H5ZM3.8 8.2V15c0 .72.48 1.2 1.2 1.2h10c.72 0 1.2-.48 1.2-1.2V8.2H3.8Z'
   };
   const SVG='http://www.w3.org/2000/svg';
@@ -184,15 +192,15 @@
   function applyIcon(span,url){
     if(!url)return;
     const img=document.createElement('img');img.className='rt-community-img';img.alt='';img.decoding='async';img.referrerPolicy='no-referrer';img.src=url;
-    img.addEventListener('error',()=>{img.replaceWith(placeholderIcon(span.dataset.rtCommunity));},{once:true});
+    img.addEventListener('error',()=>{img.replaceWith(placeholderIcon(span.dataset.rtCommunity,span.dataset.rtPlaceholder));},{once:true});
     span.replaceChildren(img);span.dataset.rtIconApplied='true';
   }
-  function placeholderIcon(name){return svgIcon(/^u_./i.test(name)?'profile-fill':'community-fill',span24)||document.createDocumentFragment();}
+  function placeholderIcon(name,placeholder){return svgIcon(/^u_./i.test(name)?'profile-fill':placeholder || 'community-fill',span24)||document.createDocumentFragment();}
   // A fixed-size round community icon: the placeholder glyph now, the real icon swapped in without moving anything.
-  function communityIcon(name,size=span24){
-    const span=document.createElement('span');span.className='rt-community-icon';span.dataset.rtCommunity=name;span.style.setProperty('--rt-icon-size',size+'px');
+  function communityIcon(name,size=span24,placeholder){
+    const span=document.createElement('span');span.className='rt-community-icon';span.dataset.rtCommunity=name;if(placeholder)span.dataset.rtPlaceholder=placeholder;span.style.setProperty('--rt-icon-size',size+'px');
     const known=iconsApi()?.peek?.(name);
-    if(known)applyIcon(span,known);else{const g=placeholderIcon(name);if(g.nodeType===1){g.setAttribute('width',String(size));g.setAttribute('height',String(size));}span.append(g);}
+    if(known)applyIcon(span,known);else{const g=placeholderIcon(name,placeholder);if(g.nodeType===1){g.setAttribute('width',String(size));g.setAttribute('height',String(size));}span.append(g);}
     return span;
   }
   // Fill in one community's icon, if the loader can find it.
@@ -254,30 +262,45 @@
     const el=document.createElement('div');el.className='rt-menu-section text-12 font-semibold text-neutral-content-weak';el.setAttribute('role','presentation');el.dataset.rtUi='filter-option';el.dataset.rtSection=text;el.textContent=text;return el;
   }
   // Post type list: "All types" then the Text / Media / Links sections. Multi-select; append(el) places each element.
-  function typeOptions(ctx,{append,onToggle,onClear}){
+  function typeOptions(ctx,{append,onToggle,onClear,iconSize=20,allIcon=false}){
     const rows=new Map(),elements=[],add=el=>{el.dataset.rtUi='filter-option';append(el);elements.push(el);return el;};
-    const all=add(menuOption(ctx,{label:'All types',icon:false,value:'all',onSelect:()=>onClear()}));
+    const all=add(menuOption(ctx,{label:'All types',icon:allIcon,value:'all',onSelect:()=>onClear()}));
     for(const section of typeSections){
       add(sectionLabel(section.label));
-      for(const id of section.types)rows.set(id,add(menuOption(ctx,{label:typeLabels[id],icon:svgIcon(typeIcons[id],20),value:id,onSelect:()=>onToggle(id)})));
+      for(const id of section.types)rows.set(id,add(menuOption(ctx,{label:typeLabels[id],icon:svgIcon(typeIcons[id],iconSize),value:id,onSelect:()=>onToggle(id)})));
     }
     return {all,rows,elements,sync(selected){markChecked(ctx,all,!selected.length);for(const [id,el] of rows)markChecked(ctx,el,selected.includes(id));}};
+  }
+  function submenuHeader(label,onBack){
+    const head=document.createElement('div');head.className='rt-sub-head';
+    const back=document.createElement('button');back.className='rt-sub-back';back.type='button';back.dataset.rtSubBack='true';back.setAttribute('aria-label','Back');back.title='Back';back.append(svgIcon('arrow-back',16));
+    back.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onBack();});head.append(back);
+    if(label){const title=document.createElement('span');title.className='rt-sub-title';title.textContent=label;head.append(title);}
+    return {head,back};
   }
   const sourceNotes={archive:'Counts from the archive',loaded:'Counts from loaded items',loading:'Loading counts…',none:''};
   // Subreddit list: optional Back plus a pill search in one header row, then a scrolling list of
   // community icon / name / count / check rows (picked rows pinned first), then a footer note.
-  function subredditPanel({ctx,onBack=null,onToggle,max=maxSubreddits,limit=200}){
+  function subredditPanel({ctx,onBack=null,onToggle,max=maxSubreddits,limit=200,nativeHeader=false}){
     const mk=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
-    const el=mk('div','rt-sub-panel'),head=mk('div','rt-sub-head'),list=mk('div','rt-sub-list'),note=mk('div','rt-filter-note text-12 text-neutral-content-weak'),input=mk('input','rt-filter-search');
+    const header=nativeHeader && onBack?submenuHeader('',onBack):null;
+    const el=mk('div','rt-sub-panel'),head=header?.head || mk('div','rt-sub-head'),list=mk('div','rt-sub-list'),note=mk('div','rt-filter-note text-12 text-neutral-content-weak'),input=mk('input','rt-filter-search');
     el.dataset.rtUi='filter-option';el.dataset.rtSubPanel='true';list.dataset.rtSubList='true';list.setAttribute('role','group');list.setAttribute('aria-label','Communities');note.dataset.rtSubNote='true';head.dataset.rtSubHead='true';
-    let back=null;
-    if(onBack){back=mk('button','rt-sub-back');back.type='button';back.dataset.rtSubBack='true';back.setAttribute('aria-label','Back');back.title='Back';const arrow=svgIcon('arrow-back',20);back.append(arrow);back.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onBack();});head.append(back);}
+    let back=header?.back || null;
+    if(onBack && !header){back=mk('button','rt-sub-back');back.type='button';back.dataset.rtSubBack='true';back.setAttribute('aria-label','Back');back.title='Back';const arrow=svgIcon('arrow-back',20);back.append(arrow);back.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onBack();});head.append(back);}
     input.type='search';input.placeholder='Search communities';input.setAttribute('aria-label','Search communities');input.autocomplete='off';
     // Typing must not trigger the host menu's own keyboard handling.
     input.addEventListener('keydown',event=>{if(event.key!=='Escape')event.stopPropagation();});
-    head.append(input);el.append(head,list,note);
+    let field=null,clear=null;
+    if(nativeHeader){
+      field=mk('div','rt-filter-field');clear=mk('button','rt-filter-search-clear');clear.type='button';clear.setAttribute('aria-label','Clear community search');clear.hidden=true;clear.append(svgIcon('close',14));
+      field.append(svgIcon('search',18),input,clear);head.append(field);
+      clear.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();input.value='';list.scrollTop=0;render();input.focus({preventScroll:true});});
+    }else head.append(input);
+    el.append(head,list,note);
     let observer=null,last={entries:[],picked:[],source:'none'};
     const render=(data=last)=>{
+      if(clear)clear.hidden=!input.value;
       last=data;const picked=data.picked||[],pickedKeys=new Set(picked.map(n=>n.toLowerCase())),term=subName(input.value).toLowerCase(),entries=data.entries||[],byKey=new Map(entries.map(e=>[e.key.toLowerCase(),e]));
       const full=picked.length>=max,rows=[...picked.map(n=>byKey.get(n.toLowerCase())||{key:n,count:0}),...entries.filter(e=>!pickedKeys.has(e.key.toLowerCase()) && (!term || e.key.toLowerCase().includes(term) || subLabel(e.key).toLowerCase().includes(input.value.trim().toLowerCase())))].slice(0,limit);
       observer?.disconnect();observer=null;
@@ -285,20 +308,21 @@
       const watch=typeof IntersectionObserver==='function'?(observer=new IntersectionObserver(items=>{for(const item of items)if(item.isIntersecting){observer?.unobserve(item.target);loadIcon(item.target);}},{root:list,rootMargin:'48px'})):null;
       let index=0;
       for(const entry of rows){
-        const on=pickedKeys.has(entry.key.toLowerCase()),icon=communityIcon(entry.key,24);
+        const on=pickedKeys.has(entry.key.toLowerCase()),icon=communityIcon(entry.key,24,nativeHeader?'community':undefined);
         const row=menuOption(ctx,{label:subLabel(entry.key),icon,checked:on,value:entry.key,tail:entry.count?String(entry.count):'',slot:true,onSelect:()=>{if(row.getAttribute('aria-disabled')==='true')return;onToggle(entry.key);}});
+        if(nativeHeader){icon.classList.add('rt-sub-icon-box');const caption=row.firstElementChild.firstElementChild,text=caption.lastChild,name=mk('span','rt-sub-name',text.textContent);text.replaceWith(name);}
         row.dataset.rtUi='filter-option';row.dataset.rtSubRow=entry.key;row.dataset.rtSubOption=entry.key;
         if(full && !on){row.setAttribute('aria-disabled','true');row.setAttribute('disabled','');row.title='Up to '+max+' communities';}
         list.append(row);
         if(watch)watch.observe(icon);else if(index++<16)loadIcon(icon);
       }
-      if(!rows.length){const empty=mk('div','rt-sub-empty text-12 text-neutral-content-weak',term?'No matching communities':'No communities yet');list.append(empty);}
+      if(!rows.length){const empty=mk('div','rt-sub-empty text-12 text-neutral-content-weak',term?(nativeHeader?'No communities match':'No matching communities'):'No communities yet');list.append(empty);}
       list.scrollTop=keepTop;
       const text=sourceNotes[data.source]??'',tail=full?'Up to '+max+' communities':'';note.textContent=[text,tail].filter(Boolean).join(' · ');note.hidden=!note.textContent;
     };
     input.addEventListener('input',()=>{list.scrollTop=0;render();});
-    return {el,list,note,input,back,head,render,reset(){input.value='';list.scrollTop=0;},get data(){return last;}};
+    return {el,list,note,input,back,head,render,reset(){input.value='';if(clear)clear.hidden=true;list.scrollTop=0;},get data(){return last;}};
   }
   const iconNames=Object.freeze([...Object.keys(iconPaths),'gif']);
-  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,menuOption,markChecked,plainContext,sectionLabel,typeOptions,subredditPanel,communityIcon,svgIcon,iconNames,subName});
+  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,svgIcon,iconNames,subName});
 })();

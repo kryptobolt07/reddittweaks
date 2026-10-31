@@ -67,7 +67,7 @@
   // Reddit's own icons (copied from its live icon set): remove, archive-fill, rotate, pie-chart.
   Object.assign(nativeStatusPaths,{"removed": "M16.38 16.34A8.967 8.967 0 0019 10c0-4.96-4.04-9-9-9-2.47 0-4.71 1-6.34 2.62 0 0-.01 0-.02.01s0 .01-.01.02a8.967 8.967 0 00-2.62 6.34c0 4.96 4.04 9 9 9 2.47 0 4.71-1 6.34-2.62 0 0 .01 0 .02-.01s0-.01.01-.02ZM17.2 10c0 1.66-.57 3.19-1.52 4.41L5.59 4.32A7.157 7.157 0 0110 2.8c3.97 0 7.2 3.23 7.2 7.2ZM2.8 10c0-1.66.57-3.19 1.52-4.41l10.09 10.09A7.157 7.157 0 0110 17.2c-3.97 0-7.2-3.23-7.2-7.2Z", "archive": "M15.7 1H4.3C2.48 1 1 2.48 1 4.3v2.76c0 .5.4.9.9.9H2v6.74C2 16.52 3.48 18 5.3 18h9.4c1.82 0 3.3-1.48 3.3-3.3V7.96h.1c.5 0 .9-.4.9-.9V4.3C19 2.48 17.52 1 15.7 1ZM13 11.87H7v-1.8h6v1.8Zm4.2-5.71H2.8V4.3c0-.83.67-1.5 1.5-1.5h11.4c.83 0 1.5.67 1.5 1.5v1.86Z", "refresh": "M18 10.1a.9.9 0 01-1.8 0c0-2.867-2.332-5.2-5.199-5.2H8.074l.564.564a.9.9 0 01-1.274 1.272l-2.1-2.1a.898.898 0 010-1.272l2.1-2.1a.9.9 0 111.273 1.272l-.564.564H11c3.859 0 7 3.14 7 7Zm-5.363 3.164a.9.9 0 10-1.273 1.272l.564.564H9.001a5.205 5.205 0 01-5.199-5.2.9.9 0 00-1.8 0c0 3.86 3.141 7 7 7h2.927l-.564.564a.9.9 0 001.274 1.272l2.1-2.1a.898.898 0 000-1.272l-2.102-2.1Z", "activity": "M10 1c-.5 0-.9.4-.9.9v.17C5.11 2.52 2 5.9 2 10c0 4.41 3.59 8 8 8 4.11 0 7.48-3.11 7.93-7.1h.17c.5 0 .9-.4.9-.9 0-4.96-4.04-9-9-9Zm.9 1.86c3.25.41 5.84 2.99 6.24 6.24H10.9V2.86ZM10 16.2c-3.42 0-6.2-2.78-6.2-6.2 0-3.11 2.31-5.69 5.3-6.12V10c0 .5.4.9.9.9h6.12c-.44 2.99-3.01 5.3-6.12 5.3Z"});
   function glyph(kind='search'){
-    if(!nativeStatusPaths[kind]){const shared=globalThis.RTFeedFilters?.svgIcon?.(kind,16);if(shared)return shared;}
+    if(!nativeStatusPaths[kind] && kind!=='search' && kind!=='close'){const shared=globalThis.RTFeedFilters?.svgIcon?.(kind,16);if(shared)return shared;}
     const s=document.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('viewBox','0 0 24 24');s.dataset.icon=kind;s.classList.add('rt-activity-icon');s.setAttribute('aria-hidden','true');if(nativeStatusPaths[kind]){s.setAttribute('viewBox','0 0 20 20');s.dataset.nativeIcon='true';s.setAttribute('fill','currentColor');s.setAttribute('width','16');s.setAttribute('height','16');s.setAttribute('icon-name',kind);const path=document.createElementNS(s.namespaceURI,'path');path.setAttribute('d',nativeStatusPaths[kind]);s.append(path);return s;}
     const p=document.createElementNS(s.namespaceURI,'path');p.setAttribute('d',kind==='refresh'?'M20 8a8.9443 8.9443 0 1 0 0 8M20 3v5h-5':kind==='filter'?'M4 7h16M4 17h16M9 5v4M15 15v4':kind==='archive'?'M4 8h16v12H4zM3 4h18v4H3zM9 12h6':kind==='removed'?'M5 5l14 14M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20':kind==='close'?'M6 6l12 12M18 6L6 18':kind==='calendar'?'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4':kind==='posttype'?'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4':kind==='community'?'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M9 16l3-8 3 8M10 13.5h4':'M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6');s.append(p);return s;
   }
@@ -521,10 +521,10 @@
       if(this.activityDropdown && this.activityTriggerClick)this.activityDropdown.removeEventListener('click',this.activityTriggerClick,true);
       if(this.activityMain && this.openSubmenu)this.activityMain.classList.remove('hidden');
       // Native rows return; mark the menu handled so the pre-hide never applies.
-      this.activityMain?.setAttribute('data-rt-menu-ready','');
+      this.activityMain?.setAttribute('data-rt-menu-ready','');this.activityMain?.removeAttribute('data-rt-feed-options');this.activityMain?.parentElement?.removeAttribute('data-rt-feed-options-host');
       this.activityMenuObserver?.disconnect();if(this.activityDropdown && this.activityKeydown)this.activityDropdown.removeEventListener('keydown',this.activityKeydown,true);
       // Return Reddit's own rows to their original places.
-      for(const group of this.menuGroups || []){for(const item of group.items){if(item.hasAttribute('data-rt-search-sort-hidden')){item.hidden=item.dataset.rtSearchSortHidden==='true';item.removeAttribute('data-rt-search-sort-hidden');}group.anchor.before(item);}if(group.header)group.header.hidden=group.headerHidden;group.anchor.remove();}
+      for(const group of this.menuGroups || []){for(const restore of group.rtIconRestores || [])restore();for(const item of group.items){if(item.hasAttribute('data-rt-search-sort-hidden')){item.hidden=item.dataset.rtSearchSortHidden==='true';item.removeAttribute('data-rt-search-sort-hidden');}group.anchor.before(item);}if(group.header)group.header.hidden=group.headerHidden;group.anchor.remove();}
       this.menuGroups=[];
       for(const row of this.activityMenuRows || [])row.remove();this.activityMenuRows=[];this.host?.removeAttribute('data-rt-menu-ready');this.rtMenu=null;this.rtPickerHost?.remove();this.activityMenu=null;this.activityMain=null;this.activityDropdown=null;this.activityOpen=false;this.openSubmenu=null;this.openFeedSubmenu=null;
     }
@@ -541,7 +541,7 @@
     }
     // A previous build (parked view, re-rendered menu) can leave our rows and submenus behind: put Reddit's rows back and remove them all.
     purgeStaleMenu(content,menu){
-      for(const el of [...menu.querySelectorAll('[data-rt-ui="menu-group"]')]){const group=el.rtGroup;if(group){for(const item of group.group.items)group.anchor.before(item);if(group.group.header)group.group.header.hidden=group.group.headerHidden ?? false;group.anchor.remove();}}
+      for(const el of [...menu.querySelectorAll('[data-rt-ui="menu-group"]')]){const group=el.rtGroup;if(group){for(const restore of group.group.rtIconRestores || [])restore();for(const item of group.group.items)group.anchor.before(item);if(group.group.header)group.group.header.hidden=group.group.headerHidden ?? false;group.anchor.remove();}}
       for(const node of [...content.querySelectorAll(':scope > [data-rt-ui]')])node.remove();
       for(const node of [...menu.querySelectorAll(':scope > [data-rt-ui]')])node.remove();
     }
@@ -563,15 +563,16 @@
       if(this.controlsTarget?.contains(dropdown) && dropdown.shadowRoot && ![...this.nativeLoadingStyles].some(style=>style.parentNode===dropdown.shadowRoot)){const style=make('style');style.dataset.rtUi='controls-style';style.textContent='#hovercard{position:absolute!important;z-index:20!important}';dropdown.shadowRoot.append(style);this.nativeLoadingStyles.add(style);}
       if(this.activityMain!==menu){
         this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;queueMicrotask(()=>this.placeFilterChips());
-        const content=menu.parentElement,subs=[];
+        const content=menu.parentElement,subs=[],polished=!this.isSearch();
+        if(polished){menu.dataset.rtFeedOptions='true';content.dataset.rtFeedOptionsHost='true';}
         const row=(label,icon,tail)=>{const el=make('rpl-menu-item','cursor-pointer'),body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs rt-menu-caption');for(const [k,v] of Object.entries({size:'medium',appearance:'default',truncate:'both','aria-label':label,'prevent-auto-close':''}))el.setAttribute(k,v);const lead=typeof icon==='string'?glyph(icon):icon;lead?.classList?.add('rt-menu-lead');caption.append(lead,document.createTextNode(label));body.append(caption);if(tail)body.append(glyph(tail));el.tabIndex=-1;el.append(body);return el;};
         const activate=(el,fn)=>{el.addEventListener('click',fn);el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();event.stopImmediatePropagation();fn(event);}},true);};
-        const submenu=key=>{const el=make('rpl-menu','rt-activity-submenu hidden');el.dataset.rtUi='activity-filter-option';if(key)el.dataset.rtSubKey=key;el.setAttribute('wrap','');el.setAttribute('role','menu');subs.push(el);return el;};
+        const submenu=key=>{const el=make('rpl-menu','rt-activity-submenu hidden');el.dataset.rtUi='activity-filter-option';if(key)el.dataset.rtSubKey=key;if(polished)el.dataset.rtFeedOptions='true';el.setAttribute('wrap','');el.setAttribute('role','menu');subs.push(el);return el;};
         // Top-style navigation: one submenu open at a time, inside the same dropdown.
         // A submenu keeps the main menu's height (its long lists scroll inside), so the menu never grows when you drill in.
-        const open=target=>{if(target && !menu.classList.contains('hidden')){const height=menu.getBoundingClientRect().height;if(height>0)target.style.setProperty('--rt-menu-height',Math.round(height)+'px');}this.openSubmenu=target || null;this.activityOpen=target===this.activityMenu;menu.classList.toggle('hidden',Boolean(target));for(const sub of subs)sub.classList.toggle('hidden',sub!==target);for(const entry of this.activityMenuRows)if(entry.matches?.('rpl-menu-item'))entry.setAttribute('aria-expanded',String(entry.rtSubmenu===target));(target?target.querySelector('rpl-menu-item'):this.lastSubmenuRow)?.focus({preventScroll:true});};
+        const open=target=>{if(target && !menu.classList.contains('hidden')){const height=menu.getBoundingClientRect().height;if(height>0)target.style.setProperty('--rt-menu-height',Math.round(height)+'px');}this.openSubmenu=target || null;this.activityOpen=target===this.activityMenu;menu.classList.toggle('hidden',Boolean(target));for(const sub of subs)sub.classList.toggle('hidden',sub!==target);for(const entry of this.activityMenuRows)if(entry.matches?.('rpl-menu-item'))entry.setAttribute('aria-expanded',String(entry.rtSubmenu===target));(target?target.querySelector(polished?'.rt-sub-back,rpl-menu-item':'rpl-menu-item'):this.lastSubmenuRow)?.focus({preventScroll:true});};
         this.openFeedSubmenu=open;
-        const entry=(label,icon,sub,{back=true}={})=>{const el=row(label,icon,'chevron-right');el.setAttribute('aria-haspopup','menu');el.rtSubmenu=sub;const value=make('span','rt-menu-value text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';el.firstElementChild.insertBefore(value,el.firstElementChild.lastElementChild);activate(el,()=>{this.lastSubmenuRow=el;open(sub);el.rtOnOpen?.();});if(back){const backRow=row('Back','arrow-back');backRow.dataset.rtUi='submenu-back';activate(backRow,()=>open(null));sub.append(backRow);}return el;};
+        const entry=(label,icon,sub,{back=true}={})=>{const el=row(label,icon,'chevron-right');el.setAttribute('aria-haspopup','menu');el.rtSubmenu=sub;const value=make('span','rt-menu-value text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';el.firstElementChild.insertBefore(value,el.firstElementChild.lastElementChild);activate(el,()=>{this.lastSubmenuRow=el;open(sub);el.rtOnOpen?.();});if(back){if(polished && globalThis.RTFeedFilters?.submenuHeader){const header=globalThis.RTFeedFilters.submenuHeader(label,()=>open(null));header.head.dataset.rtUi='submenu-back';sub.append(header.head);}else{const backRow=row('Back','arrow-back');backRow.dataset.rtUi='submenu-back';activate(backRow,()=>open(null));sub.append(backRow);}}return el;};
         this.activityMenuRows=[];this.purgeStaleMenu(content,menu);
         // Group Reddit's own sections (sort, view) into Top-style submenus so the
         // menu stays short. Its rows move (keeping their handlers) and are put back on teardown.
@@ -581,7 +582,18 @@
         // Comments has no View section, so its single Sort group is grouped too.
         if(native.length>=(this.context.view==='comments' || this.isSearch()?1:2))for(const [index,group] of native.entries()){
           const label=index===0?'Sort':group.header?.textContent.trim() || 'View',sub=submenu(index===0?'sort':'view'),anchor=document.createComment('rt-menu-group');group.items[0].before(anchor);
-          const el=entry(label,'activity',sub);el.dataset.rtUi='menu-group';el.rtGroup={anchor,group};anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
+          if(polished){
+            group.rtIconRestores=[];
+            for(const item of group.items){
+              const original=item.querySelector('svg[icon-name]:not([icon-name="checkmark"])'),name=original?.getAttribute('icon-name'),fallback=index===0?'caret-up-down':'classic';
+              const icon=globalThis.RTFeedFilters?.svgIcon?.(name==='new-fill'?'caret-up-down':name?.replace(/-fill$/,'') || fallback,16);
+              if(!icon)continue;icon.classList.add('rt-menu-lead');
+              const tabIndex=item.getAttribute('tabindex');item.tabIndex=-1;group.rtIconRestores.push(()=>{if(tabIndex==null)item.removeAttribute('tabindex');else item.setAttribute('tabindex',tabIndex);});
+              if(original){original.replaceWith(icon);group.rtIconRestores.push(()=>icon.replaceWith(original));}
+              else{const nodes=[...item.childNodes],body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs rt-menu-caption');caption.append(icon,...nodes);body.append(caption);item.append(body);group.rtIconRestores.push(()=>item.replaceChildren(...nodes));}
+            }
+          }
+          const el=entry(label,polished?(index===0?'caret-up-down':'card'):'activity',sub);el.dataset.rtUi='menu-group';el.rtGroup={anchor,group};anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
           if(index>0 && group.header){group.headerHidden=group.header.hidden;group.header.hidden=true;}
           this.menuGroups.push({...group,anchor,row:el,sub});this.activityMenuRows.push(el,sub);
         }
@@ -590,8 +602,20 @@
         // Refresh sits at the end of the Activity submenu.
         const divider=make('div','my-xs border-0 border-t-sm border-solid border-neutral-border-weak');divider.setAttribute('role','separator');
         const refresh=row('Refresh activity','refresh');refresh.dataset.rtUi='activity-refresh';activate(refresh,()=>{this.closeFeedMenu(dropdown,open);if(!this.discover.disabled)this.discover.click();});sub.append(divider,refresh);
-        content.append(sub);this.activityMenuRows.push(activity,sub);this.buildFilterMenu({row,activate,submenu,entry,open,content,menu,dropdown});this.host?.setAttribute('data-rt-menu-ready','');menu.setAttribute('data-rt-menu-ready','');
-        this.activityKeydown=event=>{if(event.key==='Escape' && this.openSubmenu){event.preventDefault();event.stopImmediatePropagation();open(null);}};dropdown.addEventListener('keydown',this.activityKeydown,true);
+        content.append(sub);this.activityMenuRows.push(activity,sub);this.buildFilterMenu({row,activate,submenu,entry,open,content,menu,dropdown});
+        if(polished)for(const sub of subs){if(sub.hasAttribute('data-rt-panel'))continue;const list=make('div','rt-sub-list');list.dataset.rtMenuList='true';for(const node of [...sub.children])if(!node.matches('.rt-sub-head'))list.append(node);sub.append(list);}
+        this.host?.setAttribute('data-rt-menu-ready','');menu.setAttribute('data-rt-menu-ready','');
+        this.activityKeydown=event=>{
+          if(event.key==='Escape' && this.openSubmenu){event.preventDefault();event.stopImmediatePropagation();open(null);return;}
+          // The list wrapper is not an rpl-menu-item. Navigate its rows explicitly,
+          // keeping the header reachable and leaving text-field editing alone.
+          if(!polished || !this.openSubmenu || event.target.matches('input') || !['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
+          const choices=[...this.openSubmenu.querySelectorAll('.rt-sub-back,rpl-menu-item')].filter(el=>!el.hidden && el.getAttribute('aria-disabled')!=='true' && !el.hasAttribute('disabled'));
+          if(!choices.length)return;
+          const at=choices.indexOf(event.target.closest('.rt-sub-back,rpl-menu-item')),next=event.key==='Home'?0:event.key==='End'?choices.length-1:(at+(event.key==='ArrowUp'?-1:1)+choices.length)%choices.length;
+          event.preventDefault();event.stopImmediatePropagation();const choice=choices[next];choice.focus({preventScroll:true});
+          const list=choice.closest('.rt-sub-list');if(list){const bounds=list.getBoundingClientRect(),item=choice.getBoundingClientRect();if(item.top<bounds.top)list.scrollTop-=bounds.top-item.top;else if(item.bottom>bounds.bottom)list.scrollTop+=item.bottom-bounds.bottom;}
+        };dropdown.addEventListener('keydown',this.activityKeydown,true);
         // Opening Feed options always starts at the main menu; closing it resets too.
         this.activityTriggerClick=event=>{if(event.target?.closest?.('button[aria-label="Feed options"]'))open(null);};dropdown.addEventListener('click',this.activityTriggerClick,true);
         // Close ours when the dropdown closes, or when Reddit opens its own submenu (Top) from ours.
@@ -601,8 +625,8 @@
         // Reddit re-rendering its menu while ours was open (a filter just changed): come back to the same submenu.
         const resume=this.resumeSubmenu;this.resumeSubmenu=null;if(resume && Date.now()-resume.at<2000 && dropdown.hasAttribute('open')){const target=subs.find(el=>el.dataset.rtSubKey===resume.key);if(target)open(target);}
       }
-      // Current choice beside each group row (from Reddit's checkmarks) and its icon.
-      for(const group of this.menuGroups || []){const checked=group.items.find(item=>item.querySelector('svg[icon-name="checkmark"],[icon-name="checkmark"]') || item.getAttribute('aria-checked')==='true' || item.matches('[aria-current="true"],[aria-current="page"]'));const label=checked?.getAttribute('aria-label') || '';const value=group.row.querySelector('[data-rt-menu-value]');if(value.textContent!==label)value.textContent=label;const icon=checked?.querySelector('svg[icon-name]');const caption=group.row.firstElementChild.firstElementChild;if(icon && caption.firstElementChild?.getAttribute('icon-name')!==icon.getAttribute('icon-name')){const copy=icon.cloneNode(true);copy.removeAttribute('id');caption.firstElementChild.replaceWith(copy);}}
+      // Current choice from Reddit's checkmarks; profile rows keep stable outline icons.
+      for(const group of this.menuGroups || []){const checked=group.items.find(item=>item.querySelector('svg[icon-name="checkmark"],[icon-name="checkmark"]') || item.getAttribute('aria-checked')==='true' || item.matches('[aria-current="true"],[aria-current="page"]'));const label=checked?.getAttribute('aria-label') || '';const value=group.row.querySelector('[data-rt-menu-value]');if(value.textContent!==label)value.textContent=label;const icon=checked?.querySelector('svg[icon-name]');const caption=group.row.firstElementChild.firstElementChild;if(this.isSearch() && icon && caption.firstElementChild?.getAttribute('icon-name')!==icon.getAttribute('icon-name')){const copy=icon.cloneNode(true);copy.removeAttribute('id');caption.firstElementChild.replaceWith(copy);}}
       if(this.searchResumeMenu && this.isSearch()){
         const saved=this.searchResumeMenu,sub=[...this.activityDropdown.querySelectorAll('[data-rt-sub-key]')].find(el=>el.dataset.rtSubKey===saved.key);this.searchResumeMenu=null;
         if(sub){this.searchRestoringMenu=!this.activityDropdown.hasAttribute('open');this.activityDropdown.setAttribute('open','');this.activityMain.classList.remove('hidden');this.openFeedSubmenu(sub);if(saved.height)sub.style.setProperty('--rt-menu-height',saved.height);}
@@ -750,7 +774,7 @@
     }
     buildFilterMenu({row,activate,submenu,entry,open,content,menu,dropdown}){
       const f=globalThis.RTFeedFilters;this.rtMenu=null;if(!f)return;
-      const fx={row,activate,glyph},current=()=>f.clone(this.rtFilters || f.empty()),m=this.rtMenu={fx,date:new Map(),types:new Map(),groups:{},sub:null,old:null,all:null,typeList:null};
+      const polished=!this.isSearch(),fx={row,activate,glyph},current=()=>f.clone(this.rtFilters || f.empty()),m=this.rtMenu={fx,date:new Map(),types:new Map(),groups:{},sub:null,old:null,all:null,typeList:null};
       // Single choices close the whole menu; Post type and Subreddit are multi-select and stay open.
       const close=()=>this.closeFeedMenu(dropdown,open);
       const option=(parent,options)=>{const el=f.menuOption(fx,options);el.dataset.rtUi='filter-option';parent.append(el);return el;};
@@ -769,19 +793,19 @@
         m.old=option(sortGroup.sub,{label:'Old',subtitle:'From the archive',icon:'archive',value:'old',onSelect:()=>{const next=current();next.sort=next.sort==='old'?null:'old';this.setFilters(next);close();}});
         for(const item of sortGroup.items)if(!item.rtSortHook){item.rtSortHook=()=>{if(this.rtFilters?.sort==='old'){const next=current();next.sort=null;this.setFilters(next);}};item.addEventListener('click',item.rtSortHook);}
       }
-      // Date: Reddit's own time-range menus have no icons, so neither do these rows.
+      // Profile filter rows share the same 16px outline glyphs as the main menu.
       const date=m.groups.date=group('Date','calendar',{key:'date'});
-      m.date.set('any',option(date.sub,{label:'Any time',icon:false,value:'any',onSelect:()=>{const next=current();next.date=null;this.setFilters(next);close();}}));
-      for(const preset of [...(this.isSearch()?[{id:'hour',label:'Past hour'}]:[]),...f.presets])m.date.set(preset.id,option(date.sub,{label:preset.label,icon:false,value:preset.id,onSelect:()=>{const next=current();next.date=next.date?.preset===preset.id?null:{preset:preset.id};this.setFilters(next);close();}}));
-      m.date.set('custom',option(date.sub,{label:'Custom…',icon:false,value:'custom',onSelect:()=>{close();this.openDatePicker(dropdown);}}));
+      m.date.set('any',option(date.sub,{label:'Any time',icon:polished?'calendar':false,value:'any',onSelect:()=>{const next=current();next.date=null;this.setFilters(next);close();}}));
+      for(const preset of [...(this.isSearch()?[{id:'hour',label:'Past hour'}]:[]),...f.presets])m.date.set(preset.id,option(date.sub,{label:preset.label,icon:polished?'calendar':false,value:preset.id,onSelect:()=>{const next=current();next.date=next.date?.preset===preset.id?null:{preset:preset.id};this.setFilters(next);close();}}));
+      m.date.set('custom',option(date.sub,{label:'Custom…',icon:polished?'calendar':false,value:'custom',onSelect:()=>{close();this.openDatePicker(dropdown);}}));
       if(this.context.view!=='comments' && !(this.isSearch() && this.searchKind()==='comment')){
         const type=m.groups.type=group('Post type','text-post',{key:'type'});
-        m.typeList=f.typeOptions(fx,{append:el=>type.sub.append(el),onClear:()=>{const next=current();next.types=[];this.setFilters(next);},onToggle:name=>{const next=current();next.types=next.types.includes(name)?next.types.filter(x=>x!==name):[...next.types,name];this.setFilters(next);}});
+        m.typeList=f.typeOptions(fx,{iconSize:polished?16:20,allIcon:polished?'text-post':false,append:el=>type.sub.append(el),onClear:()=>{const next=current();next.types=[];this.setFilters(next);},onToggle:name=>{const next=current();next.types=next.types.includes(name)?next.types.filter(x=>x!==name):[...next.types,name];this.setFilters(next);}});
         m.all=m.typeList.all;m.types=m.typeList.rows;
       }
       // Subreddit: its own Back + search header, then a scrolling list with community icons.
-      const community=m.groups.sub=group('Subreddit','community-fill',{key:'sub',back:false,onOpen:()=>{m.sub.panel.reset();this.loadSubredditCounts();}});
-      const panel=f.subredditPanel({ctx:fx,onBack:()=>open(null),onToggle:name=>{
+      const community=m.groups.sub=group('Subreddit',polished?'community':'community-fill',{key:'sub',back:false,onOpen:()=>{m.sub.panel.reset();this.loadSubredditCounts();}});
+      const panel=f.subredditPanel({ctx:fx,nativeHeader:polished,onBack:()=>open(null),onToggle:name=>{
         const next=current(),has=next.subreddits.findIndex(x=>x.toLowerCase()===name.toLowerCase());
         if(has>=0)next.subreddits.splice(has,1);else if(next.subreddits.length<f.maxSubreddits)next.subreddits.push(name);else return;this.setFilters(next);}});
       community.sub.dataset.rtPanel='true';community.sub.append(panel.el);m.sub={panel,input:panel.input,list:panel.list,note:panel.note,fx};
