@@ -277,10 +277,23 @@
     const scope=searchScope(message);if(scope.ok===false)return scope;
     const sort=message.sort==null?'desc':message.sort,query=message.query;
     if(!['desc','asc'].includes(sort))return fail('Invalid sort.','invalid-request');
-    if(query!=null && (typeof query!=='string' || query.length>256 || /[\u0000-\u001f]/.test(query)))return fail('Invalid search text.','invalid-request');
+    const textKeys=scope.kind==='comment'?['body']:['title','selftext','link_flair_text','url'],boolKeys=scope.kind==='comment'?[]:['over_18','spoiler','url_exact'];
+    const fieldKeys=['title','selftext','body','link_flair_text','url','over_18','spoiler','url_exact'],params={};
+    // Explicit parameter whitelist; never spread a caller's request into a URL.
+    for(const key of ['query',...fieldKeys]){
+      if(message[key]==null)continue;
+      if(key==='query' || textKeys.includes(key)){
+        if(typeof message[key]!=='string' || message[key].length>256 || /[\u0000-\u001f\u007f]/.test(message[key]))return fail('Invalid search text.','invalid-request');
+        if(key!=='query' && message[key].trim())params[key]=message[key].trim();
+      }else if(boolKeys.includes(key)){
+        if(typeof message[key]!=='boolean')return fail('Invalid search flag.','invalid-request');params[key]=message[key];
+      }else return fail(key+" isn't available for "+(scope.kind==='comment'?'comments.':'posts.'),'invalid-request');
+    }
+    if(scope.kind==='comment' && query?.trim() && params.body)return fail('Use query or body, not both.','invalid-request');
     const text=query?.trim() || '',{kind,author,subreddit}=scope,after=message.after,before=message.before;
-    const key=['search',kind,author||'',subreddit||'',text,after??'',before??'',sort].join('\u0001');
-    return cachedSearch(key,()=>archiveFetch(kind==='comment'?'comments/search':'posts/search',{author,subreddit,[kind==='comment'?'body':'query']:text,after,before,sort,limit,md2html:'true'},data=>{
+    const key=JSON.stringify(['search',kind,author||'',subreddit||'',text,after??'',before??'',sort,Object.entries(params).sort(([a],[b])=>a.localeCompare(b))]);
+    const textFiltered=Boolean(text || [...textKeys].some(key=>params[key]));
+    return cachedSearch(key,()=>archiveFetch(kind==='comment'?'comments/search':'posts/search',{author,subreddit,...params,...(text?{[kind==='comment'?'body':'query']:text}:{}),after,before,sort,limit,md2html:'true'},data=>{
       const normalize=kind==='comment'?Model.normalizeComment:Model.normalizePost;
       const posts=data.slice(0,limit).map(item=>normalize(item,{source:'arctic-shift'})).filter(post=>post && (!author || post.author.toLowerCase()===author) && (!subreddit || post.subreddit.toLowerCase()===subreddit)
         && (before==null || post.created<before) && (after==null || post.created>after));
@@ -288,8 +301,8 @@
       // Bounds are exclusive. Overlap the boundary second so same-second records are never skipped; a stall is surfaced, never called complete.
       const edge=times.length?(sort==='asc'?Math.max(...times)-1:Math.min(...times)+1):null,bound=sort==='asc'?after:before;
       const cursor=hasMore && edge!=null && edge>0?edge:null,stalled=hasMore && (cursor==null || bound!=null && (sort==='asc'?cursor<=bound:cursor>=bound));
-      return {ok:true,posts,cursor,hasMore,sort,serverFiltered:Boolean(text),source:'arctic-shift',incomplete:true,cursorStalled:stalled,cursorMode:'exclusive-overlap-second'};
-    }).then(value=>value.ok===false && text && ['timeout','text-search-unavailable'].includes(value.code)?fail('Text search is unavailable for this scope.','text-search-unavailable'):value));
+      return {ok:true,posts,cursor,hasMore,sort,serverFiltered:Boolean(text || Object.keys(params).length),source:'arctic-shift',incomplete:true,cursorStalled:stalled,cursorMode:'exclusive-overlap-second'};
+    }).then(value=>value.ok===false && textFiltered && ['timeout','text-search-unavailable'].includes(value.code)?fail('Text search is unavailable for this scope.','text-search-unavailable'):value));
   }
   async function archiveAggregate(message,sender){
     if(!redditSender(sender))return fail('Archive aggregates require a Reddit page.','forbidden');

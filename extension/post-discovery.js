@@ -5,6 +5,19 @@
   const key='rt-settings-v1';
   const profileBatchSize=25,searchPageBudget=10;
   const searchSorts=['relevance','new','old','top','comments','hot'],mediaTypes=['image','gif','video','gallery'];
+  // Widen only after live verification against native post AND comment search.
+  // Each capability must preserve a superset; unsupported predicates stay local.
+  const PROFILE_REDDIT_SEARCH_CAPABILITIES=Object.freeze(['term','phrase','and','or']);
+  function parseProfileSearch(context){
+    const comments=context.type==='comments',fields=comments?['body','subreddit','author']:['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type'];
+    const parsed=globalThis.RCSCore.parseQuery(context.q,{fields});
+    parsed.errors=parsed.errors.map(error=>error.replace("isn't available in this search",comments?"isn't available for comments":"isn't available for posts"));
+    const visit=node=>{
+      if(node.type==='field' && node.field==='author' && node.value.toLowerCase()!==context.username.toLowerCase())parsed.errors.push('Author is fixed to u/'+context.username+'; another user cannot be searched here');
+      if(node.type==='field' && ['from','has'].includes(node.field))parsed.errors.push(node.field+": isn't available for "+(comments?'comments':'posts'));
+      if(node.child)visit(node.child);for(const child of node.children || [])visit(child);
+    };visit(parsed.expr);parsed.errors=[...new Set(parsed.errors)];parsed.invalid=parsed.errors.length>0;return parsed;
+  }
   // Bounded waits keep the combined feed in date order without letting a slow
   // source stall it. Native continuation cards wait at most nativeWaitMs for
   // discovery coverage; a discovery source that has not answered within
@@ -352,7 +365,9 @@
       let target=context.view==='search'?this.mountSearchFeed(main):context.kind==='profile'?main.querySelector('shreddit-feed,[data-rt-archive-feed]'):main.querySelector('shreddit-post');
       if(!target)return;
       this.context=context;this.feed=context.kind==='profile'?target:null;this.rtFilters=context.kind==='profile'?this.readFilters(context):null;this.rtPred=null;this.rtSearch=location.search;
-      this.searchParsed=context.view==='search'?globalThis.RCSCore.parseQuery(context.q,{scopes:['subreddit']}):null;
+      this.searchParsed=context.view==='search'?parseProfileSearch(context):null;
+      this.searchReddit=this.searchParsed?globalThis.RCSCore.splitQuery(this.searchParsed,PROFILE_REDDIT_SEARCH_CAPABILITIES):null;
+      this.searchArchiveLocal=false;
       if(context.view==='search')this.suppressSearchPage();
       this.batchedProfile=Boolean(this.feed);
       // Cards Reddit has already painted are never pulled back behind the merge
@@ -392,7 +407,7 @@
     isSearch(){return this.context?.view==='search';}
     searchKind(){return this.context?.type==='comments'?'comment':'post';}
     effectiveSort(){return this.isSearch()?(this.rtFilters?.sort || this.context.sort):this.context?.sort;}
-    clientSearchOn(){return !this.archiveOnly && !this.oldSort() && !this.searchParsed?.hasOperators && !this.searchParsed?.invalid;}
+    clientSearchOn(){return !this.archiveOnly && !this.oldSort() && !this.searchParsed?.invalid;}
     readFilters(context=this.context){
       const f=globalThis.RTFeedFilters;if(!f)return null;const state=f.read(location);
       if(context?.view!=='search')return state;
@@ -668,9 +683,11 @@
     }
     filterMatch(post,{hydrate=false}={}){
       if(this.isSearch()){
-        const f=globalThis.RTFeedFilters,pendingType=hydrate && post.source==='reddit' && !this.nodes.get(itemKey(post))?.querySelector('shreddit-post'),state={...this.rtFilters,subreddits:this.rtFilters.subreddits.length?this.rtFilters.subreddits:this.searchParsed.subreddits || [],types:this.searchKind()==='comment' || pendingType?[]:this.rtFilters.types};
+        const f=globalThis.RTFeedFilters,pendingType=hydrate && post.source==='reddit' && !this.nodes.get(itemKey(post))?.querySelector('shreddit-post'),state={...this.rtFilters,types:this.searchKind()==='comment' || pendingType?[]:this.rtFilters.types};
         if(!f.predicate(state)(this.filterItem(post)))return false;
         if(this.context.type==='media' && !pendingType && !mediaTypes.includes(this.filterItem(post).postType))return false;
+        // Native cards can prove a type that search metadata did not carry.
+        if(!pendingType && (post.source!=='reddit' || this.searchReddit.residual) && !globalThis.RCSCore.matchRecord(this.searchParsed,M.searchRecord(post,this.nodes.get(itemKey(post))?.querySelector('shreddit-post,shreddit-profile-comment'))))return false;
         return true;
       }
       return !this.rtActive() || this.rtPredicate()(this.filterItem(post));
@@ -732,7 +749,7 @@
       if(!Q)return this.archive({action:'archive-profile',username:this.context.username,kind,...(cursor?{before:cursor}:{}),...(this.archiveForceUntil>Date.now()?{force:true}:{})});
       const f=globalThis.RTFeedFilters,state=this.rtFilters,range=f.dateRange(state),old=this.oldSort(),controller=new AbortController();this.controllers.add(controller);
       const args={kind,author:this.context.username,sort:old?'asc':'desc',maxPages:1,signal:controller.signal};
-      if(this.isSearch()){args.parsed=this.searchParsed;const subs=state.subreddits.length?state.subreddits:this.searchParsed.subreddits || [];if(subs.length===1)args.subreddit=subs[0];if(this.context.type==='media')args.postTypes=state.types.length?mediaTypes.filter(t=>state.types.includes(t)):mediaTypes;if(args.postTypes && !args.postTypes.length)args.postTypes=['none'];}
+      if(this.isSearch()){args.parsed=this.searchParsed;if(this.context.type==='media')args.postTypes=state.types.length?mediaTypes.filter(t=>state.types.includes(t)):mediaTypes;if(args.postTypes && !args.postTypes.length)args.postTypes=['none'];}
       if(range?.after!=null)args.after=range.after;if(range?.before!=null)args.before=range.before;if(cursor!=null)args.cursor=cursor;
       if(state.subreddits.length===1)args.subreddit=state.subreddits[0];if(kind==='post' && state.types.length && !(this.isSearch() && this.context.type==='media'))args.postTypes=[...state.types];
       try{
@@ -740,6 +757,7 @@
         let page=null;for await(const next of Q.search(args)){page=next;break;}
         if(!page)return {posts:[],normalized:true,before:cursor,hasMore:false,cursorStalled:false};
         const back=page.searchedBackTo==null?NaN:Number(page.searchedBackTo),seconds=Number.isFinite(back) && back>0?(back>1e11?Math.floor(back/1000):back):null;
+        if(this.isSearch() && page.mode==='local')this.searchArchiveLocal=true;
         return {posts:Array.isArray(page.items)?page.items:[],normalized:true,before:page.cursor ?? null,hasMore:Boolean(page.hasMore),cursorStalled:Boolean(page.stalled),searchedBackTo:seconds,serverFiltered:Boolean(page.serverFiltered)};
       }finally{this.controllers.delete(controller);}
     }
@@ -1105,13 +1123,21 @@
       const {count=0,deferred=0}=this.summaryCounts || {},noun=this.context.view==='comments'?(count===1?'comment':'comments'):this.context.view==='overview'?(count===1?'item':'items'):count===1?'post':'posts';
       const archiveView=this.activityFilter==='deleted' && this.settings.archiveDiscovery,errors=Object.entries(this.sourceErrors || {}).filter(([key,value])=>value && !key.startsWith('metadata-') && !(archiveView && ['post','comment','comment-public','request'].includes(key))).map(([,value])=>value);this.setStatus(errors.length?errors.join(' '):this.nativeBatch.blocked?'Reddit is limiting card requests. Select Refresh activity to retry.':count?`${count} ${this.archiveOnly?'archived':'additional'} ${noun}${this.rtActive()?' · Search and archive coverage may be incomplete':''}`:this.rtActive()?'No matches in loaded activity':'Activity checked',errors.length>0 || this.nativeBatch.blocked===true);
       if(this.isSearch() && !errors.length && !this.nativeBatch.blocked)this.setStatus(this.searchParsed.invalid?this.searchParsed.errors.join('. '):count?count+' results · Search and archive coverage may be incomplete':'Search and archive coverage may be incomplete',Boolean(this.searchParsed.invalid));
+      if(this.isSearch()){
+        if(this.searchParsed.invalid)this.sourceNotices.query=this.searchParsed.errors.join('. ');
+        else if(this.searchReddit.residual || this.searchArchiveLocal)this.sourceNotices.query='Some matches filtered locally · Results may be incomplete';
+        else delete this.sourceNotices.query;
+      }
       // Quiet notes: a source paused on purpose, never a failure banner.
       if(this.notice){const notes=[...new Set(Object.values(this.sourceNotices || {}).filter(Boolean))],text=notes.join(' · ');if(this.notice.textContent!==text)this.notice.textContent=text;this.notice.hidden=!notes.length;this.notice.title=notes.includes(publicBlockedNote)?'Reddit refused the extension’s logged-out comment search (HTTP 403). It is skipped for about 10 minutes; signed-in search, Reddit’s own feed and the archive keep loading.':'';}
       if(this.archiveOnly)this.updateArchiveSummary();
       if(this.archiveOnly && this.settings.archiveDiscovery){this.archiveEmpty.hidden=this.isSearch() || this.activityFilter!=='all' || !this.archiveLoaded || count>0 || this.renderedPosts.length>0;this.archiveEmpty.textContent='No archived activity found for this username. Archive coverage may be incomplete.';}
       this.status.title=(deferred?`${deferred} older discoveries will appear when Reddit loads that part of the feed. `:'')+[...new Set(Object.entries(this.sourceErrors || {}).filter(([key,value])=>key.startsWith('metadata-') && value).map(([,value])=>value)),'Search and archive coverage may be incomplete.'].join(' ');
     }
-    setStatus(text,error=false){this.status.textContent=text;this.status.dataset.error=String(error);}
+    setStatus(text,error=false){
+      if(this.isSearch() && !this.searchParsed?.invalid && (this.searchReddit?.residual || this.searchArchiveLocal) && !text.includes('filtered locally'))text+=' · Some matches filtered locally'+(text.includes('may be incomplete')?'':' · Results may be incomplete');
+      this.status.textContent=text;this.status.dataset.error=String(error);
+    }
     async request(parameters){const controller=new AbortController();let started=Date.now(),timeoutRetries=0,responseRetries=0;this.controllers.add(controller);try{
       for(;;){
         if(Date.now()-started>=10000)throw Error('Reddit requests are paused. Please try again shortly.');
@@ -1143,7 +1169,7 @@
       await Promise.all(streams.map(async ({kind,key,stream})=>{
         if(more && !retry && !this.redMore[key])return;
         const old=more || retry?this.afterByKind[key]:null;this.pages++;
-        try{const result=await this.request({action:'profile',username:this.context.username,sort:this.effectiveSort(),range:this.isSearch()?'all':this.context.range,kind,...(this.isSearch()?{query:globalThis.RCSCore.toArchiveQuery(this.searchParsed)}:{}),...(stream?{stream}:{}),...(old?{after:old}:{})});if(!current())return;
+        try{const result=await this.request({action:'profile',username:this.context.username,sort:this.effectiveSort(),range:this.isSearch()?'all':this.context.range,kind,...(this.isSearch()?{query:globalThis.RCSCore.toRedditQuery(this.searchReddit.server)}:{}),...(stream?{stream}:{}),...(old?{after:old}:{})});if(!current())return;
           const incoming=new Map(),page=[];for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(!p || p.author.toLowerCase()!==this.context.username.toLowerCase())continue;page.push(p);const id=itemKey(p),previous=this.live.get(id);
             if(stream==='public' && previous && this.commentOrigins.get(id)!=='public'){this.live.set(id,{...previous,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler});continue;}
             const merged=previous?{...p,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler}:p;this.live.set(id,merged);incoming.set(id,merged);if(kind==='comment')this.commentOrigins.set(id,stream);
@@ -1798,7 +1824,7 @@
     else (native.querySelector('[slot="credit-bar"]') || native).append(badge);
     return node;
   }
-  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard,avatarHint:name=>avatarHints.get(String(name||'').toLowerCase())?.url || ''});
+  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard,PROFILE_REDDIT_SEARCH_CAPABILITIES,avatarHint:name=>avatarHints.get(String(name||'').toLowerCase())?.url || ''});
   // Debug handle in the extension's isolated world only (not visible to Reddit's page).
   if(window.top===window && globalThis.chrome?.runtime?.id)Object.defineProperty(globalThis,'RTDiscoveryDebug',{value:new Discovery()});
 })();

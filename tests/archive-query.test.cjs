@@ -3,7 +3,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm');
 function load({core,now=Date.now}={}){
  const clock={t:1700000000000},D=class extends Date{static now(){return clock.t;}};
- const context=vm.createContext({console,Date:D,setTimeout,clearTimeout,Promise,RCSCore:core});
+ const context=vm.createContext({console,Date:D,URL,setTimeout,clearTimeout,Promise,RCSCore:core});
+ vm.runInContext(fs.readFileSync('extension/post-model.js','utf8'),context);
  vm.runInContext(fs.readFileSync('extension/archive-query.js','utf8'),context);
  return {Q:context.RTArchiveQuery,clock};
 }
@@ -91,6 +92,47 @@ test('the local fallback uses the shared grammar: OR, exclusions and phrases, wi
  const {Q}=load({core:ctx.RCSCore}),parsed=ctx.RCSCore.parseQuery('tea OR coffee -decaf "morning cup"');
  const list=[item('a',2000000000,{title:'Morning cup of tea'}),item('b',1999999990,{title:'morning cup of decaf coffee'}),item('c',1999999980,{title:'coffee only'}),item('d',1999999970,{title:'A morning cup of coffee'})];
  const b=backend(list,{timeoutText:true}),pages=await collect(Q.search({kind:'post',author:'example',parsed,send:b.send}));
- assert.equal(b.calls[0].query,'tea -decaf "morning cup" OR coffee -decaf "morning cup"','OR binds first, so the archive gets an expanded query');
+ assert.equal(b.calls[0].query,'"morning cup"','posts conservatively leave OR and NOT for local filtering');
  assert.deepEqual(pages.flatMap(p=>p.items.map(i=>i.id)),['a','d']);assert.ok(pages.every(p=>p.mode==='local'));
+});
+
+function sharedCore(){const context=vm.createContext({console,Date,Intl});vm.runInContext(fs.readFileSync('extension/search-core.js','utf8'),context);return context.RCSCore;}
+const allFields=['title','body','author','subreddit','site','url','flair','self','nsfw','spoiler','type'];
+test('archive maps unconditional fields to documented params and evaluates the complete record locally',async()=>{
+ const C=sharedCore(),{Q}=load({core:C}),query='title:launch body:quiet flair:news nsfw:no spoiler:yes r/Alpha site:example.test self:yes type:text url:article after:2023-01-01 before:2024-01-01',parsed=C.parseQuery(query,{fields:allFields}),calls=[];
+ const keep=item('keep',1700000000,{title:'launch day',body:'quiet place',subreddit:'Alpha',url:'https://example.test/article',flair:'news',over18:false,spoiler:true,isSelf:true});
+ const pages=await collect(Q.search({kind:'post',author:'Example',parsed,send:async message=>{calls.push(message);return {ok:true,posts:[keep,{...keep,id:'skip',spoiler:false}],hasMore:false};}}));
+ const m=calls[0];for(const [key,value]of Object.entries({title:'launch',selftext:'quiet',link_flair_text:'news',over_18:false,spoiler:true,subreddit:'Alpha'}))assert.equal(m[key],value,key);
+ assert.equal(m.after,new Date(2023,0,1).getTime()/1000-1);assert.equal(m.before,new Date(2024,0,1).getTime()/1000);
+ for(const key of ['site','type','self','url'])assert.equal(m[key],undefined,key+' stays local');
+ assert.deepEqual(pages[0].items.map(p=>p.id),['keep']);assert.equal(pages[0].mode,'local');
+});
+test('archive drops conditional OR/NOT fields and uses raw scanned cursors even when no records match',async()=>{
+ const C=sharedCore(),{Q}=load({core:C}),calls=[],parsed=C.parseQuery('words AND (r/Alpha OR r/Beta) AND NOT spoiler:yes',{fields:allFields});
+ const pages=await collect(Q.search({kind:'post',author:'Example',parsed,maxPages:1,send:async m=>{calls.push(m);return {ok:true,posts:[item('skip',1700000000,{title:'words',subreddit:'Gamma',spoiler:false})],hasMore:true,cursor:1700000001};}}));
+ assert.equal(calls[0].query,'words');assert.equal(calls[0].subreddit,undefined);assert.equal(calls[0].spoiler,undefined);assert.equal(pages[0].items.length,0);assert.equal(pages[0].searchedBackTo,1700000000);assert.equal(pages[0].cursor,1700000001);assert.equal(pages[0].hasMore,true);
+});
+test('archive field timeouts drop text parameters only, retain flags and filter locally',async()=>{
+ const C=sharedCore(),{Q}=load({core:C}),calls=[],parsed=C.parseQuery('title:launch nsfw:no',{fields:allFields});
+ const pages=await collect(Q.search({kind:'post',author:'Example',parsed,send:async m=>{calls.push(m);return m.title?{ok:false,code:'text-search-unavailable'}:{ok:true,posts:[item('yes',1700000000,{title:'launch',over18:false}),item('no',1699999999,{title:'unrelated',over18:false})],hasMore:false};}}));
+ assert.equal(calls.length,2);assert.equal(calls[1].title,undefined);assert.equal(calls[1].over_18,false);assert.deepEqual(pages[0].items.map(p=>p.id),['yes']);assert.equal(pages[0].mode,'local');
+});
+test('comments map body without overwriting unqualified query and ignore parent title',async()=>{
+ const C=sharedCore(),{Q}=load({core:C}),calls=[];
+ for(const query of ['body:quiet','words body:quiet','words OR coffee NOT body:spam']){
+  const parsed=C.parseQuery(query,{fields:['body','subreddit']}),posts=[item('match',1700000000,{kind:'comment',title:'unrelated parent',body:'quiet words'}),item('parent',1699999999,{kind:'comment',title:'quiet words',body:'unrelated'})];
+  const [page]=await collect(Q.search({kind:'comment',author:'Example',parsed,send:async m=>{calls.push(m);return {ok:true,posts,hasMore:false};}}));assert.deepEqual(page.items.map(p=>p.id),['match'],query);
+ }
+ assert.equal(calls[0].body,'"quiet"');assert.equal(calls[1].query,'words');assert.equal(calls[1].body,undefined);assert.equal(calls[2].query,'words OR coffee');
+});
+test('new field params affect content cache and oversized projections stay local',async()=>{
+ const C=sharedCore(),{Q}=load({core:C});let reads=0;const send=async()=>{reads++;return {ok:true,posts:[],hasMore:false};};
+ for(const value of ['launch','launch','other'])await collect(Q.search({kind:'post',author:'Example',parsed:C.parseQuery('title:'+value,{fields:allFields}),send}));assert.equal(reads,2);
+ const calls=[];await collect(Q.search({kind:'post',author:'Example',parsed:C.parseQuery('title:'+ 'x'.repeat(257),{fields:allFields}),send:async m=>{calls.push(m);return {ok:true,posts:[],hasMore:false};}}));assert.equal(calls[0].title,undefined);
+});
+
+test('comment field values are quoted as literals, and out-of-range dates stay local',async()=>{
+ const C=sharedCore(),{Q}=load({core:C}),calls=[];
+ await collect(Q.search({kind:'comment',author:'Example',parsed:C.parseQuery('body:"quiet OR place" before:1900-01-01',{fields:['body']}),send:async m=>{calls.push(m);return {ok:true,posts:[],hasMore:false};}}));
+ assert.equal(calls[0].body,'"quiet OR place"');assert.equal(calls[0].before,undefined);
 });

@@ -73,10 +73,11 @@ test('without q, search browses and filters author history from both sources',as
   assert.equal(s.calls.find(c=>c.action==='profile').query,'');assert.equal(s.calls.find(c=>c.action==='profile').sort,'new');assert.equal(s.queries.length,1);assert.equal(s.queries[0].parsed.terms.length,0);assert.equal(shown(s.d).length,2);
   assert.ok(s.d.rtMenu.groups.date);assert.ok(s.d.rtMenu.groups.type);assert.ok(s.d.rtMenu.groups.sub);assert.equal(s.d.rtMenu.searchSort.has('relevance'),false);
 });
-test('OR, exclusions and Old sort use only the archive',async t=>{
+test('OR and exclusions keep Reddit search; Old sort remains archive-only',async t=>{
   for(const suffix of ['?q=cat+OR+dog','?q=cat+-dog','?q=cat+-"exact+phrase"','?q=cat&rt_sort=old','?q=cat&sort=old']){
-    const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/'+suffix});await search(s);
-    assert.equal(s.calls.filter(c=>c.action==='profile').length,0,suffix);assert.equal(s.queries.length,1);assert.equal(s.d.clientSearchOn(),false);
+    const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/'+suffix,archive:async()=>({items:[raw('live',{title:'cat'}),raw('archive',{title:'cat',created_utc:1600000000})],hasMore:false,searchedBackTo:1600000000})});await search(s);
+    const old=suffix.includes('old');assert.equal(s.calls.filter(c=>c.action==='profile').length,old?0:1,suffix);assert.equal(s.queries.length,1);assert.equal(s.d.clientSearchOn(),!old);
+    if(!old)assert.equal(s.calls.find(c=>c.action==='profile').query,suffix.includes('OR')?'(cat OR dog)':'cat');
     if(suffix.includes('old')){assert.equal(s.queries[0].sort,'asc');assert.deepEqual(shown(s.d),['t3_archive','t3_live']);assert.match(s.d.notice.textContent,/Searched up to/);}
   }
 });
@@ -266,4 +267,64 @@ test('search Feed options shares the full profile icon matrix and restores nativ
   d.rtMenu.sub.list.querySelector('[data-rt-sub-all]').click();await flush();assert.deepEqual([...d.rtFilters.subreddits],[]);assert.equal(d.rtMenu.sub.list.querySelector('[data-rt-sub-all]').getAttribute('aria-checked'),'true');
   const native=d.menuGroups.flatMap(group=>group.items);assert.ok(d.menuGroups[0].items.every(row=>row.hidden));d.clearActivityMenu();
   assert.ok(native.every(row=>row.parentElement.matches('.main-menu-container') && !row.hidden));assert.ok(native.every(row=>!row.querySelector('.rt-menu-lead')));
+});
+
+test('structured and negative predicates filter Reddit and archive cards locally with honest status',async t=>{
+  const records=[raw('keep',{title:'launch',spoiler:false}),raw('skip',{title:'launch',spoiler:true}),raw('other',{title:'different',spoiler:false})];
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('launch AND NOT spoiler:yes'),reddit:async()=>({posts:records,hasMore:false}),archive:async()=>({items:[...records,raw('archive',{title:'launch',spoiler:false})],hasMore:false,searchedBackTo:1600000000})});await search(s);
+  assert.equal(s.calls.find(c=>c.action==='profile').query,'launch');assert.equal(s.d.searchReddit.residual,true);
+  assert.deepEqual(shown(s.d),['t3_keep','t3_archive']);assert.match(s.d.status.textContent,/filtered locally/);assert.match(s.d.status.textContent,/may be incomplete/);
+  assert.match(s.d.notice.textContent,/Searched back to/);assert.match(s.d.notice.textContent,/Some matches filtered locally/);assert.doesNotMatch(s.d.status.textContent+s.d.notice.textContent,/search complete|history complete/i);
+  s.d.activityFilter='hidden';s.d.deduplicate();await flush();assert.deepEqual(shown(s.d),['t3_archive']);
+});
+
+test('Reddit projections preserve grouped AND/OR, phrases and plain query behavior',async t=>{
+  assert.deepEqual([...((await boot(t)).W.RTPostDiscovery.PROFILE_REDDIT_SEARCH_CAPABILITIES)],['term','phrase','and','or']);
+  for(const [query,expected,residual] of [['words','words',false],['words AND ("quiet place" OR coffee)','(words AND ("quiet place" OR coffee))',false],['words AND (title:launch OR type:image)','words',true],['title:launch OR type:image','',true],['words NOT coffee','words',true]]){
+    const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent(query)});await search(s);
+    assert.equal(s.calls.find(c=>c.action==='profile').query,expected,query);assert.equal(s.d.searchReddit.residual,residual,query);
+  }
+});
+
+test('post fields and aliases opt in, and comment-only errors appear in the existing notice without requests',async t=>{
+  const valid=['title:words','body:words','selftext:words','text:words','r/Alpha','subreddit:Alpha','site:example.test','domain:example.test','url:example.test','flair:news','self:yes','nsfw:no','spoiler:no','type:text','before:2026-01-01','after:2020-01-01','author:Example','u/example'];
+  for(const query of valid){const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent(query)});assert.equal(s.d.searchParsed.invalid,false,query);}
+  for(const query of ['title:words','type:text','site:example.test','url:example.test','flair:news','self:yes','nsfw:no','spoiler:no','from:Example','has:image']){
+    const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?type=comments&q='+encodeURIComponent(query)});await search(s);
+    assert.equal(s.calls.filter(c=>c.action==='profile').length,0,query);assert.equal(s.queries.length,0);assert.match(s.d.notice.textContent,/isn't available for comments/);assert.equal(s.d.notice.hidden,false);
+  }
+  const comments=await boot(t,{url:'https://www.reddit.com/user/Example/search/?type=comments&q='+encodeURIComponent('body:words r/Alpha before:2026-01-01 after:2020-01-01')});assert.equal(comments.d.searchParsed.invalid,false);
+});
+
+test('author is fixed to the profile even inside Boolean groups and negation',async t=>{
+  for(const query of ['author:Other','u/Other','words OR author:Other','NOT u/Other']){
+    const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent(query)});await search(s);
+    assert.equal(s.queries.length,0);assert.equal(s.calls.filter(c=>c.action==='profile').length,0);assert.match(s.d.notice.textContent,/Author is fixed to u\/Example/);
+  }
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('author:example words')});await search(s);assert.deepEqual(shown(s.d),['t3_live','t3_archive']);assert.equal(s.calls.find(c=>c.action==='profile').query,'words');
+});
+
+test('subreddit disjunction is not flattened into a contradictory menu filter or archive scope',async t=>{
+  const items=[raw('alpha'),raw('beta',{subreddit:'Beta'}),raw('gamma',{subreddit:'Gamma'})];
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('r/Alpha OR r/Beta'),reddit:async()=>({posts:items,hasMore:false}),archive:async()=>({items,hasMore:false})});await search(s);
+  assert.equal(s.queries[0].subreddit,undefined);assert.equal(s.calls.find(c=>c.action==='profile').query,'');assert.deepEqual(shown(s.d),['t3_alpha','t3_beta']);
+});
+
+test('query type waits for native proof, then all structured metadata uses the shared record',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('type:image self:no site:example.test flair:news nsfw:no'),reddit:async()=>({posts:[raw('image',{is_self:false,url:'https://example.test/image',link_flair_text:'news'}),raw('text',{is_self:false,url:'https://example.test/text',link_flair_text:'news'})],hasMore:false}),archive:async()=>({items:[],hasMore:false}),renderer:async(post,node)=>{node.innerHTML='<shreddit-post id="'+post.fullname+'" post-type="'+(post.id==='image'?'image':'text')+'"><span slot="credit-bar"></span></shreddit-post>';}});await search(s);assert.deepEqual(shown(s.d),['t3_image']);
+  const card=s.D.createElement('shreddit-post');card.setAttribute('post-title','Native title');card.setAttribute('post-type','image');card.setAttribute('content-href','https://www.example.test/a');card.setAttribute('is-self','false');card.innerHTML='<p slot="text-body">Native body</p><span slot="post-flair">news</span>';
+  const record=s.W.RTPostModel.searchRecord(card);assert.equal(record.title,'Native title');assert.equal(record.body,'Native body');assert.equal(record.domain,'www.example.test');assert.equal(record.type,'image');assert.equal(record.isSelf,false);
+});
+
+test('comment predicates search comment bodies and never borrowed parent titles',async t=>{
+  const comment=(id,body)=>({kind:'comment',id,author:'Example',body,link_id:'parent',subreddit:'Alpha',link_title:'secret parent words',created_utc:1700000000});
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?type=comments&q='+encodeURIComponent('words NOT body:spam'),reddit:async()=>({posts:[comment('match','words here'),comment('spam','words spam'),comment('parent','unrelated')],hasMore:false}),archive:async()=>({items:[],hasMore:false})});await search(s);assert.deepEqual(shown(s.d),['t1_match']);assert.equal(s.calls.find(c=>c.action==='profile').query,'words');
+});
+
+test('sparse Reddit listing metadata uses hydrated body, destination, flair and self type',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('body:quiet site:example.test flair:news self:yes'),reddit:async()=>({posts:[raw('sparse',{selftext:'',is_self:undefined})],hasMore:false}),archive:async()=>({items:[],hasMore:false}),renderer:async(post,node)=>{node.innerHTML='<shreddit-post id="'+post.fullname+'" post-type="text" content-href="https://example.test/a"><span slot="credit-bar"></span><p slot="text-body">quiet place</p><span slot="post-flair">news</span></shreddit-post>';}});await search(s);assert.deepEqual(shown(s.d),['t3_sparse']);
+});
+test('residual wording survives archive failures and parse errors remain in the notice',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('words NOT spoiler:yes'),archive:async()=>{throw Error('Archive unavailable');}});await search(s);assert.match(s.d.status.textContent,/unavailable.*filtered locally.*may be incomplete/);assert.match(s.d.notice.textContent,/filtered locally/);
+  const invalid=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words+OR'});await search(invalid);assert.match(invalid.d.notice.textContent,/word on both sides/);assert.equal(invalid.d.notice.hidden,false);
 });

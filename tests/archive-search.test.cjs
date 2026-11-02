@@ -99,3 +99,22 @@ test('postType is derived from raw fields and survives re-normalization',()=>{
  assert.equal(type({url:'https://example.com/article'}),'link');assert.equal(type({}),'link');assert.equal(type({is_self:false,url:'https://i.redd.it/x/'}),'link');
  assert.equal(Model.normalizePost(Model.normalizePost({id:'a1',author:'Example',created_utc:1700000000,is_video:true},{source:'arctic-shift'}),{source:'arctic-shift'}).postType,'video');
 });
+
+test('documented search parameters are whitelisted, guarded and included in broker cache keys',async()=>{
+ const e=env(),first={title:'launch',selftext:'quiet',link_flair_text:'news',over_18:false,spoiler:true,url:'https://example.test/',url_exact:false};
+ const r=await e.send(search(first));assert.equal(r.ok,true);assert.equal(r.serverFiltered,true);
+ const p=params(e.calls[0]);for(const [key,value]of Object.entries(first))assert.equal(p[key],String(value),key);
+ await e.send(search({...first}));assert.equal(e.calls.length,1);
+ for(const [key,value]of Object.entries({title:'other',selftext:'different',link_flair_text:'events',over_18:true,spoiler:false,url:'https://other.test/',url_exact:true}))await e.send(search({...first,[key]:value}));
+ assert.equal(e.calls.length,8);
+ const c=env({fetcher:async()=>response([comment()])});assert.equal((await c.send(search({kind:'comment',body:'quiet'}))).ok,true);assert.equal(params(c.calls[0]).body,'quiet');
+ const guard=env();for(const key of ['title','selftext','link_flair_text','url','body'])for(const value of ['x'.repeat(257),'bad\ntext','bad\x7ftext',4]){
+  assert.equal((await guard.send(search({kind:key==='body'?'comment':'post',[key]:value}))).code,'invalid-request',key);
+ }
+ for(const m of [{kind:'comment',title:'x'},{kind:'post',body:'x'},{over_18:'yes'},{spoiler:1},{url_exact:'true'},{kind:'comment',query:'x',body:'y'}])assert.equal((await guard.send(search(m))).code,'invalid-request');
+ await guard.send(search({title:'valid',site:'ignored.test',fields:'private',md2html:false}));const sent=params(guard.calls[0]);assert.equal(sent.site,undefined);assert.equal(sent.fields,undefined);assert.equal(sent.md2html,'true');
+});
+test('field keyword timeouts retain the local-scan fallback signal',async()=>{
+ const e=env({fetcher:async()=>response(null,422,{},'Query timed out')});
+ for(const input of [{title:'launch'},{selftext:'quiet'},{link_flair_text:'news'},{kind:'comment',body:'quiet'}])assert.equal((await e.send(search(input))).code,'text-search-unavailable');
+});
