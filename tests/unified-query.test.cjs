@@ -245,7 +245,9 @@ test('saved storage and the live index agree on Boolean trees, conditional media
     const all=[];for(let offset=0;offset<wanted.length;offset++)all.push(...(await store.search(owner,{query,limit:1,offset})).records.map(record=>record.id));
     assert.deepEqual(plain(all.sort()),wanted.slice().sort(),'storage pages: '+query);
   }
-  for(const query of ['cats AND','(cats OR dogs','from:Bob OR from:Carol','-"iced latte"']){
+  assert.deepEqual(plain(index.search(room,'from:Bob OR from:Carol').map(r=>r.id).sort()),plain(index.search(room,'(from:Bob OR from:Carol)').map(r=>r.id).sort()),'bare field alternatives equal their grouped form');
+  assert.equal((await store.search(owner,{query:'from:Bob OR from:Carol'})).total,(await store.search(owner,{query:'(from:Bob OR from:Carol)'})).total);
+  for(const query of ['cats AND','(cats OR dogs','-"iced latte"']){
     assert.equal(C.parseQuery(query).invalid,true,query);
     assert.equal(index.search(room,query).length,0,query);assert.equal((await store.search(owner,{query})).total,0,query);
   }

@@ -104,7 +104,7 @@ test('legacy chat fields and side-channel arrays remain available',()=>{
   assert.deepEqual(plain(p.terms),['coffee']);assert.deepEqual(plain(p.phrases),['quiet place']);assert.deepEqual(plain(p.excluded),['spam']);
   assert.deepEqual(plain(p.from),['alice','bob']);assert.deepEqual(plain(p.before),['2026-02-01']);assert.deepEqual(plain(p.after),['2026-01-01']);
   for(const flag of ['hasLink','hasImage','hasGif','hasVideo','hasAudio','hasFile'])assert.equal(p[flag],true,flag);
-  assert.equal(C.parseQuery('from:Alice OR coffee').invalid,true);
+  assert.equal(C.parseQuery('from:Alice OR coffee').invalid,false);assert.equal(C.parseQuery('from:Alice OR coffee').explicitBoolean,true);
 });
 
 test('shared chat matching evaluates new Boolean field groups without changing legacy sender alternatives',()=>{

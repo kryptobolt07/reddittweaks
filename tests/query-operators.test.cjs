@@ -39,7 +39,7 @@ test('invalid input is reported with hints',()=>{
   assert.equal(C.parseQuery('from:alice -lol').invalid,false);
   assert.equal(C.parseQuery('has:image -lol').invalid,false);
   assert.equal(C.parseQuery('after:2024-01-01 -lol').invalid,false);
-  assert.equal(C.parseQuery('from:alice OR bob').invalid,true);
+  assert.equal(C.parseQuery('from:alice OR bob').invalid,false,'a field beside OR is a structured alternative');
   assert.equal(hit('-lol','anything'),false);
   assert.equal(C.matchesQuery({text:'hello',author:'alice'},'from:alice -lol'),true);assert.equal(C.matchesQuery({text:'hello lol',author:'alice'},'from:alice -lol'),false);
 });

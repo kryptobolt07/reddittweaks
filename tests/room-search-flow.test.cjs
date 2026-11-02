@@ -108,7 +108,7 @@ test('live room Boolean results, field groups and error feedback match saved sea
     for(const mark of p.root.querySelectorAll('mark'))assert.match(mark.textContent,/^(cats|dogs)$/i);
   }
   const calls=p.calls.length;
-  for(const query of ['cats AND','(cats OR dogs','cats OR NOT','-"iced latte"','from:alice OR from:bob']){
+  for(const query of ['cats AND','(cats OR dogs','cats OR NOT','-"iced latte"']){
     await type(query);assert.equal(p.input.getAttribute('aria-invalid'),'true');
     assert.match(p.root.querySelector('[role=status]').textContent,/both sides|Close the group|word to search|after NOT/);
     assert.equal(p.root.querySelector('.result,.skeleton-list'),null,'invalid input cannot expose stale matches or hide the error behind loading');
