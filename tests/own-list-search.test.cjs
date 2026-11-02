@@ -1,0 +1,130 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const {JSDOM}=require('jsdom');
+const read=file=>fs.readFileSync('extension/'+file,'utf8');
+const controls=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8');
+const flush=async()=>{for(let i=0;i<6;i++)await new Promise(r=>setImmediate(r));};
+const raw=(id,extra={})=>({id,author:'Writer',title:'Synthetic cats',selftext:'body needle',subreddit:'Alpha',created_utc:1700000000,is_self:true,...extra});
+const page='<main><faceplate-tabgroup id="search-results-page-tabgroup"><a id="search-results-page-tab-posts" href="?type=posts">Posts</a><a id="search-results-page-tab-comments" href="?type=comments">Comments</a><a id="search-results-page-tab-media" href="?type=media">Media</a></faceplate-tabgroup><div class="bg-neutral-background"><div data-testid="search-sdui-post">Native result</div></div></main>';
+function header(W,{hydrated=true}={}){
+ const host=W.document.createElement('reddit-search-large');host.setAttribute('scope',JSON.stringify({type:'profile',name:'Example',path:'/user/Example/'}));W.document.body.prepend(host);
+ const root=host.attachShadow({mode:'open'});root.innerHTML=hydrated?'<form><faceplate-search-input name="q" placeholder="Search in u/Example"><rpl-input-chip slot="chips" class="scoped-search-pill px-sm" id="search-input-remove-filter"><span>u/Example</span><button aria-label="Remove u/Example filter">×</button></rpl-input-chip></faceplate-search-input></form>':'<form><rpl-input-chip slot="chips" class="scoped-search-pill px-sm" id="search-input-chip"><span>u/Example</span><button aria-label="Remove u/Example filter">×</button></rpl-input-chip><input name="q" placeholder="Search in u/Example"></form>';
+ const field=root.querySelector('faceplate-search-input');if(field)field.attachShadow({mode:'open'}).innerHTML='<textarea name="q" placeholder="Search in u/Example"></textarea>';
+ return {host,root,form:root.querySelector('form'),field,input:(field?.shadowRoot || root).querySelector('input,textarea'),native:root.querySelector('rpl-input-chip')};
+}
+async function setup(t,{path='/user/Example/search/?rt_list=saved',username='Example',list,settings={postDiscovery:true,archiveDiscovery:false},withHeader=false,hydrated=true,autoDiscover=false,observe=false}={}){
+ const dom=new JSDOM(page,{url:'https://www.reddit.com'+path,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;const calls=[],archives=[];let d;
+ t.after(()=>{d?.destroy();W.close();});
+ for(const file of ['search-core.js','post-model.js','feed-filters.js','post-discovery.js'])W.eval(read(file));
+ W.RTArchiveQuery={async *search(args){archives.push(args);throw Error('Private lists must not reach archive search');},async aggregate(args){archives.push(args);throw Error('Private lists must not reach archive aggregates');}};
+ const h=withHeader?header(W,{hydrated}):null;
+ const reddit=async(args,signal)=>{calls.push({args,signal});
+  if(args.action==='own-list-identity'){if(username instanceof Error)throw username;return {username};}
+  if(args.action==='render-controls'){W.document.getElementById(args.target).innerHTML=controls;return {rendered:true};}
+  if(args.action==='own-list'){if(list)return list(args,signal,W,calls.filter(c=>c.args.action==='own-list').length);return {posts:[W.RTPostModel.normalizePost(raw('first'))],scanned:1,hasMore:false,after:null};}
+  throw Error('Unexpected list request: '+args.action);
+ };
+ d=new W.RTPostDiscovery.Discovery({observe,autoDiscover,reddit,archive:async args=>{archives.push(args);throw Error('No private list archive reads');},readSettings:async()=>({'rt-settings-v1':settings})});
+ await d.ready;await flush();return {W,D:W.document,d,calls,archives,h};
+}
+const shown=s=>[...s.d.nodes.values()].filter(n=>!n.hidden).sort((a,b)=>a.compareDocumentPosition(b)&4?-1:1).map(n=>n.dataset.fullname);
+const listCalls=s=>s.calls.filter(c=>c.args.action==='own-list');
+function navigations(s){const urls=[];s.D.addEventListener('click',event=>{const a=event.target.closest?.('a');if(a && !a.closest('#search-results-page-tabgroup')){event.preventDefault();urls.push(new URL(a.href));}},true);return urls;}
+
+test('own-list routes allow only five lists and a verified matching account',async t=>{
+ const s=await setup(t);const route=s.W.RTPostDiscovery.pageRoute;
+ for(const list of ['saved','history','hidden','upvoted','downvoted']){assert.equal(route('/user/EXAMPLE/search/','?rt_list='+list).list,list);assert.equal(route('/user/Example/'+list+'/').view,'list-tab');}
+ for(const [profile,owner] of [['Other','Example'],['Example','']])assert.equal(route('/user/'+profile+'/search/','?rt_list=saved',owner),null);
+ for(const list of ['friends','SAVED','https://other.test',''])assert.equal(route('/user/Example/search/','?rt_list='+encodeURIComponent(list)),null);
+ assert.equal(route('/user/Example/search/','?rt_list=saved').type,'all');assert.equal(route('/user/Example/search/','?rt_list=saved&type=posts').type,'posts');
+ assert.notEqual(route('/user/Example/search/','?rt_list=saved').key,route('/user/Example/search/','?rt_list=saved&type=posts').key);
+ assert.equal(route('/user/Example/search/','?q='+ 'x'.repeat(301)+'&rt_list=saved'),null);
+});
+for(const hydrated of [true,false])test(`own tab header adds native-styled removable pill and submits (${hydrated?'hydrated':'SSR'})`,async t=>{
+ const s=await setup(t,{path:'/user/Example/saved/',withHeader:true,hydrated});const {root,input,native,form}=s.h,urls=navigations(s);
+ const pill=root.querySelector('[data-rt-list-chip]');assert.ok(pill);assert.equal(pill.tagName,'RPL-INPUT-CHIP');assert.equal(pill.className,native.className);assert.equal(native.nextElementSibling,pill);assert.equal(input.placeholder,'Search your saved');assert.match(pill.textContent,/Saved/);
+ for(const q of ['', 'author:Writer cats']){input.value=q;const event=new s.W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true});input.dispatchEvent(event);assert.equal(event.defaultPrevented,true);assert.equal(urls.at(-1).pathname,'/user/Example/search/');assert.equal(urls.at(-1).searchParams.get('rt_list'),'saved');assert.equal(urls.at(-1).searchParams.get('q'),q);}
+ input.value='form query';const submit=new s.W.Event('submit',{bubbles:true,composed:true,cancelable:true});form.dispatchEvent(submit);assert.equal(submit.defaultPrevented,true);assert.equal(urls.at(-1).searchParams.get('q'),'form query');
+ for(const options of [{shiftKey:true},{ctrlKey:true},{isComposing:true},{repeat:true}]){const e=new s.W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true,...options});input.dispatchEvent(e);assert.equal(e.defaultPrevented,false);}
+ pill.querySelector('button').click();s.d.scan();assert.equal(root.querySelector('[data-rt-list-chip]'),null);assert.equal(input.placeholder,'Search in u/Example');assert.ok(native.isConnected);
+});
+test('profile scope removal drops own pill; navigation and teardown restore placeholders',async t=>{
+ const s=await setup(t,{path:'/user/Example/history/',withHeader:true});assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));
+ s.h.native.remove();await flush();assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);assert.equal(s.h.input.placeholder,'Search in u/Example');
+ s.W.history.pushState({},'','/user/Example/upvoted/');s.h.root.querySelector('faceplate-search-input').prepend(s.h.native);s.d.scan();assert.match(s.h.root.querySelector('[data-rt-list-chip]').textContent,/Upvoted/);
+ s.W.history.pushState({},'','/user/Example/submitted/');s.d.scan();assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);
+ s.W.history.pushState({},'','/user/Example/downvoted/');s.d.scan();assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));s.d.destroy();assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);assert.equal(s.h.input.placeholder,'Search in u/Example');
+});
+test('scope remove control clears own pill immediately and prevents reinsertion',async t=>{
+ const s=await setup(t,{path:'/user/Example/hidden/',withHeader:true});s.h.native.querySelector('button').click();s.d.scan();assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);
+});
+for(const username of ['Other',new Error('Sign in to Reddit to search your lists.')])test('own-list UI refuses another or unavailable account: '+String(username),async t=>{
+ const s=await setup(t,{username,withHeader:true,autoDiscover:true});assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);assert.equal(s.d.host,null);assert.equal(listCalls(s).length,0);if(username instanceof Error)assert.match(s.D.querySelector('[role="alert"]').textContent,/Sign in.*no complete results/i);
+});
+test('list search stays available with archives disabled and uses list order across pages',async t=>{
+ const s=await setup(t,{list:async(args,signal,W,n)=>({posts:[W.RTPostModel.normalizePost(raw(n===1?'older':'newer',{created_utc:n===1?1600000000:1800000000}))],scanned:n===1?100:40,after:n===1?'t3_older':null,hasMore:n===1})});
+ await s.d.refreshActivity();assert.deepEqual(listCalls(s).map(c=>c.args.after),[null,'t3_older']);assert.deepEqual(shown(s),['t3_older','t3_newer']);assert.equal(s.d.status.textContent,'Searched 140 saved items');assert.equal(s.archives.length,0);
+ assert.deepEqual([...s.d.rtMenu.searchSort.keys()],['list','new','old']);s.d.setFilters({...s.d.rtFilters,sort:'new'});assert.deepEqual(shown(s),['t3_newer','t3_older']);s.d.setFilters({...s.d.rtFilters,sort:'old'});assert.deepEqual(shown(s),['t3_older','t3_newer']);assert.equal(listCalls(s).length,2);assert.equal(new URLSearchParams(s.W.location.search).get('rt_list'),'saved');
+ await s.d.loadSubredditCounts();await s.d.loadArchive();await s.d.loadReddit();assert.equal(s.archives.length,0);assert.equal(s.d.subredditCounts().source,'loaded');
+});
+test('Saved includes comments by other authors and allows author/u and dates',async t=>{
+ const list=async(args,signal,W)=>({posts:[W.RTPostModel.normalizePost(raw('post')),W.RTPostModel.normalizeComment({id:'comment',author:'Writer',body:'needle comment',subreddit:'Alpha',created_utc:1700000000,link_id:'t3_post',parent_id:'t3_post'})],scanned:2,hasMore:false});
+ for(const q of ['author:Writer needle','u/Writer after:2023-01-01 before:2024-01-01','body:needle r/Alpha']){const s=await setup(t,{path:'/user/Example/search/?rt_list=saved&q='+encodeURIComponent(q),list});await s.d.refreshActivity();assert.equal(s.d.searchParsed.invalid,false);assert.deepEqual(shown(s),['t3_post','t1_comment']);s.d.setFilters({...s.d.rtFilters,types:['text']});assert.deepEqual(shown(s),['t3_post']);}
+ const s=await setup(t,{path:'/user/Example/search/?rt_list=saved&type=comments&q=author:Writer',list});await s.d.refreshActivity();assert.deepEqual(shown(s),['t1_comment']);assert.equal(s.d.searchParsed.invalid,false);
+});
+for(const q of ['title:cats','body:needle','author:Writer','u/Writer','subreddit:Alpha','r/Alpha','site:example.test','url:example.test','flair:News','self:no','nsfw:yes','spoiler:yes','type:link','after:2023-01-01 before:2024-01-01','cats OR dogs','cats -dogs'])test('post query filters locally: '+q,async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?rt_list=upvoted&type=posts&q='+encodeURIComponent(q),list:async(args,signal,W)=>({posts:[W.RTPostModel.normalizePost(raw('match',{is_self:false,url:'https://example.test/cats',link_flair_text:'News',over_18:true,spoiler:true})),W.RTPostModel.normalizePost(raw('miss',{author:'Other',title:'dogs',selftext:'different',subreddit:'Beta',url:'https://other.test',created_utc:1600000000}))],scanned:2,hasMore:false})});await s.d.refreshActivity();assert.equal(s.d.searchParsed.invalid,false);assert.deepEqual(shown(s),q==='cats OR dogs'?['t3_match','t3_miss']:['t3_match']);assert.equal(s.archives.length,0);
+});
+for(const q of ['title:cats','site:example.test','type:link','from:Writer','has:image'])test('Saved comment mode rejects inapplicable fields: '+q,async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?rt_list=saved&type=comments&q='+encodeURIComponent(q)});await s.d.refreshActivity();assert.equal(s.d.searchParsed.invalid,true);assert.equal(s.d.status.dataset.error,'true');assert.match(s.d.notice.textContent,/available for comments/);assert.equal(listCalls(s).length,0);
+});
+test('Feed options filter list items by date, post type and subreddit with no refetch',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?rt_list=hidden&rt_date=2023-11-01..2023-11-30&rt_type=image&rt_sub=Alpha',list:async(args,signal,W)=>({posts:[W.RTPostModel.normalizePost(raw('match',{is_self:false,post_hint:'image'})),W.RTPostModel.normalizePost(raw('text')),W.RTPostModel.normalizePost(raw('beta',{is_self:false,post_hint:'image',subreddit:'Beta'})),W.RTPostModel.normalizePost(raw('old',{is_self:false,post_hint:'image',created_utc:1600000000}))],scanned:4,hasMore:false})});await s.d.refreshActivity();assert.deepEqual(shown(s),['t3_match']);s.d.setFilters({...s.d.rtFilters,types:[],subreddits:[],date:null});assert.equal(shown(s).length,4);assert.equal(listCalls(s).length,1);
+});
+test('native tabs keep list scope and filter post/comment/media kind',async t=>{
+ const s=await setup(t);assert.equal(s.D.querySelector('[data-rt-list-type="all"]').getAttribute('aria-current'),'page');
+ for(const type of ['posts','comments','media']){const a=s.D.getElementById('search-results-page-tab-'+type);assert.equal(new URL(a.href).searchParams.get('rt_list'),'saved');assert.equal(new URL(a.href).searchParams.get('type'),type);}
+ const urls=navigations(s);s.D.getElementById('search-results-page-tab-media').click();assert.equal(urls.at(-1).searchParams.get('type'),'media');
+ s.W.history.pushState({},'','?rt_list=saved&type=media');s.d.scan();await flush();await s.d.refreshActivity();assert.deepEqual(shown(s),[]);
+ s.W.history.pushState({},'','/r/Alpha/');s.d.scan();assert.equal(s.D.getElementById('search-results-page-tab-posts').getAttribute('href'),'?type=posts');assert.equal(s.D.querySelector('[data-rt-list-type="all"]'),null);
+});
+test('automatic list loading stops at 1000 with a cap notice',async t=>{
+ const s=await setup(t,{list:async(args,signal,W,n)=>({posts:[],scanned:100,hasMore:true,after:'t3_page'+n})});await s.d.refreshActivity();assert.equal(listCalls(s).length,10);assert.equal(s.d.listState.capped,true);assert.equal(s.d.status.textContent,'Searched 1,000 saved items');assert.match(s.d.notice.textContent,/Reddit only returns the newest 1,000/);assert.doesNotMatch(s.d.status.textContent+s.d.notice.textContent,/complete/i);
+});
+test('progress, failed second page, empty and repeated cursor stay honest',async t=>{
+ let release;const pending=new Promise(resolve=>release=resolve);const s=await setup(t,{list:async(args,signal,W,n)=>{if(n===2){await pending;throw Error('network unavailable');}return {posts:[],scanned:100,hasMore:true,after:'t3_next'};}});const task=s.d.refreshActivity();await flush();assert.match(s.d.status.textContent,/Searched 100 saved items.*Loading/);assert.equal(s.d.listEmpty.hidden,true);release();await task;assert.equal(s.d.status.dataset.error,'true');assert.match(s.d.status.textContent,/network unavailable/);assert.match(s.d.notice.textContent,/incomplete/);assert.equal(s.d.listEmpty.hidden,true);
+ const empty=await setup(t,{list:async()=>({posts:[],scanned:0,hasMore:false})});await empty.d.refreshActivity();assert.match(empty.d.listEmpty.textContent,/0 saved items Reddit returned/);assert.equal(empty.d.listEmpty.hidden,false);
+ const repeated=await setup(t,{list:async()=>({posts:[],scanned:1,hasMore:true,after:'t3_same'})});await repeated.d.refreshActivity();assert.equal(listCalls(repeated).length,2);assert.match(repeated.d.status.textContent,/repeated a list cursor/);assert.equal(repeated.d.listState.done,false);
+});
+test('navigation cancels pending list work and ignores a late answer',async t=>{
+ let release;const pending=new Promise(resolve=>release=resolve);const s=await setup(t,{list:async()=>pending});const task=s.d.refreshActivity();await flush();const signal=listCalls(s)[0].signal;
+ s.W.history.pushState({},'','/r/Alpha/');s.d.scan();assert.equal(signal.aborted,true);release({posts:[],scanned:100,hasMore:true,after:'t3_next'});await task;assert.equal(listCalls(s).length,1);assert.equal(s.d.listState,null);assert.equal(s.d.host,null);
+});
+test('History uses one page and always states its limited coverage',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?rt_list=history'});await s.d.refreshActivity();assert.equal(listCalls(s).length,1);assert.equal(listCalls(s)[0].args.list,'history');assert.match(s.d.notice.textContent,/History only includes your ~20 most recently viewed posts/);assert.equal(s.d.listState.done,true);assert.equal(s.archives.length,0);
+});
+test('removing the search view list chip navigates back to ordinary profile search',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=cats&rt_list=saved',withHeader:true});const urls=navigations(s);s.h.root.querySelector('[data-rt-list-chip] button').click();assert.equal(urls.at(-1).searchParams.has('rt_list'),false);assert.equal(urls.at(-1).searchParams.get('q'),'cats');assert.ok(s.h.native.isConnected);
+});
+test('route events reverify identity without cancelling that read when the search view resets',async t=>{
+ const s=await setup(t,{autoDiscover:true,observe:true});assert.equal(listCalls(s).length,1);
+ s.W.history.pushState({},'','?rt_list=hidden&q=needle');s.W.dispatchEvent(new s.W.PopStateEvent('popstate'));await new Promise(r=>setTimeout(r,90));await flush();
+ assert.equal(s.d.context.list,'hidden');assert.equal(s.d.status.dataset.error,'false');assert.equal(s.calls.filter(c=>c.args.action==='own-list-identity').length,2);assert.equal(listCalls(s).length,2);
+});
+test('native shadow-root form submission works without a composed event',async t=>{
+ const s=await setup(t,{path:'/user/Example/saved/',withHeader:true});const urls=navigations(s);s.h.input.value='needle';const event=new s.W.Event('submit',{bubbles:true,cancelable:true});s.h.form.dispatchEvent(event);assert.equal(event.defaultPrevented,true);assert.equal(urls.at(-1).searchParams.get('rt_list'),'saved');
+});
+test('hydrated native chip arriving after the header is observed adds the own-list pill',async t=>{
+ const s=await setup(t,{path:'/user/Example/saved/',withHeader:true});s.h.native.remove();await flush();s.d.ownHeaderDismissed='';s.d.syncOwnListHeader();s.h.field.prepend(s.h.native);await flush();assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));
+});
+test('list requests never reach third parties even with archive discovery enabled',async t=>{
+ const s=await setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},autoDiscover:true});await s.d.loadSubredditCounts();await s.d.loadArchive();await s.d.loadReddit();assert.equal(s.archives.length,0);assert.equal(listCalls(s).length,1);assert.ok(s.d.nodes.get('first').querySelector('a[href*="/comments/first/"]'));assert.equal(s.d.nodes.get('first').querySelector('shreddit-post').hasAttribute('inert'),true);
+});
+test('empty list-search shell gets local tabs; disabled settings restore the header',async t=>{
+ const s=await setup(t,{path:'/user/Example/saved/',withHeader:true});s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);assert.equal(s.h.input.placeholder,'Search in u/Example');
+ s.D.querySelector('main').innerHTML='';s.W.history.pushState({},'','/user/Example/search/?rt_list=saved');s.d.applySettings({postDiscovery:true,archiveDiscovery:false});await flush();assert.ok(s.D.querySelector('[data-rt-ui="own-list-tabs"]'));await s.d.refreshActivity();assert.deepEqual(shown(s),['t3_first']);
+});
+test('account access lost during paging removes earlier private results',async t=>{
+ const s=await setup(t,{list:async(args,signal,W,n)=>{if(n>1)throw Error('You can only search your own lists. The signed-in account changed.');return {posts:[W.RTPostModel.normalizePost(raw('first'))],scanned:100,hasMore:true,after:'t3_first'};}});await s.d.refreshActivity();assert.equal(shown(s).length,0);assert.equal(s.d.listState.items.size,0);assert.equal(s.d.nodes.size,0);assert.match(s.d.status.textContent,/signed-in account changed/);
+});

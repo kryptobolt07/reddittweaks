@@ -1,4 +1,4 @@
-/* Public Reddit reads only. Authentication stays in Reddit's page world. */
+/* Reddit reads. Authentication and private page HTML stay in Reddit's page world. */
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.RTPostModel)return;
@@ -7,9 +7,9 @@
   const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map(),statusReads=new Map(),nativeCardReads=new Map();let active=0,cardActive=0,postCardActive=0,cooldown=0;
   // The page a read belongs to. The extension's own rt_* filter params (written with replaceState) are not
   // navigation, so changing a filter must not abort reads already in flight ("Page changed. Try again.").
-  function pageKey(){const params=new URLSearchParams(location.search);for(const key of [...params.keys()])if(key.startsWith('rt_'))params.delete(key);const rest=params.toString();return location.pathname+(rest?'?'+rest:'');}
+  function pageKey(){const params=new URLSearchParams(location.search);for(const key of [...params.keys()])if(key.startsWith('rt_') && key!=='rt_list')params.delete(key);const rest=params.toString();return location.pathname+(rest?'?'+rest:'');}
   function route(){
-    const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search))?\/?$/i);
+    const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search|saved|history|hidden|upvoted|downvoted))?\/?$/i);
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
@@ -522,7 +522,61 @@
       return {avatar:url};
     }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
+  const ownLists=new Set(['saved','history','hidden','upvoted','downvoted']);
+  function ownListContext(input){
+    const context=route();
+    if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Open your own Reddit profile to search your lists.');
+    // Callers supply structured names/cursors, never a URL, method or headers.
+    if(['url','origin','method','headers'].some(key=>input[key]!==undefined))throw Error('Invalid own-list request.');
+    return context;
+  }
+  async function signedInUsername(signal){
+    const response=await fetch(new URL('/api/me.json',location.origin).href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
+    if(!response.ok)throw Error(response.status===401 || response.status===403?'Sign in to Reddit to search your lists.':'Reddit could not verify your signed-in account (HTTP '+response.status+').');
+    let data;try{data=JSON.parse(await boundedText(response));}catch{throw Error('Reddit could not verify your signed-in account.');}
+    if(!M.validateUsername(data?.data?.name))throw Error('Sign in to Reddit to search your lists.');
+    return data.data.name;
+  }
+  function historyListing(text){
+    const doc=new DOMParser().parseFromString(text,'text/html'),cards=[...doc.querySelectorAll('main shreddit-post[id]')];
+    if(cards.length>100 || !cards.length && !doc.querySelector('main #empty-feed-content,main [data-testid="empty-state"]'))throw Error('Reddit’s History format changed or History could not be loaded.');
+    const posts=[],seen=new Set();
+    for(const card of cards){
+      const flag=name=>card.hasAttribute(name) && !['false','0'].includes(card.getAttribute(name));
+      const post=M.normalizePost({id:card.id,author:card.getAttribute('author'),title:card.getAttribute('post-title') || card.querySelector('[slot="title"]')?.textContent,
+        selftext:card.querySelector('[slot="text-body"],[id$="-post-rtjson-content"]')?.textContent || '',subreddit:card.getAttribute('subreddit-name'),
+        created_utc:Date.parse(card.getAttribute('created-timestamp'))/1000,permalink:card.getAttribute('permalink'),url:card.getAttribute('content-href'),
+        postType:card.getAttribute('post-type'),is_self:['text','textmedia'].includes(card.getAttribute('post-type')),over_18:flag('nsfw') || flag('is-nsfw'),spoiler:flag('spoiler'),
+        score:Number(card.getAttribute('score')),num_comments:Number(card.getAttribute('comment-count')),link_flair_text:card.querySelector('[slot="post-flair"]')?.textContent});
+      if(!post)throw Error('Reddit’s History format changed. Some recently viewed posts could not be read.');
+      if(!seen.has(post.fullname)){seen.add(post.fullname);posts.push(post);}
+    }
+    return {posts,after:null,hasMore:false,scanned:cards.length,incomplete:true,source:'reddit'};
+  }
+  async function readOwnList(input,signal){
+    ownListContext(input);
+    if(input.action!=='own-list-identity' && (!ownLists.has(input.list) || input.list==='history' && input.after!=null || input.after!=null && (typeof input.after!=='string' || !/^t[13]_[a-z0-9]{1,32}$/i.test(input.after))))throw Error('Invalid own-list name or cursor.');
+    const path=pageKey(),username=await signedInUsername(signal);
+    if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
+    if(input.action==='own-list-identity')return {username};
+    if(username.toLowerCase()!==input.username.toLowerCase())throw Error('You can only search your own lists. The signed-in account changed.');
+    const url=new URL('/user/'+encodeURIComponent(username)+'/'+input.list+(input.list==='history'?'/':'.json'),location.origin);
+    if(input.list!=='history'){url.searchParams.set('limit','100');url.searchParams.set('raw_json','1');if(input.after)url.searchParams.set('after',input.after);}
+    const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:input.list==='history'?'text/html':'application/json'},signal});
+    if(!response.ok)throw Error(response.status===401?'Sign in to Reddit to search your lists.':response.status===403?'Reddit denied access to your '+input.list+' list (HTTP 403).':'Reddit could not load your '+input.list+' list (HTTP '+response.status+').');
+    const text=await boundedText(response);
+    if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
+    if(input.list==='history')return historyListing(text);
+    let data;try{data=JSON.parse(text);}catch{throw Error('Reddit returned an unexpected own-list response.');}
+    const listing=data?.data;
+    if(data.kind!=='Listing' || !Array.isArray(listing?.children) || listing.children.length>100 || listing.after!=null && !/^t[13]_[a-z0-9]{1,32}$/i.test(listing.after))throw Error('Reddit returned an unexpected own-list listing.');
+    const posts=listing.children.map(item=>item.kind==='t3'?M.normalizePost(item.data):item.kind==='t1' && input.list==='saved'?M.normalizeComment(item.data):null);
+    // A malformed item is an explicit partial load, never silent exhaustion.
+    if(posts.some(post=>!post))throw Error('Some '+input.list+' items could not be read. The list search is incomplete.');
+    return {posts,after:listing.after || null,hasMore:Boolean(listing.after),scanned:listing.children.length,incomplete:true,source:'reddit'};
+  }
   async function read(input,signal){
+    if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
     if(input.action==='user-avatar')return userAvatar(input,signal);
     if(input.action==='render-card')return renderCard(input,signal);
     if(input.action==='status')return readStatuses(input,signal);
