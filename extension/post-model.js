@@ -97,6 +97,10 @@
       media:normalizeMedia(raw),over18:raw.over_18===true||raw.over18===true,spoiler:raw.spoiler===true,score:Number.isFinite(Number(raw.score))?Math.max(-1e9,Math.min(1e9,Number(raw.score))):0,
       comments:Number.isFinite(Number(raw.num_comments ?? raw.comments))?Math.max(0,Math.min(1e9,Math.floor(Number(raw.num_comments ?? raw.comments)))):0,
       status:source==='arctic-shift'?'unknown':status,source,bodySource:source,postType:postTypeOf(raw)};
+    // Retain public search metadata across page-world and archive normalization.
+    result.flair=str(raw.link_flair_text ?? raw.flair,1000);
+    result.domain=str(raw.domain,255);
+    if(typeof (raw.is_self ?? raw.isSelf)==='boolean')result.isSelf=raw.is_self ?? raw.isSelf;
     if(source==='arctic-shift'){
       result.archiveStatus=['available','deleted','removed','unknown'].includes(raw.archiveStatus)?raw.archiveStatus:status;
       const retrieved=retrievedAt(raw.retrieved_on ?? raw.retrieved);if(retrieved)result.retrieved=retrieved;
@@ -191,5 +195,22 @@
     const duration={hour:3600,day:86400,week:604800,month:2592000,year:31536000}[range],cutoff=sort==='top' && duration?now-duration:-Infinity;
     return [...posts.values()].filter(post=>post.created>=cutoff).map(post=>({...post,visible:visible.has(post.fullname) || post.kind!=='comment' && visible.has(post.id),outsideVisibleFeed:!visible.has(post.fullname) && !(post.kind!=='comment' && visible.has(post.id))})).sort((a,b)=>(sort==='top'?b.score-a.score:sort==='comments'?(b.comments||0)-(a.comments||0):sort==='hot'||sort==='relevance'?(rank.get(a.fullname)??Infinity)-(rank.get(b.fullname)??Infinity):0) || b.created-a.created || a.fullname.localeCompare(b.fullname));
   }
-  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings});
+  // One record shape for search predicates, whether backed by API/archive data
+  // or a native card. Comment parent titles must never become comment body text.
+  function searchRecord(item={},native=null){
+    if(item?.nodeType===1){native=item;item={};}
+    const attr=(...names)=>{for(const name of names){const value=native?.getAttribute(name);if(value!=null)return value;}return undefined;};
+    const flag=(...names)=>{const value=attr(...names);return value==null?undefined:!['false','no','0'].includes(value.toLowerCase());};
+    const comment=item.kind==='comment' || native?.matches('shreddit-profile-comment');
+    const url=item.url || attr('content-href','url'),nativeType=native && globalThis.RTFeedFilters?.inferType(native),type=nativeType || globalThis.RTFeedFilters?.inferType(item) || item.postType;
+    const nativeSelf=flag('is-self') ?? (['text','textmedia'].includes(nativeType)?true:['link','image','gif','video','gallery','embed'].includes(nativeType)?false:undefined);
+    let domain=item.domain || attr('domain');if(!domain && url)try{domain=new URL(url).hostname;}catch{}
+    return {title:comment?'':item.title || attr('post-title') || native?.querySelector('[slot="title"]')?.textContent,
+      body:item.body || item.selftext || native?.querySelector('[slot="text-body"],[slot="comment-body"],[id$="-post-rtjson-content"],.md')?.textContent || '',
+      author:item.author || attr('author'),subreddit:item.subreddit || attr('subreddit-name','subreddit-prefixed-name'),url,domain,
+      flair:item.flair || item.link_flair_text || native?.querySelector('[slot="post-flair"],.linkflairlabel')?.textContent,
+      isSelf:item.isSelf ?? item.is_self ?? nativeSelf,nsfw:item.nsfw ?? item.over_18 ?? item.over18 ?? flag('nsfw','is-nsfw'),
+      spoiler:item.spoiler ?? flag('spoiler','is-spoiler'),type:comment?undefined:type,created:item.created ?? item.created_utc ?? attr('created-timestamp')};
+  }
+  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,searchRecord});
 })();
