@@ -1470,10 +1470,10 @@ test('subreddit options use aggregate counts and fall back to loaded items with 
   let fail=false;W.RTArchiveQuery={async *search(){},async aggregate(){if(fail)throw Object.assign(Error('slow'),{code:'timeout'});return {ok:true,buckets:[{key:'big',count:40},{key:'small',count:2}],by:'subreddit',source:'server'};}};
   addNative(W,d,'t3_live',{ts:Math.floor(Date.now()/1000),type:'text',sub:'loadedonly'});
   d.clearActivityMenu();d.ensureActivityMenu();
-  const group=d.activityMain.parentElement.querySelector('[data-rt-filter-group="Subreddit"]'),list=()=>[...d.rtMenu.sub.list.children].map(el=>el.textContent.trim());
+  const group=d.activityMain.parentElement.querySelector('[data-rt-filter-group="Subreddit"]'),list=()=>[...d.rtMenu.sub.list.querySelectorAll('[data-rt-sub-row]')].map(el=>el.textContent.trim());
   group.click();await new Promise(r=>setTimeout(r,10));
   assert.match(list()[0],/r\/big\s*40/);assert.ok(list().some(x=>/loadedonly/.test(x)));assert.match(d.rtMenu.sub.note.dataset.rtSource,/archive/);
-  d.rtMenu.sub.list.firstElementChild.click();assert.equal(W.location.search,'?rt_sub=big');assert.equal(d.rtMenu.sub.list.firstElementChild.getAttribute('aria-checked'),'true');
+  d.rtMenu.sub.list.querySelector('[data-rt-sub-row="big"]').click();assert.equal(W.location.search,'?rt_sub=big');assert.equal(d.rtMenu.sub.list.querySelector('[data-rt-sub-row="big"]').getAttribute('aria-checked'),'true');
   fail=true;d.rtAgg=null;d.setFilters({...W.RTFeedFilters.empty()});group.click();await new Promise(r=>setTimeout(r,10));
   assert.equal(d.rtMenu.sub.note.dataset.rtSource,'Counts from loaded items');assert.ok(list().some(x=>/loadedonly/.test(x)));assert.ok(!list().some(x=>/big/.test(x)));
   d.rtMenu.sub.input.value='loaded';d.rtMenu.sub.input.dispatchEvent(new W.Event('input'));assert.equal(list().length,1);
@@ -1516,7 +1516,7 @@ test('Date submenu: six single-choice rows with shared outline icons',async t=>{
   const m=await menuSetup(t,'?rt_date=month');const rows=[...m.sub('date').querySelectorAll('[data-rt-option]')];
   assert.deepEqual(rows.map(r=>r.dataset.rtOption),['any','24h','week','month','year','custom']);
   assert.deepEqual(rows.map(r=>r.getAttribute('aria-label')),['Any time','Past 24 hours','Past week','Past month','Past year','Custom…']);
-  for(const row of rows){assert.equal(row.querySelector('.rt-menu-lead').dataset.icon,'calendar');assert.equal(row.querySelector('.rt-menu-lead').getAttribute('width'),'16');}
+  for(const row of rows){assert.equal(row.querySelector('.rt-menu-lead').dataset.icon,row.dataset.rtOption==='any'?'show':'calendar');assert.equal(row.querySelector('.rt-menu-lead').getAttribute('width'),'16');}
   assert.deepEqual(rows.filter(r=>r.getAttribute('aria-checked')==='true').map(r=>r.dataset.rtOption),['month']);assert.equal(rows.filter(r=>r.querySelector('[data-rt-check]')).length,1);
   assert.ok(m.sub('date').querySelector('[aria-label="Back"]'));
 });
@@ -1524,10 +1524,10 @@ test('Post type submenu: sections, Reddit icons, multi-select that stays open an
   const m=await menuSetup(t);const {W,d}=m,type=m.sub('type');m.group('Post type').click();assert.equal(d.openSubmenu,type);
   const kids=[...type.querySelector('[data-rt-menu-list]').children].map(n=>n.dataset.rtSection?'#'+n.dataset.rtSection:n.dataset.rtOption);
   assert.deepEqual(kids,['all','#Text','text','textmedia','poll','#Media','image','gif','video','gallery','#Links','link','embed','crosspost']);
-  assert.equal(type.querySelector('[data-rt-option="all"]').getAttribute('aria-label'),'All types');assert.equal(type.querySelector('[data-rt-option="all"] .rt-menu-lead').dataset.icon,'text-post');
-  const expect={text:'text-post',textmedia:'collection',poll:'list-bulleted',image:'image',gif:'gif',video:'video',gallery:'gallery',link:'link',embed:'browser',crosspost:'rotate'};
+  assert.equal(type.querySelector('[data-rt-option="all"]').getAttribute('aria-label'),'All types');assert.equal(type.querySelector('[data-rt-option="all"] .rt-menu-lead').dataset.icon,'show');
+  const expect={text:'text-post',textmedia:'collection',poll:'list-bulleted',image:'image',gif:'gif-post-outline',video:'video',gallery:'gallery',link:'link',embed:'browser',crosspost:'rotate'};
   for(const [id,name] of Object.entries(expect)){const row=type.querySelector('[data-rt-option="'+id+'"]');assert.equal(m.icon(row),name,id);}
-  const gif=type.querySelector('[data-rt-option="gif"] .rt-gif-tag');assert.equal(gif.textContent,'GIF');assert.match(cssRule('.rt-gif-tag'),/border:1\.5px solid currentColor/);
+  assert.equal(type.querySelector('[data-rt-option="gif"] svg').getAttribute('width'),'16');
   assert.deepEqual([...type.querySelectorAll('[data-rt-section]')].map(n=>n.getAttribute('role')),['presentation','presentation','presentation']);
   const row=id=>type.querySelector('[data-rt-option="'+id+'"]');
   row('image').click();row('gif').click();row('poll').click();
@@ -1559,7 +1559,7 @@ test('Subreddit submenu: header row, scrolling list, icons, pinned picks, 8-pick
   assert.equal(note.dataset.rtSource,'Counts from the archive');
   const rows=()=>[...list.querySelectorAll('[data-rt-sub-row]')];
   assert.equal(rows().length,15);assert.match(rows()[0].textContent,/r\/sub00\s*100/);assert.ok(rows().every(r=>r.querySelector('.rt-community-icon')));
-  assert.equal(rows().find(r=>r.dataset.rtSubRow==='u_spez').querySelector('svg').getAttribute('icon-name'),'profile-fill');assert.match(rows().find(r=>r.dataset.rtSubRow==='u_spez').textContent,/u\/spez/);
+  assert.equal(rows().find(r=>r.dataset.rtSubRow==='u_spez').querySelector('svg').getAttribute('icon-name'),'author');assert.match(rows().find(r=>r.dataset.rtSubRow==='u_spez').textContent,/u\/spez/);
   assert.equal(rows()[0].querySelector('svg').getAttribute('icon-name'),'community','outline placeholder until the icon loads');assert.ok(rows().every(r=>r.querySelector('.rt-sub-icon-box')));assert.ok(rows().every(r=>r.querySelector('.rt-sub-name')));
   await tick(10);assert.equal(rows().find(r=>r.dataset.rtSubRow==='sub01').querySelector('img.rt-community-img').getAttribute('src'),'https://styles.redditmedia.com/t5_1/styles/communityIcon_one.png');assert.ok(asked.includes('sub01'));
   // Selected rows are pinned at the top and show a checkmark; the list scroll is kept.
@@ -1648,10 +1648,10 @@ test('profile menu uses one shared width, pinned headers and 16px outline glyphs
   assert.equal((menuCss.match(/\n\.rt-sub-back\{/g)||[]).length,1,'one base rule for the back button');
   assert.equal(menuCss.includes('.rt-filter-search-box'),false,'unused search wrapper rule removed');
   const rows=[...d.activityMain.children].filter(el=>el.matches('rpl-menu-item'));
-  assert.deepEqual(rows.map(el=>m.icon(el)),['sort','card','activity','calendar','text-post','community']);
+  assert.deepEqual(rows.map(el=>m.icon(el)),['list-bulleted','card','activity','calendar','text-post','community']);
   for(const row of rows){const icon=row.querySelector('.rt-menu-lead');assert.ok(icon);assert.equal(icon.getAttribute('width'),'16');}
   const nativeIcon=W.document.createElementNS('http://www.w3.org/2000/svg','svg');nativeIcon.setAttribute('icon-name','new-fill');d.menuGroups[0].items[0].append(nativeIcon);
-  d.ensureActivityMenu();assert.equal(m.icon(rows[0]),'sort','native selected glyph never replaces the outline Sort icon');
+  d.ensureActivityMenu();assert.equal(m.icon(rows[0]),'list-bulleted','native selected glyph never replaces the outline Sort icon');
   d.activityMain.getBoundingClientRect=()=>({height:340});
   for(const key of ['sort','view','activity','date','type','sub']){
     const sub=m.sub(key),row=rows.find(el=>el.rtSubmenu===sub);row.click();
@@ -1694,5 +1694,42 @@ test('profile search uses the same Feed options menu as the profile',async t=>{
   assert.ok(W.document.querySelector('[data-rt-feed-options-host]'),'shared profile menu host');
   assert.equal(d.rtMenu.sub.panel.head.lastElementChild.matches('.rt-filter-field'),true,'pill search field in the Subreddit header');
   assert.equal(d.rtMenu.groups.sub.el.querySelector('.rt-menu-lead').dataset.icon,'community');
-  assert.equal(d.rtMenu.groups.date.sub.querySelector('[data-rt-option="any"] .rt-menu-lead').dataset.icon,'calendar');
+  assert.equal(d.rtMenu.groups.date.sub.querySelector('[data-rt-option="any"] .rt-menu-lead').dataset.icon,'show');
+});
+
+// Each route uses the same semantic icons, whether Reddit supplies a filled SVG or only a label.
+for(const suffix of ['', 'submitted/', 'comments/'])for(const filled of [false,true])test(`Feed options icon matrix on /user/Example/${suffix} (${filled?'native filled SVGs':'labels only'})`,async t=>{
+  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/'+suffix,pre:['feed-filters.js']});await d.ready;d.clearActivityMenu();
+  const main=W.document.querySelector('.main-menu-container');
+  const sorts={New:'new',Hot:'hot',Top:'top',Best:'best',Relevance:'search',Comments:'comment','Most comments':'comment',Old:'archive'},views={Card:'card',Classic:'classic',Compact:'classic'};
+  main.innerHTML='<div>Feed options</div>'+Object.keys(sorts).map(label=>`<rpl-menu-item aria-label="${label}" tabindex="0">${filled?'<svg icon-name="'+(label==='Relevance'?'search':label.toLowerCase())+'-fill"><path d="M1 1h18v18H1z"/></svg>':''}${label}</rpl-menu-item>`).join('')+'<div>View</div>'+Object.keys(views).map(label=>`<rpl-menu-item aria-label="${label}">${filled?'<svg icon-name="card-fill"></svg>':''}${label}</rpl-menu-item>`).join('');
+  const originals=[...main.querySelectorAll('rpl-menu-item')].map(row=>({row,html:row.innerHTML,icon:row.querySelector('svg'),tab:row.getAttribute('tabindex')}));
+  let clicks=0;originals[0].row.addEventListener('click',()=>clicks++);d.ensureActivityMenu();
+  const assertIcon=(row,name)=>{
+    assert.ok(row,name+' row exists');const svg=row.querySelector('.rt-menu-lead');assert.ok(svg,name+' has a leading icon');
+    assert.equal(svg.getAttribute('icon-name'),name);assert.equal(svg.getAttribute('width'),'16');assert.equal(svg.getAttribute('height'),'16');assert.equal(svg.getAttribute('viewBox'),'0 0 20 20');
+    assert.equal(svg.getAttribute('aria-hidden'),'true');assert.equal(svg.getAttribute('icon-name').endsWith('-fill'),false);
+    const shared=W.RTFeedFilters.svgIcon(name,16);if(shared)assert.deepEqual([...svg.querySelectorAll('path')].map(p=>p.getAttribute('d')),[...shared.querySelectorAll('path')].map(p=>p.getAttribute('d')));
+  };
+  for(const [label,name] of Object.entries(sorts))assertIcon(d.menuGroups[0].sub.querySelector('[aria-label="'+label+'"]'),name);
+  for(const [label,name] of Object.entries(views))assertIcon(d.menuGroups[1].sub.querySelector('[aria-label="'+label+'"]'),name);
+  assertIcon(d.menuGroups[0].row,'list-bulleted');assertIcon(d.menuGroups[1].row,'card');
+  for(const [key,name] of Object.entries({all:'show',hidden:'hidden',deleted:'deleted'}))assertIcon(d.activityMenu.querySelector('[data-rt-activity-filter="'+key+'"]'),name);
+  assertIcon(d.activityMenu.querySelector('[data-rt-ui="activity-refresh"]'),'refresh');
+  for(const [key,row] of d.rtMenu.date)assertIcon(row,key==='any'?'show':'calendar');
+  const types={text:'text-post',textmedia:'collection',poll:'list-bulleted',image:'image',gif:'gif-post-outline',video:'video',gallery:'gallery',link:'link',embed:'browser',crosspost:'rotate'};
+  assert.equal(Boolean(d.rtMenu.all),suffix!=='comments/');
+  if(d.rtMenu.all){assertIcon(d.rtMenu.all,'show');for(const [key,name] of Object.entries(types))assertIcon(d.rtMenu.types.get(key),name);}
+  const panel=d.rtMenu.sub.panel;panel.render({entries:[{key:'Example',count:1},{key:'u_example',count:1}],picked:[],source:'loaded'});
+  assertIcon(panel.list.querySelector('[data-rt-sub-all]'),'show');
+  for(const [key,name] of [['Example','community'],['u_example','author']]){const row=panel.list.querySelector('[data-rt-sub-row="'+key+'"]');assert.equal(row.querySelector('svg').getAttribute('icon-name'),name);assert.equal(row.querySelector('svg').getAttribute('width'),'16');}
+  const style=W.document.createElement('style');style.textContent=menuCss;W.document.head.append(style);
+  const sparkle=d.menuGroups[0].sub.querySelector('[aria-label="New"] svg'),appearance=W.getComputedStyle(sparkle);
+  assert.equal(appearance.fill,'none');assert.equal(appearance.stroke,'currentColor');assert.equal(appearance.strokeWidth,'1.8');
+  const archive=d.menuGroups[0].sub.querySelector('[aria-label="Old"] svg');assert.equal(archive.firstElementChild.getAttribute('fill-rule'),'evenodd');assert.equal(archive.children.length,2,'hollow body and handle');
+  originals[0].row.click();assert.equal(clicks,1);d.clearActivityMenu();
+  for(const {row,html,icon,tab} of originals){assert.equal(row.parentElement,main);assert.equal(row.innerHTML,html,'native presentation restored exactly');assert.equal(row.querySelector('svg'),icon,'native SVG identity restored');assert.equal(row.getAttribute('tabindex'),tab);}
+  originals[0].row.click();assert.equal(clicks,2,'native event handlers survive');
+  assert.equal(W.RTFeedFilters.iconNames.includes('sort'),false,'unused handmade sort glyph removed');
+  for(const name of W.RTFeedFilters.iconNames)assert.ok(W.RTFeedFilters.svgIcon(name),'export renders '+name);
 });

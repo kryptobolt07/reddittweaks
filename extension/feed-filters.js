@@ -12,7 +12,7 @@
   const typeLabels=Object.freeze(Object.fromEntries(typeDefs.map(t=>[t.id,t.label])));
   const typeIcons=Object.freeze(Object.fromEntries(typeDefs.map(t=>[t.id,t.icon])));
   const typeSections=Object.freeze(['Text','Media','Links'].map(label=>Object.freeze({label,types:Object.freeze(typeDefs.filter(t=>t.section===label).map(t=>t.id))})));
-  // 20x20 filled glyphs harvested from Reddit's own pages (fill=currentColor), plus one calendar drawn in the same outline weight.
+  // Reddit's 20x20 glyphs (outline silhouettes use fill=currentColor).
   const iconPaths={
     'text-post':["M14.7 2H5.3C3.48 2 2 3.48 2 5.3v9.4C2 16.52 3.48 18 5.3 18h9.4c1.82 0 3.3-1.48 3.3-3.3V5.3C18 3.48 16.52 2 14.7 2Zm1.5 12.7c0 .83-.67 1.5-1.5 1.5H5.3c-.83 0-1.5-.67-1.5-1.5V5.3c0-.83.67-1.5 1.5-1.5h9.4c.83 0 1.5.67 1.5 1.5v9.4Z", "M12 11.1H6v1.8h6v-1.8ZM14 7.1H6v1.8h8V7.1Z"],
     'collection':["M17.5 8.56V7.08c0-1.17-.7-2.17-1.7-2.63V3.5A2.5 2.5 0 0013.3 1H6.7a2.5 2.5 0 00-2.5 2.5v.95c-1 .46-1.7 1.46-1.7 2.63v1.48c-.9.59-1.5 1.6-1.5 2.76v4.38C1 17.52 2.48 19 4.3 19h11.4c1.82 0 3.3-1.48 3.3-3.3v-4.38c0-1.16-.6-2.17-1.5-2.76ZM4.3 8.02v-.94c0-.61.49-1.1 1.1-1.1h9.2c.61 0 1.1.49 1.1 1.1v.94H4.3ZM6.7 2.8h6.6c.39 0 .7.31.7.7v.68H6V3.5c0-.39.31-.7.7-.7Zm10.5 12.9c0 .83-.67 1.5-1.5 1.5H4.3c-.83 0-1.5-.67-1.5-1.5v-4.38c0-.83.67-1.5 1.5-1.5h11.4c.83 0 1.5.67 1.5 1.5v4.38Z", "M10 14.51a1.5 1.5 0 100-3 1.5 1.5 0 000 3Z"],
@@ -26,15 +26,19 @@
     'community-fill':"M11.977 13.79h-1.955l4.549-10.715a.81.81 0 00-.381-1.032C12.447 1.12 10.37.747 8.179 1.18c-3.612.716-6.471 3.68-7.059 7.316a9.01 9.01 0 0010.409 10.377c3.735-.616 6.741-3.635 7.347-7.371.453-2.8-.388-5.405-2.017-7.322a.505.505 0 00-.853.119l-4.029 9.49ZM9.98 8.118a1.752 1.752 0 00-1.148.167 1.664 1.664 0 00-.651.596 1.703 1.703 0 00-.258.948v3.96H5.998V6.322h1.876v1.074h.035c.251-.344.567-.628.948-.851a2.55 2.55 0 011.311-.335c.172 0 .335.014.488.042.153.028.267.058.342.09l-.774 1.849a.766.766 0 00-.244-.073Z",
     'profile-fill':"M10 1c-4.96 0-9 4.04-9 9s4.04 9 9 9 9-4.04 9-9-4.04-9-9-9Zm0 4.5c1.52 0 2.75 1.23 2.75 2.75S11.52 11 10 11 7.25 9.77 7.25 8.25 8.48 5.5 10 5.5Zm-4.97 9.69C5.91 13.31 7.8 12 10 12c2.2 0 4.09 1.31 4.97 3.19A7.153 7.153 0 0110 17.2c-1.93 0-3.68-.77-4.97-2.01Z",
     'card':"M14.7 2H5.3C3.48 2 2 3.48 2 5.3v9.4C2 16.52 3.48 18 5.3 18h9.4c1.82 0 3.3-1.48 3.3-3.3V5.3C18 3.48 16.52 2 14.7 2ZM5.3 3.8h9.4c.83 0 1.5.67 1.5 1.5v3.8H3.8V5.3c0-.83.67-1.5 1.5-1.5Zm9.4 12.4H5.3c-.83 0-1.5-.67-1.5-1.5v-3.8h12.4v3.8c0 .83-.67 1.5-1.5 1.5Z",
-    'archive':"M15.7 1H4.3C2.48 1 1 2.48 1 4.3v2.76c0 .5.4.9.9.9H2v6.74C2 16.52 3.48 18 5.3 18h9.4c1.82 0 3.3-1.48 3.3-3.3V7.96h.1c.5 0 .9-.4.9-.9V4.3C19 2.48 17.52 1 15.7 1ZM13 11.87H7v-1.8h6v1.8Zm4.2-5.71H2.8V4.3c0-.83.67-1.5 1.5-1.5h11.4c.83 0 1.5.67 1.5 1.5v1.86Z",
+    'archive':["M15.7 1H4.3C2.48 1 1 2.48 1 4.3v2.76c0 .5.4.9.9.9H2v6.74C2 16.52 3.48 18 5.3 18h9.4c1.82 0 3.3-1.48 3.3-3.3V7.96h.1c.5 0 .9-.4.9-.9V4.3C19 2.48 17.52 1 15.7 1Zm1.5 5.16H2.8V4.3c0-.83.67-1.5 1.5-1.5h11.4c.83 0 1.5.67 1.5 1.5v1.86ZM3.8 7.96h12.4v6.74c0 .83-.67 1.5-1.5 1.5H5.3c-.83 0-1.5-.67-1.5-1.5V7.96Z","M7 10.07h6v1.8H7z"],
     'checkmark':"M7.09 15.84c-.23 0-.46-.09-.64-.26L1.3 10.42a.9.9 0 010-1.27.9.9 0 011.27 0l4.52 4.52L17.5 3.26a.9.9 0 011.27 0 .9.9 0 010 1.27L7.73 15.58c-.18.18-.41.26-.64.26Z",
     'chevron-right':"M7.5 17.9a.898.898 0 01-.636-1.536L13.227 10 6.864 3.636a.898.898 0 010-1.272.898.898 0 011.272 0l7 7a.898.898 0 010 1.272l-7 7a.897.897 0 01-.636.264Z",
     'arrow-back':"M17.5 9.1H4.679l5.487-5.462a.898.898 0 00.003-1.272.898.898 0 00-1.272-.003l-7.032 7a.898.898 0 000 1.275l7.03 7a.896.896 0 001.273-.003.898.898 0 00-.002-1.272l-5.487-5.462h12.82a.9.9 0 000-1.8Z",
     'activity':"M10 1c-.5 0-.9.4-.9.9v.17C5.11 2.52 2 5.9 2 10c0 4.41 3.59 8 8 8 4.11 0 7.48-3.11 7.93-7.1h.17c.5 0 .9-.4.9-.9 0-4.96-4.04-9-9-9Zm.9 1.86c3.25.41 5.84 2.99 6.24 6.24H10.9V2.86ZM10 16.2c-3.42 0-6.2-2.78-6.2-6.2 0-3.11 2.31-5.69 5.3-6.12V10c0 .5.4.9.9.9h6.12c-.44 2.99-3.01 5.3-6.12 5.3Z",
     // Reddit's outline glyphs; community uses its captured ring and r/ geometry.
-    // Sort: an up arrow beside a down arrow; New: a sparkle.
-    'sort':["M6.5 2.1a.9.9 0 01.64.26l3.2 3.2a.9.9 0 01-1.28 1.28L7.4 5.17V17.1a.9.9 0 01-1.8 0V5.17L3.94 6.84a.9.9 0 01-1.28-1.28l3.2-3.2a.9.9 0 01.64-.26Z","M13.5 17.9a.9.9 0 01-.64-.26l-3.2-3.2a.9.9 0 011.28-1.28l1.66 1.67V2.9a.9.9 0 011.8 0v11.93l1.66-1.67a.9.9 0 011.28 1.28l-3.2 3.2a.9.9 0 01-.64.26Z"],
+    // The captured New silhouette is filled: stroke its boundary for an outline sparkle.
     'new':"M10 1.5c.4 0 .75.27.86.66l1.1 3.88a2.7 2.7 0 001.86 1.86l3.88 1.1a.9.9 0 010 1.72l-3.88 1.1a2.7 2.7 0 00-1.86 1.86l-1.1 3.88a.9.9 0 01-1.72 0l-1.1-3.88a2.7 2.7 0 00-1.86-1.86l-3.88-1.1a.9.9 0 010-1.72l3.88-1.1a2.7 2.7 0 001.86-1.86l1.1-3.88A.9.9 0 0110 1.5Z",
+    'best':["M15.22 8.6c-.6-3.51-2.68-6.21-4.76-7.47a.912.912 0 00-.93 0C7.59 2.3 5.37 4.89 4.76 8.61c-2.77 2.65-4.02 4.46-3.57 7.32.17 1.08 1.14 1.9 2.27 1.9h3.18c.61.72 1.53 1.17 2.51 1.17h1.71c.98 0 1.9-.44 2.51-1.17h3.18c1.12 0 2.1-.82 2.27-1.9.45-2.87-.8-4.67-3.59-7.33h-.01ZM2.97 15.65c-.24-1.53.15-2.65 1.66-4.33.1 1.83.55 3.45 1.06 4.71H3.46c-.24 0-.45-.17-.49-.38Zm6.18 1.55c-.57 0-1.09-.32-1.33-.81-.64-1.31-1.41-3.37-1.41-5.78 0-3.71 1.84-6.34 3.6-7.63 1.81 1.35 3.6 4.16 3.6 7.63 0 2.41-.77 4.47-1.41 5.78-.24.49-.77.81-1.33.81H9.15Zm7.88-1.55c-.03.21-.25.38-.49.38h-2.23c.51-1.26.96-2.88 1.06-4.71 1.51 1.69 1.9 2.8 1.66 4.33Z","M10 8.35c-.91 0-1.65.74-1.65 1.65 0 .91.74 1.65 1.65 1.65.91 0 1.65-.74 1.65-1.65 0-.91-.74-1.65-1.65-1.65Z"],
+    'comment':["M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9Zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2Z"],
+    'show':["M10 13.9c-2.15 0-3.9-1.75-3.9-3.9S7.85 6.1 10 6.1s3.9 1.75 3.9 3.9-1.75 3.9-3.9 3.9Zm0-6a2.1 2.1 0 100 4.2 2.1 2.1 0 000-4.2Z","M10 16.97c-3.8 0-7.28-2.09-9.08-5.44-.51-.96-.51-2.1 0-3.06C2.72 5.11 6.2 3.03 10 3.03s7.28 2.09 9.08 5.44c.51.96.51 2.1 0 3.06-1.8 3.36-5.28 5.44-9.08 5.44Zm0-12.14c-3.14 0-6.01 1.72-7.5 4.5-.22.42-.22.94 0 1.35a8.514 8.514 0 007.5 4.5c3.14 0 6.01-1.72 7.5-4.5.22-.42.22-.94 0-1.35a8.514 8.514 0 00-7.5-4.5Z"],
+    'gif-post-outline':["M4.711 12.664A2.8 2.8 0 013.6 11.583 3.108 3.108 0 013.2 10a3.052 3.052 0 01.411-1.583c.267-.46.659-.834 1.129-1.082a3.37 3.37 0 011.616-.385c.333 0 .664.043.986.128.309.081.605.205.879.369l-.5 1.169a1.314 1.314 0 00-.563-.357 2.3 2.3 0 00-.754-.124 1.733 1.733 0 00-1.863 1.848c-.006.344.073.684.232.99a1.7 1.7 0 001.542.925c.258.004.513-.051.746-.162a1.23 1.23 0 00.513-.443c.121-.185.185-.401.183-.622H6.124V9.619L9 9.6v.928a2.4 2.4 0 01-1.293 2.193 2.955 2.955 0 01-1.417.328 3.247 3.247 0 01-1.579-.385Zm5.471-5.648H11.5v5.968h-1.318V7.016Zm2.862 0H16.5v1.169h-2.138v1.392h1.79v1.169h-1.79v2.238h-1.318V7.016ZM10 20a18.04 18.04 0 01-6.369-1.162 4.226 4.226 0 01-2.469-2.47 18.033 18.033 0 010-12.737 4.228 4.228 0 012.469-2.469 18.116 18.116 0 0112.738 0 4.228 4.228 0 012.469 2.469 18.035 18.035 0 010 12.738 4.225 4.225 0 01-2.469 2.469A18.04 18.04 0 0110 20Zm0-18.75a16.8 16.8 0 00-5.929 1.082 2.978 2.978 0 00-1.739 1.739 16.783 16.783 0 000 11.857 2.98 2.98 0 001.739 1.74 16.858 16.858 0 0011.858 0 2.978 2.978 0 001.739-1.739 16.785 16.785 0 000-11.858 2.978 2.978 0 00-1.739-1.739A16.8 16.8 0 0010 1.25Z"],
+    'author':["M17.536 2.465a5.006 5.006 0 00-7.072 0 4.98 4.98 0 00-1.458 3.503 1.934 1.934 0 00-.437-.023 1.903 1.903 0 00-1.388.759l-5.457 7.319c-.925 1.24-.806 2.87.288 3.965a3.015 3.015 0 002.14.908c.631 0 1.268-.205 1.826-.621l7.317-5.457a1.9 1.9 0 00.761-1.386 1.892 1.892 0 00-.022-.44 4.982 4.982 0 003.502-1.458 5.006 5.006 0 000-7.07Zm-5.316 8.91-7.318 5.457c-.633.474-1.249.25-1.617-.117-.366-.366-.589-.983-.117-1.616l5.457-7.32.15-.01L9.867 8.86l-2.162 2.162 1.273 1.272 2.162-2.162 1.091 1.09-.01.152Zm4.043-3.112c-1.209 1.209-3.316 1.209-4.525 0a3.204 3.204 0 010-4.525 3.18 3.18 0 012.263-.938c.855 0 1.658.333 2.263.938a3.204 3.204 0 010 4.525Z"],
     'caret-up-down':"M13.21 8c-.23 0-.46-.09-.63-.26L10 5.16 7.42 7.74a.9.9 0 01-1.27 0 .9.9 0 010-1.27l3.21-3.21a.9.9 0 011.27 0l3.21 3.21A.894.894 0 0113.21 8ZM10 17c-.23 0-.46-.09-.63-.26l-3.21-3.21a.9.9 0 010-1.27.9.9 0 011.27 0l2.58 2.58 2.58-2.58a.9.9 0 011.27 0 .9.9 0 010 1.27l-3.21 3.21c-.17.17-.4.26-.63.26H10Z",
     'search':"m18.736 17.464-3.483-3.483A7.961 7.961 0 0016.999 9 8 8 0 109 17a7.961 7.961 0 004.981-1.746l3.483 3.483a.9.9 0 101.272-1.273ZM9 15.2A6.207 6.207 0 012.8 9c0-3.419 2.781-6.2 6.2-6.2s6.2 2.781 6.2 6.2-2.781 6.2-6.2 6.2Z",
     'close':"m11.273 10 5.363-5.363a.9.9 0 10-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 10-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 101.274 1.273L10 11.273l5.363 5.363a.897.897 0 001.274 0 .9.9 0 000-1.273L11.275 10h-.002Z",
@@ -50,8 +54,9 @@
     if(name==='gif'){const tag=document.createElement('span');tag.className='rt-gif-tag';tag.dataset.icon='gif';tag.setAttribute('aria-hidden','true');tag.textContent='GIF';return tag;}
     const paths=iconPaths[name];if(!paths)return null;
     const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('fill','currentColor');s.setAttribute('width',String(size));s.setAttribute('height',String(size));
+    if(name==='new'){s.setAttribute('fill','none');s.setAttribute('stroke','currentColor');s.setAttribute('stroke-width','1.8');s.setAttribute('stroke-linejoin','round');}
     s.setAttribute('icon-name',name);s.setAttribute('aria-hidden','true');s.dataset.icon=name;s.dataset.nativeIcon='true';s.classList.add('rt-activity-icon');
-    for(const d of [].concat(paths)){const path=document.createElementNS(SVG,'path');path.setAttribute('d',d);if(name==='calendar')path.setAttribute('fill-rule','evenodd');s.append(path);}
+    for(const d of [].concat(paths)){const path=document.createElementNS(SVG,'path');path.setAttribute('d',d);if(name==='calendar' || name==='archive')path.setAttribute('fill-rule','evenodd');s.append(path);}
     return s;
   }
   const incomingHour={id:'hour',label:'Past hour',seconds:3600};
@@ -198,12 +203,12 @@
     img.addEventListener('error',()=>{img.replaceWith(placeholderIcon(span.dataset.rtCommunity,span.dataset.rtPlaceholder));},{once:true});
     span.replaceChildren(img);span.dataset.rtIconApplied='true';
   }
-  function placeholderIcon(name,placeholder){return svgIcon(/^u_./i.test(name)?'profile-fill':placeholder || 'community-fill',span24)||document.createDocumentFragment();}
+  function placeholderIcon(name,placeholder){return svgIcon(placeholder || (/^u_./i.test(name)?'profile-fill':'community-fill'),placeholder?16:span24)||document.createDocumentFragment();}
   // A fixed-size round community icon: the placeholder glyph now, the real icon swapped in without moving anything.
   function communityIcon(name,size=span24,placeholder){
     const span=document.createElement('span');span.className='rt-community-icon';span.dataset.rtCommunity=name;if(placeholder)span.dataset.rtPlaceholder=placeholder;span.style.setProperty('--rt-icon-size',size+'px');
     const known=iconsApi()?.peek?.(name);
-    if(known)applyIcon(span,known);else{const g=placeholderIcon(name,placeholder);if(g.nodeType===1){g.setAttribute('width',String(size));g.setAttribute('height',String(size));}span.append(g);}
+    if(known)applyIcon(span,known);else{const g=placeholderIcon(name,placeholder);if(g.nodeType===1){const glyphSize=String(placeholder?Math.min(size,16):size);g.setAttribute('width',glyphSize);g.setAttribute('height',glyphSize);}span.append(g);}
     return span;
   }
   // Fill in one community's icon, if the loader can find it.
@@ -265,12 +270,12 @@
     const el=document.createElement('div');el.className='rt-menu-section text-12 font-semibold text-neutral-content-weak';el.setAttribute('role','presentation');el.dataset.rtUi='filter-option';el.dataset.rtSection=text;el.textContent=text;return el;
   }
   // Post type list: "All types" then the Text / Media / Links sections. Multi-select; append(el) places each element.
-  function typeOptions(ctx,{append,onToggle,onClear,iconSize=20,allIcon=false}){
+  function typeOptions(ctx,{append,onToggle,onClear,iconSize=20,allIcon=false,outline=false}){
     const rows=new Map(),elements=[],add=el=>{el.dataset.rtUi='filter-option';append(el);elements.push(el);return el;};
     const all=add(menuOption(ctx,{label:'All types',icon:allIcon,value:'all',onSelect:()=>onClear()}));
     for(const section of typeSections){
       add(sectionLabel(section.label));
-      for(const id of section.types)rows.set(id,add(menuOption(ctx,{label:typeLabels[id],icon:svgIcon(typeIcons[id],iconSize),value:id,onSelect:()=>onToggle(id)})));
+      for(const id of section.types)rows.set(id,add(menuOption(ctx,{label:typeLabels[id],icon:svgIcon(outline && id==='gif'?'gif-post-outline':typeIcons[id],iconSize),value:id,onSelect:()=>onToggle(id)})));
     }
     return {all,rows,elements,sync(selected){markChecked(ctx,all,!selected.length);for(const [id,el] of rows)markChecked(ctx,el,selected.includes(id));}};
   }
@@ -284,7 +289,7 @@
   const sourceNotes={archive:'Counts from the archive',loaded:'Counts from loaded items',loading:'Loading counts…',none:''};
   // Subreddit list: optional Back plus a pill search in one header row, then a scrolling list of
   // community icon / name / count / check rows (picked rows pinned first), then a (hidden) source note.
-  function subredditPanel({ctx,onBack=null,onToggle,max=maxSubreddits,limit=200,nativeHeader=false}){
+  function subredditPanel({ctx,onBack=null,onToggle,max=maxSubreddits,limit=200,nativeHeader=false,onClear=null}){
     const mk=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
     const header=nativeHeader && onBack?submenuHeader('',onBack):null;
     const el=mk('div','rt-sub-panel'),head=header?.head || mk('div','rt-sub-head'),list=mk('div','rt-sub-list'),note=mk('div','rt-filter-note text-12 text-neutral-content-weak'),input=mk('input','rt-filter-search');
@@ -309,9 +314,10 @@
       observer?.disconnect();observer=null;
       const keepTop=list.scrollTop;list.replaceChildren();
       const watch=typeof IntersectionObserver==='function'?(observer=new IntersectionObserver(items=>{for(const item of items)if(item.isIntersecting){observer?.unobserve(item.target);loadIcon(item.target);}},{root:list,rootMargin:'48px'})):null;
+      if(onClear){const all=menuOption(ctx,{label:'All communities',icon:svgIcon('show',16),checked:!picked.length,value:'all',onSelect:onClear});all.dataset.rtUi='filter-option';all.dataset.rtSubAll='true';list.append(all);}
       let index=0;
       for(const entry of rows){
-        const on=pickedKeys.has(entry.key.toLowerCase()),icon=communityIcon(entry.key,24,nativeHeader?'community':undefined);
+        const on=pickedKeys.has(entry.key.toLowerCase()),icon=communityIcon(entry.key,24,nativeHeader?(/^u_./i.test(entry.key)?'author':'community'):undefined);
         const row=menuOption(ctx,{label:subLabel(entry.key),icon,checked:on,value:entry.key,tail:entry.count?String(entry.count):'',slot:true,onSelect:()=>{if(row.getAttribute('aria-disabled')==='true')return;onToggle(entry.key);}});
         if(nativeHeader){icon.classList.add('rt-sub-icon-box');const caption=row.firstElementChild.firstElementChild,text=caption.lastChild,name=mk('span','rt-sub-name',text.textContent);text.replaceWith(name);}
         row.dataset.rtUi='filter-option';row.dataset.rtSubRow=entry.key;row.dataset.rtSubOption=entry.key;
