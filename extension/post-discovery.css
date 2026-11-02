@@ -276,3 +276,4 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 /* Keep Reddit's SPA results mounted and reversible while the merged search feed owns presentation. */
 [data-rt-search-hidden],[data-rt-search-sort-hidden]{display:none!important}
 [data-rt-ui="search-feed"]{display:block;min-width:0}
+.rt-archive-link{color:var(--color-primary-plain,#0a449b);text-decoration:none}
