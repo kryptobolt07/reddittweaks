@@ -1,3 +1,20 @@
+# 0.25.0 preview
+
+- Archived banned/private community post links open a thread reader with nested comments, focused-comment links, bounded pagination and explicit partial-coverage status.
+- Community pages reuse Reddit's native left navigation. Snapshot card links remain usable while voting and other snapshot actions are blocked.
+- Comment feeds and thread comments use page-level Arctic Shift attribution instead of repeated archive badges. Thread comments retain native author, avatar, body and action-row styling.
+- Archive reader comments are excluded from live deletion detection.
+
+Version choice: MINOR to 0.25.0 for archived community thread browsing. No new permissions or storage schema migration.
+
+Validation:
+- All 1216 tests pass, including scoped thread reads, focused comments, stalled pagination, native navigation, snapshot action guards and comment attribution.
+- Package integrity and source/stable-folder/archive byte equality verified.
+
+Limitations:
+- This continuation has automated coverage only; the final interface and installed-extension clicks have not been rechecked live in Chrome.
+- Archive coverage remains partial. Missing parent comments cannot be reconstructed, and voting/posting are unavailable in the reader.
+
 # 0.24.0 preview
 
 - Search: shared `AND`, `OR`, `NOT`, grouping, phrases and supported field queries across chat, profile and archived-community searches. Invalid queries explain the problem; archive pushdown uses supported fields and checks residual expressions locally. Profile and profile-search filters share outline icons.
