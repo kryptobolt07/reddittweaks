@@ -71,7 +71,7 @@
   }
   // Streams pages of {items, searchedBackTo, hasMore, serverFiltered, cursor, stalled, mode}. At most maxPages archive requests per call;
   // pass the last page's cursor back as `cursor` to search older (desc) or newer (asc). hasMore is never false unless the archive said so.
-  async function* search({kind,author,subreddit,parsed,text,after,before,sort='desc',cursor,postTypes,maxPages=10,signal,send}={}){
+  async function* search({kind,author,subreddit,parsed,text,after,before,sort='desc',cursor,postTypes,maxPages=10,signal,send,titles=false}={}){
     parsed=parsed ?? (text ? globalThis.RCSCore?.parseQuery?.(text) ?? {text} : null);
     if(parsed?.invalid)return;
     const plan=projection(parsed,{kind,author,subreddit,after,before}),query=plan.query,asc=sort==='asc',types=kind==='post' && postTypes?.length?new Set(postTypes):null;
@@ -81,7 +81,7 @@
     while(pages<maxPages){
       if(signal?.aborted)return;
       const params={...plan.params};if(local)for(const key of ['title','selftext','body','link_flair_text'])delete params[key];
-      const message={action:'archive-search',kind,...params,author:author ?? params.author,subreddit:subreddit ?? params.subreddit,sort,after:asc?position:after,before:asc?before:position,query:local?undefined:query||undefined};
+      const message={action:'archive-search',kind,...params,...(titles && kind==='comment'?{titles:true}:{}),author:author ?? params.author,subreddit:subreddit ?? params.subreddit,sort,after:asc?position:after,before:asc?before:position,query:local?undefined:query||undefined};
       let response;
       try{response=await ask(send,message);}
       catch(error){

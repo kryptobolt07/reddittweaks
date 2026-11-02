@@ -302,7 +302,10 @@
       const edge=times.length?(sort==='asc'?Math.max(...times)-1:Math.min(...times)+1):null,bound=sort==='asc'?after:before;
       const cursor=hasMore && edge!=null && edge>0?edge:null,stalled=hasMore && (cursor==null || bound!=null && (sort==='asc'?cursor<=bound:cursor>=bound));
       return {ok:true,posts,cursor,hasMore,sort,serverFiltered:Boolean(text || Object.keys(params).length),source:'arctic-shift',incomplete:true,cursorStalled:stalled,cursorMode:'exclusive-overlap-second'};
-    }).then(value=>value.ok===false && textFiltered && ['timeout','text-search-unavailable'].includes(value.code)?fail('Text search is unavailable for this scope.','text-search-unavailable'):value));
+    }).then(value=>value.ok===false && textFiltered && ['timeout','text-search-unavailable'].includes(value.code)?fail('Text search is unavailable for this scope.','text-search-unavailable'):value)).then(async value=>{
+      // Opt-in, best effort: thread titles for comment search rows.
+      if(value?.ok && kind==='comment' && message.titles===true)try{await fillCommentTitles(value.posts);}catch{}
+      return value;});
   }
   async function archiveAggregate(message,sender){
     if(!redditSender(sender))return fail('Archive aggregates require a Reddit page.','forbidden');

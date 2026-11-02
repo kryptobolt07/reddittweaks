@@ -136,3 +136,10 @@ test('comment field values are quoted as literals, and out-of-range dates stay l
  await collect(Q.search({kind:'comment',author:'Example',parsed:C.parseQuery('body:"quiet OR place" before:1900-01-01',{fields:['body']}),send:async m=>{calls.push(m);return {ok:true,posts:[],hasMore:false};}}));
  assert.equal(calls[0].body,'"quiet OR place"');assert.equal(calls[0].before,undefined);
 });
+
+test('thread title enrichment is opt-in and only forwarded for comments',async()=>{
+ const {Q}=load(),calls=[],send=async message=>{calls.push(message);return {ok:true,posts:[],hasMore:false};};
+ await collect(Q.search({kind:'comment',subreddit:'example',titles:true,send}));assert.equal(calls.at(-1).titles,true);
+ await collect(Q.search({kind:'comment',subreddit:'example',send}));assert.equal('titles' in calls.at(-1),false);
+ await collect(Q.search({kind:'post',subreddit:'example',titles:true,send}));assert.equal('titles' in calls.at(-1),false);
+});
