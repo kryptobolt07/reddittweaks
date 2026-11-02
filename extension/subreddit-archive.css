@@ -25,6 +25,16 @@
 .rt-sra-recent-clear{display:block;margin:4px 16px 0;padding:0;border:0;background:transparent;color:var(--color-neutral-content-weak,#576f76);font-size:12px;font-weight:600;cursor:pointer}
 .rt-sra-recent-clear:hover{text-decoration:underline}
 .rt-sra-hint{margin:4px 16px 0;color:var(--color-danger-content,#b8001b)}
+.rt-sra-tips-button{flex:none;padding:4px 6px;border:0;border-radius:6px;background:transparent;color:var(--color-neutral-content-weak,#576f76);font:inherit;font-size:12px;cursor:pointer}
+.rt-sra-tips-button:hover,.rt-sra-tip:hover{background:var(--color-neutral-background-hover,#e8edef)}
+.rt-sra-tips-button:focus-visible,.rt-sra-tip:focus-visible{outline:2px solid var(--color-primary-background,#0079d3);outline-offset:-2px}
+.rt-sra-tips[hidden]{display:none!important}
+.rt-sra-tips{position:absolute;top:44px;left:8px;right:8px;z-index:21;max-height:min(360px,55vh);overflow:auto;overscroll-behavior:contain;padding:4px;border:1px solid var(--color-neutral-border-weak,#e5e8eb);border-radius:10px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#0f1a1c);box-shadow:0 4px 16px rgba(0,0,0,.2)}
+.rt-sra-tips-heading{margin:4px 7px;font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-tip{display:flex;flex-wrap:wrap;align-items:center;gap:7px;width:100%;min-height:32px;padding:6px 7px;border:0;border-radius:6px;background:transparent;color:inherit;text-align:start;font:inherit;font-size:13px;line-height:1.4;cursor:pointer}
+.rt-sra-tip-token{flex:none;padding:2px 6px;border:1px solid var(--color-neutral-border-weak,#e5e8eb);border-radius:6px;color:var(--color-primary-background,#0079d3);background:var(--color-neutral-background-weak,#f6f8f9);font:inherit;font-size:12px}
+.rt-sra-tip-label{flex:1;min-width:100px}
+.rt-sra-tip-example{color:var(--color-neutral-content-weak,#576f76);font-size:12px}
 .rt-sra-note,.rt-sra-searched,.rt-sra-error{margin:8px 16px}
 .rt-sra-error{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .rt-sra-foot{padding:8px 0 24px}

@@ -20,6 +20,10 @@ async function boot(opts){
     async *search(options){calls.push(options);const list=o.pages?o.pages(options,calls.length):[{items:[post('a1',1500000000),post('a2',1400000000)],searchedBackTo:1400000000,hasMore:false,cursor:null}];for(const page of list){if(page instanceof Error)throw page;yield page;}},
     async subreddit(){if(!o.meta)throw Object.assign(Error('not in archive'),{code:'not-found'});return {ok:true,subreddit:o.meta};}
   };
+  if(o.send){
+    const subreddit=W.RTArchiveQuery.subreddit;W.eval(fs.readFileSync('extension/archive-query.js','utf8'));const Q=W.RTArchiveQuery;
+    W.RTArchiveQuery={...Q,subreddit,search(options){calls.push(options);return Q.search({...options,send:o.send});}};
+  }
   W.RTRecentSearches={
     async list(ow,s){return [...(store.get(ow+'|'+s)||[])].map(q=>({q,at:1}));},
     async add(ow,s,q){const k=ow+'|'+s,l=(store.get(k)||[]).filter(x=>x!==q);l.unshift(q);store.set(k,l);return [];},
@@ -32,6 +36,7 @@ async function boot(opts){
 }
 const button=doc=>doc.querySelector('[data-rt-ui="subreddit-archive-action"] button');
 const open=async ctx=>{button(ctx.doc).click();await tick();};
+const search=async(ctx,text)=>{ctx.sa.inputEl.value=text;ctx.sa.formEl.dispatchEvent(new ctx.W.Event('submit',{cancelable:true}));await tick();};
 
 test('trigger only for banned (and private) communities',async()=>{
   for(const [title,expected] of [['r/gone is banned',true],['r/gone is private',true],['r/gone is quarantined',false]]){
@@ -227,4 +232,139 @@ test('Feed options popover: icon-less Date rows, sectioned multi-select Post typ
   menu.querySelector('[data-rt-option="week"]').click();await tick();assert.equal(ctx.sa.menuOpen,false);
   assert.equal(doc.querySelector('[data-rt-chip="type:gif"] .rt-gif-tag').textContent,'GIF');assert.equal(doc.querySelector('[data-rt-chip="date"] [icon-name="calendar"]')!==null,true);
   assert.equal(doc.querySelector('[data-rt-filter-clear]').textContent,'Clear filters');assert.equal(menu.querySelector('[data-rt-sub-panel]'),null);
+});
+
+test('grouped Boolean text is serialized for Arctic Shift and evaluated during its local fallback',async()=>{
+  const wire=[],rows=[post('a1',1500000000,{title:'cats quiet place'}),post('a2',1400000000,{title:'dogs quiet place'}),post('a3',1300000000,{title:'cats quiet place spam'}),post('a4',1200000000,{title:'cats elsewhere'})];
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',send:async message=>{
+    wire.push(message);if(message.query)return {ok:false,code:'text-search-unavailable'};
+    return {ok:true,posts:rows,hasMore:false};
+  }});await tick();
+  await search(ctx,'(cats OR dogs) AND "quiet place" NOT spam');
+  assert.equal(wire.find(message=>message.query).query,'cats "quiet place" -spam OR dogs "quiet place" -spam');
+  assert.deepEqual([...ctx.doc.querySelectorAll('shreddit-post')].map(el=>el.id),['t3_a1','t3_a2']);
+  assert.match(ctx.doc.querySelector('.rt-sra-searched').textContent,/Matched by scanning archived pages.*Matches filtered locally.*Results may be incomplete/);
+});
+
+test('mixed Boolean fields retain OR/NOT meaning and only safe text reaches the helper',async()=>{
+  const rows=[post('a1',1500000000,{title:'cats',over18:false}),post('a2',1400000000,{title:'dogs',over18:true}),post('a3',1300000000,{title:'cats',over18:true}),post('a4',1200000000,{title:'dogs',over18:false})];
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:rows,searchedBackTo:1200000000,hasMore:false,cursor:null}]});await tick();
+  await search(ctx,'(title:cats AND NOT nsfw:yes) OR (body:"Body a2" AND nsfw:yes)');
+  assert.equal(ctx.W.RCSCore.toArchiveQuery(ctx.calls.at(-1).parsed),'');
+  assert.deepEqual([...ctx.doc.querySelectorAll('shreddit-post')].map(el=>el.id),['t3_a1','t3_a2']);
+  assert.equal(ctx.sa.current().plan.residual,true);
+  await search(ctx,'cats AND (nsfw:no OR type:image)');
+  assert.equal(ctx.W.RCSCore.toArchiveQuery(ctx.calls.at(-1).parsed),'cats');
+  assert.deepEqual([...ctx.doc.querySelectorAll('shreddit-post')].map(el=>el.id),['t3_a1']);
+});
+
+test('only a single unconditional positive author is sent to the author parameter',async()=>{
+  const rows=[post('a1',1500000000,{author:'alice',title:'cats'}),post('a2',1400000000,{author:'bobby',title:'dogs'}),post('a3',1300000000,{author:'carol',title:'birds'})];
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:rows,searchedBackTo:1300000000,hasMore:false,cursor:null}]});await tick();
+  await search(ctx,'(u/Alice AND cats)');assert.equal(ctx.calls.at(-1).author,'alice');assert.equal(ctx.sa.current().plan.residual,false);
+  for(const [query,ids] of [
+    ['author:alice OR title:dogs',['t3_a1','t3_a2']],['NOT author:alice',['t3_a2','t3_a3']],
+    ['author:alice OR author:bobby',['t3_a1','t3_a2']],['author:alice AND author:bobby',[]]
+  ]){
+    await search(ctx,query);assert.equal(ctx.calls.at(-1).author,undefined,query);
+    assert.deepEqual([...ctx.doc.querySelectorAll('shreddit-post')].map(el=>el.id),ids,query);
+  }
+});
+
+test('all post fields and aliases map archive data to residual records',async()=>{
+  const created=new Date(2026,0,15,12).getTime()/1000;
+  const rows=[post('a1',created,{title:'Alpha launch',body:'quiet place',url:'https://news.example.test/article',link_flair_text:'Project News',postType:'text',over18:false,spoiler:true}),post('a2',created,{title:'Other',url:'https://elsewhere.test',postType:'image',over18:true,spoiler:false})];
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:rows,searchedBackTo:created,hasMore:false,cursor:null}]});await tick();
+  for(const query of ['title:Alpha','body:"quiet place"','selftext:quiet','text:quiet','site:example.test','domain:example.test','url:article','flair:"Project News"','self:yes','nsfw:no','spoiler:yes','type:text','after:2026-01-01 before:2026-02-01']){
+    await search(ctx,query);
+    const ids=[...ctx.doc.querySelectorAll('shreddit-post')].map(el=>el.id);
+    assert.deepEqual(ids,query.startsWith('after:')?['t3_a1','t3_a2']:['t3_a1'],query);
+    assert.equal(ctx.sa.current().plan.residual,true,query);assert.equal(ctx.W.RCSCore.toArchiveQuery(ctx.calls.at(-1).parsed),'',query);
+    assert.equal(ctx.calls.at(-1).after,undefined,'date query stays local');assert.equal(ctx.calls.at(-1).before,undefined,'date query stays local');
+  }
+  await search(ctx,'self:no nsfw:yes spoiler:no type:image');assert.deepEqual([...ctx.doc.querySelectorAll('shreddit-post')].map(el=>el.id),['t3_a2']);
+  await search(ctx,'flair:missing');assert.equal(ctx.doc.querySelectorAll('shreddit-post').length,0);
+});
+
+test('unavailable fields, aliases and malformed queries show inline errors without searching or saving',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive&rt_tab=comments'});await tick();
+  const count=ctx.calls.length;
+  for(const query of ['title:cats','site:example.test','domain:example.test','url:article','flair:News','self:yes','nsfw:no','spoiler:no','type:image']){
+    await search(ctx,query);assert.equal(ctx.sa.hintEl.hidden,false,query);assert.match(ctx.sa.hintEl.textContent,/isn't available for comments/,query);
+  }
+  for(const query of ['cats AND','(cats OR dogs','body:"unfinished','after:tomorrow','from:Alice','has:image']){
+    await search(ctx,query);assert.equal(ctx.sa.hintEl.hidden,false,query);assert.ok(ctx.sa.hintEl.textContent.length>8);
+  }
+  assert.equal(ctx.calls.length,count);assert.equal(ctx.store.size,0);
+});
+
+test('both tabs reject another subreddit and accept the current page scope',async()=>{
+  for(const tab of ['posts','comments']){
+    const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive&rt_tab='+tab});await tick();const count=ctx.calls.length;
+    for(const query of ['subreddit:OtherSub','r/OtherSub','NOT r/OtherSub','body:cats OR r/OtherSub']){
+      await search(ctx,query);assert.match(ctx.sa.hintEl.textContent,/scoped to r\/gone/);assert.equal(ctx.calls.length,count);
+    }
+    for(const query of ['subreddit:GONE','r/gone']){await search(ctx,query);assert.equal(ctx.sa.hintEl.hidden,true);assert.equal(ctx.calls.at(-1).subreddit,'gone');}
+  }
+});
+
+test('switching to comments revalidates the active query and never starts an invalid search',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();await search(ctx,'title:cats');const count=ctx.calls.length;
+  ctx.sa.setTab('comments');await tick();assert.equal(ctx.calls.length,count);assert.equal(ctx.sa.hintEl.hidden,false);assert.match(ctx.sa.hintEl.textContent,/isn't available for comments/);
+  ctx.sa.loadMore();await tick();assert.equal(ctx.calls.length,count);
+  ctx.sa.setTab('posts');await tick();assert.equal(ctx.sa.hintEl.hidden,true);assert.equal(ctx.calls.length,count,'cached valid state is reused');
+});
+
+test('comment body, author and dates use residual matching without searching synthetic titles',async()=>{
+  const created=new Date(2026,0,15,12).getTime()/1000;
+  const rows=[comment('c1',created,{body:'cats quiet place',author:'alice'}),comment('c2',created,{body:'dogs noisy place',author:'bobby'}),comment('c3',created,{title:'cats',body:'birds'})];
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive&rt_tab=comments',pages:()=>[{items:rows,searchedBackTo:created,hasMore:false,cursor:null}]});await tick();
+  await search(ctx,'(body:cats OR u/bobby) after:2026-01-01 before:2026-02-01 NOT body:birds');
+  assert.equal(ctx.calls.at(-1).author,undefined);assert.equal(ctx.calls.at(-1).kind,'comment');
+  assert.deepEqual(Array.from(ctx.sa.current().items,item=>item.id),['c1','c2']);
+  await search(ctx,'cats AND after:2026-01-01');assert.deepEqual(Array.from(ctx.sa.current().items,item=>item.id),['c1']);
+});
+
+test('residual filtering skips empty pages, deduplicates overlaps and preserves Search older cursor and searched date',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:options=>options.cursor?[{items:[post('yes1',1300000000,{title:'cats'}),post('yes2',1200000000,{title:'cats'})],searchedBackTo:1100000000,hasMore:false,cursor:null}]:[
+    {items:[post('no1',1600000000,{title:'dogs'})],searchedBackTo:1500000000,hasMore:true,cursor:1500000001},
+    {items:[post('no1',1600000000,{title:'dogs'}),post('yes1',1300000000,{title:'cats'})],searchedBackTo:1250000000,hasMore:true,cursor:1250000001}
+  ]});await tick();await search(ctx,'title:cats');
+  assert.deepEqual(Array.from(ctx.sa.current().items,item=>item.id),['yes1']);assert.equal(ctx.sa.current().cursor,1250000001);assert.equal(ctx.sa.current().searchedBackTo,1250000000);
+  assert.match(ctx.doc.querySelector('.rt-sra-searched').textContent,/^Searched back to .*Matches filtered locally.*Results may be incomplete/);
+  ctx.doc.querySelector('[data-rt-more]').click();await tick();assert.equal(ctx.calls.at(-1).cursor,1250000001);
+  assert.deepEqual(Array.from(ctx.sa.current().items,item=>item.id),['yes1','yes2']);assert.equal(ctx.sa.current().searchedBackTo,1100000000);assert.equal(ctx.doc.querySelector('[data-rt-more]'),null);
+  assert.match(ctx.doc.querySelector('.rt-sra-foot').textContent,/Coverage may be partial/);assert.doesNotMatch(ctx.doc.querySelector('.rt-sra-foot').textContent,/history complete|all results|search complete/i);
+});
+
+test('residual scans retain page budgets, ascending progress and stalled-cursor honesty',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive&rt_sort=old',pages:()=>[
+    {items:[post('no1',1300000000,{title:'dogs'})],searchedBackTo:1300000000,hasMore:true,cursor:1299999999,stalled:true}
+  ]});await tick();await search(ctx,'title:cats');
+  assert.equal(ctx.calls.at(-1).maxPages,5);assert.equal(ctx.calls.at(-1).sort,'asc');
+  assert.match(ctx.doc.querySelector('.rt-sra-searched').textContent,/^Searched up to .*Results may be incomplete/);
+  assert.match(ctx.doc.querySelector('.rt-sra-foot').textContent,/stopped paging here; older records may exist/);assert.equal(ctx.doc.querySelector('[data-rt-more]'),null);
+});
+
+test('an untranslatable text expression scans locally instead of silently dropping its query',async()=>{
+  const query=Array.from({length:8},(_,i)=>`(left${i} OR right${i})`).join(' AND '),title=Array.from({length:8},(_,i)=>'left'+i).join(' ');
+  const wire=[],ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',send:async message=>{wire.push(message);return {ok:true,posts:[post('a1',1500000000,{title}),post('a2',1400000000,{title:'left0'})],hasMore:false};}});await tick();
+  await search(ctx,query);assert.equal(wire.at(-1).query,undefined);assert.deepEqual(Array.from(ctx.sa.current().items,item=>item.id),['a1']);
+  assert.match(ctx.doc.querySelector('.rt-sra-searched').textContent,/Matches filtered locally.*Results may be incomplete/);
+});
+
+test('Search tips lists current-tab operators and fields, supports keyboard insertion, Escape and outside dismissal',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();const {sa,doc,W}=ctx,count=ctx.calls.length;
+  assert.equal(sa.tipsEl.hidden,true);assert.equal(sa.tipsButton.type,'button');assert.equal(sa.tipsButton.getAttribute('aria-controls'),sa.tipsEl.id);
+  sa.tipsButton.focus();sa.tipsButton.click();assert.equal(sa.tipsEl.hidden,false);assert.equal(sa.tipsButton.getAttribute('aria-expanded'),'true');
+  const tokens=()=>[...sa.tipsEl.querySelectorAll('code')].map(el=>el.textContent);
+  assert.deepEqual(tokens(),['AND','OR','NOT','( )','"phrase"','-exclude','title:','body:','author:','site:','url:','flair:','self:','nsfw:','spoiler:','type:','before:','after:']);
+  sa.tipsButton.dispatchEvent(new W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));assert.equal(doc.activeElement.dataset.rtExample,'cats AND dogs');
+  doc.activeElement.dispatchEvent(new W.KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}));assert.equal(doc.activeElement.dataset.rtExample,'after:2026-01-01');
+  doc.activeElement.click();assert.equal(sa.inputEl.value,'after:2026-01-01');assert.equal(doc.activeElement,sa.inputEl);assert.equal(sa.tipsEl.hidden,true);assert.equal(ctx.calls.length,count,'choosing tips only edits the draft');
+  sa.tipsButton.click();sa.tipsEl.querySelector('button').focus();sa.tipsEl.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+  assert.equal(doc.activeElement,sa.tipsButton);assert.equal(sa.tipsButton.getAttribute('aria-expanded'),'false');
+  sa.tipsButton.click();doc.body.click();assert.equal(sa.tipsEl.hidden,true);
+  sa.setTab('comments');await tick();sa.tipsButton.click();assert.deepEqual(tokens(),['AND','OR','NOT','( )','"phrase"','-exclude','body:','author:','before:','after:']);assert.match(sa.tipsEl.textContent,/u\/Example_1/);assert.match(sa.tipsEl.textContent,/selftext: \/ text:/);
+  sa.tipsButton.focus();sa.tipsButton.dispatchEvent(new W.FocusEvent('focusout',{relatedTarget:doc.body,bubbles:true}));assert.equal(sa.tipsEl.hidden,true);
 });
