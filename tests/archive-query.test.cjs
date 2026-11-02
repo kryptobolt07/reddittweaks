@@ -91,6 +91,6 @@ test('the local fallback uses the shared grammar: OR, exclusions and phrases, wi
  const {Q}=load({core:ctx.RCSCore}),parsed=ctx.RCSCore.parseQuery('tea OR coffee -decaf "morning cup"');
  const list=[item('a',2000000000,{title:'Morning cup of tea'}),item('b',1999999990,{title:'morning cup of decaf coffee'}),item('c',1999999980,{title:'coffee only'}),item('d',1999999970,{title:'A morning cup of coffee'})];
  const b=backend(list,{timeoutText:true}),pages=await collect(Q.search({kind:'post',author:'example',parsed,send:b.send}));
- assert.equal(b.calls[0].query,'tea OR coffee -decaf "morning cup"');
+ assert.equal(b.calls[0].query,'tea -decaf "morning cup" OR coffee -decaf "morning cup"','OR binds first, so the archive gets an expanded query');
  assert.deepEqual(pages.flatMap(p=>p.items.map(i=>i.id)),['a','d']);assert.ok(pages.every(p=>p.mode==='local'));
 });
