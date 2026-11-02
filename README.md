@@ -1,8 +1,8 @@
-# Reddit Tweaks — 0.23.1 preview
+# Reddit Tweaks — 0.24.0 preview
 
 ## Load in Brave
 
-Run `npm run package`, then load the stable unpacked folder `artifacts/reddit-chat-search/` through **Load unpacked** in `brave://extensions` (the `artifacts/reddit-tweaks-v0.23.1.zip` archive is the same build for sharing; you do not need to extract it). After reloading or updating the extension, refresh existing Reddit tabs so their scripts reconnect to the current extension. An invalidated tab displays a page-refresh instruction and stops retrying; the result Refresh button cannot repair a discarded browser extension context. Refresh shows activity for local queries, previews, capture saving and native-cache import, with progress-specific tooltips and reduced-motion support. Global saved-result pagination loads quietly at the bottom without restarting the main refresh indicator. Both search lists keep rendering bounded while scrolling; individual search defers incoming result updates until scrolling settles and retains its loading placeholder until saved/history reads have settled. Cache reconciliation is labeled Checking cache, with checked-record progress in its tooltip. A stalled check pauses with an explanation and can be retried through Refresh; already-saved results stay usable. Status-only updates do not rerun searches; refreshing message results rereads saved data and does not force another full import.
+Run `npm run package`, then load the stable unpacked folder `artifacts/reddit-chat-search/` through **Load unpacked** in `brave://extensions` (the `artifacts/reddit-tweaks-v0.24.0.zip` archive is the same build for sharing; you do not need to extract it). After reloading or updating the extension, refresh existing Reddit tabs so their scripts reconnect to the current extension. An invalidated tab displays a page-refresh instruction and stops retrying; the result Refresh button cannot repair a discarded browser extension context. Refresh shows activity for local queries, previews, capture saving and native-cache import, with progress-specific tooltips and reduced-motion support. Global saved-result pagination loads quietly at the bottom without restarting the main refresh indicator. Both search lists keep rendering bounded while scrolling; individual search defers incoming result updates until scrolling settles and retains its loading placeholder until saved/history reads have settled. Cache reconciliation is labeled Checking cache, with checked-record progress in its tooltip. A stalled check pauses with an explanation and can be retried through Refresh; already-saved results stay usable. Status-only updates do not rerun searches; refreshing message results rereads saved data and does not force another full import.
 
 A saved-read deadline checks whether the worker itself can respond. A slow read can use Refresh; an unresponsive worker requires reloading Reddit Tweaks and refreshing the Reddit tab. These recovery steps keep saved data.
 
@@ -11,6 +11,12 @@ Native chat capture and the initial local-cache import start when Reddit’s aut
 For an existing installation, replace the files in its current unpacked folder, choose **Reload** on the same extension card, and refresh Reddit tabs. Keeping the same installation preserves its saved directory and enables migration from 0.2.4. Loading another folder as a separate extension creates separate storage; disable the older installation to avoid duplicate controls.
 
 The generated `artifacts/reddit-chat-search/` folder and `artifacts/reddit-tweaks.zip` also contain the current build.
+
+## Archived communities
+
+On banned or private communities, **Browse archived posts** opens an archive feed with Reddit's community header, sidebar, sort/date/type dropdowns and native Snoo loading halo. Use Reddit's header search to search that community; its Posts, Comments and Media tabs and sort/time controls drive the archive results. The archive adds no second search bar. Live and quarantined communities keep Reddit's normal view.
+
+Search supports the shared Boolean query language, including `AND`, `OR`, `NOT`, grouping and relevant fields. Archive relevance falls back to newest first; Top and Most commented rank only loaded records. Metadata and content can be missing, and archive coverage is always partial. No-query community browsing uses the archive feed. Search failures retain a Retry action.
 
 ## Profile discovery
 

@@ -1,3 +1,24 @@
+# 0.24.0 preview
+
+- Search: shared `AND`, `OR`, `NOT`, grouping, phrases and supported field queries across chat, profile and archived-community searches. Invalid queries explain the problem; archive pushdown uses supported fields and checks residual expressions locally. Profile and profile-search filters share outline icons.
+- Your own profile: header search can search Saved, History, Hidden, Upvoted and Downvoted lists. Private list contents stay out of Arctic Shift requests. History is limited to Reddit's recent-view records; other lists retain Reddit's own limits.
+- Archived communities: replace the duplicate search bar and feed tabs with Reddit's header search and native search-page controls. The feed uses community masthead geometry, an overlapping avatar, sidebar and sort/date/type dropdowns. One native `shreddit-feed-page-loading` community Snoo halo replaces grey skeleton cards in both feed and search.
+- Banned-community search tabs left empty by Reddit are initialized through the native paging API and restored on exit. Comment results can include parent thread titles. Link-only cards display their destination domain instead of a missing-text warning; genuinely uncaptured removed text remains explicit.
+
+Version choice: MINOR to 0.24.0 for the shared query language and own-list search features already integrated in this bundle. Archive presentation corrections are included in the same release. No new permissions or storage schema migration.
+
+Validation:
+- All 1207 tests pass, including native search restoration, query matching, paging, errors, opt-in title enrichment and both loading paths.
+- Chrome remote debugging: compared the installed archive masthead against a normal subreddit; verified archived feed cards on r/greatawakening, one real native Snoo halo in a controlled pending state, and a 390px mobile layout without horizontal overflow.
+- Live header search for `control` opened Reddit's scoped search page and returned archived post rows without a second search field. Native Comments navigation returned archived comments with parent titles. Verified visible Posts/Comments/Media tabs in the final 0.24.0 build.
+- JavaScript syntax, archive integrity, and source/unpacked/archive byte equality verified.
+
+Limitations:
+- Archive coverage and metadata may be missing. Missing banner/avatar artwork uses a neutral banner and generic community icon; no original artwork is invented.
+- The archive cannot rank by Reddit relevance. Relevance/Hot use newest first; Top and Most commented rank only loaded records. Keyword timeouts and locally filtered scans may return partial results; failures remain retryable.
+- Private-community handling has synthetic coverage; this live pass used a banned community.
+- This continuation's live validation focused on archived communities. Earlier own-list testing reported a status/result mismatch; that separate issue remains to be rechecked. Chat and own-list flows were not newly validated end to end here.
+
 # 0.23.1 preview
 
 - Profile search: clicking the native search field on a profile and pressing Enter with no text now opens that author's search results. Both the server-rendered input and Reddit's hydrated shadow-root textarea are supported. Nonempty queries, other fields, removed author scopes, composition and modified Enter retain Reddit's handling. The action requires public activity and archive discovery to be enabled.

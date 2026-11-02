@@ -285,4 +285,3 @@ test('RTPostDiscovery.archiveCard draws inert native-looking cards for non-profi
   assert.ok(native);assert.equal(native.getAttribute('subreddit-name'),'gone');assert.ok(native.hasAttribute('inert'));assert.match(card.textContent,/Body abc12/);assert.equal(card.querySelector('[data-rt-source]').dataset.state,'unknown');
   const reply=W.RTPostDiscovery.archiveCard(comment('c1',1400000000));assert.ok(reply.querySelector('shreddit-profile-comment'));assert.equal(reply.querySelector('shreddit-comment-action-row').hasAttribute('inert'),true);
 });
-
