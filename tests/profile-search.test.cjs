@@ -250,7 +250,7 @@ test('search Feed options shares the full profile icon matrix and restores nativ
     assert.equal(icon.getAttribute('icon-name'),name);assert.equal(icon.getAttribute('width'),'16');assert.equal(icon.getAttribute('height'),'16');assert.equal(icon.getAttribute('viewBox'),'0 0 20 20');
     const shared=W.RTFeedFilters.svgIcon(name,16);if(shared)assert.deepEqual([...icon.querySelectorAll('path')].map(p=>p.getAttribute('d')),[...shared.querySelectorAll('path')].map(p=>p.getAttribute('d')));
   };
-  assertIcon(d.menuGroups[0].row,'list-bulleted');assertIcon(d.menuGroups[1].row,'card');
+  assertIcon(d.menuGroups[0].row,'sort');assertIcon(d.menuGroups[1].row,'card');
   for(const [key,name] of Object.entries({relevance:'search',new:'new',old:'archive',top:'top',comments:'comment',hot:'hot'}))assertIcon(d.rtMenu.searchSort.get(key),name);
   for(const row of d.menuGroups[1].items)assertIcon(row,'classic');
   for(const [key,name] of Object.entries({all:'show',hidden:'hidden',deleted:'deleted'}))assertIcon(d.activityMenu.querySelector('[data-rt-activity-filter="'+key+'"]'),name);
