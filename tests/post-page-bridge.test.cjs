@@ -560,3 +560,14 @@ test('scoped post search accepts the current post-title-text unit with the same 
  const html=nativePostHtml({next:''}).replace('data-testid="post-title"','data-testid="post-title-text"'),e=setup(t,{url:'https://www.reddit.com/user/Example/search/?q=synthetic',fetcher:async()=>nativeResponse(html)});
  const result=await e.send({action:'profile',username:'Example',query:'synthetic',sort:'relevance'});assert.equal(result.ok,true);assert.equal(result.posts[0].fullname,'t3_abc12');
 });
+
+test('archived communities reuse native navigation without exposing homepage HTML',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/r/gone/',fetcher:async()=>nativeResponse('<main>Unrelated feed</main><flex-left-nav-container id="left-sidebar-container"><nav><a href="/">Home</a></nav></flex-left-nav-container>')}),target=navigationTarget(e);
+ target.dataset.rtUi='community-navigation';target.parentElement.dataset.rtUi='archive-subreddit';target.parentElement.dataset.rtSubreddit='gone';
+ assert.equal((await e.send({action:'render-navigation',subreddit:'other',target:target.id})).ok,false);assert.equal(e.calls.length,0);
+ const result=await e.send({action:'render-navigation',subreddit:'gone',target:target.id});assert.equal(result.rendered,true);assert.ok(target.querySelector('nav a'));assert.equal(target.querySelector('main'),null);assert.equal(result.html,undefined);
+});
+test('community navigation cannot attach a late response after switching communities',async t=>{
+ let resolve;const e=setup(t,{url:'https://www.reddit.com/r/gone/',fetcher:()=>new Promise(r=>resolve=r)}),target=navigationTarget(e);target.dataset.rtUi='community-navigation';target.parentElement.dataset.rtUi='archive-subreddit';target.parentElement.dataset.rtSubreddit='gone';
+ const answer=e.send({action:'render-navigation',subreddit:'gone',target:target.id});e.W.history.pushState({},'','/r/other/');resolve(nativeResponse('<flex-left-nav-container id="left-sidebar-container">Old sidebar</flex-left-nav-container>'));assert.equal((await answer).ok,false);assert.equal(target.textContent.includes('Old sidebar'),false);
+});

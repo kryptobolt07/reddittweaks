@@ -30,7 +30,7 @@ async function boot(opts){
     async remove(ow,s,q){const k=ow+'|'+s;store.set(k,(store.get(k)||[]).filter(x=>x!==q));return [];},
     async clear(ow,s){store.delete(ow+'|'+s);return [];}
   };
-  const sa=new W.RTSubredditArchive.SubredditArchive({observe:false,readSettings:async()=>({enabled:o.enabled}),getOwner:()=>o.owner,communityState:async()=>o.communityKind ?? 'banned'});
+  const sa=new W.RTSubredditArchive.SubredditArchive({observe:false,readSettings:async()=>({enabled:o.enabled}),getOwner:()=>o.owner,communityState:async()=>o.communityKind ?? 'banned',reddit:o.reddit || (async message=>{const target=W.document.getElementById(message.target);if(target)target.innerHTML='<flex-left-nav-container id="left-sidebar-container"><nav><a href="/">Home</a></nav></flex-left-nav-container>';return {rendered:true};}),archive:async message=>o.archive?o.archive(message):{ok:true,posts:[]}});
   await sa.ready;
   return {W,doc:W.document,sa,calls,store};
 }
@@ -261,7 +261,7 @@ test('search loading uses a single native halo and late answers cannot update a 
  ctx.W.history.pushState({},'','/r/live/');ctx.sa.scan();release();await tick();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-search"]'),null);assert.equal(ctx.doc.querySelector('[data-fullname="t3_late"]'),null);
 });
 test('archive cards show link domains without a missing-text warning, while unrecorded removed text stays explicit',async()=>{
- const ctx=await boot();const card=ctx.W.RTPostDiscovery.archiveCard(post('link',1400000000,{body:'',postType:'link',isSelf:false,url:'https://example.test/story'}));assert.equal(card.querySelector('.rt-archive-link').textContent,'example.test');assert.doesNotMatch(card.textContent,/no original text/);assert.ok(card.querySelector('shreddit-post[inert]'));
+ const ctx=await boot();const card=ctx.W.RTPostDiscovery.archiveCard(post('link',1400000000,{body:'',postType:'link',isSelf:false,url:'https://example.test/story'}));assert.equal(card.querySelector('.rt-archive-link').textContent,'example.test');assert.doesNotMatch(card.textContent,/no original text/);assert.equal(card.querySelector('shreddit-post').hasAttribute('inert'),false);
  const removed=ctx.W.RTPostDiscovery.archiveCard(post('gone',1400000000,{body:'[removed]',isSelf:true}));assert.match(removed.textContent,/no original text/);
 });
 
@@ -282,6 +282,31 @@ test('RTPostDiscovery.archiveCard draws inert native-looking cards for non-profi
   const W=new JSDOM('<main></main>',{url:'https://www.reddit.com/r/gone/',runScripts:'outside-only',pretendToBeVisual:true}).window;
   for(const f of ['post-model.js','archive-view.js','post-discovery.js'])W.eval(fs.readFileSync('extension/'+f,'utf8'));
   const card=W.RTPostDiscovery.archiveCard(post('abc12',1400000000)),native=card.querySelector('shreddit-post');
-  assert.ok(native);assert.equal(native.getAttribute('subreddit-name'),'gone');assert.ok(native.hasAttribute('inert'));assert.match(card.textContent,/Body abc12/);assert.equal(card.querySelector('[data-rt-source]').dataset.state,'unknown');
-  const reply=W.RTPostDiscovery.archiveCard(comment('c1',1400000000));assert.ok(reply.querySelector('shreddit-profile-comment'));assert.equal(reply.querySelector('shreddit-comment-action-row').hasAttribute('inert'),true);
+  assert.ok(native);assert.equal(native.getAttribute('subreddit-name'),'gone');assert.equal(native.hasAttribute('inert'),false);assert.match(card.textContent,/Body abc12/);assert.equal(card.querySelector('[data-rt-source]').dataset.state,'unknown');
+  const reply=W.RTPostDiscovery.archiveCard(comment('c1',1400000000));assert.ok(reply.querySelector('shreddit-profile-comment'));assert.equal(reply.querySelector('shreddit-comment-action-row').hasAttribute('inert'),false);
+});
+
+test('feed cards keep native title, author, community and comment navigation while blocking archive actions',async()=>{
+ const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();const native=ctx.doc.querySelector('shreddit-post'),card=native.parentElement;
+ assert.ok(native.querySelector('[slot="credit-bar"] a[href="/user/alice/"]'));assert.match(native.querySelector('[slot="credit-bar"]').textContent,/u\/alice/);assert.equal(native.hasAttribute('inert'),false);assert.ok(ctx.doc.querySelector('#left-sidebar-container nav a'));
+ const navigation=[];ctx.doc.addEventListener('click',event=>{if(event.target.dataset.rtUi==='archive-navigation-link'){event.preventDefault();navigation.push(event.target.href);}},true);const title=native.querySelector('a[slot="title"]'),click=new ctx.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true});title.addEventListener('click',()=>assert.fail('native handler must not swallow navigation'));assert.equal(title.dispatchEvent(click),false);assert.equal(navigation[0],title.href);
+ const vote=ctx.doc.createElement('button');vote.textContent='Vote';native.append(vote);let writes=0;vote.addEventListener('click',()=>writes++);assert.equal(vote.dispatchEvent(new ctx.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true})),false);assert.equal(writes,0);
+ ctx.sa.destroy();ctx.W.close();
+});
+test('banned post permalinks show the archived post and nested comments, including a focused comment',async()=>{
+ const calls=[],ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/c2/',archive:async message=>{calls.push(message);return message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:{ok:true,posts:[comment('c2',1500000002,{linkId:'abc12',parentId:'t1_c1'}),comment('c1',1500000001,{linkId:'abc12',parentId:'t3_abc12'})],hasMore:false};}});await tick();
+ assert.equal(ctx.doc.querySelector('h1[slot="title"]').textContent,'Title abc12');assert.ok(ctx.doc.querySelector('#left-sidebar-container'));assert.equal(ctx.doc.querySelector('.masthead'),null);
+ assert.equal(ctx.doc.querySelector('#t1_c2').closest('.rt-sra-thread-replies').closest('shreddit-comment').id,'t1_c1');assert.ok(ctx.doc.querySelector('#t1_c2').classList.contains('rt-sra-focused-comment'));assert.equal(calls[1].focusId,'c2');assert.match(ctx.doc.querySelector('.rt-sra-foot').textContent,/Coverage may be partial/);
+ assert.equal(ctx.doc.querySelectorAll('[data-rt-ui="archive-thread-comment"] [slot="commentMeta"] svg').length,0);assert.match(ctx.doc.querySelector('.rt-sra-note').textContent,/Arctic Shift.*Coverage may be partial/);
+ ctx.W.history.pushState({},'','/r/live/');ctx.sa.scan();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'),null);ctx.sa.destroy();ctx.W.close();
+});
+test('community comment cards use one page-level archive note instead of repeated badges',async()=>{
+ const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive&rt_tab=comments',pages:()=>[{items:[comment('c1',1500000000),comment('c2',1400000000)],hasMore:false}]});await tick();
+ assert.equal(ctx.doc.querySelectorAll('shreddit-profile-comment').length,2);assert.equal(ctx.doc.querySelectorAll('shreddit-profile-comment [data-rt-source]').length,0);assert.match(ctx.doc.querySelector('.rt-sra-note').textContent,/Arctic Shift.*Coverage may be partial/);
+ ctx.sa.destroy();ctx.W.close();
+});
+test('thread misses, errors, paging and cyclic parent metadata stay explicit and bounded',async()=>{
+ let fail=true;const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>{if(message.action==='archive-ids')return {ok:true,posts:[post('abc12',1500000000)]};if(fail)throw Error('Temporarily unavailable');return {ok:true,posts:[comment('c1',1500000000,{linkId:'abc12',parentId:'t1_c2'}),comment('c2',1500000001,{linkId:'abc12',parentId:'t1_c1'}),comment('bad',1500000000,{linkId:'foreign'})],hasMore:true,cursor:1500000001,cursorStalled:true};}});await tick();assert.ok(ctx.doc.querySelector('h1'));assert.match(ctx.doc.querySelector('.rt-sra-error').textContent,/Temporarily unavailable/);
+ fail=false;ctx.doc.querySelector('[data-rt-retry]').click();await tick();assert.equal(ctx.doc.querySelectorAll('shreddit-comment').length,2);assert.equal(ctx.doc.querySelector('#t1_bad'),null);assert.match(ctx.doc.querySelector('.rt-sra-foot').textContent,/stopped paging/);assert.equal(ctx.doc.querySelector('[data-rt-more]'),null);ctx.sa.destroy();ctx.W.close();
+ const missing=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async()=>({ok:true,posts:[post('wrong',1500000000)]})});await tick();assert.match(missing.doc.querySelector('.rt-sra-foot').textContent,/not in the archive/);assert.equal(missing.doc.querySelector('shreddit-post'),null);missing.sa.destroy();missing.W.close();
 });

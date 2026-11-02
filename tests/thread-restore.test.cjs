@@ -170,3 +170,10 @@ test('restored comment images use validated metadata and respect post restrictio
  e.r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(body.querySelector('img'),null);
  const restricted=setup({archive});restricted.W.eval(fs.readFileSync('extension/markdown-lite.js','utf8'));restricted.doc.querySelector('main').insertAdjacentHTML('afterbegin','<shreddit-post id="t3_abc12" nsfw></shreddit-post>');await restricted.r.ready;await settle();assert.equal(comment(restricted.doc,'t1_gone1').querySelector('.notice img'),null);
 });
+
+test('archive reader snapshots do not become proof of current Reddit deletion',async()=>{
+ const {r,doc,calls}=setup();await r.ready;await settle();const count=calls.length;
+ const snapshot=doc.createElement('shreddit-comment');snapshot.dataset.rtUi='archive-thread-comment';snapshot.setAttribute('thingid','t1_snapshot');snapshot.setAttribute('postid','t3_abc12');snapshot.innerHTML='<div class="notice"><p>Comment deleted by user</p></div>';doc.querySelector('main').append(snapshot);
+ await r.scan();await settle();assert.equal(calls.length,count);assert.equal(snapshot.querySelector('[data-rt-source]'),null);assert.equal(snapshot.hasAttribute('data-rt-pending'),false);
+ r.destroy?.();doc.defaultView.close();
+});

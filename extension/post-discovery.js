@@ -1688,14 +1688,15 @@
       const listSnapshot=this.isOwnList(),isComment=post.kind==='comment',native=make(isComment?'shreddit-profile-comment':'shreddit-post');
       const snapshotText=!post.over18 && !post.spoiler && Boolean(post.archivedBody || post.body) && !deletionNotice((post.archivedBody || post.body).trim()),body=post.over18 || post.spoiler?(listSnapshot?'NSFW or spoiler · Open the source to review content restrictions.':'NSFW or spoiler snapshot · Open the source to review content restrictions.'):snapshotText?(post.archivedBody || post.body):(listSnapshot?'Open this item on Reddit to view its content.':'The archive has no original text for this item.');
       const date=make('faceplate-timeago');date.setAttribute('ts',new Date(post.created*1000).toISOString());date.setAttribute('short','');
-      const profileName=/^u_([\w-]{1,20})$/i.exec(post.subreddit)?.[1],community=link(profileName?'u/'+profileName:'r/'+post.subreddit,profileName?'/user/'+profileName+'/':'/r/'+encodeURIComponent(post.subreddit)+'/','font-semibold text-12 text-neutral-content-strong no-underline hover:underline');
+      const archiveAuthor=()=>M.validateUsername(post.author)?link('u/'+post.author,'/user/'+encodeURIComponent(post.author)+'/','font-semibold text-12 text-neutral-content-strong no-underline hover:underline'):make('span','text-12 text-neutral-content-weak',post.author || '[deleted]');
+      const profileName=/^u_([\w-]{1,20})$/i.exec(post.subreddit)?.[1],community=link(profileName?'u/'+profileName:'r/'+post.subreddit,profileName?'/user/'+profileName+'/':'/r/'+encodeURIComponent(post.subreddit)+'/'+(this.context.kind==='archive'?'?rt_view=archive':''),'font-semibold text-12 text-neutral-content-strong no-underline hover:underline');
       community.classList.add('inline-flex','items-center','gap-xs');community.prepend(profileName?this.profilePostAvatar(profileName):this.communityAvatar(post.subreddit));
       native.setAttribute('data-feed-element-id',post.fullname);
       if(isComment){
         native.className='w-full nd:visible rounded-4 my-2xs';native.setAttribute('comment-id',post.fullname);native.setAttribute('href',post.permalink);
         const inner=make('div','hover:bg-neutral-background-hover relative rounded-4'),padding=make('div','px-md py-sm'),credit=make('div','text-12 relative w-fit'),context=make('div','flex items-center');
         const heading=make('h2','inline-block m-0');heading.append(link(post.title || 'View post',post.permalink,'text-neutral-content-strong font-normal hover:underline'));
-        context.append(community,make('span','px-2xs',' • '),heading);const identity=make('div','text-neutral-content-weak inline-block ms-xl mt-2xs');const info=make('span');info.id='poster-info-'+post.fullname;info.dataset.rtReplyInfo='true';identity.append(info,document.createTextNode(' '),date);credit.append(context,identity);
+        context.append(community,make('span','px-2xs',' • '),heading);const identity=make('div','text-neutral-content-weak inline-block ms-xl mt-2xs');const info=make('span');info.id='poster-info-'+post.fullname;info.dataset.rtReplyInfo='true';if(this.context.kind==='archive'){info.append(archiveAuthor(),document.createTextNode(' commented'));}identity.append(info,document.createTextNode(' '),date);credit.append(context,identity);
         const content=make('div','ms-[22px] mt-2xs ps-[10px] md'),text=make('div','md pt-xs pb-2xs break-words');text.append(snapshotText?this.archivedText(body,post.archivedBodyHtml || post.bodyHtml,media):make('p','',body));content.append(text);
         const actions=make('div','block ms-lg relative'),row=make('shreddit-comment-action-row','block');row.setAttribute('comment-id',post.fullname);row.setAttribute('score',String(post.score));row.setAttribute('permalink',post.permalink);row.setAttribute('telemetry-source','profile');row.setAttribute('vote-state','NONE');row.setAttribute('is-desktop-viewport','true');row.setAttribute('inert','');row.setAttribute('aria-disabled','true');row.title=listSnapshot?'List snapshot · Open the item for current actions':'Archived values · Current actions unavailable';
         const reply=link('',post.permalink,'button rpl-cab border-sm text-label-2 button-plain-weak inline-flex items-center px-sm py-xs');reply.slot='comment-reply';reply.style.height='var(--size-button-sm-h)';const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value] of Object.entries({rpl:'','aria-hidden':'true','fill':'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','icon-name':'comment'}))icon.setAttribute(key,value);const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9Zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2Z');icon.append(path);const leading=make('span','flex text-body-1 me-2xs');leading.append(icon);reply.append(leading,make('span','rpl-cab--content','Reply'));
@@ -1703,14 +1704,14 @@
       }else{
         native.className='block relative cursor-pointer group bg-neutral-background focus-within:bg-neutral-background-hover hover:bg-neutral-background-hover xs:rounded-4 px-md py-2xs my-2xs nd:visible';native.id=post.fullname;
         for(const [key,value] of Object.entries({'permalink':post.permalink,'view-context':'ProfileFeed2','view-type':'cardView','post-type':listSnapshot?post.postType:'text','post-title':post.title,'author':post.author,'subreddit-name':post.subreddit,'subreddit-prefixed-name':profileName?'u_'+profileName:'r/'+post.subreddit,'score':post.score,'comment-count':post.comments,'created-timestamp':new Date(post.created*1000).toISOString()}))native.setAttribute(key,String(value));
-        if(post.author==='[deleted]')native.setAttribute('is-author-deleted','');const credit=make('span','flex justify-between text-12 min-h-[32px] mb-2xs -mt-2xs');credit.slot='credit-bar';const identity=make('span','flex items-center gap-xs');identity.append(community,document.createTextNode(' · '),date);credit.append(identity);
+        if(post.author==='[deleted]')native.setAttribute('is-author-deleted','');const credit=make('span','flex justify-between text-12 min-h-[32px] mb-2xs -mt-2xs');credit.slot='credit-bar';const identity=make('span','flex items-center gap-xs');identity.append(community,document.createTextNode(' · '),date);if(this.context.kind==='archive'){identity.classList.add('flex-wrap');identity.append(document.createTextNode(' · '),archiveAuthor());}credit.append(identity);
         const title=link(post.title,post.permalink,'block text-neutral-content-strong m-0 visited:text-neutral-content-weak font-semibold text-16-scalable xs:text-18-scalable mb-2xs xs:mb-xs overflow-hidden');title.slot='title';const content=make('div','md break-words');content.slot='text-body';const rawText=(post.archivedBody || post.body || '').trim(),linkUrl=post.isSelf===true || !post.url || /^https:\/\/(?:www\.|old\.|new\.)?reddit\.com\/(?:r\/[^/]+\/)?comments\//i.test(post.url)?'':post.url;if(snapshotText)content.append(this.archivedText(body,post.archivedBodyHtml || post.bodyHtml));else if(post.over18 || post.spoiler)content.append(make('p','',body));else if(!media.length && linkUrl){// Link posts show their destination, as Reddit's own cards do, not a missing-text note.
 let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}const out=link(post.domain || host || linkUrl,linkUrl,'rt-archive-link text-12 hover:underline');out.target='_blank';out.rel='noopener noreferrer';content.append(out);}else if(!media.length && (listSnapshot || rawText && deletionNotice(rawText)))content.append(make('p','',body));
         if(media.length && !post.over18 && !post.spoiler){const grid=make('div','grid grid-cols-[1fr_min-content] grid-rows-[auto_auto_auto] gap-x-2xs'),header=make('div','col-start-1 col-end-3 row-start-1 row-end-2'),copy=make('div','col-start-1 col-end-2 row-start-2 row-end-3 overflow-hidden'),preview=make('div','col-start-2 col-end-3 row-start-2 row-end-3');header.append(credit);copy.append(title,content);grid.append(header,copy,preview);native.setAttribute('post-type','link');native.append(grid);this.recoverImage({...post,media},native);}else native.append(credit,title,content);
         // Keep the card inert until the native action bar is isolated. This
         // avoids even a frame of actionable voting on unverified snapshots.
         native.setAttribute('inert','');const disable=()=>{const bar=native.shadowRoot?.querySelector('rpl-action-bar');if(!bar)return false;bar.setAttribute('inert','');bar.setAttribute('aria-disabled','true');bar.title=listSnapshot?'List snapshot · Open the item for current actions':'Archived values · Current actions unavailable';native.removeAttribute('inert');return true;};
-        if(!listSnapshot && !disable())requestAnimationFrame(()=>{if(!disable())requestAnimationFrame(disable);});
+        if(this.context.kind==='archive')native.removeAttribute('inert');else if(!listSnapshot && !disable())requestAnimationFrame(()=>{if(!disable())requestAnimationFrame(disable);});
       }
       node.append(native);return native;
     }
@@ -1977,7 +1978,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
   }
   // One archive item as the same Reddit-native card the profile archive draws, for pages that are not a
   // profile (the subreddit archive). Inert actions, archive status badge, no live Reddit lookups.
-  function archiveCard(post){
+  function archiveCard(post,{thread=false}={}){
     const d=Object.create(Discovery.prototype);d.archived=new Map();d.context={kind:'archive',username:''};d.recoveredMedia=new Set();d.recoveredBodies=new Map();
     const item={...post,source:'arctic-shift',status:post.status || 'available'},node=make('div','rt-native-card');node.dataset.rtUi='archive-item';node.dataset.fullname=item.fullname;
     const native=d.renderArchivedNative(item,node);
@@ -1985,6 +1986,24 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
     const badge=d.indicator({...item,status:'unknown'});badge.dataset.rtSource='true';
     if(native.matches('shreddit-profile-comment')){const host=native.firstElementChild || native;host.classList.add('rt-comment-source-host');host.firstElementChild?.classList.add('rt-comment-source-credit');host.append(badge);}
     else (native.querySelector('[slot="credit-bar"]') || native).append(badge);
+    // Snapshot cards retain navigation even before native controls hydrate.
+    // Stop captured actions before Reddit can vote/save/share against archived values.
+    const guard=event=>{
+      if(event.type==='keydown' && !['Enter',' '].includes(event.key) || event.type==='auxclick' && event.button!==1)return;
+      const path=event.composedPath(),anchor=path.find(n=>n.matches?.('a[href]'));
+      if(anchor){let url;try{url=new URL(anchor.href,location.href);}catch{}if(url && ['http:','https:'].includes(url.protocol) && !url.username && !url.password){
+        if(event.type==='keydown' && event.key===' ')return;
+        const handled=event.defaultPrevented;event.preventDefault();event.stopImmediatePropagation();if(handled)return;
+        // A capture stop inside an upgrading native card can swallow its default
+        // link activation. Forward the URL outside that card, retaining new-tab gestures.
+        const forward=link('',url.href);forward.hidden=true;forward.dataset.rtUi='archive-navigation-link';forward.target=event.ctrlKey || event.metaKey || event.shiftKey || event.button===1?'_blank':anchor.target || '';document.body.append(forward);try{forward.click();}finally{forward.remove();}return;
+      }}
+      event.preventDefault();event.stopImmediatePropagation();
+      if(event.type==='click' && !thread && !path.some(n=>n.matches?.('button,input,textarea,select,video,audio,[role="button"]')) && !String(globalThis.getSelection?.() || ''))native.querySelector('[slot="title"] a,a[slot="title"]')?.click();
+    };
+    for(const type of ['click','auxclick','keydown'])node.addEventListener(type,guard,true);
+    native.removeAttribute('inert');
+    for(const row of native.querySelectorAll('shreddit-comment-action-row')){row.removeAttribute('inert');row.setAttribute('aria-label','Archived values; open the thread for current actions');}
     return node;
   }
   globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard,PROFILE_REDDIT_SEARCH_CAPABILITIES,avatarHint:name=>avatarHints.get(String(name||'').toLowerCase())?.url || ''});

@@ -47,6 +47,8 @@
       if(!postId || !this.enabled())return;
       this.restorePost();
       for(const comment of document.querySelectorAll('main shreddit-comment[thingid]')){
+        // Archived reader text is a snapshot, not current Reddit deletion evidence.
+        if(comment.closest('[data-rt-ui="archive-thread-comment"]'))continue;
         const id=comment.getAttribute('thingid').toLowerCase(),post=comment.getAttribute('postid')?.toLowerCase();
         // Comments already examined (no notice) are not re-read on every change.
         if(!/^t1_[a-z0-9]{1,32}$/.test(id))continue;

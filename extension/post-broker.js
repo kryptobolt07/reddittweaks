@@ -182,6 +182,25 @@
     });
     pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
   }
+  // Browsing a banned/private community's archived thread. Only the current
+  // post is allowed; every returned comment is checked against that identity.
+  async function archiveThreadComments(message,sender){
+    if(!Model.validateId(message.postId) || message.before!=null && !validTime(message.before) || message.focusId!=null && !Model.validateCommentId(message.focusId))return fail('Invalid thread page.','invalid-request');
+    const id=message.postId.toLowerCase().replace(/^t3_/,''),focus=message.focusId?.toLowerCase().replace(/^t1_/,'');
+    if(!redditSender(sender) || !authorized(sender,'',[id]))return fail('Open the matching Reddit post.','forbidden');
+    const key=['thread-page',id,message.before || '',focus || ''].join(':');
+    return cachedSearch(key,()=>archiveFetch('comments/search',{link_id:id,before:message.before,sort:'desc',limit,md2html:'true'},data=>{
+      const posts=data.map(raw=>Model.normalizeComment(raw,{source:'arctic-shift'})).filter(post=>post?.linkId===id && (message.before==null || post.created<message.before));
+      const hasMore=data.length>=limit,times=posts.map(post=>post.created),cursor=hasMore && times.length?Math.min(...times)+1:null;
+      return {ok:true,posts,hasMore,cursor,cursorStalled:hasMore && (cursor==null || message.before!=null && cursor>=message.before),incomplete:true,source:'arctic-shift'};
+    })).then(async value=>{
+      if(value?.ok && focus && !value.posts.some(post=>post.id===focus)){
+        const extra=await request('',null,[focus],'comment',{titles:false}).catch(()=>null);
+        if(extra?.ok)value={...value,posts:[...value.posts,...extra.posts.filter(post=>post.linkId===id)]};
+      }
+      return value;
+    });
+  }
   const contextKey=(sender,username)=>sender.tab.id+':'+username.toLowerCase();
   function rememberCommentContexts(message,sender,value){
     if(message.action!=='archive-profile' || message.kind!=='comment' || !Number.isInteger(sender.tab?.id) || !value?.ok)return;
@@ -357,6 +376,7 @@
     if(message.action==='archive-parents')return archiveParents(message,sender);
     if(message.action==='archive-recover')return archiveRecover(message,sender);
     if(message.action==='archive-comments')return archiveComments(message,sender);
+    if(message.action==='archive-thread-comments')return archiveThreadComments(message,sender);
     if(message.action==='archive-search')return archiveSearch(message,sender);
     if(message.action==='archive-aggregate')return archiveAggregate(message,sender);
     if(message.action==='archive-subreddit')return archiveSubreddit(message,sender);
