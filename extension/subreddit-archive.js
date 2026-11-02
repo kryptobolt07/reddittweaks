@@ -13,6 +13,8 @@
   const day=seconds=>new Date(seconds*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
   const communityPath='M11.977 13.79h-1.955l4.549-10.715a.81.81 0 00-.381-1.032C12.447 1.12 10.37.747 8.179 1.18c-3.612.716-6.471 3.68-7.059 7.316a9.01 9.01 0 0010.409 10.377c3.735-.616 6.741-3.635 7.347-7.371.453-2.8-.388-5.405-2.017-7.322a.505.505 0 00-.853.119l-4.029 9.49ZM9.98 8.118a1.752 1.752 0 00-1.148.167 1.664 1.664 0 00-.651.596 1.703 1.703 0 00-.258.948v3.96H5.998V6.322h1.876v1.074h.035c.251-.344.567-.628.948-.851a2.55 2.55 0 011.311-.335c.172 0 .335.014.488.042.153.028.267.058.342.09l-.774 1.849a.766.766 0 00-.244-.073Z';
   const MAX_STATES=16;
+  const postFields=['title','body','author','site','url','flair','self','nsfw','spoiler','type'];
+  const commentFields=['body','author'];
 
   // The community notice text decides: only Reddit's own "is banned" / "is private" wording qualifies.
   // Quarantine ("Yes, Continue" gate) and every other state stay untouched.
@@ -102,7 +104,7 @@
     }
     unmount(){
       const m=this.mounted;if(!m)return;this.mounted=null;
-      this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenu(true);
+      this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenu(true);this.closeTips();
       for(const state of this.states.values())state.gen++;
       this.layout?.remove();this.layout=null;m.modal.removeAttribute(mountedAttr);
       document.documentElement.removeAttribute('data-rt-subreddit-archive');
@@ -194,7 +196,7 @@
       this.buildMenu();
       this.chipsEl=make('div','rt-filter-chips');this.chipsEl.hidden=true;
       row.append(button,this.menuEl);wrap.append(row,this.chipsEl);
-      this.onDocClick=event=>{if(this.menuOpen && !wrap.contains(event.target))this.closeMenu();};
+      this.onDocClick=event=>{if(this.menuOpen && !wrap.contains(event.target))this.closeMenu();if(!this.formEl.contains(event.target))this.closeTips();};
       this.onMenuKey=event=>{if(event.key==='Escape' && this.menuOpen){event.stopPropagation();this.closeMenu();this.menuButton.focus({preventScroll:true});}};
       document.addEventListener('click',this.onDocClick,true);wrap.addEventListener('keydown',this.onMenuKey);
       return wrap;
@@ -266,22 +268,75 @@
       const field=make('div','rt-sra-field'),icon=glyph('search');icon.classList.add('rt-sra-search-icon');
       const input=this.inputEl=make('input','rt-sra-input');input.type='search';input.name='q';input.placeholder='Search r/'+this.name;input.setAttribute('aria-label','Search r/'+this.name);input.maxLength=256;input.autocomplete='off';
       const clear=this.clearEl=make('button','rt-sra-clear');clear.type='button';clear.hidden=true;clear.setAttribute('aria-label','Clear search');clear.append(glyph('close'));
-      field.append(icon,input,clear);this.recentEl=make('div','rt-sra-recent');this.recentEl.hidden=true;this.recentEl.dataset.rtUi='recent-searches';this.hintEl=make('p','rt-sra-hint text-12');this.hintEl.hidden=true;this.hintEl.setAttribute('role','status');
-      form.append(field,this.recentEl,this.hintEl);
+      const tipsButton=this.tipsButton=make('button','rt-sra-tips-button','Search tips');tipsButton.type='button';tipsButton.setAttribute('aria-expanded','false');tipsButton.setAttribute('aria-controls','rt-sra-search-tips');
+      this.tipsEl=make('div','rt-sra-tips');this.tipsEl.id='rt-sra-search-tips';this.tipsEl.hidden=true;this.tipsEl.setAttribute('role','region');this.tipsEl.setAttribute('aria-label','Search tips');
+      tipsButton.addEventListener('click',()=>{if(!this.tipsEl.hidden)this.closeTips();else{this.hideRecent();this.renderTips();this.tipsEl.hidden=false;tipsButton.setAttribute('aria-expanded','true');}});
+      field.append(icon,input,clear,tipsButton);this.recentEl=make('div','rt-sra-recent');this.recentEl.hidden=true;this.recentEl.dataset.rtUi='recent-searches';this.hintEl=make('p','rt-sra-hint text-12');this.hintEl.hidden=true;this.hintEl.setAttribute('role','status');
+      form.append(field,this.recentEl,this.tipsEl,this.hintEl);
       form.addEventListener('submit',event=>{event.preventDefault();this.submitSearch(input.value);});
       input.addEventListener('input',()=>{clear.hidden=!input.value;this.hintEl.hidden=true;if(!input.value){if(this.query)this.setQuery('');this.showRecent();}else this.hideRecent();});
       input.addEventListener('focus',()=>this.showRecent());
-      form.addEventListener('focusout',event=>{if(!form.contains(event.relatedTarget))this.hideRecent();});
-      form.addEventListener('keydown',event=>{if(event.key==='Escape')this.hideRecent();});
+      form.addEventListener('focusout',event=>{if(!form.contains(event.relatedTarget)){this.hideRecent();this.closeTips();}});
+      form.addEventListener('keydown',event=>{
+        if(event.key==='Escape'){this.hideRecent();if(!this.tipsEl.hidden){event.preventDefault();event.stopPropagation();this.closeTips();tipsButton.focus({preventScroll:true});}}
+        if(!this.tipsEl.hidden && ['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
+          const rows=[...this.tipsEl.querySelectorAll('button')],index=rows.indexOf(document.activeElement);
+          event.preventDefault();rows[event.key==='Home'?0:event.key==='End'?rows.length-1:index<0?(event.key==='ArrowDown'?0:rows.length-1):(index+(event.key==='ArrowDown'?1:rows.length-1)+rows.length)%rows.length]?.focus({preventScroll:true});
+        }
+      });
       clear.addEventListener('click',()=>{input.value='';clear.hidden=true;this.hintEl.hidden=true;if(this.query)this.setQuery('');input.focus({preventScroll:true});this.showRecent();});
       return form;
     }
+    closeTips(){if(this.tipsEl)this.tipsEl.hidden=true;this.tipsButton?.setAttribute('aria-expanded','false');}
+    renderTips(){
+      const rows=[['AND','Both terms','cats AND dogs'],['OR','Either term','cats OR dogs'],['NOT','Exclude a term','cats NOT dogs'],['( )','Group terms','(cats OR dogs) AND pets'],['"phrase"','Exact phrase','"quiet place"'],['-exclude','Exclude a term','cats -dogs']];
+      const examples={title:'title:cats',body:'body:"quiet place"',author:'author:Example_1',site:'site:example.com',url:'url:article',flair:'flair:News',self:'self:yes',nsfw:'nsfw:no',spoiler:'spoiler:no',type:'type:image',before:'before:2026-02-01',after:'after:2026-01-01'};
+      for(const field of [...(this.tab==='comments'?commentFields:postFields),'before','after'])rows.push([field+':',field==='author'?'Author · also u/Example_1':field==='body'?'Body · also selftext: / text:':field==='site'?'Site · also domain:':'Filter '+field,examples[field]]);
+      this.tipsEl.replaceChildren(make('p','rt-sra-tips-heading','Search '+(this.tab==='comments'?'comments':'posts')+' in r/'+this.name));
+      for(const [token,label,example] of rows){
+        const row=make('button','rt-sra-tip');row.type='button';row.dataset.rtExample=example;
+        row.append(make('code','rt-sra-tip-token',token),make('span','rt-sra-tip-label',label),make('small','rt-sra-tip-example',example));
+        row.addEventListener('click',()=>{const value=this.inputEl.value.trim();this.inputEl.value=(value?value+' ':'')+example;this.closeTips();this.inputEl.dispatchEvent(new Event('input',{bubbles:true}));this.inputEl.focus({preventScroll:true});});
+        this.tipsEl.append(row);
+      }
+    }
+    parseSearch(text){
+      const fields=this.tab==='comments'?commentFields:postFields,parsed=globalThis.RCSCore.parseQuery(text,{fields:[...fields,'subreddit']});
+      parsed.errors=parsed.errors.map(error=>error.replace("isn't available in this search","isn't available for "+this.tab));
+      const check=node=>{
+        if(node.type==='field'){
+          if(node.field==='subreddit' && node.value.toLowerCase()!==this.name.toLowerCase())parsed.errors.unshift('This search is scoped to r/'+this.name+'; another subreddit isn\'t available here.');
+          if(![...fields,'subreddit','before','after'].includes(node.field) && !parsed.errors.some(error=>error.includes("isn't available for "+this.tab)))parsed.errors.push(node.field+": isn't available for "+this.tab);
+        }
+        if(node.child)check(node.child);for(const child of node.children || [])check(child);
+      };
+      check(parsed.expr);parsed.invalid=parsed.errors.length>0;return parsed;
+    }
+    searchPlan(parsed){
+      const core=globalThis.RCSCore,authors=new Set();
+      // Only unconditional positive authors may narrow the request. OR/NOT stay local.
+      const collect=node=>{if(node.type==='field' && node.field==='author')authors.add(node.value.toLowerCase());else if(node.type==='and')node.children.forEach(collect);};collect(parsed.expr);
+      const author=authors.size===1?[...authors][0]:undefined;
+      const strip=node=>node.type==='and'?{...node,children:node.children.map(strip).filter(Boolean)}:node.type==='field' && node.field==='author' && author?null:node;
+      const input={...parsed,expr:strip(parsed.expr)},split=core.splitQuery(input,['and','or','not','term','phrase']);
+      // Distribution has a bounded size; an untranslatable text expression must also scan locally.
+      const untranslatable=(split.server.terms.length || split.server.phrases.length || split.server.excluded.length) && !core.toArchiveQuery(split.server);
+      return {author,server:untranslatable?core.parseQuery('',{fields:[]}):split.server,residual:split.residual || Boolean(untranslatable)};
+    }
+    recordFor(item){
+      let domain=item.domain;try{domain ||= new URL(item.url).hostname;}catch{}
+      const type=globalThis.RTFeedFilters?.inferType(item),self=item.isSelf ?? item.is_self;
+      return {title:item.kind==='comment'?undefined:item.title,body:item.body ?? item.selftext,author:item.author,subreddit:item.subreddit,url:item.url,domain,
+        flair:item.flair ?? item.link_flair_text,isSelf:typeof self==='boolean'?self:item.postType?['self','text','textmedia','poll'].includes(item.postType):undefined,
+        nsfw:item.nsfw ?? item.over18 ?? item.over_18,spoiler:item.spoiler,type,created:item.created ?? item.created_utc};
+    }
     recentScope(){return 'subreddit:'+this.name.toLowerCase();}
     async showRecent(){
+      if(!this.tipsEl.hidden)return;
       const R=globalThis.RTRecentSearches,owner=this.getOwner();
       if(!R || !owner || this.inputEl.value){this.hideRecent();return;}
       let list=[];try{list=await R.list(owner,this.recentScope());}catch{}
-      if(!this.mounted || this.inputEl.value || !list.length){this.hideRecent();return;}
+      if(!this.mounted || this.inputEl.value || !list.length || !this.tipsEl.hidden){this.hideRecent();return;}
       this.recentEl.replaceChildren();
       // Pointer-down must not blur the field before the click lands.
       this.recentEl.onmousedown=event=>event.preventDefault();
@@ -299,9 +354,9 @@
     hideRecent(){if(this.recentEl)this.recentEl.hidden=true;}
     // Enter (or choosing a recent search) is the only time a query is saved.
     async submitSearch(raw){
-      const text=String(raw || '').trim();this.hideRecent();
+      const text=String(raw || '').trim();this.hideRecent();this.closeTips();
       if(!text){this.hintEl.hidden=true;if(this.query)this.setQuery('');return;}
-      const core=globalThis.RCSCore,parsed=core?.parseQuery?core.parseQuery(text,{scopes:['author']}):{text,authors:[],errors:[],invalid:false};
+      const parsed=this.parseSearch(text);
       if(parsed.invalid){this.hintEl.textContent=parsed.errors[0] || 'Check the search and try again.';this.hintEl.hidden=false;return;}
       this.hintEl.hidden=true;
       const R=globalThis.RTRecentSearches,owner=this.getOwner();
@@ -320,8 +375,8 @@
     current(){
       const key=this.stateKey();let state=this.states.get(key);
       if(!state){
-        const core=globalThis.RCSCore,parsed=this.query?(core?.parseQuery?core.parseQuery(this.query,{scopes:['author']}):{text:this.query,authors:[]}):null;
-        state={key,query:this.query,parsed,authors:(parsed?.authors || []).map(a=>a.toLowerCase()),tab:this.tab,asc:this.filterState().sort==='old',range:globalThis.RTFeedFilters?.dateRange(this.filterState()) || null,
+        const parsed=this.query?this.parseSearch(this.query):null,plan=parsed && !parsed.invalid?this.searchPlan(parsed):null;
+        state={key,query:this.query,parsed,plan,tab:this.tab,asc:this.filterState().sort==='old',range:globalThis.RTFeedFilters?.dateRange(this.filterState()) || null,
           items:[],seen:new Set(),cursor:null,hasMore:true,started:false,loading:false,error:null,searchedBackTo:null,stalled:false,mode:'',gen:0,cards:new Map(),counted:new Set()};
         if(this.states.size>=MAX_STATES){const old=[...this.states.keys()].find(k=>k!==key);const evicted=this.states.get(old);if(evicted)evicted.gen++;this.states.delete(old);}
         this.states.set(key,state);
@@ -331,11 +386,12 @@
     // Entry points: show the right source now, load its first page once.
     refresh(){
       if(!this.mounted)return;const state=this.current();this.renderList();
+      this.hintEl.hidden=!state.parsed?.invalid;if(state.parsed?.invalid){this.hintEl.textContent=state.parsed.errors[0];return;}
       if(!state.started)this.fill(state);
     }
     loadMore(){
       if(!this.mounted)return;const state=this.current();
-      if(state.loading || state.error || !state.hasMore || !state.started)return;
+      if(state.parsed?.invalid || state.loading || state.error || !state.hasMore || !state.started)return;
       this.fill(state);
     }
     retry(){if(!this.mounted)return;const state=this.current();if(!state.loading){state.error=null;this.fill(state);}}
@@ -343,23 +399,26 @@
       const f=globalThis.RTFeedFilters,filters=this.filterState(),posts=state.tab==='posts';
       const test=f?f.predicate({...f.clone(filters),types:posts?filters.types:[],subreddits:[]}):()=>true;
       let items=state.items.filter(item=>test({created:item.created,kind:item.kind,subreddit:item.subreddit,postType:item.kind==='comment'?'':f?f.inferType(item):''}));
-      if(state.authors.length>1)items=items.filter(item=>state.authors.includes(String(item.author).toLowerCase()));
       const mode=this.sortMode();
       if(mode==='top')items=[...items].sort((a,b)=>(b.score||0)-(a.score||0) || b.created-a.created);
       else if(mode==='comments')items=[...items].sort((a,b)=>(b.comments||0)-(a.comments||0) || b.created-a.created);
       return items;
     }
     async fill(state){
+      if(state.parsed?.invalid)return;
       const Q=globalThis.RTArchiveQuery;if(!Q?.search){state.error={message:'Archive search is unavailable.'};state.started=true;this.renderList();return;}
       state.started=true;state.loading=true;state.error=null;const gen=state.gen;this.renderList();
       const before=this.visible(state).length;
       try{
         const options={kind:state.tab==='comments'?'comment':'post',subreddit:this.name.toLowerCase(),sort:state.asc?'asc':'desc',cursor:state.cursor ?? undefined,after:state.range?.after ?? undefined,before:state.range?.before ?? undefined,maxPages:5};
-        if(state.parsed)options.parsed=state.parsed;
-        if(state.authors.length===1)options.author=state.authors[0];
+        if(state.plan)options.parsed=state.plan.server;
+        if(state.plan?.author)options.author=state.plan.author;
         for await(const page of Q.search(options)){
           if(gen!==state.gen)return;
-          for(const item of page.items || []){if(state.seen.has(item.fullname))continue;state.seen.add(item.fullname);state.items.push(item);}
+          for(const item of page.items || []){
+            if(state.seen.has(item.fullname))continue;state.seen.add(item.fullname);
+            if(!state.plan?.residual || globalThis.RCSCore.matchRecord(state.parsed,this.recordFor(item)))state.items.push(item);
+          }
           state.searchedBackTo=page.searchedBackTo ?? state.searchedBackTo;state.hasMore=page.hasMore!==false && page.cursor!=null;state.cursor=page.cursor ?? null;state.stalled=Boolean(page.stalled);state.mode=page.mode || '';
           if(page.hasMore && page.cursor==null)state.hasMore=false;
           if(state.stalled)state.hasMore=false;
@@ -383,8 +442,10 @@
     }
     statusLine(state){
       const asc=state.asc,when=state.searchedBackTo;
-      if(when==null)return '';
-      return (asc?'Searched up to ':'Searched back to ')+day(when)+(state.mode==='local'?' · Matched by scanning archived pages':'');
+      const parts=[];if(when!=null)parts.push((asc?'Searched up to ':'Searched back to ')+day(when));
+      if(state.mode==='local')parts.push('Matched by scanning archived pages');
+      if(state.plan?.residual || state.mode==='local')parts.push('Matches filtered locally · Results may be incomplete');
+      return parts.join(' · ');
     }
     renderList(){
       if(!this.mounted)return;const state=this.current(),items=this.visible(state),label=this.tab==='comments'?'comments':'posts';
@@ -400,7 +461,7 @@
         const retry=make('button','button button-small button-secondary','Retry');retry.type='button';retry.dataset.rtRetry='true';retry.addEventListener('click',()=>this.retry());note.append(retry);foot.append(note);
       }
       const line=this.statusLine(state);
-      if(!state.loading && !state.error){
+      if(!state.loading && !state.error && !state.parsed?.invalid){
         if(!items.length){foot.append(make('p','rt-archive-empty text-14 text-neutral-content-weak',state.hasMore?'No archived '+label+' loaded yet for these settings.':state.query?'No archived '+label+' matched. The archive may not hold every record.':'No archived '+label+' found for these settings. The archive may not hold every record.'));}
         if(state.stalled)foot.append(make('p','rt-sra-note text-12 text-neutral-content-weak','The archive stopped paging here; older records may exist.'));
         else if(!state.hasMore && items.length)foot.append(make('p','rt-sra-note text-12 text-neutral-content-weak','End of what the archive returned · Coverage may be partial'));
@@ -414,6 +475,7 @@
     }
     syncAll(){
       if(!this.mounted)return;this.syncTabs();this.syncMenu();this.renderChips();
+      if(this.tipsEl && !this.tipsEl.hidden)this.renderTips();
       if(this.inputEl){this.inputEl.value=this.query;this.clearEl.hidden=!this.query;}
     }
   }
