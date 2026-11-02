@@ -84,7 +84,7 @@ test('toArchiveQuery serializes for the archive API',()=>{
   assert.equal(q('"red apple" pie'),'"red apple" pie');
   assert.equal(q('a1 OR b2 OR c3'),'a1 OR b2 OR c3');
   assert.equal(q('coffee -decaf -"iced latte"'),'coffee -decaf -"iced latte"');
-  assert.equal(q('coffee tea OR milk from:alice before:2024-01-01 has:image'),'coffee tea OR milk');
+  assert.equal(q('coffee tea OR milk from:alice before:2024-01-01 has:image'),'coffee tea OR coffee milk','OR binds first, as in local matching');
   assert.equal(q('from:alice -lol'),'');assert.equal(q(''),'');assert.equal(q('from:alice'),'');
 });
 test('author and subreddit scopes are opt-in',()=>{

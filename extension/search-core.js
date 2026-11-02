@@ -30,43 +30,128 @@
     return {start:first?.getTime()??-Infinity,end:last?.getTime()??Infinity,active:Boolean(from||to),invalid};
   }
   const authorName=/^[A-Za-z0-9_-]{3,20}$/,subredditName=/^[A-Za-z0-9_]{2,21}$/;
-  // Words AND together; uppercase OR binds tighter than AND (a b OR c = a AND (b OR c)); -word and -"phrase" exclude.
-  function parseQuery(query='',{scopes=[]}={}) {
-    const parsed={terms:[],phrases:[],excluded:[],from:[],after:[],before:[],hasLink:false,hasImage:false,hasFile:false,hasVideo:false,hasAudio:false,hasGif:false,invalid:false,errors:[],expr:{type:'and',children:[]},hasOperators:false};
-    const scopeAuthor=scopes.includes('author'),scopeSubreddit=scopes.includes('subreddit');
-    if(scopeAuthor)parsed.authors=[];if(scopeSubreddit)parsed.subreddits=[];
-    const tokens=String(query).match(/(?:[^\s"]*"[^"]*"|[^\s"]+)/g) || [],seq=[];
-    for(const token of tokens){
-      const operator=token.match(/^(from|after|before|has):(.*)$/i),scope=(scopeAuthor||scopeSubreddit) && token.match(/^(?:(u\/|author:)|(r\/|subreddit:))(.*)$/i);
-      if(operator){seq.push('OP');const key=operator[1].toLowerCase(),value=operator[2].replace(/^"|"$/g,'');
-        if(key==='has'){const kind=normalize(value).replace(/s$/,''),flag={link:'hasLink',image:'hasImage',file:'hasFile',video:'hasVideo',audio:'hasAudio',gif:'hasGif'}[kind];if(flag)parsed[flag]=true;else parsed.errors.push('Use has:link, has:image, has:gif, has:video, has:audio or has:file');}
-        else if(key==='from'){if(value)parsed.from.push(normalize(value));else parsed.errors.push('Add a sender after from:');}
-        else {if(!value || dateBounds({from:value}).invalid)parsed.errors.push('Use a valid YYYY-MM-DD date');parsed[key].push(value);}
-      }else if(scope && (scope[1] ? scopeAuthor : scopeSubreddit)){seq.push('OP');
-        const value=scope[3].replace(/^"|"$/g,'');
-        if(scope[1]){if(authorName.test(value))parsed.authors.push(value);else parsed.errors.push('Use a valid username after u/');}
-        else if(subredditName.test(value))parsed.subreddits.push(value);else parsed.errors.push('Use a valid subreddit name after r/');
-      }else if(token==='OR')seq.push('OR');
-      else if(token.length>1 && token[0]==='-' && token.replace(/["-]/g,'')){
-        const rest=token.slice(1),phrase=rest.length>2 && rest.startsWith('"') && rest.endsWith('"'),text=phrase?rest.slice(1,-1):rest.replace(/"/g,'');
-        if(text){parsed.excluded.push(text);seq.push({type:'not',child:{type:phrase?'phrase':'term',text}});}
-      }else if(token.startsWith('"') && token.endsWith('"')){if(token.length>2){const text=token.slice(1,-1);parsed.phrases.push(text);seq.push({type:'phrase',text});}}
-      else{const text=token.replace(/"/g,'');parsed.terms.push(text);seq.push({type:'term',text});}
-    }
-    const children=[];let group=[];
-    for(let i=0;i<seq.length;i++){const item=seq[i];
-      if(item==='OR'){
-        if(i===0 || i===seq.length-1 || typeof seq[i-1]!=='object' || typeof seq[i+1]!=='object'){if(!parsed.errors.includes('Put a word on both sides of OR'))parsed.errors.push('Put a word on both sides of OR');}
-        parsed.hasOperators=true;continue;
+  const fieldAliases={selftext:'body',text:'body',domain:'site'},queryFields=['title','body','author','subreddit','site','url','flair','self','nsfw','spoiler','type'];
+  const canonicalField=field=>fieldAliases[field] || field;
+  const emptyQuery=()=>({terms:[],phrases:[],excluded:[],from:[],after:[],before:[],hasLink:false,hasImage:false,hasFile:false,hasVideo:false,hasAudio:false,hasGif:false,invalid:false,errors:[],expr:{type:'and',children:[]},hasOperators:false});
+  const joinExpr=(type,children)=>children.length===1?children[0]:{type,children};
+  // Grammar: AND (including whitespace) < OR < NOT/-; OR deliberately binds
+  // tighter than AND for compatibility: a b OR c = a AND (b OR c).
+  function parseQuery(query='',{scopes=[],fields}={}) {
+    const parsed=emptyQuery(),enabled=new Set([...scopes,...fields || []].map(canonicalField)),tokens=[];
+    if(enabled.has('author'))parsed.authors=[];if(enabled.has('subreddit'))parsed.subreddits=[];
+    const error=message=>{if(!parsed.errors.includes(message))parsed.errors.push(message);};
+    const source=String(query),decode=value=>value.replace(/\\(["\\])/g,'$1').replace(/^"|"$/g,'');
+    // Keep spaces and parentheses inside quotes, and leave unknown colon tokens
+    // (https://..., 10:30, etc.) as ordinary text.
+    for(let i=0;i<source.length;){
+      if(/\s/.test(source[i])){i++;continue;}
+      const char=source[i];
+      if(char==='(' || char===')'){tokens.push({kind:char});i++;continue;}
+      if(char==='-' && i+1<source.length && !/[\s)]/.test(source[i+1])){tokens.push({kind:'NOT',minus:true});i++;continue;}
+      const start=i;let quoted=false;
+      while(i<source.length){
+        const next=source[i];
+        if(quoted && next==='\\' && /["\\]/.test(source[i+1] || '')){i+=2;continue;}
+        if(next==='"')quoted=!quoted;
+        if(!quoted && /[\s()]/.test(next))break;
+        i++;
       }
-      if(typeof item!=='object')continue;
-      group.push(item);
-      if(seq[i+1]!=='OR'){children.push(group.length>1?{type:'or',children:group}:group[0]);group=[];}
+      if(quoted)error('Close the quoted phrase with "');
+      const raw=source.slice(start,i);
+      tokens.push({kind:['AND','OR','NOT'].includes(raw)?raw:'atom',raw});
     }
-    parsed.expr={type:'and',children};
-    if(parsed.excluded.length)parsed.hasOperators=true;
-    const filtered=parsed.from.length || parsed.after.length || parsed.before.length || parsed.hasLink || parsed.hasImage || parsed.hasFile || parsed.hasVideo || parsed.hasAudio || parsed.hasGif || parsed.authors?.length || parsed.subreddits?.length;
-    if(parsed.excluded.length && !parsed.terms.length && !parsed.phrases.length && !filtered)parsed.errors.push('Add a word to search for');
+    parsed.explicitBoolean=tokens.some(token=>['(',')','AND'].includes(token.kind) || token.kind==='NOT' && !token.minus);
+    function atom(token){
+      const raw=token.raw,operator=raw.match(/^(from|after|before|has):(.*)$/i),named=raw.match(/^([a-z]+):(.*)$/i),scope=raw.match(/^(u|r)\/(.*)$/i);
+      let field=operator?.[1].toLowerCase() || (scope?scope[1].toLowerCase()==='u'?'author':'subreddit':named?canonicalField(named[1].toLowerCase()):null);
+      // Before fields was introduced, disabled author/subreddit scopes were
+      // literal text. Keep that contract until a surface opts into fields.
+      const known=operator || queryFields.includes(field),legacyScope=fields===undefined && ['author','subreddit'].includes(field) && !enabled.has(field);
+      if(known && !legacyScope){
+        const value=decode(operator?operator[2]:scope?scope[2]:named[2]),legacy=fields===undefined;
+        if(!operator && !enabled.has(field))error(`${scope?scope[1]+'/':named[1]+':'} isn't available in this search`);
+        if(!value.trim())error(`Add a value after ${field}:`);
+        if(field==='author' && !authorName.test(value))error('Use a valid username after u/');
+        else if(field==='subreddit' && !subredditName.test(value))error('Use a valid subreddit name after r/');
+        else if(['self','nsfw','spoiler'].includes(field) && !/^(yes|no)$/i.test(value))error(`Use ${field}:yes or ${field}:no`);
+        else if(field==='type' && !/^(text|image|video|gallery|link|gif|poll)$/i.test(value))error('Use type:text, type:image, type:video, type:gallery, type:link, type:gif or type:poll');
+        else if(field==='has' && !/^(links?|images?|gifs?|videos?|audios?|files?)$/i.test(value))error('Use has:link, has:image, has:gif, has:video, has:audio or has:file');
+        else if(field==='from' && !value)error('Add a sender after from:');
+        else if(['after','before'].includes(field) && (!value || dateBounds({from:value}).invalid))error('Use a valid YYYY-MM-DD date');
+        if(!legacy)parsed.hasOperators=true;
+        return {type:'field',field,value,...(raw.includes('"')?{quoted:true}:{}),...(legacy?{legacy:true}:{})};
+      }
+      const phrase=raw.startsWith('"') && raw.endsWith('"'),text=phrase?decode(raw):raw.replace(/"/g,'');
+      return {type:phrase?'phrase':'term',text};
+    }
+    let index=0;
+    const canStart=token=>token && ['atom','NOT','('].includes(token.kind);
+    function unary(){
+      const token=tokens[index++];
+      if(token.kind==='NOT'){
+        parsed.hasOperators=true;
+        if(!canStart(tokens[index])){error('Add a word or group after NOT');return null;}
+        return {type:'not',child:unary()};
+      }
+      if(token.kind==='('){
+        parsed.hasOperators=true;
+        if(tokens[index]?.kind===')'){index++;error('Add a word inside the empty group');return null;}
+        const child=and();
+        if(tokens[index]?.kind===')')index++;else error('Close the group with )');
+        return child;
+      }
+      return atom(token);
+    }
+    function or(){
+      let node=unary();const children=node?[node]:[];
+      while(tokens[index]?.kind==='OR'){
+        parsed.hasOperators=true;index++;
+        if(!canStart(tokens[index])){error('Put a word on both sides of OR');continue;}
+        const right=unary();
+        if(!parsed.explicitBoolean && (node?.legacy || right?.legacy))error('Put a word on both sides of OR');
+        if(right)children.push(right);node=right;
+      }
+      return joinExpr('or',children);
+    }
+    function and(){
+      const children=[];
+      while(index<tokens.length && tokens[index].kind!==')'){
+        const kind=tokens[index].kind;
+        if(kind==='AND' || kind==='OR'){
+          parsed.hasOperators=true;index++;
+          if(kind==='OR')error('Put a word on both sides of OR');
+          else if(!children.length || !canStart(tokens[index]))error('Put a word or group on both sides of AND');
+          continue;
+        }
+        const child=or();if(child)children.push(child);
+      }
+      return joinExpr('and',children);
+    }
+    try{
+      const root=and();parsed.expr=root.type==='and'?root:{type:'and',children:[root]};
+      while(index<tokens.length){error('Unexpected ); remove it or add a matching (');index++;}
+    }catch{error('The query is nested too deeply; use fewer groups');}
+    let positive=false,negative=false,filtered=false;
+    function collect(node,negated=false){
+      if(!node)return;
+      if(node.type==='not'){collect(node.child,!negated);return;}
+      if(node.type==='term' || node.type==='phrase'){
+        if(!node.text)return;
+        if(negated){parsed.excluded.push(node.text);negative=true;}
+        else{parsed[node.type==='term'?'terms':'phrases'].push(node.text);positive=true;}
+      }else if(node.type==='field'){
+        filtered=true;if(negated)return;
+        const {field,value}=node;
+        if(field==='author' && authorName.test(value))parsed.authors?.push(value);
+        else if(field==='subreddit' && subredditName.test(value))parsed.subreddits?.push(value);
+        else if(['from','after','before'].includes(field))parsed[field].push(field==='from'?normalize(value):value);
+        else if(field==='has'){const kind=normalize(value).replace(/s$/,'');if(['link','image','file','video','audio','gif'].includes(kind))parsed['has'+kind[0].toUpperCase()+kind.slice(1)]=true;}
+      }else for(const child of node.children || [])collect(child,negated);
+    }
+    try{collect(parsed.expr);}catch{error('The query is nested too deeply; use fewer groups');}
+    // Retain the existing hint for exclusion-only text searches. Field-only
+    // predicates (including NOT nsfw:yes) are useful structured searches.
+    if(negative && !positive && !filtered)error('Add a word to search for');
     parsed.invalid=parsed.errors.length>0;return parsed;
   }
   const wordCharacter=char=>Boolean(char && /[\p{L}\p{N}_]/u.test(char));
@@ -100,20 +185,151 @@
   const exprFor=parsed=>parsed.expr || {type:'and',children:[...parsed.terms.map(text=>({type:'term',text})),...parsed.phrases.map(text=>({type:'phrase',text}))]};
   const foldedValue=text=>/[^\x00-\x7f]/.test(text)?foldedText(text).value:text.toLowerCase();
   function textMatcher(parsed,options={}){const test=compileExpr(exprFor(parsed),options);return test?text=>test(foldedValue(String(text ?? ''))):()=>true;}
-  function matchesText(parsed,text,options={}){if(parsed==null)return true;return textMatcher(typeof parsed==='object'?parsed:parseQuery(parsed),options)(text);}
-  function toArchiveQuery(parsed){
-    // No text (null/undefined/'') means no archive text query.
-    if(parsed==null || parsed==='')return '';
+  function matchesText(parsed,text,options={}){if(parsed==null)return true;parsed=typeof parsed==='object'?parsed:parseQuery(parsed);return !parsed.invalid && textMatcher(parsed,options)(text);}
+  function matchRecord(parsed,record={},options={}){
+    if(parsed==null)return true;
     parsed=typeof parsed==='object'?parsed:parseQuery(parsed);
-    const quote=(node,phrase)=>phrase?'"'+node.text.replace(/"/g,'')+'"':node.text.replace(/"/g,'');
-    const atom=node=>{
-      if(node.type==='not'){const text=atom(node.child);return text && '-'+text;}
-      if(!normalize(node.text) || node.text==='-')return '';
-      return quote(node,node.type==='phrase' || /\s/.test(node.text));
-    };
-    const part=node=>node.type==='or'?node.children.map(atom).filter(Boolean).join(' OR '):atom(node);
-    if(!parsed.terms.length && !parsed.phrases.length)return '';
-    return exprFor(parsed).children.map(part).filter(Boolean).join(' ');
+    if(parsed.invalid)return false;
+    const contains=(value,needle)=>{needle=normalize(needle);return value!=null && Boolean(needle) && wordAt(foldedValue(String(value)),needle,requiresBoundary(needle,options));};
+    function fieldMatch({field,value}){
+      const wanted=normalize(value);
+      if(field==='title' || field==='body' || field==='flair')return contains(record[field],value);
+      if(field==='author' || field==='subreddit')return record[field]!=null && normalize(String(record[field]).replace(/^[ur]\//i,''))===wanted;
+      if(field==='site'){
+        const domain=record.domain==null?'':normalize(record.domain);
+        return Boolean(domain) && (domain===wanted || domain.endsWith('.'+wanted));
+      }
+      if(field==='url')return record.url!=null && foldedValue(String(record.url)).includes(wanted);
+      if(['self','nsfw','spoiler'].includes(field)){const actual=record[field==='self'?'isSelf':field];return typeof actual==='boolean' && actual===(wanted==='yes');}
+      if(field==='type')return record.type!=null && normalize(record.type)===wanted;
+      if(field==='after' || field==='before'){
+        const created=record.created,time=typeof created==='number'?(Math.abs(created)<1e12?created*1000:created):Date.parse(created),bound=dateBounds({from:value}).start;
+        return Number.isFinite(time) && (field==='after'?time>=bound:time<bound);
+      }
+      if(field==='from'){
+        if(record.authorSelf==null && record.author==null && record.sender==null)return false;
+        const self=typeof record.authorSelf==='boolean'?record.authorSelf:normalize(record.author)==='you';
+        return wanted==='me'?self:wanted==='them'?!self:!self && matches(record.author || record.sender,value);
+      }
+      if(field==='has')return Boolean(mediaFlags({...record,attachmentType:record.attachmentType || record.type,text:record.text ?? record.body ?? record.url})&mediaKinds[wanted.replace(/s$/,'')]);
+      return false;
+    }
+    const text=[record.title,record.body].filter(value=>value!=null).join(' ');
+    function evaluate(node){
+      if(node.type==='term' || node.type==='phrase')return !normalize(node.text) || contains(text,node.text);
+      if(node.type==='field')return fieldMatch(node);
+      if(node.type==='not')return !evaluate(node.child);
+      return node.type==='or'?node.children.some(evaluate):node.children.every(evaluate);
+    }
+    return evaluate(exprFor(parsed));
+  }
+  const queryObject=parsed=>typeof parsed==='object'?parsed:parseQuery(parsed);
+  const quotedValue=value=>'"'+String(value).replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"';
+  const queryAtom=node=>node.type==='phrase' || /[\s()"\\]/.test(node.text) || /^(AND|OR|NOT)$/.test(node.text) || node.text.startsWith('-')?quotedValue(node.text):node.text;
+  function toArchiveQuery(parsed){
+    if(parsed==null || parsed==='')return '';
+    parsed=queryObject(parsed);if(parsed.invalid || !parsed.terms.length && !parsed.phrases.length)return '';
+    // Legacy positive scope/chat filters are sent separately by existing callers.
+    // New fields cannot be encoded in Arctic Shift's text parameter. In particular,
+    // dropping a field inside OR/NOT would change the expression's meaning.
+    const root=exprFor(parsed),children=root.type==='and'?root.children:[root],text=children.filter(node=>node.type!=='field' || !node.legacy);
+    function textOnly(node){return node.type==='term' || node.type==='phrase' || node.type==='not' && textOnly(node.child) || ['and','or'].includes(node.type) && node.children.every(textOnly);}
+    if(!text.every(textOnly))return '';
+    // The backend (websearch_to_tsquery) binds AND before OR and ignores
+    // parentheses, while ours binds OR first. Plain queries without OR keep the
+    // established wire format; anything with OR or grouping is expanded to a
+    // disjunction of conjunctions so the archive reads the same meaning.
+    if(!parsed.explicitBoolean && !(text.length>1 && text.some(node=>node.type==='or'))){
+      const atom=node=>node.type==='not'?'-'+atom(node.child):node.text==='-'?'':queryAtom(node);
+      if(text.every(node=>node.type==='term' || node.type==='phrase' || node.type==='not' && ['term','phrase'].includes(node.child.type) || node.type==='or' && node.children.every(child=>['term','phrase'].includes(child.type) || child.type==='not' && ['term','phrase'].includes(child.child.type))))return text.map(node=>node.type==='or'?node.children.map(atom).filter(Boolean).join(' OR '):atom(node)).filter(Boolean).join(' ');
+    }
+    // Bound distribution: a large product must fall back to local filtering.
+    function dnf(node,negated=false){
+      if(node.type==='not')return dnf(node.child,!negated);
+      if(node.type==='term' || node.type==='phrase'){
+        if(!node.text || /["\\]/.test(node.text))return null;
+        return [[(negated?'-':'')+queryAtom(node)]];
+      }
+      const union=(node.type==='or')!==negated;let result=union?[]:[[]];
+      for(const child of node.children){
+        const part=dnf(child,negated);if(!part)return null;
+        if(union)result.push(...part);
+        else{if(result.length*part.length>128)return null;result=result.flatMap(left=>part.map(right=>[...left,...right]));}
+        if(result.length>128 || result.some(clause=>clause.length>128))return null;
+      }
+      return result;
+    }
+    const result=dnf({type:'and',children:text});
+    return result?result.map(clause=>clause.join(' ')).join(' OR '):'';
+  }
+  function toRedditQuery(parsed){
+    if(parsed==null || parsed==='')return '';
+    parsed=queryObject(parsed);if(parsed.invalid)return '';
+    const fields={title:'title',body:'selftext',author:'author',subreddit:'subreddit',site:'site',url:'url',flair:'flair',self:'self',nsfw:'nsfw'};
+    function serialize(node){
+      if(node.type==='term' || node.type==='phrase')return node.type==='term' && node.text.includes(':')?quotedValue(node.text):queryAtom(node);
+      if(node.type==='field'){
+        if(!fields[node.field])return null;
+        const value=node.value,text=node.quoted || /[\s()"\\]/.test(value) || /^(AND|OR|NOT)$/.test(value) || value.startsWith('-')?quotedValue(value):value;
+        return fields[node.field]+':'+text;
+      }
+      if(node.type==='not'){const child=serialize(node.child);return child==null?null:'NOT '+child;}
+      const children=node.children.map(serialize);if(children.includes(null))return null;
+      return children.length>1?'('+children.join(node.type==='or'?' OR ':' AND ')+')':children[0] || '';
+    }
+    // Unsupported atoms fail closed as a translation; splitQuery can first
+    // produce a safe superset and indicate that local filtering is required.
+    const result=serialize(exprFor(parsed));return result ?? '';
+  }
+  function splitQuery(parsed,supported=[]){
+    parsed=parsed==null?emptyQuery():queryObject(parsed);
+    // Accept a flat list of node/field names, or {nodes:[...],fields:[...]}.
+    // Field names (or field:title) enable individual fields; 'field' alone does
+    // not promise support for every field. Aliases are canonicalized.
+    const list=Array.isArray(supported) || typeof supported?.[Symbol.iterator]==='function'?[...supported]:[...supported.nodes || supported.types || [],...supported.fields || []];
+    const allowed=new Set(list.map(value=>canonicalField(String(value).replace(/^field:/,''))));
+    const truth={node:null,exact:false};
+    function project(node){
+      if(node.type==='term' || node.type==='phrase' || node.type==='field')return allowed.has(node.type==='field'?node.field:node.type)?{node:{...node},exact:true}:truth;
+      if(node.type==='not'){
+        const child=project(node.child);
+        return allowed.has('not') && child.exact?{node:{type:'not',child:child.node},exact:true}:truth;
+      }
+      const children=node.children.map(project);
+      if(children.length===1)return children[0];
+      if(!children.length)return {node:null,exact:true};
+      if(!allowed.has(node.type))return truth;
+      // Superset rule: server must never reject a full match. AND may drop
+      // unsupported conjuncts; OR containing ANY unsupported atom is dropped
+      // in full. NOT may only keep an exact child (negation reverses inclusion).
+      if(node.type==='or' && children.some(child=>!child.exact))return truth;
+      const kept=children.map(child=>child.node).filter(Boolean);
+      return {node:kept.length?joinExpr(node.type,kept):null,exact:children.every(child=>child.exact)};
+    }
+    if(parsed.invalid){const server=emptyQuery();server.invalid=true;server.errors=[...parsed.errors];return {server,residual:true};}
+    const projected=project(exprFor(parsed)),server=emptyQuery();
+    server.expr=projected.node?.type==='and'?projected.node:{type:'and',children:projected.node?[projected.node]:[]};
+    server.hasOperators=parsed.hasOperators;server.explicitBoolean=parsed.explicitBoolean;
+    if(parsed.authors)server.authors=[];if(parsed.subreddits)server.subreddits=[];
+    function collect(node,negated=false){
+      if(node.type==='not'){collect(node.child,!negated);return;}
+      if(node.type==='term' || node.type==='phrase')server[negated?'excluded':node.type==='term'?'terms':'phrases'].push(node.text);
+      else for(const child of node.children || [])collect(child,negated);
+    }
+    collect(server.expr);
+    // Only unconditional positive fields belong in the legacy side-channel
+    // arrays. Copying fields out of OR/NOT could accidentally narrow a request.
+    for(const node of server.expr.children){
+      if(node.type!=='field')continue;
+      const {field,value}=node;
+      if(field==='author')server.authors=[...server.authors || [],value];
+      else if(field==='subreddit')server.subreddits=[...server.subreddits || [],value];
+      else if(['from','after','before'].includes(field))server[field].push(field==='from'?normalize(value):value);
+      else if(field==='has'){const kind=normalize(value).replace(/s$/,'');server['has'+kind[0].toUpperCase()+kind.slice(1)]=true;}
+    }
+    // Invalid input remains invalid, even when projection produces no filter.
+    server.invalid=parsed.invalid;server.errors=[...parsed.errors];
+    return {server,residual:!projected.exact};
   }
   const requiresBoundary=(term,{wholeWord=false,shortTermsWholeWord=true}={})=>wholeWord || shortTermsWholeWord && [...term].length<3;
   function queryRanges(text,needles,options={}){
@@ -140,14 +356,24 @@
     return counts;
   }
   function prepareQuery(query='',{from='all',wholeWord=false,shortTermsWholeWord=true,dates={},ignoreMedia=false}={},conversation={}){
-    const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates),matcher=textMatcher(parsed,{wholeWord,shortTermsWholeWord}),hasText=Boolean(compileExpr(exprFor(parsed),{}));
+    const parsed=typeof query==='object'?query:parseQuery(query),bounds=dateBounds(dates);
+    if(parsed.invalid || bounds.invalid)return ()=>false;
+    const matcher=textMatcher(parsed,{wholeWord,shortTermsWholeWord}),hasText=Boolean(compileExpr(exprFor(parsed),{}));
+    const hasField=node=>node.type==='field' || node.type==='not' && hasField(node.child) || (node.children || []).some(hasField);
+    const fieldBoolean=node=>node.type==='not' && hasField(node.child) || node.type==='field' && !node.legacy || (node.children || []).some(fieldBoolean);
+    const structured=parsed.explicitBoolean || fieldBoolean(exprFor(parsed));
+    const local=structured && ignoreMedia?splitQuery(parsed,['and','or','not','term','phrase',...queryFields,'from','after','before']).server:parsed;
     const wantedMedia=ignoreMedia?0:mediaQueryFlags(parsed);
     const start=Math.max(bounds.start,...parsed.after.map(date=>dateBounds({from:date}).start)),end=Math.min(bounds.end,...parsed.before.map(date=>dateBounds({from:date}).start));
     const dated=bounds.active || parsed.after.length>0 || parsed.before.length>0;
-    if(parsed.invalid || bounds.invalid)return ()=>false;
     return record=>{
       const self=typeof record.authorSelf==='boolean'?record.authorSelf:record.sender==='me' || Boolean(conversation.owner && record.sender===conversation.owner) || normalize(record.author)==='you';
       if(from==='me' && !self || from==='them' && self)return false;
+      if(structured){
+        const time=typeof record.timestamp==='number'?record.timestamp:new Date(record.timestamp ?? record.at).getTime();
+        if(bounds.active && !(Number.isFinite(time) && time>=bounds.start && time<bounds.end))return false;
+        return matchRecord(local,{...record,body:record.text ?? record.body,author:record.author || record.sender || conversation.name,authorSelf:self,created:record.created ?? (Number.isFinite(time)?new Date(time).toISOString():undefined)},{wholeWord,shortTermsWholeWord});
+      }
       // Multiple sender selections are alternatives; text and other filters
       // still narrow those senders together.
       if(parsed.from.length && !parsed.from.some(sender=>sender==='me'?self:sender==='them'?!self:!self && (matches(record.author || record.sender,sender) || !record.author && matches(conversation.name,sender))))return false;
@@ -260,5 +486,5 @@
     }
     clear() { this.rooms.clear();this.redacted.clear(); }
   }
-  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, matchesText, toArchiveQuery, prepareQuery, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
+  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, matchesText, matchRecord, toArchiveQuery, toRedditQuery, splitQuery, prepareQuery, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
 })();
