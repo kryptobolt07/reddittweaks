@@ -911,7 +911,7 @@ test('Boolean chat expressions preserve field positions, results, inline errors 
   const highlights=[...c.results.querySelectorAll('mark')].map(mark=>mark.textContent.toLowerCase());
   assert.ok(highlights.includes('cats') && highlights.includes('dogs'));assert.ok(highlights.every(term=>term==='cats' || term==='dogs'));
   const before=p.searches.length,jumps=p.requests.filter(item=>item.method==='jump').length;
-  for(const query of ['cats AND','(cats OR dogs','cats OR NOT','-"iced latte"','from:alice OR from:bob']){
+  for(const query of ['cats AND','(cats OR dogs','cats OR NOT','-"iced latte"']){
     p.type(query);await p.tick(180);
     assert.equal(c.status.textContent,p.w.RCSGlobalSearchModel.queryFeedback(p.w.RCSCore.parseQuery(c.queryValue())));
     assert.equal(c.input.getAttribute('aria-invalid'),'true');assert.equal(c.results.querySelector('.message-result'),null);

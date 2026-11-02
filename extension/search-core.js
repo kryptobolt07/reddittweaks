@@ -108,7 +108,8 @@
         parsed.hasOperators=true;index++;
         if(!canStart(tokens[index])){error('Put a word on both sides of OR');continue;}
         const right=unary();
-        if(!parsed.explicitBoolean && (node?.legacy || right?.legacy))error('Put a word on both sides of OR');
+        // A field beside OR (from:alice OR from:bob) is a structured alternative, the same as its parenthesised form.
+        if(node?.legacy || right?.legacy)parsed.explicitBoolean=true;
         if(right)children.push(right);node=right;
       }
       return joinExpr('or',children);
