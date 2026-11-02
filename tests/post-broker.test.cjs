@@ -254,3 +254,10 @@ test('the transport slot is released before parent-title lookups',async()=>{
  assert.ok(e.calls.some(([url])=>new URL(url).searchParams.get('author')==='third'));
  titleGates.forEach(g=>g());await Promise.all([...comments,third]);
 });
+
+test('archive comment searches can enrich thread titles without changing normal search requests',async()=>{
+ const e=env({fetcher:async url=>new URL(url).pathname.endsWith('/posts/ids')?response([{id:'parent',title:'Synthetic parent title',subreddit:'example'}]):response([row({id:'c1',body:'Reply',link_id:'t3_parent',subreddit:'example'})])});
+ const request={action:'archive-search',kind:'comment',subreddit:'example'};
+ const plain=await e.send(request,{tab:{id:1}});assert.equal(plain.ok,true,JSON.stringify(plain));assert.equal(e.calls.length,1);
+ const enriched=await e.send({...request,titles:true},{tab:{id:1}});assert.equal(enriched.ok,true);assert.equal(enriched.posts[0].title,'Synthetic parent title');assert.equal(e.calls.filter(([url])=>new URL(url).pathname.endsWith('/posts/ids')).length,1);
+});
