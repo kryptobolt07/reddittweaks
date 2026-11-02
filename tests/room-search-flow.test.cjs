@@ -98,3 +98,20 @@ test('header search replaces native header in place and Back restores the origin
 test('empty room search displays recent messages just like global message search',async t=>{
   const p=setup(t);let owner='account-a';p.w.RCSDirectory={getOwner:()=>owner,getStartup:()=>({pending:true})};await p.search('');assert.equal(p.input.value,'');assert.equal(p.root.querySelector('.panel').hidden,false);assert.ok(p.root.querySelectorAll('.result').length>0);p.input.value='coffee';p.input.dispatchEvent(new p.w.Event('input'));await wait(170);assert.equal(p.root.querySelectorAll('.result').length,2);p.root.querySelector('[aria-label="Clear search"]').click();assert.equal(p.input.value,'');assert.equal(p.root.querySelector('.panel').hidden,false);assert.ok(p.root.querySelectorAll('.result').length>2);
 });
+
+test('live room Boolean results, field groups and error feedback match saved search semantics during history loading',async t=>{
+  const p=setup(t),type=async query=>{p.input.value=query;p.input.dispatchEvent(new p.w.Event('input'));await wait(190);};
+  for(const [id,body]of [['both','cats dogs'],['cat','cats birds'],['dog','dogs'],['iced','coffee iced latte'],['hot','coffee latte']])p.api.appendMessage('alex_morgan',body,'boolean-'+id);
+  await wait(120);p.trigger.click();
+  for(const [query,wanted]of [['cats AND dogs',1],['(cats OR dogs) NOT birds',2],['((cats AND dogs) OR dogs) NOT birds',2],['cats NOT from:me',2],['(from:them OR from:me) AND cats',2],['cats NOT has:image',2]]){
+    await type(query);assert.equal(p.input.value,query);assert.equal(p.root.querySelectorAll('.result').length,wanted,query);
+    for(const mark of p.root.querySelectorAll('mark'))assert.match(mark.textContent,/^(cats|dogs)$/i);
+  }
+  const calls=p.calls.length;
+  for(const query of ['cats AND','(cats OR dogs','cats OR NOT','-"iced latte"','from:alice OR from:bob']){
+    await type(query);assert.equal(p.input.getAttribute('aria-invalid'),'true');
+    assert.match(p.root.querySelector('[role=status]').textContent,/both sides|Close the group|word to search|after NOT/);
+    assert.equal(p.root.querySelector('.result,.skeleton-list'),null,'invalid input cannot expose stale matches or hide the error behind loading');
+  }
+  assert.equal(p.calls.length,calls,'invalid input never starts another history request');
+});

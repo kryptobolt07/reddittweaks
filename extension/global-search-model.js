@@ -9,7 +9,7 @@
     if(value.startsWith('"') && value.endsWith('"'))value=value.slice(1,-1);
     return value && !/[":\r\n]/.test(value) ? value : '';
   };
-  const senderToken = value => 'from:'+(/\s/.test(value)?'"'+value+'"':value);
+  const senderToken = value => 'from:'+(/[\s()]/.test(value)?'"'+value+'"':value);
 
   class QueryState {
     constructor(){this.applied=new Map();}
@@ -38,12 +38,20 @@
     remove(key){return this.applied.delete(key);}
     clear(){this.applied.clear();}
     ingestDraft(draft,{commit=false}={}){
-      draft=String(draft ?? '');let output='',start=0,index=0;
+      draft=String(draft ?? '');
+      // Keep typed fields in place until Enter: a later OR/NOT may make their
+      // position significant. Boolean expressions always remain editable text.
+      const parsed=core().parseQuery(draft);
+      // Several typed media fields are conjunctive. A single-choice chip would
+      // replace an earlier type, so leave such combinations in the draft.
+      const mediaFields=(parsed.expr.children || []).filter(node=>node.type==='field' && node.field==='has');
+      if(!commit || parsed.invalid || parsed.hasOperators || parsed.explicitBoolean || mediaFields.length>1 || mediaFields.some(node=>this.filters.some(item=>item.kind==='has' && item.value!==core().normalize(node.value).replace(/s$/,''))))return draft;
+      let output='',start=0,index=0;
       // Scan complete tokens without touching whitespace or quoted text in the draft.
       while(index<draft.length){
         if(/\s/.test(draft[index])){index++;continue;}
         const tokenStart=index;let quoted=false;
-        while(index<draft.length){const char=draft[index];if(char==='"')quoted=!quoted;if(!quoted && /\s/.test(char))break;index++;}
+        while(index<draft.length){const char=draft[index];if(quoted && char==='\\' && /["\\]/.test(draft[index+1] || '')){index+=2;continue;}if(char==='"')quoted=!quoted;if(!quoted && /\s/.test(char))break;index++;}
         const token=draft.slice(tokenStart,index),operator=token.match(/^(from|has|before|after):(.*)$/i);
         if(!operator || quoted)continue;
         const kind=operator[1].toLowerCase(),value=operator[2];
@@ -53,7 +61,14 @@
       return output+draft.slice(start);
     }
     query(draft=''){
-      const tokens=this.filters.map(item=>item.token).join(' '),text=String(draft ?? '');
+      const filters=this.filters,text=String(draft ?? ''),parsed=core().parseQuery(text);
+      if(filters.length && (parsed.hasOperators || parsed.explicitBoolean)){
+        // Sender chips remain alternatives, even when the draft uses explicit
+        // Boolean syntax. Each other chip narrows the entire draft.
+        const senders=filters.filter(item=>item.kind==='from').map(item=>item.token);
+        return [...(senders.length?['('+senders.join(' OR ')+')']:[]),...filters.filter(item=>item.kind!=='from').map(item=>item.token),...(text.trim()?['('+text+')']:[])].join(' AND ');
+      }
+      const tokens=filters.map(item=>item.token).join(' ');
       return tokens ? tokens+(text?' '+text:'') : text;
     }
   }
@@ -74,10 +89,15 @@
       && (status==='all' || status==='unread' && unread(record) || status==='requests' && request(record) || status==='unavailable' && Boolean(record.accountUnavailable));
   }
   const recordList = records => records && typeof records.values==='function' && !Array.isArray(records)?[...records.values()]:[...records || []];
+  function queryFeedback(parsed){
+    const feedback=parsed.errors.join(' · '),hasField=node=>node.type==='field' || node.type==='not' && hasField(node.child) || (node.children || []).some(hasField);
+    return feedback+(parsed.errors.includes('Put a word on both sides of OR') && hasField(parsed.expr)?' · Group chat-field alternatives, e.g. (from:alice OR from:bob).':'');
+  }
   function peoplePredicate(draft,{wholeWord=false}={}){
     const parsed=core().parseQuery(draft);
     // These operators describe messages; People and All use the same name query.
-    if(parsed.invalid || parsed.from.length || parsed.after.length || parsed.before.length || mediaTypes.some(type=>parsed['has'+type[0].toUpperCase()+type.slice(1)]))return ()=>false;
+    const hasField=node=>node.type==='field' || node.type==='not' && hasField(node.child) || (node.children || []).some(hasField);
+    if(parsed.invalid || hasField(parsed.expr))return ()=>false;
     const predicate=core().prepareQuery(parsed,{wholeWord,shortTermsWholeWord:false});
     return record=>predicate({text:[record.name,...record.participants || [],...record.aliases || [],...(record.accountUnavailable?[record.accountState==='banned' ? 'banned suspended unavailable retained username' : 'deleted unavailable retained username']:[])].join(' ')});
   }
@@ -99,5 +119,5 @@
       :sort==='unread'?(a,b)=>Number(unread(b))-Number(unread(a)) || newest(a,b):newest;
     return recordList(records).filter(record=>legacyRoomAllowed(record,filter) && roomAllowed(record,{chatType,status}) && matches(record)).sort(compare);
   }
-  globalThis.RCSGlobalSearchModel=Object.freeze({QueryState,matchPeople,roomAllowed,chatFilterCounts,mediaTypes});
+  globalThis.RCSGlobalSearchModel=Object.freeze({QueryState,matchPeople,roomAllowed,chatFilterCounts,mediaTypes,queryFeedback});
 })();

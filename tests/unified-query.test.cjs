@@ -226,3 +226,27 @@ test('persistent and individual message searches share short-term AND and exact-
   }
   const now=noon(11);assert.equal(C.dayLabel(new Date(2025,8,2),now),'Sep 2, 2025');assert.equal(C.dayLabel(new Date(2024,8,2),now),'Sep 2, 2024');
 });
+
+test('saved storage and the live index agree on Boolean trees, conditional media, senders and dates',async()=>{
+  const {RCSCore:C,RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null}),index=new C.MessageIndex(Infinity),carol='@carol:reddit.com';
+  const events=[event('both','cats dogs',noon(10)),event('cat','cats birds',noon(11),carol),event('dog','dogs',noon(11),owner),event('iced','coffee iced latte',noon(11)),event('hot','coffee latte',noon(10),carol),
+    {...event('image','cats image',noon(11)),content:{body:'cats image',msgtype:'m.image'}},event('link','dogs https://example.test',noon(10),carol)];
+  await store.ingest({owner,roomId:room,events,identities:[{id:them,name:'Bob'},{id:carol,name:'Carol'}]});
+  const messages=(await store.room(owner,room)).records;index.upsert(room,messages);
+  const cases=[['cats AND dogs',['both']],['(cats OR dogs) NOT birds',['both','dog','image','link']],['((cats AND dogs) OR (dogs NOT cats)) NOT birds',['both','dog','link']],['coffee -"iced latte"',['hot']],
+    ['(from:Bob OR from:Carol) AND cats',['both','cat','image']],['cats NOT from:Carol',['both','image']],['(has:image OR has:link)',['image','link']],['cats NOT has:image',['both','cat']],['(has:image OR coffee) NOT from:me',['hot','iced','image']],
+    ['(before:2026-10-11 OR from:me) AND dogs',['both','dog','link']],['(cats OR after:2026-10-11) NOT has:image',['both','cat','dog','iced']],['NOT (has:image OR has:link) AND cats',['both','cat']],
+    ['from:Bob from:Carol cats',['both','cat','image']],['from:Bob AND from:Carol',[]]];
+  for(const [query,wanted]of cases){
+    assert.equal(C.parseQuery(query).invalid,false,query);
+    assert.deepEqual(plain(index.search(room,query).map(record=>record.id).sort()),wanted.slice().sort(),'index: '+query);
+    const result=await store.search(owner,{query,limit:1});
+    assert.equal(result.total,wanted.length,'total: '+query);
+    const all=[];for(let offset=0;offset<wanted.length;offset++)all.push(...(await store.search(owner,{query,limit:1,offset})).records.map(record=>record.id));
+    assert.deepEqual(plain(all.sort()),wanted.slice().sort(),'storage pages: '+query);
+  }
+  for(const query of ['cats AND','(cats OR dogs','from:Bob OR from:Carol','-"iced latte"']){
+    assert.equal(C.parseQuery(query).invalid,true,query);
+    assert.equal(index.search(room,query).length,0,query);assert.equal((await store.search(owner,{query})).total,0,query);
+  }
+});

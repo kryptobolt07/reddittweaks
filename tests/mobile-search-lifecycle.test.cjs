@@ -50,7 +50,7 @@ test('route-local follow-up discovers a replacement sidebar shadow root on the n
   const nav=p.w.document.createElement('rs-rooms-nav');p.parent.prepend(nav);
   p.w.requestAnimationFrame(()=>{nav.attachShadow({mode:'open'}).innerHTML='<div class="nav-head">Chats</div><rs-virtual-scroll></rs-virtual-scroll>';});
   await p.paint();await p.paint();assert.equal(c.container,nav);assert.equal(c.host.hidden,false);assert.equal(c.panel.hidden,false);assert.equal(c.suspended,false);
-  assert.equal(p.instances.length,1);assert.equal(c.scope,'messages');assert.equal(c.input.value.trim(),'coffee');
+  assert.equal(p.instances.length,1);assert.equal(c.scope,'messages');assert.equal(c.input.value.trim(),'coffee from:me');
 });
 test('retained mobile search is discarded on account change',async t=>{
   const p=await setup(t,{detach:true}),old=p.control;old.shadow.querySelector('.message-open').click();await wait(180);assert.equal(old.suspended,true);

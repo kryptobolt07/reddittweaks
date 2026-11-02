@@ -29,7 +29,8 @@ async function setup(t,{large=false,deferSearch=false,scope='all',nativeFonts=fa
   const find=selector=>{const value=control.shadow.querySelector(selector);assert.ok(value,'Missing '+selector);return value;};
   const click=async selector=>{if(!control.shadow.querySelector(selector)){const value=selector.match(/^\[data-value="([^"]+)"\]$/)?.[1],section=['direct','groups'].includes(value)?'chatType':['unread','requests','unavailable'].includes(value)?'status':['newest','oldest','relevant','alphabetical'].includes(value)?'sort':null;if(section)control.popover.querySelector('[data-value="'+section+'"]')?.click();}find(selector).click();await settle();};
   const type=query=>{control.input.value=query;control.input.dispatchEvent(new w.Event('input',{bubbles:true}));};
-  const search=async query=>{control.queryState.clear();type(query);await tick(180);};
+  // Search scenarios that assert applied chips explicitly commit simple fields.
+  const search=async query=>{control.queryState.clear();type(query);if(control.queryState.ingestDraft(query,{commit:true})!==query){control.closeSuggestions();await key('Enter');}await tick(180);};
   const key=async(name,target=control.input)=>{target.dispatchEvent(new w.KeyboardEvent('keydown',{key:name,bubbles:true,cancelable:true,composed:true}));await settle();};
   return {w,control,fixture,cache,store,storage,requests,searches,pending,find,click,type,search,tick,key,emit:value=>listeners.forEach(listener=>listener(value)),setOwner:value=>{owner=value;},setOffline:()=>{loadError=true;}};
 }
@@ -831,7 +832,7 @@ test('People hides dormant message/date tags and Add sender while keeping those 
 });
 test('global filter categories open separate option views and Escape returns focus to their main row',async t=>{
   const p=await setup(t,{scope:'all'}),c=p.control;await p.search('coffee');await p.click('[data-control="filter"]');
-  assert.deepEqual([...c.popover.querySelectorAll('.operator-option')].map(el=>el.dataset.value),['from:','contains','chatType','status','sort']);assert.equal(c.popover.querySelector('[role="menuitemradio"]'),null);
+  assert.deepEqual([...c.popover.querySelectorAll('.operator-option')].map(el=>el.dataset.value),['from:','contains','chatType','status','sort','tips']);assert.equal(c.popover.querySelector('[role="menuitemradio"]'),null);
   for(const section of ['contains','chatType','status','sort']){
     await p.click('[data-value="'+section+'"]');assert.equal(c.filterSection,section);assert.ok(c.popover.querySelector('[role="menuitemradio"]'));assert.equal(c.popover.querySelector('[data-value="contains"]'),null);
     const option=c.popover.querySelector('[role="menuitemradio"]');option.focus();await p.key('Escape',option);assert.equal(c.popover.hidden,false);assert.equal(c.filterSection,'');assert.equal(c.shadow.activeElement.dataset.value,section);assert.equal(c.input.value,'coffee');
@@ -894,4 +895,41 @@ test('the phone layout makes the search bar 40 px high with Reddit side padding,
   assert.match(phone[1],/\.field \{ height:40px;min-height:40px;padding:0 12px/);assert.match(phone[1],/\.bar\.unified-search \{ padding-inline:12px/);
   assert.match(phone[1],/:not\(\[data-rcs-compact\]\)/,'floating chat is excluded from the phone rules');
   assert.match(css,/clamp\(28px,calc\(var\(--rcs-native-header-height,52px\) - 12px\),40px\)/,'the desktop rule is untouched');
+});
+
+test('Boolean chat expressions preserve field positions, results, inline errors and positive highlights',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;
+  const samples=[['both','cats dogs'],['cat','cats birds'],['dog','dogs'],['iced','coffee iced latte'],['hot','coffee latte']];
+  await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'boolean-room',events:samples.map(([id,body],i)=>({event_id:'boolean-'+id,type:'m.room.message',sender:'@t2_boolean:reddit.com',origin_server_ts:1791432000000+i,content:{body}})),identities:[{id:'@t2_boolean:reddit.com',name:'BooleanUser'}]});
+  for(const [query,expected]of [['cats AND dogs',['both']],['(cats OR dogs) NOT birds',['both','dog']],['((cats AND dogs) OR dogs) NOT birds',['both','dog']],['coffee -"iced latte"',['hot']],['(from:BooleanUser OR from:me) AND cats',['both','cat']],['cats NOT has:image',['both','cat']]]){
+    p.type(query);await p.tick(180);
+    assert.equal(c.input.value,query);assert.equal(c.queryState.filters.length,0);
+    assert.deepEqual(Array.from(c.savedHits.filter(record=>record.id.startsWith('boolean-')),record=>record.id).sort(),expected.map(id=>'boolean-'+id).sort(),query);
+    assert.equal(c.input.getAttribute('aria-invalid'),'false');
+  }
+  p.type('(cats OR dogs) NOT birds');await p.tick(180);
+  const highlights=[...c.results.querySelectorAll('mark')].map(mark=>mark.textContent.toLowerCase());
+  assert.ok(highlights.includes('cats') && highlights.includes('dogs'));assert.ok(highlights.every(term=>term==='cats' || term==='dogs'));
+  const before=p.searches.length,jumps=p.requests.filter(item=>item.method==='jump').length;
+  for(const query of ['cats AND','(cats OR dogs','cats OR NOT','-"iced latte"','from:alice OR from:bob']){
+    p.type(query);await p.tick(180);
+    assert.equal(c.status.textContent,p.w.RCSGlobalSearchModel.queryFeedback(p.w.RCSCore.parseQuery(c.queryValue())));
+    assert.equal(c.input.getAttribute('aria-invalid'),'true');assert.equal(c.results.querySelector('.message-result'),null);
+    await p.key('Enter');assert.equal(p.requests.filter(item=>item.method==='jump').length,jumps);
+  }
+  assert.equal(p.searches.length,before,'invalid queries never reach saved storage');
+});
+
+test('syntax suggestions and Search tips share menu rows and keyboard navigation',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;
+  p.type('cats ');await p.tick(180);
+  assert.deepEqual(Array.from(c.suggestionOptions,option=>option.token),['from:','has:','before:','after:','AND','OR','NOT','( )','"phrase"','-exclude']);
+  assert.equal(p.searches.at(-1).query,'cats','a discoverability popover does not block valid search');
+  for(const row of c.suggestions.querySelectorAll('[role=option]'))assert.ok(row.classList.contains('menu-option') && row.querySelector('.operator-label').textContent);
+  p.type('cats O');await p.key('ArrowDown');assert.equal(c.suggestions.querySelector('[aria-selected=true] code').textContent,'OR');await p.key('Enter');assert.equal(c.input.value,'cats OR ');assert.equal(c.suggestions.hidden,true);
+  p.type('cats ');const group=c.suggestionOptions.findIndex(option=>option.token==='( )');c.acceptSuggestion(group);assert.equal(c.input.value,'cats (');
+  await p.click('[data-control="filter"]');await p.click('[data-value="tips"]');
+  assert.equal(c.popover.getAttribute('aria-label'),'Search tips');assert.equal(c.popover.querySelectorAll('.search-tip.menu-option').length,10);
+  assert.match(c.popover.textContent,/cats AND dogs/);assert.match(c.popover.textContent,/\(from:alice OR from:bob\)/);
+  await p.key('Escape',c.shadow.activeElement);assert.equal(c.filterSection,'');assert.equal(c.shadow.activeElement.dataset.value,'tips');
 });

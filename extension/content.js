@@ -174,10 +174,11 @@
     button.addEventListener('click', handler);
     return button;
   }
-  // Chat-list search keeps its substring matching; OR and -word queries use the shared grammar.
+  // People use the same expression and phrase semantics with substring completion.
   function listMatch(text, query) {
     const parsed = C.parseQuery(query);
-    return parsed.hasOperators ? !parsed.invalid && C.matchesText(parsed, text, {shortTermsWholeWord:false}) : C.matches(text, query);
+    const hasField=node=>node.type==='field' || node.type==='not' && hasField(node.child) || (node.children || []).some(hasField);
+    return !parsed.invalid && !hasField(parsed.expr) && C.matchesText(parsed,text,{shortTermsWholeWord:false});
   }
   function highlight(text, query, options={}) {
     const fragment = document.createDocumentFragment();
@@ -374,7 +375,7 @@
       else if(this.kind==='messages' && !this.bar.hidden && (!value.roomIds || value.roomIds.includes(this.room)))this.queueRoomRead();
     }
     querySaved(more=false,background=false,retryWrites=false){
-      if(this.contextInvalidated || !this.isGlobal || more && (this.savedLoading || !this.savedHasMore))return;
+      if(this.contextInvalidated || !this.isGlobal || C.parseQuery(this.queryValue()).invalid || more && (this.savedLoading || !this.savedHasMore))return;
       const key=JSON.stringify([this.input.value.trim(),this.dates]);
       if(!more && key===this.savedKey)return;
       clearTimeout(this.savedTimer);
@@ -383,6 +384,7 @@
       const offset=more ? this.savedHits.length : 0;this.savedLoading=true;this.notice='';this.render();
       this.savedTimer=setTimeout(async()=>{
         if(generation!==this.savedGeneration || !this.isGlobal || !this.host.isConnected || !globalThis.document)return;
+        if(C.parseQuery(this.queryValue()).invalid){this.savedLoading=false;this.render();return;}
         try{
           if(!globalThis.RCSMessages)throw Error('Saved message storage is unavailable.');
           const result=await RCSMessages.search({query:this.input.value.trim(),dates:{...this.dates},limit:200,offset,...(retryWrites?{retryWrites:true}:{})});
@@ -489,7 +491,8 @@
         this.host.style.setProperty('--rcs-list-height',`${available > 50 ? available : 320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-room-results-height',`${available>0?Math.max(0,available):320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
       if(this.meta)this.meta.hidden=false;
-      this.hits = this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => listMatch([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? entry.accountState==='banned' ? 'banned suspended unavailable account' : 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
+      const parsed=C.parseQuery(query),queryFeedback=globalThis.RCSGlobalSearchModel?.queryFeedback?.(parsed) || parsed.errors.join(' · ');
+      this.hits = parsed.invalid ? [] : this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => listMatch([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? entry.accountState==='banned' ? 'banned suspended unavailable account' : 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
         const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
         if(this.queryOptions?.sort==='oldest')return -newest;
         if(this.queryOptions?.sort==='relevant'){const score=record=>C.relevanceScore(record.text,query,{wholeWord:this.queryOptions?.wholeWord});return score(b)-score(a) || newest;}
@@ -508,11 +511,13 @@
       if(this.tools?.renderValueChoices?.())return;
       this.status.textContent = this.kind==='list' && globalThis.RCSDirectory?.getStartup?.().pending ? 'Restoring saved usernames…' : this.loading ? this.progress || (this.kind === 'list' ? 'Searching all conversations…' : 'Searching all messages…') : this.notice || `${this.hits.length} ${this.kind === 'list' ? 'conversation' : 'message'}${this.hits.length === 1 ? '' : 's'}${this.complete ? '' : ' · still connecting'}`;
       if(this.kind==='list' && this.loading && !this.refreshing && globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete)this.status.textContent=`${this.hits.length} saved conversations · ${this.progress.startsWith('Waiting') ? this.progress.replace(/\s*\(\d+\)$/,'') : this.progress.includes('dates') ? 'Updating dates…' : 'Checking updates…'}`;
-      if(this.kind==='messages'){this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : C.parseQuery(query).errors[0] || this.notice || `${this.hits.length} result${this.hits.length===1?'':'s'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;this.coverage.hidden=this.complete;this.coverage.textContent='Saved messages only · History may be incomplete';}
-      if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : this.notice || (!this.savedStats && this.savedLoading ? 'Searching saved messages…' : `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedSavingError ? ' · Saving paused' : this.savedImporting ? ' · Saving cached messages…' : this.savedLoading ? ' · Searching…' : ''}`);
+      if(this.kind==='messages'){this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : queryFeedback || this.notice || `${this.hits.length} result${this.hits.length===1?'':'s'}${this.loading ? ` · ${this.progress || 'Searching older messages…'}` : ''}`;this.coverage.hidden=this.complete;this.coverage.textContent='Saved messages only · History may be incomplete';}
+      if(this.isGlobal)this.status.textContent=bounds.invalid ? 'Choose an end date on or after the start date.' : queryFeedback || this.notice || (!this.savedStats && this.savedLoading ? 'Searching saved messages…' : `${this.savedTotal} matches · ${this.savedStats?.rooms || 0} saved chats${this.savedSavingError ? ' · Saving paused' : this.savedImporting ? ' · Saving cached messages…' : this.savedLoading ? ' · Searching…' : ''}`);
+      if(this.kind==='list' && parsed.invalid)this.status.textContent=queryFeedback;
+      this.input.setAttribute('aria-invalid',String(parsed.invalid));
       if(this.isGlobal)this.updateLoad();
       this.status.title=this.savedSavingError ? `${this.status.textContent} · ${this.savedSavingError}` : this.status.textContent;
-      if(this.kind==='messages' && !this.hits.length && (this.loading || this.preparingSearch) && globalThis.RCSUnifiedSearch?.createLoadingSkeleton){this.status.textContent='Searching messages…';this.showLoadingResults();return;}this.loadingSkeleton?.remove();this.results.setAttribute('aria-busy','false');
+      if(!parsed.invalid && this.kind==='messages' && !this.hits.length && (this.loading || this.preparingSearch) && globalThis.RCSUnifiedSearch?.createLoadingSkeleton){this.status.textContent='Searching messages…';this.showLoadingResults();return;}this.loadingSkeleton?.remove();this.results.setAttribute('aria-busy','false');
       this.renderResults(query,bounds,true);
     }
     renderResults(query=this.queryValue().trim(),bounds=C.dateBounds(this.dates || {}),rebuild=false,remeasure=false){
@@ -676,7 +681,7 @@
     }
     async ensureData(force=false,reconcile=false) {
       if(this.inputPending)return;
-      if(this.tools?.suggestions?.hidden===false || this.tools?.valuePicker?.() || C.parseQuery(this.queryValue()).invalid)return;
+      if(this.tools?.suggestions?.hidden===false && !this.tools.suggestionsAtBoundary || this.tools?.valuePicker?.() || C.parseQuery(this.queryValue()).invalid)return;
       if(this.isGlobal){if(force)this.savedKey='';this.querySaved(false,force,force);return;}
       if(this.kind==='messages'){const generation=this.savedGeneration;this.preparingSearch=(this.preparingSearch || 0)+1;this.updateLoad();try{await this.readSavedRoom();}finally{this.preparingSearch=Math.max(0,this.preparingSearch-1);this.updateLoad();}if(generation!==this.savedGeneration || !this.host.isConnected || !globalThis.document)return;}
       const dateKey=JSON.stringify(this.dates || {});
