@@ -173,7 +173,7 @@
       return {id:record.id,roomId:row.roomId,text,sender:record.sender,timestamp:numericTime?(record.time || NaN):record.time?new Date(record.time).toISOString():'',attachmentType:ledger.get(record.bodyEvent)?.attachmentType || '',attachmentMime:ledger.get(record.bodyEvent)?.attachmentMime || '',attachmentPreview:ledger.get(record.bodyEvent)?.attachmentPreview || '',...(ledger.get(record.bodyEvent)?.attachmentWidth?{attachmentWidth:ledger.get(record.bodyEvent).attachmentWidth,attachmentHeight:ledger.get(record.bodyEvent).attachmentHeight}:{}),author:self?'You':person.name || record.sender,authorSelf:self,authorHistorical:Boolean(person.historical ?? person.historicalName),authorUnavailable:Boolean(person.unavailable ?? person.accountUnavailable),avatar:person.avatar || '',thread:record.thread,threadRoot:record.threadRoot};
     }
     searchSnapshot(owner,{rows,people,identityBytes},{query,roomId,roomIds,dates,from='all',wholeWord=false,sort='newest',grouped=false,limit,offset},directory) {
-      const parsed=RCSCore.parseQuery(query),match=RCSCore.prepareQuery(parsed,{from,wholeWord,dates,ignoreMedia:true}),wantedMedia=RCSCore.mediaQueryFlags(parsed),mediaEntries=Object.entries(RCSCore.mediaKinds),mediaCounts=Object.fromEntries(mediaEntries.map(([type])=>[type,0])),records=[],times=new Map(),identityCache=new Map(),allowed=roomIds?new Set(roomIds):null,mediaTypes=new Set();
+      const parsed=RCSCore.parseQuery(query),match=RCSCore.prepareQuery(parsed,{from,wholeWord,dates,ignoreMedia:true}),finalMatch=RCSCore.prepareQuery(parsed,{from,wholeWord,dates}),mediaEntries=Object.entries(RCSCore.mediaKinds),mediaCounts=Object.fromEntries(mediaEntries.map(([type])=>[type,0])),records=[],times=new Map(),identityCache=new Map(),allowed=roomIds?new Set(roomIds):null,mediaTypes=new Set();
       for(const row of rows){const ledger=new Map(row.events.map(event=>[event.id,event])),included=(!roomId || row.roomId===roomId) && (!allowed || allowed.has(row.roomId));for(const record of row.records){
         const bodyEvent=ledger.get(record.bodyEvent);
         // Discover supported cache types during the existing traversal, even
@@ -181,7 +181,10 @@
         if(bodyEvent?.body){if(bodyEvent.attachmentType)mediaTypes.add(bodyEvent.attachmentType);if(bodyEvent.attachmentType==='image' && bodyEvent.attachmentMime==='image/gif')mediaTypes.add('gif');if(/\b(?:https?:\/\/|www\.)\S+/i.test(bodyEvent.body))mediaTypes.add('link');}
         if(!included)continue;
         const message=this.materialize(owner,row,record,ledger,people,directory,identityCache,true);
-        if(message.text && match(message)){const flags=RCSCore.mediaFlags(message);for(const [type,flag]of mediaEntries)if(flags & flag)mediaCounts[type]++;if((flags & wantedMedia)===wantedMedia){times.set(message,record.time || 0);records.push(message);}}
+        if(message.text && match(message)){const flags=RCSCore.mediaFlags(message);for(const [type,flag]of mediaEntries)if(flags & flag)mediaCounts[type]++;
+          // The media-count predicate is only a superset; OR/NOT fields must
+          // be evaluated in the full expression before pagination or totals.
+          if(finalMatch(message)){times.set(message,record.time || 0);records.push(message);}}
       }}
       const relevance=message=>RCSCore.relevanceScore(message.text,parsed,{wholeWord});
       const scores=sort==='relevant'?new Map(records.map(record=>[record,relevance(record)])):null;

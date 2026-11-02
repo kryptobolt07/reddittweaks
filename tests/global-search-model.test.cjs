@@ -7,7 +7,7 @@ const plain=value=>JSON.parse(JSON.stringify(value));
 test('applied senders survive editable draft changes and deduplicate normalized identities',()=>{
   const {RCSGlobalSearchModel:{QueryState},RCSCore:C}=environment(),state=new QueryState();
   assert.equal(state.ingestDraft('from:bo'),'from:bo');assert.equal(state.filters.length,0);
-  assert.equal(state.ingestDraft('from:Bob '),' ');
+  assert.equal(state.ingestDraft('from:Bob ',{commit:true}),' ');
   assert.equal(state.ingestDraft('from:Carol',{commit:true}),'');
   state.apply('from','u/bob');assert.equal(state.filters.length,2);
   assert.equal(state.ingestDraft('new phrase'),'new phrase');
@@ -22,17 +22,17 @@ test('applied senders survive editable draft changes and deduplicate normalized 
 test('lifting completed tokens preserves draft phrases and every surrounding whitespace character',()=>{
   const {RCSGlobalSearchModel:{QueryState}}=environment(),state=new QueryState();
   const draft='  "from:Bob has:image"\tfrom:"Bob Builder"\nhello  has:image\tworld ';
-  assert.equal(state.ingestDraft(draft),'  "from:Bob has:image"\t\nhello  \tworld ');
+  assert.equal(state.ingestDraft(draft,{commit:true}),'  "from:Bob has:image"\t\nhello  \tworld ');
   assert.deepEqual(plain(state.filters.map(item=>item.token)),['from:"Bob Builder"','has:image']);
   const incomplete='from:"Bob Builder';assert.equal(state.ingestDraft(incomplete,{commit:true}),incomplete);
   const invalid='has:pdf from: from:Bob:Builder from:foo"bar" ';
   assert.equal(state.ingestDraft(invalid,{commit:true}),invalid);
 });
 
-test('recognized media values commit at token end and only one media type remains applied',()=>{
+test('Enter commits recognized media values and only one media type remains applied',()=>{
   const {RCSGlobalSearchModel:{QueryState,mediaTypes}}=environment(),state=new QueryState();
   assert.equal(state.ingestDraft('has:vid'),'has:vid');
-  for(const type of mediaTypes){assert.equal(state.ingestDraft('has:'+type),'');assert.equal(state.filters.length,1);assert.equal(state.filters[0].value,type);}
+  for(const type of mediaTypes){state.clear();assert.equal(state.ingestDraft('has:'+type,{commit:true}),'');assert.equal(state.filters.length,1);assert.equal(state.filters[0].value,type);}
   state.apply('from','Bob');state.apply('has','image');
   assert.deepEqual(plain(state.filters.map(item=>item.key)),['from:bob','has:image']);
   assert.equal(state.apply('has','pdf'),null);assert.equal(state.apply('from',''),null);
@@ -40,11 +40,11 @@ test('recognized media values commit at token end and only one media type remain
 });
 test('date operators become removable validated filters without changing matching boundaries',()=>{
   const {RCSGlobalSearchModel:{QueryState},RCSCore:C}=environment(),state=new QueryState();
-  assert.equal(state.ingestDraft('coffee after:2026-10-01 before:2026-11-01'),'coffee  ');
+  assert.equal(state.ingestDraft('coffee after:2026-10-01 before:2026-11-01',{commit:true}),'coffee  ');
   assert.deepEqual(plain(state.filters.map(item=>item.kind)),['after','before']);
   assert.equal(C.matchesQuery({text:'coffee',timestamp:'2026-10-01T12:00:00'},state.query('coffee')),true);
   assert.equal(C.matchesQuery({text:'coffee',timestamp:'2026-11-01T12:00:00'},state.query('coffee')),false);
-  assert.equal(state.ingestDraft('before:2026-10-15'),'');assert.equal(state.filters.length,3);
+  assert.equal(state.ingestDraft('before:2026-10-15',{commit:true}),'');assert.equal(state.filters.length,3);
   assert.equal(C.matchesQuery({text:'coffee',timestamp:'2026-10-20T12:00:00'},state.query('coffee')),false);
   assert.equal(state.ingestDraft('before:2026-02-30 '),'before:2026-02-30 ');
   assert.equal(state.ingestDraft('"before:2026-10-01"'),'"before:2026-10-01"');
@@ -133,4 +133,36 @@ test('alphabetical and unread-first chat sorts retain chronology as a tie breake
   assert.deepEqual(ids('newest'),['group-read','group-unread','direct-request','direct-unread','group-request','unavailable']);
   assert.deepEqual(ids('oldest'),['unavailable','group-request','direct-unread','direct-request','group-unread','group-read']);
   assert.deepEqual(ids((a,b)=>a.id.localeCompare(b.id)),[...records].sort((a,b)=>a.id.localeCompare(b.id)).map(record=>record.id));
+});
+
+test('typed fields keep their exact Boolean position until an explicit simple-query commit',()=>{
+  const {RCSGlobalSearchModel:{QueryState},RCSCore:C}=environment(),state=new QueryState();
+  for(const draft of ['from:Alice ','from:Alice OR ','(from:Alice OR from:Bob) NOT has:image','cats AND (dogs OR (birds NOT fish))','cats -"iced latte" from:Alice']){
+    assert.equal(state.ingestDraft(draft),draft);
+    assert.equal(state.filters.length,0);
+  }
+  for(const draft of ['(from:Alice OR from:Bob) NOT has:image','cats AND has:image','cats -has:image','has:image has:gif']){
+    assert.equal(state.ingestDraft(draft,{commit:true}),draft);
+    assert.equal(state.filters.length,0);
+  }
+  state.apply('from','Alice');state.apply('from','Bob');state.apply('has','link');
+  const query=state.query('(cats OR dogs) NOT birds');
+  assert.equal(C.parseQuery(query).invalid,false);
+  for(const [author,text,expected]of [['Alice','cats https://example.test',true],['Bob','dogs https://example.test',true],['Carol','dogs https://example.test',false],['Alice','cats birds https://example.test',false],['Bob','dogs',false]]){
+    assert.equal(C.matchesQuery({author,text},query),expected,author+' / '+text);
+  }
+});
+
+test('People evaluates nested Boolean names and phrases and rejects message fields even when negated',()=>{
+  const {RCSGlobalSearchModel:{matchPeople,chatFilterCounts}}=environment();
+  const records=[{id:'both',name:'Cats Dogs'},{id:'cat',name:'Cats Birds'},{id:'dog',name:'Dogs Fish'},{id:'phrase',name:'Iced Latte Club'},{id:'reverse',name:'Latte Iced Club'}];
+  const ids=query=>plain(matchPeople(records,query).map(record=>record.id).sort());
+  assert.deepEqual(ids('cats AND dogs'),['both']);
+  assert.deepEqual(ids('(cats OR dogs) NOT birds'),['both','dog']);
+  assert.deepEqual(ids('((cats AND dogs) OR fish) NOT birds'),['both','dog']);
+  assert.deepEqual(ids('club -"iced latte"'),['reverse']);
+  assert.deepEqual(ids('"iced latte"'),['phrase']);
+  for(const query of ['NOT from:Alice','NOT has:image','(cats OR has:image)','cats AND','(cats OR dogs']){
+    assert.deepEqual(ids(query),[],query);assert.equal(chatFilterCounts(records,query).types.all,0,query);
+  }
 });
