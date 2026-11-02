@@ -261,3 +261,17 @@ test('archive comment searches can enrich thread titles without changing normal 
  const plain=await e.send(request,{tab:{id:1}});assert.equal(plain.ok,true,JSON.stringify(plain));assert.equal(e.calls.length,1);
  const enriched=await e.send({...request,titles:true},{tab:{id:1}});assert.equal(enriched.ok,true);assert.equal(enriched.posts[0].title,'Synthetic parent title');assert.equal(e.calls.filter(([url])=>new URL(url).pathname.endsWith('/posts/ids')).length,1);
 });
+
+test('archived thread pages are bounded to the open post, retain parents and reject unrelated comments',async()=>{
+ const e=env({fetcher:async()=>response([row({id:'c1',body:'Reply',link_id:'t3_abc12',parent_id:'t1_parent',subreddit:'example'}),row({id:'other',body:'Foreign',link_id:'t3_other',subreddit:'example'})])}),sender={url:'https://www.reddit.com/r/example/comments/abc12/title/',tab:{id:1}};
+ const request={action:'archive-thread-comments',postId:'abc12'};
+ assert.equal((await e.send({...request,postId:'other'},sender)).code,'forbidden');assert.equal(e.calls.length,0);
+ const r=await e.send(request,sender);assert.equal(r.ok,true);assert.equal(r.posts.length,1);assert.equal(r.posts[0].parentId,'t1_parent');assert.equal(r.incomplete,true);
+ const [url,options]=e.calls[0];assert.equal(new URL(url).searchParams.get('link_id'),'abc12');assert.equal(new URL(url).searchParams.get('limit'),'100');assert.equal(options.credentials,'omit');
+ for(const bad of [{before:'soon'},{before:-1},{focusId:'bad id'}])assert.equal((await e.send({...request,...bad},sender)).code,'invalid-request');
+});
+test('thread comment pagination detects stalled cursors and focused IDs remain scoped to the open post',async()=>{
+ const e=env({fetcher:async url=>new URL(url).pathname.endsWith('/comments/ids')?response([row({id:'focus',body:'Focused',link_id:'t3_foreign',subreddit:'example'})]):response(Array.from({length:100},(_,i)=>row({id:(1000+i).toString(36),body:'Reply',link_id:'t3_abc12',created_utc:1700000000,subreddit:'example'})))}),sender={url:'https://www.reddit.com/r/example/comments/abc12/title/',tab:{id:1}};
+ const r=await e.send({action:'archive-thread-comments',postId:'abc12',before:1700000001,focusId:'focus'},sender);assert.equal(r.ok,true);assert.equal(r.hasMore,true);assert.equal(r.cursorStalled,true);assert.equal(r.posts.some(p=>p.id==='focus'),false);
+ e.setSettings({postDiscovery:true,archiveDiscovery:false});assert.equal((await e.send({action:'archive-thread-comments',postId:'abc12'},sender)).code,'disabled');
+});
