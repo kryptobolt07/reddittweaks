@@ -234,14 +234,15 @@ test('Feed options popover: icon-less Date rows, sectioned multi-select Post typ
   assert.equal(doc.querySelector('[data-rt-filter-clear]').textContent,'Clear filters');assert.equal(menu.querySelector('[data-rt-sub-panel]'),null);
 });
 
-test('grouped Boolean text is serialized for Arctic Shift and evaluated during its local fallback',async()=>{
+test('grouped Boolean text sends a keyword superset to Arctic Shift posts and is evaluated locally',async()=>{
   const wire=[],rows=[post('a1',1500000000,{title:'cats quiet place'}),post('a2',1400000000,{title:'dogs quiet place'}),post('a3',1300000000,{title:'cats quiet place spam'}),post('a4',1200000000,{title:'cats elsewhere'})];
   const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',send:async message=>{
     wire.push(message);if(message.query)return {ok:false,code:'text-search-unavailable'};
     return {ok:true,posts:rows,hasMore:false};
   }});await tick();
   await search(ctx,'(cats OR dogs) AND "quiet place" NOT spam');
-  assert.equal(wire.find(message=>message.query).query,'cats "quiet place" -spam OR dogs "quiet place" -spam');
+  // Arctic Shift post search is keyword-only: send the AND-only superset, filter the rest locally.
+  assert.equal(wire.find(message=>message.query).query,'"quiet place"');
   assert.deepEqual([...ctx.doc.querySelectorAll('shreddit-post')].map(el=>el.id),['t3_a1','t3_a2']);
   assert.match(ctx.doc.querySelector('.rt-sra-searched').textContent,/Matched by scanning archived pages.*Matches filtered locally.*Results may be incomplete/);
 });
