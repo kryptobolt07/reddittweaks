@@ -60,6 +60,7 @@ html[data-rt-profile-discovery] shreddit-feed faceplate-partial[slot="load-after
 [data-rt-ui="profile-navigation"][data-state="idle"] flex-left-nav-container,[data-rt-ui="profile-navigation"][data-state="loading"] flex-left-nav-container{visibility:hidden}
 
 .rt-activity-icon[data-native-icon]{fill:currentColor;stroke:none}
+.rt-activity-icon[data-icon="new"]{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round}
 .rt-posts-toolbar [data-icon="refresh"]{width:16px;height:16px;stroke-width:1.8}
 [data-rt-ui="activity-empty"][hidden]{display:none!important}
 

@@ -242,3 +242,28 @@ test('structural filter suppression fails closed for incomplete rows and extensi
   const html=page.replace('</main>',structuralFilters.replace('All time','Unrelated')+'<div data-rt-ui="fixture">'+structuralFilters.replace('filter-row','own-row')+'</div></main>');
   const s=await boot(t,{html});assert.equal(s.D.getElementById('filter-row').hidden,false);assert.equal(s.D.getElementById('own-row').hidden,false);
 });
+
+test('search Feed options shares the full profile icon matrix and restores native rows',async t=>{
+  const s=await boot(t),{W,d}=s;
+  const assertIcon=(row,name)=>{
+    assert.ok(row,name+' row exists');const icon=row.querySelector('.rt-menu-lead');assert.ok(icon,name+' has a leading icon');
+    assert.equal(icon.getAttribute('icon-name'),name);assert.equal(icon.getAttribute('width'),'16');assert.equal(icon.getAttribute('height'),'16');assert.equal(icon.getAttribute('viewBox'),'0 0 20 20');
+    const shared=W.RTFeedFilters.svgIcon(name,16);if(shared)assert.deepEqual([...icon.querySelectorAll('path')].map(p=>p.getAttribute('d')),[...shared.querySelectorAll('path')].map(p=>p.getAttribute('d')));
+  };
+  assertIcon(d.menuGroups[0].row,'list-bulleted');assertIcon(d.menuGroups[1].row,'card');
+  for(const [key,name] of Object.entries({relevance:'search',new:'new',old:'archive',top:'top',comments:'comment',hot:'hot'}))assertIcon(d.rtMenu.searchSort.get(key),name);
+  for(const row of d.menuGroups[1].items)assertIcon(row,'classic');
+  for(const [key,name] of Object.entries({all:'show',hidden:'hidden',deleted:'deleted'}))assertIcon(d.activityMenu.querySelector('[data-rt-activity-filter="'+key+'"]'),name);
+  assertIcon(d.activityMenu.querySelector('[data-rt-ui="activity-refresh"]'),'refresh');
+  for(const [key,row] of d.rtMenu.date)assertIcon(row,key==='any'?'show':'calendar');
+  assert.ok(d.rtMenu.date.has('hour'),'incoming search-only Past hour also has the date icon');
+  assertIcon(d.rtMenu.all,'show');
+  for(const [key,name] of Object.entries({text:'text-post',textmedia:'collection',poll:'list-bulleted',image:'image',gif:'gif-post-outline',video:'video',gallery:'gallery',link:'link',embed:'browser',crosspost:'rotate'}))assertIcon(d.rtMenu.types.get(key),name);
+  const panel=d.rtMenu.sub.panel;panel.render({entries:[{key:'Alpha',count:1}],picked:['Alpha'],source:'loaded'});
+  assertIcon(panel.list.querySelector('[data-rt-sub-all]'),'show');assert.equal(panel.list.querySelector('[data-rt-sub-all]').getAttribute('aria-checked'),'false');
+  assert.equal(panel.list.querySelector('[data-rt-sub-row] svg').getAttribute('icon-name'),'community');
+  d.setFilters({...d.rtFilters,subreddits:['Alpha']});await flush();
+  d.rtMenu.sub.list.querySelector('[data-rt-sub-all]').click();await flush();assert.deepEqual([...d.rtFilters.subreddits],[]);assert.equal(d.rtMenu.sub.list.querySelector('[data-rt-sub-all]').getAttribute('aria-checked'),'true');
+  const native=d.menuGroups.flatMap(group=>group.items);assert.ok(d.menuGroups[0].items.every(row=>row.hidden));d.clearActivityMenu();
+  assert.ok(native.every(row=>row.parentElement.matches('.main-menu-container') && !row.hidden));assert.ok(native.every(row=>!row.querySelector('.rt-menu-lead')));
+});
