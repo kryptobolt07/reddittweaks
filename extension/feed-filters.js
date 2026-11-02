@@ -32,6 +32,8 @@
     'arrow-back':"M17.5 9.1H4.679l5.487-5.462a.898.898 0 00.003-1.272.898.898 0 00-1.272-.003l-7.032 7a.898.898 0 000 1.275l7.03 7a.896.896 0 001.273-.003.898.898 0 00-.002-1.272l-5.487-5.462h12.82a.9.9 0 000-1.8Z",
     'activity':"M10 1c-.5 0-.9.4-.9.9v.17C5.11 2.52 2 5.9 2 10c0 4.41 3.59 8 8 8 4.11 0 7.48-3.11 7.93-7.1h.17c.5 0 .9-.4.9-.9 0-4.96-4.04-9-9-9Zm.9 1.86c3.25.41 5.84 2.99 6.24 6.24H10.9V2.86ZM10 16.2c-3.42 0-6.2-2.78-6.2-6.2 0-3.11 2.31-5.69 5.3-6.12V10c0 .5.4.9.9.9h6.12c-.44 2.99-3.01 5.3-6.12 5.3Z",
     // Reddit's outline glyphs; community uses its captured ring and r/ geometry.
+    // Sort: a down arrow beside lines of decreasing length, drawn as a stroke at Reddit's outline weight.
+    'sort':"M5 3.5v13M2.2 13.7 5 16.5l2.8-2.8M10.5 4.5h7.3M10.5 9h5.3M10.5 13.5h3.3",
     // The captured New silhouette is filled: stroke its boundary for an outline sparkle.
     'new':"M10 1.5c.4 0 .75.27.86.66l1.1 3.88a2.7 2.7 0 001.86 1.86l3.88 1.1a.9.9 0 010 1.72l-3.88 1.1a2.7 2.7 0 00-1.86 1.86l-1.1 3.88a.9.9 0 01-1.72 0l-1.1-3.88a2.7 2.7 0 00-1.86-1.86l-3.88-1.1a.9.9 0 010-1.72l3.88-1.1a2.7 2.7 0 001.86-1.86l1.1-3.88A.9.9 0 0110 1.5Z",
     'best':["M15.22 8.6c-.6-3.51-2.68-6.21-4.76-7.47a.912.912 0 00-.93 0C7.59 2.3 5.37 4.89 4.76 8.61c-2.77 2.65-4.02 4.46-3.57 7.32.17 1.08 1.14 1.9 2.27 1.9h3.18c.61.72 1.53 1.17 2.51 1.17h1.71c.98 0 1.9-.44 2.51-1.17h3.18c1.12 0 2.1-.82 2.27-1.9.45-2.87-.8-4.67-3.59-7.33h-.01ZM2.97 15.65c-.24-1.53.15-2.65 1.66-4.33.1 1.83.55 3.45 1.06 4.71H3.46c-.24 0-.45-.17-.49-.38Zm6.18 1.55c-.57 0-1.09-.32-1.33-.81-.64-1.31-1.41-3.37-1.41-5.78 0-3.71 1.84-6.34 3.6-7.63 1.81 1.35 3.6 4.16 3.6 7.63 0 2.41-.77 4.47-1.41 5.78-.24.49-.77.81-1.33.81H9.15Zm7.88-1.55c-.03.21-.25.38-.49.38h-2.23c.51-1.26.96-2.88 1.06-4.71 1.51 1.69 1.9 2.8 1.66 4.33Z","M10 8.35c-.91 0-1.65.74-1.65 1.65 0 .91.74 1.65 1.65 1.65.91 0 1.65-.74 1.65-1.65 0-.91-.74-1.65-1.65-1.65Z"],
@@ -54,7 +56,7 @@
     if(name==='gif'){const tag=document.createElement('span');tag.className='rt-gif-tag';tag.dataset.icon='gif';tag.setAttribute('aria-hidden','true');tag.textContent='GIF';return tag;}
     const paths=iconPaths[name];if(!paths)return null;
     const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('fill','currentColor');s.setAttribute('width',String(size));s.setAttribute('height',String(size));
-    if(name==='new'){s.setAttribute('fill','none');s.setAttribute('stroke','currentColor');s.setAttribute('stroke-width','1.8');s.setAttribute('stroke-linejoin','round');}
+    if(name==='new' || name==='sort'){s.setAttribute('fill','none');s.setAttribute('stroke','currentColor');s.setAttribute('stroke-width','1.8');s.setAttribute('stroke-linejoin','round');s.setAttribute('stroke-linecap','round');}
     s.setAttribute('icon-name',name);s.setAttribute('aria-hidden','true');s.dataset.icon=name;s.dataset.nativeIcon='true';s.classList.add('rt-activity-icon');
     for(const d of [].concat(paths)){const path=document.createElementNS(SVG,'path');path.setAttribute('d',d);if(name==='calendar' || name==='archive')path.setAttribute('fill-rule','evenodd');s.append(path);}
     return s;

@@ -603,7 +603,7 @@
           if(polished){
             group.rtIconRestores=[];
             for(const item of group.items){
-              const original=item.querySelector('svg[icon-name]:not([icon-name="checkmark"])'),name=original?.getAttribute('icon-name'),label=(item.getAttribute('aria-label') || item.textContent).trim().toLowerCase(),fallback=index===0?'list-bulleted':'classic';
+              const original=item.querySelector('svg[icon-name]:not([icon-name="checkmark"])'),name=original?.getAttribute('icon-name'),label=(item.getAttribute('aria-label') || item.textContent).trim().toLowerCase(),fallback=index===0?'sort':'classic';
               const icon=globalThis.RTFeedFilters?.svgIcon?.(nativeMenuIcons[label] || name?.replace(/-fill$/,'') || fallback,16);
               if(!icon)continue;icon.classList.add('rt-menu-lead');
               const tabIndex=item.getAttribute('tabindex');item.tabIndex=-1;group.rtIconRestores.push(()=>{if(tabIndex==null)item.removeAttribute('tabindex');else item.setAttribute('tabindex',tabIndex);});
@@ -611,7 +611,7 @@
               else{const nodes=[...item.childNodes],body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs rt-menu-caption');caption.append(icon,...nodes);body.append(caption);item.append(body);group.rtIconRestores.push(()=>item.replaceChildren(...nodes));}
             }
           }
-          const el=entry(label,polished?(index===0?'list-bulleted':'card'):'activity',sub);el.dataset.rtUi='menu-group';el.rtGroup={anchor,group};anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
+          const el=entry(label,polished?(index===0?'sort':'card'):'activity',sub);el.dataset.rtUi='menu-group';el.rtGroup={anchor,group};anchor.before(el);for(const item of group.items)sub.append(item);content.append(sub);
           if(index>0 && group.header){group.headerHidden=group.header.hidden;group.header.hidden=true;}
           this.menuGroups.push({...group,anchor,row:el,sub});this.activityMenuRows.push(el,sub);
         }
@@ -643,8 +643,8 @@
         // Reddit re-rendering its menu while ours was open (a filter just changed): come back to the same submenu.
         const resume=this.resumeSubmenu;this.resumeSubmenu=null;if(resume && Date.now()-resume.at<2000 && dropdown.hasAttribute('open')){const target=subs.find(el=>el.dataset.rtSubKey===resume.key);if(target)open(target);}
       }
-      // Current choice from Reddit's checkmarks; profile rows keep stable outline icons.
-      for(const group of this.menuGroups || []){const checked=group.items.find(item=>item.querySelector('svg[icon-name="checkmark"],[icon-name="checkmark"]') || item.getAttribute('aria-checked')==='true' || item.matches('[aria-current="true"],[aria-current="page"]'));const label=checked?.getAttribute('aria-label') || '';const value=group.row.querySelector('[data-rt-menu-value]');if(value.textContent!==label)value.textContent=label;const icon=checked?.querySelector('svg[icon-name]');const caption=group.row.firstElementChild.firstElementChild;if(this.isSearch() && icon && caption.firstElementChild?.getAttribute('icon-name')!==icon.getAttribute('icon-name')){const copy=icon.cloneNode(true);copy.removeAttribute('id');caption.firstElementChild.replaceWith(copy);}}
+      // Current choice from Reddit's checkmarks. Group rows keep their own stable icon on every page.
+      for(const group of this.menuGroups || []){const checked=group.items.find(item=>item.querySelector('svg[icon-name="checkmark"],[icon-name="checkmark"]') || item.getAttribute('aria-checked')==='true' || item.matches('[aria-current="true"],[aria-current="page"]'));const label=checked?.getAttribute('aria-label') || '';const value=group.row.querySelector('[data-rt-menu-value]');if(value.textContent!==label)value.textContent=label;}
       if(this.searchResumeMenu && this.isSearch()){
         const saved=this.searchResumeMenu,sub=[...this.activityDropdown.querySelectorAll('[data-rt-sub-key]')].find(el=>el.dataset.rtSubKey===saved.key);this.searchResumeMenu=null;
         if(sub){this.searchRestoringMenu=!this.activityDropdown.hasAttribute('open');this.activityDropdown.setAttribute('open','');this.activityMain.classList.remove('hidden');this.openFeedSubmenu(sub);if(saved.height)sub.style.setProperty('--rt-menu-height',saved.height);}

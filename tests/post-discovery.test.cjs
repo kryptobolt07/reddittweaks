@@ -1648,10 +1648,10 @@ test('profile menu uses one shared width, pinned headers and 16px outline glyphs
   assert.equal((menuCss.match(/\n\.rt-sub-back\{/g)||[]).length,1,'one base rule for the back button');
   assert.equal(menuCss.includes('.rt-filter-search-box'),false,'unused search wrapper rule removed');
   const rows=[...d.activityMain.children].filter(el=>el.matches('rpl-menu-item'));
-  assert.deepEqual(rows.map(el=>m.icon(el)),['list-bulleted','card','activity','calendar','text-post','community']);
+  assert.deepEqual(rows.map(el=>m.icon(el)),['sort','card','activity','calendar','text-post','community']);
   for(const row of rows){const icon=row.querySelector('.rt-menu-lead');assert.ok(icon);assert.equal(icon.getAttribute('width'),'16');}
   const nativeIcon=W.document.createElementNS('http://www.w3.org/2000/svg','svg');nativeIcon.setAttribute('icon-name','new-fill');d.menuGroups[0].items[0].append(nativeIcon);
-  d.ensureActivityMenu();assert.equal(m.icon(rows[0]),'list-bulleted','native selected glyph never replaces the outline Sort icon');
+  d.ensureActivityMenu();assert.equal(m.icon(rows[0]),'sort','native selected glyph never replaces the outline Sort icon');
   d.activityMain.getBoundingClientRect=()=>({height:340});
   for(const key of ['sort','view','activity','date','type','sub']){
     const sub=m.sub(key),row=rows.find(el=>el.rtSubmenu===sub);row.click();
@@ -1713,7 +1713,7 @@ for(const suffix of ['', 'submitted/', 'comments/'])for(const filled of [false,t
   };
   for(const [label,name] of Object.entries(sorts))assertIcon(d.menuGroups[0].sub.querySelector('[aria-label="'+label+'"]'),name);
   for(const [label,name] of Object.entries(views))assertIcon(d.menuGroups[1].sub.querySelector('[aria-label="'+label+'"]'),name);
-  assertIcon(d.menuGroups[0].row,'list-bulleted');assertIcon(d.menuGroups[1].row,'card');
+  assertIcon(d.menuGroups[0].row,'sort');assertIcon(d.menuGroups[1].row,'card');
   for(const [key,name] of Object.entries({all:'show',hidden:'hidden',deleted:'deleted'}))assertIcon(d.activityMenu.querySelector('[data-rt-activity-filter="'+key+'"]'),name);
   assertIcon(d.activityMenu.querySelector('[data-rt-ui="activity-refresh"]'),'refresh');
   for(const [key,row] of d.rtMenu.date)assertIcon(row,key==='any'?'show':'calendar');
@@ -1730,6 +1730,6 @@ for(const suffix of ['', 'submitted/', 'comments/'])for(const filled of [false,t
   originals[0].row.click();assert.equal(clicks,1);d.clearActivityMenu();
   for(const {row,html,icon,tab} of originals){assert.equal(row.parentElement,main);assert.equal(row.innerHTML,html,'native presentation restored exactly');assert.equal(row.querySelector('svg'),icon,'native SVG identity restored');assert.equal(row.getAttribute('tabindex'),tab);}
   originals[0].row.click();assert.equal(clicks,2,'native event handlers survive');
-  assert.equal(W.RTFeedFilters.iconNames.includes('sort'),false,'unused handmade sort glyph removed');
+  assert.equal(W.RTFeedFilters.svgIcon('sort').getAttribute('fill'),'none','Sort is a stroked outline');
   for(const name of W.RTFeedFilters.iconNames)assert.ok(W.RTFeedFilters.svgIcon(name),'export renders '+name);
 });
