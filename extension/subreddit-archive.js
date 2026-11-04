@@ -37,6 +37,8 @@
   const defaultAvatar=(name,size,href)=>{let hash=0;for(const ch of String(name || ''))hash=(hash*31+ch.charCodeAt(0))>>>0;
     const img=make('img','rounded-full shrink-0');img.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+(hash % 8)+'.png';img.alt='';img.width=img.height=size;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';img.style.width=img.style.height=size+'px';
     if(!href)return img;const a=make('a','flex items-center mt-2xs');a.href=href;a.setAttribute('aria-label',name+"'s profile");a.append(img);return a;};
+  const redditCaret=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'caret-down'}))svg.setAttribute(k,v);
+    const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7Z');svg.append(path);return svg;};
   const viewRequested=()=>new URLSearchParams(location.search).get('rt_view')==='archive';
   function setParams(changes){
     const url=new URL(location.href);
@@ -319,8 +321,9 @@
       this.syncAll();this.refresh();
     }
     dropdown(label,build){
-      const wrap=make('div','rt-sra-dropdown'),button=make('button','rt-sra-dropdown-button');button.type='button';button.setAttribute('aria-haspopup','menu');button.setAttribute('aria-expanded','false');
-      const text=make('span','',label);button.append(text,glyph('caret-down'));
+      // Same classes and chevron as Reddit's sort dropdown button (text plus caret, no leading icon).
+      const wrap=make('div','rt-sra-dropdown'),button=make('button','rt-sra-dropdown-button text-neutral-content-weak button-small button-plain items-center justify-center button inline-flex');button.type='button';button.setAttribute('aria-haspopup','menu');button.setAttribute('aria-expanded','false');button.setAttribute('rpl','');
+      const text=make('span','flex items-center gap-xs',label),caret=make('span','flex ms-2xs me-[-2px]');caret.append(redditCaret());button.append(text,caret);
       const menu=make('div','rt-sra-menu');menu.setAttribute('role','menu');menu.hidden=true;menu.dataset.rtUi='subreddit-menu';
       button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const open=menu.hidden;this.closeMenus();if(open){this.syncMenu();menu.hidden=false;button.setAttribute('aria-expanded','true');this.openMenuEl=menu;}});
       wrap.append(button,menu);build(menu);return {wrap,button,text,menu};
@@ -332,10 +335,10 @@
       const close=()=>this.closeMenus();
       const option=(menu,group,key,options)=>{const el=f.menuOption(fx,options);el.dataset.rtUi='filter-option';menu.append(el);this.menuRows[group].set(key,el);return el;};
       this.sortMenu=this.dropdown('New',menu=>{
-        option(menu,'sort','new',{label:'New',icon:'new',value:'new',onSelect:()=>{const next=current();next.sort=null;this.applyFilters(next,{top:false});close();}});
-        option(menu,'sort','old',{label:'Old',icon:'archive',value:'old',onSelect:()=>{const next=current();next.sort='old';this.applyFilters(next,{top:false});close();}});
-        option(menu,'sort','top',{label:'Top',subtitle:'Among loaded posts',icon:'top',value:'top',onSelect:()=>{const next=current();next.sort=null;this.applyFilters(next,{top:true});close();}});
-        option(menu,'sort','comments',{label:'Most commented',subtitle:'Among loaded posts',icon:'comment',value:'comments',onSelect:()=>{const next=current();next.sort='comments';this.applyFilters(next,{top:false});close();}});
+        option(menu,'sort','new',{label:'New',icon:false,value:'new',onSelect:()=>{const next=current();next.sort=null;this.applyFilters(next,{top:false});close();}});
+        option(menu,'sort','old',{label:'Old',icon:false,value:'old',onSelect:()=>{const next=current();next.sort='old';this.applyFilters(next,{top:false});close();}});
+        option(menu,'sort','top',{label:'Top',subtitle:'Among loaded posts',icon:false,value:'top',onSelect:()=>{const next=current();next.sort=null;this.applyFilters(next,{top:true});close();}});
+        option(menu,'sort','comments',{label:'Most commented',subtitle:'Among loaded posts',icon:false,value:'comments',onSelect:()=>{const next=current();next.sort='comments';this.applyFilters(next,{top:false});close();}});
       });
       this.dateMenu=this.dropdown('All time',menu=>{
         option(menu,'date','any',{label:'All time',icon:false,value:'any',onSelect:()=>{const next=current();next.date=null;this.applyFilters(next);close();}});
@@ -370,7 +373,7 @@
       this.pickerHost?.remove();const host=this.pickerHost=make('div');host.dataset.rtUi='date-picker';
       const anchor=this.dateMenu.button.getBoundingClientRect?.() || {left:0,bottom:0};
       host.style.cssText=`position:fixed;z-index:2147483000;pointer-events:none;width:0;height:0;left:${Math.max(0,Math.round(anchor.left))}px;top:${Math.max(0,Math.round(anchor.bottom))}px`;
-      const shadow=host.attachShadow({mode:'open'}),style=make('style','',`:host{--rcs-bg:var(--color-neutral-background,#fff);--rcs-soft:var(--color-neutral-background-weak,#f2f4f5);--rcs-text:var(--color-neutral-content-strong,#0f1a1c);--rcs-muted:var(--color-neutral-content-weak,#576f76);--rcs-line:var(--color-neutral-border-weak,#e5e8eb);--rcs-hover:var(--color-neutral-background-hover,#e8edef);--rcs-accent:#ff4500}.date-popover{pointer-events:auto;left:0;right:auto;top:4px}`+(Picker.styles || ''));
+      const shadow=host.attachShadow({mode:'open'}),style=make('style','',`:host{--rcs-bg:var(--color-neutral-background,#fff);--rcs-soft:var(--color-neutral-background-weak,#f2f4f5);--rcs-text:var(--color-neutral-content-strong,#0f1a1c);--rcs-muted:var(--color-neutral-content-weak,#576f76);--rcs-line:var(--color-neutral-border-weak,#e5e8eb);--rcs-hover:var(--color-neutral-background-hover,#e8edef);--rcs-accent:#ff4500}.date-popover{pointer-events:auto;left:0;right:auto;top:4px}`+(Picker.styles || '')+'.calendar-presets{flex-wrap:wrap;overflow:visible}');
       const away=event=>{if(!event.composedPath().includes(host))picker.close(false);};
       const picker=new Picker({getAnchor:()=>anchor,onChange:bounds=>{
         const today=new Date(),iso=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`,from=bounds.from || '2005-06-01',to=bounds.to || iso,next=f.clone(this.filterState());
