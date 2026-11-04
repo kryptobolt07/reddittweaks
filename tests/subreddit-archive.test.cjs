@@ -404,3 +404,10 @@ test('archived images that are gone become a fixed-size notice instead of a stre
   const thumb=W.RTArchiveView.media([{kind:'preview',url:'https://external-preview.redd.it/gone.jpg'}],{alt:'x',compact:true});
   thumb.querySelector('img').dispatchEvent(new W.Event('error'));assert.match(thumb.textContent,/No image/);
 });
+
+test('archive sort, date and type buttons match Reddit\'s sort button: text and caret, no leading icon or menu icons',async()=>{
+  const ctx=await boot();await open(ctx);
+  const buttons=[...ctx.doc.querySelectorAll('.rt-sra-dropdown-button')];assert.equal(buttons.length,3);
+  for(const b of buttons){assert.ok(b.classList.contains('button-plain') && b.classList.contains('button-small'));const icons=[...b.querySelectorAll('svg')];assert.equal(icons.length,1,'only the caret');assert.equal(icons[0].getAttribute('icon-name'),'caret-down');}
+  const sortMenu=buttons[0].parentElement.querySelector('[data-rt-ui="subreddit-menu"]');assert.equal(sortMenu.querySelectorAll('[data-rt-ui="filter-option"] svg[icon-name="new"],[data-rt-ui="filter-option"] svg[icon-name="top"]').length,0,'sort rows carry no icons');
+});
