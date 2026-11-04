@@ -18,7 +18,7 @@ c raw Log.enable '{}' $S; c raw Runtime.enable '{}' $S
 c nav $S <url>          # direct load. User-like navigation is a click (probe-timeline click:)
 c raw Target.closeTarget "{\"targetId\":\"$T\"}"   # always, at the end
 ```
-At L3, also run `c raw Page.bringToFront '{}' $S`. A tab or window that isn't in front gets throttled, which pauses lazy images, infinite scroll and rAF. Check `document.visibilityState==='visible'` before claiming something "did not load".
+At L3, also run `c raw Page.bringToFront '{}' $S` **and** `c raw Emulation.setFocusEmulationEnabled '{"enabled":true}' $S`. When the user's Chrome window isn't focused, Reddit's lazy partials can stay empty (for example, a left nav with 0 links) and synthetic mouse input may not arrive, even though `visibilityState` says `visible`. `probe-timeline` then falls back to `element.click()` and says so. Check `document.visibilityState==='visible'` before claiming something "did not load".
 
 ## Probes
 | Tool | Use it for | Command |

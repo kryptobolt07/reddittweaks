@@ -33,6 +33,6 @@ SELF-REVIEW, required before you answer:
 - Confirm native Reddit doesn't behave the same way.
 - Before saying "did not load", confirm document.visibilityState==='visible' and that the element was scrolled into view.
 
-TOOLS: read {{ROOT}}/.claude/skills/verify-loop/reference/tools.md and use only what it lists. Open ONE tab of your own; at L3 also bring it to the front. Close it at the end. At most 10 screenshots; prefer probe output.
+TOOLS: read {{ROOT}}/.claude/skills/verify-loop/reference/tools.md and use only what it lists. Open ONE tab of your own; at L3 also bring it to the front and enable focus emulation (tools.md, "Tab setup"). Close it at the end. At most 10 screenshots; prefer probe output.
 RULES: read-only on Reddit: never vote, join, post, comment, save, share, report, reply or change settings. Clicking navigation, tabs, sort menus and the archive button is fine. Don't edit any file in the repo, and don't reload the extension.
 OUTPUT: JSON only, in the council's judge schema (surface, checked, not_tested, per_expectation, issues[severity, where, claim, evidence, native_checked, reverified, recoverable, fix], score_out_of_10).
