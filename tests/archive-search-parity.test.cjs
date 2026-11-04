@@ -112,10 +112,10 @@ test('first search keeps scanning with the native halo until a screenful is load
   const ctx=await boot({pages:options=>options.cursor?[batch(),batch()]:[batch(),()=>gate,batch(),batch(),batch(),batch(),batch()]});
   await go(ctx,'Title',{sort:'new'});
   assert.equal(ctx.calls[0].maxPages,10);
-  assert.equal(units(ctx).length,5,'results show as they arrive');assert.ok(ctx.doc.querySelector('.rt-sra-foot shreddit-feed-page-loading[page-type="community"]'),'halo while scanning');
+  assert.equal(units(ctx).length,5,'results show as they arrive');assert.ok(ctx.doc.querySelector('.rt-sra-foot [data-rt-ui="archive-loading"] shreddit-loading'),'halo while scanning');
   assert.equal(ctx.doc.querySelector('[data-rt-more]'),null,'no Search older while still scanning');
   release();await tick();
-  assert.equal(units(ctx).length,25,'stops at the first screenful');assert.equal(ctx.doc.querySelector('shreddit-feed-page-loading'),null);
+  assert.equal(units(ctx).length,25,'stops at the first screenful');assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-loading"]'),null);
   assert.ok(ctx.doc.querySelector('[data-rt-more]'));assert.equal(ctx.calls.length,1);
   ctx.doc.querySelector('[data-rt-more]').click();await tick();assert.equal(ctx.calls.length,2);assert.equal(ctx.calls[1].cursor,now-25*60);assert.equal(units(ctx).length,35);
 });

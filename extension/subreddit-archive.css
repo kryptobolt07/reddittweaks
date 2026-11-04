@@ -172,3 +172,22 @@ a.rt-sra-comment-author:hover{text-decoration:underline}
 .rt-sra-tile-meta{display:flex;align-items:center;margin-top:2px;font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
 /* Reddit's own sort menu: rows the archive cannot rank are shown unavailable. */
 [data-rt-archive-unranked]{opacity:.5;cursor:not-allowed}
+/* ---- Loading, paging and feed states (feed and post page) ----------------------------------------
+   One Snoo halo per loading group (Reddit's shreddit-loading draws logo, halo and animation). While
+   that element is undefined, a plain orange halo with the same 1.5 s scale-out stands in. */
+.rt-sra-halo-wrap{display:flex;align-items:center;justify-content:center;min-height:112px}
+.rt-sra-halo{display:block}
+.rt-sra-halo:not(:defined){position:relative;width:64px;height:64px}
+.rt-sra-halo:not(:defined)::before{content:"";position:absolute;inset:0;border-radius:50%;background:var(--color-brand-background,#ff4500);opacity:.6;animation:rt-sra-halo 1.5s ease-in-out infinite}
+@keyframes rt-sra-halo{0%{transform:scale(0);opacity:.7}100%{transform:scale(1);opacity:0}}
+/* Nested paging ("Load more comments") uses Reddit's small inline spinner, not the page halo. */
+.rt-sra-spinner{flex:none;width:16px;height:16px;color:currentColor}
+.rt-sra-spinner:not(:defined){display:inline-block;box-sizing:border-box;border:2px solid currentColor;border-inline-end-color:transparent;border-radius:50%;animation:rt-sra-spin 1s linear infinite}
+@keyframes rt-sra-spin{to{transform:rotate(1turn)}}
+.rt-sra-more-comments[aria-busy="true"]{cursor:progress}
+@media (prefers-reduced-motion:reduce){.rt-sra-halo:not(:defined)::before{animation:none;transform:scale(.6);opacity:.35}.rt-sra-spinner:not(:defined){animation-duration:3s}}
+.rt-sra-scan-note{text-align:center}
+/* Off-screen feed cards are swapped for placeholders of the same height (scroll position holds). */
+[data-rt-archive-feed]>.rt-sra-virtual{display:block;box-sizing:border-box;margin:0;padding:0;contain:strict;overflow-anchor:none}
+/* A collapsed archived comment hides its replies (they otherwise overlap the next sibling). */
+.rt-sra-thread-comment[collapsed]>[slot="children"]{display:none!important}

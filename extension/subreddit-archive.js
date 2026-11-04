@@ -15,7 +15,11 @@
   const glyph=kind=>globalThis.RTPostDiscovery?.glyph?.(kind) || document.createElementNS('http://www.w3.org/2000/svg','svg');
   const day=seconds=>new Date(seconds*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
   const compact=n=>new Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(n);
-  const MAX_STATES=16;
+  // Feed paging: the archive is read 100 posts per request, but revealed in Reddit-sized pages.
+  // A local type filter can hide whole requests: scan older pages at most SCAN_FILLS times per page
+  // asked for, then pause with an explicit state. Cards far off screen are swapped for fixed-height
+  // placeholders (Reddit virtualizes its feed the same way).
+  const PAGE_SIZE=25,SCAN_FILLS=8,VIRTUAL_MARGIN='2000px 0px';
   const postFields=['title','body','author','site','url','flair','self','nsfw','spoiler','type'];
   const commentFields=['body','author'];
   const mediaTypes=['image','gif','video','gallery'];
@@ -192,13 +196,16 @@
       columns.append(main,sidebar);subgrid.append(...(thread?[]:[this.headerEl]),columns);layout.append(subgrid);this.mountNavigation(layout,name);modal.before(layout);
       document.documentElement.setAttribute('data-rt-subreddit-archive','');
       this.mounted={modal,kind,name,thread};this.loadNavigation();
-      if(!thread && typeof IntersectionObserver==='function'){this.io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting))this.loadMore();},{rootMargin:'800px 0px'});this.io.observe(this.sentinel);}
+      if(!thread && typeof IntersectionObserver==='function'){
+        this.io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting))this.loadMore({auto:true});},{rootMargin:'800px 0px'});this.io.observe(this.sentinel);
+        this.vio=new IntersectionObserver(entries=>this.virtualize(entries),{rootMargin:VIRTUAL_MARGIN});
+      }
       this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();}
     }
     unmount(){
       const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState=null;
-      this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
-      for(const state of this.states.values()){state.gen++;for(const item of state.items || [])if(item?.kind!=='comment')(this.recentPosts ||= new Map()).set(item.fullname,item);}
+      this.io?.disconnect();this.io=null;this.vio?.disconnect();this.vio=null;this.pickerHost?.remove();this.closeMenus();
+      for(const state of this.states.values())this.retireFeedState(state);
       if(this.recentPosts?.size>600)this.recentPosts=new Map([...this.recentPosts].slice(-300));
       // Keep the left nav (rendered, loading, or showing its fallback): the next mount of the same community moves it
       // instead of re-rendering from an empty placeholder (no blank nav). A loading nav keeps its request;
@@ -211,7 +218,7 @@
       if(this.dead || !viewRequested() && m.modal.isConnected)release(m.modal);
     }
     async loadThread({more=false}={}){
-      const state=this.threadState;if(!state || state.loading)return;state.loading=true;state.error=null;this.renderThread();
+      const state=this.threadState;if(!state || state.loading)return;state.loading=true;state.loadingMore=more && Boolean(state.post);state.error=null;this.renderThread();
       const current=()=>this.threadState===state && this.mounted?.thread?.postId===state.route.postId;
       try{
         if(!state.post){
@@ -267,13 +274,15 @@
       this.statusTop.hidden=false;this.statusTop.textContent='Archived thread from Arctic Shift · Coverage may be partial · Posting and voting are unavailable.';
       this.footEl.replaceChildren();
       if(state.nativeModulesError){const note=make('p','rt-sra-note',state.nativeModulesError+' '),retry=make('button','button button-small button-secondary','Retry Reddit components');retry.type='button';retry.addEventListener('click',()=>{state.nativeModulesError=null;this.renderThread();});note.append(retry);this.footEl.append(note);}
-      if(state.loading){const progress=make('faceplate-progress');progress.setAttribute('status','indeterminate');progress.setAttribute('role','status');progress.setAttribute('aria-label','Loading archived comments');this.footEl.append(progress);}
+      // First load: one Snoo halo for the post and its comments. Further pages: Reddit's small inline spinner on the button.
+      if(state.loading && !state.loadingMore)this.footEl.append(this.loadingHalo('Loading archived comments'));
+      if(state.loading && state.loadingMore)this.footEl.append(this.moreCommentsButton(state,true));
       if(state.error)this.footEl.append(this.errorNote(state,()=>this.loadThread({more:Boolean(state.post && state.cursor)})));
       if(!state.loading && !state.error){
         if(state.missing)this.footEl.append(make('p','rt-sra-note','This post is not in the archive. Coverage may be partial.'));
         else if(state.stalled)this.footEl.append(make('p','rt-sra-note','The archive stopped paging here; more comments may exist.'));
         else if(!state.hasMore)this.footEl.append(make('p','rt-sra-note',state.items.length?'End of what the archive returned · Coverage may be partial':'No archived comments returned. This does not establish that the post had no comments.'));
-        if(state.hasMore){const button=make('button','button button-small button-secondary','Load more comments');button.type='button';button.dataset.rtMore='true';button.addEventListener('click',()=>this.loadThread({more:true}));this.footEl.append(button);}
+        if(state.hasMore)this.footEl.append(this.moreCommentsButton(state,false));
         if(state.route.focusId && !state.focused){const target=nodes.get('t1_'+state.route.focusId);if(target?.isConnected){state.focused=true;target.classList.add('rt-sra-focused-comment');const focus=()=>{if(!target.isConnected)return;const r=target.getBoundingClientRect();if(r.top<0 || r.bottom>innerHeight)target.scrollIntoView?.({block:'center'});};target.scrollIntoView?.({block:'center'});for(const ms of [150,600,1500])setTimeout(focus,ms);}else if(!state.loading)this.footEl.append(make('p','rt-sra-note','The requested comment is not in the loaded archive records.'));}
       }
     }
@@ -719,23 +728,54 @@
     newState(key,spec){
       return {key,...spec,items:[],seen:new Set(),cursor:null,hasMore:true,started:false,loading:false,error:null,searchedBackTo:null,stalled:false,mode:'',gen:0,cards:new Map()};
     }
-    feedKey(){const filters=this.filterState(),f=globalThis.RTFeedFilters;return JSON.stringify([filters.sort==='old'?'asc':'desc',f?f.serialize(filters)[f.params.date] || '':'']);}
+    // The type filter is part of the key: each filter scans the archive on its own, so its count never
+    // depends on how far another filter had paged.
+    feedKey(){const filters=this.filterState(),f=globalThis.RTFeedFilters;return JSON.stringify([filters.sort==='old'?'asc':'desc',f?f.serialize(filters)[f.params.date] || '':'',[...(filters.types || [])].sort().join(',')]);}
     current(){
       const key=this.feedKey();let state=this.states.get(key);
       if(!state){
+        // A new key supersedes the previous feed: cancel its requests and drop its cards, so neither
+        // stale cards nor an error from a superseded request can render under the new filters.
+        for(const old of this.states.values())this.retireFeedState(old);this.states.clear();
         state=this.newState(key,{scope:'feed',name:this.name,tab:'posts',media:false,asc:this.filterState().sort==='old',range:globalThis.RTFeedFilters?.dateRange(this.filterState()) || null,parsed:null,plan:null,query:''});
-        if(this.states.size>=MAX_STATES){const old=[...this.states.keys()].find(k=>k!==key);const evicted=this.states.get(old);if(evicted)evicted.gen++;this.states.delete(old);}
+        Object.assign(state,{want:PAGE_SIZE,scanFills:0,paused:false,virtual:new Set(),placeholders:new Map()});
         this.states.set(key,state);
       }
       state.sortMode=this.sortMode();return state;
     }
-    refresh(){if(!this.mounted)return;const state=this.current();this.renderList();if(!state.started)this.fill(state,()=>{if(this.mounted && this.current()===state)this.renderList();});}
-    loadMore(){
+    retireFeedState(state){state.gen++;state.loading=false;for(const item of state.items || [])if(item?.kind!=='comment')(this.recentPosts ||= new Map()).set(item.fullname,item);}
+    activeFeed(state){return Boolean(this.mounted && !this.mounted.thread && this.states.get(this.feedKey())===state);}
+    localFilter(){return (this.filterState().types || []).length>0;}
+    refresh(){if(!this.mounted)return;const state=this.current();this.renderList();if(!state.started)this.fillFeed(state);}
+    // auto: the scroll sentinel asked. It reveals the next page once the current one is full; it never
+    // restarts a paused scan (only the user's "Search older" does).
+    loadMore({auto=false}={}){
       if(!this.mounted || this.mounted.thread)return;const state=this.current();
-      if(state.loading || state.error || !state.hasMore || !state.started)return;
-      this.fill(state,()=>{if(this.mounted && this.current()===state)this.renderList();});
+      if(state.loading || state.error || !state.started)return;
+      const count=this.visibleItems(state).length;
+      if(count<state.want){
+        if(!state.hasMore || state.paused && auto)return;
+        if(!auto){state.paused=false;state.scanFills=0;}
+        this.fillFeed(state);return;
+      }
+      state.want+=PAGE_SIZE;state.scanFills=0;state.paused=false;
+      if(count<state.want && state.hasMore){this.fillFeed(state);return;}
+      this.renderList();
+      // Keep one page buffered so the next reveal is immediate.
+      if(count-state.want<PAGE_SIZE && state.hasMore){this.fillFeed(state);return;}
+      this.reobserve();
     }
-    retry(){if(!this.mounted)return;const state=this.current();if(!state.loading){state.error=null;this.fill(state,()=>{if(this.mounted && this.current()===state)this.renderList();});}}
+    retry(){if(!this.mounted)return;const state=this.current();if(!state.loading){state.error=null;state.scanFills=0;state.paused=false;this.fillFeed(state);}}
+    reobserve(){if(this.io && this.sentinel?.isConnected){this.io.unobserve(this.sentinel);this.io.observe(this.sentinel);}}
+    async fillFeed(state){
+      const gen=state.gen,render=()=>{if(this.activeFeed(state))this.renderList();};
+      await this.fill(state,render);
+      if(gen!==state.gen || state.loading || state.error || !this.activeFeed(state))return;
+      if(this.visibleItems(state).length>=state.want || !state.hasMore){state.scanFills=0;return;}
+      // Not enough matches yet: scan older pages (bounded), then pause with an explicit state.
+      if(++state.scanFills>=SCAN_FILLS){state.paused=true;render();return;}
+      if(this.localFilter())return this.fillFeed(state);
+    }
     visibleItems(state){
       const f=globalThis.RTFeedFilters,filters=state.scope==='feed'?this.filterState():null;
       let items=state.items;
@@ -789,7 +829,7 @@
       try{node=globalThis.RTPostDiscovery?.archiveCard?.(item);}catch{node=null;}
       if(item.kind==='comment')node?.querySelector('[data-rt-source]')?.remove();
       if(!node){node=make('div','rt-native-card');node.dataset.rtUi='archive-item';const a=make('a','',item.title || item.body || item.fullname);a.href=item.permalink || '#';node.append(a);}
-      state.cards.set(item.fullname,node);return node;
+      node.dataset.fullname ||= item.fullname;state.cards.set(item.fullname,node);return node;
     }
     statusLine(state){
       const when=state.searchedBackTo,parts=[];if(when!=null)parts.push((state.asc?'Searched up to ':'Searched back to ')+day(when));
@@ -797,9 +837,32 @@
       if(state.plan?.residual || state.mode==='local')parts.push('Matches filtered locally · Results may be incomplete');
       return parts.join(' · ');
     }
-    loadingHalo(){
-      // Let Reddit own its Snoo halo and animation, including reduced motion.
-      const loader=make('shreddit-feed-page-loading','rt-sra-loading');loader.setAttribute('page-type','community');loader.setAttribute('role','status');loader.setAttribute('aria-label','Loading archived results');return loader;
+    loadingHalo(label='Loading archived results'){
+      // One Snoo halo per loading group, never per card. Reddit's own shreddit-loading draws the logo,
+      // the halo and its animation (shreddit-feed-page-loading can draw skeleton rows instead).
+      // CSS draws a plain halo while the element is undefined.
+      const wrap=make('div','rt-sra-loading rt-sra-halo-wrap');wrap.dataset.rtUi='archive-loading';wrap.setAttribute('role','status');wrap.setAttribute('aria-label',label);
+      const halo=make('shreddit-loading','rt-sra-halo');halo.setAttribute('aria-hidden','true');wrap.append(halo);return wrap;
+    }
+    // Reddit's small inline spinner (the comment tree's "more replies" loading), not the page halo.
+    spinner(){
+      const progress=make('faceplate-progress','rt-sra-spinner');progress.setAttribute('status','indeterminate');progress.setAttribute('aria-hidden','true');
+      progress.style.setProperty('--loader-size','16px');progress.style.setProperty('--loader-color','currentColor');return progress;
+    }
+    moreCommentsButton(state,busy){
+      const button=make('button','button button-small button-secondary inline-flex items-center gap-xs rt-sra-more-comments');button.type='button';button.dataset.rtMore='true';
+      if(busy){button.disabled=true;button.setAttribute('aria-busy','true');button.append(this.spinner(),make('span','','Loading more comments'));}
+      else{button.append(make('span','','Load more comments'));button.addEventListener('click',()=>this.loadThread({more:true}));}
+      return button;
+    }
+    // Shown when a scan ends (or pauses) without a single matching post: the coverage date is explicit.
+    feedEmpty(state){
+      const filters=this.filterState(),filtered=Boolean(filters.types?.length || filters.date),when=state.searchedBackTo!=null?day(state.searchedBackTo):'';
+      const box=make('div','rt-sra-empty');box.dataset.rtUi='archive-feed-empty';box.setAttribute('role','status');
+      const reach=when?(state.asc?'Searched the archive up to ':'Searched the archive back to ')+when+'. ':'';
+      box.append(make('div','rt-sra-empty-title',filtered?'No archived posts match these filters':'No archived posts found'),
+        make('div','rt-sra-empty-text',reach+(state.paused && state.hasMore?(state.asc?'Newer':'Older')+' posts may still match.':'The archive may not hold every record.')));
+      return box;
     }
     errorNote(state,retry){
       const note=make('div','rt-sra-error text-12 text-neutral-content-weak');note.setAttribute('role','status');note.append(make('span','',state.error.message || 'The archive is unavailable.'));
@@ -807,22 +870,55 @@
       const button=make('button','button button-small button-secondary','Retry');button.type='button';button.dataset.rtRetry='true';button.addEventListener('click',retry);note.append(button);return note;
     }
     renderList(){
-      if(!this.mounted)return;const state=this.current(),items=this.visibleItems(state);
-      this.listEl.replaceChildren(...items.map(item=>this.cardFor(state,item)));
+      if(!this.mounted)return;const state=this.current(),items=this.visibleItems(state),shown=items.slice(0,state.want);
+      this.syncList(state,shown);
       this.statusTop.hidden=false;
       this.statusTop.textContent='Archived results from Arctic Shift · Coverage may be partial.'+(state.sortMode==='top'?' Sorted by votes among loaded posts only.':state.sortMode==='comments'?' Sorted by comment count among loaded posts only.':'');
       const foot=this.footEl;foot.replaceChildren();
-      if(state.loading)foot.append(this.loadingHalo());
+      // More is coming while pages wait in memory or the archive has older ones: Reddit keeps its halo
+      // at the end of the feed while it pages. A paused scan shows "Search older" instead.
+      const more=shown.length<items.length || state.hasMore && !state.paused,idle=!state.loading && !state.error && state.started;
+      const scanning=state.loading && !shown.length && this.localFilter();
+      if(state.loading || this.io && more && idle)foot.append(this.loadingHalo(scanning?'Searching the archive for matching posts':'Loading archived posts'));
+      if(scanning)foot.append(make('p','rt-sra-note rt-sra-scan-note text-12 text-neutral-content-weak','Searching older archived posts for matches…'));
       if(state.error)foot.append(this.errorNote(state,()=>this.retry()));
-      if(!state.loading && !state.error){
-        if(!items.length)foot.append(make('p','rt-archive-empty text-14 text-neutral-content-weak',state.hasMore?'No archived posts loaded yet for these settings.':'No archived posts found for these settings. The archive may not hold every record.'));
+      if(idle){
+        if(!items.length){if(!state.hasMore || state.paused)foot.append(this.feedEmpty(state));else foot.append(make('p','rt-archive-empty text-14 text-neutral-content-weak','No archived posts loaded yet for these settings.'));}
         if(state.stalled)foot.append(make('p','rt-sra-note text-12 text-neutral-content-weak','The archive stopped paging here; older records may exist.'));
-        else if(!state.hasMore && items.length)foot.append(make('p','rt-sra-note text-12 text-neutral-content-weak','End of what the archive returned · Coverage may be partial'));
+        else if(!state.hasMore && items.length && shown.length===items.length)foot.append(make('p','rt-sra-note text-12 text-neutral-content-weak','End of what the archive returned · Coverage may be partial'));
       }
       const line=this.statusLine(state);if(line)foot.append(make('p','rt-sra-searched text-12 text-neutral-content-weak',line));
+      if(idle && state.paused && state.hasMore){const older=make('button','button button-small button-secondary',state.asc?'Search newer':'Search older');older.type='button';older.dataset.rtMore='true';older.addEventListener('click',()=>this.loadMore());foot.append(older);}
       // The feed keeps paging on scroll; a button covers environments where scrolling cannot trigger it.
-      if(!state.loading && !state.error && state.hasMore && state.started && !this.io){const more=make('button','button button-small button-secondary','Load more');more.type='button';more.dataset.rtMore='true';more.addEventListener('click',()=>this.loadMore());foot.append(more);}
+      else if(idle && more && !this.io){const button=make('button','button button-small button-secondary','Load more');button.type='button';button.dataset.rtMore='true';button.addEventListener('click',()=>this.loadMore());foot.append(button);}
       this.renderArchiveStats();
+    }
+    // Reconcile in place: cards that stay keep their identity and position (Reddit's components are not
+    // disconnected and reconnected on every render), stale ones leave, and none is ever listed twice.
+    syncList(state,items){
+      const list=this.listEl,nodes=items.map(item=>{const holder=state.virtual.has(item.fullname) && state.placeholders.get(item.fullname);if(holder)return holder;state.virtual.delete(item.fullname);return this.cardFor(state,item);});
+      for(const [index,node] of nodes.entries()){const at=list.children[index];if(at!==node)list.insertBefore(node,at || null);}
+      while(list.children.length>nodes.length){const extra=list.lastElementChild;this.vio?.unobserve(extra);extra.remove();}
+      for(const node of nodes)this.vio?.observe(node);
+    }
+    // Off-screen cards become fixed-height placeholders and come back (the same element) as they near
+    // the viewport. The height spans to the next row, so margins are kept and the scroll position holds.
+    virtualize(entries){
+      const state=this.mounted && !this.mounted.thread?this.states.get(this.feedKey()):null;
+      for(const entry of entries){
+        const el=entry.target,name=el.dataset?.fullname;
+        if(!state || !name || el.parentElement!==this.listEl){this.vio?.unobserve(el);continue;}
+        if(el.dataset.rtUi==='archive-virtual'){
+          const card=state.cards.get(name);if(!entry.isIntersecting || !card || state.placeholders.get(name)!==el)continue;
+          state.virtual.delete(name);this.vio.unobserve(el);el.replaceWith(card);this.vio.observe(card);
+        }else if(!entry.isIntersecting && state.cards.get(name)===el && !el.contains(document.activeElement)){
+          const rect=el.getBoundingClientRect(),next=el.nextElementSibling?.getBoundingClientRect?.(),span=next && next.top>rect.top?next.top-rect.top:rect.height;
+          if(!(span>=1))continue;
+          let holder=state.placeholders.get(name);
+          if(!holder){holder=make('div','rt-native-card rt-sra-virtual');holder.dataset.rtUi='archive-virtual';holder.dataset.fullname=name;holder.setAttribute('aria-hidden','true');state.placeholders.set(name,holder);}
+          holder.style.height=span+'px';state.virtual.add(name);this.vio.unobserve(el);el.replaceWith(holder);this.vio.observe(holder);
+        }
+      }
     }
     syncAll(){if(!this.mounted)return;this.syncMenu();this.renderChips();}
   }
