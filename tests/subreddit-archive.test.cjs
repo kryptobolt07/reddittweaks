@@ -14,7 +14,7 @@ async function boot(opts){
   // The script under test defines the class; construct after it loads.
   const dom=new JSDOM('<!doctype html><body><shreddit-app>'+(opts?.html??modalHtml('r/gone is banned'))+'</shreddit-app></body>',{url:opts?.url||'https://www.reddit.com/r/gone/',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;
   const o={enabled:true,pages:null,owner:'me',meta:null,recents:null,...opts};
-  for(const f of ['search-core.js','post-model.js','archive-view.js','post-discovery.js','feed-filters.js','subreddit-archive.js'])W.eval(fs.readFileSync('extension/'+f,'utf8'));
+  for(const f of ['search-core.js','post-model.js','markdown-lite.js','archive-view.js','post-discovery.js','feed-filters.js','subreddit-archive.js'])W.eval(fs.readFileSync('extension/'+f,'utf8'));
   const calls=[],store=o.recents || new Map();
   W.RTArchiveQuery={
     async *search(options){calls.push(options);const list=o.pages?o.pages(options,calls.length):[{items:[post('a1',1500000000),post('a2',1400000000)],searchedBackTo:1400000000,hasMore:false,cursor:null}];for(const page of list){if(page instanceof Error)throw page;yield page;}},
@@ -616,10 +616,22 @@ test('archived threads offer Reddit\'s comment Sort by (Best/Top/New/Old) and Se
   const order=()=>[...ctx.doc.querySelectorAll('.rt-sra-thread-comments > shreddit-comment')].map(n=>n.id);
   assert.deepEqual(order(),['t1_c2','t1_c1','t1_c3'],'Best: by score');
   const bar=ctx.doc.querySelector('[data-rt-ui="archive-comment-toolbar"]');assert.match(bar.textContent,/Sort by: Best/);
+  const kids=[...bar.parentNode.children],postAt=kids.findIndex(n=>n.querySelector?.('.rt-sra-thread-post'));assert.ok(postAt>=0 && postAt<kids.indexOf(bar) && kids.indexOf(bar)<kids.indexOf(ctx.doc.querySelector('.rt-sra-thread-comments')),'post, then toolbar, then comments');
   bar.querySelector('.rt-sra-dropdown-button').click();[...bar.querySelectorAll('[data-rt-ui="filter-option"]')].find(o=>/New/.test(o.textContent)).click();await tick();
   assert.deepEqual(order(),['t1_c3','t1_c2','t1_c1'],'New: newest first');assert.match(bar.textContent,/Sort by: New/);
   const input=bar.querySelector('input[type="search"]');input.value='apple';input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));
   const results=ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]');assert.match(results.textContent,/2 of 3 loaded archived comments match/);assert.equal(results.querySelectorAll('.rt-sra-comment-hit').length,2);
   assert.ok(ctx.doc.querySelector('.rt-sra-thread-comments').hidden);
   input.value='';input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').hidden,false);
+});
+
+test('images pasted into archived text posts render inline like Reddit, blurred when NSFW',async()=>{
+  const {W}=await boot();
+  const link='https://preview.redd.it/aaov9gk8f2of1.png?width=605&format=png&auto=webp&s=dc43';
+  const meta={aaov9gk8f2of1:{e:'Image',m:'image/png',s:{u:link.replace(/&/g,'&amp;'),x:605,y:724}}};
+  const safe=W.RTPostDiscovery.archiveCard(archived(W,{id:'img1',is_self:true,selftext:'Look:\n\n'+link+'\n\n',media_metadata:meta}),{thread:true}).querySelector('shreddit-post');
+const img=safe.querySelector('[slot="text-body"] img');assert.ok(img,'inline image rendered');assert.equal(img.src,link);
+  assert.doesNotMatch(safe.querySelector('[slot="text-body"]').textContent,/preview\.redd\.it/,'no raw link text');assert.match(safe.querySelector('[slot="text-body"]').textContent,/Look:/);
+  const nsfw=W.RTPostDiscovery.archiveCard(archived(W,{id:'img2',is_self:true,over_18:true,selftext:link,media_metadata:meta}),{thread:true}).querySelector('shreddit-post');
+  const box=nsfw.querySelector('[slot="text-body"] .rt-sensitive');assert.ok(box?.querySelector('img'),'NSFW image is blurred behind a reveal');assert.match(box.querySelector('.rt-sensitive-reveal').textContent,/View NSFW content/);
 });

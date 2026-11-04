@@ -1808,11 +1808,14 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       if(post.flair){const flair=make('span','flair-content inline-block truncate max-w-full text-12 font-normal box-border px-[6px] rounded-[20px] leading-4 bg-tone-4 text-neutral-content mb-xs rt-archive-flair',post.flair);flair.slot='post-flair';native.append(flair);}
       const content=make('div','md break-words');content.slot='text-body';
       const rawBody=(post.archivedBody || post.body || '').trim(),sensitiveText=(post.over18 || post.spoiler) && rawBody && !deletionNotice(rawBody);
-      if(snapshotText || sensitiveText)content.append(this.archivedText(rawBody || body,post.archivedBodyHtml || post.bodyHtml));else if(!linkUrl && !visual && (thread || /^\[(?:deleted|removed)\]$/i.test((post.body || '').trim())))content.append(make('p','text-neutral-content-weak',body));
+      // Images pasted into a text post (preview.redd.it links) show inline, as Reddit renders them.
+      const inlineMedia=!visual && !linkish && Array.isArray(post.bodyMedia) && post.bodyMedia.length && rawBody?post.bodyMedia:null;
+      if(inlineMedia){content.append(this.archivedText(rawBody,'',inlineMedia));for(const figure of content.querySelectorAll('.rt-comment-media')){figure.classList.add('rt-archive-inline-media');if(post.over18 || post.spoiler)figure.replaceWith(sensitive(figure.cloneNode(true),post.over18?'View NSFW content':'View spoiler'));}}
+      else if(snapshotText || sensitiveText)content.append(this.archivedText(rawBody || body,post.archivedBodyHtml || post.bodyHtml));else if(!linkUrl && !visual && (thread || /^\[(?:deleted|removed)\]$/i.test((post.body || '').trim())))content.append(make('p','text-neutral-content-weak',body));
       if(linkUrl){const out=link(post.domain || host || linkUrl,linkUrl,'rt-archive-link block text-12 text-neutral-content-weak hover:underline truncate mt-2xs');out.target='_blank';out.rel='noopener noreferrer nofollow ugc';content.append(out);}
       // Reddit's NSFW / Spoiler tags under the title; spoiler text is blurred until revealed.
       if(post.over18 || post.spoiler){const tags=make('span','flex flex-wrap gap-xs mb-xs rt-archive-tags');if(post.over18)tags.append(make('span','rt-archive-tag rt-archive-tag-nsfw','NSFW'));if(post.spoiler)tags.append(make('span','rt-archive-tag rt-archive-tag-spoiler','Spoiler'));tags.slot='post-flair';native.append(tags);}
-      if(content.childNodes.length)native.append(post.spoiler && sensitiveText?sensitive(content,'View spoiler'):content);
+      if(content.childNodes.length)native.append(post.spoiler && sensitiveText && !inlineMedia?sensitive(content,'View spoiler'):content);
       // Media by type: images/galleries/videos full width; link previews as the right-hand thumbnail; text posts never borrow a link preview.
       const usable=visual?media:linkish?media:type==='textmedia'?media.filter(item=>item.kind==='image'):[];
       if(usable.length){let view=globalThis.RTArchiveView?.media(usable,{alt:post.title,compact:linkish,postId:post.id,href:linkish?linkUrl || post.permalink:post.url || post.permalink});if(view){if(post.over18 || post.spoiler)view=sensitive(view,post.over18?'View NSFW content':'View spoiler');view.slot=linkish?'thumbnail':'post-media-container';native.append(view);(this.recoveredMedia ||= new Set()).add(view);}}
