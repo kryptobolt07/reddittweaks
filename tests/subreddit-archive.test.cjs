@@ -38,7 +38,7 @@ const button=doc=>doc.querySelector('[data-rt-ui="subreddit-archive-action"] but
 const open=async ctx=>{button(ctx.doc).click();await tick();};
 const searchHtml='<header><reddit-search-large><input name="q"></reddit-search-large></header><faceplate-tabgroup id="search-results-page-tabgroup"><a href="?type=posts">Posts</a><a href="?type=comments">Comments</a><a href="?type=media">Media</a></faceplate-tabgroup><main><div data-testid="search-scope-switcher">Show results from all Reddit</div><div class="bg-neutral-background"><div data-testid="search-error-message">Native empty state</div></div></main><aside data-testid="search-results-sidebar"></aside>';
 const search=async(ctx,text,{type,sort='new',t='all'}={})=>{const params=new ctx.W.URLSearchParams(ctx.W.location.search);type ||= params.get('type') || params.get('rt_tab') || 'posts';ctx.sa.unmount();ctx.doc.querySelector('shreddit-app').innerHTML=searchHtml;ctx.W.history.pushState({},'','/r/gone/search/?'+new ctx.W.URLSearchParams({q:text,type,sort,t}));ctx.sa.scan();await tick();};
-const resultIds=ctx=>[...ctx.doc.querySelectorAll('.rt-sra-unit')].map(n=>n.dataset.fullname);
+const resultIds=ctx=>[...ctx.doc.querySelectorAll('[data-rt-ui="archive-search-unit"]')].map(n=>n.dataset.fullname);
 
 
 test('trigger only for banned (and private) communities',async()=>{
