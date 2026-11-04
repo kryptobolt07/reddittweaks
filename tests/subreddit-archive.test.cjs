@@ -30,7 +30,7 @@ async function boot(opts){
     async remove(ow,s,q){const k=ow+'|'+s;store.set(k,(store.get(k)||[]).filter(x=>x!==q));return [];},
     async clear(ow,s){store.delete(ow+'|'+s);return [];}
   };
-  const sa=new W.RTSubredditArchive.SubredditArchive({observe:false,readSettings:async()=>({enabled:o.enabled}),getOwner:()=>o.owner,communityState:async()=>o.communityKind ?? 'banned',reddit:o.reddit || (async message=>{const target=W.document.getElementById(message.target);if(target)target.innerHTML='<flex-left-nav-container id="left-sidebar-container"><nav><a href="/">Home</a></nav></flex-left-nav-container>';return {rendered:true};}),archive:async message=>o.archive?o.archive(message):{ok:true,posts:[]}});
+  const sa=new W.RTSubredditArchive.SubredditArchive({observe:false,readSettings:async()=>({enabled:o.enabled,automatic:o.automatic}),getOwner:()=>o.owner,communityState:async()=>o.communityKind ?? 'banned',reddit:o.reddit || (async message=>{const target=W.document.getElementById(message.target);if(target)target.innerHTML='<flex-left-nav-container id="left-sidebar-container"><nav><a href="/">Home</a></nav></flex-left-nav-container>';return {rendered:true};}),archive:async message=>o.archive?o.archive(message):{ok:true,posts:[]}});
   await sa.ready;
   return {W,doc:W.document,sa,calls,store};
 }
@@ -70,7 +70,7 @@ test('reload with rt_view=archive mounts directly; early hold keeps the modal fr
   assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'));
   // profile-notice.js holds the modal from document_start.
   const dom=new JSDOM('<!doctype html><body><shreddit-app>'+modalHtml('r/gone is banned')+'</shreddit-app></body>',{url:'https://www.reddit.com/r/gone/?rt_view=archive',runScripts:'outside-only'}),W=dom.window;
-  W.chrome={runtime:{id:'x',sendMessage:async()=>({ok:true,settings:{postDiscovery:true,archiveDiscovery:true}})}};
+  W.chrome={runtime:{id:'x',sendMessage:async()=>({ok:true,settings:{postDiscovery:true,archiveDiscovery:true,subredditArchive:true}})}};
   W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
   const modal=W.document.querySelector('guard-community-modal');assert.equal(modal.style.display,'none');assert.equal(modal.getAttribute('data-rt-subreddit-hold'),'true');
   await tick();assert.equal(modal.style.display,'none','stays held once settings allow the archive');
@@ -78,7 +78,7 @@ test('reload with rt_view=archive mounts directly; early hold keeps the modal fr
   for(const [html,url] of [[quarantineHtml,'https://www.reddit.com/r/gone/?rt_view=archive'],[modalHtml('r/gone is banned'),'https://www.reddit.com/r/gone/']]){
     const d=new JSDOM('<!doctype html><body><shreddit-app>'+html+'</shreddit-app></body>',{url,runScripts:'outside-only'}).window;
     d.chrome={runtime:{id:'x',sendMessage:async()=>({ok:true,settings:{archiveDiscovery:true}})}};d.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
-    assert.equal(d.document.querySelector('guard-community-modal').style.display,'');
+    await tick();assert.equal(d.document.querySelector('guard-community-modal').style.display,'');d.close();
   }
   // Archive off in settings: released.
   const off=new JSDOM('<!doctype html><body><shreddit-app>'+modalHtml('r/gone is banned')+'</shreddit-app></body>',{url:'https://www.reddit.com/r/gone/?rt_view=archive',runScripts:'outside-only'}).window;
@@ -297,7 +297,7 @@ test('banned post permalinks show the archived post and nested comments, includi
  const calls=[],ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/c2/',archive:async message=>{calls.push(message);return message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:{ok:true,posts:[comment('c2',1500000002,{linkId:'abc12',parentId:'t1_c1'}),comment('c1',1500000001,{linkId:'abc12',parentId:'t3_abc12'})],hasMore:false};}});await tick();
  assert.equal(ctx.doc.querySelector('h1[slot="title"]').textContent,'Title abc12');assert.ok(ctx.doc.querySelector('#left-sidebar-container'));assert.equal(ctx.doc.querySelector('.masthead'),null);
  assert.equal(ctx.doc.querySelector('#t1_c2').parentElement.id,'t1_c1');assert.ok(ctx.doc.querySelector('#t1_c2').classList.contains('rt-sra-focused-comment'));assert.equal(calls[1].focusId,'c2');assert.match(ctx.doc.querySelector('.rt-sra-foot').textContent,/Coverage may be partial/);
- assert.equal(ctx.doc.querySelectorAll('[data-rt-ui="archive-thread-comment"] [slot="commentMeta"] svg').length,0);assert.match(ctx.doc.querySelector('.rt-sra-note').textContent,/Arctic Shift.*Coverage may be partial/);
+ assert.equal(ctx.doc.querySelectorAll('[data-rt-ui="archive-thread-comment"] [slot="commentMeta"] svg').length,0);assert.match(ctx.doc.querySelector('aside [data-rt-ui="archive-thread-notice"]').textContent,/Arctic Shift.*Coverage may be partial/);assert.equal(ctx.sa.statusTop.hidden,true);
  ctx.W.history.pushState({},'','/r/live/');ctx.sa.scan();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'),null);ctx.sa.destroy();ctx.W.close();
 });
 test('community comment cards use one page-level archive note instead of repeated badges',async()=>{
@@ -473,11 +473,38 @@ test('archived comment tree follows Reddit thresholds: top-level batch, a few re
   const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:{ok:true,posts:recs.map(r=>({...r,id:r.id,body:r.body,link_id:'t3_abc12',parent_id:r.parentId,created_utc:r.created,score:r.score,author:'alice',subreddit:'gone'}))}});
   for(let i=0;i<4;i++)await tick();
   const top=[...ctx.doc.querySelectorAll('.rt-sra-thread-comments > shreddit-comment[data-rt-ui="archive-thread-comment"]')];
-  assert.equal(top.length,20,'top-level batch of 20');assert.ok(ctx.doc.querySelector('.rt-sra-view-more'));
+  assert.equal(top.length,20,'top-level batch of 20');assert.equal(ctx.doc.querySelector('.rt-sra-view-more,[data-rt-more]'),null);ctx.sa.loadMoreThread();assert.equal(ctx.doc.querySelectorAll('.rt-sra-thread-comments > shreddit-comment').length,25);
   const top0=ctx.doc.getElementById('t1_top0'),shownReplies=[...top0.children].filter(c=>c.dataset.rtUi==='archive-thread-comment');
   assert.equal(shownReplies.length,3,'three replies under a top-level comment');assert.match([...top0.children].find(c=>c.dataset.rtUi==='archive-more-replies').textContent,/3 more replies/);
   assert.equal(ctx.doc.getElementById('t1_d7'),null,'nothing deeper than the depth limit is mounted');
   const link=ctx.doc.querySelector('a[data-rt-ui="archive-more-replies"]');assert.ok(link,'deep replies become a link');assert.match(link.getAttribute('href'),/\/comments\/abc12\/_\/d6\/$/);
   ctx.doc.querySelector('button[data-rt-ui="archive-more-replies"]').click();await new Promise(r=>ctx.W.requestAnimationFrame(r));await tick();
   assert.equal([...top0.children].filter(c=>c.dataset.rtUi==='archive-thread-comment').length,6,'more replies revealed in place');
+});
+
+test('automatic community mode mounts directly, manual mode waits, and disabling restores the native notice',async t=>{
+  const auto=await boot({automatic:true});t.after(()=>auto.W.close());await tick();
+  assert.ok(auto.doc.querySelector('[data-rt-ui="archive-subreddit"]'));assert.equal(auto.doc.querySelector('guard-community-modal').style.display,'none');
+  auto.sa.readSettings=async()=>({enabled:false,automatic:true});await auto.sa.loadSettings();
+  assert.equal(auto.doc.querySelector('[data-rt-ui="archive-subreddit"]'),null);assert.equal(auto.doc.querySelector('guard-community-modal').style.display,'');assert.equal(button(auto.doc),null);
+  const manual=await boot();t.after(()=>manual.W.close());assert.ok(button(manual.doc));assert.equal(manual.doc.querySelector('[data-rt-ui="archive-subreddit"]'),null);
+  const stale=await boot({automatic:true});t.after(()=>stale.W.close());stale.W.history.pushState({},'','/r/live/');stale.sa.scan();assert.equal(stale.doc.querySelector('[data-rt-ui="archive-subreddit"]'),null,'a retained gone-community modal cannot mount on another route');
+});
+
+test('collapsed native navigation preference sets the layout before asynchronous navigation arrives',async t=>{
+  let release;const pending=new Promise(r=>release=r);
+  const ctx=await boot({reddit:async()=>{await pending;return {rendered:true};}});t.after(()=>ctx.W.close());
+  ctx.doc.cookie='hui_flex_nav_expanded_state=0; path=/';button(ctx.doc).click();
+  assert.equal(ctx.sa.layout.classList.contains('flex-nav-collapsed'),true);assert.equal(ctx.sa.layout.classList.contains('flex-nav-expanded'),false);
+  release();await tick();assert.equal(ctx.sa.layout.classList.contains('flex-nav-collapsed'),true);
+});
+
+test('native comment slots, connected siblings and collapsed state survive rerenders and late high-score pages',async t=>{
+  let page=0;
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:++page===1?{ok:true,posts:[comment('p',1500000000,{linkId:'abc12',parentId:'t3_abc12'}),comment('r',1500000001,{linkId:'abc12',parentId:'t1_p'})],cursor:1499999999,hasMore:true}:{ok:true,posts:[comment('late',1400000000,{linkId:'abc12',parentId:'t3_abc12',score:999})],hasMore:false}});t.after(()=>ctx.W.close());await tick();
+  const root=ctx.doc.getElementById('t1_p'),reply=ctx.doc.getElementById('t1_r');reply.slot='children-t1_p-0';root.setAttribute('collapsed','');let disconnects=0;
+  ctx.W.customElements.define('shreddit-comment',class extends ctx.W.HTMLElement{disconnectedCallback(){disconnects++;}});
+  ctx.sa.renderThread();assert.equal(reply.slot,'children-t1_p-0','retain slots assigned by Reddit updateChildren');
+  ctx.sa.loadMoreThread();await tick();
+  assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').firstElementChild,root);assert.equal(reply.parentElement,root);assert.equal(reply.slot,'children-t1_p-0');assert.equal(root.hasAttribute('collapsed'),true);assert.equal(disconnects,0);
 });

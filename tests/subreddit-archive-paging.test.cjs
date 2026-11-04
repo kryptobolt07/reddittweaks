@@ -108,41 +108,48 @@ test('a filter with no matches scans with the halo, then pauses on a clear empty
   assert.equal(ctx.doc.querySelector('[data-rt-more]'),null);assert.equal(halos(ctx.doc).length,0);
 });
 
-test('off-screen cards become same-height placeholders and come back as the same element',async()=>{
-  const ctx=await boot({io:true,pages:()=>[{items:batch('p',100,1500000000),searchedBackTo:1490000000,hasMore:false,cursor:null}]});
-  for(let i=0;i<3;i++)ctx.feedIO.fire([[ctx.sa.sentinel,true]]);assert.equal(cards(ctx.doc).length,100);
-  const list=cards(ctx.doc);list.forEach((node,i)=>{node.getBoundingClientRect=()=>({top:i*300-20000,height:290,bottom:i*300-19710});});
-  assert.ok(list.every(node=>ctx.cardIO.targets.has(node)),'every card is watched');
-  const gone=list.slice(0,40);ctx.cardIO.fire(gone.map(node=>[node,false]));
-  assert.equal(ctx.doc.querySelectorAll('shreddit-post').length,60,'far-away cards are unmounted');
-  const holders=ctx.doc.querySelectorAll('[data-rt-ui="archive-virtual"]');assert.equal(holders.length,40);assert.equal(holders[0].style.height,'300px','the placeholder spans to the next row');
-  assert.deepEqual(ids(ctx.doc),list.map(node=>node.dataset.fullname),'order and identity are kept');
-  ctx.sa.renderList();assert.equal(ctx.doc.querySelectorAll('[data-rt-ui="archive-virtual"]').length,40,'a re-render keeps placeholders');assert.equal(new Set(ids(ctx.doc)).size,100);
-  ctx.cardIO.fire([[holders[0],true]]);assert.equal(cards(ctx.doc)[0],list[0],'the original card returns');assert.equal(ctx.doc.querySelectorAll('shreddit-post').length,61);
-  const focused=list[50];focused.querySelector('a').focus();ctx.cardIO.fire([[focused,false]]);assert.ok(focused.isConnected,'a card holding focus stays');
+test('scrolling and paging retain every loaded native card without blank placeholders or reconnections',async t=>{
+  const ctx=await boot({io:true,pages:()=>[{items:batch('p',100,1500000000),hasMore:false}]});t.after(()=>ctx.W.close());
+  for(let i=0;i<3;i++)ctx.feedIO.fire([[ctx.sa.sentinel,true]]);
+  const original=cards(ctx.doc);let disconnected=0;
+  ctx.W.customElements.define('shreddit-post',class extends ctx.W.HTMLElement{disconnectedCallback(){disconnected++;}});
+  assert.equal(ctx.cardIO,undefined,'no observer unloads native cards');
+  ctx.sa.renderList();ctx.sa.renderList();
+  assert.equal(ctx.doc.querySelectorAll('shreddit-post').length,100);assert.equal(disconnected,0);
+  assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-virtual"]'),null);
+  assert.ok(original.every((node,i)=>node===cards(ctx.doc)[i] && node.isConnected));
 });
 
-test('archived comments load under one halo; more comments use a small inline spinner',async()=>{
+test('initial and subsequent comment pages use one halo and scrolling instead of a load-more button',async t=>{
   const first=gated(),more=gated();let reads=0;
-  const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>{
+  const ctx=await boot({io:true,url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>{
     if(message.action==='archive-ids')return {ok:true,posts:[post('abc12',1500000000)]};
     if(++reads===1){await first.gate;return {ok:true,posts:[comment('c1',1500000001)],hasMore:true,cursor:1500000001};}
-    await more.gate;return {ok:true,posts:[comment('c2',1500000002)],hasMore:false};
-  }});
-  assert.ok(ctx.doc.querySelector('shreddit-post'),'the post is shown while its comments load');
-  assert.equal(halos(ctx.doc).length,1,'first load: one page halo');assert.equal(ctx.doc.querySelector('.rt-sra-foot svg[icon-name="load"]'),null);
-  first.release();await tick();
-  assert.equal(halos(ctx.doc).length,0);assert.equal(ctx.doc.querySelectorAll('shreddit-comment').length,1);
-  ctx.doc.querySelector('[data-rt-more]').click();
-  const button=ctx.doc.querySelector('[data-rt-more]');assert.equal(button.getAttribute('aria-busy'),'true');assert.equal(button.disabled,true);
-  const spinner=button.querySelector('svg[icon-name="load"]');assert.ok(spinner,'Reddit load icon');assert.match(spinner.getAttribute('class'),/animate-spin/);assert.equal(spinner.getAttribute('width'),'16');
-  assert.equal(halos(ctx.doc).length,0,'no page halo for nested paging');
-  more.release();await tick();assert.equal(ctx.doc.querySelectorAll('shreddit-comment').length,2);assert.equal(ctx.doc.querySelector('[data-rt-more]'),null);
+    await more.gate;return {ok:true,posts:[comment('c2',1500000000)],hasMore:false};
+  }});t.after(()=>ctx.W.close());
+  assert.ok(ctx.doc.querySelector('shreddit-post'));assert.equal(halos(ctx.doc).length,1);
+  first.release();await tick();const original=ctx.doc.querySelector('shreddit-comment');
+  assert.equal(ctx.doc.querySelector('[data-rt-more],.rt-sra-view-more,[data-rt-skeleton]'),null);
+  ctx.feedIO.fire([[ctx.sa.sentinel,true]]);ctx.feedIO.fire([[ctx.sa.sentinel,true]]);
+  assert.equal(reads,2,'concurrent sentinel events share the pending page');assert.equal(halos(ctx.doc).length,1);
+  assert.equal(original.isConnected,true);assert.equal(ctx.doc.querySelector('.rt-sra-foot svg[icon-name="load"]'),null);
+  more.release();await tick();assert.equal(ctx.doc.querySelectorAll('shreddit-comment').length,2);assert.equal(halos(ctx.doc).length,0);
 });
 
 test('a collapsed archived comment hides its replies',()=>{
   const W=new JSDOM('<!doctype html><body><section><shreddit-comment class="rt-sra-thread-comment" collapsed=""><shreddit-comment class="rt-sra-thread-comment" slot="children" id="child"></shreddit-comment></shreddit-comment><shreddit-comment class="rt-sra-thread-comment" id="open"><shreddit-comment class="rt-sra-thread-comment" slot="children" id="kept"></shreddit-comment></shreddit-comment></section></body>',{pretendToBeVisual:true}).window;
   const css=fs.readFileSync('extension/subreddit-archive.css','utf8');
-  const rule=css.match(/\.rt-sra-thread-comment\[collapsed\]>\[slot="children"\]\{[^}]*\}/)[0];const style=W.document.createElement('style');style.textContent=rule;W.document.head.append(style);
+  const rule=css.match(/\.rt-sra-thread-comment\[collapsed\]>\[slot\^="children"\]\{[^}]*\}/)[0];const style=W.document.createElement('style');style.textContent=rule;W.document.head.append(style);
   assert.equal(W.getComputedStyle(W.document.getElementById('child')).display,'none');assert.notEqual(W.getComputedStyle(W.document.getElementById('kept')).display,'none');
+});
+
+test('repeated thread cursors stop automatic paging, and empty advancing pages pause after three reads',async t=>{
+  let reads=0;
+  const stuck=await boot({io:true,url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:(reads++,{ok:true,posts:[comment('c1',1500000000)],hasMore:true,cursor:1499999999})});t.after(()=>stuck.W.close());
+  stuck.feedIO.fire([[stuck.sa.sentinel,true]]);await tick();for(let i=0;i<5;i++)stuck.feedIO.fire([[stuck.sa.sentinel,true]]);await tick();
+  assert.equal(reads,2);assert.match(stuck.sa.footEl.textContent,/stopped paging/);assert.equal(halos(stuck.doc).length,0);
+  reads=0;const empty=await boot({io:true,url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:(reads++,{ok:true,posts:[],hasMore:true,cursor:1500000000-reads})});t.after(()=>empty.W.close());
+  for(let i=0;i<8;i++){empty.feedIO.fire([[empty.sa.sentinel,true]]);await tick();}
+  assert.equal(reads,3);assert.match(empty.sa.footEl.textContent,/three pages.*Retry/);assert.equal(halos(empty.doc).length,0);
+  empty.doc.querySelector('[data-rt-retry]').click();await tick();assert.equal(reads,4,'only an explicit retry resumes an empty scan');
 });

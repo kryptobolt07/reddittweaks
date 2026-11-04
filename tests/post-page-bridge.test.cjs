@@ -624,3 +624,10 @@ test('archived community navigation drops the home page’s server-rendered sele
   assert.equal(Boolean(top.querySelector('template')),!defined);
  }
 });
+
+test('community navigation seeds the native collapsed controller before connecting its markup',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/',fetcher:async()=>nativeResponse('<flex-left-nav-container expanded="1" id="left-sidebar-container"><nav>Native sidebar</nav></flex-left-nav-container>')}),target=navigationTarget(e);
+ target.dataset.rtUi='community-navigation';const shell=target.parentElement;shell.dataset.rtUi='archive-subreddit';shell.dataset.rtSubreddit='example';shell.className='grid-container flex-nav-collapsed';
+ const result=await e.send({action:'render-navigation',subreddit:'example',target:target.id});assert.equal(result.rendered,true);
+ const native=target.querySelector('flex-left-nav-container');assert.equal(native.getAttribute('expanded'),'0');assert.equal(native.getAttribute('parent-grid-selector'),'[data-rt-ui="archive-subreddit"]');assert.equal(native.hasAttribute('no-animate'),true);
+});
