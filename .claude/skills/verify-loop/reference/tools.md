@@ -31,7 +31,7 @@ At L3, also run `c raw Page.bringToFront '{}' $S` **and** `c raw Emulation.setFo
 | probe-sheet | One labelled contact sheet for a visual judge, native next to ours | `node scripts/live/probe-sheet.mjs sheet.png 'n.png=Native feed' 'o.png=Ours' --cols 2` |
 | cdp.mjs | Raw CDP: `eval`, `xeval` (extension isolated world), `events` (drains the session), `raw`, `targets` | see header of `scripts/live/cdp.mjs` |
 
-Reading timelines: a new `#id` means the element was replaced, `paint=` shows what is actually drawn at the region's centre, and a new `[doc]` means a full page load. Compare every timeline with the same transition on a native page; only the differences are defects.
+Reading timelines: a new `#id` means the element matched by the region selector was replaced. With a selector list it can also mean a placeholder gave way to the real component inside the same wrapper, which is normal on first render. Before calling it a remount, log the wrapper's own identity (for example its `id`) with a start-of-page MutationObserver. `paint=` shows what is actually drawn at the region's centre, `route` is an in-page navigation, and a new `[doc]` means a full page load. Compare every timeline with the same transition on a native page; only the differences are defects.
 
 ## Extension network and reload (L3)
 - Service-worker requests (for example Arctic Shift): open a page that uses the feature first, which wakes the worker. Then `c targets`, find `service_worker …/cache-broker.js`, `c raw Target.attachToTarget '{"targetId":"<id>","flatten":true}'`, `c raw Network.enable '{}' <sw>`, and later `c events <sw>`. Attach again if the worker restarts.

@@ -14,7 +14,7 @@ const split=value=>String(value).split(/\s+;\s+/).map(x=>x.trim()).filter(Boolea
 const regions=split(options.regions).map(r=>{const i=r.indexOf('=');return [r.slice(0,i).trim(),r.slice(i+1).trim()];});
 const interval=Math.max(10,+(options.interval||30));
 const RUN=Math.random().toString(36).slice(2,8);
-const sampler=`(()=>{if(window['__probeTl_${RUN}'])return;window['__probeTl_${RUN}']=1;${PAGE_HELPERS}
+const sampler=`(()=>{if(!/^https?:$/.test(location.protocol)||window['__probeTl_${RUN}'])return;window['__probeTl_${RUN}']=1;${PAGE_HELPERS}
 const KEY='__probe_tl_${RUN}',T0=+sessionStorage.getItem(KEY+'0')||Date.now();sessionStorage.setItem(KEY+'0',T0);
 const doc=Math.random().toString(36).slice(2,6),ids=new WeakMap();let n=0;const id=e=>{if(!ids.has(e))ids.set(e,++n);return ids.get(e);};
 const push=s=>{try{const a=JSON.parse(sessionStorage.getItem(KEY)||'[]');if(a.length<3000){a.push((Date.now()-T0)+' ['+doc+'] '+s);sessionStorage.setItem(KEY,JSON.stringify(a));}}catch{}};
