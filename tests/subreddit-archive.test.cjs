@@ -404,3 +404,57 @@ test('archived images that are gone become a fixed-size notice instead of a stre
   const thumb=W.RTArchiveView.media([{kind:'preview',url:'https://external-preview.redd.it/gone.jpg'}],{alt:'x',compact:true});
   thumb.querySelector('img').dispatchEvent(new W.Event('error'));assert.match(thumb.textContent,/No image/);
 });
+
+test('masthead matches Reddit’s no-banner geometry and leaves the title colour to Reddit’s token class',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();const {doc,W}=ctx;
+  const style=doc.createElement('style');style.textContent=fs.readFileSync('extension/subreddit-archive.css','utf8');doc.head.append(style);
+  const header=doc.querySelector('[data-rt-ui="archive-header"]'),banner=header.querySelector('.rt-sra-banner'),title=header.querySelector('h1');
+  assert.equal(W.getComputedStyle(banner).height,'64px');assert.equal(W.getComputedStyle(header).paddingTop,'8px');assert.notEqual(W.getComputedStyle(banner).marginTop,'8px','gap stays inside the masthead');
+  assert.equal(W.getComputedStyle(header.querySelector('.rt-sra-avatar')).height,'88px');
+  // 8 + 64 + 88 - 36 = 124px like native r/Design: the row is lifted 36px over the band and gives the 36px back.
+  assert.match(style.textContent,/@media \(min-width:640px\)\{\.rt-sra-header-row\{top:-36px;margin-top:0;margin-bottom:-36px\}\}/);
+  assert.ok(title.classList.contains('text-neutral-content-strong'));
+  assert.equal(W.getComputedStyle(title).color,W.getComputedStyle(doc.body).color,'our CSS does not override Reddit’s text-neutral-content-strong');
+  assert.match(header.querySelector('[data-testid="subreddit-archive-state"]').textContent,/Banned · Archived posts/);
+  ctx.sa.destroy();ctx.W.close();
+});
+test('notice action is content-sized on the row of Reddit’s own button',async()=>{
+  const ctx=await boot(),{doc,W}=ctx,b=button(doc),slot=b.parentElement;
+  const style=doc.createElement('style');style.textContent=fs.readFileSync('extension/subreddit-archive.css','utf8');doc.head.append(style);
+  assert.equal(b.classList.contains('w-100'),false);assert.match(b.className,/button-medium/);assert.match(b.className,/button-secondary/);
+  assert.equal(W.getComputedStyle(slot).marginTop,'0px');assert.equal(W.getComputedStyle(slot).width,'auto');assert.equal(W.getComputedStyle(b).width,'auto');
+  ctx.sa.destroy();ctx.W.close();
+});
+test('feed sidebar shows native-style sections with loaded-post stats that grow and never claim completeness',async()=>{
+  const first=[post('p1',1500000000,{author:'alice'}),post('p2',1490000000,{author:'bob'}),post('p3',1480000000,{author:'alice'}),post('p4',1470000000,{author:'[deleted]'}),post('p5',1460000000,{author:'AutoModerator'})];
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:first,searchedBackTo:1460000000,hasMore:true,cursor:1459999999}]});await tick();const {doc}=ctx;
+  const aside=doc.querySelector('aside#right-sidebar-container'),headings=[...aside.querySelectorAll('h2.rt-sra-sidebar-heading')].map(h=>h.textContent);
+  assert.deepEqual(headings,['About this archive','Archive coverage','Most active posters']);
+  for(const h of aside.querySelectorAll('h2.rt-sra-sidebar-heading'))assert.match(h.className,/uppercase/);
+  assert.equal(aside.querySelector('.rt-sra-about-title').textContent,'r/gone');assert.match(aside.querySelector('.rt-sra-facts').textContent,/Banned/);
+  assert.equal(aside.querySelector('[data-rt-ui="archive-about"] a').href,'https://arctic-shift.photon-reddit.com/');assert.match(aside.querySelector('[data-rt-ui="archive-about"]').textContent,/partial/);
+  // Nothing invented: no created date or members without archive metadata.
+  assert.doesNotMatch(aside.textContent,/Created|Members|members/);
+  const coverage=aside.querySelector('[data-rt-ui="archive-coverage"]');
+  assert.match(coverage.textContent,/5\s*Posts loaded/);assert.match(coverage.querySelector('[data-rt-ui="archive-coverage-range"]').textContent,/2016.*–.*2017/);assert.match(coverage.textContent,/Among loaded posts only/);
+  assert.doesNotMatch(aside.textContent,/\bcomplete\b|\ball posts\b/i);
+  const posters=[...aside.querySelectorAll('[data-rt-ui="archive-posters"] a.rt-sra-poster')];
+  assert.deepEqual(posters.map(a=>a.getAttribute('href')),['/user/alice/','/user/bob/'],'deleted and AutoModerator are not ranked');
+  assert.match(posters[0].textContent,/u\/alice\s*2 posts/);assert.match(aside.querySelector('[data-rt-ui="archive-posters"]').textContent,/among loaded posts/i);
+  assert.deepEqual([...aside.querySelectorAll('[data-rt-ui="archive-legal"] a')].map(a=>a.textContent),['Reddit Rules','Privacy Policy','User Agreement','Accessibility']);
+  // Paging grows the counts in place.
+  ctx.W.RTArchiveQuery.search=async function*(){yield {items:[post('p6',1300000000,{author:'bob'}),post('p7',1290000000,{author:'bob'})],hasMore:false,cursor:null};};
+  ctx.sa.loadMore();await tick();
+  assert.match(coverage.textContent,/7\s*Posts loaded/);assert.match(coverage.textContent,/2010.*–.*2017/);assert.ok(coverage.isConnected,'updated in place');
+  assert.deepEqual([...aside.querySelectorAll('a.rt-sra-poster')].map(a=>a.getAttribute('href')),['/user/bob/','/user/alice/']);
+  ctx.sa.destroy();ctx.W.close();
+});
+test('feed sidebar reports an unreachable archive without counts and thread pages skip loaded-post sections',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>{throw Error('Archive unavailable');}});await tick();
+  assert.match(ctx.doc.querySelector('[data-rt-ui="archive-coverage"]').textContent,/could not be reached/);assert.doesNotMatch(ctx.doc.querySelector('aside').textContent,/Posts loaded/);
+  ctx.sa.destroy();ctx.W.close();
+  const thread=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:{ok:true,posts:[],hasMore:false}});await tick();
+  const aside=thread.doc.querySelector('aside');assert.ok(aside.querySelector('[data-rt-ui="archive-about"]'));assert.ok(aside.querySelector('[data-rt-ui="archive-legal"]'));
+  assert.equal(aside.querySelector('[data-rt-ui="archive-coverage"]'),null);assert.equal(aside.querySelector('[data-rt-ui="archive-posters"]'),null);
+  thread.sa.destroy();thread.W.close();
+});

@@ -239,7 +239,10 @@
       const groups=new Map();for(const spec of specs){if(!groups.has(spec.prefix))groups.set(spec.prefix,new Set());for(const id of spec.chunks)groups.get(spec.prefix).add(id);}await Promise.all([...groups].map(([prefix,chunks])=>window.SML.load([...chunks],prefix,'auto')));
       if(!customElements.get('flex-left-nav-container'))throw Error('Reddit’s navigation controller could not be initialized.');
       for(const script of navigation.querySelectorAll('script'))script.remove();
-      if(communityAllowed)for(const top of navigation.querySelectorAll('left-nav-top-section'))top.setAttribute('selectedpagetype','community');
+      // The fragment comes from the home page, so its server-rendered top section (declarative shadow root) shows
+      // Home selected. A subreddit page selects none: drop that snapshot so the defined element renders itself
+      // from selectedpagetype instead of hydrating the home page's selection.
+      if(communityAllowed)for(const top of navigation.querySelectorAll('left-nav-top-section')){top.setAttribute('selectedpagetype','community');if(customElements.get('left-nav-top-section'))for(const snapshot of top.querySelectorAll(':scope>template[shadowrootmode],:scope>template[shadowroot]'))snapshot.remove();}
       const current=route();if(controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target || target.closest(profileAllowed?'[data-rt-ui="archive-profile"]':'[data-rt-ui="archive-subreddit"]')!==shell || (profileAllowed?(current?.username?current.username.toLowerCase()!==input.username.toLowerCase():!current?.id):communityName()!==input.subreddit.toLowerCase()))throw Error('Page changed. Try again.');
       const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.renderMode='contents';partial.style.display='contents';target.replaceChildren(partial);partial._renderContent(navigation.outerHTML);return {rendered:true};
     })(),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit navigation loading timed out.'));},10000);})]);}finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
