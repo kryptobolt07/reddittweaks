@@ -649,3 +649,14 @@ test('clicking anywhere on blurred NSFW media reveals it instead of opening the 
   const click=new ctx.W.MouseEvent('click',{bubbles:true,cancelable:true,composed:true});img.dispatchEvent(click);
   assert.ok(box.classList.contains('rt-revealed'),'revealed');assert.ok(click.defaultPrevented,'no navigation');assert.equal(opened,0,'post click handlers not reached');
 });
+
+test('following a link out of an archived community never flashes Reddit\'s banned notice',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:[post('a1',1500000000)],searchedBackTo:1500000000,hasMore:false,cursor:null}]});await tick();
+  const modal=ctx.doc.querySelector('guard-community-modal');assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'),'archive mounted');
+  // The URL changes first; Reddit replaces the stale notice only once the new page has loaded.
+  ctx.W.history.pushState({},'','/r/elsewhere/comments/zz1/t/');ctx.sa.scan();await tick();
+  assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'),null,'archive removed');
+  assert.equal(modal.style.getPropertyValue('display'),'none','stale notice stays hidden');
+  ctx.W.history.pushState({},'','/r/gone/');ctx.sa.scan();await tick();
+  assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]') || modal.style.getPropertyValue('display')!=='none','back on the community, archive or notice shows');
+});

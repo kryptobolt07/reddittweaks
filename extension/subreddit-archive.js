@@ -46,7 +46,10 @@
     return '';
   }
   function hold(modal){modal.setAttribute(holdAttr,'true');modal.style.setProperty('display','none','important');}
-  function release(modal){if(!modal || modal.hasAttribute(mountedAttr))return;modal.removeAttribute(holdAttr);modal.style.removeProperty('display');if(!modal.getAttribute('style'))modal.removeAttribute('style');}
+  // A banned-community notice whose community isn't the current route is stale: Reddit is navigating away (the URL
+  // changes before the new page replaces it). Keep it hidden instead of flashing it during the load.
+  function staleModal(modal){const route=location.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})(?:\/|$)/)?.[1];return !route || route.toLowerCase()!==String(modal?.getAttribute('subredditname') || '').toLowerCase();}
+  function release(modal){if(!modal || modal.hasAttribute(mountedAttr))return;if(staleModal(modal)){hold(modal);return;}modal.removeAttribute(holdAttr);modal.style.removeProperty('display');if(!modal.getAttribute('style'))modal.removeAttribute('style');}
   // Reddit's default avatars (one of eight) for authors whose archive record has no avatar.
   const defaultAvatar=(name,size,href)=>{
     if(!globalThis.RTPostModel?.validateUsername(name)){const img=make('img','rounded-full shrink-0 rt-avatar-img rt-avatar-deleted');img.src='https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';img.alt='';img.width=img.height=size;img.decoding='async';img.referrerPolicy='no-referrer';img.style.width=img.style.height=size+'px';return img;}
@@ -151,7 +154,7 @@
       if(!modal)return;
       if(!kind){modal.querySelector('[data-rt-ui="subreddit-archive-action"]')?.remove();release(modal);return;}
       this.ensureButton(modal,kind);
-      if(wanted && !this.mounted)this.mount(modal,kind,thread);
+      if(wanted && !this.mounted)this.mount(modal,kind,thread);else if(!wanted && !this.mounted && modal.hasAttribute(holdAttr))release(modal);
     }
 
     ensureButton(modal,kind){
@@ -209,7 +212,7 @@
       this.headerEl=make('div','masthead w-full relative subreddit-feed-masthead rt-sra-header');this.headerEl.dataset.rtUi='archive-header';this.renderHeader();
       const columns=make('div','main-container gap-lg w-full flex-1 grid place-content-between grid-cols-[minmax(0,1fr)] fixed-sidebar xs:[&.fixed-sidebar]:grid-cols-[minmax(0,756px)_minmax(0,316px)] xs:[&.flex-sidebar]:grid-cols-[minmax(0,756px)_auto]');
       const main=make('main','main w-full min-w-0');main.id='main-content';
-      this.listEl=make('shreddit-feed','nd:visible');this.listEl.dataset.rtArchiveFeed='true';this.listEl.setAttribute('aria-live','polite');
+      this.listEl=make('shreddit-feed','nd:visible');this.listEl.dataset.rtArchiveFeed='true';this.listEl.setAttribute('aria-live','polite');this.startScrollKeeper(this.listEl);
       this.footEl=make('div','rt-sra-foot');this.sentinel=make('div','rt-sra-sentinel');this.sentinel.setAttribute('aria-hidden','true');
       this.statusTop=make('p','rt-sra-note text-12 text-neutral-content-weak');this.statusTop.hidden=true;
       main.append(...(thread?[]:[this.buildControls()]),make('hr','border-0 border-b-sm border-solid border-b-neutral-border-weak'),this.statusTop,this.listEl,this.footEl,this.sentinel);
@@ -224,7 +227,7 @@
       this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();if(!reuse)this.restoreFeedAnchor();this.mountedBefore=true;}
     }
     unmount(){
-      const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState?.anchorKeeper?.();this.threadState=null;
+      const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.scrollKeeper?.stop();this.scrollKeeper=null;this.threadState=null;
       this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
       if(!m.thread)this.feedStash={name:m.name.toLowerCase(),states:this.states,scrollY:this.feedScrollY ?? scrollY,at:Date.now()};
       for(const state of this.states.values())this.retireFeedState(state);
@@ -283,7 +286,7 @@
       const state=this.threadState;if(!state || !this.mounted)return;
       if(!state.commentsEl){
         this.listEl.replaceChildren();state.nodes=new Map();state.commentsEl=make('section','rt-sra-thread-comments');state.commentsEl.setAttribute('aria-label','Archived comments');
-        this.listEl.append(state.commentsEl);state.toolbarEl=this.commentToolbar(state);this.listEl.insertBefore(state.toolbarEl,state.commentsEl);this.keepThreadAnchor(state);
+        this.listEl.append(state.commentsEl);state.toolbarEl=this.commentToolbar(state);this.listEl.insertBefore(state.toolbarEl,state.commentsEl);
       }
       if(state.post && !state.postEl){
         const card=state.postEl=globalThis.RTPostDiscovery.archiveCard(state.post,{thread:true}),native=card.querySelector('shreddit-post');
@@ -394,35 +397,24 @@
       const done=()=>{for(const type of events)removeEventListener(type,stop,{capture:true});};
       requestAnimationFrame(apply);
     }
-    // Keep the comment at the top of the reader's view in place while comments are inserted, revealed or
-    // re-laid out by Reddit (updateChildren runs asynchronously in the page). Returns a function to call after
-    // the synchronous DOM change; it then keeps correcting for ~0.8 s unless the user scrolls.
-    holdScroll(){
-      if(!this.listEl?.isConnected || scrollY<=0 || typeof document.elementFromPoint!=='function')return null;
-      this.scrollHold?.cancel();
-      const left=this.listEl.getBoundingClientRect().left+48;let anchor=null;
-      for(const y of [140,220,340,480]){const hit=document.elementFromPoint(left,y);anchor=hit?.closest?.('shreddit-comment[data-rt-ui="archive-thread-comment"],.rt-sra-thread-post,[data-rt-archive-feed] > .rt-native-card');if(anchor)break;}
-      if(!anchor)return null;
-      const top=anchor.getBoundingClientRect().top,events=['wheel','touchmove','keydown','mousedown'];let user=false,cancelled=false;const stop=()=>{user=true;};
-      for(const type of events)addEventListener(type,stop,{passive:true,capture:true});
-      const done=()=>{cancelled=true;for(const type of events)removeEventListener(type,stop,{capture:true});if(this.scrollHold===hold)this.scrollHold=null;};
-      const fix=()=>{if(cancelled)return;if(user || !anchor.isConnected){done();return;}const delta=anchor.getBoundingClientRect().top-top;if(Math.abs(delta)>=1)scrollBy(0,delta);};
-      const until=performance.now()+800,loop=()=>{if(cancelled)return;fix();if(performance.now()<until)setTimeout(loop,16);else done();};
-      const hold={cancel:()=>{fix();done();}};this.scrollHold=hold;
-      return ()=>{fix();setTimeout(loop,0);};
-    }
-    // While a thread is read, keep the comment at the top of the screen in place when anything above it changes
-    // size later (images, avatars, Reddit's components upgrading). Corrections happen before paint, so nothing jumps.
-    keepThreadAnchor(state){
-      state.anchorKeeper?.();const list=this.listEl;if(typeof ResizeObserver!=='function' || !list || typeof document.elementFromPoint!=='function')return;
-      let anchor=null,top=0,userAt=0,own=false,pending=0;
-      const pick=()=>{pending=0;anchor=null;if(scrollY<=0 || !list.isConnected)return;const left=list.getBoundingClientRect().left+48;
-        for(const y of [140,220,340]){const hit=document.elementFromPoint(left,y)?.closest?.('shreddit-comment[data-rt-ui="archive-thread-comment"],[data-rt-ui="archive-comment-toolbar"]');if(hit && list.contains(hit)){anchor=hit;top=hit.getBoundingClientRect().top;return;}}};
-      const onUser=()=>{userAt=performance.now();},onScroll=()=>{if(own){own=false;return;}if(!pending)pending=setTimeout(pick,60);};
-      const observer=new ResizeObserver(()=>{if(!anchor?.isConnected || performance.now()-userAt<150 || this.scrollHold)return;const delta=anchor.getBoundingClientRect().top-top;if(Math.abs(delta)>=1){own=true;scrollBy(0,delta);}});
-      observer.observe(list);const events=['wheel','touchmove','keydown','mousedown'];
-      for(const type of events)addEventListener(type,onUser,{passive:true,capture:true});addEventListener('scroll',onScroll,{passive:true});
-      state.anchorKeeper=()=>{observer.disconnect();clearTimeout(pending);for(const type of events)removeEventListener(type,onUser,{capture:true});removeEventListener('scroll',onScroll);if(state.anchorKeeper)state.anchorKeeper=null;};
+    // Around a synchronous list change: note what the reader is looking at now, and correct right after the change.
+    holdScroll(){const keeper=this.scrollKeeper;if(!keeper)return null;keeper.pick();return ()=>keeper.check();}
+    // Keeps what the reader is looking at in place when anything above it changes size (new comments or posts,
+    // loaders, images, avatars, Reddit's components upgrading). Positions are measured in the page, not the
+    // window, so the reader's own scrolling (even mid smooth-scroll) is never mistaken for a shift. The browser's
+    // own scroll anchoring is turned off for the list so the two never correct the same shift twice.
+    startScrollKeeper(list){
+      this.scrollKeeper?.stop();this.scrollKeeper=null;
+      if(typeof ResizeObserver!=='function' || typeof document.elementFromPoint!=='function')return;
+      list.style.overflowAnchor='none';
+      let anchor=null,docTop=0,timer=0,stopped=false;
+      const pick=()=>{clearTimeout(timer);timer=0;anchor=null;if(stopped || this.restoringFeed || scrollY<=0 || !list.isConnected)return;const left=list.getBoundingClientRect().left+48;
+        for(const y of [140,220,340,480]){const hit=document.elementFromPoint(left,y)?.closest?.('shreddit-comment[data-rt-ui="archive-thread-comment"],[data-rt-ui="archive-comment-toolbar"],.rt-sra-thread-post,[data-rt-archive-feed] > .rt-native-card');if(hit && list.contains(hit)){anchor=hit;docTop=hit.getBoundingClientRect().top+scrollY;return;}}};
+      const check=()=>{if(stopped || this.restoringFeed){anchor=null;return;}if(!anchor?.isConnected){pick();return;}
+        const now=anchor.getBoundingClientRect().top+scrollY,delta=now-docTop;if(Math.abs(delta)<1)return;docTop=now;if(scrollY>0)scrollBy(0,delta);};
+      const onScroll=()=>{if(!timer)timer=setTimeout(pick,50);};
+      const observer=new ResizeObserver(check);observer.observe(list);addEventListener('scroll',onScroll,{passive:true});
+      this.scrollKeeper={pick,check,stop:()=>{stopped=true;observer.disconnect();clearTimeout(timer);removeEventListener('scroll',onScroll);}};
     }
     // Reddit's comment toolbar: "Sort by" (Best/Top/New/Old, computed from loaded archive comments; the
     // archive can't do Controversial or Q&A) and "Search Comments" over the loaded comments.
