@@ -516,3 +516,16 @@ test('worker-forwarded settings update the mounted reader when content-script st
   enabled=false;listener({scope:'rt-posts',action:'settings-changed'});await tick();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'),null);assert.equal(ctx.doc.querySelector('guard-community-modal').style.display,'');
   enabled=true;listener({scope:'rt-posts',action:'settings-changed'});await tick();assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'));sa.destroy();assert.equal(listener,null);
 });
+
+test('returning from a post to the archive feed reuses its loaded cards and restores the saved scroll position',async()=>{
+  const ctx=await boot();await open(ctx);await tick();
+  const before=[...ctx.doc.querySelectorAll('.rt-native-card')],searches=ctx.calls.length;assert.ok(before.length>0);
+  let restored=null;ctx.sa.restoreFeedScroll=target=>{restored=target;};
+  ctx.sa.feedScrollY=640;
+  await goTo(ctx,'/r/gone/comments/abc12/title/');assert.ok(ctx.sa.mounted.thread,'post page mounted');
+  ctx.sa.feedScrollY=0;// a scroll event during navigation must not overwrite the saved position (route is the post now)
+  await goTo(ctx,'/r/gone/?rt_view=archive');
+  const after=[...ctx.doc.querySelectorAll('.rt-native-card')];
+  assert.equal(after.length,before.length);assert.ok(after.every((card,i)=>card===before[i]),'same card elements, no rebuild');
+  assert.equal(ctx.calls.length,searches,'no new archive request');assert.equal(restored,640);
+});

@@ -103,6 +103,8 @@
       this.getOwner=getOwner || (()=>globalThis.RCSDirectory?.getOwner?.() || globalThis.RCSMessages?.getSelfIdentity?.()?.id || '');
       this.enabled=null;this.mounted=null;this.search=null;this.states=new Map();this.top=false;this.openMenuEl=null;this.dead=false;this.meta=null;this.metaName='';
       this.onRoute=()=>this.scan();
+      this.onScroll=()=>{if(this.mounted && !this.mounted.thread && viewRequested() && !threadRoute())this.feedScrollY=scrollY;};
+      addEventListener('scroll',this.onScroll,{passive:true});
       this.onDocClick=event=>{if(this.openMenuEl && !this.openMenuEl.parentElement.contains(event.target))this.closeMenus();};
       this.onKey=event=>{if(event.key==='Escape' && this.openMenuEl){const button=this.openMenuEl.parentElement.querySelector('button');this.closeMenus();button?.focus({preventScroll:true});}};
       document.addEventListener('click',this.onDocClick,true);document.addEventListener('keydown',this.onKey,true);
@@ -122,7 +124,7 @@
     }
     destroy(){
       if(this.dead)return;this.dead=true;this.observer?.disconnect();window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
-      document.removeEventListener('click',this.onDocClick,true);document.removeEventListener('keydown',this.onKey,true);
+      removeEventListener('scroll',this.onScroll);document.removeEventListener('click',this.onDocClick,true);document.removeEventListener('keydown',this.onKey,true);
       try{chrome.storage?.onChanged?.removeListener(this.onSettings);chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}this.unmount();this.unmountSearch();this.keptNavigationController?.abort();this.keptNavigation=this.keptNavigationController=null;
     }
 
@@ -186,7 +188,9 @@
     // ---- feed page ----------------------------------------------------------------------------------------------
     mount(modal,kind,thread=null){
       const name=modal.getAttribute('subredditname'),f=globalThis.RTFeedFilters,params=new URLSearchParams(location.search);
-      this.name=name;this.kind=kind;this.filters=f?f.read(location):null;this.top=params.get('rt_top')==='1';this.states=new Map();
+      this.name=name;this.kind=kind;this.filters=f?f.read(location):null;this.top=params.get('rt_top')==='1';
+      const stash=this.feedStash,reuse=stash && stash.name===name.toLowerCase() && Date.now()-stash.at<30*60*1000;if(stash && !reuse)this.feedStash=null;
+      this.states=!thread && reuse?stash.states:new Map();if(!thread && reuse){this.feedStash=null;for(const state of this.states.values())state.loading=false;this.restoreFeedScroll(stash.scrollY);}
       modal.setAttribute(mountedAttr,'true');hold(modal);
       const layout=this.layout=make('div','grid-container theme-rpl grid '+this.navigationClass());layout.dataset.rtUi='archive-subreddit';layout.dataset.rtSubreddit=name;layout.dir='ltr';
       const subgrid=make('div','subgrid-container m:col-start-2 box-border flex flex-col order-2 w-full m:w-[1120px] xs:px-md m:px-lg mx-auto min-h-[calc(100dvh_-_var(--shreddit-header-height))] justify-stretch');subgrid.id='subgrid-container';
@@ -210,6 +214,7 @@
     unmount(){
       const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState=null;
       this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
+      if(!m.thread)this.feedStash={name:m.name.toLowerCase(),states:this.states,scrollY:this.feedScrollY ?? scrollY,at:Date.now()};
       for(const state of this.states.values())this.retireFeedState(state);
       if(this.recentPosts?.size>600)this.recentPosts=new Map([...this.recentPosts].slice(-300));
       // Keep the left nav (rendered, loading, or showing its fallback): the next mount of the same community moves it
@@ -276,7 +281,7 @@
       }
       const comments=state.commentsEl,nodes=state.nodes,items=new Map(state.items.map(item=>[item.fullname,item]));
       for(const item of state.items)if(!nodes.has(item.fullname))nodes.set(item.fullname,this.threadComment(item));
-      const changed=this.placeComments(state,items,nodes,comments);
+      const hold=this.holdScroll();const changed=this.placeComments(state,items,nodes,comments);hold?.();
       if(state.items.length && !state.nativeModulesRequested && !state.nativeModulesError){state.nativeModulesRequested=true;state.modulesController=new AbortController();this.reddit({action:'load-archive-comment-modules',postId:state.route.postId},state.modulesController.signal).catch(error=>{if(this.threadState!==state)return;state.nativeModulesRequested=false;state.nativeModulesError=error.message || 'Reddit comment components are unavailable.';this.renderThread();});}
       if(changed)this.reddit({action:'refresh-archive-thread',postId:state.route.postId}).catch(()=>{});
       this.statusTop.hidden=true;this.statusTop.textContent='';
@@ -295,6 +300,34 @@
     // Reddit-like comment tree: best-first (score, as the archive has no "Best"), TOP_BATCH top-level comments,
     // a few replies per comment with "N more replies", and at most MAX_DEPTH+1 levels; deeper replies are a link
     // to that comment's own page. The focused comment's chain is always shown. Nodes are reused, never rebuilt.
+    // Returning to the feed from a post: Reddit (or the browser) may scroll first, and the reused cards need a
+    // layout pass. Re-apply the saved position for a short while, and stop as soon as the user scrolls.
+    restoreFeedScroll(target){
+      if(!(target>0))return;this.feedScrollY=target;let user=false;const stop=()=>{user=true;},events=['wheel','touchmove','keydown','mousedown'];
+      for(const type of events)addEventListener(type,stop,{passive:true,capture:true});
+      const until=performance.now()+1500,apply=()=>{if(user || this.mounted?.thread || !this.mounted){done();return;}
+        const max=document.documentElement.scrollHeight-innerHeight;if(Math.abs(scrollY-target)>2 && max>=target-2)scrollTo(0,target);
+        if(performance.now()<until)requestAnimationFrame(apply);else done();};
+      const done=()=>{for(const type of events)removeEventListener(type,stop,{capture:true});};
+      requestAnimationFrame(apply);
+    }
+    // Keep the comment at the top of the reader's view in place while comments are inserted, revealed or
+    // re-laid out by Reddit (updateChildren runs asynchronously in the page). Returns a function to call after
+    // the synchronous DOM change; it then keeps correcting for ~0.8 s unless the user scrolls.
+    holdScroll(){
+      if(!this.listEl?.isConnected || scrollY<=0 || typeof document.elementFromPoint!=='function')return null;
+      this.scrollHold?.cancel();
+      const left=this.listEl.getBoundingClientRect().left+48;let anchor=null;
+      for(const y of [140,220,340,480]){const hit=document.elementFromPoint(left,y);anchor=hit?.closest?.('shreddit-comment[data-rt-ui="archive-thread-comment"],.rt-sra-thread-post');if(anchor)break;}
+      if(!anchor)return null;
+      const top=anchor.getBoundingClientRect().top,events=['wheel','touchmove','keydown','mousedown'];let user=false,cancelled=false;const stop=()=>{user=true;};
+      for(const type of events)addEventListener(type,stop,{passive:true,capture:true});
+      const done=()=>{cancelled=true;for(const type of events)removeEventListener(type,stop,{capture:true});if(this.scrollHold===hold)this.scrollHold=null;};
+      const fix=()=>{if(cancelled)return;if(user || !anchor.isConnected){done();return;}const delta=anchor.getBoundingClientRect().top-top;if(Math.abs(delta)>=1)scrollBy(0,delta);};
+      const until=performance.now()+800,loop=()=>{if(cancelled)return;fix();if(performance.now()<until)requestAnimationFrame(loop);else done();};
+      const hold={cancel:()=>{fix();done();}};this.scrollHold=hold;
+      return ()=>{fix();requestAnimationFrame(loop);};
+    }
     placeComments(state,items,nodes,root){
       state.shownTop ??= TOP_BATCH;state.shownReplies ||= new Map();state.moreEls ||= new Map();state.childOrder ||= new Map();let changed=false;
       const depthOf=new Map(),parentOf=new Map();
