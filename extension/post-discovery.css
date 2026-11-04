@@ -281,3 +281,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-media-unavailable-frame{background:var(--color-neutral-background-weak,#f6f8f9)}
 .rt-media-unavailable{display:flex;align-items:center;justify-content:center;min-height:120px;padding:12px;text-align:center;font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-media-unavailable-compact{min-height:0;height:100%;padding:4px}
+
+/* Profile search: our Feed options items are inline in Reddit's sort row; the original pill only anchors menus. */
+button.rt-feed-trigger-anchor{position:fixed!important;opacity:0!important;pointer-events:none!important;min-width:0!important;padding:0!important;overflow:hidden}
+.rt-search-inline-filter{white-space:nowrap}
