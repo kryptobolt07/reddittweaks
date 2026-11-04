@@ -57,7 +57,27 @@
     if(!result.length)add(raw.thumbnail,'thumbnail');
     return result;
   }
-  function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true,restoreDeletedContent:raw?.restoreDeletedContent!==false,subredditArchive:raw?.subredditArchive===true,subredditArchiveAutomatic:raw?.subredditArchiveAutomatic===true};}
+  function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true,restoreDeletedContent:raw?.restoreDeletedContent!==false,subredditArchive:raw?.subredditArchive===true,subredditArchiveAutomatic:raw?.subredditArchiveAutomatic===true,cleanShareLinks:raw?.cleanShareLinks===true};}
+  // Strip share tracking without resolving URLs or touching message/clipboard contents that are not a single URL.
+  function cleanShareUrl(value,canonical=''){
+    if(typeof value!=='string' || value!==value.trim())return value;
+    let url;try{url=new URL(value);}catch{return value;}
+    if(url.protocol!=='https:' || url.username || url.password || url.port)return value;
+    if(url.hostname==='redd.it' && /^\/[a-z0-9]{1,10}\/?$/i.test(url.pathname))return 'https://www.reddit.com/comments/'+url.pathname.split('/')[1]+'/';
+    if(!['reddit.com','www.reddit.com','old.reddit.com','new.reddit.com','sh.reddit.com','m.reddit.com'].includes(url.hostname))return value;
+    const permalink=/^\/(?:(?:r|user)\/[^/]+\/)?comments\/[a-z0-9]{1,10}(?:\/[^?#]*)?$/i;
+    const short=url.pathname.match(/^\/(?:r\/([A-Za-z0-9_]{2,21})\/)?s\/[A-Za-z0-9_-]+\/?$/);
+    if(short){
+      let target;try{target=new URL(canonical,'https://www.reddit.com');}catch{return value;}
+      const sub=target.pathname.match(/^\/r\/([^/]+)\//i)?.[1];
+      if(target.protocol!=='https:' || !['reddit.com','www.reddit.com'].includes(target.hostname) || target.username || target.password || target.port || !permalink.test(target.pathname) || short[1] && sub?.toLowerCase()!==short[1].toLowerCase())return value;
+      url=target;
+    }
+    if(permalink.test(url.pathname)){url.hostname='www.reddit.com';url.search='';url.hash='';return url.href;}
+    // Functional parameters on searches, feeds and profiles remain intact.
+    for(const key of [...url.searchParams.keys()])if(/^(?:utm_.+|share_id|share_token|rdt|ref|ref_source)$/i.test(key))url.searchParams.delete(key);
+    return url.href;
+  }
   function snapshotStatus(raw,body){
     if(body==='[deleted]' || raw.removed_by_category==='deleted' || raw.status==='deleted')return 'deleted';
     if(body==='[removed]' || raw.removed_by_category || raw.status==='removed')return 'removed';
@@ -212,5 +232,5 @@
       isSelf:item.isSelf ?? item.is_self ?? nativeSelf,nsfw:item.nsfw ?? item.over_18 ?? item.over18 ?? flag('nsfw','is-nsfw'),
       spoiler:item.spoiler ?? flag('spoiler','is-spoiler'),type:comment?undefined:type,created:item.created ?? item.created_utc ?? attr('created-timestamp')};
   }
-  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,searchRecord});
+  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,cleanShareUrl,searchRecord});
 })();
