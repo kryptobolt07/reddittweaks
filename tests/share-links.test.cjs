@@ -55,3 +55,10 @@ test('native promise-backed ClipboardItem writes keep user activation and clean 
  const image=new W.ClipboardItem({'image/png':new Blob(['image'])});W.navigator.clipboard.write([image]);assert.equal(writeItems[0],image,'image and rich clipboard payloads are untouched');
  W.document.dispatchEvent(new W.CustomEvent('rt-clean-share-settings',{detail:false}));W.navigator.clipboard.write([item]);assert.equal(writeItems[0],item,'opt-out passes the original item through');
 });
+
+test('a later native clipboard integration still receives clean URLs and retains its original feedback promise',async t=>{
+ const {W,toggle}=setup(t);toggle(true);const writes=[],feedback=Promise.resolve();W.navigator.clipboard.writeText=function(value){writes.push(value);return feedback;};
+ W.document.body.innerHTML='<shreddit-post permalink="/r/example/comments/abc12/title/"><button>Share</button></shreddit-post>';W.document.querySelector('button').click();
+ const result=W.navigator.clipboard.writeText('https://www.reddit.com/r/example/s/opaque?share_id=token');assert.equal(result,feedback);await result;assert.deepEqual(writes,['https://www.reddit.com/r/example/comments/abc12/title/']);
+ W.document.querySelector('button').click();await W.navigator.clipboard.writeText('https://www.reddit.com/r/example/s/second');assert.equal(writes.length,2,'repeated Share gestures do not duplicate writes');
+});
