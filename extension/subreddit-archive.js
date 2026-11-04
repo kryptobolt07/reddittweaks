@@ -65,6 +65,8 @@
   const safeAvatar=value=>{if(typeof value!=='string' || value.length>2048)return '';try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && !url.port && avatarHosts.has(url.hostname) && (!url.pathname.includes('/snoovatar/avatars/') || /-headshot\.[a-z]+$/i.test(url.pathname))?url.href:'';}catch{return '';}};
   // Automatic retries for temporary archive failures: attempts and the wait before each (ms).
   const AUTO_RETRIES=3,AUTO_RETRY_WAITS=[2000,5000,12000];
+  const redditSearchIcon=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'search'}))svg.setAttribute(k,v);
+    const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M19.5 18.616 14.985 14.1a8.528 8.528 0 1 0-.884.884l4.515 4.515.884-.884ZM1.301 8.553a7.253 7.253 0 1 1 7.252 7.253 7.261 7.261 0 0 1-7.252-7.253Z');svg.append(path);return svg;};
   const viewRequested=()=>new URLSearchParams(location.search).get('rt_view')==='archive';
   function setParams(changes){
     const url=new URL(location.href);
@@ -281,7 +283,7 @@
       const state=this.threadState;if(!state || !this.mounted)return;
       if(!state.commentsEl){
         this.listEl.replaceChildren();state.nodes=new Map();state.commentsEl=make('section','rt-sra-thread-comments');state.commentsEl.setAttribute('aria-label','Archived comments');
-        this.listEl.append(state.commentsEl);
+        this.listEl.append(state.commentsEl);state.toolbarEl=this.commentToolbar(state);this.listEl.insertBefore(state.toolbarEl,state.commentsEl);
       }
       if(state.post && !state.postEl){
         const card=state.postEl=globalThis.RTPostDiscovery.archiveCard(state.post,{thread:true}),native=card.querySelector('shreddit-post');
@@ -409,13 +411,45 @@
       const hold={cancel:()=>{fix();done();}};this.scrollHold=hold;
       return ()=>{fix();setTimeout(loop,0);};
     }
+    // Reddit's comment toolbar: "Sort by" (Best/Top/New/Old, computed from loaded archive comments; the
+    // archive can't do Controversial or Q&A) and "Search Comments" over the loaded comments.
+    commentToolbar(state){
+      const bar=make('div','flex flex-wrap items-center gap-sm rt-sra-comment-toolbar');bar.dataset.rtUi='archive-comment-toolbar';
+      const labels={best:'Best',top:'Top',new:'New',old:'Old'},f=globalThis.RTFeedFilters;
+      let menu=null;const sort=this.dropdown('Sort by: '+labels[state.commentSort || 'best'],el=>{menu=el;});
+      const build=()=>{menu.replaceChildren();for(const [key,label] of Object.entries(labels)){
+        const choose=()=>{this.closeMenus();if((state.commentSort || 'best')===key)return;state.commentSort=key;state.childOrder=new Map();state.shownTop=TOP_BATCH;state.shownReplies=new Map();sort.text.textContent='Sort by: '+label;this.renderThread();state.toolbarEl?.scrollIntoView?.({block:'start'});};
+        let el;if(f?.menuOption){el=f.menuOption(f.plainContext(glyph,{role:'menuitemradio'}),{label,icon:false,value:key,checked:(state.commentSort || 'best')===key,onSelect:choose});}
+        else{el=make('button','rt-sra-menu-row',label);el.type='button';el.addEventListener('click',choose);}
+        el.dataset.rtUi='filter-option';el.setAttribute('aria-checked',String((state.commentSort || 'best')===key));menu.append(el);}};
+      build();sort.button.addEventListener('click',build,true);
+      sort.button.setAttribute('aria-label','Sort comments');
+      const box=make('label','rt-sra-comment-search'),input=make('input');input.type='search';input.placeholder='Search Comments';input.setAttribute('aria-label','Search loaded archived comments');
+      box.append(redditSearchIcon(),input);
+      let timer;input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{state.commentQuery=input.value.trim();this.renderCommentSearch(state);},150);});
+      bar.append(sort.wrap,box);return bar;
+    }
+    renderCommentSearch(state){
+      const query=(state.commentQuery || '').toLowerCase();state.commentsEl.hidden=Boolean(query);
+      if(!query){state.searchEl?.remove();state.searchEl=null;return;}
+      const results=state.searchEl ||= make('section','rt-sra-comment-results');results.dataset.rtUi='archive-comment-results';if(!results.isConnected)state.commentsEl.after(results);
+      const hits=state.items.filter(item=>String(item.body || '').toLowerCase().includes(query) || String(item.author || '').toLowerCase().includes(query));
+      results.replaceChildren(make('p','rt-sra-note',hits.length+' of '+state.items.length+' loaded archived comments match · Coverage may be partial'));
+      for(const item of hits.slice(0,100)){
+        const row=make('a','rt-sra-comment-hit');row.href='/r/'+encodeURIComponent(this.name)+'/comments/'+state.route.postId+'/_/'+item.id+'/';
+        const meta=make('span','rt-sra-comment-hit-meta');meta.append(make('span','font-bold',item.author || '[deleted]'),make('span','',' • '),this.time(item.created));
+        const text=make('span','rt-sra-comment-hit-body'),body=String(item.body || ''),at=body.toLowerCase().indexOf(query),start=Math.max(0,at-60);
+        if(at>=0){text.append((start?'…':'')+body.slice(start,at));const mark=make('mark','',body.slice(at,at+query.length));text.append(mark,body.slice(at+query.length,at+query.length+160)+'…');}else text.textContent=body.slice(0,200);
+        row.append(meta,text);results.append(row);
+      }
+    }
     placeComments(state,items,nodes,root){
       state.shownTop ??= TOP_BATCH;state.shownReplies ||= new Map();state.moreEls ||= new Map();state.childOrder ||= new Map();let changed=false;
       const depthOf=new Map(),parentOf=new Map();
       for(const item of state.items){let ancestor=item.parentId,cycle=false;const visited=new Set([item.fullname]);while(items.has(ancestor)){if(visited.has(ancestor)){cycle=true;break;}visited.add(ancestor);ancestor=items.get(ancestor).parentId;}
         depthOf.set(item.fullname,cycle?0:visited.size-1);parentOf.set(item.fullname,!cycle && items.has(item.parentId)?item.parentId:'root');}
       const kids=new Map();for(const item of state.items){const key=parentOf.get(item.fullname);if(!kids.has(key))kids.set(key,[]);kids.get(key).push(item);}
-      const best=(a,b)=>(b.score||0)-(a.score||0) || a.created-b.created;
+      const sort=state.commentSort || 'best',best=sort==='new'?(a,b)=>b.created-a.created:sort==='old'?(a,b)=>a.created-b.created:(a,b)=>(b.score||0)-(a.score||0) || a.created-b.created;
       // Rank each incoming batch, then append it. Late archive pages must not reshuffle comments already being read.
       for(const [key,list] of kids){const order=state.childOrder.get(key) || [];for(const item of [...list].sort(best))if(!order.includes(item.fullname))order.push(item.fullname);state.childOrder.set(key,order);const ranks=new Map(order.map((id,index)=>[id,index]));list.sort((a,b)=>ranks.get(a.fullname)-ranks.get(b.fullname));}
       const forced=new Set();let focus=state.route.focusId?'t1_'+state.route.focusId:null;while(focus && items.has(focus) && !forced.has(focus)){forced.add(focus);focus=parentOf.get(focus);}

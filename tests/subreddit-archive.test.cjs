@@ -608,3 +608,18 @@ test('deleted authors get Reddit\'s grey silhouette avatar and no profile lookup
   const card=W.RTPostDiscovery.archiveCard(archived(W,{id:'del1',author:'[deleted]',is_self:true,selftext:'x'})).querySelector('shreddit-post');
   const img=card.querySelector('[slot="credit-bar"] img');assert.match(img.src,/snoovatar-back-64x64px\.png$/);assert.equal(img.dataset.rtAvatarUser,undefined);assert.ok(img.classList.contains('rt-avatar-img'));
 });
+
+test('archived threads offer Reddit\'s comment Sort by (Best/Top/New/Old) and Search Comments over loaded comments',async()=>{
+  const recs=[comment('c1',1500000100,{linkId:'abc12',parentId:'t3_abc12',score:5,body:'apple pie'}),comment('c2',1500000200,{linkId:'abc12',parentId:'t3_abc12',score:50,body:'banana'}),comment('c3',1500000300,{linkId:'abc12',parentId:'t3_abc12',score:1,body:'cherry apple'})];
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:{ok:true,posts:recs.map(r=>({...r,link_id:'t3_abc12',parent_id:r.parentId,created_utc:r.created,author:'alice',subreddit:'gone'}))}});
+  for(let i=0;i<4;i++)await tick();
+  const order=()=>[...ctx.doc.querySelectorAll('.rt-sra-thread-comments > shreddit-comment')].map(n=>n.id);
+  assert.deepEqual(order(),['t1_c2','t1_c1','t1_c3'],'Best: by score');
+  const bar=ctx.doc.querySelector('[data-rt-ui="archive-comment-toolbar"]');assert.match(bar.textContent,/Sort by: Best/);
+  bar.querySelector('.rt-sra-dropdown-button').click();[...bar.querySelectorAll('[data-rt-ui="filter-option"]')].find(o=>/New/.test(o.textContent)).click();await tick();
+  assert.deepEqual(order(),['t1_c3','t1_c2','t1_c1'],'New: newest first');assert.match(bar.textContent,/Sort by: New/);
+  const input=bar.querySelector('input[type="search"]');input.value='apple';input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));
+  const results=ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]');assert.match(results.textContent,/2 of 3 loaded archived comments match/);assert.equal(results.querySelectorAll('.rt-sra-comment-hit').length,2);
+  assert.ok(ctx.doc.querySelector('.rt-sra-thread-comments').hidden);
+  input.value='';input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').hidden,false);
+});
