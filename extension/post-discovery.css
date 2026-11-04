@@ -170,7 +170,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-filter-chip{display:inline-flex;flex:0 0 auto;align-items:center;gap:5px;min-width:0;max-width:min(260px,75vw);min-height:26px;box-sizing:border-box;padding:2px 4px 2px 8px;border:1px solid color-mix(in srgb,#ff4500 22%,var(--color-neutral-border,#dfe6e9));border-radius:999px;background:color-mix(in srgb,#ff4500 6%,var(--color-neutral-background,#fff));color:var(--color-neutral-content-strong,#172328);font-size:12px;font-weight:400;line-height:1.35}
 .rt-filter-chip-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px;border-radius:50%;overflow:hidden;color:var(--color-neutral-content-weak,#52656c)}
 .rt-filter-chip-icon svg{width:14px;height:14px}
-.rt-filter-chip-icon img,.rt-filter-chip-icon .rt-community-img{width:16px;height:16px;object-fit:cover;object-position:50% 0%;border-radius:50%}
+.rt-filter-chip-icon img,.rt-filter-chip-icon .rt-community-img{display:block;width:16px;height:16px;object-fit:cover;object-position:50% 50%;border-radius:50%}
 .rt-filter-chip-icon:has(img){width:16px;height:16px}
 .rt-filter-chip-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-filter-chip-remove{order:10;display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:18px;margin-left:1px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
@@ -183,6 +183,8 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 /* The posts status line sits on its own line under the chips, never beside or behind them. */
 .rt-posts-toolbar{flex-wrap:wrap}
 .rt-posts-toolbar .rt-posts-status[data-error=true],.rt-posts-toolbar .rt-posts-notice{flex:1 1 100%;margin-inline:0;position:static}
+/* Stacked rows share one left edge (the side-by-side gap would indent the second row). */
+.rt-posts-toolbar .rt-posts-status[data-error=true]+.rt-posts-notice{margin-inline-start:0}
 
 /* Rows for menus outside Reddit's rpl-menu (profile search page, subreddit archive popover): same height, padding and hover. */
 .rt-menu-row{display:flex;align-items:center;box-sizing:border-box;min-height:48px;padding:0 16px;font-size:14px;line-height:20px;color:var(--color-neutral-content-strong,#0f1a1c);cursor:pointer;user-select:none}
@@ -208,7 +210,9 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-community-icon.rt-menu-lead{width:var(--rt-icon-size,24px);height:var(--rt-icon-size,24px)}
 .rt-community-icon svg{width:100%;height:100%}
 /* Community icons are square; profile Snoovatars are tall full-body images: crop both to a centred circle, head first. */
-.rt-community-icon img,.rt-community-icon .rt-community-img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 0%;border-radius:50%}
+.rt-community-icon img,.rt-community-icon .rt-community-img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 50%;border-radius:50%}
+/* Profile (u_) icons are full-body avatars: keep the head in view. */
+.rt-community-icon[data-rt-community^="u_" i] img,.rt-filter-chip-icon[data-rt-community^="u_" i] img{object-position:50% 0%}
 .rt-community-img{display:block;object-fit:cover;border-radius:50%}
 /* Shared submenu primitives. Legacy search-page menus keep their existing sizing. */
 .rt-activity-submenu{max-height:calc(100dvh - 180px);overflow-y:auto;overscroll-behavior:contain}
