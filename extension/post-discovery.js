@@ -875,7 +875,10 @@
       const row=document.querySelector('search-sort-dropdown-menu')?.closest('div.flex.items-center');if(!dropdown || !main || !trigger || !row)return;
       let bar=this.searchInlineBar;if(!bar?.isConnected){bar=this.searchInlineBar=make('div','contents');bar.dataset.rtUi='search-inline-filters';row.append(bar);this.searchInlineButtons=new Map();}
       trigger.classList.add('rt-feed-trigger-anchor');
-      const rows=[...main.querySelectorAll('*')].filter(el=>el.rtSubmenu && el.rtLabel && !el.hidden && !el.closest('[hidden]'));
+      // Reddit's own sort button is already in this row: our Sort row would duplicate it, so its extra entry (Old)
+      // goes into Reddit's sort menu instead.
+      this.hookSearchSortMenu(row.querySelector('search-sort-dropdown-menu'));
+      const rows=[...main.querySelectorAll('*')].filter(el=>el.rtSubmenu && el.rtLabel && el.rtLabel!=='Sort' && !el.hidden && !el.closest('[hidden]'));
       const keep=new Set();
       for(const menuRow of rows){
         let button=this.searchInlineButtons.get(menuRow);
@@ -888,13 +891,30 @@
             dropdown.setAttribute('open','');setTimeout(()=>{if(!dropdown.hasAttribute('open'))return;main.classList.remove('hidden');menuRow.click();},60);});
           this.searchInlineButtons.set(menuRow,button);
         }
-        const value=(menuRow.querySelector('[data-rt-menu-value]')?.textContent || '').trim(),label=value?menuRow.rtLabel+': '+value:menuRow.rtLabel;
+        // Like Reddit's Relevance / All time buttons: the current value only (the name when nothing is set).
+        const value=(menuRow.querySelector('[data-rt-menu-value]')?.textContent || '').trim(),label=value || menuRow.rtLabel;
         if(button.rtText.textContent!==label){button.rtText.textContent=label;button.setAttribute('aria-label',label);}
         if(button.parentNode!==bar || [...bar.children].indexOf(button)!==[...keep].length)bar.append(button);keep.add(menuRow);
       }
       for(const [menuRow,button] of this.searchInlineButtons)if(!keep.has(menuRow)){button.remove();this.searchInlineButtons.delete(menuRow);}
     }
 
+    // Adds our archive-backed Old sort to Reddit's search sort menu (its items render when the menu opens).
+    hookSearchSortMenu(host){
+      if(!host)return;
+      const inject=()=>{
+        const roots=[host,host.shadowRoot].filter(Boolean);if(roots.some(r=>r.querySelector('[data-rt-sort-old]')))return;
+        const items=roots.flatMap(r=>[...r.querySelectorAll('[role="menuitem"],[role="menuitemradio"],li:has(a[href*="sort="]),a[href*="sort="]')]).filter(el=>!el.parentElement?.closest('[role="menuitem"],[role="menuitemradio"],li:has(a[href*="sort="])'));
+        const base=items.at(-1);if(!base || !this.rtMenu?.old)return;
+        const item=base.cloneNode(true);item.dataset.rtSortOld='true';item.removeAttribute('aria-checked');item.removeAttribute('aria-selected');
+        for(const a of [item,...item.querySelectorAll('a[href]')])a.removeAttribute?.('href');
+        const leaf=[...item.querySelectorAll('*')].reverse().find(el=>!el.children.length && el.textContent.trim()) || item;leaf.textContent='Old';
+        item.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();host.removeAttribute('open');host.querySelector('[open]')?.removeAttribute('open');if(this.rtFilters?.sort!=='old')this.rtMenu.old.click();},true);
+        base.after(item);
+      };
+      inject();if(host.rtSortHooked)return;host.rtSortHooked=true;
+      host.addEventListener('click',()=>{setTimeout(inject,0);setTimeout(inject,120);},true);
+    }
     // Feed filters: date, post type, subreddit and the archive-backed Old sort. State lives in
     // rt_* URL params; context.key ignores them, so changing a filter never resets discovery.
     rtActive(){const f=globalThis.RTFeedFilters;return Boolean(f && this.rtFilters && f.isActive(this.rtFilters));}

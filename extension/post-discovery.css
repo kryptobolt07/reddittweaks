@@ -172,7 +172,9 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-filter-chip-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px;border-radius:50%;overflow:hidden;color:var(--color-neutral-content-weak,#52656c)}
 .rt-filter-chip-icon svg{width:14px;height:14px}
 .rt-filter-chip-icon img,.rt-filter-chip-icon .rt-community-img{display:block;width:16px;height:16px;object-fit:cover;object-position:50% 50%;border-radius:50%}
-.rt-filter-chip-icon:has(img),.rt-filter-chip-icon-community{width:16px;height:16px}
+.rt-filter-chip-icon:has(img),.rt-filter-chip-icon-community{flex:0 0 16px;width:16px!important;height:16px!important;min-width:16px;min-height:16px;align-self:center;aspect-ratio:1/1}
+/* Pin the community icon to a 16px circle so page styles can't squash, crop or transform it. */
+.rt-filter-chip-icon>img.rt-community-img{display:block!important;flex:none;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;transform:none!important;position:static!important;object-fit:cover!important;object-position:50% 50%;aspect-ratio:1/1;border-radius:50%}
 .rt-filter-chip-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-filter-chip-remove{order:10;display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:18px;margin-left:1px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
 .rt-filter-chip-remove:hover{background:var(--color-neutral-background-hover,#eff3f5);color:var(--color-neutral-content-strong,#172328)}
@@ -289,4 +291,6 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 
 /* Profile search: our Feed options items are inline in Reddit's sort row; the original pill only anchors menus. */
 button.rt-feed-trigger-anchor{position:fixed!important;opacity:0!important;pointer-events:none!important;min-width:0!important;padding:0!important;overflow:hidden}
-.rt-search-inline-filter{white-space:nowrap}
+.rt-search-inline-filter{display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 10px;border:0;border-radius:999px;background:transparent;color:var(--color-secondary-plain,var(--color-neutral-content-weak,#576f76));font:600 12px/16px var(--font-sans,inherit);white-space:nowrap;cursor:pointer}
+.rt-search-inline-filter:hover{background:var(--color-secondary-background-hover,var(--color-neutral-background-hover,#eff3f5))}
+.rt-search-inline-filter svg{width:16px;height:16px}

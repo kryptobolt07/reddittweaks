@@ -1,3 +1,13 @@
+# 0.28.1 preview
+
+- Fast scrolling into an archive feed's loader no longer jumps past newly loaded posts.
+- On profile feeds, waiting at the loading halo no longer pulls the page back up after a moment; the halo keeps its space while paused.
+- Filter chips load each community's own icon again (fetched when not cached), in a fixed slot that doesn't shift the label.
+
+Version choice: PATCH to 0.28.1 for scrolling and icon fixes. No new permissions or storage schema migration.
+
+Validation: all 1,294 automated tests pass; ZIP integrity and source/stable-folder byte equality checked. These fixes were not checked live at the user's request.
+
 # 0.28.0 preview
 
 - Archived threads have Reddit's comment toolbar between the post and the comments: **Sort by** (Best, Top, New, Old over loaded archive comments) and **Search Comments** over loaded comments.
