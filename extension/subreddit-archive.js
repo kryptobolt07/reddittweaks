@@ -102,7 +102,7 @@
       this.readSettings=readSettings;this.communityState=communityState;this.reddit=reddit;this.archive=archive;
       this.getOwner=getOwner || (()=>globalThis.RCSDirectory?.getOwner?.() || globalThis.RCSMessages?.getSelfIdentity?.()?.id || '');
       this.enabled=null;this.mounted=null;this.search=null;this.states=new Map();this.top=false;this.openMenuEl=null;this.dead=false;this.meta=null;this.metaName='';
-      this.onRoute=()=>this.scan();
+      this.onRoute=event=>{if(event?.type==='popstate')this.popAt=Date.now();this.scan();};
       // Record the feed position only while this community's feed path is showing (with or without rt_view:
       // the automatic preference opens the archive without it), never during navigation to a post.
       this.onScroll=()=>{const m=this.mounted;if(m && !m.thread && !threadRoute() && location.pathname.replace(/\/+$/,'').toLowerCase()==='/r/'+m.name.toLowerCase()){this.feedScrollY=scrollY;if(!this.anchorQueued){this.anchorQueued=true;requestAnimationFrame(()=>{this.anchorQueued=false;this.saveFeedAnchor();});}}};
@@ -211,7 +211,7 @@
       if(typeof IntersectionObserver==='function'){
         this.io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){if(this.mounted?.thread)this.loadMoreThread({auto:true});else this.loadMore({auto:true});}},{rootMargin:'800px 0px'});this.io.observe(this.sentinel);
       }
-      this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();if(!reuse && !this.restoredOnce){this.restoredOnce=true;this.restoreFeedAnchor();}}
+      this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();if(!reuse)this.restoreFeedAnchor();this.mountedBefore=true;}
     }
     unmount(){
       const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState=null;
@@ -316,7 +316,10 @@
     restoreFeedAnchor(){
       let saved=null;try{saved=JSON.parse(sessionStorage.getItem(this.feedAnchorKey()) || 'null');}catch{}
       const nav=performance.getEntriesByType?.('navigation')?.[0]?.type;
-      if(!saved?.fullname || Date.now()-saved.at>60*60*1000 || !['back_forward','reload'].includes(nav))return;
+      // Only a Back/Forward return restores: the document's first mount after a back/forward load, or an in-page
+      // popstate. Reloading the feed itself starts fresh, like Reddit.
+      const back=Date.now()-(this.popAt || 0)<3000 || nav==='back_forward' && !this.mountedBefore;
+      if(!saved?.fullname || Date.now()-saved.at>60*60*1000 || !back){try{sessionStorage.removeItem(this.feedAnchorKey());}catch{}return;}
       const state=this.states.get(this.feedKey()),list=this.listEl;if(!state || !list)return;
       // Reveal (and fetch) enough posts in one go, and keep the feed hidden until it is in place, so the reader
       // never watches it scroll down from the top.
