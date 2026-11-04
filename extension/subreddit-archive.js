@@ -105,7 +105,7 @@
       this.onRoute=()=>this.scan();
       // Record the feed position only while this community's feed path is showing (with or without rt_view:
       // the automatic preference opens the archive without it), never during navigation to a post.
-      this.onScroll=()=>{const m=this.mounted;if(m && !m.thread && !threadRoute() && location.pathname.replace(/\/+$/,'').toLowerCase()==='/r/'+m.name.toLowerCase())this.feedScrollY=scrollY;};
+      this.onScroll=()=>{const m=this.mounted;if(m && !m.thread && !threadRoute() && location.pathname.replace(/\/+$/,'').toLowerCase()==='/r/'+m.name.toLowerCase()){this.feedScrollY=scrollY;if(!this.anchorQueued){this.anchorQueued=true;requestAnimationFrame(()=>{this.anchorQueued=false;this.saveFeedAnchor();});}}};
       addEventListener('scroll',this.onScroll,{passive:true});
       this.onDocClick=event=>{if(this.openMenuEl && !this.openMenuEl.parentElement.contains(event.target))this.closeMenus();};
       this.onKey=event=>{if(event.key==='Escape' && this.openMenuEl){const button=this.openMenuEl.parentElement.querySelector('button');this.closeMenus();button?.focus({preventScroll:true});}};
@@ -211,7 +211,7 @@
       if(typeof IntersectionObserver==='function'){
         this.io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){if(this.mounted?.thread)this.loadMoreThread({auto:true});else this.loadMore({auto:true});}},{rootMargin:'800px 0px'});this.io.observe(this.sentinel);
       }
-      this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();}
+      this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();if(!reuse && !this.restoredOnce){this.restoredOnce=true;this.restoreFeedAnchor();}}
     }
     unmount(){
       const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState=null;
@@ -304,6 +304,31 @@
     // to that comment's own page. The focused comment's chain is always shown. Nodes are reused, never rebuilt.
     // Returning to the feed from a post: Reddit (or the browser) may scroll first, and the reused cards need a
     // layout pass. Re-apply the saved position for a short while, and stop as soon as the user scrolls.
+    feedAnchorKey(){return 'rt-archive-anchor:'+(this.mounted?.name || this.name || '').toLowerCase()+'|'+this.feedKey();}
+    // The card at the top of the view, its offset, and how many posts were showing: survives a reload of a post
+    // page (which drops this script's memory), so Back can rebuild the same position in a freshly loaded feed.
+    saveFeedAnchor(){
+      if(!this.listEl?.isConnected || !this.mounted || this.mounted.thread)return;
+      let card=null;for(const node of this.listEl.querySelectorAll(':scope > .rt-native-card')){const r=node.getBoundingClientRect();if(r.bottom>80){card=node;break;}}
+      try{if(scrollY<=0 || !card){sessionStorage.removeItem(this.feedAnchorKey());return;}
+        const state=this.states.get(this.feedKey());sessionStorage.setItem(this.feedAnchorKey(),JSON.stringify({fullname:card.dataset.fullname,offset:Math.round(card.getBoundingClientRect().top),count:state?this.visibleItems(state).length:0,at:Date.now()}));}catch{}
+    }
+    restoreFeedAnchor(){
+      let saved=null;try{saved=JSON.parse(sessionStorage.getItem(this.feedAnchorKey()) || 'null');}catch{}
+      const nav=performance.getEntriesByType?.('navigation')?.[0]?.type;
+      if(!saved?.fullname || Date.now()-saved.at>60*60*1000 || !['back_forward','reload'].includes(nav))return;
+      let user=false;const stop=()=>{user=true;},events=['wheel','touchmove','keydown','mousedown'];for(const type of events)addEventListener(type,stop,{passive:true,capture:true});
+      const done=()=>{for(const type of events)removeEventListener(type,stop,{capture:true});};
+      const started=performance.now();let placedAt=0;
+      const step=()=>{
+        if(user || !this.mounted || this.mounted.thread || performance.now()-started>12000){done();return;}
+        const card=[...this.listEl.querySelectorAll(':scope > .rt-native-card')].find(node=>node.dataset.fullname===saved.fullname);
+        if(card){const delta=card.getBoundingClientRect().top-saved.offset;if(Math.abs(delta)>2)scrollBy(0,delta);placedAt ||= performance.now();if(performance.now()-placedAt>1200){done();return;}}
+        else{const state=this.states.get(this.feedKey());if(state && !state.loading && !state.error && state.started && (state.hasMore || this.visibleItems(state).length<state.items.length))this.loadMore();else if(state && !state.loading && !state.hasMore && this.visibleItems(state).length>=state.items.length){done();return;}}
+        setTimeout(step,card?16:150);
+      };
+      setTimeout(step,150);
+    }
     restoreFeedScroll(target){
       if(!(target>0))return;this.feedScrollY=target;let user=false;const stop=()=>{user=true;},events=['wheel','touchmove','keydown','mousedown'];
       for(const type of events)addEventListener(type,stop,{passive:true,capture:true});
