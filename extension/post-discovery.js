@@ -131,6 +131,13 @@
   }
   // Reddit's compact counts: 999, 1.2K, 12K, 1.2M.
   function compactCount(value){const n=Number(value) || 0,abs=Math.abs(n);if(abs<1000)return String(n);if(abs<1e6)return (n/1000).toFixed(abs<10000?1:0).replace(/\.0$/,'')+'K';return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M';}
+  // Reddit's blur-to-reveal for NSFW media and spoilers: content stays in place, blurred, behind one button.
+  function sensitive(content,label){
+    const box=make('div','relative overflow-hidden rt-sensitive');content.classList.add('rt-sensitive-content');box.append(content);
+    const reveal=make('button','rt-sensitive-reveal',label);reveal.type='button';
+    reveal.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();box.classList.add('rt-revealed');reveal.remove();});
+    box.append(reveal);return box;
+  }
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
   const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
@@ -1767,12 +1774,15 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       native.append(credit,title);
       if(post.flair){const flair=make('span','flair-content inline-block truncate max-w-full text-12 font-normal box-border px-[6px] rounded-[20px] leading-4 bg-tone-4 text-neutral-content mb-xs rt-archive-flair',post.flair);flair.slot='post-flair';native.append(flair);}
       const content=make('div','md break-words');content.slot='text-body';
-      if(snapshotText)content.append(this.archivedText(body,post.archivedBodyHtml || post.bodyHtml));else if(post.over18 || post.spoiler)content.append(make('p','',body));else if(!linkUrl && !visual && (thread || /^\[(?:deleted|removed)\]$/i.test((post.body || '').trim())))content.append(make('p','text-neutral-content-weak',body));
+      const rawBody=(post.archivedBody || post.body || '').trim(),sensitiveText=(post.over18 || post.spoiler) && rawBody && !deletionNotice(rawBody);
+      if(snapshotText || sensitiveText)content.append(this.archivedText(rawBody || body,post.archivedBodyHtml || post.bodyHtml));else if(!linkUrl && !visual && (thread || /^\[(?:deleted|removed)\]$/i.test((post.body || '').trim())))content.append(make('p','text-neutral-content-weak',body));
       if(linkUrl){const out=link(post.domain || host || linkUrl,linkUrl,'rt-archive-link block text-12 text-neutral-content-weak hover:underline truncate mt-2xs');out.target='_blank';out.rel='noopener noreferrer nofollow ugc';content.append(out);}
-      if(content.childNodes.length)native.append(content);
+      // Reddit's NSFW / Spoiler tags under the title; spoiler text is blurred until revealed.
+      if(post.over18 || post.spoiler){const tags=make('span','flex flex-wrap gap-xs mb-xs rt-archive-tags');if(post.over18)tags.append(make('span','rt-archive-tag rt-archive-tag-nsfw','NSFW'));if(post.spoiler)tags.append(make('span','rt-archive-tag rt-archive-tag-spoiler','Spoiler'));tags.slot='post-flair';native.append(tags);}
+      if(content.childNodes.length)native.append(post.spoiler && sensitiveText?sensitive(content,'View spoiler'):content);
       // Media by type: images/galleries/videos full width; link previews as the right-hand thumbnail; text posts never borrow a link preview.
-      const usable=post.over18 || post.spoiler?[]:visual?media:linkish?media:type==='textmedia'?media.filter(item=>item.kind==='image'):[];
-      if(usable.length){const view=globalThis.RTArchiveView?.media(usable,{alt:post.title,compact:linkish,postId:post.id,href:linkish?linkUrl || post.permalink:post.url || post.permalink});if(view){view.slot=linkish?'thumbnail':'post-media-container';native.append(view);(this.recoveredMedia ||= new Set()).add(view);}}
+      const usable=visual?media:linkish?media:type==='textmedia'?media.filter(item=>item.kind==='image'):[];
+      if(usable.length){let view=globalThis.RTArchiveView?.media(usable,{alt:post.title,compact:linkish,postId:post.id,href:linkish?linkUrl || post.permalink:post.url || post.permalink});if(view){if(post.over18 || post.spoiler)view=sensitive(view,post.over18?'View NSFW content':'View spoiler');view.slot=linkish?'thumbnail':'post-media-container';native.append(view);(this.recoveredMedia ||= new Set()).add(view);}}
       // Content scripts can't see Reddit's custom-element registry, so decide from the DOM: once the post has
       // rendered Reddit's own action bar (it has an open shadow root), our read-only row steps aside.
       if(thread && !native.shadowRoot?.querySelector('rpl-action-bar'))native.append(this.archiveActionRow(post,native));
@@ -2073,6 +2083,8 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
     // Snapshot cards retain navigation even before native controls hydrate.
     // Stop captured actions before Reddit can vote/save/share against archived values.
     const guard=event=>{
+      // The archive's own safe controls (reveal, Back, copy-link Share) never act on Reddit: let them through.
+      if(event.composedPath().some(n=>n.matches?.('.rt-sensitive-reveal,.rt-sra-back,.rt-sra-share')))return;
       if(event.type==='keydown' && !['Enter',' '].includes(event.key) || event.type==='auxclick' && event.button!==1)return;
       const path=event.composedPath(),anchor=path.find(n=>n.matches?.('a[href]'));
       if(anchor){let url;try{url=new URL(anchor.href,location.href);}catch{}if(url && ['http:','https:'].includes(url.protocol) && !url.username && !url.password){

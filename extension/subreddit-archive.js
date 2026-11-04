@@ -266,8 +266,7 @@
       if(globalThis.RTPostModel.validateUsername(comment.author)){const link=make('a','truncate font-bold text-neutral-content-strong text-12 hover:underline',comment.author);link.href='/user/'+encodeURIComponent(comment.author)+'/';name.append(link);}else name.append(make('span','text-neutral-content-weak text-12',comment.author || '[deleted]'));
       const timeLink=make('a','text-neutral-content-weak text-12 hover:no-underline');timeLink.href=path;timeLink.append(this.time(comment.created));name.append(make('span','inline-block my-0 mx-2xs text-12 text-neutral-content-weak','•'),timeLink);identity.append(name);author.append(identity);
       const body=make('div','md text-14-scalable rounded-2 pb-2xs overflow-hidden');body.slot='comment';const text=make('div','py-0 xs:mx-xs mx-2xs max-w-full scalable-text');text.dir='auto';
-      if(comment.over18 || comment.spoiler)text.append(make('p','','NSFW or spoiler snapshot · Content not expanded.'));
-      else{const rendered=globalThis.RTMarkdown?.fromHtml?.(comment.bodyHtml) || globalThis.RTMarkdown?.render?.(comment.body || '');if(rendered)text.append(rendered);else text.append(make('p','',comment.body || 'The archive has no original text for this comment.'));}body.append(text);
+      {const rendered=globalThis.RTMarkdown?.fromHtml?.(comment.bodyHtml) || globalThis.RTMarkdown?.render?.(comment.body || '');if(rendered)text.append(rendered);else text.append(make('p','',comment.body || 'The archive has no original text for this comment.'));}body.append(text);
       const actions=make('shreddit-comment-action-row','block');actions.slot='actionRow';for(const [key,value] of Object.entries({'comment-id':comment.fullname,score:comment.score,'vote-state':'NONE','view-only':'','comment-archived':'','is-desktop-viewport':'',permalink:path}))actions.setAttribute(key,String(value));
       const share=make('shreddit-comment-share-button');share.slot='comment-share';share.setAttribute('permalink',path);share.setAttribute('source-id',comment.fullname);share.setAttribute('is-desktop-viewport','');actions.append(share);const avatar=make('div');avatar.slot='commentAvatar';avatar.append(defaultAvatar(comment.author,comment.depth?24:32,globalThis.RTPostModel.validateUsername(comment.author)?'/user/'+encodeURIComponent(comment.author)+'/':''));node.append(avatar,author,body,actions);
       // Reddit can render snapshot scores but no action may mutate a snapshot.
@@ -396,15 +395,15 @@
       if(!this.listEl?.isConnected || scrollY<=0 || typeof document.elementFromPoint!=='function')return null;
       this.scrollHold?.cancel();
       const left=this.listEl.getBoundingClientRect().left+48;let anchor=null;
-      for(const y of [140,220,340,480]){const hit=document.elementFromPoint(left,y);anchor=hit?.closest?.('shreddit-comment[data-rt-ui="archive-thread-comment"],.rt-sra-thread-post');if(anchor)break;}
+      for(const y of [140,220,340,480]){const hit=document.elementFromPoint(left,y);anchor=hit?.closest?.('shreddit-comment[data-rt-ui="archive-thread-comment"],.rt-sra-thread-post,[data-rt-archive-feed] > .rt-native-card');if(anchor)break;}
       if(!anchor)return null;
       const top=anchor.getBoundingClientRect().top,events=['wheel','touchmove','keydown','mousedown'];let user=false,cancelled=false;const stop=()=>{user=true;};
       for(const type of events)addEventListener(type,stop,{passive:true,capture:true});
       const done=()=>{cancelled=true;for(const type of events)removeEventListener(type,stop,{capture:true});if(this.scrollHold===hold)this.scrollHold=null;};
       const fix=()=>{if(cancelled)return;if(user || !anchor.isConnected){done();return;}const delta=anchor.getBoundingClientRect().top-top;if(Math.abs(delta)>=1)scrollBy(0,delta);};
-      const until=performance.now()+800,loop=()=>{if(cancelled)return;fix();if(performance.now()<until)requestAnimationFrame(loop);else done();};
+      const until=performance.now()+800,loop=()=>{if(cancelled)return;fix();if(performance.now()<until)setTimeout(loop,16);else done();};
       const hold={cancel:()=>{fix();done();}};this.scrollHold=hold;
-      return ()=>{fix();requestAnimationFrame(loop);};
+      return ()=>{fix();setTimeout(loop,0);};
     }
     placeComments(state,items,nodes,root){
       state.shownTop ??= TOP_BATCH;state.shownReplies ||= new Map();state.moreEls ||= new Map();state.childOrder ||= new Map();let changed=false;
@@ -1038,7 +1037,7 @@
     }
     renderList(){
       if(!this.mounted)return;const state=this.current(),items=this.visibleItems(state),shown=items.slice(0,state.want);
-      this.syncList(state,shown);
+      const hold=this.restoringFeed?null:this.holdScroll();this.syncList(state,shown);hold?.();
       this.statusTop.hidden=false;
       this.statusTop.textContent='Archived results from Arctic Shift · Coverage may be partial.'+(state.sortMode==='top'?' Sorted by votes among loaded posts only.':state.sortMode==='comments'?' Sorted by comment count among loaded posts only.':'');
       const foot=this.footEl;foot.replaceChildren();

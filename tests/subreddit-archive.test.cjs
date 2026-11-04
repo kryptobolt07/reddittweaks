@@ -273,9 +273,12 @@ test('empty native tab groups use Reddit paging API and restore their original s
  ctx.W.history.pushState({},'','/r/live/');ctx.sa.scan();assert.equal(group.pageNames,undefined);assert.equal(group.pages,0);assert.equal(group.pageIndex,0);
 });
 
-test('NSFW archive items do not restore media',async()=>{
-  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:[post('n1',1500000000,{over18:true,media:[{kind:'image',url:'https://i.redd.it/x.png'}]})],searchedBackTo:1500000000,hasMore:false,cursor:null}]});await tick();
-  assert.equal(ctx.doc.querySelector('img[src*="i.redd.it"]'),null);assert.match(ctx.doc.querySelector('shreddit-feed').textContent,/NSFW or spoiler/);
+test('NSFW archive items show Reddit\'s NSFW tag and blurred media behind a reveal button',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:[post('n1',1500000000,{over18:true,postType:'image',media:[{kind:'image',url:'https://i.redd.it/x.png'}]})],searchedBackTo:1500000000,hasMore:false,cursor:null}]});await tick();
+  const feed=ctx.doc.querySelector('shreddit-feed');assert.doesNotMatch(feed.textContent,/NSFW or spoiler snapshot/);
+  assert.equal(feed.querySelector('.rt-archive-tag-nsfw').textContent,'NSFW');
+  const box=feed.querySelector('.rt-sensitive');assert.ok(box.querySelector('.rt-sensitive-content img[src*="i.redd.it"]'),'media kept, blurred');
+  const reveal=box.querySelector('.rt-sensitive-reveal');assert.equal(reveal.textContent,'View NSFW content');reveal.click();assert.ok(box.classList.contains('rt-revealed'));assert.equal(box.querySelector('.rt-sensitive-reveal'),null);
 });
 
 test('RTPostDiscovery.archiveCard draws inert native-looking cards for non-profile pages',()=>{
@@ -583,4 +586,10 @@ test('the archived post page header shows the poster\'s avatar, not the communit
   const {W}=await boot();
   const post=W.RTPostDiscovery.archiveCard(archived(W,{id:'thr2',is_self:true,selftext:'Hi'}),{thread:true}).querySelector('shreddit-post');
   const img=post.querySelector('[slot="credit-bar"] .rt-archive-avatar img');assert.equal(img.dataset.rtAvatarUser,'alice');assert.match(img.src,/avatar_default_\d\.png$/);
+});
+
+test('the archived post page Back and Share controls are not swallowed by the snapshot action guard',async()=>{
+  const {W,doc}=await boot();const card=W.RTPostDiscovery.archiveCard(archived(W,{id:'thr3',is_self:true,selftext:'Hi'}),{thread:true});doc.body.append(card);
+  let shared=null;W.navigator.clipboard={writeText:async v=>{shared=v;}};
+  card.querySelector('.rt-sra-share').click();await tick();assert.match(shared || '',/\/comments\/thr3\//,'Share copied the link');
 });
