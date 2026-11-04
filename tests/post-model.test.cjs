@@ -4,7 +4,7 @@ const fs=require('node:fs'),vm=require('node:vm');
 function model(){const context=vm.createContext({URL});vm.runInContext(fs.readFileSync('extension/post-model.js','utf8'),context);return context.RTPostModel;}
 const post=(extra={})=>({id:'abc12',author:'Example',created_utc:1700000000,title:'Title',selftext:'Original body',...extra});
 test('automatic deleted-content restoration defaults on independently of archive opt-in',()=>{
- const m=model();assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});
+ const m=model();assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false});
  assert.equal(m.normalizeSettings({restoreDeletedContent:false}).restoreDeletedContent,false);
  for(const value of [true,null,0,'false'])assert.equal(m.normalizeSettings({restoreDeletedContent:value}).restoreDeletedContent,true);
  assert.equal(m.normalizeSettings({restoreDeletedContent:true,archiveDiscovery:false}).archiveDiscovery,false);
@@ -119,4 +119,12 @@ test('a notice counts only as the first own paragraph; later user text "[removed
  assert.equal(status('<shreddit-comment><div><p>  </p><p>[deleted]</p></div></shreddit-comment>'),'deleted','blank paragraphs are skipped');
  assert.equal(status('<shreddit-comment><div><p>Live text</p></div><shreddit-comment><div><p>[removed]</p></div></shreddit-comment></shreddit-comment>'),'','a nested reply’s notice never counts');
  assert.equal(W.RTPostModel.noticeParagraph(null),null);
+});
+
+test('community archive preferences require explicit booleans independently of other archive features',()=>{
+ const M=model();for(const key of ['subredditArchive','subredditArchiveAutomatic']){
+  assert.equal(M.normalizeSettings({[key]:true})[key],true);
+  for(const value of [undefined,false,'true',1,null])assert.equal(M.normalizeSettings({[key]:value})[key],false);
+ }
+ assert.equal(M.normalizeSettings({archiveDiscovery:true}).subredditArchive,false);
 });

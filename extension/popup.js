@@ -1,5 +1,5 @@
 const SETTINGS_KEY='rt-settings-v1';
-const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true};
+const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false};
 
 async function loadSettings() {
   const controls=[...document.querySelectorAll('[data-setting]')],status=document.querySelector('#settings-status');

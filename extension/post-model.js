@@ -57,7 +57,7 @@
     if(!result.length)add(raw.thumbnail,'thumbnail');
     return result;
   }
-  function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true,restoreDeletedContent:raw?.restoreDeletedContent!==false};}
+  function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true,restoreDeletedContent:raw?.restoreDeletedContent!==false,subredditArchive:raw?.subredditArchive===true,subredditArchiveAutomatic:raw?.subredditArchiveAutomatic===true};}
   function snapshotStatus(raw,body){
     if(body==='[deleted]' || raw.removed_by_category==='deleted' || raw.status==='deleted')return 'deleted';
     if(body==='[removed]' || raw.removed_by_category || raw.status==='removed')return 'removed';
