@@ -543,10 +543,19 @@ test('after a reload, Back to the archive feed restores the saved reading anchor
   W.performance.getEntriesByType=()=>[{type:'back_forward'}];
   const moves=[];W.scrollBy=(x,y)=>moves.push(y);
   // Re-mount as a fresh document would: forget memory, keep session storage.
-  ctx.sa.unmount();ctx.sa.feedStash=null;ctx.sa.restoredOnce=false;
+  ctx.sa.unmount();ctx.sa.feedStash=null;ctx.sa.mountedBefore=false;
   W.sessionStorage.setItem('rt-archive-anchor:gone|'+ctx.sa.feedKey(),JSON.stringify({fullname:'t3_a2',offset:-120,count:2,at:Date.now()}));
   ctx.sa.scan();await tick();await new Promise(r=>setTimeout(r,400));
   assert.ok(ctx.doc.querySelector('.rt-native-card[data-fullname="t3_a2"]'),'anchor card rendered');
   assert.ok(moves.includes(120),'scrolled the anchor card back to its saved offset');
   assert.equal(ctx.doc.querySelector('[data-rt-archive-feed]').style.visibility,'','feed shown again once placed');
+});
+
+test('reloading the archive feed itself starts fresh and clears the saved reading anchor',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});const {W}=ctx;
+  W.performance.getEntriesByType=()=>[{type:'reload'}];const moves=[];W.scrollBy=(x,y)=>moves.push(y);
+  ctx.sa.unmount();ctx.sa.feedStash=null;ctx.sa.mountedBefore=false;const key='rt-archive-anchor:gone|'+ctx.sa.feedKey();
+  W.sessionStorage.setItem(key,JSON.stringify({fullname:'t3_a2',offset:-120,count:2,at:Date.now()}));
+  ctx.sa.scan();await tick();await new Promise(r=>setTimeout(r,300));
+  assert.equal(moves.length,0,'no restore on reload');assert.equal(W.sessionStorage.getItem(key),null);
 });
