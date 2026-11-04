@@ -537,3 +537,15 @@ test('the feed scroll position is recorded on the plain community path (automati
   ctx.W.history.replaceState({},'','/r/gone/comments/abc12/title/');Object.defineProperty(ctx.W,'scrollY',{configurable:true,value:0});
   ctx.sa.onScroll();assert.equal(ctx.sa.feedScrollY,900,'navigation to a post does not overwrite it');
 });
+
+test('after a reload, Back to the archive feed restores the saved reading anchor from session storage',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});const {W}=ctx;
+  W.performance.getEntriesByType=()=>[{type:'back_forward'}];
+  const moves=[];W.scrollBy=(x,y)=>moves.push(y);
+  // Re-mount as a fresh document would: forget memory, keep session storage.
+  ctx.sa.unmount();ctx.sa.feedStash=null;ctx.sa.restoredOnce=false;
+  W.sessionStorage.setItem('rt-archive-anchor:gone|'+ctx.sa.feedKey(),JSON.stringify({fullname:'t3_a2',offset:-120,count:2,at:Date.now()}));
+  ctx.sa.scan();await tick();await new Promise(r=>setTimeout(r,400));
+  assert.ok(ctx.doc.querySelector('.rt-native-card[data-fullname="t3_a2"]'),'anchor card rendered');
+  assert.ok(moves.includes(120),'scrolled the anchor card back to its saved offset');
+});
