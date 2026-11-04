@@ -5,10 +5,14 @@ SURFACE: {{SURFACE}} (for example "archived post page: header, body, media, acti
 NATIVE COUNTERPART: {{NATIVE}} (the equivalent native Reddit page/region to compare against).
 WHERE: {{LEVEL}}. L2 = headless fixture: RELAY_PORT=9334, page {{FIXTURE_URL}}. L3 = your own foreground tab in the user's signed-in Chrome (RELAY_PORT unset).
 EXPECTATIONS: {{SPEC_PATH}} (spec.md). FEATURE MAP: {{MAP_PATH}} (what exists, states, transitions, data fields). Read both first.
-REGRESSION LIST (re-check each one first, then explore freely): {{REGRESSIONS_OR_NONE}}
+FOCUS ITEMS from the user (test each one FIRST and give each a verdict with evidence; they may reach beyond your surface; follow them there): {{FOCUS_ITEMS_OR_NONE}}
+REGRESSION LIST (re-check each one next): {{REGRESSIONS_OR_NONE}}
+MODE: {{MODE}}.
+- explore = after focus and regressions, look for any problem on your surface AND on every surface you pass through while testing (for example, feed cards seen on the way to a post). Give each passed-through surface at least one probe-inventory diff of one representative element against its native counterpart, and report differences.
+- focus-only = test only the focus items and regressions. Put anything severe you notice in passing under "incidental" without examining it.
 Working folder for your notes and screenshots: {{OUT}}. Don't read other files in artifacts/research/ except the spec and the map.
 
-PLAN, before testing: list your cases for this surface, covering:
+PLAN, before testing: list your cases. Focus items come first, then regressions, then (explore mode only) cases for this surface covering:
 - visual parity component by component;
 - every state (loading, empty, error, timeout, retry, end, partial label);
 - every content type that appears (text and markdown, image, gallery, video, link, deleted or removed);
@@ -35,4 +39,4 @@ SELF-REVIEW, required before you answer:
 
 TOOLS: read {{ROOT}}/.claude/skills/verify-loop/reference/tools.md and use only what it lists. Open ONE tab of your own; at L3 also bring it to the front and enable focus emulation (tools.md, "Tab setup"). Close it at the end. At most 10 screenshots; prefer probe output.
 RULES: read-only on Reddit: never vote, join, post, comment, save, share, report, reply or change settings. Clicking navigation, tabs, sort menus and the archive button is fine. Don't edit any file in the repo, and don't reload the extension.
-OUTPUT: JSON only, in the council's judge schema (surface, checked, not_tested, per_expectation, issues[severity, where, claim, evidence, native_checked, reverified, recoverable, fix], score_out_of_10).
+OUTPUT: JSON only, in the council's judge schema (surface, mode, focus[id, item, verdict, evidence], passed_through, incidental, checked, not_tested, per_expectation, issues[severity, where, claim, evidence, native_checked, reverified, recoverable, fix], score_out_of_10).

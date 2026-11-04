@@ -19,7 +19,8 @@ Copy `templates/spec.md` to the working folder and fill it in:
 2. **Standing checks S1–S9** for any UI change. Mark one n/a only with a reason.
 3. **Code lifecycle audit** (cheap; it finds timing bugs that screenshots never show). For each region the change touches, grep the feature code for what *creates, replaces or removes* it (`mount`, `unmount`, `replaceChildren`, `replaceWith`, `remove`, `innerHTML`) and what *triggers* that (`popstate`, `reddit:route`, `MutationObserver`, settings and storage listeners, timers). Write one transition row per path, for example "feed → post (click): `scan()` → `unmount()` → nav placeholder rebuilt, filled asynchronously". Each row becomes an S9 timeline case.
 4. **Data-to-UI fields** for features that render records (Arctic Shift, Reddit JSON): which field shows where, and in what native format.
-5. **Out of scope**: list anything else you notice here instead of changing it.
+5. **User focus items (F1…)**: anything the user asked to have tested, copied verbatim, each with its evidence. Note whether they said "only" (that means `focus-only` for the council).
+6. **Out of scope**: list anything else you notice here instead of changing it.
 
 ## 2. L0/L1: static and unit (seconds; loop here first)
 - `node --check` every changed `.js`/`.mjs` file.
@@ -37,7 +38,8 @@ Copy `templates/spec.md` to the working folder and fill it in:
 - **Loop rules**: fix the real cause, never the test or the probe. At most **3 attempts per failing expectation**; then stop and report it with the evidence (command, values, artifact paths). Don't widen the change to make something pass; out-of-scope findings go on the list.
 
 ## 4. Council (judging)
-When L2 passes, run the `council` skill in **routine** mode for the touched surfaces. It returns verified issues only. Fix the in-scope ones (the same 3-attempt rule applies) and record the rest as open issues.
+When L2 passes, run the `council` skill in **routine** mode for the touched surfaces. Pass the user's focus items and the regression list, in **explore** mode unless the user asked for focus-only. In explore mode, auditors also diff every surface they pass through (for example, the feed cards on the way to a post), so inconsistencies outside the edited area still surface. The council returns verified issues only. Fix the in-scope ones (the same 3-attempt rule applies) and record the rest as open issues; don't fix out-of-scope findings in this loop.
+- Don't treat "n/a" standing checks as clean. They mean this change didn't alter that area, not that the area matches Reddit. The final report says which known inconsistencies remain on the surfaces you tested.
 
 ## 5. L3: live, once, at the end (signed-in Chrome, read-only)
 1. `npm run package` (the stable folder `artifacts/reddit-chat-search/` must match `extension/`).
