@@ -118,6 +118,7 @@
     comment:'M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9Zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2Z',
     share:'m12.8 17.524 6.89-6.887a.9.9 0 000-1.273L12.8 2.477a1.64 1.64 0 00-1.782-.349 1.64 1.64 0 00-1.014 1.518v2.593C4.054 6.728 1.192 12.075 1 17.376a1.353 1.353 0 00.862 1.32 1.35 1.35 0 001.531-.364l.334-.381c1.705-1.944 3.323-3.791 6.277-4.103v2.509c0 .667.398 1.262 1.014 1.518a1.638 1.638 0 001.783-.349v-.002Zm-.994-1.548V12h-.9c-3.969 0-6.162 2.1-8.001 4.161.514-4.011 2.823-8.16 8-8.16h.9V4.024L17.784 10l-5.977 5.976Z',
     overflow:'M16 11.75a1.75 1.75 0 11.001-3.501A1.75 1.75 0 0116 11.75ZM11.75 10a1.75 1.75 0 10-3.501.001A1.75 1.75 0 0011.75 10Zm-6 0a1.75 1.75 0 10-3.501.001A1.75 1.75 0 005.75 10Z',
+    caret:'M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7Z',
     back:'M17.5 9.1H4.679l5.487-5.462a.898.898 0 00.003-1.272.898.898 0 00-1.272-.003l-7.032 7a.898.898 0 000 1.275l7.03 7a.896.896 0 001.273-.003.898.898 0 00-.002-1.272l-5.487-5.462h12.82a.9.9 0 000-1.8Z'
   };
   function redditIcon(name,size=16){
@@ -736,6 +737,7 @@
       // Return Reddit's own rows to their original places.
       for(const group of this.menuGroups || []){for(const restore of group.rtIconRestores || [])restore();for(const item of group.items){if(item.hasAttribute('data-rt-search-sort-hidden')){item.hidden=item.dataset.rtSearchSortHidden==='true';item.removeAttribute('data-rt-search-sort-hidden');}group.anchor.before(item);}if(group.header)group.header.hidden=group.headerHidden;group.anchor.remove();}
       this.menuGroups=[];
+      this.searchInlineBar?.remove();this.searchInlineBar=null;this.searchInlineButtons=null;for(const b of document.querySelectorAll('button.rt-feed-trigger-anchor')){b.classList.remove('rt-feed-trigger-anchor');for(const k of ['left','top','width','height'])b.style[k]='';}
       for(const row of this.activityMenuRows || [])row.remove();this.activityMenuRows=[];this.host?.removeAttribute('data-rt-menu-ready');this.rtMenu=null;this.rtPickerHost?.remove();this.activityMenu=null;this.activityMain=null;this.activityDropdown=null;this.activityOpen=false;this.openSubmenu=null;this.openFeedSubmenu=null;
     }
     detachActivityMenu(){
@@ -784,7 +786,7 @@
         // Search-page submenus keep the main menu's height; profile Feed options submenus size to their own content (see CSS).
         const open=target=>{if(target && !menu.classList.contains('hidden')){const height=menu.getBoundingClientRect().height;if(height>0)target.style.setProperty('--rt-menu-height',Math.round(height)+'px');}this.openSubmenu=target || null;this.activityOpen=target===this.activityMenu;menu.classList.toggle('hidden',Boolean(target));for(const sub of subs)sub.classList.toggle('hidden',sub!==target);for(const entry of this.activityMenuRows)if(entry.matches?.('rpl-menu-item'))entry.setAttribute('aria-expanded',String(entry.rtSubmenu===target));(target?target.querySelector(polished?'.rt-sub-back,rpl-menu-item':'rpl-menu-item'):this.lastSubmenuRow)?.focus({preventScroll:true});};
         this.openFeedSubmenu=open;
-        const entry=(label,icon,sub,{back=true}={})=>{const el=row(label,icon,'chevron-right');el.setAttribute('aria-haspopup','menu');el.rtSubmenu=sub;const value=make('span','rt-menu-value text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';el.firstElementChild.insertBefore(value,el.firstElementChild.lastElementChild);activate(el,()=>{this.lastSubmenuRow=el;open(sub);el.rtOnOpen?.();});if(back){if(polished && globalThis.RTFeedFilters?.submenuHeader){const header=globalThis.RTFeedFilters.submenuHeader(label,()=>open(null));header.head.dataset.rtUi='submenu-back';sub.append(header.head);}else{const backRow=row('Back','arrow-back');backRow.dataset.rtUi='submenu-back';activate(backRow,()=>open(null));sub.append(backRow);}}return el;};
+        const entry=(label,icon,sub,{back=true}={})=>{const el=row(label,icon,'chevron-right');el.setAttribute('aria-haspopup','menu');el.rtSubmenu=sub;el.rtLabel=label;const value=make('span','rt-menu-value text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';el.firstElementChild.insertBefore(value,el.firstElementChild.lastElementChild);activate(el,()=>{this.lastSubmenuRow=el;open(sub);el.rtOnOpen?.();});if(back){if(polished && globalThis.RTFeedFilters?.submenuHeader){const header=globalThis.RTFeedFilters.submenuHeader(label,()=>open(null));header.head.dataset.rtUi='submenu-back';sub.append(header.head);}else{const backRow=row('Back','arrow-back');backRow.dataset.rtUi='submenu-back';activate(backRow,()=>open(null));sub.append(backRow);}}return el;};
         this.activityMenuRows=[];this.purgeStaleMenu(content,menu);
         // Group Reddit's own sections (sort, view) into Top-style submenus so the
         // menu stays short. Its rows move (keeping their handlers) and are put back on teardown.
@@ -846,7 +848,36 @@
       const value=this.activityMain?.querySelector('[data-rt-activity-value]'),labels={all:'All',hidden:'Hidden',deleted:'Deleted'};if(value && value.textContent!==labels[this.activityFilter])value.textContent=labels[this.activityFilter];
       for(const row of this.activityMenu.querySelectorAll('[data-rt-activity-filter]')){const checked=row.dataset.rtActivityFilter===this.activityFilter;if(row.getAttribute('aria-current')!==String(checked))row.setAttribute('aria-current',String(checked));let mark=row.querySelector('[data-rt-check]');if(checked && !mark){mark=glyph('checkmark');mark.dataset.rtCheck='true';row.firstElementChild.append(mark);}else if(!checked)mark?.remove();}
       this.syncFilterMenu();
+      if(this.isSearch())this.syncSearchInlineFilters();
     }
+    // Profile search: Reddit's own row already holds "Relevance", "All time" and "Safe Search". Our Feed options
+    // items sit to their right as the same plain dropdown buttons; each opens its own submenu under itself.
+    // The separate Feed options pill stays in the DOM (it hosts the menus) but is hidden and used as the anchor.
+    syncSearchInlineFilters(){
+      const dropdown=this.activityDropdown,main=this.activityMain,trigger=dropdown?.querySelector('button[aria-label="Feed options"]');
+      const row=document.querySelector('search-sort-dropdown-menu')?.closest('div.flex.items-center');if(!dropdown || !main || !trigger || !row)return;
+      let bar=this.searchInlineBar;if(!bar?.isConnected){bar=this.searchInlineBar=make('div','contents');bar.dataset.rtUi='search-inline-filters';row.append(bar);this.searchInlineButtons=new Map();}
+      trigger.classList.add('rt-feed-trigger-anchor');
+      const rows=[...main.querySelectorAll('*')].filter(el=>el.rtSubmenu && el.rtLabel && !el.hidden && !el.closest('[hidden]'));
+      const keep=new Set();
+      for(const menuRow of rows){
+        let button=this.searchInlineButtons.get(menuRow);
+        if(!button){
+          button=make('button','border-0 text-12 font-semibold text-secondary-plain button-small px-[calc(var(--rem10)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex rt-search-inline-filter');button.type='button';button.setAttribute('aria-haspopup','true');
+          const text=make('span','flex items-center gap-xs'),caret=make('span','flex ms-2xs me-[-2px]');caret.append(redditIcon('caret',16));button.append(text,caret);button.rtText=text;
+          button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();
+            const box=button.getBoundingClientRect();trigger.style.left=Math.round(box.left)+'px';trigger.style.top=Math.round(box.top)+'px';trigger.style.width=Math.round(box.width)+'px';trigger.style.height=Math.round(box.height)+'px';
+            // Opening the dropdown resets it to its main list; open this item's submenu right after that.
+            dropdown.setAttribute('open','');setTimeout(()=>{if(!dropdown.hasAttribute('open'))return;main.classList.remove('hidden');menuRow.click();},60);});
+          this.searchInlineButtons.set(menuRow,button);
+        }
+        const value=(menuRow.querySelector('[data-rt-menu-value]')?.textContent || '').trim(),label=value?menuRow.rtLabel+': '+value:menuRow.rtLabel;
+        if(button.rtText.textContent!==label){button.rtText.textContent=label;button.setAttribute('aria-label',label);}
+        if(button.parentNode!==bar || [...bar.children].indexOf(button)!==[...keep].length)bar.append(button);keep.add(menuRow);
+      }
+      for(const [menuRow,button] of this.searchInlineButtons)if(!keep.has(menuRow)){button.remove();this.searchInlineButtons.delete(menuRow);}
+    }
+
     // Feed filters: date, post type, subreddit and the archive-backed Old sort. State lives in
     // rt_* URL params; context.key ignores them, so changing a filter never resets discovery.
     rtActive(){const f=globalThis.RTFeedFilters;return Boolean(f && this.rtFilters && f.isActive(this.rtFilters));}
