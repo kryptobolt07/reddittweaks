@@ -1,3 +1,21 @@
+# 0.26.0 preview
+
+- Archived subreddit feeds use Reddit's own subreddit card: author avatar and name, archive badge and a disabled overflow menu, flair, and media by real post type (full-width images, galleries and videos; link thumbnails with a domain line; no borrowed previews on self posts). Votes are marked unavailable and deleted images show an "Image no longer available" notice.
+- Archived post pages have a Back button, the community and author header, a read-only action row (score, comment count, Share copies the link) without duplicating Reddit's own, native comment avatars, and focused-comment links that scroll to the comment. Posts opened from the feed render immediately.
+- Archived comments follow Reddit's comment view (approximated): best-first, 20 top-level comments then "View more comments", "N more replies" per comment, a seven-level depth limit, and Reddit's small loading icon. Thread restore no longer runs inside the archive, so no skeleton lines appear there.
+- Feed loading uses Reddit's Snoo halo, reveals 25 posts at a time, drops stale results when filters change, shows explicit scanning and empty states, and unmounts far off-screen cards. Collapsed comments hide their replies.
+- The masthead, notice button and sort, date and type controls match Reddit's sizes and icons; menus have no visible scrollbar and the custom date presets wrap. The right sidebar shows an archive card, coverage among loaded posts, most active posters and Reddit's footer links.
+- Archive search: truthful sort label ("New" where the archive can't rank), a Media tile grid, relative times without author, native thumbnails, comment avatars, and continued scanning until about 25 results.
+- Developer tooling: configurable relay port, headless fixture browser, probe tools, and the verify-loop and council skills.
+
+Version choice: MINOR to 0.26.0 for new archive features (sidebar cards, Media tiles, paged loading) plus fixes. No new permissions or storage schema migration.
+
+Limitations (not yet verified live): left-nav "Home" highlight removal, archive title colour token, search sort relabel inside Reddit's control, Media tile sizing, scroll stability while off-screen cards are swapped, comment thresholds approximate Reddit's "Best" view. The sidebar's content is still under discussion.
+
+Validation:
+- All 1258 tests pass.
+- Package integrity and source/stable-folder byte equality verified.
+
 # 0.25.0 preview
 
 - Archived banned/private community post links open a thread reader with nested comments, focused-comment links, bounded pagination and explicit partial-coverage status.
