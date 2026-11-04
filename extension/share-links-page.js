@@ -16,6 +16,19 @@
   try{
     const clipboard=navigator.clipboard,original=clipboard?.writeText;
     if(typeof original==='function')Object.defineProperty(clipboard,'writeText',{configurable:true,writable:true,value:function(value){const next=enabled?clean(value,canonical()):value;if(enabled)intent=null;return original.call(this,next);}});
+    const write=clipboard?.write;
+    if(typeof write==='function')Object.defineProperty(clipboard,'write',{configurable:true,writable:true,value:function(items){
+      if(!enabled || !Array.isArray(items) || typeof ClipboardItem!=='function')return write.call(this,items);
+      const source=canonical();intent=null;
+      const next=items.map(item=>{
+        // Reddit's native Copy link supplies a promise-backed plain-text ClipboardItem. Keep the
+        // browser write inside the original user gesture; never read the existing clipboard.
+        if(item?.types?.length!==1 || item.types[0]!=='text/plain' || typeof item.getType!=='function')return item;
+        try{return new ClipboardItem({'text/plain':item.getType('text/plain').then(blob=>blob.text()).then(text=>new Blob([enabled?clean(text,source):text],{type:'text/plain'}))},{presentationStyle:item.presentationStyle});}catch{return item;}
+      });
+      return write.call(this,next);
+    }});
+
   }catch{/* Browser clipboard restrictions keep Reddit's original behavior. */}
   try{
     const original=navigator.share;

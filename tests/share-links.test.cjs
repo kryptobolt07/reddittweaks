@@ -41,3 +41,17 @@ test('settings delivery is independent of discovery, handles startup order, and 
  const dirty='https://www.reddit.com/comments/abc12/?share_id=secret';await W.navigator.clipboard.writeText(dirty);assert.equal(writes.at(-1),'https://www.reddit.com/comments/abc12/');
  toggle(false);W.document.dispatchEvent(new W.CustomEvent('rt-clean-share-ready'));await W.navigator.clipboard.writeText(dirty);assert.equal(writes.at(-1),'https://www.reddit.com/comments/abc12/','late page-world initialization receives the saved preference');
 });
+
+test('native promise-backed ClipboardItem writes keep user activation and clean the generated share URL',async t=>{
+ const W=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/r/example/comments/abc12/title/',runScripts:'outside-only'}).window;t.after(()=>W.close());
+ W.Blob=Blob;W.ClipboardItem=class{constructor(data,options){this.data=data;this.types=Object.keys(data);this.presentationStyle=options?.presentationStyle || 'unspecified';}getType(type){return Promise.resolve(this.data[type]);}};
+ let writeItems,writes=0;const originalPromise=Promise.resolve();
+ Object.defineProperty(W.navigator,'clipboard',{value:{write(items){assert.equal(this,W.navigator.clipboard);writes++;writeItems=items;return originalPromise;}}});
+ W.eval(fs.readFileSync('extension/post-model.js','utf8'));W.eval(fs.readFileSync('extension/share-links-page.js','utf8'));W.document.dispatchEvent(new W.CustomEvent('rt-clean-share-settings',{detail:true}));
+ W.document.body.innerHTML='<shreddit-post permalink="/r/example/comments/abc12/title/"><button>Share</button></shreddit-post>';W.document.querySelector('button').click();
+ let resolve;const text=new Promise(r=>resolve=r),item=new W.ClipboardItem({'text/plain':text.then(value=>new Blob([value],{type:'text/plain'}))});
+ const result=W.navigator.clipboard.write([item]);assert.equal(result,originalPromise);assert.equal(writes,1,'the native write runs synchronously within the click activation');
+ resolve('https://www.reddit.com/r/example/s/opaque?share_id=tracking');assert.equal(await (await writeItems[0].getType('text/plain')).text(),'https://www.reddit.com/r/example/comments/abc12/title/');
+ const image=new W.ClipboardItem({'image/png':new Blob(['image'])});W.navigator.clipboard.write([image]);assert.equal(writeItems[0],image,'image and rich clipboard payloads are untouched');
+ W.document.dispatchEvent(new W.CustomEvent('rt-clean-share-settings',{detail:false}));W.navigator.clipboard.write([item]);assert.equal(writeItems[0],item,'opt-out passes the original item through');
+});
