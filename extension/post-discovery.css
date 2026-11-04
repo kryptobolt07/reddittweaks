@@ -72,7 +72,8 @@ html[data-rt-profile-comments] main shreddit-sort-dropdown:not([data-rt-ui] *){v
 shreddit-feed[data-rt-activity="hidden"]>:not([data-rt-ui]):is(shreddit-post,shreddit-profile-comment,:has(shreddit-post,shreddit-profile-comment)),
 shreddit-feed[data-rt-activity="deleted"]>:not([data-rt-ui]):not([data-rt-activity-match]):is(shreddit-post,shreddit-profile-comment,:has(shreddit-post,shreddit-profile-comment)){display:none!important}
 /* The sentinel stays measurable when Reddit already owns the visible halo. */
-.rt-native-loading[hidden],shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]>.rt-native-loading{display:none!important}
+/* A paused or handed-over halo keeps its space: collapsing it shortens the page and pulls a reader at the end back up. */
+.rt-native-loading[hidden],shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]>.rt-native-loading{display:block!important;visibility:hidden!important}
 shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]{min-height:1px}
 
 .rt-native-card:is([data-rt-native-state="idle"],[data-rt-native-state="queued"],[data-rt-native-state="loading"]){display:none!important}
@@ -171,7 +172,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-filter-chip-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px;border-radius:50%;overflow:hidden;color:var(--color-neutral-content-weak,#52656c)}
 .rt-filter-chip-icon svg{width:14px;height:14px}
 .rt-filter-chip-icon img,.rt-filter-chip-icon .rt-community-img{display:block;width:16px;height:16px;object-fit:cover;object-position:50% 50%;border-radius:50%}
-.rt-filter-chip-icon:has(img){width:16px;height:16px}
+.rt-filter-chip-icon:has(img),.rt-filter-chip-icon-community{width:16px;height:16px}
 .rt-filter-chip-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-filter-chip-remove{order:10;display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:18px;margin-left:1px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
 .rt-filter-chip-remove:hover{background:var(--color-neutral-background-hover,#eff3f5);color:var(--color-neutral-content-strong,#172328)}

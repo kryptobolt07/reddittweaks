@@ -119,6 +119,9 @@
 .rt-sra-foot{padding:8px 0 24px}
 .rt-sra-foot>.button{margin:8px 16px}
 .rt-sra-sentinel{height:1px}
+/* The list keeps the reader in place itself; the browser must not anchor on the loader below it instead,
+   or new posts push the loader down and the page follows it past them. */
+.rt-sra-foot,.rt-sra-sentinel{overflow-anchor:none}
 .rt-sra-loading{display:block;min-height:112px}
 
 /* Native comment components own the thread layout. */

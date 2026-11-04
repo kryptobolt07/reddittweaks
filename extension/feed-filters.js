@@ -224,8 +224,17 @@
   // so a real mouse click always reaches its button.
   function chipIcon(chip){
     const holder=document.createElement('span');holder.className='rt-filter-chip-icon';holder.setAttribute('aria-hidden','true');
-    if(chip.community){const known=iconsApi()?.peek?.(chip.community);if(known){const img=document.createElement('img');img.className='rt-community-img';img.alt='';img.referrerPolicy='no-referrer';img.src=known;holder.append(img);holder.dataset.rtCommunity=chip.community;return holder;}}
-    const icon=svgIcon(chip.icon,16);if(icon)holder.append(icon);return holder;
+    const glyph=()=>svgIcon(chip.icon,16);
+    if(chip.community){
+      // Fixed 16px round slot: the glyph now, the community's own icon swapped in when known, without moving the label.
+      holder.dataset.rtCommunity=chip.community;holder.classList.add('rt-filter-chip-icon-community');
+      const show=url=>{const img=document.createElement('img');img.className='rt-community-img';img.alt='';img.decoding='async';img.referrerPolicy='no-referrer';img.src=url;img.addEventListener('error',()=>{const g=glyph();if(g)img.replaceWith(g);else img.remove();},{once:true});holder.replaceChildren(img);};
+      const known=iconsApi()?.peek?.(chip.community);if(known){show(known);return holder;}
+      const g=glyph();if(g)holder.append(g);
+      Promise.resolve(iconsApi()?.get?.(chip.community)).then(url=>{if(url && holder.isConnected!==false)show(url);},()=>{});
+      return holder;
+    }
+    const icon=glyph();if(icon)holder.append(icon);return holder;
   }
   function renderChips(container,state,{onChange,make,glyph}){
     const chips=chipList(state);container.replaceChildren();container.hidden=!chips.length;
