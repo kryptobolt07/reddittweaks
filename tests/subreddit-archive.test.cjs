@@ -231,16 +231,16 @@ test('dropdowns preserve sort, date, type filters and loaded-only ranking',async
 test('one Reddit community halo replaces skeletons on initial feed load and disappears after completion',async()=>{
  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();let release;const gate=new Promise(r=>release=r);
  ctx.W.RTArchiveQuery.search=async function*(){await gate;yield {items:[],hasMore:false};};ctx.sa.states.clear();ctx.sa.refresh();
- const loader=ctx.doc.querySelector('shreddit-feed-page-loading');assert.equal(loader.getAttribute('page-type'),'community');assert.equal(loader.getAttribute('role'),'status');assert.equal(ctx.doc.querySelectorAll('shreddit-feed-page-loading').length,1);assert.equal(ctx.doc.querySelector('[data-rt-skeleton],.rt-skeleton'),null);
- release();await tick();assert.equal(ctx.doc.querySelector('shreddit-feed-page-loading'),null);
+ const loader=ctx.doc.querySelector('[data-rt-ui="archive-loading"]');assert.equal(loader.getAttribute('role'),'status');assert.ok(loader.querySelector('shreddit-loading'),'Reddit\'s Snoo halo element');assert.equal(ctx.doc.querySelectorAll('shreddit-loading').length,1);assert.equal(ctx.doc.querySelector('shreddit-feed-page-loading,faceplate-shimmer,[data-rt-skeleton],.rt-skeleton'),null);
+ release();await tick();assert.equal(ctx.doc.querySelector('shreddit-loading'),null);
 });
 test('feed pagination keeps cards and cursor while the native halo is loading',async()=>{
  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:[post('a1',1500000000)],hasMore:true,cursor:1499999999}]});await tick();let release;const gate=new Promise(r=>release=r);
- ctx.W.RTArchiveQuery.search=async function*(o){ctx.calls.push(o);await gate;yield {items:[post('a2',1400000000)],hasMore:false};};ctx.sa.loadMore();assert.equal(ctx.calls.at(-1).cursor,1499999999);assert.equal(ctx.doc.querySelectorAll('shreddit-post').length,1);assert.ok(ctx.doc.querySelector('shreddit-feed-page-loading'));
- release();await tick();assert.equal(ctx.doc.querySelector('shreddit-feed-page-loading'),null);assert.equal(ctx.doc.querySelectorAll('shreddit-post').length,2);
+ ctx.W.RTArchiveQuery.search=async function*(o){ctx.calls.push(o);await gate;yield {items:[post('a2',1400000000)],hasMore:false};};ctx.sa.loadMore();assert.equal(ctx.calls.at(-1).cursor,1499999999);assert.equal(ctx.doc.querySelectorAll('shreddit-post').length,1);assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-loading"] shreddit-loading'));
+ release();await tick();assert.equal(ctx.doc.querySelector('shreddit-loading'),null);assert.equal(ctx.doc.querySelectorAll('shreddit-post').length,2);
 });
 test('archive errors stop the halo and offer a working retry without claiming completeness',async()=>{
- let fail=true;const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>{if(fail)throw Error('Archive unavailable');return [{items:[post('a1',1500000000)],hasMore:false}];}});await tick();assert.match(ctx.doc.querySelector('.rt-sra-error').textContent,/Archive unavailable/);assert.equal(ctx.doc.querySelector('shreddit-feed-page-loading'),null);
+ let fail=true;const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>{if(fail)throw Error('Archive unavailable');return [{items:[post('a1',1500000000)],hasMore:false}];}});await tick();assert.match(ctx.doc.querySelector('.rt-sra-error').textContent,/Archive unavailable/);assert.equal(ctx.doc.querySelector('shreddit-loading'),null);
  fail=false;ctx.doc.querySelector('[data-rt-retry]').click();await tick();assert.equal(ctx.doc.querySelector('.rt-sra-error'),null);assert.equal(ctx.doc.querySelectorAll('shreddit-post').length,1);assert.match(ctx.doc.body.textContent,/Coverage may be partial/);
 });
 test('native search tabs, scope and sidebar stay in place, originals restore on leaving search',async()=>{
@@ -257,7 +257,7 @@ test('native comments and media tabs drive archive kind, titles and media filter
  await search(ctx,'Title',{type:'media'});assert.deepEqual(resultIds(ctx),['t3_a1']);
 });
 test('search loading uses a single native halo and late answers cannot update a departed route',async()=>{
- const ctx=await boot();let release;const gate=new Promise(r=>release=r);ctx.W.RTArchiveQuery.search=async function*(){await gate;yield {items:[post('late',1500000000)],hasMore:false};};await search(ctx,'cat');assert.ok(ctx.doc.querySelector('shreddit-feed-page-loading[page-type="community"]'));assert.equal(ctx.doc.querySelector('[data-rt-skeleton]'),null);
+ const ctx=await boot();let release;const gate=new Promise(r=>release=r);ctx.W.RTArchiveQuery.search=async function*(){await gate;yield {items:[post('late',1500000000)],hasMore:false};};await search(ctx,'cat');assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-loading"] shreddit-loading'));assert.equal(ctx.doc.querySelector('[data-rt-skeleton]'),null);
  ctx.W.history.pushState({},'','/r/live/');ctx.sa.scan();release();await tick();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-search"]'),null);assert.equal(ctx.doc.querySelector('[data-fullname="t3_late"]'),null);
 });
 test('archive cards show link domains without a missing-text warning, while unrecorded removed text stays explicit',async()=>{
