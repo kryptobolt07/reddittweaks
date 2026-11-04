@@ -317,17 +317,33 @@
       let saved=null;try{saved=JSON.parse(sessionStorage.getItem(this.feedAnchorKey()) || 'null');}catch{}
       const nav=performance.getEntriesByType?.('navigation')?.[0]?.type;
       if(!saved?.fullname || Date.now()-saved.at>60*60*1000 || !['back_forward','reload'].includes(nav))return;
+      const state=this.states.get(this.feedKey()),list=this.listEl;if(!state || !list)return;
+      // Reveal (and fetch) enough posts in one go, and keep the feed hidden until it is in place, so the reader
+      // never watches it scroll down from the top.
+      state.want=Math.max(state.want || PAGE_SIZE,Math.ceil((saved.count || PAGE_SIZE)/PAGE_SIZE)*PAGE_SIZE);
+      list.style.visibility='hidden';try{history.scrollRestoration='manual';}catch{}
       let user=false;const stop=()=>{user=true;},events=['wheel','touchmove','keydown','mousedown'];for(const type of events)addEventListener(type,stop,{passive:true,capture:true});
-      const done=()=>{for(const type of events)removeEventListener(type,stop,{capture:true});};
-      const started=performance.now();let placedAt=0;
+      const show=()=>{list.style.visibility='';};
+      const done=()=>{show();for(const type of events)removeEventListener(type,stop,{capture:true});};
+      const started=performance.now();let placedAt=0,card=null;
+      const find=()=>[...list.querySelectorAll(':scope > .rt-native-card')].find(node=>node.dataset.fullname===saved.fullname);
       const step=()=>{
-        if(user || !this.mounted || this.mounted.thread || performance.now()-started>12000){done();return;}
-        const card=[...this.listEl.querySelectorAll(':scope > .rt-native-card')].find(node=>node.dataset.fullname===saved.fullname);
-        if(card){const delta=card.getBoundingClientRect().top-saved.offset;if(Math.abs(delta)>2)scrollBy(0,delta);placedAt ||= performance.now();if(performance.now()-placedAt>1200){done();return;}}
-        else{const state=this.states.get(this.feedKey());if(state && !state.loading && !state.error && state.started && (state.hasMore || this.visibleItems(state).length<state.items.length))this.loadMore();else if(state && !state.loading && !state.hasMore && this.visibleItems(state).length>=state.items.length){done();return;}}
-        setTimeout(step,card?16:150);
+        if(!this.mounted || this.mounted.thread || this.listEl!==list){done();return;}
+        if(!placedAt){
+          card=state.loading?null:find();
+          if(!card){
+            if(performance.now()-started>12000 || user){done();return;}
+            if(!state.loading && !state.error && state.started){if(this.visibleItems(state).length<state.want && state.hasMore)this.fillFeed(state);else if(this.visibleItems(state).length>=state.want)this.renderList();else{done();return;}}
+            setTimeout(step,100);return;
+          }
+          placedAt=performance.now();scrollBy(0,card.getBoundingClientRect().top-saved.offset);show();
+        }
+        // Pin the anchor while media above it settles (up to 4 s), unless the reader takes over.
+        if(user || !card.isConnected || performance.now()-placedAt>4000){done();return;}
+        const delta=card.getBoundingClientRect().top-saved.offset;if(Math.abs(delta)>=1)scrollBy(0,delta);
+        requestAnimationFrame(step);
       };
-      setTimeout(step,150);
+      setTimeout(step,0);
     }
     restoreFeedScroll(target){
       if(!(target>0))return;this.feedScrollY=target;let user=false;const stop=()=>{user=true;},events=['wheel','touchmove','keydown','mousedown'];
