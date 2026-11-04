@@ -127,7 +127,7 @@
   // Reddit shows one of eight default avatars when a user has none; archives carry no avatar.
   function defaultAvatar(name,size){
     let hash=0;for(const ch of String(name || ''))hash=(hash*31+ch.charCodeAt(0))>>>0;
-    const img=make('img','rounded-full shrink-0 bg-neutral-background-weak');img.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+(hash % 8)+'.png';img.alt='';img.width=img.height=size;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';img.style.width=img.style.height=size+'px';return img;
+    const img=make('img','rounded-full shrink-0 bg-neutral-background-weak');img.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+(hash % 8)+'.png';img.alt='';img.width=img.height=size;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';img.style.width=img.style.height=size+'px';if(M.validateUsername(name))img.dataset.rtAvatarUser=name;return img;
   }
   // Reddit's compact counts: 999, 1.2K, 12K, 1.2M.
   function compactCount(value){const n=Number(value) || 0,abs=Math.abs(n);if(abs<1000)return String(n);if(abs<1e6)return (n/1000).toFixed(abs<10000?1:0).replace(/\.0$/,'')+'K';return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M';}

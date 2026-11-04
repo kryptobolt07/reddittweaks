@@ -49,7 +49,7 @@
   function release(modal){if(!modal || modal.hasAttribute(mountedAttr))return;modal.removeAttribute(holdAttr);modal.style.removeProperty('display');if(!modal.getAttribute('style'))modal.removeAttribute('style');}
   // Reddit's default avatars (one of eight) for authors whose archive record has no avatar.
   const defaultAvatar=(name,size,href)=>{let hash=0;for(const ch of String(name || ''))hash=(hash*31+ch.charCodeAt(0))>>>0;
-    const img=make('img','rounded-full shrink-0');img.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+(hash % 8)+'.png';img.alt='';img.width=img.height=size;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';img.style.width=img.style.height=size+'px';
+    const img=make('img','rounded-full shrink-0');img.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+(hash % 8)+'.png';img.alt='';img.width=img.height=size;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';if(globalThis.RTPostModel?.validateUsername(name))img.dataset.rtAvatarUser=name;img.style.width=img.style.height=size+'px';
     if(!href)return img;const a=make('a','flex items-center mt-2xs');a.href=href;a.setAttribute('aria-label',name+"'s profile");a.append(img);return a;};
   const redditCaret=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'caret-down'}))svg.setAttribute(k,v);
     const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7Z');svg.append(path);return svg;};
@@ -58,6 +58,9 @@
   const TOP_BATCH=20,REPLY_BATCH=10,MAX_DEPTH=6;
   const addCircle=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'add-circle'}))svg.setAttribute(k,v);
     const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M10 1a9 9 0 100 18 9 9 0 000-18Zm0 16.2a7.2 7.2 0 117.2-7.2 7.208 7.208 0 01-7.2 7.2Zm.9-8.1H14v1.8h-3.1V14H9.1v-3.1H6V9.1h3.1V6h1.8v3.1Z');svg.append(path);return svg;};
+  // Real profile pictures come from Reddit's own image hosts only (same rule as thread restore).
+  const avatarHosts=new Set(['styles.redditmedia.com','i.redd.it','preview.redd.it','cf.preview.redd.it','www.redditstatic.com']);
+  const safeAvatar=value=>{if(typeof value!=='string' || value.length>2048)return '';try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && !url.port && avatarHosts.has(url.hostname) && (!url.pathname.includes('/snoovatar/avatars/') || /-headshot\.[a-z]+$/i.test(url.pathname))?url.href:'';}catch{return '';}};
   const viewRequested=()=>new URLSearchParams(location.search).get('rt_view')==='archive';
   function setParams(changes){
     const url=new URL(location.href);
@@ -133,6 +136,7 @@
     // Called on every relevant change. Until settings are known nothing is added (an early hold may stay).
     scan(){
       if(this.dead || this.enabled===null)return;
+      if(!this.avatarSweep){this.avatarSweep=true;(globalThis.requestAnimationFrame || setTimeout)(()=>{this.avatarSweep=false;this.watchAvatars();});}
       const route=this.enabled?searchRoute():null;
       if(route){this.unmount();this.scanSearch(route);return;}
       this.unmountSearch();
@@ -306,6 +310,24 @@
     // layout pass. Re-apply the saved position for a short while, and stop as soon as the user scrolls.
     // Saved per history entry (Navigation API key): Back/Forward to that entry finds it, a new link to the feed
     // creates a new entry and starts at the top. Falls back to the community and filters where the API is missing.
+    // Archive records carry no avatars: once a default avatar nears the screen, ask Reddit (through the page
+    // bridge's hover-card lookup, which throttles itself) for that user's real picture. Deleted or suspended
+    // accounts and accounts without one keep the default. One lookup per user per page.
+    watchAvatars(){
+      const images=document.querySelectorAll('img[data-rt-avatar-user]:not([data-rt-avatar-watched])');if(!images.length)return;
+      if(!this.avatarIO && typeof IntersectionObserver==='function')this.avatarIO=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){this.avatarIO.unobserve(entry.target);this.resolveAvatar(entry.target);}},{rootMargin:'600px 0px'});
+      for(const img of images){img.dataset.rtAvatarWatched='';if(this.avatarIO)this.avatarIO.observe(img);else this.resolveAvatar(img);}
+    }
+    resolveAvatar(img){
+      const user=img.dataset.rtAvatarUser,key=user.toLowerCase();this.avatarUrls ||= new Map();let lookup=this.avatarUrls.get(key);
+      if(!lookup){
+        lookup=(async()=>{for(let attempt=0;attempt<4;attempt++){try{const result=await this.reddit({action:'user-avatar',username:user});if(!result?.deferred)return safeAvatar(result?.avatar);await new Promise(r=>setTimeout(r,Math.min(5000,result.retryAfterMs || 500)));}catch{return '';}}return null;})();
+        // A deferred-out lookup (null) may be retried later; a definitive answer is kept.
+        lookup.then(url=>{if(url===null && this.avatarUrls.get(key)===lookup)this.avatarUrls.delete(key);});
+        if(this.avatarUrls.size>=500)this.avatarUrls.delete(this.avatarUrls.keys().next().value);this.avatarUrls.set(key,lookup);
+      }
+      lookup.then(url=>{if(url){img.src=url;img.dataset.rtAvatarReal='';}});
+    }
     feedAnchorKey(){return 'rt-archive-anchor:'+(globalThis.navigation?.currentEntry?.key || '')+'|'+(this.mounted?.name || this.name || '').toLowerCase()+'|'+this.feedKey();}
     // The card at the top of the view, its offset, and how many posts were showing: survives a reload of a post
     // page (which drops this script's memory), so Back can rebuild the same position in a freshly loaded feed.
