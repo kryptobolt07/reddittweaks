@@ -310,3 +310,54 @@ test('thread misses, errors, paging and cyclic parent metadata stay explicit and
  fail=false;ctx.doc.querySelector('[data-rt-retry]').click();await tick();assert.equal(ctx.doc.querySelectorAll('shreddit-comment').length,2);assert.equal(ctx.doc.querySelector('#t1_bad'),null);assert.match(ctx.doc.querySelector('.rt-sra-foot').textContent,/stopped paging/);assert.equal(ctx.doc.querySelector('[data-rt-more]'),null);ctx.sa.destroy();ctx.W.close();
  const missing=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async()=>({ok:true,posts:[post('wrong',1500000000)]})});await tick();assert.match(missing.doc.querySelector('.rt-sra-foot').textContent,/not in the archive/);assert.equal(missing.doc.querySelector('shreddit-post'),null);missing.sa.destroy();missing.W.close();
 });
+
+// Left nav: Reddit renders it asynchronously through the page bridge, so re-rendering on every route change left it blank.
+const navRecorder=(W,{holdFirst=false}={})=>{const renders=[];let release;const held=new Promise(r=>{release=r;});
+  const fill=message=>{const target=W().document.getElementById(message.target);if(target)target.innerHTML='<flex-left-nav-container id="left-sidebar-container"><nav><a href="/">Home</a></nav></flex-left-nav-container>';return {rendered:true};};
+  return {renders,release,reddit:async message=>{if(message.action!=='render-navigation')return {};renders.push(message);
+    if(holdFirst && renders.length===1){await held;return fill(message);}return fill(message);}};};
+const goTo=async(ctx,url)=>{ctx.W.history.pushState({},'',url);ctx.sa.scan();await tick();};
+const navEl=doc=>doc.querySelector('[data-rt-ui="community-navigation"]');
+
+test('archive keeps its rendered left nav across feed and thread routes',async()=>{
+  let win;const rec=navRecorder(()=>win),ctx=await boot({reddit:rec.reddit});win=ctx.W;
+  await open(ctx);const first=navEl(ctx.doc);
+  assert.equal(first.dataset.state,'ready');assert.match(first.textContent,/Home/);assert.equal(rec.renders.length,1);
+  await goTo(ctx,'/r/gone/comments/abc12/title/');
+  assert.equal(navEl(ctx.doc),first,'thread route reuses the same nav element');assert.ok(first.isConnected);
+  assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]').contains(first));assert.equal(rec.renders.length,1,'no second render request');
+  await goTo(ctx,'/r/gone/?rt_view=archive');
+  assert.equal(navEl(ctx.doc),first,'back on the feed it is still the same element');assert.equal(rec.renders.length,1);
+  assert.equal(ctx.doc.querySelectorAll('[data-rt-ui="community-navigation"]').length,1);
+});
+
+test('archive keeps a still-loading left nav across a remount and lets it finish in place',async()=>{
+  let win;const rec=navRecorder(()=>win,{holdFirst:true}),ctx=await boot({reddit:rec.reddit});win=ctx.W;
+  await open(ctx);const loading=navEl(ctx.doc);assert.equal(loading.dataset.state,'loading');
+  await goTo(ctx,'/r/gone/comments/abc12/title/');
+  assert.equal(navEl(ctx.doc),loading,'the loading nav is moved, not replaced');assert.equal(rec.renders.length,1,'no second render request');
+  rec.release();await tick();
+  assert.equal(loading.dataset.state,'ready');assert.match(loading.textContent,/Home/);assert.ok(loading.isConnected);
+});
+
+test('archive renders a fresh left nav for another community or a stale loading one',async()=>{
+  let win;const rec=navRecorder(()=>win,{holdFirst:true}),ctx=await boot({reddit:rec.reddit});win=ctx.W;
+  await open(ctx);const stale=navEl(ctx.doc);stale.dataset.loadingSince='0';
+  await goTo(ctx,'/r/gone/comments/abc12/title/');
+  const fresh=navEl(ctx.doc);assert.notEqual(fresh,stale,'a nav loading for over 8 s is not reused');assert.equal(fresh.dataset.state,'ready');assert.equal(rec.renders.length,2);
+  rec.release();await tick();assert.equal(stale.isConnected,false,'the abandoned nav stays detached');
+  ctx.sa.unmount();ctx.doc.querySelector('shreddit-app').innerHTML=modalHtml('r/other is banned','other');
+  await goTo(ctx,'/r/other/?rt_view=archive');
+  const other=navEl(ctx.doc);assert.notEqual(other,fresh,'another community gets its own nav');assert.equal(other.dataset.subreddit,'other');assert.equal(rec.renders.length,3);
+});
+
+test('archive keeps a failed left nav on screen and retries its render in place on the next route',async()=>{
+  let win,count=0;const renders=[],ctx=await boot({reddit:async message=>{
+    if(message.action!=='render-navigation')return {};renders.push(message);count++;if(count===1)return {rendered:false};
+    const target=win.document.getElementById(message.target);target.innerHTML='<flex-left-nav-container id="left-sidebar-container"><nav><a href="/">Home</a></nav></flex-left-nav-container>';return {rendered:true};}});win=ctx.W;
+  await open(ctx);const nav=navEl(ctx.doc);
+  assert.equal(nav.dataset.state,'failed');assert.ok(nav.querySelector('nav'),'the fallback nav is shown');
+  await goTo(ctx,'/r/gone/comments/abc12/title/');
+  assert.equal(navEl(ctx.doc),nav,'the failed nav is moved, not replaced by an empty placeholder');
+  assert.equal(renders.length,2,'one retry on the new route');assert.equal(nav.dataset.state,'ready');assert.match(nav.textContent,/Home/);
+});
