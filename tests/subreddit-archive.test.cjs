@@ -361,3 +361,46 @@ test('archive keeps a failed left nav on screen and retries its render in place 
   assert.equal(navEl(ctx.doc),nav,'the failed nav is moved, not replaced by an empty placeholder');
   assert.equal(renders.length,2,'one retry on the new route');assert.equal(nav.dataset.state,'ready');assert.match(nav.textContent,/Home/);
 });
+
+// Archive cards follow Reddit's subreddit feed card, not the profile card.
+const archived=(W,raw)=>W.RTPostModel.normalizePost({subreddit:'gone',author:'alice',created_utc:1500000000,score:1240,num_comments:120,permalink:'/r/gone/comments/'+raw.id+'/t/',title:'T '+raw.id,...raw},{source:'arctic-shift'});
+
+test('archive feed cards use the native subreddit layout: author avatar and name, no community, real post type',async()=>{
+  const {W}=await boot();
+  const image=W.RTPostDiscovery.archiveCard(archived(W,{id:'img1',post_hint:'image',url:'https://i.redd.it/abc.png',preview:{images:[{source:{url:'https://preview.redd.it/abc.png?width=640',width:640,height:480}}]}}));
+  const post=image.querySelector('shreddit-post'),credit=post.querySelector('[slot="credit-bar"]');
+  assert.equal(post.getAttribute('view-context'),'SubredditFeed');assert.equal(post.getAttribute('post-type'),'image');
+  assert.doesNotMatch(credit.textContent,/r\/gone/,'no community name in the subreddit feed card');assert.match(credit.textContent,/u\/alice/);
+  assert.match(credit.querySelector('img').src,/avatar_default_\d\.png$/);
+  assert.ok(credit.querySelector('[data-rt-credit-right] .rt-archive-overflow[disabled]'),'disabled overflow on the right');
+  assert.ok(credit.querySelector('[data-rt-credit-right] [data-rt-source]'),'archive badge sits on the right');
+  assert.equal(post.querySelector('.rt-archive-media-group').slot,'post-media-container','image posts get full-width media');
+  const linkCard=W.RTPostDiscovery.archiveCard(archived(W,{id:'lnk1',url:'https://www.example.com/story',domain:'example.com',thumbnail:'https://b.thumbs.redditmedia.com/x.jpg',preview:{images:[{source:{url:'https://external-preview.redd.it/x.jpg',width:300,height:200}}]}})).querySelector('shreddit-post');
+  assert.equal(linkCard.getAttribute('post-type'),'link');assert.equal(linkCard.querySelector('.rt-archive-media-group')?.slot,'thumbnail');assert.equal(linkCard.querySelector('.rt-archive-link').textContent,'example.com');
+  const self=W.RTPostDiscovery.archiveCard(archived(W,{id:'txt1',is_self:true,post_hint:'self',selftext:'See https://variety.com/x',preview:{images:[{source:{url:'https://external-preview.redd.it/v.jpg',width:300,height:200}}]}})).querySelector('shreddit-post');
+  assert.equal(self.getAttribute('post-type'),'text');assert.equal(self.querySelector('.rt-archive-media-group'),null,'self posts never borrow a link preview');
+});
+
+test('archive post page card has a back button, community line, native title and a read-only action row',async()=>{
+  const {W}=await boot();
+  const card=W.RTPostDiscovery.archiveCard(archived(W,{id:'thr1',is_self:true,selftext:'Hello',link_flair_text:'Discussion'}),{thread:true}),post=card.querySelector('shreddit-post');
+  assert.equal(post.getAttribute('view-context'),'CommentsPage');assert.ok(post.querySelector('.rt-sra-back'));assert.match(post.querySelector('[slot="credit-bar"]').textContent,/r\/gone[\s\S]*u\/alice/);
+  assert.equal(post.querySelector('h1[slot="title"]').textContent,'T thr1');assert.equal(post.querySelector('[slot="post-flair"]').textContent,'Discussion');
+  const row=post.querySelector('[data-rt-ui="archive-action-row"]');assert.ok(row,'action row when shreddit-post is not defined');
+  assert.match(row.textContent,/1\.2K[\s\S]*120[\s\S]*Share/);assert.equal(row.querySelectorAll('button[disabled]').length,2,'votes are disabled');
+});
+
+test('archived comments carry a default avatar in the native avatar slot',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:{ok:true,posts:[comment('c1',1500000100,{linkId:'abc12',link_id:'t3_abc12',parent_id:'t3_abc12'})]}});
+  await tick();await tick();
+  const node=ctx.doc.querySelector('shreddit-comment[data-rt-ui="archive-thread-comment"]');
+  if(node){const avatar=node.querySelector('[slot="commentAvatar"] img');assert.ok(avatar,'avatar slot filled');assert.match(avatar.src,/avatar_default_\d\.png$/);}
+});
+
+test('archived images that are gone become a fixed-size notice instead of a stretched placeholder',async()=>{
+  const {W}=await boot();
+  const view=W.RTArchiveView.media([{kind:'image',url:'https://i.redd.it/gone.png'}],{alt:'x'}),img=view.querySelector('img:not(.rt-media-backdrop)');
+  img.dispatchEvent(new W.Event('error'));assert.match(view.textContent,/Image no longer available/);
+  const thumb=W.RTArchiveView.media([{kind:'preview',url:'https://external-preview.redd.it/gone.jpg'}],{alt:'x',compact:true});
+  thumb.querySelector('img').dispatchEvent(new W.Event('error'));assert.match(thumb.textContent,/No image/);
+});

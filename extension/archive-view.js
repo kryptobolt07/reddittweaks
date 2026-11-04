@@ -5,6 +5,13 @@
   'use strict';
   if(globalThis.RTArchiveView)return;
   const imageUrl=value=>globalThis.RTPostModel?.mediaUrl(value) || '';
+  // Deleted i.redd.it images 404 or come back as Reddit's 130x60 "image was probably deleted"
+  // placeholder. Replace either with an honest, fixed-size notice instead of stretching it.
+  const isRemovedPlaceholder=img=>img.naturalWidth===130 && img.naturalHeight===60;
+  function watchUnavailable(img,frame,doc,compact){
+    const replace=()=>{const note=doc.createElement('div');note.className='rt-media-unavailable'+(compact?' rt-media-unavailable-compact':'');note.dataset.rtRecoveredText='true';note.setAttribute('role','img');note.setAttribute('aria-label','Image no longer available');note.textContent=compact?'No image':'Image no longer available';frame.replaceChildren(note);frame.classList.add('rt-media-unavailable-frame');};
+    img.addEventListener('error',replace,{once:true});img.addEventListener('load',()=>{if(isRemovedPlaceholder(img))replace();},{once:true});
+  }
   // Mirrors Reddit's image-post media (2026-10): rounded frame with a hairline
   // border, an aspect-ratio box (at least 220px, capped to the viewport), a
   // blurred dimmed copy behind, and the contained image on black.
@@ -24,7 +31,8 @@
     const main=make('img','i18n-post-media-img preview-img media-lightbox-img max-h-[100vw] h-full w-full object-contain relative');main.alt=alt;
     for(const img of [backdrop,main]){img.src=url;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';}
     // Use the image's own proportions once known, like Reddit's aspect box.
-    main.addEventListener('load',()=>{if(valid(main.naturalWidth) && valid(main.naturalHeight))ratio.style.aspectRatio=main.naturalWidth+' / '+main.naturalHeight;},{once:true});
+    main.addEventListener('load',()=>{if(isRemovedPlaceholder(main))return;if(valid(main.naturalWidth) && valid(main.naturalHeight))ratio.style.aspectRatio=main.naturalWidth+' / '+main.naturalHeight;},{once:true});
+    watchUnavailable(main,root,doc,false);
     stage.append(backdrop,main);fill.append(stage);ratio.append(fill);root.append(ratio);
     return root;
   }
@@ -40,7 +48,7 @@
       const img=doc.createElement('img');img.className='rt-archive-link-thumbnail h-full w-full object-cover';img.src=imageUrl(url);img.alt=alt;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
       let destination='';try{const parsed=new URL(href);if(['http:','https:'].includes(parsed.protocol) && !parsed.username && !parsed.password)destination=parsed.href;}catch{}
       if(destination){const a=doc.createElement('a');a.className='block w-full h-full';a.href=destination;a.target='_blank';a.rel='noopener noreferrer nofollow ugc';a.append(img);box.append(a);}else box.append(img);
-      return box;
+      watchUnavailable(img,box,doc,true);return box;
     };
     // Native profile link layouts display one preview in the right-hand cell.
     // Keep full gallery/video media for the opened post rather than stacking it
