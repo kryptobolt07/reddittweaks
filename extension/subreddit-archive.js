@@ -103,7 +103,9 @@
       this.getOwner=getOwner || (()=>globalThis.RCSDirectory?.getOwner?.() || globalThis.RCSMessages?.getSelfIdentity?.()?.id || '');
       this.enabled=null;this.mounted=null;this.search=null;this.states=new Map();this.top=false;this.openMenuEl=null;this.dead=false;this.meta=null;this.metaName='';
       this.onRoute=()=>this.scan();
-      this.onScroll=()=>{if(this.mounted && !this.mounted.thread && viewRequested() && !threadRoute())this.feedScrollY=scrollY;};
+      // Record the feed position only while this community's feed path is showing (with or without rt_view:
+      // the automatic preference opens the archive without it), never during navigation to a post.
+      this.onScroll=()=>{const m=this.mounted;if(m && !m.thread && !threadRoute() && location.pathname.replace(/\/+$/,'').toLowerCase()==='/r/'+m.name.toLowerCase())this.feedScrollY=scrollY;};
       addEventListener('scroll',this.onScroll,{passive:true});
       this.onDocClick=event=>{if(this.openMenuEl && !this.openMenuEl.parentElement.contains(event.target))this.closeMenus();};
       this.onKey=event=>{if(event.key==='Escape' && this.openMenuEl){const button=this.openMenuEl.parentElement.querySelector('button');this.closeMenus();button?.focus({preventScroll:true});}};
@@ -190,7 +192,7 @@
       const name=modal.getAttribute('subredditname'),f=globalThis.RTFeedFilters,params=new URLSearchParams(location.search);
       this.name=name;this.kind=kind;this.filters=f?f.read(location):null;this.top=params.get('rt_top')==='1';
       const stash=this.feedStash,reuse=stash && stash.name===name.toLowerCase() && Date.now()-stash.at<30*60*1000;if(stash && !reuse)this.feedStash=null;
-      this.states=!thread && reuse?stash.states:new Map();if(!thread && reuse){this.feedStash=null;for(const state of this.states.values())state.loading=false;this.restoreFeedScroll(stash.scrollY);}
+      this.states=!thread && reuse?stash.states:new Map();if(!thread && !reuse)this.feedScrollY=undefined;if(!thread && reuse){this.feedStash=null;for(const state of this.states.values())state.loading=false;this.restoreFeedScroll(stash.scrollY);}
       modal.setAttribute(mountedAttr,'true');hold(modal);
       const layout=this.layout=make('div','grid-container theme-rpl grid '+this.navigationClass());layout.dataset.rtUi='archive-subreddit';layout.dataset.rtSubreddit=name;layout.dir='ltr';
       const subgrid=make('div','subgrid-container m:col-start-2 box-border flex flex-col order-2 w-full m:w-[1120px] xs:px-md m:px-lg mx-auto min-h-[calc(100dvh_-_var(--shreddit-header-height))] justify-stretch');subgrid.id='subgrid-container';

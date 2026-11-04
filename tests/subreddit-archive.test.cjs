@@ -529,3 +529,11 @@ test('returning from a post to the archive feed reuses its loaded cards and rest
   assert.equal(after.length,before.length);assert.ok(after.every((card,i)=>card===before[i]),'same card elements, no rebuild');
   assert.equal(ctx.calls.length,searches,'no new archive request');assert.equal(restored,640);
 });
+
+test('the feed scroll position is recorded on the plain community path (automatic archive, no rt_view) but not on a post',async()=>{
+  const ctx=await boot();await open(ctx);await tick();
+  ctx.W.history.replaceState({},'','/r/gone/');Object.defineProperty(ctx.W,'scrollY',{configurable:true,value:900});
+  ctx.sa.onScroll();assert.equal(ctx.sa.feedScrollY,900,'recorded without rt_view');
+  ctx.W.history.replaceState({},'','/r/gone/comments/abc12/title/');Object.defineProperty(ctx.W,'scrollY',{configurable:true,value:0});
+  ctx.sa.onScroll();assert.equal(ctx.sa.feedScrollY,900,'navigation to a post does not overwrite it');
+});
