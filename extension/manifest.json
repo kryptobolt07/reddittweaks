@@ -68,7 +68,8 @@
       "world": "MAIN",
       "js": [
         "post-model.js",
-        "post-page-bridge.js"
+        "post-page-bridge.js",
+        "share-links-page.js"
       ]
     },
     {
@@ -80,7 +81,8 @@
       ],
       "run_at": "document_start",
       "js": [
-        "profile-notice.js"
+        "profile-notice.js",
+        "share-links-settings.js"
       ],
       "css": [
         "post-discovery.css",
