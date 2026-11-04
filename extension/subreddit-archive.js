@@ -61,6 +61,8 @@
   // Real profile pictures come from Reddit's own image hosts only (same rule as thread restore).
   const avatarHosts=new Set(['styles.redditmedia.com','i.redd.it','preview.redd.it','cf.preview.redd.it','www.redditstatic.com']);
   const safeAvatar=value=>{if(typeof value!=='string' || value.length>2048)return '';try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && !url.port && avatarHosts.has(url.hostname) && (!url.pathname.includes('/snoovatar/avatars/') || /-headshot\.[a-z]+$/i.test(url.pathname))?url.href:'';}catch{return '';}};
+  // Automatic retries for temporary archive failures: attempts and the wait before each (ms).
+  const AUTO_RETRIES=3,AUTO_RETRY_WAITS=[2000,5000,12000];
   const viewRequested=()=>new URLSearchParams(location.search).get('rt_view')==='archive';
   function setParams(changes){
     const url=new URL(location.href);
@@ -101,8 +103,8 @@
   }
 
   class SubredditArchive {
-    constructor({readSettings=defaultSettings,getOwner=null,observe=true,communityState=defaultCommunityState,reddit=(...args)=>globalThis.RTPostDiscovery?.redditRead?.(...args),archive=archiveRead}={}){
-      this.readSettings=readSettings;this.communityState=communityState;this.reddit=reddit;this.archive=archive;
+    constructor({autoRetries=AUTO_RETRIES,autoRetryWaits=AUTO_RETRY_WAITS,readSettings=defaultSettings,getOwner=null,observe=true,communityState=defaultCommunityState,reddit=(...args)=>globalThis.RTPostDiscovery?.redditRead?.(...args),archive=archiveRead}={}){
+      this.autoRetries=autoRetries;this.autoRetryWaits=autoRetryWaits;this.readSettings=readSettings;this.communityState=communityState;this.reddit=reddit;this.archive=archive;
       this.getOwner=getOwner || (()=>globalThis.RCSDirectory?.getOwner?.() || globalThis.RCSMessages?.getSelfIdentity?.()?.id || '');
       this.enabled=null;this.mounted=null;this.search=null;this.states=new Map();this.top=false;this.openMenuEl=null;this.dead=false;this.meta=null;this.metaName='';
       this.onRoute=()=>this.scan();this.initialHref=location.href;
@@ -294,7 +296,7 @@
       if(state.nativeModulesError){const note=make('p','rt-sra-note',state.nativeModulesError+' '),retry=make('button','button button-small button-secondary','Retry Reddit components');retry.type='button';retry.addEventListener('click',()=>{state.nativeModulesError=null;this.renderThread();});note.append(retry);this.footEl.append(note);}
       // Reddit's page halo continues the top-level list; only nested reply controls use the small spinner.
       if(state.loading || this.io && !state.error && !state.stalled && (state.hiddenTop>0 || state.hasMore))this.footEl.append(this.loadingHalo('Loading archived comments'));
-      if(state.error)this.footEl.append(this.errorNote(state,()=>this.loadThread({more:Boolean(state.post && state.cursor)})));
+      if(!state.error && !state.loading)state.autoRetries=0;if(state.error)this.footEl.append(this.errorNote(state,()=>this.loadThread({more:Boolean(state.post && state.cursor)})));
       if(!state.loading && !state.error){
         if(state.missing)this.footEl.append(make('p','rt-sra-note','This post is not in the archive. Coverage may be partial.'));
         else if(state.stalled)this.footEl.append(make('p','rt-sra-note','The archive stopped paging here; more comments may exist.'));
@@ -780,7 +782,7 @@
       else for(const [index,item] of items.entries()){if(index)search.list.append(make('hr','rt-sra-result-rule'));search.list.append(this.searchUnit(state,item));}
       const foot=search.foot;foot.replaceChildren();
       if(state.loading)foot.append(this.loadingHalo());
-      if(state.error)foot.append(this.errorNote(state,()=>{if(!state.loading){state.error=null;this.fill(state,()=>this.renderSearch());}}));
+      if(!state.error && !state.loading)state.autoRetries=0;if(state.error)foot.append(this.errorNote(state,()=>{if(!state.loading){state.error=null;this.fill(state,()=>this.renderSearch());}}));
       if(!state.loading && !state.error && !state.parsed?.invalid && state.started){
         const label=state.tab==='comments'?'comments':'posts';
         if(!items.length)foot.append(this.emptyState(route.q,state.hasMore?'No archived '+label+' matched yet.':'No archived '+label+' matched. The archive may not hold every record.'));
@@ -1030,10 +1032,21 @@
         make('div','rt-sra-empty-text',reach+(state.paused && state.hasMore?(state.asc?'Newer':'Older')+' posts may still match.':'The archive may not hold every record.')));
       return box;
     }
+    // Temporary archive failures (timeouts, rate limits, maintenance) retry by themselves a few times with
+    // growing waits (or the server's requested wait) before the reader is asked to press Retry.
     errorNote(state,retry){
-      const note=make('div','rt-sra-error text-12 text-neutral-content-weak');note.setAttribute('role','status');note.append(make('span','',state.error.message || 'The archive is unavailable.'));
-      if(state.error.retryAt){const wait=Math.max(0,Math.ceil((state.error.retryAt-Date.now())/1000));if(wait>0)note.append(make('span','',' Try again in about '+wait+' s.'));}
-      const button=make('button','button button-small button-secondary','Retry');button.type='button';button.dataset.rtRetry='true';button.addEventListener('click',retry);note.append(button);return note;
+      const error=state.error,message=String(error?.message || 'The archive is unavailable.'),missing=/not in the archive|not found|isn't available/i.test(message);
+      const note=make('div','rt-sra-error text-12 text-neutral-content-weak');note.setAttribute('role','status');
+      if(!missing && (state.autoRetries || 0)<this.autoRetries){
+        if(state.autoRetryFor!==error){
+          state.autoRetryFor=error;const attempt=state.autoRetries || 0,wait=Math.max(this.autoRetryWaits[attempt] ?? 0,error?.retryAt?error.retryAt-Date.now():0);
+          clearTimeout(state.autoRetryTimer);state.autoRetryTimer=setTimeout(()=>{if(state.error!==error)return;state.autoRetries=attempt+1;retry();},wait);
+        }
+        note.append(this.spinner(),make('span','','The archive is slow to respond · Retrying automatically…'));return note;
+      }
+      note.append(make('span','',message));
+      if(error?.retryAt){const wait=Math.max(0,Math.ceil((error.retryAt-Date.now())/1000));if(wait>0)note.append(make('span','',' Try again in about '+wait+' s.'));}
+      const button=make('button','button button-small button-secondary rt-sra-retry','Retry');button.type='button';button.dataset.rtRetry='true';button.addEventListener('click',()=>{state.autoRetries=0;retry();});note.append(button);return note;
     }
     renderList(){
       if(!this.mounted)return;const state=this.current(),items=this.visibleItems(state),shown=items.slice(0,state.want);
@@ -1047,7 +1060,7 @@
       const scanning=state.loading && !shown.length && this.localFilter();
       if(state.loading || this.io && more && idle)foot.append(this.loadingHalo(scanning?'Searching the archive for matching posts':'Loading archived posts'));
       if(scanning)foot.append(make('p','rt-sra-note rt-sra-scan-note text-12 text-neutral-content-weak','Searching older archived posts for matches…'));
-      if(state.error)foot.append(this.errorNote(state,()=>this.retry()));
+      if(!state.error && !state.loading)state.autoRetries=0;if(state.error)foot.append(this.errorNote(state,()=>this.retry()));
       if(idle){
         if(!items.length){if(!state.hasMore || state.paused)foot.append(this.feedEmpty(state));else foot.append(make('p','rt-archive-empty text-14 text-neutral-content-weak','No archived posts loaded yet for these settings.'));}
         if(state.stalled)foot.append(make('p','rt-sra-note text-12 text-neutral-content-weak','The archive stopped paging here; older records may exist.'));

@@ -25,7 +25,7 @@ async function boot({url='https://www.reddit.com/r/gone/?rt_view=archive',pages,
   for(const f of ['search-core.js','post-model.js','archive-view.js','post-discovery.js','feed-filters.js','subreddit-archive.js'])W.eval(fs.readFileSync('extension/'+f,'utf8'));
   const observers=io?fakeIO(W):null,calls=[];
   W.RTArchiveQuery={async *search(options){calls.push(options);for(const page of await pages(options,calls.length)){if(page instanceof Error)throw page;yield page;}},async subreddit(){throw Error('none');}};
-  const sa=new W.RTSubredditArchive.SubredditArchive({observe:false,readSettings:async()=>({enabled:true}),getOwner:()=>'me',communityState:async()=>'banned',reddit:async()=>({rendered:true}),archive:archive || (async()=>({ok:true,posts:[]}))});
+  const sa=new W.RTSubredditArchive.SubredditArchive({autoRetries:0,observe:false,readSettings:async()=>({enabled:true}),getOwner:()=>'me',communityState:async()=>'banned',reddit:async()=>({rendered:true}),archive:archive || (async()=>({ok:true,posts:[]}))});
   await sa.ready;await tick();
   const feedIO=observers?.find(o=>o.options?.rootMargin==='800px 0px'),cardIO=observers?.find(o=>o.options?.rootMargin==='2000px 0px');
   return {W,doc:W.document,sa,calls,feedIO,cardIO};

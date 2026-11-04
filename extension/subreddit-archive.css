@@ -230,3 +230,7 @@ guard-community-modal[data-rt-subreddit-hold]{display:none!important}
 .rt-sensitive-reveal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:4;height:32px;padding:0 12px;border:0;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font:600 12px/16px var(--font-sans,inherit);cursor:pointer}
 .rt-sensitive-reveal:hover{background:rgba(0,0,0,.8)}
 [slot="text-body"].rt-sensitive-content{min-height:48px}
+
+/* Compact Retry pill (Reddit's small button metrics) and the automatic-retry status line. */
+.rt-sra-error .rt-sra-retry{display:inline-flex;align-items:center;height:32px;min-height:0;padding:0 12px;font-size:12px;line-height:16px}
+.rt-sra-error svg.rt-sra-spinner{flex:none}
