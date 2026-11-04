@@ -1755,9 +1755,10 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
         const community=link('r/'+post.subreddit,'/r/'+encodeURIComponent(post.subreddit)+'/?rt_view=archive','font-bold text-12 text-neutral-content-strong no-underline hover:underline');
         const lines=make('div','flex gap-0 flex-col truncate'),top=make('span','flex items-center gap-2xs');top.append(community,make('span','text-neutral-content-weak','•'),date);
         lines.append(top,authorLink('text-12 text-neutral-content no-underline hover:underline'));
-        const avatar=this.communityAvatar(post.subreddit);avatar.classList?.add('shrink-0');left.classList.add('gap-xs');left.append(back,avatar,lines);
+        // The banned community has no icon worth showing; use the poster's picture (real one swapped in by the archive).
+        const avatar=make('span','inline-flex items-center justify-center w-xl h-xl relative shrink-0 rt-archive-avatar rt-archive-avatar-lg');avatar.append(defaultAvatar(post.author,32));left.classList.add('gap-xs');left.append(back,avatar,lines);
       }else{
-        const author=make('span','flex');author.slot='authorName';const inner=make('span','inline-flex items-center gap-2xs max-w-full'),name=authorLink('flex items-center text-neutral-content font-bold no-underline hover:underline');inner.append(defaultAvatar(post.author,24),name);author.append(inner);
+        const author=make('span','flex');author.slot='authorName';const inner=make('span','inline-flex items-center gap-2xs max-w-full rt-archive-author'),name=authorLink('flex items-center text-neutral-content font-bold no-underline hover:underline'),frame=make('span','inline-flex items-center justify-center w-lg h-lg relative shrink-0 rt-archive-avatar');frame.append(defaultAvatar(post.author,24));inner.append(frame,name);author.append(inner);
         left.append(author,make('span','inline-block my-0 text-neutral-content-weak','•'),date);
       }
       const more=make('button','button button-plain icon inline-flex items-center justify-center rounded-full w-xl h-xl rt-archive-overflow');more.type='button';more.disabled=true;more.setAttribute('aria-label','Archived post · Actions unavailable');more.title='Archived post · Actions unavailable';more.append(redditIcon('overflow',16));right.append(more);
