@@ -25,10 +25,10 @@ test('Reddit Tweaks popup loads defaults and persists individual changes while p
   assert.equal(post.checked,true);assert.equal(archive.checked,false);assert.equal(restore.checked,true);
   archive.checked=true;archive.dispatchEvent(new p.w.Event('change'));
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false});
   post.checked=false;post.dispatchEvent(new p.w.Event('change'));
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:true,restoreDeletedContent:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false});
   assert.equal(p.w.document.querySelector('#settings-status').textContent,'Settings saved automatically.');
 });
 
@@ -37,7 +37,7 @@ test('automatic restoration stays independent of archive opt-in and serialized w
   const restore=p.w.document.querySelector('#restore-deleted-content'),post=p.w.document.querySelector('#post-discovery');
   assert.equal(restore.checked,false);assert.match(restore.previousElementSibling.textContent,/Requires Arctic Shift enabled/);
   restore.checked=true;restore.dispatchEvent(new p.w.Event('change'));post.checked=false;post.dispatchEvent(new p.w.Event('change'));await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,futureOption:'preserve'});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,futureOption:'preserve'});
   const reopened=popup(t,{settings:p.state});await settle();assert.equal(reopened.w.document.querySelector('#restore-deleted-content').checked,true);assert.equal(reopened.w.document.querySelector('#archive-discovery').checked,false);
 });
 
@@ -111,4 +111,13 @@ test('popup colors meet contrast minimums and forced-colors keeps switches visib
   const light=css.match(/--link-bg:(#\w{6});--track:(#\w{6})/),dark=css.match(/\.switch\{--track:(#\w{6})\}/);
   assert.ok(contrast(light[1],'#ffffff')>=4.5);assert.ok(contrast(light[2],'#ffffff')>=3);assert.ok(contrast(dark[1],'#151a1c')>=3);assert.ok(contrast(dark[1],'#ffffff')>=3);
   assert.match(css,/@media\(forced-colors:active\)\{[^@]*\.switch\{[^}]*ButtonText/);
+});
+
+test('unavailable-community loading and direct-open are separate opt-ins and retain dependency state',async t=>{
+  const p=popup(t);await settle();const doc=p.w.document,archive=doc.querySelector('#archive-discovery'),community=doc.querySelector('#subreddit-archive'),automatic=doc.querySelector('#subreddit-archive-automatic');
+  assert.equal(community.checked,false);assert.equal(automatic.checked,false);assert.equal(automatic.getAttribute('aria-disabled'),'true');
+  for(const control of [archive,community,automatic]){control.checked=true;control.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();}
+  assert.equal(p.state['rt-settings-v1'].subredditArchiveAutomatic,true);assert.equal(automatic.getAttribute('aria-disabled'),null);
+  community.checked=false;community.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();assert.equal(automatic.checked,true,'retains the direct-open preference for later');assert.equal(automatic.getAttribute('aria-disabled'),'true');
+  const reopened=popup(t,{settings:p.state});await settle();assert.equal(reopened.w.document.querySelector('#subreddit-archive').checked,false);assert.equal(reopened.w.document.querySelector('#subreddit-archive-automatic').checked,true);
 });

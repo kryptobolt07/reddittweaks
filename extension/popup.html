@@ -31,6 +31,16 @@
         <div class="setting-copy"><label for="restore-deleted-content">Restore deleted content automatically</label><p id="restore-deleted-content-desc">Requires Arctic Shift enabled. Shows archived text, images and authors.</p></div>
         <input class="switch" type="checkbox" id="restore-deleted-content" data-setting="restoreDeletedContent" aria-describedby="restore-deleted-content-desc">
       </div>
+      <div class="setting-row" data-requires="archive-discovery">
+        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3 4h14v12H3zM5 6v8h10V6H5z"/></svg></span>
+        <div class="setting-copy"><label for="subreddit-archive">Browse unavailable communities</label><p id="subreddit-archive-desc">Offer archived posts for banned or private communities. Coverage may be incomplete.</p></div>
+        <input class="switch" type="checkbox" id="subreddit-archive" data-setting="subredditArchive" aria-describedby="subreddit-archive-desc">
+      </div>
+      <div class="setting-row" data-requires="subreddit-archive">
+        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-1 4h2v4l3 2-1 1.5-4-2.7V6z"/></svg></span>
+        <div class="setting-copy"><label for="subreddit-archive-automatic">Open community archives automatically</label><p id="subreddit-archive-automatic-desc">Load the archive directly when a community is unavailable.</p></div>
+        <input class="switch" type="checkbox" id="subreddit-archive-automatic" data-setting="subredditArchiveAutomatic" aria-describedby="subreddit-archive-automatic-desc">
+      </div>
       <p id="settings-status" class="settings-status" role="status" aria-live="polite">Loading settings…</p>
     </section>
 

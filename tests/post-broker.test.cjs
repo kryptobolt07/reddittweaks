@@ -67,7 +67,7 @@ test('opting out while a global request slot is queued prevents another fetch',a
 });
 test('content scripts read only normalized preferences through the trusted worker even with archives off',async()=>{
  const e=env({settings:{postDiscovery:true,archiveDiscovery:false,privateChatData:'never expose'}}),result=await e.send({action:'get-settings'});
- assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(result.settings)),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(e.calls.length,0);
+ assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(result.settings)),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false});assert.equal(e.calls.length,0);
  assert.equal((await e.send({action:'get-settings'},{id:'foreign'})).code,'forbidden');
  assert.equal((await e.send({action:'get-settings'},{url:'https://evil.test/'})).code,'forbidden');
 });
@@ -85,7 +85,7 @@ test('archived comments use their own endpoint, projection, identity and profile
 test('settings changes reach registered Reddit tabs without exposing trusted chat storage',async()=>{
  const e=env();await e.send({action:'get-settings'},{tab:{id:5,url:'https://www.reddit.com/user/Example/'}});
  e.changeSettings({postDiscovery:false,archiveDiscovery:false,privateChats:['secret']});await new Promise(r=>setImmediate(r));
- assert.equal(e.notifications.length,1);assert.equal(e.notifications[0][0],5);const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true}});
+ assert.equal(e.notifications.length,1);assert.equal(e.notifications[0][0],5);const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false}});
 });
 
 test('archive author requests allow same-profile SPA tabs while rejecting other profiles and unsupported pages',async()=>{
