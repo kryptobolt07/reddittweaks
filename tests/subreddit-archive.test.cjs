@@ -578,3 +578,9 @@ test('archive avatars switch from Reddit\'s default to the user\'s real picture 
   assert.ok(img,'card avatar is marked with its user');assert.equal(img.src,'https://styles.redditmedia.com/t5_x/styles/profileIcon_abc.png');
   assert.equal(asked.filter(n=>n==='alice').length,1,'one lookup per user');
 });
+
+test('the archived post page header shows the poster\'s avatar, not the community icon',async()=>{
+  const {W}=await boot();
+  const post=W.RTPostDiscovery.archiveCard(archived(W,{id:'thr2',is_self:true,selftext:'Hi'}),{thread:true}).querySelector('shreddit-post');
+  const img=post.querySelector('[slot="credit-bar"] .rt-archive-avatar img');assert.equal(img.dataset.rtAvatarUser,'alice');assert.match(img.src,/avatar_default_\d\.png$/);
+});

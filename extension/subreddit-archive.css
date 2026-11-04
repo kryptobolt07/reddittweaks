@@ -212,3 +212,10 @@ guard-community-modal[data-rt-subreddit-hold]{display:none!important}
 @media (min-width:640px){
   [data-rt-ui="archive-subreddit"]>.subgrid-container .rt-sra-sidebar-rail{position:sticky;top:var(--shreddit-header-height,56px);align-self:start;height:fit-content;max-height:calc(100dvh - var(--shreddit-header-height,56px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
 }
+
+/* Archive card author row: avatar and name share one 24px line, centred like Reddit's credit bar. */
+.rt-archive-author{display:inline-flex;align-items:center;gap:4px;height:24px;line-height:24px}
+.rt-archive-avatar{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px}
+.rt-archive-avatar>img{display:block;width:24px;height:24px;margin:0;border-radius:999px;object-fit:cover}
+.rt-archive-author>a{display:inline-flex;align-items:center;height:24px;line-height:24px}
+.rt-archive-avatar-lg,.rt-archive-avatar-lg>img{width:32px;height:32px}
