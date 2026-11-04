@@ -178,7 +178,7 @@
       this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){this.threadState={route:thread,post:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();}
     }
     unmount(){
-      const m=this.mounted;if(!m)return;this.mounted=null;this.threadState=null;
+      const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState=null;
       this.navigationController?.abort();this.navigationController=null;this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
       for(const state of this.states.values())state.gen++;
       this.layout?.remove();this.layout=null;m.modal.removeAttribute(mountedAttr);
@@ -201,40 +201,49 @@
       finally{if(current()){state.loading=false;this.renderThread();}}
     }
     threadComment(comment){
-      const node=make('shreddit-comment','rt-sra-thread-comment');node.id=comment.fullname;node.dataset.rtUi='archive-thread-comment';
-      for(const [name,value] of Object.entries({thingid:comment.fullname,postid:'t3_'+comment.linkId,parentid:comment.parentId || 't3_'+comment.linkId,author:comment.author,score:comment.score,depth:0}))node.setAttribute(name,String(value));
-      const author=make('div','author-name-meta text-12 font-semibold');author.slot='commentMeta';
-      if(globalThis.RTPostModel.validateUsername(comment.author)){const link=make('a','truncate font-bold text-neutral-content-strong text-12 hover:underline',comment.author);link.href='/user/'+encodeURIComponent(comment.author)+'/';author.append(link);}else author.append(make('span','text-neutral-content-weak',comment.author || '[deleted]'));
-      author.append(make('span','text-neutral-content-weak font-normal',' · '),this.time(comment.created));
-      const body=make('div','md text-14 rt-sra-thread-body');body.slot='comment';
-      if(comment.over18 || comment.spoiler)body.append(make('p','','NSFW or spoiler snapshot · Content not expanded.'));
-      else{const rendered=globalThis.RTMarkdown?.fromHtml?.(comment.bodyHtml) || globalThis.RTMarkdown?.render?.(comment.body || '');if(rendered)body.append(rendered);else body.append(make('p','',comment.body || 'The archive has no original text for this comment.'));}
-      const actions=make('shreddit-comment-action-row','block rt-sra-thread-actions');actions.slot='actionRow';for(const [key,value] of Object.entries({'comment-id':comment.fullname,score:comment.score,'vote-state':'NONE','view-only':'','comment-archived':'','is-desktop-viewport':''}))actions.setAttribute(key,String(value));
-      const permalink=make('a','button button-plain-weak button-small inline-flex px-sm hover:no-underline','Permalink');permalink.slot='comment-reply';permalink.href='/r/'+encodeURIComponent(this.name)+'/comments/'+comment.linkId+'/_/'+comment.id+'/';actions.append(permalink);
-      const details=make('details','relative bg-transparent p-0 m-0');details.open=true;details.setAttribute('role','article');details.setAttribute('aria-label','Archived comment from '+comment.author);details.tabIndex=0;
-      const summary=make('summary','pb-0 m-0 list-none grid grid-cols-[24px_minmax(0,1fr)] xs:grid-cols-[32px_minmax(0,1fr)] rt-sra-comment-summary');
-      const avatarColumn=make('div','relative flex justify-center'),avatar=make('div','rt-sra-comment-avatar');avatar.slot='commentAvatar';
-      const image=make('img','rounded-full');image.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_0.png';image.alt='';image.loading='lazy';image.referrerPolicy='no-referrer';image.width=image.height=32;
-      if(globalThis.RTPostModel.validateUsername(comment.author)){const link=make('a','flex items-center');link.href='/user/'+encodeURIComponent(comment.author)+'/';link.setAttribute('aria-label',comment.author+"'s profile");link.append(image);avatar.append(link);}else avatar.append(image);
-      avatarColumn.append(avatar);summary.append(avatarColumn,author);
-      const grid=make('div','grid grid-cols-[24px_1fr] relative xs:grid-cols-[32px_1fr] comment-main-grid rt-sra-comment-grid'),content=make('div','min-w-0 col-start-2');content.append(body,actions);grid.append(content);details.append(summary,grid);node.append(details);
-      const protect=event=>{if(event.type==='keydown' && !['Enter',' '].includes(event.key))return;const path=event.composedPath();if(!path.some(n=>n.matches?.('a[href]')) && path.some(n=>n.matches?.('button,[role="button"],shreddit-comment-share-button'))){event.preventDefault();event.stopImmediatePropagation();}};
-      node.addEventListener('click',protect,true);node.addEventListener('keydown',protect,true);return node;
+      // Reddit's comment element can render its own layout from light-DOM slots.
+      // Request its native shadow renderer rather than reproducing the SSR grid.
+      const node=make('shreddit-comment','col-start-2 rt-sra-thread-comment');node.id=comment.fullname;node.dataset.rtUi='archive-thread-comment';
+      const path='/r/'+encodeURIComponent(this.name)+'/comments/'+comment.linkId+'/_/'+comment.id+'/';
+      for(const [name,value] of Object.entries({'slot-config':'shadow',thingid:comment.fullname,postid:'t3_'+comment.linkId,parentid:comment.parentId || 't3_'+comment.linkId,author:comment.author,permalink:path,depth:0}))node.setAttribute(name,String(value));
+      const author=make('div','flex relative ps-xs py-[2px] min-w-0 max-w-full text-body-2 tracking-normal items-start');author.slot='commentMeta';
+      const identity=make('div','flex items-center pe-xs overflow-hidden'),name=make('div','flex flex-none flex-row flex-nowrap items-center author-name-meta');
+      if(globalThis.RTPostModel.validateUsername(comment.author)){const link=make('a','truncate font-bold text-neutral-content-strong text-12 hover:underline',comment.author);link.href='/user/'+encodeURIComponent(comment.author)+'/';name.append(link);}else name.append(make('span','text-neutral-content-weak text-12',comment.author || '[deleted]'));
+      const timeLink=make('a','text-neutral-content-weak text-12 hover:no-underline');timeLink.href=path;timeLink.append(this.time(comment.created));name.append(make('span','inline-block my-0 mx-2xs text-12 text-neutral-content-weak','•'),timeLink);identity.append(name);author.append(identity);
+      const body=make('div','md text-14-scalable rounded-2 pb-2xs overflow-hidden');body.slot='comment';const text=make('div','py-0 xs:mx-xs mx-2xs max-w-full scalable-text');text.dir='auto';
+      if(comment.over18 || comment.spoiler)text.append(make('p','','NSFW or spoiler snapshot · Content not expanded.'));
+      else{const rendered=globalThis.RTMarkdown?.fromHtml?.(comment.bodyHtml) || globalThis.RTMarkdown?.render?.(comment.body || '');if(rendered)text.append(rendered);else text.append(make('p','',comment.body || 'The archive has no original text for this comment.'));}body.append(text);
+      const actions=make('shreddit-comment-action-row','block');actions.slot='actionRow';for(const [key,value] of Object.entries({'comment-id':comment.fullname,score:comment.score,'vote-state':'NONE','view-only':'','comment-archived':'','is-desktop-viewport':'',permalink:path}))actions.setAttribute(key,String(value));
+      const share=make('shreddit-comment-share-button');share.slot='comment-share';share.setAttribute('permalink',path);share.setAttribute('source-id',comment.fullname);share.setAttribute('is-desktop-viewport','');actions.append(share);node.append(author,body,actions);
+      // Reddit can render snapshot scores but no action may mutate a snapshot.
+      for(const type of ['click','keydown'])actions.addEventListener(type,event=>{if(event.type==='keydown' && !['Enter',' '].includes(event.key))return;if(!event.composedPath().some(part=>part.matches?.('shreddit-comment-share-button'))){event.preventDefault();event.stopImmediatePropagation();}},true);
+      return node;
     }
     renderThread(){
-      const state=this.threadState;if(!state || !this.mounted)return;this.listEl.replaceChildren();
-      if(state.post){const card=globalThis.RTPostDiscovery.archiveCard(state.post,{thread:true}),native=card.querySelector('shreddit-post');if(native){native.setAttribute('view-context','CommentsPage');const old=native.querySelector('[slot="title"]'),title=make('h1','text-24 font-bold m-0 mb-md',state.post.title);title.slot='title';old?.replaceWith(title);}this.listEl.append(card);}
-      const comments=make('section','rt-sra-thread-comments');comments.setAttribute('aria-label','Archived comments');comments.append(make('h2','text-18 font-semibold px-md','Comments'));
-      comments.append(make('p','rt-sra-note',state.items.length+' archived comments loaded · Coverage may be partial'));
-      const nodes=new Map(state.items.map(item=>[item.fullname,this.threadComment(item)])),items=new Map(state.items.map(item=>[item.fullname,item]));
+      const state=this.threadState;if(!state || !this.mounted)return;
+      if(!state.commentsEl){
+        this.listEl.replaceChildren();state.nodes=new Map();state.commentsEl=make('section','rt-sra-thread-comments');state.commentsEl.setAttribute('aria-label','Archived comments');
+        this.listEl.append(state.commentsEl);
+      }
+      if(state.post && !state.postEl){
+        const card=state.postEl=globalThis.RTPostDiscovery.archiveCard(state.post,{thread:true}),native=card.querySelector('shreddit-post');
+        if(native){native.setAttribute('view-context','CommentsPage');native.classList.add('rt-sra-thread-post');native.querySelector('[data-rt-source]')?.remove();const old=native.querySelector('[slot="title"]'),title=make('h1','text-24 font-bold m-0 mb-md',state.post.title);title.slot='title';old?.replaceWith(title);
+          const grid=native.querySelector(':scope > .grid');if(grid){const credit=grid.querySelector('[slot="credit-bar"]'),body=grid.querySelector('[slot="text-body"]');native.replaceChildren(...[credit,title,body].filter(Boolean));const media=globalThis.RTArchiveView?.media?.(state.post.media,{alt:state.post.title,postId:state.post.id,href:state.post.url});if(media)native.append(media);}
+        }this.listEl.insertBefore(card,state.commentsEl);
+      }
+      const comments=state.commentsEl,nodes=state.nodes,items=new Map(state.items.map(item=>[item.fullname,item]));
+      for(const item of state.items)if(!nodes.has(item.fullname))nodes.set(item.fullname,this.threadComment(item));
       for(const item of [...state.items].sort((a,b)=>a.created-b.created)){
         let ancestor=item.parentId,cycle=false;const visited=new Set([item.fullname]);while(items.has(ancestor)){if(visited.has(ancestor)){cycle=true;break;}visited.add(ancestor);ancestor=items.get(ancestor).parentId;}
         const parent=!cycle && nodes.get(item.parentId),node=nodes.get(item.fullname);node.setAttribute('depth',String(cycle?0:visited.size-1));
-        if(parent){const grid=parent.querySelector(':scope > details > .rt-sra-comment-grid');let children=[...grid.children].find(child=>child.slot==='children');if(!children){children=make('div','min-w-0 col-start-2 rt-sra-thread-replies');children.slot='children';grid.append(children);}children.append(node);}else comments.append(node);
+        const destination=parent || comments;if(parent)node.slot='children';else node.removeAttribute('slot');if(node.parentNode!==destination){const next=[...destination.children].find(child=>child.dataset.rtUi==='archive-thread-comment' && (items.get(child.id)?.created ?? Infinity)>item.created);destination.insertBefore(node,next || null);}
       }
-      this.listEl.append(comments);this.statusTop.hidden=false;this.statusTop.textContent='Archived thread from Arctic Shift · Coverage may be partial · Posting and voting are unavailable in this banned or private community.';
+      if(state.items.length && !state.nativeModulesRequested && !state.nativeModulesError){state.nativeModulesRequested=true;state.modulesController=new AbortController();this.reddit({action:'load-archive-comment-modules',postId:state.route.postId},state.modulesController.signal).catch(error=>{if(this.threadState!==state)return;state.nativeModulesRequested=false;state.nativeModulesError=error.message || 'Reddit comment components are unavailable.';this.renderThread();});}
+      this.reddit({action:'refresh-archive-thread',postId:state.route.postId}).catch(()=>{});
+      this.statusTop.hidden=false;this.statusTop.textContent='Archived thread from Arctic Shift · Coverage may be partial · Posting and voting are unavailable.';
       this.footEl.replaceChildren();
-      if(state.loading)this.footEl.append(this.loadingHalo());
+      if(state.nativeModulesError){const note=make('p','rt-sra-note',state.nativeModulesError+' '),retry=make('button','button button-small button-secondary','Retry Reddit components');retry.type='button';retry.addEventListener('click',()=>{state.nativeModulesError=null;this.renderThread();});note.append(retry);this.footEl.append(note);}
+      if(state.loading){const progress=make('faceplate-progress');progress.setAttribute('status','indeterminate');progress.setAttribute('role','status');progress.setAttribute('aria-label','Loading archived comments');this.footEl.append(progress);}
       if(state.error)this.footEl.append(this.errorNote(state,()=>this.loadThread({more:Boolean(state.post && state.cursor)})));
       if(!state.loading && !state.error){
         if(state.missing)this.footEl.append(make('p','rt-sra-note','This post is not in the archive. Coverage may be partial.'));

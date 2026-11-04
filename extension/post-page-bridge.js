@@ -244,6 +244,42 @@
       const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.renderMode='contents';partial.style.display='contents';target.replaceChildren(partial);partial._renderContent(navigation.outerHTML);return {rendered:true};
     })(),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit navigation loading timed out.'));},10000);})]);}finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
+  async function loadArchiveCommentModules(input,signal){
+    const match=location.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})\/comments\/([a-z0-9]{1,10})(?:\/|$)/i),shell=document.querySelector('[data-rt-ui="archive-subreddit"]');
+    if(!match || !shell || shell.dataset.rtSubreddit?.toLowerCase()!==match[1].toLowerCase() || input.postId!==match[2].toLowerCase())throw Error('Open the matching archived thread.');
+    const current=()=>!signal?.aborted && shell.isConnected && document.querySelector('[data-rt-ui="archive-subreddit"]')===shell && location.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})\/comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.slice(1,3).join('/').toLowerCase()===match.slice(1,3).join('/').toLowerCase();
+    const required=['shreddit-comment','shreddit-comment-action-row','shreddit-comment-share-button','faceplate-progress'];
+    const specs=[...document.querySelectorAll('faceplate-loader')].filter(node=>/^(PdpStandardClientAssets|CommentActionRowFull|CommentShareMenu)_/.test(node.getAttribute('name') || '')).map(nativeModuleSpec).filter(Boolean);
+    const controller=new AbortController();let timer,abort;
+    try{
+      await Promise.race([(async()=>{
+        if(required.some(name=>!customElements.get(name)) && typeof window.SML?.load==='function')await Promise.all(specs.map(spec=>window.SML.load(spec.chunks,spec.prefix,'auto')));
+        if(!current())throw Error('Page changed. Try again.');
+        if(required.some(name=>!customElements.get(name)) && typeof window.SML?.load==='function'){
+          const comment=[...shell.querySelectorAll('shreddit-comment[data-rt-ui="archive-thread-comment"]')].find(node=>/^t1_[a-z0-9]{1,10}$/.test(node.id) && node.getAttribute('thingid')===node.id && node.getAttribute('postid')==='t3_'+input.postId);
+          if(comment){
+            const url=new URL('/svc/shreddit/comment/'+comment.id,location.origin);url.searchParams.set('depth','0');url.searchParams.set('subredditName',match[1]);
+            const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html'},signal:controller.signal});
+            if(!response.ok)throw Error('Reddit comment components could not be loaded.');
+            const doc=new DOMParser().parseFromString(await boundedText(response),'text/html');
+            if(!current() || !comment.isConnected || !shell.contains(comment))throw Error('Page changed. Try again.');
+            const loaders=[...doc.querySelectorAll('faceplate-loader')].filter(node=>/^Comment\$1_[A-Za-z0-9_-]+$/.test(node.getAttribute('name') || '')).map(nativeModuleSpec).filter(Boolean);
+            if(!loaders.length)throw Error('Reddit comment components are unavailable on this page.');
+            await Promise.all(loaders.map(spec=>window.SML.load(spec.chunks,spec.prefix,'auto')));
+          }
+        }
+        if(!current())throw Error('Page changed. Try again.');
+        if(required.some(name=>!customElements.get(name)))throw Error('Reddit comment components are unavailable on this page.');
+      })(),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit comment components timed out.'));},10000);abort=()=>{controller.abort();reject(Error('Page changed. Try again.'));};signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();})]);
+      return {loaded:true};
+    }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+  }
+  function refreshArchiveThread(input){
+    const match=location.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})\/comments\/([a-z0-9]{1,10})(?:\/|$)/i),shell=document.querySelector('[data-rt-ui="archive-subreddit"]');
+    if(!match || !shell || shell.dataset.rtSubreddit?.toLowerCase()!==match[1].toLowerCase() || input.postId!==match[2].toLowerCase())throw Error('Open the matching archived thread.');
+    for(const node of shell.querySelectorAll('shreddit-comment[data-rt-ui="archive-thread-comment"]'))if(node.getAttribute('postid')==='t3_'+input.postId && typeof node.updateChildren==='function')node.updateChildren();
+    return {refreshed:true};
+  }
   async function renderControls(input,signal){
     const context=route(),path=pageKey(),target=typeof input.target==='string' && /^rt-controls-[a-z0-9-]{1,60}$/i.test(input.target)?document.getElementById(input.target):null;
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase() || target?.dataset.rtUi!=='profile-controls' || !target.closest('main'))throw Error('Open the matching public profile.');
@@ -585,6 +621,8 @@
     if(input.action==='render-card')return renderCard(input,signal);
     if(input.action==='status')return readStatuses(input,signal);
     if(input.action==='render-navigation')return renderNavigation(input,signal);
+    if(input.action==='refresh-archive-thread')return refreshArchiveThread(input);
+    if(input.action==='load-archive-comment-modules')return loadArchiveCommentModules(input,signal);
     if(input.action==='render-controls')return renderControls(input,signal);
     const context=route(),path=pageKey();
     if(!context || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com','old.reddit.com'].includes(location.hostname))throw Error('Open a public Reddit profile or post.');

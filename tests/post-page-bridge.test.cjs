@@ -9,6 +9,47 @@ function setup(t,{url='https://www.reddit.com/user/Example/',fetcher}={}){
   function send(input){return new Promise(resolve=>{const id=crypto.randomUUID(),channel='test';const listener=e=>{const r=JSON.parse(e.detail);if(r.id!==id)return;W.document.removeEventListener('rt-post-response',listener);resolve(r);};W.document.addEventListener('rt-post-response',listener);W.document.dispatchEvent(new W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,...input})}));});}
   return {W,calls,send};
 }
+test('archive comment bootstrap uses only current shell descriptors and rejects late route changes',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'}),w=e.W;
+ w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"></div><faceplate-loader name="PdpStandardClientAssets_fixture" src="concat:chunkA,chunkB" data-prefix="en-US/"></faceplate-loader>';
+ let finish;const calls=[];w.SML={load:(chunks,prefix)=>{calls.push([Array.from(chunks),prefix]);return new Promise(resolve=>finish=resolve);}};
+ const pending=e.send({action:'load-archive-comment-modules',postId:'abc12'});await new Promise(r=>setImmediate(r));
+ assert.deepEqual(calls,[[['chunkA','chunkB'],'en-US/']]);assert.equal(e.calls.length,0);
+ w.history.pushState({},'','/r/example/comments/other/title/');finish();assert.match((await pending).error,/Page changed/);
+});
+test('archive comment bootstrap reports missing native components and allows retry',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'}),w=e.W;
+ w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"></div>';
+ assert.match((await e.send({action:'load-archive-comment-modules',postId:'abc12'})).error,/unavailable/);
+ for(const name of ['shreddit-comment','shreddit-comment-action-row','shreddit-comment-share-button','faceplate-progress'])w.customElements.define(name,class extends w.HTMLElement{});
+ assert.equal((await e.send({action:'load-archive-comment-modules',postId:'abc12'})).loaded,true);assert.equal(e.calls.length,0);
+});
+test('archive comment bootstrap times out when Reddit\'s loader hangs',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'}),w=e.W;
+ w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"></div><faceplate-loader name="PdpStandardClientAssets_fixture" src="concat:chunkA" data-prefix="en-US/"></faceplate-loader>';
+ w.SML={load:()=>new Promise(()=>{})};const timer=w.setTimeout.bind(w);w.setTimeout=(fn,ms,...args)=>timer(fn,ms===10000?10:ms,...args);
+ assert.match((await e.send({action:'load-archive-comment-modules',postId:'abc12'})).error,/timed out/);assert.equal(e.calls.length,0);
+});
+test('archive comment bootstrap loads the matching comment partial descriptor only',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/',fetcher:async()=>nativeResponse('<faceplate-loader name="Comment$1_fixture" src="concat:chunkA,chunkB" data-prefix="en-US/"></faceplate-loader><faceplate-loader name="Other_fixture" src="concat:ignored" data-prefix="en-US/"></faceplate-loader>')}),w=e.W;
+ w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"><shreddit-comment id="t1_com123" data-rt-ui="archive-thread-comment" thingid="t1_com123" postid="t3_abc12"></shreddit-comment></div>';
+ const calls=[];w.SML={load:async(chunks,prefix)=>{calls.push([Array.from(chunks),prefix]);for(const name of ['shreddit-comment','shreddit-comment-action-row','shreddit-comment-share-button','faceplate-progress'])w.customElements.define(name,class extends w.HTMLElement{});}};
+ assert.equal((await e.send({action:'load-archive-comment-modules',postId:'abc12'})).loaded,true);
+ assert.deepEqual(calls,[[['chunkA','chunkB'],'en-US/']]);const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/svc/shreddit/comment/t1_com123');assert.equal(new URL(url).search,'?depth=0&subredditName=example');assert.equal(options.headers.Accept,'text/vnd.reddit.partial+html');assert.equal(options.redirect,'error');
+});
+test('archive comment bootstrap refuses mismatched records and invalid descriptors',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/',fetcher:async()=>nativeResponse('<faceplate-loader name="Comment$1_fixture" src="concat:bad/path" data-prefix="en-US/"></faceplate-loader>')}),w=e.W;
+ w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"><shreddit-comment id="t1_com123" data-rt-ui="archive-thread-comment" thingid="t1_com123" postid="t3_other"></shreddit-comment></div>';w.SML={load:()=>assert.fail('invalid loader')};
+ assert.match((await e.send({action:'load-archive-comment-modules',postId:'abc12'})).error,/unavailable/);assert.equal(e.calls.length,0);
+ w.document.querySelector('shreddit-comment').setAttribute('postid','t3_abc12');assert.match((await e.send({action:'load-archive-comment-modules',postId:'abc12'})).error,/unavailable/);assert.equal(e.calls.length,1);
+});
+test('cancelling archive comment bootstrap aborts its partial fetch',async t=>{
+ let fetchSignal;const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/',fetcher:async(_url,options)=>{fetchSignal=options.signal;return new Promise((_,reject)=>fetchSignal.addEventListener('abort',()=>reject(Error('aborted')),{once:true}));}}),w=e.W;
+ w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"><shreddit-comment id="t1_com123" data-rt-ui="archive-thread-comment" thingid="t1_com123" postid="t3_abc12"></shreddit-comment></div>';w.SML={load:()=>assert.fail('cancelled before loading')};
+ const result=new Promise(resolve=>w.document.addEventListener('rt-post-response',event=>resolve(JSON.parse(event.detail)),{once:true}));
+ w.document.dispatchEvent(new w.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'test',id:'cancel-me',action:'load-archive-comment-modules',postId:'abc12'})}));await new Promise(r=>setImmediate(r));
+ w.document.dispatchEvent(new w.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'test',id:'cancel-me',action:'cancel'})}));assert.match((await result).error,/cancelled/);assert.equal(fetchSignal.aborted,true);
+});
 test('Reddit reads use a fixed same-origin GET and return only compact public posts',async t=>{
   const e=setup(t),r=await e.send({action:'profile',username:'Example'});assert.equal(r.ok,true);assert.equal(r.posts[0].id,'abc12');const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/svc/shreddit/search/');assert.equal(new URL(url).searchParams.get('type'),'posts');assert.equal(new URL(url).searchParams.get('q'),'author:"Example"');assert.equal(options.credentials,'include');assert.equal(options.method,'GET');assert.equal(r.cookie,undefined);assert.equal(r.posts[0].body,'');assert.equal(r.posts[0].status,'unknown');
 });
