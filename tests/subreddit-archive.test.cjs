@@ -548,4 +548,5 @@ test('after a reload, Back to the archive feed restores the saved reading anchor
   ctx.sa.scan();await tick();await new Promise(r=>setTimeout(r,400));
   assert.ok(ctx.doc.querySelector('.rt-native-card[data-fullname="t3_a2"]'),'anchor card rendered');
   assert.ok(moves.includes(120),'scrolled the anchor card back to its saved offset');
+  assert.equal(ctx.doc.querySelector('[data-rt-archive-feed]').style.visibility,'','feed shown again once placed');
 });
