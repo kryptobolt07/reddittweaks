@@ -71,13 +71,14 @@
   }
   // Streams pages of {items, searchedBackTo, hasMore, serverFiltered, cursor, stalled, mode}. At most maxPages archive requests per call;
   // pass the last page's cursor back as `cursor` to search older (desc) or newer (asc). hasMore is never false unless the archive said so.
-  async function* search({kind,author,subreddit,parsed,text,after,before,sort='desc',cursor,postTypes,maxPages=10,signal,send,titles=false}={}){
+  // textLocal: an earlier call already found text search unavailable for this scope; scan without re-asking the server.
+  async function* search({kind,author,subreddit,parsed,text,after,before,sort='desc',cursor,postTypes,maxPages=10,signal,send,titles=false,textLocal=false}={}){
     parsed=parsed ?? (text ? globalThis.RCSCore?.parseQuery?.(text) ?? {text} : null);
     if(parsed?.invalid)return;
     const plan=projection(parsed,{kind,author,subreddit,after,before}),query=plan.query,asc=sort==='asc',types=kind==='post' && postTypes?.length?new Set(postTypes):null;
     after=plan.params.after ?? after;before=plan.params.before ?? before;
     // Cursors overlap the boundary second, so a page can repeat the previous page's edge items; drop repeats within a call.
-    let local=false,position=cursor ?? (asc?after:before),reached=null,pages=0;const seen=new Set();
+    let local=textLocal===true,position=cursor ?? (asc?after:before),reached=null,pages=0;const seen=new Set();
     while(pages<maxPages){
       if(signal?.aborted)return;
       const params={...plan.params};if(local)for(const key of ['title','selftext','body','link_flair_text'])delete params[key];
@@ -85,8 +86,8 @@
       let response;
       try{response=await ask(send,message);}
       catch(error){
-        // A very active scope can time out on text: scan without it and match locally within the page budget.
-        if(error.code==='text-search-unavailable' && (query || ['title','selftext','body','link_flair_text'].some(key=>plan.params[key])) && !local){local=true;continue;}
+        // A very active scope can time out on text (in the broker, or past this helper's own guard): scan without it and match locally within the page budget.
+        if(['text-search-unavailable','timeout'].includes(error.code) && (query || ['title','selftext','body','link_flair_text'].some(key=>plan.params[key])) && !local){local=true;continue;}
         throw error;
       }
       if(signal?.aborted)return;
@@ -97,7 +98,7 @@
       const match=post=>globalThis.RCSCore?.matchRecord && globalThis.RTPostModel?.searchRecord?globalThis.RCSCore.matchRecord(parsed,globalThis.RTPostModel.searchRecord(post)):matches(parsed,post.kind==='comment'?post.body:post.title+' '+post.body);
       const items=posts.filter(post=>!seen.has(post.fullname || post.id) && seen.add(post.fullname || post.id) && (!scan || match(post)) && (!types || types.has(post.postType)));
       const stalled=response.cursorStalled===true,more=response.hasMore===true;
-      yield {items,searchedBackTo:reached,hasMore:more,serverFiltered:!local && Boolean(query || Object.keys(plan.params).length),cursor:more?response.cursor ?? null:null,stalled,scanned:posts.length,mode:scan?'local':'server'};
+      yield {items,searchedBackTo:reached,hasMore:more,serverFiltered:!local && Boolean(query || Object.keys(plan.params).length),cursor:more?response.cursor ?? null:null,stalled,scanned:posts.length,mode:scan?'local':'server',textLocal:local};
       if(!more || stalled || response.cursor==null)return;
       position=response.cursor;
     }

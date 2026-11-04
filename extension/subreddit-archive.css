@@ -142,3 +142,33 @@
 .rt-sra-vote{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:999px;background:transparent;color:inherit;cursor:not-allowed;opacity:.55}
 .rt-sra-share{cursor:pointer}
 .rt-sra-share:hover{background:var(--color-secondary-background-hover,#d5dde1)}
+
+/* ---- Archive search: parity with Reddit's community search page ------------------------------------------
+   Stable results width across tab switches, native post/comment unit metrics, media tile grid, and
+   Reddit's sort menu rows the archive cannot rank. */
+.rt-sra-results{box-sizing:border-box;width:100%;min-width:0}
+.rt-sra-result-list{width:100%;min-width:0}
+/* Post units: 120x90 thumbnail with an 8px radius, top-aligned beside the credit row like native. */
+.rt-sra-unit[data-testid="search-post-unit"]{align-items:flex-start}
+.rt-sra-unit-thumb{width:120px;height:90px;margin-top:4px;border-radius:8px}
+.rt-sra-unit-thumb img{object-fit:cover;object-position:center}
+.rt-sra-unit-credit time{color:inherit}
+/* Comment units: 24px default avatar beside the plain username (clickable above the comment's cover link). */
+.rt-sra-comment-box .rt-sra-unit-credit{position:relative;z-index:1}
+.rt-sra-comment-author{display:inline-flex;align-items:center;gap:8px;min-width:0;font-size:12px;font-weight:400;color:var(--color-neutral-content-strong,#0f1a1c);text-decoration:none}
+a.rt-sra-comment-author{pointer-events:auto}
+a.rt-sra-comment-author:hover{text-decoration:underline}
+.rt-sra-comment-author img{flex:none;width:24px;height:24px;border-radius:50%}
+/* Media tab: Reddit's grid of image tiles, thumbnail first. */
+.rt-sra-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:8px;padding:8px 12px}
+.rt-sra-tile{display:flex;flex-direction:column;min-width:0;padding:4px;border-radius:12px;color:inherit;text-decoration:none}
+.rt-sra-tile:hover{background:var(--color-neutral-background-hover,#e8edef)}
+.rt-sra-tile:focus-visible{outline:2px solid var(--color-neutral-content-weak,#576f76);outline-offset:1px}
+.rt-sra-tile-media{position:relative;aspect-ratio:1/1;border-radius:8px;overflow:hidden;background:var(--color-neutral-background-weak,#f6f8f9)}
+.rt-sra-tile-media img{display:block;width:100%;height:100%;object-fit:cover}
+.rt-sra-tile-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;height:100%;font-size:12px;font-weight:600;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-tile-badge{position:absolute;top:8px;right:8px;display:inline-flex;padding:4px;border-radius:999px;background:rgba(0,0,0,.6);color:#fff}
+.rt-sra-tile-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:8px;font-size:14px;line-height:20px;font-weight:600;color:var(--color-neutral-content-strong,#0f1a1c);overflow-wrap:anywhere}
+.rt-sra-tile-meta{display:flex;align-items:center;margin-top:2px;font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
+/* Reddit's own sort menu: rows the archive cannot rank are shown unavailable. */
+[data-rt-archive-unranked]{opacity:.5;cursor:not-allowed}
