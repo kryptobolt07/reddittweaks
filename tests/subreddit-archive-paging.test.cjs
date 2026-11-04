@@ -130,12 +130,12 @@ test('archived comments load under one halo; more comments use a small inline sp
     await more.gate;return {ok:true,posts:[comment('c2',1500000002)],hasMore:false};
   }});
   assert.ok(ctx.doc.querySelector('shreddit-post'),'the post is shown while its comments load');
-  assert.equal(halos(ctx.doc).length,1,'first load: one page halo');assert.equal(ctx.doc.querySelector('.rt-sra-foot faceplate-progress'),null);
+  assert.equal(halos(ctx.doc).length,1,'first load: one page halo');assert.equal(ctx.doc.querySelector('.rt-sra-foot svg[icon-name="load"]'),null);
   first.release();await tick();
   assert.equal(halos(ctx.doc).length,0);assert.equal(ctx.doc.querySelectorAll('shreddit-comment').length,1);
   ctx.doc.querySelector('[data-rt-more]').click();
   const button=ctx.doc.querySelector('[data-rt-more]');assert.equal(button.getAttribute('aria-busy'),'true');assert.equal(button.disabled,true);
-  const spinner=button.querySelector('faceplate-progress');assert.equal(spinner.getAttribute('status'),'indeterminate');assert.equal(spinner.style.getPropertyValue('--loader-size'),'16px');
+  const spinner=button.querySelector('svg[icon-name="load"]');assert.ok(spinner,'Reddit load icon');assert.match(spinner.getAttribute('class'),/animate-spin/);assert.equal(spinner.getAttribute('width'),'16');
   assert.equal(halos(ctx.doc).length,0,'no page halo for nested paging');
   more.release();await tick();assert.equal(ctx.doc.querySelectorAll('shreddit-comment').length,2);assert.equal(ctx.doc.querySelector('[data-rt-more]'),null);
 });

@@ -54,6 +54,10 @@
   const redditCaret=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'caret-down'}))svg.setAttribute(k,v);
     const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7Z');svg.append(path);return svg;};
   const arcticLink=label=>{const a=make('a','',label);a.href='https://arctic-shift.photon-reddit.com/';a.rel='noopener noreferrer';a.target='_blank';return a;};
+  // Reddit's comment thresholds (approximation of its default "Best" view): top-level batch, extra replies per click, deepest level.
+  const TOP_BATCH=20,REPLY_BATCH=10,MAX_DEPTH=6;
+  const addCircle=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'add-circle'}))svg.setAttribute(k,v);
+    const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M10 1a9 9 0 100 18 9 9 0 000-18Zm0 16.2a7.2 7.2 0 117.2-7.2 7.208 7.208 0 01-7.2 7.2Zm.9-8.1H14v1.8h-3.1V14H9.1v-3.1H6V9.1h3.1V6h1.8v3.1Z');svg.append(path);return svg;};
   const viewRequested=()=>new URLSearchParams(location.search).get('rt_view')==='archive';
   function setParams(changes){
     const url=new URL(location.href);
@@ -264,11 +268,7 @@
       }
       const comments=state.commentsEl,nodes=state.nodes,items=new Map(state.items.map(item=>[item.fullname,item]));
       for(const item of state.items)if(!nodes.has(item.fullname))nodes.set(item.fullname,this.threadComment(item));
-      for(const item of [...state.items].sort((a,b)=>a.created-b.created)){
-        let ancestor=item.parentId,cycle=false;const visited=new Set([item.fullname]);while(items.has(ancestor)){if(visited.has(ancestor)){cycle=true;break;}visited.add(ancestor);ancestor=items.get(ancestor).parentId;}
-        const parent=!cycle && nodes.get(item.parentId),node=nodes.get(item.fullname);node.setAttribute('depth',String(cycle?0:visited.size-1));
-        const destination=parent || comments;if(parent)node.slot='children';else node.removeAttribute('slot');if(node.parentNode!==destination){const next=[...destination.children].find(child=>child.dataset.rtUi==='archive-thread-comment' && (items.get(child.id)?.created ?? Infinity)>item.created);destination.insertBefore(node,next || null);}
-      }
+      this.placeComments(state,items,nodes,comments);
       if(state.items.length && !state.nativeModulesRequested && !state.nativeModulesError){state.nativeModulesRequested=true;state.modulesController=new AbortController();this.reddit({action:'load-archive-comment-modules',postId:state.route.postId},state.modulesController.signal).catch(error=>{if(this.threadState!==state)return;state.nativeModulesRequested=false;state.nativeModulesError=error.message || 'Reddit comment components are unavailable.';this.renderThread();});}
       this.reddit({action:'refresh-archive-thread',postId:state.route.postId}).catch(()=>{});
       this.statusTop.hidden=false;this.statusTop.textContent='Archived thread from Arctic Shift · Coverage may be partial · Posting and voting are unavailable.';
@@ -282,9 +282,46 @@
         if(state.missing)this.footEl.append(make('p','rt-sra-note','This post is not in the archive. Coverage may be partial.'));
         else if(state.stalled)this.footEl.append(make('p','rt-sra-note','The archive stopped paging here; more comments may exist.'));
         else if(!state.hasMore)this.footEl.append(make('p','rt-sra-note',state.items.length?'End of what the archive returned · Coverage may be partial':'No archived comments returned. This does not establish that the post had no comments.'));
-        if(state.hasMore)this.footEl.append(this.moreCommentsButton(state,false));
+        if(state.hiddenTop>0){const view=make('button','button button-small button-secondary rt-sra-view-more','View more comments');view.type='button';view.dataset.rtMore='true';view.addEventListener('click',()=>{state.shownTop+=TOP_BATCH;this.renderThread();});this.footEl.append(view);}
+        else if(state.hasMore)this.footEl.append(this.moreCommentsButton(state,false));
         if(state.route.focusId && !state.focused){const target=nodes.get('t1_'+state.route.focusId);if(target?.isConnected){state.focused=true;target.classList.add('rt-sra-focused-comment');const focus=()=>{if(!target.isConnected)return;const r=target.getBoundingClientRect();if(r.top<0 || r.bottom>innerHeight)target.scrollIntoView?.({block:'center'});};target.scrollIntoView?.({block:'center'});for(const ms of [150,600,1500])setTimeout(focus,ms);}else if(!state.loading)this.footEl.append(make('p','rt-sra-note','The requested comment is not in the loaded archive records.'));}
       }
+    }
+    // Reddit-like comment tree: best-first (score, as the archive has no "Best"), TOP_BATCH top-level comments,
+    // a few replies per comment with "N more replies", and at most MAX_DEPTH+1 levels; deeper replies are a link
+    // to that comment's own page. The focused comment's chain is always shown. Nodes are reused, never rebuilt.
+    placeComments(state,items,nodes,root){
+      state.shownTop ??= TOP_BATCH;state.shownReplies ||= new Map();state.moreEls ||= new Map();
+      const depthOf=new Map(),parentOf=new Map();
+      for(const item of state.items){let ancestor=item.parentId,cycle=false;const visited=new Set([item.fullname]);while(items.has(ancestor)){if(visited.has(ancestor)){cycle=true;break;}visited.add(ancestor);ancestor=items.get(ancestor).parentId;}
+        depthOf.set(item.fullname,cycle?0:visited.size-1);parentOf.set(item.fullname,!cycle && items.has(item.parentId)?item.parentId:'root');}
+      const kids=new Map();for(const item of state.items){const key=parentOf.get(item.fullname);if(!kids.has(key))kids.set(key,[]);kids.get(key).push(item);}
+      const best=(a,b)=>(b.score||0)-(a.score||0) || a.created-b.created;for(const list of kids.values())list.sort(best);
+      const forced=new Set();let focus=state.route.focusId?'t1_'+state.route.focusId:null;while(focus && items.has(focus) && !forced.has(focus)){forced.add(focus);focus=parentOf.get(focus);}
+      const replyLimit=depth=>depth===1?3:depth<=3?2:1;
+      const more=(parentKey,count,link)=>{
+        let el=state.moreEls.get(parentKey);const label=count+' more '+(count===1?'reply':'replies');
+        if(!el || el.tagName!==(link?'A':'BUTTON')){el=make(link?'a':'button','rt-sra-more-replies text-tone-2 text-12 no-underline hover:underline px-xs py-xs flex items-center');el.dataset.rtUi='archive-more-replies';
+          const icon=make('span','me-xs flex items-center rt-sra-more-icon');icon.append(addCircle());el.append(icon,make('span',''));
+          if(link){const id=parentKey.replace(/^t1_/,'');el.href='/r/'+encodeURIComponent(this.name)+'/comments/'+state.route.postId+'/_/'+id+'/';}
+          else{el.type='button';el.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const icon=el.querySelector('.rt-sra-more-icon');icon.replaceChildren(this.spinner());
+            requestAnimationFrame(()=>{state.shownReplies.set(parentKey,(state.shownReplies.get(parentKey) ?? replyLimit((depthOf.get(parentKey) ?? -1)+1))+REPLY_BATCH);this.renderThread();});});}
+          state.moreEls.set(parentKey,el);}
+        el.lastChild.textContent=label;el.setAttribute('aria-label',label);if(!link){const icon=el.querySelector('.rt-sra-more-icon');if(!icon.querySelector('[icon-name="add-circle"]'))icon.replaceChildren(addCircle());}
+        return el;};
+      let hiddenTop=0;
+      const place=(parentKey,container,depth)=>{
+        const list=kids.get(parentKey) || [],isRoot=parentKey==='root';
+        let limit=isRoot?state.shownTop:depth>MAX_DEPTH?0:(state.shownReplies.get(parentKey) ?? replyLimit(depth));
+        const shown=list.filter((item,index)=>index<limit || forced.has(item.fullname)),hidden=list.length-shown.length;
+        const desired=shown.map(item=>nodes.get(item.fullname));
+        if(hidden>0){if(isRoot)hiddenTop=hidden;else desired.push(more(parentKey,hidden,depth>MAX_DEPTH));}
+        for(const node of desired)if(!isRoot)node.slot='children';else if(node.dataset.rtUi==='archive-thread-comment')node.removeAttribute('slot');
+        const managed=[...container.children].filter(child=>child.dataset?.rtUi==='archive-thread-comment' || child.dataset?.rtUi==='archive-more-replies');
+        if(managed.length!==desired.length || managed.some((node,i)=>node!==desired[i])){for(const node of managed)if(!desired.includes(node))node.remove();for(const node of desired)container.append(node);}
+        for(const item of shown){nodes.get(item.fullname).setAttribute('depth',String(depth));place(item.fullname,nodes.get(item.fullname),depth+1);}
+      };
+      place('root',root,0);state.hiddenTop=hiddenTop;
     }
     mountNavigation(layout,name){
       const kept=this.keptNavigation,keptController=this.keptNavigationController;this.keptNavigation=this.keptNavigationController=null;
@@ -846,8 +883,8 @@
     }
     // Reddit's small inline spinner (the comment tree's "more replies" loading), not the page halo.
     spinner(){
-      const progress=make('faceplate-progress','rt-sra-spinner');progress.setAttribute('status','indeterminate');progress.setAttribute('aria-hidden','true');
-      progress.style.setProperty('--loader-size','16px');progress.style.setProperty('--loader-color','currentColor');return progress;
+      const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'load',class:'animate-spin leading-[0] rt-sra-spinner'}))svg.setAttribute(k,v);
+      const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M18.1 10.9h-3a.9.9 0 010-1.8h3a.9.9 0 010 1.8ZM5.8 10a.9.9 0 00-.9-.9h-3a.9.9 0 000 1.8h3a.9.9 0 00.9-.9Zm5.1 8.1v-3a.9.9 0 00-1.8 0v3a.9.9 0 001.8 0Zm0-13.2v-3a.9.9 0 00-1.8 0v3a.9.9 0 001.8 0Zm5.464-1.264a.9.9 0 00-1.273 0L12.97 5.757a.901.901 0 001.273 1.273l2.121-2.121a.901.901 0 000-1.273ZM7.03 12.97a.9.9 0 00-1.273 0l-2.121 2.121a.901.901 0 001.273 1.273l2.121-2.121a.901.901 0 000-1.273Zm9.334 2.121-2.121-2.121a.9.9 0 00-1.273 1.273l2.121 2.121a.9.9 0 001.273-1.273ZM7.03 5.758 4.909 3.637A.9.9 0 003.636 4.91l2.121 2.121A.9.9 0 007.03 5.758Z');svg.append(path);return svg;
     }
     moreCommentsButton(state,busy){
       const button=make('button','button button-small button-secondary inline-flex items-center gap-xs rt-sra-more-comments');button.type='button';button.dataset.rtMore='true';

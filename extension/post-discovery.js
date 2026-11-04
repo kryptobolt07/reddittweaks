@@ -1772,11 +1772,13 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       // Media by type: images/galleries/videos full width; link previews as the right-hand thumbnail; text posts never borrow a link preview.
       const usable=post.over18 || post.spoiler?[]:visual?media:linkish?media:type==='textmedia'?media.filter(item=>item.kind==='image'):[];
       if(usable.length){const view=globalThis.RTArchiveView?.media(usable,{alt:post.title,compact:linkish,postId:post.id,href:linkish?linkUrl || post.permalink:post.url || post.permalink});if(view){view.slot=linkish?'thumbnail':'post-media-container';native.append(view);(this.recoveredMedia ||= new Set()).add(view);}}
-      if(thread && !globalThis.customElements?.get('shreddit-post'))native.append(this.archiveActionRow(post));
+      // Content scripts can't see Reddit's custom-element registry, so decide from the DOM: once the post has
+      // rendered Reddit's own action bar (it has an open shadow root), our read-only row steps aside.
+      if(thread && !native.shadowRoot?.querySelector('rpl-action-bar'))native.append(this.archiveActionRow(post,native));
       this.disableArchiveVotes(native);
     }
     // Read-only action row for archived posts when Reddit's post component isn't loaded on the page.
-    archiveActionRow(post){
+    archiveActionRow(post,native){
       const row=make('div','flex items-center gap-sm mt-xs rt-sra-action-row');row.dataset.rtUi='archive-action-row';
       const votes=make('span','rt-sra-pill rt-sra-vote-pill');votes.title='Archived score · Voting is unavailable';
       const vote=(name,label)=>{const b=make('button','rt-sra-vote');b.type='button';b.disabled=true;b.setAttribute('aria-label',label+' (unavailable on archived posts)');b.append(redditIcon(name,16));return b;};
@@ -1785,8 +1787,8 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       const share=make('button','rt-sra-pill rt-sra-share');share.type='button';share.append(redditIcon('share',16),make('span','','Share'));
       share.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const url=new URL(post.permalink,location.origin).href;navigator.clipboard?.writeText(url).then(()=>{share.lastChild.textContent='Link copied';setTimeout(()=>{share.lastChild.textContent='Share';},2000);},()=>{});});
       row.append(votes,comments,share);
-      // If Reddit's own post component loads later, its action row takes over.
-      globalThis.customElements?.whenDefined?.('shreddit-post').then(()=>row.remove(),()=>{});
+      // If Reddit's own post component upgrades this post later, its action bar takes over.
+      let checks=0;const yield_=()=>{if(!row.isConnected && checks>0)return;if(native?.shadowRoot?.querySelector('rpl-action-bar')){row.remove();return;}if(++checks<120)setTimeout(yield_,250);};setTimeout(yield_,0);
       return row;
     }
     // Reddit renders vote buttons inside the post's shadow root once it upgrades; mark them unavailable.

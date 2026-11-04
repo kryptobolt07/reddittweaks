@@ -465,3 +465,19 @@ test('feed sidebar reports an unreachable archive without counts and thread page
   assert.equal(aside.querySelector('[data-rt-ui="archive-coverage"]'),null);assert.equal(aside.querySelector('[data-rt-ui="archive-posters"]'),null);
   thread.sa.destroy();thread.W.close();
 });
+
+test('archived comment tree follows Reddit thresholds: top-level batch, a few replies with "N more replies", depth limit, focused chain shown',async()=>{
+  const recs=[];for(let i=0;i<25;i++)recs.push(comment('top'+i,1500000000+i,{linkId:'abc12',parentId:'t3_abc12',score:100-i}));
+  for(let i=0;i<6;i++)recs.push(comment('r'+i,1500001000+i,{linkId:'abc12',parentId:'t1_top0',score:10-i}));
+  let parent='t1_top1';for(let d=1;d<=9;d++){recs.push(comment('d'+d,1500002000+d,{linkId:'abc12',parentId:parent,score:1}));parent='t1_d'+d;}
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:{ok:true,posts:recs.map(r=>({...r,id:r.id,body:r.body,link_id:'t3_abc12',parent_id:r.parentId,created_utc:r.created,score:r.score,author:'alice',subreddit:'gone'}))}});
+  for(let i=0;i<4;i++)await tick();
+  const top=[...ctx.doc.querySelectorAll('.rt-sra-thread-comments > shreddit-comment[data-rt-ui="archive-thread-comment"]')];
+  assert.equal(top.length,20,'top-level batch of 20');assert.ok(ctx.doc.querySelector('.rt-sra-view-more'));
+  const top0=ctx.doc.getElementById('t1_top0'),shownReplies=[...top0.children].filter(c=>c.dataset.rtUi==='archive-thread-comment');
+  assert.equal(shownReplies.length,3,'three replies under a top-level comment');assert.match([...top0.children].find(c=>c.dataset.rtUi==='archive-more-replies').textContent,/3 more replies/);
+  assert.equal(ctx.doc.getElementById('t1_d7'),null,'nothing deeper than the depth limit is mounted');
+  const link=ctx.doc.querySelector('a[data-rt-ui="archive-more-replies"]');assert.ok(link,'deep replies become a link');assert.match(link.getAttribute('href'),/\/comments\/abc12\/_\/d6\/$/);
+  ctx.doc.querySelector('button[data-rt-ui="archive-more-replies"]').click();await new Promise(r=>ctx.W.requestAnimationFrame(r));await tick();
+  assert.equal([...top0.children].filter(c=>c.dataset.rtUi==='archive-thread-comment').length,6,'more replies revealed in place');
+});

@@ -191,3 +191,10 @@ a.rt-sra-comment-author:hover{text-decoration:underline}
 [data-rt-archive-feed]>.rt-sra-virtual{display:block;box-sizing:border-box;margin:0;padding:0;contain:strict;overflow-anchor:none}
 /* A collapsed archived comment hides its replies (they otherwise overlap the next sibling). */
 .rt-sra-thread-comment[collapsed]>[slot="children"]{display:none!important}
+
+/* Reddit's "N more replies" control and its small spinning "load" icon. */
+.rt-sra-more-replies{background:transparent;border:0;cursor:pointer;color:var(--color-tone-2,#576f76);font-weight:600}
+.rt-sra-more-replies .rt-sra-more-icon{color:var(--color-neutral-content-strong,#0f1a1c)}
+svg.rt-sra-spinner{animation:rt-sra-spin 1s linear infinite}
+@media (prefers-reduced-motion:reduce){svg.rt-sra-spinner{animation-duration:3s}}
+.rt-sra-view-more{margin:8px 16px}
