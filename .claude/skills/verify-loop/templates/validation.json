@@ -1,0 +1,25 @@
+{
+  "version": "<manifest version>",
+  "branch": "<branch>",
+  "change": "<one-line summary>",
+  "tests": {"passed": 0, "failed": 0},
+  "javascript_files_parsed": 0,
+  "package_assets": 0,
+  "archive_integrity": true,
+  "source_zip_stable_byte_equality": true,
+  "sha256": "<zip sha256 from package step>",
+  "expectations": [
+    {"id": "X1", "result": "pass | fail | not verified", "level": "L1 | L2 | L3", "evidence": "<command + measured value or artifact path>", "attempts": 1}
+  ],
+  "standing_checks": {"S1": "pass | n/a: <reason> | not verified: <reason>"},
+  "levels": {
+    "L0_L1": "<node --check count, npm test summary>",
+    "L2_fixture": "<fixture pages and probes run>",
+    "L3_live": "<pages checked read-only on signed-in Reddit, version marker confirmed, or 'not run: <reason>'>"
+  },
+  "council": {"mode": "routine | release", "roles": [{"role": "surface auditor: <surface>", "model": "haiku", "tokens": 0, "true_issues": 0, "false_issues": 0, "unverifiable": 0}], "open_issues": ["<verified issue left for later>"]},
+  "browser_validation": "<one paragraph in the style of earlier records: what ran where, and what is not yet verified>",
+  "screenshots": ["<files in this folder>"],
+  "not_verified": ["<anything that could not be checked, with the reason>"],
+  "out_of_scope": ["<noticed, not changed>"]
+}
