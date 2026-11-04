@@ -224,7 +224,7 @@
       this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();if(!reuse)this.restoreFeedAnchor();this.mountedBefore=true;}
     }
     unmount(){
-      const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState=null;
+      const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState?.anchorKeeper?.();this.threadState=null;
       this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
       if(!m.thread)this.feedStash={name:m.name.toLowerCase(),states:this.states,scrollY:this.feedScrollY ?? scrollY,at:Date.now()};
       for(const state of this.states.values())this.retireFeedState(state);
@@ -283,7 +283,7 @@
       const state=this.threadState;if(!state || !this.mounted)return;
       if(!state.commentsEl){
         this.listEl.replaceChildren();state.nodes=new Map();state.commentsEl=make('section','rt-sra-thread-comments');state.commentsEl.setAttribute('aria-label','Archived comments');
-        this.listEl.append(state.commentsEl);state.toolbarEl=this.commentToolbar(state);this.listEl.insertBefore(state.toolbarEl,state.commentsEl);
+        this.listEl.append(state.commentsEl);state.toolbarEl=this.commentToolbar(state);this.listEl.insertBefore(state.toolbarEl,state.commentsEl);this.keepThreadAnchor(state);
       }
       if(state.post && !state.postEl){
         const card=state.postEl=globalThis.RTPostDiscovery.archiveCard(state.post,{thread:true}),native=card.querySelector('shreddit-post');
@@ -410,6 +410,19 @@
       const until=performance.now()+800,loop=()=>{if(cancelled)return;fix();if(performance.now()<until)setTimeout(loop,16);else done();};
       const hold={cancel:()=>{fix();done();}};this.scrollHold=hold;
       return ()=>{fix();setTimeout(loop,0);};
+    }
+    // While a thread is read, keep the comment at the top of the screen in place when anything above it changes
+    // size later (images, avatars, Reddit's components upgrading). Corrections happen before paint, so nothing jumps.
+    keepThreadAnchor(state){
+      state.anchorKeeper?.();const list=this.listEl;if(typeof ResizeObserver!=='function' || !list || typeof document.elementFromPoint!=='function')return;
+      let anchor=null,top=0,userAt=0,own=false,pending=0;
+      const pick=()=>{pending=0;anchor=null;if(scrollY<=0 || !list.isConnected)return;const left=list.getBoundingClientRect().left+48;
+        for(const y of [140,220,340]){const hit=document.elementFromPoint(left,y)?.closest?.('shreddit-comment[data-rt-ui="archive-thread-comment"],[data-rt-ui="archive-comment-toolbar"]');if(hit && list.contains(hit)){anchor=hit;top=hit.getBoundingClientRect().top;return;}}};
+      const onUser=()=>{userAt=performance.now();},onScroll=()=>{if(own){own=false;return;}if(!pending)pending=setTimeout(pick,60);};
+      const observer=new ResizeObserver(()=>{if(!anchor?.isConnected || performance.now()-userAt<150 || this.scrollHold)return;const delta=anchor.getBoundingClientRect().top-top;if(Math.abs(delta)>=1){own=true;scrollBy(0,delta);}});
+      observer.observe(list);const events=['wheel','touchmove','keydown','mousedown'];
+      for(const type of events)addEventListener(type,onUser,{passive:true,capture:true});addEventListener('scroll',onScroll,{passive:true});
+      state.anchorKeeper=()=>{observer.disconnect();clearTimeout(pending);for(const type of events)removeEventListener(type,onUser,{capture:true});removeEventListener('scroll',onScroll);if(state.anchorKeeper)state.anchorKeeper=null;};
     }
     // Reddit's comment toolbar: "Sort by" (Best/Top/New/Old, computed from loaded archive comments; the
     // archive can't do Controversial or Q&A) and "Search Comments" over the loaded comments.
