@@ -48,8 +48,10 @@
   function hold(modal){modal.setAttribute(holdAttr,'true');modal.style.setProperty('display','none','important');}
   function release(modal){if(!modal || modal.hasAttribute(mountedAttr))return;modal.removeAttribute(holdAttr);modal.style.removeProperty('display');if(!modal.getAttribute('style'))modal.removeAttribute('style');}
   // Reddit's default avatars (one of eight) for authors whose archive record has no avatar.
-  const defaultAvatar=(name,size,href)=>{let hash=0;for(const ch of String(name || ''))hash=(hash*31+ch.charCodeAt(0))>>>0;
-    const img=make('img','rounded-full shrink-0');img.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+(hash % 8)+'.png';img.alt='';img.width=img.height=size;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';if(globalThis.RTPostModel?.validateUsername(name))img.dataset.rtAvatarUser=name;img.style.width=img.style.height=size+'px';
+  const defaultAvatar=(name,size,href)=>{
+    if(!globalThis.RTPostModel?.validateUsername(name)){const img=make('img','rounded-full shrink-0 rt-avatar-img rt-avatar-deleted');img.src='https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';img.alt='';img.width=img.height=size;img.decoding='async';img.referrerPolicy='no-referrer';img.style.width=img.style.height=size+'px';return img;}
+    let hash=0;for(const ch of String(name || ''))hash=(hash*31+ch.charCodeAt(0))>>>0;
+    const img=make('img','rounded-full shrink-0 rt-avatar-img');img.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+(hash % 8)+'.png';img.alt='';img.width=img.height=size;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';if(globalThis.RTPostModel?.validateUsername(name))img.dataset.rtAvatarUser=name;img.style.width=img.style.height=size+'px';
     if(!href)return img;const a=make('a','flex items-center mt-2xs');a.href=href;a.setAttribute('aria-label',name+"'s profile");a.append(img);return a;};
   const redditCaret=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'caret-down'}))svg.setAttribute(k,v);
     const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7Z');svg.append(path);return svg;};
