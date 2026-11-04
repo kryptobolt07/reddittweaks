@@ -1,4 +1,4 @@
-<!-- Mapper (Explore, sonnet). Read-only; returns the map as text and the main agent saves it as feature-map.md. -->
+<!-- Mapper (Explore, haiku). Read-only; returns the map as text and the main agent saves it as feature-map.md. -->
 Map the "{{FEATURE}}" feature of the Chrome extension in {{ROOT}} so testers know exactly what to test. Read only what is relevant (grep first). Return at most 80 lines of markdown with these sections:
 
 1. **Entry conditions**: which pages or communities get the feature, and the settings that gate it.

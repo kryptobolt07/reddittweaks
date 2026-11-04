@@ -12,7 +12,7 @@ Tools: `.claude/skills/verify-loop/reference/tools.md`. Prompt templates: `promp
 ## Roles (fixed)
 | Role | Agent call | Model | Runs in | Why this model |
 |---|---|---|---|---|
-| **Mapper**: feature map and code lifecycle audit | `subagent_type: "Explore"` | `sonnet` | routine + release; once per feature, reused until the feature code changes | Narrow code reading. Provisional: not trialled yet (the main agent found the nav-rebuild cause this way in 4 calls). |
+| **Mapper**: feature map and code lifecycle audit | `subagent_type: "Explore"` | `haiku` | routine + release; once per feature, reused until the feature code changes | 2026-11-04: 9.5/10 on a pre-registered list of the archive's code paths, including the nav teardown, notice remount and bridge queue, plus new search risks (152k tokens, 22 calls, 3 min). One run; Sonnet was not compared. |
 | **Surface auditor**: one per touched surface, max 4 | `subagent_type: "general-purpose"` | `haiku` | routine + release | With the full-test prompt and one narrow surface: 77% severity-weighted recall, 0 false positives, 6.5/8 of the user's own issues. A single long prompt for everything diluted it (59%), hence one auditor per surface. |
 | **Visual reviewer**: code-blind, looks only at the contact sheet and inventory diffs | `general-purpose` | `haiku` (routine), `opus` (release) | both | Haiku's eyeball verdicts were unreliable (it called a misaligned button "aligned"), so its verdicts must cite a measurement. Opus caught the most visual and polish issues. |
 | **Release auditor**: whole feature, all surfaces | `general-purpose` | `opus` | release only | 91% severity-weighted recall even with a light prompt; the best on post-page details. |
