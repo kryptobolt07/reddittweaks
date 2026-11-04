@@ -1,3 +1,18 @@
+# 0.27.0 preview
+
+- Added separate opt-ins for browsing unavailable communities and opening their archives automatically. Both require Arctic Shift and profile discovery; automatic mode holds the matching banned/private notice before paint. Disabling the preferences restores Reddit's notice. Existing users must enable the new community preference.
+- Archive layouts initialize with Reddit's persisted collapsed/expanded navigation state. The native sidebar controller receives that state before connection, waits for its renderer during startup, and no longer remains hidden while loading.
+- Loaded feed cards stay attached during scrolling rather than becoming empty placeholders. Comment updates preserve connected siblings, Reddit-assigned nested slots and collapsed state; later archive pages append without reshuffling comments already being read.
+- Top-level comments continue on scroll with the Reddit halo instead of Load more comments/View more comments buttons. Reply controls use the circle-plus and small native-style spinner. Repeated cursors stop paging; empty advancing pages pause after three reads with an explicit Retry.
+- Added **Clean shared links**, an independent opt-in for normal post/comment permalinks without sharing identifiers. Native clipboard/share feedback remains in place; opaque Reddit share paths use the clicked source permalink without resolver requests.
+- Moved archive-thread attribution and read-only/partial-coverage information into the right sidebar. Archive comments are excluded from early restoration skeletons. Restored the halo component's native layout and added visible fallback artwork during component startup.
+
+Version choice: MINOR to 0.27.0 for the new community archive and clean-share preferences, bundled with loading and continuity fixes. No new permissions or storage schema migration.
+
+Validation: all 1,279 automated tests pass. Live Brave checks cover direct archive loading, collapsed navigation, feed/comment continuation, reverse scrolling, two reply expansions, sticky sidebar geometry, and canonical copied post/comment URLs. ZIP integrity and source/stable-folder byte equality pass for all 48 packaged files. See [validation details](docs/subreddit-archive-loading-validation.md).
+
+Limitations: retaining revealed cards uses more page memory on very long feeds. Reply counts and ranking describe loaded archive records; archive exhaustion never proves complete history. Private-community handling remains covered by synthetic tests. Opaque share links without a matching active source are preserved rather than redirected to an invented target. A live archive timeout recovered through Retry; provider failures remain explicit.
+
 # 0.26.0 preview
 
 - Archived subreddit feeds use Reddit's own subreddit card: author avatar and name, archive badge and a disabled overflow menu, flair, and media by real post type (full-width images, galleries and videos; link thumbnails with a domain line; no borrowed previews on self posts). Votes are marked unavailable and deleted images show an "Image no longer available" notice.
