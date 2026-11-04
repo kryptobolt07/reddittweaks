@@ -106,6 +106,26 @@
     }
     return 'link';
   }
+  // Images embedded in a text body (Reddit's media_metadata). Only entries the
+  // body references are accepted, each validated as a Reddit-hosted image.
+  function bodyMedia(raw,text){
+    const media=[];
+    if(Array.isArray(raw.bodyMedia)){for(const item of raw.bodyMedia.slice(0,20)){const url=mediaUrl(item?.url);if(!url || item.kind!=='image')continue;const entry={url,kind:'image'},width=Number(item.width),height=Number(item.height);if(Number.isInteger(width) && width>0 && width<=20000 && Number.isInteger(height) && height>0 && height<=20000){entry.width=width;entry.height=height;}media.push(entry);}return media;}
+    if(!raw.media_metadata || typeof raw.media_metadata!=='object')return media;
+    const body=str(text,40000);
+    for(const [key,entry] of Object.entries(raw.media_metadata).slice(0,100)){
+      if(!/^[a-z0-9]{1,40}$/i.test(key) || entry?.e!=='Image' || !/^image\/(?:jpe?g|png|gif|webp)$/i.test(entry.m || ''))continue;
+      const source=mediaUrl(entry.s?.u);if(!source)continue;
+      const path=new URL(source).pathname.split('/').pop()?.replace(/\.[^.]+$/,'');
+      const references=[...body.matchAll(/https:\/\/[^\s<>()]+/gi)].some(match=>{const ref=mediaUrl(match[0]);return ref && new URL(ref).pathname.split('/').pop()?.replace(/\.[^.]+$/,'')===key;});
+      const marker=new RegExp('!\\[[^\\]\\n]*\\]\\('+key+'\\)','i').test(body);
+      if(path!==key || !references && !marker)continue;
+      const item={url:source,kind:'image'},width=Number(entry.s?.x),height=Number(entry.s?.y);
+      if(Number.isInteger(width) && width>0 && width<=20000 && Number.isInteger(height) && height>0 && height<=20000){item.width=width;item.height=height;}
+      media.push(item);if(media.length===20)break;
+    }
+    return media;
+  }
   function normalizePost(raw,{source='reddit'}={}){
     raw=raw?.data || raw;
     if(!raw || typeof raw!=='object' || !['reddit','arctic-shift'].includes(source))return null;
@@ -120,6 +140,7 @@
     // Retain public search metadata across page-world and archive normalization.
     result.flair=str(raw.link_flair_text ?? raw.flair,1000);
     result.domain=str(raw.domain,255);
+    const inline=bodyMedia(raw,body);if(inline.length)result.bodyMedia=inline;
     if(typeof (raw.is_self ?? raw.isSelf)==='boolean')result.isSelf=raw.is_self ?? raw.isSelf;
     if(source==='arctic-shift'){
       result.archiveStatus=['available','deleted','removed','unknown'].includes(raw.archiveStatus)?raw.archiveStatus:status;
@@ -139,21 +160,7 @@
     if(!base || !linkId)return null;
     // Comment image metadata is independent of post galleries. Only accept
     // entries referenced by the body, and validate their Reddit-hosted source.
-    if(!base.media.length && raw.media_metadata && typeof raw.media_metadata==='object'){
-      const body=str(raw.body,40000), media=[];
-      for(const [key,entry] of Object.entries(raw.media_metadata).slice(0,100)){
-        if(!/^[a-z0-9]{1,40}$/i.test(key) || entry?.e!=='Image' || !/^image\/(?:jpe?g|png|gif|webp)$/i.test(entry.m || ''))continue;
-        const source=mediaUrl(entry.s?.u);if(!source)continue;
-        const path=new URL(source).pathname.split('/').pop()?.replace(/\.[^.]+$/,'');
-        const references=[...body.matchAll(/https:\/\/[^\s<>()]+/gi)].some(match=>{const ref=mediaUrl(match[0]);return ref && new URL(ref).pathname.split('/').pop()?.replace(/\.[^.]+$/,'')===key;});
-        const marker=new RegExp('!\\[[^\\]\\n]*\\]\\('+key+'\\)','i').test(body);
-        if(path!==key || !references && !marker)continue;
-        const item={url:source,kind:'image'},width=Number(entry.s?.x),height=Number(entry.s?.y);
-        if(Number.isInteger(width) && width>0 && width<=20000 && Number.isInteger(height) && height>0 && height<=20000){item.width=width;item.height=height;}
-        media.push(item);if(media.length===20)break;
-      }
-      base.media=media;
-    }
+    if(!base.media.length)base.media=bodyMedia(raw,raw.body);
     const parent=str(raw.parent_id ?? raw.parentId,40).toLowerCase();let parentId='';
     if(/^t1_[a-z0-9]{1,32}$/.test(parent) || /^t3_[a-z0-9]{1,10}$/.test(parent))parentId=parent;
     else if(/^[a-z0-9]{1,32}$/.test(parent))parentId=(parent===linkId?'t3_':'t1_')+parent;
