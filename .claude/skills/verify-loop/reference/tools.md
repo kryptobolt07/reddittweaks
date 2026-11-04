@@ -20,6 +20,14 @@ c raw Target.closeTarget "{\"targetId\":\"$T\"}"   # always, at the end
 ```
 At L3, also run `c raw Page.bringToFront '{}' $S` **and** `c raw Emulation.setFocusEmulationEnabled '{"enabled":true}' $S`. When the user's Chrome window isn't focused, Reddit's lazy partials can stay empty (for example, a left nav with 0 links) and synthetic mouse input may not arrive, even though `visibilityState` says `visible`. `probe-timeline` then falls back to `element.click()` and says so. Check `document.visibilityState==='visible'` before claiming something "did not load".
 
+## Parallel agents at L3 (tiled windows)
+Several agents can share the signed-in Chrome only if every one has its own **uncovered** window. A covered, minimized or background-tab page is throttled (lazy images, infinite scroll and rAF stop) and produces false "didn't load" bugs.
+1. Create one window per agent: `c raw Target.createTarget '{"url":"about:blank","newWindow":true}'`.
+2. Tile the windows with no overlap: `Browser.getWindowForTarget` → `windowId`, then `Browser.setWindowBounds` with `{"windowState":"normal"}` followed by `{"left":…,"top":0,"width":screenW/N,"height":screenH}`. The page keeps its 1280×800 emulated viewport inside a narrower window.
+3. Check each window: count `requestAnimationFrame` frames for 1 s (expect >30) and confirm `visibilityState==='visible'`. If any window stalls, run sequentially instead.
+4. Hand each agent its own `targetId` and forbid it from creating tabs, calling `bringToFront`, or moving or resizing windows. Only the focused window gets raw mouse input, so agents click with `element.click()` (probe-timeline falls back automatically).
+5. Cap at 2–3 agents (Arctic Shift rate limits). The user's screen must stay uncovered during the run. Afterwards, restore the user's window (`{"windowState":"maximized"}`).
+
 ## Probes
 | Tool | Use it for | Command |
 |---|---|---|

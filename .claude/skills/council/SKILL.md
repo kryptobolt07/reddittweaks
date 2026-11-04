@@ -34,7 +34,7 @@ Never give judges the answer key or your own suspicions. The only exceptions are
 2. **Evidence for the visual reviewer** (main agent, cheap): `probe-sheet` with native next to ours for each touched surface, plus `probe-inventory` output for both.
 3. **Auditors**: one Surface auditor per touched surface with `prompts/auditor.md`, filled with the surface name, the feature map, the native counterpart, the level (L2 fixture URL on port 9334, or L3), the focus items, the regression list and the explore mode. A focus item that names an untouched surface (for example "card styles" during a nav change) gets its own auditor.
    - At L2 (headless, throttling off) auditors may run **in parallel**, each in its own tab.
-   - At L3 run them **one at a time** in one foreground tab; a background tab or window is throttled and produces false "didn't load" claims. The user must have approved the relay prompt.
+   - At L3 run them **one at a time** in one foreground tab, or **in parallel (2–3)** only in tiled, uncovered windows checked for rendering (tools.md, "Parallel agents at L3"). A background tab or covered window is throttled and produces false "didn't load" claims. The user must have approved the relay prompt.
 4. **Visual reviewer** with `prompts/visual.md`: the contact sheet path, the inventory diffs and spec.md. Give it no code and no browser.
 5. **Verify** (below), then return the verified, in-scope issues to the verify-loop.
 
