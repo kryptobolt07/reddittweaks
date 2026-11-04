@@ -1351,11 +1351,12 @@ test('renders queued when leaving are queued again on Back and the batch publish
  leaveAndReturn(W,d);for(let i=0;i<40 && [...d.nodes.values()].some(node=>node.dataset.rtNativeState!=='ready');i++){while(releases.length)releases.shift()();await new Promise(r=>setImmediate(r));}
  assert.deepEqual([...d.nodes.values()].map(node=>node.dataset.rtNativeState),Array(6).fill('ready'));assert.equal(d.activeProfileBatch,null,'the batch settled and published');
 });
-test('a scheduled retry survives leaving and returning, with its note',async t=>{
+test('a scheduled retry survives leaving and returning, quietly until retries keep failing',async t=>{
  const {W,d}=setup(t,{timing:{retryUnitMs:60000},reddit:async input=>{if(input.action==='profile')throw Error('Reddit returned an error (HTTP 503).');return {};}});
  await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));assert.equal(d.sourceRetries.size,1);
  leaveAndReturn(W,d);await new Promise(r=>setImmediate(r));
- assert.equal(d.sourceRetries.size,1,'still scheduled');assert.ok([...d.sourceRetries.values()][0].timer,'re-armed');assert.match(d.loading.textContent,/Retrying in/);d.clearSourceRetries();
+ assert.equal(d.sourceRetries.size,1,'still scheduled');assert.ok([...d.sourceRetries.values()][0].timer,'re-armed');assert.doesNotMatch(d.loading.textContent,/Retrying in|isn’t responding/,'a quick first retry shows no note');assert.equal(d.loading.hidden,false,'the loader stays up');
+ [...d.sourceRetries.values()][0].visible=true;d.updateProfileLoading();assert.match(d.loading.textContent,/Retrying in/,'repeated failures do get a note');d.clearSourceRetries();
 });
 test('flags that describe in-flight work do not survive parking',async t=>{
  const {W,d}=setup(t);await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));

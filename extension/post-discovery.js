@@ -31,7 +31,7 @@
   // supplement, so pause it quietly and say results may be incomplete.
   // Rate limits, timeouts and gateway failures retry on their own with
   // backoff before a source is reported as failed.
-  const retryLimit=5;
+  const retryLimit=5,quietRetries=2;
   const publicBlockMs=600000,publicBlockedNote='Some comments may be missing · Reddit is blocking logged-out search';
   function pageRoute(path=location.pathname,search=location.search,ownName=signedInName){
     const scoped=path.match(/^\/user\/([\w-]{1,20})\/search\/?$/i);
@@ -144,6 +144,19 @@
     // Like Reddit, a click anywhere on the blur reveals it (and never opens the post); afterwards clicks behave normally.
     box.addEventListener('click',event=>{if(box.classList.contains('rt-revealed'))return;event.preventDefault();event.stopPropagation();box.classList.add('rt-revealed');reveal.remove();},true);
     box.append(reveal);return box;
+  }
+  // Reddit resets the scroll when its own cards open a post; a plain link navigation keeps the feed's offset.
+  // After our cards navigate in the same tab, start the new page at the top unless the reader scrolls first.
+  function startNavigatedPageAtTop(url){
+    const from=location.href,started=performance.now(),events=['wheel','touchmove','keydown','mousedown'];let user=false,arrived=0;const stop=()=>{user=true;};
+    for(const type of events)addEventListener(type,stop,{passive:true,capture:true});
+    const done=()=>{for(const type of events)removeEventListener(type,stop,{capture:true});};
+    const tick=()=>{const now=performance.now();if(user || now-started>5000){done();return;}
+      if(!arrived && location.href!==from)arrived=location.pathname===url.pathname?now:-1;
+      if(arrived<0){done();return;}
+      if(arrived){if(scrollY>0)scrollTo(0,0);if(now-arrived>1000){done();return;}}
+      setTimeout(tick,30);};
+    setTimeout(tick,0);
   }
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
@@ -1501,7 +1514,7 @@
     // After retryLimit attempts the failure is reported normally.
     transientFailure(error,provider){
       if(provider==='archive')return ['rate-limited','timeout','network-error','http-error','busy','maintenance','unavailable'].includes(error?.code);
-      return /rate limit|asked us to wait|requests are paused|timed out|took too long|\(HTTP 5\d\d\)|Failed to fetch/i.test(error?.message || '');
+      return /rate limit|asked us to wait|requests are paused|timed out|took too long|\(HTTP (?:5\d\d|403|429)\)|Failed to fetch/i.test(error?.message || '');
     }
     scheduleSourceRetry(key,error,provider){
       if(!this.transientFailure(error,provider))return false;
@@ -1512,7 +1525,7 @@
       let delay=(down?60:limited?15:4)*this.retryUnitMs*2**(attempts-1);if(Number.isFinite(error.retryAt) && error.retryAt>now)delay=Math.max(delay,error.retryAt-now+500);delay=Math.min(delay,300000);
       const name=provider==='archive'?'Arctic Shift':'Reddit search',wait=delay<60000?Math.ceil(delay/1000)+' seconds':'about '+Math.max(1,Math.round(delay/60000))+' min';
       const note=down?(error.code==='maintenance'?`${name} is down for maintenance. Retrying in ${wait}.`:`${name} is temporarily unavailable. Retrying in ${wait}.`):limited?`${name} is limiting requests. Retrying in ${wait}.`:`${name} isn’t responding. Retrying in ${wait}.`;
-      clearTimeout(previous?.timer);const generation=this.generation,entry={attempts,at:now+delay,note,provider};
+      clearTimeout(previous?.timer);const generation=this.generation,entry={attempts,at:now+delay,note,provider,visible:down || limited || attempts>quietRetries};
       entry.timer=setTimeout(()=>{entry.timer=null;if(generation!==this.generation || !this.host?.isConnected)return;this.retrySource(key);},delay);
       this.sourceRetries.set(key,entry);this.updateProfileLoading();return true;
     }
@@ -1632,7 +1645,8 @@
       const pending=this.batchedProfile && this.pendingProfilePosts().length>0,more=this.hasMoreProfile();
       const paused=this.searchBudgetPaused() && !pending && !this.activeProfileBatch || this.nativeBatch.blocked || (this.batchAutoPaused || this.primaryFailure()) && !pending && !this.activeProfileBatch;
       const work=this.busy || this.archiveBusy || this.activeProfileBatch || this.nativeBatch.active || this.nativeBatch.queue.length || this.metadataPending || this.recoveryActive;
-      const retrying=this.waitingRetries(),continuation=Boolean(work || pending || more || this.mergePendingNodes.size || retrying.length);
+      // Quick retries stay behind the normal loader; only long waits or repeated failures get a note.
+      const retrying=this.waitingRetries().filter(entry=>entry.visible!==false),continuation=Boolean(work || pending || more || this.mergePendingNodes.size || this.waitingRetries().length);
       const nativeLoading=this.nativeFeedLoading(),owner=nativeLoading?'native':'extension',halo=this.loading.querySelector('.rt-native-loading'),quiet=nativeLoading || (paused || retrying.length>0) && !work;
       const archiveView=this.activityFilter==='deleted' && this.settings.archiveDiscovery,failedArchive=this.kinds().filter(kind=>this.sourceErrors['archive-'+kind]),failedSearch=!archiveView && ['post','comment','comment-public'].some(key=>this.sourceErrors[key]);
       let message='',action=null,label='';
@@ -2136,7 +2150,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
         const handled=event.defaultPrevented;event.preventDefault();event.stopImmediatePropagation();if(handled)return;
         // A capture stop inside an upgrading native card can swallow its default
         // link activation. Forward the URL outside that card, retaining new-tab gestures.
-        const forward=link('',url.href);forward.hidden=true;forward.dataset.rtUi='archive-navigation-link';forward.target=event.ctrlKey || event.metaKey || event.shiftKey || event.button===1?'_blank':anchor.target || '';document.body.append(forward);try{forward.click();}finally{forward.remove();}return;
+        const forward=link('',url.href);forward.hidden=true;forward.dataset.rtUi='archive-navigation-link';forward.target=event.ctrlKey || event.metaKey || event.shiftKey || event.button===1?'_blank':anchor.target || '';document.body.append(forward);try{forward.click();}finally{forward.remove();}if(!forward.target && url.origin===location.origin && !url.hash && !/\/comments\/[a-z0-9]+\/[^/]*\/[a-z0-9]+\/?$/i.test(url.pathname))startNavigatedPageAtTop(url);return;
       }}
       event.preventDefault();event.stopImmediatePropagation();
       if(event.type==='click' && !thread && !path.some(n=>n.matches?.('button,input,textarea,select,video,audio,[role="button"]')) && !String(globalThis.getSelection?.() || ''))native.querySelector('[slot="title"] a,a[slot="title"]')?.click();
