@@ -33,6 +33,10 @@
   }
   function hold(modal){modal.setAttribute(holdAttr,'true');modal.style.setProperty('display','none','important');}
   function release(modal){if(!modal || modal.hasAttribute(mountedAttr))return;modal.removeAttribute(holdAttr);modal.style.removeProperty('display');if(!modal.getAttribute('style'))modal.removeAttribute('style');}
+  // Reddit's default avatars (one of eight) for authors whose archive record has no avatar.
+  const defaultAvatar=(name,size,href)=>{let hash=0;for(const ch of String(name || ''))hash=(hash*31+ch.charCodeAt(0))>>>0;
+    const img=make('img','rounded-full shrink-0');img.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+(hash % 8)+'.png';img.alt='';img.width=img.height=size;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';img.style.width=img.style.height=size+'px';
+    if(!href)return img;const a=make('a','flex items-center mt-2xs');a.href=href;a.setAttribute('aria-label',name+"'s profile");a.append(img);return a;};
   const viewRequested=()=>new URLSearchParams(location.search).get('rt_view')==='archive';
   function setParams(changes){
     const url=new URL(location.href);
@@ -175,12 +179,13 @@
       document.documentElement.setAttribute('data-rt-subreddit-archive','');
       this.mounted={modal,kind,name,thread};this.loadNavigation();
       if(!thread && typeof IntersectionObserver==='function'){this.io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting))this.loadMore();},{rootMargin:'800px 0px'});this.io.observe(this.sentinel);}
-      this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){this.threadState={route:thread,post:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();}
+      this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();}
     }
     unmount(){
       const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState=null;
       this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
-      for(const state of this.states.values())state.gen++;
+      for(const state of this.states.values()){state.gen++;for(const item of state.items || [])if(item?.kind!=='comment')(this.recentPosts ||= new Map()).set(item.fullname,item);}
+      if(this.recentPosts?.size>600)this.recentPosts=new Map([...this.recentPosts].slice(-300));
       // Keep the left nav (rendered, loading, or showing its fallback): the next mount of the same community moves it
       // instead of re-rendering from an empty placeholder (no blank nav). A loading nav keeps its request;
       // mountNavigation aborts it if the nav isn't reused.
@@ -220,7 +225,7 @@
       if(comment.over18 || comment.spoiler)text.append(make('p','','NSFW or spoiler snapshot · Content not expanded.'));
       else{const rendered=globalThis.RTMarkdown?.fromHtml?.(comment.bodyHtml) || globalThis.RTMarkdown?.render?.(comment.body || '');if(rendered)text.append(rendered);else text.append(make('p','',comment.body || 'The archive has no original text for this comment.'));}body.append(text);
       const actions=make('shreddit-comment-action-row','block');actions.slot='actionRow';for(const [key,value] of Object.entries({'comment-id':comment.fullname,score:comment.score,'vote-state':'NONE','view-only':'','comment-archived':'','is-desktop-viewport':'',permalink:path}))actions.setAttribute(key,String(value));
-      const share=make('shreddit-comment-share-button');share.slot='comment-share';share.setAttribute('permalink',path);share.setAttribute('source-id',comment.fullname);share.setAttribute('is-desktop-viewport','');actions.append(share);node.append(author,body,actions);
+      const share=make('shreddit-comment-share-button');share.slot='comment-share';share.setAttribute('permalink',path);share.setAttribute('source-id',comment.fullname);share.setAttribute('is-desktop-viewport','');actions.append(share);const avatar=make('div');avatar.slot='commentAvatar';avatar.append(defaultAvatar(comment.author,comment.depth?24:32,globalThis.RTPostModel.validateUsername(comment.author)?'/user/'+encodeURIComponent(comment.author)+'/':''));node.append(avatar,author,body,actions);
       // Reddit can render snapshot scores but no action may mutate a snapshot.
       for(const type of ['click','keydown'])actions.addEventListener(type,event=>{if(event.type==='keydown' && !['Enter',' '].includes(event.key))return;if(!event.composedPath().some(part=>part.matches?.('shreddit-comment-share-button'))){event.preventDefault();event.stopImmediatePropagation();}},true);
       return node;
@@ -233,8 +238,7 @@
       }
       if(state.post && !state.postEl){
         const card=state.postEl=globalThis.RTPostDiscovery.archiveCard(state.post,{thread:true}),native=card.querySelector('shreddit-post');
-        if(native){native.setAttribute('view-context','CommentsPage');native.classList.add('rt-sra-thread-post');native.querySelector('[data-rt-source]')?.remove();const old=native.querySelector('[slot="title"]'),title=make('h1','text-24 font-bold m-0 mb-md',state.post.title);title.slot='title';old?.replaceWith(title);
-          const grid=native.querySelector(':scope > .grid');if(grid){const credit=grid.querySelector('[slot="credit-bar"]'),body=grid.querySelector('[slot="text-body"]');native.replaceChildren(...[credit,title,body].filter(Boolean));const media=globalThis.RTArchiveView?.media?.(state.post.media,{alt:state.post.title,postId:state.post.id,href:state.post.url});if(media)native.append(media);}
+        if(native){native.classList.add('rt-sra-thread-post');native.querySelector('[data-rt-source]')?.remove();
         }this.listEl.insertBefore(card,state.commentsEl);
       }
       const comments=state.commentsEl,nodes=state.nodes,items=new Map(state.items.map(item=>[item.fullname,item]));
@@ -256,7 +260,7 @@
         else if(state.stalled)this.footEl.append(make('p','rt-sra-note','The archive stopped paging here; more comments may exist.'));
         else if(!state.hasMore)this.footEl.append(make('p','rt-sra-note',state.items.length?'End of what the archive returned · Coverage may be partial':'No archived comments returned. This does not establish that the post had no comments.'));
         if(state.hasMore){const button=make('button','button button-small button-secondary','Load more comments');button.type='button';button.dataset.rtMore='true';button.addEventListener('click',()=>this.loadThread({more:true}));this.footEl.append(button);}
-        if(state.route.focusId && !state.focused){const target=nodes.get('t1_'+state.route.focusId);if(target?.isConnected){state.focused=true;target.classList.add('rt-sra-focused-comment');target.scrollIntoView?.({block:'center'});}else if(!state.loading)this.footEl.append(make('p','rt-sra-note','The requested comment is not in the loaded archive records.'));}
+        if(state.route.focusId && !state.focused){const target=nodes.get('t1_'+state.route.focusId);if(target?.isConnected){state.focused=true;target.classList.add('rt-sra-focused-comment');const focus=()=>{if(!target.isConnected)return;const r=target.getBoundingClientRect();if(r.top<0 || r.bottom>innerHeight)target.scrollIntoView?.({block:'center'});};target.scrollIntoView?.({block:'center'});for(const ms of [150,600,1500])setTimeout(focus,ms);}else if(!state.loading)this.footEl.append(make('p','rt-sra-note','The requested comment is not in the loaded archive records.'));}
       }
     }
     mountNavigation(layout,name){

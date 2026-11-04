@@ -277,3 +277,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 [data-rt-search-hidden],[data-rt-search-sort-hidden]{display:none!important}
 [data-rt-ui="search-feed"]{display:block;min-width:0}
 .rt-archive-link{color:var(--color-primary-plain,#0a449b);text-decoration:none}
+/* Archived media whose image is gone: a fixed-size notice instead of Reddit's stretched placeholder. */
+.rt-media-unavailable-frame{background:var(--color-neutral-background-weak,#f6f8f9)}
+.rt-media-unavailable{display:flex;align-items:center;justify-content:center;min-height:120px;padding:12px;text-align:center;font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-media-unavailable-compact{min-height:0;height:100%;padding:4px}
