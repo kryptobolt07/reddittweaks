@@ -1,3 +1,20 @@
+# 0.28.0 preview
+
+- Archived threads have Reddit's comment toolbar between the post and the comments: **Sort by** (Best, Top, New, Old over loaded archive comments) and **Search Comments** over loaded comments.
+- Profile search shows the Feed options filters inline in Reddit's sort row, styled like Relevance / All time / Safe Search.
+- The subreddit archive shows users' real profile pictures (the poster's on post pages) and Reddit's grey silhouette for deleted accounts, with square, centred avatars.
+- Archived NSFW and spoiler posts look like Reddit's: the NSFW tag (Reddit's icon and colour) above the title, the flair pill below it, and media blurred on black under a scrim with a View NSFW content pill. A click anywhere on the blur reveals it instead of opening the post.
+- Images pasted into archived text posts (preview.redd.it links) render inline, blurred when restricted, and reserve their size before loading.
+- Archive scrolling stays steady while posts, comments, loaders and images load: positions are kept relative to the page, so the reader's own scrolling is never corrected. The feed position is restored after visiting a post (including after reloading it); reloading the feed itself starts fresh.
+- Archive timeouts retry automatically before showing a compact Retry pill. Profile post and comment searches retry quick and temporary (HTTP 403/429) failures quietly; notes appear only for long waits or repeated failures.
+- Following a link out of an archived community no longer flashes Reddit's banned notice. Posts opened from extension-drawn profile cards start at the top. Community icons in filter chips are centred, and stacked toolbar notices share one left edge.
+
+Version choice: MINOR to 0.28.0 for the new comment toolbar, inline profile-search filters and real profile pictures, bundled with archive display, scrolling and retry fixes. No new permissions or storage schema migration.
+
+Validation: all 1,294 automated tests pass. Live Chrome checks (read-only) cover the inline post image, NSFW tag, flair, blur and click-to-reveal on an archived post, and wheel scrolling through loads on two archived threads and a feed with no visible jumps. ZIP integrity and source/stable-folder byte equality pass for all 48 packaged files.
+
+Limitations: the profile-card scroll fix and the quiet profile retries are covered by automated tests only. Reddit's own "error loading the next page" message on profile feeds was not reproduced and is unchanged. Comment sorting and search apply to loaded archive comments, not the full thread.
+
 # 0.27.0 preview
 
 - Added separate opt-ins for browsing unavailable communities and opening their archives automatically. Both require Arctic Shift and profile discovery; automatic mode holds the matching banned/private notice before paint. Disabling the preferences restores Reddit's notice. Existing users must enable the new community preference.
