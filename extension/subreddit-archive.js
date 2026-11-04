@@ -102,7 +102,7 @@
       this.readSettings=readSettings;this.communityState=communityState;this.reddit=reddit;this.archive=archive;
       this.getOwner=getOwner || (()=>globalThis.RCSDirectory?.getOwner?.() || globalThis.RCSMessages?.getSelfIdentity?.()?.id || '');
       this.enabled=null;this.mounted=null;this.search=null;this.states=new Map();this.top=false;this.openMenuEl=null;this.dead=false;this.meta=null;this.metaName='';
-      this.onRoute=event=>{if(event?.type==='popstate')this.popAt=Date.now();this.scan();};
+      this.onRoute=()=>this.scan();this.initialHref=location.href;
       // Record the feed position only while this community's feed path is showing (with or without rt_view:
       // the automatic preference opens the archive without it), never during navigation to a post.
       this.onScroll=()=>{const m=this.mounted;if(m && !m.thread && !threadRoute() && location.pathname.replace(/\/+$/,'').toLowerCase()==='/r/'+m.name.toLowerCase()){this.feedScrollY=scrollY;if(!this.anchorQueued){this.anchorQueued=true;requestAnimationFrame(()=>{this.anchorQueued=false;this.saveFeedAnchor();});}}};
@@ -192,7 +192,7 @@
       const name=modal.getAttribute('subredditname'),f=globalThis.RTFeedFilters,params=new URLSearchParams(location.search);
       this.name=name;this.kind=kind;this.filters=f?f.read(location):null;this.top=params.get('rt_top')==='1';
       const stash=this.feedStash,reuse=stash && stash.name===name.toLowerCase() && Date.now()-stash.at<30*60*1000;if(stash && !reuse)this.feedStash=null;
-      this.states=!thread && reuse?stash.states:new Map();if(!thread && !reuse)this.feedScrollY=undefined;if(!thread && reuse){this.feedStash=null;for(const state of this.states.values())state.loading=false;this.restoreFeedScroll(stash.scrollY);}
+      this.states=!thread && reuse?stash.states:new Map();if(!thread && !reuse)this.feedScrollY=undefined;if(!thread && reuse){this.feedStash=null;for(const state of this.states.values())state.loading=false;if(!this.restoringFeed)this.restoreFeedScroll(stash.scrollY);}
       modal.setAttribute(mountedAttr,'true');hold(modal);
       const layout=this.layout=make('div','grid-container theme-rpl grid '+this.navigationClass());layout.dataset.rtUi='archive-subreddit';layout.dataset.rtSubreddit=name;layout.dir='ltr';
       const subgrid=make('div','subgrid-container m:col-start-2 box-border flex flex-col order-2 w-full m:w-[1120px] xs:px-md m:px-lg mx-auto min-h-[calc(100dvh_-_var(--shreddit-header-height))] justify-stretch');subgrid.id='subgrid-container';
@@ -304,11 +304,13 @@
     // to that comment's own page. The focused comment's chain is always shown. Nodes are reused, never rebuilt.
     // Returning to the feed from a post: Reddit (or the browser) may scroll first, and the reused cards need a
     // layout pass. Re-apply the saved position for a short while, and stop as soon as the user scrolls.
-    feedAnchorKey(){return 'rt-archive-anchor:'+(this.mounted?.name || this.name || '').toLowerCase()+'|'+this.feedKey();}
+    // Saved per history entry (Navigation API key): Back/Forward to that entry finds it, a new link to the feed
+    // creates a new entry and starts at the top. Falls back to the community and filters where the API is missing.
+    feedAnchorKey(){return 'rt-archive-anchor:'+(globalThis.navigation?.currentEntry?.key || '')+'|'+(this.mounted?.name || this.name || '').toLowerCase()+'|'+this.feedKey();}
     // The card at the top of the view, its offset, and how many posts were showing: survives a reload of a post
     // page (which drops this script's memory), so Back can rebuild the same position in a freshly loaded feed.
     saveFeedAnchor(){
-      if(!this.listEl?.isConnected || !this.mounted || this.mounted.thread)return;
+      if(!this.listEl?.isConnected || !this.mounted || this.mounted.thread || this.restoringFeed)return;
       let card=null;for(const node of this.listEl.querySelectorAll(':scope > .rt-native-card')){const r=node.getBoundingClientRect();if(r.bottom>80){card=node;break;}}
       try{if(scrollY<=0 || !card){sessionStorage.removeItem(this.feedAnchorKey());return;}
         const state=this.states.get(this.feedKey());sessionStorage.setItem(this.feedAnchorKey(),JSON.stringify({fullname:card.dataset.fullname,offset:Math.round(card.getBoundingClientRect().top),count:state?this.visibleItems(state).length:0,at:Date.now()}));}catch{}
@@ -316,22 +318,27 @@
     restoreFeedAnchor(){
       let saved=null;try{saved=JSON.parse(sessionStorage.getItem(this.feedAnchorKey()) || 'null');}catch{}
       const nav=performance.getEntriesByType?.('navigation')?.[0]?.type;
-      // Only a Back/Forward return restores: the document's first mount after a back/forward load, or an in-page
-      // popstate. Reloading the feed itself starts fresh, like Reddit.
-      const back=Date.now()-(this.popAt || 0)<3000 || nav==='back_forward' && !this.mountedBefore;
+      // Reloading (or freshly opening) the feed page itself starts at the top, like Reddit. Any other return to a
+      // history entry that saved an anchor (Back/Forward, in-page or after a reload elsewhere) restores it.
+      const fresh=!this.mountedBefore && location.href===this.initialHref && nav!=='back_forward';
+      const back=!fresh;
       if(!saved?.fullname || Date.now()-saved.at>60*60*1000 || !back){try{sessionStorage.removeItem(this.feedAnchorKey());}catch{}return;}
-      const state=this.states.get(this.feedKey()),list=this.listEl;if(!state || !list)return;
+      const state=this.states.get(this.feedKey());if(!state || !this.listEl)return;
       // Reveal (and fetch) enough posts in one go, and keep the feed hidden until it is in place, so the reader
       // never watches it scroll down from the top.
       state.want=Math.max(state.want || PAGE_SIZE,Math.ceil((saved.count || PAGE_SIZE)/PAGE_SIZE)*PAGE_SIZE);
-      list.style.visibility='hidden';try{history.scrollRestoration='manual';}catch{}
+      this.listEl.style.visibility='hidden';this.restoringFeed=true;try{history.scrollRestoration='manual';}catch{}
       let user=false;const stop=()=>{user=true;},events=['wheel','touchmove','keydown','mousedown'];for(const type of events)addEventListener(type,stop,{passive:true,capture:true});
-      const show=()=>{list.style.visibility='';};
-      const done=()=>{show();for(const type of events)removeEventListener(type,stop,{capture:true});};
+      const show=()=>{if(this.listEl)this.listEl.style.visibility='';};
+      const done=()=>{show();this.restoringFeed=false;for(const type of events)removeEventListener(type,stop,{capture:true});};
       const started=performance.now();let placedAt=0,card=null;
-      const find=()=>[...list.querySelectorAll(':scope > .rt-native-card')].find(node=>node.dataset.fullname===saved.fullname);
+      const find=()=>[...(this.listEl?.querySelectorAll(':scope > .rt-native-card') || [])].find(node=>node.dataset.fullname===saved.fullname);
       const step=()=>{
-        if(!this.mounted || this.mounted.thread || this.listEl!==list){done();return;}
+        // Reddit can replace its notice element, which remounts the archive around the same cards: follow the
+        // current list instead of giving up, and wait briefly while it is between unmount and mount.
+        if(this.mounted?.thread || performance.now()-started>15000){done();return;}
+        if(!this.mounted || !this.listEl?.isConnected){setTimeout(step,30);return;}
+        if(!placedAt)this.listEl.style.visibility='hidden';
         if(!placedAt){
           card=state.loading?null:find();
           if(!card){
@@ -339,12 +346,15 @@
             if(!state.loading && !state.error && state.started){if(this.visibleItems(state).length<state.want && state.hasMore)this.fillFeed(state);else if(this.visibleItems(state).length>=state.want)this.renderList();else{done();return;}}
             setTimeout(step,100);return;
           }
-          placedAt=performance.now();scrollBy(0,card.getBoundingClientRect().top-saved.offset);show();
+          placedAt=performance.now();this.anchorStableSince=placedAt;scrollBy(0,card.getBoundingClientRect().top-saved.offset);show();
         }
-        // Pin the anchor while media above it settles (up to 4 s), unless the reader takes over.
-        if(user || !card.isConnected || performance.now()-placedAt>4000){done();return;}
-        const delta=card.getBoundingClientRect().top-saved.offset;if(Math.abs(delta)>=1)scrollBy(0,delta);
-        requestAnimationFrame(step);
+        // Pin the anchor while media above it settles, until the layout has been stable for 1 s (at most 6 s),
+        // unless the reader takes over. Re-find it each frame: the feed may re-render the card element.
+        card=card.isConnected?card:find();const now=performance.now();
+        if(user || !card || now-placedAt>6000 || now-(this.anchorStableSince ||= now)>1000){this.anchorStableSince=0;done();return;}
+        const delta=card.getBoundingClientRect().top-saved.offset;if(Math.abs(delta)>=1){scrollBy(0,delta);this.anchorStableSince=now;}
+        // A timer, not requestAnimationFrame: rAF pauses in an unfocused or hidden window and the pin would stop.
+        setTimeout(step,30);
       };
       setTimeout(step,0);
     }

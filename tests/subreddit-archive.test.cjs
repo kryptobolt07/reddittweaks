@@ -544,7 +544,7 @@ test('after a reload, Back to the archive feed restores the saved reading anchor
   const moves=[];W.scrollBy=(x,y)=>moves.push(y);
   // Re-mount as a fresh document would: forget memory, keep session storage.
   ctx.sa.unmount();ctx.sa.feedStash=null;ctx.sa.mountedBefore=false;
-  W.sessionStorage.setItem('rt-archive-anchor:gone|'+ctx.sa.feedKey(),JSON.stringify({fullname:'t3_a2',offset:-120,count:2,at:Date.now()}));
+  W.sessionStorage.setItem(ctx.sa.feedAnchorKey(),JSON.stringify({fullname:'t3_a2',offset:-120,count:2,at:Date.now()}));
   ctx.sa.scan();await tick();await new Promise(r=>setTimeout(r,400));
   assert.ok(ctx.doc.querySelector('.rt-native-card[data-fullname="t3_a2"]'),'anchor card rendered');
   assert.ok(moves.includes(120),'scrolled the anchor card back to its saved offset');
@@ -554,8 +554,17 @@ test('after a reload, Back to the archive feed restores the saved reading anchor
 test('reloading the archive feed itself starts fresh and clears the saved reading anchor',async()=>{
   const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});const {W}=ctx;
   W.performance.getEntriesByType=()=>[{type:'reload'}];const moves=[];W.scrollBy=(x,y)=>moves.push(y);
-  ctx.sa.unmount();ctx.sa.feedStash=null;ctx.sa.mountedBefore=false;const key='rt-archive-anchor:gone|'+ctx.sa.feedKey();
+  ctx.sa.unmount();ctx.sa.feedStash=null;ctx.sa.mountedBefore=false;const key=ctx.sa.feedAnchorKey();
   W.sessionStorage.setItem(key,JSON.stringify({fullname:'t3_a2',offset:-120,count:2,at:Date.now()}));
   ctx.sa.scan();await tick();await new Promise(r=>setTimeout(r,300));
   assert.equal(moves.length,0,'no restore on reload');assert.equal(W.sessionStorage.getItem(key),null);
+});
+
+test('after reloading a post, an in-page Back to the feed entry restores the anchor even though the document type is reload',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/'});const {W}=ctx;// document started on the post (reloaded)
+  W.performance.getEntriesByType=()=>[{type:'reload'}];const moves=[];W.scrollBy=(x,y)=>moves.push(y);
+  ctx.sa.unmount();W.history.pushState({},'','/r/gone/?rt_view=archive');
+  W.sessionStorage.setItem(ctx.sa.feedAnchorKey(),JSON.stringify({fullname:'t3_a2',offset:-80,count:2,at:Date.now()}));
+  ctx.sa.scan();await tick();await new Promise(r=>setTimeout(r,400));
+  assert.ok(moves.includes(80),'restored on Back into the feed entry');
 });
