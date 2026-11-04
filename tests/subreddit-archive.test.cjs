@@ -568,3 +568,13 @@ test('after reloading a post, an in-page Back to the feed entry restores the anc
   ctx.sa.scan();await tick();await new Promise(r=>setTimeout(r,400));
   assert.ok(moves.includes(80),'restored on Back into the feed entry');
 });
+
+test('archive avatars switch from Reddit\'s default to the user\'s real picture from Reddit, only from Reddit image hosts',async()=>{
+  const asked=[];const ctx=await boot({reddit:async message=>{
+    if(message.action==='user-avatar'){asked.push(message.username);return {avatar:message.username==='alice'?'https://styles.redditmedia.com/t5_x/styles/profileIcon_abc.png':'https://evil.example/x.png'};}
+    if(message.action==='render-navigation'){const t=ctx.doc.getElementById(message.target);if(t)t.innerHTML='<nav></nav>';return {rendered:true};}return {};}});
+  await open(ctx);for(let i=0;i<4;i++)await tick();ctx.sa.watchAvatars();for(let i=0;i<4;i++)await tick();
+  const img=ctx.doc.querySelector('.rt-native-card [slot="credit-bar"] img[data-rt-avatar-user]');
+  assert.ok(img,'card avatar is marked with its user');assert.equal(img.src,'https://styles.redditmedia.com/t5_x/styles/profileIcon_abc.png');
+  assert.equal(asked.filter(n=>n==='alice').length,1,'one lookup per user');
+});
