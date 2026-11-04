@@ -62,7 +62,7 @@ Start with the outcome. Give a table of expectations (pass / fail / not verified
 
 ## Pitfalls learned the hard way
 - **Settled screenshots miss timing bugs.** Use `probe-timeline` with real clicks; direct `nav` loads skip the client-side router, which is where re-mount bugs live.
-- **Background tabs and windows are throttled**, which pauses lazy images, infinite scroll and observers. At L3 use one foreground tab; the L2 fixture disables throttling.
+- **Background tabs and windows are throttled**, which pauses lazy images, infinite scroll and observers. At L3 use one foreground tab with focus emulation on (see tools.md); the L2 fixture disables throttling.
 - **Native first**: before calling something a defect, check native Reddit on the equivalent page. Some quirks are Reddit's own; for example, native pages also scroll 15px sideways.
 - **The relay's event buffer drains per session** and holds the last 1000 events. Enable Log/Runtime/Network before acting, and read them soon after.
 - **The extension service worker sleeps.** Wake it by opening a feature page, then attach; attach again if it restarts.
