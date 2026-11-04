@@ -48,7 +48,7 @@
       this.restorePost();
       for(const comment of document.querySelectorAll('main shreddit-comment[thingid]')){
         // Archived reader text is a snapshot, not current Reddit deletion evidence.
-        if(comment.closest('[data-rt-ui="archive-thread-comment"]'))continue;
+        if(comment.closest('[data-rt-ui="archive-thread-comment"],[data-rt-ui="archive-subreddit"]'))continue;
         const id=comment.getAttribute('thingid').toLowerCase(),post=comment.getAttribute('postid')?.toLowerCase();
         // Comments already examined (no notice) are not re-read on every change.
         if(!/^t1_[a-z0-9]{1,32}$/.test(id))continue;
@@ -224,7 +224,7 @@
     // formatted body and (image posts) image inside Reddit's own post element.
     restorePost(){
       const postId=this.postId,native=[...document.querySelectorAll('main shreddit-post[id="t3_'+postId+'"]')].find(node=>!node.closest('[data-rt-ui]'));
-      if(!native || this.postState?.native===native)return;
+      if(!native || this.postState?.native===native || document.documentElement.hasAttribute('data-rt-subreddit-archive'))return;
       const status=M.domStatus(native);this.postState={native,status};
       if(!status){native.setAttribute('data-rt-settled','');return;}
       native.setAttribute('data-rt-pending','');
