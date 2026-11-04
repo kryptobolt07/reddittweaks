@@ -31,5 +31,11 @@ Each row says which level proves it and what the evidence will be. Write this BE
 | Field in record | Shown where | Native format | Check |
 |---|---|---|---|
 
+## User focus items (verbatim; tested first by the council)
+| ID | What the user asked to test | Evidence that answers it |
+|---|---|---|
+| F1 | <…> | <…> |
+Council mode: explore (default) | focus-only (the user said "only …")
+
 ## Out of scope (noticed, not changed in this loop)
 - …
