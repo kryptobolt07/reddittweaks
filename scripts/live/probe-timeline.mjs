@@ -52,7 +52,7 @@ for(const step of split(options.steps)){
   else console.log('unknown step',step);
 }
 await sleep(200);
-const rows=await ev(session,`window['__probeStop_${RUN}']=1;const k='__probe_tl_${RUN}',r=JSON.parse(sessionStorage.getItem(k)||'[]');sessionStorage.removeItem(k);sessionStorage.removeItem(k+'0');r`)
+const rows=await ev(session,`(()=>{window['__probeStop_${RUN}']=1;const k='__probe_tl_${RUN}',r=JSON.parse(sessionStorage.getItem(k)||'[]');sessionStorage.removeItem(k);sessionStorage.removeItem(k+'0');return r;})()`)
   .catch(error=>['(rows unreadable: '+error.message.split('\n')[0]+'; the last step probably left the origin)']);
 console.log(rows.length?rows.join('\n'):'(no rows recorded)');
 }finally{await call('Page.removeScriptToEvaluateOnNewDocument',{identifier},session).catch(()=>{});}
