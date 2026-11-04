@@ -96,7 +96,7 @@
     destroy(){
       this.dead=true;this.observer?.disconnect();window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
       document.removeEventListener('click',this.onDocClick,true);document.removeEventListener('keydown',this.onKey,true);
-      try{chrome.storage?.onChanged?.removeListener(this.onSettings);}catch{}this.unmount();this.unmountSearch();
+      try{chrome.storage?.onChanged?.removeListener(this.onSettings);}catch{}this.unmount();this.unmountSearch();this.keptNavigationController?.abort();this.keptNavigation=this.keptNavigationController=null;
     }
 
     // Called on every relevant change. Until settings are known nothing is added (an early hold may stay).
@@ -179,8 +179,14 @@
     }
     unmount(){
       const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState=null;
-      this.navigationController?.abort();this.navigationController=null;this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
+      this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
       for(const state of this.states.values())state.gen++;
+      // Keep the left nav (rendered, loading, or showing its fallback): the next mount of the same community moves it
+      // instead of re-rendering from an empty placeholder (no blank nav). A loading nav keeps its request;
+      // mountNavigation aborts it if the nav isn't reused.
+      const nav=this.navigation,keep=['loading','ready','failed'].includes(nav?.dataset.state);this.navigation=null;
+      if(keep && nav.dataset.state==='loading')this.keptNavigationController=this.navigationController;else this.navigationController?.abort();
+      this.navigationController=null;this.keptNavigation=keep?nav:null;nav?.remove();
       this.layout?.remove();this.layout=null;m.modal.removeAttribute(mountedAttr);
       document.documentElement.removeAttribute('data-rt-subreddit-archive');
       if(this.dead || !viewRequested() && m.modal.isConnected)release(m.modal);
@@ -254,21 +260,30 @@
       }
     }
     mountNavigation(layout,name){
+      const kept=this.keptNavigation,keptController=this.keptNavigationController;this.keptNavigation=this.keptNavigationController=null;
+      const reusable=['ready','failed'].includes(kept?.dataset.state) || kept?.dataset.state==='loading' && Date.now()-Number(kept.dataset.loadingSince || 0)<8000;
+      if(reusable && kept.dataset.subreddit?.toLowerCase()===String(name).toLowerCase()){
+        // A failed nav keeps showing its fallback while loadNavigation retries in place; success replaces the fallback.
+        if(kept.dataset.state==='failed')kept.dataset.state='idle';
+        this.navigation=kept;this.navigationController=keptController || null;layout.append(kept);return;
+      }
+      keptController?.abort();
       const target=this.navigation=make('div','contents');target.id='rt-nav-'+crypto.randomUUID();target.dataset.rtUi='community-navigation';target.dataset.state='idle';target.dataset.subreddit=name;
       const reserve=make('div','left-sidebar theme-rpl order-first hidden m:block');reserve.setAttribute('aria-hidden','true');target.append(reserve);layout.append(target);
     }
     async loadNavigation(){
       const target=this.navigation;if(!target?.isConnected || ['loading','ready'].includes(target.dataset.state))return;
-      this.navigationController?.abort();const controller=this.navigationController=new AbortController();target.dataset.state='loading';
+      this.navigationController?.abort();const controller=this.navigationController=new AbortController();target.dataset.state='loading';target.dataset.loadingSince=String(Date.now());
       try{
         for(let attempt=0;attempt<20;attempt++){
           const result=await this.reddit({action:'render-navigation',subreddit:target.dataset.subreddit,target:target.id,navigationLease:target.id},controller.signal);
-          if(controller.signal.aborted || !target.isConnected)return;
+          // Finished while detached (never remounted): mark it idle so a later mount renders a fresh nav.
+          if(controller.signal.aborted || !target.isConnected){if(!controller.signal.aborted)target.dataset.state='idle';return;}
           if(result?.deferred){await new Promise(resolve=>setTimeout(resolve,Math.min(500,result.retryAfterMs || 250)));continue;}
           if(!result?.rendered)throw Error('Reddit navigation is unavailable.');target.dataset.state='ready';return;
         }
         throw Error('Reddit navigation is busy.');
-      }catch{if(controller.signal.aborted || !target.isConnected)return;}
+      }catch{if(controller.signal.aborted || !target.isConnected){if(!controller.signal.aborted)target.dataset.state='idle';return;}}
       if(controller.signal.aborted || !target.isConnected)return;target.dataset.state='failed';
       globalThis.RTPostDiscovery?.Discovery?.prototype.navigationFallback.call(this,target);
       const retry=make('button','button button-small button-plain px-md','Retry navigation');retry.type='button';retry.addEventListener('click',()=>{target.dataset.state='idle';this.loadNavigation();});target.querySelector('nav')?.append(retry);
