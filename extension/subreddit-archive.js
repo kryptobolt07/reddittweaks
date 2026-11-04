@@ -39,6 +39,7 @@
     if(!href)return img;const a=make('a','flex items-center mt-2xs');a.href=href;a.setAttribute('aria-label',name+"'s profile");a.append(img);return a;};
   const redditCaret=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'caret-down'}))svg.setAttribute(k,v);
     const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7Z');svg.append(path);return svg;};
+  const arcticLink=label=>{const a=make('a','',label);a.href='https://arctic-shift.photon-reddit.com/';a.rel='noopener noreferrer';a.target='_blank';return a;};
   const viewRequested=()=>new URLSearchParams(location.search).get('rt_view')==='archive';
   function setParams(changes){
     const url=new URL(location.href);
@@ -122,8 +123,9 @@
     ensureButton(modal,kind){
       if(modal.querySelector('[data-rt-ui="subreddit-archive-action"]'))return;
       // Same classes as the notice's own secondary button, placed in the same slot as its primary one.
+      // Content-sized (no w-100) so it sits on the row of Reddit's own button at the same height.
       const slot=make('div');slot.setAttribute('slot','primaryButton');slot.dataset.rtUi='subreddit-archive-action';
-      const button=make('button','w-100 button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-secondary items-center justify-center button inline-flex');button.type='button';button.setAttribute('rpl','');
+      const button=make('button','button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-secondary items-center justify-center button inline-flex');button.type='button';button.setAttribute('rpl','');
       const outer=make('span','flex items-center justify-center');outer.append(make('span','flex items-center gap-xs','Browse archived posts'));button.append(outer);
       button.addEventListener('click',event=>{event.preventDefault();setParams({rt_view:'archive'});this.scan();});
       slot.append(button);modal.append(slot);
@@ -146,7 +148,7 @@
       return make('span','rt-sra-glyph');
     }
     // Reddit's community card: title, description, created date, state, members, then one archive note.
-    communityPanel(name,kind){
+    communityPanel(name,kind,{note=true}={}){
       const meta=this.meta,panel=make('div','rt-sra-about');panel.dataset.rtUi='archive-community-info';
       panel.append(make('h2','rt-sra-about-title',meta?.title && meta.title.toLowerCase()!==name.toLowerCase()?meta.title:'r/'+name));
       if(meta?.description)panel.append(make('p','rt-sra-about-text',meta.description));
@@ -156,8 +158,8 @@
       fact(kind==='private'?'hidden':'removed',kind==='private'?'Private':'Banned');
       panel.append(facts);
       if(meta?.subscribers){const stats=make('dl','rt-sra-stats'),item=make('div');item.append(make('dd','',compact(meta.subscribers)),make('dt','','Members'));stats.append(item);panel.append(stats);}
-      const note=make('p','rt-sra-about-note'),link=make('a','','Arctic Shift');link.href='https://arctic-shift.photon-reddit.com/';link.rel='noopener noreferrer';link.target='_blank';
-      note.append(document.createTextNode('Archived posts from '),link,document.createTextNode('. Coverage may be partial.'));panel.append(note);
+      if(!note)return panel;
+      const text=make('p','rt-sra-about-note');text.append(document.createTextNode('Archived posts from '),arcticLink('Arctic Shift'),document.createTextNode('. Coverage may be partial.'));panel.append(text);
       return panel;
     }
 
@@ -176,7 +178,7 @@
       this.statusTop=make('p','rt-sra-note text-12 text-neutral-content-weak');this.statusTop.hidden=true;
       main.append(...(thread?[]:[this.buildControls()]),make('hr','border-0 border-b-sm border-solid border-b-neutral-border-weak'),this.statusTop,this.listEl,this.footEl,this.sentinel);
       const sidebar=this.sidebarEl=make('aside','right-sidebar min-w-0 w-[316px] max-w-[316px] hidden xs:block styled-scrollbars xs:sticky xs:top-[56px] xs:max-h-screen-without-header xs:overflow-y-auto xs:overflow-x-hidden');sidebar.id='right-sidebar-container';
-      this.renderSidebar();
+      this.sidebarThread=Boolean(thread);this.renderSidebar();
       columns.append(main,sidebar);subgrid.append(...(thread?[]:[this.headerEl]),columns);layout.append(subgrid);this.mountNavigation(layout,name);modal.before(layout);
       document.documentElement.setAttribute('data-rt-subreddit-archive','');
       this.mounted={modal,kind,name,thread};this.loadNavigation();
@@ -307,9 +309,69 @@
       state.title=(this.kind==='private'?'r/'+name+' is private':'r/'+name+' is banned')+'. Showing archived posts.';
       titleWrap.append(title);identity.append(avatar,titleWrap);const actions=make('div','flex w-100 xs:w-auto mt-xs xs:mt-0 items-center gap-sm rt-sra-header-actions');actions.append(state);content.append(identity,actions);row.append(content);header.append(banner,row);
     }
+    // Reddit's community sidebar: one rounded column of sections (12px uppercase headers, 14px body) split by
+    // rules. Only what the extension honestly knows: the community state, what the archive is, what has been
+    // loaded so far (never presented as complete), the most frequent authors among loaded posts, Reddit's links.
     renderSidebar(){
-      if(!this.sidebarEl)return;const content=make('div','right-sidebar-contents flex-auto'),panel=make('section','rt-sra-sidebar-panel');panel.setAttribute('aria-label','Archived community information');
-      panel.append(this.communityPanel(this.name,this.kind));content.append(panel);this.sidebarEl.replaceChildren(content);
+      if(!this.sidebarEl)return;const content=make('div','right-sidebar-contents flex-auto'),panel=make('section','rt-sra-sidebar-panel rt-sra-sidebar');panel.setAttribute('aria-label','Archived community information');
+      const community=make('div','rt-sra-sidebar-section');community.append(this.communityPanel(this.name,this.kind,{note:false}));
+      const about=this.sidebarSection('About this archive','archive-about'),aboutText=make('p','rt-sra-sidebar-text');
+      aboutText.append(document.createTextNode('These posts come from '),arcticLink('Arctic Shift'),document.createTextNode(', an independent archive of public Reddit data. Reddit no longer shows this community, so nothing here is live.'));
+      about.append(aboutText,make('p','rt-sra-sidebar-text','Coverage may be partial: the archive may be missing posts, edits, scores and deletions. Voting, joining and posting are unavailable.'));
+      const coverage=this.coverageEl=this.sidebarSection('Archive coverage','archive-coverage');
+      const posters=this.postersEl=this.sidebarSection('Most active posters','archive-posters');
+      this.statsSignature=null;
+      panel.append(community,make('hr','rt-sra-sidebar-rule'),about);
+      // A thread page loads no feed: there is nothing to count, so those sections stay out.
+      if(!this.sidebarThread)panel.append(make('hr','rt-sra-sidebar-rule'),coverage,make('hr','rt-sra-sidebar-rule'),posters);
+      panel.append(make('hr','rt-sra-sidebar-rule'),this.legalLinks());
+      content.append(panel);this.sidebarEl.replaceChildren(content);this.renderArchiveStats();
+    }
+    sidebarSection(title,ui){
+      const section=make('div','rt-sra-sidebar-section');section.dataset.rtUi=ui;
+      section.append(make('h2','rt-sra-sidebar-heading text-12 font-semibold uppercase text-neutral-content-weak',title));return section;
+    }
+    // Every loaded feed post (any sort or date window), each counted once.
+    loadedPosts(){
+      const posts=new Map();
+      for(const state of this.states?.values() || [])if(state.scope==='feed')for(const item of state.items)if(item?.kind!=='comment' && Number.isFinite(item.created))posts.set(item.fullname,item);
+      return [...posts.values()];
+    }
+    renderArchiveStats(){
+      const coverage=this.coverageEl,posters=this.postersEl;if(!coverage?.isConnected && !posters?.isConnected)return;
+      const posts=this.loadedPosts(),state=this.states?.get(this.feedKey())||null,loading=Boolean(state?.loading),failed=Boolean(state?.error);
+      const authors=new Map();for(const post of posts){const name=post.author;if(!globalThis.RTPostModel?.validateUsername?.(name) || /^automoderator$/i.test(name))continue;const key=name.toLowerCase(),seen=authors.get(key);if(seen)seen.count++;else authors.set(key,{name,count:1});}
+      const top=[...authors.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name)).slice(0,5);
+      let oldest=Infinity,newest=-Infinity;for(const post of posts){if(post.created<oldest)oldest=post.created;if(post.created>newest)newest=post.created;}
+      const signature=JSON.stringify([posts.length,oldest,newest,loading,failed,top]);if(signature===this.statsSignature)return;this.statsSignature=signature;
+      const heading=section=>section.querySelector('.rt-sra-sidebar-heading');
+      coverage.replaceChildren(heading(coverage));
+      if(!posts.length)coverage.append(make('p','rt-sra-sidebar-text',loading?'Loading archived posts…':failed?'No archived posts loaded. The archive could not be reached.':'No archived posts loaded yet.'));
+      else{
+        const stats=make('dl','rt-sra-sidebar-stats'),stat=(value,label)=>{const item=make('div','rt-sra-sidebar-stat');item.append(make('dd','',value),make('dt','',label));stats.append(item);};
+        stat(new Intl.NumberFormat().format(posts.length),posts.length===1?'Post loaded':'Posts loaded');
+        stat(String(new Date(oldest*1000).getFullYear())+(new Date(newest*1000).getFullYear()!==new Date(oldest*1000).getFullYear()?'–'+new Date(newest*1000).getFullYear():''),'Years spanned');
+        coverage.append(stats);
+        const range=make('p','rt-sra-sidebar-fact');range.dataset.rtUi='archive-coverage-range';range.append(glyph('calendar'),make('span','',oldest===newest?day(oldest):day(oldest)+' – '+day(newest)));coverage.append(range);
+        coverage.append(make('p','rt-sra-sidebar-note','Among loaded posts only. '+(loading?'Loading more… ':state?.hasMore?'More load as you scroll. ':'')+'The archive may not hold every post.'));
+      }
+      posters.replaceChildren(heading(posters));
+      if(!top.length){posters.append(make('p','rt-sra-sidebar-text',posts.length?'No named authors among loaded posts.':'Appears once posts load.'));return;}
+      const list=make('ul','rt-sra-posters');
+      for(const author of top){
+        const li=make('li'),link=make('a','rt-sra-poster');link.href='/user/'+encodeURIComponent(author.name)+'/';
+        const text=make('span','rt-sra-poster-text');text.append(make('span','rt-sra-poster-name','u/'+author.name),make('span','rt-sra-poster-count',author.count+(author.count===1?' post':' posts')));
+        link.append(defaultAvatar(author.name,32,''),text);li.append(link);list.append(li);
+      }
+      posters.append(list,make('p','rt-sra-sidebar-note','Counted among loaded posts only.'));
+    }
+    // Reddit's own sidebar footer links.
+    legalLinks(){
+      const footer=make('div','rt-sra-sidebar-section rt-sra-legal');footer.dataset.rtUi='archive-legal';const links=make('div','rt-sra-legal-links');
+      for(const [label,href] of [['Reddit Rules','https://www.redditinc.com/policies/content-policy'],['Privacy Policy','https://www.reddit.com/policies/privacy-policy'],['User Agreement','https://www.redditinc.com/policies/user-agreement'],['Accessibility','https://support.reddithelp.com/hc/sections/38303584022676-Accessibility']]){
+        const a=make('a','',label);a.href=href;a.target='_blank';a.rel='noopener';links.append(a);
+      }
+      footer.append(links,make('p','rt-sra-legal-copy','Reddit, Inc. © '+new Date().getFullYear()+'. All rights reserved.'));return footer;
     }
 
     // ---- feed controls: Reddit's row of sort / time / type dropdowns ---------------------------------------------
@@ -663,6 +725,7 @@
       const line=this.statusLine(state);if(line)foot.append(make('p','rt-sra-searched text-12 text-neutral-content-weak',line));
       // The feed keeps paging on scroll; a button covers environments where scrolling cannot trigger it.
       if(!state.loading && !state.error && state.hasMore && state.started && !this.io){const more=make('button','button button-small button-secondary','Load more');more.type='button';more.dataset.rtMore='true';more.addEventListener('click',()=>this.loadMore());foot.append(more);}
+      this.renderArchiveStats();
     }
     syncAll(){if(!this.mounted)return;this.syncMenu();this.renderChips();}
   }

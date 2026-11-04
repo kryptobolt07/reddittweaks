@@ -1,11 +1,13 @@
 /* Subreddit archive (banned/private communities): laid out like a normal subreddit and its search page.
    Cards, chips, menu rows and glyphs reuse post-discovery.css. */
-[data-rt-ui="subreddit-archive-action"]{margin-top:8px;width:100%}
-[data-rt-ui="subreddit-archive-action"] button{width:100%;cursor:pointer}
+/* Notice action: content-sized beside Reddit's "Browse Other Communities", same row and 40px height. */
+[data-rt-ui="subreddit-archive-action"]{display:flex;flex:none;align-items:center;width:auto;margin:0}
+[data-rt-ui="subreddit-archive-action"] button{width:auto;white-space:nowrap;cursor:pointer}
 
-/* Header: banner, overlapping avatar, r/name, and the community state where Join would be. */
-.rt-sra-header{margin:0}
-.rt-sra-banner{height:128px;border-radius:8px;background:var(--color-secondary-background,#e5ebee)}
+/* Header: Reddit's no-banner masthead (8px gap, 64px band, 88px avatar overlapping it by 36px, 124px total),
+   r/name, and the community state where Join would be. Padding, not banner margin, so the gap stays inside. */
+.rt-sra-header{margin:0;padding-top:8px}
+.rt-sra-banner{height:64px;border-radius:8px;background:var(--color-secondary-background,#e5ebee)}
 .rt-sra-header-row{position:relative;padding:0 16px;margin:8px 0}
 .rt-sra-header-content{display:flex;flex:1;align-items:flex-end;justify-content:space-between;min-width:0}
 .rt-sra-identity{display:flex;align-items:flex-end;gap:8px;min-width:0}
@@ -13,12 +15,13 @@
 .rt-sra-avatar>*{width:100%;height:100%}
 .rt-sra-icon{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover}
 .rt-sra-glyph{display:block;color:var(--color-neutral-content-weak,#576f76)}
-.rt-sra-name{margin:0;font-size:32px;line-height:40px;font-weight:700;color:var(--color-neutral-content-strong,#0f1a1c);overflow-wrap:anywhere}
+.rt-sra-name{margin:0;font-size:32px;line-height:36px;font-weight:700;overflow-wrap:anywhere}
+.rt-sra-name:not(.text-neutral-content-strong){color:var(--color-neutral-content-strong,#0f1a1c)}
 .rt-sra-header-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
-.rt-sra-state{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 16px;border:1px solid var(--color-neutral-border,#cfd8dc);border-radius:999px;color:var(--color-neutral-content-strong,#0f1a1c);font-size:14px;font-weight:600}
+.rt-sra-state{display:inline-flex;align-items:center;gap:6px;box-sizing:border-box;min-height:40px;padding:0 16px;border:1px solid var(--color-neutral-border,#cfd8dc);border-radius:999px;color:var(--color-neutral-content-strong,#0f1a1c);font-size:14px;font-weight:600}
 .rt-sra-state svg{width:16px;height:16px;flex:none}
 @media (min-width:640px){.rt-sra-header-row{top:-36px;margin-top:0;margin-bottom:-36px}}
-@media (max-width:639px){.rt-sra-banner{height:64px}.rt-sra-header-content{flex-direction:column;align-items:stretch;gap:8px}.rt-sra-avatar{width:40px;height:40px}.rt-sra-name{font-size:18px;line-height:28px}.rt-sra-state{font-size:12px}}
+@media (max-width:639px){.rt-sra-header-content{flex-direction:column;align-items:stretch;gap:8px}.rt-sra-avatar{width:40px;height:40px}.rt-sra-name{font-size:18px;line-height:28px}.rt-sra-state{font-size:12px}}
 
 /* Reddit's feed row of plain dropdowns (sort, time, post type). */
 .rt-sra-controls{position:relative;margin:12px 0 8px}
@@ -45,6 +48,37 @@
 .rt-sra-stats dt{font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-sra-about-note{margin:12px 0 0;padding-top:12px;border-top:1px solid var(--color-neutral-border-weak,#e5e8eb);font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-sra-about-note a{color:inherit;text-decoration:underline}
+
+/* Feed sidebar: Reddit's community sidebar (one rounded column, sections split by rules,
+   12px/600 uppercase section headers, 14px body, 12px captions). */
+.rt-sra-sidebar{padding:0}
+.rt-sra-sidebar-section{padding:16px}
+.rt-sra-sidebar .rt-sra-about-title{font-size:14px;line-height:20px;font-weight:700;color:var(--color-neutral-content,#2a3c42)}
+.rt-sra-sidebar .rt-sra-fact{font-size:12px;line-height:18px}
+.rt-sra-sidebar .rt-sra-stats dd{font-size:14px;line-height:16px}
+.rt-sra-sidebar-rule{margin:0 16px;border:0;border-top:1px solid var(--color-neutral-border-weak,#e5ebee)}
+.rt-sra-sidebar-heading{margin:0 0 12px;font-size:12px;line-height:16px;font-weight:600;letter-spacing:0;text-transform:uppercase;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-sidebar-text{margin:0 0 8px;font-size:14px;line-height:20px;color:var(--color-neutral-content-weak,#576f76);overflow-wrap:anywhere}
+.rt-sra-sidebar-text:last-child{margin-bottom:0}
+.rt-sra-sidebar-text a,.rt-sra-sidebar-note a{color:var(--color-primary-plain,#0a449b);text-decoration:underline}
+.rt-sra-sidebar-stats{display:flex;gap:16px;margin:0}
+.rt-sra-sidebar-stat{flex:1 1 0;min-width:0}
+.rt-sra-sidebar-stats dd{margin:0;font-size:14px;line-height:16px;font-weight:700;color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-sra-sidebar-stats dt{font-size:12px;line-height:18px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-sidebar-fact{display:flex;align-items:center;gap:8px;margin:12px 0 0;font-size:12px;line-height:18px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-sidebar-fact svg{width:16px;height:16px;flex:none}
+.rt-sra-sidebar-note{margin:8px 0 0;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-posters{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
+.rt-sra-poster{display:flex;align-items:center;gap:8px;min-height:40px;padding:4px 16px;margin:0 -16px;border-radius:8px;text-decoration:none}
+.rt-sra-poster:hover{background:var(--color-neutral-background-hover,#e8edef)}
+.rt-sra-poster:focus-visible{outline:2px solid var(--color-neutral-content-weak,#576f76);outline-offset:-2px}
+.rt-sra-poster-text{display:flex;flex-direction:column;min-width:0}
+.rt-sra-poster-name{overflow:hidden;font-size:14px;line-height:16px;color:var(--color-neutral-content,#2a3c42);text-overflow:ellipsis;white-space:nowrap}
+.rt-sra-poster-count{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-legal-links{display:flex;flex-wrap:wrap;gap:4px 12px}
+.rt-sra-legal-links a{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76);text-decoration:none}
+.rt-sra-legal-links a:hover{text-decoration:underline}
+.rt-sra-legal-copy{margin:8px 0 0;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 
 /* Search results: Reddit's search-row look (post and comment units). */
 .rt-sra-search-note{margin:8px 16px 0;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}

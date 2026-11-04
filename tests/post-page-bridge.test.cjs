@@ -612,3 +612,15 @@ test('community navigation cannot attach a late response after switching communi
  let resolve;const e=setup(t,{url:'https://www.reddit.com/r/gone/',fetcher:()=>new Promise(r=>resolve=r)}),target=navigationTarget(e);target.dataset.rtUi='community-navigation';target.parentElement.dataset.rtUi='archive-subreddit';target.parentElement.dataset.rtSubreddit='gone';
  const answer=e.send({action:'render-navigation',subreddit:'gone',target:target.id});e.W.history.pushState({},'','/r/other/');resolve(nativeResponse('<flex-left-nav-container id="left-sidebar-container">Old sidebar</flex-left-nav-container>'));assert.equal((await answer).ok,false);assert.equal(target.textContent.includes('Old sidebar'),false);
 });
+test('archived community navigation drops the home page’s server-rendered selection so no item is active',async t=>{
+ const html='<flex-left-nav-container id="left-sidebar-container"><nav><left-nav-top-section home="" selectedpagetype="home"><template shadowrootmode="open"><a aria-current="page" class="selected">Home</a></template></left-nav-top-section></nav></flex-left-nav-container>';
+ for(const defined of [true,false]){
+  const e=setup(t,{url:'https://www.reddit.com/r/gone/',fetcher:async()=>nativeResponse(html)}),target=navigationTarget(e);
+  target.dataset.rtUi='community-navigation';target.parentElement.dataset.rtUi='archive-subreddit';target.parentElement.dataset.rtSubreddit='gone';
+  if(defined)e.W.customElements.define('left-nav-top-section',class extends e.W.HTMLElement{});
+  assert.equal((await e.send({action:'render-navigation',subreddit:'gone',target:target.id})).rendered,true);
+  const top=target.querySelector('left-nav-top-section');assert.equal(top.getAttribute('selectedpagetype'),'community');
+  // Only a defined element can re-render itself; otherwise the snapshot is all there is.
+  assert.equal(Boolean(top.querySelector('template')),!defined);
+ }
+});
