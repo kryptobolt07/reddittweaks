@@ -102,7 +102,8 @@
       const figure=doc.createElement('div');figure.className='rt-comment-media';
       const img=doc.createElement('img');img.src=url;img.alt='Comment image';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
       img.style.cssText='max-width: 100%; max-height: 512px; width: auto; height: auto; border-radius: 8px; object-fit: contain;';
-      if(item.width && item.height){img.width=item.width;img.height=item.height;}figure.append(img);return figure;
+      // Reserve the final size before the image loads so the page doesn't shift under the reader.
+      if(item.width && item.height){img.width=item.width;img.height=item.height;img.style.width='min(100%, '+item.width+'px, '+Math.round(512*item.width/item.height)+'px)';img.style.aspectRatio=item.width+' / '+item.height;}figure.append(img);return figure;
     });
   }
   globalThis.RTMarkdown=Object.freeze({render,decode,fromHtml,renderComment});
