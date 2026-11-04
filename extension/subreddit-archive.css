@@ -85,21 +85,8 @@
 .rt-sra-sentinel{height:1px}
 .rt-sra-loading{display:block;min-height:112px}
 
-/* Archived thread: Reddit comment elements retain author/body/children slots. */
-.rt-sra-thread-comments{margin-top:16px}
-.rt-sra-thread-comment{display:block;min-width:0;padding:12px 16px;color:var(--color-neutral-content-strong,#0f1a1c)}
-.rt-sra-thread-comment .author-name-meta{display:flex;align-items:center;flex-wrap:wrap;gap:4px}
-.rt-sra-thread-body{overflow-wrap:anywhere}
-.rt-sra-thread-replies{border-inline-start:1px solid var(--color-neutral-border-weak,#e5e8eb);margin-inline-start:8px}
-.rt-sra-thread-actions{margin-top:8px}
+/* Native comment components own the thread layout. */
+.rt-sra-thread-comments{margin:16px}
+.rt-sra-thread-comment{display:block;min-width:0;color:var(--color-neutral-content-strong,#0f1a1c)}
 .rt-sra-focused-comment{outline:2px solid var(--color-neutral-border-strong,#576f76);outline-offset:-2px;border-radius:8px}
 [data-rt-ui="community-navigation"][data-state="loading"] flex-left-nav-container{visibility:hidden}
-.rt-sra-comment-summary{display:grid;grid-template-columns:32px minmax(0,1fr);list-style:none;align-items:center;cursor:pointer}
-.rt-sra-comment-summary::-webkit-details-marker{display:none}
-.rt-sra-comment-grid{display:grid;grid-template-columns:32px minmax(0,1fr)}
-.rt-sra-comment-avatar{width:32px;height:32px}
-.rt-sra-comment-avatar img{display:block;width:100%;height:100%}
-.rt-sra-thread-comment [slot="commentMeta"]{min-width:0;padding-inline-start:8px}
-.rt-sra-thread-comment [slot="comment"]{padding-inline-start:8px}
-.rt-sra-thread-comment .author-name-meta faceplate-timeago{font-weight:400;color:var(--color-neutral-content-weak,#576f76)}
-@media (max-width:639px){.rt-sra-comment-summary,.rt-sra-comment-grid{grid-template-columns:24px minmax(0,1fr)}.rt-sra-comment-avatar{width:24px;height:24px}}
