@@ -288,7 +288,7 @@
       if(state.post && !state.postEl){
         const card=state.postEl=globalThis.RTPostDiscovery.archiveCard(state.post,{thread:true}),native=card.querySelector('shreddit-post');
         if(native){native.classList.add('rt-sra-thread-post');native.querySelector('[data-rt-source]')?.remove();
-        }this.listEl.insertBefore(card,state.commentsEl);
+        }this.listEl.insertBefore(card,state.toolbarEl?.parentNode===this.listEl?state.toolbarEl:state.commentsEl);
       }
       const comments=state.commentsEl,nodes=state.nodes,items=new Map(state.items.map(item=>[item.fullname,item]));
       for(const item of state.items)if(!nodes.has(item.fullname))nodes.set(item.fullname,this.threadComment(item));
@@ -416,9 +416,9 @@
     commentToolbar(state){
       const bar=make('div','flex flex-wrap items-center gap-sm rt-sra-comment-toolbar');bar.dataset.rtUi='archive-comment-toolbar';
       const labels={best:'Best',top:'Top',new:'New',old:'Old'},f=globalThis.RTFeedFilters;
-      let menu=null;const sort=this.dropdown('Sort by: '+labels[state.commentSort || 'best'],el=>{menu=el;});
+      let menu=null;const sort=this.dropdown(labels[state.commentSort || 'best'],el=>{menu=el;});
       const build=()=>{menu.replaceChildren();for(const [key,label] of Object.entries(labels)){
-        const choose=()=>{this.closeMenus();if((state.commentSort || 'best')===key)return;state.commentSort=key;state.childOrder=new Map();state.shownTop=TOP_BATCH;state.shownReplies=new Map();sort.text.textContent='Sort by: '+label;this.renderThread();state.toolbarEl?.scrollIntoView?.({block:'start'});};
+        const choose=()=>{this.closeMenus();if((state.commentSort || 'best')===key)return;state.commentSort=key;state.childOrder=new Map();state.shownTop=TOP_BATCH;state.shownReplies=new Map();sort.text.textContent=label;this.renderThread();state.toolbarEl?.scrollIntoView?.({block:'start'});};
         let el;if(f?.menuOption){el=f.menuOption(f.plainContext(glyph,{role:'menuitemradio'}),{label,icon:false,value:key,checked:(state.commentSort || 'best')===key,onSelect:choose});}
         else{el=make('button','rt-sra-menu-row',label);el.type='button';el.addEventListener('click',choose);}
         el.dataset.rtUi='filter-option';el.setAttribute('aria-checked',String((state.commentSort || 'best')===key));menu.append(el);}};
@@ -427,7 +427,8 @@
       const box=make('label','rt-sra-comment-search'),input=make('input');input.type='search';input.placeholder='Search Comments';input.setAttribute('aria-label','Search loaded archived comments');
       box.append(redditSearchIcon(),input);
       let timer;input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{state.commentQuery=input.value.trim();this.renderCommentSearch(state);},150);});
-      bar.append(sort.wrap,box);return bar;
+      const sortGroup=make('div','flex items-center rt-sra-comment-sort');sortGroup.append(make('span','text-12 text-neutral-content-weak rt-sra-sort-label','Sort by: '),sort.wrap);
+      bar.append(sortGroup,box);return bar;
     }
     renderCommentSearch(state){
       const query=(state.commentQuery || '').toLowerCase();state.commentsEl.hidden=Boolean(query);
