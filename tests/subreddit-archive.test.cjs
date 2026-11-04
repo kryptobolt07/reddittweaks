@@ -276,7 +276,7 @@ test('empty native tab groups use Reddit paging API and restore their original s
 test('NSFW archive items show Reddit\'s NSFW tag and blurred media behind a reveal button',async()=>{
   const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:[post('n1',1500000000,{over18:true,postType:'image',media:[{kind:'image',url:'https://i.redd.it/x.png'}]})],searchedBackTo:1500000000,hasMore:false,cursor:null}]});await tick();
   const feed=ctx.doc.querySelector('shreddit-feed');assert.doesNotMatch(feed.textContent,/NSFW or spoiler snapshot/);
-  assert.equal(feed.querySelector('.rt-archive-tag-nsfw').textContent,'NSFW');
+  {const tag=feed.querySelector('[slot="ssr-post-content-header"] .rt-archive-tag-nsfw');assert.equal(tag.textContent,'NSFW');assert.equal(tag.querySelector('svg').getAttribute('icon-name'),'nsfw-fill-12');const kids=[...tag.closest('shreddit-post').children];assert.ok(kids.indexOf(tag.closest('[slot]'))<kids.findIndex(n=>n.slot==='title'),'tags above the title');assert.ok(feed.querySelector('.rt-sensitive-media'),'media blur has the scrim variant');}
   const box=feed.querySelector('.rt-sensitive');assert.ok(box.querySelector('.rt-sensitive-content img[src*="i.redd.it"]'),'media kept, blurred');
   const reveal=box.querySelector('.rt-sensitive-reveal');assert.equal(reveal.textContent,'View NSFW content');reveal.click();assert.ok(box.classList.contains('rt-revealed'));assert.equal(box.querySelector('.rt-sensitive-reveal'),null);
 });
@@ -634,4 +634,18 @@ const img=safe.querySelector('[slot="text-body"] img');assert.ok(img,'inline ima
   assert.doesNotMatch(safe.querySelector('[slot="text-body"]').textContent,/preview\.redd\.it/,'no raw link text');assert.match(safe.querySelector('[slot="text-body"]').textContent,/Look:/);
   const nsfw=W.RTPostDiscovery.archiveCard(archived(W,{id:'img2',is_self:true,over_18:true,selftext:link,media_metadata:meta}),{thread:true}).querySelector('shreddit-post');
   const box=nsfw.querySelector('[slot="text-body"] .rt-sensitive');assert.ok(box?.querySelector('img'),'NSFW image is blurred behind a reveal');assert.match(box.querySelector('.rt-sensitive-reveal').textContent,/View NSFW content/);
+});
+
+test('archived post flair renders as Reddit\'s grey pill below the title',async()=>{
+  const {W}=await boot();
+  const card=W.RTPostDiscovery.archiveCard(archived(W,{id:'fl1',is_self:true,selftext:'x',link_flair_text:'Autopsy',over_18:true})).querySelector('shreddit-post');
+  const kids=[...card.children],flair=card.querySelector('[slot="post-flair"] .flair-content');assert.equal(flair.textContent,'Autopsy');assert.equal(flair.getAttribute('aria-label'),'Flair: Autopsy');
+  assert.ok(kids.findIndex(n=>n.slot==='ssr-post-content-header')<kids.findIndex(n=>n.slot==='title') && kids.findIndex(n=>n.slot==='title')<kids.findIndex(n=>n.slot==='post-flair'),'NSFW row, title, flair');
+});
+
+test('clicking anywhere on blurred NSFW media reveals it instead of opening the post',async()=>{
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive',pages:()=>[{items:[post('n2',1500000000,{over18:true,postType:'image',media:[{kind:'image',url:'https://i.redd.it/y.png'}]})],searchedBackTo:1500000000,hasMore:false,cursor:null}]});await tick();
+  const box=ctx.doc.querySelector('.rt-sensitive'),img=box.querySelector('img');let opened=0;box.closest('shreddit-post').addEventListener('click',()=>{opened++;});
+  const click=new ctx.W.MouseEvent('click',{bubbles:true,cancelable:true,composed:true});img.dispatchEvent(click);
+  assert.ok(box.classList.contains('rt-revealed'),'revealed');assert.ok(click.defaultPrevented,'no navigation');assert.equal(opened,0,'post click handlers not reached');
 });

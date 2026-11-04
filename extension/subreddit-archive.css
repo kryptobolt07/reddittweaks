@@ -221,13 +221,21 @@ guard-community-modal[data-rt-subreddit-hold]{display:none!important}
 .rt-archive-avatar-lg,.rt-archive-avatar-lg>img{width:32px;height:32px}
 
 /* Reddit's NSFW / Spoiler tags and blur-to-reveal. */
-.rt-archive-tag{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:999px;font-size:12px;font-weight:600;line-height:16px}
-.rt-archive-tag-nsfw{background:#cc1c6a;color:#fff}
-.rt-archive-tag-spoiler{background:var(--color-neutral-content-strong,#0f1a1c);color:var(--color-neutral-background,#fff)}
+/* Reddit's content tags row (above the title) and flair pill (below it). */
+.rt-archive-content-header{height:24px}
+.rt-archive-tag{font-size:12px;line-height:16px;font-weight:400;gap:2px}
+.rt-archive-tag-nsfw{color:var(--color-tags-nsfw-content,#b2007f)}
+.rt-archive-tag-spoiler{color:var(--color-neutral-content-strong,#0f1a1c);font-weight:600}
+.rt-archive-flair{display:block}
+.rt-archive-flair-pill{background:var(--color-tone-4,#e4e4e4);color:var(--color-secondary,#031722);padding:0 6px;border-radius:20px;font-size:12px;line-height:16px;margin:4px 0 12px}
+/* Reddit's blurred media: black backdrop, 40px blur, 60% scrim, reveal pill on top. */
 .rt-sensitive{border-radius:16px}
+.rt-sensitive-media{background:#000;isolation:isolate}
 .rt-sensitive>.rt-sensitive-content{filter:blur(40px);pointer-events:none;user-select:none}
+.rt-sensitive-media:not(.rt-revealed)::after{content:"";position:absolute;inset:0;z-index:3;background:var(--color-scrim,rgba(0,0,0,.6));pointer-events:none}
+.rt-sensitive:not(.rt-revealed){cursor:pointer}
 .rt-sensitive.rt-revealed>.rt-sensitive-content{filter:none;pointer-events:auto;user-select:auto}
-.rt-sensitive-reveal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:4;height:32px;padding:0 12px;border:0;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font:600 12px/16px var(--font-sans,inherit);cursor:pointer}
+.rt-sensitive-reveal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:4;height:32px;padding:0 9px;border:0;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;font:600 12px/16px var(--font-sans,inherit);white-space:nowrap;cursor:pointer}
 .rt-sensitive-reveal:hover{background:rgba(0,0,0,.8)}
 [slot="text-body"].rt-sensitive-content{min-height:48px}
 
@@ -257,3 +265,4 @@ img.rt-avatar-deleted{background:linear-gradient(0deg,#97afbc,#fff 75%);object-f
 .rt-sra-comment-hit-meta{font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-sra-comment-hit-body{font-size:14px;line-height:20px;color:var(--color-neutral-content-strong,#0f1a1c);overflow-wrap:anywhere}
 .rt-sra-comment-hit-body mark{background:transparent;color:inherit;font-weight:700}
+.rt-archive-inline-media{display:flex;justify-content:center;margin:8px 0}

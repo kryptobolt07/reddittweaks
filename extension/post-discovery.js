@@ -113,6 +113,8 @@
   function button(text,run,icon){const b=make('button','',text);b.type='button';if(icon)b.prepend(glyph(icon));b.addEventListener('click',run);return b;}
   // Reddit's 20x20 action icons (same paths as Reddit's own markup), for archive-only controls.
   const REDDIT_ICONS={
+    // 12x12 (viewBox 0 0 12 12), Reddit's nsfw-fill-12.
+    nsfw:'M6.506 5.119a.641.641 0 01.002-.723.74.74 0 01.31-.244 1.16 1.16 0 01.874 0 .695.695 0 01.306.244.647.647 0 01-.001.723.768.768 0 01-.303.259 1.008 1.008 0 01-.439.095 1.01 1.01 0 01-.44-.095.765.765 0 01-.309-.259Zm1.255 1.406a1.176 1.176 0 00-.507-.106c-.189 0-.36.036-.508.106a.854.854 0 00-.348.279.647.647 0 00-.127.386.6.6 0 00.13.382.87.87 0 00.353.266c.154.063.317.096.5.096s.352-.034.5-.1a.895.895 0 00.35-.27.625.625 0 00.123-.378.632.632 0 00-.124-.382.85.85 0 00-.342-.279Zm3.918.668c-.359.671-.958 1.57-1.937 2.55-.979.98-1.879 1.579-2.55 1.937-.749.4-1.637.4-2.386 0-.67-.358-1.57-.958-2.55-1.937-.98-.979-1.579-1.879-1.938-2.55-.4-.749-.4-1.637 0-2.387.36-.671.958-1.57 1.937-2.55.98-.98 1.88-1.579 2.55-1.937.75-.4 1.637-.4 2.386 0 .671.358 1.57.958 2.55 1.937.98.98 1.58 1.879 1.938 2.55.4.749.4 1.637 0 2.387ZM4 3.2H2.8v5.6H4V3.2Zm5.5 4.01a1.39 1.39 0 00-.246-.794 1.776 1.776 0 00-.6-.544c.168-.144.3-.312.395-.501.108-.21.163-.44.163-.682 0-.315-.089-.597-.266-.836a1.73 1.73 0 00-.712-.556A2.387 2.387 0 007.26 3.1c-.35 0-.677.065-.976.195-.298.13-.54.316-.72.555-.18.238-.27.521-.27.836 0 .243.054.472.163.684.096.189.228.357.394.501a1.788 1.788 0 00-.6.547 1.393 1.393 0 00.046 1.651c.192.255.465.46.806.608.341.148.727.223 1.151.223.416 0 .8-.074 1.14-.217.341-.145.613-.348.81-.605.197-.258.297-.549.297-.867l-.003-.001Z',
     upvote:'M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10ZM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179Z',
     downvote:'M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1Zm7.01 9.82h-4.85V5.09c0-1.13-.81-2.163-1.934-2.278a2.163 2.163 0 00-2.386 2.15v5.859H2.989l7.01 7.016 7.012-7.016Z',
     comment:'M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9Zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2Z',
@@ -123,6 +125,7 @@
   };
   function redditIcon(name,size=16){
     const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:String(size),width:String(size),viewBox:'0 0 20 20','aria-hidden':'true','icon-name':name}))svg.setAttribute(k,v);
+    if(name==='nsfw'){svg.setAttribute('viewBox','0 0 12 12');svg.setAttribute('icon-name','nsfw-fill-12');svg.classList.add('block');}
     const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',REDDIT_ICONS[name] || '');svg.append(path);return svg;
   }
   // Reddit shows one of eight default avatars when a user has none; archives carry no avatar.
@@ -135,10 +138,11 @@
   // Reddit's compact counts: 999, 1.2K, 12K, 1.2M.
   function compactCount(value){const n=Number(value) || 0,abs=Math.abs(n);if(abs<1000)return String(n);if(abs<1e6)return (n/1000).toFixed(abs<10000?1:0).replace(/\.0$/,'')+'K';return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M';}
   // Reddit's blur-to-reveal for NSFW media and spoilers: content stays in place, blurred, behind one button.
-  function sensitive(content,label){
-    const box=make('div','relative overflow-hidden rt-sensitive');content.classList.add('rt-sensitive-content');box.append(content);
+  function sensitive(content,label,{media=true}={}){
+    const box=make('div','relative overflow-hidden rt-sensitive'+(media?' rt-sensitive-media':''));content.classList.add('rt-sensitive-content');box.append(content);
     const reveal=make('button','rt-sensitive-reveal',label);reveal.type='button';
-    reveal.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();box.classList.add('rt-revealed');reveal.remove();});
+    // Like Reddit, a click anywhere on the blur reveals it (and never opens the post); afterwards clicks behave normally.
+    box.addEventListener('click',event=>{if(box.classList.contains('rt-revealed'))return;event.preventDefault();event.stopPropagation();box.classList.add('rt-revealed');reveal.remove();},true);
     box.append(reveal);return box;
   }
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
@@ -1804,8 +1808,13 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       const more=make('button','button button-plain icon inline-flex items-center justify-center rounded-full w-xl h-xl rt-archive-overflow');more.type='button';more.disabled=true;more.setAttribute('aria-label','Archived post · Actions unavailable');more.title='Archived post · Actions unavailable';more.append(redditIcon('overflow',16));right.append(more);
       credit.append(left,right);
       const title=thread?make('h1','font-semibold text-neutral-content-strong m-0 text-18 xs:text-24 mb-xs overflow-hidden rt-sra-thread-title',post.title):link(post.title,post.permalink,'block text-neutral-content-strong m-0 visited:text-neutral-content-weak font-semibold text-16-scalable xs:text-18-scalable mb-2xs xs:mb-xs overflow-hidden');title.slot='title';
-      native.append(credit,title);
-      if(post.flair){const flair=make('span','flair-content inline-block truncate max-w-full text-12 font-normal box-border px-[6px] rounded-[20px] leading-4 bg-tone-4 text-neutral-content mb-xs rt-archive-flair',post.flair);flair.slot='post-flair';native.append(flair);}
+      // Reddit's content tags (NSFW, Spoiler) sit in a row above the title; the flair pill sits below it.
+      native.append(credit);
+      if(post.over18 || post.spoiler){const head=make('div','flex justify-between gap-xs rt-archive-content-header');head.slot='ssr-post-content-header';const wrap=make('div','inline-flex items-center'),tags=make('div','flex content-tags flex-wrap gap-xs whitespace-nowrap rt-archive-tags');
+        const tag=(cls,label,icon)=>{const outer=make('span','h-lg inline-block'),inner=make('span','inline-flex items-center whitespace-nowrap gap-[var(--spacer-4xs)] rounded-full text-caption-1 rt-archive-tag '+cls);if(icon){const i=make('span','inline-flex shrink-0 leading-none');i.setAttribute('aria-hidden','true');i.append(redditIcon(icon,12));inner.append(i);}inner.append(make('span','text-caption-1',label));outer.append(inner);return outer;};
+        if(post.over18)tags.append(tag('text-tags-nsfw-content rt-archive-tag-nsfw','NSFW','nsfw'));if(post.spoiler)tags.append(tag('rt-archive-tag-spoiler','Spoiler'));wrap.append(tags);head.append(wrap);native.append(head);}
+      native.append(title);
+      if(post.flair){const flair=make('span','rt-archive-flair');flair.slot='post-flair';const pill=make('span','bg-tone-4 inline-block truncate max-w-full text-12 font-normal align-text-bottom box-border px-[6px] rounded-5 leading-4 text-secondary relative -top-2xs xs:top-[-2px] my-2xs xs:mb-sm py-0 rt-archive-flair-pill'),text=make('div','flair-content max-w-full overflow-hidden whitespace-nowrap text-ellipsis',post.flair);text.setAttribute('aria-label','Flair: '+post.flair);text.dir='auto';pill.append(text);flair.append(pill);native.append(flair);}
       const content=make('div','md break-words');content.slot='text-body';
       const rawBody=(post.archivedBody || post.body || '').trim(),sensitiveText=(post.over18 || post.spoiler) && rawBody && !deletionNotice(rawBody);
       // Images pasted into a text post (preview.redd.it links) show inline, as Reddit renders them.
@@ -1813,9 +1822,8 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       if(inlineMedia){content.append(this.archivedText(rawBody,'',inlineMedia));for(const figure of content.querySelectorAll('.rt-comment-media')){figure.classList.add('rt-archive-inline-media');if(post.over18 || post.spoiler)figure.replaceWith(sensitive(figure.cloneNode(true),post.over18?'View NSFW content':'View spoiler'));}}
       else if(snapshotText || sensitiveText)content.append(this.archivedText(rawBody || body,post.archivedBodyHtml || post.bodyHtml));else if(!linkUrl && !visual && (thread || /^\[(?:deleted|removed)\]$/i.test((post.body || '').trim())))content.append(make('p','text-neutral-content-weak',body));
       if(linkUrl){const out=link(post.domain || host || linkUrl,linkUrl,'rt-archive-link block text-12 text-neutral-content-weak hover:underline truncate mt-2xs');out.target='_blank';out.rel='noopener noreferrer nofollow ugc';content.append(out);}
-      // Reddit's NSFW / Spoiler tags under the title; spoiler text is blurred until revealed.
-      if(post.over18 || post.spoiler){const tags=make('span','flex flex-wrap gap-xs mb-xs rt-archive-tags');if(post.over18)tags.append(make('span','rt-archive-tag rt-archive-tag-nsfw','NSFW'));if(post.spoiler)tags.append(make('span','rt-archive-tag rt-archive-tag-spoiler','Spoiler'));tags.slot='post-flair';native.append(tags);}
-      if(content.childNodes.length)native.append(post.spoiler && sensitiveText && !inlineMedia?sensitive(content,'View spoiler'):content);
+      // Spoiler text is blurred until revealed.
+      if(content.childNodes.length)native.append(post.spoiler && sensitiveText && !inlineMedia?sensitive(content,'View spoiler',{media:false}):content);
       // Media by type: images/galleries/videos full width; link previews as the right-hand thumbnail; text posts never borrow a link preview.
       const usable=visual?media:linkish?media:type==='textmedia'?media.filter(item=>item.kind==='image'):[];
       if(usable.length){let view=globalThis.RTArchiveView?.media(usable,{alt:post.title,compact:linkish,postId:post.id,href:linkish?linkUrl || post.permalink:post.url || post.permalink});if(view){if(post.over18 || post.spoiler)view=sensitive(view,post.over18?'View NSFW content':'View spoiler');view.slot=linkish?'thumbnail':'post-media-container';native.append(view);(this.recoveredMedia ||= new Set()).add(view);}}
@@ -2120,7 +2128,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
     // Stop captured actions before Reddit can vote/save/share against archived values.
     const guard=event=>{
       // The archive's own safe controls (reveal, Back, copy-link Share) never act on Reddit: let them through.
-      if(event.composedPath().some(n=>n.matches?.('.rt-sensitive-reveal,.rt-sra-back,.rt-sra-share')))return;
+      if(event.composedPath().some(n=>n.matches?.('.rt-sensitive:not(.rt-revealed),.rt-sra-back,.rt-sra-share')))return;
       if(event.type==='keydown' && !['Enter',' '].includes(event.key) || event.type==='auxclick' && event.button!==1)return;
       const path=event.composedPath(),anchor=path.find(n=>n.matches?.('a[href]'));
       if(anchor){let url;try{url=new URL(anchor.href,location.href);}catch{}if(url && ['http:','https:'].includes(url.protocol) && !url.username && !url.password){
