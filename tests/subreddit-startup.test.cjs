@@ -4,9 +4,9 @@ const source=fs.readFileSync('extension/profile-notice.js','utf8');
 const tick=()=>new Promise(r=>setImmediate(r));
 function start(t,{path='/r/gone/',title='r/gone is banned',settings,fail=false}={}){
   const W=new JSDOM('<!doctype html><body><shreddit-app><guard-community-modal subredditname="gone"><div slot="title">'+title+'</div></guard-community-modal></shreddit-app></body>',{url:'https://www.reddit.com'+path,runScripts:'outside-only'}).window;t.after(()=>W.close());
-  let resolve,reject,onChange;const response=new Promise((a,b)=>{resolve=a;reject=b;});
-  W.chrome={runtime:{id:'test',sendMessage:()=>response},storage:{onChanged:{addListener:fn=>onChange=fn}}};W.eval(source);
-  return {W,modal:W.document.querySelector('guard-community-modal'),answer:()=>fail?reject(Error('offline')):resolve({ok:true,settings:{postDiscovery:true,archiveDiscovery:true,subredditArchive:true,...settings}}),change:value=>onChange({'rt-settings-v1':{newValue:value}},'local')};
+  let resolve,reject,onChange,onMessage;const response=new Promise((a,b)=>{resolve=a;reject=b;});
+  W.chrome={runtime:{id:'test',sendMessage:()=>response,onMessage:{addListener:fn=>onMessage=fn}},storage:{onChanged:{addListener:fn=>onChange=fn}}};W.eval(source);
+  return {W,modal:W.document.querySelector('guard-community-modal'),answer:()=>fail?reject(Error('offline')):resolve({ok:true,settings:{postDiscovery:true,archiveDiscovery:true,subredditArchive:true,...settings}}),change:value=>onChange({'rt-settings-v1':{newValue:value}},'local'),message:value=>onMessage({scope:'rt-posts',action:'settings-changed',settings:value})};
 }
 test('a slow settings read cannot flash the native banned/private dialog before automatic mode is known',async t=>{
   for(const title of ['r/gone is banned','r/gone is private'])for(const path of ['/r/gone/','/r/gone/comments/abc12/title/']){
@@ -27,4 +27,10 @@ test('an abandoned archive startup fails open after the bounded hold',async t=>{
   const W=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/r/gone/',runScripts:'outside-only'}).window;t.after(()=>W.close());let expire;
   W.setTimeout=(fn,ms)=>{if(ms===10000)expire=fn;return 1;};W.chrome={runtime:{id:'test',sendMessage:()=>new Promise(()=>{})}};W.eval(source);
   W.document.body.innerHTML='<guard-community-modal subredditname="gone"><div slot="title">r/gone is banned</div></guard-community-modal>';await tick();const modal=W.document.querySelector('guard-community-modal');assert.equal(modal.style.display,'none');expire();assert.equal(modal.style.display,'');
+});
+
+test('forwarded worker settings release an automatic hold when trusted-only storage hides local events',async t=>{
+ const c=start(t,{settings:{subredditArchiveAutomatic:true}});c.answer();await tick();assert.equal(c.modal.style.display,'none');
+ c.message({postDiscovery:true,archiveDiscovery:true,subredditArchive:false,subredditArchiveAutomatic:true});await tick();assert.equal(c.modal.style.display,'');
+ c.message({postDiscovery:true,archiveDiscovery:true,subredditArchive:true,subredditArchiveAutomatic:true});await tick();assert.equal(c.modal.style.display,'none');
 });

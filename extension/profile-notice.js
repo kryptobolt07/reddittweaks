@@ -118,7 +118,10 @@
   window.addEventListener('popstate',refresh);document.addEventListener('reddit:route',refresh);
   refresh();
   const initialRevision=revision,initialRestoreRevision=restoreRevision;
-  try{chrome.storage?.onChanged?.addListener((changes,area)=>{if(area!=='local' || !changes['rt-settings-v1'])return;const s=changes['rt-settings-v1'].newValue;settingsKnown=true;archiveOn=s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;setRestoreEnabled(s?.postDiscovery!==false && archiveOn && s?.restoreDeletedContent!==false);setEnabled(s?.postDiscovery!==false);});}catch{}
+  function updateSettings(s){settingsKnown=true;archiveOn=s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;setRestoreEnabled(s?.postDiscovery!==false && archiveOn && s?.restoreDeletedContent!==false);setEnabled(s?.postDiscovery!==false);}
+  try{chrome.storage?.onChanged?.addListener((changes,area)=>{if(area==='local' && changes['rt-settings-v1'])updateSettings(changes['rt-settings-v1'].newValue);});
+    // Trusted-only storage does not send storage events to content scripts; the worker forwards normalized settings.
+    chrome.runtime?.onMessage?.addListener(message=>{if(message?.scope==='rt-posts' && message.action==='settings-changed')updateSettings(message.settings);});}catch{}
   const failed=()=>{if(revision===initialRevision)setEnabled(false);};
   try{settings.then(response=>{
     if(revision!==initialRevision)return;
