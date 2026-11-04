@@ -206,3 +206,9 @@ guard-community-modal[data-rt-subreddit-hold]{display:none!important}
 .rt-sra-halo-fallback{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;width:64px;height:64px;color:var(--color-neutral-content-strong,#0f1a1c)}
 .rt-sra-halo:defined>.rt-sra-halo-fallback{display:none}
 .rt-sra-halo-fallback svg{width:48px;height:48px}
+
+/* Own the sticky geometry even before Reddit's responsive utility CSS finishes loading.
+   Grid items must start at their intrinsic height rather than stretch with a long post/thread. */
+@media (min-width:640px){
+  [data-rt-ui="archive-subreddit"]>.subgrid-container .rt-sra-sidebar-rail{position:sticky;top:var(--shreddit-header-height,56px);align-self:start;height:fit-content;max-height:calc(100dvh - var(--shreddit-header-height,56px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+}

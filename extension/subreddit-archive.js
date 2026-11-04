@@ -110,6 +110,8 @@
         this.observer=new MutationObserver(()=>this.scan());this.observer.observe(document.documentElement,{childList:true,subtree:true});
         window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);
         this.onSettings=(changes,area)=>{if(area==='local' && changes['rt-settings-v1'])this.loadSettings();};
+        this.onSettingsMessage=message=>{if(message?.scope==='rt-posts' && message.action==='settings-changed')this.loadSettings();};
+        try{chrome.runtime?.onMessage?.addListener(this.onSettingsMessage);}catch{}
         try{chrome.storage?.onChanged?.addListener(this.onSettings);}catch{}
       }
       this.ready=this.loadSettings();
@@ -119,9 +121,9 @@
       if(this.dead || revision!==this.settingsRevision)return;this.enabled=settings?.enabled===true;this.automatic=this.enabled && settings?.automatic===true;this.scan();
     }
     destroy(){
-      this.dead=true;this.observer?.disconnect();window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
+      if(this.dead)return;this.dead=true;this.observer?.disconnect();window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
       document.removeEventListener('click',this.onDocClick,true);document.removeEventListener('keydown',this.onKey,true);
-      try{chrome.storage?.onChanged?.removeListener(this.onSettings);}catch{}this.unmount();this.unmountSearch();this.keptNavigationController?.abort();this.keptNavigation=this.keptNavigationController=null;
+      try{chrome.storage?.onChanged?.removeListener(this.onSettings);chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}this.unmount();this.unmountSearch();this.keptNavigationController?.abort();this.keptNavigation=this.keptNavigationController=null;
     }
 
     // Called on every relevant change. Until settings are known nothing is added (an early hold may stay).
@@ -195,7 +197,7 @@
       this.footEl=make('div','rt-sra-foot');this.sentinel=make('div','rt-sra-sentinel');this.sentinel.setAttribute('aria-hidden','true');
       this.statusTop=make('p','rt-sra-note text-12 text-neutral-content-weak');this.statusTop.hidden=true;
       main.append(...(thread?[]:[this.buildControls()]),make('hr','border-0 border-b-sm border-solid border-b-neutral-border-weak'),this.statusTop,this.listEl,this.footEl,this.sentinel);
-      const sidebar=this.sidebarEl=make('aside','right-sidebar min-w-0 w-[316px] max-w-[316px] hidden xs:block styled-scrollbars xs:sticky xs:top-[56px] xs:max-h-screen-without-header xs:overflow-y-auto xs:overflow-x-hidden');sidebar.id='right-sidebar-container';
+      const sidebar=this.sidebarEl=make('aside','rt-sra-sidebar-rail right-sidebar min-w-0 w-[316px] max-w-[316px] hidden xs:block styled-scrollbars xs:sticky xs:top-[56px] xs:max-h-screen-without-header xs:overflow-y-auto xs:overflow-x-hidden');sidebar.id='right-sidebar-container';
       this.sidebarThread=Boolean(thread);this.renderSidebar();
       columns.append(main,sidebar);subgrid.append(...(thread?[]:[this.headerEl]),columns);layout.append(subgrid);this.mountNavigation(layout,name);modal.before(layout);
       document.documentElement.setAttribute('data-rt-subreddit-archive','');

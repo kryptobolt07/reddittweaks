@@ -508,3 +508,11 @@ test('native comment slots, connected siblings and collapsed state survive reren
   ctx.sa.loadMoreThread();await tick();
   assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').firstElementChild,root);assert.equal(reply.parentElement,root);assert.equal(reply.slot,'children-t1_p-0');assert.equal(root.hasAttribute('collapsed'),true);assert.equal(disconnects,0);
 });
+
+test('worker-forwarded settings update the mounted reader when content-script storage events are unavailable',async t=>{
+  const ctx=await boot();ctx.sa.destroy();t.after(()=>ctx.W.close());let enabled=true,listener;
+  ctx.W.chrome={runtime:{onMessage:{addListener:fn=>listener=fn,removeListener:fn=>{if(listener===fn)listener=null;}}}};
+  const sa=new ctx.W.RTSubredditArchive.SubredditArchive({readSettings:async()=>({enabled,automatic:true}),reddit:async()=>({rendered:true})});t.after(()=>sa.destroy());await sa.ready;await tick();assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'));
+  enabled=false;listener({scope:'rt-posts',action:'settings-changed'});await tick();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'),null);assert.equal(ctx.doc.querySelector('guard-community-modal').style.display,'');
+  enabled=true;listener({scope:'rt-posts',action:'settings-changed'});await tick();assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'));sa.destroy();assert.equal(listener,null);
+});
