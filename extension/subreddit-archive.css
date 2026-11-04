@@ -234,3 +234,7 @@ guard-community-modal[data-rt-subreddit-hold]{display:none!important}
 /* Compact Retry pill (Reddit's small button metrics) and the automatic-retry status line. */
 .rt-sra-error .rt-sra-retry{display:inline-flex;align-items:center;height:32px;min-height:0;padding:0 12px;font-size:12px;line-height:16px}
 .rt-sra-error svg.rt-sra-spinner{flex:none}
+
+/* Avatars are always square-cropped circles (real profile pictures can be any shape). */
+img.rt-avatar-img{display:block;flex:none;aspect-ratio:1/1;object-fit:cover;border-radius:999px}
+img.rt-avatar-deleted{background:linear-gradient(0deg,#97afbc,#fff 75%);object-fit:contain;object-position:bottom}

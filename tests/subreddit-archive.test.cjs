@@ -602,3 +602,9 @@ test('temporary archive errors retry automatically before asking the reader, wit
   const retry=ctx.doc.querySelector('[data-rt-retry]');assert.ok(retry,'Retry offered after the automatic attempts');assert.ok(retry.classList.contains('rt-sra-retry'));
   retry.click();for(let i=0;i<4;i++)await tick();assert.ok(ctx.doc.querySelector('.rt-native-card[data-fullname="t3_ok1"]'),'manual Retry loads');
 });
+
+test('deleted authors get Reddit\'s grey silhouette avatar and no profile lookup',async()=>{
+  const {W}=await boot();
+  const card=W.RTPostDiscovery.archiveCard(archived(W,{id:'del1',author:'[deleted]',is_self:true,selftext:'x'})).querySelector('shreddit-post');
+  const img=card.querySelector('[slot="credit-bar"] img');assert.match(img.src,/snoovatar-back-64x64px\.png$/);assert.equal(img.dataset.rtAvatarUser,undefined);assert.ok(img.classList.contains('rt-avatar-img'));
+});
