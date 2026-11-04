@@ -23,7 +23,7 @@ async function boot(o={}){
     async *search(options){calls.push(options);const list=o.pages?o.pages(options,calls.length):[{items:[post('a1',now-8*YEAR-1000),post('a2',now-3*3600)],searchedBackTo:now-8*YEAR,hasMore:false,cursor:null}];for(const item of list){if(typeof item==='function'){await item();continue;}yield item;}},
     async subreddit(){throw Object.assign(Error('not in archive'),{code:'not-found'});}
   };
-  const sa=new W.RTSubredditArchive.SubredditArchive({observe:false,readSettings:async()=>({enabled:true}),getOwner:()=>'me',communityState:async()=>'banned',reddit:async()=>({rendered:true}),archive:async()=>({ok:true,posts:[]})});
+  const sa=new W.RTSubredditArchive.SubredditArchive({autoRetries:0,observe:false,readSettings:async()=>({enabled:true}),getOwner:()=>'me',communityState:async()=>'banned',reddit:async()=>({rendered:true}),archive:async()=>({ok:true,posts:[]})});
   await sa.ready;return {W,doc:W.document,sa,calls};
 }
 // Reddit's SPA: a new route usually comes with a freshly rendered search page (replace=true).

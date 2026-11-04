@@ -30,7 +30,7 @@ async function boot(opts){
     async remove(ow,s,q){const k=ow+'|'+s;store.set(k,(store.get(k)||[]).filter(x=>x!==q));return [];},
     async clear(ow,s){store.delete(ow+'|'+s);return [];}
   };
-  const sa=new W.RTSubredditArchive.SubredditArchive({observe:false,readSettings:async()=>({enabled:o.enabled,automatic:o.automatic}),getOwner:()=>o.owner,communityState:async()=>o.communityKind ?? 'banned',reddit:o.reddit || (async message=>{const target=W.document.getElementById(message.target);if(target)target.innerHTML='<flex-left-nav-container id="left-sidebar-container"><nav><a href="/">Home</a></nav></flex-left-nav-container>';return {rendered:true};}),archive:async message=>o.archive?o.archive(message):{ok:true,posts:[]}});
+  const sa=new W.RTSubredditArchive.SubredditArchive({autoRetries:o.autoRetries ?? 0,autoRetryWaits:o.autoRetryWaits || [0,0,0],observe:false,readSettings:async()=>({enabled:o.enabled,automatic:o.automatic}),getOwner:()=>o.owner,communityState:async()=>o.communityKind ?? 'banned',reddit:o.reddit || (async message=>{const target=W.document.getElementById(message.target);if(target)target.innerHTML='<flex-left-nav-container id="left-sidebar-container"><nav><a href="/">Home</a></nav></flex-left-nav-container>';return {rendered:true};}),archive:async message=>o.archive?o.archive(message):{ok:true,posts:[]}});
   await sa.ready;
   return {W,doc:W.document,sa,calls,store};
 }
@@ -592,4 +592,13 @@ test('the archived post page Back and Share controls are not swallowed by the sn
   const {W,doc}=await boot();const card=W.RTPostDiscovery.archiveCard(archived(W,{id:'thr3',is_self:true,selftext:'Hi'}),{thread:true});doc.body.append(card);
   let shared=null;W.navigator.clipboard={writeText:async v=>{shared=v;}};
   card.querySelector('.rt-sra-share').click();await tick();assert.match(shared || '',/\/comments\/thr3\//,'Share copied the link');
+});
+
+test('temporary archive errors retry automatically before asking the reader, with a compact Retry pill',async()=>{
+  let calls=0;const ctx=await boot({autoRetries:2,autoRetryWaits:[10,10],pages:()=>{calls++;return calls<=3?[Object.assign(Error('The archive query timed out.'),{code:'timeout'})]:[{items:[post('ok1',1500000000)],searchedBackTo:1500000000,hasMore:false,cursor:null}];}});
+  await open(ctx);await tick();
+  assert.match(ctx.doc.querySelector('.rt-sra-foot').textContent,/Retrying automatically/);assert.equal(ctx.doc.querySelector('[data-rt-retry]'),null,'no Retry button while retrying');
+  for(let i=0;i<6;i++){await new Promise(r=>setTimeout(r,25));await tick();}
+  const retry=ctx.doc.querySelector('[data-rt-retry]');assert.ok(retry,'Retry offered after the automatic attempts');assert.ok(retry.classList.contains('rt-sra-retry'));
+  retry.click();for(let i=0;i<4;i++)await tick();assert.ok(ctx.doc.querySelector('.rt-native-card[data-fullname="t3_ok1"]'),'manual Retry loads');
 });
