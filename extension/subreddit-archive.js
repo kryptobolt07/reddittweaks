@@ -17,9 +17,9 @@
   const compact=n=>new Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(n);
   // Feed paging: the archive is read 100 posts per request, but revealed in Reddit-sized pages.
   // A local type filter can hide whole requests: scan older pages at most SCAN_FILLS times per page
-  // asked for, then pause with an explicit state. Cards far off screen are swapped for fixed-height
-  // placeholders (Reddit virtualizes its feed the same way).
-  const PAGE_SIZE=25,SCAN_FILLS=8,VIRTUAL_MARGIN='2000px 0px';
+  // asked for, then pause with an explicit state.
+  // Loaded cards stay attached so native media and custom-element state survive scrolling.
+  const PAGE_SIZE=25,SCAN_FILLS=8;
   const postFields=['title','body','author','site','url','flair','self','nsfw','spoiler','type'];
   const commentFields=['body','author'];
   const mediaTypes=['image','gif','video','gallery'];
@@ -66,7 +66,7 @@
   }
   async function defaultSettings(){
     const response=await chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});
-    const s=response?.settings;return {enabled:response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true};
+    const s=response?.settings;return {enabled:response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true && s?.subredditArchive===true,automatic:s?.subredditArchiveAutomatic===true};
   }
   // Reddit's own search page for a community: /r/<name>/search/?q=…&type=…&sort=…&t=…
   function searchRoute(){
@@ -115,8 +115,8 @@
       this.ready=this.loadSettings();
     }
     async loadSettings(){
-      let enabled=false;try{enabled=(await this.readSettings())?.enabled===true;}catch{}
-      if(this.dead)return;this.enabled=enabled;this.scan();
+      const revision=this.settingsRevision=(this.settingsRevision || 0)+1;let settings;try{settings=await this.readSettings();}catch{}
+      if(this.dead || revision!==this.settingsRevision)return;this.enabled=settings?.enabled===true;this.automatic=this.enabled && settings?.automatic===true;this.scan();
     }
     destroy(){
       this.dead=true;this.observer?.disconnect();window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
@@ -130,12 +130,12 @@
       const route=this.enabled?searchRoute():null;
       if(route){this.unmount();this.scanSearch(route);return;}
       this.unmountSearch();
-      const modal=document.querySelector('guard-community-modal[subredditname]'),kind=this.enabled?unavailable(modal):'',thread=this.enabled?threadRoute():null;
-      if(this.mounted && (!kind || modal!==this.mounted.modal || !thread && !viewRequested() || JSON.stringify(this.mounted.thread)!==JSON.stringify(thread))){this.unmount();}
+      const modal=document.querySelector('guard-community-modal[subredditname]'),routeName=location.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})(?:\/comments\/[a-z0-9]{1,10}(?:\/.*)?)?\/?$/i)?.[1],kind=this.enabled && routeName?.toLowerCase()===modal?.getAttribute('subredditname')?.toLowerCase()?unavailable(modal):'',thread=this.enabled?threadRoute():null,wanted=this.automatic || viewRequested() || Boolean(thread);
+      if(this.mounted && (!kind || modal!==this.mounted.modal || !wanted || JSON.stringify(this.mounted.thread)!==JSON.stringify(thread))){this.unmount();}
       if(!modal)return;
       if(!kind){modal.querySelector('[data-rt-ui="subreddit-archive-action"]')?.remove();release(modal);return;}
       this.ensureButton(modal,kind);
-      if((viewRequested() || thread) && !this.mounted)this.mount(modal,kind,thread);
+      if(wanted && !this.mounted)this.mount(modal,kind,thread);
     }
 
     ensureButton(modal,kind){
@@ -186,7 +186,7 @@
       const name=modal.getAttribute('subredditname'),f=globalThis.RTFeedFilters,params=new URLSearchParams(location.search);
       this.name=name;this.kind=kind;this.filters=f?f.read(location):null;this.top=params.get('rt_top')==='1';this.states=new Map();
       modal.setAttribute(mountedAttr,'true');hold(modal);
-      const layout=this.layout=make('div','grid-container theme-rpl grid flex-nav-expanded');layout.dataset.rtUi='archive-subreddit';layout.dataset.rtSubreddit=name;layout.dir='ltr';
+      const layout=this.layout=make('div','grid-container theme-rpl grid '+this.navigationClass());layout.dataset.rtUi='archive-subreddit';layout.dataset.rtSubreddit=name;layout.dir='ltr';
       const subgrid=make('div','subgrid-container m:col-start-2 box-border flex flex-col order-2 w-full m:w-[1120px] xs:px-md m:px-lg mx-auto min-h-[calc(100dvh_-_var(--shreddit-header-height))] justify-stretch');subgrid.id='subgrid-container';
       this.headerEl=make('div','masthead w-full relative subreddit-feed-masthead rt-sra-header');this.headerEl.dataset.rtUi='archive-header';this.renderHeader();
       const columns=make('div','main-container gap-lg w-full flex-1 grid place-content-between grid-cols-[minmax(0,1fr)] fixed-sidebar xs:[&.fixed-sidebar]:grid-cols-[minmax(0,756px)_minmax(0,316px)] xs:[&.flex-sidebar]:grid-cols-[minmax(0,756px)_auto]');
@@ -200,15 +200,14 @@
       columns.append(main,sidebar);subgrid.append(...(thread?[]:[this.headerEl]),columns);layout.append(subgrid);this.mountNavigation(layout,name);modal.before(layout);
       document.documentElement.setAttribute('data-rt-subreddit-archive','');
       this.mounted={modal,kind,name,thread};this.loadNavigation();
-      if(!thread && typeof IntersectionObserver==='function'){
-        this.io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting))this.loadMore({auto:true});},{rootMargin:'800px 0px'});this.io.observe(this.sentinel);
-        this.vio=new IntersectionObserver(entries=>this.virtualize(entries),{rootMargin:VIRTUAL_MARGIN});
+      if(typeof IntersectionObserver==='function'){
+        this.io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){if(this.mounted?.thread)this.loadMoreThread({auto:true});else this.loadMore({auto:true});}},{rootMargin:'800px 0px'});this.io.observe(this.sentinel);
       }
       this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();}
     }
     unmount(){
       const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.threadState=null;
-      this.io?.disconnect();this.io=null;this.vio?.disconnect();this.vio=null;this.pickerHost?.remove();this.closeMenus();
+      this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
       for(const state of this.states.values())this.retireFeedState(state);
       if(this.recentPosts?.size>600)this.recentPosts=new Map([...this.recentPosts].slice(-300));
       // Keep the left nav (rendered, loading, or showing its fallback): the next mount of the same community moves it
@@ -219,10 +218,10 @@
       this.navigationController=null;this.keptNavigation=keep?nav:null;nav?.remove();
       this.layout?.remove();this.layout=null;m.modal.removeAttribute(mountedAttr);
       document.documentElement.removeAttribute('data-rt-subreddit-archive');
-      if(this.dead || !viewRequested() && m.modal.isConnected)release(m.modal);
+      if(m.modal.isConnected)release(m.modal);
     }
     async loadThread({more=false}={}){
-      const state=this.threadState;if(!state || state.loading)return;state.loading=true;state.loadingMore=more && Boolean(state.post);state.error=null;this.renderThread();
+      const state=this.threadState;if(!state || state.loading)return;state.loading=true;state.loadingMore=more && Boolean(state.post);if(state.error)state.emptyPages=0;state.error=null;state.beforeCount=state.items.length;this.renderThread();
       const current=()=>this.threadState===state && this.mounted?.thread?.postId===state.route.postId;
       try{
         if(!state.post){
@@ -232,9 +231,16 @@
         }
         const answer=await this.archive({action:'archive-thread-comments',postId:state.route.postId,...(more && state.cursor?{before:state.cursor}:{}),...(!more && state.route.focusId?{focusId:state.route.focusId}:{})});if(!current())return;
         for(const raw of answer.posts || []){const comment=globalThis.RTPostModel.normalizeComment(raw,{source:'arctic-shift'});if(comment?.linkId===state.route.postId && comment.subreddit.toLowerCase()===this.name.toLowerCase() && !state.seen.has(comment.fullname)){state.seen.add(comment.fullname);state.items.push(comment);}}
-        state.cursor=answer.cursor || null;state.stalled=answer.cursorStalled===true;state.hasMore=answer.hasMore===true && Boolean(state.cursor) && !state.stalled;
+        const previous=state.cursor;state.cursor=answer.cursor || null;state.stalled=answer.cursorStalled===true || more && answer.hasMore===true && state.cursor===previous;state.hasMore=answer.hasMore===true && Boolean(state.cursor) && !state.stalled;
+        state.emptyPages=state.items.length===state.beforeCount?(state.emptyPages || 0)+1:0;
+        if(state.hasMore && state.emptyPages>=3)state.error={message:'The archive returned no additional matching comments after three pages. Retry to search further.'};
       }catch(error){if(current())state.error={message:error.message || 'The archive is unavailable.'};}
-      finally{if(current()){state.loading=false;this.renderThread();}}
+      finally{if(current()){state.loading=false;this.renderThread();if(!state.error && !state.stalled)this.reobserve();}}
+    }
+    loadMoreThread(){
+      const state=this.threadState;if(!state || !this.mounted?.thread || state.loading || state.error || state.missing || state.stalled)return;
+      if(state.hiddenTop>0){state.shownTop+=TOP_BATCH;this.renderThread();this.reobserve();}
+      else if(state.hasMore)this.loadThread({more:true});
     }
     threadComment(comment){
       // Reddit's comment element can render its own layout from light-DOM slots.
@@ -268,22 +274,19 @@
       }
       const comments=state.commentsEl,nodes=state.nodes,items=new Map(state.items.map(item=>[item.fullname,item]));
       for(const item of state.items)if(!nodes.has(item.fullname))nodes.set(item.fullname,this.threadComment(item));
-      this.placeComments(state,items,nodes,comments);
+      const changed=this.placeComments(state,items,nodes,comments);
       if(state.items.length && !state.nativeModulesRequested && !state.nativeModulesError){state.nativeModulesRequested=true;state.modulesController=new AbortController();this.reddit({action:'load-archive-comment-modules',postId:state.route.postId},state.modulesController.signal).catch(error=>{if(this.threadState!==state)return;state.nativeModulesRequested=false;state.nativeModulesError=error.message || 'Reddit comment components are unavailable.';this.renderThread();});}
-      this.reddit({action:'refresh-archive-thread',postId:state.route.postId}).catch(()=>{});
-      this.statusTop.hidden=false;this.statusTop.textContent='Archived thread from Arctic Shift · Coverage may be partial · Posting and voting are unavailable.';
+      if(changed)this.reddit({action:'refresh-archive-thread',postId:state.route.postId}).catch(()=>{});
+      this.statusTop.hidden=true;this.statusTop.textContent='';
       this.footEl.replaceChildren();
       if(state.nativeModulesError){const note=make('p','rt-sra-note',state.nativeModulesError+' '),retry=make('button','button button-small button-secondary','Retry Reddit components');retry.type='button';retry.addEventListener('click',()=>{state.nativeModulesError=null;this.renderThread();});note.append(retry);this.footEl.append(note);}
-      // First load: one Snoo halo for the post and its comments. Further pages: Reddit's small inline spinner on the button.
-      if(state.loading && !state.loadingMore)this.footEl.append(this.loadingHalo('Loading archived comments'));
-      if(state.loading && state.loadingMore)this.footEl.append(this.moreCommentsButton(state,true));
+      // Reddit's page halo continues the top-level list; only nested reply controls use the small spinner.
+      if(state.loading || this.io && !state.error && !state.stalled && (state.hiddenTop>0 || state.hasMore))this.footEl.append(this.loadingHalo('Loading archived comments'));
       if(state.error)this.footEl.append(this.errorNote(state,()=>this.loadThread({more:Boolean(state.post && state.cursor)})));
       if(!state.loading && !state.error){
         if(state.missing)this.footEl.append(make('p','rt-sra-note','This post is not in the archive. Coverage may be partial.'));
         else if(state.stalled)this.footEl.append(make('p','rt-sra-note','The archive stopped paging here; more comments may exist.'));
-        else if(!state.hasMore)this.footEl.append(make('p','rt-sra-note',state.items.length?'End of what the archive returned · Coverage may be partial':'No archived comments returned. This does not establish that the post had no comments.'));
-        if(state.hiddenTop>0){const view=make('button','button button-small button-secondary rt-sra-view-more','View more comments');view.type='button';view.dataset.rtMore='true';view.addEventListener('click',()=>{state.shownTop+=TOP_BATCH;this.renderThread();});this.footEl.append(view);}
-        else if(state.hasMore)this.footEl.append(this.moreCommentsButton(state,false));
+        else if(!state.hasMore && !state.hiddenTop)this.footEl.append(make('p','rt-sra-note',state.items.length?'End of what the archive returned · Coverage may be partial':'No archived comments returned. This does not establish that the post had no comments.'));
         if(state.route.focusId && !state.focused){const target=nodes.get('t1_'+state.route.focusId);if(target?.isConnected){state.focused=true;target.classList.add('rt-sra-focused-comment');const focus=()=>{if(!target.isConnected)return;const r=target.getBoundingClientRect();if(r.top<0 || r.bottom>innerHeight)target.scrollIntoView?.({block:'center'});};target.scrollIntoView?.({block:'center'});for(const ms of [150,600,1500])setTimeout(focus,ms);}else if(!state.loading)this.footEl.append(make('p','rt-sra-note','The requested comment is not in the loaded archive records.'));}
       }
     }
@@ -291,12 +294,14 @@
     // a few replies per comment with "N more replies", and at most MAX_DEPTH+1 levels; deeper replies are a link
     // to that comment's own page. The focused comment's chain is always shown. Nodes are reused, never rebuilt.
     placeComments(state,items,nodes,root){
-      state.shownTop ??= TOP_BATCH;state.shownReplies ||= new Map();state.moreEls ||= new Map();
+      state.shownTop ??= TOP_BATCH;state.shownReplies ||= new Map();state.moreEls ||= new Map();state.childOrder ||= new Map();let changed=false;
       const depthOf=new Map(),parentOf=new Map();
       for(const item of state.items){let ancestor=item.parentId,cycle=false;const visited=new Set([item.fullname]);while(items.has(ancestor)){if(visited.has(ancestor)){cycle=true;break;}visited.add(ancestor);ancestor=items.get(ancestor).parentId;}
         depthOf.set(item.fullname,cycle?0:visited.size-1);parentOf.set(item.fullname,!cycle && items.has(item.parentId)?item.parentId:'root');}
       const kids=new Map();for(const item of state.items){const key=parentOf.get(item.fullname);if(!kids.has(key))kids.set(key,[]);kids.get(key).push(item);}
-      const best=(a,b)=>(b.score||0)-(a.score||0) || a.created-b.created;for(const list of kids.values())list.sort(best);
+      const best=(a,b)=>(b.score||0)-(a.score||0) || a.created-b.created;
+      // Rank each incoming batch, then append it. Late archive pages must not reshuffle comments already being read.
+      for(const [key,list] of kids){const order=state.childOrder.get(key) || [];for(const item of [...list].sort(best))if(!order.includes(item.fullname))order.push(item.fullname);state.childOrder.set(key,order);const ranks=new Map(order.map((id,index)=>[id,index]));list.sort((a,b)=>ranks.get(a.fullname)-ranks.get(b.fullname));}
       const forced=new Set();let focus=state.route.focusId?'t1_'+state.route.focusId:null;while(focus && items.has(focus) && !forced.has(focus)){forced.add(focus);focus=parentOf.get(focus);}
       const replyLimit=depth=>depth===1?3:depth<=3?2:1;
       const more=(parentKey,count,link)=>{
@@ -304,10 +309,10 @@
         if(!el || el.tagName!==(link?'A':'BUTTON')){el=make(link?'a':'button','rt-sra-more-replies text-tone-2 text-12 no-underline hover:underline px-xs py-xs flex items-center');el.dataset.rtUi='archive-more-replies';
           const icon=make('span','me-xs flex items-center rt-sra-more-icon');icon.append(addCircle());el.append(icon,make('span',''));
           if(link){const id=parentKey.replace(/^t1_/,'');el.href='/r/'+encodeURIComponent(this.name)+'/comments/'+state.route.postId+'/_/'+id+'/';}
-          else{el.type='button';el.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const icon=el.querySelector('.rt-sra-more-icon');icon.replaceChildren(this.spinner());
-            requestAnimationFrame(()=>{state.shownReplies.set(parentKey,(state.shownReplies.get(parentKey) ?? replyLimit((depthOf.get(parentKey) ?? -1)+1))+REPLY_BATCH);this.renderThread();});});}
+          else{el.type='button';el.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(el.disabled || this.threadState!==state)return;el.disabled=true;el.setAttribute('aria-busy','true');const icon=el.querySelector('.rt-sra-more-icon');icon.replaceChildren(this.spinner());
+            requestAnimationFrame(()=>{if(this.threadState!==state)return;state.shownReplies.set(parentKey,(state.shownReplies.get(parentKey) ?? replyLimit((depthOf.get(parentKey) ?? -1)+1))+REPLY_BATCH);el.disabled=false;el.removeAttribute('aria-busy');this.renderThread();});});}
           state.moreEls.set(parentKey,el);}
-        el.lastChild.textContent=label;el.setAttribute('aria-label',label);if(!link){const icon=el.querySelector('.rt-sra-more-icon');if(!icon.querySelector('[icon-name="add-circle"]'))icon.replaceChildren(addCircle());}
+        el.lastChild.textContent=label;el.setAttribute('aria-label',label);if(!link){const icon=el.querySelector('.rt-sra-more-icon');if(!el.disabled && !icon.querySelector('[icon-name="add-circle"]'))icon.replaceChildren(addCircle());}
         return el;};
       let hiddenTop=0;
       const place=(parentKey,container,depth)=>{
@@ -316,12 +321,23 @@
         const shown=list.filter((item,index)=>index<limit || forced.has(item.fullname)),hidden=list.length-shown.length;
         const desired=shown.map(item=>nodes.get(item.fullname));
         if(hidden>0){if(isRoot)hiddenTop=hidden;else desired.push(more(parentKey,hidden,depth>MAX_DEPTH));}
-        for(const node of desired)if(!isRoot)node.slot='children';else if(node.dataset.rtUi==='archive-thread-comment')node.removeAttribute('slot');
+        for(const node of desired)if(!isRoot){if(node.parentElement!==container || !node.getAttribute('slot')?.startsWith('children'))node.slot='children';}else if(node.dataset.rtUi==='archive-thread-comment')node.removeAttribute('slot');
         const managed=[...container.children].filter(child=>child.dataset?.rtUi==='archive-thread-comment' || child.dataset?.rtUi==='archive-more-replies');
-        if(managed.length!==desired.length || managed.some((node,i)=>node!==desired[i])){for(const node of managed)if(!desired.includes(node))node.remove();for(const node of desired)container.append(node);}
+        const wanted=new Set(desired);for(const node of managed)if(!wanted.has(node)){node.remove();changed=true;}
+        let at=[...container.children].find(child=>child.dataset?.rtUi==='archive-thread-comment' || child.dataset?.rtUi==='archive-more-replies');
+        for(const node of desired){if(node===at){at=at.nextElementSibling;continue;}container.insertBefore(node,at || null);changed=true;}
         for(const item of shown){nodes.get(item.fullname).setAttribute('depth',String(depth));place(item.fullname,nodes.get(item.fullname),depth+1);}
       };
-      place('root',root,0);state.hiddenTop=hiddenTop;
+      place('root',root,0);state.hiddenTop=hiddenTop;return changed;
+    }
+    navigationClass(){
+      const native=document.querySelector('flex-left-nav-container[expanded]'),grid=native?.closest('.grid-container');
+      if(grid?.classList.contains('flex-nav-collapsed'))return 'flex-nav-collapsed';
+      if(grid?.classList.contains('flex-nav-expanded'))return 'flex-nav-expanded';
+      // Reddit's own flex-nav controller reads this non-sensitive preference cookie (0 collapsed, 1 expanded).
+      const value=document.cookie.split(';').map(part=>part.trim()).find(part=>part.startsWith('hui_flex_nav_expanded_state='))?.split('=')[1];
+      if(value==='0' || value==='1')return value==='0'?'flex-nav-collapsed':'flex-nav-expanded';
+      return native?.getAttribute('expanded')==='0'?'flex-nav-collapsed':'flex-nav-expanded';
     }
     mountNavigation(layout,name){
       const kept=this.keptNavigation,keptController=this.keptNavigationController;this.keptNavigation=this.keptNavigationController=null;
@@ -373,6 +389,7 @@
       const community=make('div','rt-sra-sidebar-section');community.append(this.communityPanel(this.name,this.kind,{note:false}));
       const about=this.sidebarSection('About this archive','archive-about'),aboutText=make('p','rt-sra-sidebar-text');
       aboutText.append(document.createTextNode('These posts come from '),arcticLink('Arctic Shift'),document.createTextNode(', an independent archive of public Reddit data. Reddit no longer shows this community, so nothing here is live.'));
+      if(this.sidebarThread){const note=make('p','rt-sra-sidebar-text','Archived thread from Arctic Shift · Coverage may be partial · Posting and voting are unavailable.');note.dataset.rtUi='archive-thread-notice';about.append(note);}
       about.append(aboutText,make('p','rt-sra-sidebar-text','Coverage may be partial: the archive may be missing posts, edits, scores and deletions. Voting, joining and posting are unavailable.'));
       const coverage=this.coverageEl=this.sidebarSection('Archive coverage','archive-coverage');
       const posters=this.postersEl=this.sidebarSection('Most active posters','archive-posters');
@@ -775,7 +792,7 @@
         // stale cards nor an error from a superseded request can render under the new filters.
         for(const old of this.states.values())this.retireFeedState(old);this.states.clear();
         state=this.newState(key,{scope:'feed',name:this.name,tab:'posts',media:false,asc:this.filterState().sort==='old',range:globalThis.RTFeedFilters?.dateRange(this.filterState()) || null,parsed:null,plan:null,query:''});
-        Object.assign(state,{want:PAGE_SIZE,scanFills:0,paused:false,virtual:new Set(),placeholders:new Map()});
+        Object.assign(state,{want:PAGE_SIZE,scanFills:0,paused:false});
         this.states.set(key,state);
       }
       state.sortMode=this.sortMode();return state;
@@ -879,18 +896,18 @@
       // the halo and its animation (shreddit-feed-page-loading can draw skeleton rows instead).
       // CSS draws a plain halo while the element is undefined.
       const wrap=make('div','rt-sra-loading rt-sra-halo-wrap');wrap.dataset.rtUi='archive-loading';wrap.setAttribute('role','status');wrap.setAttribute('aria-label',label);
-      const halo=make('shreddit-loading','rt-sra-halo');halo.setAttribute('aria-hidden','true');wrap.append(halo);return wrap;
+      const halo=make('shreddit-loading','rt-sra-halo');halo.setAttribute('aria-hidden','true');
+      const fallback=make('span','rt-sra-halo-fallback'),logo=make('shreddit-logo');
+      const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 64 64');svg.setAttribute('aria-hidden','true');
+      const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M34 22l4-13 12 3M10 32a6 6 0 1 0 2 10m42-10a6 6 0 1 1-2 10');path.setAttribute('fill','none');path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','3');
+      const head=document.createElementNS(svg.namespaceURI,'ellipse');for(const [key,value] of Object.entries({cx:32,cy:39,rx:23,ry:17,fill:'white',stroke:'currentColor','stroke-width':3}))head.setAttribute(key,value);svg.append(path,head);
+      for(const [cx,cy,r,fill] of [[23,37,3,'#ff4500'],[41,37,3,'#ff4500'],[52,12,5,'white']]){const dot=document.createElementNS(svg.namespaceURI,'circle');for(const [key,value] of Object.entries({cx,cy,r,fill,stroke:'currentColor'}))dot.setAttribute(key,value);svg.append(dot);}
+      const smile=document.createElementNS(svg.namespaceURI,'path');smile.setAttribute('d','M23 46q9 7 18 0');smile.setAttribute('fill','none');smile.setAttribute('stroke','currentColor');smile.setAttribute('stroke-width','2');svg.append(smile);logo.append(svg);fallback.append(logo);halo.append(fallback);wrap.append(halo);return wrap;
     }
     // Reddit's small inline spinner (the comment tree's "more replies" loading), not the page halo.
     spinner(){
       const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'load',class:'animate-spin leading-[0] rt-sra-spinner'}))svg.setAttribute(k,v);
       const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M18.1 10.9h-3a.9.9 0 010-1.8h3a.9.9 0 010 1.8ZM5.8 10a.9.9 0 00-.9-.9h-3a.9.9 0 000 1.8h3a.9.9 0 00.9-.9Zm5.1 8.1v-3a.9.9 0 00-1.8 0v3a.9.9 0 001.8 0Zm0-13.2v-3a.9.9 0 00-1.8 0v3a.9.9 0 001.8 0Zm5.464-1.264a.9.9 0 00-1.273 0L12.97 5.757a.901.901 0 001.273 1.273l2.121-2.121a.901.901 0 000-1.273ZM7.03 12.97a.9.9 0 00-1.273 0l-2.121 2.121a.901.901 0 001.273 1.273l2.121-2.121a.901.901 0 000-1.273Zm9.334 2.121-2.121-2.121a.9.9 0 00-1.273 1.273l2.121 2.121a.9.9 0 001.273-1.273ZM7.03 5.758 4.909 3.637A.9.9 0 003.636 4.91l2.121 2.121A.9.9 0 007.03 5.758Z');svg.append(path);return svg;
-    }
-    moreCommentsButton(state,busy){
-      const button=make('button','button button-small button-secondary inline-flex items-center gap-xs rt-sra-more-comments');button.type='button';button.dataset.rtMore='true';
-      if(busy){button.disabled=true;button.setAttribute('aria-busy','true');button.append(this.spinner(),make('span','','Loading more comments'));}
-      else{button.append(make('span','','Load more comments'));button.addEventListener('click',()=>this.loadThread({more:true}));}
-      return button;
     }
     // Shown when a scan ends (or pauses) without a single matching post: the coverage date is explicit.
     feedEmpty(state){
@@ -933,29 +950,9 @@
     // Reconcile in place: cards that stay keep their identity and position (Reddit's components are not
     // disconnected and reconnected on every render), stale ones leave, and none is ever listed twice.
     syncList(state,items){
-      const list=this.listEl,nodes=items.map(item=>{const holder=state.virtual.has(item.fullname) && state.placeholders.get(item.fullname);if(holder)return holder;state.virtual.delete(item.fullname);return this.cardFor(state,item);});
+      const list=this.listEl,nodes=items.map(item=>this.cardFor(state,item));
       for(const [index,node] of nodes.entries()){const at=list.children[index];if(at!==node)list.insertBefore(node,at || null);}
-      while(list.children.length>nodes.length){const extra=list.lastElementChild;this.vio?.unobserve(extra);extra.remove();}
-      for(const node of nodes)this.vio?.observe(node);
-    }
-    // Off-screen cards become fixed-height placeholders and come back (the same element) as they near
-    // the viewport. The height spans to the next row, so margins are kept and the scroll position holds.
-    virtualize(entries){
-      const state=this.mounted && !this.mounted.thread?this.states.get(this.feedKey()):null;
-      for(const entry of entries){
-        const el=entry.target,name=el.dataset?.fullname;
-        if(!state || !name || el.parentElement!==this.listEl){this.vio?.unobserve(el);continue;}
-        if(el.dataset.rtUi==='archive-virtual'){
-          const card=state.cards.get(name);if(!entry.isIntersecting || !card || state.placeholders.get(name)!==el)continue;
-          state.virtual.delete(name);this.vio.unobserve(el);el.replaceWith(card);this.vio.observe(card);
-        }else if(!entry.isIntersecting && state.cards.get(name)===el && !el.contains(document.activeElement)){
-          const rect=el.getBoundingClientRect(),next=el.nextElementSibling?.getBoundingClientRect?.(),span=next && next.top>rect.top?next.top-rect.top:rect.height;
-          if(!(span>=1))continue;
-          let holder=state.placeholders.get(name);
-          if(!holder){holder=make('div','rt-native-card rt-sra-virtual');holder.dataset.rtUi='archive-virtual';holder.dataset.fullname=name;holder.setAttribute('aria-hidden','true');state.placeholders.set(name,holder);}
-          holder.style.height=span+'px';state.virtual.add(name);this.vio.unobserve(el);el.replaceWith(holder);this.vio.observe(holder);
-        }
-      }
+      while(list.children.length>nodes.length)list.lastElementChild.remove();
     }
     syncAll(){if(!this.mounted)return;this.syncMenu();this.renderChips();}
   }

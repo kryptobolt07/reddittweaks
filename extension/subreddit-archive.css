@@ -125,7 +125,7 @@
 .rt-sra-thread-comments{margin:16px}
 .rt-sra-thread-comment{display:block;min-width:0;color:var(--color-neutral-content-strong,#0f1a1c)}
 .rt-sra-focused-comment{outline:2px solid var(--color-neutral-border-strong,#576f76);outline-offset:-2px;border-radius:8px}
-[data-rt-ui="community-navigation"][data-state="loading"] flex-left-nav-container{visibility:hidden}
+
 
 /* Archive feed: native subreddit feed separators between cards (Reddit uses an <hr> per article). */
 [data-rt-archive-feed]>.rt-native-card+.rt-native-card{border-top:1px solid var(--color-neutral-border-weak,#e5ebee)}
@@ -176,25 +176,33 @@ a.rt-sra-comment-author:hover{text-decoration:underline}
    One Snoo halo per loading group (Reddit's shreddit-loading draws logo, halo and animation). While
    that element is undefined, a plain orange halo with the same 1.5 s scale-out stands in. */
 .rt-sra-halo-wrap{display:flex;align-items:center;justify-content:center;min-height:112px}
-.rt-sra-halo{display:block}
-.rt-sra-halo:not(:defined){position:relative;width:64px;height:64px}
-.rt-sra-halo:not(:defined)::before{content:"";position:absolute;inset:0;border-radius:50%;background:var(--color-brand-background,#ff4500);opacity:.6;animation:rt-sra-halo 1.5s ease-in-out infinite}
-@keyframes rt-sra-halo{0%{transform:scale(0);opacity:.7}100%{transform:scale(1);opacity:0}}
-/* Nested paging ("Load more comments") uses Reddit's small inline spinner, not the page halo. */
+.rt-sra-halo{width:100%}
+.rt-sra-halo:not(:defined){display:flex;align-items:center;justify-content:center;position:relative;width:64px;height:192px}
+.rt-sra-halo:not(:defined)::before{content:"";position:absolute;width:64px;height:64px;border-radius:50%;background:var(--color-brand-background,#ff4500);opacity:.75;animation:rt-sra-halo 1.5s ease-in-out infinite}
+@keyframes rt-sra-halo{0%{transform:scale(1);opacity:.75}100%{transform:scale(1.5);opacity:0}}
+/* Only nested replies use the inline spinner. Top-level continuation keeps the page halo. */
 .rt-sra-spinner{flex:none;width:16px;height:16px;color:currentColor}
-.rt-sra-spinner:not(:defined){display:inline-block;box-sizing:border-box;border:2px solid currentColor;border-inline-end-color:transparent;border-radius:50%;animation:rt-sra-spin 1s linear infinite}
+
 @keyframes rt-sra-spin{to{transform:rotate(1turn)}}
-.rt-sra-more-comments[aria-busy="true"]{cursor:progress}
+.rt-sra-more-replies[aria-busy="true"]{cursor:progress}
 @media (prefers-reduced-motion:reduce){.rt-sra-halo:not(:defined)::before{animation:none;transform:scale(.6);opacity:.35}.rt-sra-spinner:not(:defined){animation-duration:3s}}
 .rt-sra-scan-note{text-align:center}
-/* Off-screen feed cards are swapped for placeholders of the same height (scroll position holds). */
-[data-rt-archive-feed]>.rt-sra-virtual{display:block;box-sizing:border-box;margin:0;padding:0;contain:strict;overflow-anchor:none}
 /* A collapsed archived comment hides its replies (they otherwise overlap the next sibling). */
-.rt-sra-thread-comment[collapsed]>[slot="children"]{display:none!important}
+.rt-sra-thread-comment[collapsed]>[slot^="children"]{display:none!important}
 
 /* Reddit's "N more replies" control and its small spinning "load" icon. */
-.rt-sra-more-replies{background:transparent;border:0;cursor:pointer;color:var(--color-tone-2,#576f76);font-weight:600}
-.rt-sra-more-replies .rt-sra-more-icon{color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-sra-more-replies{background:transparent;border:0;cursor:pointer;color:var(--color-tone-2,#486b91);font:400 14px/20px var(--font-sans,system-ui,sans-serif);text-align:start;min-height:32px;gap:8px;padding:4px 8px}
+.rt-sra-more-replies .rt-sra-more-icon{display:flex;align-items:center;flex:none;margin:0;color:var(--color-neutral-content-strong,#0f1a1c)}
 svg.rt-sra-spinner{animation:rt-sra-spin 1s linear infinite}
 @media (prefers-reduced-motion:reduce){svg.rt-sra-spinner{animation-duration:3s}}
-.rt-sra-view-more{margin:8px 16px}
+
+
+/* Hide only a held community notice, including any native modal backdrop. Native live pages remain visible. */
+guard-community-modal[data-rt-subreddit-hold]{display:none!important}
+/* Loaded archive content remains painted during scroll and native custom-element updates. */
+[data-rt-archive-feed], [data-rt-archive-feed]>.rt-native-card{content-visibility:visible;contain:none}
+[data-rt-ui="archive-subreddit"]{background:var(--color-neutral-background,#fff)}
+
+.rt-sra-halo-fallback{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;width:64px;height:64px;color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-sra-halo:defined>.rt-sra-halo-fallback{display:none}
+.rt-sra-halo-fallback svg{width:48px;height:48px}

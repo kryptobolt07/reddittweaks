@@ -224,7 +224,7 @@
     const profileAllowed=Boolean(profileShell && context?.username && M.validateUsername(input.username) && context.username.toLowerCase()===input.username.toLowerCase() && target?.dataset.rtUi==='profile-navigation');
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !shell || !(profileAllowed || communityAllowed))throw Error('Open the matching archived profile or community.');
     const now=Date.now();if(now<cooldown || active>=2)return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:250)};
-    const Renderer=customElements.get('faceplate-partial');if(typeof Renderer?.prototype?._renderContent!=='function')throw Error('Reddit’s native renderer is not ready.');
+    const Renderer=customElements.get('faceplate-partial');if(typeof Renderer?.prototype?._renderContent!=='function')return {deferred:true,retryAfterMs:250};
     const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();let timer;active++;
     try{return await Promise.race([(async()=>{
       // Only the native navigation fragment is attached. Homepage/feed markup,
@@ -244,6 +244,11 @@
       // from selectedpagetype instead of hydrating the home page's selection.
       if(communityAllowed)for(const top of navigation.querySelectorAll('left-nav-top-section')){top.setAttribute('selectedpagetype','community');if(customElements.get('left-nav-top-section'))for(const snapshot of top.querySelectorAll(':scope>template[shadowrootmode],:scope>template[shadowroot]'))snapshot.remove();}
       const current=route();if(controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target || target.closest(profileAllowed?'[data-rt-ui="archive-profile"]':'[data-rt-ui="archive-subreddit"]')!==shell || (profileAllowed?(current?.username?current.username.toLowerCase()!==input.username.toLowerCase():!current?.id):communityName()!==input.subreddit.toLowerCase()))throw Error('Page changed. Try again.');
+      if(communityAllowed){
+        // Seed the native controller before connection so SSR's expanded default cannot widen a collapsed layout.
+        navigation.setAttribute('expanded',shell.classList.contains('flex-nav-collapsed')?'0':'1');
+        navigation.setAttribute('parent-grid-selector','[data-rt-ui="archive-subreddit"]');navigation.setAttribute('no-animate','');
+      }
       const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.renderMode='contents';partial.style.display='contents';target.replaceChildren(partial);partial._renderContent(navigation.outerHTML);return {rendered:true};
     })(),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit navigation loading timed out.'));},10000);})]);}finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }

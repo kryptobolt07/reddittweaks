@@ -22,7 +22,7 @@
     const candidates=new Set(),selector='main shreddit-comment[thingid]';
     if(Array.isArray(records)){for(const record of records){if(record.target.nodeType===1){const parent=record.target.closest(selector);if(parent)candidates.add(parent);}for(const node of record.addedNodes)if(node.nodeType===1){if(node.matches(selector))candidates.add(node);for(const comment of node.querySelectorAll(selector))candidates.add(comment);}}}else for(const comment of doc.querySelectorAll(selector))candidates.add(comment);
     const post=window.location.pathname.match(/\/comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.[1]?.toLowerCase();
-    for(const comment of candidates){if(comment.hasAttribute('data-rt-settled') || comment.getAttribute('postid') && comment.getAttribute('postid').toLowerCase()!=='t3_'+post)continue;
+    for(const comment of candidates){if(comment.closest('[data-rt-ui="archive-subreddit"]') || comment.hasAttribute('data-rt-settled') || comment.getAttribute('postid') && comment.getAttribute('postid').toLowerCase()!=='t3_'+post)continue;
       const notice=ownNotice(comment);if(!notice)continue;
       notice.dataset.rtNotice='true';notice.dataset.rtHold='';comment.setAttribute('data-rt-pending','');
       if([...comment.querySelectorAll('[data-rt-skeleton]')].some(n=>n.closest('shreddit-comment')===comment))continue;
@@ -58,20 +58,24 @@
     alert.setAttribute('message',(status==='removed'?'Removed':'Deleted')+' comment retrieved from Arctic Shift');releaseAlert(alert);return true;
   }
   function setRestoreEnabled(value){restoreRevision++;restore=value===true;refresh();if(!restore && heldAlert.node)releaseAlert(heldAlert.node);}
-  // A banned/private community's notice is held from document_start when the archive view is requested by
-  // URL (rt_view=archive), so Reddit's modal never flashes before the subreddit archive mounts over it.
+  // Hold matching community notices while settings load, then retain the hold only for an explicit
+  // archive URL/thread or automatic mode. Mutation microtasks run before the native notice can paint.
   // subreddit-archive.js owns the modal afterwards; this only releases it if that never happens.
-  let archiveOn=true,holdExpired=false,holdTimer=0;
+  let archiveOn=true,communityOn=false,automatic=false,holdExpired=false,holdTimer=0,holdRoute='';
   const holdAttr='data-rt-subreddit-hold',mountedAttr='data-rt-subreddit-mounted',modalWording=/\bis (?:banned|private)\.?$/i;
   function releaseModal(modal){if(modal.hasAttribute(mountedAttr))return;modal.removeAttribute(holdAttr);modal.style.removeProperty('display');}
   function holdModals(doc,loc){
     const held=[...doc.querySelectorAll('guard-community-modal['+holdAttr+']')];
-    const wanted=enabled && archiveOn && !holdExpired && /^\/r\/[^/]+\/?$/i.test(loc?.pathname || '') && new URLSearchParams(loc?.search || '').get('rt_view')==='archive';
+    const path=loc?.pathname || '',match=path.match(/^\/r\/([A-Za-z0-9_]{2,21})(?:\/comments\/[a-z0-9]{1,10}(?:\/.*)?)?\/?$/i);
+    if(holdRoute!==path){clearTimeout(holdTimer);holdTimer=0;holdExpired=false;holdRoute=path;}
+    const requested=new URLSearchParams(loc?.search || '').get('rt_view')==='archive' || /\/comments\//i.test(path);
+    const wanted=!holdExpired && Boolean(match) && (!settingsKnown || enabled && archiveOn && communityOn && (automatic || requested));
+    doc.documentElement?.toggleAttribute('data-rt-community-pending',wanted);
     if(!wanted){for(const modal of held)releaseModal(modal);return;}
     for(const modal of doc.querySelectorAll('guard-community-modal[subredditname]')){
       // The title may not have been parsed yet: hold first, and let go once it names another state (e.g. quarantine).
       const title=modal.querySelector('[slot="title"]')?.textContent.replace(/\s+/g,' ').trim() || '';
-      if(title && !modalWording.test(title)){if(modal.hasAttribute(holdAttr))releaseModal(modal);continue;}
+      if(modal.getAttribute('subredditname')?.toLowerCase()!==match[1].toLowerCase() || title && !modalWording.test(title)){if(modal.hasAttribute(holdAttr))releaseModal(modal);continue;}
       if(!modal.hasAttribute(holdAttr)){modal.setAttribute(holdAttr,'true');modal.style.setProperty('display','none','important');}
     }
     if(!holdTimer)holdTimer=setTimeout(()=>{holdExpired=true;refresh([]);},10000);
@@ -82,7 +86,7 @@
     holdModals(doc,loc);
     const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments|search))?\/?$/i.test(loc?.pathname || '');
     // Post pages: let CSS show a skeleton over removal titles until restoration settles.
-    const restoreHere=restore && /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/[a-z0-9]{1,10}(?:\/|$)/i.test(loc?.pathname || '');
+    const restoreHere=restore && !doc.documentElement?.hasAttribute('data-rt-subreddit-archive') && /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/[a-z0-9]{1,10}(?:\/|$)/i.test(loc?.pathname || '');
     // Held before settings arrive (the toast must not play first); released if restoring turns out to be off.
     if(enabled && (restore || !settingsKnown))holdAlert(doc);doc.documentElement?.toggleAttribute('data-rt-restore',restoreHere);if(restoreHere)prepareComments(doc,records);
     // Notifications and other native overlays can change the URL before replacing
@@ -114,10 +118,12 @@
   window.addEventListener('popstate',refresh);document.addEventListener('reddit:route',refresh);
   refresh();
   const initialRevision=revision,initialRestoreRevision=restoreRevision;
+  try{chrome.storage?.onChanged?.addListener((changes,area)=>{if(area!=='local' || !changes['rt-settings-v1'])return;const s=changes['rt-settings-v1'].newValue;settingsKnown=true;archiveOn=s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;setRestoreEnabled(s?.postDiscovery!==false && archiveOn && s?.restoreDeletedContent!==false);setEnabled(s?.postDiscovery!==false);});}catch{}
   const failed=()=>{if(revision===initialRevision)setEnabled(false);};
   try{settings.then(response=>{
+    if(revision!==initialRevision)return;
     const s=response?.settings;if(restoreRevision===initialRestoreRevision)restore=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true && s?.restoreDeletedContent!==false;
-    archiveOn=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true;
+    archiveOn=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;
     settingsKnown=true;if(!restore && heldAlert.node)releaseAlert(heldAlert.node);
     if(revision===initialRevision)setEnabled(response?.ok===true && response.settings?.postDiscovery!==false && (!/^\/user\/[\w-]{1,20}\/search\/?$/i.test(window.location?.pathname || '') || archiveOn));else refresh([]);if(restore)refresh();
   },()=>{settingsKnown=true;if(heldAlert.node)releaseAlert(heldAlert.node);failed();});}catch{settingsKnown=true;failed();}
