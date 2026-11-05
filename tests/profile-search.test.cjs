@@ -105,6 +105,15 @@ test('incoming Reddit sort/time map to filters; rt overrides preserve Reddit URL
   const p=new URLSearchParams(s.W.location.search);assert.equal(p.get('rt_sort'),'old');assert.equal(p.get('rt_date'),'all');assert.equal(p.get('sort'),'comments');assert.equal(p.get('t'),'week');assert.equal(p.get('q'),'words');assert.equal(p.get('type'),'posts');assert.equal(p.get('cId'),'synthetic');assert.equal(s.d.rtFilters.date,null);assert.equal(s.d.effectiveSort(),'old');
   s.W.history.replaceState({},'','?q=words&sort=top&t=hour');s.d.scan();await flush();assert.equal(s.d.effectiveSort(),'top');assert.equal(s.d.rtFilters.date.preset,'hour');
 });
+test('filter changes never rewrite the unchanged address, which Reddit treats as a reload',async t=>{
+  for(const url of ['https://www.reddit.com/user/Example/search/?q=words','https://www.reddit.com/user/Example/search/?q=words&t=week']){
+    const s=await boot(t,{url}),writes=[],original=s.W.history.replaceState;
+    s.W.history.replaceState=function(state,title,next){const before=s.W.location.pathname+s.W.location.search+s.W.location.hash;original.call(this,state,title,next);writes.push([before,s.W.location.pathname+s.W.location.search+s.W.location.hash]);};
+    s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha']});await flush();s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha','Beta']});await flush();
+    assert.ok(writes.length>=2,url);for(const [before,after] of writes)assert.notEqual(after,before,url);
+    assert.equal(new URLSearchParams(s.W.location.search).get('rt_sub'),'Alpha,Beta');
+  }
+});
 test('native result list and sort/time controls hide reversibly; native tabs and scope stay usable',async t=>{
   const s=await boot(t);const results=s.D.getElementById('native-results'),sort=s.D.getElementById('native-sort'),time=s.D.getElementById('native-time');
   assert.equal(results.hidden,true);assert.equal(sort.hidden,true);assert.equal(time.hidden,true);assert.equal(s.D.getElementById('search-results-page-tabgroup').hidden,false);assert.equal(s.D.querySelector('[data-testid="search-scope-switcher"]').hidden,false);

@@ -174,6 +174,8 @@
       const target=card.querySelector('a.absolute.inset-0[href],a[slot="full-post-link"][href],a[data-testid="post-title"][href],a[slot="title"][href],a[href*="/comments/"]');if(!target)return;
       const from=location.href;setTimeout(()=>{if(location.href===from && card.isConnected)target.click();},0);
     });}
+  // Reddit's router reloads the page on a replaceState to the unchanged address, so only write real changes.
+  function replaceUrl(url){const next=url.pathname+url.search+url.hash;if(next===location.pathname+location.search+location.hash)return false;try{history.replaceState(history.state,'',next);return true;}catch{return false;}}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
   const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
@@ -702,7 +704,7 @@
       if(write){f.write(next);const url=new URL(location.href);
         // Explicit Any time must override an incoming Reddit t without deleting it.
         if(!next.date && url.searchParams.has('t'))url.searchParams.set('rt_date','all');
-        history.replaceState(history.state,'',url.pathname+url.search+url.hash);}
+        replaceUrl(url);}
       this.reset();this.scan();if(!this.isSearch())return;
       this.activityFilter=activity;this.syncActivityPresentation();
       if(submenu)this.searchResumeMenu=submenu;
@@ -1057,7 +1059,7 @@
     setFilters(next,{write=true}={}){
       const f=globalThis.RTFeedFilters;if(!f || this.context?.kind!=='profile')return;
       next=f.clone(next);next.subreddits=next.subreddits.slice(0,f.maxSubreddits);const prev=this.rtFilters || f.empty();if(f.equal(prev,next))return;
-      if(this.isOwnList()){this.rtFilters=next;this.rtPred=null;if(write){const url=new URL(location.href);for(const name of ['rt_date','rt_type','rt_sub','rt_sort'])url.searchParams.delete(name);for(const [name,value] of Object.entries(f.serialize(next)))url.searchParams.set(name,value);history.replaceState(history.state,'',url.pathname+url.search+url.hash);}this.rtSearch=location.search;this.renderFilterChips();this.syncFilterMenu();this.renderOwnList();return;}
+      if(this.isOwnList()){this.rtFilters=next;this.rtPred=null;if(write){const url=new URL(location.href);for(const name of ['rt_date','rt_type','rt_sub','rt_sort'])url.searchParams.delete(name);for(const [name,value] of Object.entries(f.serialize(next)))url.searchParams.set(name,value);replaceUrl(url);}this.rtSearch=location.search;this.renderFilterChips();this.syncFilterMenu();this.renderOwnList();return;}
       if(this.isSearch()){this.restartSearch(next,{write});return;}
       this.rtFilters=next;this.rtPred=null;if(write){f.write(next);}this.rtSearch=location.search;this.applyFilters(prev);
     }

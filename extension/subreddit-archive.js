@@ -74,7 +74,9 @@
   function setParams(changes){
     const url=new URL(location.href);
     for(const [name,value] of Object.entries(changes)){if(value==null || value==='')url.searchParams.delete(name);else url.searchParams.set(name,value);}
-    try{history.replaceState(history.state,'',url.pathname+url.search+url.hash);}catch{}
+    // Reddit's router reloads the page on a replaceState to the unchanged address.
+    const next=url.pathname+url.search+url.hash;if(next===location.pathname+location.search+location.hash)return;
+    try{history.replaceState(history.state,'',next);}catch{}
   }
   async function defaultSettings(){
     const response=await chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});
