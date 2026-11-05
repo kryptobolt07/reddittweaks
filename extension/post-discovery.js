@@ -903,6 +903,11 @@
         if(button.parentNode!==bar || [...bar.children].indexOf(button)!==[...keep].length)bar.append(button);keep.add(menuRow);
       }
       for(const [menuRow,button] of this.searchInlineButtons)if(!keep.has(menuRow)){button.remove();this.searchInlineButtons.delete(menuRow);}
+      // Reddit spaces this row with space-x-* (a margin on each direct child), which never reaches our buttons inside a
+      // display:contents wrapper. Copy the gap Reddit actually draws between its own first two buttons.
+      const native=[...row.children].filter(child=>child!==bar && !child.matches('faceplate-loader,script,style') && child.getBoundingClientRect().width>0);
+      if(native.length>=2){const a=native[0].getBoundingClientRect(),b=native[1].getBoundingClientRect(),flexGap=parseFloat(getComputedStyle(row).columnGap) || 0,gap=Math.round(Math.max(0,b.left-a.right-flexGap));
+        if(gap!==this.searchInlineGap){this.searchInlineGap=gap;bar.style.setProperty('--rt-inline-gap',gap+'px');}}
     }
 
     // Each inline search filter opens its own menu drawn like Reddit's search dropdowns (radio rows, the current
