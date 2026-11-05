@@ -171,7 +171,7 @@
         if(numbers.length<2 || !numbers.every(Number.isFinite))throw Error();
         const post=M.normalizePost({id,author:detail.profile.name,title:context.post.title,subreddit:context.subreddit?.name,
           created_utc:Date.parse((card.querySelector('faceplate-timeago[ts]') || tracker.querySelector('faceplate-timeago[ts]'))?.getAttribute('ts'))/1000,
-          score:numbers[0],num_comments:numbers[1],permalink:permalink.href,status:'unknown',
+          score:numbers[0],num_comments:numbers[1],permalink:permalink.href,status:'unknown',thumbnail:card.querySelector('faceplate-img[data-testid="search_post_thumbnail"],img[data-testid="search_post_thumbnail"]')?.getAttribute('src') || undefined,subredditIcon:card.querySelector('.post-credit-row img[src],[avatar] img[src]')?.getAttribute('src') || undefined,subredditColor:card.querySelector('.post-credit-row img[src],[avatar] img[src]')?.getAttribute('style')?.match(/background:\s*(#[0-9a-f]{6})\b/i)?.[1],
           over_18:context.post.nsfw===true || context.subreddit?.nsfw===true || detail.post.nsfw===true,spoiler:context.post.spoiler===true || detail.post.spoiler===true});
         if(!post)throw Error();if(!seen.has(id)){seen.add(id);posts.push(post);}
       }catch{unread++;}
@@ -198,6 +198,8 @@
           ...(Object.hasOwn(context.comment || {},'parent_id')?{parent_id:context.comment.parent_id}:{}),link_title:context.post?.title,subreddit:context.subreddit?.name,over_18:context.post?.nsfw===true || context.subreddit?.nsfw===true,spoiler:context.post?.spoiler,
           created_utc:Date.parse(content.querySelector('faceplate-timeago')?.getAttribute('ts'))/1000,
           score:Number(content.querySelector('faceplate-number')?.getAttribute('number')) || 0,
+          ...(counts=>counts.length>=2 && counts.every(Number.isFinite)?{postScore:counts[0],postComments:counts[1]}:{})([...(card.querySelector(':scope [data-testid="search-counter-row"]')?.querySelectorAll('faceplate-number[number]') || [])].map(node=>Number(node.getAttribute('number')))),
+          subredditIcon:card.querySelector('.shreddit-subreddit-icon__icon img[src],[avatar] img[src]')?.getAttribute('src') || undefined,subredditColor:card.querySelector('.shreddit-subreddit-icon__icon img[src],[avatar] img[src]')?.getAttribute('style')?.match(/background:\s*(#[0-9a-f]{6})\b/i)?.[1],
           permalink:card.querySelector('a[aria-labelledby^="comment-content-"]')?.getAttribute('href')});
         if(post && !seen.has(post.fullname)){seen.add(post.fullname);posts.push(post);}
       }catch{ /* A malformed card cannot become an unsafe or misattributed result. */ }

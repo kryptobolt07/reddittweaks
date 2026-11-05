@@ -50,6 +50,9 @@ test('chips render a working x for each filter and one Clear filters',t=>{
   const box=d.createElement('div');d.body.append(box);let state=F.clone(full);
   const draw=()=>F.renderChips(box,state,{make,glyph,onChange:next=>{state=next;draw();}});draw();
   assert.equal(box.querySelectorAll('[data-rt-chip]').length,6);
+  // Reddit's element may add attributes in its constructor: createElement would throw, parsing must not.
+  const W2=W;if(!W2.customElements.get('rpl-input-chip'))W2.customElements.define('rpl-input-chip',class extends W2.HTMLElement{constructor(){super();this.setAttribute('data-upgraded','');}});
+  const strict=F.pill({id:'x',label:'X',icon:'calendar'},{make,glyph,onRemove:()=>{}});d.body.append(strict);assert.equal(strict.hasAttribute('data-upgraded'),true);strict.remove();
   const pillEl=box.querySelector('[data-rt-chip="date"]');assert.equal(pillEl.tagName,'RPL-INPUT-CHIP');assert.equal(pillEl.getAttribute('appearance'),'bordered');assert.ok(pillEl.querySelector('[slot="leading"] .rt-filter-chip-icon'));assert.ok(pillEl.querySelector('.rt-filter-chip-label.text-label-2'));assert.ok(pillEl.querySelector('[slot="trailing"] button.rt-filter-chip-remove'));
   // A real click is mousedown, mouseup, click; the chip must survive until the click.
   const x=box.querySelector('[data-rt-chip="type:image"] button');x.dispatchEvent(new W.MouseEvent('mousedown',{bubbles:true}));assert.ok(x.isConnected);x.dispatchEvent(new W.MouseEvent('mouseup',{bubbles:true}));x.click();

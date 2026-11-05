@@ -10,7 +10,7 @@ const raw=(id,extra={})=>({id,author:'Example',title:'Synthetic search post',sel
 // post and comment search units are children of the neutral result container.
 const page=`<div data-testid="search-results-filter-spacer-desktop"><faceplate-dropdown-menu id="native-sort"><button>Sort</button><a href="/user/Example/search/?sort=new">New</a></faceplate-dropdown-menu><faceplate-dropdown-menu id="native-time" hidden><a href="/user/Example/search/?t=week">Past week</a></faceplate-dropdown-menu></div>
 <main class="main"><faceplate-tabgroup id="search-results-page-tabgroup"><a id="search-results-page-tab-posts" href="?type=posts">Posts</a><a id="search-results-page-tab-comments" href="?type=comments">Comments</a><a id="search-results-page-tab-media" href="?type=media">Media</a></faceplate-tabgroup><div data-testid="search-scope-switcher">Show results from all of Reddit</div><div class="bg-neutral-background" id="native-results"><search-telemetry-tracker data-testid="search-sdui-post" data-thingid="t3_live"><div data-testid="search-post-unit">Native result</div></search-telemetry-tracker><div data-testid="search-sdui-comment-unit"><search-telemetry-tracker data-faceplate-tracking-context='{"comment":{"id":"t1_comment","post_id":"t3_parent"}}'></search-telemetry-tracker><div data-testid="search-comment-content">Synthetic comment</div></div><faceplate-partial loading="lazy" src="/search-more"></faceplate-partial></div></main>`;
-function setup(t,{url='https://www.reddit.com/user/Example/search/?q=words',settings={postDiscovery:true,archiveDiscovery:true},html=page,reddit,archive,renderer,aggregate,autoDiscover=false,observe=false}={}){
+function setup(t,{leaveDelay=false,url='https://www.reddit.com/user/Example/search/?q=words',settings={postDiscovery:true,archiveDiscovery:true},html=page,reddit,archive,renderer,aggregate,autoDiscover=false,observe=false}={}){
   const dom=new JSDOM(html,{url,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[],queries=[],aggregates=[];
   for(const file of ['search-core.js','post-model.js','feed-filters.js','post-discovery.js','profile-search.js'])W.eval(read(file));
   W.RTArchiveQuery={async *search(args){queries.push(args);const result=archive?await archive(args,queries.length):{items:[raw('live'),raw('archive',{created_utc:1600000000})],hasMore:false,searchedBackTo:1600000000};
@@ -21,6 +21,8 @@ function setup(t,{url='https://www.reddit.com/user/Example/search/?q=words',sett
     if(args.action==='render-navigation')return {rendered:true};
     if(args.action==='status')return {via:'info',statuses:args.ids.map(id=>({fullname:(args.kind==='comment'?'t1_':'t3_')+id,status:'available'}))};
     return reddit?reddit(args):{posts:[raw('live')],hasMore:false};},archive:async()=>{throw Error('Search must use RTArchiveQuery, not archive-profile');}});
+  // These tests check restoring right after leaving; the delayed restore has its own test.
+  if(!leaveDelay)d.leaveRestoreMs=0;
   t.after(()=>{d.destroy();W.close();});return {W,D:W.document,d,calls,queries,aggregates};
 }
 async function boot(t,options){const s=setup(t,options);await s.d.ready;await flush();return s;}
@@ -65,7 +67,7 @@ test('plain search merges client and archive into one native feed, deduping full
   const s=await boot(t);await search(s);
   assert.equal(s.calls.filter(c=>c.action==='profile').length,1);assert.equal(s.calls.find(c=>c.action==='profile').query,'words');assert.equal(s.calls.find(c=>c.action==='profile').sort,'relevance');
   assert.equal(s.queries.length,1);assert.equal(s.queries[0].author,'Example');assert.deepEqual([...s.queries[0].parsed.terms],['words']);
-  assert.deepEqual(shown(s.d),['t3_live','t3_archive']);assert.equal(s.d.feed.querySelectorAll('#t3_live').length,1);assert.equal(s.d.nodes.get('live').querySelector('shreddit-post').id,'t3_live');
+  assert.deepEqual(shown(s.d),['t3_live','t3_archive']);assert.equal(s.d.feed.querySelectorAll('[data-fullname="t3_live"]').length,1);assert.match(s.d.nodes.get('live').querySelector('[data-testid="search-post-unit"] a[data-testid="post-title-text"]').getAttribute('href'),/\/comments\/live\//);
   assert.equal(s.D.querySelector('[data-rt-profile-search]'),null);assert.doesNotMatch(s.D.body.textContent,/Not in these results/);
 });
 test('without q, search browses and filters author history from both sources',async t=>{
@@ -81,10 +83,29 @@ test('OR and exclusions keep Reddit search; Old sort remains archive-only',async
     if(suffix.includes('old')){assert.equal(s.queries[0].sort,'asc');assert.deepEqual(shown(s.d),['t3_archive','t3_live']);assert.match(s.d.notice.textContent,/Searched up to/);}
   }
 });
+test('results are Reddit\'s search rows: community, time, title, counts and thumbnail; comments get Go To Thread',async t=>{
+  let renders=0;const thumb='https://preview.redd.it/synthetic.png?width=140';
+  const s=await boot(t,{reddit:async()=>({posts:[raw('live',{score:1,num_comments:2,thumbnail:thumb,subredditIcon:'https://styles.redditmedia.com/t5_x/styles/communityIcon_a.png'})],hasMore:false}),archive:async()=>({items:[],hasMore:false}),renderer:async()=>{renders++;}});await search(s);
+  const row=s.d.nodes.get('live').querySelector('[data-testid="search-post-unit"]');assert.ok(row);assert.equal(renders,0,'Reddit\'s own results need no full card');
+  assert.match(row.querySelector('.post-credit-row').textContent,/r\/Alpha/);assert.ok(row.querySelector('.post-credit-row faceplate-timeago[ts]'));assert.equal(row.querySelector('.post-credit-row img').getAttribute('src'),'https://styles.redditmedia.com/t5_x/styles/communityIcon_a.png');
+  assert.equal(row.querySelector('[data-testid="post-title-text"]').textContent,'Synthetic search post');assert.equal(row.querySelector('[data-testid="search-counter-row"]').textContent.replace(/\s+/g,' ').trim(),'1 vote·2 comments');
+  assert.equal(row.querySelector('[data-testid="search_post_thumbnail"]').getAttribute('src'),thumb);assert.ok(row.nextElementSibling.matches('hr.list-divider-line'));
+  const comment={kind:'comment',id:'c9',author:'Example',body:'First line\n\nSecond line',link_id:'parent',parent_id:'t3_parent',link_title:'Parent title',subreddit:'Alpha',created_utc:1700000000,score:3,postScore:867,postComments:100,permalink:'/r/Alpha/comments/parent/parent_title/c9/'};
+  const c=s.d.searchUnit(s.W.RTPostModel.normalizeComment(comment));
+  assert.equal(c.querySelector('h2').textContent,'Parent title');assert.equal(c.querySelectorAll('[data-testid="search-comment-content"] p').length,3,'two body paragraphs and the votes line');
+  const thread=[...c.querySelectorAll('a')].find(a=>a.textContent==='Go To Thread');assert.equal(new URL(thread.href).pathname,'/r/Alpha/comments/parent/parent_title/');
+  assert.equal(c.querySelector('[data-testid="search-counter-row"]').textContent.replace(/\s+/g,' ').trim(),'867 votes·100 comments');assert.equal(s.d.searchUnit(s.W.RTPostModel.normalizePost(raw('big',{score:12345,num_comments:1}))).querySelector('[data-testid="search-counter-row"]').textContent,'12.3K votes·1 comment');
+});
+test('opening a result keeps Reddit\'s own results hidden while its next page loads',async t=>{
+  const s=await boot(t,{leaveDelay:true});await search(s);const native=s.D.querySelector('[data-testid="search-sdui-post"]');assert.equal(native.closest('[data-rt-search-hidden]')?.hidden,true);
+  s.d.leaveRestoreMs=30;s.W.history.pushState({},'','/r/Alpha/comments/live/synthetic/');s.d.scan();await flush();
+  assert.equal(native.closest('[data-rt-search-hidden]')?.hidden,true,'no flash of Reddit\'s unfiltered list');
+  await new Promise(r=>setTimeout(r,60));assert.equal(native.closest('[data-rt-search-hidden]'),null,'restored if Reddit kept the old page');
+});
 test('deleted and banned accounts use archive profile shell with native search tabs',async t=>{
   for(const html of ['<shreddit-app><div><img alt="Deleted user"><h3>This account has been deleted</h3></div></shreddit-app>', '<shreddit-app><div id="shreddit-forbidden"><svg icon-name="ban-fill"></svg><h3 id="shreddit-forbidden-title">This account has been suspended</h3></div></shreddit-app>']){
     const s=await boot(t,{html});await search(s);assert.equal(s.d.archiveOnly,true);assert.equal(s.calls.filter(c=>c.action==='profile').length,0);assert.equal(s.queries.length,1);
-    assert.ok(s.D.querySelector('[data-rt-ui="archive-profile"]'));const tab=s.D.getElementById('search-results-page-tab-comments');assert.ok(tab);assert.match(tab.href,/\/user\/Example\/search\/\?q=words&type=comments/);assert.ok(s.d.feed.querySelector('shreddit-post'));
+    assert.ok(s.D.querySelector('[data-rt-ui="archive-profile"]'));const tab=s.D.getElementById('search-results-page-tab-comments');assert.ok(tab);assert.match(tab.href,/\/user\/Example\/search\/\?q=words&type=comments/);assert.ok(s.d.feed.querySelector('[data-rt-search-unit="post"]'));
   }
 });
 test('client cards are locally narrowed by Date, Post type and Subreddit',async t=>{
@@ -165,16 +186,16 @@ test('post type filters wait for native type proof rather than guessing from sea
 test('native comment cards merge by t1 fullname and keep one authenticated source',async t=>{
   const comment=(id,body)=>({kind:'comment',id,author:'Example',body,link_id:'parent',parent_id:'t3_parent',subreddit:'Alpha',created_utc:1700000000});
   const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words&type=comments',reddit:async()=>({posts:[comment('c1','Synthetic client words')],hasMore:false}),archive:async()=>({items:[comment('c1','Synthetic archive words'),comment('c2','Other synthetic words')],hasMore:false})});await search(s);
-  assert.deepEqual(shown(s.d),['t1_c1','t1_c2']);assert.equal(s.d.feed.querySelectorAll('shreddit-profile-comment[comment-id="t1_c1"]').length,1);assert.equal(s.calls.filter(c=>c.action==='profile').length,1);assert.equal(s.queries[0].postTypes,undefined);
+  assert.deepEqual(shown(s.d),['t1_c1','t1_c2']);assert.equal(s.d.feed.querySelectorAll('[data-fullname="t1_c1"]').length,1);const row=s.d.feed.querySelector('[data-fullname="t1_c1"]');assert.ok(row.querySelector('[data-testid="search-sdui-comment-unit"]'));assert.match(row.querySelector('[data-testid="search-comment-content"]').textContent,/Synthetic client words/);assert.equal(s.calls.filter(c=>c.action==='profile').length,1);assert.equal(s.queries[0].postTypes,undefined);
 });
 test('archive status cues follow current Reddit evidence and Deleted never includes an unverified item',async t=>{
   const s=await boot(t,{reddit:async()=>({posts:[],hasMore:false}),archive:async()=>({items:[raw('gone'),raw('live')],hasMore:false}),renderer:async(post,node)=>{node.innerHTML='<shreddit-post id="'+post.fullname+'" post-type="text"><span slot="credit-bar"></span><div slot="text-body">'+(post.id==='gone'?'[removed]':'Current synthetic text')+'</div></shreddit-post>';}});await search(s);
-  assert.match(s.d.nodes.get('gone').querySelector('[data-rt-source]').title,/Removed on Reddit/);assert.match(s.d.nodes.get('gone').textContent,/Synthetic words/);
-  s.d.activityFilter='deleted';s.d.deduplicate();await flush();assert.deepEqual(shown(s.d),['t3_gone']);assert.doesNotMatch(s.d.nodes.get('live').querySelector('[data-rt-source]').title,/Deleted on Reddit|Removed on Reddit/);
+  assert.match(s.d.nodes.get('gone').querySelector('[data-rt-row-source]').title,/Removed on Reddit/);assert.match(s.d.nodes.get('gone').querySelector('[data-testid="search-post-unit"]').textContent,/Synthetic search post/);
+  s.d.activityFilter='deleted';s.d.deduplicate();await flush();assert.deepEqual(shown(s.d),['t3_gone']);assert.doesNotMatch(s.d.nodes.get('live').querySelector('[data-rt-row-source]').title,/Deleted on Reddit|Removed on Reddit/);
 });
 test('archive fallback retains a native card and unknown status instead of inventing deletion',async t=>{
   const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words+-excluded',archive:async()=>({items:[raw('fallback')],hasMore:false}),renderer:async()=>{throw Error('Reddit could not render this card (HTTP 404).');}});await search(s);
-  const card=s.d.nodes.get('fallback');assert.ok(card.querySelector('shreddit-post'));assert.equal(card.dataset.rtArchiveFallback,'true');assert.doesNotMatch(card.querySelector('[data-rt-source]').title,/Deleted on Reddit|Removed on Reddit/);
+  const card=s.d.nodes.get('fallback');assert.ok(card.querySelector('[data-testid="search-post-unit"]'),'the row stays when Reddit has no card');assert.doesNotMatch(card.querySelector('[data-rt-row-source]').title,/Deleted on Reddit|Removed on Reddit/);
 });
 test('author aggregate counts do not add archive snapshots a second time',async t=>{
   const s=await boot(t);await search(s);s.d.loadSubredditCounts();await flush();assert.equal(s.d.subredditCounts().source,'archive');assert.equal(s.d.subredditCounts().entries.find(e=>e.key==='Alpha').count,9);
@@ -196,7 +217,7 @@ test('automatic discovery starts both sources on search and reports invalid unav
   const invalid=await boot(t,{autoDiscover:true,url:'https://www.reddit.com/user/Example/search/?q=cat+OR',html:'<shreddit-app><div><img alt="Deleted user"><h3>This account has been deleted</h3></div></shreddit-app>'});assert.match(invalid.d.status.textContent,/word on both sides/);assert.equal(invalid.queries.length,0);
 });
 test('ordinary client matches have no hidden-profile cue; Hidden shows verified archive-only matches',async t=>{
-  const s=await boot(t);await search(s);assert.equal(s.d.nodes.get('live').querySelector('[data-rt-source]'),null);assert.match(s.d.nodes.get('archive').querySelector('[data-rt-source]').title,/loaded search results/);assert.doesNotMatch(s.d.nodes.get('archive').querySelector('[data-rt-source]').title,/profile feed/);
+  const s=await boot(t);await search(s);assert.equal(s.d.nodes.get('live').querySelector('[data-rt-row-source]'),null);assert.match(s.d.nodes.get('archive').querySelector('[data-rt-row-source]').title,/loaded search results/);assert.doesNotMatch(s.d.nodes.get('archive').querySelector('[data-rt-row-source]').title,/profile feed/);
   s.d.activityFilter='hidden';s.d.deduplicate();await flush();assert.deepEqual(shown(s.d),['t3_archive']);
 });
 test('refresh replaces client ranking for Relevance and rt_sort Hot',async t=>{
