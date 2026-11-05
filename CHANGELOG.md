@@ -1,3 +1,17 @@
+# 0.29.0 preview
+
+- Profile search filters (Date, Post type, Subreddit and the rest) are each Reddit's own dropdown style, with clear labels, and close on a second click. Old is added to Reddit's own sort menu instead of a duplicate Sort button. On mobile they open as Reddit's bottom sheets.
+- Profile search loads with Reddit's own skeleton and no longer shows "Reddit's post search format changed" on direct visits; Reddit's newer result cards are read.
+- The Subreddit menu shows community icons, keeps every community listed after a pick, and supports picking several.
+- Changing a filter reloads results once, not twice: Reddit treated our unchanged-address write as a page reload.
+- Clicking a result card's body opens the post. Filter buttons are spaced like Reddit's, and filter pills keep their size on direct visits instead of starting large.
+- NSFW and spoiler text in profile cards and on archived post pages is blurred behind Reddit's View NSFW content / View spoiler pill instead of a "NSFW or spoiler snapshot" note.
+- Banned and deleted profiles show Reddit's grey suspended snoo in the header; their posts, and suspended or deleted authors in archived threads, use Reddit's small snoo-back avatar.
+
+Version choice: MINOR to 0.29.0 for the Reddit-style filter dropdowns, mobile bottom sheets and search skeleton, bundled with profile search fixes. No new permissions or storage schema migration.
+
+Validation: all 1,298 automated tests pass; ZIP integrity and source/stable-folder byte equality checked. Live Chrome checks (read-only) cover one feed rebuild and no Reddit page refetch per subreddit pick (first and second pick), 26px pills from the first frame on a direct visit with three subreddits, and on a deleted profile the grey snoo header (64px, contained) with no NSFW snapshot note.
+
 # 0.28.1 preview
 
 - Fast scrolling into an archive feed's loader no longer jumps past newly loaded posts.
