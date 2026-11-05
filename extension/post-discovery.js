@@ -120,6 +120,10 @@
     share:'m12.8 17.524 6.89-6.887a.9.9 0 000-1.273L12.8 2.477a1.64 1.64 0 00-1.782-.349 1.64 1.64 0 00-1.014 1.518v2.593C4.054 6.728 1.192 12.075 1 17.376a1.353 1.353 0 00.862 1.32 1.35 1.35 0 001.531-.364l.334-.381c1.705-1.944 3.323-3.791 6.277-4.103v2.509c0 .667.398 1.262 1.014 1.518a1.638 1.638 0 001.783-.349v-.002Zm-.994-1.548V12h-.9c-3.969 0-6.162 2.1-8.001 4.161.514-4.011 2.823-8.16 8-8.16h.9V4.024L17.784 10l-5.977 5.976Z',
     overflow:'M16 11.75a1.75 1.75 0 11.001-3.501A1.75 1.75 0 0116 11.75ZM11.75 10a1.75 1.75 0 10-3.501.001A1.75 1.75 0 0011.75 10Zm-6 0a1.75 1.75 0 10-3.501.001A1.75 1.75 0 005.75 10Z',
     caret:'M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7Z',
+    save:'M13.6 3.8c.882 0 1.6.718 1.6 1.6v11.166l-5.201-2.911L4.8 16.566V5.4a1.6 1.6 0 011.6-1.6h7.2Zm0-1.8H6.4A3.4 3.4 0 003 5.4v12.24c0 .682.56 1.172 1.172 1.172.19 0 .385-.047.57-.151L10 15.717l5.259 2.944a1.167 1.167 0 001.742-1.021V5.4A3.4 3.4 0 0013.6 2Z',
+    hide:'M3.497 3.503a.9.9 0 10-1.273 1.273l.909.909A10.141 10.141 0 00.92 8.472a3.225 3.225 0 000 3.058A10.296 10.296 0 0010 16.973a10.13 10.13 0 003.709-.712l1.457 1.457a.897.897 0 001.274 0 .9.9 0 000-1.273L3.497 3.503ZM10 15.172a8.497 8.497 0 01-7.495-4.494 1.448 1.448 0 010-1.354 8.436 8.436 0 011.9-2.365l2.069 2.068c-.062.271-.105.55-.105.84a3.77 3.77 0 003.767 3.767c.29 0 .569-.043.84-.106l1.31 1.31a8.284 8.284 0 01-2.284.335L10 15.172Zm.476-7.237L8.874 6.333a3.722 3.722 0 011.26-.233 3.77 3.77 0 013.767 3.767c0 .444-.091.864-.233 1.26l-1.603-1.603a1.963 1.963 0 00-1.59-1.589Zm8.605 3.595a10.297 10.297 0 01-2.22 2.792L15.59 13.05a8.512 8.512 0 001.905-2.372 1.448 1.448 0 000-1.354A8.496 8.496 0 007.69 5.15L6.282 3.742A10.249 10.249 0 0110 3.028c3.8 0 7.28 2.087 9.08 5.444a3.225 3.225 0 010 3.058Z',
+    // Reddit has no History icon; a clock on its outline ring.
+    history:'M10 2.8c3.97 0 7.2 3.23 7.2 7.2s-3.23 7.2-7.2 7.2-7.2-3.23-7.2-7.2S6.03 2.8 10 2.8ZM10 1a9 9 0 10.001 18.001A9 9 0 0010 1Zm-.9 4h1.8v4.627l3.036 3.037-1.272 1.272L9.1 10.373V5Z',
     back:'M17.5 9.1H4.679l5.487-5.462a.898.898 0 00.003-1.272.898.898 0 00-1.272-.003l-7.032 7a.898.898 0 000 1.275l7.03 7a.896.896 0 001.273-.003.898.898 0 00-.002-1.272l-5.487-5.462h12.82a.9.9 0 000-1.8Z'
   };
   function redditIcon(name,size=16){
@@ -511,15 +515,20 @@
       native=native?.closest('rpl-input-chip') || native;
       let scope;try{scope=JSON.parse(host?.getAttribute('scope'));}catch{}
       const enabled=!this.dead && !this.settingsPending && !this.settingsError && this.settings.postDiscovery && route?.list && route.username.toLowerCase()===signedInName.toLowerCase() && scope?.type==='profile' && String(scope.name).toLowerCase()===route.username.toLowerCase() && String(scope.path || '').replace(/\/$/,'').toLowerCase()==='/user/'+route.username.toLowerCase() && native && !native.hasAttribute('data-rt-list-chip') && this.ownHeaderDismissed!==routeKey;
-      if(!enabled){if(this.ownHeader && !native)this.ownHeaderDismissed=routeKey;this.clearOwnListHeader();if(root && route?.list && signedInName && this.settings.postDiscovery && !this.dead && this.ownHeaderDismissed!==routeKey){this.ownHeaderObserver=new MutationObserver(()=>this.syncOwnListHeader());this.ownHeaderObserver.observe(root,{childList:true,subtree:true});this.ownHeaderObserver.observe(host,{attributes:true,attributeFilter:['scope']});}return;}
+      if(!enabled){this.clearOwnListHeader();if(root && route?.list && signedInName && this.settings.postDiscovery && !this.dead && this.ownHeaderDismissed!==routeKey){this.ownHeaderObserver=new MutationObserver(()=>this.syncOwnListHeader());this.ownHeaderObserver.observe(root,{childList:true,subtree:true});this.ownHeaderObserver.observe(host,{attributes:true,attributeFilter:['scope']});}return;}
       const input=(field?.shadowRoot || root)?.querySelector('input[name="q"],textarea[name="q"]');
       if(this.ownHeader?.native===native && this.ownHeader.chip.isConnected && this.ownHeader.input===input && this.ownHeader.list===route.list)return;
       this.clearOwnListHeader();
+      // Reddit's own scope pill markup: leading icon, label, trailing close icon; the whole pill removes it.
       const chip=make('rpl-input-chip',native.className),label=listLabel(route.list),placeholder='Search your '+route.list;
       chip.dataset.rtListChip=route.list;chip.dataset.rtUi='own-list-chip';chip.setAttribute('slot',native.getAttribute('slot') || 'chips');
-      chip.append(make('span','',label));
-      const remove=make('button',native.querySelector('button')?.className || 'inline-flex items-center justify-center','×');remove.type='button';remove.setAttribute('aria-label','Remove '+label+' filter');
-      remove.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();this.ownHeaderDismissed=routeKey;this.clearOwnListHeader();if(route.view==='search')this.navigateProfileSearch(route,route.q,false);});chip.append(remove);native.after(chip);
+      for(const [key,value] of [['appearance','bordered'],['type','standalone'],['selected','']])chip.setAttribute(key,native.getAttribute(key) ?? value);
+      chip.setAttribute('aria-label','Remove '+label+' filter and search your whole profile');chip.style.marginInlineStart='4px';chip.setAttribute('role','button');chip.tabIndex=0;
+      const lead=make('span');lead.slot='leading';const holder=make('div','w-full h-full flex justify-center items-center');holder.append(redditIcon({saved:'save',history:'history',hidden:'hide',upvoted:'upvote',downvoted:'downvote'}[route.list],16));lead.append(holder);
+      const text=make('span','whitespace-nowrap overflow-hidden text-ellipsis text-label-2',label);text.setAttribute('aria-hidden','true');
+      const trail=make('span','flex items-center ms-2xs');trail.slot='trailing';trail.append(redditIcon('close',12));chip.append(lead,text,trail);
+      const remove=event=>{event.preventDefault();event.stopImmediatePropagation();this.ownHeaderDismissed=routeKey;this.clearOwnListHeader();if(route.view==='search')this.navigateProfileSearch(route,route.q,false);};
+      chip.addEventListener('click',remove,true);chip.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ' || event.key==='Backspace' || event.key==='Delete')remove(event);},true);native.after(chip);
       const placeholders=[...new Set([field,input].filter(Boolean))].map(node=>[node,node.getAttribute('placeholder')]);for(const [node] of placeholders)node.setAttribute('placeholder',placeholder);
       this.ownHeader={chip,native,host,field,form,input,list:route.list,placeholder,placeholders};form?.addEventListener('submit',this.onOwnSubmit,true);
       this.ownHeaderObserver=new MutationObserver(()=>this.syncOwnListHeader());

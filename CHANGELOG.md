@@ -6,6 +6,7 @@
 - Changing a filter reloads results once, not twice: Reddit treated our unchanged-address write as a page reload.
 - Clicking a result card's body opens the post. Filter buttons are spaced like Reddit's, and filter pills keep their size on direct visits instead of starting large.
 - NSFW and spoiler text in profile cards and on archived post pages is blurred behind Reddit's View NSFW content / View spoiler pill instead of a "NSFW or spoiler snapshot" note.
+- Your Saved, History, Hidden, Upvoted and Downvoted searches keep their list pill (now Reddit's own scope pill style with the list's icon) after searching, instead of losing it when Reddit re-renders the header.
 - Banned and deleted profiles show Reddit's grey suspended snoo in the header; their posts, and suspended or deleted authors in archived threads, use Reddit's small snoo-back avatar.
 
 Version choice: MINOR to 0.29.0 for the Reddit-style filter dropdowns, mobile bottom sheets and search skeleton, bundled with profile search fixes. No new permissions or storage schema migration.
