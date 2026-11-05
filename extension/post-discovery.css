@@ -172,7 +172,9 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-filter-chips[data-rt-rail]::-webkit-scrollbar{display:none}
 .rt-filter-chips[hidden]{display:none!important}
 /* Same pill as the chat search filters: tinted border and fill, small label, round remove button. */
-.rt-filter-chip{display:inline-flex;flex:0 0 auto;align-items:center;gap:5px;min-width:0;max-width:min(260px,75vw);min-height:26px;box-sizing:border-box;padding:2px 4px 2px 8px;border:1px solid color-mix(in srgb,#ff4500 22%,var(--color-neutral-border,#dfe6e9));border-radius:999px;background:color-mix(in srgb,#ff4500 6%,var(--color-neutral-background,#fff));color:var(--color-neutral-content-strong,#172328);font-size:12px;font-weight:400;line-height:1.35}
+.rt-filter-chip{flex:0 0 auto;min-width:0;max-width:min(260px,75vw)}
+/* Reddit's rpl-input-chip draws the pill itself; this look is only a fallback before it is defined. */
+.rt-filter-chip:not(:defined){display:inline-flex;flex:0 0 auto;align-items:center;gap:5px;min-width:0;max-width:min(260px,75vw);min-height:26px;box-sizing:border-box;padding:2px 4px 2px 8px;border:1px solid color-mix(in srgb,#ff4500 22%,var(--color-neutral-border,#dfe6e9));border-radius:999px;background:color-mix(in srgb,#ff4500 6%,var(--color-neutral-background,#fff));color:var(--color-neutral-content-strong,#172328);font-size:12px;font-weight:400;line-height:1.35}
 .rt-filter-chip-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px;border-radius:50%;overflow:hidden;color:var(--color-neutral-content-weak,#52656c)}
 .rt-filter-chip-icon svg{width:14px;height:14px}
 .rt-filter-chip-icon img,.rt-filter-chip-icon .rt-community-img{display:block;width:16px;height:16px;object-fit:cover;object-position:50% 50%;border-radius:50%}
@@ -181,8 +183,8 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-filter-chip-icon>img.rt-community-img{display:block!important;flex:none;width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;transform:none!important;position:static!important;object-fit:cover!important;object-position:50% 50%;aspect-ratio:1/1;border-radius:50%}
 .rt-filter-chip-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-filter-chips .rt-filter-chip-remove{order:10;display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:18px;margin-left:1px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
-.rt-filter-chips .rt-filter-chip-remove:hover{background:var(--color-neutral-background-hover,#eff3f5);color:var(--color-neutral-content-strong,#172328)}
-.rt-filter-chip-remove svg{width:11px;height:11px}
+.rt-filter-chips .rt-filter-chip-remove:hover{color:var(--color-neutral-content-strong,#172328)}
+.rt-filter-chip-remove svg{width:12px;height:12px}
 .rt-filter-chip-remove:focus-visible{outline:2px solid var(--color-neutral-border-strong,#167cb0);outline-offset:1px}
 /* Clear filters is a text button that always shows its whole label (Reddit's button rules once clipped it to 32px). */
 .rt-filter-chips .rt-filter-clear{display:inline-flex;height:auto;border-radius:0;align-items:center;flex:none;width:auto!important;min-width:max-content;max-width:none!important;min-height:26px;padding:0 6px;overflow:visible!important;white-space:nowrap;border:0;background:transparent;color:var(--color-neutral-content-weak,#576f76);font-size:12px;font-weight:600;cursor:pointer}
