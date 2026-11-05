@@ -113,6 +113,8 @@
   function button(text,run,icon){const b=make('button','',text);b.type='button';if(icon)b.prepend(glyph(icon));b.addEventListener('click',run);return b;}
   // Reddit's 20x20 action icons (same paths as Reddit's own markup), for archive-only controls.
   const REDDIT_ICONS={
+    'radio-button':'M10 2.8c3.97 0 7.2 3.23 7.2 7.2s-3.23 7.2-7.2 7.2-7.2-3.23-7.2-7.2S6.03 2.8 10 2.8ZM10 1a9 9 0 10.001 18.001A9 9 0 0010 1Z',
+    'radio-button-fill':'M10 2.8c3.97 0 7.2 3.23 7.2 7.2s-3.23 7.2-7.2 7.2-7.2-3.23-7.2-7.2S6.03 2.8 10 2.8ZM10 1a9 9 0 10.001 18.001A9 9 0 0010 1Z M10 14a4 4 0 100-8 4 4 0 000 8Z',
     // 12x12 (viewBox 0 0 12 12), Reddit's nsfw-fill-12.
     nsfw:'M6.506 5.119a.641.641 0 01.002-.723.74.74 0 01.31-.244 1.16 1.16 0 01.874 0 .695.695 0 01.306.244.647.647 0 01-.001.723.768.768 0 01-.303.259 1.008 1.008 0 01-.439.095 1.01 1.01 0 01-.44-.095.765.765 0 01-.309-.259Zm1.255 1.406a1.176 1.176 0 00-.507-.106c-.189 0-.36.036-.508.106a.854.854 0 00-.348.279.647.647 0 00-.127.386.6.6 0 00.13.382.87.87 0 00.353.266c.154.063.317.096.5.096s.352-.034.5-.1a.895.895 0 00.35-.27.625.625 0 00.123-.378.632.632 0 00-.124-.382.85.85 0 00-.342-.279Zm3.918.668c-.359.671-.958 1.57-1.937 2.55-.979.98-1.879 1.579-2.55 1.937-.749.4-1.637.4-2.386 0-.67-.358-1.57-.958-2.55-1.937-.98-.979-1.579-1.879-1.938-2.55-.4-.749-.4-1.637 0-2.387.36-.671.958-1.57 1.937-2.55.98-.98 1.88-1.579 2.55-1.937.75-.4 1.637-.4 2.386 0 .671.358 1.57.958 2.55 1.937.98.98 1.58 1.879 1.938 2.55.4.749.4 1.637 0 2.387ZM4 3.2H2.8v5.6H4V3.2Zm5.5 4.01a1.39 1.39 0 00-.246-.794 1.776 1.776 0 00-.6-.544c.168-.144.3-.312.395-.501.108-.21.163-.44.163-.682 0-.315-.089-.597-.266-.836a1.73 1.73 0 00-.712-.556A2.387 2.387 0 007.26 3.1c-.35 0-.677.065-.976.195-.298.13-.54.316-.72.555-.18.238-.27.521-.27.836 0 .243.054.472.163.684.096.189.228.357.394.501a1.788 1.788 0 00-.6.547 1.393 1.393 0 00.046 1.651c.192.255.465.46.806.608.341.148.727.223 1.151.223.416 0 .8-.074 1.14-.217.341-.145.613-.348.81-.605.197-.258.297-.549.297-.867l-.003-.001Z',
     upvote:'M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10ZM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179Z',
@@ -906,37 +908,44 @@
       if(this.inlineMenu?.button===button){this.closeInlineMenu();return;}
       this.closeInlineMenu();const sub=menuRow.rtSubmenu;if(!sub)return;
       menuRow.rtOnOpen?.();
-      const multi=sub.dataset.rtSubKey==='sub',panel=make('div','rt-inline-menu');panel.dataset.rtUi='search-inline-menu';panel.setAttribute('role','menu');panel.setAttribute('aria-label',menuRow.rtLabel);
-      const list=make('div','rt-inline-menu-list');let search=null,source=null;
+      const multi=sub.dataset.rtSubKey==='sub',panel=make('div','rt-inline-menu');panel.dataset.rtUi='search-inline-menu';
+      const list=make('ul','rt-inline-menu-list');list.setAttribute('role','menu');list.setAttribute('aria-label',menuRow.rtLabel);let search=null,source=null;
       if(multi){source=sub.querySelector('input');if(source){const box=make('div','rt-inline-menu-search');search=make('input');search.type='search';search.placeholder=source.placeholder || 'Search subreddits';search.setAttribute('aria-label',search.placeholder);search.value=source.value || '';
         search.addEventListener('input',()=>{source.value=search.value;source.dispatchEvent(new Event('input',{bubbles:true}));});box.append(search);panel.append(box);}}
       panel.append(list);
       const items=()=>[...sub.querySelectorAll('rpl-menu-item')].filter(el=>!el.hidden && !el.closest('[hidden],.rt-sub-head'));
-      const labelOf=el=>(el.getAttribute('aria-label') || el.querySelector('.rt-menu-caption')?.textContent || el.textContent || '').trim();
+      const labelOf=el=>(el.getAttribute('aria-label') || el.querySelector('.rt-sub-name,.rt-menu-caption')?.textContent || el.textContent || '').trim();
       const checkedOf=el=>el.getAttribute('aria-checked')==='true' || Boolean(el.querySelector('[data-rt-check],[icon-name="checkmark"]'));
+      // Rows copy Reddit's search dropdown item (li > a, 32px icon box with a 16px radio, body-2 label).
       const render=()=>{
-        const focused=list.contains(document.activeElement)?[...list.children].indexOf(document.activeElement):-1,all=items();list.replaceChildren();
-        if(!all.length)list.append(make('div','rt-inline-menu-empty',multi?'No subreddits found':'No options'));
+        const rowsNow=[...list.querySelectorAll('.rt-inline-menu-item')],focused=rowsNow.indexOf(document.activeElement),all=items();list.replaceChildren();
+        if(!all.length){const li=make('li','rt-inline-menu-empty text-body-2 text-secondary-plain-weak',multi?'No subreddits found':'No options');li.setAttribute('role','presentation');list.append(li);}
         for(const item of all){
           const label=labelOf(item),checked=checkedOf(item),opens=item.hasAttribute('aria-haspopup') || /^custom/i.test(label);
-          const row=make('button','rt-inline-menu-item');row.type='button';row.setAttribute('role',multi?'menuitemcheckbox':'menuitemradio');row.setAttribute('aria-checked',String(checked));
-          const mark=make('span',multi?'rt-inline-check':'rt-inline-radio');mark.setAttribute('aria-hidden','true');row.append(mark);
-          if(multi){const icon=item.querySelector('.rt-community-icon');if(icon)row.append(icon.cloneNode(true));}
-          row.append(make('span','rt-inline-menu-label',label));
-          const tail=item.querySelector('[data-rt-option-tail]')?.textContent;if(tail)row.append(make('span','rt-inline-menu-tail',tail));
-          row.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();
+          const li=make('li','relative list-none mt-0');li.setAttribute('role','presentation');
+          const row=make('div','flex justify-between relative px-md gap-xs text-secondary-plain hover:bg-neutral-background-hover cursor-pointer py-xs -outline-offset-1 no-underline rt-inline-menu-item'+(checked?' bg-neutral-background-selected':''));
+          row.tabIndex=-1;row.setAttribute('role',multi?'menuitemcheckbox':'menuitemradio');row.setAttribute('aria-checked',String(checked));
+          const lead=make('span','flex items-center gap-xs min-w-0 shrink'),mark=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4 rt-inline-mark');
+          if(multi)mark.append(make('span','rt-inline-check'));else mark.append(redditIcon(checked?'radio-button-fill':'radio-button',16));lead.append(mark);
+          if(multi){const icon=item.querySelector('.rt-community-icon');if(icon){const copy=icon.cloneNode(true);copy.className='rt-community-icon rt-inline-community';copy.removeAttribute('style');lead.append(copy);}}
+          const text=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]'),body=make('span','text-body-2 rt-inline-menu-label');body.append(make('span','text-secondary-onBackground',label));text.append(body);lead.append(text);
+          const end=make('span','flex items-center shrink-0'),slot=make('span','flex items-center justify-center h-lg text-12 text-secondary-plain-weak rt-inline-menu-tail'),tail=item.querySelector('[data-rt-option-tail]')?.textContent;if(tail)slot.textContent=tail;end.append(slot);
+          row.append(lead,end);li.append(row);
+          const choose=event=>{event.preventDefault();event.stopPropagation();
             // A choice that needs more input (a custom date range) continues in the full Feed options menu.
             if(opens){this.closeInlineMenu();this.openInFeedOptions(menuRow,button,item);return;}
-            item.click();if(!multi){this.closeInlineMenu();button.focus();}});
-          list.append(row);
+            item.click();if(!multi){this.closeInlineMenu();button.focus();}};
+          row.addEventListener('click',choose);row.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ')choose(event);});
+          list.append(li);
         }
-        if(focused>=0)list.children[Math.min(focused,list.children.length-1)]?.focus();
+        if(focused>=0)list.querySelectorAll('.rt-inline-menu-item')[focused]?.focus();
       };
       render();
       let pending=0;const observer=new MutationObserver(()=>{if(!pending)pending=setTimeout(()=>{pending=0;if(this.inlineMenu?.panel===panel)render();},0);});
       observer.observe(sub,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-checked','hidden']});
       document.body.append(panel);
-      const place=()=>{const r=button.getBoundingClientRect(),w=panel.offsetWidth;let left=r.left+scrollX;if(left+w>scrollX+innerWidth-8)left=scrollX+innerWidth-8-w;panel.style.left=Math.max(8,Math.round(left))+'px';panel.style.top=Math.round(r.bottom+scrollY+4)+'px';};
+      // Like Reddit's popper: centred under the button, 8px below it, kept inside the window.
+      const place=()=>{const r=button.getBoundingClientRect(),w=panel.offsetWidth;let left=r.left+r.width/2-w/2;left=Math.min(left,innerWidth-8-w);panel.style.left=Math.max(8,Math.round(left))+'px';panel.style.top=Math.round(r.bottom+8)+'px';};
       place();
       const outside=event=>{const path=event.composedPath();if(!path.includes(panel) && !path.includes(button))this.closeInlineMenu();};
       const keys=event=>{
@@ -945,9 +954,9 @@
         const rows=[...list.querySelectorAll('.rt-inline-menu-item')],i=rows.indexOf(document.activeElement);event.preventDefault();
         rows[(i+(event.key==='ArrowDown'?1:-1)+rows.length)%rows.length]?.focus();
       };
-      addEventListener('pointerdown',outside,true);addEventListener('keydown',keys,true);addEventListener('resize',place);
+      addEventListener('pointerdown',outside,true);addEventListener('keydown',keys,true);addEventListener('resize',place);addEventListener('scroll',place,{passive:true});
       button.setAttribute('aria-expanded','true');
-      this.inlineMenu={button,panel,cleanup:()=>{observer.disconnect();clearTimeout(pending);removeEventListener('pointerdown',outside,true);removeEventListener('keydown',keys,true);removeEventListener('resize',place);}};
+      this.inlineMenu={button,panel,cleanup:()=>{observer.disconnect();clearTimeout(pending);removeEventListener('pointerdown',outside,true);removeEventListener('keydown',keys,true);removeEventListener('resize',place);removeEventListener('scroll',place);}};
       (search || list.querySelector('[aria-checked="true"]') || list.querySelector('.rt-inline-menu-item'))?.focus({preventScroll:true});
     }
     closeInlineMenu(){const m=this.inlineMenu;if(!m)return;this.inlineMenu=null;m.cleanup();m.panel.remove();m.button.setAttribute('aria-expanded','false');}

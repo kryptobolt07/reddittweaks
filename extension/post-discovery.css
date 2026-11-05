@@ -216,7 +216,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-community-icon img,.rt-community-icon .rt-community-img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 50%;border-radius:50%}
 /* Profile (u_) icons are full-body avatars: keep the head in view. */
 .rt-community-icon[data-rt-community^="u_" i] img,.rt-filter-chip-icon[data-rt-community^="u_" i] img{object-position:50% 0%}
-.rt-community-img{display:block;object-fit:cover;border-radius:50%}
+.rt-community-img{display:block;margin:0!important;object-fit:cover;border-radius:50%}
 /* Shared submenu primitives. Legacy search-page menus keep their existing sizing. */
 .rt-activity-submenu{max-height:calc(100dvh - 180px);overflow-y:auto;overscroll-behavior:contain}
 .rt-activity-submenu[data-rt-panel]{max-height:none;overflow:visible}
@@ -295,23 +295,24 @@ button.rt-feed-trigger-anchor{position:fixed!important;opacity:0!important;point
 .rt-search-inline-filter:hover{background:var(--color-secondary-background-hover,var(--color-neutral-background-hover,#eff3f5))}
 .rt-search-inline-filter svg{width:16px;height:16px}
 .rt-search-inline-filter[aria-expanded="true"]{background:var(--color-secondary-background-selected,#dbe4e9);color:var(--color-neutral-content-strong,#0f1a1c)}
-/* Reddit's search dropdowns: a rounded panel of 48px rows, radio on the left, the current choice highlighted. */
-.rt-inline-menu{position:absolute;z-index:1000;min-width:180px;max-width:min(360px,calc(100vw - 16px));max-height:min(480px,70vh);display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden;border-radius:8px;background:var(--color-neutral-background-container,var(--color-neutral-background,#fff));color:var(--color-neutral-content-strong,#0f1a1c);box-shadow:0 4px 12px rgba(0,0,0,.16),0 0 1px rgba(0,0,0,.2);font:400 14px/20px var(--font-sans,inherit)}
-.rt-inline-menu-list{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
-.rt-inline-menu-item{display:flex;align-items:center;gap:16px;width:100%;min-height:48px;box-sizing:border-box;margin:0;padding:0 24px 0 20px;border:0;background:transparent;color:inherit;font:inherit;text-align:start;cursor:pointer}
-.rt-inline-menu-item:hover,.rt-inline-menu-item:focus-visible{background:var(--color-neutral-background-hover,#f2f4f5);outline:none}
+/* Reddit's search dropdown (measured on its sort menu): a fixed popper with an 8px radius, clipped, Reddit's
+   dropdown shadow, sized to content; 48px rows of 8px/16px padding, a 32px icon box with a 16px radio, 14/20 text. */
+.rt-inline-menu{position:fixed;z-index:1000;display:flex;flex-direction:column;width:max-content;min-width:120px;max-width:min(360px,calc(100vw - 16px));box-sizing:border-box;overflow:hidden;border-radius:8px;background:var(--color-neutral-background,#fff);color:var(--color-secondary-onBackground,#181c1f);box-shadow:0 4px 8px 0 rgba(0,0,0,.1),0 6px 12px 0 rgba(0,0,0,.25)}
+.rt-inline-menu-list{margin:0;padding:0;list-style:none;max-height:50vh;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.rt-inline-menu-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 16px;font-size:14px;line-height:20px;color:var(--color-secondary-plain,#181c1f);cursor:pointer;outline-offset:-1px}
+.rt-inline-menu-item:hover{background:var(--color-neutral-background-hover,#f6f8f9)}
 .rt-inline-menu-item[aria-checked="true"]{background:var(--color-neutral-background-selected,#e5ebee)}
-.rt-inline-menu-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rt-inline-menu-tail{flex:none;font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
-.rt-inline-radio,.rt-inline-check{flex:none;position:relative;box-sizing:border-box;width:20px;height:20px;border:2px solid currentColor}
-.rt-inline-radio{border-radius:50%}
-.rt-inline-radio::after{content:"";position:absolute;inset:3px;border-radius:50%;background:currentColor;transform:scale(0)}
-[aria-checked="true"]>.rt-inline-radio::after{transform:scale(1)}
-.rt-inline-check{border-radius:4px}
-[aria-checked="true"]>.rt-inline-check{background:currentColor}
-[aria-checked="true"]>.rt-inline-check::after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid var(--color-neutral-background,#fff);border-width:0 2px 2px 0;transform:rotate(45deg)}
-.rt-inline-menu-item .rt-community-icon{--rt-icon-size:24px;flex:none}
+.rt-inline-menu-item:focus-visible{outline:2px solid var(--color-neutral-border-strong,#0f1a1c)}
+.rt-inline-mark{display:flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px}
+.rt-inline-mark svg{display:block;width:16px;height:16px}
+.rt-inline-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px}
+.rt-inline-menu-tail{font-size:12px;line-height:16px;color:var(--color-secondary-plain-weak,#576f76)}
+.rt-inline-check{position:relative;display:block;box-sizing:border-box;width:16px;height:16px;border:1.8px solid currentColor;border-radius:4px}
+[aria-checked="true"] .rt-inline-check{background:currentColor}
+[aria-checked="true"] .rt-inline-check::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid var(--color-neutral-background,#fff);border-width:0 1.8px 1.8px 0;transform:rotate(45deg)}
+.rt-inline-community{--rt-icon-size:24px;flex:none;width:24px;height:24px}
+.rt-inline-community svg{width:16px;height:16px}
 .rt-inline-menu-search{flex:none;padding:12px 16px 8px}
-.rt-inline-menu-search input{display:block;box-sizing:border-box;width:100%;height:40px;margin:0;padding:0 16px;border:1px solid var(--color-neutral-border-medium,#c9d3d8);border-radius:999px;background:transparent;color:inherit;font:inherit;outline:none}
+.rt-inline-menu-search input{display:block;box-sizing:border-box;width:100%;min-width:200px;height:40px;margin:0;padding:0 16px;border:1px solid var(--color-neutral-border-medium,#c9d3d8);border-radius:999px;background:transparent;color:inherit;font:400 14px/20px var(--font-sans,inherit);outline:none}
 .rt-inline-menu-search input:focus{border-color:var(--color-neutral-border-strong,#0f1a1c)}
-.rt-inline-menu-empty{padding:12px 20px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-inline-menu-empty{padding:12px 16px}
