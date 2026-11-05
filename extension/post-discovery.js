@@ -865,7 +865,7 @@
       const value=this.activityMain?.querySelector('[data-rt-activity-value]'),labels={all:'All',hidden:'Hidden',deleted:'Deleted'};if(value && value.textContent!==labels[this.activityFilter])value.textContent=labels[this.activityFilter];
       for(const row of this.activityMenu.querySelectorAll('[data-rt-activity-filter]')){const checked=row.dataset.rtActivityFilter===this.activityFilter;if(row.getAttribute('aria-current')!==String(checked))row.setAttribute('aria-current',String(checked));let mark=row.querySelector('[data-rt-check]');if(checked && !mark){mark=glyph('checkmark');mark.dataset.rtCheck='true';row.firstElementChild.append(mark);}else if(!checked)mark?.remove();}
       this.syncFilterMenu();
-      if(this.isSearch())this.syncSearchInlineFilters();else this.activityMain?.parentElement?.removeAttribute('data-rt-inline');
+      if(this.isSearch())this.syncSearchInlineFilters();else this.closeInlineMenu();
     }
     // Profile search: Reddit's own row already holds "Relevance", "All time" and "Safe Search". Our Feed options
     // items sit to their right as the same plain dropdown buttons; each opens its own submenu under itself.
@@ -885,16 +885,8 @@
         if(!button){
           button=make('button','border-0 text-12 font-semibold text-secondary-plain button-small px-[calc(var(--rem10)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex rt-search-inline-filter');button.type='button';button.setAttribute('aria-haspopup','true');
           const text=make('span','flex items-center gap-xs'),caret=make('span','flex ms-2xs me-[-2px]');caret.append(redditIcon('caret',16));button.append(text,caret);button.rtText=text;
-          // The dropdown closes itself on pointerdown outside it; remember whether this button's menu was the open one.
-          button.addEventListener('pointerdown',()=>{button.rtWasOpen=dropdown.hasAttribute('open') && this.searchInlineActive===button;},true);
-          button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();
-            if(button.rtWasOpen || dropdown.hasAttribute('open') && this.searchInlineActive===button){button.rtWasOpen=false;this.searchInlineActive=null;dropdown.removeAttribute('open');button.setAttribute('aria-expanded','false');return;}
-            for(const other of this.searchInlineButtons.values())other.setAttribute('aria-expanded','false');this.searchInlineActive=button;button.setAttribute('aria-expanded','true');
-            // Opened from the row, a submenu is a plain Reddit dropdown list: no Back/title header, its own height.
-            main.parentElement?.setAttribute('data-rt-inline','');
-            const box=button.getBoundingClientRect();trigger.style.left=Math.round(box.left)+'px';trigger.style.top=Math.round(box.top)+'px';trigger.style.width=Math.round(box.width)+'px';trigger.style.height=Math.round(box.height)+'px';
-            // Opening the dropdown resets it to its main list; open this item's submenu right after that.
-            dropdown.setAttribute('open','');setTimeout(()=>{if(!dropdown.hasAttribute('open'))return;main.classList.remove('hidden');menuRow.click();this.openSubmenu?.style.removeProperty('--rt-menu-height');},60);});
+          button.setAttribute('aria-expanded','false');
+          button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.toggleInlineMenu(button,menuRow);});
           this.searchInlineButtons.set(menuRow,button);
         }
         // Like Reddit's Relevance / All time buttons: the current value only (the name when nothing is set).
@@ -907,6 +899,65 @@
       for(const [menuRow,button] of this.searchInlineButtons)if(!keep.has(menuRow)){button.remove();this.searchInlineButtons.delete(menuRow);}
     }
 
+    // Each inline search filter opens its own menu drawn like Reddit's search dropdowns (radio rows, the current
+    // choice highlighted; checkbox rows and a search box for subreddits). Choosing a row clicks the matching
+    // Feed options entry, so the filter logic and state stay in one place.
+    toggleInlineMenu(button,menuRow){
+      if(this.inlineMenu?.button===button){this.closeInlineMenu();return;}
+      this.closeInlineMenu();const sub=menuRow.rtSubmenu;if(!sub)return;
+      menuRow.rtOnOpen?.();
+      const multi=sub.dataset.rtSubKey==='sub',panel=make('div','rt-inline-menu');panel.dataset.rtUi='search-inline-menu';panel.setAttribute('role','menu');panel.setAttribute('aria-label',menuRow.rtLabel);
+      const list=make('div','rt-inline-menu-list');let search=null,source=null;
+      if(multi){source=sub.querySelector('input');if(source){const box=make('div','rt-inline-menu-search');search=make('input');search.type='search';search.placeholder=source.placeholder || 'Search subreddits';search.setAttribute('aria-label',search.placeholder);search.value=source.value || '';
+        search.addEventListener('input',()=>{source.value=search.value;source.dispatchEvent(new Event('input',{bubbles:true}));});box.append(search);panel.append(box);}}
+      panel.append(list);
+      const items=()=>[...sub.querySelectorAll('rpl-menu-item')].filter(el=>!el.hidden && !el.closest('[hidden],.rt-sub-head'));
+      const labelOf=el=>(el.getAttribute('aria-label') || el.querySelector('.rt-menu-caption')?.textContent || el.textContent || '').trim();
+      const checkedOf=el=>el.getAttribute('aria-checked')==='true' || Boolean(el.querySelector('[data-rt-check],[icon-name="checkmark"]'));
+      const render=()=>{
+        const focused=list.contains(document.activeElement)?[...list.children].indexOf(document.activeElement):-1,all=items();list.replaceChildren();
+        if(!all.length)list.append(make('div','rt-inline-menu-empty',multi?'No subreddits found':'No options'));
+        for(const item of all){
+          const label=labelOf(item),checked=checkedOf(item),opens=item.hasAttribute('aria-haspopup') || /^custom/i.test(label);
+          const row=make('button','rt-inline-menu-item');row.type='button';row.setAttribute('role',multi?'menuitemcheckbox':'menuitemradio');row.setAttribute('aria-checked',String(checked));
+          const mark=make('span',multi?'rt-inline-check':'rt-inline-radio');mark.setAttribute('aria-hidden','true');row.append(mark);
+          if(multi){const icon=item.querySelector('.rt-community-icon');if(icon)row.append(icon.cloneNode(true));}
+          row.append(make('span','rt-inline-menu-label',label));
+          const tail=item.querySelector('[data-rt-option-tail]')?.textContent;if(tail)row.append(make('span','rt-inline-menu-tail',tail));
+          row.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();
+            // A choice that needs more input (a custom date range) continues in the full Feed options menu.
+            if(opens){this.closeInlineMenu();this.openInFeedOptions(menuRow,button,item);return;}
+            item.click();if(!multi){this.closeInlineMenu();button.focus();}});
+          list.append(row);
+        }
+        if(focused>=0)list.children[Math.min(focused,list.children.length-1)]?.focus();
+      };
+      render();
+      let pending=0;const observer=new MutationObserver(()=>{if(!pending)pending=setTimeout(()=>{pending=0;if(this.inlineMenu?.panel===panel)render();},0);});
+      observer.observe(sub,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-checked','hidden']});
+      document.body.append(panel);
+      const place=()=>{const r=button.getBoundingClientRect(),w=panel.offsetWidth;let left=r.left+scrollX;if(left+w>scrollX+innerWidth-8)left=scrollX+innerWidth-8-w;panel.style.left=Math.max(8,Math.round(left))+'px';panel.style.top=Math.round(r.bottom+scrollY+4)+'px';};
+      place();
+      const outside=event=>{const path=event.composedPath();if(!path.includes(panel) && !path.includes(button))this.closeInlineMenu();};
+      const keys=event=>{
+        if(event.key==='Escape'){event.preventDefault();this.closeInlineMenu();button.focus();return;}
+        if(!['ArrowDown','ArrowUp'].includes(event.key) || !panel.contains(document.activeElement))return;
+        const rows=[...list.querySelectorAll('.rt-inline-menu-item')],i=rows.indexOf(document.activeElement);event.preventDefault();
+        rows[(i+(event.key==='ArrowDown'?1:-1)+rows.length)%rows.length]?.focus();
+      };
+      addEventListener('pointerdown',outside,true);addEventListener('keydown',keys,true);addEventListener('resize',place);
+      button.setAttribute('aria-expanded','true');
+      this.inlineMenu={button,panel,cleanup:()=>{observer.disconnect();clearTimeout(pending);removeEventListener('pointerdown',outside,true);removeEventListener('keydown',keys,true);removeEventListener('resize',place);}};
+      (search || list.querySelector('[aria-checked="true"]') || list.querySelector('.rt-inline-menu-item'))?.focus({preventScroll:true});
+    }
+    closeInlineMenu(){const m=this.inlineMenu;if(!m)return;this.inlineMenu=null;m.cleanup();m.panel.remove();m.button.setAttribute('aria-expanded','false');}
+    // The full Feed options menu, opened at one submenu under an inline button (for choices that need more input).
+    openInFeedOptions(menuRow,button,item){
+      const dropdown=this.activityDropdown,main=this.activityMain,trigger=dropdown?.querySelector('button[aria-label="Feed options"]');if(!dropdown || !main || !trigger)return;
+      const box=button.getBoundingClientRect();trigger.style.left=Math.round(box.left)+'px';trigger.style.top=Math.round(box.top)+'px';trigger.style.width=Math.round(box.width)+'px';trigger.style.height=Math.round(box.height)+'px';
+      // Opening the dropdown resets it to its main list; open this item's submenu (and the item) right after that.
+      dropdown.setAttribute('open','');setTimeout(()=>{if(!dropdown.hasAttribute('open'))return;main.classList.remove('hidden');menuRow.click();item?.click();},60);
+    }
     // Adds our archive-backed Old sort to Reddit's search sort menu (its items render when the menu opens).
     hookSearchSortMenu(host){
       if(!host)return;
