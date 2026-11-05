@@ -238,8 +238,11 @@
   }
   // One filter as Reddit's own scope pill (rpl-input-chip, as for u/name in the header search):
   // leading icon, label, trailing close; a click anywhere on it removes the filter.
+  // Reddit's custom elements may set attributes in their constructor, which document.createElement
+  // rejects ("The result must not have attributes"). Parsed elements are upgraded later, which is allowed.
+  function parsedElement(tag,cls){const holder=document.createElement('div');holder.innerHTML='<'+tag+'></'+tag+'>';const el=holder.firstElementChild;el.remove();if(cls)el.className=cls;return el;}
   function pill(chip,{make,glyph,onRemove}){
-    const el=make('rpl-input-chip','rt-filter-chip');el.dataset.rtChip=chip.id;
+    const el=parsedElement('rpl-input-chip','rt-filter-chip');el.dataset.rtChip=chip.id;
     for(const [key,value] of [['appearance','bordered'],['type','standalone']])el.setAttribute(key,value);
     el.setAttribute('aria-label','Remove filter '+chip.label);
     const lead=make('span','rt-filter-chip-lead');lead.slot='leading';lead.style.cssText='display:flex;align-items:center';lead.append(chipIcon(chip));
@@ -354,5 +357,5 @@
     return {el,list,note,input,back,head,render,reset(){input.value='';if(clear)clear.hidden=true;list.scrollTop=0;},get data(){return last;}};
   }
   const iconNames=Object.freeze([...Object.keys(iconPaths),'gif']);
-  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,pill,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
+  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,pill,parsedElement,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
 })();

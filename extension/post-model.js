@@ -140,6 +140,10 @@
     // Retain public search metadata across page-world and archive normalization.
     result.flair=str(raw.link_flair_text ?? raw.flair,1000);
     result.domain=str(raw.domain,255);
+    // Search-row facts: the community icon (Reddit's image hosts only) and, for comments, the parent post's counts.
+    const icon=avatarUrl(raw.subredditIcon);if(icon && /(?:^|\.)(?:redditmedia\.com|redditstatic\.com|redd\.it)$/.test(new URL(icon).hostname))result.subredditIcon=icon;
+    if(typeof raw.subredditColor==='string' && /^#[0-9a-f]{6}$/i.test(raw.subredditColor))result.subredditColor=raw.subredditColor;
+    for(const key of ['postScore','postComments']){const n=Number(raw[key]);if(raw[key]!=null && raw[key]!=='' && Number.isFinite(n))result[key]=Math.max(-1e9,Math.min(1e9,Math.floor(n)));}
     const inline=bodyMedia(raw,body);if(inline.length)result.bodyMedia=inline;
     if(typeof (raw.is_self ?? raw.isSelf)==='boolean')result.isSelf=raw.is_self ?? raw.isSelf;
     if(source==='arctic-shift'){

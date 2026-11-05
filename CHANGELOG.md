@@ -8,6 +8,9 @@
 - NSFW and spoiler text in profile cards and on archived post pages is blurred behind Reddit's View NSFW content / View spoiler pill instead of a "NSFW or spoiler snapshot" note.
 - Your Saved, History, Hidden, Upvoted and Downvoted searches keep their list pill (now Reddit's own scope pill style with the list's icon) after searching, instead of losing it when Reddit re-renders the header.
 - Filter pills (date, post type, subreddit, Oldest first) use Reddit's own search scope pill everywhere. On desktop profile search they sit in the header search next to u/name, several communities share one pill, and a new query typed there keeps them.
+- Profile search and Saved/History/Hidden/Upvoted/Downvoted searches show results as Reddit's own search rows (community · time, title, votes · comments, thumbnail; comments in Reddit's grey comment box with Go To Thread), with Reddit's "Show results from all of Reddit" line, instead of full feed cards with an "Open post on Reddit" link. Reddit's own results no longer load a full card each; archive results still check their current Reddit status in the background.
+- Opening a result from a filtered or list search no longer flashes Reddit's unfiltered results while the post loads.
+- Community icons in the Subreddit menu appear sooner: icons that came with search results are used at once, more load in parallel, and found icons are remembered for the browser session.
 - Banned and deleted profiles show Reddit's grey suspended snoo in the header; their posts, and suspended or deleted authors in archived threads, use Reddit's small snoo-back avatar.
 
 Version choice: MINOR to 0.29.0 for the Reddit-style filter dropdowns, mobile bottom sheets and search skeleton, bundled with profile search fixes. No new permissions or storage schema migration.
