@@ -47,7 +47,13 @@ for(const hydrated of [true,false])test(`own tab header adds native-styled remov
  for(const q of ['', 'author:Writer cats']){input.value=q;const event=new s.W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true});input.dispatchEvent(event);assert.equal(event.defaultPrevented,true);assert.equal(urls.at(-1).pathname,'/user/Example/search/');assert.equal(urls.at(-1).searchParams.get('rt_list'),'saved');assert.equal(urls.at(-1).searchParams.get('q'),q);}
  input.value='form query';const submit=new s.W.Event('submit',{bubbles:true,composed:true,cancelable:true});form.dispatchEvent(submit);assert.equal(submit.defaultPrevented,true);assert.equal(urls.at(-1).searchParams.get('q'),'form query');
  for(const options of [{shiftKey:true},{ctrlKey:true},{isComposing:true},{repeat:true}]){const e=new s.W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true,...options});input.dispatchEvent(e);assert.equal(e.defaultPrevented,false);}
- pill.querySelector('button').click();s.d.scan();assert.equal(root.querySelector('[data-rt-list-chip]'),null);assert.equal(input.placeholder,'Search in u/Example');assert.ok(native.isConnected);
+ pill.click();s.d.scan();assert.equal(root.querySelector('[data-rt-list-chip]'),null);assert.equal(input.placeholder,'Search in u/Example');assert.ok(native.isConnected);
+});
+test('own pill copies Reddit\'s scope pill markup and survives Reddit re-rendering the header',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=cats&rt_list=saved',withHeader:true});let pill=s.h.root.querySelector('[data-rt-list-chip]');
+ assert.equal(pill.getAttribute('appearance'),'bordered');assert.equal(pill.querySelector('[slot="leading"] svg').getAttribute('icon-name'),'save');assert.equal(pill.querySelector('.text-label-2').textContent,'Saved');assert.equal(pill.querySelector('[slot="trailing"] svg').getAttribute('icon-name'),'close');
+ const parent=s.h.native.parentNode;s.h.native.remove();await flush();s.d.syncOwnListHeader();parent.prepend(s.h.native);await flush();s.d.syncOwnListHeader();
+ pill=s.h.root.querySelector('[data-rt-list-chip]');assert.ok(pill,'re-added after the header re-renders');assert.equal(s.d.ownHeaderDismissed || '','');
 });
 test('profile scope removal drops own pill; navigation and teardown restore placeholders',async t=>{
  const s=await setup(t,{path:'/user/Example/history/',withHeader:true});assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));
@@ -105,7 +111,7 @@ test('History uses one page and always states its limited coverage',async t=>{
  const s=await setup(t,{path:'/user/Example/search/?rt_list=history'});await s.d.refreshActivity();assert.equal(listCalls(s).length,1);assert.equal(listCalls(s)[0].args.list,'history');assert.match(s.d.notice.textContent,/History only includes your ~20 most recently viewed posts/);assert.equal(s.d.listState.done,true);assert.equal(s.archives.length,0);
 });
 test('removing the search view list chip navigates back to ordinary profile search',async t=>{
- const s=await setup(t,{path:'/user/Example/search/?q=cats&rt_list=saved',withHeader:true});const urls=navigations(s);s.h.root.querySelector('[data-rt-list-chip] button').click();assert.equal(urls.at(-1).searchParams.has('rt_list'),false);assert.equal(urls.at(-1).searchParams.get('q'),'cats');assert.ok(s.h.native.isConnected);
+ const s=await setup(t,{path:'/user/Example/search/?q=cats&rt_list=saved',withHeader:true});const urls=navigations(s);s.h.root.querySelector('[data-rt-list-chip]').click();assert.equal(urls.at(-1).searchParams.has('rt_list'),false);assert.equal(urls.at(-1).searchParams.get('q'),'cats');assert.ok(s.h.native.isConnected);
 });
 test('route events reverify identity without cancelling that read when the search view resets',async t=>{
  const s=await setup(t,{autoDiscover:true,observe:true});assert.equal(listCalls(s).length,1);
