@@ -178,7 +178,7 @@
   function replaceUrl(url){const next=url.pathname+url.search+url.hash;if(next===location.pathname+location.search+location.hash)return false;try{history.replaceState(history.state,'',next);return true;}catch{return false;}}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
-  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
+  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
   class Discovery {
     constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={}}={}){
       this.nativeWaitMs=timing.nativeWaitMs ?? nativeWaitMs;this.retryUnitMs=timing.retryUnitMs ?? 1000;this.sourceWaitMs=timing.sourceWaitMs ?? sourceWaitMs;
@@ -186,7 +186,7 @@
       this.settingsPending=true;this.syncProfileNotice();
       // The signed-in account is checked again on every route, but the last confirmed one stays in use meanwhile
       // (every list request re-confirms it in the page world), so Back to a parked list doesn't wait or flash.
-      this.onRoute=()=>{if(ownListCandidate()){this.ownIdentityChecked=false;this.clearOwnListHeader();}this.syncProfileNotice();this.schedule();};this.onSettings=(changes,area)=>{if(area==='local' && changes[key])this.applySettings(M.normalizeSettings(changes[key].newValue));};
+      this.onRoute=()=>{if(ownListCandidate())this.ownIdentityChecked=false;this.syncProfileNotice();this.schedule();};this.onSettings=(changes,area)=>{if(area==='local' && changes[key])this.applySettings(M.normalizeSettings(changes[key].newValue));};
       this.onOwnSubmit=event=>this.submitOwnList(event);document.addEventListener('submit',this.onOwnSubmit,true);
       this.onOwnFocus=()=>this.syncOwnListHeader();document.addEventListener('focusin',this.onOwnFocus,true);
       this.onEmptyProfileSearch=event=>{
@@ -252,7 +252,11 @@
     ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item],[data-rt-ui=activity-slot]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
     // cheap: a page-level mutation, which only needs a full pass if the mounted page changed.
     schedule(cheap=false){if(this.dead)return;if(!cheap)this.scanFull=true;if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;const full=this.scanFull;this.scanFull=false;this.scan({cheap:!full});},60);}
-    reset({retainNavigation=false,detach=false,keepCards=false}={}){this.flushVirtualization();this.clearHeaderFilters();this.listState=null;this.listEmpty?.remove();this.listEmpty=null;for(const [tab,state] of this.listTabs || []){tab.setAttribute('href',state.href);tab.toggleAttribute('faceplate-tab-selected',state.selected);if(state.current==null)tab.removeAttribute('aria-current');else tab.setAttribute('aria-current',state.current);tab.removeEventListener('click',state.click,true);}this.listTabs=null;this.listTabsShell?.remove();this.listTabsShell=null;this.listAllTab?.remove();this.listAllTab=null;
+    reset({retainNavigation=false,detach=false,keepCards=false}={}){this.flushVirtualization();this.clearHeaderFilters();this.listState=null;if(!detach)this.listEmpty?.remove();this.listEmpty=null;const tabs=this.listTabs,tabShell=this.listTabsShell,allTab=this.listAllTab;
+      const undoTabs=()=>{for(const [tab,state] of tabs || []){tab.setAttribute('href',state.href);tab.toggleAttribute('faceplate-tab-selected',state.selected);if(state.current==null)tab.removeAttribute('aria-current');else tab.setAttribute('aria-current',state.current);tab.removeEventListener('click',state.click,true);}tabShell?.remove();allTab?.remove();};
+      // A parked list search keeps its tabs on screen; whatever Reddit didn't replace is put back after its page loads.
+      if(!detach || !this.parkingVisible || this.leaveRestoreMs===0 || !tabs)undoTabs();else setTimeout(()=>{const now=pageRoute();if(!(now?.kind==='profile' && now.view==='search') || !allTab?.isConnected)undoTabs();},this.leaveRestoreMs ?? 5000);
+      this.listTabs=null;this.listTabsShell=null;this.listAllTab=null;
       // Search owns a separate feed; Reddit's original result objects stay in place.
       // Leaving search (opening a result): Reddit's own results stay hidden until Reddit replaces the page,
       // so its unfiltered list never flashes during the transition. Turning the feature off still restores them.
@@ -263,8 +267,9 @@
         // Anything Reddit didn't replace comes back once its page has had time to load.
         const entries=[...pendingLeave,...this.searchHidden];this.leaveHidden=entries;this.leaveRestoreTimer=setTimeout(()=>{if(this.leaveHidden===entries){this.leaveHidden=null;const now=pageRoute();if(!(now?.kind==='profile' && now.view==='search'))restore(entries.filter(([node])=>node.isConnected));}},this.leaveRestoreMs ?? 5000);
       }else restore([...pendingLeave,...(this.searchHidden || [])]);
-      this.scopeSwitcher?.remove();this.scopeSwitcher=null;
-      this.searchHidden=new Map();this.searchFeed?.remove();this.searchFeed=null;this.searchSteps=0;this.searchResumeMenu=null;this.searchRestoringMenu=false;
+      // detach (a parked search): everything stays on screen until Reddit replaces the page.
+      if(!detach)this.scopeSwitcher?.remove();this.scopeSwitcher=null;
+      this.searchHidden=new Map();if(!detach)this.searchFeed?.remove();this.searchFeed=null;this.searchSteps=0;this.searchResumeMenu=null;this.searchRestoringMenu=false;
       // detach: stop all work but leave every change inside the retained feed.
       const undo=!detach;if(undo)for(const node of this.collapsedNativeRules || [])node.removeAttribute('data-rt-rule-collapsed');this.collapsedNativeRules=new Set();if(undo){for(const node of this.mergePendingNodes || [])node.removeAttribute('data-rt-order-pending');this.feed?.removeAttribute('data-rt-merge-waiting');}this.mergePendingNodes=new Set();this.publishedNative=new WeakSet();if(undo){this.feed?.removeAttribute('data-rt-activity');this.feed?.removeAttribute('data-rt-loading-owner');}this.feedPresentationObserver?.disconnect();this.feedPresentationObserver=null;if(undo)for(const style of this.nativeLoadingStyles || [])style.remove();this.nativeLoadingStyles=new Set();if(undo)for(const [node,hidden] of this.filteredNative || []){node.hidden=hidden;node.removeAttribute('data-rt-filter-hidden');node.removeAttribute('data-rt-activity-match');const original=this.virtualNodes?.get(node);if(original){original.hidden=hidden;original.removeAttribute('data-rt-filter-hidden');original.removeAttribute('data-rt-activity-match');}}if(undo){this.clearActivityMenu();this.controlsTarget?.remove();}else this.detachActivityMenu();this.controlsTarget=null;if(this.commentSort && undo){this.commentSort.node.hidden=this.commentSort.hidden;this.commentSort.node.removeAttribute('data-rt-comment-sort-suppressed');this.commentSort=null;}this.commentSort=null;this.activityArchiveAttempted=false;if(undo)this.activityEmpty?.remove();this.activityEmpty=null;this.activityFilter='all';this.filteredNative=new Map();this.postStatuses=new Map();if(undo){this.restoreRecoveredBodies();this.profileNavigation?.remove();}else this.forgetRecoveredBodies();if(!retainNavigation){this.profileNavigation=null;this.navigationLease=crypto.randomUUID();}else if(this.profileNavigation?.dataset.state==='loading')this.profileNavigation.dataset.state='idle';if(undo){this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();}this.archiveNotice=this.archiveNoticeAnchor=this.archiveShell=this.archiveMain=this.archiveStats=this.avatarSlot=this.avatarPlaceholder=null;this.profileOverlay=false;this.profileTransition=false;this.presentedFeedNodes=null;this.archiveOnly=false;this.accountState='';this.generation=++generationSeq;this.recoveryObserver?.disconnect();this.recoveryObserver=null;this.recoveryObserved=new WeakSet();clearTimeout(this.recoveryTimer);this.recoveryTimer=null;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.batchObserver?.disconnect();this.batchObserver=null;this.nativeLoadingObserver?.disconnect();this.nativeLoadingObserver=null;this.nativeLoadingRoot=null;if(this.batchFrame)cancelAnimationFrame(this.batchFrame);this.batchFrame=null;this.activeProfileBatch=null;this.replyEnrichment=null;this.publishedCards=new Set();this.batchedProfile=false;this.batchInView=false;this.batchAutoPaused=false;this.forceProfileBatch=false;this.nativeBatch={active:0,queue:[]};this.nativeRetries=new WeakMap();this.postMetadata=new Map();this.replyContexts=new Map();this.replyAuthors=new Map();this.replyArchiveChecked=new Set();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed && undo){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;if(undo && !keepCards)for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
         // Reddit still owns this placeholder and may restore its detached node.
@@ -293,14 +298,16 @@
     // Search results live in our own feed, and Reddit rebuilds its search page on Back, so a search
     // is parked by its address and put back into the rebuilt page (see restoreSearchPark).
     searchParkKey(context=this.context){return context?.view==='search'?context.key+'|'+new URLSearchParams([...new URLSearchParams(location.search)].filter(([name])=>/^rt_/.test(name))).toString():'';}
-    parkSearch(){
-      const route=pageRoute();if(!this.searchParkAt || this.context?.view!=='search' || !this.host || !this.feed || this.dead || this.settingsError || !this.settings.postDiscovery || route?.key===this.context.key || !this.nodes.size)return false;
+    parkSearch({keepVisible=false}={}){
+      const route=pageRoute();if(!this.searchParkAt || this.context?.view!=='search' || !this.host || !this.feed || this.dead || this.settingsError || !this.settings.postDiscovery || route?.key===this.context.key && this.host.isConnected || !this.listState && !this.nodes.size)return false;
       this.flushVirtualization();const state=this.viewState();state.parkedAt=Date.now();state.scrollY=window.scrollY;
       for(const node of this.nodes.values())node.classList.remove('rt-native-enter','rt-native-inserted');
       this.searchParks ||= new Map();const key=this.searchParkAt;
       const old=this.searchParks.get(key);if(old){this.searchParks.delete(key);this.discardParked(old.state);}
       this.searchParks.set(key,{state,feed:this.feed});
-      const host=this.host;this.reset({detach:true,retainNavigation:true});host?.remove();
+      // Opening a result: the parked results stay visible while Reddit loads that page, and go with Reddit's page.
+      // Another search (tab, query) mounts at once, so its parked predecessor leaves the screen now.
+      const pieces=[this.host,this.feed,this.scopeSwitcher,this.listTabsShell,this.listAllTab];this.parkingVisible=keepVisible;try{this.reset({detach:true,retainNavigation:true});}finally{this.parkingVisible=false;}if(!keepVisible)for(const piece of pieces)piece?.remove();
       while(this.searchParks.size>3){const [oldKey,parked]=this.searchParks.entries().next().value;this.searchParks.delete(oldKey);this.discardParked(parked.state);}
       return true;
     }
@@ -309,7 +316,8 @@
       this.searchParks.delete(key);if(Date.now()-park.state.parkedAt>15*60000){this.discardParked(park.state);return false;}
       const target=this.mountSearchFeed(main);if(!target){this.searchParks.set(key,park);return false;}
       if(this.context)this.leaveProfile({always:true});
-      target.replaceWith(park.feed);this.adopt(park.feed,park.state);this.searchFeed=park.feed;this.searchParkAt=key;
+      this.scopeSwitcher=null;target.replaceWith(park.feed);this.adopt(park.feed,park.state);this.searchFeed=park.feed;this.searchParkAt=key;
+      if(this.host.nextElementSibling!==park.feed)park.feed.before(this.host);this.scopeSwitcher?.remove();this.scopeSwitcher=null;this.listEmpty=this.listEmpty?.isConnected && park.feed.contains(this.listEmpty)?this.listEmpty:null;
       // The rebuilt page has fresh Reddit results to hide, and cards that never rendered are observed again.
       this.searchHidden=new Map();this.suppressSearchPage();
       if(typeof IntersectionObserver==='function')this.nativeObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){this.nativeObserver.unobserve(entry.target);this.queueNative(entry.target);}},{rootMargin:'400px'});
@@ -319,7 +327,7 @@
       return true;
     }
     leaveProfile({retainNavigation=false,always=false}={}){
-      if(!always && this.parkSearch())return;
+      if(!always && this.parkSearch({keepVisible:true}))return;
       if(!this.parkable()){if(always || this.host || this.context)this.reset({retainNavigation});return;}
       this.flushVirtualization();const feed=this.feed,state=this.viewState();
       // Reattaching the feed would replay entrance animations; they already ran.
@@ -473,7 +481,7 @@
         this.observeNativeLoading();this.observeFeedPresentation();this.ensureActivityMenu();this.maybeRestoreDetail();this.deduplicate();this.drainNative(this.nativeBatch);this.mountSeen=this.mountIdentity();return;}
       const retainNavigation=Boolean(this.profileNavigation && this.settings.postDiscovery && !this.settingsError);
       const carry=this.context?.key===context.key && this.settings.postDiscovery && !this.settingsError && this.context?.kind==='profile' && (this.loaded || this.archiveLoaded)?(this.restoreRecoveredBodies(),this.flushVirtualization(),this.viewState()):null;
-      if(carry)this.reset({keepCards:true,retainNavigation:true});else if(!this.parkSearch())this.leaveProfile({retainNavigation,always:true});
+      if(carry)this.reset({keepCards:true,retainNavigation:true});else if(!this.parkSearch({keepVisible:context.view!=='search'}))this.leaveProfile({retainNavigation,always:true});
       let main=document.querySelector('main#main-content,main[role="main"],main');
       if(!main && context.kind==='profile'){
         // Unavailable-account pages omit both main and shreddit-feed. Require an
@@ -559,6 +567,9 @@
       native=native?.closest('rpl-input-chip') || native;
       let scope;try{scope=JSON.parse(host?.getAttribute('scope'));}catch{}
       const enabled=!this.dead && !this.settingsPending && !this.settingsError && this.settings.postDiscovery && route?.list && route.username.toLowerCase()===signedInName.toLowerCase() && scope?.type==='profile' && String(scope.name).toLowerCase()===route.username.toLowerCase() && String(scope.path || '').replace(/\/$/,'').toLowerCase()==='/user/'+route.username.toLowerCase() && native && !native.hasAttribute('data-rt-list-chip') && this.ownHeaderDismissed!==routeKey;
+      // Opening a result: the list pill stays with the parked results until Reddit swaps the page or the search scope.
+      const leaving=!enabled && this.ownHeader?.chip.isConnected && this.ownHeader.native===native && host?.getAttribute('scope')===this.ownHeader.scope && (this.context?.list===this.ownHeader.list && this.host?.isConnected || [...(this.searchParks?.values() || [])].some(park=>park.state.context?.list===this.ownHeader.list && park.feed.isConnected));
+      if(leaving){if(!this.ownHeaderObserver){this.ownHeaderObserver=new MutationObserver(()=>this.syncOwnListHeader());this.ownHeaderObserver.observe(root,{childList:true,subtree:true});this.ownHeaderObserver.observe(host,{attributes:true,attributeFilter:['scope']});}return;}
       if(!enabled){this.clearOwnListHeader();if(root && route?.list && signedInName && this.settings.postDiscovery && !this.dead && this.ownHeaderDismissed!==routeKey){this.ownHeaderObserver=new MutationObserver(()=>this.syncOwnListHeader());this.ownHeaderObserver.observe(root,{childList:true,subtree:true});this.ownHeaderObserver.observe(host,{attributes:true,attributeFilter:['scope']});}return;}
       const input=(field?.shadowRoot || root)?.querySelector('input[name="q"],textarea[name="q"]');
       if(this.ownHeader?.native===native && this.ownHeader.chip.isConnected && this.ownHeader.input===input && this.ownHeader.list===route.list)return;
@@ -574,7 +585,7 @@
       const remove=event=>{event.preventDefault();event.stopImmediatePropagation();this.ownHeaderDismissed=routeKey;this.clearOwnListHeader();if(route.view==='search')this.navigateProfileSearch(route,route.q,false);};
       chip.addEventListener('click',remove,true);chip.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ' || event.key==='Backspace' || event.key==='Delete')remove(event);},true);native.after(chip);
       const placeholders=[...new Set([field,input].filter(Boolean))].map(node=>[node,node.getAttribute('placeholder')]);for(const [node] of placeholders)node.setAttribute('placeholder',placeholder);
-      this.ownHeader={chip,native,host,field,form,input,list:route.list,placeholder,placeholders};form?.addEventListener('submit',this.onOwnSubmit,true);
+      this.ownHeader={chip,native,host,field,form,input,list:route.list,placeholder,placeholders,scope:host.getAttribute('scope')};form?.addEventListener('submit',this.onOwnSubmit,true);
       this.ownHeaderObserver=new MutationObserver(()=>this.syncOwnListHeader());
       this.ownHeaderObserver.observe(root,{childList:true,subtree:true});this.ownHeaderObserver.observe(host,{attributes:true,attributeFilter:['scope']});
       if(field?.shadowRoot)this.ownHeaderObserver.observe(field.shadowRoot,{childList:true,subtree:true});

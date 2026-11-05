@@ -76,6 +76,13 @@ test('Back to a list search puts its loaded items back without reading the list 
  s.W.history.pushState({},'','/user/Example/search/?q=needle&rt_list=saved');s.W.dispatchEvent(new s.W.PopStateEvent('popstate'));s.D.querySelector('main').outerHTML=page;s.d.scan();await flush();
  assert.deepEqual(shown(s),before);assert.equal(s.d.nodes.get('first'),node);assert.ok(node.isConnected);assert.equal(listCalls(s).length,reads,'the list is not read again');
 });
+test('opening a list result keeps the results and list pill on screen until Reddit swaps the page',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true});await s.d.loadOwnList();await flush();const row=s.d.nodes.get('first');
+ s.W.history.pushState({},'','/r/Alpha/comments/first/synthetic/');s.W.dispatchEvent(new s.W.PopStateEvent('popstate'));s.d.scan();await flush();
+ assert.ok(row.isConnected,'results stay while the post loads');assert.ok(s.h.root.querySelector('[data-rt-list-chip]'),'the list pill stays too');
+ s.D.querySelector('main').innerHTML='<shreddit-post id="t3_first"></shreddit-post>';s.d.scan();await flush();
+ assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null,'both go once Reddit shows the post');
+});
 test('a list parked mid-download continues from its cursor after Back',async t=>{
  let release;const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true,list:async(args,signal,W,n)=>{if(n===1)return {posts:[W.RTPostModel.normalizePost(raw('first'))],scanned:1,hasMore:true,after:'t3_first'};if(n===2)return new Promise(r=>release=r);return {posts:[W.RTPostModel.normalizePost(raw('second'))],scanned:1,hasMore:false,after:null};}});
  const pending=s.d.loadOwnList();await flush();assert.equal(listCalls(s).length,2);
@@ -122,7 +129,7 @@ test('native tabs keep list scope and filter post/comment/media kind',async t=>{
  for(const type of ['posts','comments','media']){const a=s.D.getElementById('search-results-page-tab-'+type);assert.equal(new URL(a.href).searchParams.get('rt_list'),'saved');assert.equal(new URL(a.href).searchParams.get('type'),type);}
  const urls=navigations(s);s.D.getElementById('search-results-page-tab-media').click();assert.equal(urls.at(-1).searchParams.get('type'),'media');
  s.W.history.pushState({},'','?rt_list=saved&type=media');s.d.scan();await flush();await s.d.refreshActivity();assert.deepEqual(shown(s),[]);
- s.W.history.pushState({},'','/r/Alpha/');s.d.scan();assert.equal(s.D.getElementById('search-results-page-tab-posts').getAttribute('href'),'?type=posts');assert.equal(s.D.querySelector('[data-rt-list-type="all"]'),null);
+ s.d.leaveRestoreMs=0;s.W.history.pushState({},'','/r/Alpha/');s.d.scan();assert.equal(s.D.getElementById('search-results-page-tab-posts').getAttribute('href'),'?type=posts');assert.equal(s.D.querySelector('[data-rt-list-type="all"]'),null);
 });
 test('automatic list loading stops at 1000 with a cap notice',async t=>{
  const s=await setup(t,{list:async(args,signal,W,n)=>({posts:[],scanned:100,hasMore:true,after:'t3_page'+n})});await s.d.refreshActivity();assert.equal(listCalls(s).length,10);assert.equal(s.d.listState.capped,true);assert.equal(s.d.status.textContent,'Searched 1,000 saved items');assert.match(s.d.notice.textContent,/Reddit only returns the newest 1,000/);assert.doesNotMatch(s.d.status.textContent+s.d.notice.textContent,/complete/i);
