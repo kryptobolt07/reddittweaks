@@ -85,7 +85,7 @@ test('unsupported profile tabs and old Reddit are not modified',async t=>{
 });
 
 test('current live restrictions also protect older unmarked detail snapshots',async t=>{
- const {d}=setup(t,{url:'https://www.reddit.com/comments/abc12/title/',settings:{archiveDiscovery:true},archive:async()=>({posts:[raw('abc12',{selftext:'Restricted original'})]}),reddit:async()=>({posts:[raw('abc12',{selftext:'[removed]',over_18:true})]})});await d.ready;await d.loadDetail();assert.equal((d.feed || d.results).textContent.includes('Restricted original'),false);
+ const {d}=setup(t,{url:'https://www.reddit.com/comments/abc12/title/',settings:{archiveDiscovery:true},archive:async()=>({posts:[raw('abc12',{selftext:'Restricted original'})]}),reddit:async()=>({posts:[raw('abc12',{selftext:'[removed]',over_18:true})]})});await d.ready;await d.loadDetail();const box=(d.feed || d.results).querySelector('.rt-sensitive');assert.ok(box.querySelector('.rt-sensitive-content').textContent.includes('Restricted original'));assert.equal(box.querySelector('.rt-sensitive-reveal').textContent,'View NSFW content');
 });
 const comment=()=>({kind:'comment',id:'19rktoupyflj9',fullname:'t1_19rktoupyflj9',author:'Example',link_id:'t3_abc12',parent_id:'t3_abc12',created_utc:1700000000,body:'A discovered public comment',subreddit:'example'});
 test('comments tab discovers and displays comments with stable source identity',async t=>{
@@ -309,7 +309,7 @@ test('deleted-profile archive opt-out, route changes and replaced native notices
 test('generic error pages are untouched and archive snapshots remain inert and restricted',async t=>{
  const {W,d}=setup(t,{settings:{archiveDiscovery:true}});await d.ready;d.reset();const notice=deletedPage(W,{marker:'Page not found'});d.scan();assert.equal(d.host,null);assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);
  notice.querySelector('img').alt='Deleted user';d.scan();const p=W.RTPostModel.normalizePost(raw('unsafe',{title:'<img onerror=bad()>',selftext:'<script>bad()</script>'}),{source:'arctic-shift'});const card=d.card(p);d.renderArchivedNative(p,card);assert.equal(card.querySelector('img,script'),null);assert.match(card.textContent,/<script>/);assert.match(card.textContent,/<img onerror/);
- for(const flag of ['over18','spoiler']){const restricted=d.card(p);d.renderArchivedNative({...p,[flag]:true,body:'secret snapshot'},restricted);assert.equal(restricted.textContent.includes('secret snapshot'),false);assert.match(restricted.textContent,/NSFW or spoiler/);}
+ for(const flag of ['over18','spoiler']){const restricted=d.card(p);d.renderArchivedNative({...p,[flag]:true,body:'secret snapshot'},restricted);const box=restricted.querySelector('.rt-sensitive');assert.ok(box?.querySelector('.rt-sensitive-content')?.textContent.includes('secret snapshot'));assert.equal(box.querySelector('.rt-sensitive-reveal').textContent,flag==='over18'?'View NSFW content':'View spoiler');assert.doesNotMatch(restricted.textContent,/NSFW or spoiler/);box.click();assert.ok(box.classList.contains('rt-revealed'));}
 });
 
 test('archive-only missing fragments use native components with inert historical actions',async t=>{
@@ -340,7 +340,7 @@ test('hidden-profile notices stay detached under native post overlays and restor
  W.history.pushState({},'','/r/example/');W.RTProfileNoticeGuard.refresh();d.scan();assert.equal(notice.isConnected,false);assert.equal(d.host,host);W.document.body.replaceChildren(W.document.createElement('main'));W.RTProfileNoticeGuard.refresh();d.scan();assert.equal(d.host,null);assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-discovery'),false);
 });
 test('unavailable headers use the exact state-specific Reddit artwork and reject replacement photos',async t=>{
- const {W,d}=setup(t);await d.ready;d.reset();deletedPage(W);d.scan();assert.equal(d.avatarPlaceholder.querySelector('img').src,'https://www.redditstatic.com/shreddit/assets/mod/snoo-404.png');assert.match(d.avatarPlaceholder.getAttribute('aria-label'),/Deleted account/);const line=d.archiveShell.querySelector('[data-testid="profile-account-state"]');assert.equal(line.dataset.state,'deleted');assert.match(line.textContent,/^This user has deleted their account\. Showing archived public activity\.$/);assert.equal(d.avatarSlot.querySelectorAll('img').length,1);
+ const {W,d}=setup(t);await d.ready;d.reset();deletedPage(W);d.scan();assert.equal(d.avatarPlaceholder.querySelector('img').src,'https://www.redditstatic.com/shreddit/assets/suspended-snoo.png');assert.match(d.avatarPlaceholder.getAttribute('aria-label'),/Deleted account/);const line=d.archiveShell.querySelector('[data-testid="profile-account-state"]');assert.equal(line.dataset.state,'deleted');assert.match(line.textContent,/^This user has deleted their account\. Showing archived public activity\.$/);assert.equal(d.avatarSlot.querySelectorAll('img').length,1);
  d.reset();bannedPage(W);d.scan();assert.equal(d.avatarPlaceholder.querySelector('img').src,'https://www.redditstatic.com/shreddit/assets/suspended-snoo.png');assert.equal(d.archiveShell.querySelector('[data-testid="profile-account-state"]').dataset.state,'banned');assert.match(d.archiveShell.querySelector('[data-testid="profile-account-state"]').textContent,/^This account has been banned/);assert.ok(d.avatarSlot.parentElement.classList.contains('items-center'));
 });
 
@@ -469,10 +469,10 @@ test('parked profile views are bounded and torn down when evicted, on account ch
 });
 test('community fallback cards use community identity while profile-hosted posts use the profile identity',async t=>{
  const {W,d}=setup(t);await d.ready;
- for(const [state,url] of [['banned','https://www.redditstatic.com/shreddit/assets/suspended-snoo.png'],['deleted','https://www.redditstatic.com/shreddit/assets/mod/snoo-404.png']]){
+ for(const [state,url] of [['banned','https://www.redditstatic.com/shreddit/assets/suspended-snoo.png'],['deleted','https://www.redditstatic.com/shreddit/assets/suspended-snoo.png']]){
   d.reset();if(state==='banned')bannedPage(W);else deletedPage(W);d.scan();const header=d.avatarPlaceholder.querySelector('img');assert.equal(header.src,url);assert.equal(header.width,64);assert.equal(header.height,64);
   for(const raw of [comment(),{id:'post',author:'Example',created_utc:1700000000,title:'Post',selftext:'Body',subreddit:'example'}]){const p=W.RTPostModel.normalizeItem(raw,{source:'arctic-shift'}),node=d.card(p);d.renderArchivedNative(p,node);d.decorateNative(p,node);d.decorateNative(p,node);assert.equal(node.querySelectorAll('[avatar]').length,1);assert.ok(node.querySelector('[avatar] [icon-name="community-fill"]'));assert.equal(node.querySelector('[avatar] img'),null);assert.equal(node.querySelector('[data-rt-author-avatar],[is-author-deleted]'),null);}
-  const post=W.RTPostModel.normalizePost({id:'ownpost',author:'Example',created_utc:1700000000,title:'Own profile post',subreddit:'u_Example'},{source:'arctic-shift'}),node=d.card(post);d.renderArchivedNative(post,node);d.decorateNative(post,node);const credit=node.querySelector('[slot="credit-bar"]');assert.equal(credit.querySelector('a').getAttribute('href'),'/user/Example/');assert.match(credit.textContent,/u\/Example/);assert.equal(credit.textContent.includes('r/u_'),false);assert.equal(credit.querySelector('img').src,url);assert.equal(credit.querySelector('img').width,24);assert.equal(node.querySelector('shreddit-post').getAttribute('subreddit-prefixed-name'),'u_Example');
+  const post=W.RTPostModel.normalizePost({id:'ownpost',author:'Example',created_utc:1700000000,title:'Own profile post',subreddit:'u_Example'},{source:'arctic-shift'}),node=d.card(post);d.renderArchivedNative(post,node);d.decorateNative(post,node);const credit=node.querySelector('[slot="credit-bar"]');assert.equal(credit.querySelector('a').getAttribute('href'),'/user/Example/');assert.match(credit.textContent,/u\/Example/);assert.equal(credit.textContent.includes('r/u_'),false);assert.equal(credit.querySelector('img').src,'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png');assert.ok(credit.querySelector('img').classList.contains('rt-avatar-deleted'));assert.equal(credit.querySelector('img').width,24);assert.equal(node.querySelector('shreddit-post').getAttribute('subreddit-prefixed-name'),'u_Example');
   const foreign=d.card(post);d.renderArchivedNative({...post,subreddit:'u_Other'},foreign);assert.equal(foreign.querySelector('[avatar] img').src,'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_0.png');
  }
 });
@@ -651,7 +651,7 @@ test('automatic recovery requires archive opt-in and restoration preference and 
  for(const settings of [{archiveDiscovery:false},{archiveDiscovery:true,restoreDeletedContent:false},{archiveDiscovery:true}]){const requests=[];const {W,d}=setup(t,{settings,archive:async input=>{requests.push(input);return {posts:[]};}});await d.ready;const native=W.document.createElement('shreddit-post');native.id='t3_deleted';native.setAttribute('deleted','');native.innerHTML='<p slot="text-body">[deleted]</p>';native.getBoundingClientRect=()=>({top:5000,bottom:5100});d.feed.append(native);d.deduplicate();await new Promise(r=>setTimeout(r,100));assert.equal(requests.length,0);}
 });
 test('native content restrictions are retained when deleted detail metadata comes from an unmarked archive snapshot',async t=>{
- const {W,d}=setup(t,{url:'https://www.reddit.com/comments/abc12/title/',settings:{archiveDiscovery:true},archive:async()=>({posts:[raw('abc12',{selftext:'Restricted original'})]})});await d.ready;const native=W.document.querySelector('shreddit-post');native.id='t3_abc12';native.setAttribute('deleted','');native.setAttribute('nsfw','');native.innerHTML='<p slot="text-body">[deleted]</p>';await d.loadDetail();assert.equal(W.document.body.textContent.includes('Restricted original'),false);assert.equal(native.querySelector('[slot="text-body"]').textContent,'[deleted]');assert.match(d.results.textContent,/NSFW or spoiler/);
+ const {W,d}=setup(t,{url:'https://www.reddit.com/comments/abc12/title/',settings:{archiveDiscovery:true},archive:async()=>({posts:[raw('abc12',{selftext:'Restricted original'})]})});await d.ready;const native=W.document.querySelector('shreddit-post');native.id='t3_abc12';native.setAttribute('deleted','');native.setAttribute('nsfw','');native.innerHTML='<p slot="text-body">[deleted]</p>';await d.loadDetail();assert.equal(native.textContent.includes('Restricted original'),false);assert.equal(native.querySelector('[slot="text-body"]').textContent,'[deleted]');const box=d.results.querySelector('.rt-sensitive');assert.ok(box.textContent.includes('Restricted original'));assert.equal(box.querySelector('.rt-sensitive-reveal').textContent,'View NSFW content');assert.doesNotMatch(d.results.textContent,/NSFW or spoiler/);
 });
 
 test('Overview stages the first source until the slower source establishes its ordering boundary',async t=>{
@@ -1413,9 +1413,9 @@ test('a deleted comment permalink plays Reddit\'s toast with our wording once re
   const off=await page({...on,restoreDeletedContent:false});assert.deepEqual(off.shown(),['This comment no longer exists']);
 });
 
-test('an unavailable profile reuses the image on Reddit\'s own notice, never one from another host',async t=>{
+test('an unavailable profile header always uses Reddit\'s grey suspended snoo, whatever its notice shows',async t=>{
  const {W,d}=setup(t);await d.ready;
- for(const [src,expect] of [['https://www.redditstatic.com/shreddit/assets/mod/snoo-404.png','https://www.redditstatic.com/shreddit/assets/mod/snoo-404.png'],['https://evil.example/shreddit/assets/x.png','https://www.redditstatic.com/shreddit/assets/mod/snoo-404.png']]){
+ for(const [src,expect] of [['https://www.redditstatic.com/shreddit/assets/mod/snoo-404.png','https://www.redditstatic.com/shreddit/assets/suspended-snoo.png'],['https://evil.example/shreddit/assets/x.png','https://www.redditstatic.com/shreddit/assets/suspended-snoo.png']]){
   d.reset();const notice=deletedPage(W);notice.querySelector('img').setAttribute('src',src);d.scan();
   assert.equal(d.avatarPlaceholder.querySelector('img').src,expect);
  }

@@ -51,8 +51,9 @@
   function staleModal(modal){const route=location.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})(?:\/|$)/)?.[1];return !route || route.toLowerCase()!==String(modal?.getAttribute('subredditname') || '').toLowerCase();}
   function release(modal){if(!modal || modal.hasAttribute(mountedAttr))return;if(staleModal(modal)){hold(modal);return;}modal.removeAttribute(holdAttr);modal.style.removeProperty('display');if(!modal.getAttribute('style'))modal.removeAttribute('style');}
   // Reddit's default avatars (one of eight) for authors whose archive record has no avatar.
+  const DELETED_AVATAR='https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
   const defaultAvatar=(name,size,href)=>{
-    if(!globalThis.RTPostModel?.validateUsername(name)){const img=make('img','rounded-full shrink-0 rt-avatar-img rt-avatar-deleted');img.src='https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';img.alt='';img.width=img.height=size;img.decoding='async';img.referrerPolicy='no-referrer';img.style.width=img.style.height=size+'px';return img;}
+    if(!globalThis.RTPostModel?.validateUsername(name)){const img=make('img','rounded-full shrink-0 rt-avatar-img rt-avatar-deleted');img.src=DELETED_AVATAR;img.alt='';img.width=img.height=size;img.decoding='async';img.referrerPolicy='no-referrer';img.style.width=img.style.height=size+'px';return img;}
     let hash=0;for(const ch of String(name || ''))hash=(hash*31+ch.charCodeAt(0))>>>0;
     const img=make('img','rounded-full shrink-0 rt-avatar-img');img.src='https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+(hash % 8)+'.png';img.alt='';img.width=img.height=size;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';if(globalThis.RTPostModel?.validateUsername(name))img.dataset.rtAvatarUser=name;img.style.width=img.style.height=size+'px';
     if(!href)return img;const a=make('a','flex items-center mt-2xs');a.href=href;a.setAttribute('aria-label',name+"'s profile");a.append(img);return a;};
@@ -336,7 +337,8 @@
         lookup.then(url=>{if(url===null && this.avatarUrls.get(key)===lookup)this.avatarUrls.delete(key);});
         if(this.avatarUrls.size>=500)this.avatarUrls.delete(this.avatarUrls.keys().next().value);this.avatarUrls.set(key,lookup);
       }
-      lookup.then(url=>{if(url){img.src=url;img.dataset.rtAvatarReal='';}});
+      // Suspended or deleted accounts answer with Reddit's profile artwork; posts and comments use its small snoo-back instead.
+      lookup.then(url=>{if(!url)return;if(/^https:\/\/www\.redditstatic\.com\/shreddit\/assets\//.test(url)){img.src=DELETED_AVATAR;img.classList.add('rt-avatar-deleted');return;}img.src=url;img.dataset.rtAvatarReal='';});
     }
     feedAnchorKey(){return 'rt-archive-anchor:'+(globalThis.navigation?.currentEntry?.key || '')+'|'+(this.mounted?.name || this.name || '').toLowerCase()+'|'+this.feedKey();}
     // The card at the top of the view, its offset, and how many posts were showing: survives a reload of a post

@@ -582,6 +582,12 @@ test('archive avatars switch from Reddit\'s default to the user\'s real picture 
   assert.equal(asked.filter(n=>n==='alice').length,1,'one lookup per user');
 });
 
+test('suspended or deleted authors get Reddit\'s small snoo-back avatar, not their profile artwork',async()=>{
+  const ctx=await boot({reddit:async message=>message.action==='user-avatar'?{avatar:'https://www.redditstatic.com/shreddit/assets/suspended-snoo.png'}:{}});
+  const img=ctx.doc.createElement('img');img.dataset.rtAvatarUser='gone';ctx.sa.resolveAvatar(img);for(let i=0;i<4;i++)await tick();
+  assert.equal(img.src,'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png');assert.ok(img.classList.contains('rt-avatar-deleted'));assert.equal('rtAvatarReal' in img.dataset,false);
+});
+
 test('the archived post page header shows the poster\'s avatar, not the community icon',async()=>{
   const {W}=await boot();
   const post=W.RTPostDiscovery.archiveCard(archived(W,{id:'thr2',is_self:true,selftext:'Hi'}),{thread:true}).querySelector('shreddit-post');
