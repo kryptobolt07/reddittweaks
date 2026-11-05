@@ -1,3 +1,11 @@
+# 0.30.1 preview
+
+- Going Back to a profile or list search from one of its results puts the loaded results back at once, at the same scroll position, instead of searching Reddit and the archive again from the first page. The last three searches are kept for 15 minutes.
+
+Version choice: PATCH to 0.30.1 for a performance fix. No new permissions or storage schema migration.
+
+Validation: all 1,305 automated tests pass; ZIP integrity and source/stable-folder byte equality checked. Live Chrome check (read-only): a filtered search scrolled through three pages, a result opened and Back pressed; results were back within 0.15 s, the scroll position by 0.4 s, with no new Reddit search or archive requests.
+
 # 0.30.0 preview
 
 - The popup groups its options: **On Reddit** (profile search and clean shared links, using Reddit only) and **Arctic Shift archive** (optional, third party: one switch, with restore and banned/private communities under it). Options that need a switch that's off fold away, and a dimmed option names the switch it needs.
