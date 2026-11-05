@@ -346,5 +346,5 @@
     return {el,list,note,input,back,head,render,reset(){input.value='';if(clear)clear.hidden=true;list.scrollTop=0;},get data(){return last;}};
   }
   const iconNames=Object.freeze([...Object.keys(iconPaths),'gif']);
-  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,svgIcon,iconNames,subName});
+  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
 })();
