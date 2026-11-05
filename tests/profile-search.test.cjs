@@ -328,3 +328,11 @@ test('residual wording survives archive failures and parse errors remain in the 
   const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('words NOT spoiler:yes'),archive:async()=>{throw Error('Archive unavailable');}});await search(s);assert.match(s.d.status.textContent,/unavailable/);assert.doesNotMatch(s.d.status.textContent,/filtered locally/,'the error line does not repeat the note');assert.match(s.d.notice.textContent,/filtered locally/);
   const invalid=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words+OR'});await search(invalid);assert.match(invalid.d.notice.textContent,/word on both sides/);assert.equal(invalid.d.notice.hidden,false);
 });
+test('picking a subreddit keeps the other subreddits available to add when counts come from loaded items',async t=>{
+  const s=await boot(t);await search(s);const f=s.W.RTFeedFilters;s.d.rtAgg={key:'unavailable',state:'failed',buckets:[]};
+  s.d.rtFilters=f.empty();s.d.loadedItems=()=>[{fullname:'t3_a1',subreddit:'Alpha'},{fullname:'t3_a2',subreddit:'Alpha'},{fullname:'t3_b1',subreddit:'Beta'}];
+  assert.deepEqual(Array.from(s.d.subredditCounts().entries,e=>e.key),['Alpha','Beta']);
+  // With Alpha picked, only Alpha's results load; Beta must still be offered.
+  s.d.rtFilters={...f.empty(),subreddits:['Alpha']};s.d.loadedItems=()=>[{fullname:'t3_a1',subreddit:'Alpha'}];
+  const entries=Array.from(s.d.subredditCounts().entries);assert.deepEqual(entries.map(e=>e.key),['Alpha','Beta']);assert.equal(entries.find(e=>e.key==='Alpha').count,2,'the larger count is kept');
+});
