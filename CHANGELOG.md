@@ -1,3 +1,11 @@
+# 0.30.2 preview
+
+- Going Back to your own Saved, History, Hidden, Upvoted or Downvoted search puts the loaded results back at once instead of reading the whole list again; a list that was still loading continues where it stopped.
+
+Version choice: PATCH to 0.30.2 for a performance fix. No new permissions or storage schema migration.
+
+Validation: all 1,307 automated tests pass; ZIP integrity and source/stable-folder byte equality checked. Live Chrome check (read-only) on a Saved search for "termux": a result opened and Back pressed; all six results were back within 0.15 s with no list request (only the signed-in account check).
+
 # 0.30.1 preview
 
 - Going Back to a profile or list search from one of its results puts the loaded results back at once, at the same scroll position, instead of searching Reddit and the archive again from the first page. The last three searches are kept for 15 minutes.
