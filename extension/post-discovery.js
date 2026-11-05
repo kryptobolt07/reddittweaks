@@ -184,7 +184,9 @@
       this.nativeWaitMs=timing.nativeWaitMs ?? nativeWaitMs;this.retryUnitMs=timing.retryUnitMs ?? 1000;this.sourceWaitMs=timing.sourceWaitMs ?? sourceWaitMs;
       this.runtimeId=globalThis.chrome?.runtime?.id;this.navigationLease=crypto.randomUUID();this.parked=new Map();this.profileOwner=globalThis.RCSDirectory?.getOwner?.() || '';this.nativeRenderer=nativeRenderer;this.autoDiscover=autoDiscover;this.reddit=reddit;this.archive=archive;this.readSettings=readSettings;this.settings={postDiscovery:false,archiveDiscovery:false};this.settingsRevision=0;this.generation=0;this.controllers=new Set();this.nodes=new Map();this.host=null;
       this.settingsPending=true;this.syncProfileNotice();
-      this.onRoute=()=>{if(ownListCandidate()){this.ownIdentityChecked=false;signedInName='';this.clearOwnListHeader();}this.syncProfileNotice();this.schedule();};this.onSettings=(changes,area)=>{if(area==='local' && changes[key])this.applySettings(M.normalizeSettings(changes[key].newValue));};
+      // The signed-in account is checked again on every route, but the last confirmed one stays in use meanwhile
+      // (every list request re-confirms it in the page world), so Back to a parked list doesn't wait or flash.
+      this.onRoute=()=>{if(ownListCandidate()){this.ownIdentityChecked=false;this.clearOwnListHeader();}this.syncProfileNotice();this.schedule();};this.onSettings=(changes,area)=>{if(area==='local' && changes[key])this.applySettings(M.normalizeSettings(changes[key].newValue));};
       this.onOwnSubmit=event=>this.submitOwnList(event);document.addEventListener('submit',this.onOwnSubmit,true);
       this.onOwnFocus=()=>this.syncOwnListHeader();document.addEventListener('focusin',this.onOwnFocus,true);
       this.onEmptyProfileSearch=event=>{
@@ -332,7 +334,8 @@
       this.parked.delete(feed);for(const [key,value] of Object.entries(state))this[key]=value;
       if(!this.host.isConnected && !this.host.contains(feed))feed.before(this.host);
       // Work cut off by parking, resumed below.
-      const interrupted=new Set(state.sourcePending || []),retries=state.sourceRetries || new Map(),firstLoad=!state.loaded && !state.archiveLoaded;
+      // A list search keeps its own progress (listState); it never sets the profile's loaded flags.
+      const interrupted=new Set(state.sourcePending || []),retries=state.sourceRetries || new Map(),firstLoad=state.listState?false:!state.loaded && !state.archiveLoaded;
       // Fresh generation: anything still in flight from before parking is ignored.
       this.generation=++generationSeq;this.controllers=new Set();this.busy=this.archiveBusy=this.verifyActive=false;this.redditRun=this.archiveRun=null;
       this.sourcePending=new Set();this.metadataPending=0;this.replyEnrichment=null;this.profileOverlay=this.profileTransition=false;this.gateTimer=null;this.gateAt=Infinity;
@@ -357,6 +360,8 @@
     // claims "Activity checked" while something was dropped.
     resumeWork(generation,interrupted,retries,firstLoad){
       if(generation!==this.generation || !this.host?.isConnected)return;
+      // A list parked mid-download continues from its cursor; a finished one needs nothing.
+      if(this.isOwnList() && this.listState){const list=this.listState;if(!list.done && !list.error){list.loading=false;this.loadOwnList({resume:true});}this.renderOwnList();this.updateProfileLoading();return;}
       for(const [key,entry] of retries){this.sourceRetries.set(key,entry);entry.timer=setTimeout(()=>{entry.timer=null;if(generation!==this.generation || !this.host?.isConnected)return;this.retrySource(key);},Math.max(0,(entry.at || 0)-Date.now()));}
       if(firstLoad){if((interrupted.size || this.autoDiscover) && this.context?.kind==='profile'){if(this.archiveOnly){if(this.settings.archiveDiscovery)this.loadArchive();}else this.refreshActivity();}}
       else{
@@ -642,14 +647,14 @@
       this.listEmpty.hidden=posts.length>0 || state.loading || Boolean(state.error) || this.searchParsed.invalid || !state.done;
       this.listEmpty.textContent='No matches in the '+state.scanned.toLocaleString('en-US')+' '+this.context.list+' items Reddit returned.';
     }
-    async loadOwnList(){
+    async loadOwnList({resume=false}={}){
       if(!this.isOwnList() || !this.listState || this.listState.loading)return;
       if(this.searchParsed.invalid){this.summarizeOwnList();return;}
-      for(const node of this.nodes.values())node.remove();this.nodes.clear();
+      if(!resume){for(const node of this.nodes.values())node.remove();this.nodes.clear();}
       const state=this.listState,context=this.context,generation=this.generation;
       const current=()=>!this.dead && this.listState===state && generation===this.generation && pageRoute()?.key===context.key && this.host?.isConnected;
-      state.items.clear();state.scanned=0;state.done=false;state.capped=false;state.error='';state.loading=true;state.after=null;
-      this.discover.disabled=true;this.summarizeOwnList();this.updateProfileLoading();const cursors=new Set();
+      if(resume)state.loading=true;else{state.items.clear();state.scanned=0;state.done=false;state.capped=false;state.error='';state.loading=true;state.after=null;}
+      this.discover.disabled=true;this.summarizeOwnList();this.updateProfileLoading();const cursors=new Set(resume && state.after?[state.after]:[]);
       try{
         do{
           const result=await this.request({action:'own-list',username:context.username,list:context.list,after:state.after});if(!current())return;

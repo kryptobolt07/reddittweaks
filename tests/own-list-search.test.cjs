@@ -69,6 +69,21 @@ test('search filters show as Reddit scope pills in the header search and keep th
  pills=[...s.h.root.querySelectorAll('[data-rt-header-filter]')];assert.equal(pills.length,1);
  s.d.destroy();assert.equal(s.h.root.querySelectorAll('[data-rt-header-filter]').length,0);
 });
+test('Back to a list search puts its loaded items back without reading the list again',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true,autoDiscover:true});await s.d.loadOwnList();await flush();
+ const before=shown(s),node=s.d.nodes.get('first'),reads=listCalls(s).length;assert.ok(before.length);
+ s.W.history.pushState({},'','/r/Alpha/comments/first/synthetic/');s.W.dispatchEvent(new s.W.PopStateEvent('popstate'));s.D.querySelector('main').innerHTML='<shreddit-post id="t3_first"></shreddit-post>';s.d.scan();await flush();
+ s.W.history.pushState({},'','/user/Example/search/?q=needle&rt_list=saved');s.W.dispatchEvent(new s.W.PopStateEvent('popstate'));s.D.querySelector('main').outerHTML=page;s.d.scan();await flush();
+ assert.deepEqual(shown(s),before);assert.equal(s.d.nodes.get('first'),node);assert.ok(node.isConnected);assert.equal(listCalls(s).length,reads,'the list is not read again');
+});
+test('a list parked mid-download continues from its cursor after Back',async t=>{
+ let release;const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true,list:async(args,signal,W,n)=>{if(n===1)return {posts:[W.RTPostModel.normalizePost(raw('first'))],scanned:1,hasMore:true,after:'t3_first'};if(n===2)return new Promise(r=>release=r);return {posts:[W.RTPostModel.normalizePost(raw('second'))],scanned:1,hasMore:false,after:null};}});
+ const pending=s.d.loadOwnList();await flush();assert.equal(listCalls(s).length,2);
+ s.W.history.pushState({},'','/r/Alpha/comments/first/synthetic/');s.D.querySelector('main').innerHTML='<shreddit-post id="t3_first"></shreddit-post>';s.d.scan();await flush();
+ release({posts:[],scanned:0,hasMore:false,after:null});await pending;
+ s.W.history.pushState({},'','/user/Example/search/?q=needle&rt_list=saved');s.D.querySelector('main').outerHTML=page;s.d.scan();await flush();await flush();
+ const third=listCalls(s)[2];assert.ok(third,'resumed');assert.equal(third.args.after,'t3_first','from the parked cursor, not the first page');assert.deepEqual(shown(s),['t3_first','t3_second']);
+});
 test('profile scope removal drops own pill; navigation and teardown restore placeholders',async t=>{
  const s=await setup(t,{path:'/user/Example/history/',withHeader:true});assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));
  s.h.native.remove();await flush();assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);assert.equal(s.h.input.placeholder,'Search in u/Example');
