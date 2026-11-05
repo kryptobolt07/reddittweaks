@@ -155,12 +155,13 @@
     const doc=new DOMParser().parseFromString(text,'text/html'),posts=[],seen=new Set();
     // Crossposts have no search-sdui-post test ID. Their outer view tracker is
     // the result; embedded original-post trackers must not become extra hits.
-    const cards=doc.querySelectorAll('search-telemetry-tracker[view-events="search/view/post"]');
+    const cards=doc.querySelectorAll('search-telemetry-tracker[view-events="search/view/post"]');let unread=0;
     if(cards.length>100)throw Error('Reddit returned an unexpected post listing.');
     for(const tracker of cards){
       try{
         const context=JSON.parse(tracker.getAttribute('data-faceplate-tracking-context')),id=context.post?.id;
-        const card=tracker.querySelector('[data-testid="search-crosspost-unit"],[data-testid="search-post-unit"]');
+        // Reddit's newer search cards: search-post-with-content-preview > sdui-post-unit (title, counters).
+        const card=tracker.querySelector('[data-testid="search-crosspost-unit"],[data-testid="search-post-unit"],[data-testid="search-post-with-content-preview"],[data-testid="sdui-post-unit"]');
         const detail=[tracker,...tracker.querySelectorAll('search-telemetry-tracker')].map(node=>JSON.parse(node.getAttribute('data-faceplate-tracking-context') || '{}')).find(value=>value.post?.id===id && value.profile?.name);
         if(!M.validateId(id) || detail?.profile?.name?.toLowerCase()!==username.toLowerCase() || !card)throw Error();
         const title=card.querySelector('a[data-testid="post-title"],a[data-testid="post-title-text"]'),permalink=new URL(title?.getAttribute('href'),location.origin);
@@ -169,12 +170,14 @@
         const counter=card.querySelector(crosspost?':scope > [data-testid="search-counter-row"]':'[data-testid="search-counter-row"]'),numbers=[...counter.querySelectorAll('faceplate-number[number]')].map(node=>Number(node.getAttribute('number')));
         if(numbers.length<2 || !numbers.every(Number.isFinite))throw Error();
         const post=M.normalizePost({id,author:detail.profile.name,title:context.post.title,subreddit:context.subreddit?.name,
-          created_utc:Date.parse(card.querySelector('faceplate-timeago[ts]')?.getAttribute('ts'))/1000,
+          created_utc:Date.parse((card.querySelector('faceplate-timeago[ts]') || tracker.querySelector('faceplate-timeago[ts]'))?.getAttribute('ts'))/1000,
           score:numbers[0],num_comments:numbers[1],permalink:permalink.href,status:'unknown',
           over_18:context.post.nsfw===true || context.subreddit?.nsfw===true || detail.post.nsfw===true,spoiler:context.post.spoiler===true || detail.post.spoiler===true});
         if(!post)throw Error();if(!seen.has(id)){seen.add(id);posts.push(post);}
-      }catch{throw Error('Reddit’s post search format changed. Posts could not be read safely.');}
+      }catch{unread++;}
     }
+    // One unusual card is skipped; only a page where no card can be read means the format changed.
+    if(cards.length && !posts.length && unread)throw Error('Reddit’s post search format changed. Posts could not be read safely.');
     const cursor=searchCursor(doc,username,'posts',sort,range,{q,search});
     if(!cards.length && !cursor){const empty=doc.querySelector('search-telemetry-tracker[view-events="search/view/no_results"]');let reason;try{reason=JSON.parse(empty?.getAttribute('data-faceplate-tracking-context')).action_info?.reason;}catch{}if(reason!=='empty')throw Error('Reddit returned an unrecognized post search response.');}
     return {posts,after:postPageCursor(cursor,'shreddit',username,sort,range,q),hasMore:Boolean(cursor),incomplete:true,source:'reddit'};
