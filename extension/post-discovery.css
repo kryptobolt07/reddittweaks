@@ -290,6 +290,9 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-media-unavailable-compact{min-height:0;height:100%;padding:4px}
 
 /* Profile search: our Feed options items are inline in Reddit's sort row; the original pill only anchors menus. */
+/* Submenus opened from the inline search row look like Reddit's own dropdown lists. */
+[data-rt-inline] .rt-sub-back,[data-rt-inline] .rt-sub-head:not(:has(.rt-filter-search)){display:none!important}
+[data-rt-inline] .rt-sub-head:has(.rt-filter-search){padding-inline-start:12px}
 button.rt-feed-trigger-anchor{position:fixed!important;opacity:0!important;pointer-events:none!important;min-width:0!important;padding:0!important;overflow:hidden}
 .rt-search-inline-filter{display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 10px;border:0;border-radius:999px;background:transparent;color:var(--color-secondary-plain,var(--color-neutral-content-weak,#576f76));font:600 12px/16px var(--font-sans,inherit);white-space:nowrap;cursor:pointer}
 .rt-search-inline-filter:hover{background:var(--color-secondary-background-hover,var(--color-neutral-background-hover,#eff3f5))}

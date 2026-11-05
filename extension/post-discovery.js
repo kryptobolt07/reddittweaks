@@ -865,7 +865,7 @@
       const value=this.activityMain?.querySelector('[data-rt-activity-value]'),labels={all:'All',hidden:'Hidden',deleted:'Deleted'};if(value && value.textContent!==labels[this.activityFilter])value.textContent=labels[this.activityFilter];
       for(const row of this.activityMenu.querySelectorAll('[data-rt-activity-filter]')){const checked=row.dataset.rtActivityFilter===this.activityFilter;if(row.getAttribute('aria-current')!==String(checked))row.setAttribute('aria-current',String(checked));let mark=row.querySelector('[data-rt-check]');if(checked && !mark){mark=glyph('checkmark');mark.dataset.rtCheck='true';row.firstElementChild.append(mark);}else if(!checked)mark?.remove();}
       this.syncFilterMenu();
-      if(this.isSearch())this.syncSearchInlineFilters();
+      if(this.isSearch())this.syncSearchInlineFilters();else this.activityMain?.parentElement?.removeAttribute('data-rt-inline');
     }
     // Profile search: Reddit's own row already holds "Relevance", "All time" and "Safe Search". Our Feed options
     // items sit to their right as the same plain dropdown buttons; each opens its own submenu under itself.
@@ -885,14 +885,22 @@
         if(!button){
           button=make('button','border-0 text-12 font-semibold text-secondary-plain button-small px-[calc(var(--rem10)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex rt-search-inline-filter');button.type='button';button.setAttribute('aria-haspopup','true');
           const text=make('span','flex items-center gap-xs'),caret=make('span','flex ms-2xs me-[-2px]');caret.append(redditIcon('caret',16));button.append(text,caret);button.rtText=text;
+          // The dropdown closes itself on pointerdown outside it; remember whether this button's menu was the open one.
+          button.addEventListener('pointerdown',()=>{button.rtWasOpen=dropdown.hasAttribute('open') && this.searchInlineActive===button;},true);
           button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();
+            if(button.rtWasOpen || dropdown.hasAttribute('open') && this.searchInlineActive===button){button.rtWasOpen=false;this.searchInlineActive=null;dropdown.removeAttribute('open');button.setAttribute('aria-expanded','false');return;}
+            for(const other of this.searchInlineButtons.values())other.setAttribute('aria-expanded','false');this.searchInlineActive=button;button.setAttribute('aria-expanded','true');
+            // Opened from the row, a submenu is a plain Reddit dropdown list: no Back/title header, its own height.
+            main.parentElement?.setAttribute('data-rt-inline','');
             const box=button.getBoundingClientRect();trigger.style.left=Math.round(box.left)+'px';trigger.style.top=Math.round(box.top)+'px';trigger.style.width=Math.round(box.width)+'px';trigger.style.height=Math.round(box.height)+'px';
             // Opening the dropdown resets it to its main list; open this item's submenu right after that.
-            dropdown.setAttribute('open','');setTimeout(()=>{if(!dropdown.hasAttribute('open'))return;main.classList.remove('hidden');menuRow.click();},60);});
+            dropdown.setAttribute('open','');setTimeout(()=>{if(!dropdown.hasAttribute('open'))return;main.classList.remove('hidden');menuRow.click();this.openSubmenu?.style.removeProperty('--rt-menu-height');},60);});
           this.searchInlineButtons.set(menuRow,button);
         }
         // Like Reddit's Relevance / All time buttons: the current value only (the name when nothing is set).
-        const value=(menuRow.querySelector('[data-rt-menu-value]')?.textContent || '').trim(),label=value || menuRow.rtLabel;
+        // Reddit's own buttons show a value (Relevance, All time). A default value alone (All, Any time, Card) says
+        // nothing, so a row at its default shows its name (Date, Post type, Subreddit) and its value once set.
+        const value=(menuRow.querySelector('[data-rt-menu-value]')?.textContent || '').trim(),label=!value || /^(?:all|any|any time|card|everything)$/i.test(value)?menuRow.rtLabel:value;
         if(button.rtText.textContent!==label){button.rtText.textContent=label;button.setAttribute('aria-label',label);}
         if(button.parentNode!==bar || [...bar.children].indexOf(button)!==[...keep].length)bar.append(button);keep.add(menuRow);
       }
@@ -1390,7 +1398,7 @@
       this.status.title=(deferred?`${deferred} older discoveries will appear when Reddit loads that part of the feed. `:'')+[...new Set(Object.entries(this.sourceErrors || {}).filter(([key,value])=>key.startsWith('metadata-') && value).map(([,value])=>value)),'Search and archive coverage may be incomplete.'].join(' ');
     }
     setStatus(text,error=false){
-      if(this.isSearch() && !this.isOwnList() && !this.searchParsed?.invalid && (this.searchReddit?.residual || this.searchArchiveLocal) && !text.includes('filtered locally'))text+=' · Some matches filtered locally'+(text.includes('may be incomplete')?'':' · Results may be incomplete');
+      if(this.isSearch() && !this.isOwnList() && !this.searchParsed?.invalid && (this.searchReddit?.residual || this.searchArchiveLocal) && !text.includes('filtered locally') && !(error && this.sourceNotices?.query))text+=' · Some matches filtered locally'+(text.includes('may be incomplete')?'':' · Results may be incomplete');
       this.status.textContent=text;this.status.dataset.error=String(error);
     }
     async request(parameters){const controller=new AbortController(),identity=parameters.action==='own-list-identity';let started=Date.now(),timeoutRetries=0,responseRetries=0;if(identity)this.ownIdentityController=controller;else this.controllers.add(controller);try{
