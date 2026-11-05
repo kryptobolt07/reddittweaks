@@ -161,6 +161,19 @@
       setTimeout(tick,30);};
     setTimeout(tick,0);
   }
+  // Reddit can re-render a result card while it is being clicked (the full-card link changes between mouse down and
+  // up), so the click lands on the card itself and nothing opens. A plain click on an empty part of a card that has
+  // not navigated by the next task opens the card's own link.
+  if(!globalThis.__rtCardClickFallback){globalThis.__rtCardClickFallback=true;
+    document.addEventListener('click',event=>{
+      if(event.defaultPrevented || event.button!==0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)return;
+      const path=event.composedPath(),card=path.find(n=>n.classList?.contains('rt-native-card'));if(!card)return;
+      // Only what was clicked inside the card counts (the card's own containers are ours too).
+      if(path.slice(0,path.indexOf(card)).some(n=>n.matches?.('a[href],button,input,textarea,select,label,summary,[role="button"],[role="menuitem"],faceplate-dropdown-menu,shreddit-post-overflow-menu,shreddit-comment-action-row')))return;
+      if(String(globalThis.getSelection?.() || ''))return;
+      const target=card.querySelector('a.absolute.inset-0[href],a[slot="full-post-link"][href],a[data-testid="post-title"][href],a[slot="title"][href],a[href*="/comments/"]');if(!target)return;
+      const from=location.href;setTimeout(()=>{if(location.href===from && card.isConnected)target.click();},0);
+    });}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
   const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
@@ -915,7 +928,9 @@
     // Feed options entry, so the filter logic and state stay in one place.
     toggleInlineMenu(button,menuRow){
       if(this.inlineMenu?.button===button){this.closeInlineMenu();return;}
-      this.closeInlineMenu();const sub=menuRow.rtSubmenu;if(!sub)return;
+      this.closeInlineMenu();let sub=menuRow.rtSubmenu;if(!sub)return;
+      // Choosing a filter can rebuild the Feed options menu; always read (and watch) the current copy of this submenu.
+      const key=sub.dataset.rtSubKey,liveSub=()=>{if(!sub.isConnected && key){const next=this.activityMain?.parentElement?.querySelector('[data-rt-sub-key="'+key+'"]');if(next && next!==sub){sub=next;observer?.disconnect();observer?.observe(sub,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-checked','hidden']});}}return sub;};let observer=null;
       menuRow.rtOnOpen?.();
       const sheet=Boolean(this.searchInlineSheet),multi=sub.dataset.rtSubKey==='sub',panel=make('div','rt-inline-menu'+(sheet?' rt-inline-sheet':''));panel.dataset.rtUi='search-inline-menu';
       let scrim=null;
@@ -930,7 +945,7 @@
       if(multi){source=sub.querySelector('input');if(source){const box=make('div','rt-inline-menu-search');search=make('input');search.type='search';search.placeholder=source.placeholder || 'Search subreddits';search.setAttribute('aria-label',search.placeholder);search.value=source.value || '';
         search.addEventListener('input',()=>{source.value=search.value;source.dispatchEvent(new Event('input',{bubbles:true}));});box.append(search);panel.append(box);}}
       panel.append(list);
-      const items=()=>[...sub.querySelectorAll('rpl-menu-item')].filter(el=>!el.hidden && !el.closest('[hidden],.rt-sub-head'));
+      const items=()=>[...liveSub().querySelectorAll('rpl-menu-item')].filter(el=>!el.hidden && !el.closest('[hidden],.rt-sub-head'));
       const labelOf=el=>(el.getAttribute('aria-label') || el.querySelector('.rt-sub-name,.rt-menu-caption')?.textContent || el.textContent || '').trim();
       const checkedOf=el=>el.getAttribute('aria-checked')==='true' || Boolean(el.querySelector('[data-rt-check],[icon-name="checkmark"]'));
       const iconWatch=multi && typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){iconWatch.unobserve(entry.target);globalThis.RTFeedFilters?.loadIcon?.(entry.target);}},{root:list,rootMargin:'200px 0px'}):null;
@@ -954,14 +969,14 @@
           const choose=event=>{event.preventDefault();event.stopPropagation();
             // A choice that needs more input (a custom date range) continues in the full Feed options menu.
             if(opens){this.closeInlineMenu();this.openInFeedOptions(menuRow,button,item);return;}
-            item.click();if(!multi){this.closeInlineMenu();button.focus();}};
+            item.click();if(!multi){this.closeInlineMenu();button.focus();}else for(const wait of [60,300])setTimeout(()=>{if(this.inlineMenu?.panel===panel)render();},wait);};
           row.addEventListener('click',choose);row.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ')choose(event);});
           list.append(li);
         }
         if(focused>=0)list.querySelectorAll('.rt-inline-menu-item')[focused]?.focus();
       };
       render();
-      let pending=0;const observer=new MutationObserver(()=>{if(!pending)pending=setTimeout(()=>{pending=0;if(this.inlineMenu?.panel===panel)render();},0);});
+      let pending=0;observer=new MutationObserver(()=>{if(!pending)pending=setTimeout(()=>{pending=0;if(this.inlineMenu?.panel===panel)render();},0);});
       observer.observe(sub,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-checked','hidden']});
       if(scrim)document.body.append(scrim);document.body.append(panel);
       // A sheet covers the page like Reddit's: the page behind it doesn't scroll.
@@ -1120,7 +1135,13 @@
       const f=globalThis.RTFeedFilters,loaded=this.loadedItems(),agg=this.rtAgg,current=agg && agg.key===this.aggKey();
       if(current && agg.state==='ok')return {source:'archive',entries:f.mergeCounts(agg.buckets,loaded.filter(item=>!this.archived.has(item.fullname) && !this.archived.has(item.fullname?.replace(/^t3_/,''))))};
       const waiting=!this.isOwnList() && Boolean(globalThis.RTArchiveQuery?.aggregate && this.settings.archiveDiscovery) && (!agg || !current || agg.state==='loading');
-      return {source:waiting?'loading':'loaded',entries:f.mergeCounts([],loaded)};
+      // Counts from loaded items shrink to the picked subreddits once a subreddit filter applies, which would hide every
+      // other choice. Keep offering the subreddits seen before any was picked (same user, tab and dates).
+      let entries=f.mergeCounts([],loaded);const scope=this.aggKey(),picked=this.rtFilters?.subreddits || [];
+      if(!picked.length){if(entries.length)this.rtSubSeen={scope,entries};}
+      else if(this.rtSubSeen?.scope===scope){const byKey=new Map(this.rtSubSeen.entries.map(entry=>[entry.key.toLowerCase(),{...entry}]));for(const entry of entries){const known=byKey.get(entry.key.toLowerCase());if(!known)byKey.set(entry.key.toLowerCase(),entry);else known.count=Math.max(known.count,entry.count);}
+        entries=[...byKey.values()].sort((a,b)=>b.count-a.count || a.key.localeCompare(b.key));}
+      return {source:waiting?'loading':'loaded',entries};
     }
     // Counts come from the archive's aggregate; if it is unavailable or slow, loaded items stand in.
     loadSubredditCounts(){
