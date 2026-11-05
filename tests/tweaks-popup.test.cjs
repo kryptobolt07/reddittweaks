@@ -35,7 +35,7 @@ test('Reddit Tweaks popup loads defaults and persists individual changes while p
 test('automatic restoration stays independent of archive opt-in and serialized writes preserve unknown fields',async t=>{
   const p=popup(t,{settings:{'rt-settings-v1':{archiveDiscovery:false,restoreDeletedContent:false,futureOption:'preserve'}}});await settle();
   const restore=p.w.document.querySelector('#restore-deleted-content'),post=p.w.document.querySelector('#post-discovery');
-  assert.equal(restore.checked,false);assert.match(restore.previousElementSibling.textContent,/Requires Arctic Shift enabled/);
+  assert.equal(restore.checked,false);assert.equal(restore.closest('.setting-row').hidden,true,'folds away until the archive is on');
   restore.checked=true;restore.dispatchEvent(new p.w.Event('change'));post.checked=false;post.dispatchEvent(new p.w.Event('change'));await settle();
   assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,futureOption:'preserve'});
   const reopened=popup(t,{settings:p.state});await settle();assert.equal(reopened.w.document.querySelector('#restore-deleted-content').checked,true);assert.equal(reopened.w.document.querySelector('#archive-discovery').checked,false);

@@ -86,12 +86,19 @@ aboutPanel.querySelector('.popover-close').addEventListener('click',()=>setAbout
 aboutWrap.addEventListener('focusout',event=>{if(!aboutPanel.hidden && !aboutWrap.contains(event.relatedTarget))setAbout(false);});
 document.addEventListener('click',event=>{if(!aboutPanel.hidden && !aboutWrap.contains(event.target))setAbout(false);});
 document.addEventListener('keydown',event=>{if(event.key==='Escape' && !aboutPanel.hidden)setAbout(false,true);});
-// Dependent settings look inactive until the setting they need is on.
+// Dependent settings look inactive until the setting they need is on, and say which one that is.
 function syncDependencies(){
   for(const row of document.querySelectorAll('.setting-row[data-requires]')){
     const parent=document.getElementById(row.dataset.requires),ancestor=parent?.closest('.setting-row[data-requires]');
     const active=Boolean(parent?.checked) && (!ancestor || !ancestor.classList.contains('is-inactive'));
     row.classList.toggle('is-inactive',!active);
+    // Name the switch nearest the top of the chain that is off: turning that on comes first.
+    let blocker=null;for(let at=parent;at;){if(!at.checked)blocker=at;const up=at.closest('.setting-row[data-requires]');at=up?document.getElementById(up.dataset.requires):null;}
+    // Options refining a switch in the same card fold away until it's on; a card's first option stays, dimmed.
+    row.hidden=!active && parent?.closest('.card')===row.closest('.card');
+    let note=row.querySelector('.requires-note');
+    if(!active && blocker && !row.hidden){if(!note){note=document.createElement('p');note.className='requires-note';row.querySelector('.setting-copy').append(note);}note.textContent='Needs “'+(document.querySelector('label[for="'+blocker.id+'"]')?.textContent || 'the setting above')+'”';}
+    else note?.remove();
     const control=row.querySelector('[data-setting]');if(control && !control.classList.contains('is-unavailable')){if(active)control.removeAttribute('aria-disabled');else control.setAttribute('aria-disabled','true');}
   }
 }
