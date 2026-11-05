@@ -1,3 +1,13 @@
+# 0.30.3 preview
+
+- Opening a result from a profile or list search keeps the results and the Saved/History pill on screen until Reddit shows the post, instead of a blank page; going Back shows them again at once, pill included.
+- A fresh list search no longer restarts from the first page when Reddit swaps its page during start-up.
+- The Subreddit menu's community list uses compact rows on desktop.
+
+Version choice: PATCH to 0.30.3 for display and performance fixes. No new permissions or storage schema migration.
+
+Validation: all 1,308 automated tests pass; ZIP integrity and source/stable-folder byte equality checked. Live Chrome check (read-only) on a Saved search: results and pill stayed until the post appeared (0.8 s), came back together 0.13 s after Back, and the Subreddit menu rows measured 36 px.
+
 # 0.30.2 preview
 
 - Going Back to your own Saved, History, Hidden, Upvoted or Downvoted search puts the loaded results back at once instead of reading the whole list again; a list that was still loading continues where it stopped.
