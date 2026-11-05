@@ -113,6 +113,7 @@
   function button(text,run,icon){const b=make('button','',text);b.type='button';if(icon)b.prepend(glyph(icon));b.addEventListener('click',run);return b;}
   // Reddit's 20x20 action icons (same paths as Reddit's own markup), for archive-only controls.
   const REDDIT_ICONS={
+    close:'m11.273 10 5.363-5.363a.9.9 0 10-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 10-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 101.274 1.273L10 11.273l5.363 5.363a.897.897 0 001.274 0 .9.9 0 000-1.273L11.275 10h-.002Z',
     'radio-button':'M10 2.8c3.97 0 7.2 3.23 7.2 7.2s-3.23 7.2-7.2 7.2-7.2-3.23-7.2-7.2S6.03 2.8 10 2.8ZM10 1a9 9 0 10.001 18.001A9 9 0 0010 1Z',
     'radio-button-fill':'M10 2.8c3.97 0 7.2 3.23 7.2 7.2s-3.23 7.2-7.2 7.2-7.2-3.23-7.2-7.2S6.03 2.8 10 2.8ZM10 1a9 9 0 10.001 18.001A9 9 0 0010 1Z M10 14a4 4 0 100-8 4 4 0 000 8Z',
     // 12x12 (viewBox 0 0 12 12), Reddit's nsfw-fill-12.
@@ -874,12 +875,15 @@
     // The separate Feed options pill stays in the DOM (it hosts the menus) but is hidden and used as the anchor.
     syncSearchInlineFilters(){
       const dropdown=this.activityDropdown,main=this.activityMain,trigger=dropdown?.querySelector('button[aria-label="Feed options"]');
-      const row=document.querySelector('search-sort-dropdown-menu')?.closest('div.flex.items-center');if(!dropdown || !main || !trigger || !row)return;
+      // Desktop shows search-sort-dropdown-menu; the mobile site a scrolling strip of filter-drawer buttons that open
+      // bottom sheets. Our filters join whichever row Reddit drew, and open the same kind of menu.
+      const sortHost=document.querySelector('search-sort-dropdown-menu:not([hidden]),filter-drawer#search_modifier_post_sort,filter-drawer[id^="search_modifier"]'),row=sortHost?.closest('div.flex.items-center');if(!dropdown || !main || !trigger || !row)return;
+      this.searchInlineSheet=sortHost.matches('filter-drawer');
       let bar=this.searchInlineBar;if(!bar?.isConnected){bar=this.searchInlineBar=make('div','contents');bar.dataset.rtUi='search-inline-filters';row.append(bar);this.searchInlineButtons=new Map();}
       trigger.classList.add('rt-feed-trigger-anchor');
       // Reddit's own sort button is already in this row: our Sort row would duplicate it, so its extra entry (Old)
       // goes into Reddit's sort menu instead.
-      this.hookSearchSortMenu(row.querySelector('search-sort-dropdown-menu'));
+      this.hookSearchSortMenu(sortHost);
       const rows=[...main.querySelectorAll('*')].filter(el=>el.rtSubmenu && el.rtLabel && el.rtLabel!=='Sort' && !el.hidden && !el.closest('[hidden]'));
       const keep=new Set();
       for(const menuRow of rows){
@@ -908,7 +912,15 @@
       if(this.inlineMenu?.button===button){this.closeInlineMenu();return;}
       this.closeInlineMenu();const sub=menuRow.rtSubmenu;if(!sub)return;
       menuRow.rtOnOpen?.();
-      const multi=sub.dataset.rtSubKey==='sub',panel=make('div','rt-inline-menu');panel.dataset.rtUi='search-inline-menu';
+      const sheet=Boolean(this.searchInlineSheet),multi=sub.dataset.rtSubKey==='sub',panel=make('div','rt-inline-menu'+(sheet?' rt-inline-sheet':''));panel.dataset.rtUi='search-inline-menu';
+      let scrim=null;
+      // Mobile: Reddit's filter bottom sheet (a 60% scrim, a sheet with 12px top corners, a 48px bold title row and a
+      // round close button).
+      if(sheet){scrim=make('div','rt-inline-sheet-scrim');scrim.setAttribute('aria-hidden','true');scrim.addEventListener('click',()=>this.closeInlineMenu());
+        panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');panel.setAttribute('aria-label',menuRow.rtLabel);
+        const head=make('div','flex items-center min-w-0 rt-inline-sheet-head'),title=make('span','grow min-w-0 truncate');title.append(make('span','text-16 text-neutral-content-strong font-bold',menuRow.rtLabel));head.append(title);
+        const close=make('button','appearance-none h-xl w-xl border-0 rounded-full bg-secondary-background button-medium items-center justify-center button inline-flex rt-inline-sheet-close');close.type='button';close.setAttribute('aria-label','Close');close.append(redditIcon('close',16));
+        close.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.closeInlineMenu();button.focus();});panel.append(close,head);}
       const list=make('ul','rt-inline-menu-list');list.setAttribute('role','menu');list.setAttribute('aria-label',menuRow.rtLabel);let search=null,source=null;
       if(multi){source=sub.querySelector('input');if(source){const box=make('div','rt-inline-menu-search');search=make('input');search.type='search';search.placeholder=source.placeholder || 'Search subreddits';search.setAttribute('aria-label',search.placeholder);search.value=source.value || '';
         search.addEventListener('input',()=>{source.value=search.value;source.dispatchEvent(new Event('input',{bubbles:true}));});box.append(search);panel.append(box);}}
@@ -926,7 +938,7 @@
           const row=make('div','flex justify-between relative px-md gap-xs text-secondary-plain hover:bg-neutral-background-hover cursor-pointer py-xs -outline-offset-1 no-underline rt-inline-menu-item'+(checked?' bg-neutral-background-selected':''));
           row.tabIndex=-1;row.setAttribute('role',multi?'menuitemcheckbox':'menuitemradio');row.setAttribute('aria-checked',String(checked));
           const lead=make('span','flex items-center gap-xs min-w-0 shrink'),mark=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4 rt-inline-mark');
-          if(multi)mark.append(make('span','rt-inline-check'));else mark.append(redditIcon(checked?'radio-button-fill':'radio-button',16));lead.append(mark);
+          if(multi)mark.append(make('span','rt-inline-check'));else mark.append(redditIcon(checked?'radio-button-fill':'radio-button',sheet?20:16));lead.append(mark);
           if(multi){const icon=item.querySelector('.rt-community-icon');if(icon){const copy=icon.cloneNode(true);copy.className='rt-community-icon rt-inline-community';copy.removeAttribute('style');lead.append(copy);}}
           const text=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]'),body=make('span','text-body-2 rt-inline-menu-label');body.append(make('span','text-secondary-onBackground',label));text.append(body);lead.append(text);
           const end=make('span','flex items-center shrink-0'),slot=make('span','flex items-center justify-center h-lg text-12 text-secondary-plain-weak rt-inline-menu-tail'),tail=item.querySelector('[data-rt-option-tail]')?.textContent;if(tail)slot.textContent=tail;end.append(slot);
@@ -943,11 +955,14 @@
       render();
       let pending=0;const observer=new MutationObserver(()=>{if(!pending)pending=setTimeout(()=>{pending=0;if(this.inlineMenu?.panel===panel)render();},0);});
       observer.observe(sub,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-checked','hidden']});
-      document.body.append(panel);
+      if(scrim)document.body.append(scrim);document.body.append(panel);
+      // A sheet covers the page like Reddit's: the page behind it doesn't scroll.
+      const lock=sheet?document.documentElement.style.getPropertyValue('overflow'):null;if(sheet)document.documentElement.style.setProperty('overflow','hidden');
       // Like Reddit's popper: centred under the button, 8px below it, kept inside the window.
-      const place=()=>{const r=button.getBoundingClientRect(),w=panel.offsetWidth;let left=r.left+r.width/2-w/2;left=Math.min(left,innerWidth-8-w);panel.style.left=Math.max(8,Math.round(left))+'px';panel.style.top=Math.round(r.bottom+8)+'px';};
+      const place=()=>{if(sheet)return;const r=button.getBoundingClientRect(),w=panel.offsetWidth;let left=r.left+r.width/2-w/2;left=Math.min(left,innerWidth-8-w);panel.style.left=Math.max(8,Math.round(left))+'px';panel.style.top=Math.round(r.bottom+8)+'px';};
       place();
-      const outside=event=>{const path=event.composedPath();if(!path.includes(panel) && !path.includes(button))this.closeInlineMenu();};
+      // The scrim closes on its own click, so a tap on it never falls through to the post underneath.
+      const outside=event=>{const path=event.composedPath();if(!path.includes(panel) && !path.includes(button) && !(scrim && path.includes(scrim)))this.closeInlineMenu();};
       const keys=event=>{
         if(event.key==='Escape'){event.preventDefault();this.closeInlineMenu();button.focus();return;}
         if(!['ArrowDown','ArrowUp'].includes(event.key) || !panel.contains(document.activeElement))return;
@@ -956,10 +971,10 @@
       };
       addEventListener('pointerdown',outside,true);addEventListener('keydown',keys,true);addEventListener('resize',place);addEventListener('scroll',place,{passive:true});
       button.setAttribute('aria-expanded','true');
-      this.inlineMenu={button,panel,cleanup:()=>{observer.disconnect();clearTimeout(pending);removeEventListener('pointerdown',outside,true);removeEventListener('keydown',keys,true);removeEventListener('resize',place);removeEventListener('scroll',place);}};
+      this.inlineMenu={button,panel,scrim,cleanup:()=>{if(sheet){if(lock)document.documentElement.style.setProperty('overflow',lock);else document.documentElement.style.removeProperty('overflow');}observer.disconnect();clearTimeout(pending);removeEventListener('pointerdown',outside,true);removeEventListener('keydown',keys,true);removeEventListener('resize',place);removeEventListener('scroll',place);}};
       (search || list.querySelector('[aria-checked="true"]') || list.querySelector('.rt-inline-menu-item'))?.focus({preventScroll:true});
     }
-    closeInlineMenu(){const m=this.inlineMenu;if(!m)return;this.inlineMenu=null;m.cleanup();m.panel.remove();m.button.setAttribute('aria-expanded','false');}
+    closeInlineMenu(){const m=this.inlineMenu;if(!m)return;this.inlineMenu=null;m.cleanup();m.panel.remove();m.scrim?.remove();m.button.setAttribute('aria-expanded','false');}
     // The full Feed options menu, opened at one submenu under an inline button (for choices that need more input).
     openInFeedOptions(menuRow,button,item){
       const dropdown=this.activityDropdown,main=this.activityMain,trigger=dropdown?.querySelector('button[aria-label="Feed options"]');if(!dropdown || !main || !trigger)return;
@@ -1728,6 +1743,8 @@
       if(this.hasMoreProfile() && !this.batchAutoPaused)this.loadMore();
     }
     updateProfileLoading(){
+      // The loader follows the page kind (search skeleton or profile halo) once the route is known.
+      if(this.loading && this.context && !this.isOwnList()){const halo=this.loading.querySelector('.rt-native-loading'),want=this.isSearch()?'search':'feed';if(halo && (halo.dataset.rtLoader || 'feed')!==want){const next=this.feedLoader();next.hidden=halo.hidden;halo.replaceWith(next);}}
       if(this.isOwnList()){const hidden=!this.listState?.loading;if(this.loading && this.loading.hidden!==hidden)this.loading.hidden=hidden;return;}
       if(!this.feed || !this.loading)return;
       const pending=this.batchedProfile && this.pendingProfilePosts().length>0,more=this.hasMoreProfile();
@@ -1960,13 +1977,26 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       card.setAttribute('aria-busy','true');
       card.append(this.placeholder());return card;
     }
+    // Reddit's search-result skeleton (its next-page placeholder, copied from the live page): a title line, a body
+    // block with a thumbnail, three meta pills and the list divider.
+    searchSkeleton(){
+      const article=make('div','rt-search-skeleton');article.setAttribute('role','article');article.setAttribute('aria-hidden','true');
+      const shim=cls=>make('div','shimmer-placeholder bg-shimmer rounded-2 '+cls),body=make('div','flex flex-col p-md');
+      const top=make('div','flex items-center mb-xs');top.append(shim('h-[21px] w-[112px] me-2xs'),shim('h-[21px] w-[90px]'));
+      const mid=make('div','flex items-center justify-between mb-xs');mid.append(shim('h-[60px] xs:h-[90px] flex-1 me-md'),shim('h-[60px] w-[80px] xs:h-[90px] xs:w-[120px]'));
+      const meta=make('div','flex items-center');meta.append(shim('h-md w-[70px] me-2xs'),shim('h-md w-[70px] me-2xs'),shim('h-md w-[70px] me-2xs'));
+      body.append(top,mid,meta);article.append(body,make('hr','list-divider-line border-0 border-b-sm border-solid border-b-neutral-border-weak xs:mx-md'));return article;
+    }
     placeholder(){
+      if(this.isSearch?.())return this.searchSkeleton();
       // Cards use quiet native shimmer rows. The animated Snoo belongs to the
       // feed, never repeated for every pending item.
       const placeholder=make('div','rt-native-placeholder');placeholder.setAttribute('aria-hidden','true');
       const avatar=make('faceplate-shimmer','h-lg w-lg rounded-full shrink-0'),lines=make('div','grow');avatar.setAttribute('shape','circle');lines.append(make('faceplate-shimmer','block rounded-2 h-md w-[200px] max-w-full'),make('faceplate-shimmer','block rounded-2 h-xs w-[160px] max-w-full mt-2xs'));placeholder.append(avatar,lines);return placeholder;
     }
     feedLoader(){
+      // Search pages load like Reddit's search: three result skeletons, not the profile feed's halo.
+      if(this.context && this.isSearch()){const loader=make('div','rt-native-loading rt-search-loading');loader.dataset.rtLoader='search';loader.append(this.searchSkeleton(),this.searchSkeleton(),this.searchSkeleton());return loader;}
       const loader=make('shreddit-feed-page-loading','rt-native-loading');loader.setAttribute('page-type',this.context?.view==='comments'?'profile_comments':this.context?.view==='posts'?'profile_posts':'profile_overview');return loader;
     }
     observeNativeLoading(){
