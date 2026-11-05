@@ -631,3 +631,12 @@ test('community navigation seeds the native collapsed controller before connecti
  const result=await e.send({action:'render-navigation',subreddit:'example',target:target.id});assert.equal(result.rendered,true);
  const native=target.querySelector('flex-left-nav-container');assert.equal(native.getAttribute('expanded'),'0');assert.equal(native.getAttribute('parent-grid-selector'),'[data-rt-ui="archive-subreddit"]');assert.equal(native.hasAttribute('no-animate'),true);
 });
+test('native post search reads Reddit\'s newer content-preview cards and skips one unreadable card',async t=>{
+ // Live shape (2026-11): search-post-with-content-preview > sdui-post-unit holds the title and counters.
+ const context=id=>JSON.stringify({post:{id:'t3_'+id,title:'Public',nsfw:false,spoiler:false},profile:{name:'Example'},subreddit:{name:'example'}});
+ const card=id=>`<search-telemetry-tracker view-events="search/view/post" data-faceplate-tracking-context='${context(id)}'><div data-testid="search-post-with-content-preview"><search-telemetry-tracker data-faceplate-tracking-context='${context(id)}'><h2><a data-testid="post-title" href="/r/example/comments/${id}/public/">Public</a></h2></search-telemetry-tracker><faceplate-timeago ts="2026-08-07T20:51:48.364000+0000"></faceplate-timeago><div data-testid="sdui-post-unit"><a data-testid="post-title-text" href="/r/example/comments/${id}/public/">Public</a><div data-testid="search-counter-row"><faceplate-number number="42"></faceplate-number><faceplate-number number="3"></faceplate-number></div></div></div></search-telemetry-tracker>`;
+ const broken=`<search-telemetry-tracker view-events="search/view/post" data-faceplate-tracking-context='${context('zzz99')}'><div data-testid="something-new"></div></search-telemetry-tracker>`;
+ const e=setup(t,{fetcher:async()=>nativeResponse(card('abc12')+broken+card('def34')+`<faceplate-partial loading="lazy" src='/svc/shreddit/search/?q=author%3A%22Example%22&type=posts&sort=new&cursor=opaque_post_cursor'></faceplate-partial>`)});
+ const result=await e.send({action:'profile',username:'Example'});assert.equal(result.ok,true,result.error);assert.deepEqual(result.posts.map(p=>p.id),['abc12','def34']);assert.equal(result.posts[0].score,42);assert.equal(result.posts[0].comments,3);
+ const none=setup(t,{fetcher:async()=>nativeResponse(broken)});assert.match((await none.send({action:'profile',username:'Example'})).error,/format changed/,'a page with no readable card still reports it');
+});
