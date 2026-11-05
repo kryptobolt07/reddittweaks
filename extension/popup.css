@@ -23,6 +23,11 @@ main{display:flex;flex-direction:column;gap:8px}
 .card-heading+.setting-row{border-top:0}
 /* Dependent rows keep the same left edge; a short stub drops from the separator into their tile column. */
 .setting-row[data-requires]:before{content:"";position:absolute;left:16px;top:0;width:2px;height:8px;border-radius:1px;background:rgba(255,69,0,.35)}
+.card-heading+.setting-row[data-requires]:before{display:none}
+.setting-row[hidden]{display:none}
+/* Second-level options sit one step in, under the option they refine. */
+.setting-row[data-level="2"]{margin-left:22px}.setting-row[data-level="2"]:before{left:15px}
+.requires-note{margin:3px 0 0!important;color:var(--text)!important;font-size:10.5px!important;font-weight:600}
 .setting-row.is-inactive{opacity:.5}.setting-row.is-inactive .switch{outline:1px dashed var(--muted);outline-offset:1px}
 .switch.is-unavailable{opacity:.45;cursor:not-allowed}
 .tile{display:grid;place-items:center;width:30px;height:30px;flex:none;border-radius:10px;background:var(--tile);color:var(--accent)}

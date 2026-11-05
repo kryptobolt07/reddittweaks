@@ -9,42 +9,46 @@
 <body>
   <header class="brand">
     <img class="brand-mark" src="icons/logo-small.svg" alt="" width="38" height="38">
-    <div class="brand-copy"><strong>Reddit Tweaks</strong><span class="tagline">Search chats · recover profile activity</span></div>
+    <div class="brand-copy"><strong>Reddit Tweaks</strong><span class="tagline">Search chats, profiles and archives</span></div>
     <span class="version" id="version" aria-label="Version"></span>
   </header>
 
   <main>
-    <section class="card" aria-labelledby="posts-heading">
-      <div class="card-heading"><h1 id="posts-heading">Profiles &amp; posts</h1><span class="category-hint">Discovery</span></div>
+    <section class="card" aria-labelledby="reddit-heading">
+      <div class="card-heading"><h1 id="reddit-heading">On Reddit</h1><span class="category-hint">Uses Reddit only</span></div>
       <div class="setting-row">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8.5 2a6.5 6.5 0 0 1 5.18 10.43l3.94 3.95a.9.9 0 0 1-1.27 1.27l-3.95-3.94A6.5 6.5 0 1 1 8.5 2Zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg></span>
-        <div class="setting-copy"><label for="post-discovery">Discover public activity</label><p id="post-discovery-desc">Show public posts and comments a profile hides, merged in by date.</p></div>
+        <div class="setting-copy"><label for="post-discovery">Profile search &amp; hidden activity</label><p id="post-discovery-desc">Search any profile, your Saved, History and votes, and show posts a profile hides.</p></div>
         <input class="switch" type="checkbox" id="post-discovery" data-setting="postDiscovery" aria-describedby="post-discovery-desc">
       </div>
+      <div class="setting-row">
+        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8 5H5a5 5 0 0 0 0 10h3v-2H5a3 3 0 0 1 0-6h3V5Zm4 0v2h3a3 3 0 0 1 0 6h-3v2h3a5 5 0 0 0 0-10h-3ZM5 9v2h10V9H5Z"/></svg></span>
+        <div class="setting-copy"><label for="clean-share-links">Clean shared links</label><p id="clean-share-links-desc">Copy post and comment links without Reddit’s sharing identifiers.</p></div>
+        <input class="switch" type="checkbox" id="clean-share-links" data-setting="cleanShareLinks" aria-describedby="clean-share-links-desc">
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="archive-heading">
+      <div class="card-heading"><h2 id="archive-heading">Arctic Shift archive</h2><span class="category-hint">Optional · third party</span></div>
       <div class="setting-row" data-requires="post-discovery">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h13A1.5 1.5 0 0 1 18 4.5v2A1.5 1.5 0 0 1 17 7.9V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.9A1.5 1.5 0 0 1 2 6.5v-2Zm2.8 3.7V15c0 .1.1.2.2.2h10c.1 0 .2-.1.2-.2V8.2H4.8ZM3.8 4.8v1.6h12.4V4.8H3.8Zm3.7 5.3c0-.5.4-.9.9-.9h3.2a.9.9 0 0 1 0 1.8H8.4a.9.9 0 0 1-.9-.9Z"/></svg></span>
-        <div class="setting-copy"><label for="archive-discovery">Search Arctic Shift archive</label><p id="archive-discovery-desc">Find deleted and removed activity on Arctic Shift. Coverage may be incomplete.</p></div>
+        <div class="setting-copy"><label for="archive-discovery">Use the archive</label><p id="archive-discovery-desc">Find and restore deleted activity and browse banned or private communities. Sends usernames, communities and search words to Arctic Shift. Coverage may be incomplete.</p></div>
         <input class="switch" type="checkbox" id="archive-discovery" data-setting="archiveDiscovery" aria-describedby="archive-discovery-desc">
       </div>
       <div class="setting-row" data-requires="archive-discovery">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2.5a7.5 7.5 0 0 1 7.13 5.16.9.9 0 1 1-1.71.56A5.7 5.7 0 0 0 5.4 6.6h1.85a.9.9 0 0 1 0 1.8H3.3a.9.9 0 0 1-.9-.9V3.55a.9.9 0 0 1 1.8 0v1.6A7.48 7.48 0 0 1 10 2.5Zm-6.4 8.78a.9.9 0 0 1 1.13.58A5.7 5.7 0 0 0 14.6 13.4h-1.85a.9.9 0 0 1 0-1.8h3.95c.5 0 .9.4.9.9v3.95a.9.9 0 0 1-1.8 0v-1.6A7.48 7.48 0 0 1 3.03 12.4a.9.9 0 0 1 .57-1.13Z"/></svg></span>
-        <div class="setting-copy"><label for="restore-deleted-content">Restore deleted content automatically</label><p id="restore-deleted-content-desc">Requires Arctic Shift enabled. Shows archived text, images and authors.</p></div>
+        <div class="setting-copy"><label for="restore-deleted-content">Restore deleted content</label><p id="restore-deleted-content-desc">Show archived posts, comments, images and authors in place.</p></div>
         <input class="switch" type="checkbox" id="restore-deleted-content" data-setting="restoreDeletedContent" aria-describedby="restore-deleted-content-desc">
       </div>
       <div class="setting-row" data-requires="archive-discovery">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3 4h14v12H3zM5 6v8h10V6H5z"/></svg></span>
-        <div class="setting-copy"><label for="subreddit-archive">Browse unavailable communities</label><p id="subreddit-archive-desc">Offer archived posts for banned or private communities. Coverage may be incomplete.</p></div>
+        <div class="setting-copy"><label for="subreddit-archive">Banned and private communities</label><p id="subreddit-archive-desc">Offer archived posts and search on Reddit’s notice.</p></div>
         <input class="switch" type="checkbox" id="subreddit-archive" data-setting="subredditArchive" aria-describedby="subreddit-archive-desc">
       </div>
-      <div class="setting-row" data-requires="subreddit-archive">
+      <div class="setting-row" data-requires="subreddit-archive" data-level="2">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-1 4h2v4l3 2-1 1.5-4-2.7V6z"/></svg></span>
-        <div class="setting-copy"><label for="subreddit-archive-automatic">Open community archives automatically</label><p id="subreddit-archive-automatic-desc">Load the archive directly when a community is unavailable.</p></div>
+        <div class="setting-copy"><label for="subreddit-archive-automatic">Open automatically</label><p id="subreddit-archive-automatic-desc">Skip the notice and load the archive directly.</p></div>
         <input class="switch" type="checkbox" id="subreddit-archive-automatic" data-setting="subredditArchiveAutomatic" aria-describedby="subreddit-archive-automatic-desc">
-      </div>
-      <div class="setting-row">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8 5H5a5 5 0 0 0 0 10h3v-2H5a3 3 0 0 1 0-6h3V5Zm4 0v2h3a3 3 0 0 1 0 6h-3v2h3a5 5 0 0 0 0-10h-3ZM5 9v2h10V9H5Z"/></svg></span>
-        <div class="setting-copy"><label for="clean-share-links">Clean shared links</label><p id="clean-share-links-desc">Copy normal post and comment links without Reddit’s sharing identifiers.</p></div>
-        <input class="switch" type="checkbox" id="clean-share-links" data-setting="cleanShareLinks" aria-describedby="clean-share-links-desc">
       </div>
       <p id="settings-status" class="settings-status" role="status" aria-live="polite">Loading settings…</p>
     </section>
