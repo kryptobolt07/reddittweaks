@@ -1,3 +1,16 @@
+# 0.30.0 preview
+
+- The popup groups its options: **On Reddit** (profile search and clean shared links, using Reddit only) and **Arctic Shift archive** (optional, third party: one switch, with restore and banned/private communities under it). Options that need a switch that's off fold away, and a dimmed option names the switch it needs.
+- Your Saved, History, Hidden, Upvoted and Downvoted searches keep their list pill (now Reddit's own scope pill style with the list's icon) after searching, instead of losing it when Reddit re-renders the header.
+- Filter pills (date, post type, subreddit, Oldest first) use Reddit's own search scope pill everywhere. On desktop profile search they sit in the header search next to u/name, several communities share one pill, and a new query typed there keeps them.
+- Profile search and Saved/History/Hidden/Upvoted/Downvoted searches show results as Reddit's own search rows (community · time, title, votes · comments, thumbnail; comments in Reddit's grey comment box with Go To Thread), with Reddit's "Show results from all of Reddit" line, instead of full feed cards with an "Open post on Reddit" link. Reddit's own results no longer load a full card each; archive results still check their current Reddit status in the background.
+- Opening a result from a filtered or list search no longer flashes Reddit's unfiltered results while the post loads.
+- Community icons in the Subreddit menu appear sooner: icons that came with search results are used at once, more load in parallel, and found icons are remembered for the browser session.
+
+Version choice: MINOR to 0.30.0 for Reddit-style search rows on profile and list search, filter pills in the header search, and the regrouped popup, bundled with fixes (pill creation error on community pages, flashes of Reddit's unfiltered results, faster community icons). Setting keys and their meaning are unchanged. No new permissions or storage schema migration.
+
+Validation: all 1,304 automated tests pass; ZIP integrity and source/stable-folder byte equality checked. Live Chrome checks (read-only) compare profile search posts and comments with Reddit's own profile search, cover a Saved search and opening one of its results with no visible Reddit results during the transition, header pills on a profile search, and Subreddit menu icon timing. The popup was checked in a headless browser in light and dark.
+
 # 0.29.0 preview
 
 - Profile search filters (Date, Post type, Subreddit and the rest) are each Reddit's own dropdown style, with clear labels, and close on a second click. Old is added to Reddit's own sort menu instead of a duplicate Sort button. On mobile they open as Reddit's bottom sheets.
@@ -6,11 +19,6 @@
 - Changing a filter reloads results once, not twice: Reddit treated our unchanged-address write as a page reload.
 - Clicking a result card's body opens the post. Filter buttons are spaced like Reddit's, and filter pills keep their size on direct visits instead of starting large.
 - NSFW and spoiler text in profile cards and on archived post pages is blurred behind Reddit's View NSFW content / View spoiler pill instead of a "NSFW or spoiler snapshot" note.
-- Your Saved, History, Hidden, Upvoted and Downvoted searches keep their list pill (now Reddit's own scope pill style with the list's icon) after searching, instead of losing it when Reddit re-renders the header.
-- Filter pills (date, post type, subreddit, Oldest first) use Reddit's own search scope pill everywhere. On desktop profile search they sit in the header search next to u/name, several communities share one pill, and a new query typed there keeps them.
-- Profile search and Saved/History/Hidden/Upvoted/Downvoted searches show results as Reddit's own search rows (community · time, title, votes · comments, thumbnail; comments in Reddit's grey comment box with Go To Thread), with Reddit's "Show results from all of Reddit" line, instead of full feed cards with an "Open post on Reddit" link. Reddit's own results no longer load a full card each; archive results still check their current Reddit status in the background.
-- Opening a result from a filtered or list search no longer flashes Reddit's unfiltered results while the post loads.
-- Community icons in the Subreddit menu appear sooner: icons that came with search results are used at once, more load in parallel, and found icons are remembered for the browser session.
 - Banned and deleted profiles show Reddit's grey suspended snoo in the header; their posts, and suspended or deleted authors in archived threads, use Reddit's small snoo-back avatar.
 
 Version choice: MINOR to 0.29.0 for the Reddit-style filter dropdowns, mobile bottom sheets and search skeleton, bundled with profile search fixes. No new permissions or storage schema migration.
