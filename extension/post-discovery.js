@@ -178,7 +178,7 @@
   function replaceUrl(url){const next=url.pathname+url.search+url.hash;if(next===location.pathname+location.search+location.hash)return false;try{history.replaceState(history.state,'',next);return true;}catch{return false;}}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
-  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
+  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
   class Discovery {
     constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={}}={}){
       this.nativeWaitMs=timing.nativeWaitMs ?? nativeWaitMs;this.retryUnitMs=timing.retryUnitMs ?? 1000;this.sourceWaitMs=timing.sourceWaitMs ?? sourceWaitMs;
@@ -288,7 +288,36 @@
       const generation=this.generation;queueMicrotask(()=>this.resumeWork(generation,new Set(state.sourcePending || []),state.sourceRetries || new Map(),false));
       return true;
     }
+    // Search results live in our own feed, and Reddit rebuilds its search page on Back, so a search
+    // is parked by its address and put back into the rebuilt page (see restoreSearchPark).
+    searchParkKey(context=this.context){return context?.view==='search'?context.key+'|'+new URLSearchParams([...new URLSearchParams(location.search)].filter(([name])=>/^rt_/.test(name))).toString():'';}
+    parkSearch(){
+      const route=pageRoute();if(!this.searchParkAt || this.context?.view!=='search' || !this.host || !this.feed || this.dead || this.settingsError || !this.settings.postDiscovery || route?.key===this.context.key || !this.nodes.size)return false;
+      this.flushVirtualization();const state=this.viewState();state.parkedAt=Date.now();state.scrollY=window.scrollY;
+      for(const node of this.nodes.values())node.classList.remove('rt-native-enter','rt-native-inserted');
+      this.searchParks ||= new Map();const key=this.searchParkAt;
+      const old=this.searchParks.get(key);if(old){this.searchParks.delete(key);this.discardParked(old.state);}
+      this.searchParks.set(key,{state,feed:this.feed});
+      const host=this.host;this.reset({detach:true,retainNavigation:true});host?.remove();
+      while(this.searchParks.size>3){const [oldKey,parked]=this.searchParks.entries().next().value;this.searchParks.delete(oldKey);this.discardParked(parked.state);}
+      return true;
+    }
+    restoreSearchPark(context,main){
+      const key=this.searchParkKey(context),park=key && this.searchParks?.get(key);if(!park)return false;
+      this.searchParks.delete(key);if(Date.now()-park.state.parkedAt>15*60000){this.discardParked(park.state);return false;}
+      const target=this.mountSearchFeed(main);if(!target){this.searchParks.set(key,park);return false;}
+      if(this.context)this.leaveProfile({always:true});
+      target.replaceWith(park.feed);this.adopt(park.feed,park.state);this.searchFeed=park.feed;this.searchParkAt=key;
+      // The rebuilt page has fresh Reddit results to hide, and cards that never rendered are observed again.
+      this.searchHidden=new Map();this.suppressSearchPage();
+      if(typeof IntersectionObserver==='function')this.nativeObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){this.nativeObserver.unobserve(entry.target);this.queueNative(entry.target);}},{rootMargin:'400px'});
+      for(const node of this.nodes.values())if(!node.hidden && node.dataset.rtNativeState==='idle'){if(this.nativeObserver)this.nativeObserver.observe(node);else this.queueNative(node);}
+      this.renderFilterChips();if(context.list)this.syncOwnListTabs();
+      const y=park.state.scrollY||0;if(y)for(const wait of [0,120,400])setTimeout(()=>{if(this.context?.key===context.key && Math.abs(window.scrollY-y)>2)window.scrollTo(0,y);},wait);
+      return true;
+    }
     leaveProfile({retainNavigation=false,always=false}={}){
+      if(!always && this.parkSearch())return;
       if(!this.parkable()){if(always || this.host || this.context)this.reset({retainNavigation});return;}
       this.flushVirtualization();const feed=this.feed,state=this.viewState();
       // Reattaching the feed would replay entrance animations; they already ran.
@@ -439,7 +468,7 @@
         this.observeNativeLoading();this.observeFeedPresentation();this.ensureActivityMenu();this.maybeRestoreDetail();this.deduplicate();this.drainNative(this.nativeBatch);this.mountSeen=this.mountIdentity();return;}
       const retainNavigation=Boolean(this.profileNavigation && this.settings.postDiscovery && !this.settingsError);
       const carry=this.context?.key===context.key && this.settings.postDiscovery && !this.settingsError && this.context?.kind==='profile' && (this.loaded || this.archiveLoaded)?(this.restoreRecoveredBodies(),this.flushVirtualization(),this.viewState()):null;
-      if(carry)this.reset({keepCards:true,retainNavigation:true});else this.leaveProfile({retainNavigation,always:true});
+      if(carry)this.reset({keepCards:true,retainNavigation:true});else if(!this.parkSearch())this.leaveProfile({retainNavigation,always:true});
       let main=document.querySelector('main#main-content,main[role="main"],main');
       if(!main && context.kind==='profile'){
         // Unavailable-account pages omit both main and shreddit-feed. Require an
@@ -449,10 +478,11 @@
         if(retained)main=this.mountArchiveProfile(context,retained.notice,retained.anchor,retained.state);else if(marker && marker.parentElement.querySelector('h3'))main=this.mountArchiveProfile(context,marker.parentElement);else if(banned && /^This account (?:has been (?:banned|suspended)|is suspended)$/i.test(banned.querySelector('#shreddit-forbidden-title')?.textContent.trim()))main=this.mountArchiveProfile(context,banned,banned,'banned');
       }
       if(!main)return;
+      if(context.view==='search' && this.restoreSearchPark(context,main)){this.scan();return;}
       let target=context.view==='search'?this.mountSearchFeed(main):context.kind==='profile'?main.querySelector('shreddit-feed,[data-rt-archive-feed]'):main.querySelector('shreddit-post');
       if(!target)return;
       this.context=context;this.feed=context.kind==='profile'?target:null;this.rtFilters=context.kind==='profile'?this.readFilters(context):null;this.rtPred=null;this.rtSearch=location.search;
-      this.searchParsed=context.view==='search'?parseProfileSearch(context):null;
+      this.searchParsed=context.view==='search'?parseProfileSearch(context):null;this.searchParkAt=this.searchParkKey(context);
       this.searchReddit=this.searchParsed?globalThis.RCSCore.splitQuery(this.searchParsed,PROFILE_REDDIT_SEARCH_CAPABILITIES):null;
       this.searchArchiveLocal=false;
       if(context.view==='search')this.suppressSearchPage();
