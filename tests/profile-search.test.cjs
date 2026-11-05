@@ -96,6 +96,19 @@ test('results are Reddit\'s search rows: community, time, title, counts and thum
   const thread=[...c.querySelectorAll('a')].find(a=>a.textContent==='Go To Thread');assert.equal(new URL(thread.href).pathname,'/r/Alpha/comments/parent/parent_title/');
   assert.equal(c.querySelector('[data-testid="search-counter-row"]').textContent.replace(/\s+/g,' ').trim(),'867 votes·100 comments');assert.equal(s.d.searchUnit(s.W.RTPostModel.normalizePost(raw('big',{score:12345,num_comments:1}))).querySelector('[data-testid="search-counter-row"]').textContent,'12.3K votes·1 comment');
 });
+test('Back to a search puts its loaded results back instead of searching again',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words&rt_sub=Alpha'});await search(s);
+  const before=shown(s.d),node=s.d.nodes.get('live'),calls=s.calls.filter(c=>c.action==='profile').length,queries=s.queries.length;assert.ok(before.length>0);
+  // Open a result: Reddit swaps in the post page.
+  s.W.history.pushState({},'','/r/Alpha/comments/live/synthetic/');s.D.body.innerHTML='<main><shreddit-post id="t3_live"></shreddit-post></main>';s.d.scan();await flush();
+  // Back: Reddit rebuilds its search page from scratch.
+  s.W.history.pushState({},'','/user/Example/search/?q=words&rt_sub=Alpha');s.D.body.innerHTML=page;s.d.scan();await flush();
+  assert.deepEqual(shown(s.d),before);assert.equal(s.d.nodes.get('live'),node,'the same loaded rows come back');assert.ok(node.isConnected);
+  assert.equal(s.calls.filter(c=>c.action==='profile').length,calls,'Reddit is not searched again');assert.equal(s.queries.length,queries,'the archive is not searched again');
+  assert.equal(s.D.querySelector('[data-testid="search-sdui-post"]').closest('[data-rt-search-hidden]')?.hidden,true,'the rebuilt page\'s own results are hidden again');
+  // A different search is not served from the park.
+  s.W.history.pushState({},'','/user/Example/search/?q=other');s.D.body.innerHTML=page;s.d.scan();await search(s);assert.equal(s.calls.filter(c=>c.action==='profile').length,calls+1);
+});
 test('opening a result keeps Reddit\'s own results hidden while its next page loads',async t=>{
   const s=await boot(t,{leaveDelay:true});await search(s);const native=s.D.querySelector('[data-testid="search-sdui-post"]');assert.equal(native.closest('[data-rt-search-hidden]')?.hidden,true);
   s.d.leaveRestoreMs=30;s.W.history.pushState({},'','/r/Alpha/comments/live/synthetic/');s.d.scan();await flush();
