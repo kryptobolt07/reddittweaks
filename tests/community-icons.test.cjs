@@ -33,15 +33,22 @@ test('hover card: header, icon choice, banned communities and negative caching',
   const before=calls.length;assert.equal(await api.get('banned'),null);assert.equal(await api.get('GOOD') ,await results.good);assert.equal(calls.length,before,'results, including empty ones, are cached');
   assert.equal(api.peek('banned'),null);assert.equal(api.peek('never-seen'),undefined);
 });
-test('at most two requests are in flight and starts are spaced about 150 ms apart',async t=>{
+test('at most four requests are in flight and starts are spaced about 60 ms apart',async t=>{
   const {W,I}=load();t.after(()=>W.close());const clk=clock(),starts=[],gates=[];let live=0,peak=0;
-  const api=I.create({fetch:()=>new Promise(resolve=>{starts.push(clk.now());live++;peak=Math.max(peak,live);gates.push(()=>{live--;resolve(reply(200,card()));});}),doc:()=>W.document,Parser:()=>W.DOMParser,now:clk.now,setTimer:clk.setTimer});
-  const all=['a','b','c','d','e'].map(n=>api.get(n));
-  await clk.advance(0);assert.equal(starts.length,1);await clk.advance(150);assert.equal(starts.length,2);await clk.advance(2000);assert.equal(starts.length,2,'two in flight, the rest wait');
-  gates.shift()();await clk.advance(0);assert.equal(starts.length,3);
-  while(gates.length||starts.length<5){gates.shift()?.();await clk.advance(200);}
-  await Promise.all(all);assert.equal(peak,2);assert.equal(api.stats().queued,0);
-  for(let i=1;i<starts.length;i++)assert.ok(starts[i]-starts[i-1]>=150,'spacing '+(starts[i]-starts[i-1]));
+  const api=I.create({fetch:()=>new Promise(resolve=>{starts.push(clk.now());live++;peak=Math.max(peak,live);gates.push(()=>{live--;resolve(reply(200,card()));});}),doc:()=>W.document,Parser:()=>W.DOMParser,now:clk.now,setTimer:clk.setTimer,storage:()=>null});
+  const all=['a','b','c','d','e','f'].map(n=>api.get(n));
+  await clk.advance(0);assert.equal(starts.length,1);await clk.advance(60);assert.equal(starts.length,2);await clk.advance(2000);assert.equal(starts.length,4,'four in flight, the rest wait');
+  gates.shift()();await clk.advance(0);assert.equal(starts.length,5);
+  while(gates.length||starts.length<6){gates.shift()?.();await clk.advance(100);}
+  await Promise.all(all);assert.equal(peak,4);assert.equal(api.stats().queued,0);
+  for(let i=1;i<starts.length;i++)assert.ok(starts[i]-starts[i-1]>=60,'spacing '+(starts[i]-starts[i-1]));
+});
+test('icons sent with results are primed, and the cache survives a reload within the session',async t=>{
+  const {W,I}=load();t.after(()=>W.close());let fetched=0;const fetch=async()=>{fetched++;return reply(200,card());};
+  const first=I.create({fetch,doc:()=>W.document,Parser:()=>W.DOMParser,storage:()=>W.sessionStorage,setTimer:(fn)=>{fn();return 0;}});
+  assert.equal(first.prime('Alpha','https://styles.redditmedia.com/t5_a/styles/communityIcon_a.png'),true);assert.equal(first.prime('Beta','https://evil.example/x.png'),false);
+  assert.equal(await first.get('alpha'),'https://styles.redditmedia.com/t5_a/styles/communityIcon_a.png');assert.equal(fetched,0);
+  const second=I.create({fetch,doc:()=>W.document,Parser:()=>W.DOMParser,storage:()=>W.sessionStorage});assert.equal(second.peek('Alpha'),'https://styles.redditmedia.com/t5_a/styles/communityIcon_a.png');assert.equal(fetched,0);
 });
 test('a 429 stops requests for 60 seconds and is not cached',async t=>{
   const {W,I}=load();t.after(()=>W.close());const clk=clock(),calls=[];let limited=true;
