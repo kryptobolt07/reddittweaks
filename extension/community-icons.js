@@ -26,9 +26,13 @@
     return candidates.find(url=>/communityIcon/i.test(url) && new URL(url).hostname==='styles.redditmedia.com') || candidates.find(url=>/communityIcon/i.test(url)) || candidates[0] || null;
   }
   function create({fetch:fetcher=(...args)=>globalThis.fetch(...args),doc=()=>globalThis.document,Parser=()=>globalThis.DOMParser,hint=name=>globalThis.RTPostDiscovery?.avatarHint?.(name),
-    setTimer=(fn,ms)=>setTimeout(fn,ms),now=()=>Date.now(),gap=150,concurrency=2,pause=60000,max=300}={}){
-    const cache=new Map(),pending=new Map(),queue=[];let active=0,nextStart=0,pausedUntil=0,timer=null;
-    const remember=(key,value)=>{cache.delete(key);cache.set(key,value);while(cache.size>max)cache.delete(cache.keys().next().value);};
+    setTimer=(fn,ms)=>setTimeout(fn,ms),now=()=>Date.now(),gap=60,concurrency=4,pause=60000,max=300,storage=()=>globalThis.sessionStorage}={}){
+    const cache=new Map(),pending=new Map(),queue=[];let active=0,nextStart=0,pausedUntil=0,timer=null,saveTimer=null;
+    // Public icon URLs survive reloads for this browser session, so a menu reopened later shows them at once.
+    const KEY='rt-community-icons-v1',store=()=>{try{return typeof storage==='function'?storage():storage;}catch{return null;}};
+    try{const saved=JSON.parse(store()?.getItem(KEY) || '[]');if(Array.isArray(saved))for(const [key,url] of saved.slice(-max))if(typeof key==='string' && normalize(key) && (url===null || safeUrl(url)===url))cache.set(key.toLowerCase(),url);}catch{}
+    const save=()=>{if(saveTimer!==null)return;saveTimer=setTimer(()=>{saveTimer=null;try{store()?.setItem(KEY,JSON.stringify([...cache].slice(-max)));}catch{}},500);};
+    const remember=(key,value)=>{cache.delete(key);cache.set(key,value);while(cache.size>max)cache.delete(cache.keys().next().value);save();};
     // Icons that Reddit already painted on this page.
     function fromPage(name){
       const d=typeof doc==='function'?doc():doc;if(!d?.querySelectorAll)return '';
@@ -85,8 +89,10 @@
       if(pending.has(key))return pending.get(key);
       const promise=new Promise(resolve=>queue.push({name,key,resolve}));pending.set(key,promise);pump();return promise;
     }
-    return Object.freeze({get,peek,stats:()=>({cached:cache.size,queued:queue.length,active,pausedUntil})});
+    // An icon Reddit already sent with other data (for example a search result row).
+    function prime(value,url){const name=normalize(value),safe=safeUrl(url);if(!name || !safe || cache.get(name.toLowerCase())===safe)return false;remember(name.toLowerCase(),safe);return true;}
+    return Object.freeze({get,peek,prime,stats:()=>({cached:cache.size,queued:queue.length,active,pausedUntil})});
   }
   const shared=create();
-  globalThis.RTCommunityIcons=Object.freeze({get:shared.get,peek:shared.peek,create,parseCard,safeUrl,normalize});
+  globalThis.RTCommunityIcons=Object.freeze({get:shared.get,peek:shared.peek,prime:shared.prime,create,parseCard,safeUrl,normalize});
 })();
