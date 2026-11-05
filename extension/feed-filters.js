@@ -236,14 +236,22 @@
     }
     const icon=glyph();if(icon)holder.append(icon);return holder;
   }
+  // One filter as Reddit's own scope pill (rpl-input-chip, as for u/name in the header search):
+  // leading icon, label, trailing close; a click anywhere on it removes the filter.
+  function pill(chip,{make,glyph,onRemove}){
+    const el=make('rpl-input-chip','rt-filter-chip');el.dataset.rtChip=chip.id;
+    for(const [key,value] of [['appearance','bordered'],['type','standalone']])el.setAttribute(key,value);
+    el.setAttribute('aria-label','Remove filter '+chip.label);
+    const lead=make('span','rt-filter-chip-lead');lead.slot='leading';lead.style.cssText='display:flex;align-items:center';lead.append(chipIcon(chip));
+    const text=make('span','rt-filter-chip-label whitespace-nowrap overflow-hidden text-ellipsis text-label-2',chip.label);
+    const remove=make('button','rt-filter-chip-remove');remove.type='button';remove.setAttribute('aria-label','Remove filter '+chip.label);remove.dataset.rtChipRemove=chip.id;remove.append(glyph('close'));
+    const trail=make('span','flex items-center ms-2xs');trail.slot='trailing';trail.append(remove);
+    el.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onRemove();});
+    el.append(lead,text,trail);return el;
+  }
   function renderChips(container,state,{onChange,make,glyph}){
     const chips=chipList(state);container.replaceChildren();container.hidden=!chips.length;
-    for(const chip of chips){
-      const el=make('span','rt-filter-chip'),text=make('span','rt-filter-chip-label',chip.label),remove=make('button','rt-filter-chip-remove');
-      remove.type='button';remove.setAttribute('aria-label','Remove filter '+chip.label);remove.dataset.rtChipRemove=chip.id;remove.append(glyph('close'));
-      remove.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onChange(chip.remove(clone(state)));});
-      el.dataset.rtChip=chip.id;el.append(chipIcon(chip),text,remove);container.append(el);
-    }
+    for(const chip of chips)container.append(pill(chip,{make,glyph,onRemove:()=>onChange(chip.remove(clone(state)))}));
     if(chips.length){const clear=make('button','rt-filter-clear','Clear filters');clear.type='button';clear.dataset.rtFilterClear='true';clear.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onChange(empty());});container.append(clear);}
   }
   // Menu rows in the caller's own style: ctx supplies row(label,icon), activate(el,fn), glyph(kind).
@@ -346,5 +354,5 @@
     return {el,list,note,input,back,head,render,reset(){input.value='';if(clear)clear.hidden=true;list.scrollTop=0;},get data(){return last;}};
   }
   const iconNames=Object.freeze([...Object.keys(iconPaths),'gif']);
-  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
+  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,pill,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
 })();

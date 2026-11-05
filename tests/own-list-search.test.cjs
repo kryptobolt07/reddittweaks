@@ -55,6 +55,20 @@ test('own pill copies Reddit\'s scope pill markup and survives Reddit re-renderi
  const parent=s.h.native.parentNode;s.h.native.remove();await flush();s.d.syncOwnListHeader();parent.prepend(s.h.native);await flush();s.d.syncOwnListHeader();
  pill=s.h.root.querySelector('[data-rt-list-chip]');assert.ok(pill,'re-added after the header re-renders');assert.equal(s.d.ownHeaderDismissed || '','');
 });
+test('search filters show as Reddit scope pills in the header search and keep the query scope',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=cats&rt_list=saved',withHeader:true});s.h.field.getBoundingClientRect=()=>({width:600,height:40,top:0,left:0,right:600,bottom:40});const urls=navigations(s);
+ s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha','Beta'],date:{preset:'week'}});await flush();
+ let pills=[...s.h.root.querySelectorAll('[data-rt-header-filter]')];
+ assert.deepEqual(pills.map(p=>p.querySelector('.text-label-2').textContent),[s.W.RTFeedFilters.dateLabel({preset:'week'}),'2 communities']);
+ assert.equal(pills[0].tagName,'RPL-INPUT-CHIP');assert.equal(pills[0].getAttribute('appearance'),'bordered');assert.equal(pills[0].getAttribute('slot'),'chips');
+ assert.equal(pills[0].previousElementSibling,s.h.root.querySelector('[data-rt-list-chip]'),'after u/name and the list pill');assert.equal(s.d.rtChips.hidden,true,'the in-page row does not repeat them');
+ for(const p of pills)p.remove();await flush();assert.equal(s.h.root.querySelectorAll('[data-rt-header-filter]').length,2,'re-added after Reddit re-renders the header');
+ s.h.input.value='dogs';const e=new s.W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true});s.h.input.dispatchEvent(e);assert.equal(e.defaultPrevented,true);
+ assert.equal(urls.at(-1).searchParams.get('q'),'dogs');assert.equal(urls.at(-1).searchParams.get('rt_sub'),'Alpha,Beta');assert.equal(urls.at(-1).searchParams.get('rt_date'),'week');assert.equal(urls.at(-1).searchParams.get('rt_list'),'saved');
+ s.h.root.querySelector('[data-rt-header-filter="subs"]').click();await flush();assert.deepEqual(Array.from(s.d.rtFilters.subreddits),[]);
+ pills=[...s.h.root.querySelectorAll('[data-rt-header-filter]')];assert.equal(pills.length,1);
+ s.d.destroy();assert.equal(s.h.root.querySelectorAll('[data-rt-header-filter]').length,0);
+});
 test('profile scope removal drops own pill; navigation and teardown restore placeholders',async t=>{
  const s=await setup(t,{path:'/user/Example/history/',withHeader:true});assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));
  s.h.native.remove();await flush();assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);assert.equal(s.h.input.placeholder,'Search in u/Example');
