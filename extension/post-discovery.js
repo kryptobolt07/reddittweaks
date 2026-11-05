@@ -933,6 +933,7 @@
       const items=()=>[...sub.querySelectorAll('rpl-menu-item')].filter(el=>!el.hidden && !el.closest('[hidden],.rt-sub-head'));
       const labelOf=el=>(el.getAttribute('aria-label') || el.querySelector('.rt-sub-name,.rt-menu-caption')?.textContent || el.textContent || '').trim();
       const checkedOf=el=>el.getAttribute('aria-checked')==='true' || Boolean(el.querySelector('[data-rt-check],[icon-name="checkmark"]'));
+      const iconWatch=multi && typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){iconWatch.unobserve(entry.target);globalThis.RTFeedFilters?.loadIcon?.(entry.target);}},{root:list,rootMargin:'200px 0px'}):null;
       // Rows copy Reddit's search dropdown item (li > a, 32px icon box with a 16px radio, body-2 label).
       const render=()=>{
         const rowsNow=[...list.querySelectorAll('.rt-inline-menu-item')],focused=rowsNow.indexOf(document.activeElement),all=items();list.replaceChildren();
@@ -944,7 +945,9 @@
           row.tabIndex=-1;row.setAttribute('role',multi?'menuitemcheckbox':'menuitemradio');row.setAttribute('aria-checked',String(checked));
           const lead=make('span','flex items-center gap-xs min-w-0 shrink'),mark=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4 rt-inline-mark');
           if(multi)mark.append(make('span','rt-inline-check'));else mark.append(redditIcon(checked?'radio-button-fill':'radio-button',sheet?20:16));lead.append(mark);
-          if(multi){const icon=item.querySelector('.rt-community-icon');if(icon){const copy=icon.cloneNode(true);copy.className='rt-community-icon rt-inline-community';copy.removeAttribute('style');lead.append(copy);}}
+          // Our own icon (not a copy of the hidden list's placeholder), fetched once its row scrolls into view.
+          if(multi){const source=item.querySelector('.rt-community-icon'),name=source?.dataset.rtCommunity,f=globalThis.RTFeedFilters;
+            if(source){const icon=name && f?.communityIcon?f.communityIcon(name,24,source.dataset.rtPlaceholder):source.cloneNode(true);icon.classList.add('rt-inline-community');icon.removeAttribute('style');lead.append(icon);if(name && !icon.dataset.rtIconApplied)iconWatch?iconWatch.observe(icon):f?.loadIcon?.(icon);}}
           const text=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]'),body=make('span','text-body-2 rt-inline-menu-label');body.append(make('span','text-secondary-onBackground',label));text.append(body);lead.append(text);
           const end=make('span','flex items-center shrink-0'),slot=make('span','flex items-center justify-center h-lg text-12 text-secondary-plain-weak rt-inline-menu-tail'),tail=item.querySelector('[data-rt-option-tail]')?.textContent;if(tail)slot.textContent=tail;end.append(slot);
           row.append(lead,end);li.append(row);
@@ -976,7 +979,7 @@
       };
       addEventListener('pointerdown',outside,true);addEventListener('keydown',keys,true);addEventListener('resize',place);addEventListener('scroll',place,{passive:true});
       button.setAttribute('aria-expanded','true');
-      this.inlineMenu={button,panel,scrim,cleanup:()=>{if(sheet){if(lock)document.documentElement.style.setProperty('overflow',lock);else document.documentElement.style.removeProperty('overflow');}observer.disconnect();clearTimeout(pending);removeEventListener('pointerdown',outside,true);removeEventListener('keydown',keys,true);removeEventListener('resize',place);removeEventListener('scroll',place);}};
+      this.inlineMenu={button,panel,scrim,cleanup:()=>{iconWatch?.disconnect();if(sheet){if(lock)document.documentElement.style.setProperty('overflow',lock);else document.documentElement.style.removeProperty('overflow');}observer.disconnect();clearTimeout(pending);removeEventListener('pointerdown',outside,true);removeEventListener('keydown',keys,true);removeEventListener('resize',place);removeEventListener('scroll',place);}};
       (search || list.querySelector('[aria-checked="true"]') || list.querySelector('.rt-inline-menu-item'))?.focus({preventScroll:true});
     }
     closeInlineMenu(){const m=this.inlineMenu;if(!m)return;this.inlineMenu=null;m.cleanup();m.panel.remove();m.scrim?.remove();m.button.setAttribute('aria-expanded','false');}
