@@ -53,6 +53,10 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 
 .rt-native-placeholder faceplate-shimmer:not(:defined){display:block;background:var(--color-neutral-background-weak,#f2f4f5)}
 .rt-native-loading:not(:defined){display:block;min-height:112px}
+.rt-search-loading{display:block}
+/* Unlike the halo, three skeletons are too tall to keep as blank space while paused. */
+.rt-post-loading .rt-search-loading[hidden],shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]>.rt-search-loading{display:none!important}
+.rt-search-skeleton .shimmer-placeholder:not(.bg-shimmer){background:var(--color-neutral-background-weak,#f2f4f5)}
 /* Supplemental linear loading tracks are redundant with the native halo. */
 html[data-rt-profile-discovery] shreddit-feed>:is(faceplate-progress,progress),
 html[data-rt-profile-discovery] shreddit-feed faceplate-partial[slot="load-after"]:not([data-rt-ui] *):not(:has(shreddit-post,shreddit-profile-comment)) :is(faceplate-progress,progress){display:none!important}
@@ -291,7 +295,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 
 /* Profile search: our Feed options items are inline in Reddit's sort row; the original pill only anchors menus. */
 button.rt-feed-trigger-anchor{position:fixed!important;opacity:0!important;pointer-events:none!important;min-width:0!important;padding:0!important;overflow:hidden}
-.rt-search-inline-filter{display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 10px;border:0;border-radius:999px;background:transparent;color:var(--color-secondary-plain,var(--color-neutral-content-weak,#576f76));font:600 12px/16px var(--font-sans,inherit);white-space:nowrap;cursor:pointer}
+.rt-search-inline-filter{flex:none;display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 10px;border:0;border-radius:999px;background:transparent;color:var(--color-secondary-plain,var(--color-neutral-content-weak,#576f76));font:600 12px/16px var(--font-sans,inherit);white-space:nowrap;cursor:pointer}
 .rt-search-inline-filter:hover{background:var(--color-secondary-background-hover,var(--color-neutral-background-hover,#eff3f5))}
 .rt-search-inline-filter svg{width:16px;height:16px}
 .rt-search-inline-filter[aria-expanded="true"]{background:var(--color-secondary-background-selected,#dbe4e9);color:var(--color-neutral-content-strong,#0f1a1c)}
@@ -316,3 +320,19 @@ button.rt-feed-trigger-anchor{position:fixed!important;opacity:0!important;point
 .rt-inline-menu-search input{display:block;box-sizing:border-box;width:100%;min-width:200px;height:40px;margin:0;padding:0 16px;border:1px solid var(--color-neutral-border-medium,#c9d3d8);border-radius:999px;background:transparent;color:inherit;font:400 14px/20px var(--font-sans,inherit);outline:none}
 .rt-inline-menu-search input:focus{border-color:var(--color-neutral-border-strong,#0f1a1c)}
 .rt-inline-menu-empty{padding:12px 16px}
+/* Mobile: Reddit's filter bottom sheet (measured on its Sort by sheet). */
+.rt-inline-sheet-scrim{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6)}
+.rt-inline-menu.rt-inline-sheet{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;max-width:none;max-height:85vh;z-index:1001;border-radius:12px 12px 0 0;box-shadow:0 2px 15px 0 rgba(26,26,27,.3);padding-bottom:env(safe-area-inset-bottom,0)}
+.rt-inline-sheet-head{display:flex;align-items:center;flex:none;height:48px;margin:8px 0 0;padding-inline-end:16px}
+.rt-inline-sheet-head>span{flex:1 1 auto;min-width:0;padding:0 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-inline-sheet-head>span>span{font-size:16px;line-height:20px;font-weight:700;color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-inline-sheet-close{position:absolute;top:16px;right:16px;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:0;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#0f1a1c);cursor:pointer}
+.rt-inline-sheet-close svg{width:16px;height:16px}
+.rt-inline-sheet .rt-inline-menu-list{max-height:none;flex:1 1 auto}
+.rt-inline-sheet .rt-inline-mark svg{width:20px;height:20px}
+.rt-inline-sheet .rt-inline-menu-search input{min-width:0}
+/* With our filters added, Reddit's scrolling filter strip overflows; keep it scrollable without a scrollbar. */
+div.overflow-auto:has(>[data-rt-ui="search-inline-filters"]){scrollbar-width:none}
+div.overflow-auto:has(>[data-rt-ui="search-inline-filters"])::-webkit-scrollbar{display:none}
+/* Phones: the notice rows line up with the results' 16px inset instead of touching the screen edge. */
+@media (max-width:767.98px){.rt-posts-toolbar .rt-posts-status[data-error=true],.rt-posts-toolbar .rt-posts-notice{box-sizing:border-box;padding-inline:16px}}
