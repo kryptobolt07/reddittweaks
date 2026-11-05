@@ -1632,7 +1632,7 @@ test('chips use the menu icons and Clear filters is never clipped',async t=>{
   assert.equal(m.icon(chip('date')),'calendar');assert.equal(m.icon(chip('type:video')),'video');assert.equal(chip('type:gif').querySelector('.rt-gif-tag').textContent,'GIF');assert.equal(m.icon(chip('sub:announcements')),'community-fill');
   assert.equal(chip('type:gif').querySelector('.rt-filter-chip-label').textContent,'GIFs');assert.equal(chip('sub:announcements').querySelector('.rt-filter-chip-label').textContent,'r/announcements');
   const clear=W.document.querySelector('[data-rt-filter-clear]');assert.equal(clear.textContent,'Clear filters');
-  const css=cssRule('.rt-filter-clear');assert.doesNotMatch(css,/overflow:\s*hidden/);assert.match(css,/overflow:visible/);assert.match(css,/width:auto/);assert.match(css,/white-space:nowrap/);assert.match(css,/min-width:max-content/);assert.match(cssRule('.rt-filter-chips'),/flex:0 0 100%/);
+  const css=cssRule('.rt-filter-chips .rt-filter-clear');assert.match(cssRule('.rt-filter-chips .rt-filter-chip-remove'),/height:18px/);assert.match(cssRule('.rt-filter-chips .rt-filter-chip-remove'),/padding:0/);assert.doesNotMatch(css,/overflow:\s*hidden/);assert.match(css,/overflow:visible/);assert.match(css,/width:auto/);assert.match(css,/white-space:nowrap/);assert.match(css,/min-width:max-content/);assert.match(cssRule('.rt-filter-chips'),/flex:0 0 100%/);
   assert.match(menuCss,/\n\.rt-posts-toolbar\{flex-wrap:wrap\}/);assert.match(cssRule('.rt-posts-toolbar .rt-posts-status[data-error=true],.rt-posts-toolbar .rt-posts-notice'),/flex:1 1 100%/);
 });
 
