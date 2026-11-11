@@ -21,7 +21,7 @@ Each row says which level proves it and what the evidence will be. Write this BE
 | S6 | Reddit's own UI is unchanged outside the edited area | probe-pngdiff before/after with --mask on the edited area: outsideMask ≈ 0 |
 | S7 | Loading labels never claim incomplete history or coverage is complete | text checks on every loading, partial, end and error state |
 | S8 | Keyboard and focus work | probe-ui --tab: in-root order sensible, `ring` on every stop |
-| S9 | Transitions match native: no flash, blank or element replacement on click, back, reload | probe-timeline per transition from the lifecycle audit, native vs ours |
+| S9 | Transitions match native: no flash, blank or element replacement on click, back, reload (rules and T-rows: docs/interaction-lifecycle-contract.md) | probe-timeline per applicable T-row and lifecycle-audit transition, native vs ours, expected sequence written first |
 
 ## Transition cases (from the code lifecycle audit)
 | From → to | How (click / back / reload / direct) | What the code does to which region | Expected |

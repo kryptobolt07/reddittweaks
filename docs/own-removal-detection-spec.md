@@ -2,6 +2,8 @@
 
 Status: target spec, not started (written 2026-11-12). This is the bar the feature must reach, not a step list. Each requirement (R…) has an acceptance check (A…). A release may ship a subset; a requirement counts as met only when its check passes.
 
+This spec also follows the [interaction and lifecycle contract](interaction-lifecycle-contract.md). Its rules apply, and §13 lists the transitions this feature must pass. §12 lists where we'll fall short, and how the interface says so.
+
 ## 1. The problem
 
 When a moderator, AutoModerator, Reddit's spam filter or Reddit itself removes **your own** comment, Reddit usually still shows it to you as normal. Everyone else sees `[removed]` or nothing at all. For posts Reddit sometimes shows you a banner, but often it doesn't explain much. You find out only by checking from a logged-out window, or never.
@@ -132,6 +134,9 @@ All surfaces use Reddit's own components and the styles we already match: search
 | R9 | Privacy rules per §7 | A9: tests assert `credentials: 'omit'` on public checks and no Arctic Shift call with the archive off; the manifest diff shows only optional permissions |
 | R10 | Labels and tooltips match Reddit's tone and state their evidence | A10: council visual and copy review against native Reddit; every label has a tooltip naming its source |
 | R11 | Matches Reveddit's verdicts | A11: for 20 of the user's real items (L3, read-only), our state matches Reveddit's label, or the difference is explained by a documented rule |
+| R12 | Every applicable transition in §13 behaves as stated | A12: one `probe-timeline` per row (native vs ours), with the expected sequence written before the run; zero flashes, blanks, duplicate requests or lost badges |
+| R13 | Each limit in §12 is shown to the user in the stated wording when it applies | A13: fixtures that trigger each limit show its wording; nothing in a limited state reads as complete or clean |
+| R14 | Badge state survives Reddit re-rendering (T7) and Back/Forward (T3/T4) without new requests | A14: request counters stay flat across re-render and Back; badges reappear in the same frame as their items |
 
 ## 9. Phase-0 live checks (decide the open data questions first)
 
@@ -156,3 +161,45 @@ If V1 finds no working logged-out path, the fallback is: posts via E1/E4 (verifi
 1. Should the Removed view be a list entry next to Saved and History (U2), or a filter in Feed options on your own profile, or both?
 2. Notifications: is the toolbar badge enough, or are system notifications wanted from the start?
 3. Should deleted-by-you items appear in the Removed view at all (default: hidden, with a filter to show them)?
+
+## 12. Where we'll lag behind (caveats)
+
+These are known limits, not bugs. Each one is shown to the user in the wording given, never hidden.
+
+| # | Limit | Why | What the user sees |
+|---|---|---|---|
+| L1 | Comments may not be checkable at all from the extension | Reddit may refuse a logged-out view (`api/info` got HTTP 403 from outside the browser on 2026-11-12; Reveddit notes the same from its extension). Decided by V1. | Comments: "Couldn't check (Reddit blocks logged-out checks)". Posts still work from what Reddit tells the author. |
+| L2 | Mod vs automatic is a guess for comments | It relies on when the archive captured the comment. Arctic Shift often captures hours later, so the 25 s rule rarely applies to fresh comments. | "Removed: moderators or automatic" until evidence decides; the tooltip says why. |
+| L3 | No mod-log evidence | Reveddit reads subreddits' public mod logs through its own service; we don't (§10). | Fewer confident "Removed automatically" verdicts than Reveddit on subreddits with public mod logs. |
+| L4 | Only your newest 1,000 posts and 1,000 comments from Reddit | Reddit's listing limit | "Checked your newest 1,000 comments"; older ones only if the archive has them, labelled "from the archive". |
+| L5 | Private and quarantined communities | A logged-out view can't see them, so "others can't see it" is always true and meaningless | "Can't check: private community" (or quarantined); never "removed". |
+| L6 | Detection isn't instant | Checks are batched and spaced (§6); notifications run only while the browser is open | Badges show "Checking…" until the first result; the popup shows "Last checked 12 min ago". |
+| L7 | Approval and unlock are seen only if we recheck | We recheck removed items on a schedule, not live | Restored items clear on the next check; the time of the last check is shown. |
+| L8 | Account-level shadowban check can be wrong right after a name change or a deletion | It infers from a logged-out profile 404 | "Your profile looks hidden to others (could be a shadowban or a temporary Reddit issue)". |
+| L9 | Crowd Control collapse may need a full thread read | It isn't on item listings | Shown only on threads you open, not in the Removed view, unless V1 finds a cheap source. |
+| L10 | Reddit's markup and data change without notice | Shared risk (contract F10) | One unreadable item is skipped and counted; the view says "Some items couldn't be read". |
+
+## 13. Transitions this feature must pass
+
+From the contract's catalogue, plus rows specific to this feature. Each row is an acceptance check under R12.
+
+| T | Transition | Expected |
+|---|---|---|
+| T1 | Load your profile or a thread directly | Badges appear once per item, after its check; no remount during Reddit's start-up swap; items wait in "Checking…" rather than blank. |
+| T2 | Open one of your items from the Removed view | The view stays until Reddit shows the post; the pill on that item is visible on the post page too (same state, no recheck). |
+| T3 | Back to the Removed view | List, filters, checked range and scroll restored instantly; zero new checks. |
+| T5 | Change a filter in the Removed view | Filters apply to loaded results locally; no rechecks; the URL is written once. |
+| T6 | Scroll your profile or a long thread | Badges are added as items appear, and Reddit's virtualized comments get their badge back when they scroll back in. |
+| T7 | Reddit re-renders a comment or thread (sort change, "load more replies", collapse/expand) | Badges reattach in the next frame from cache; no new requests. |
+| T9a | You post a new comment | It shows "Checking…" and is checked at about 30 s and 5 min (automatic removals are fast); if removed, the pill appears in place and the badge count rises. |
+| T9b | You edit a comment | Its state is kept and it's rechecked once (an edit can trigger AutoModerator). |
+| T9c | You delete a comment | It becomes "Deleted by you" and leaves the Removed view (unless that filter is on). |
+| T10 | Turn the feature off in the popup | Every badge and the Removed entry disappear from open tabs without reload; background checks stop; the cache stays until cleared. |
+| T11 | Switch account or sign out | Badges and the Removed view clear at once; nothing from the previous account shows; checks restart for the new account. |
+| T12 | Extension reloaded or updated | Open tabs say "Refresh this tab"; no stale badges keep updating. |
+| T13 | Worker asleep during a background check | The alarm wakes it; a missed check is caught up once, never repeated in a burst. |
+| T14 | Tab in the background | No checks from hidden tabs; background checks are the worker's job only. |
+| T15 | Mobile layout and dark mode | Pills, the Removed view and filters work and match Reddit in both. |
+
+**Lifecycle audit to complete before building:** for the badge pill, the Removed view's header pill, its feed, its filters and the popup badge, record the creator, the remover and every trigger (route events, `MutationObserver` on threads and feeds, settings changes, account changes, alarms, cache updates). Each trigger becomes a transition row above if it isn't one already.
+
