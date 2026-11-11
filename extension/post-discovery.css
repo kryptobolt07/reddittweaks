@@ -341,8 +341,16 @@ div.overflow-auto:has(>[data-rt-ui="search-inline-filters"])::-webkit-scrollbar{
 /* Phones: the notice rows line up with the results' 16px inset instead of touching the screen edge. */
 @media (max-width:767.98px){.rt-posts-toolbar .rt-posts-status[data-error=true],.rt-posts-toolbar .rt-posts-notice{box-sizing:border-box;padding-inline:16px}}
 
-/* Search tips rows: syntax, then what it does and an example. */
-.rt-tip-detail{display:block;margin-top:2px;white-space:normal;font-weight:400}.rt-tip-example{font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--color-neutral-content-strong,#0f1a1c)}
-.rt-tip-note{white-space:normal;max-width:320px}
-.rt-tip-caption{flex-wrap:wrap;row-gap:0}.rt-tip-caption>.rt-tip-detail{flex-basis:100%}
-.rt-inline-tips{width:min(360px,92vw)}.rt-inline-tips .rt-tip-example{white-space:nowrap}.rt-inline-tip{white-space:normal}.rt-inline-tips .rt-tip-note{border-top:1px solid var(--color-neutral-border-weak,#e5ebee);margin-top:4px}
+
+/* Search tips card (Ctrl+/ in a search box): one compact line per tip. */
+.rt-tips-card{position:fixed;z-index:2147483000;width:min(480px,calc(100vw - 16px));max-height:min(70vh,520px);display:flex;flex-direction:column;border-radius:12px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#0f1a1c);box-shadow:0 4px 8px rgba(0,0,0,.1),0 6px 12px rgba(0,0,0,.25);font:14px/20px var(--font-sans,system-ui,sans-serif);overflow:hidden}
+.rt-tips-head{display:flex;align-items:baseline;justify-content:space-between;padding:12px 16px 6px}
+.rt-tips-title{font-weight:600;font-size:14px}.rt-tips-key{font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-tips-list{overflow:auto;padding:2px 0}
+.rt-tips-row{display:grid;grid-template-columns:132px 1fr auto;align-items:center;gap:10px;width:100%;min-height:36px;padding:4px 16px;border:0;background:none;color:inherit;font:inherit;text-align:start;cursor:pointer}
+.rt-tips-row:hover,.rt-tips-row:focus-visible{background:var(--color-neutral-background-hover,#f6f8f9);outline:none}
+.rt-tips-syntax,.rt-tips-example{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:16px;white-space:nowrap}
+.rt-tips-syntax{justify-self:start;padding:2px 6px;border-radius:4px;background:var(--color-neutral-background-weak,#eef1f3)}
+.rt-tips-meaning{min-width:0;font-size:13px;color:var(--color-neutral-content,#2a3c42);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-tips-example{color:var(--color-neutral-content-weak,#576f76);max-width:160px;background:none;overflow:hidden;text-overflow:ellipsis}
+.rt-tips-note{margin:0;padding:8px 16px 12px;border-top:1px solid var(--color-neutral-border-weak,#e5ebee);font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}

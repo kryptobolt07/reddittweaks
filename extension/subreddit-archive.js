@@ -71,20 +71,6 @@
   const AUTO_RETRIES=3,AUTO_RETRY_WAITS=[2000,5000,12000];
   const redditSearchIcon=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'search'}))svg.setAttribute(k,v);
     const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M19.5 18.616 14.985 14.1a8.528 8.528 0 1 0-.884.884l4.515 4.515.884-.884ZM1.301 8.553a7.253 7.253 0 1 1 7.252 7.253 7.261 7.261 0 0 1-7.252-7.253Z');svg.append(path);return svg;};
-  // "Search tips" (Reddit's plain small button) opening a card with the query language for these fields;
-  // a tip's example is handed to onPick. Escape, the button again or a click outside closes it.
-  function tipsButton(fields,onPick){
-    const wrap=make('span','rt-sra-tips'),button=make('button','button button-plain button-small rt-sra-tips-button','Search tips');button.type='button';button.setAttribute('aria-expanded','false');button.setAttribute('aria-haspopup','dialog');
-    const card=make('div','rt-sra-tips-card');card.setAttribute('role','dialog');card.setAttribute('aria-label','Search tips');card.hidden=true;wrap.append(button,card);
-    const close=(focus=false)=>{card.hidden=true;button.setAttribute('aria-expanded','false');document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',escape,true);if(focus)button.focus({preventScroll:true});};
-    const outside=event=>{if(!event.composedPath().includes(wrap))close();};
-    const escape=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close(true);}};
-    button.addEventListener('click',event=>{event.preventDefault();if(!card.hidden){close();return;}
-      const data=globalThis.RCSCore?.searchTips?.({fields});card.replaceChildren();if(!data)return;
-      for(const tip of data.tips){const row=make('button','rt-sra-tip');row.type='button';row.dataset.rtSearchTip=tip.example;row.append(make('span','rt-sra-tip-syntax',tip.syntax),make('span','rt-sra-tip-meaning',tip.meaning),make('code','rt-sra-tip-example',tip.example));row.addEventListener('click',()=>{close();onPick(tip.example);});card.append(row);}
-      card.append(make('p','rt-sra-tip-note',data.note));card.hidden=false;button.setAttribute('aria-expanded','true');document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',escape,true);card.querySelector('button')?.focus({preventScroll:true});});
-    return wrap;
-  }
   const viewRequested=()=>new URLSearchParams(location.search).get('rt_view')==='archive';
   function setParams(changes){
     const url=new URL(location.href);
@@ -449,10 +435,9 @@
       sort.button.setAttribute('aria-label','Sort comments');
       const box=make('label','rt-sra-comment-search'),input=make('input');input.type='search';input.placeholder='Search Comments';input.setAttribute('aria-label','Search loaded archived comments');
       box.append(redditSearchIcon(),input);
-      const tips=tipsButton(commentFields,example=>{input.value=example;input.dispatchEvent(new Event('input'));input.focus({preventScroll:true});});
       let timer;input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{state.commentQuery=input.value.trim();this.renderCommentSearch(state);},150);});
       const sortGroup=make('div','flex items-center rt-sra-comment-sort');sortGroup.append(make('span','text-12 text-neutral-content-weak rt-sra-sort-label','Sort by: '),sort.wrap);
-      bar.append(sortGroup,box,tips);return bar;
+      bar.append(sortGroup,box);return bar;
     }
     renderCommentSearch(state){
       const raw=(state.commentQuery || '').trim(),query=raw.toLowerCase();state.commentsEl.hidden=Boolean(query);
@@ -804,8 +789,7 @@
       const host=search.host=make('div','rt-sra-results');host.dataset.rtUi='archive-search';
       search.list=make('div','rt-sra-result-list');search.foot=make('div','rt-sra-foot');search.sentinel=make('div','rt-sra-sentinel');search.sentinel.setAttribute('aria-hidden','true');
       search.notice=make('p','rt-sra-search-note');search.notice.hidden=true;
-      const tipsRow=make('div','rt-sra-tips-row');tipsRow.append(tipsButton(search.kind==='comments'?commentFields:[...postFields,'subreddit'],example=>globalThis.RTDiscoveryDebug?.fillHeaderSearch?.(example)));
-      host.append(tipsRow,search.notice,search.list,search.foot,search.sentinel);
+      host.append(search.notice,search.list,search.foot,search.sentinel);
       if(typeof IntersectionObserver==='function'){search.io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting))this.loadMoreSearch();},{rootMargin:'800px 0px'});search.io.observe(search.sentinel);}
       return host;
     }

@@ -180,6 +180,45 @@
     });}
   // Reddit's router reloads the page on a replaceState to the unchanged address, so only write real changes.
   function replaceUrl(url){const next=url.pathname+url.search+url.hash;if(next===location.pathname+location.search+location.hash)return false;try{history.replaceState(history.state,'',next);return true;}catch{return false;}}
+  // Search tips: Ctrl+/ (⌘/ on Mac) in a search box that uses our query language opens one compact card
+  // under it, limited to the fields that box supports. Clicking a tip puts its example into the box.
+  const postFieldsAll=['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type'],commentFieldsAll=['body','author'];
+  function tipsTarget(event){
+    const path=event.composedPath(),field=path[0];if(!field?.matches?.('input,textarea'))return null;
+    if(field.closest?.('.rt-sra-comment-search'))return {input:field,fields:commentFieldsAll};
+    if(!path.some(node=>node.matches?.('reddit-search-large')))return null;
+    const comments=new URLSearchParams(location.search).get('type')==='comments';
+    if(document.querySelector('[data-rt-ui="archive-subreddit"],[data-rt-ui="archive-search"]'))return {input:field,fields:comments?commentFieldsAll:[...postFieldsAll]};
+    if(pageRoute()?.kind==='profile')return {input:field,fields:comments?['body','subreddit','author']:postFieldsAll};
+    return null;
+  }
+  let tipsCard=null;
+  function closeTips(focus){if(!tipsCard)return;const {card,input,cleanup}=tipsCard;tipsCard=null;cleanup();card.remove();if(focus)input.focus({preventScroll:true});}
+  function openTips({input,fields}){
+    closeTips(false);const data=globalThis.RCSCore?.searchTips?.({fields});if(!data)return;
+    const card=make('div','rt-tips-card');card.dataset.rtUi='search-tips';card.setAttribute('role','dialog');card.setAttribute('aria-label','Search tips');
+    const head=make('div','rt-tips-head');head.append(make('span','rt-tips-title','Search tips'),make('span','rt-tips-key','Esc to close'));card.append(head);
+    const list=make('div','rt-tips-list');list.setAttribute('role','menu');
+    for(const tip of data.tips){const row=make('button','rt-tips-row');row.type='button';row.setAttribute('role','menuitem');row.dataset.rtTip=tip.example;row.title='Use: '+tip.example;
+      row.append(make('code','rt-tips-syntax',tip.syntax),make('span','rt-tips-meaning',tip.meaning),make('code','rt-tips-example',tip.example));
+      row.addEventListener('click',event=>{event.preventDefault();closeTips(false);input.value=tip.example;input.dispatchEvent(new Event('input',{bubbles:true,composed:true}));input.focus({preventScroll:true});input.setSelectionRange?.(tip.example.length,tip.example.length);});
+      list.append(row);}
+    card.append(list,make('p','rt-tips-note',data.note));document.body.append(card);
+    const box=input.getBoundingClientRect(),width=card.getBoundingClientRect().width || 400;
+    card.style.left=Math.max(8,Math.min(box.left,innerWidth-width-8))+'px';card.style.top=Math.min(box.bottom+8,Math.max(8,innerHeight-card.getBoundingClientRect().height-8))+'px';
+    const rows=()=>[...list.querySelectorAll('.rt-tips-row')];
+    const keys=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeTips(true);return;}
+      if(!card.contains(event.composedPath()[0]))return;
+      if(event.key==='ArrowDown' || event.key==='ArrowUp'){event.preventDefault();const all=rows(),at=all.indexOf(document.activeElement);all[(at+(event.key==='ArrowDown'?1:-1)+all.length)%all.length]?.focus();}};
+    const outside=event=>{if(!event.composedPath().includes(card))closeTips(false);};
+    const away=()=>closeTips(false);
+    document.addEventListener('keydown',keys,true);document.addEventListener('pointerdown',outside,true);addEventListener('scroll',away,{passive:true,once:true});addEventListener('resize',away,{once:true});
+    tipsCard={card,input,cleanup:()=>{document.removeEventListener('keydown',keys,true);document.removeEventListener('pointerdown',outside,true);removeEventListener('scroll',away);removeEventListener('resize',away);}};
+    rows()[0]?.focus({preventScroll:true});
+  }
+  if(!globalThis.__rtSearchTipsKey){globalThis.__rtSearchTipsKey=true;
+    document.addEventListener('keydown',event=>{if(event.key!=='/' || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.repeat)return;
+      if(tipsCard){event.preventDefault();closeTips(true);return;}const target=tipsTarget(event);if(!target)return;event.preventDefault();event.stopPropagation();openTips(target);},true);}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
   const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
@@ -964,16 +1003,6 @@
           }
           const shown=listEntry.querySelector('[data-rt-menu-value]');if(shown && !this.isOwnList())shown.textContent=current?listLabel(current):'All';
         }
-        // Search tips: the query language this search understands; a tip puts its example into Reddit's search box.
-        if(this.context?.view==='search' && globalThis.RCSCore?.searchTips){
-          const fields=this.context.type==='comments'?['body','subreddit','author']:['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type'];
-          const tipsSub=submenu('tips'),tipsEntry=entry('Search tips','search',tipsSub);tipsEntry.dataset.rtUi='search-tips';menu.append(tipsEntry);content.append(tipsSub);this.activityMenuRows.push(tipsEntry,tipsSub);
-          const {tips,note}=globalThis.RCSCore.searchTips({fields});
-          for(const tip of tips){const option=row(tip.syntax,make('span','rt-menu-lead'));option.dataset.rtSearchTip=tip.example;option.dataset.rtTipSyntax=tip.syntax;option.dataset.rtTipMeaning=tip.meaning;option.setAttribute('aria-label',tip.syntax+': '+tip.meaning+'. Example: '+tip.example);
-            const detail=make('span','rt-tip-detail text-12 text-neutral-content-weak',tip.meaning+' · ');detail.append(make('code','rt-tip-example',tip.example));const caption=option.querySelector('.rt-menu-caption');caption.classList.add('rt-tip-caption');caption.append(detail);
-            activate(option,()=>{this.closeFeedMenu(dropdown,open);this.fillHeaderSearch(tip.example);});tipsSub.append(option);}
-          tipsSub.append(make('p','rt-tip-note text-12 text-neutral-content-weak px-md py-xs m-0',note));
-        }
         // Refresh sits at the end of the Activity submenu.
         const divider=make('div','my-xs border-0 border-t-sm border-solid border-neutral-border-weak');divider.setAttribute('role','separator');
         const refresh=row(this.isOwnList()?'Refresh list':'Refresh activity','refresh');refresh.dataset.rtUi='activity-refresh';activate(refresh,()=>{this.closeFeedMenu(dropdown,open);if(!this.discover.disabled)this.discover.click();});sub.append(divider,refresh);
@@ -1060,7 +1089,7 @@
       // Choosing a filter can rebuild the Feed options menu; always read (and watch) the current copy of this submenu.
       const key=sub.dataset.rtSubKey,liveSub=()=>{if(!sub.isConnected && key){const next=this.activityMain?.parentElement?.querySelector('[data-rt-sub-key="'+key+'"]');if(next && next!==sub){sub=next;observer?.disconnect();observer?.observe(sub,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-checked','hidden']});}}return sub;};let observer=null;
       menuRow.rtOnOpen?.();
-      const sheet=Boolean(this.searchInlineSheet),multi=sub.dataset.rtSubKey==='sub',tipsMode=sub.dataset.rtSubKey==='tips',panel=make('div','rt-inline-menu'+(sheet?' rt-inline-sheet':'')+(tipsMode?' rt-inline-tips':''));panel.dataset.rtUi='search-inline-menu';
+      const sheet=Boolean(this.searchInlineSheet),multi=sub.dataset.rtSubKey==='sub',panel=make('div','rt-inline-menu'+(sheet?' rt-inline-sheet':''));panel.dataset.rtUi='search-inline-menu';
       let scrim=null;
       // Mobile: Reddit's filter bottom sheet (a 60% scrim, a sheet with 12px top corners, a 48px bold title row and a
       // round close button).
@@ -1072,7 +1101,7 @@
       const list=make('ul','rt-inline-menu-list');list.setAttribute('role','menu');list.setAttribute('aria-label',menuRow.rtLabel);let search=null,source=null;
       if(multi){source=sub.querySelector('input');if(source){const box=make('div','rt-inline-menu-search');search=make('input');search.type='search';search.placeholder=source.placeholder || 'Search subreddits';search.setAttribute('aria-label',search.placeholder);search.value=source.value || '';
         search.addEventListener('input',()=>{source.value=search.value;source.dispatchEvent(new Event('input',{bubbles:true}));});box.append(search);panel.append(box);}}
-      panel.append(list);if(tipsMode){const note=sub.querySelector('.rt-tip-note');if(note)panel.append(make('p','rt-tip-note text-12 text-secondary-plain-weak px-md py-xs m-0',note.textContent));}
+      panel.append(list);
       const items=()=>[...liveSub().querySelectorAll('rpl-menu-item')].filter(el=>!el.hidden && !el.closest('[hidden],.rt-sub-head'));
       const labelOf=el=>(el.getAttribute('aria-label') || el.querySelector('.rt-sub-name,.rt-menu-caption')?.textContent || el.textContent || '').trim();
       const checkedOf=el=>el.getAttribute('aria-checked')==='true' || Boolean(el.querySelector('[data-rt-check],[icon-name="checkmark"]'));
@@ -1086,10 +1115,6 @@
           const li=make('li','relative list-none mt-0');li.setAttribute('role','presentation');
           const row=make('div','flex justify-between relative px-md gap-xs text-secondary-plain hover:bg-neutral-background-hover cursor-pointer py-xs -outline-offset-1 no-underline rt-inline-menu-item'+(checked?' bg-neutral-background-selected':''));
           row.tabIndex=-1;row.setAttribute('role',multi?'menuitemcheckbox':'menuitemradio');row.setAttribute('aria-checked',String(checked));
-          // Search tips are help, not choices: syntax over its meaning and example, no radio mark.
-          if(tipsMode && item.dataset.rtSearchTip){row.setAttribute('role','menuitem');row.removeAttribute('aria-checked');row.classList.remove('bg-neutral-background-selected');row.classList.add('rt-inline-tip');row.setAttribute('aria-label',item.getAttribute('aria-label') || label);
-            const copy=make('span','flex flex-col min-w-0 py-[0.375rem]');copy.append(make('span','text-body-2 font-semibold text-secondary-onBackground',item.dataset.rtTipSyntax));const detail=make('span','text-12 text-secondary-plain-weak',item.dataset.rtTipMeaning+' · ');detail.append(make('code','rt-tip-example',item.dataset.rtSearchTip));copy.append(detail);row.append(copy);li.append(row);
-            row.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();item.click();});list.append(li);continue;}
           const lead=make('span','flex items-center gap-xs min-w-0 shrink'),mark=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4 rt-inline-mark');
           if(multi)mark.append(make('span','rt-inline-check'));else mark.append(redditIcon(checked?'radio-button-fill':'radio-button',sheet?20:16));lead.append(mark);
           // Our own icon (not a copy of the hidden list's placeholder), fetched once its row scrolls into view.
