@@ -15,6 +15,13 @@ function setup(t){
   const search=async query=>{trigger.click();input.value=query;input.dispatchEvent(new w.Event('input'));await wait(170);};
   return {w,api,root,input,trigger,calls,key,search};
 }
+test('switching conversations puts the room search back before the next paint, not after the debounce',async t=>{
+  const p=setup(t),other=[...p.w.RCSAdapter.queryAll('rs-rooms-nav-room',p.api.app)].map(row=>row.getAttribute('room')).find(id=>id!==p.api.active.id);
+  const trigger=()=>p.w.RCSAdapter.query('[data-rcs-ui="message-trigger"]',p.api.room);assert.ok(trigger()?.isConnected);
+  p.api.select(other);assert.equal(trigger(),null,'Reddit re-rendered the room without our trigger');
+  for(let i=0;i<3;i++)await Promise.resolve();
+  assert.ok(trigger()?.isConnected,'restored within microtasks (before paint)');
+});
 test('large room results keep a bounded window and scrolling never rereads storage or starts history',async t=>{
   const p=setup(t);let reads=0;
   const records=Array.from({length:600},(_,i)=>({id:'scroll-'+i,text:'scroll result '+i,author:'alex_morgan',timestamp:new Date(1791432000000+i*60000).toISOString()}));
