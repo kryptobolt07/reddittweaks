@@ -71,6 +71,7 @@ main{display:flex;flex-direction:column;gap:8px}
 /* Two reserved lines: longer results clamp instead of growing the card. */
 #cache-status{display:-webkit-box;height:31px;margin:6px 2px 0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;color:var(--muted);font-size:10.5px;line-height:1.45}
 
+.search-syntax-hint{margin:8px 6px 0;color:var(--muted);font-size:10.5px;line-height:1.45;text-align:center}.search-syntax-hint code{font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text)}
 footer{padding:8px 6px 0;color:var(--muted);font-size:9.5px;line-height:1.4;text-align:center}
 
 @media(prefers-color-scheme:dark){

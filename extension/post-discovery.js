@@ -609,6 +609,12 @@
       const nativeRemove=native.querySelector('button,[aria-label^="Remove"]') || native;
       this.ownHeader.nativeRemove=nativeRemove;this.ownHeader.onNativeRemove=()=>{this.ownHeaderDismissed=routeKey;this.clearOwnListHeader();};nativeRemove.addEventListener('click',this.ownHeader.onNativeRemove,{once:true});
     }
+    // Put text into Reddit's header search (as if typed) and focus it; nothing is submitted.
+    fillHeaderSearch(text){
+      const host=document.querySelector('reddit-search-large'),root=host?.shadowRoot || host,field=root?.querySelector('faceplate-search-input[name="q"]');
+      const input=(field?.shadowRoot || root)?.querySelector('input[name="q"],textarea[name="q"]');if(!input)return false;
+      input.value=text;input.dispatchEvent(new Event('input',{bubbles:true,composed:true}));input.focus({preventScroll:true});input.setSelectionRange?.(text.length,text.length);return true;
+    }
     navigateProfileSearch(route,q,withList=true){
       const params=new URLSearchParams({q});if(withList && route.list)params.set('rt_list',route.list);
       // Filters shown as header pills belong to the search scope, so a new query keeps them.
@@ -941,6 +947,16 @@
             listSub.append(option);
           }
           const shown=listEntry.querySelector('[data-rt-menu-value]');if(shown && !this.isOwnList())shown.textContent=current?listLabel(current):'All';
+        }
+        // Search tips: the query language this search understands; a tip puts its example into Reddit's search box.
+        if(this.context?.view==='search' && globalThis.RCSCore?.searchTips){
+          const fields=this.context.type==='comments'?['body','subreddit','author']:['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type'];
+          const tipsSub=submenu('tips'),tipsEntry=entry('Search tips','search',tipsSub);tipsEntry.dataset.rtUi='search-tips';menu.append(tipsEntry);content.append(tipsSub);this.activityMenuRows.push(tipsEntry,tipsSub);
+          const {tips,note}=globalThis.RCSCore.searchTips({fields});
+          for(const tip of tips){const option=row(tip.syntax,make('span','rt-menu-lead'));option.dataset.rtSearchTip=tip.example;option.setAttribute('aria-label',tip.syntax+': '+tip.meaning+'. Example: '+tip.example);
+            const detail=make('span','rt-tip-detail text-12 text-neutral-content-weak',tip.meaning+' · ');detail.append(make('code','rt-tip-example',tip.example));const caption=option.querySelector('.rt-menu-caption');caption.classList.add('rt-tip-caption');caption.append(detail);
+            activate(option,()=>{this.closeFeedMenu(dropdown,open);this.fillHeaderSearch(tip.example);});tipsSub.append(option);}
+          tipsSub.append(make('p','rt-tip-note text-12 text-neutral-content-weak px-md py-xs m-0',note));
         }
         // Refresh sits at the end of the Activity submenu.
         const divider=make('div','my-xs border-0 border-t-sm border-solid border-neutral-border-weak');divider.setAttribute('role','separator');

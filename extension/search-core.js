@@ -487,5 +487,26 @@
     }
     clear() { this.rooms.clear();this.redacted.clear(); }
   }
-  globalThis.RCSCore = Object.freeze({normalize, matches, ranges, dateBounds, parseQuery, matchesText, matchRecord, toArchiveQuery, toRedditQuery, splitQuery, prepareQuery, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
+  // One list of search tips for every search box, cut down to the fields that box supports.
+  // Each tip: the syntax, what it does and an example that can be put into the box.
+  function searchTips({fields=[]}={}){
+    const has=new Set(fields.map(canonicalField));
+    const tips=[
+      {syntax:'words',meaning:'All words must match',example:'battery laptop'},
+      {syntax:'"exact phrase"',meaning:'Match the exact phrase',example:'"battery health"'},
+      {syntax:'OR',meaning:'Either side matches (uppercase)',example:'laptop OR notebook'},
+      {syntax:'-word, NOT',meaning:'Leave out matches (uppercase NOT)',example:'laptop -gaming'},
+      {syntax:'( )',meaning:'Group alternatives',example:'(rog OR legion) -used'},
+      {field:'title',syntax:'title:',meaning:'Words in the title',example:'title:review'},
+      {field:'body',syntax:'body:',meaning:'Words in the text',example:'body:warranty'},
+      {field:'author',syntax:'author:, u/',meaning:'By one person',example:'u/spez'},
+      {field:'subreddit',syntax:'subreddit:, r/',meaning:'In one community',example:'r/termux'},
+      {field:'site',syntax:'site:',meaning:'Links to a website',example:'site:github.com'},
+      {field:'flair',syntax:'flair:',meaning:'Posts with a flair',example:'flair:Help'},
+      {field:'type',syntax:'type:',meaning:'Post type (text, image, video, link, gallery…)',example:'type:image'},
+      {field:'nsfw',syntax:'nsfw:, spoiler:',meaning:'Only or no NSFW or spoiler posts',example:'nsfw:no'}
+    ];
+    return {tips:tips.filter(tip=>!tip.field || has.has(tip.field)),note:'Words use AND. NOT binds first, then OR, then AND, so a b OR c means a AND (b OR c). Only uppercase AND, OR and NOT are operators.'};
+  }
+  globalThis.RCSCore = Object.freeze({searchTips,normalize, matches, ranges, dateBounds, parseQuery, matchesText, matchRecord, toArchiveQuery, toRedditQuery, splitQuery, prepareQuery, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
 })();
