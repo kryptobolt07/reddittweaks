@@ -969,7 +969,7 @@
           const fields=this.context.type==='comments'?['body','subreddit','author']:['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type'];
           const tipsSub=submenu('tips'),tipsEntry=entry('Search tips','search',tipsSub);tipsEntry.dataset.rtUi='search-tips';menu.append(tipsEntry);content.append(tipsSub);this.activityMenuRows.push(tipsEntry,tipsSub);
           const {tips,note}=globalThis.RCSCore.searchTips({fields});
-          for(const tip of tips){const option=row(tip.syntax,make('span','rt-menu-lead'));option.dataset.rtSearchTip=tip.example;option.setAttribute('aria-label',tip.syntax+': '+tip.meaning+'. Example: '+tip.example);
+          for(const tip of tips){const option=row(tip.syntax,make('span','rt-menu-lead'));option.dataset.rtSearchTip=tip.example;option.dataset.rtTipSyntax=tip.syntax;option.dataset.rtTipMeaning=tip.meaning;option.setAttribute('aria-label',tip.syntax+': '+tip.meaning+'. Example: '+tip.example);
             const detail=make('span','rt-tip-detail text-12 text-neutral-content-weak',tip.meaning+' · ');detail.append(make('code','rt-tip-example',tip.example));const caption=option.querySelector('.rt-menu-caption');caption.classList.add('rt-tip-caption');caption.append(detail);
             activate(option,()=>{this.closeFeedMenu(dropdown,open);this.fillHeaderSearch(tip.example);});tipsSub.append(option);}
           tipsSub.append(make('p','rt-tip-note text-12 text-neutral-content-weak px-md py-xs m-0',note));
@@ -1060,7 +1060,7 @@
       // Choosing a filter can rebuild the Feed options menu; always read (and watch) the current copy of this submenu.
       const key=sub.dataset.rtSubKey,liveSub=()=>{if(!sub.isConnected && key){const next=this.activityMain?.parentElement?.querySelector('[data-rt-sub-key="'+key+'"]');if(next && next!==sub){sub=next;observer?.disconnect();observer?.observe(sub,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-checked','hidden']});}}return sub;};let observer=null;
       menuRow.rtOnOpen?.();
-      const sheet=Boolean(this.searchInlineSheet),multi=sub.dataset.rtSubKey==='sub',panel=make('div','rt-inline-menu'+(sheet?' rt-inline-sheet':''));panel.dataset.rtUi='search-inline-menu';
+      const sheet=Boolean(this.searchInlineSheet),multi=sub.dataset.rtSubKey==='sub',tipsMode=sub.dataset.rtSubKey==='tips',panel=make('div','rt-inline-menu'+(sheet?' rt-inline-sheet':'')+(tipsMode?' rt-inline-tips':''));panel.dataset.rtUi='search-inline-menu';
       let scrim=null;
       // Mobile: Reddit's filter bottom sheet (a 60% scrim, a sheet with 12px top corners, a 48px bold title row and a
       // round close button).
@@ -1072,7 +1072,7 @@
       const list=make('ul','rt-inline-menu-list');list.setAttribute('role','menu');list.setAttribute('aria-label',menuRow.rtLabel);let search=null,source=null;
       if(multi){source=sub.querySelector('input');if(source){const box=make('div','rt-inline-menu-search');search=make('input');search.type='search';search.placeholder=source.placeholder || 'Search subreddits';search.setAttribute('aria-label',search.placeholder);search.value=source.value || '';
         search.addEventListener('input',()=>{source.value=search.value;source.dispatchEvent(new Event('input',{bubbles:true}));});box.append(search);panel.append(box);}}
-      panel.append(list);
+      panel.append(list);if(tipsMode){const note=sub.querySelector('.rt-tip-note');if(note)panel.append(make('p','rt-tip-note text-12 text-secondary-plain-weak px-md py-xs m-0',note.textContent));}
       const items=()=>[...liveSub().querySelectorAll('rpl-menu-item')].filter(el=>!el.hidden && !el.closest('[hidden],.rt-sub-head'));
       const labelOf=el=>(el.getAttribute('aria-label') || el.querySelector('.rt-sub-name,.rt-menu-caption')?.textContent || el.textContent || '').trim();
       const checkedOf=el=>el.getAttribute('aria-checked')==='true' || Boolean(el.querySelector('[data-rt-check],[icon-name="checkmark"]'));
@@ -1086,6 +1086,10 @@
           const li=make('li','relative list-none mt-0');li.setAttribute('role','presentation');
           const row=make('div','flex justify-between relative px-md gap-xs text-secondary-plain hover:bg-neutral-background-hover cursor-pointer py-xs -outline-offset-1 no-underline rt-inline-menu-item'+(checked?' bg-neutral-background-selected':''));
           row.tabIndex=-1;row.setAttribute('role',multi?'menuitemcheckbox':'menuitemradio');row.setAttribute('aria-checked',String(checked));
+          // Search tips are help, not choices: syntax over its meaning and example, no radio mark.
+          if(tipsMode && item.dataset.rtSearchTip){row.setAttribute('role','menuitem');row.removeAttribute('aria-checked');row.classList.remove('bg-neutral-background-selected');row.classList.add('rt-inline-tip');row.setAttribute('aria-label',item.getAttribute('aria-label') || label);
+            const copy=make('span','flex flex-col min-w-0 py-[0.375rem]');copy.append(make('span','text-body-2 font-semibold text-secondary-onBackground',item.dataset.rtTipSyntax));const detail=make('span','text-12 text-secondary-plain-weak',item.dataset.rtTipMeaning+' · ');detail.append(make('code','rt-tip-example',item.dataset.rtSearchTip));copy.append(detail);row.append(copy);li.append(row);
+            row.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();item.click();});list.append(li);continue;}
           const lead=make('span','flex items-center gap-xs min-w-0 shrink'),mark=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4 rt-inline-mark');
           if(multi)mark.append(make('span','rt-inline-check'));else mark.append(redditIcon(checked?'radio-button-fill':'radio-button',sheet?20:16));lead.append(mark);
           // Our own icon (not a copy of the hidden list's placeholder), fetched once its row scrolls into view.

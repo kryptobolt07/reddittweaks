@@ -345,3 +345,4 @@ div.overflow-auto:has(>[data-rt-ui="search-inline-filters"])::-webkit-scrollbar{
 .rt-tip-detail{display:block;margin-top:2px;white-space:normal;font-weight:400}.rt-tip-example{font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--color-neutral-content-strong,#0f1a1c)}
 .rt-tip-note{white-space:normal;max-width:320px}
 .rt-tip-caption{flex-wrap:wrap;row-gap:0}.rt-tip-caption>.rt-tip-detail{flex-basis:100%}
+.rt-inline-tips{width:min(360px,92vw)}.rt-inline-tips .rt-tip-example{white-space:nowrap}.rt-inline-tip{white-space:normal}.rt-inline-tips .rt-tip-note{border-top:1px solid var(--color-neutral-border-weak,#e5ebee);margin-top:4px}
