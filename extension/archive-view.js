@@ -36,6 +36,14 @@
     stage.append(backdrop,main);fill.append(stage);ratio.append(fill);root.append(ratio);
     return root;
   }
+  // A video the archive can't play: its preview in the image frame (no play button) with a clear label,
+  // or a plain note when there's no preview either.
+  function videoUnavailable(poster,{alt='',width=0,height=0,doc=globalThis.document}={}){
+    const label='Original video isn’t available';
+    const view=poster?image(poster,{alt,width,height,doc}):null;
+    if(view){const badge=doc.createElement('span');badge.className='rt-media-badge';badge.textContent=label;view.append(badge);view.dataset.rtVideoUnavailable='true';return view;}
+    const note=doc.createElement('div');note.className='rt-media-unavailable';note.dataset.rtRecoveredText='true';note.dataset.rtVideoUnavailable='true';note.setAttribute('role','img');note.setAttribute('aria-label',label);note.textContent=label+' in the archive';return note;
+  }
   // An archive can provide full gallery images, a link preview, or only a
   // small thumbnail. Link previews use the compact thumbnail treatment.
   function media(items,{alt='',compact=false,postId='',href='',doc=globalThis.document}={}){
@@ -58,9 +66,16 @@
     for(const [index,item] of valid.entries()){
       if(item.kind==='video'){
         const poster=imageUrl(item.poster),hls=globalThis.RTPostModel?.videoUrl(item.hls,'m3u8') || '';
-        if(!hls){const preview=thumbnail(poster);if(preview)root.append(preview);continue;}
+        const width=Number(item.width),height=Number(item.height);
+        if(!hls){root.append(videoUnavailable(poster,{alt,width,height,doc}));continue;}
+        // The poster is absolutely positioned until the player hydrates: keep it inside this box (relative),
+        // never over the post's header, and cap the height like Reddit's media frames.
         const loader=doc.createElement('shreddit-async-loader');loader.setAttribute('bundlename','shreddit_player_loader');
-        const width=Number(item.width),height=Number(item.height);if(Number.isInteger(width) && width>0 && width<=20000 && Number.isInteger(height) && height>0 && height<=20000)loader.style.cssText='display: block; width: 100%; aspect-ratio: '+width+' / '+height+'; max-height: max(300px, calc(100vh - calc(var(--shreddit-header-height, 56px) + 250px)));';
+        const sized=Number.isInteger(width) && width>0 && width<=20000 && Number.isInteger(height) && height>0 && height<=20000;
+        loader.style.cssText='display: block; position: relative; overflow: hidden; width: 100%; aspect-ratio: '+(sized?width+' / '+height:'16 / 9')+'; max-height: max(300px, calc(100vh - calc(var(--shreddit-header-height, 56px) + 250px)));';
+        // Archived video files are often gone: check the playlist and swap in the unavailable view if so.
+        const fetcher=doc.defaultView?.fetch || globalThis.fetch;
+        if(typeof fetcher==='function')Promise.resolve().then(()=>fetcher.call(doc.defaultView || globalThis,hls,{cache:'force-cache',credentials:'omit'})).then(response=>{if(!response?.ok && loader.isConnected)loader.replaceWith(videoUnavailable(poster,{alt,width,height,doc}));},()=>{if(loader.isConnected)loader.replaceWith(videoUnavailable(poster,{alt,width,height,doc}));});
         const player=doc.createElement('shreddit-player');player.setAttribute('src',hls);player.className='block h-full w-full max-h-full max-w-full nd:visible';player.setAttribute('data-post-click-location','video-player');player.setAttribute('single-playback','');player.setAttribute('player-type','in_feed_player');player.setAttribute('post-domain','v.redd.it');player.setAttribute('post-type','video');player.setAttribute('post-title',alt);player.setAttribute('priority','auto');
         if(globalThis.RTPostModel?.validateId(postId))player.setAttribute('post-id','t3_'+postId.replace(/^t3_/i,'').toLowerCase());
         if(poster){player.setAttribute('poster',poster);const img=doc.createElement('img');img.slot='poster';img.className='preview-image h-full w-full ease absolute inset-0 object-contain bg-black';img.setAttribute('objectfit','contain');img.src=poster;img.alt='media poster';img.loading='lazy';img.referrerPolicy='no-referrer';player.append(img);}
@@ -83,5 +98,5 @@
     for(let i=0;i<lines;i++){const line=doc.createElement(native?'faceplate-shimmer':'span');line.className='rt-skeleton-line skeleton-shimmer'+(native?'':' rt-skeleton-fallback');if(native)line.setAttribute('shape','pill');line.style.width=widths[i % widths.length]+'%';box.append(line);}
     return box;
   }
-  globalThis.RTArchiveView=Object.freeze({image,imageUrl,media,skeleton});
+  globalThis.RTArchiveView=Object.freeze({image,imageUrl,media,skeleton,videoUnavailable});
 })();

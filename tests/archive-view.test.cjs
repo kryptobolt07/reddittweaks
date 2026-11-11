@@ -13,6 +13,17 @@ test('compact videos show only a poster and invalid HLS never becomes a player',
  const fallback=W.RTArchiveView.media([{...video,hls:'https://evil.test/clip/HLSPlaylist.m3u8'}]);assert.equal(fallback.querySelector('shreddit-player'),null);assert.equal(fallback.querySelector('img').src,video.poster);assert.equal(W.RTArchiveView.media([{...video,hls:'https://evil.test/a.m3u8',poster:'https://evil.test/p.jpg'}]),null);W.close();
 });
 
+test('a video the archive can\'t play shows its preview labelled, no player and no play button',async()=>{
+ const W=setup();
+ const noFile=W.RTArchiveView.media([{...video,hls:''}]);assert.equal(noFile.querySelector('shreddit-player'),null);assert.ok(noFile.querySelector('[data-rt-video-unavailable]'));assert.match(noFile.textContent,/Original video isn’t available/);assert.equal(noFile.querySelector('img.preview-img').src,video.poster);
+ const nothing=W.RTArchiveView.videoUnavailable('');assert.match(nothing.textContent,/Original video isn’t available in the archive/);
+ // The playlist is gone: the player is replaced by the labelled preview.
+ W.fetch=async()=>({ok:false,status:403});const dead=W.RTArchiveView.media([video]);W.document.body.append(dead);assert.ok(dead.querySelector('shreddit-player'));
+ for(let i=0;i<4;i++)await new Promise(r=>setTimeout(r,0));assert.equal(dead.querySelector('shreddit-player'),null);assert.ok(dead.querySelector('[data-rt-video-unavailable]'));
+ // A playable one stays, with the poster kept inside the video box.
+ W.fetch=async()=>({ok:true,status:200});const live=W.RTArchiveView.media([video]);W.document.body.append(live);for(let i=0;i<4;i++)await new Promise(r=>setTimeout(r,0));assert.ok(live.querySelector('shreddit-player'));assert.equal(live.querySelector('shreddit-async-loader').style.position,'relative');
+ W.close();
+});
 test('archived images use Reddit’s image-post media structure',()=>{
  const W=setup(),root=W.RTArchiveView.image('https://i.redd.it/abc.png',{alt:'r/sub - Title',doc:W.document});
  assert.match(root.className,/xs:rounded-4/);assert.equal(root.dataset.rtRecoveredText,'true');assert.ok(root.querySelector('.border-neutral-border-weak'),'hairline frame');

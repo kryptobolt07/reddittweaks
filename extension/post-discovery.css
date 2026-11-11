@@ -354,3 +354,6 @@ div.overflow-auto:has(>[data-rt-ui="search-inline-filters"])::-webkit-scrollbar{
 .rt-tips-meaning{min-width:0;font-size:13px;color:var(--color-neutral-content,#2a3c42);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-tips-example{color:var(--color-neutral-content-weak,#576f76);max-width:160px;background:none;overflow:hidden;text-overflow:ellipsis}
 .rt-tips-note{margin:0;padding:8px 16px 12px;border-top:1px solid var(--color-neutral-border-weak,#e5ebee);font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
+
+/* An archived video without a playable file: its preview, labelled, with no play button. */
+.rt-media-badge{position:absolute;inset-inline-start:12px;bottom:12px;z-index:4;padding:4px 10px;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font-size:12px;font-weight:600;line-height:16px;pointer-events:none}
