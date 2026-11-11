@@ -256,17 +256,28 @@ img.rt-avatar-deleted{background:linear-gradient(0deg,#97afbc,#fff 75%);object-f
 .rt-sra-sort-label{font-size:12px;line-height:16px;white-space:pre}
 .rt-sra-comment-sort .rt-sra-dropdown-button{color:var(--color-neutral-content-strong,#0f1a1c)}
 /* Reddit's outlined Search Comments pill: icon and placeholder vertically centred. */
-.rt-sra-comment-search{display:inline-flex;align-items:center;gap:8px;box-sizing:border-box;height:40px;padding:0 16px;border:1px solid var(--color-neutral-border-medium,#c9d3d8);border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:text}
-.rt-sra-comment-search svg{flex:none;width:20px;height:20px;display:block}
-.rt-sra-comment-search input{display:block;box-sizing:border-box;height:38px;margin:0;padding:0;border:0;outline:0;background:transparent;font:400 14px/38px var(--font-sans,inherit);color:var(--color-neutral-content-strong,#0f1a1c);width:200px;-webkit-appearance:none;appearance:none}
-.rt-sra-comment-search input::placeholder{color:var(--color-neutral-content-weak,#576f76);opacity:1}
-.rt-sra-comment-search input::-webkit-search-decoration{display:none}
-.rt-sra-comment-search:focus-within{border-color:var(--color-neutral-content-weak,#576f76)}
-.rt-sra-comment-results{margin:8px 16px}
-.rt-sra-comment-hit{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:12px;color:inherit;text-decoration:none}
-.rt-sra-comment-hit:hover{background:var(--color-neutral-background-hover,#e8edef)}
-.rt-sra-comment-hit-meta{font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
-.rt-sra-comment-hit-body{font-size:14px;line-height:20px;color:var(--color-neutral-content-strong,#0f1a1c);overflow-wrap:anywhere}
-.rt-sra-comment-hit-body mark{background:transparent;color:inherit;font-weight:700}
 .rt-archive-inline-media{display:flex;justify-content:center;margin:8px 0}
 
+
+/* Search Comments, as on Reddit's post pages: outlined button → full-width grey box → result cards. */
+.rt-sra-cs-button{gap:0}.rt-sra-cs-button svg{width:16px;height:16px}
+.rt-sra-cs-form{flex:1 1 100%;margin:0}.rt-sra-cs-form[hidden]{display:none}
+.rt-sra-cs-field{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border-radius:9999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-weak,#576f76);box-sizing:border-box}
+.rt-sra-cs-field:focus-within{box-shadow:0 0 0 2px var(--color-interactive-focused,#0a65d1)}
+.rt-sra-cs-field svg{flex:none;width:16px;height:16px}
+.rt-sra-cs-field input{flex:1;min-width:0;height:38px;margin:0;padding:0;border:0;outline:0;background:transparent;font:400 14px/20px var(--font-sans,inherit);color:var(--color-neutral-content-strong,#0f1a1c);-webkit-appearance:none;appearance:none}
+.rt-sra-cs-field input::-webkit-search-cancel-button,.rt-sra-cs-field input::-webkit-search-decoration{display:none}
+.rt-sra-cs-clear{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:none;color:inherit;cursor:pointer}
+.rt-sra-cs-clear:hover{color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-sra-comment-results{margin:4px 0 0}
+.rt-sra-cs-back{display:inline-flex;align-items:center;gap:8px;margin:4px 16px 8px;padding:4px 0;border:0;background:none;font:600 12px/16px var(--font-sans,inherit);color:var(--color-neutral-content-strong,#0f1a1c);cursor:pointer}
+.rt-sra-cs-back svg{width:16px;height:16px}.rt-sra-cs-back:hover span{text-decoration:underline}
+.rt-sra-cs-note{margin:0 16px 12px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-cs-hit{display:flex;flex-direction:column;gap:12px;margin:0 0 16px;padding:16px;border-radius:16px;background:var(--color-neutral-background-weak,#f6f8f9);color:inherit;text-decoration:none}
+.rt-sra-cs-hit:hover{background:var(--color-neutral-background-hover,#eef1f3)}
+.rt-sra-cs-hit-head{display:flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-cs-hit-head img{width:24px;height:24px}
+.rt-sra-cs-hit-author{color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-sra-cs-hit-body{display:flex;flex-direction:column;gap:12px;max-height:260px;overflow:hidden;font-size:14px;line-height:20px;color:var(--color-neutral-content-strong,#0f1a1c);overflow-wrap:anywhere}
+.rt-sra-cs-hit-votes{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-comment-sort[hidden],.rt-sra-cs-button[hidden]{display:none!important}

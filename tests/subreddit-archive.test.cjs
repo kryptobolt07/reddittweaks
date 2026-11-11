@@ -625,18 +625,21 @@ test('archived threads offer Reddit\'s comment Sort by (Best/Top/New/Old) and Se
   const kids=[...bar.parentNode.children],postAt=kids.findIndex(n=>n.querySelector?.('.rt-sra-thread-post'));assert.ok(postAt>=0 && postAt<kids.indexOf(bar) && kids.indexOf(bar)<kids.indexOf(ctx.doc.querySelector('.rt-sra-thread-comments')),'post, then toolbar, then comments');
   bar.querySelector('.rt-sra-dropdown-button').click();[...bar.querySelectorAll('[data-rt-ui="filter-option"]')].find(o=>/New/.test(o.textContent)).click();await tick();
   assert.deepEqual(order(),['t1_c3','t1_c2','t1_c1'],'New: newest first');assert.match(bar.textContent,/Sort by: New/);
-  const input=bar.querySelector('input[type="search"]');input.value='apple';input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));
-  const results=ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]');assert.match(results.textContent,/2 of 3 loaded archived comments match/);assert.equal(results.querySelectorAll('.rt-sra-comment-hit').length,2);
-  assert.ok(ctx.doc.querySelector('.rt-sra-thread-comments').hidden);
-  // The shared query language: exclusions, OR, fields, and parser messages for invalid queries.
-  const run=async query=>{input.value=query;input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));return ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]').textContent;};
-  assert.match(await run('apple -cherry'),/1 of 3 loaded archived comments match/);assert.match(await run('banana OR cherry'),/2 of 3/);
+  // Reddit's flow: an outlined button expands into the search box; Enter searches; All Comments goes back.
+  const expand=bar.querySelector('.rt-sra-cs-button'),form=bar.querySelector('.rt-sra-cs-form'),input=form.querySelector('input[type="search"]');assert.equal(form.hidden,true);
+  expand.click();assert.equal(form.hidden,false);assert.equal(expand.hidden,true);
+  const run=async query=>{input.value=query;form.dispatchEvent(new ctx.W.Event('submit',{cancelable:true}));await tick();return ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]')?.textContent || '';};
+  input.value='apple';input.dispatchEvent(new ctx.W.Event('input'));await tick();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]'),null,'typing alone doesn\'t search');
+  assert.match(await run('apple'),/2 of 3 loaded archived comments match/);const results=ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]');assert.equal(results.querySelectorAll('.rt-sra-cs-hit').length,2);assert.match(results.querySelector('.rt-sra-cs-back').textContent,/All Comments/);
+  assert.ok(ctx.doc.querySelector('.rt-sra-thread-comments').hidden);assert.equal(new URLSearchParams(ctx.W.location.search).get('q'),'apple');assert.equal(new URLSearchParams(ctx.W.location.search).get('type'),'comments');
+  // The shared query language, and the parser's messages for invalid queries.
+  assert.match(await run('apple -cherry'),/1 of 3/);assert.match(await run('banana OR cherry'),/2 of 3/);
   assert.match(await run('author:alice "apple pie"'),/1 of 3/);assert.match(await run('apple OR'),/both sides of OR/);
-  assert.equal(bar.querySelector('.rt-sra-tips-button'),null,'no tips button beside the box');
   input.dispatchEvent(new ctx.W.KeyboardEvent('keydown',{key:'/',ctrlKey:true,bubbles:true,composed:true,cancelable:true}));
-  const card=ctx.doc.querySelector('[data-rt-ui="search-tips"]');assert.ok(card,'Ctrl+/ opens tips');assert.ok(card.querySelector('[data-rt-tip="u/spez"]'),'author tip for comments');assert.equal(card.querySelector('[data-rt-tip="title:review"]'),null,'no title: for comments');
-  card.querySelector('[data-rt-tip="laptop -gaming"]').click();assert.equal(ctx.doc.querySelector('[data-rt-ui="search-tips"]'),null);assert.equal(input.value,'laptop -gaming');
-  input.value='';input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').hidden,false);
+  const card=ctx.doc.querySelector('[data-rt-ui="search-tips"]');assert.ok(card,'Ctrl+/ opens tips');assert.ok(card.querySelector('[data-rt-tip="u/spez"]'));assert.equal(card.querySelector('[data-rt-tip="title:review"]'),null,'no title: for comments');
+  card.querySelector('[data-rt-tip="laptop -gaming"]').click();assert.equal(input.value,'laptop -gaming');
+  await run('apple');ctx.doc.querySelector('.rt-sra-cs-back').click();await tick();
+  assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').hidden,false);assert.equal(form.hidden,true);assert.equal(expand.hidden,false);assert.equal(new URLSearchParams(ctx.W.location.search).has('q'),false);
 });
 
 test('images pasted into archived text posts render inline like Reddit, blurred when NSFW',async()=>{
