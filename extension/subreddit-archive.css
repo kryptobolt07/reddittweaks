@@ -269,3 +269,14 @@ img.rt-avatar-deleted{background:linear-gradient(0deg,#97afbc,#fff 75%);object-f
 .rt-sra-comment-hit-body{font-size:14px;line-height:20px;color:var(--color-neutral-content-strong,#0f1a1c);overflow-wrap:anywhere}
 .rt-sra-comment-hit-body mark{background:transparent;color:inherit;font-weight:700}
 .rt-archive-inline-media{display:flex;justify-content:center;margin:8px 0}
+
+/* Search tips: Reddit's plain small button and a compact card. */
+.rt-sra-tips{position:relative;display:inline-flex;flex:none}
+.rt-sra-tips-row{display:flex;justify-content:flex-end;margin:0 0 4px}
+.rt-sra-tips-card{position:absolute;top:calc(100% + 6px);right:0;z-index:1000;width:min(340px,90vw);max-height:60vh;overflow:auto;padding:6px 0;border-radius:8px;background:var(--color-neutral-background,#fff);box-shadow:0 4px 8px rgba(0,0,0,.1),0 6px 12px rgba(0,0,0,.25)}
+.rt-sra-tips-card[hidden]{display:none}
+.rt-sra-tip{display:grid;grid-template-columns:auto 1fr;column-gap:8px;row-gap:1px;width:100%;padding:6px 14px;border:0;background:none;text-align:start;font:inherit;font-size:12px;line-height:16px;color:var(--color-neutral-content-strong,#0f1a1c);cursor:pointer}
+.rt-sra-tip:hover,.rt-sra-tip:focus-visible{background:var(--color-neutral-background-hover,#f6f8f9);outline:none}
+.rt-sra-tip-syntax{font-weight:600}.rt-sra-tip-meaning{color:var(--color-neutral-content-weak,#576f76)}
+.rt-sra-tip-example{grid-column:2;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--color-neutral-content,#2a3c42)}
+.rt-sra-tip-note{margin:4px 14px 2px;font-size:11px;line-height:15px;color:var(--color-neutral-content-weak,#576f76)}

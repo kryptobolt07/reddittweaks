@@ -628,6 +628,13 @@ test('archived threads offer Reddit\'s comment Sort by (Best/Top/New/Old) and Se
   const input=bar.querySelector('input[type="search"]');input.value='apple';input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));
   const results=ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]');assert.match(results.textContent,/2 of 3 loaded archived comments match/);assert.equal(results.querySelectorAll('.rt-sra-comment-hit').length,2);
   assert.ok(ctx.doc.querySelector('.rt-sra-thread-comments').hidden);
+  // The shared query language: exclusions, OR, fields, and parser messages for invalid queries.
+  const run=async query=>{input.value=query;input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));return ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]').textContent;};
+  assert.match(await run('apple -cherry'),/1 of 3 loaded archived comments match/);assert.match(await run('banana OR cherry'),/2 of 3/);
+  assert.match(await run('author:alice "apple pie"'),/1 of 3/);assert.match(await run('apple OR'),/both sides of OR/);
+  const tipsButton=bar.querySelector('.rt-sra-tips-button');assert.ok(tipsButton,'Search tips beside the box');tipsButton.click();
+  const card=bar.querySelector('.rt-sra-tips-card');assert.equal(card.hidden,false);assert.ok(card.querySelector('[data-rt-search-tip="u/spez"]'),'author tip for comments');assert.equal(card.querySelector('[data-rt-search-tip="title:review"]'),null,'no title: for comments');
+  card.querySelector('[data-rt-search-tip="laptop -gaming"]').click();assert.equal(card.hidden,true);assert.equal(input.value,'laptop -gaming');
   input.value='';input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').hidden,false);
 });
 

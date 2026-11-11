@@ -72,6 +72,8 @@ The same saved messages seed individual search before its normal history reads. 
 
 ## Search and browse
 
+Every search box (chat, profile, your lists and the archive) uses one query language: words, `"phrases"`, `OR`, `-word`/`NOT`, `( )` and fields such as `u/`, `r/`, `title:` and `site:`. See [docs/search-syntax.md](docs/search-syntax.md); each box also has **Search tips**.
+
 - Focus **Search chats and messages** with an empty field to browse saved conversations. Scrolling reveals more local rows; there is no permanent 150-result limit.
 - Type a username to filter locally. Stable image elements and visibility-based avatar loading avoid repeatedly requesting the same profile image during ordinary filtering.
 - The conversation-header magnifying glass opens individual search below the native header and shows an orange active state. Ctrl/Cmd+F opens it while focus is inside that room. Results fill the available thread area and use one count/status line. Clicking a result opens its exact message, expands a recognized native Read more control, and briefly highlights the message and matching text. Esc closes the calendar or filter popup first, then results, then search. Clicking the field reopens retained results.

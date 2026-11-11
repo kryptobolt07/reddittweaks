@@ -108,6 +108,12 @@ test('the List menu on a list search switches lists or back to all activity',asy
  s.D.querySelector('[data-rt-list-switch="history"]').click();assert.equal(urls.at(-1).searchParams.get('rt_list'),'history');assert.equal(urls.at(-1).searchParams.get('q'),'needle');
  s.D.querySelector('[data-rt-list-switch="all"]').click();assert.equal(urls.at(-1).searchParams.has('rt_list'),false);assert.equal(urls.at(-1).searchParams.get('q'),'needle');
 });
+test('Search tips list the query language and put an example into Reddit\'s search box',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true});s.d.scan();await flush();
+ assert.ok(s.D.querySelector('[data-rt-ui="search-tips"]'));const tip=s.D.querySelector('[data-rt-search-tip="laptop OR notebook"]');assert.ok(tip);assert.doesNotMatch(tip.textContent,/null/);
+ tip.click();assert.equal(s.h.input.value,'laptop OR notebook');
+ for(const row of s.D.querySelectorAll('[data-rt-search-tip]'))assert.equal(s.W.RCSCore.parseQuery(row.dataset.rtSearchTip,{fields:['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type']}).invalid,false,row.dataset.rtSearchTip);
+});
 test('profile scope removal drops own pill; navigation and teardown restore placeholders',async t=>{
  const s=await setup(t,{path:'/user/Example/history/',withHeader:true});assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));
  s.h.native.remove();await flush();assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);assert.equal(s.h.input.placeholder,'Search in u/Example');
