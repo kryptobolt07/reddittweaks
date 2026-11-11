@@ -10,13 +10,15 @@ const raw=(id,extra={})=>({id,author:'Example',title:'Synthetic search post',sel
 // post and comment search units are children of the neutral result container.
 const page=`<div data-testid="search-results-filter-spacer-desktop"><faceplate-dropdown-menu id="native-sort"><button>Sort</button><a href="/user/Example/search/?sort=new">New</a></faceplate-dropdown-menu><faceplate-dropdown-menu id="native-time" hidden><a href="/user/Example/search/?t=week">Past week</a></faceplate-dropdown-menu></div>
 <main class="main"><faceplate-tabgroup id="search-results-page-tabgroup"><a id="search-results-page-tab-posts" href="?type=posts">Posts</a><a id="search-results-page-tab-comments" href="?type=comments">Comments</a><a id="search-results-page-tab-media" href="?type=media">Media</a></faceplate-tabgroup><div data-testid="search-scope-switcher">Show results from all of Reddit</div><div class="bg-neutral-background" id="native-results"><search-telemetry-tracker data-testid="search-sdui-post" data-thingid="t3_live"><div data-testid="search-post-unit">Native result</div></search-telemetry-tracker><div data-testid="search-sdui-comment-unit"><search-telemetry-tracker data-faceplate-tracking-context='{"comment":{"id":"t1_comment","post_id":"t3_parent"}}'></search-telemetry-tracker><div data-testid="search-comment-content">Synthetic comment</div></div><faceplate-partial loading="lazy" src="/search-more"></faceplate-partial></div></main>`;
-function setup(t,{leaveDelay=false,url='https://www.reddit.com/user/Example/search/?q=words',settings={postDiscovery:true,archiveDiscovery:true},html=page,reddit,archive,renderer,aggregate,autoDiscover=false,observe=false}={}){
+function setup(t,{viewer='Viewer',leaveDelay=false,url='https://www.reddit.com/user/Example/search/?q=words',settings={postDiscovery:true,archiveDiscovery:true},html=page,reddit,archive,renderer,aggregate,autoDiscover=false,observe=false}={}){
   const dom=new JSDOM(html,{url,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[],queries=[],aggregates=[];
   for(const file of ['search-core.js','post-model.js','feed-filters.js','post-discovery.js','profile-search.js'])W.eval(read(file));
   W.RTArchiveQuery={async *search(args){queries.push(args);const result=archive?await archive(args,queries.length):{items:[raw('live'),raw('archive',{created_utc:1600000000})],hasMore:false,searchedBackTo:1600000000};
     yield {...result,items:(result.items || []).map(p=>W.RTPostModel.normalizeItem(p,{source:'arctic-shift'}))};},async aggregate(args){aggregates.push(args);return aggregate?aggregate(args):{ok:true,buckets:[{key:'Alpha',count:9}]};}};
   const nativeRenderer=renderer || (async(post,node)=>{const native=W.document.createElement(post.kind==='comment'?'shreddit-profile-comment':'shreddit-post');native.setAttribute(post.kind==='comment'?'comment-id':'id',post.fullname);if(post.kind!=='comment')native.setAttribute('post-type',post.postType);native.innerHTML='<span slot="credit-bar"></span><p slot="text-body">Native synthetic body</p>';node.replaceChildren(native);return {fullname:post.fullname,status:'available'};});
-  const d=new W.RTPostDiscovery.Discovery({observe,autoDiscover,nativeRenderer,readSettings:async()=>({'rt-settings-v1':settings}),reddit:async args=>{calls.push(args);
+  const d=new W.RTPostDiscovery.Discovery({observe,autoDiscover,nativeRenderer,readSettings:async()=>({'rt-settings-v1':settings}),reddit:async args=>{
+    // The signed-in account check (for the own-profile List switcher) isn't a search request.
+    if(args.action==='own-list-identity')return {username:viewer};calls.push(args);
     if(args.action==='render-controls'){W.document.getElementById(args.target).innerHTML=controls;return {rendered:true};}
     if(args.action==='render-navigation')return {rendered:true};
     if(args.action==='status')return {via:'info',statuses:args.ids.map(id=>({fullname:(args.kind==='comment'?'t1_':'t3_')+id,status:'available'}))};
@@ -114,6 +116,14 @@ test('opening a result keeps Reddit\'s own results hidden while its next page lo
   s.d.leaveRestoreMs=30;s.W.history.pushState({},'','/r/Alpha/comments/live/synthetic/');s.d.scan();await flush();
   assert.equal(native.closest('[data-rt-search-hidden]')?.hidden,true,'no flash of Reddit\'s unfiltered list');
   await new Promise(r=>setTimeout(r,60));assert.equal(native.closest('[data-rt-search-hidden]'),null,'restored if Reddit kept the old page');
+});
+test('your own profile search offers a List switcher (Saved, History, …) and others\' profiles don\'t',async t=>{
+  const own=await boot(t,{viewer:'Example'});await search(own);for(let i=0;i<3;i++)await flush();own.d.scan();await flush();
+  const urls=[];own.D.addEventListener('click',event=>{const a=event.target.closest?.('a');if(a && a.hidden){event.preventDefault();urls.push(new URL(a.href));}},true);
+  const option=own.D.querySelector('[data-rt-list-switch="saved"]');assert.ok(own.D.querySelector('[data-rt-ui="own-list-switch"]'),'List entry on your own profile');assert.ok(option);
+  assert.equal(own.D.querySelector('[data-rt-list-switch="all"]').getAttribute('aria-current'),'true');
+  option.click();assert.equal(urls.at(-1).searchParams.get('rt_list'),'saved');assert.equal(urls.at(-1).searchParams.get('q'),'words');assert.equal(urls.at(-1).pathname,'/user/Example/search/');
+  const other=await boot(t,{viewer:'Someone'});await search(other);for(let i=0;i<3;i++)await flush();other.d.scan();await flush();assert.equal(other.D.querySelector('[data-rt-ui="own-list-switch"]'),null);
 });
 test('deleted and banned accounts use archive profile shell with native search tabs',async t=>{
   for(const html of ['<shreddit-app><div><img alt="Deleted user"><h3>This account has been deleted</h3></div></shreddit-app>', '<shreddit-app><div id="shreddit-forbidden"><svg icon-name="ban-fill"></svg><h3 id="shreddit-forbidden-title">This account has been suspended</h3></div></shreddit-app>']){

@@ -102,6 +102,12 @@ test('filter pills stay in the header while Reddit hydrates the field (zero widt
  s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha']});await flush();const pill=s.h.root.querySelector('[data-rt-header-filter]');assert.ok(pill,'placed by layout, not width');
  pill.remove();s.d.syncHeaderFilters();assert.equal(s.h.root.querySelector('[data-rt-header-filter]'),pill,'moved back, not rebuilt');
 });
+test('the List menu on a list search switches lists or back to all activity',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true});s.d.scan();await flush();const urls=navigations(s);
+ assert.equal(s.D.querySelector('[data-rt-list-switch="saved"]')?.getAttribute('aria-current'),'true');
+ s.D.querySelector('[data-rt-list-switch="history"]').click();assert.equal(urls.at(-1).searchParams.get('rt_list'),'history');assert.equal(urls.at(-1).searchParams.get('q'),'needle');
+ s.D.querySelector('[data-rt-list-switch="all"]').click();assert.equal(urls.at(-1).searchParams.has('rt_list'),false);assert.equal(urls.at(-1).searchParams.get('q'),'needle');
+});
 test('profile scope removal drops own pill; navigation and teardown restore placeholders',async t=>{
  const s=await setup(t,{path:'/user/Example/history/',withHeader:true});assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));
  s.h.native.remove();await flush();assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);assert.equal(s.h.input.placeholder,'Search in u/Example');
