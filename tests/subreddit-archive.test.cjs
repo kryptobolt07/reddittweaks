@@ -632,9 +632,10 @@ test('archived threads offer Reddit\'s comment Sort by (Best/Top/New/Old) and Se
   const run=async query=>{input.value=query;input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));return ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]').textContent;};
   assert.match(await run('apple -cherry'),/1 of 3 loaded archived comments match/);assert.match(await run('banana OR cherry'),/2 of 3/);
   assert.match(await run('author:alice "apple pie"'),/1 of 3/);assert.match(await run('apple OR'),/both sides of OR/);
-  const tipsButton=bar.querySelector('.rt-sra-tips-button');assert.ok(tipsButton,'Search tips beside the box');tipsButton.click();
-  const card=bar.querySelector('.rt-sra-tips-card');assert.equal(card.hidden,false);assert.ok(card.querySelector('[data-rt-search-tip="u/spez"]'),'author tip for comments');assert.equal(card.querySelector('[data-rt-search-tip="title:review"]'),null,'no title: for comments');
-  card.querySelector('[data-rt-search-tip="laptop -gaming"]').click();assert.equal(card.hidden,true);assert.equal(input.value,'laptop -gaming');
+  assert.equal(bar.querySelector('.rt-sra-tips-button'),null,'no tips button beside the box');
+  input.dispatchEvent(new ctx.W.KeyboardEvent('keydown',{key:'/',ctrlKey:true,bubbles:true,composed:true,cancelable:true}));
+  const card=ctx.doc.querySelector('[data-rt-ui="search-tips"]');assert.ok(card,'Ctrl+/ opens tips');assert.ok(card.querySelector('[data-rt-tip="u/spez"]'),'author tip for comments');assert.equal(card.querySelector('[data-rt-tip="title:review"]'),null,'no title: for comments');
+  card.querySelector('[data-rt-tip="laptop -gaming"]').click();assert.equal(ctx.doc.querySelector('[data-rt-ui="search-tips"]'),null);assert.equal(input.value,'laptop -gaming');
   input.value='';input.dispatchEvent(new ctx.W.Event('input'));await new Promise(r=>setTimeout(r,200));assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').hidden,false);
 });
 

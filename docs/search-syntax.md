@@ -1,10 +1,8 @@
 # Search syntax
 
-Every search box in Reddit Tweaks understands the same query language: chat search (all chats and inside a conversation), profile search, your Saved, History, Hidden, Upvoted and Downvoted searches, the archive's community search, and Search Comments on archived posts. Each box offers **Search tips** with tappable examples:
+Every search box in Reddit Tweaks understands the same query language: chat search (all chats and inside a conversation), profile search, your Saved, History, Hidden, Upvoted and Downvoted searches, the archive's community search, and Search Comments on archived posts.
 
-- **Chat:** in the Filters menu.
-- **Profile and list search:** in Feed options and the filter row.
-- **Archive:** a button next to the box.
+**Search tips:** press **Ctrl+/** (**⌘/** on Mac) in a search box to see the syntax that box supports; click a tip to use its example. In chat search, the tips are also in the Filters menu.
 
 ## Words, phrases and operators
 

@@ -494,8 +494,8 @@
     const tips=[
       {syntax:'words',meaning:'All words must match',example:'battery laptop'},
       {syntax:'"exact phrase"',meaning:'Match the exact phrase',example:'"battery health"'},
-      {syntax:'OR',meaning:'Either side matches (uppercase)',example:'laptop OR notebook'},
-      {syntax:'-word, NOT',meaning:'Leave out matches (uppercase NOT)',example:'laptop -gaming'},
+      {syntax:'OR',meaning:'Either side matches',example:'laptop OR notebook'},
+      {syntax:'-word, NOT',meaning:'Leave out matches',example:'laptop -gaming'},
       {syntax:'( )',meaning:'Group alternatives',example:'(rog OR legion) -used'},
       {field:'title',syntax:'title:',meaning:'Words in the title',example:'title:review'},
       {field:'body',syntax:'body:',meaning:'Words in the text',example:'body:warranty'},
@@ -503,7 +503,7 @@
       {field:'subreddit',syntax:'subreddit:, r/',meaning:'In one community',example:'r/termux'},
       {field:'site',syntax:'site:',meaning:'Links to a website',example:'site:github.com'},
       {field:'flair',syntax:'flair:',meaning:'Posts with a flair',example:'flair:Help'},
-      {field:'type',syntax:'type:',meaning:'Post type (text, image, video, link, gallery…)',example:'type:image'},
+      {field:'type',syntax:'type:',meaning:'Post type: text, image, link…',example:'type:image'},
       {field:'nsfw',syntax:'nsfw:, spoiler:',meaning:'Only or no NSFW or spoiler posts',example:'nsfw:no'}
     ];
     return {tips:tips.filter(tip=>!tip.field || has.has(tip.field)),note:'Words use AND. NOT binds first, then OR, then AND, so a b OR c means a AND (b OR c). Only uppercase AND, OR and NOT are operators.'};

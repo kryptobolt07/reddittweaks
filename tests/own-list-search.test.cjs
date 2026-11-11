@@ -109,11 +109,15 @@ test('the List menu on a list search switches lists or back to all activity',asy
  s.D.querySelector('[data-rt-list-switch="history"]').click();assert.equal(urls.at(-1).searchParams.get('rt_list'),'history');assert.equal(urls.at(-1).searchParams.get('q'),'needle');
  s.D.querySelector('[data-rt-list-switch="all"]').click();assert.equal(urls.at(-1).searchParams.has('rt_list'),false);assert.equal(urls.at(-1).searchParams.get('q'),'needle');
 });
-test('Search tips list the query language and put an example into Reddit\'s search box',async t=>{
+test('Ctrl+/ in Reddit\'s search box opens Search tips for this search; a tip fills the box',async t=>{
  const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true});s.d.scan();await flush();
- assert.ok(s.D.querySelector('[data-rt-ui="search-tips"]'));const tip=s.D.querySelector('[data-rt-search-tip="laptop OR notebook"]');assert.ok(tip);assert.doesNotMatch(tip.textContent,/null/);
- tip.click();assert.equal(s.h.input.value,'laptop OR notebook');
- for(const row of s.D.querySelectorAll('[data-rt-search-tip]'))assert.equal(s.W.RCSCore.parseQuery(row.dataset.rtSearchTip,{fields:['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type']}).invalid,false,row.dataset.rtSearchTip);
+ assert.equal(s.D.querySelector('[data-rt-ui="search-tips"]'),null,'no tips control on the page');
+ const press=()=>{const e=new s.W.KeyboardEvent('keydown',{key:'/',ctrlKey:true,bubbles:true,composed:true,cancelable:true});s.h.input.dispatchEvent(e);return e;};
+ assert.equal(press().defaultPrevented,true);const card=s.D.querySelector('[data-rt-ui="search-tips"]');assert.ok(card);
+ assert.ok(card.querySelector('[data-rt-tip="title:review"]'),'post fields');assert.equal(card.querySelector('[data-rt-tip="from:alice"]'),null,'no chat fields');
+ for(const row of card.querySelectorAll('[data-rt-tip]'))assert.equal(s.W.RCSCore.parseQuery(row.dataset.rtTip,{fields:['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type']}).invalid,false,row.dataset.rtTip);
+ card.querySelector('[data-rt-tip="laptop OR notebook"]').click();assert.equal(s.h.input.value,'laptop OR notebook');assert.equal(s.D.querySelector('[data-rt-ui="search-tips"]'),null,'closes after a pick');
+ press();s.D.dispatchEvent(new s.W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(s.D.querySelector('[data-rt-ui="search-tips"]'),null,'Escape closes');
 });
 test('Reddit\'s start-up reconcile removing our view puts the same view back with nothing reloaded',async t=>{
  const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true,observe:true});await s.d.loadOwnList();await flush();

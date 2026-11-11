@@ -72,7 +72,7 @@ The same saved messages seed individual search before its normal history reads. 
 
 ## Search and browse
 
-Every search box (chat, profile, your lists and the archive) uses one query language: words, `"phrases"`, `OR`, `-word`/`NOT`, `( )` and fields such as `u/`, `r/`, `title:` and `site:`. See [docs/search-syntax.md](docs/search-syntax.md); each box also has **Search tips**.
+Every search box (chat, profile, your lists and the archive) uses one query language: words, `"phrases"`, `OR`, `-word`/`NOT`, `( )` and fields such as `u/`, `r/`, `title:` and `site:`. See [docs/search-syntax.md](docs/search-syntax.md); press **Ctrl+/** (⌘/ on Mac) in a search box for tips.
 
 - Focus **Search chats and messages** with an empty field to browse saved conversations. Scrolling reveals more local rows; there is no permanent 150-result limit.
 - Type a username to filter locally. Stable image elements and visibility-based avatar loading avoid repeatedly requesting the same profile image during ordinary filtering.
