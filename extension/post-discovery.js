@@ -540,7 +540,8 @@
       this.maybeRestoreDetail();this.capturePresentedFeed();this.mountSeen=this.mountIdentity();
     }
     ensureOwnIdentity(){
-      const candidate=ownListCandidate();
+      // A profile search may be your own: learn the account once (cached for the tab) to offer the List switcher.
+      const candidate=ownListCandidate() || (!signedInName && this.settings.archiveDiscovery && location.pathname.match(/^\/user\/([\w-]{1,20})\/(search)\/?$/i)) || null;
       if(!candidate || !this.settings.postDiscovery || this.settingsPending || this.settingsError){this.ownIdentityError?.remove();this.ownIdentityController?.abort();this.ownIdentityChecked=false;return;}
       if(this.ownIdentityChecked || this.ownIdentityTask)return;
       // The chat directory owner is a Matrix ID and self labels are "You".
@@ -550,9 +551,12 @@
       this.ownIdentityTask=this.request({action:'own-list-identity',username}).then(result=>{
         if(this.dead || location.href!==identityPage)return;this.ownIdentityError?.remove();signedInName=M.validateUsername(result.username)?result.username:'';rememberIdentity(signedInName);this.ownIdentityChecked=true;if(signedInName.toLowerCase()!==username.toLowerCase() && new URLSearchParams(location.search).has('rt_list'))this.showOwnListIdentityError('You can only search the lists of your signed-in Reddit account.');
       }).catch(error=>{
-        if(this.dead || location.href!==identityPage || !ownListCandidate())return;this.ownIdentityChecked=true;signedInName='';rememberIdentity('');
+        if(this.dead || location.href!==identityPage)return;this.ownIdentityChecked=true;if(!ownListCandidate())return;signedInName='';rememberIdentity('');
         this.showOwnListIdentityError(error.message+' List search is unavailable; no complete results were loaded.');
-      }).finally(()=>{this.ownIdentityTask=null;if(!this.dead)this.scan();});
+      }).finally(()=>{this.ownIdentityTask=null;if(this.dead)return;
+        // Now known to be your own profile: rebuild Feed options so the List switcher appears.
+        if(this.isSearch() && !this.isOwnList() && signedInName && this.context?.username.toLowerCase()===signedInName.toLowerCase() && this.activityMenu && !document.querySelector('[data-rt-ui="own-list-switch"]'))this.clearActivityMenu();
+        this.scan();});
     }
     showOwnListIdentityError(message){const note=this.ownIdentityError ||= make('p','rt-posts-notice');note.dataset.rtUi='own-list-error';note.setAttribute('role','alert');note.textContent=message;(document.querySelector('main') || document.body).prepend(note);}
     clearOwnListHeader(){
@@ -925,6 +929,19 @@
         }
         const sub=this.activityMenu=submenu('activity'),activity=entry(this.isOwnList()?'List':'Activity','activity',sub);activity.dataset.rtActivity='true';activity.dataset.rtUi='activity-filter-option';activity.querySelector('[data-rt-menu-value]').dataset.rtActivityValue='true';menu.append(activity);
         for(const [value,label,icon] of (this.isOwnList()?[]:[['all','All activity','show'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']])){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{if(this.activityFilter!==value){this.activityFilter=value;this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});}if(value!=='all' && !this.archiveOnly)this.verifyArchiveStatuses([...this.archived.values()].filter(post=>post.source==='arctic-shift'));this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();this.closeFeedMenu(dropdown,open);this.ensureActivityArchive();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
+        // Your own profile's search: switch between all activity and your lists (Saved, History, …) in place.
+        if(this.context?.view==='search' && !this.archiveOnly && signedInName && this.context.username.toLowerCase()===signedInName.toLowerCase()){
+          let listSub=sub,listEntry=activity;
+          if(!this.isOwnList()){listSub=submenu('list');listEntry=entry('List','list-bulleted',listSub);listEntry.dataset.rtUi='own-list-switch';menu.append(listEntry);content.append(listSub);this.activityMenuRows.push(listEntry,listSub);}
+          const current=this.context.list || '',icons={saved:'save',history:'history',hidden:'hide',upvoted:'upvote',downvoted:'downvote'};
+          for(const [value,label] of [['','All activity'],['saved','Saved'],['history','History'],['hidden','Hidden'],['upvoted','Upvoted'],['downvoted','Downvoted']]){
+            const option=row(label,value?redditIcon(icons[value],16):'show');option.dataset.rtListSwitch=value || 'all';option.setAttribute('aria-current',String(value===current));
+            if(value===current){const mark=glyph('checkmark');mark.dataset.rtCheck='true';option.firstElementChild.append(mark);}
+            activate(option,()=>{this.closeFeedMenu(dropdown,open);if(value===current)return;const route=pageRoute();if(route)this.navigateProfileSearch({...route,list:value || undefined},route.q || '',Boolean(value));});
+            listSub.append(option);
+          }
+          const shown=listEntry.querySelector('[data-rt-menu-value]');if(shown && !this.isOwnList())shown.textContent=current?listLabel(current):'All';
+        }
         // Refresh sits at the end of the Activity submenu.
         const divider=make('div','my-xs border-0 border-t-sm border-solid border-neutral-border-weak');divider.setAttribute('role','separator');
         const refresh=row(this.isOwnList()?'Refresh list':'Refresh activity','refresh');refresh.dataset.rtUi='activity-refresh';activate(refresh,()=>{this.closeFeedMenu(dropdown,open);if(!this.discover.disabled)this.discover.click();});sub.append(divider,refresh);
