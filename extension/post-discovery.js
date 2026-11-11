@@ -182,7 +182,7 @@
   function replaceUrl(url){const next=url.pathname+url.search+url.hash;if(next===location.pathname+location.search+location.hash)return false;try{history.replaceState(history.state,'',next);return true;}catch{return false;}}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
-  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
+  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
   class Discovery {
     constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={}}={}){
       this.nativeWaitMs=timing.nativeWaitMs ?? nativeWaitMs;this.retryUnitMs=timing.retryUnitMs ?? 1000;this.sourceWaitMs=timing.sourceWaitMs ?? sourceWaitMs;
@@ -210,11 +210,16 @@
       // Changes inside the observed feed are handled by its own observer; only
       // route/page-level changes need a scan.
       if(observe){this.observer=new MutationObserver(records=>{if(this.orphaned())return;this.syncProfileNotice();this.syncOwnListHeader();if(this.feed)this.trackVirtualization(records);
+        // Reddit's start-up reconcile removes what we inserted into main (only our nodes change, so the
+        // filter below would ignore it): put the search view back before the next paint.
+        if(this.context?.view==='search' && this.host && !this.host.isConnected && !this.searchReattachQueued){this.searchReattachQueued=true;queueMicrotask(()=>{this.searchReattachQueued=false;if(!this.dead)this.scan();});}
         // Nothing mounted and not a page discovery acts on: unrelated page churn.
         if(this.idleRoute())return;if(records.some(r=>!this.ownsMutation(r) && !(this.feedPresentationObserver && this.feed?.contains(r.target))))this.schedule(true);});this.observer.observe(document.documentElement,{childList:true,subtree:true});window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.addListener(this.onSettings);}
       this.onWorkerSettings=(message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===globalThis.chrome?.runtime?.id)this.onSettings({[key]:{newValue:message.settings}},'local');};
       if(observe)globalThis.chrome?.runtime?.onMessage?.addListener(this.onWorkerSettings);
-      this.avatarUnsubscribe=globalThis.RCSDirectory?.onChange?.(value=>{const owner=globalThis.RCSDirectory?.getOwner?.() || '';if(value?.owner && value.owner!==owner)return;if(this.profileOwner!==owner){this.profileOwner=owner;signedInName='';this.ownIdentityChecked=false;this.clearOwnListHeader();this.discardAllParked();this.reset({retainNavigation:false});this.scan();}});
+      this.avatarUnsubscribe=globalThis.RCSDirectory?.onChange?.(value=>{const owner=globalThis.RCSDirectory?.getOwner?.() || '';if(value?.owner && value.owner!==owner)return;// Learning the account at start-up (none → yours) isn't a switch; a different account or signing out is.
+        if(!this.profileOwner && owner){this.profileOwner=owner;return;}
+        if(this.profileOwner!==owner){this.profileOwner=owner;signedInName='';rememberIdentity('');this.ownIdentityChecked=false;this.clearOwnListHeader();this.discardAllParked();this.reset({retainNavigation:false});this.scan();}});
       this.ready=this.loadSettings();
     }
     async loadSettings(){const revision=this.settingsRevision;try{const saved=await this.readSettings();if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=false;this.settings=M.normalizeSettings(saved?.[key]);this.scan();}catch{if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=true;this.scan();}}
@@ -483,6 +488,9 @@
         this.syncFiltersFromUrl();
         if(cheap && this.sameMount()){this.maybeRestoreDetail();this.drainNative(this.nativeBatch);return;}
         this.observeNativeLoading();this.observeFeedPresentation();this.ensureActivityMenu();this.maybeRestoreDetail();this.deduplicate();this.drainNative(this.nativeBatch);this.mountSeen=this.mountIdentity();return;}
+      // Same search, but Reddit took our view out of main (hydration): put the same elements back, with
+      // everything loaded, instead of rebuilding (which restarted the list and blinked the pills).
+      if(context.view==='search' && this.context?.key===context.key && this.host && this.feed && !this.feed.isConnected && this.reattachSearchView()){this.scan();return;}
       const retainNavigation=Boolean(this.profileNavigation && this.settings.postDiscovery && !this.settingsError);
       const carry=this.context?.key===context.key && this.settings.postDiscovery && !this.settingsError && this.context?.kind==='profile' && (this.loaded || this.archiveLoaded)?(this.restoreRecoveredBodies(),this.flushVirtualization(),this.viewState()):null;
       if(carry)this.reset({keepCards:true,retainNavigation:true});else if(!this.parkSearch({keepVisible:context.view!=='search'}))this.leaveProfile({retainNavigation,always:true});
@@ -714,6 +722,14 @@
       state.sort=(context.list?['list','new','old']:searchSorts).includes(sort) && (sort!=='relevance' || context.q)?sort:null;
       if(!p.has('rt_date') && context.range!=='all')state.date={preset:context.range==='day'?'24h':context.range};
       return state;
+    }
+    reattachSearchView(){
+      const main=document.querySelector('main#main-content,main[role="main"],main');if(!main || this.host.contains(this.feed))return false;
+      const results=[...main.children].find(el=>el.matches('div.bg-neutral-background') && !el.querySelector('#search-results-page-tabgroup')),tabs=main.querySelector('#search-results-page-tabgroup');
+      if(results)results.before(this.feed);else if(tabs){let row=tabs;while(row.parentElement!==main)row=row.parentElement;row.after(this.feed);}else main.append(this.feed);
+      this.feed.before(this.host);this.scopeSwitcher?.remove();this.scopeSwitcher=null;this.searchHidden=new Map();
+      if(this.controlsTarget && !this.controlsTarget.isConnected){this.clearActivityMenu();}
+      return this.feed.isConnected && this.host.isConnected;
     }
     mountSearchFeed(main){
       // A native feed lets the profile renderer own cards, hydration, virtualization

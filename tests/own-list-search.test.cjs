@@ -13,7 +13,7 @@ function header(W,{hydrated=true}={}){
  const field=root.querySelector('faceplate-search-input');if(field)field.attachShadow({mode:'open'}).innerHTML='<textarea name="q" placeholder="Search in u/Example"></textarea>';
  return {host,root,form:root.querySelector('form'),field,input:(field?.shadowRoot || root).querySelector('input,textarea'),native:root.querySelector('rpl-input-chip')};
 }
-async function setup(t,{path='/user/Example/search/?rt_list=saved',username='Example',list,settings={postDiscovery:true,archiveDiscovery:false},withHeader=false,hydrated=true,autoDiscover=false,observe=false}={}){
+async function setup(t,{directory=null,path='/user/Example/search/?rt_list=saved',username='Example',list,settings={postDiscovery:true,archiveDiscovery:false},withHeader=false,hydrated=true,autoDiscover=false,observe=false}={}){
  const dom=new JSDOM(page,{url:'https://www.reddit.com'+path,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;const calls=[],archives=[];let d;
  t.after(()=>{d?.destroy();W.close();});
  for(const file of ['search-core.js','post-model.js','feed-filters.js','post-discovery.js'])W.eval(read(file));
@@ -25,6 +25,7 @@ async function setup(t,{path='/user/Example/search/?rt_list=saved',username='Exa
   if(args.action==='own-list'){if(list)return list(args,signal,W,calls.filter(c=>c.args.action==='own-list').length);return {posts:[W.RTPostModel.normalizePost(raw('first'))],scanned:1,hasMore:false,after:null};}
   throw Error('Unexpected list request: '+args.action);
  };
+ if(directory)W.RCSDirectory=directory(W);
  d=new W.RTPostDiscovery.Discovery({observe,autoDiscover,reddit,archive:async args=>{archives.push(args);throw Error('No private list archive reads');},readSettings:async()=>({'rt-settings-v1':settings})});
  await d.ready;await flush();return {W,D:W.document,d,calls,archives,h};
 }
@@ -113,6 +114,21 @@ test('Search tips list the query language and put an example into Reddit\'s sear
  assert.ok(s.D.querySelector('[data-rt-ui="search-tips"]'));const tip=s.D.querySelector('[data-rt-search-tip="laptop OR notebook"]');assert.ok(tip);assert.doesNotMatch(tip.textContent,/null/);
  tip.click();assert.equal(s.h.input.value,'laptop OR notebook');
  for(const row of s.D.querySelectorAll('[data-rt-search-tip]'))assert.equal(s.W.RCSCore.parseQuery(row.dataset.rtSearchTip,{fields:['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type']}).invalid,false,row.dataset.rtSearchTip);
+});
+test('Reddit\'s start-up reconcile removing our view puts the same view back with nothing reloaded',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true,observe:true});await s.d.loadOwnList();await flush();
+ const feed=s.d.feed,host=s.d.host,row=s.d.nodes.get('first'),reads=listCalls(s).length;assert.ok(feed.isConnected && row);
+ for(const el of [...s.D.querySelector('main').children])if(el.dataset.rtUi)el.remove();assert.equal(feed.isConnected,false);
+ for(let i=0;i<3;i++)await Promise.resolve();
+ assert.equal(s.d.feed,feed);assert.ok(feed.isConnected,'back before the next paint');assert.ok(host.isConnected);assert.ok(row.isConnected);assert.equal(listCalls(s).length,reads,'the list is not read again');
+ assert.ok(s.h.root.querySelector('[data-rt-list-chip]'),'pill stays');
+});
+test('the chat directory learning your account at start-up doesn\'t rebuild or reload the list; switching accounts does',async t=>{
+ let owner='',notify=null;const directory=()=>({getOwner:()=>owner,onChange:fn=>{notify=fn;return ()=>{};}});
+ const s=await setup(t,{directory,path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true});await s.d.loadOwnList();await flush();
+ const feed=s.d.feed,reads=listCalls(s).length;owner='@t2_me:reddit.com';notify({owner});await flush();
+ assert.equal(s.d.feed,feed);assert.ok(feed.isConnected);assert.equal(listCalls(s).length,reads,'not read again');assert.ok(s.h.root.querySelector('[data-rt-list-chip]'),'pill stays');
+ owner='@t2_other:reddit.com';notify({owner});await flush();assert.notEqual(s.d.nodes.get('first')?.isConnected,true,'a real account switch clears the list');
 });
 test('profile scope removal drops own pill; navigation and teardown restore placeholders',async t=>{
  const s=await setup(t,{path:'/user/Example/history/',withHeader:true});assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));
