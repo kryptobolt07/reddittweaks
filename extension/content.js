@@ -822,7 +822,12 @@
       if(!records.some(record=>record.type==='childList' && [...record.addedNodes].some(chatCandidate)))return;
       wakeProbe();
     }
+    // Reddit re-rendering a chat (switching conversations) removes our bar with its own nodes. Put it back
+    // before the next paint, like a route change, instead of after the 120 ms debounce (a visible collapse).
+    const ours=node=>node.nodeType===1 && (node.matches?.('[data-rcs-ui]') || Boolean(node.querySelector?.('[data-rcs-ui]')));
+    const lostOurs=records.some(record=>record.type==='childList' && [...record.removedNodes].some(ours) && [...record.removedNodes].some(node=>!extensionNode(node)));
     const native=records.filter(record=>!extensionNode(record.target) && !(record.type==='childList' && [...record.addedNodes,...record.removedNodes].length && [...record.addedNodes,...record.removedNodes].every(extensionNode)));
+    if(lostOurs){scheduleNavigation();return;}
     if(!native.length)return;
     if(native.some(routeMutation))scheduleNavigation();else schedule();
   }
