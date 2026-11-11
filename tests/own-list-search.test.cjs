@@ -91,6 +91,17 @@ test('a list parked mid-download continues from its cursor after Back',async t=>
  s.W.history.pushState({},'','/user/Example/search/?q=needle&rt_list=saved');s.D.querySelector('main').outerHTML=page;s.d.scan();await flush();await flush();
  const third=listCalls(s)[2];assert.ok(third,'resumed');assert.equal(third.args.after,'t3_first','from the parked cursor, not the first page');assert.deepEqual(shown(s),['t3_first','t3_second']);
 });
+test('Reddit re-rendering its header gets the same list pill back, never a fresh blank one',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=needle&rt_list=saved',withHeader:true});const pill=s.h.root.querySelector('[data-rt-list-chip]');assert.ok(pill);
+ // Reddit swaps its scope pill (hydration): ours goes with the old container.
+ const native=s.h.native,fresh=native.cloneNode(true);native.replaceWith(fresh);pill.remove();s.d.syncOwnListHeader();
+ assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),pill,'the same element is moved back');assert.equal(fresh.nextElementSibling,pill);
+});
+test('filter pills stay in the header while Reddit hydrates the field (zero width)',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=cats&rt_list=saved',withHeader:true});s.h.field.getBoundingClientRect=()=>({width:0,height:0,top:0,left:0,right:0,bottom:0});
+ s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha']});await flush();const pill=s.h.root.querySelector('[data-rt-header-filter]');assert.ok(pill,'placed by layout, not width');
+ pill.remove();s.d.syncHeaderFilters();assert.equal(s.h.root.querySelector('[data-rt-header-filter]'),pill,'moved back, not rebuilt');
+});
 test('profile scope removal drops own pill; navigation and teardown restore placeholders',async t=>{
  const s=await setup(t,{path:'/user/Example/history/',withHeader:true});assert.ok(s.h.root.querySelector('[data-rt-list-chip]'));
  s.h.native.remove();await flush();assert.equal(s.h.root.querySelector('[data-rt-list-chip]'),null);assert.equal(s.h.input.placeholder,'Search in u/Example');
