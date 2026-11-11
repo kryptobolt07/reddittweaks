@@ -185,7 +185,7 @@
   const postFieldsAll=['title','body','subreddit','author','site','url','flair','self','nsfw','spoiler','type'],commentFieldsAll=['body','author'];
   function tipsTarget(event){
     const path=event.composedPath(),field=path[0];if(!field?.matches?.('input,textarea'))return null;
-    if(field.closest?.('.rt-sra-comment-search'))return {input:field,fields:commentFieldsAll};
+    if(field.closest?.('.rt-sra-cs-field'))return {input:field,fields:commentFieldsAll};
     if(!path.some(node=>node.matches?.('reddit-search-large')))return null;
     const comments=new URLSearchParams(location.search).get('type')==='comments';
     if(document.querySelector('[data-rt-ui="archive-subreddit"],[data-rt-ui="archive-search"]'))return {input:field,fields:comments?commentFieldsAll:[...postFieldsAll]};
