@@ -17,6 +17,7 @@ Tools and commands: [reference/tools.md](reference/tools.md). Templates: [templa
 Copy `templates/spec.md` to the working folder and fill it in:
 1. **Expectations (X1…)**: what must be observably true after the change, the level that proves it, and the exact evidence (a test name, a probe command and the value it must show).
 2. **Standing checks S1–S9** for any UI change. Mark one n/a only with a reason.
+   S9 uses `docs/interaction-lifecycle-contract.md`: list every applicable transition (T1–T16 plus the feature's own) with the expected on-screen sequence, and check the change against the contract's rules and Reddit facts (F1–F15) before writing code.
 3. **Code lifecycle audit** (cheap; it finds timing bugs that screenshots never show). For each region the change touches, grep the feature code for what *creates, replaces or removes* it (`mount`, `unmount`, `replaceChildren`, `replaceWith`, `remove`, `innerHTML`) and what *triggers* that (`popstate`, `reddit:route`, `MutationObserver`, settings and storage listeners, timers). Write one transition row per path, for example "feed → post (click): `scan()` → `unmount()` → nav placeholder rebuilt, filled asynchronously". Each row becomes an S9 timeline case.
 4. **Data-to-UI fields** for features that render records (Arctic Shift, Reddit JSON): which field shows where, and in what native format.
 5. **User focus items (F1…)**: anything the user asked to have tested, copied verbatim, each with its evidence. Note whether they said "only" (that means `focus-only` for the council).
