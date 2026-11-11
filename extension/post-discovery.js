@@ -2180,6 +2180,8 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       // Media by type: images/galleries/videos full width; link previews as the right-hand thumbnail; text posts never borrow a link preview.
       const usable=visual?media:linkish?media:type==='textmedia'?media.filter(item=>item.kind==='image'):[];
       if(usable.length){let view=globalThis.RTArchiveView?.media(usable,{alt:post.title,compact:linkish,postId:post.id,href:linkish?linkUrl || post.permalink:post.url || post.permalink});if(view){if(post.over18 || post.spoiler)view=sensitive(view,post.over18?'View NSFW content':'View spoiler');view.slot=linkish?'thumbnail':'post-media-container';native.append(view);(this.recoveredMedia ||= new Set()).add(view);}}
+      // A video or GIF post whose media the archive doesn't have says so, rather than showing nothing.
+      else if(['video','gif'].includes(type) && globalThis.RTArchiveView?.videoUnavailable){const note=globalThis.RTArchiveView.videoUnavailable('',{});note.slot='post-media-container';native.append(note);}
       // Content scripts can't see Reddit's custom-element registry, so decide from the DOM: once the post has
       // rendered Reddit's own action bar (it has an open shadow root), our read-only row steps aside.
       if(thread && !native.shadowRoot?.querySelector('rpl-action-bar'))native.append(this.archiveActionRow(post,native));
