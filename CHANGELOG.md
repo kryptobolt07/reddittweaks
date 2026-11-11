@@ -1,3 +1,15 @@
+# 0.31.0 preview
+
+- Your own profile's search has a **List** filter: All activity, Saved, History, Hidden, Upvoted or Downvoted, keeping your query and filters. List searches can switch lists the same way.
+- One query language in every search box: words, "phrases", OR, -word/NOT, ( ) and fields such as u/, r/, title:, site:. Search Comments on archived posts now supports it too.
+- **Search tips** in each search box (Feed options and the filter row on profile and list search, a button beside archive searches) list the syntax with examples that fill the box. docs/search-syntax.md documents it all, and the popup points to it.
+- Floating chat: switching conversations no longer makes the search bar collapse and re-expand.
+- List and filter pills no longer blink on a direct visit to a list or filtered search.
+
+Version choice: MINOR to 0.31.0 for the List filter and Search tips, bundled with fixes. No new permissions or storage schema migration.
+
+Validation: all 1,314 automated tests pass; ZIP integrity and source/stable-folder byte equality checked. The chat fix was reproduced and checked in the chat demo in a headless browser. Not checked on live Reddit (no browser access to Reddit in this session): the pill blink fix, the List filter and the Search tips placement. Archive search bar and comment search parity with live communities (spec items I4 and I5) are not done yet.
+
 # 0.30.3 preview
 
 - Opening a result from a profile or list search keeps the results and the Saved/History pill on screen until Reddit shows the post, instead of a blank page; going Back shows them again at once, pill included.
