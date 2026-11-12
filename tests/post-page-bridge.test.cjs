@@ -729,3 +729,9 @@ test('public requests honor an HTTP-date Retry-After without starting alternate 
  assert.match((await e.send({...input,refresh:true})).error,/asked us to wait/);assert.equal(e.calls.length,1);assert.equal(browser.length,0);
  now+=60000;assert.match((await e.send(input)).error,/rate limit/);assert.equal(e.calls.length,2);
 });
+test('a verified anonymous session skips redundant cookie-free requests without caching results',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse(nativeCommentHtml())}),browser=publicBrowserMock(e,()=>nativeCommentHtml());e.W.RTPublicBrowser.hasSession=()=>true;
+ const input={action:'profile',kind:'comment',username:'Example',stream:'public'};
+ assert.equal((await e.send(input)).ok,true);assert.equal((await e.send(input)).ok,true);assert.equal(browser.length,2);assert.equal(e.calls.length,0);
+ assert.equal((await e.send({...input,stream:'authenticated'})).ok,true);assert.equal(e.calls.length,1);assert.equal(e.calls[0][1].credentials,'include');
+});

@@ -3,10 +3,10 @@
   'use strict';
   if(window.top!==window || globalThis.RTPublicBrowser)return;
   const origin='https://www.reddit.com',maxBytes=3000000;
-  let frame=null,queue=Promise.resolve(),pending=0,idleTimer=null,cooldownUntil=0,rateLimited=false,activeController=null,revision=0;
+  let frame=null,queue=Promise.resolve(),pending=0,idleTimer=null,cooldownUntil=0,rateLimited=false,verifiedSession=false,activeController=null,revision=0;
   const failure=(message='Reddit blocked logged-out search (HTTP 403).')=>Error(message);
   function discard(){frame?.remove();frame=null;window.removeEventListener('pagehide',close);}
-  function close(){revision++;clearTimeout(idleTimer);activeController?.abort();discard();}
+  function close(){revision++;verifiedSession=false;clearTimeout(idleTimer);activeController?.abort();discard();}
   function idle(){clearTimeout(idleTimer);if(!pending)idleTimer=setTimeout(discard,60000);}
   function validate(value){
     const url=new URL(value),p=url.searchParams;
@@ -83,12 +83,13 @@
       if(!response.ok || response.redirected || response.url!==url.href)throw failure();
       const result=await text(response,controller),current=context(node);
       if(controller.signal.aborted || location.href!==page || !current || current.window!==initial.window || current.document!==initial.document)throw failure('Page changed. Try again.');
+      verifiedSession=true;
       return result;
     }catch(error){
       controller.abort();
       const cancelled=signal?.aborted || generation!==revision || location.href!==page;
       let reusable=false;try{reusable=!!context(node) && (responseStatus===429 || responseStatus>=500 || timedOut || error.name==='TypeError');}catch{}
-      if(!reusable)discard();
+      if(!reusable){verifiedSession=false;discard();}
       if(!cancelled && !reusable && cooldownUntil<=Date.now()){cooldownUntil=Date.now()+600000;rateLimited=false;}
       if(cancelled)throw failure('Post request cancelled.');
       if(timedOut)throw failure('Reddit request timed out. Try again.');throw error;
@@ -102,5 +103,8 @@
     const result=queue.then(()=>{if(revision!==generation)throw failure('Post request cancelled.');return perform(value,options);});queue=result.catch(()=>{});
     return result.finally(()=>{pending--;idle();});
   }
-  globalThis.RTPublicBrowser=Object.freeze({read,close});
+  // Removing an idle iframe does not clear the top document's anonymous jar.
+  // This flag caches transport health only; requested content is always fresh.
+  function hasSession(){if(!verifiedSession)return false;if(!frame)return true;try{return !!context(frame);}catch{return false;}}
+  globalThis.RTPublicBrowser=Object.freeze({read,close,hasSession});
 })();
