@@ -299,7 +299,7 @@ test('feed cards keep native title, author, community and comment navigation whi
 test('banned post permalinks show the archived post and nested comments, including a focused comment',async()=>{
  const calls=[],ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/c2/',archive:async message=>{calls.push(message);return message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:{ok:true,posts:[comment('c2',1500000002,{linkId:'abc12',parentId:'t1_c1'}),comment('c1',1500000001,{linkId:'abc12',parentId:'t3_abc12'})],hasMore:false};}});await tick();
  assert.equal(ctx.doc.querySelector('h1[slot="title"]').textContent,'Title abc12');assert.ok(ctx.doc.querySelector('#left-sidebar-container'));assert.equal(ctx.doc.querySelector('.masthead'),null);
- assert.equal(ctx.doc.querySelector('#t1_c2').parentElement.id,'t1_c1');assert.ok(ctx.doc.querySelector('#t1_c2').classList.contains('rt-sra-focused-comment'));assert.equal(calls[1].focusId,'c2');assert.match(ctx.doc.querySelector('.rt-sra-foot').textContent,/Coverage may be partial/);
+ assert.equal(ctx.doc.querySelector('#t1_c2').parentElement.id,'t1_c1');assert.ok(ctx.doc.querySelector('#t1_c2').classList.contains('rt-sra-highlighted'));assert.ok(ctx.doc.querySelector('#t1_c2').hasAttribute('is-highlighted'));assert.equal(ctx.doc.querySelector('#t1_c1').hasAttribute('is-highlighted'),false);assert.equal(calls[1].focusId,'c2');assert.match(ctx.doc.querySelector('.rt-sra-foot').textContent,/Coverage may be partial/);
  assert.equal(ctx.doc.querySelectorAll('[data-rt-ui="archive-thread-comment"] [slot="commentMeta"] svg').length,0);assert.match(ctx.doc.querySelector('aside [data-rt-ui="archive-thread-notice"]').textContent,/Arctic Shift.*Coverage may be partial/);assert.equal(ctx.sa.statusTop.hidden,true);
  ctx.W.history.pushState({},'','/r/live/');ctx.sa.scan();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]'),null);ctx.sa.destroy();ctx.W.close();
 });
@@ -621,25 +621,36 @@ test('archived threads offer Reddit\'s comment Sort by (Best/Top/New/Old) and Se
   for(let i=0;i<4;i++)await tick();
   const order=()=>[...ctx.doc.querySelectorAll('.rt-sra-thread-comments > shreddit-comment')].map(n=>n.id);
   assert.deepEqual(order(),['t1_c2','t1_c1','t1_c3'],'Best: by score');
-  const bar=ctx.doc.querySelector('[data-rt-ui="archive-comment-toolbar"]');assert.match(bar.textContent,/Sort by: Best/);
+  const bar=ctx.doc.querySelector('[data-rt-ui="archive-comment-toolbar"]');assert.match(bar.textContent,/Sort by:\s*Best/);
   const kids=[...bar.parentNode.children],postAt=kids.findIndex(n=>n.querySelector?.('.rt-sra-thread-post'));assert.ok(postAt>=0 && postAt<kids.indexOf(bar) && kids.indexOf(bar)<kids.indexOf(ctx.doc.querySelector('.rt-sra-thread-comments')),'post, then toolbar, then comments');
   bar.querySelector('.rt-sra-dropdown-button').click();[...bar.querySelectorAll('[data-rt-ui="filter-option"]')].find(o=>/New/.test(o.textContent)).click();await tick();
-  assert.deepEqual(order(),['t1_c3','t1_c2','t1_c1'],'New: newest first');assert.match(bar.textContent,/Sort by: New/);
-  // Reddit's flow: an outlined button expands into the search box; Enter searches; All Comments goes back.
-  const expand=bar.querySelector('.rt-sra-cs-button'),form=bar.querySelector('.rt-sra-cs-form'),input=form.querySelector('input[type="search"]');assert.equal(form.hidden,true);
-  expand.click();assert.equal(form.hidden,false);assert.equal(expand.hidden,true);
-  const run=async query=>{input.value=query;form.dispatchEvent(new ctx.W.Event('submit',{cancelable:true}));await tick();return ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]')?.textContent || '';};
-  input.value='apple';input.dispatchEvent(new ctx.W.Event('input'));await tick();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]'),null,'typing alone doesn\'t search');
-  assert.match(await run('apple'),/2 of 3 loaded archived comments match/);const results=ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]');assert.equal(results.querySelectorAll('.rt-sra-cs-hit').length,2);assert.match(results.querySelector('.rt-sra-cs-back').textContent,/All Comments/);
+  assert.deepEqual(order(),['t1_c3','t1_c2','t1_c1'],'New: newest first');assert.match(bar.textContent,/Sort by:\s*New/);
+  // Reddit's flow: an outlined button opens Reddit's own search box (Sort by hidden, Cancel shown); Enter searches; All Comments goes back.
+  const expand=bar.querySelector('.rt-sra-cs-button'),form=bar.querySelector('.rt-sra-cs-form'),field=form.querySelector('faceplate-search-input.rt-sra-cs-field'),sortGroup=bar.querySelector('.rt-sra-comment-sort');
+  assert.ok(field,'Reddit\'s faceplate-search-input');assert.equal(field.getAttribute('placeholder'),'Search Comments');assert.equal(form.hidden,true);assert.match(expand.textContent,/Search Comments/);
+  expand.click();assert.equal(form.hidden,false);assert.equal(expand.hidden,true);assert.equal(sortGroup.hidden,true);assert.equal(expand.getAttribute('aria-expanded'),'true');
+  const enter=()=>field.dispatchEvent(new ctx.W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true}));
+  const run=async query=>{field.value=query;enter();await tick();return ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]');};
+  field.value='apple';field.dispatchEvent(new ctx.W.Event('input'));await tick();assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-comment-results"]'),null,'typing alone doesn\'t search');
+  let results=await run('apple');const hits=()=>[...results.querySelectorAll('[data-rt-ui="archive-comment-hit"]')];
+  assert.equal(hits().length,2);assert.doesNotMatch(results.textContent,/of 3|match/,'no count line, like Reddit');assert.match(results.querySelector('.rt-sra-cs-back').textContent,/All Comments/);
+  const hit=hits()[0];assert.match(hit.querySelector('.rt-sra-cs-link').getAttribute('href'),/\/r\/gone\/comments\/abc12\/_\/c\d\/$/);assert.match(hit.querySelector('.rt-sra-cs-hit-votes').textContent,/^\d+ votes?$/);assert.ok(hit.querySelector('faceplate-timeago[short]'));
   assert.ok(ctx.doc.querySelector('.rt-sra-thread-comments').hidden);assert.equal(new URLSearchParams(ctx.W.location.search).get('q'),'apple');assert.equal(new URLSearchParams(ctx.W.location.search).get('type'),'comments');
-  // The shared query language, and the parser's messages for invalid queries.
-  assert.match(await run('apple -cherry'),/1 of 3/);assert.match(await run('banana OR cherry'),/2 of 3/);
-  assert.match(await run('author:alice "apple pie"'),/1 of 3/);assert.match(await run('apple OR'),/both sides of OR/);
-  input.dispatchEvent(new ctx.W.KeyboardEvent('keydown',{key:'/',ctrlKey:true,bubbles:true,composed:true,cancelable:true}));
+  assert.equal(form.hidden,false,'the box stays open with the query');
+  // The shared query language, Reddit's no-results box, and the parser's messages for invalid queries.
+  results=await run('apple -cherry');assert.equal(hits().length,1);results=await run('banana OR cherry');assert.equal(hits().length,2);
+  results=await run('author:alice "apple pie"');assert.equal(hits().length,1);
+  results=await run('zzz');assert.match(results.querySelector('[data-testid="search-no-results"]').textContent,/couldn’t find any results for “zzz”/);
+  results=await run('apple OR');assert.match(results.textContent,/both sides of OR/);
+  const textarea=ctx.doc.createElement('textarea');field.append(textarea);
+  textarea.dispatchEvent(new ctx.W.KeyboardEvent('keydown',{key:'/',ctrlKey:true,bubbles:true,composed:true,cancelable:true}));
   const card=ctx.doc.querySelector('[data-rt-ui="search-tips"]');assert.ok(card,'Ctrl+/ opens tips');assert.ok(card.querySelector('[data-rt-tip="u/spez"]'));assert.equal(card.querySelector('[data-rt-tip="title:review"]'),null,'no title: for comments');
-  card.querySelector('[data-rt-tip="laptop -gaming"]').click();assert.equal(input.value,'laptop -gaming');
+  card.querySelector('[data-rt-tip="laptop -gaming"]').click();assert.equal(textarea.value,'laptop -gaming');textarea.remove();
   await run('apple');ctx.doc.querySelector('.rt-sra-cs-back').click();await tick();
-  assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').hidden,false);assert.equal(form.hidden,true);assert.equal(expand.hidden,false);assert.equal(new URLSearchParams(ctx.W.location.search).has('q'),false);
+  assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments').hidden,false);assert.equal(form.hidden,true);assert.equal(expand.hidden,false);assert.equal(sortGroup.hidden,false);assert.equal(new URLSearchParams(ctx.W.location.search).has('q'),false);
+  // Escape in an empty box and Cancel close it without searching.
+  expand.click();field.value='';field.dispatchEvent(new ctx.W.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));assert.equal(form.hidden,true);
+  expand.click();field.value='typed';bar.querySelector('.rt-sra-cs-cancel').click();assert.equal(form.hidden,true);assert.equal(field.value,'');
 });
 
 test('images pasted into archived text posts render inline like Reddit, blurred when NSFW',async()=>{
@@ -676,4 +687,18 @@ test('following a link out of an archived community never flashes Reddit\'s bann
   assert.equal(modal.style.getPropertyValue('display'),'none','stale notice stays hidden');
   ctx.W.history.pushState({},'','/r/gone/');ctx.sa.scan();await tick();
   assert.ok(ctx.doc.querySelector('[data-rt-ui="archive-subreddit"]') || modal.style.getPropertyValue('display')!=='none','back on the community, archive or notice shows');
+});
+
+test('the comment toolbar appears with the post, never before it, and a permalink puts its thread first',async()=>{
+  let release;const gate=new Promise(resolve=>{release=resolve;});
+  const recs=[comment('a1',1500000100,{linkId:'abc12',parentId:'t3_abc12',score:90}),comment('b1',1500000200,{linkId:'abc12',parentId:'t3_abc12',score:5}),comment('b2',1500000300,{linkId:'abc12',parentId:'t1_b1',score:1}),comment('b3',1500000400,{linkId:'abc12',parentId:'t1_b1',score:50})];
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/b2/',archive:async message=>{if(message.action==='archive-ids'){await gate;return {ok:true,posts:[post('abc12',1500000000)]};}return {ok:true,posts:recs.map(r=>({...r,link_id:'t3_abc12',parent_id:r.parentId,created_utc:r.created,author:'alice',subreddit:'gone'}))};}});
+  for(let i=0;i<3;i++)await tick();
+  assert.equal(ctx.doc.querySelector('[data-rt-ui="archive-comment-toolbar"]'),null,'no toolbar while the post is loading');
+  release();for(let i=0;i<4;i++)await tick();
+  const bar=ctx.doc.querySelector('[data-rt-ui="archive-comment-toolbar"]');assert.ok(bar);assert.ok(bar.previousElementSibling?.querySelector('.rt-sra-thread-post'),'toolbar directly after the post');
+  const top=[...ctx.doc.querySelectorAll('.rt-sra-thread-comments > shreddit-comment')].map(n=>n.id);assert.equal(top[0],'t1_b1','the focused comment\'s thread comes first');
+  const kids=[...ctx.doc.querySelector('#t1_b1').children].filter(n=>n.matches('shreddit-comment')).map(n=>n.id);assert.equal(kids[0],'t1_b2','then the focused comment');
+  assert.ok(ctx.doc.querySelector('#t1_b2').classList.contains('rt-sra-highlighted'));
+  ctx.sa.destroy();ctx.W.close();
 });
