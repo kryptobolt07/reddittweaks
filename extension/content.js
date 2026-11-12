@@ -1,4 +1,5 @@
 (() => {
+  if(window.credentialless===true)return;
   if (globalThis.__rcsStarted) return;
   globalThis.__rcsStarted = true;
   const A = globalThis.RCSAdapter;

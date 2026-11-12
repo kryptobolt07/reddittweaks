@@ -1,6 +1,7 @@
 /* Runs in Reddit's page world. Narrow read operations reuse its authenticated client.
  * Access tokens, cookies, and arbitrary URLs are never sent across this bridge. */
 (() => {
+  if(window.credentialless===true)return;
   const requestEvent = 'rcs-v2-request';
   const responseEvent = 'rcs-v2-response';
   const running = new Map();

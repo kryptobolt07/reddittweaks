@@ -114,7 +114,7 @@ All surfaces use Reddit's own components and the styles we already match: search
 ## 7. Privacy, permissions, safety
 
 - Only the signed-in account's own items are checked by this feature, with the signed-in name confirmed the way our list search already does.
-- Public-view checks (E2) carry **no** cookies or tokens (`credentials: 'omit'`). They must never reveal anything a logged-out visitor couldn't see.
+- Public-view checks (E2) carry **no owner-session cookies or tokens**. Direct reads use `credentials: 'omit'`; a credentialless browser frame may retain only cookies created inside its fresh, ephemeral anonymous partition. They must never reveal anything a logged-out visitor couldn't see. See [hidden browser search](public-browser-checks.md) for the separate, bounded search transport.
 - Arctic Shift receives only item IDs or your username, and only when "Use the archive" is on.
 - Background checks need `alarms`, and system notifications need `notifications`. Both are `optional_permissions`, requested when the user turns the setting on. No new host permissions beyond what V1 proves necessary.
 - Strictly read-only: this feature never edits, deletes or reports anything.
@@ -156,11 +156,11 @@ Run read-only in the signed-in browser before building:
 | V3 account check | Not run separately: it needs the same logged-out fetch that V1 shows is blocked. |
 | V4 Arctic Shift | **Posts** are captured within a median of **18 s** (87 of 100 within 25 s) and carry `removed_by_category`, so the 25 s rule works for posts. **Comments** are captured within a median of **~4 h** (minimum 7 min, none within 25 s), and the `author=` comment search sometimes times out and needs `sort=desc`. None of your 100 comments was captured as `[removed]`. |
 
-**Why (checked 2026-11-13):** a brand-new, cookie-free browser context, like an incognito window, gets Reddit's **"Prove your humanity"** challenge page instead of the thread. Its only cookie is `edgebucket`, and every JSON or `svc` request from it returns 403, even with its own anonymous cookies included. Reddit now gates logged-out reading behind a human challenge. The extension can't solve that (and must not try). A logged-out check therefore needs Reddit's official API with a userless app token (`oauth.reddit.com`), which isn't behind the challenge (§11, Q4).
+**Initial observation (2026-11-13):** a brand-new, cookie-free browser context received Reddit's **"Prove your humanity"** challenge page instead of the thread. Its only cookie was `edgebucket`, and the tested JSON and `svc` requests returned 403 even with its anonymous cookies included. This establishes failure in that context; it does not establish that all signed-out browser sessions are blocked. A subsequent credentialless browser-frame test hydrated Reddit's signed-out homepage and successfully fetched native comment-search HTML. See [hidden browser search](public-browser-checks.md). That search result does not yet verify an individual comment's public thread visibility. Interactive CAPTCHA handling remains with the user.
 
 Also found: Reddit now issues **13-character comment IDs** (e.g. `19sh…`); post IDs are still 7. Our comment ID checks allow up to 32 characters; post ID checks allow 10.
 
-**Consequences:** posts get the full classification (§4.2 rules 1–4, plus the archive for rule 5 and approvals). Comments get only what the archive saw (a `[removed]` capture means removed), and otherwise "Couldn't check (Reddit blocks logged-out checks)" (L1). The account check (U3) is shown as unavailable. The one way to see comments as others do would be a userless app token (`oauth.reddit.com` with an app the user registers). That needs the user to create a Reddit app, so it is an open question (§11, Q4).
+**Current implementation:** posts get the classification based on Reddit's categories and the archive. Comments get only what the archive saw, and otherwise "Couldn't check" when no verified public thread view exists. The account check (U3) is shown as unavailable. Hidden anonymous search now has a working browser transport, but per-item public thread verification and account checks are not implemented through it. Userless OAuth is another route to investigate, subject to app access (§11, Q4).
 
 If V1 finds no working logged-out path, the fallback is: posts via E1/E4 (verified categories), and comments marked `removed-unknown` only when the archive or another signal shows removal. The spec then states that comment coverage is partial.
 

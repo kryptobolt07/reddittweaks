@@ -2,6 +2,10 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.RTPostModel)return;
+  function publicBrowserRead(url,signal){
+    if(!globalThis.RTPublicBrowser)throw Error('Reddit blocked logged-out search (HTTP 403).');
+    return RTPublicBrowser.read(url,{signal});
+  }
   // Bound simultaneous work and honor server cooldowns; cursor-driven scrolling
   // must not stall behind an unrelated lifetime or rolling card-count quota.
   const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map(),statusReads=new Map(),nativeCardReads=new Map();let active=0,cardActive=0,postCardActive=0,cooldown=0;
@@ -682,12 +686,16 @@
       const operation=(async()=>{
         const response=await fetch(url.href,{method:'GET',credentials:input.action==='profile' && anonymous?'omit':'include',...(input.action==='profile' && nativeSearch && (comments || anonymous)?{cache:'no-store',referrerPolicy:'no-referrer'}:{}),redirect:'error',headers:{Accept:nativeSearch?'text/vnd.reddit.partial+html, text/html;q=0.9':'application/json'},signal:controller.signal});
         if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));throw Error('Reddit rate limit reached. Try again later.');}
-        if(!response.ok){
+        let publicText;
+        // Only an explicitly refused anonymous search starts a hidden browser.
+        // Signed-in reads never enter this transport or lend it their cookies.
+        if(nativeSearch && anonymous && response.status===403)publicText=await publicBrowserRead(url.href,controller.signal);
+        if(!response.ok && publicText===undefined){
           // Name the source so the page can explain it; 403 means Reddit refused this request.
           const what=input.action==='profile'?(comments?(stream==='public'?'logged-out comment search':'comment search'):'post search'):'item details';
           throw Error(response.status===403?`Reddit blocked ${what} (HTTP 403).`:`Reddit couldn’t load ${what} (HTTP ${response.status}).`);
         }
-        const text=await boundedText(response);
+        const text=publicText===undefined?await boundedText(response):publicText;
         if(pageKey()!==path || controller.signal.aborted)throw Error('Page changed. Try again.');
         if(nativeSearch)return (comments?commentListing:postListing)(text,input.username,{sort,range,stream,q,search});
         let data;try{data=JSON.parse(text);}catch{throw Error('Reddit returned an unexpected response.');}
@@ -699,7 +707,7 @@
         const after=input.action==='profile'?postPageCursor(cursor,'json',input.username,sort,range,q):cursor;
         return {posts:filtered,after,hasMore:Boolean(after),incomplete:true,source:'reddit'};
       })();
-      const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit request timed out. Try again.'));},10000);});
+      const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Reddit request timed out. Try again.'));},nativeSearch && anonymous?25000:10000);});
       return await Promise.race([operation,timeout]);
     }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
