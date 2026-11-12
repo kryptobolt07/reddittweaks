@@ -1,7 +1,7 @@
 """Create a clean, directly loadable extension archive without build dependencies.
 
 The package is built from an allowlist derived from manifest.json (content scripts,
-background worker and the scripts it imports, icons, popup and the files the popup
+background worker and the scripts it imports, request rules, icons, popup and the files the popup
 references). Any other file under extension/ stops the build, and the ZIP is
 byte-for-byte reproducible for identical sources.
 
@@ -52,6 +52,7 @@ def worker_imports(extension, worker, seen=None):
 def allowlist(extension, manifest):
     files = {'manifest.json', *EXTRA_FILES}
     files.update(manifest.get('icons', {}).values())
+    files.update(rule['path'] for rule in manifest.get('declarative_net_request', {}).get('rule_resources', []))
     action = manifest.get('action', {})
     files.update(action.get('default_icon', {}).values() if isinstance(action.get('default_icon'), dict) else [])
     popup = action.get('default_popup')

@@ -129,13 +129,27 @@
     "128": "icons/128.png"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "declarativeNetRequestWithHostAccess"
   ],
   "background": {
     "service_worker": "cache-broker.js"
   },
   "version_name": "0.32.0 preview",
   "host_permissions": [
-    "https://arctic-shift.photon-reddit.com/*"
-  ]
+    "https://arctic-shift.photon-reddit.com/*",
+    "https://reddit.com/*",
+    "https://www.reddit.com/*",
+    "https://new.reddit.com/*",
+    "https://sh.reddit.com/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "logged_out_search_referrer",
+        "enabled": true,
+        "path": "search-referrer-rules.json"
+      }
+    ]
+  }
 }

@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://www.google.com/"
+        }
+      ]
+    },
+    "condition": {
+      "regexFilter": "^https://(www\\.|new\\.|sh\\.)?reddit\\.com/svc/shreddit/search/\\?([^#]*&)?rt_public_search=1(&|$)",
+      "isUrlFilterCaseSensitive": true,
+      "initiatorDomains": [
+        "reddit.com"
+      ],
+      "requestMethods": [
+        "get"
+      ],
+      "resourceTypes": [
+        "xmlhttprequest"
+      ]
+    }
+  }
+]

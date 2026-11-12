@@ -24,7 +24,7 @@ test('package.py builds a deterministic, allowlisted archive and the stable fold
   const entries=zipInfo(zip),names=entries.map(e=>e[0]);
   assert.deepEqual(names,[...names].sort());
   for(const [,date,mode] of entries){assert.deepEqual(date,[1980,1,1,0,0,0]);assert.equal(mode,0o644);}
-  for(const required of ['manifest.json','popup.html','popup.js','popup.css','post-broker.js','icons/logo.svg','icons/logo-small.svg','icons/128.png'])assert.ok(names.includes(required),required);
+  for(const required of ['manifest.json','popup.html','popup.js','popup.css','post-broker.js','search-referrer-rules.json','icons/logo.svg','icons/logo-small.svg','icons/128.png'])assert.ok(names.includes(required),required);
   // The unpacked folder mirrors the source byte for byte.
   for(const name of names)assert.deepEqual(fs.readFileSync(path.join(root,'artifacts/reddit-chat-search',name)),fs.readFileSync(path.join(root,'extension',name)));
 });
@@ -36,4 +36,9 @@ test('package.py fails on unexpected files, missing assets and mismatched versio
   result=run(root);assert.notEqual(result.status,0);assert.match(result.stderr,/Missing extension asset: popup\.css/);assert.doesNotMatch(result.stderr,/Traceback/);
   root=tempRoot(t);const file=path.join(root,'extension/manifest.json'),manifest=JSON.parse(fs.readFileSync(file,'utf8'));manifest.version_name='9.9.9 preview';fs.writeFileSync(file,JSON.stringify(manifest,null,2));
   result=run(root);assert.notEqual(result.status,0);assert.match(result.stderr,/version_name/);
+});
+
+test('package.py rejects a missing manifest-declared request ruleset',t=>{
+ const root=tempRoot(t);fs.rmSync(path.join(root,'extension/search-referrer-rules.json'));
+ const result=run(root);assert.notEqual(result.status,0);assert.match(result.stderr,/Missing extension asset: search-referrer-rules.json/);
 });
