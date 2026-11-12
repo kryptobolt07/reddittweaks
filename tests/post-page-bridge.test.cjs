@@ -673,3 +673,46 @@ test('Google referrer rule applies only to explicitly marked credential-free ext
  assert.equal((await blocked.send({action:'profile',username:'Example'})).ok,true);assert.equal(matches.test(blocked.calls[0][0]),true);assert.equal(blocked.calls[0][1].credentials,'omit');
  blocked.W.document.body.replaceChildren();await blocked.send({action:'profile',username:'Example'});assert.equal(matches.test(blocked.calls[1][0]),false);assert.equal(blocked.calls[1][1].credentials,'include');
 });
+
+function publicBrowserMock(e,reply){
+ const calls=[];
+ e.W.RTPublicBrowser={read:(url,{signal})=>new Promise((resolve,reject)=>{
+  const input={action:'read',url};calls.push(input);
+  const cancel=()=>{calls.push({action:'cancel'});reject(Error('Post request cancelled.'));};signal.addEventListener('abort',cancel,{once:true});
+  Promise.resolve().then(()=>reply(input)).then(value=>{if(value!==null){signal.removeEventListener('abort',cancel);resolve(value);}},error=>{signal.removeEventListener('abort',cancel);reject(error);});
+ })};return calls;
+}
+test('refused anonymous comment searches use isolated browser HTML and preserve public pagination',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('',403)});
+ const browser=publicBrowserMock(e,()=>nativeCommentHtml());
+ const first=await e.send({action:'profile',kind:'comment',username:'Example',stream:'public'});
+ assert.equal(first.ok,true,first.error);assert.equal(first.posts.length,1);assert.equal(JSON.parse(first.after.slice(18)).stream,'public');
+ const next=await e.send({action:'profile',kind:'comment',username:'Example',stream:'public',after:first.after});
+ assert.equal(next.ok,true,next.error);assert.equal(browser.length,2);assert.equal(new URL(browser[1].url).searchParams.get('cursor'),JSON.parse(first.after.slice(18)).cursor);
+ assert.ok(e.calls.every(([,init])=>init.credentials==='omit'),'the owner session is never used for the initial public reads');
+});
+test('signed-in refusals and public rate limits never start a browser fallback',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('',403)}),browser=publicBrowserMock(e,()=>assert.fail('signed-in browser fallback'));
+ assert.equal((await e.send({action:'profile',kind:'comment',username:'Example'})).ok,false);assert.equal(browser.length,0);
+ const limited=setup(t,{fetcher:async()=>nativeResponse('',429)}),reads=publicBrowserMock(limited,()=>assert.fail('rate-limit fallback'));
+ assert.match((await limited.send({action:'profile',kind:'comment',username:'Example',stream:'public'})).error,/rate limit/);assert.equal(reads.length,0);
+});
+test('browser checks still pass through the existing safe parser',async t=>{
+ for(const reply of ['<html><body>Prove your humanity</body></html>','<shreddit-app></shreddit-app>']){
+  const e=setup(t,{fetcher:async()=>nativeResponse('',403)});publicBrowserMock(e,()=>reply);
+  const result=await e.send({action:'profile',kind:'comment',username:'Example',stream:'public'});assert.equal(result.ok,false);assert.equal(result.posts,undefined);
+ }
+});
+test('a browser response from a previous profile cannot populate the current page',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('',403)});
+ publicBrowserMock(e,()=>{e.W.history.pushState({},'','/user/Other/');return nativeCommentHtml();});
+ assert.match((await e.send({action:'profile',kind:'comment',username:'Example',stream:'public'})).error,/Page changed/);
+});
+test('cancelling the parent search also cancels its hidden browser read',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('',403)});let started;
+ const ready=new Promise(resolve=>started=resolve),browser=publicBrowserMock(e,()=>{started();return null;});
+ const response=new Promise(resolve=>e.W.document.addEventListener('rt-post-response',event=>resolve(JSON.parse(event.detail)),{once:true}));
+ const dispatch=input=>e.W.document.dispatchEvent(new e.W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'test',id:'cancel-browser',...input})}));
+ dispatch({action:'profile',kind:'comment',username:'Example',stream:'public'});await ready;dispatch({action:'cancel'});
+ assert.match((await response).error,/cancelled/);assert.equal(browser.at(-1).action,'cancel');
+});

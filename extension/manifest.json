@@ -68,6 +68,7 @@
       "world": "MAIN",
       "js": [
         "post-model.js",
+        "public-browser.js",
         "post-page-bridge.js",
         "share-links-page.js"
       ]
