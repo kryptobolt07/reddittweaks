@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "111",
   "name": "Reddit Tweaks",
-  "version": "0.32.0",
+  "version": "0.32.1",
   "description": "Native Reddit tweaks: chat search, public profile activity discovery and optional Arctic Shift snapshots.",
   "content_scripts": [
     {
@@ -135,7 +135,7 @@
   "background": {
     "service_worker": "cache-broker.js"
   },
-  "version_name": "0.32.0 preview",
+  "version_name": "0.32.1 preview",
   "host_permissions": [
     "https://arctic-shift.photon-reddit.com/*",
     "https://reddit.com/*",

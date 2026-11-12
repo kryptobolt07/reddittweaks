@@ -1,3 +1,15 @@
+# 0.32.1 preview
+
+- Logged-out native searches now send `Referer: https://www.google.com/` through a declarative request-header rule. Only credential-free extension searches carry the rule's marker, including public comment continuations and blocked-profile post searches. Signed-in searches, page navigation and other requests are excluded.
+- Added `declarativeNetRequestWithHostAccess` and explicit HTTPS Reddit host access for the header rule. The rule does not make requests to Google and credentials remain omitted from logged-out searches.
+- Packaging now includes manifest-declared request rules in the stable unpacked testing folder.
+
+Version choice: PATCH to 0.32.1 for a targeted logged-out search transport correction. No storage schema migration.
+
+Validation: all 1,332 tests pass, including header-rule scope, credential-free pagination, signed-in exclusions and ruleset packaging. ZIP integrity and exact source/ZIP/stable-folder byte equality pass for all 50 files. Archive SHA-256: `4c6ed2b92d13c74281c1aa8cc965e783dcd0ccf919d6fa5cbd2179c9592e1a39`.
+
+Limitation: this changes request headers; Reddit can still deny logged-out search. Live Reddit acceptance has not been verified for this build. Reload the unpacked extension and refresh Reddit tabs; the browser may ask to approve the added Reddit host access.
+
 # 0.32.0 preview
 
 - **Search tips** open with **Ctrl+/** (⌘/ on Mac) in any search box that uses the query language, as a compact card limited to that box's fields. The buttons and menu entries are gone.
