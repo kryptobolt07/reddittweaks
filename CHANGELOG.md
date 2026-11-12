@@ -1,3 +1,24 @@
+# 0.32.0 preview
+
+- **Search tips** open with **Ctrl+/** (⌘/ on Mac) in any search box that uses the query language, as a compact card limited to that box's fields. The buttons and menu entries are gone.
+- Header search with many filters stays usable: when the filter pills would crowd the field, they fold into one **N filters** pill. Its card lists each filter as a removable pill, with Clear all.
+- Search Comments on archived posts is rebuilt from Reddit's own comment search, using measured sizes and Reddit's search box. The button opens the box with Cancel. Enter searches, the result cards and "All Comments" match Reddit's, and no matches shows Reddit's no-results box. The toolbar now appears with the post instead of before it. Opening a result shows that comment's thread first, highlighted as Reddit does, with the toolbar just under the header.
+- Archived comments use Reddit's comment geometry: a full-width column, a 36 px author row and Reddit's body spacing. Archived post pages use Reddit's post-page box.
+- Archived video and GIF posts keep the preview inside the media box while loading. When the archive can't play the file, they say the original video isn't available, without a play button.
+- Chat: choosing a conversation no longer collapses the opened list search. Applied filter chips in chat use the same Reddit pill as the header and feed filters.
+- Profile and list searches no longer rebuild or reload their list about a second after opening.
+
+Version choice: MINOR to 0.32.0 for the Ctrl+/ tips and the folded header filters, bundled with fixes. No new permissions or storage schema migration.
+
+Validation: all 1,320 automated tests pass; ZIP integrity (sha256 cb1cd2a8…532eb0) and source/stable-folder byte equality checked.
+Live comparison on Reddit (signed-in Chrome, read-only) covered:
+- Search Comments sizes, states and result cards against a live post (sort 109x32, button 178x40, box 542 + Cancel 70, card 620x193).
+- The permalink highlight and scroll position.
+- Load order: the toolbar now appears with the post.
+- The folded "3 filters" pill and its card.
+
+The chat changes were checked in the chat demo in a headless browser, not on live Reddit. Archive pages use Reddit's older colour palette there, so field and card greys differ slightly from live communities; sizes match. The archive header search bar comparison (spec I4) is not done.
+
 # 0.31.0 preview
 
 - Your own profile's search has a **List** filter: All activity, Saved, History, Hidden, Upvoted or Downvoted, keeping your query and filters. List searches can switch lists the same way.
