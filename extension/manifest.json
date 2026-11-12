@@ -106,6 +106,7 @@
         "recent-searches.js",
         "community-icons.js",
         "feed-filters.js",
+        "removal-model.js",
         "post-discovery.js",
         "profile-search.js",
         "subreddit-archive.js",
