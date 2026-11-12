@@ -3,7 +3,9 @@
 ## Contract
 
 When a credential-free native profile search explicitly returns HTTP 403, retry
-that search once in a real, invisible browser context. Do not open tabs, change
+that search once in a real, invisible browser context. After a successful public
+read, reuse that anonymous transport directly instead of repeating the refused
+cookie-free request. Do not open tabs, change
 focus, scroll the user's page, or use the user's Reddit login. Ordinary successful
 requests and authenticated reads keep their existing transport. HTTP 429 never
 triggers an alternate route.
@@ -63,6 +65,7 @@ these policies.
 | --- | --- |
 | Anonymous cookies, including verification cookies | Managed by the browser inside the credentialless partition. Reused with their native expiry; never exported to extension storage, copied into the signed-in jar, or manually reconstructed. |
 | Running anonymous frame | Reused across reads, pagination and explicit activity refresh. Removed after 60 idle seconds; later frames in the same top document can reuse that anonymous partition's cookies. |
+| Verified anonymous transport | Remembered only for the current document. Later reads use it directly; an invalid context or public refusal clears that health flag. This flag never establishes individual-item visibility. |
 | Temporary request failure | Keep a healthy frame after network timeouts, HTTP 5xx and rate limits. Do not repeat verification solely because a request failed. |
 | Invalid or blocked anonymous state | Discard the frame when signed-out proof is lost or Reddit refuses the public request. Reinitialize through Reddit's native browser flow on the next permitted attempt. |
 | Verification scripts, form solutions and tokens | Execute only as Reddit's own page code. No extension-side solver, token parsing or stored challenge solution. |
@@ -100,3 +103,9 @@ The first installed automatic read also exposed an early-start race: native
 login markup could be available before browser initialization finished. The
 readiness check now waits for document completion and native app registration;
 the regression test prevents server-rendered markup alone from starting a read.
+
+After installing the readiness fix, the user confirmed that the flow was
+working. The last reuse optimization additionally skips redundant cookie-free
+requests once the anonymous session has succeeded; regression coverage keeps
+signed-in reads on their authenticated transport and verifies fresh content is
+still fetched on every read.

@@ -684,13 +684,15 @@
     let timer;
     try{
       const operation=(async()=>{
-        const response=await fetch(url.href,{method:'GET',credentials:input.action==='profile' && anonymous?'omit':'include',...(input.action==='profile' && nativeSearch && (comments || anonymous)?{cache:'no-store',referrerPolicy:'no-referrer'}:{}),redirect:'error',headers:{Accept:nativeSearch?'text/vnd.reddit.partial+html, text/html;q=0.9':'application/json'},signal:controller.signal});
-        if(response.status===429){const hint=response.headers.get('retry-after'),seconds=Number(hint),retry=Number.isFinite(seconds)?seconds*1000:Date.parse(hint)-Date.now();cooldown=Date.now()+Math.max(1000,Math.min(3600000,retry>0?retry:60000));throw Error('Reddit rate limit reached. Try again later.');}
-        let publicText;
-        // Only an explicitly refused anonymous search starts a hidden browser.
-        // Signed-in reads never enter this transport or lend it their cookies.
-        if(nativeSearch && anonymous && response.status===403)publicText=await publicBrowserRead(url.href,controller.signal,input.refresh===true);
-        if(!response.ok && publicText===undefined){
+        const useBrowser=nativeSearch && anonymous && globalThis.RTPublicBrowser?.hasSession?.();
+        const response=useBrowser?null:await fetch(url.href,{method:'GET',credentials:input.action==='profile' && anonymous?'omit':'include',...(input.action==='profile' && nativeSearch && (comments || anonymous)?{cache:'no-store',referrerPolicy:'no-referrer'}:{}),redirect:'error',headers:{Accept:nativeSearch?'text/vnd.reddit.partial+html, text/html;q=0.9':'application/json'},signal:controller.signal});
+        if(response?.status===429){const hint=response.headers.get('retry-after'),seconds=Number(hint),retry=Number.isFinite(seconds)?seconds*1000:Date.parse(hint)-Date.now();cooldown=Date.now()+Math.max(1000,Math.min(3600000,retry>0?retry:60000));throw Error('Reddit rate limit reached. Try again later.');}
+        let publicText=useBrowser?await publicBrowserRead(url.href,controller.signal,input.refresh===true):undefined;
+        // Cold anonymous reads start a browser only after explicit refusal;
+        // verified anonymous sessions are reused directly. Signed-in reads
+        // never enter this transport or lend it their cookies.
+        if(nativeSearch && anonymous && response?.status===403)publicText=await publicBrowserRead(url.href,controller.signal,input.refresh===true);
+        if(response && !response.ok && publicText===undefined){
           // Name the source so the page can explain it; 403 means Reddit refused this request.
           const what=input.action==='profile'?(comments?(stream==='public'?'logged-out comment search':'comment search'):'post search'):'item details';
           throw Error(response.status===403?`Reddit blocked ${what} (HTTP 403).`:`Reddit couldn’t load ${what} (HTTP ${response.status}).`);

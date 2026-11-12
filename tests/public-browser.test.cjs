@@ -17,7 +17,7 @@ function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttri
  const window={addEventListener(name,fn){listeners[name]=fn;},removeEventListener(name,fn){if(listeners[name]===fn)delete listeners[name];}};window.top=window;
  const context=vm.createContext({window,document,location,URL,AbortController,TextDecoder,Date:{now:()=>now,parse:Date.parse},setTimeout(fn,ms){const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout(id){timers.delete(id);},setInterval(fn,ms){const id=++next;timers.set(id,{fn,ms,interval:true});return id;},clearInterval(id){timers.delete(id);}});
  vm.runInContext(fs.readFileSync('extension/public-browser.js','utf8'),context);
- const e={read:(...args)=>context.RTPublicBrowser.read(...args),events,calls,nodes,state,location,timers,advance(ms){now+=ms;for(const [id,timer] of [...timers])if(timer.ms<=ms){if(!timer.interval)timers.delete(id);timer.fn();}},pagehide:()=>listeners.pagehide()};return e;
+ const e={read:(...args)=>context.RTPublicBrowser.read(...args),hasSession:()=>context.RTPublicBrowser.hasSession(),events,calls,nodes,state,location,timers,advance(ms){now+=ms;for(const [id,timer] of [...timers])if(timer.ms<=ms){if(!timer.interval)timers.delete(id);timer.fn();}},pagehide:()=>listeners.pagehide()};return e;
 }
 function response(url,{status=200,chunks=[new TextEncoder().encode('<shreddit-comment>public</shreddit-comment>')],length=null,onRead}={}){
  let index=0;return {url,ok:status===200,status,redirected:false,headers:{get:()=>length},body:{getReader(){return {async read(){onRead?.();return index<chunks.length?{value:chunks[index++],done:false}:{done:true};},async cancel(){}};}}};
@@ -81,8 +81,10 @@ test('429 and blocked responses have cooldown without retries or ordinary-frame 
 });
 test('pagehide immediately removes the helper frame',async()=>{const e=env();await e.read(endpoint());e.pagehide();assert.equal(e.nodes[0].isConnected,false);});
 test('refresh reuses a healthy anonymous context and results themselves are never cached',async()=>{
- const e=env();await e.read(endpoint());await e.read(endpoint(),{refresh:true});await e.read(endpoint());
+ const e=env();assert.equal(e.hasSession(),false);await e.read(endpoint());assert.equal(e.hasSession(),true);await e.read(endpoint(),{refresh:true});await e.read(endpoint());
  assert.equal(e.nodes.length,1);assert.equal(e.calls.length,3);
+ e.advance(60000);assert.equal(e.nodes[0].isConnected,false);assert.equal(e.hasSession(),true,'the document still owns the verified anonymous partition');
+ await e.read(endpoint());assert.equal(e.calls.length,4);assert.equal(e.nodes.length,2);e.pagehide();assert.equal(e.hasSession(),false);
 });
 test('explicit refresh may probe a blocked context again but cannot bypass a server rate limit',async()=>{
  let blocked=true;const e=env({fetcher:url=>response(url,{status:blocked?403:200})});
