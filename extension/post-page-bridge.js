@@ -2,9 +2,9 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.RTPostModel)return;
-  function publicBrowserRead(url,signal){
+  function publicBrowserRead(url,signal,refresh=false){
     if(!globalThis.RTPublicBrowser)throw Error('Reddit blocked logged-out search (HTTP 403).');
-    return RTPublicBrowser.read(url,{signal});
+    return RTPublicBrowser.read(url,{signal,refresh});
   }
   // Bound simultaneous work and honor server cooldowns; cursor-driven scrolling
   // must not stall behind an unrelated lifetime or rolling card-count quota.
@@ -685,11 +685,11 @@
     try{
       const operation=(async()=>{
         const response=await fetch(url.href,{method:'GET',credentials:input.action==='profile' && anonymous?'omit':'include',...(input.action==='profile' && nativeSearch && (comments || anonymous)?{cache:'no-store',referrerPolicy:'no-referrer'}:{}),redirect:'error',headers:{Accept:nativeSearch?'text/vnd.reddit.partial+html, text/html;q=0.9':'application/json'},signal:controller.signal});
-        if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));throw Error('Reddit rate limit reached. Try again later.');}
+        if(response.status===429){const hint=response.headers.get('retry-after'),seconds=Number(hint),retry=Number.isFinite(seconds)?seconds*1000:Date.parse(hint)-Date.now();cooldown=Date.now()+Math.max(1000,Math.min(3600000,retry>0?retry:60000));throw Error('Reddit rate limit reached. Try again later.');}
         let publicText;
         // Only an explicitly refused anonymous search starts a hidden browser.
         // Signed-in reads never enter this transport or lend it their cookies.
-        if(nativeSearch && anonymous && response.status===403)publicText=await publicBrowserRead(url.href,controller.signal);
+        if(nativeSearch && anonymous && response.status===403)publicText=await publicBrowserRead(url.href,controller.signal,input.refresh===true);
         if(!response.ok && publicText===undefined){
           // Name the source so the page can explain it; 403 means Reddit refused this request.
           const what=input.action==='profile'?(comments?(stream==='public'?'logged-out comment search':'comment search'):'post search'):'item details';

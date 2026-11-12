@@ -1186,6 +1186,11 @@ test('other logged-out search failures stay explicit errors',async t=>{
  const {d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[],hasMore:false}),publicReddit:async()=>{throw Error('Reddit couldn’t load logged-out comment search (HTTP 404).');}});await d.ready;
  await d.loadReddit();assert.equal(d.status.dataset.error,'true');assert.match(d.status.textContent,/HTTP 404/);assert.equal(d.notice.hidden,true);
 });
+test('explicit Refresh activity retries the public supplement rather than retaining its blocked pause',async t=>{
+ let calls=0,refreshed=false;const {d}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async()=>({posts:[],hasMore:false}),publicReddit:async request=>{calls++;if(!request.refresh)throw Error('Reddit blocked logged-out comment search (HTTP 403).');refreshed=true;return {posts:[comment()],hasMore:false};}});
+ await d.ready;await d.loadReddit();assert.equal(calls,1);assert.ok(d.publicBlockedUntil>Date.now());
+ d.discover.click();await d.redditRun;assert.equal(calls,2);assert.equal(refreshed,true);assert.equal(d.publicBlockedUntil,0);
+});
 
 test('Arctic Shift maintenance shows its own note, waits minutes and Retry now forces one probe',async t=>{
  const requests=[];const {d}=setup(t,{timing:{retryUnitMs:1000},settings:{postDiscovery:true,archiveDiscovery:true},reddit:async input=>input.action==='status'?{statuses:[],unknownIds:[]}:{posts:[],hasMore:false},archive:async input=>{requests.push(input);throw Object.assign(Error('Arctic Shift is down for maintenance.'),{code:'maintenance',retryAt:Date.now()+60000});}});

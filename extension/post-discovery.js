@@ -559,7 +559,7 @@
       const host=this.host=make('section','rt-posts');host.dataset.rtUi='posts';host.setAttribute('aria-label',context.view==='search'?'Search results':context.kind==='profile'?'Additional public activity':'Archived post snapshot');
       const toolbar=this.toolbar=make('div','rt-posts-toolbar');
       const noun=context.view==='comments'?'comments':context.view==='overview'?'activity':'posts';
-      this.discover=button(this.settingsError?'Retry discovery':context.kind==='profile'?'Discover '+noun:'Check archived post',()=>this.settingsError?this.retrySettings():this.archiveOnly?this.loadArchive():context.kind==='profile'?this.refreshActivity():this.loadDetail(),'search');
+      this.discover=button(this.settingsError?'Retry discovery':context.kind==='profile'?'Discover '+noun:'Check archived post',()=>this.settingsError?this.retrySettings():this.archiveOnly?this.loadArchive():context.kind==='profile'?this.refreshActivity({force:true}):this.loadDetail(),'search');
       this.discover.title=context.kind==='profile'?'Find public '+noun+' through Reddit search, including activity omitted from this profile feed':'Look for a separate archived snapshot without replacing the current post';
       if(context.kind==='post' && !this.settings.archiveDiscovery && !this.settingsError){this.discover.disabled=true;this.discover.title='Enable Arctic Shift archive discovery in Reddit Tweaks to check this post.';}
       this.discover.setAttribute('aria-label',this.discover.textContent);this.discover.textContent='';this.discover.append(glyph(context.kind==='profile'?'refresh':'archive'));
@@ -1767,7 +1767,7 @@
       catch(error){if(generation===this.generation && pageRoute()?.key===this.context?.key){this.sourceErrors.request=error.message;this.setStatus(error.message,true);}}
       finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.more.disabled=false;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;this.discover.disabled=this.archiveBusy;if(this.archiveButton)this.archiveButton.disabled=this.archiveBusy;this.ensureActivityArchive();}}
     }
-    loadReddit({more=false,retry=false,keys=null}={}){if(this.isOwnList())return;if(this.isSearch() && !this.clientSearchOn())return;if(this.busy)return this.redditRun;if(!more && !retry){this.initialPrefetchDone=false;this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};this.sourceNotices={};this.clearSourceRetries(key=>!key.startsWith('archive-'));this.refreshStatuses();}if(retry && !keys)this.clearSourceRetries(key=>!key.startsWith('archive-') && !['recovery','replies','verify'].includes(key));if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
+    loadReddit({more=false,retry=false,keys=null,force=false}={}){if(this.isOwnList())return;if(this.isSearch() && !this.clientSearchOn())return;if(this.busy)return this.redditRun;if(force)this.publicBlockedUntil=0;if(!more && !retry){this.initialPrefetchDone=false;this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};this.sourceNotices={};this.clearSourceRetries(key=>!key.startsWith('archive-'));this.refreshStatuses();}if(retry && !keys)this.clearSourceRetries(key=>!key.startsWith('archive-') && !['recovery','replies','verify'].includes(key));if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
       const frontier=this.publicationFloor(),streams=this.kinds().flatMap(kind=>kind==='comment' && !this.isSearch()?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}])      .filter(({key})=>{if(key!=='comment-public' || !(this.publicBlockedUntil>Date.now()))return true;this.sourceNotices[key]=publicBlockedNote;this.redMore[key]=false;return false;})
       .filter(({key})=>retry?(keys?keys.includes(key):Boolean(this.sourceErrors[key])):!more || this.redMore[key] && (this.context.sort!=='new' || (this.sourceFrontiers.get(key)?.floor ?? Infinity)>=frontier));
       for(const {key} of streams){if(!more && !retry)this.sourceFrontiers.delete(key);this.sourcePending.add(key);this.sourceStartedAt.set(key,Date.now());}
@@ -1777,7 +1777,7 @@
       await Promise.all(streams.map(async ({kind,key,stream})=>{
         if(more && !retry && !this.redMore[key])return;
         const old=more || retry?this.afterByKind[key]:null;this.pages++;
-        try{const result=await this.request({action:'profile',username:this.context.username,sort:this.effectiveSort(),range:this.isSearch()?'all':this.context.range,kind,...(this.isSearch()?{query:globalThis.RCSCore.toRedditQuery(this.searchReddit.server)}:{}),...(stream?{stream}:{}),...(old?{after:old}:{})});if(!current())return;
+        try{const result=await this.request({action:'profile',username:this.context.username,sort:this.effectiveSort(),range:this.isSearch()?'all':this.context.range,kind,...(force?{refresh:true}:{}),...(this.isSearch()?{query:globalThis.RCSCore.toRedditQuery(this.searchReddit.server)}:{}),...(stream?{stream}:{}),...(old?{after:old}:{})});if(!current())return;
           const incoming=new Map(),page=[];for(const raw of result.posts || []){const p=M.normalizeItem(raw,{source:'reddit'});if(!p || p.author.toLowerCase()!==this.context.username.toLowerCase())continue;page.push(p);const id=itemKey(p),previous=this.live.get(id);
             if(stream==='public' && previous && this.commentOrigins.get(id)!=='public'){this.live.set(id,{...previous,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler});continue;}
             const merged=previous?{...p,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler}:p;this.live.set(id,merged);incoming.set(id,merged);if(kind==='comment')this.commentOrigins.set(id,stream);
@@ -1847,11 +1847,11 @@
     // the other's request to finish.
     // Archive pages are chronological, so they merge automatically only into
     // New (and Deleted); Hot/Top keep Reddit's ranking without archive filler.
-    refreshActivity(){
+    refreshActivity({force=false}={}){
       if(this.isOwnList())return this.loadOwnList();
-      if(this.isSearch()){if(this.searchParsed.invalid){this.summarize();return;}return Promise.all([this.clientSearchOn()?this.loadReddit():undefined,this.loadArchive()]);}
+      if(this.isSearch()){if(this.searchParsed.invalid){this.summarize();return;}return Promise.all([this.clientSearchOn()?this.loadReddit({force}):undefined,this.loadArchive()]);}
       const merge=this.settings.archiveDiscovery && !this.archiveOnly && (this.context?.sort==='new' || this.activityFilter==='deleted' || this.oldSort());
-      const reddit=this.oldSort()?undefined:this.loadReddit(),archive=merge?this.loadArchive():undefined;
+      const reddit=this.oldSort()?undefined:this.loadReddit({force}),archive=merge?this.loadArchive():undefined;
       return Promise.all([reddit,archive]);
     }
     async archivePage({more=false,only=null}={}){

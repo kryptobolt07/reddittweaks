@@ -676,8 +676,8 @@ test('Google referrer rule applies only to explicitly marked credential-free ext
 
 function publicBrowserMock(e,reply){
  const calls=[];
- e.W.RTPublicBrowser={read:(url,{signal})=>new Promise((resolve,reject)=>{
-  const input={action:'read',url};calls.push(input);
+ e.W.RTPublicBrowser={read:(url,{signal,refresh})=>new Promise((resolve,reject)=>{
+  const input={action:'read',url,refresh};calls.push(input);
   const cancel=()=>{calls.push({action:'cancel'});reject(Error('Post request cancelled.'));};signal.addEventListener('abort',cancel,{once:true});
   Promise.resolve().then(()=>reply(input)).then(value=>{if(value!==null){signal.removeEventListener('abort',cancel);resolve(value);}},error=>{signal.removeEventListener('abort',cancel);reject(error);});
  })};return calls;
@@ -715,4 +715,17 @@ test('cancelling the parent search also cancels its hidden browser read',async t
  const dispatch=input=>e.W.document.dispatchEvent(new e.W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'test',id:'cancel-browser',...input})}));
  dispatch({action:'profile',kind:'comment',username:'Example',stream:'public'});await ready;dispatch({action:'cancel'});
  assert.match((await response).error,/cancelled/);assert.equal(browser.at(-1).action,'cancel');
+});
+test('explicit activity refresh reaches the anonymous session without changing its public stream',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('',403)}),browser=publicBrowserMock(e,()=>nativeCommentHtml());
+ assert.equal((await e.send({action:'profile',kind:'comment',username:'Example',stream:'public',refresh:true})).ok,true);
+ assert.equal(browser[0].refresh,true);
+});
+test('public requests honor an HTTP-date Retry-After without starting alternate transports',async t=>{
+ let now=Math.floor(Date.now()/1000)*1000;const e=setup(t,{fetcher:async()=>({ok:false,status:429,headers:new Headers({'Retry-After':new Date(now+120000).toUTCString()})})});
+ e.W.Date.now=()=>now;const browser=publicBrowserMock(e,()=>assert.fail('rate-limit fallback'));
+ const input={action:'profile',kind:'comment',username:'Example',stream:'public'};
+ assert.match((await e.send(input)).error,/rate limit/);now+=60000;
+ assert.match((await e.send({...input,refresh:true})).error,/asked us to wait/);assert.equal(e.calls.length,1);assert.equal(browser.length,0);
+ now+=60000;assert.match((await e.send(input)).error,/rate limit/);assert.equal(e.calls.length,2);
 });
