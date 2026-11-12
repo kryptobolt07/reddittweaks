@@ -649,3 +649,27 @@ test('native post search reads Reddit\'s newer content-preview cards and skips o
  const result=await e.send({action:'profile',username:'Example'});assert.equal(result.ok,true,result.error);assert.deepEqual(result.posts.map(p=>p.id),['abc12','def34']);assert.equal(result.posts[0].score,42);assert.equal(result.posts[0].comments,3);
  const none=setup(t,{fetcher:async()=>nativeResponse(broken)});assert.match((await none.send({action:'profile',username:'Example'})).error,/format changed/,'a page with no readable card still reports it');
 });
+
+test('Google referrer rule applies only to explicitly marked credential-free extension searches',async t=>{
+ const manifest=JSON.parse(fs.readFileSync('extension/manifest.json','utf8'));
+ assert.ok(manifest.permissions.includes('declarativeNetRequestWithHostAccess'));
+ const resources=manifest.declarative_net_request.rule_resources;assert.equal(resources.length,1);assert.equal(resources[0].enabled,true);
+ const rules=JSON.parse(fs.readFileSync('extension/'+resources[0].path,'utf8'));assert.equal(rules.length,1);
+ const rule=rules[0],matches=new RegExp(rule.condition.regexFilter);
+ assert.deepEqual(rule.action,{type:'modifyHeaders',requestHeaders:[{header:'Referer',operation:'set',value:'https://www.google.com/'}]});
+ assert.deepEqual(rule.condition.initiatorDomains,['reddit.com']);assert.deepEqual(rule.condition.resourceTypes,['xmlhttprequest']);assert.deepEqual(rule.condition.requestMethods,['get']);assert.equal(rule.condition.isUrlFilterCaseSensitive,true);
+ for(const host of ['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com']){
+  assert.ok(manifest.host_permissions.includes('https://'+host+'/*'));
+  assert.equal(matches.test('https://'+host+'/svc/shreddit/search/?rt_public_search=1'),true);
+  assert.equal(matches.test('https://'+host+'/svc/shreddit/search/?q=cats&rt_public_search=1&cursor=next'),true);
+ }
+ for(const url of ['https://www.reddit.com/svc/shreddit/search/?q=cats','https://www.reddit.com/svc/shreddit/search/?q=rt_public_search%3D1','https://www.reddit.com/svc/shreddit/search/?not_rt_public_search=1','https://www.reddit.com/svc/shreddit/search/?rt_public_search=10','https://www.reddit.com/svc/shreddit/search/?rt_public_search=1evil','https://www.reddit.com/svc/shreddit/user-hover-card/Example?rt_public_search=1','https://www.reddit.com/r/example/?rt_public_search=1','https://www.reddit.com/search.json?rt_public_search=1','https://evilreddit.com/svc/shreddit/search/?rt_public_search=1','https://www.reddit.com.evil.test/svc/shreddit/search/?rt_public_search=1','https://old.reddit.com/svc/shreddit/search/?rt_public_search=1','http://www.reddit.com/svc/shreddit/search/?rt_public_search=1'])assert.equal(matches.test(url),false,url);
+ const e=setup(t,{fetcher:async()=>nativeResponse(nativeCommentHtml())});
+ const first=await e.send({action:'profile',kind:'comment',username:'Example',stream:'public'});assert.equal(first.ok,true);
+ await e.send({action:'profile',kind:'comment',username:'Example',stream:'public',after:first.after});
+ await e.send({action:'profile',kind:'comment',username:'Example'});
+ for(const [url,options] of e.calls){assert.equal(matches.test(url),options.credentials==='omit',url);assert.equal(new URL(url).searchParams.has('rt_public_search'),options.credentials==='omit');}
+ const blocked=setup(t);blocked.W.document.body.innerHTML='<aside id="right-sidebar-container"><faceplate-tracker source="profile" noun="unblock_user"></faceplate-tracker></aside>';
+ assert.equal((await blocked.send({action:'profile',username:'Example'})).ok,true);assert.equal(matches.test(blocked.calls[0][0]),true);assert.equal(blocked.calls[0][1].credentials,'omit');
+ blocked.W.document.body.replaceChildren();await blocked.send({action:'profile',username:'Example'});assert.equal(matches.test(blocked.calls[1][0]),false);assert.equal(blocked.calls[1][1].credentials,'include');
+});

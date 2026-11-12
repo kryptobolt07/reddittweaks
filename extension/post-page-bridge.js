@@ -663,6 +663,8 @@
       nativeSearch=comments || (postPage?.transport || 'shreddit')==='shreddit';anonymous=comments?stream==='public':blocked && nativeSearch;
       url.pathname=nativeSearch?'/svc/shreddit/search/':'/search.json';url.searchParams.set('q',q);url.searchParams.set('type',comments?'comments':nativeSearch?'posts':'link');url.searchParams.set('sort',sort);if(sort==='top' || search && range!=='all')url.searchParams.set('t',range);url.searchParams.set('limit','25');
       if(input.after)url.searchParams.set(nativeSearch?'cursor':'after',comments?commentCursor:postPage.cursor);
+      // Only credential-free extension searches opt into the browser's Google Referer rule.
+      if(nativeSearch && anonymous)url.searchParams.set('rt_public_search','1');
     }else if(input.action==='info'){
       if(!Array.isArray(input.ids) || !input.ids.length || input.ids.length>25 || !input.ids.every(id=>comments?M.validateCommentId(id):M.validateId(id)))throw Error('Invalid public post IDs.');
       const ids=input.ids.map(id=>id.toLowerCase().replace(/^t[13]_/, ''));
