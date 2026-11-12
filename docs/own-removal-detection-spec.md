@@ -1,6 +1,6 @@
 # Spec: detect removals of your own posts and comments
 
-Status: target spec, not started (written 2026-11-12). This is the bar the feature must reach, not a step list. Each requirement (R…) has an acceptance check (A…). A release may ship a subset; a requirement counts as met only when its check passes.
+Status: phase 0 done (2026-11-13, results in §9.1); building posts first. Target spec written 2026-11-12. This is the bar the feature must reach, not a step list. Each requirement (R…) has an acceptance check (A…). A release may ship a subset; a requirement counts as met only when its check passes.
 
 This spec also follows the [interaction and lifecycle contract](interaction-lifecycle-contract.md). Its rules apply, and §13 lists the transitions this feature must pass. §12 lists where we'll fall short, and how the interface says so.
 
@@ -147,6 +147,19 @@ Run read-only in the signed-in browser before building:
 - **V3. Account check.** What does a logged-out profile fetch return for a normal account, a suspended one and a nonexistent name?
 - **V4. Arctic Shift.** Confirm `retrieved_on` and the captured body for recent comments, and how quickly new items are captured (this decides how often the 25 s rule can apply).
 
+### 9.1 Results (2026-11-13, signed-in Chrome, read-only, your newest 100 comments and 100 posts)
+
+| Check | Result |
+|---|---|
+| V1 public view | **No logged-out path works from the extension.** Without cookies, from the Reddit page or from the extension worker, these all return HTTP 403 with Reddit's block page: `api/info.json`, `by_id`, `api.reddit.com`, comment-permalink `.json` and `/comments/<id>.json`. The `svc/shreddit/comments/…` partial and `svc/shreddit/comment/…` are blocked the same way. The logged-out thread HTML loads (200), but it is only a shell: the comments come from that blocked `svc` partial. old.reddit.com redirects logged-out requests to its login page. |
+| V2 author view | **Posts:** your listing carries `removed_by_category` (15 of 100 posts say `moderator`) and `locked`, so posts are fully determinable. **Comments:** every moderation field is null for all 100 (`removal_reason`, `banned_by`, `mod_reason_*`, `collapsed*`, `comment_type`), so your own data can't show a comment removal. Still unverified for a comment known to be removed (none was known). |
+| V3 account check | Not run separately: it needs the same logged-out fetch that V1 shows is blocked. |
+| V4 Arctic Shift | **Posts** are captured within a median of **18 s** (87 of 100 within 25 s) and carry `removed_by_category`, so the 25 s rule works for posts. **Comments** are captured within a median of **~4 h** (minimum 7 min, none within 25 s), and the `author=` comment search sometimes times out and needs `sort=desc`. None of your 100 comments was captured as `[removed]`. |
+
+Also found: Reddit now issues **13-character comment IDs** (e.g. `19sh…`); post IDs are still 7. Our comment ID checks allow up to 32 characters; post ID checks allow 10.
+
+**Consequences:** posts get the full classification (§4.2 rules 1–4, plus the archive for rule 5 and approvals). Comments get only what the archive saw (a `[removed]` capture means removed), and otherwise "Couldn't check (Reddit blocks logged-out checks)" (L1). The account check (U3) is shown as unavailable. The one way to see comments as others do would be a userless app token (`oauth.reddit.com` with an app the user registers). That needs the user to create a Reddit app, so it is an open question (§11, Q4).
+
 If V1 finds no working logged-out path, the fallback is: posts via E1/E4 (verified categories), and comments marked `removed-unknown` only when the archive or another signal shows removal. The spec then states that comment coverage is partial.
 
 ## 10. Out of scope (v1)
@@ -161,6 +174,7 @@ If V1 finds no working logged-out path, the fallback is: posts via E1/E4 (verifi
 1. Should the Removed view be a list entry next to Saved and History (U2), or a filter in Feed options on your own profile, or both?
 2. Notifications: is the toolbar badge enough, or are system notifications wanted from the start?
 3. Should deleted-by-you items appear in the Removed view at all (default: hidden, with a filter to show them)?
+4. Comments can't be checked as others see them (§9.1). Should we offer an opt-in where you register your own Reddit app (client ID pasted in the popup) so comments can be checked through a userless token? Without it, comments show only what the archive saw.
 
 ## 12. Where we'll lag behind (caveats)
 
