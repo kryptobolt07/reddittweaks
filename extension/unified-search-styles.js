@@ -432,3 +432,27 @@
   globalThis.RCSUnifiedStyles+=markers+phone;
   globalThis.RCSUnifiedToolStyles+=markers+phone;
 })();
+
+(() => {
+  // Applied filters in chat use Reddit's input-chip look, the same pill as the header and feed filters (measured
+  // from rpl-input-chip appearance="bordered": 32 px, 3/5/3/11 padding, 1 px 20% border, 8 px radius, 600 12/16,
+  // 16 px leading icon, 16 px remove button 4 px after the label). Reddit's element isn't defined on every chat page,
+  // so the look is reproduced here.
+  const chips=`
+    :host { --rcs-chip-border:color-mix(in srgb,var(--rcs-text,#172328) 20%,transparent); }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters),.bar.unified-search .global-filter-rail { height:auto;min-height:32px;padding-top:0;padding-bottom:0;gap:6px;align-items:center; }
+    :host([data-rcs-ui]) :is(.global-filter-rail > .global-filter-add,.room-applied-filters .room-add-sender) { box-sizing:border-box;flex:0 0 32px;width:32px;height:32px;border:1px solid var(--rcs-chip-border);border-radius:50%;background:transparent;color:var(--rcs-text,#172328); }
+    :host([data-rcs-ui]) :is(.global-filter-rail > .global-filter-add,.room-applied-filters .room-add-sender) svg { width:16px;height:16px; }
+    :host([data-rcs-ui=messages]) .room-applied-filters { padding:0 8px 6px; }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters) > :is(.sender-chip,.filter-chip,.room-type-chip),.bar.unified-search .global-filter-rail > :is(.sender-chip,.filter-chip) {
+      box-sizing:border-box;flex:0 0 auto;display:inline-flex;align-items:center;gap:0;height:32px;min-height:32px;max-width:min(260px,75vw);padding:3px 5px 3px 11px;
+      border:1px solid var(--rcs-chip-border);border-radius:8px;background:transparent;color:var(--rcs-text,#172328);font-size:12px;font-weight:600;line-height:16px; }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters) > :is(.sender-chip,.filter-chip,.room-type-chip):hover { background:var(--rcs-hover,#eff3f5); }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters) :is(.sender-chip-icon,.applied-filter-icon,.sender-chip-avatar) { flex:0 0 16px;width:16px;height:16px;margin-inline-end:5px;color:var(--rcs-text,#172328); }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters) :is(.sender-chip,.filter-chip,.room-type-chip) > span { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters) :is(.sender-chip,.filter-chip,.room-type-chip) > button { order:10;flex:0 0 16px;width:16px;height:16px;margin:0 0 0 4px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--rcs-text,#172328); }
+    :host([data-rcs-ui]) :is(.global-filter-rail,.room-applied-filters) :is(.sender-chip,.filter-chip,.room-type-chip) > button svg { width:12px;height:12px; }
+  `;
+  globalThis.RCSUnifiedStyles+=chips;
+  globalThis.RCSUnifiedToolStyles+=chips;
+})();
