@@ -109,3 +109,8 @@ working. The last reuse optimization additionally skips redundant cookie-free
 requests once the anonymous session has succeeded; regression coverage keeps
 signed-in reads on their authenticated transport and verifies fresh content is
 still fetched on every read.
+
+Final validation: 1,358 tests passed. The Reddit tabs were closed before the
+additional automatic-load repeat; the final direct-reuse change has automated
+regression coverage, while installed readiness was confirmed working by the
+user. The final bundle is exported to the stable unpacked folder.

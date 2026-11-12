@@ -1,3 +1,21 @@
+# 0.32.2 preview
+
+- Refused logged-out profile searches retry in an invisible credentialless Reddit frame. Reddit's own browser scripts can initialize its anonymous session, and native search runs inside that session. No tab, window, focus change or visible scrolling is introduced.
+- The frame must show Reddit's Log In control without signed-in account markers before and after reading. Owner cookies/tokens are never copied. Existing author-scoped parsers and public pagination remain in use; incomplete coverage stays explicit.
+- Limit the fallback to explicit HTTP 403 responses, one active read and one queued read per page, a three-megabyte response bound, cancellation and failure cooldowns. HTTP 429 never triggers alternate transport. Remove idle frames after 60 seconds and keep chat capture out of anonymous frames.
+- Let Reddit's own automatic verification form submit normally, and send a real origin-only referrer on anonymous homepage initialization. This fixes the fresh-session JS-only landing page seen in the initial local build.
+- Reuse browser-managed anonymous cookies and healthy frame state across requests, pagination, refresh, rate limits and transient failures. Cookies never leave their anonymous browser partition, and no result cache is added. Explicit activity refresh may retry a blocked check, while numeric/date Retry-After deadlines remain enforced.
+- Wait for the document and Reddit's native app to finish initializing before the first public read. Once that session succeeds, use it directly for later reads instead of repeating the refused cookie-free request.
+- No new permissions or storage migration. Reddit's framing headers rule out an extension-origin offscreen document; the frame lives invisibly within the existing Reddit page and respects those headers.
+
+Version choice: PATCH to 0.32.2 for recovering the existing signed-out search supplement without changing its interface.
+
+Validation: all 1,358 tests pass. On live Reddit in Brave, the helper returned ten public comment results and five continuation results while the parent remained signed in. Its URL, focus, scroll position and page width stayed unchanged; automatic idle removal was observed. Fresh-document checks confirmed the origin-only referrer and successful native automatic verification form submission. The user confirmed the installed readiness fix was working. Temporary probes were removed after testing. No preview website was used. The final direct-reuse optimization has regression coverage; the Reddit tabs were closed before an additional automatic-load repeat.
+
+Package validation: all 38 JavaScript files parse; ZIP integrity and source/ZIP/stable-folder equality pass for all 51 shipped files. SHA-256: `2bc8a6354b81b422e48b9828185b3bcdb4fde11f7b2d432bfbc5494177b3a658`.
+
+Limitations: canonical `www.reddit.com` profile search only. Reddit can still require an interactive CAPTCHA or refuse access; those failures remain incomplete checks. Credentialless frames isolate cookie/storage state but share their Reddit parent's origin. Cookies are reused for the lifetime of the top document; a full page reload creates a new anonymous partition. This adds no individual-comment removal verification. Reload the unpacked extension to activate the final bundle.
+
 # 0.32.1 preview
 
 - Logged-out native searches now send `Referer: https://www.google.com/` through a declarative request-header rule. Only credential-free extension searches carry the rule's marker, including public comment continuations and blocked-profile post searches. Signed-in searches, page navigation and other requests are excluded.
