@@ -11,7 +11,9 @@
   if(globalThis.RTSubredditArchive)return;
   const holdAttr='data-rt-subreddit-hold',mountedAttr='data-rt-subreddit-mounted',hiddenAttr='data-rt-archive-hidden';
   const nameOK=value=>typeof value==='string' && /^[A-Za-z0-9_]{2,21}$/.test(value);
-  const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null && text!=='')el.textContent=text;return el;};
+  // Reddit's custom elements set attributes in their constructors, which createElement rejects once they are
+  // defined; parsing creates them the way Reddit's own markup does.
+  const make=(tag,cls,text)=>{let el;if(tag.includes('-')){const holder=document.createElement('div');holder.innerHTML='<'+tag+'></'+tag+'>';el=holder.firstElementChild;el.remove();}else el=document.createElement(tag);if(cls)el.className=cls;if(text!=null && text!=='')el.textContent=text;return el;};
   const glyph=kind=>globalThis.RTPostDiscovery?.glyph?.(kind) || document.createElementNS('http://www.w3.org/2000/svg','svg');
   const day=seconds=>new Date(seconds*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
   const compact=n=>new Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(n);
@@ -71,6 +73,13 @@
   const AUTO_RETRIES=3,AUTO_RETRY_WAITS=[2000,5000,12000];
   const redditSearchIcon=()=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'search'}))svg.setAttribute(k,v);
     const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d','M19.5 18.616 14.985 14.1a8.528 8.528 0 1 0-.884.884l4.515 4.515.884-.884ZM1.301 8.553a7.253 7.253 0 1 1 7.252 7.253 7.261 7.261 0 0 1-7.252-7.253Z');svg.append(path);return svg;};
+  // Reddit's current 20px-grid icons as its comment search draws them (16px).
+  const pdpPaths={search:'m18.736 17.464-3.483-3.483A7.961 7.961 0 0016.999 9 8 8 0 109 17a7.961 7.961 0 004.981-1.746l3.483 3.483a.9.9 0 101.272-1.273ZM9 15.2A6.207 6.207 0 012.8 9c0-3.419 2.781-6.2 6.2-6.2s6.2 2.781 6.2 6.2-2.781 6.2-6.2 6.2Z',
+    clear:['M10 1a9 9 0 10.001 18.001A9 9 0 0010 1Zm0 16.2c-3.97 0-7.2-3.23-7.2-7.2S6.03 2.8 10 2.8s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2Z','M12.66 6.06 10 8.73 7.34 6.06 6.06 7.34 8.73 10l-2.67 2.66 1.28 1.28L10 11.27l2.66 2.67 1.28-1.28L11.27 10l2.67-2.66-1.28-1.28Z'],
+    'arrow-back':'M17.5 9.1H4.679l5.487-5.462a.898.898 0 00.003-1.272.898.898 0 00-1.272-.003l-7.032 7a.898.898 0 000 1.275l7.03 7a.896.896 0 001.273-.003.898.898 0 00-.002-1.272l-5.487-5.462h12.82a.9.9 0 000-1.8Z'};
+  const pdpIcon=name=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':name,rpl:''}))svg.setAttribute(k,v);if(name==='arrow-back')svg.setAttribute('class','rpl-rtl-icon');
+    for(const d of [].concat(pdpPaths[name])){const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',d);svg.append(path);}return svg;};
+  const srOnly=text=>make('faceplate-screen-reader-content','',text);
   const viewRequested=()=>new URLSearchParams(location.search).get('rt_view')==='archive';
   function setParams(changes){
     const url=new URL(location.href);
@@ -277,10 +286,10 @@
       const identity=make('div','flex items-center pe-xs overflow-hidden'),name=make('div','flex flex-none flex-row flex-nowrap items-center author-name-meta');
       if(globalThis.RTPostModel.validateUsername(comment.author)){const link=make('a','truncate font-bold text-neutral-content-strong text-12 hover:underline',comment.author);link.href='/user/'+encodeURIComponent(comment.author)+'/';name.append(link);}else name.append(make('span','text-neutral-content-weak text-12',comment.author || '[deleted]'));
       const timeLink=make('a','text-neutral-content-weak text-12 hover:no-underline');timeLink.href=path;timeLink.append(this.time(comment.created));name.append(make('span','inline-block my-0 mx-2xs text-12 text-neutral-content-weak','•'),timeLink);identity.append(name);author.append(identity);
-      const body=make('div','md text-14-scalable rounded-2 pb-2xs overflow-hidden');body.slot='comment';const text=make('div','py-0 xs:mx-xs mx-2xs max-w-full scalable-text');text.dir='auto';
+      const body=make('div','md text-14-scalable rounded-2 pb-2xs overflow-hidden pt-2xs');body.slot='comment';const text=make('div','py-0 xs:mx-xs mx-2xs max-w-full scalable-text');text.dir='auto';
       {const rendered=globalThis.RTMarkdown?.fromHtml?.(comment.bodyHtml) || globalThis.RTMarkdown?.render?.(comment.body || '');if(rendered)text.append(rendered);else text.append(make('p','',comment.body || 'The archive has no original text for this comment.'));}body.append(text);
-      const actions=make('shreddit-comment-action-row','block');actions.slot='actionRow';for(const [key,value] of Object.entries({'comment-id':comment.fullname,score:comment.score,'vote-state':'NONE','view-only':'','comment-archived':'','is-desktop-viewport':'',permalink:path}))actions.setAttribute(key,String(value));
-      const share=make('shreddit-comment-share-button');share.slot='comment-share';share.setAttribute('permalink',path);share.setAttribute('source-id',comment.fullname);share.setAttribute('is-desktop-viewport','');actions.append(share);const avatar=make('div');avatar.slot='commentAvatar';avatar.append(defaultAvatar(comment.author,comment.depth?24:32,globalThis.RTPostModel.validateUsername(comment.author)?'/user/'+encodeURIComponent(comment.author)+'/':''));node.append(avatar,author,body,actions);
+      const actions=make('shreddit-comment-action-row','block min-h-xl');actions.slot='actionRow';for(const [key,value] of Object.entries({'comment-id':comment.fullname,score:comment.score,'vote-state':'NONE','view-only':'','comment-archived':'','is-desktop-viewport':'',permalink:path}))actions.setAttribute(key,String(value));
+      const share=make('shreddit-comment-share-button');share.slot='comment-share';share.setAttribute('permalink',path);share.setAttribute('source-id',comment.fullname);share.setAttribute('is-desktop-viewport','');actions.append(share);const avatar=make('div','flex flex-row items-center rt-sra-comment-avatar');avatar.slot='commentAvatar';avatar.append(defaultAvatar(comment.author,comment.depth?24:32,globalThis.RTPostModel.validateUsername(comment.author)?'/user/'+encodeURIComponent(comment.author)+'/':''));node.append(avatar,author,body,actions);
       // Reddit can render snapshot scores but no action may mutate a snapshot.
       for(const type of ['click','keydown'])actions.addEventListener(type,event=>{if(event.type==='keydown' && !['Enter',' '].includes(event.key))return;if(!event.composedPath().some(part=>part.matches?.('shreddit-comment-share-button'))){event.preventDefault();event.stopImmediatePropagation();}},true);
       return node;
@@ -289,13 +298,16 @@
       const state=this.threadState;if(!state || !this.mounted)return;
       if(!state.commentsEl){
         this.listEl.replaceChildren();state.nodes=new Map();state.commentsEl=make('section','rt-sra-thread-comments');state.commentsEl.setAttribute('aria-label','Archived comments');
-        this.listEl.append(state.commentsEl);state.toolbarEl=this.commentToolbar(state);this.listEl.insertBefore(state.toolbarEl,state.commentsEl);
+        this.listEl.append(state.commentsEl);
       }
       if(state.post && !state.postEl){
         const card=state.postEl=globalThis.RTPostDiscovery.archiveCard(state.post,{thread:true}),native=card.querySelector('shreddit-post');
         if(native){native.classList.add('rt-sra-thread-post');native.querySelector('[data-rt-source]')?.remove();
-        }this.listEl.insertBefore(card,state.toolbarEl?.parentNode===this.listEl?state.toolbarEl:state.commentsEl);
+        }this.listEl.insertBefore(card,state.commentsEl);
       }
+      // Reddit renders the comment toolbar with the post, never before it: it arrives in the same frame as the post
+      // (or with the first comments when the archive has no post record).
+      if(!state.toolbarEl && (state.postEl || state.missing && state.items.length)){state.toolbarEl=this.commentToolbar(state);this.listEl.insertBefore(state.toolbarEl,state.commentsEl);}
       const comments=state.commentsEl,nodes=state.nodes,items=new Map(state.items.map(item=>[item.fullname,item]));
       for(const item of state.items)if(!nodes.has(item.fullname))nodes.set(item.fullname,this.threadComment(item));
       const hold=this.holdScroll();const changed=this.placeComments(state,items,nodes,comments);hold?.();
@@ -313,7 +325,13 @@
         if(state.missing)this.footEl.append(make('p','rt-sra-note','This post is not in the archive. Coverage may be partial.'));
         else if(state.stalled)this.footEl.append(make('p','rt-sra-note','The archive stopped paging here; more comments may exist.'));
         else if(!state.hasMore && !state.hiddenTop)this.footEl.append(make('p','rt-sra-note',state.items.length?'End of what the archive returned · Coverage may be partial':'No archived comments returned. This does not establish that the post had no comments.'));
-        if(state.route.focusId && !state.focused){const target=nodes.get('t1_'+state.route.focusId);if(target?.isConnected){state.focused=true;target.classList.add('rt-sra-focused-comment');const focus=()=>{if(!target.isConnected)return;const r=target.getBoundingClientRect();if(r.top<0 || r.bottom>innerHeight)target.scrollIntoView?.({block:'center'});};target.scrollIntoView?.({block:'center'});for(const ms of [150,600,1500])setTimeout(focus,ms);}else if(!state.loading)this.footEl.append(make('p','rt-sra-note','The requested comment is not in the loaded archive records.'));}
+        // A comment permalink, as Reddit shows it: the comment's thread first, the comment highlighted, and the page
+        // scrolled so the comment toolbar sits just under Reddit's header.
+        if(state.route.focusId && !state.focused){const target=nodes.get('t1_'+state.route.focusId);if(target?.isConnected){state.focused=true;target.classList.add('rt-sra-highlighted');target.setAttribute('is-current-permalink','');target.setAttribute('highlight-variant','reply');target.setAttribute('is-highlighted','');
+          const anchor=state.toolbarEl || state.commentsEl,headerBottom=()=>Math.max(0,document.querySelector('reddit-header-large,header')?.getBoundingClientRect().bottom || 0);
+          const place=()=>{if(!anchor.isConnected || this.threadState!==state)return;const delta=anchor.getBoundingClientRect().top-headerBottom();if(Math.abs(delta)>=1)scrollBy(0,delta);};
+          place();let moved=false;const stop=()=>{moved=true;};addEventListener('wheel',stop,{passive:true,once:true});addEventListener('touchstart',stop,{passive:true,once:true});addEventListener('keydown',stop,{once:true});
+          for(const ms of [150,600,1500])setTimeout(()=>{if(!moved)place();},ms);}else if(!state.loading)this.footEl.append(make('p','rt-sra-note','The requested comment is not in the loaded archive records.'));}
       }
     }
     // Reddit-like comment tree: best-first (score, as the archive has no "Best"), TOP_BATCH top-level comments,
@@ -422,10 +440,11 @@
       const observer=new ResizeObserver(check);observer.observe(list);addEventListener('scroll',onScroll,{passive:true});
       this.scrollKeeper={pick,check,stop:()=>{stopped=true;observer.disconnect();clearTimeout(timer);removeEventListener('scroll',onScroll);}};
     }
-    // Reddit's comment toolbar: "Sort by" (Best/Top/New/Old, computed from loaded archive comments; the
-    // archive can't do Controversial or Q&A) and "Search Comments" over the loaded comments.
+    // Reddit's comment toolbar (comment-body-header): "Sort by" (Best/Top/New/Old, computed from loaded archive
+    // comments; the archive can't do Controversial or Q&A) and Reddit's comment search, rebuilt from its markup.
     commentToolbar(state){
-      const bar=make('div','flex flex-wrap items-center gap-sm rt-sra-comment-toolbar');bar.dataset.rtUi='archive-comment-toolbar';
+      const bar=make('div','block px-md xs:px-0 rt-sra-comment-toolbar');bar.dataset.rtUi='archive-comment-toolbar';
+      const row=make('div','flex gap-xs items-center w-full flex-wrap mt-sm'),host=make('div','flex gap-xs items-center flex-wrap nd:min-h-xl rt-sra-cs-host');row.append(host);bar.append(row);
       const labels={best:'Best',top:'Top',new:'New',old:'Old'},f=globalThis.RTFeedFilters;
       let menu=null;const sort=this.dropdown(labels[state.commentSort || 'best'],el=>{menu=el;});
       const build=()=>{menu.replaceChildren();for(const [key,label] of Object.entries(labels)){
@@ -434,47 +453,91 @@
         else{el=make('button','rt-sra-menu-row',label);el.type='button';el.addEventListener('click',choose);}
         el.dataset.rtUi='filter-option';el.setAttribute('aria-checked',String((state.commentSort || 'best')===key));menu.append(el);}};
       build();sort.button.addEventListener('click',build,true);
-      sort.button.setAttribute('aria-label','Sort comments');
-      const sortGroup=make('div','flex items-center rt-sra-comment-sort');sortGroup.append(make('span','text-12 text-neutral-content-weak rt-sra-sort-label','Sort by: '),sort.wrap);
-      // Reddit's comment search: an outlined "Search Comments" button that expands into a full-width search
-      // box; Enter searches (the address gains ?q=…&type=comments), and "All Comments" goes back.
-      const expand=make('button','button button-medium button-bordered border-neutral-border-weak hover:border-neutral-content-weak text-secondary-weak font-normal inline-flex items-center justify-center rt-sra-cs-button');expand.type='button';expand.setAttribute('aria-expanded','false');expand.setAttribute('aria-label','Search Comments, expand comment search');
-      const expandIcon=make('span','flex ms-[-2px] me-xs');expandIcon.append(redditSearchIcon());expand.append(expandIcon,make('span','','Search Comments'));
-      const form=make('form','rt-sra-cs-form');form.hidden=true;form.setAttribute('role','search');
-      const field=make('label','rt-sra-cs-field'),input=make('input');input.type='search';input.name='q';input.placeholder='Search Comments';input.setAttribute('aria-label','Search loaded archived comments');input.autocomplete='off';
-      const clear=make('button','rt-sra-cs-clear');clear.type='button';clear.setAttribute('aria-label','Clear search');clear.append(glyph('close'));
-      field.append(redditSearchIcon(),input,clear);form.append(field);
-      const open=(focus=true)=>{sortGroup.hidden=true;expand.hidden=true;form.hidden=false;expand.setAttribute('aria-expanded','true');if(focus)input.focus({preventScroll:true});};
-      const close=()=>{form.hidden=true;sortGroup.hidden=false;expand.hidden=false;expand.setAttribute('aria-expanded','false');};
-      state.closeCommentSearch=()=>{input.value='';state.commentQuery='';setParams({q:null,type:null});close();this.renderCommentSearch(state);expand.focus({preventScroll:true});};
+      sort.button.setAttribute('aria-label','Sort by '+labels[state.commentSort || 'best']);
+      const sortGroup=make('div','flex items-center pdp-comments-tree-sort-container rt-sra-comment-sort');const sortLabel=make('span','lg:me-2xs text-neutral-content-weak text-12 whitespace-nowrap rt-sra-sort-label','Sort by:');sortLabel.setAttribute('aria-hidden','true');sortGroup.append(sortLabel,sort.wrap);
+      // Reddit's pdp-comment-search-input: an outlined "Search Comments" button; clicking it hides Sort by and shows
+      // the search box (Reddit's own faceplate-search-input) with Cancel. Nothing filters until Enter, which adds
+      // ?q=…&type=comments; Escape in an empty box and Cancel go back to the button.
+      const pdp=make('div','flex-1 nd:block nd:h-[40px] rt-sra-cs'),inner=make('div','block');pdp.append(inner);
+      const expand=make('button','border-neutral-border-weak hover:border-neutral-content-weak text-secondary-weak font-normal button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-bordered items-center justify-center button inline-flex rt-sra-cs-button');
+      expand.type='button';expand.setAttribute('rpl','');expand.setAttribute('aria-controls','rt-sra-cs-form');expand.setAttribute('aria-expanded','false');
+      {const outer=make('span','flex items-center justify-center'),icon=make('span','flex ms-[-2px] me-xs'),pad=make('span','flex ps-xs'),label=make('span','flex items-center gap-xs');pad.append(pdpIcon('search'));icon.append(pad);label.append(make('span','flex flex-1 pe-xs text-start','Search Comments'));outer.append(icon,label);expand.append(outer,srOnly('Expand comment search'));}
+      const form=make('form','flex w-full rt-sra-cs-form');form.id='rt-sra-cs-form';form.hidden=true;form.setAttribute('role','search');
+      const field=make('faceplate-search-input');field.className='text-secondary-plain m-0 rounded-full outline outline-1 outline-neutral-border-weak grow focus:outline-neutral-content-weak rt-sra-cs-field';
+      for(const [k,v] of Object.entries({enterkeyhint:'search',placeholder:'Search Comments',value:'','aria-label':'Search Comments'}))field.setAttribute(k,v);
+      const clear=make('button',' button-small px-[calc(var(--rem10)-var(--button-border-width,0px))] button-plain icon items-center justify-center button inline-flex rt-sra-cs-clear');clear.type='button';clear.slot='clearIcon';clear.setAttribute('rpl','');
+      {const outer=make('span','flex items-center justify-center'),icon=make('span','flex');icon.append(pdpIcon('clear'));outer.append(icon);clear.append(outer,srOnly('Clear search'));}field.append(clear);
+      const cancel=make('button','ms-xs button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex rt-sra-cs-cancel');cancel.type='button';cancel.setAttribute('rpl','');
+      {const outer=make('span','flex items-center justify-center');outer.append(make('span','flex items-center gap-xs','Cancel'));cancel.append(outer);}
+      form.append(field,cancel);inner.append(expand,form);host.append(sortGroup,pdp);
+      // The extension can't see Reddit's element properties (separate JS world): read and write its textarea.
+      const box=()=>field.shadowRoot?.querySelector('textarea,input');
+      const value=()=>String((box() || field).value ?? '').trim();
+      const setValue=text=>{field.setAttribute('value',text);const inner=box();if(inner){inner.value=text;inner.dispatchEvent(new Event('input',{bubbles:true,composed:true}));}else field.value=text;};
+      // Reddit's search input renders its textarea asynchronously; focus it once it exists.
+      const focusField=()=>{const go=()=>{const inner=box();if(inner)inner.focus({preventScroll:true});else field.focus?.({preventScroll:true});};go();if(!field.shadowRoot?.activeElement)requestAnimationFrame(go);};
+      const open=(focus=true)=>{sortGroup.hidden=true;expand.hidden=true;form.hidden=false;host.classList.add('w-full');expand.setAttribute('aria-expanded','true');if(focus)focusField();};
+      const close=()=>{form.hidden=true;sortGroup.hidden=false;expand.hidden=false;host.classList.remove('w-full');expand.setAttribute('aria-expanded','false');};
+      state.closeCommentSearch=({focus=true}={})=>{setValue('');const was=Boolean(state.commentQuery);state.commentQuery='';setParams({q:null,type:null});close();if(was)this.renderCommentSearch(state);if(focus)expand.focus({preventScroll:true});};
+      state.runCommentSearch=text=>{state.commentQuery=text;setParams({q:text,type:'comments'});this.renderCommentSearch(state);};
       expand.addEventListener('click',event=>{event.preventDefault();open();});
-      form.addEventListener('submit',event=>{event.preventDefault();const value=input.value.trim();if(!value){state.closeCommentSearch();return;}state.commentQuery=value;setParams({q:value,type:'comments'});this.renderCommentSearch(state);});
-      clear.addEventListener('click',event=>{event.preventDefault();state.closeCommentSearch();});
-      input.addEventListener('keydown',event=>{if(event.key==='Escape' && !input.value){event.preventDefault();state.closeCommentSearch();}});
+      cancel.addEventListener('click',event=>{event.preventDefault();state.closeCommentSearch();});
+      clear.addEventListener('click',event=>{event.preventDefault();setValue('');focusField();});
+      form.addEventListener('submit',event=>{event.preventDefault();if(value())state.runCommentSearch(value());});
+      // Capture phase: Reddit's input handles keys inside its shadow root and may not let them bubble.
+      field.addEventListener('keydown',event=>{
+        if(event.key==='Enter' && !event.isComposing){event.preventDefault();if(value())state.runCommentSearch(value());}
+        else if(event.key==='Escape' && !value()){event.preventDefault();state.closeCommentSearch();}},true);
       // A link to a comment search (…?q=…&type=comments) opens with its results.
-      const params=new URLSearchParams(location.search);if(params.get('type')==='comments' && params.get('q')){input.value=params.get('q');state.commentQuery=params.get('q').trim();open(false);queueMicrotask(()=>this.renderCommentSearch(state));}
-      bar.append(sortGroup,expand,form);return bar;
+      const params=new URLSearchParams(location.search);if(params.get('type')==='comments' && params.get('q')){setValue(params.get('q'));state.commentQuery=params.get('q').trim();open(false);queueMicrotask(()=>this.renderCommentSearch(state));}
+      state.commentField=field;return bar;
     }
+    // Reddit's comment search results: "All Comments" (back to the tree), then one grey card per matching comment
+    // linking to its permalink; no count line. No matches: Reddit's telescope box.
     renderCommentSearch(state){
-      const raw=(state.commentQuery || '').trim(),query=raw.toLowerCase();state.commentsEl.hidden=Boolean(query);
-      if(!query){state.searchEl?.remove();state.searchEl=null;return;}
-      const results=state.searchEl ||= make('section','rt-sra-comment-results');results.dataset.rtUi='archive-comment-results';if(!results.isConnected)state.commentsEl.after(results);
+      const raw=(state.commentQuery || '').trim();state.commentsEl.hidden=Boolean(raw);
+      if(!raw){state.searchEl?.remove();state.searchEl=null;return;}
+      const results=state.searchEl ||= make('div','w-full rt-sra-comment-results');results.dataset.rtUi='archive-comment-results';if(!results.isConnected)state.commentsEl.after(results);
+      const back=make('button','m-xs border-none button-small px-[calc(var(--rem10)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex rt-sra-cs-back');back.type='button';back.setAttribute('rpl','');back.setAttribute('aria-label','Back');back.title='Navigate to all comments';
+      {const outer=make('span','flex items-center justify-center'),icon=make('span','flex ms-[-2px] me-xs');icon.append(pdpIcon('arrow-back'));outer.append(icon,make('span','flex items-center gap-xs','All Comments'));back.append(outer,srOnly('Show all Comments tree'));}
+      back.addEventListener('click',()=>{state.closeCommentSearch?.({focus:false});const top=state.toolbarEl?.getBoundingClientRect().top;if(top<0)state.toolbarEl.scrollIntoView({block:'start'});});
+      const closeRow=make('div','w-full rt-sra-cs-close');closeRow.append(back);
       // The same query language as every other search box: words, "phrases", OR, NOT/-word, ( ), author:/u/ and body:.
       const core=globalThis.RCSCore,parsed=core?.parseQuery?core.parseQuery(raw,{fields:commentFields}):null;
-      if(parsed?.invalid){results.replaceChildren(make('p','rt-sra-note',(parsed.errors || []).join(' · ') || 'Check the search.'));return;}
+      if(parsed?.invalid){results.replaceChildren(closeRow,this.commentSearchEmpty(raw,(parsed.errors || []).join(' · ') || 'Check the search.'));return;}
       const record=item=>globalThis.RTPostModel?.searchRecord?.({...item,kind:'comment'}) || {body:item.body,author:item.author};
-      const hits=state.items.filter(item=>parsed && core.matchRecord?core.matchRecord(parsed,record(item)):String(item.body || '').toLowerCase().includes(query) || String(item.author || '').toLowerCase().includes(query));
-      const marks=parsed?[...(parsed.phrases || []),...(parsed.terms || [])].map(term=>String(term).toLowerCase()).filter(Boolean):[query];
-      const back=make('button','rt-sra-cs-back');back.type='button';back.append(glyph('arrow-back'),make('span','','All Comments'));back.addEventListener('click',()=>state.closeCommentSearch?.());
+      const query=raw.toLowerCase(),hits=state.items.filter(item=>parsed && core.matchRecord?core.matchRecord(parsed,record(item)):String(item.body || '').toLowerCase().includes(query) || String(item.author || '').toLowerCase().includes(query));
       state.searchedCount=state.items.length;
-      const note=make('p','rt-sra-cs-note',!state.items.length?(state.loading?'Archived comments are still loading…':'The archive has no comments for this post · Coverage may be partial'):hits.length?hits.length+' of '+state.items.length+' loaded archived comments match · Coverage may be partial':'No loaded archived comments match · Coverage may be partial');
-      results.replaceChildren(back,note);
-      for(const item of hits.slice(0,100)){
-        const card=make('a','rt-sra-cs-hit');card.href='/r/'+encodeURIComponent(this.name)+'/comments/'+state.route.postId+'/_/'+item.id+'/';
-        const head=make('span','rt-sra-cs-hit-head');head.append(defaultAvatar(item.author,24),make('span','rt-sra-cs-hit-author',item.author || '[deleted]'),make('span','','·'),this.time(item.created));
-        const body=make('span','rt-sra-cs-hit-body');for(const para of String(item.body || '').split(/\n{2,}/).slice(0,6))body.append(make('span','rt-sra-cs-hit-para',para.trim()));
-        card.append(head,body,make('span','rt-sra-cs-hit-votes',(item.score ?? 0)+' '+(Number(item.score)===1?'vote':'votes')));results.append(card);
-      }
+      if(!hits.length){results.replaceChildren(closeRow,state.loading && !state.items.length?this.loadingHalo('Loading archived comments'):this.commentSearchEmpty(raw));return;}
+      const list=make('div','mt-md mx-xs xs:mx-0 rt-sra-cs-list');list.setAttribute('role','feed');
+      hits.slice(0,100).forEach((item,index)=>list.append(this.commentSearchCard(state,item,index)));
+      results.replaceChildren(closeRow,list);
+    }
+    commentSearchCard(state,item,index){
+      const article=make('div','rt-sra-cs-article');article.setAttribute('role','article');article.setAttribute('aria-posinset',String(index+1));article.setAttribute('aria-setsize','-1');article.tabIndex=-1;article.dataset.rtUi='archive-comment-hit';
+      const card=make('div','bg-neutral-background-weak rounded-4 relative w-100 group mb-md hover:bg-neutral-background-hover rt-sra-cs-hit'),pad=make('div','p-md relative');card.append(pad);article.append(card);
+      const head=make('div','text-neutral-content-weak text-12 flex items-center rt-sra-cs-hit-head'),valid=globalThis.RTPostModel?.validateUsername?.(item.author);
+      const who=make(valid?'a':'span','text-neutral-content-strong text-12 hover:no-underline flex items-center relative group-hover:z-1 a no-visited hover:underline cursor-pointer');if(valid)who.href='/user/'+encodeURIComponent(item.author)+'/';
+      const avatar=make('span','inline-flex items-center justify-center w-lg h-lg relative pointer-events-auto me-xs rt-sra-cs-avatar');avatar.append(defaultAvatar(item.author,24));who.append(avatar,document.createTextNode(item.author || '[deleted]'));
+      const date=make('faceplate-timeago');date.setAttribute('ts',new Date(item.created*1000).toISOString());date.setAttribute('short','');date.textContent=ago(item.created);
+      head.append(who,make('span','mx-2xs','·'),date);
+      const link=make('a','hover:no-underline no-underline no-visited absolute inset-0 a hover:underline cursor-pointer rt-sra-cs-link');link.href='/r/'+encodeURIComponent(this.name)+'/comments/'+state.route.postId+'/_/'+item.id+'/';link.setAttribute('aria-labelledby','rt-sra-cs-content-'+index);
+      const content=make('span');content.id='rt-sra-cs-content-'+index;
+      const body=make('div','i18n-search-comment-content max-h-[260px] overflow-hidden text-ellipsis text-neutral-content-strong hover:no-underline no-underline no-visited [--emote-size:20px] rt-sra-cs-hit-body');body.dir='auto';
+      const rendered=globalThis.RTMarkdown?.fromHtml?.(item.bodyHtml) || globalThis.RTMarkdown?.render?.(item.body || '');if(rendered)body.append(rendered);else for(const para of String(item.body || '').split(/\n{2,}/))body.append(make('p','',para.trim()));
+      content.append(body);
+      const fade=make('div','h-[21px] mt-[-21px] from-[color:var(--color-neutral-background-weak)] bg-gradient-to-t isolate pointer-events-none group-hover:from-[color:var(--color-neutral-background-hover)] rt-sra-cs-fade');
+      const score=Number(item.score) || 0,votes=make('p','text-neutral-content-weak text-12 rt-sra-cs-hit-votes');votes.append(make('span','',compact(score)+' '+(Math.abs(score)===1?'vote':'votes')));
+      pad.append(head,link,content,fade,votes);return article;
+    }
+    commentSearchEmpty(raw,problem){
+      const box=make('div','flex mt-md p-md bg-neutral-background-weak rounded-2 rt-sra-cs-empty');box.dataset.testid='search-no-results';
+      const img=make('img','me-md w-[52px] h-2xl xs:w-[68px] xs:h-3xl rt-sra-cs-empty-img');img.src='https://www.redditstatic.com/shreddit/assets/telescope-snoo.svg';img.alt='';img.referrerPolicy='no-referrer';
+      const text=make('div'),title=make('div','text-neutral-content font-semibold text-16 xs:text-18 mb-xs rt-sra-cs-empty-title',problem?problem:'Hm... we couldn’t find any results for “'+raw+'”');
+      const hint=make('div','text-neutral-content-weak text-12 xs:text-14 rt-sra-cs-empty-hint');
+      const adjust=make('button','rt-sra-cs-adjust','adjust your search');adjust.type='button';adjust.addEventListener('click',()=>{const field=this.threadState?.commentField;(field?.shadowRoot?.querySelector('textarea,input') || field)?.focus?.({preventScroll:true});});
+      hint.append(problem?'Check the search syntax (Ctrl+/ for tips) or ':'Double-check your spelling or try different keywords to ',adjust,'. Archived comments may be incomplete.');
+      text.append(title,hint);box.append(img,text);return box;
     }
     placeComments(state,items,nodes,root){
       state.shownTop ??= TOP_BATCH;state.shownReplies ||= new Map();state.moreEls ||= new Map();state.childOrder ||= new Map();let changed=false;
@@ -502,6 +565,8 @@
         const list=kids.get(parentKey) || [],isRoot=parentKey==='root';
         let limit=isRoot?state.shownTop:depth>MAX_DEPTH?0:(state.shownReplies.get(parentKey) ?? replyLimit(depth));
         const shown=list.filter((item,index)=>index<limit || forced.has(item.fullname)),hidden=list.length-shown.length;
+        // Reddit's permalink view puts the focused comment's thread first at every level.
+        const lead=shown.findIndex(item=>forced.has(item.fullname));if(lead>0)shown.unshift(...shown.splice(lead,1));
         const desired=shown.map(item=>nodes.get(item.fullname));
         if(hidden>0){if(isRoot)hiddenTop=hidden;else desired.push(more(parentKey,hidden,depth>MAX_DEPTH));}
         for(const node of desired)if(!isRoot){if(node.parentElement!==container || !node.getAttribute('slot')?.startsWith('children'))node.slot='children';}else if(node.dataset.rtUi==='archive-thread-comment')node.removeAttribute('slot');

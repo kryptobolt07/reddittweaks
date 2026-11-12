@@ -125,9 +125,19 @@
 .rt-sra-loading{display:block;min-height:112px}
 
 /* Native comment components own the thread layout. */
-.rt-sra-thread-comments{margin:16px}
+.rt-sra-thread-comments{margin:28px 0 16px}
 .rt-sra-thread-comment{display:block;min-width:0;color:var(--color-neutral-content-strong,#0f1a1c)}
-.rt-sra-focused-comment{outline:2px solid var(--color-neutral-border-strong,#576f76);outline-offset:-2px;border-radius:8px}
+/* Reddit's comment summary row is 36px: avatar centred in it, author line filling the rest. */
+.rt-sra-thread-comment>.rt-sra-comment-avatar{display:flex;align-items:center;height:36px}
+.rt-sra-thread-comment>.rt-sra-comment-avatar>a{margin-top:0}
+.rt-sra-thread-comment>[slot="commentMeta"]{flex:1 1 auto}
+.rt-sra-thread-comment>[slot="actionRow"]{min-height:32px}
+/* A permalinked comment: Reddit's comment component paints the highlight from is-highlighted/highlight-variant;
+   its slot-config template lacks the 16px strip Reddit draws left of the row (under the avatar), added here. */
+.rt-sra-thread-comment.rt-sra-highlighted>[slot="commentMeta"],.rt-sra-thread-comment.rt-sra-highlighted>[slot="comment"],.rt-sra-thread-comment.rt-sra-highlighted>[slot="actionRow"]{--rt-hl:var(--color-neutral-background-highlighted-strong,#fff9e0);background-color:var(--rt-hl);box-shadow:-16px 0 0 0 var(--rt-hl);border-radius:0}
+.rt-sra-thread-comment.rt-sra-highlighted>[slot="commentMeta"]{box-shadow:-16px 0 0 0 var(--rt-hl),-16px -2px 0 0 var(--rt-hl);border-top-left-radius:8px}
+.rt-sra-thread-comment.rt-sra-highlighted>[slot="actionRow"]{box-shadow:-16px 0 0 0 var(--rt-hl),-16px 4px 0 0 var(--rt-hl);border-bottom-left-radius:8px}
+.rt-sra-thread-comment.rt-sra-highlighted>[slot="commentAvatar"]{position:relative;z-index:1}
 
 
 /* Archive feed: native subreddit feed separators between cards (Reddit uses an <hr> per article). */
@@ -250,34 +260,22 @@ guard-community-modal[data-rt-subreddit-hold]{display:none!important}
 img.rt-avatar-img{display:block;flex:none;aspect-ratio:1/1;object-fit:cover;border-radius:999px}
 img.rt-avatar-deleted{background:linear-gradient(0deg,#97afbc,#fff 75%);object-fit:contain;object-position:bottom}
 
-/* Reddit's comment toolbar: Sort by dropdown and Search Comments pill. */
-.rt-sra-comment-toolbar{display:flex;align-items:center;gap:16px;margin:16px 0 8px;padding:0 16px}
-.rt-sra-comment-sort{gap:2px}
-.rt-sra-sort-label{font-size:12px;line-height:16px;white-space:pre}
-.rt-sra-comment-sort .rt-sra-dropdown-button{color:var(--color-neutral-content-strong,#0f1a1c)}
-/* Reddit's outlined Search Comments pill: icon and placeholder vertically centred. */
 .rt-archive-inline-media{display:flex;justify-content:center;margin:8px 0}
 
-
-/* Search Comments, as on Reddit's post pages: outlined button → full-width grey box → result cards. */
-.rt-sra-cs-button{gap:0}.rt-sra-cs-button svg{width:16px;height:16px}
-.rt-sra-cs-form{flex:1 1 100%;margin:0}.rt-sra-cs-form[hidden]{display:none}
-.rt-sra-cs-field{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border-radius:9999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-weak,#576f76);box-sizing:border-box}
-.rt-sra-cs-field:focus-within{box-shadow:0 0 0 2px var(--color-interactive-focused,#0a65d1)}
-.rt-sra-cs-field svg{flex:none;width:16px;height:16px}
-.rt-sra-cs-field input{flex:1;min-width:0;height:38px;margin:0;padding:0;border:0;outline:0;background:transparent;font:400 14px/20px var(--font-sans,inherit);color:var(--color-neutral-content-strong,#0f1a1c);-webkit-appearance:none;appearance:none}
-.rt-sra-cs-field input::-webkit-search-cancel-button,.rt-sra-cs-field input::-webkit-search-decoration{display:none}
-.rt-sra-cs-clear{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:none;color:inherit;cursor:pointer}
-.rt-sra-cs-clear:hover{color:var(--color-neutral-content-strong,#0f1a1c)}
-.rt-sra-comment-results{margin:4px 0 0}
-.rt-sra-cs-back{display:inline-flex;align-items:center;gap:8px;margin:4px 16px 8px;padding:4px 0;border:0;background:none;font:600 12px/16px var(--font-sans,inherit);color:var(--color-neutral-content-strong,#0f1a1c);cursor:pointer}
-.rt-sra-cs-back svg{width:16px;height:16px}.rt-sra-cs-back:hover span{text-decoration:underline}
-.rt-sra-cs-note{margin:0 16px 12px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
-.rt-sra-cs-hit{display:flex;flex-direction:column;gap:12px;margin:0 0 16px;padding:16px;border-radius:16px;background:var(--color-neutral-background-weak,#f6f8f9);color:inherit;text-decoration:none}
-.rt-sra-cs-hit:hover{background:var(--color-neutral-background-hover,#eef1f3)}
-.rt-sra-cs-hit-head{display:flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
-.rt-sra-cs-hit-head img{width:24px;height:24px}
-.rt-sra-cs-hit-author{color:var(--color-neutral-content-strong,#0f1a1c)}
-.rt-sra-cs-hit-body{display:flex;flex-direction:column;gap:12px;max-height:260px;overflow:hidden;font-size:14px;line-height:20px;color:var(--color-neutral-content-strong,#0f1a1c);overflow-wrap:anywhere}
-.rt-sra-cs-hit-votes{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
-.rt-sra-comment-sort[hidden],.rt-sra-cs-button[hidden]{display:none!important}
+/* Reddit's comment toolbar and comment search (pdp-comment-search-input), in Reddit's own classes. These rules
+   only cover what Reddit's page stylesheet may lack outside its shadow roots; sizes are Reddit's measured values. */
+.rt-sra-comment-toolbar [hidden]{display:none!important}
+.rt-sra-comment-toolbar faceplate-screen-reader-content,.rt-sra-comment-results faceplate-screen-reader-content{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.rt-sra-cs{flex:1 1 0%;min-width:0;height:40px}
+.rt-sra-cs-button,.rt-sra-cs-cancel{padding:0 11px}
+.rt-sra-comment-sort button.rt-sra-dropdown-button{gap:0;padding:0 9px}
+.rt-sra-cs-form{display:flex;width:100%;margin:0}
+.rt-sra-cs-field{flex-grow:1;margin:0}
+.rt-sra-cs-back{margin:8px;padding:0 9px}
+.rt-sra-cs-hit-body{max-height:260px;overflow:hidden;text-overflow:ellipsis}
+.rt-sra-cs-fade{position:relative;height:21px;margin-top:-21px;background-image:linear-gradient(to top,var(--color-neutral-background-weak,#f5f5f5),transparent);pointer-events:none}
+.rt-sra-cs-hit:hover .rt-sra-cs-fade{background-image:linear-gradient(to top,var(--color-neutral-background-hover,#ebebeb),transparent)}
+.rt-sra-cs-hit-head>a,.rt-sra-cs-hit-head>span:first-child{position:relative;z-index:1}
+.rt-sra-cs-avatar img{width:24px;height:24px}
+.rt-sra-cs-empty-img{width:68px;height:48px;flex:none}
+.rt-sra-cs-adjust{padding:0;border:0;background:none;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
