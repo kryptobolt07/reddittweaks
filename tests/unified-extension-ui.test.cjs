@@ -933,3 +933,11 @@ test('syntax suggestions and Search tips share menu rows and keyboard navigation
   assert.match(c.popover.textContent,/cats AND dogs/);assert.match(c.popover.textContent,/\(from:alice OR from:bob\)/);
   await p.key('Escape',c.shadow.activeElement);assert.equal(c.filterSection,'');assert.equal(c.shadow.activeElement.dataset.value,'tips');
 });
+
+test('picking a conversation in the chat list keeps an opened search bar open; a click elsewhere closes it',async t=>{
+  const p=await setup(t,{scope:'people'}),c=p.control;c.input.focus();c.input.click();await settle();assert.equal(c.scopeBar.hidden,false);
+  const row=p.w.RCSAdapter.query('.threads',p.fixture.nav)?.firstElementChild || p.w.RCSAdapter.query('.threads',p.fixture.nav);
+  row.dispatchEvent(new p.w.Event('pointerdown',{bubbles:true,composed:true}));row.dispatchEvent(new p.w.FocusEvent('focusin',{bubbles:true,composed:true}));await settle();
+  assert.equal(c.scopeBar.hidden,false,'still open after choosing a chat');
+  p.fixture.room.dispatchEvent(new p.w.Event('pointerdown',{bubbles:true,composed:true}));await settle();assert.equal(c.scopeBar.hidden,true,'closes on a click outside the chat list');
+});
