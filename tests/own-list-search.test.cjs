@@ -213,3 +213,16 @@ test('empty list-search shell gets local tabs; disabled settings restore the hea
 test('account access lost during paging removes earlier private results',async t=>{
  const s=await setup(t,{list:async(args,signal,W,n)=>{if(n>1)throw Error('You can only search your own lists. The signed-in account changed.');return {posts:[W.RTPostModel.normalizePost(raw('first'))],scanned:100,hasMore:true,after:'t3_first'};}});await s.d.refreshActivity();assert.equal(shown(s).length,0);assert.equal(s.d.listState.items.size,0);assert.equal(s.d.nodes.size,0);assert.match(s.d.status.textContent,/signed-in account changed/);
 });
+test('crowded header filters fold into one "N filters" pill whose card lists and removes each filter',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=cats&rt_list=saved',withHeader:true});s.h.field.getBoundingClientRect=()=>({width:600,height:40,top:0,left:0,right:600,bottom:40});s.h.host.getBoundingClientRect=()=>({width:600,height:40,top:0,left:0,right:600,bottom:40});
+ s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha','Beta'],date:{preset:'week'},types:['image']});await flush();
+ let pills=[...s.h.root.querySelectorAll('[data-rt-header-filter]')];assert.equal(pills.length,1,'one folded pill');assert.equal(pills[0].dataset.rtHeaderFilter,'filters');
+ assert.match(pills[0].querySelector('.text-label-2').textContent,/^3 filters$/);assert.match(pills[0].getAttribute('aria-label'),/communities/);
+ pills[0].click();await flush();const card=s.W.document.querySelector('[data-rt-ui="header-filters"]');assert.ok(card,'click opens the card, not clear');assert.equal(s.d.rtFilters.subreddits.length,2);
+ const inCard=[...card.querySelectorAll('rpl-input-chip')];assert.equal(inCard.length,3);
+ inCard.find(p=>/communities/.test(p.textContent)).click();await flush();assert.deepEqual(Array.from(s.d.rtFilters.subreddits),[]);assert.equal(s.W.document.querySelector('[data-rt-ui="header-filters"]'),null,'card closes after a removal');
+ pills=[...s.h.root.querySelectorAll('[data-rt-header-filter]')];assert.equal(pills.length,2,'two short pills fit again');
+ s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha','Beta']});await flush();pills=[...s.h.root.querySelectorAll('[data-rt-header-filter]')];assert.equal(pills.length,1);
+ pills[0].querySelector('.rt-filter-chip-remove').click();await flush();assert.equal(s.d.rtFilters.subreddits.length,0);assert.equal(s.d.rtFilters.date,null);assert.equal(s.d.rtFilters.types.length,0,'× clears all');
+ s.d.destroy();
+});

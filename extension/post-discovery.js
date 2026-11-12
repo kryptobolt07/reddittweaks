@@ -1267,15 +1267,22 @@
       const native=root?.querySelector('#search-input-remove-filter,rpl-input-chip.scoped-search-pill:not([data-rt-list-chip]):not([data-rt-header-filter])'),field=root?.querySelector('faceplate-search-input[name="q"]');
       // Desktop layout decides; the field's width is 0 while Reddit hydrates it, which must not move the pills.
       const wide=Boolean(field) && globalThis.matchMedia?.('(min-width: 768px)')?.matches !== false;
-      const items=native && wide?this.headerFilterChips():[],existing=[...(root?.querySelectorAll('[data-rt-header-filter]') || [])],sig=JSON.stringify(items.map(({chip})=>[chip.id,chip.label]));
+      let items=native && wide?this.headerFilterChips():[];
+      // Many filters crowd the search field: fold them into one "N filters" pill that opens a card listing each.
+      if(items.length>1 && this.headerPillsCrowd(items,host)){const all=items,shown=all[0].shown;items=[{chip:{id:'filters',label:all.length+' filters',icon:'filter',remove:state=>all.reduce((acc,{chip})=>chip.remove(acc),state)},shown,all}];}
+      const existing=[...(root?.querySelectorAll('[data-rt-header-filter]') || [])],sig=JSON.stringify(items.map(({chip,all})=>[chip.id,chip.label,...(all || []).map(({chip})=>chip.label)]));
       const after=root?.querySelector('[data-rt-list-chip]') || native;
       // Same pills after Reddit re-rendered the header: move the same elements back (no blank re-render).
       if(items.length && this.headerFilterSig===sig && this.headerPillEls?.length===items.length && !existing.length){let at=after;for(const el of this.headerPillEls){at.after(el);at=el;}}
       else if(!(items.length && this.headerFilterSig===sig && existing.length===items.length && existing[0]?.previousElementSibling===after)){
         for(const el of existing)el.remove();this.headerFilterSig=sig;this.headerPillEls=[];
         let at=after;
-        for(const {chip,shown} of items){
-          const el=f.pill(chip,{make,glyph,onRemove:()=>{const next=chip.remove(f.clone(shown));this.setFilters(shown.sort?next:{...next,sort:this.rtFilters?.sort ?? null});}});
+        this.closeHeaderFilterCard();
+        for(const {chip,shown,all} of items){
+          const el=f.pill(chip,{make,glyph,onRemove:()=>this.removeHeaderChip(chip,shown)});
+          if(all){el.setAttribute('aria-label',chip.label+': '+all.map(({chip})=>chip.label).join(', '));el.setAttribute('aria-haspopup','dialog');el.querySelector('.rt-filter-chip-remove')?.setAttribute('aria-label','Clear all filters');
+            // A click on the pill opens the list; only its × clears everything.
+            el.addEventListener('click',event=>{if(event.composedPath().some(node=>node.classList?.contains('rt-filter-chip-remove')))return;event.preventDefault();event.stopImmediatePropagation();this.toggleHeaderFilterCard(el,all);},true);}
           el.dataset.rtHeaderFilter=chip.id;if(native.hasAttribute('selected'))el.setAttribute('selected','');el.setAttribute('slot',native.getAttribute('slot') || 'chips');el.className=native.className+' rt-filter-chip';el.style.marginInlineStart='4px';el.style.flex='none';
           // Our stylesheet doesn't reach Reddit's shadow root: size the icon and close control inline.
           for(const node of el.querySelectorAll('.rt-filter-chip-icon,.rt-filter-chip-icon svg,.rt-filter-chip-icon img'))Object.assign(node.style,{display:'inline-flex',width:'16px',height:'16px',borderRadius:node.tagName==='svg'?'':'50%',overflow:'hidden',objectFit:'cover',margin:'0'});
@@ -1292,7 +1299,36 @@
         const form=root.querySelector('form');if(form){this.headerFilterForm=form;form.addEventListener('submit',this.onOwnSubmit,true);}
       }else if(!items.length)this.clearHeaderFilters({keepRow:true});
     }
+    removeHeaderChip(chip,shown){const f=globalThis.RTFeedFilters,next=chip.remove(f.clone(shown));this.setFilters(shown.sort?next:{...next,sort:this.rtFilters?.sort ?? null});}
+    // Estimated pill widths (Reddit's input chip: 11+16+5 before the 600 12px label, 4+16+5 after, 1px borders, 4px apart)
+    // against 42% of the header search bar, so the text field keeps most of the room.
+    headerPillsCrowd(items,host){
+      const width=host?.getBoundingClientRect?.().width || 0;if(!width)return items.length>2;
+      return items.reduce((sum,{chip})=>sum+62+6.6*String(chip.label).length,0)>width*0.42;
+    }
+    toggleHeaderFilterCard(anchor,all){if(this.headerFilterCard?.anchor===anchor){this.closeHeaderFilterCard(true);return;}this.openHeaderFilterCard(anchor,all);}
+    openHeaderFilterCard(anchor,all){
+      this.closeHeaderFilterCard();const f=globalThis.RTFeedFilters;
+      const card=make('div','rt-header-filters');card.dataset.rtUi='header-filters';card.setAttribute('role','dialog');card.setAttribute('aria-label','Search filters');
+      const head=make('div','rt-header-filters-head'),clear=make('button','rt-header-filters-clear','Clear all');clear.type='button';
+      clear.addEventListener('click',event=>{event.preventDefault();const shown=all[0].shown;this.closeHeaderFilterCard();this.removeHeaderChip({remove:state=>all.reduce((acc,{chip})=>chip.remove(acc),state)},shown);});
+      head.append(make('span','rt-header-filters-title','Filters'),clear);
+      const list=make('div','rt-header-filters-list');
+      for(const {chip,shown} of all)list.append(f.pill(chip,{make,glyph,onRemove:()=>{this.closeHeaderFilterCard();this.removeHeaderChip(chip,shown);}}));
+      card.append(head,list);document.body.append(card);
+      const box=anchor.getBoundingClientRect(),width=card.getBoundingClientRect().width || 320;
+      card.style.left=Math.max(8,Math.min(box.left,innerWidth-width-8))+'px';card.style.top=(box.bottom+8)+'px';
+      const outside=event=>{const path=event.composedPath();if(!path.includes(card) && !path.includes(anchor))this.closeHeaderFilterCard();};
+      const keys=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.closeHeaderFilterCard(true);}};
+      const away=()=>this.closeHeaderFilterCard();
+      document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',keys,true);addEventListener('scroll',away,{passive:true,once:true});addEventListener('resize',away,{once:true});
+      anchor.setAttribute('aria-expanded','true');
+      this.headerFilterCard={card,anchor,cleanup:()=>{document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',keys,true);removeEventListener('scroll',away);removeEventListener('resize',away);}};
+      clear.focus({preventScroll:true});
+    }
+    closeHeaderFilterCard(focus=false){const open=this.headerFilterCard;if(!open)return;this.headerFilterCard=null;open.cleanup();open.card.remove();open.anchor.setAttribute('aria-expanded','false');if(focus && open.anchor.isConnected)open.anchor.focus?.({preventScroll:true});}
     clearHeaderFilters({keepRow=false}={}){
+      this.closeHeaderFilterCard();
       this.headerFilterObserver?.disconnect();this.headerFilterObserver=null;this.headerFilterSig='';this.headerPillEls=null;this.headerFilterRoot=null;
       this.headerFilterForm?.removeEventListener('submit',this.onOwnSubmit,true);this.headerFilterForm=null;
       for(const el of document.querySelector('reddit-search-large')?.shadowRoot?.querySelectorAll('[data-rt-header-filter]') || [])el.remove();
