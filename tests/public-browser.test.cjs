@@ -15,7 +15,7 @@ function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttri
   nodes.push(node);return node;
  }};
  const window={addEventListener(name,fn){listeners[name]=fn;},removeEventListener(name,fn){if(listeners[name]===fn)delete listeners[name];}};window.top=window;
- const context=vm.createContext({window,document,location,URL,AbortController,TextDecoder,Date:{now:()=>now},setTimeout(fn,ms){const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout(id){timers.delete(id);},setInterval(fn,ms){const id=++next;timers.set(id,{fn,ms,interval:true});return id;},clearInterval(id){timers.delete(id);}});
+ const context=vm.createContext({window,document,location,URL,AbortController,TextDecoder,Date:{now:()=>now,parse:Date.parse},setTimeout(fn,ms){const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout(id){timers.delete(id);},setInterval(fn,ms){const id=++next;timers.set(id,{fn,ms,interval:true});return id;},clearInterval(id){timers.delete(id);}});
  vm.runInContext(fs.readFileSync('extension/public-browser.js','utf8'),context);
  const e={read:(...args)=>context.RTPublicBrowser.read(...args),events,calls,nodes,state,location,timers,advance(ms){now+=ms;for(const [id,timer] of [...timers])if(timer.ms<=ms){if(!timer.interval)timers.delete(id);timer.fn();}},pagehide:()=>listeners.pagehide()};return e;
 }
@@ -25,9 +25,10 @@ function response(url,{status=200,chunks=[new TextEncoder().encode('<shreddit-co
 test('fresh credentialless frame precedes navigation and is reused; only anonymous native fetch options supplied',async()=>{
  const e=env();assert.match(await e.read(endpoint()),/public/);await e.read(endpoint('next'));
  assert.equal(e.nodes.length,1);assert.ok(e.events.indexOf('credentialless')<e.events.indexOf('src'));assert.ok(e.events.indexOf('src')<e.events.indexOf('append'));
- assert.ok(e.events.some(event=>Array.isArray(event)&&event[0]==='sandbox'&&event[1]==='allow-scripts allow-same-origin'));
+ assert.ok(e.events.some(event=>Array.isArray(event)&&event[0]==='sandbox'&&event[1]==='allow-scripts allow-same-origin allow-forms'));
  const [url,options]=e.calls[0];assert.equal(new URL(url).searchParams.has('rt_public_search'),false);assert.equal(options.credentials,'same-origin');assert.equal(options.redirect,'error');assert.equal(options.referrerPolicy,'no-referrer');assert.deepEqual(Object.keys(options.headers),['Accept']);assert.equal(options.method,'GET');
- e.advance(19999);assert.equal(e.nodes[0].isConnected,true);e.advance(20000);assert.equal(e.nodes[0].isConnected,false);
+ assert.equal(e.nodes[0].referrerPolicy,'strict-origin','bootstrap supplies the real Reddit origin without the profile path');
+ e.advance(59999);assert.equal(e.nodes[0].isConnected,true);e.advance(60000);assert.equal(e.nodes[0].isConnected,false);
 });
 test('unsupported credentialless fails closed without appending or fetching',async()=>{
  const e=env({supported:false});await assert.rejects(e.read(endpoint()));assert.equal(e.calls.length,0);assert.equal(e.events.includes('append'),false);
@@ -70,6 +71,29 @@ test('429 and blocked responses have cooldown without retries or ordinary-frame 
  }
 });
 test('pagehide immediately removes the helper frame',async()=>{const e=env();await e.read(endpoint());e.pagehide();assert.equal(e.nodes[0].isConnected,false);});
+test('refresh reuses a healthy anonymous context and results themselves are never cached',async()=>{
+ const e=env();await e.read(endpoint());await e.read(endpoint(),{refresh:true});await e.read(endpoint());
+ assert.equal(e.nodes.length,1);assert.equal(e.calls.length,3);
+});
+test('explicit refresh may probe a blocked context again but cannot bypass a server rate limit',async()=>{
+ let blocked=true;const e=env({fetcher:url=>response(url,{status:blocked?403:200})});
+ await assert.rejects(e.read(endpoint()));blocked=false;await assert.rejects(e.read(endpoint()));assert.equal(e.calls.length,1);
+ assert.match(await e.read(endpoint(),{refresh:true}),/public/);assert.equal(e.calls.length,2);
+ const limited=env({fetcher:url=>{const r=response(url,{status:429});r.headers.get=name=>name==='retry-after'?'120':null;return r;}});
+ await assert.rejects(limited.read(endpoint()));assert.equal(limited.nodes[0].isConnected,true,'rate limiting retains the healthy anonymous session');
+ limited.advance(60000);await assert.rejects(limited.read(endpoint(),{refresh:true}),/rate limit/);assert.equal(limited.calls.length,1);
+});
+test('a transient service error retains verified session state for a retry',async()=>{
+ let failed=true;const e=env({fetcher:url=>response(url,{status:failed?503:200})});
+ await assert.rejects(e.read(endpoint()),/HTTP 503/);assert.equal(e.nodes[0].isConnected,true);
+ failed=false;await e.read(endpoint());assert.equal(e.nodes.length,1);assert.equal(e.calls.length,2);
+});
+test('HTTP-date Retry-After preserves the anonymous session pause until the server deadline',async()=>{
+ const e=env({fetcher:url=>{const r=response(url,{status:429});r.headers.get=name=>name==='retry-after'?new Date(220000).toUTCString():null;return r;}});
+ await assert.rejects(e.read(endpoint()),/rate limit/);e.advance(60000);
+ await assert.rejects(e.read(endpoint(),{refresh:true}),/rate limit/);assert.equal(e.calls.length,1);
+ e.advance(60000);await assert.rejects(e.read(endpoint()),/rate limit/);assert.equal(e.calls.length,2);
+});
 test('pagehide aborts active work and queued reads without poisoning restored-page checks',async()=>{
  let first=true;const e=env({fetcher:(url,options)=>{if(!first)return response(url);first=false;return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Error('aborted')),{once:true}));}});
  const active=e.read(endpoint()),queued=e.read(endpoint('queued'));
