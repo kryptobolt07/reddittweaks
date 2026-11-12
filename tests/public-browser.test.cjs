@@ -8,8 +8,8 @@ function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttri
  const location={origin:'https://www.reddit.com',pathname:'/user/Example/',href:'https://www.reddit.com/user/Example/'};
  const state={loggedIn,credentialless};
  const document={documentElement:{append(node){events.push('append');node.isConnected=true;}},createElement(tag){assert.equal(tag,'iframe');let anonymous=false;
-  const d={querySelector(selector){return selector==='shreddit-app'?{hasAttribute(name){return state.loggedIn || Object.hasOwn(appAttributes,name);},getAttribute(name){return appAttributes[name] ?? (state.loggedIn && name==='user-logged-in'?'true':null);}}:{};}};
-  const w={get credentialless(){return state.credentialless;},location:{origin:location.origin,pathname:'/'},document:d,async fetch(url,options){calls.push([url,options]);return fetcher?fetcher(url,options,e):response(url);}};
+  const d={readyState:'complete',querySelector(selector){return selector==='shreddit-app'?{hasAttribute(name){return state.loggedIn || Object.hasOwn(appAttributes,name);},getAttribute(name){return appAttributes[name] ?? (state.loggedIn && name==='user-logged-in'?'true':null);}}:{};}};
+  const w={get credentialless(){return state.credentialless;},location:{origin:location.origin,pathname:'/'},document:d,customElements:{get:()=>class{}},async fetch(url,options){calls.push([url,options]);return fetcher?fetcher(url,options,e):response(url);}};
   const node={style:{setProperty(){}},setAttribute(key,value){events.push([key,value]);},isConnected:false,contentWindow:w,contentDocument:d,remove(){this.isConnected=false;events.push('remove');},set src(value){events.push('src');this.url=value;}};
   if(supported)Object.defineProperty(node,'credentialless',{get(){return anonymous;},set(value){events.push('credentialless');anonymous=value;}});
   nodes.push(node);return node;
@@ -45,6 +45,15 @@ test('Reddit native logged-in-user-id and user-logged-in signals reject a frame'
  for(const appAttributes of [{'logged-in-user-id':'t2_synthetic'},{'user-logged-in':'true'}]){
   const e=env({appAttributes});await assert.rejects(e.read(endpoint()));assert.equal(e.calls.length,0);
  }
+});
+test('SSR login markup cannot start a public read before native browser initialization completes',async()=>{
+ const e=env(),task=e.read(endpoint());
+ // Pause startup before its queued task creates the iframe.
+ e.state.credentialless=false;await tick();const node=e.nodes[0];node.contentDocument.readyState='loading';e.state.credentialless=true;
+ e.advance(100);await tick();assert.equal(e.calls.length,0);
+ node.contentDocument.readyState='complete';node.contentWindow.customElements.get=()=>undefined;
+ e.advance(100);await tick();assert.equal(e.calls.length,0);
+ node.contentWindow.customElements.get=()=>class{};e.advance(100);await task;assert.equal(e.calls.length,1);
 });
 test('auth and document identity are checked again after reading',async()=>{
  for(const mutation of [e=>e.state.loggedIn=true,e=>e.state.credentialless=false,e=>e.location.href+='?changed',e=>e.nodes[0].contentDocument={querySelector(){return {};}}]){

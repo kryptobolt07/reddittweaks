@@ -39,6 +39,9 @@
     try{
       const w=node.contentWindow,d=node.contentDocument,app=d?.querySelector('shreddit-app');
       if(node!==frame || !node.isConnected || !node.credentialless || w.credentialless!==true || w.location.origin!==origin || w.location.pathname!=='/')return null;
+      // SSR can show Log In before native JS has finished preparing the
+      // anonymous session. The first search must wait for browser initialization.
+      if(d.readyState!=='complete' || !w.customElements.get('shreddit-app'))return null;
       if(app && (app.hasAttribute('logged-in') || app.hasAttribute('logged-in-user-id') || app.getAttribute('user-logged-in')==='true'))throw failure();
       return app && d.querySelector('#login-button')?{window:w,document:d}:null;
     }catch(error){if(error.name==='SecurityError')return null;throw error;}

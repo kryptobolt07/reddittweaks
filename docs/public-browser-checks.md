@@ -27,6 +27,10 @@ existing search parsers validate results. Shells, authentication, challenge page
 timeouts cannot prove visibility, removal, or complete history. This transport
 does not add per-comment removal verification.
 
+Server-rendered Log In markup alone is not initialization proof. The iframe
+document must finish loading and Reddit's `shreddit-app` component must be
+registered before its first public request.
+
 ## Bounds and lifecycle
 
 - One frame per page, with one read at a time and at most two pending requests.
@@ -91,3 +95,8 @@ origin-only referrer loads the native signed-out page and returns search HTTP
 submission to complete and return HTTP 200; only query field names were
 observed, never token values. The corrected installed build still requires an
 unpacked reload to verify the complete fallback flow.
+
+The first installed automatic read also exposed an early-start race: native
+login markup could be available before browser initialization finished. The
+readiness check now waits for document completion and native app registration;
+the regression test prevents server-rendered markup alone from starting a read.
