@@ -39,12 +39,16 @@
       }
       this.ready=this.loadSettings();
     }
-    async loadSettings(){
-      let settings=null;try{settings=M.normalizeSettings(await this.readSettings());}catch{}
-      this.enabled=Boolean(settings?.modUnapprovedFilter);this.sync();
+    // A failed settings read keeps the default and retries with backoff, instead of disabling the filter for the page.
+    async loadSettings(attempt=0){
+      clearTimeout(this.settingsRetry);let settings=null;try{settings=M.normalizeSettings(await this.readSettings());}catch{}
+      if(this.dead)return;
+      if(settings)this.enabled=Boolean(settings.modUnapprovedFilter);
+      else{this.enabled=M.normalizeSettings({}).modUnapprovedFilter;if(attempt<6)this.settingsRetry=setTimeout(()=>this.loadSettings(attempt+1),Math.min(30000,1000*2**attempt));}
+      this.sync();
     }
     destroy(){
-      this.dead=true;this.observer?.disconnect();removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
+      this.dead=true;clearTimeout(this.settingsRetry);this.observer?.disconnect();removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
       try{chrome.storage?.onChanged?.removeListener(this.onSettings);}catch{}try{chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}
       this.unmount();this.removeButton();
     }
