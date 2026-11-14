@@ -728,12 +728,70 @@
     if(!data || data.is_suspended===true)return {suspended:true};
     return {created:Number(data.created_utc) || 0,commentKarma:Number(data.comment_karma) || 0,postKarma:Number(data.link_karma) || 0};
   }
+  // Redaction (docs/redaction-spec.md): writes only to items this page read from the signed-in account's own lists.
+  // The modhash stays here, in the page world; the extension's other scripts never receive it.
+  const redaction={username:'',modhash:'',allowed:new Map()};
+  const redactSources={overview:['new'],submitted:['new','top','controversial'],comments:['new','top','controversial']};
+  async function redactIdentity(signal){
+    const response=await fetch(new URL('/api/me.json',location.origin).href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
+    if(!response.ok)throw Error(response.status===401 || response.status===403?'Sign in to Reddit to redact your posts and comments.':'Reddit could not confirm your account (HTTP '+response.status+').');
+    let data;try{data=JSON.parse(await boundedText(response))?.data;}catch{throw Error('Reddit could not confirm your account.');}
+    if(!M.validateUsername(data?.name))throw Error('Sign in to Reddit to redact your posts and comments.');
+    if(redaction.username && redaction.username.toLowerCase()!==data.name.toLowerCase())redaction.allowed.clear();
+    redaction.username=data.name;redaction.modhash=typeof data.modhash==='string' && /^[a-z0-9]{10,100}$/i.test(data.modhash)?data.modhash:'';
+    return {username:data.name,canWrite:Boolean(redaction.modhash)};
+  }
+  async function redactList(input,signal){
+    if(!redaction.username || input.username!==redaction.username)throw Error('Confirm your account first.');
+    if(!Object.hasOwn(redactSources,input.source) || !redactSources[input.source].includes(input.sort))throw Error('Invalid list.');
+    if(input.after!=null && (typeof input.after!=='string' || !/^t[13]_[a-z0-9]{1,32}$/i.test(input.after)))throw Error('Invalid list cursor.');
+    const url=new URL('/user/'+encodeURIComponent(redaction.username)+'/'+input.source+'.json',location.origin);
+    for(const [k,v] of Object.entries({sort:input.sort,limit:'100',raw_json:'1',...(input.sort==='new'?{}:{t:'all'}),...(input.after?{after:input.after}:{})}))url.searchParams.set(k,v);
+    const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
+    if(!response.ok)throw Error('Reddit could not list your '+(input.source==='overview'?'posts and comments':input.source==='submitted'?'posts':'comments')+' (HTTP '+response.status+').');
+    let data;try{data=JSON.parse(await boundedText(response,6000000));}catch{throw Error('Reddit returned an unexpected list.');}
+    const listing=data?.data;
+    if(data?.kind!=='Listing' || !Array.isArray(listing?.children) || listing.children.length>100 || listing.after!=null && !/^t[13]_[a-z0-9]{1,32}$/i.test(listing.after))throw Error('Reddit returned an unexpected list.');
+    const items=[];
+    for(const child of listing.children){
+      const raw=child?.data;if(!raw || !['t1','t3'].includes(child.kind) || typeof raw.id!=='string' || !/^[a-z0-9]{1,32}$/i.test(raw.id))continue;
+      // Your own lists only ever hold your items; anything else is skipped and never becomes writable.
+      if(String(raw.author).toLowerCase()!==redaction.username.toLowerCase())continue;
+      const kind=child.kind==='t1'?'comment':'post',fullname=child.kind+'_'+raw.id.toLowerCase(),body=kind==='comment'?raw.body:raw.selftext;
+      const item={fullname,kind,subreddit:typeof raw.subreddit==='string'?raw.subreddit:'',created:Number(raw.created_utc) || 0,score:Number(raw.score) || 0,
+        title:kind==='post' && typeof raw.title==='string'?raw.title.slice(0,300):(typeof raw.link_title==='string'?raw.link_title.slice(0,300):''),body:typeof body==='string'?body.slice(0,4000):'',
+        isSelf:kind==='post'?raw.is_self===true:undefined,permalink:typeof raw.permalink==='string' && raw.permalink.startsWith('/')?raw.permalink.slice(0,300):'',deleted:body==='[deleted]' || raw.removed_by_category==='deleted'};
+      if(redaction.allowed.size<50000 || redaction.allowed.has(fullname))redaction.allowed.set(fullname,kind);items.push(item);
+    }
+    return {items,after:listing.after || null,hasMore:Boolean(listing.after),scanned:listing.children.length};
+  }
+  async function redactItem(input,signal){
+    if(!['overwrite','delete'].includes(input.step) || typeof input.fullname!=='string' || !/^t[13]_[a-z0-9]{1,32}$/.test(input.fullname))throw Error('Invalid redaction request.');
+    if(['url','origin','method','headers'].some(key=>input[key]!==undefined))throw Error('Invalid redaction request.');
+    if(!redaction.allowed.has(input.fullname))throw Error('This item wasn’t read from your own lists on this page, so it can’t be changed.');
+    if(!redaction.modhash || input.username!==redaction.username)throw Error('Confirm your account first.');
+    if(input.step==='overwrite' && (typeof input.text!=='string' || !input.text.trim() || input.text.length>1000))throw Error('Invalid replacement text.');
+    const body=input.step==='overwrite'?new URLSearchParams({thing_id:input.fullname,text:input.text,api_type:'json'}):new URLSearchParams({id:input.fullname});
+    const response=await fetch(new URL(input.step==='overwrite'?'/api/editusertext':'/api/del',location.origin).href,{method:'POST',credentials:'include',cache:'no-store',redirect:'error',
+      headers:{'Content-Type':'application/x-www-form-urlencoded','X-Modhash':redaction.modhash,Accept:'application/json'},body,signal});
+    if(response.status===429){const seconds=Number(response.headers.get('retry-after'));return {written:false,rateLimited:true,retryAfterMs:Number.isFinite(seconds)?seconds*1000:60000,reason:'Reddit is limiting requests.'};}
+    if(!response.ok)return {written:false,reason:'Reddit refused the '+(input.step==='overwrite'?'edit':'delete')+' (HTTP '+response.status+').'};
+    let data=null;try{const text=await boundedText(response);data=text?JSON.parse(text):{};}catch{data=null;}
+    const errors=data?.json?.errors;
+    if(data==null)return {written:false,reason:'Reddit returned an unexpected answer.'};
+    if(Array.isArray(errors) && errors.length)return {written:false,reason:'Reddit refused the '+(input.step==='overwrite'?'edit':'delete')+': '+String(errors[0]?.[1] || errors[0]?.[0] || 'unknown error').slice(0,200)+'.'};
+    if(input.step==='delete')redaction.allowed.delete(input.fullname);
+    return {written:true};
+  }
   async function read(input,signal){
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
     if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
     if(input.action==='raffle-thread')return raffleThread(input,signal);
     if(input.action==='raffle-more')return raffleMore(input,signal);
     if(input.action==='raffle-user')return raffleUser(input,signal);
+    if(input.action==='redact-identity')return redactIdentity(signal);
+    if(input.action==='redact-list')return redactList(input,signal);
+    if(input.action==='redact-item')return redactItem(input,signal);
     if(input.action==='user-avatar')return userAvatar(input,signal);
     if(input.action==='render-card')return renderCard(input,signal);
     if(input.action==='status')return readStatuses(input,signal);
@@ -819,7 +877,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-more','raffle-user','unapproved','mod-status'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-more','raffle-user','unapproved','mod-status','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}

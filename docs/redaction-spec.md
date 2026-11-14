@@ -1,0 +1,79 @@
+# Spec: bulk redaction of your own posts and comments
+
+Status: implemented 2026-11-14 from logic and synthetic tests only (`extension/redaction-model.js`, `extension/redaction-ui.js`, bridge actions `redact-identity`, `redact-list`, `redact-item`). **Never run against a real account by the agent** (user instruction, 2026-11-13); the user tests it (§8). Follows the [interaction and lifecycle contract](interaction-lifecycle-contract.md).
+
+## 1. The problem
+
+Redact.dev lets people bulk delete their Reddit history, overwriting the text first so archives that re-crawl see the overwrite rather than the original. The user wants the same inside Reddit, decided 2026-11-14: **overwrite the text, then delete**.
+
+## 2. Parity target
+
+| # | Capability | Redact.dev (Reddit) | Ours |
+|---|---|---|---|
+| P1 | Bulk delete your posts and comments | Yes | **Yes** |
+| P2 | Overwrite text before deleting | Yes (random or custom text) | **Yes**, custom text (default given); posts without text are deleted only |
+| P3 | Filter by type, date, community, score, keyword | Yes | **Yes**: type, older than N days, date range, only/never these communities, keep score ≥ N, only items containing, keep items containing |
+| P4 | Keep specific items | Yes (whitelist) | **Yes**: paste links or IDs |
+| P5 | Preview before running | Yes | **Yes, required**: the run uses exactly the previewed set |
+| P6 | Reach past Reddit's 1,000-item listing limit | Partly (multiple sorts) | **Yes, partly**: newest, top and controversial lists of posts and comments are combined; the preview says how many were found and that older items may be missing |
+| P7 | Backup before deleting | Export | **Yes**: "Download a copy" (JSON of the previewed items) |
+| P8 | Scheduling, other sites | Yes | No |
+| P9 | Runs on their servers with your token | Yes | **No**: runs in your Reddit tab with Reddit's own session; nothing leaves the browser |
+
+## 3. Behaviour
+
+- **B1. Entry.** The popup's "Redact my posts and comments…" opens `https://www.reddit.com/#rt-redact`; on any Reddit page that address fragment opens the dialog (and is removed from the address). The dialog is Reddit's `rpl-modal-card`, as in the raffle.
+- **B2. Identity.** The dialog first confirms the signed-in account in the page world (`/api/me.json`). Signed out → "Sign in to Reddit to redact your posts and comments." The modhash Reddit needs for writes stays in the page world and is never sent to the extension's other scripts.
+- **B3. Find (dry run).** "Find matching items" reads your own lists (overview newest; posts and comments by top and controversial), 100 per request, up to Reddit's 1,000 per list, with progress. The preview shows: "N items match (P posts, C comments) out of M found", the oldest date reached, the first 50 matches as rows (type, community, date, score, text excerpt, link), and "Download a copy". Changing any rule clears the preview.
+- **B4. Confirm.** The run button stays disabled until you type `delete N` (N = the previewed count). It reads "Overwrite and delete N items".
+- **B5. Run.** Items are processed one at a time, oldest first: overwrite (comments and text posts with text), then delete. At most one write per 1.1 s; HTTP 429 waits for `Retry-After` (at most 5 minutes); three failures in a row stop the run. Progress: "Done X of N · F failed · about M min left", with Stop. Closing the dialog stops after the current request.
+- **B6. Result.** "Deleted X of N. F failed." Failures list each item's link and Reddit's reason. Overwritten-but-not-deleted items are listed separately ("Text overwritten, delete failed").
+- **B7. Ownership guard.** The page bridge writes only to items it read itself from the signed-in account's own lists during this page's life, and re-checks the signed-in name at the start of each run. Any other ID is refused before a request.
+
+## 4. Requests (page world, same origin, Reddit's session)
+
+| Step | Request | Notes |
+|---|---|---|
+| Identity | `GET /api/me.json` | Name and modhash (kept in the page world) |
+| Lists | `GET /user/<you>/{overview,submitted,comments}.json?sort=…&limit=100&after=…` | Own lists only |
+| Overwrite | `POST /api/editusertext` `thing_id`, `text`, `api_type=json`, header `X-Modhash` | Comments and self posts with text |
+| Delete | `POST /api/del` `id`, header `X-Modhash` | Every item |
+
+**Unverified (no live test allowed):** whether `www.reddit.com` still accepts these legacy write endpoints with cookie + modhash. If it doesn't, each item fails with Reddit's HTTP status and the run stops after three failures; nothing is reported as deleted unless Reddit answered success.
+
+## 5. Requirements and acceptance checks (synthetic)
+
+| ID | Requirement | Acceptance check |
+|---|---|---|
+| R1 | Filters select exactly the stated items | A1: unit, every rule and combination |
+| R2 | The run uses exactly the previewed set and needs the typed confirmation | A2: unit |
+| R3 | Pacing, 429 back-off, stop after three failures, Stop button | A3: unit with a fake clock |
+| R4 | Ownership guard | A4: unit: unread IDs, another account, missing modhash are refused before any write |
+| R5 | Overwrite only where there is text; delete always; success only on Reddit's success | A5: unit on the bridge with a fake `fetch`, including `json.errors` |
+| R6 | Honest reporting | A6: unit: partial failures, overwritten-not-deleted, stop |
+
+## 6. Transitions
+
+| T | Transition | Expected |
+|---|---|---|
+| T1 | Load with `#rt-redact` | Dialog opens once; the fragment is removed with one `replaceState` |
+| T8 | Escape, Cancel, close button, backdrop | Closes. During a run, the first close asks "Stop the run and close?" in the status line; a second close stops after the current request and closes |
+| T10 | Setting off | The popup entry is hidden; an open dialog stays until closed |
+| T11 | Account switch | The bridge's allow-list belongs to the page; Reddit reloads on account switch, so it's empty for the new account |
+| T12 | Extension reloaded mid-run | The run stops (the content script dies); items already processed stay processed; reopening shows the remaining items in a new preview |
+
+## 7. Where we lag
+
+| # | Limit | What the user sees |
+|---|---|---|
+| L1 | Reddit lists at most 1,000 items per list | "Found M items; Reddit may not list older ones" |
+| L2 | No scheduling | — |
+| L3 | Archives that already captured the original keep it | Stated in the dialog's intro |
+| L4 | Media in posts isn't overwritten (only text) | Posts without text are deleted only, stated in the preview |
+| L5 | Write endpoints unverified live | The first failure shows Reddit's reason |
+
+## 8. How the user tests it (dry run first)
+
+1. Reload the extension, open the popup, choose "Redact my posts and comments…".
+2. Set a narrow filter (for example one community and an old date range) and choose "Find matching items". Check the preview and "Download a copy".
+3. Type `delete N` for a small N (1–2 test items you made for this), run, and confirm on Reddit that the items show the overwrite text and then `[deleted]`.

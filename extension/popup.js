@@ -106,3 +106,6 @@ document.addEventListener('change',event=>{if(event.target.matches?.('[data-sett
 try{const manifest=globalThis.chrome?.runtime?.getManifest?.();const version=document.querySelector('#version');if(manifest && version)version.textContent='v'+(manifest.version_name || manifest.version).replace(/ preview$/,'');}catch{}
 loadSettings().then(syncDependencies);
 updateMessageStats();
+
+// Redaction runs on Reddit itself (docs/redaction-spec.md); the fragment opens its dialog there.
+document.getElementById('open-redaction')?.addEventListener('click',()=>{try{chrome.tabs.create({url:'https://www.reddit.com/#rt-redact'});}catch{}window.close?.();});
