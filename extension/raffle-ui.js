@@ -55,7 +55,7 @@
         try{chrome.storage?.onChanged?.addListener(this.onSettings);}catch{}try{chrome.runtime?.onMessage?.addListener(this.onSettingsMessage);}catch{}
       }
       // Safety net: make sure the item exists the moment a post's ⋯ button is pressed, before Reddit draws the menu.
-      this.onPress=event=>{const menu=event.composedPath?.().find(node=>node?.tagName==='SHREDDIT-POST-OVERFLOW-MENU');if(menu)this.sync();};
+      this.onPress=event=>{const menu=event.composedPath?.().find(node=>node?.tagName==='SHREDDIT-POST-OVERFLOW-MENU');if(menu){this.sync();this.menuStatus(menu);}};
       document.addEventListener('pointerdown',this.onPress,true);document.addEventListener('keydown',this.onPress,true);
       this.ready=this.loadSettings();
     }
@@ -97,6 +97,21 @@
         this.open(this.postOf(menu),trigger);};
       row.addEventListener('click',choose);row.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ')choose(event);});
       return li;
+    }
+    /* A post's Reddit Raffler status, shown on its menu item: "View raffle results" when a public raffle exists.
+       Checked when the menu is opened, at most once per post every 5 minutes; a failed check leaves the item as is. */
+    async menuStatus(menu){
+      if(!this.enabled)return;const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();if(!/^[a-z0-9]{1,10}$/.test(id))return;
+      this.raffleStatus ||= new Map();const cached=this.raffleStatus.get(id);
+      if(!cached || Date.now()-cached.at>300000){
+        const entry={at:Date.now(),pending:this.raffler({action:'status',postId:id}).then(r=>({exists:Boolean(r?.exists),verified:Boolean(r?.raffle?.verified)}),()=>null)};
+        if(this.raffleStatus.size>=200)this.raffleStatus.delete(this.raffleStatus.keys().next().value);this.raffleStatus.set(id,entry);
+      }
+      const status=await this.raffleStatus.get(id)?.pending;if(!status)return;
+      const item=menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]');if(!item)return;
+      item.dataset.rtRaffleState=status.exists?'drawn':'none';
+      item.querySelector('.text-body-2').textContent=status.exists?'View raffle results':'Run a raffle';
+      item.querySelector('.text-caption-1').textContent=status.exists?'Drawn on Reddit Raffler'+(status.verified?' · verified':''):'';
     }
     postOf(menu){
       const card=menu.closest('shreddit-post');
@@ -158,9 +173,10 @@
       // Footer: one main action per screen; a note beside it carries warnings (kept in view on phones).
       const button=(label,slot,kind)=>{const b=make('button','button-medium button-'+kind+' button inline-flex items-center justify-center px-md',label);b.type='button';b.slot=slot;return b;};
       const note=make('p','rt-raffle-footnote m-0');note.slot='tertiary-button';
-      const drawButton=button('Run public draw','primary-button','primary');drawButton.disabled=true;
+      const drawButton=button('Run public draw','primary-button','primary');drawButton.disabled=true;drawButton.classList.add('rt-raffle-draw-icon');
       const back=button('Back to rules','tertiary-button','plain'),again=button('Draw again','secondary-button','secondary'),message=button('Message winners','primary-button','primary');
       const msgBack=button('Back','secondary-button','secondary'),send=button('Send','primary-button','primary');
+      again.classList.add('rt-raffle-draw-icon');
       const views={rules:[drawButton],results:[back,again,message],message:[msgBack,send]};
       for(const b of [...views.results,...views.message])b.hidden=true;
       card.append(head,close,body,note,drawButton,back,again,message,msgBack,send);dialog.append(card);document.body.append(dialog);
@@ -376,7 +392,7 @@
       const state=this.dialog,header=make('div','rt-raffle-banner'),top=make('div','rt-raffle-banner-row');
       const title=make('h3','rt-raffle-banner-title m-0',n(count)+' '+(count===1?'winner':'winners'));title.tabIndex=-1;
       const actions=make('div','rt-raffle-banner-actions');
-      if(proof){const link=make('a','rt-raffle-proof button-small button-secondary button inline-flex items-center justify-center','View proof');link.href=proof;link.target='_blank';link.rel='noopener';link.append(make('span','rt-raffle-ext',' ↗'));link.title='Opens redditraffler.com in a new tab';actions.append(link);}
+      if(proof){const link=make('a','rt-raffle-proof button-small button-secondary button inline-flex items-center justify-center','View proof');link.href=proof;link.target='_blank';link.rel='noopener';link.append(make('span','rt-raffle-ext','↗'));link.title='Opens redditraffler.com in a new tab';actions.append(link);}
       const copy=make('button','rt-raffle-copy button-small button-plain button inline-flex items-center justify-center','Copy');copy.type='button';
       copy.addEventListener('click',async()=>{let ok=true;try{await navigator.clipboard.writeText(state.markdown || '');}catch{ok=false;}copy.textContent=ok?'Copied':'Couldn’t copy';if(ok)state.saved=true;this.say(ok?'Results copied.':'Couldn’t copy the results.');setTimeout(()=>{if(copy.isConnected)copy.textContent='Copy';},2000);});
       actions.append(copy);top.append(title,actions);header.append(top);
