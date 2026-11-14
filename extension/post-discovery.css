@@ -444,8 +444,9 @@ label.rt-raffle-row{cursor:pointer}
 .rt-switch input:checked+.rt-switch-track .rt-switch-knob{transform:translateX(16px)}
 .rt-raffle-account>summary{list-style:none;cursor:pointer;padding:8px 0;font-weight:400}
 .rt-raffle-account>summary::-webkit-details-marker{display:none}
-.rt-raffle-chevron{width:8px;height:8px;margin-inline:12px;border:solid var(--color-neutral-content-weak,#576f76);border-width:0 2px 2px 0;transform:rotate(45deg) translateY(-2px);transition:transform .15s}
-.rt-raffle-account[open] .rt-raffle-chevron{transform:rotate(-135deg) translateY(-2px)}
+.rt-raffle-chevron,.rt-raffle-details summary::before,.rt-raffle-preview-wrap>summary::before{content:'';flex:none;width:20px;height:20px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M10%2013.7a.897.897%200%2001-.636-.264l-4.6-4.6a.9.9%200%20111.272-1.273L10%2011.526l3.964-3.963a.9.9%200%20011.272%201.273l-4.6%204.6A.897.897%200%200110%2013.7Z%22%2F%3E%3C%2Fsvg%3E") center/20px no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M10%2013.7a.897.897%200%2001-.636-.264l-4.6-4.6a.9.9%200%20111.272-1.273L10%2011.526l3.964-3.963a.9.9%200%20011.272%201.273l-4.6%204.6A.897.897%200%200110%2013.7Z%22%2F%3E%3C%2Fsvg%3E") center/20px no-repeat;transition:transform .15s}
+.rt-raffle-chevron{margin-inline:12px 0;color:var(--color-neutral-content-weak,#576f76)}
+.rt-raffle-account[open] .rt-raffle-chevron{transform:rotate(180deg)}
 .rt-raffle-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:4px 0 8px}
 .rt-raffle-mini{display:flex;flex-direction:column;gap:4px;min-width:0}
 .rt-raffle-mini .rt-raffle-input{width:100%}
@@ -487,13 +488,15 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-banner-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
 .rt-raffle-banner-row .rt-raffle-banner-title{white-space:nowrap}
 .rt-raffle-banner-info{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:4px}
-.rt-raffle-ext{font-weight:400;margin-inline-start:4px}
 .rt-raffle-field-title{font-weight:600;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-preview-wrap>summary{cursor:pointer;min-height:24px;display:flex;align-items:center;list-style:none}
 .rt-raffle-details summary::-webkit-details-marker,.rt-raffle-preview-wrap>summary::-webkit-details-marker{display:none}
-.rt-raffle-details summary::before,.rt-raffle-preview-wrap>summary::before{content:'';flex:none;width:6px;height:6px;margin-inline:2px 8px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(-45deg);transition:transform .15s}
-.rt-raffle-details[open]>summary::before,.rt-raffle-preview-wrap[open]>summary::before{transform:rotate(45deg)}
+.rt-raffle-details summary::before,.rt-raffle-preview-wrap>summary::before{width:16px;height:16px;-webkit-mask-size:16px;mask-size:16px;margin-inline-end:4px;transform:rotate(-90deg)}
+.rt-raffle-details[open]>summary::before,.rt-raffle-preview-wrap[open]>summary::before{transform:none}
 .rt-raffle-draw-icon::before{content:'';flex:none;width:16px;height:16px;margin-inline-end:8px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M16.6%203H3.4A2.4%202.4%200%20001%205.4v2.2a.9.9%200%2000.9.9%201.5%201.5%200%20010%203%20.9.9%200%2000-.9.9v2.2A2.4%202.4%200%20003.4%2017h13.2a2.4%202.4%200%20002.4-2.4v-2.2a.9.9%200%2000-.9-.9%201.5%201.5%200%20010-3%20.9.9%200%2000.9-.9V5.4A2.4%202.4%200%200016.6%203Zm.6%204.26a3.3%203.3%200%20000%205.48v1.86a.6.6%200%2001-.6.6H3.4a.6.6%200%2001-.6-.6v-1.86a3.3%203.3%200%20000-5.48V5.4a.6.6%200%2001.6-.6h13.2a.6.6%200%2001.6.6v1.86ZM7.1%206.1h1.8v1.8H7.1V6.1Zm0%203h1.8v1.8H7.1V9.1Zm0%203h1.8v1.8H7.1v-1.8Z%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M16.6%203H3.4A2.4%202.4%200%20001%205.4v2.2a.9.9%200%2000.9.9%201.5%201.5%200%20010%203%20.9.9%200%2000-.9.9v2.2A2.4%202.4%200%20003.4%2017h13.2a2.4%202.4%200%20002.4-2.4v-2.2a.9.9%200%2000-.9-.9%201.5%201.5%200%20010-3%20.9.9%200%2000.9-.9V5.4A2.4%202.4%200%200016.6%203Zm.6%204.26a3.3%203.3%200%20000%205.48v1.86a.6.6%200%2001-.6.6H3.4a.6.6%200%2001-.6-.6v-1.86a3.3%203.3%200%20000-5.48V5.4a.6.6%200%2001.6-.6h13.2a.6.6%200%2001.6.6v1.86ZM7.1%206.1h1.8v1.8H7.1V6.1Zm0%203h1.8v1.8H7.1V9.1Zm0%203h1.8v1.8H7.1v-1.8Z%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat}
+.rt-raffle-action{gap:6px;padding:0 12px;white-space:nowrap;text-decoration:none}
+.rt-raffle-action svg{flex:none;width:16px;height:16px}
+.rt-raffle-banner-actions{gap:8px}
 /* Winners */
 .rt-raffle-banner{display:block;padding-bottom:8px}
 .rt-raffle-banner-text{display:flex;flex-direction:column;gap:2px;min-width:0}

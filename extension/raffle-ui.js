@@ -13,6 +13,9 @@
   function icon(d,size=20){const svg=document.createElementNS(svgNS,'svg');for(const [k,v] of Object.entries({fill:'currentColor',height:String(size),width:String(size),viewBox:'0 0 20 20','aria-hidden':'true'}))svg.setAttribute(k,v);const path=document.createElementNS(svgNS,'path');path.setAttribute('d',d);svg.append(path);return svg;}
   // A ticket outline (Reddit has no raffle icon), drawn on Reddit's 20 px grid.
   const TICKET='M16.6 3H3.4A2.4 2.4 0 001 5.4v2.2a.9.9 0 00.9.9 1.5 1.5 0 010 3 .9.9 0 00-.9.9v2.2A2.4 2.4 0 003.4 17h13.2a2.4 2.4 0 002.4-2.4v-2.2a.9.9 0 00-.9-.9 1.5 1.5 0 010-3 .9.9 0 00.9-.9V5.4A2.4 2.4 0 0016.6 3Zm.6 4.26a3.3 3.3 0 000 5.48v1.86a.6.6 0 01-.6.6H3.4a.6.6 0 01-.6-.6v-1.86a3.3 3.3 0 000-5.48V5.4a.6.6 0 01.6-.6h13.2a.6.6 0 01.6.6v1.86ZM7.1 6.1h1.8v1.8H7.1V6.1Zm0 3h1.8v1.8H7.1V9.1Zm0 3h1.8v1.8H7.1v-1.8Z';
+  // Small action icons on Reddit's 20 px grid.
+  const EXTERNAL='M11 2.1h5.1c.99 0 1.8.81 1.8 1.8V9a.9.9 0 11-1.8 0V5.17l-6.36 6.37a.9.9 0 01-1.28-1.28L14.83 3.9H11a.9.9 0 110-1.8ZM4.4 4.9a.5.5 0 00-.5.5v10.2c0 .28.22.5.5.5h10.2a.5.5 0 00.5-.5V12a.9.9 0 111.8 0v3.6a2.3 2.3 0 01-2.3 2.3H4.4a2.3 2.3 0 01-2.3-2.3V5.4a2.3 2.3 0 012.3-2.3H8a.9.9 0 110 1.8H4.4Z';
+  const COPY='M14.6 5.9H8.4a2.3 2.3 0 00-2.3 2.3v7.4a2.3 2.3 0 002.3 2.3h6.2a2.3 2.3 0 002.3-2.3V8.2a2.3 2.3 0 00-2.3-2.3Zm.5 9.7a.5.5 0 01-.5.5H8.4a.5.5 0 01-.5-.5V8.2c0-.28.22-.5.5-.5h6.2c.28 0 .5.22.5.5v7.4ZM11.6 2.1H5.4a2.3 2.3 0 00-2.3 2.3v7.4a.9.9 0 101.8 0V4.4c0-.28.22-.5.5-.5h6.2a.9.9 0 100-1.8Z';
   const CLOSE='m11.273 10 5.363-5.363a.9.9 0 10-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 10-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 101.274 1.273L10 11.273l5.363 5.363a.897.897 0 001.274 0 .9.9 0 000-1.273L11.275 10Z';
   const n=value=>Number(value).toLocaleString('en-US');
 
@@ -392,9 +395,11 @@
       const state=this.dialog,header=make('div','rt-raffle-banner'),top=make('div','rt-raffle-banner-row');
       const title=make('h3','rt-raffle-banner-title m-0',n(count)+' '+(count===1?'winner':'winners'));title.tabIndex=-1;
       const actions=make('div','rt-raffle-banner-actions');
-      if(proof){const link=make('a','rt-raffle-proof button-small button-secondary button inline-flex items-center justify-center','View proof');link.href=proof;link.target='_blank';link.rel='noopener';link.append(make('span','rt-raffle-ext','↗'));link.title='Opens redditraffler.com in a new tab';actions.append(link);}
-      const copy=make('button','rt-raffle-copy button-small button-plain button inline-flex items-center justify-center','Copy');copy.type='button';
-      copy.addEventListener('click',async()=>{let ok=true;try{await navigator.clipboard.writeText(state.markdown || '');}catch{ok=false;}copy.textContent=ok?'Copied':'Couldn’t copy';if(ok)state.saved=true;this.say(ok?'Results copied.':'Couldn’t copy the results.');setTimeout(()=>{if(copy.isConnected)copy.textContent='Copy';},2000);});
+      // Reddit's small secondary/plain buttons: icon + label, the label alone changes.
+      const action=(tag,cls,label,path)=>{const el=make(tag,'rt-raffle-action '+cls+' button-small button inline-flex items-center justify-center');el.append(icon(path,16),make('span','rt-raffle-action-label',label));return el;};
+      if(proof){const link=action('a','rt-raffle-proof button-secondary','View proof',EXTERNAL);link.href=proof;link.target='_blank';link.rel='noopener';link.title='Opens redditraffler.com in a new tab';actions.append(link);}
+      const copy=action('button','rt-raffle-copy button-plain','Copy',COPY);copy.type='button';const copyLabel=copy.querySelector('.rt-raffle-action-label');
+      copy.addEventListener('click',async()=>{let ok=true;try{await navigator.clipboard.writeText(state.markdown || '');}catch{ok=false;}copyLabel.textContent=ok?'Copied':'Couldn’t copy';if(ok)state.saved=true;this.say(ok?'Results copied.':'Couldn’t copy the results.');setTimeout(()=>{if(copy.isConnected)copyLabel.textContent='Copy';},2000);});
       actions.append(copy);top.append(title,actions);header.append(top);
       const info=make('div','rt-raffle-banner-info');if(badge)info.append(make('span','rt-raffle-badge'+(verified?' rt-raffle-verified':''),badge));info.append(make('span','rt-raffle-banner-meta',meta));header.append(info);
       return header;
