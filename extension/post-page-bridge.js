@@ -187,15 +187,22 @@
     return {posts,after:postPageCursor(cursor,'shreddit',username,sort,range,q),hasMore:Boolean(cursor),incomplete:true,source:'reddit'};
   }
   function commentListing(text,username,{sort='new',range='all',stream='authenticated',q=authorQuery(username),search=false}={}){
-    const doc=new DOMParser().parseFromString(text,'text/html'),posts=[],seen=new Set();
+    const doc=new DOMParser().parseFromString(text,'text/html'),posts=[],seen=new Set();let unread=0,foreign=0;
     const cards=doc.querySelectorAll('[data-testid="search-sdui-comment-unit"]');
+    // The comment's author: a profile link outside the comment text, relative or absolute (Reddit moved to absolute
+    // https://www.reddit.com/user/<name>/ links), or the older href="#" link; "u/" prefixes are ignored.
+    const authorOf=card=>{for(const a of card.querySelectorAll('a[href="#"],a[href*="/user/"]')){if(a.closest('[id$="-post-rtjson-content"],[data-testid="search-comment-content"] p'))continue;
+      const fromHref=(a.getAttribute('href') || '').match(/^(?:https:\/\/(?:www\.)?reddit\.com)?\/user\/([A-Za-z0-9_-]{3,20})\/?$/)?.[1],fromText=a.textContent.trim().replace(/^\/?u\//i,'');
+      const name=fromHref || (/^[A-Za-z0-9_-]{3,20}$/.test(fromText)?fromText:'');if(name)return name;}return '';};
     if(cards.length>100)throw Error('Reddit returned an unexpected comment listing.');
     for(const card of cards){
       try{
         const context=JSON.parse(card.closest('search-telemetry-tracker')?.getAttribute('data-faceplate-tracking-context') || '{}');
         const content=card.querySelector('[data-testid="search-comment-content"]');
-        const author=[...card.querySelectorAll('a[href="#"],a[href^="/user/"]')].find(a=>!a.closest('[id$="-post-rtjson-content"]'))?.textContent?.trim();
-        if(author?.toLowerCase()!==username.toLowerCase())continue;
+        const author=authorOf(card);
+        // Another person's comment is skipped, not a sign that the format changed.
+        if(author && author.toLowerCase()!==username.toLowerCase()){foreign++;continue;}
+        if(!author)throw Error('no author');
         const parts=[...content.querySelectorAll('[id$="-post-rtjson-content"] p')].map(p=>p.textContent.trim());
         const body=parts.length?parts.join('\n\n'):content.querySelector('[id$="-post-rtjson-content"]')?.textContent?.trim();
         const post=M.normalizeComment({id:context.comment?.id,author,body,link_id:context.comment?.post_id || context.post?.id,
@@ -205,10 +212,13 @@
           ...(counts=>counts.length>=2 && counts.every(Number.isFinite)?{postScore:counts[0],postComments:counts[1]}:{})([...(card.querySelector(':scope [data-testid="search-counter-row"]')?.querySelectorAll('faceplate-number[number]') || [])].map(node=>Number(node.getAttribute('number')))),
           subredditIcon:card.querySelector('.shreddit-subreddit-icon__icon img[src],[avatar] img[src]')?.getAttribute('src') || undefined,subredditColor:card.querySelector('.shreddit-subreddit-icon__icon img[src],[avatar] img[src]')?.getAttribute('style')?.match(/background:\s*(#[0-9a-f]{6})\b/i)?.[1],
           permalink:card.querySelector('a[aria-labelledby^="comment-content-"]')?.getAttribute('href')});
-        if(post && !seen.has(post.fullname)){seen.add(post.fullname);posts.push(post);}
-      }catch{ /* A malformed card cannot become an unsafe or misattributed result. */ }
+        if(!post)throw Error('unreadable');if(!seen.has(post.fullname)){seen.add(post.fullname);posts.push(post);}
+      }catch{unread++; /* A malformed card cannot become an unsafe or misattributed result. */ }
     }
-    if(cards.length && !posts.length)throw Error('Reddit’s comment format changed. Comments could not be read.');
+    // Only a page where cards exist but none could be read means the format changed (contract R13).
+    if(cards.length && !posts.length && unread)throw Error('Reddit’s comment format changed. Comments could not be read.');
+    // Only other people's comments: Reddit didn't apply the author filter, so this page can't be trusted.
+    if(cards.length && !posts.length && foreign)throw Error('Reddit’s comment search returned other people’s comments instead of this profile’s.');
     const cursor=searchCursor(doc,username,'comments',sort,range,{q,search});
     if(!cards.length && !cursor){let reason;try{reason=JSON.parse(doc.querySelector('search-telemetry-tracker[view-events="search/view/no_results"]')?.getAttribute('data-faceplate-tracking-context')).action_info?.reason;}catch{}if(reason!=='empty')throw Error('Reddit returned an unrecognized comment search response.');}
     const after=commentPageCursor(cursor,stream,username,sort,range,q);
