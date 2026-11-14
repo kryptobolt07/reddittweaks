@@ -561,8 +561,7 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 /* Redaction dialog (docs/redaction-spec.md), on the raffle dialog's styles. */
 .rt-posts[data-rt-context=profile] .rt-posts-toolbar{min-height:0}
 .rt-posts[data-rt-context=profile]:not(:has(.rt-posts-toolbar>button:not([hidden]),.rt-posts-status[data-error=true],.rt-posts-notice:not([hidden]),.rt-posts-more:not([hidden]))){margin-block:0}
-.rt-redact-dialog .rt-raffle-field select,.rt-redact-area{box-sizing:border-box;padding:8px 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:12px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);font:inherit;font-size:14px}
-.rt-redact-dialog .rt-raffle-field select{height:40px;border-radius:20px}
+.rt-redact-area{box-sizing:border-box;padding:8px 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:12px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);font:inherit;font-size:14px}
 .rt-redact-area{resize:vertical;min-height:40px}
 .rt-redact-preview,.rt-redact-results{display:flex;flex-direction:column;gap:8px}
 .rt-redact-rows{list-style:none;margin:0;padding:0;max-height:240px;overflow:auto;border:1px solid var(--color-neutral-border-weak,#e5ebee);border-radius:12px}
@@ -574,9 +573,21 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 .rt-redact-group{min-width:0;margin:0;padding:12px 0;border:0;border-top:1px solid var(--color-neutral-border-weak,#e5ebee);display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .rt-redact-group legend{padding:0 8px 0 0;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-redact-group:last-child{grid-template-columns:minmax(0,1fr)}
-.rt-redact-calendar{grid-column:1/-1;min-width:0}
-.rt-redact-dialog .rt-raffle-field:has(.rt-redact-calendar){grid-column:1/-1}
-.rt-redact-dialog .rt-raffle-field:has(.rt-redact-calendar)>button{align-self:flex-start}
+/* Use the same control size for content, date, community and numeric fields. Popovers stay in the modal top layer. */
+.rt-redact-dialog .rt-raffle-field input:not([type=hidden]){height:40px}
+.rt-redact-control{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-width:0;height:40px;margin:0;padding:0 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:20px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);font:inherit;font-size:14px;line-height:20px;text-align:start;cursor:pointer}
+.rt-redact-control>svg{flex:none}.rt-redact-control>svg:last-child{margin-inline-start:auto}
+.rt-redact-control-value{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-redact-control:hover,.rt-redact-control[aria-expanded=true]{background:var(--color-neutral-background-hover,#e8edef);border-color:var(--color-neutral-border-strong,#5c6c74)}
+.rt-redact-control:focus-visible{outline:2px solid var(--color-a-default,#216ba5);outline-offset:2px}
+.rt-redact-popover{position:fixed;z-index:20;box-sizing:border-box;display:flex;flex-direction:column;min-width:0;padding:4px 0;overflow:auto;overscroll-behavior:contain;border:1px solid var(--color-neutral-border-weak,#e5ebee);border-radius:12px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);box-shadow:var(--boxshadow-menu,0 4px 16px #0003)}
+.rt-redact-popover>.rt-sub-panel{flex:1 1 auto;min-height:0}
+.rt-redact-popover .rt-sub-list{max-height:240px}
+.rt-redact-popover .rt-menu-lead{flex:none;width:20px;height:20px}
+.rt-redact-popover .rt-menu-caption{min-width:0}
+.rt-redact-popover .rt-sub-list .rt-menu-row:focus-visible{box-shadow:inset 0 0 0 2px var(--color-a-default,#216ba5)}
+.rt-redact-menu-hint{margin:0;padding:8px 12px;line-height:16px}
+.rt-redact-calendar{padding:0;border:0;background:transparent;box-shadow:none}
 .rt-redact-dialog .rt-redact-rows{max-height:min(48vh,440px);overscroll-behavior:contain;scrollbar-gutter:stable}
 .rt-redact-preview .rt-redact-row{flex-direction:row;gap:12px;padding:12px}
 .rt-redact-row>input[type=checkbox]{appearance:auto;accent-color:var(--color-brand-background,#d93900);width:18px;height:18px;flex:none;margin:2px 0}

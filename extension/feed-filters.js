@@ -313,7 +313,7 @@
   const sourceNotes={archive:'Counts from the archive',loaded:'Counts from loaded items',loading:'Loading counts…',none:''};
   // Subreddit list: optional Back plus a pill search in one header row, then a scrolling list of
   // community icon / name / count / check rows (picked rows pinned first), then a (hidden) source note.
-  function subredditPanel({ctx,onBack=null,onToggle,max=maxSubreddits,limit=200,nativeHeader=false,onClear=null}){
+  function subredditPanel({ctx,onBack=null,onToggle,max=maxSubreddits,limit=200,nativeHeader=false,onClear=null,clearLabel='All communities'}){
     const mk=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
     const header=nativeHeader && onBack?submenuHeader('',onBack):null;
     const el=mk('div','rt-sub-panel'),head=header?.head || mk('div','rt-sub-head'),list=mk('div','rt-sub-list'),note=mk('div','rt-filter-note text-12 text-neutral-content-weak'),input=mk('input','rt-filter-search');
@@ -338,7 +338,7 @@
       observer?.disconnect();observer=null;
       const keepTop=list.scrollTop;list.replaceChildren();
       const watch=typeof IntersectionObserver==='function'?(observer=new IntersectionObserver(items=>{for(const item of items)if(item.isIntersecting){observer?.unobserve(item.target);loadIcon(item.target);}},{root:list,rootMargin:'48px'})):null;
-      if(onClear){const all=menuOption(ctx,{label:'All communities',icon:svgIcon('show',16),checked:!picked.length,value:'all',onSelect:onClear});all.dataset.rtUi='filter-option';all.dataset.rtSubAll='true';list.append(all);}
+      if(onClear){const all=menuOption(ctx,{label:clearLabel,icon:svgIcon('show',16),checked:!picked.length,value:'all',onSelect:onClear});all.dataset.rtUi='filter-option';all.dataset.rtSubAll='true';list.append(all);}
       let index=0;
       for(const entry of rows){
         const on=pickedKeys.has(entry.key.toLowerCase()),icon=communityIcon(entry.key,24,nativeHeader?(/^u_./i.test(entry.key)?'author':'community'):undefined);
