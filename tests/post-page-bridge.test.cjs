@@ -172,8 +172,12 @@ test('native comment search parses inert public cards and follows only its opaqu
  const result=await e.send({action:'profile',kind:'comment',username:'Example'});assert.equal(result.ok,true);assert.equal(result.posts.length,1);assert.equal(result.posts[0].fullname,'t1_19rktoupyflj9');assert.equal(result.posts[0].body,'Public <img onerror=bad()> comment');assert.equal(JSON.parse(result.after.slice(18)).cursor,'opaque_cursor');
  await e.send({action:'profile',kind:'comment',username:'Example',after:result.after});const u=new URL(e.calls[1][0]);assert.equal(u.pathname,'/svc/shreddit/search/');assert.equal(u.searchParams.get('cursor'),'opaque_cursor');assert.equal(u.searchParams.get('type'),'comments');
 });
+test('comment search reads absolute profile links and u/ prefixes as the author, ignoring mentions in the text',async t=>{
+ const html=nativeCommentHtml().replace('<a href="#">Example</a>','<a href="https://www.reddit.com/user/Example/">u/Example</a>');assert.notEqual(html,nativeCommentHtml(),'fixture uses the old author link');
+ const e=setup(t,{fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>html})});const r=await e.send({action:'profile',kind:'comment',username:'Example'});assert.equal(r.ok,true,r.error);assert.equal(r.posts.length,1);assert.equal(r.posts[0].author,'Example');
+});
 test('native comment search refuses foreign authors and external pagination',async t=>{
- const foreign=setup(t,{fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>nativeCommentHtml({author:'Other'})})});assert.equal((await foreign.send({action:'profile',kind:'comment',username:'Example'})).ok,false);
+ const foreign=setup(t,{fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>nativeCommentHtml({author:'Other'})})});const refused=await foreign.send({action:'profile',kind:'comment',username:'Example'});assert.equal(refused.ok,false);assert.match(refused.error,/other people’s comments/,'not misreported as a format change');
  const e=setup(t,{fetcher:async()=>({ok:true,status:200,headers:new Headers(),text:async()=>nativeCommentHtml({next:'https://evil.test/?cursor=bad'})})});assert.equal((await e.send({action:'profile',kind:'comment',username:'Example'})).after,null);
 });
 test('public comment discovery omits credentials and separates HTTP cache and cursors from signed-in search',async t=>{
