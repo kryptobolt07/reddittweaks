@@ -1,3 +1,13 @@
+# 0.35.0 preview
+
+- **Redaction actions:** choose Overwrite text, Delete, or Overwrite, then delete. Overwrite-only excludes items without editable text and never deletes; delete-only never overwrites. Review, typed confirmation, time estimates and results reflect the selected action. The replacement message is editable and now defaults to “This comment has been redacted by Reddit Tweaks.” It is hidden for delete-only without losing edits.
+- **Review:** Read full text expands the existing excerpt in place, with Read less to collapse it. More rows appear as the list scrolls, without a Show next button. Offscreen selections are retained and published rows remain attached.
+- **Community suggestions:** reuse authored native-profile activity, existing profile counts and optional Arctic Shift subreddit aggregates. Debounced native Reddit community search supplements those suggestions while typing; exact names remain available. Stale responses are ignored, Clear restores activity suggestions, and include/exclude selections remain independent. Native caches are bounded, account-scoped and memory-only; archive requests obey the existing opt-in.
+- **Run recovery:** refresh native profile data on a subsequent scan after a write. Closing a run stops subsequent steps after its current request on browsers without AbortSignal.any.
+- **Validation:** all 1,460 tests pass; 44 JavaScript files parse; ZIP integrity passes; all 58 shipped assets match source, archive and the stable unpacked folder.
+- **Version:** minor increment for selectable redaction actions and community suggestions; no storage migration.
+- **Live evidence and limits:** a read-only live Reddit check verified native typeahead returning HTTP 200 with community matches, using recentSearchesCount=0. No redaction, dry run or account write was performed. Updated installed UI review awaits the user’s reload; no constructed preview was used.
+
 # 0.34.2 preview
 
 - **Profile-post discovery:** support own-profile post links (`/user/<you>/comments/…`) alongside community links. This fixes “A native profile item is incomplete” when the Overview feed contains pinned profile posts. Unreadable individual cards are excluded from the write allow-list and counted as incomplete; they no longer discard valid matches from the same page.
