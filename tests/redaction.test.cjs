@@ -86,14 +86,14 @@ test('bridge reports Reddit’s refusals and rate limits without claiming succes
 });
 
 // --- Dialog
-async function dialog(t,{items,writes=()=>({written:true})}={}){
+async function dialog(t,{items,writes=()=>({written:true}),list}={}){
  const dom=new JSDOM('<main></main>',{url:'https://www.reddit.com/#rt-redact',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[];let r;
  t.after(()=>{r?.destroy();W.close();});
  W.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};W.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
- W.eval(read('redaction-model.js'));W.eval(read('redaction-ui.js'));
+ W.eval(read('date-picker.js'));W.eval(read('redaction-model.js'));W.eval(read('redaction-ui.js'));
  const readFn=async args=>{calls.push(args);
   if(args.action==='redact-identity')return {username:'Example',canWrite:true};
-  if(args.action==='redact-list')return {items:args.source==='overview'?items:[],hasMore:false,after:null};
+  if(args.action==='redact-list')return list?list(args):{items:args.source==='overview'?items:[],hasMore:false,after:null};
   if(args.action==='redact-item')return writes(args);throw Error('unexpected');};
  r=new W.RTRedaction.Redaction({read:readFn,sleep:async()=>{}});await flush();
  const D=W.document,q=s=>D.querySelector(s);
@@ -109,24 +109,62 @@ test('find is a dry run; the run needs the typed phrase and uses exactly the pre
  s.primary().click();await flush();
  assert.deepEqual(s.calls.map(c=>c.action+(c.source?':'+c.source+':'+c.sort:'')),['redact-identity','redact-list:overview:new','redact-list:submitted:top','redact-list:submitted:controversial','redact-list:comments:top','redact-list:comments:controversial']);
  assert.equal(s.calls.some(c=>c.action==='redact-item'),false,'finding never writes');
- assert.match(s.status(),/^3 items match \(1 post, 2 comments\) out of 3 found/);assert.equal(s.primary().textContent,'Overwrite and delete 3 items');assert.equal(s.primary().disabled,true);
+ assert.match(s.status(),/^3 items match \(1 post, 2 comments\) out of 3 found/);assert.equal(s.primary().textContent,'Review 3 selected items');assert.equal(s.primary().disabled,false);
+ s.primary().click();assert.equal(s.primary().textContent,'Overwrite and delete 3 items');assert.equal(s.primary().disabled,true);
  assert.equal(s.D.querySelectorAll('.rt-redact-preview .rt-redact-row').length,3);assert.match(s.q('.rt-redact-preview').textContent,/delete only/);
  s.type('confirm','delete 2');assert.equal(s.primary().disabled,true);s.type('confirm','delete 3');assert.equal(s.primary().disabled,false);
  s.primary().click();await flush();
  assert.deepEqual(s.calls.filter(c=>c.action==='redact-item').map(c=>c.fullname+':'+c.step),['t1_a:overwrite','t1_a:delete','t1_b:overwrite','t1_b:delete','t3_p:delete']);
- assert.equal(s.calls.find(c=>c.step==='overwrite').text,'This content was removed by its author.');
+ assert.equal(s.calls.find(c=>c.step==='overwrite').text,'This comment has been redacted or anonymized by Reddit Tweaks.');
  assert.match(s.status(),/^Deleted 3 of 3\. 0 failed\.$/);
 });
 test('changing a rule after the preview clears it, so a run can’t use stale matches',async t=>{
- const s=await dialog(t,{items:fresh});s.primary().click();await flush();s.type('confirm','delete 3');
+ const s=await dialog(t,{items:fresh});s.primary().click();await flush();s.primary().click();s.type('confirm','delete 3');
  s.type('from','2023-01-01');assert.equal(s.primary().textContent,'Find matching items');assert.equal(s.q('.rt-redact-confirm').hidden,true);
  s.primary().click();await flush();assert.match(s.status(),/^2 items match/);
 });
 test('failures are listed with Reddit’s reason; closing during a run asks first',async t=>{
  let release;const gate=new Promise(r=>release=r);
  const s=await dialog(t,{items:fresh,writes:async args=>{if(args.fullname==='t1_a'){await gate;return args.step==='delete'?{written:false,reason:'Reddit refused the delete (HTTP 403).'}:{written:true};}return {written:true};}});
- s.primary().click();await flush();s.type('confirm','delete 3');s.primary().click();await flush();
+ s.primary().click();await flush();s.primary().click();s.type('confirm','delete 3');s.primary().click();await flush();
  s.q('[data-rt-redact] [slot="close-button"]').click();assert.ok(s.q('[data-rt-redact="dialog"]'),'first close only asks');assert.match(s.status(),/Close again to stop/);
  release();await flush();
  assert.match(s.status(),/^Deleted 2 of 3\. 1 failed\./);assert.match(s.q('.rt-redact-results').textContent,/Text overwritten, delete failed.*HTTP 403/s);
+});
+
+test('review exposes every match and confirmation writes only the selected set',async t=>{
+ const items=Array.from({length:53},(_,i)=>item('a'+i));const s=await dialog(t,{items});s.primary().click();await flush();
+ assert.equal(s.r.state.form.hidden,true);assert.equal(s.r.state.confirmation.hidden,true);
+ assert.equal(s.q('.rt-redact-preview').querySelectorAll('input[type=checkbox]').length,50);
+ s.r.state.more.click();assert.equal(s.q('.rt-redact-preview').querySelectorAll('input[type=checkbox]').length,53);assert.equal(s.r.state.more.hidden,true);
+ s.r.state.selectAll.click();assert.equal(s.primary().disabled,true);
+ const box=s.q('input[value="t1_a52"]');box.click();assert.equal(s.r.state.selection.matches.length,1);s.primary().click();
+ assert.equal(s.r.state.preview.hidden,true);assert.equal(s.r.state.confirmation.hidden,false);assert.match(s.r.state.confirmation.textContent,/u\/Example · 0 posts and 1 comments selected/);
+ s.type('confirm','delete 1');s.r.state.cancel.click();assert.equal(s.r.state.phase,'previewed');assert.equal(s.r.state.selected.has('t1_a52'),true);assert.equal(s.r.state.confirm.value,'');
+ s.primary().click();assert.equal(s.primary().disabled,true);s.type('confirm','delete 1');s.primary().click();await flush();
+ assert.deepEqual(s.calls.filter(c=>c.action==='redact-item').map(c=>c.fullname+':'+c.step),['t1_a52:overwrite','t1_a52:delete']);
+});
+test('shared calendar supplies the date bounds and invalidates a previous review',async t=>{
+ const s=await dialog(t,{items:fresh});assert.equal(s.D.querySelector('input[type=date]'),null);
+ s.r.state.dateButton.click();const picker=s.r.state.picker;assert.ok(picker instanceof s.W.RCSDatePicker);assert.equal(s.r.state.dateHost.hidden,false);
+ picker.draft={mode:'Between',start:'2023-01-01',end:'2023-06-30'};picker.apply();
+ assert.equal(s.q('[name=from]').value,'2023-01-01');assert.equal(s.q('[name=to]').value,'2023-06-30');assert.equal(s.r.state.dateHost.hidden,true);
+ s.primary().click();await flush();assert.equal(s.r.state.phase,'previewed');s.r.state.cancel.click();
+ s.r.state.dateButton.click();picker.reset();assert.equal(s.q('[name=from]').value,'');assert.equal(s.r.state.selection,null);
+});
+test('date discovery stops chronological pagination at the start boundary but keeps score-sorted matches',async t=>{
+ const newer=item('a',{created:Date.parse('2023-05-02T00:00:00Z')/1000}),old=item('b',{created:Date.parse('2022-01-01T00:00:00Z')/1000});
+ const s=await dialog(t,{list:args=>{
+  if(args.source==='overview')return {items:[newer,old],hasMore:true,after:'past-range'};
+  if(args.source==='comments' && args.sort==='top')return args.after?{items:[newer],hasMore:false}:{items:[old],hasMore:true,after:'still-matching'};
+  return {items:[],hasMore:false};
+ }});s.type('kinds','comments');s.type('from','2023-01-01');s.type('to','2023-12-31');s.primary().click();await flush();
+ assert.equal(s.calls.filter(c=>c.source==='overview').length,1);assert.equal(s.calls.some(c=>c.source==='submitted'),false);
+ assert.equal(s.calls.filter(c=>c.source==='comments' && c.sort==='top').length,2);assert.deepEqual([...s.r.state.selected],['t1_a']);
+});
+test('inverted dates do not start discovery and Stop completes only the current request',async t=>{
+ let release;const gate=new Promise(r=>release=r);const s=await dialog(t,{items:fresh,writes:async()=>{await gate;return {written:true};}});
+ s.type('from','2024-01-01');s.type('to','2023-01-01');s.primary().click();await flush();assert.equal(s.calls.length,0);assert.match(s.status(),/start date/);
+ s.type('from','');s.type('to','');s.primary().click();await flush();s.primary().click();s.type('confirm','delete 3');s.primary().click();await flush();
+ s.r.state.cancel.click();release();await flush();assert.equal(s.calls.filter(c=>c.action==='redact-item').length,1);assert.match(s.status(),/Stopped/);
 });

@@ -4,7 +4,7 @@
   'use strict';
   if(globalThis.RTRedactionModel)return;
   const WRITE_GAP_MS=1100,MAX_BACKOFF_MS=300000,MAX_CONSECUTIVE_FAILURES=3;
-  const DEFAULT_TEXT='This content was removed by its author.';
+  const DEFAULT_TEXT='This comment has been redacted or anonymized by Reddit Tweaks.';
   const communities=value=>(Array.isArray(value)?value:String(value || '').split(/[\s,]+/)).map(name=>String(name).trim().replace(/^\/?r\//i,'').toLowerCase()).filter(name=>/^[a-z0-9_]{2,21}$/.test(name));
   // Links or IDs to keep: t1_/t3_ fullnames, bare IDs, or Reddit permalinks (post or comment).
   function keepIds(value){

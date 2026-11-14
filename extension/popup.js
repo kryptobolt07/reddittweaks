@@ -108,4 +108,14 @@ loadSettings().then(syncDependencies);
 updateMessageStats();
 
 // Redaction runs on Reddit itself (docs/redaction-spec.md); the fragment opens its dialog there.
-document.getElementById('open-redaction')?.addEventListener('click',()=>{try{chrome.tabs.create({url:'https://www.reddit.com/#rt-redact'});}catch{}window.close?.();});
+document.getElementById('open-redaction')?.addEventListener('click',async event=>{
+  const button=event.currentTarget;button.disabled=true;
+  try{
+    const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
+    let url;try{url=new URL(tab?.url);}catch{}
+    if(tab?.id!=null && url?.protocol==='https:' && ['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(url.hostname)){
+      url.hash='rt-redact';await chrome.tabs.update(tab.id,{url:url.href});
+    }else await chrome.tabs.create({url:'https://www.reddit.com/user/me/#rt-redact'});
+    window.close?.();
+  }catch{button.disabled=false;document.getElementById('redaction-open-status').textContent='Couldn’t open Redaction. Open a Reddit page and try again.';}
+});
