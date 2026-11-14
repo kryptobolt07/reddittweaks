@@ -43,11 +43,13 @@ test('results Markdown lists winners with links and states the rules',()=>{
 
 // --- UI
 const page=(postId='post1')=>`<main><shreddit-post id="t3_${postId}" post-title="Giveaway" author="Owner" permalink="/r/Alpha/comments/${postId}/giveaway/"><shreddit-post-overflow-menu post-id="t3_${postId}" author-name="Owner" subreddit-prefixed-name="r/Alpha" permalink="/r/Alpha/comments/${postId}/giveaway/"><button aria-haspopup="menu" aria-expanded="true">⋯</button><div slot="devvit-context-actions" role="menuitem"></div></shreddit-post-overflow-menu></shreddit-post></main>`;
-async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},settings={raffles:true},narrow=false,chat=args=>args.action==='chat-status'?{ready:true}:{sent:true}}={}){
+const noRaffle=m=>m.action==='status'?{ok:true,exists:false}:{ok:true,signedIn:''};
+async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},settings={raffles:true},narrow=false,chat=args=>args.action==='chat-status'?{ready:true}:{sent:true},raffler=noRaffle}={}){
  const dom=new JSDOM(page(),{url,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[];let r;
  t.after(()=>{r?.destroy();W.close();});
  W.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};W.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
- W.matchMedia=q=>({matches:narrow && /max-width/.test(q)});W.CSS={escape:v=>String(v).replace(/"/g,'\\"')};
+ const media={matches:narrow,listeners:[],addEventListener(type,fn){this.listeners.push(fn);},removeEventListener(){}};
+ W.matchMedia=q=>/max-width/.test(q)?media:{matches:false,addEventListener(){},removeEventListener(){}};W.CSS={escape:v=>String(v).replace(/"/g,'\\"')};
  for(const file of ['post-model.js','raffle-model.js','raffle-ui.js'])W.eval(read(file));
  let current=settings;
  const readFn=async args=>{calls.push(args);
@@ -56,50 +58,73 @@ async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},
   if(args.action==='raffle-user'){const u=users[args.username];if(u instanceof Error)throw u;return u ?? {userId:'id'+args.username.toLowerCase(),created:0,commentKarma:1000,postKarma:1000,avatar:'https://styles.redditmedia.com/'+args.username+'.png'};}
   if(/^chat-/.test(args.action))return chat(args,calls.filter(c=>c.action===args.action).length);
   throw Error('Unexpected '+args.action);};
- r=new W.RTRaffle.Raffle({observe:false,read:readFn,readSettings:async()=>current,random:()=>0});await r.ready;await flush();
- const D=W.document;
- return {W,D,r,calls,setSettings:async v=>{current=v;await r.loadSettings();},item:()=>D.querySelector('[data-rt-raffle="item"]'),dialog:()=>D.querySelector('[data-rt-raffle="dialog"]'),status:()=>D.querySelector('.rt-raffle-status').textContent,
-  draw:()=>D.querySelector('[data-rt-raffle] [slot="primary-button"]:not([hidden])'),open:async()=>{D.querySelector('[data-rt-raffle="item"] [role="menuitem"]').click();await flush();}};
+ const rafflerCalls=[];r=new W.RTRaffle.Raffle({observe:false,read:readFn,readSettings:async()=>current,random:()=>0,raffler:async m=>{rafflerCalls.push(m);return raffler(m,rafflerCalls);}});await r.ready;await flush();
+ const D=W.document,q=sel=>D.querySelector(sel);
+ const visible=slot=>q('[data-rt-raffle] [slot="'+slot+'"]:not([hidden])');
+ return {W,D,r,calls,rafflerCalls,media,q,setSettings:async v=>{current=v;await r.loadSettings();},item:()=>q('[data-rt-raffle="item"]'),dialog:()=>q('[data-rt-raffle="dialog"]'),
+  status:()=>q('.rt-raffle-status').textContent,note:()=>q('.rt-raffle-footnote').textContent,primary:()=>visible('primary-button'),secondary:()=>visible('secondary-button'),tertiary:()=>visible('tertiary-button:not(.rt-raffle-footnote)') || [...D.querySelectorAll('[data-rt-raffle] [slot="tertiary-button"]:not([hidden])')].find(e=>e.tagName==='BUTTON'),
+  publicSub:()=>q('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-option-state').textContent,mode:v=>{const radio=q('input[name="rt-raffle-draw"][value="'+v+'"]');radio.checked=true;radio.dispatchEvent(new W.Event('change'));},
+  input:(name,value)=>{const el=q('[name="'+name+'"]');el.value=value;el.dispatchEvent(new W.Event('input',{bubbles:true}));},
+  open:async()=>{q('[data-rt-raffle="item"] [role="menuitem"]').click();await flush();}};
 }
+const privateDraw=async(s,winners='1')=>{s.mode('private');if(winners!=='1')s.input('winners',winners);s.primary().click();await flush();};
 test('every post menu gets one “Run a raffle” item in its action slot, with Reddit’s menu-item markup',async t=>{
  const s=await ui(t);const item=s.item();assert.ok(item);assert.equal(item.parentElement.getAttribute('slot'),'devvit-context-actions');
  assert.equal(item.getAttribute('role'),'presentation');const row=item.querySelector('[role="menuitem"]');assert.match(row.className,/px-md gap-xs text-secondary-plain/);assert.equal(row.querySelector('.text-body-2').textContent,'Run a raffle');
  s.r.sync();s.r.sync();assert.equal(s.D.querySelectorAll('[data-rt-raffle="item"]').length,1);
  await s.setSettings({raffles:false});assert.equal(s.item(),null);
 });
-test('a failed settings read keeps raffles on and retries; the item is ensured as ⋯ is pressed',async t=>{
- let reads=0;const dom=new JSDOM(page(),{url:'https://www.reddit.com/r/Alpha/',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;let r;t.after(()=>{r?.destroy();W.close();});
+test('a failed settings read keeps raffles on and retries; the item is ensured as ⋯ is pressed; a created slot has no role',async t=>{
+ let reads=0;const dom=new JSDOM(page().replace('<div slot="devvit-context-actions" role="menuitem"></div>',''),{url:'https://www.reddit.com/r/Alpha/',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;let r;t.after(()=>{r?.destroy();W.close();});
  for(const file of ['post-model.js','raffle-model.js','raffle-ui.js'])W.eval(read(file));
- r=new W.RTRaffle.Raffle({observe:false,read:async()=>({}),readSettings:async()=>{reads++;if(reads===1)throw Error('worker asleep');return {raffles:false};}});await r.ready;await flush();
- assert.ok(W.document.querySelector('[data-rt-raffle="item"]'),'default on while settings are unknown');
+ r=new W.RTRaffle.Raffle({observe:false,read:async()=>({}),raffler:noRaffle,readSettings:async()=>{reads++;if(reads===1)throw Error('worker asleep');return {raffles:false};}});await r.ready;await flush();
+ const item=W.document.querySelector('[data-rt-raffle="item"]');assert.ok(item,'default on while settings are unknown');assert.equal(item.parentElement.hasAttribute('role'),false,'no menuitem inside a menuitem');
  await new Promise(res=>setTimeout(res,1100));await flush();assert.equal(reads,2,'retried');assert.equal(W.document.querySelector('[data-rt-raffle="item"]'),null,'the real setting applies once read');
- const s2=await ui(t);s2.item().remove();assert.equal(s2.item(),null);
- s2.D.querySelector('button[aria-haspopup]').dispatchEvent(new s2.W.Event('pointerdown',{bubbles:true,composed:true}));assert.ok(s2.item(),'re-added as the ⋯ button is pressed');
+ const s2=await ui(t);s2.item().remove();s2.D.querySelector('button[aria-haspopup]').dispatchEvent(new s2.W.Event('pointerdown',{bubbles:true,composed:true}));assert.ok(s2.item(),'re-added as the ⋯ button is pressed');
 });
-test('the rules screen reads comments, then a draw moves to a separate results screen of Reddit-style rows',async t=>{
+test('the rules screen offers a public or a private draw, focuses the heading and keeps one main action',async t=>{
  const s=await ui(t);const trigger=s.D.querySelector('button[aria-haspopup]');let menuClicks=0;trigger.addEventListener('click',()=>{menuClicks++;trigger.setAttribute('aria-expanded','false');});
  await s.open();
  assert.equal(menuClicks,1);assert.ok(s.dialog().hasAttribute('open'));assert.equal(s.dialog().querySelector('rpl-modal-card').getAttribute('appearance'),'modal');
- assert.equal(s.D.querySelector('.rt-raffle-post-sub').textContent,'r/Alpha');assert.equal(s.D.activeElement?.name,'winners');
- assert.deepEqual(s.calls.map(c=>c.action),['raffle-thread'],'a complete JSON read needs no further requests');
- assert.equal(s.status(),'2 eligible entrants · Read all 3 top-level comments');assert.equal(s.draw().textContent,'Draw winners');
- const plus=s.D.querySelector('[aria-label="More winners"]');plus.click();assert.equal(s.D.querySelector('[name="winners"]').value,'2');
- s.draw().click();await flush();
- assert.equal(s.D.querySelector('[data-rt-raffle-view="rules"]').hidden,true);assert.equal(s.D.querySelector('[data-rt-raffle-view="results"]').hidden,false);assert.equal(s.D.querySelector('#rt-raffle-title').textContent,'Winners');
- assert.equal(s.draw().textContent,'Draw again');assert.deepEqual([...s.D.querySelectorAll('[data-rt-raffle] [slot$="-button"]:not([hidden]):not([slot="close-button"])')].map(b=>b.textContent),['Back to rules','Message winners','Draw again']);
- const rows=[...s.D.querySelectorAll('.rt-raffle-winner')];assert.equal(rows.length,2);
- assert.match(s.D.querySelector('.rt-raffle-banner-title').textContent,/^2 winners from 2 eligible entrants$/);
- const alice=s.D.querySelector('.rt-raffle-winner[data-rt-winner="Alice"]');
- assert.equal(alice.querySelector('.rt-raffle-cover').getAttribute('href'),'https://www.reddit.com/r/Alpha/comments/post1/x/a1/','the row opens the comment');assert.equal(alice.querySelector('.rt-raffle-cover').target,'_blank');
- assert.equal(alice.querySelector('.rt-raffle-name').getAttribute('href'),'/user/Alice/');assert.equal(alice.querySelector('faceplate-timeago').getAttribute('ts'),new Date(comment('a1','Alice').created_utc*1000).toISOString());
- const excerpt=alice.querySelector('.rt-raffle-excerpt');assert.match(excerpt.textContent,/^First line\nSecond line/);assert.equal(excerpt.dataset.rtClamped,'true');
- const more=alice.querySelector('.rt-raffle-more');more.click();assert.equal(excerpt.dataset.rtClamped,'false');assert.equal(more.textContent,'Show less');assert.equal(more.getAttribute('aria-expanded'),'true');
- assert.equal(alice.querySelector('img').getAttribute('src'),'https://styles.redditmedia.com/Alice.png','profile pictures are filled from the account');
- assert.ok(s.D.querySelector('[data-rt-raffle-view="results"]').dataset.markdown.startsWith('**Raffle results**'));
- s.D.querySelector('[slot="tertiary-button"]:not([hidden])').click();assert.equal(s.D.querySelector('[data-rt-raffle-view="rules"]').hidden,false);assert.equal(s.draw().textContent,'Draw winners');
+ assert.equal(s.D.activeElement?.id,'rt-raffle-title','focus starts on the heading, not a field');
+ assert.deepEqual([...s.D.querySelectorAll('.rt-raffle-option-title')].map(e=>e.textContent),['Public draw','Private draw']);
+ assert.match(s.q('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-option-caption').textContent,/anyone can check · one per post · can’t be redone/);
+ assert.equal(s.q('input[name="rt-raffle-draw"][value="public"]').checked,true);assert.equal(s.primary().textContent,'Run public draw');
+ assert.equal(s.secondary(),null,'no Cancel: the close button does that');assert.match(s.status(),/^Up to 2 people can enter · Reddit Raffler reads the comments itself and disqualifies anyone with more than one$/);
+ assert.equal(s.publicSub(),'As a guest (unverified). Sign in at redditraffler.com to have it verified.');
+ s.mode('private');assert.equal(s.primary().textContent,'Draw privately');assert.equal(s.status(),'2 people can win');
+ assert.equal(s.q('.rt-raffle-option[data-rt-mode="private"]').dataset.selected,'true');
 });
-test('on phones the dialog is Reddit’s bottom sheet',async t=>{
- const s=await ui(t,{narrow:true});await s.open();assert.equal(s.dialog().querySelector('rpl-modal-card').getAttribute('appearance'),'bottom-sheet');assert.ok(s.dialog().classList.contains('rt-raffle-sheet'));
+test('the winners stepper respects its bounds and warns when asking for more winners than people',async t=>{
+ const s=await ui(t);await s.open();s.mode('private');
+ assert.equal(s.q('[aria-label="Fewer winners"]').disabled,true);s.input('winners','5');
+ assert.equal(s.q('[data-rt-row="winners"] .rt-raffle-row-caption').textContent,'Only 2 people can win');assert.equal(s.q('[data-rt-row="winners"] .rt-raffle-row-caption').dataset.error,'true');
+ s.input('winners','abc');assert.equal(s.primary().disabled,true);assert.equal(s.q('[data-rt-row="winners"] .rt-raffle-row-caption').textContent,'Enter a number from 1 to 100');
+ s.input('winners','100');assert.equal(s.q('[aria-label="More winners"]').disabled,true);
+});
+test('a private draw moves to a separate Winners screen of Reddit-style rows with clear actions',async t=>{
+ const s=await ui(t);await s.open();await privateDraw(s,'2');
+ assert.equal(s.q('[data-rt-raffle-view="rules"]').hidden,true);assert.equal(s.q('#rt-raffle-title').textContent,'Winners');
+ assert.equal(s.primary().textContent,'Message winners');assert.equal(s.secondary().textContent,'Draw again');assert.equal(s.tertiary().textContent,'Back to rules');
+ assert.equal(s.q('.rt-raffle-banner-title').textContent,'2 winners');assert.equal(s.q('.rt-raffle-badge').textContent,'Private draw · not recorded');assert.match(s.q('.rt-raffle-banner-meta').textContent,/^From 2 eligible people · /);
+ const alice=s.q('.rt-raffle-winner[data-rt-winner="Alice"]');
+ assert.equal(alice.querySelector('.rt-raffle-cover').getAttribute('href'),'https://www.reddit.com/r/Alpha/comments/post1/x/a1/');assert.match(alice.querySelector('.rt-raffle-cover').getAttribute('aria-label'),/opens in a new tab/);
+ assert.equal(alice.querySelector('.rt-raffle-rank').getAttribute('aria-hidden'),'true');
+ const excerpt=alice.querySelector('.rt-raffle-excerpt'),more=alice.querySelector('.rt-raffle-more');assert.equal(more.hidden,false);more.click();assert.equal(excerpt.dataset.rtClamped,'false');assert.equal(more.getAttribute('aria-expanded'),'true');
+ assert.equal(alice.querySelector('img').getAttribute('src'),'https://styles.redditmedia.com/Alice.png');
+ assert.match(s.q('[data-rt-raffle-view="results"]').dataset.markdown,/Private draw, not recorded\.$/);
+ s.tertiary().click();assert.equal(s.q('[data-rt-raffle-view="rules"]').hidden,false);
+});
+test('Draw again asks first and the results say which draw it is',async t=>{
+ const s=await ui(t);await s.open();await privateDraw(s);
+ s.secondary().click();await flush();assert.equal(s.secondary().textContent,'Confirm: replace these winners');assert.match(s.note(),/replaces these winners.*draw 2/);
+ s.secondary().click();await flush();assert.match(s.q('.rt-raffle-banner-meta').textContent,/· draw 2/);assert.match(s.q('[data-rt-raffle-view="results"]').dataset.markdown,/Draw 2 \(private, not recorded\)\.$/);
+});
+test('private results aren’t thrown away by a stray click: the backdrop is ignored and closing asks first',async t=>{
+ const s=await ui(t);await s.open();await privateDraw(s);
+ s.dialog().dispatchEvent(new s.W.MouseEvent('click',{bubbles:true}));assert.ok(s.dialog(),'backdrop click ignored with results on screen');
+ s.q('[data-rt-raffle] [slot="close-button"]').click();assert.ok(s.dialog());assert.match(s.note(),/aren’t saved anywhere/);
+ s.q('[data-rt-raffle] [slot="close-button"]').click();assert.equal(s.dialog(),null);
 });
 test('from any page, comments past the JSON are read with Reddit’s own client requests until the chain ends',async t=>{
  const L=(n,top=true)=>({src:'/svc/shreddit/more-comments/r/Alpha/t3_post1?top-level='+(top?1:0)+'&n='+n,cursor:'c'+n,topLevel:top});
@@ -107,82 +132,90 @@ test('from any page, comments past the JSON are read with Reddit’s own client 
   tree:(args,n)=>n===1?{entries:[comment('a1','Alice',{avatar:'https://www.redditstatic.com/a.png'}),comment('c1','Carol')],loaders:[L(1),L(9,false)]}:{entries:[comment('c2','Dan'),comment('c3','Eve')],loaders:[]}});
  await s.open();
  const trees=s.calls.filter(c=>c.action==='raffle-tree');assert.equal(trees.length,2);assert.equal(trees[0].loader,null);assert.equal(trees[0].subreddit,'Alpha');assert.equal(trees[1].loader.cursor,'c1');
- assert.equal(s.status(),'4 eligible entrants · Read all 4 top-level comments');assert.equal(s.D.querySelector('.rt-raffle-ack').hidden,true);
- assert.ok(!s.calls.some(c=>c.action==='raffle-tree' && c.loader?.cursor==='c9'),'reply loaders are skipped in top-level mode');
+ assert.ok(!trees.some(c=>c.loader?.cursor==='c9'),'reply loaders are skipped in top-level mode');
+ s.mode('private');assert.equal(s.status(),'4 people can win');assert.equal(s.q('.rt-raffle-ack').hidden,true);
 });
 test('“more replies” threads are followed only when replies count as entries',async t=>{
  const L=(n,top)=>({src:'/svc/shreddit/more-comments/r/Alpha/t3_post1?x='+n,cursor:'c'+n,topLevel:top});
  const s=await ui(t,{thread:()=>({post:{author:'Owner',subreddit:'Alpha'},entries:[comment('a1','Alice')],missingTopLevel:[],missingReplies:3}),
   tree:(args,n)=>!args.loader?{entries:[],loaders:[L(1,false),L(2,false)]}:{entries:[comment('r'+args.loader.cursor,'Replier'+args.loader.cursor,{parent_id:'t1_a1'})],loaders:[]}});
  await s.open();assert.equal(s.calls.filter(c=>c.action==='raffle-tree').length,0,'top-level only: no reply reads');
- const box=s.D.querySelector('[name="topLevelOnly"]');box.checked=false;box.dispatchEvent(new s.W.Event('input',{bubbles:true}));await flush();
- assert.equal(s.calls.filter(c=>c.action==='raffle-tree').length,3);assert.match(s.status(),/Read all 1 top-level comment and 2 replies$/);
+ s.mode('private');const box=s.q('[name="topLevelOnly"]');box.checked=false;box.dispatchEvent(new s.W.Event('input',{bubbles:true}));await flush();
+ assert.equal(s.calls.filter(c=>c.action==='raffle-tree').length,3);assert.equal(s.status(),'3 people can win');
+ assert.match(s.r.coverageText(),/Read all 1 top-level comment and 2 replies$/);
 });
 test('the placeholder list is not the expected count: a finished chain is complete even with fewer top-level comments',async t=>{
  const s=await ui(t,{thread:()=>({post:{author:'Owner',subreddit:'Alpha',numComments:40},entries:[comment('a1','Alice'),comment('b1','Bob')],missingTopLevel:['c1','x1','x2','x3'],missingReplies:0}),tree:()=>({entries:[comment('c1','Carol')],loaders:[]})});
- await s.open();
- assert.equal(s.status(),'3 eligible entrants · Read all 3 top-level comments (40 in the thread, counting replies)');assert.equal(s.draw().disabled,false);assert.equal(s.D.querySelector('.rt-raffle-ack').hidden,true);
+ await s.open();s.mode('private');
+ assert.equal(s.status(),'3 people can win');assert.equal(s.primary().disabled,false);assert.equal(s.q('.rt-raffle-ack').hidden,true);
+ assert.equal(s.r.coverageText(),'Read all 3 top-level comments (40 in the thread, counting replies)');
 });
-test('a chain cut short keeps what was read, says why and needs an explicit tick before drawing',async t=>{
+test('a chain cut short keeps what was read, says why and needs an explicit tick before a private draw',async t=>{
  const L={src:'/svc/shreddit/more-comments/r/Alpha/t3_post1?top-level=1',cursor:'c1',topLevel:true};
  const s=await ui(t,{thread:()=>({post:{author:'Owner',subreddit:'Alpha'},entries:[comment('a1','Alice'),comment('b1','Bob')],missingTopLevel:['c1'],missingReplies:0}),
   tree:(args,n)=>{if(n===1)return {entries:[comment('c1','Carol')],loaders:[L]};throw Error('Reddit could not load the comments (HTTP 500).');}});
- await s.open();
- assert.equal(s.status(),'3 eligible entrants · Read 3 top-level comments · Reddit stopped answering (Reddit could not load the comments (HTTP 500)), so some may be missing');
- assert.equal(s.draw().disabled,true);assert.equal(s.dialog().querySelector('.rt-raffle-status-card').dataset.state,'warning');
- const ack=s.D.querySelector('.rt-raffle-ack');assert.equal(ack.hidden,false);ack.querySelector('input').checked=true;ack.querySelector('input').dispatchEvent(new s.W.Event('change'));
- assert.equal(s.draw().disabled,false);
+ await s.open();s.mode('private');
+ assert.equal(s.status(),'3 people can win · Read 3 top-level comments · Reddit stopped answering (Reddit could not load the comments (HTTP 500)), so some may be missing');
+ assert.equal(s.primary().disabled,true);assert.equal(s.q('.rt-raffle-status-card').dataset.state,'warning');
+ const ack=s.q('.rt-raffle-ack');assert.equal(ack.hidden,false);assert.equal(ack.querySelector('input').type,'checkbox');ack.querySelector('input').checked=true;ack.querySelector('input').dispatchEvent(new s.W.Event('change'));
+ assert.equal(s.primary().disabled,false);
 });
 test('account rules look up only reached users and report skips; failures never win',async t=>{
  const s=await ui(t,{users:{Alice:Error('HTTP 500'),Bob:{suspended:true}}});
- await s.open();
- const age=s.D.querySelector('input[name="minAccountAgeDays"]');age.value='30';age.dispatchEvent(new s.W.Event('input',{bubbles:true}));
- assert.match(s.status(),/account minimums are checked during the draw$/);assert.equal(s.D.querySelector('.rt-raffle-account .rt-raffle-row-caption').textContent,'At least 30 days old');
- s.draw().click();await flush();
- assert.equal(s.D.querySelectorAll('.rt-raffle-winner').length,0);assert.equal(s.D.querySelector('.rt-raffle-banner-title').textContent,'No winners');
- assert.match(s.D.querySelector('.rt-raffle-facts').textContent,/Skipped during the draw: (1 couldn’t be checked, 1 suspended|1 suspended, 1 couldn’t be checked)/);
+ await s.open();s.mode('private');s.input('minAccountAgeDays','30');
+ assert.equal(s.status(),'2 people can win · Account minimums are checked during the draw');assert.equal(s.q('.rt-raffle-account .rt-raffle-row-caption').textContent,'At least 30 days old');
+ s.primary().click();await flush();
+ assert.equal(s.D.querySelectorAll('.rt-raffle-winner').length,0);assert.equal(s.q('.rt-raffle-banner-title').textContent,'0 winners');
+ assert.match(s.q('.rt-raffle-facts').textContent,/Skipped during the draw: (1 couldn’t be checked, 1 suspended|1 suspended, 1 couldn’t be checked)/);
 });
-const toMessage=async s=>{await s.open();const w=s.D.querySelector('[name="winners"]');w.value='2';w.dispatchEvent(new s.W.Event('input',{bubbles:true}));s.draw().click();await flush();s.D.querySelector('[data-rt-raffle] [slot="secondary-button"]:not([hidden])').click();await flush();};
-test('Message winners: separate chats need a second confirmation, then send one message each and report every outcome',async t=>{
+const toMessage=async s=>{await s.open();await privateDraw(s,'2');s.primary().click();await flush();};
+test('Message winners: separate chats need a second confirmation (warned beside the button), then send one each',async t=>{
  const sent=[];const s=await ui(t,{chat:args=>{if(args.action==='chat-status')return {ready:true};sent.push(args);return args.userId==='idbob'?{sent:false,reason:'Reddit refused the chat.'}:{sent:true,existing:true};}});
  await toMessage(s);
- assert.equal(s.D.querySelector('#rt-raffle-title').textContent,'Message winners');assert.deepEqual([...s.D.querySelectorAll('.rt-raffle-person-name')].map(e=>e.textContent).sort(),['u/Alice','u/Bob']);
- const send=s.draw();assert.equal(send.textContent,'Send to 2 winners');
- assert.match(s.D.querySelector('.rt-raffle-preview').textContent,/^Congratulations u\/(Alice|Bob)! You won the raffle on this post: https:\/\/www\.reddit\.com\/r\/Alpha\/comments\/post1\/giveaway\/$/);
- send.click();await flush();assert.equal(sent.length,0,'the first click only asks for confirmation');assert.match(send.textContent,/^Confirm: send 2 messages$/);assert.match(s.D.querySelector('.rt-raffle-send-note').textContent,/can’t be unsent/);
+ assert.equal(s.q('#rt-raffle-title').textContent,'Message winners');assert.deepEqual([...s.D.querySelectorAll('.rt-raffle-person-name')].map(e=>e.textContent).sort(),['u/Alice','u/Bob']);
+ const send=s.primary();assert.equal(send.textContent,'Send to 2 winners');
+ assert.match(s.q('.rt-raffle-preview').textContent,/^Congratulations u\/(Alice|Bob)! You won the raffle on this post: https:\/\/www\.reddit\.com\/r\/Alpha\/comments\/post1\/giveaway\/$/);
+ assert.ok(s.q('.rt-raffle-textarea').getAttribute('aria-describedby'),'the placeholder hint describes the message field');
+ send.click();await flush();assert.equal(sent.length,0,'the first click only asks for confirmation');assert.equal(send.textContent,'Confirm: send 2 messages');assert.match(s.note(),/can’t be unsent/);
+ assert.equal(s.q('.rt-raffle-footnote').getAttribute('slot'),'tertiary-button','the warning sits in the footer, beside the button');
  send.click();await flush();await new Promise(r=>setTimeout(r,1700));await flush();
- assert.equal(sent.length,2);assert.deepEqual(sent.map(a=>a.userId).sort(),['idalice','idbob']);assert.ok(sent.every(a=>a.text.includes('Congratulations u/'+(a.userId==='idalice'?'Alice':'Bob')+'!')));
- const state=name=>s.D.querySelector('[data-rt-recipient="'+name+'"] .rt-raffle-person-state');
+ assert.equal(sent.length,2);assert.deepEqual(sent.map(a=>a.userId).sort(),['idalice','idbob']);
+ const state=name=>s.q('[data-rt-recipient="'+name+'"] .rt-raffle-person-state');
  assert.equal(state('Alice').textContent,'Sent in your existing chat');assert.equal(state('Bob').dataset.state,'failed');
- assert.match(s.D.querySelector('.rt-raffle-send-note').textContent,/^Sent to 1 of 2 winners\. 1 failed\./);
+ assert.match(s.note(),/^Sent to 1 of 2 winners\. 1 failed\./);
  assert.equal(send.textContent,'Send to the remaining 1');send.click();send.click();await flush();
  assert.equal(sent.length,3);assert.equal(sent[2].userId,'idbob','a retry goes only to people not reached');
 });
 test('Message winners: one group chat sends once with every winner named',async t=>{
  const calls=[];const s=await ui(t,{chat:args=>{if(args.action==='chat-status')return {ready:true};calls.push(args);return {sent:true,failedInvites:[]};}});
  await toMessage(s);
- const group=s.D.querySelector('input[name="rt-raffle-mode"][value="group"]');group.checked=true;group.dispatchEvent(new s.W.Event('change'));
- assert.equal(s.draw().textContent,'Start group chat');assert.equal(s.D.querySelector('.rt-raffle-message .rt-raffle-mini input').value,'Raffle: Giveaway');
- s.draw().click();s.draw().click();await flush();
+ const group=s.q('input[name="rt-raffle-mode"][value="group"]');group.checked=true;group.dispatchEvent(new s.W.Event('change'));
+ assert.equal(s.primary().textContent,'Start group chat');assert.equal(s.q('.rt-raffle-message .rt-raffle-mini input').value,'Raffle: Giveaway');
+ s.primary().click();s.primary().click();await flush();
  assert.equal(calls.length,1);assert.equal(calls[0].action,'chat-group');assert.deepEqual([...calls[0].userIds].sort(),['idalice','idbob']);assert.match(calls[0].text,/^Congratulations u\/\w+, u\/\w+!/);
- assert.match(s.D.querySelector('.rt-raffle-send-note').textContent,/^Group chat started with 2 winners\./);assert.equal(s.draw().disabled,true);
+ assert.match(s.note(),/^Group chat started with 2 winners\./);assert.equal(s.primary().disabled,true);
 });
 test('Message winners stops cleanly when Reddit chat is unavailable or rate-limits new chats',async t=>{
- const off=await ui(t,{chat:()=>({ready:false})});await toMessage(off);off.draw().click();off.draw().click();await flush();
- assert.match(off.D.querySelector('.rt-raffle-send-note').textContent,/Reddit chat isn’t available/);assert.equal(off.calls.filter(c=>c.action==='chat-send').length,0);
+ const off=await ui(t,{chat:()=>({ready:false})});await toMessage(off);off.primary().click();off.primary().click();await flush();
+ assert.match(off.note(),/Reddit chat isn’t available/);assert.equal(off.calls.filter(c=>c.action==='chat-send').length,0);
  const limited=await ui(t,{chat:(args,n)=>args.action==='chat-status'?{ready:true}:{sent:false,rateLimited:true,reason:'Reddit limits how many new chats you can start. Try the rest later.'}});
- await toMessage(limited);limited.draw().click();limited.draw().click();await flush();
+ await toMessage(limited);limited.primary().click();limited.primary().click();await flush();
  assert.equal(limited.calls.filter(c=>c.action==='chat-send').length,1,'no further sends after a rate limit');
  assert.equal(limited.D.querySelectorAll('.rt-raffle-person-state[data-state="skipped"]').length,1);
 });
-test('Escape, Cancel and the close button close the dialog, abort reading and return focus',async t=>{
+test('Escape and the close button close the rules screen, abort reading and return focus',async t=>{
  let release;const s=await ui(t,{thread:()=>new Promise(r=>release=r)});const trigger=s.D.querySelector('button[aria-haspopup]');
- for(const how of ['cancel','close','escape']){
+ for(const how of ['close','escape']){
   await s.open();const d=s.dialog();assert.ok(d);
-  if(how==='cancel')d.querySelector('[slot="secondary-button"]').click();else if(how==='close')d.querySelector('[slot="close-button"]').click();else d.dispatchEvent(new s.W.Event('cancel',{cancelable:true}));
+  if(how==='close')d.querySelector('[slot="close-button"]').click();else d.dispatchEvent(new s.W.Event('cancel',{cancelable:true}));
   assert.equal(s.dialog(),null,how);assert.equal(s.D.activeElement,trigger,how);
  }
  release({post:{},entries:[],missingTopLevel:[]});await flush();assert.equal(s.dialog(),null,'a late answer for a closed dialog renders nothing');
+});
+test('phone ↔ desktop follows the screen: Reddit’s bottom sheet below 640 px, switched live',async t=>{
+ const s=await ui(t,{narrow:true});await s.open();const card=s.dialog().querySelector('rpl-modal-card');
+ assert.equal(card.getAttribute('appearance'),'bottom-sheet');assert.ok(s.dialog().classList.contains('rt-raffle-sheet'));
+ s.media.matches=false;for(const fn of s.media.listeners)fn();assert.equal(card.getAttribute('appearance'),'modal');assert.equal(s.dialog().classList.contains('rt-raffle-sheet'),false);
 });
 
 // --- Bridge
@@ -254,4 +287,102 @@ test('bridge chat reports Reddit’s new-chat limit and finds an existing room f
  await b.send({action:'raffle-user',username:'Alice'});
  const limited=await b.send({action:'chat-send',userId:'aaa',text:'Hi'});assert.equal(limited.sent,false);assert.equal(limited.rateLimited,true);
  mode='known';const known=await b.send({action:'chat-send',userId:'aaa',text:'Hi'});assert.equal(known.sent,true);assert.equal(known.existing,true);assert.deepEqual(client.sent,['!known:reddit.com']);
+});
+
+// --- Public draws on Reddit Raffler (§4b)
+const officialRaffle=(extra={})=>({postId:'post1',url:'https://www.redditraffler.com/raffles/post1',verified:true,creator:'Owner',created:'November 15 2026, 1:07am',criteria:{minAge:30,minComment:0,minLink:0},ignored:['AutoModerator','Owner'],
+ winners:[{username:'Alice',commentUrl:'https://reddit.com/r/Alpha/comments/post1/giveaway/a1/',commentId:'a1',accountAgeDays:243,commentKarma:5,linkKarma:1}],...extra});
+test('public draw: says how it will be created, warns before confirming, sends Raffler’s fields and shows results with proof',async t=>{
+ let polls=0;const s=await ui(t,{raffler:(m)=>{
+  if(m.action==='session')return {ok:true,signedIn:'Owner'};
+  if(m.action==='status')return polls<1?{ok:true,exists:false}:{ok:true,exists:true,raffle:officialRaffle()};
+  if(m.action==='create')return {ok:true,queued:true};
+  if(m.action==='job'){polls++;return {ok:true,status:'Done!',error:false};}}});
+ await s.open();
+ assert.equal(s.publicSub(),'You’re signed in there as u/Owner, so it’s marked verified.');
+ s.input('minAccountAgeDays','30');
+ s.primary().click();await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='create').length,0,'first click only confirms');
+ assert.equal(s.primary().textContent,'Confirm public draw');assert.match(s.note(),/permanent public page on redditraffler\.com and can’t be redone/);
+ s.input('winners','2');assert.equal(s.primary().textContent,'Run public draw','changing a rule clears the confirmation');s.input('winners','1');
+ s.primary().click();s.primary().click();await flush();await new Promise(r=>setTimeout(r,1700));await flush();
+ const create=s.rafflerCalls.find(c=>c.action==='create');assert.equal(create.postId,'post1');
+ assert.deepEqual(JSON.parse(JSON.stringify(create.params)),{winnerCount:1,minAge:30,ignoredUsers:['AutoModerator','Owner'],minComment:0,minLink:0});
+ assert.equal(s.q('[data-rt-raffle-view="results"]').hidden,false);
+ const proof=s.q('.rt-raffle-proof');assert.equal(proof.getAttribute('href'),'https://www.redditraffler.com/raffles/post1');assert.match(proof.textContent,/^View proof/);assert.equal(proof.hasAttribute('aria-label'),false,'the visible text is the accessible name');
+ assert.equal(s.q('.rt-raffle-badge').textContent,'Verified public raffle');assert.match(s.q('.rt-raffle-banner-meta').textContent,/^Drawn by Reddit Raffler · .*2026.* · created by u\/Owner$/);
+ const row=s.q('.rt-raffle-winner[data-rt-winner="Alice"]');assert.match(row.querySelector('.rt-raffle-excerpt').textContent,/^First line/);assert.match(row.textContent,/243-day account/);
+ assert.equal(s.secondary(),null,'no Draw again for a public draw');assert.equal(s.primary().textContent,'Message winners');
+ assert.match(s.q('[data-rt-raffle-view="results"]').dataset.markdown,/Proof: https:\/\/www\.redditraffler\.com\/raffles\/post1$/);
+});
+test('a post that already has a public raffle opens on its results; drawing privately is a deliberate second step',async t=>{
+ const s=await ui(t,{raffler:m=>m.action==='status'?{ok:true,exists:true,raffle:officialRaffle({verified:false,creator:''})}:{ok:true,signedIn:''}});
+ await s.open();
+ assert.equal(s.q('#rt-raffle-title').textContent,'Winners');assert.equal(s.q('.rt-raffle-badge').textContent,'Public raffle');assert.match(s.q('.rt-raffle-banner-meta').textContent,/created by a guest$/);
+ assert.equal(s.rafflerCalls.filter(c=>c.action==='create').length,0);
+ assert.equal(s.tertiary().textContent,'Draw privately anyway');s.tertiary().click();
+ assert.equal(s.q('input[name="rt-raffle-draw"][value="private"]').checked,true);assert.equal(s.publicSub(),'This post already has a public raffle. View its results here.');
+ s.mode('public');assert.equal(s.primary().textContent,'View public results','the public results stay one click away');s.primary().click();assert.equal(s.q('#rt-raffle-title').textContent,'Winners');
+});
+test('public mode disables rules Reddit Raffler can’t follow, with the reason beside them',async t=>{
+ const s=await ui(t);await s.open();
+ const must=s.q('[data-rt-row="mustInclude"]');assert.equal(must.dataset.unsupported,'true');assert.equal(must.querySelector('input').disabled,true);assert.equal(must.querySelector('.rt-raffle-row-caption').textContent,'Private draw only');
+ assert.equal(s.q('[data-rt-row="topLevelOnly"] .rt-raffle-row-caption').textContent,'Reddit Raffler only counts top-level comments');
+ s.input('minTotalKarma','100');s.input('minCommentKarma','5');
+ assert.equal(s.q('.rt-raffle-account .rt-raffle-row-caption').textContent,'Reddit Raffler takes total karma or comment and post karma, not both');assert.equal(s.primary().disabled,true);
+ s.mode('private');assert.equal(s.q('[data-rt-row="mustInclude"] input').disabled,false);assert.equal(s.primary().disabled,false);
+ s.input('mustInclude','line');s.mode('public');s.mode('private');assert.equal(s.q('[name="mustInclude"]').value,'line','switching modes keeps what was typed');assert.match(s.status(),/^1 person can win/);
+});
+test('Reddit Raffler down or refusing: private draw becomes the choice, with a plain explanation',async t=>{
+ const down=await ui(t,{raffler:()=>{throw Error('Reddit Raffler is unreachable.');}});await down.open();
+ assert.equal(down.q('input[name="rt-raffle-draw"][value="private"]').checked,true);assert.equal(down.q('input[name="rt-raffle-draw"][value="public"]').disabled,true);
+ assert.equal(down.publicSub(),'Reddit Raffler isn’t responding. You can still draw privately. Try again');assert.ok(down.q('.rt-raffle-retry'));assert.equal(down.primary().textContent,'Draw privately');assert.equal(down.primary().disabled,false);
+ const refused=await ui(t,{raffler:m=>{if(m.action==='create')throw Error('Reddit Raffler didn’t accept this raffle.');return noRaffle(m);}});await refused.open();
+ refused.primary().click();refused.primary().click();await flush();assert.equal(refused.note(),'Reddit Raffler: Reddit Raffler didn’t accept this raffle.');assert.equal(refused.primary().disabled,false,'can try again');
+});
+
+// --- Raffler worker
+const raffleCard=(name,id,days)=>`<div class="column is-4"> <div class="card"> <div class="card-content has-text-centered"> <p class="is-size-4 has-text-reddit"> /u/${name} </p> <p> <a class="reddit-button" href="https://reddit.com/u/${name}"><i class="fas fa-user"></i> Profile</a> </p> <p> <a class="reddit-button" href="https://reddit.com/r/Alpha/comments/post1/giveaway/${id}/"><i class="far fa-comment-alt"></i> Comment</a> </p> </div> <footer class="card-footer"> <p class="card-footer-item"> <i class="fas fa-birthday-cake fa-fw card-icon"></i> ${days} days </p> <p class="card-footer-item"> <i class="far fa-comments fa-fw card-icon"></i> 12 karma </p> <p class="card-footer-item"> <i class="fas fa-link fa-fw card-icon"></i> 3 karma </p> </footer> </div> </div>`;
+const resultsPage=`<section class="hero"><p class="title has-text-light"> Raffle results for "<a href="https://redd.it/post1">Giveaway</a>" </p> <p id="subtitle" class="subtitle has-text-light"> Created by <a href="/users/Owner">/u/Owner</i></a> on November 15 2026, 1:07am UTC </p> <p> <span id="verified-tag" class="tag is-reddit is-rounded" aria-label="x"> Verified Raffle </span> </p></section><div class="has-text-centered"> <p class="is-size-3">30 <span class="is-size-5">day(s)</span></p> <p class="is-size-6">Minimum Account Age</p> </div><div class="has-text-centered"> <p class="is-size-3">0</p> <p class="is-size-6">Minimum Comment Karma</p> </div><div class="has-text-centered"> <p class="is-size-3">2</p> <p class="is-size-6">Ignored User(s)</p> <p> <span class="tag is-reddit is-rounded"> AutoModerator </span> <span class="tag is-reddit is-rounded"> Owner </span> </p></div>`+raffleCard('Alice','a1',243)+raffleCard('Bob','b1',9);
+function rafflerWorker({responses,settings={raffles:true}}){
+ let listener;const calls=[];
+ const context=vm.createContext({URL,URLSearchParams,AbortController,setTimeout,clearTimeout,JSON,String,Number,Array,Set,Object,Error,Math,
+  chrome:{runtime:{id:'own',onMessage:{addListener(fn){listener=fn;}}},storage:{local:{async get(){return {'rt-settings-v1':settings};}}}},
+  fetch:async(url,init)=>{calls.push({url,init});const r=responses(url,init);return {status:r.status ?? 200,ok:(r.status ?? 200)<300,type:r.type || 'basic',headers:{get:()=>null},async text(){return r.text ?? '';}};}});
+ vm.runInContext(read('post-model.js'),context);vm.runInContext(read('raffler-broker.js'),context);
+ const send=(message,sender={})=>new Promise(resolve=>{const result=listener({scope:'rt-raffler',...message},{id:'own',frameId:0,url:'https://www.reddit.com/r/Alpha/',...sender},resolve);if(result!==true)resolve(undefined);});
+ return {calls,send,broker:context.RTRafflerBroker};
+}
+test('Raffler worker parses the permanent results page',()=>{
+ const {broker}=rafflerWorker({responses:()=>({})});const r=plain(broker.parseResults(resultsPage,'post1'));
+ assert.equal(r.verified,true);assert.equal(r.creator,'Owner');assert.equal(r.created,'November 15 2026, 1:07am');assert.equal(r.url,'https://www.redditraffler.com/raffles/post1');
+ assert.deepEqual(r.criteria,{minAge:30,minComment:0,ignoredCount:2});assert.deepEqual(r.ignored,['AutoModerator','Owner']);
+ assert.deepEqual(r.winners[0],{username:'Alice',commentUrl:'https://reddit.com/r/Alpha/comments/post1/giveaway/a1/',commentId:'a1',accountAgeDays:243,commentKarma:12,linkKarma:3});assert.equal(r.winners.length,2);
+ assert.throws(()=>broker.parseResults('<html>changed</html>','post1'),/changed/);assert.throws(()=>broker.parseResults(resultsPage,'other1'),/changed/);
+ assert.equal(broker.signedInName('<a class="navbar-link"> Owner </a><a id="logout" class="navbar-item">'),'Owner');assert.equal(broker.signedInName('<a class="navbar-link"> Owner </a>'),'');
+});
+test('Raffler worker creates a raffle with the site’s own form fields and reads its progress',async()=>{
+ const form='<a class="navbar-link"> Owner </a><a id="logout" class="navbar-item"> Log Out </a><input type="hidden" name="csrf_token" value="TOKEN-1234567890" />';
+ let post={status:202,text:'{"url":"/raffles/post1/status"}'};
+ const w=rafflerWorker({responses:(url,init)=>url.endsWith('/api/raffles/new')?post:url.endsWith('/raffles/new')?{text:form}:url.includes('job_status')?{text:'{"status":"Selecting winners...","error":false}'}:url.endsWith('/raffles/post1')?{text:resultsPage}:{status:404}});
+ const params={winnerCount:2,minAge:30,minComment:0,minLink:5,ignoredUsers:['AutoModerator','Owner','bad name']};
+ const created=await w.send({action:'create',postId:'post1',params});assert.equal(created.ok,true);assert.equal(created.queued,true);assert.equal(created.signedIn,'Owner');
+ const postCall=w.calls.find(c=>c.url.endsWith('/api/raffles/new'));assert.equal(postCall.init.method,'POST');assert.equal(postCall.init.credentials,'include');assert.equal(postCall.init.redirect,'manual');
+ assert.deepEqual(Object.fromEntries(new URLSearchParams(String(postCall.init.body))),{csrf_token:'TOKEN-1234567890',submissionUrl:'https://redd.it/post1',winnerCount:'2',minAge:'30',minComment:'0',minLink:'5',ignoredUsers:'["AutoModerator","Owner"]'});
+ const combined=await w.send({action:'create',postId:'post1',params:{winnerCount:1,minAge:0,minCombined:100,ignoredUsers:[]}});assert.equal(combined.ok,true);
+ assert.equal(new URLSearchParams(String(w.calls.filter(c=>c.url.endsWith('/api/raffles/new')).at(-1).init.body)).get('minCombined'),'100');
+ post={status:0,type:'opaqueredirect'};assert.equal((await w.send({action:'create',postId:'post1',params})).exists,true,'303: the post already has a raffle');
+ post={status:422,text:'{"message":"Form validation failed."}'};const refused=await w.send({action:'create',postId:'post1',params});assert.equal(refused.ok,false);assert.match(refused.error,/didn’t accept this raffle \(Form validation failed\)/);
+ const job=await w.send({action:'job',postId:'post1'});assert.equal(job.status,'Selecting winners...');assert.equal(job.error,false);
+ const status=await w.send({action:'status',postId:'post1'});assert.equal(status.exists,true);assert.equal(status.raffle.winners.length,2);
+ assert.equal((await w.send({action:'status',postId:'none1'})).exists,false);
+ for(const bad of [{action:'create',postId:'post1',params:{...params,winnerCount:101}},{action:'create',postId:'post1',params:{...params,minCombined:5}},{action:'status',postId:'../x'}])assert.equal((await w.send(bad)).ok,false,JSON.stringify(bad).slice(0,60));
+ assert.equal((await w.send({action:'status',postId:'post1'},{url:'https://evil.test/'})).code,'forbidden');
+ assert.equal((await rafflerWorker({responses:()=>({}),settings:{raffles:false}}).send({action:'status',postId:'post1'})).code,'disabled');
+ assert.ok(w.calls.every(c=>c.url.startsWith('https://www.redditraffler.com/')),'only Raffler is contacted');
+});
+test('the Referer rule touches only the create request to Reddit Raffler',()=>{
+ const [rule]=JSON.parse(read('raffler-referer-rules.json'));const re=new RegExp(rule.condition.regexFilter);
+ assert.equal(rule.action.requestHeaders[0].value,'https://www.redditraffler.com/raffles/new');assert.deepEqual(rule.condition.requestMethods,['post']);
+ assert.ok(re.test('https://www.redditraffler.com/api/raffles/new'));for(const url of ['https://www.redditraffler.com/api/raffles/new?x=1','https://www.redditraffler.com/raffles/new','https://evil.test/api/raffles/new'])assert.ok(!re.test(url),url);
+ const manifest=JSON.parse(read('manifest.json'));assert.ok(manifest.host_permissions.includes('https://www.redditraffler.com/*'));assert.ok(manifest.declarative_net_request.rule_resources.some(r=>r.path==='raffler-referer-rules.json'));
 });

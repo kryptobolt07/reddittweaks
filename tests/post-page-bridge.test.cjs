@@ -657,7 +657,7 @@ test('native post search reads Reddit\'s newer content-preview cards and skips o
 test('Google referrer rule applies only to explicitly marked credential-free extension searches',async t=>{
  const manifest=JSON.parse(fs.readFileSync('extension/manifest.json','utf8'));
  assert.ok(manifest.permissions.includes('declarativeNetRequestWithHostAccess'));
- const resources=manifest.declarative_net_request.rule_resources;assert.equal(resources.length,1);assert.equal(resources[0].enabled,true);
+ const all=manifest.declarative_net_request.rule_resources;assert.deepEqual(all.map(r=>r.id).sort(),['logged_out_search_referrer','raffler_referer']);const resources=all.filter(r=>r.id==='logged_out_search_referrer');assert.equal(resources[0].enabled,true);
  const rules=JSON.parse(fs.readFileSync('extension/'+resources[0].path,'utf8'));assert.equal(rules.length,1);
  const rule=rules[0],matches=new RegExp(rule.condition.regexFilter);
  assert.deepEqual(rule.action,{type:'modifyHeaders',requestHeaders:[{header:'Referer',operation:'set',value:'https://www.google.com/'}]});

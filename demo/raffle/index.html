@@ -1,0 +1,42 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reddit Tweaks · Raffle fixture</title>
+<!-- Synthetic fixture for the raffle dialog (docs/raffle-spec.md). Invented users, comments and Raffler answers only.
+     Query: ?state=none|exists|unavailable  &screen=rules|results|message|official  &theme=dark -->
+<link rel="stylesheet" href="/extension/post-discovery.css">
+<style>
+/* Reddit's tokens and the few utility/button classes the dialog borrows (values measured on reddit.com, 2026-11). */
+:root{color-scheme:light;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--color-neutral-content:#333d42;--color-neutral-content-weak:#5c6c74;--color-neutral-content-strong:#181c1f;--color-neutral-background:#fff;--color-neutral-background-hover:#f6f8f9;--color-neutral-border:#d4dadc;--color-neutral-border-weak:#00000019;--color-neutral-border-strong:#5c6c74;--color-secondary-background:#e5ebee;--color-secondary-background-hover:#dbe4e9;--color-primary-background:#000;--color-ui-modalbackground:#fff;--color-scrim-background:#00000099;--boxshadow-modal:0 2px 15px rgba(26,26,27,.3);--rem16:1rem;--radius-md:1.25rem;--color-danger-content:#d93900;--color-success-content:#008a10}
+:root[data-theme="dark"]{color-scheme:dark;--color-neutral-content:#dbe4e9;--color-neutral-content-weak:#8ba2ad;--color-neutral-content-strong:#f2f2f2;--color-neutral-background:#0e1113;--color-neutral-background-hover:#181c1f;--color-neutral-border:#3e4a50;--color-neutral-border-weak:#ffffff19;--color-secondary-background:#2a3236;--color-secondary-background-hover:#333d42;--color-primary-background:#d7dadc;--color-ui-modalbackground:#0e1113}
+body{margin:0;background:var(--color-neutral-background);color:var(--color-neutral-content)}
+.page{max-width:740px;margin:24px auto;padding:0 16px}
+.m-0{margin:0}.mt-md{margin-top:16px}.me-md{margin-inline-end:16px}.px-md{padding-inline:16px}.h-xl{height:32px}.flex{display:flex}.items-center{align-items:center}.inline-flex{display:inline-flex}.justify-center{justify-content:center}
+.text-title-3{font-size:20px;line-height:24px;font-weight:600}.text-neutral-content-strong{color:var(--color-neutral-content-strong)}
+.button{border:0;border-radius:999px;font:inherit;font-weight:600;cursor:pointer;text-decoration:none;gap:8px}.button:disabled{opacity:.5;cursor:default}
+.button-medium{height:40px;font-size:14px}.button-small{height:32px;font-size:12px;padding:0 12px}.icon{width:32px;padding:0}
+.button-primary{background:var(--color-primary-background);color:var(--color-neutral-background)}.button-secondary{background:var(--color-secondary-background);color:var(--color-neutral-content-strong)}.button-plain{background:transparent;color:var(--color-neutral-content-strong)}
+shreddit-post{display:block;padding:12px 16px;border-radius:16px;background:var(--color-neutral-background-hover)}
+shreddit-post-overflow-menu{display:inline-block}
+</style>
+<div class="page">
+  <shreddit-post id="t3_fix123" post-title="Giveaway: three copies of a synthetic board game, comment to enter!" author="FixtureHost" permalink="/r/FixtureGames/comments/fix123/giveaway/">
+    <strong>r/FixtureGames</strong> · Giveaway: three copies of a synthetic board game, comment to enter!
+    <shreddit-post-overflow-menu post-id="t3_fix123" author-name="FixtureHost" subreddit-prefixed-name="r/FixtureGames" permalink="/r/FixtureGames/comments/fix123/giveaway/"><button aria-haspopup="menu" aria-expanded="false">⋯</button><div slot="devvit-context-actions" role="menuitem"></div></shreddit-post-overflow-menu>
+  </shreddit-post>
+</div>
+<script>
+// rpl-modal-card stand-in: the shadow structure and rules captured from reddit.com (FINDINGS.md), enough for layout.
+customElements.define('rpl-modal-card',class extends HTMLElement{constructor(){super();const root=this.attachShadow({mode:'open'});root.innerHTML=`<style>
+:host{display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden;background:var(--color-ui-modalbackground);font-size:14px}
+:host([appearance="modal"]){border-radius:var(--rem16);box-shadow:var(--boxshadow-modal)}
+.content{display:flex;flex-direction:column;flex:1 1 0%;overflow:hidden auto;width:100%;box-sizing:border-box}
+.header{display:flex;align-items:center;justify-content:space-between;width:100%}
+.footer{display:flex;flex-direction:column;gap:8px;padding:16px;box-sizing:border-box;width:100%}
+.pair{display:flex;flex-direction:column;gap:8px}
+@media (min-width:640px){.footer{flex-direction:row;align-items:center;justify-content:space-between}.pair{flex-direction:row;margin-inline-start:auto}}
+</style><div class="content"><div class="header"><slot name="title"></slot><slot name="close-button"></slot></div><slot></slot></div><div class="footer"><slot name="tertiary-button"></slot><div class="pair"><slot name="secondary-button"></slot><slot name="primary-button"></slot></div></div>`;}});
+customElements.define('faceplate-timeago',class extends HTMLElement{connectedCallback(){const s=Math.max(60,(Date.now()-Date.parse(this.getAttribute('ts')))/1000);this.textContent=s<3600?Math.round(s/60)+'m ago':s<86400?Math.round(s/3600)+'h ago':Math.round(s/86400)+'d ago';}});
+</script>
+<script src="/extension/post-model.js"></script>
+<script src="/extension/raffle-model.js"></script>
+<script src="/extension/raffle-ui.js"></script>
+<script src="/demo/raffle/preview.js"></script>
+</html>
