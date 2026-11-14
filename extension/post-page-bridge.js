@@ -736,6 +736,54 @@
     const loaders=deepAll(doc,'faceplate-partial[src*="more-comments"]').map(p=>({src:p.getAttribute('src') || '',cursor:p.querySelector('input[name="cursor"]')?.value || ''})).filter(valid).map(l=>({...l,topLevel:/(?:^|[?&])top-level=1(?:&|$)/.test(l.src.split('?')[1] || '')}));
     return {entries,loaders};
   }
+  // Messaging raffle winners (docs/raffle-spec.md §B7) through Reddit's own chat client, which Reddit preloads
+  // (hidden) on every page: the same calls its composer makes (FINDINGS.md, 2026-11-15). Only accounts this page
+  // resolved for a raffle (raffle-user) can be messaged, at most 100 per send; the chat token stays in Reddit's client.
+  const chatRecipients=new Map();
+  function chatClient(){
+    const walk=(root,depth=0)=>{for(const el of root.querySelectorAll('rs-matrix-client'))if(el.client)return el.client;if(depth>6)return null;
+      for(const el of root.querySelectorAll('*'))if(el.shadowRoot){const found=walk(el.shadowRoot,depth+1);if(found)return found;}return null;};
+    const client=walk(document);
+    return client && typeof client.createRoom==='function' && typeof client.sendTextMessage==='function' && /^@t2_[a-z0-9]+:reddit\.com$/i.test(client.getUserId?.() || '')?client:null;
+  }
+  const mxid=id=>'@t2_'+id+':reddit.com';
+  const chatError=error=>{const code=String(error?.data?.errcode || error?.errcode || error?.data?.error || error?.message || '');
+    if(/rate\.score_room_creation_limit/.test(code) || error?.httpStatus===429)return {sent:false,rateLimited:true,reason:'Reddit limits how many new chats you can start. Try the rest later.'};
+    if(/feature_gated/.test(code))return {sent:false,reason:'Reddit doesn’t allow you to start chats right now.'};
+    return {sent:false,reason:'Reddit refused the chat'+(code?' ('+code.slice(0,120)+')':'')+'.'};};
+  const roomReady=(client,roomId,ms=15000)=>client.getRoom(roomId)?Promise.resolve():new Promise(resolve=>{let timer;const done=()=>{if(client.getRoom(roomId)){clearTimeout(timer);client.off?.('Room',done);resolve();}};timer=setTimeout(()=>{client.off?.('Room',done);resolve();},ms);client.on?.('Room',done);});
+  const chatText=text=>typeof text==='string' && text.trim().length>0 && text.length<=10000;
+  async function chatStatus(){
+    const client=chatClient();if(!client)return {ready:false};
+    return {ready:true,syncing:['SYNCING','PREPARED'].includes(client.getSyncState?.()),self:String(client.getUserId()).replace(/^@t2_|:reddit\.com$/g,'')};
+  }
+  async function chatSend(input){
+    if(['url','origin','method','headers'].some(key=>input[key]!==undefined) || typeof input.userId!=='string' || !chatRecipients.has(input.userId) || !chatText(input.text))throw Error('Invalid chat request.');
+    const client=chatClient();if(!client)throw Error('Reddit chat isn’t available on this page. Reload the page and try again.');
+    const target=mxid(input.userId);if(target===client.getUserId())throw Error('You can’t message yourself.');
+    let roomId='',existing=false;
+    try{roomId=(await client.getRoomList?.({with_user:target,type:'direct',include:{state:true,timeline:true}}))?.rooms?.[0]?.room_id || '';existing=Boolean(roomId);}catch{}
+    if(!roomId){
+      try{roomId=(await client.createRoom({preset:'reddit_dm',invite:[target]}))?.room_id || '';}
+      catch(error){const known=error?.data?.['com.reddit.existing_room_id'];if(typeof known==='string' && known.startsWith('!')){roomId=known;existing=true;}else return chatError(error);}
+    }
+    if(!roomId)return {sent:false,reason:'Reddit didn’t return a chat for this user.'};
+    await roomReady(client,roomId);
+    try{await client.sendTextMessage(roomId,null,input.text,client.makeTxnId?.());}catch(error){return chatError(error);}
+    return {sent:true,existing,roomId};
+  }
+  async function chatGroup(input){
+    const ids=Array.isArray(input.userIds)?[...new Set(input.userIds)]:[];
+    if(['url','origin','method','headers'].some(key=>input[key]!==undefined) || !ids.length || ids.length>100 || !ids.every(id=>typeof id==='string' && chatRecipients.has(id)) || !chatText(input.text) || typeof input.name!=='string' || input.name.length>64)throw Error('Invalid chat request.');
+    const client=chatClient();if(!client)throw Error('Reddit chat isn’t available on this page. Reload the page and try again.');
+    const targets=ids.map(mxid).filter(id=>id!==client.getUserId());if(!targets.length)throw Error('There is no one else to message.');
+    let roomId;try{roomId=(await client.createRoom({name:input.name.trim() || undefined,preset:'private_chat',visibility:'private',invite:targets.slice(0,10)}))?.room_id;}catch(error){return chatError(error);}
+    if(!roomId)return {sent:false,reason:'Reddit didn’t create the group chat.'};
+    const failedInvites=[];for(const target of targets.slice(10)){try{await client.invite(roomId,target);}catch{failedInvites.push(target.replace(/^@t2_|:reddit\.com$/g,''));}}
+    await roomReady(client,roomId);
+    try{await client.sendTextMessage(roomId,null,input.text,client.makeTxnId?.());}catch(error){return {...chatError(error),roomId,failedInvites};}
+    return {sent:true,roomId,failedInvites};
+  }
   async function raffleUser(input,signal){
     if(!M.validateUsername(input.username))throw Error('Invalid username.');
     const response=await fetch(new URL('/user/'+encodeURIComponent(input.username)+'/about.json?raw_json=1',location.origin).href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
@@ -743,7 +791,8 @@
     if(!response.ok)throw Error('Reddit could not load u/'+input.username+' (HTTP '+response.status+').');
     let data;try{data=JSON.parse(await boundedText(response))?.data;}catch{throw Error('Reddit returned an unexpected profile.');}
     if(!data || data.is_suspended===true)return {suspended:true};
-    return {created:Number(data.created_utc) || 0,commentKarma:Number(data.comment_karma) || 0,postKarma:Number(data.link_karma) || 0,avatar:reddittImage(String(data.snoovatar_img || '')) || reddittImage(String(data.icon_img || '').replace(/&amp;/g,'&'))};
+    const userId=typeof data.id==='string' && /^[a-z0-9]{1,13}$/i.test(data.id)?data.id.toLowerCase():'';if(userId)chatRecipients.set(userId,input.username);
+    return {userId,created:Number(data.created_utc) || 0,commentKarma:Number(data.comment_karma) || 0,postKarma:Number(data.link_karma) || 0,avatar:reddittImage(String(data.snoovatar_img || '')) || reddittImage(String(data.icon_img || '').replace(/&amp;/g,'&'))};
   }
   // Redaction (docs/redaction-spec.md): writes only to items this page read from the signed-in account's own lists.
   // The modhash stays here, in the page world; the extension's other scripts never receive it.
@@ -806,6 +855,9 @@
     if(input.action==='raffle-thread')return raffleThread(input,signal);
     if(input.action==='raffle-tree')return raffleTree(input,signal);
     if(input.action==='raffle-user')return raffleUser(input,signal);
+    if(input.action==='chat-status')return chatStatus();
+    if(input.action==='chat-send')return chatSend(input);
+    if(input.action==='chat-group')return chatGroup(input);
     if(input.action==='redact-identity')return redactIdentity(signal);
     if(input.action==='redact-list')return redactList(input,signal);
     if(input.action==='redact-item')return redactItem(input,signal);
@@ -894,7 +946,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-tree','raffle-user','unapproved','mod-status','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}
