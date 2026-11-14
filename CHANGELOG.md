@@ -1,3 +1,12 @@
+# 0.34.1 preview
+
+- **Redaction controls:** reuse the existing searchable community selector for include/exclude filters, native-style icon menu rows for content type and the shared calendar. Content type, date and community buttons now match the other controls’ 40px height. Only one popover opens at a time; menus support keyboard navigation, Escape, focus restoration and outside dismissal. The calendar opens in the modal’s top layer without expanding the form. The score filter now explains that entering 10 protects items with at least 10 net Reddit points; blank ignores score.
+- **Recent-range discovery:** read the signed-in native profile (reuse the loaded own-profile page when suitable, otherwise read profile HTML), then follow Reddit’s actual continuation. Date ranges only scan the relevant newest-first feed and stop when the start boundary is passed. They never run top/controversial scans. Older pinned items do not prematurely stop discovery. No navigation or background scrolling.
+- **Partial failures:** retain found items when a later page or deeper source fails, including legacy HTTP 404 responses; review and confirmation explicitly identify incomplete discovery. Preserve long text so keep-word filters also protect words beyond the previous 4,000-character truncation.
+- **Validation:** all 1,448 tests pass, all 44 JavaScript files parse, ZIP integrity passes, and all 58 shipped assets match source, archive and stable unpacked folder.
+- **Version:** patch increment for discovery reliability and the existing controls’ consistency; no storage migration.
+- **Live evidence and limits:** a read-only check on live Reddit confirmed native Comments metadata and an HTTP 200 continuation containing 25 readable comments. No live redaction, dry run or other write was performed. Updated installed UI review remains with the user after reloading the unpacked extension; no constructed preview was used.
+
 # 0.34.0 preview
 
 - **Redaction review:** a dedicated popup section opens on the active Reddit page (own-profile fallback outside Reddit). Grouped filters use the existing calendar. Finding switches to a scrollable selection screen with all matches accessible, select/deselect all, full text and Reddit links. A separate confirmation screen shows the selected counts and replacement text, then requires `delete N`. Back preserves the selection; changing filters invalidates it. The default text is “This comment has been redacted or anonymized by Reddit Tweaks.”
