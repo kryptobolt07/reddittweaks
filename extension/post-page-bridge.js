@@ -802,7 +802,8 @@
     let data;try{data=JSON.parse(await boundedText(response))?.data;}catch{throw Error('Reddit returned an unexpected profile.');}
     if(!data || data.is_suspended===true)return {suspended:true};
     const userId=typeof data.id==='string' && /^[a-z0-9]{1,13}$/i.test(data.id)?data.id.toLowerCase():'';if(userId)chatRecipients.set(userId,input.username);
-    return {userId,created:Number(data.created_utc) || 0,commentKarma:Number(data.comment_karma) || 0,postKarma:Number(data.link_karma) || 0,avatar:reddittImage(String(data.snoovatar_img || '')) || reddittImage(String(data.icon_img || '').replace(/&amp;/g,'&'))};
+    const commentAvatar=value=>safeAvatar(headshotOf(String(value || '').replace(/&amp;/g,'&')));
+    return {userId,created:Number(data.created_utc) || 0,commentKarma:Number(data.comment_karma) || 0,postKarma:Number(data.link_karma) || 0,avatar:commentAvatar(data.icon_img) || commentAvatar(data.snoovatar_img)};
   }
   // Redaction (docs/redaction-spec.md): writes only to items this page read from the signed-in account's own lists.
   // The modhash stays here, in the page world; the extension's other scripts never receive it.

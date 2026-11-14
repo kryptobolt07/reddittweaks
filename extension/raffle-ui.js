@@ -110,7 +110,8 @@
         const entry={at:Date.now(),pending:this.raffler({action:'status',postId:id}).then(r=>({exists:Boolean(r?.exists),verified:Boolean(r?.raffle?.verified)}),()=>null)};
         if(this.raffleStatus.size>=200)this.raffleStatus.delete(this.raffleStatus.keys().next().value);this.raffleStatus.set(id,entry);
       }
-      const status=await this.raffleStatus.get(id)?.pending;if(!status)return;
+      const entry=this.raffleStatus.get(id),status=await entry?.pending;
+      if(!status){if(this.raffleStatus.get(id)===entry)this.raffleStatus.delete(id);return;}
       const item=menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]');if(!item)return;
       item.dataset.rtRaffleState=status.exists?'drawn':'none';
       item.querySelector('.text-body-2').textContent=status.exists?'View raffle results':'Run a raffle';
@@ -233,6 +234,7 @@
       if(!force && state.result && !state.result.official && !state.saved && !state.closeAsked){state.closeAsked=true;this.setNote('These winners aren’t saved anywhere. Copy them first, or close again to discard.',{alert:true});return;}
       if(!force && state.chat?.sending){this.setNote('Messages are still sending. Wait for them to finish.',{alert:true});return;}
       this.dialog=null;state.controller.abort();state.media?.removeEventListener?.('change',state.onMedia);
+      if(state.onSignInReturn)window.removeEventListener('focus',state.onSignInReturn);
       try{state.dialog.close();}catch{}state.dialog.remove();
       if(state.trigger?.isConnected)state.trigger.focus({preventScroll:true});
     }
@@ -343,10 +345,20 @@
       // Choice captions: Reddit Raffler's state on the public option.
       const sub=state.publicOption.sub,blockers=this.officialBlockers();
       sub.textContent=r.phase==='checking'?'Checking Reddit Raffler…':r.phase==='unavailable'?'Reddit Raffler isn’t responding. You can still draw privately.':r.phase==='exists'?'This post already has a public raffle. View its results here.':
-        r.signedIn?'You’re signed in there as u/'+r.signedIn+(state.post.author && r.signedIn.toLowerCase()===state.post.author.toLowerCase()?', so it’s marked verified.':'; only the post’s author gets a verified mark.'):'As a guest (unverified). Sign in at redditraffler.com to have it verified.';
+        r.signedIn?'You’re signed in there as u/'+r.signedIn+(state.post.author && r.signedIn.toLowerCase()===state.post.author.toLowerCase()?', so it’s marked verified.':'; only the post’s author gets a verified mark.'):'As a guest (unverified).';
       sub.dataset.state=r.phase;
       state.publicOption.radio.disabled=r.phase==='unavailable';
       if(r.phase==='unavailable'){const retry=make('button','rt-raffle-retry','Try again');retry.type='button';retry.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();r.phase='checking';this.updateSummary();this.checkRaffler();});sub.append(' ',retry);}
+      if(!r.signedIn && ['none','error','unavailable'].includes(r.phase)){
+        const signIn=make('a','rt-raffle-retry','Sign in with Reddit');
+        signIn.href=r.loginUrl || 'https://www.redditraffler.com/raffles/new';signIn.target='_blank';signIn.rel='noopener noreferrer';signIn.title='Sign in to Reddit Raffler in a new tab';
+        signIn.addEventListener('click',event=>{
+          event.stopPropagation();
+          if(state.onSignInReturn)window.removeEventListener('focus',state.onSignInReturn);
+          state.onSignInReturn=()=>{window.removeEventListener('focus',state.onSignInReturn);if(this.dialog!==state || r.phase==='creating')return;r.phase='checking';this.updateSummary();this.checkRaffler();};
+          window.addEventListener('focus',state.onSignInReturn);
+        });sub.append(' ',signIn);
+      }
       if(state.publicOption.radio.disabled && pub){this.setMode('private');return;}
       // The one main action.
       const b=state.drawButton;
@@ -456,12 +468,12 @@
 
     /* §4b: public draws on Reddit Raffler. A post that already has one opens straight on its results. */
     async checkRaffler(){
-      const state=this.dialog;if(!state)return;const r=state.raffler;
+      const state=this.dialog;if(!state)return;const r=state.raffler,generation=(r.generation || 0)+1;r.generation=generation;
       try{
         const [status,session]=await Promise.all([this.raffler({action:'status',postId:state.post.id}),this.raffler({action:'session'}).catch(()=>({signedIn:''}))]);
-        if(this.dialog!==state)return;r.signedIn=session?.signedIn || '';
+        if(this.dialog!==state || r.generation!==generation)return;r.signedIn=session?.signedIn || '';r.loginUrl=session?.loginUrl || '';
         if(status.exists){r.phase='exists';r.raffle=status.raffle;}else r.phase='none';
-      }catch(error){if(this.dialog!==state)return;r.phase='unavailable';r.error=error.message;}
+      }catch(error){if(this.dialog!==state || r.generation!==generation)return;r.phase='unavailable';r.error=error.message;}
       this.updateSummary();
       if(r.phase==='exists' && r.raffle && state.view==='rules' && !state.touched){r.openedOnExisting=true;this.showOfficial(r.raffle);}
     }

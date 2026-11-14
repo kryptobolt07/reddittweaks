@@ -100,3 +100,9 @@ The main action is an **official raffle** drawn by Reddit Raffler (redditraffler
 | L3 | All-comments mode on very large threads may stop at 800 reply requests | Stated with the number of reply threads not read |
 | L4 | Reply chains hidden behind "more replies" aren't read when "Top-level only" is off | Counted and stated |
 | L5 | Karma and age come from Reddit at draw time and can change | Shown with the draw time |
+
+## Reliability and sign-in follow-up (2026-11-15)
+
+Concurrent identical Raffler reads share one in-flight request. A network failure or HTTP 502/503/504 retries once inside the original 20-second deadline; create POSTs never replay automatically. Failed menu checks are not cached for five minutes. The reported outage was not reproduced in the live baseline: both existing results and a guest dialog loaded.
+
+Guest dialogs include “Sign in with Reddit”, using the OAuth URL from Raffler’s own form after validating Reddit’s authorize endpoint and Raffler’s callback; the fallback opens Raffler’s form. Returning refreshes status without drawing or changing rules. CSRF stays in the worker. Winner account lookups prefer comment icons and use the existing safe headshot conversion for full-body Snoovatars.
