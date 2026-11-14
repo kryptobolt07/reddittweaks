@@ -44,7 +44,7 @@ test('results Markdown lists winners with links and states the rules',()=>{
 // --- UI
 const page=(postId='post1')=>`<main><shreddit-post id="t3_${postId}" post-title="Giveaway" author="Owner" permalink="/r/Alpha/comments/${postId}/giveaway/"><shreddit-post-overflow-menu post-id="t3_${postId}" author-name="Owner" subreddit-prefixed-name="r/Alpha" permalink="/r/Alpha/comments/${postId}/giveaway/"><button aria-haspopup="menu" aria-expanded="true">⋯</button><div slot="devvit-context-actions" role="menuitem"></div></shreddit-post-overflow-menu></shreddit-post></main>`;
 const noRaffle=m=>m.action==='status'?{ok:true,exists:false}:{ok:true,signedIn:''};
-async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},settings={raffles:true},narrow=false,chat=args=>args.action==='chat-status'?{ready:true}:{sent:true},raffler=noRaffle}={}){
+async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},settings={raffles:true},narrow=false,me='Owner',chat=args=>args.action==='chat-status'?{ready:true}:{sent:true},raffler=noRaffle}={}){
  const dom=new JSDOM(page(),{url,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[];let r;
  t.after(()=>{r?.destroy();W.close();});
  W.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};W.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
@@ -53,6 +53,7 @@ async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},
  for(const file of ['post-model.js','raffle-model.js','raffle-ui.js'])W.eval(read(file));
  let current=settings;
  const readFn=async args=>{calls.push(args);
+  if(args.action==='raffle-me')return {username:me};
   if(args.action==='raffle-winner-comments')return {entries:args.ids.filter(id=>id==='a1').map(id=>comment(id,'Alice',{body:'First line\nSecond line '+ 'x'.repeat(200)}))};
   if(args.action==='raffle-thread')return thread?thread(args):{post:{author:'Owner',subreddit:'Alpha'},entries:[comment('a1','Alice',{body:'First line\nSecond line '+'x'.repeat(200)}),comment('b1','Bob'),comment('o1','Owner')],missingTopLevel:[],missingReplies:0};
   if(args.action==='raffle-tree')return tree(args,calls.filter(c=>c.action==='raffle-tree').length);
@@ -336,14 +337,28 @@ test('public draw: says how it will be created, warns before confirming, sends R
  assert.equal(s.secondary(),null,'no Draw again for a public draw');assert.equal(s.primary().textContent,'Message winners');
  assert.match(s.q('[data-rt-raffle-view="results"]').dataset.markdown,/Proof: https:\/\/www\.redditraffler\.com\/raffles\/post1$/);
 });
-test('a post that already has a public raffle opens on its results; drawing privately is a deliberate second step',async t=>{
+test('an existing public raffle is not loaded automatically; View public results opens it on request',async t=>{
  const s=await ui(t,{raffler:m=>m.action==='status'?{ok:true,exists:true,raffle:officialRaffle({verified:false,creator:''})}:{ok:true,signedIn:''}});
  await s.open();
- assert.equal(s.q('#rt-raffle-title').textContent,'Winners');assert.equal(s.q('.rt-raffle-badge').textContent,'Public raffle');assert.match(s.q('.rt-raffle-banner-meta').textContent,/created by a guest$/);
+ assert.equal(s.q('#rt-raffle-title').textContent,'Run a raffle');assert.equal(s.q('[data-rt-raffle-view="results"]').hidden,true);
+ assert.match(s.publicSub(),/^This post already has a public raffle\. View its results here\. Sign in as u\/Owner$/);
+ assert.equal(s.primary().textContent,'View public results');assert.equal(s.calls.some(c=>c.action==='raffle-thread'),false,'opening never scans comments');
+ assert.match(s.note(),/This raffle is unverified\. Sign in as u\/Owner to run it yourself/);
+ const signIn=[...s.D.querySelectorAll('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-retry')].find(a=>a.textContent==='Sign in as u/Owner');assert.ok(signIn);
  assert.equal(s.rafflerCalls.filter(c=>c.action==='create').length,0);
- assert.equal(s.tertiary().textContent,'Draw privately anyway');s.tertiary().click();
- assert.equal(s.q('input[name="rt-raffle-draw"][value="private"]').checked,true);assert.equal(s.publicSub(),'This post already has a public raffle. View its results here.');
- s.mode('public');assert.equal(s.primary().textContent,'View public results','the public results stay one click away');s.primary().click();assert.equal(s.q('#rt-raffle-title').textContent,'Winners');
+ s.primary().click();await flush();assert.equal(s.q('#rt-raffle-title').textContent,'Winners','the public results open only when asked');
+});
+test('the post author can sign in and run an unverified public raffle themselves',async t=>{
+ let exists=true;const s=await ui(t,{raffler:m=>{
+  if(m.action==='status')return exists?{ok:true,exists:true,raffle:officialRaffle({verified:false,creator:''})}:{ok:true,exists:false};
+  if(m.action==='session')return {ok:true,signedIn:'Owner'};
+  if(m.action==='create')exists=true;return {ok:true,exists:true};}});
+ await s.open();
+ assert.equal(s.primary().textContent,'View public results');assert.match(s.note(),/Run it yourself to create a verified draw/);
+ const run=[...s.D.querySelectorAll('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-retry')].find(a=>a.textContent==='Run it yourself');assert.ok(run);
+ run.click();assert.equal(s.primary().textContent,'Run it yourself');assert.match(s.note(),/allows one official raffle per post/);assert.ok([...s.D.querySelectorAll('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-retry')].some(a=>a.textContent==='View public results'));
+ s.primary().click();assert.equal(s.primary().textContent,'Confirm public draw');assert.match(s.note(),/permanent public page/);
+ s.primary().click();await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='create').length,1);
 });
 test('public mode disables rules Reddit Raffler can’t follow, with the reason beside them',async t=>{
  const s=await ui(t);await s.open();
@@ -462,7 +477,7 @@ test('failed private scans can retry on a click and top-level changes never scan
  s.primary().click();await flush();assert.equal(attempts,2);s.tertiary().click();const box=s.q('[name=topLevelOnly]');box.checked=false;box.dispatchEvent(new s.W.Event('input',{bubbles:true}));assert.equal(attempts,2);assert.equal(s.r.dialog.privateReady,false);s.primary().click();await flush();assert.equal(attempts,3);
 });
 test('public results enrich only winning comments without scanning entrants',async t=>{
- const s=await ui(t,{raffler:m=>m.action==='status'?{exists:true,raffle:officialRaffle()}:{signedIn:''}});await s.open();
+ const s=await ui(t,{raffler:m=>m.action==='status'?{exists:true,raffle:officialRaffle()}:{signedIn:''}});await s.open();s.primary().click();await flush();
  assert.ok(s.calls.some(c=>c.action==='raffle-winner-comments' && c.ids.join(',')==='a1'));assert.equal(s.calls.some(c=>['raffle-thread','raffle-tree'].includes(c.action)),false);assert.equal(s.r.dialog.privateReady,false);assert.equal(s.r.dialog.entries.size,0);assert.match(s.q('.rt-raffle-excerpt').textContent,/First line/);
 });
 test('winner comment enrichment is read-only and excludes unrelated comments',async t=>{
