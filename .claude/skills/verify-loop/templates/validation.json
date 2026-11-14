@@ -17,7 +17,8 @@
     "L2_fixture": "<fixture pages and probes run>",
     "L3_live": "<pages checked read-only on signed-in Reddit, version marker confirmed, or 'not run: <reason>'>"
   },
-  "council": {"mode": "routine | release", "roles": [{"role": "surface auditor: <surface>", "model": "haiku", "tokens": 0, "true_issues": 0, "false_issues": 0, "unverifiable": 0}], "open_issues": ["<verified issue left for later>"]},
+  "native_comparison": [{"surface": "<e.g. archived Search Comments, focused state>", "native": "<measured values>", "ours": "<measured values>", "match": "yes | no: <difference and reason>"}],
+  "open_issues": ["<verified issue left for later>"],
   "browser_validation": "<one paragraph in the style of earlier records: what ran where, and what is not yet verified>",
   "screenshots": ["<files in this folder>"],
   "not_verified": ["<anything that could not be checked, with the reason>"],

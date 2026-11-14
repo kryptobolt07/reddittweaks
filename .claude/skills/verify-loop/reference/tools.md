@@ -43,8 +43,23 @@ Reading timelines: a new `#id` means the element matched by the region selector 
 
 ## Extension network and reload (L3)
 - Service-worker requests (for example Arctic Shift): open a page that uses the feature first, which wakes the worker. Then `c targets`, find `service_worker …/cache-broker.js`, `c raw Target.attachToTarget '{"targetId":"<id>","flatten":true}'`, `c raw Network.enable '{}' <sw>`, and later `c events <sw>`. Attach again if the worker restarts.
-- Reload the extension: open `chrome-extension://<id>/popup.html` in a **temporary** tab (`Target.createTarget`) and eval `setTimeout(()=>chrome.runtime.reload(),100)`. The tab closes itself. Get `<id>` from `executionContextCreated` events (origin `chrome-extension://…`, name "Reddit Tweaks").
+- Reload the extension: open `chrome-extension://<id>/popup.html` in a **temporary** tab (`Target.createTarget`) and eval `setTimeout(()=>chrome.runtime.reload(),50)`. **Keep that tab attached about 1.5 s before anything closes it.** If the popup closes first, the reload never runs and every later check silently tests stale code. Get `<id>` from `Target.getTargets` (the `service_worker` whose URL ends in `cache-broker.js`) or from `executionContextCreated` events.
 - Confirm the version: on a Reddit chat page (`https://www.reddit.com/chat`), deep-search for `[data-rcs-version]` and compare it with `extension/manifest.json`. If they differ, stop and report.
+
+## Measuring components as data (native first)
+- **Deep computed-style dump**: walk a root and every open `shadowRoot` beneath it. Record for each visible element its tag, classes, slot, box (x, y, w, h relative to the root), and `display`, `padding`, `margin`, `gap`, `border`, `border-radius`, `background-color`, `color`, font weight, size and line-height, `box-shadow`, `outline` and `transition`. Dedupe repeated subtrees. Save one JSON per state (`native-1-idle.json`, `native-3-focused.json`, …) and the same for ours, then diff.
+- **Markup**: `outerHTML` plus `shadowRoot.innerHTML`, with `data-faceplate-tracking-context`, `<svg>` bodies, `<style>` and comments stripped.
+- **States**: drive them with real input: `Input.dispatchMouseEvent` (pressed and released at the element centre after `scrollIntoView`), `Input.insertText`, and `Input.dispatchKeyEvent` for Enter and Escape (Ctrl+A is `modifiers:2`).
+- **Load order**: poll every 100 ms after `Page.navigate` and record the first time each selector has a non-zero height, for ours and native.
+- **Custom element availability**: from the page world, `customElements.get('<tag>')`. Defined elements can be reused by parsing markup; undefined ones need CSS fallbacks.
+- **Logged-out view**: `Target.createBrowserContext` plus `Target.createTarget({browserContextId})` gives a cookie-free context. Reddit currently answers it with "Prove your humanity"; don't try to get past it. Dispose of the context afterwards.
+- **Worker requests**: attach to the `service_worker` target and `Runtime.evaluate` there. `fetch` from the worker shows what the extension's background sees, including its host permissions.
+
+## Relay housekeeping
+- Start: `node scripts/live/relay.mjs` (background), then wait until the output says `connected on port 9333`. If the user approves Chrome's prompt after the relay has given up, it prints `closed` and exits: start it again.
+- After live work: stop the relay and delete `artifacts/research/live-probe/relay-token*`.
+- The version marker `[data-rcs-version]` exists only on chat pages; elsewhere, confirm the version from the reload step.
+- Helper scripts written during a session (tab helpers, style dumps, reload) live in that session's scratchpad and disappear. Rebuild them on `scripts/live/relay-client.mjs` (`call`, `ev`, `events`, `sleep`).
 
 ## Where things go
 Captures, timelines and screenshots go in `artifacts/research/verify/<slug>/` (git-ignored; never commit them). Validation records go in `artifacts/validation-v<version>/validation.json`.
