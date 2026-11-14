@@ -807,20 +807,74 @@
   }
   // Redaction (docs/redaction-spec.md): writes only to items this page read from the signed-in account's own lists.
   // The modhash stays here, in the page world; the extension's other scripts never receive it.
-  const redaction={username:'',modhash:'',allowed:new Map()};
+  const redaction={username:'',modhash:'',allowed:new Map(),cursors:new Map()};
   const redactSources={overview:['new'],submitted:['new','top','controversial'],comments:['new','top','controversial']};
   async function redactIdentity(signal){
     const response=await fetch(new URL('/api/me.json',location.origin).href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
     if(!response.ok)throw Error(response.status===401 || response.status===403?'Sign in to Reddit to redact your posts and comments.':'Reddit could not confirm your account (HTTP '+response.status+').');
     let data;try{data=JSON.parse(await boundedText(response))?.data;}catch{throw Error('Reddit could not confirm your account.');}
     if(!M.validateUsername(data?.name))throw Error('Sign in to Reddit to redact your posts and comments.');
-    if(redaction.username && redaction.username.toLowerCase()!==data.name.toLowerCase())redaction.allowed.clear();
+    if(redaction.username && redaction.username.toLowerCase()!==data.name.toLowerCase()){redaction.allowed.clear();redaction.cursors.clear();}
     redaction.username=data.name;redaction.modhash=typeof data.modhash==='string' && /^[a-z0-9]{10,100}$/i.test(data.modhash)?data.modhash:'';
     return {username:data.name,canWrite:Boolean(redaction.modhash)};
+  }
+  function redactNativePage(root,source){
+    const feed=root.querySelector('shreddit-feed') || root,items=[];
+    const wanted=source==='comments'?'shreddit-profile-comment':source==='submitted'?'shreddit-post':'shreddit-post,shreddit-profile-comment';
+    for(const card of feed.querySelectorAll(wanted)){
+      if(card.closest('[data-rt-ui]'))continue;
+      const comment=card.tagName==='SHREDDIT-PROFILE-COMMENT',fullname=card.getAttribute(comment?'comment-id':'id');
+      const author=comment?card.querySelector('[id^="poster-info-"] a[href*="/user/"]')?.getAttribute('href')?.match(/\/user\/([A-Za-z0-9_-]{3,20})\/?$/)?.[1]:card.getAttribute('author');
+      if(!author)throw Error('A native profile author could not be verified.');
+      if(author.toLowerCase()!==redaction.username.toLowerCase())continue;
+      if(!(comment?/^t1_[a-z0-9]{1,32}$/i:/^t3_[a-z0-9]{1,32}$/i).test(fullname || ''))throw Error('A native profile item could not be read.');
+      const action=card.querySelector('shreddit-comment-action-row'),href=card.getAttribute('permalink') || card.getAttribute('href') || action?.getAttribute('permalink') || '';
+      let url;try{url=new URL(href,location.origin);}catch{}
+      const subreddit=url?.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})\/comments\//)?.[1];
+      const created=Date.parse(card.getAttribute('created-timestamp') || card.querySelector('faceplate-timeago[ts]')?.getAttribute('ts') || card.querySelector('time[datetime]')?.getAttribute('datetime'))/1000;
+      const content=card.querySelector(comment?'.md':'[slot="text-body"]');
+      if(!subreddit || url.origin!==location.origin || !Number.isFinite(created) || comment && !content)throw Error('A native profile item is incomplete.');
+      const paragraphs=[...content?.querySelectorAll('p') || []],body=(paragraphs.length?paragraphs.map(p=>p.textContent.trim()).join('\n\n'):content?.textContent?.trim() || '');
+      const score=Number((comment?action:card)?.getAttribute('score'));
+      if(!(comment?action:card)?.hasAttribute('score') || !Number.isFinite(score))throw Error('A native profile score could not be read.');
+      const item={fullname:fullname.toLowerCase(),kind:comment?'comment':'post',subreddit,created,score,body:body.slice(0,100000),title:(card.getAttribute('post-title') || card.querySelector('h2')?.textContent || '').trim().slice(0,300),
+        isSelf:!comment && (card.getAttribute('post-type')==='text' || Boolean(content)),permalink:url.pathname+url.search,deleted:body==='[deleted]',pinned:card.hasAttribute('stickied') || card.getAttribute('is-stickied')==='true'};
+      redaction.allowed.set(item.fullname,item.kind);items.push(item);
+    }
+    let after=null;
+    const view=source==='submitted'?'posts':source;
+    for(const partial of feed.querySelectorAll('faceplate-partial[src*="/svc/shreddit/profiles/"]')){
+      const url=new URL(partial.getAttribute('src'),location.origin);
+      if(!url.pathname.includes('more-posts'))continue;
+      if(url.origin!==location.origin || url.pathname!=='/svc/shreddit/profiles/profile_'+view+'-more-posts/new/' || url.searchParams.get('name')?.toLowerCase()!==redaction.username.toLowerCase() || url.href.length>2048)throw Error('Reddit’s native profile continuation changed.');
+      after=url.pathname+url.search;redaction.cursors.set(after,source);break;
+    }
+    return {items,after,hasMore:Boolean(after),scanned:items.length,transport:'native-profile'};
+  }
+  async function redactNativeList(input,signal){
+    if(input.sort!=='new')throw Error('Native profile discovery requires newest first.');
+    let url;
+    if(input.after!=null){
+      if(typeof input.after!=='string' || redaction.cursors.get(input.after)!==input.source)throw Error('Invalid native profile cursor.');
+      url=new URL(input.after,location.origin);
+    }else{
+      const path='/user/'+encodeURIComponent(redaction.username)+'/'+(input.source==='overview'?'':input.source+'/');
+      // Reuse the actual signed-in profile only when it still contains its newest native page.
+      const current=location.pathname.replace(/\/$/,'').toLowerCase()===path.replace(/\/$/,'').toLowerCase(),params=new URLSearchParams(location.search);
+      if(current && (!params.get('sort') || params.get('sort')==='new') && ![...params.keys()].some(k=>k.startsWith('rt_')) && !document.querySelector('shreddit-feed .virtualized-placeholder') && document.querySelector('shreddit-feed shreddit-post,shreddit-feed shreddit-profile-comment'))return redactNativePage(document,input.source);
+      url=new URL(path,location.origin);url.searchParams.set('sort','new');
+    }
+    const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:input.after?'text/vnd.reddit.partial+html, text/html;q=0.9':'text/html'},signal});
+    if(!response.ok)throw Error('Reddit could not load your native '+input.source+' profile (HTTP '+response.status+').');
+    const text=await boundedText(response,6000000),doc=new DOMParser().parseFromString(text,'text/html');
+    if(!input.after && !doc.querySelector('shreddit-feed'))throw Error('Reddit returned no native profile feed.');
+    if(input.after && /<(?:html|body)\b/i.test(text) && !doc.querySelector('shreddit-feed,shreddit-post,shreddit-profile-comment'))throw Error('Reddit returned an unexpected native profile page.');
+    return redactNativePage(doc,input.source);
   }
   async function redactList(input,signal){
     if(!redaction.username || input.username!==redaction.username)throw Error('Confirm your account first.');
     if(!Object.hasOwn(redactSources,input.source) || !redactSources[input.source].includes(input.sort))throw Error('Invalid list.');
+    if(input.native===true)return redactNativeList(input,signal);
     if(input.after!=null && (typeof input.after!=='string' || !/^t[13]_[a-z0-9]{1,32}$/i.test(input.after)))throw Error('Invalid list cursor.');
     const url=new URL('/user/'+encodeURIComponent(redaction.username)+'/'+input.source+'.json',location.origin);
     for(const [k,v] of Object.entries({sort:input.sort,limit:'100',raw_json:'1',...(input.sort==='new'?{}:{t:'all'}),...(input.after?{after:input.after}:{})}))url.searchParams.set(k,v);
@@ -836,7 +890,7 @@
       if(String(raw.author).toLowerCase()!==redaction.username.toLowerCase())continue;
       const kind=child.kind==='t1'?'comment':'post',fullname=child.kind+'_'+raw.id.toLowerCase(),body=kind==='comment'?raw.body:raw.selftext;
       const item={fullname,kind,subreddit:typeof raw.subreddit==='string'?raw.subreddit:'',created:Number(raw.created_utc) || 0,score:Number(raw.score) || 0,
-        title:kind==='post' && typeof raw.title==='string'?raw.title.slice(0,300):(typeof raw.link_title==='string'?raw.link_title.slice(0,300):''),body:typeof body==='string'?body.slice(0,4000):'',
+        title:kind==='post' && typeof raw.title==='string'?raw.title.slice(0,300):(typeof raw.link_title==='string'?raw.link_title.slice(0,300):''),body:typeof body==='string'?body.slice(0,100000):'',
         isSelf:kind==='post'?raw.is_self===true:undefined,permalink:typeof raw.permalink==='string' && raw.permalink.startsWith('/')?raw.permalink.slice(0,300):'',deleted:body==='[deleted]' || raw.removed_by_category==='deleted'};
       if(redaction.allowed.size<50000 || redaction.allowed.has(fullname))redaction.allowed.set(fullname,kind);items.push(item);
     }

@@ -4,7 +4,7 @@
 (() => {
   'use strict';
   if(globalThis.RTRedaction)return;
-  const X=globalThis.RTRedactionModel;if(!X)return;
+  const X=globalThis.RTRedactionModel,F=globalThis.RTFeedFilters;if(!X || !F)return;
   const FRAGMENT='#rt-redact',PAGES_PER_LIST=10,PREVIEW_ROWS=50;
   const SOURCES=[['overview','new'],['submitted','top'],['submitted','controversial'],['comments','top'],['comments','controversial']];
   const make=(tag,cls,text)=>{let el;if(tag.includes('-')){const holder=document.createElement('div');holder.innerHTML='<'+tag+'></'+tag+'>';el=holder.firstElementChild;el.remove();}else el=document.createElement(tag);if(cls)el.className=cls;if(text!=null && text!=='')el.textContent=text;return el;};
@@ -39,16 +39,25 @@
       const field=(label,input,hint)=>{const wrap=make('label','rt-raffle-field');wrap.append(make('span','rt-raffle-label',label),input);if(hint)wrap.append(make('span','rt-raffle-hint',hint));return wrap;};
       const input=(name,type,placeholder='')=>{const el=make('input');el.type=type;el.name=name;el.placeholder=placeholder;if(type==='number')el.inputMode='numeric';return el;};
       const area=(name,value='',placeholder='')=>{const el=make('textarea','rt-redact-area');el.name=name;el.value=value;el.placeholder=placeholder;el.rows=2;return el;};
-      const kinds=make('select');kinds.name='kinds';for(const [value,label] of [['both','Posts and comments'],['posts','Posts only'],['comments','Comments only']]){const o=make('option','',label);o.value=value;kinds.append(o);}
       const group=(title,...fields)=>{const box=make('fieldset','rt-redact-group');box.append(make('legend','text-14 font-semibold',title),...fields);return box;};
+      const controls={};
+      const choice=(name,label,icon,value,initial)=>{
+        const hidden=input(name,'hidden');hidden.value=value;
+        const button=make('button','rt-redact-control');button.type='button';button.dataset.rtRedactFilter=name;button.setAttribute('aria-label',label);button.setAttribute('aria-haspopup',name==='date'?'dialog':'menu');button.setAttribute('aria-expanded','false');
+        const caption=make('span','rt-redact-control-value',initial);button.append(F.svgIcon(icon,20),caption,F.svgIcon('caret-down',16));
+        button.addEventListener('click',()=>name==='date'?this.openCalendar():this.openFilter(name));controls[name]={button,caption,input:hidden};
+        const wrap=make('div','rt-raffle-field');wrap.append(make('span','rt-raffle-label',label),button,hidden);return wrap;
+      };
+      const kindsField=choice('kinds','Content type','collection','both','Posts and comments'),kinds=controls.kinds.input;
       const from=input('from','hidden'),to=input('to','hidden');
-      const dateButton=make('button','button-medium button-secondary button inline-flex items-center justify-center px-md','Any date');dateButton.type='button';dateButton.setAttribute('aria-haspopup','dialog');dateButton.setAttribute('aria-expanded','false');
-      const dateHost=make('div','rt-redact-calendar');dateHost.hidden=true;
-      const dateField=make('div','rt-raffle-field');dateField.append(make('span','rt-raffle-label','Date range'),dateButton,from,to,dateHost);
-      dateButton.addEventListener('click',()=>this.openCalendar());
-      form.append(group('Find items',field('Content type',kinds),dateField,field('Minimum age in days',input('olderThanDays','number','Any age'),'Include items at least this many days old'),
-        field('Include communities',input('onlyIn','text','r/one, r/two'),'Leave blank for all communities'),field('Include text',input('onlyContaining','text','Any text'),'Match words in the title or text')),
-        group('Keep items safe',field('Exclude communities',input('neverIn','text','r/keep')),field('Keep items scoring at least',input('keepScoreAtLeast','number','No score limit')),
+      const dateField=choice('date','Date range','calendar','','Any date'),dateButton=controls.date.button;
+      dateField.append(from,to);
+      const dateHost=make('div','rt-redact-popover rt-redact-calendar');dateHost.hidden=true;dialog.append(dateHost);
+      const includeField=choice('onlyIn','Include communities','community','','All communities');
+      const excludeField=choice('neverIn','Exclude communities','community','','None excluded');
+      form.append(group('Find items',kindsField,dateField,field('Minimum age in days',input('olderThanDays','number','Any age'),'Include items at least this many days old'),
+        includeField,field('Include text',input('onlyContaining','text','Any text'),'Match words in the title or text')),
+        group('Keep items safe',excludeField,field('Keep items with at least this many points',input('keepScoreAtLeast','number','Ignore score'),'Reddit points are upvotes minus downvotes. Enter 10 to keep items with 10 or more points; leave blank to ignore score.'),
         field('Keep items containing text',input('keepContaining','text','Words to protect')),field('Keep specific items',area('keep','','Reddit links or item IDs, separated by spaces'))),
         group('Replacement text',field('Overwrite text before deleting',area('text',X.DEFAULT_TEXT),'Link and image posts without text are deleted without an overwrite.')));
       const status=make('p','rt-raffle-status text-12 text-neutral-content-weak m-0');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
@@ -61,7 +70,7 @@
       const cancel=make('button','button-medium button-secondary button inline-flex items-center justify-center px-md','Cancel');cancel.type='button';cancel.slot='secondary-button';
       const primary=make('button','button-medium button-primary button inline-flex items-center justify-center px-md','Find matching items');primary.type='button';primary.slot='primary-button';
       card.append(head,close,body,cancel,primary);dialog.append(card);document.body.append(dialog);
-      const state=this.state={dialog,h2,step,intro,form,dateButton,dateHost,from,to,status,preview,confirmation,confirm,confirmWrap,confirmLabel,results,primary,cancel,username:'',items:new Map(),selection:null,phase:'idle',controller:new AbortController(),finding:null,running:null,closeAsked:false};
+      const state=this.state={dialog,h2,step,intro,form,controls,dateButton,dateHost,from,to,status,preview,confirmation,confirm,confirmWrap,confirmLabel,results,primary,cancel,username:'',items:new Map(),selection:null,phase:'idle',controller:new AbortController(),finding:null,running:null,closeAsked:false};
       const requestClose=()=>this.close();
       close.addEventListener('click',requestClose);cancel.addEventListener('click',()=>{
         if(state.phase==='confirming'){state.phase='previewed';state.confirm.value='';this.showStep('review');this.syncSelection();}
@@ -69,7 +78,7 @@
         else if(state.phase==='running'){state.stopController.abort();state.status.textContent='Stopping after the current request…';}
         else requestClose();
       });
-      dialog.addEventListener('cancel',event=>{event.preventDefault();if(state.picker?.open)state.picker.close();else requestClose();});
+      dialog.addEventListener('cancel',event=>{event.preventDefault();if(state.popup)this.closeFilter();else requestClose();});
       dialog.addEventListener('click',event=>{if(event.target===dialog)requestClose();});
       // Any rule change invalidates the preview: the run must use exactly what was previewed.
       form.addEventListener('input',()=>{if(['previewed','confirming','done'].includes(state.phase))this.clearPreview();});
@@ -81,26 +90,91 @@
         else if(['idle','done','error'].includes(state.phase))this.find();
       });
       try{dialog.showModal();}catch{dialog.setAttribute('open','');}
-      kinds.focus({preventScroll:true});
+      controls.kinds.button.focus({preventScroll:true});
       return state;
     }
     close(force=false){
       const state=this.state;if(!state)return;
       if(state.phase==='running' && !force && !state.closeAsked){state.closeAsked=true;state.status.textContent='A run is in progress. Close again to stop it after the current request and close.';return;}
-      this.state=null;state.picker?.close(false);state.controller.abort();try{state.dialog.close();}catch{}state.dialog.remove();
+      this.closeFilter(false);this.state=null;state.picker?.close(false);state.controller.abort();try{state.dialog.close();}catch{}state.dialog.remove();
+    }
+    closeFilter(restore=true){
+      const s=this.state,p=s?.popup;if(!p)return;s.popup=null;
+      document.removeEventListener('pointerdown',p.outside,true);document.removeEventListener('focusin',p.focus);
+      window.removeEventListener('resize',p.place);window.removeEventListener('scroll',p.place,true);
+      p.button.setAttribute('aria-expanded','false');
+      if(p.name==='date'){s.picker?.close(false);p.el.hidden=true;}else p.el.remove();
+      if(restore && p.button.isConnected)p.button.focus({preventScroll:true});
+    }
+    attachFilter(name,el){
+      const s=this.state,button=s.controls[name].button;el.hidden=false;el.id='rt-redact-filter-'+name;button.setAttribute('aria-controls',el.id);button.setAttribute('aria-expanded','true');
+      const p=s.popup={name,el,button};p.place=()=>this.positionFilter();
+      p.outside=event=>{const path=event.composedPath();if(!path.includes(el) && !path.includes(button))this.closeFilter(false);};
+      // A calendar's focused day lives inside its shadow root.
+      p.focus=event=>{const path=event.composedPath();if(!path.includes(el) && !path.includes(button))this.closeFilter(false);};
+      document.addEventListener('pointerdown',p.outside,true);document.addEventListener('focusin',p.focus);
+      window.addEventListener('resize',p.place);window.addEventListener('scroll',p.place,true);
+      if(name!=='date')el.addEventListener('keydown',event=>{
+        if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.closeFilter();return;}
+        if(event.key==='Enter' && event.target.matches('input[type=search]')){
+          const term=event.target.value.trim().replace(/^\/?r\//i,'').toLowerCase(),row=[...el.querySelectorAll('[data-rt-sub-row]')].find(row=>row.dataset.rtSubRow.toLowerCase()===term);
+          if(row){event.preventDefault();event.stopPropagation();row.click();}return;
+        }
+        if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key) || event.target.matches('input') && !['ArrowDown','ArrowUp'].includes(event.key))return;
+        const rows=[...el.querySelectorAll('[role^=menuitem]:not([aria-disabled=true])')];if(!rows.length)return;
+        event.preventDefault();event.stopPropagation();const at=rows.indexOf(document.activeElement),next=event.key==='Home'?0:event.key==='End'?rows.length-1:at<0?(event.key==='ArrowUp'?rows.length-1:0):(at+(event.key==='ArrowUp'?-1:1)+rows.length)%rows.length;
+        for(const row of rows)row.tabIndex=-1;rows[next].tabIndex=0;rows[next].focus({preventScroll:true});
+      },true);
+      this.positionFilter();
+    }
+    positionFilter(){
+      const p=this.state?.popup;if(!p)return;
+      if(!p.button.isConnected){this.closeFilter(false);return;}
+      const a=p.button.getBoundingClientRect(),width=Math.min(p.name==='date'?288:320,innerWidth-16),height=p.name==='date'?410:320;
+      const below=innerHeight-a.bottom-12,above=a.top-12,up=below<Math.min(height,240) && above>below,available=Math.max(80,up?above:below),size=Math.min(height,available);
+      p.el.style.width=width+'px';p.el.style.maxHeight=size+'px';p.el.style.setProperty('--rt-popover-height',size+'px');
+      p.el.style.left=Math.max(8,Math.min(a.left,innerWidth-width-8))+'px';
+      p.el.style.top=(up?Math.max(8,a.top-Math.min(p.el.getBoundingClientRect().height || size,size)-4):a.bottom+4)+'px';
+    }
+    openFilter(name){
+      const s=this.state;if(!s)return;if(s.popup?.name===name){this.closeFilter();return;}this.closeFilter(false);
+      const menu=make('div','rt-redact-popover');menu.setAttribute('data-rt-feed-options','');menu.setAttribute('role','menu');menu.setAttribute('aria-label',s.controls[name].button.getAttribute('aria-label'));
+      const ctx=F.plainContext(kind=>F.svgIcon(kind),{role:name==='kinds'?'menuitemradio':'menuitemcheckbox'});
+      const change=value=>{s.controls[name].input.value=value;s.controls[name].input.dispatchEvent(new Event('input',{bubbles:true}));};
+      if(name==='kinds'){
+        for(const [value,label,icon] of [['both','Posts and comments','collection'],['posts','Posts only','text-post'],['comments','Comments only','comment']]){
+          const row=F.menuOption(ctx,{label,icon,value,checked:s.controls[name].input.value===value,onSelect:()=>{change(value);s.controls[name].caption.textContent=label;this.closeFilter();}});menu.append(row);
+        }
+      }else{
+        const picked=()=>X.normalizeRules({onlyIn:s.controls[name].input.value}).onlyIn;
+        const sync=()=>{
+          const counts=new Map();for(const item of s.items.values())if(item.subreddit)counts.set(item.subreddit,(counts.get(item.subreddit)||0)+1);
+          for(const el of document.querySelectorAll('main [subreddit-prefixed-name],main [subreddit-name]')){const n=el.getAttribute('subreddit-prefixed-name') || el.getAttribute('subreddit-name');const key=X.normalizeRules({onlyIn:n}).onlyIn[0];if(key && !counts.has(key))counts.set(key,0);}
+          for(const card of document.querySelectorAll('main shreddit-profile-comment[href]')){const key=card.getAttribute('href')?.match(/^\/r\/([A-Za-z0-9_]{2,21})\/comments\//)?.[1];if(key && !counts.has(key.toLowerCase()))counts.set(key.toLowerCase(),0);}
+          const term=panel.input.value.trim().replace(/^\/?r\//i,'');if(/^[a-z0-9_]{2,21}$/i.test(term) && ![...counts.keys()].some(n=>n.toLowerCase()===term.toLowerCase()))counts.set(term,0);
+          panel.render({entries:[...counts].map(([key,count])=>({key,count})),picked:picked(),source:'loaded'});
+          s.controls[name].caption.textContent=picked().length?picked().length===1?'r/'+picked()[0]:n(picked().length)+' communities':name==='onlyIn'?'All communities':'None excluded';
+          const row=panel.list.querySelector('[role^=menuitem]');if(row)row.tabIndex=0;
+        };
+        const panel=F.subredditPanel({ctx,nativeHeader:true,clearLabel:name==='neverIn'?'None excluded':'All communities',onClear:()=>{change('');sync();},onToggle:key=>{const next=picked(),at=next.findIndex(n=>n.toLowerCase()===key.toLowerCase());if(at>=0)next.splice(at,1);else next.push(key);change(next.join(','));sync();panel.input.focus({preventScroll:true});}});
+        panel.input.addEventListener('input',sync);menu.append(panel.el);sync();menu.rtCommunityPanel=panel;
+        menu.append(make('p','rt-redact-menu-hint text-12 text-neutral-content-weak','Search available communities or enter an exact r/name.'));
+      }
+      s.dialog.append(menu);this.attachFilter(name,menu);
+      const focus=menu.rtCommunityPanel?.input || menu.querySelector('[aria-checked=true]') || menu.querySelector('[role^=menuitem]');if(focus){focus.tabIndex=0;focus.focus({preventScroll:true});}
     }
     openCalendar(){
       const state=this.state,Picker=globalThis.RCSDatePicker;if(!state || !Picker)return;
-      if(state.picker?.open){state.picker.close();return;}
+      if(state.popup?.name==='date'){this.closeFilter();return;}this.closeFilter(false);
       if(!state.picker){
-        const shadow=state.dateHost.attachShadow({mode:'open'}),style=make('style','',`:host{--rcs-bg:var(--color-neutral-background,#fff);--rcs-soft:var(--color-neutral-background-weak,#f2f4f5);--rcs-text:var(--color-neutral-content-strong,#181c1f);--rcs-muted:var(--color-neutral-content-weak,#576f76);--rcs-line:var(--color-neutral-border-weak,#e5e8eb);--rcs-hover:var(--color-neutral-background-hover,#e8edef);--rcs-accent:var(--color-brand-background,#d93900)}`+(Picker.styles || '')+'.date-popover{position:relative;top:0!important;left:0!important;right:auto!important;max-width:100%;pointer-events:auto}.calendar-presets{flex-wrap:wrap;overflow:visible}');
-        const picker=state.picker=new Picker({getBounds:()=>state.dialog.getBoundingClientRect(),onChange:bounds=>{
-          state.from.value=bounds.from || '';state.to.value=bounds.to || '';state.dateButton.textContent=picker.summary() || 'Any date';
+        const shadow=state.dateHost.attachShadow({mode:'open'}),style=make('style','',`:host{--rcs-bg:var(--color-neutral-background,#fff);--rcs-soft:var(--color-neutral-background-weak,#f2f4f5);--rcs-text:var(--color-neutral-content-strong,#181c1f);--rcs-muted:var(--color-neutral-content-weak,#576f76);--rcs-line:var(--color-neutral-border-weak,#e5e8eb);--rcs-hover:var(--color-neutral-background-hover,#e8edef);--rcs-accent:var(--color-brand-background,#d93900)}`+(Picker.styles || '')+'.date-popover{position:relative;top:0!important;left:0!important;right:auto!important;width:100%;max-width:100%;max-height:var(--rt-popover-height,420px)!important;pointer-events:auto}.calendar-presets{flex-wrap:wrap;overflow:visible}');
+        const picker=state.picker=new Picker({getBounds:()=>({left:8,top:8,right:innerWidth-8,bottom:innerHeight-8}),onChange:bounds=>{
+          state.from.value=bounds.from || '';state.to.value=bounds.to || '';state.controls.date.caption.textContent=picker.summary() || 'Any date';
           state.from.dispatchEvent(new Event('input',{bubbles:true}));
-        },onClose:restore=>{state.dateHost.hidden=true;state.dateButton.setAttribute('aria-expanded','false');if(restore && this.state===state)state.dateButton.focus({preventScroll:true});}});
+        },onClose:restore=>{state.dateHost.hidden=true;state.dateButton.setAttribute('aria-expanded','false');if(state.popup?.name==='date')this.closeFilter(restore);}});
         picker.element.setAttribute('aria-label','Filter your posts and comments by date');shadow.append(style,picker.element);
       }
-      state.dateHost.hidden=false;state.dateButton.setAttribute('aria-expanded','true');state.picker.show();
+      this.attachFilter('date',state.dateHost);state.picker.show();this.positionFilter();
     }
     showStep(view){
       const s=this.state;s.form.hidden=view!=='filters';s.intro.hidden=view!=='filters';s.preview.hidden=view!=='review';s.confirmation.hidden=view!=='confirm';s.results.hidden=view!=='results';
@@ -122,26 +196,33 @@
       const state=this.state;if(!state)return;const signal=state.controller.signal,current=()=>this.state===state && !signal.aborted;
       const rules=this.rules();
       if(rules.from!=null && rules.to!=null && rules.from>rules.to){state.status.textContent='The start date must be on or before the end date.';state.status.dataset.error='true';return;}
-      state.picker?.close(false);state.phase='finding';state.form.inert=true;
+      this.closeFilter(false);state.phase='finding';state.form.inert=true;
       const loading=make('div','rt-redact-loading');loading.append(make('shreddit-loading'));loading.setAttribute('aria-label','Finding matching items');state.preview.replaceChildren(loading);
       this.showStep('review');state.primary.textContent='Finding matching items…';this.syncPrimary();state.status.textContent='Confirming your account…';
       try{
         const me=await this.read({action:'redact-identity'},{signal});if(!current())return;
         if(!me.canWrite)throw Error('Reddit didn’t provide the token needed to edit or delete. Reload the page and try again.');
-        state.items.clear();state.limited=false;state.username=me.username;state.status.textContent='Finding your posts and comments…';
-        for(const [source,sort] of SOURCES){
+        state.items.clear();state.limited=false;state.failures=[];state.username=me.username;state.status.textContent='Finding your posts and comments…';
+        const bounded=rules.from!=null || rules.to!=null;
+        const sources=bounded?[[rules.kinds==='comments'?'comments':rules.kinds==='posts'?'submitted':'overview','new']]:SOURCES;
+        let successful=0;
+        for(const [source,sort] of sources){
           if(rules.kinds==='posts' && source==='comments' || rules.kinds==='comments' && source==='submitted')continue;
           let after=null;const cursors=new Set();
-          for(let page=0;page<PAGES_PER_LIST;page++){
-            const result=await this.read({action:'redact-list',username:state.username,source,sort,after},{signal});if(!current())return;
+          try{
+            for(let page=0;page<PAGES_PER_LIST;page++){
+            const result=await this.read({action:'redact-list',username:state.username,source,sort,after,...(sort==='new'?{native:true}:{})},{signal});if(!current())return;
+            successful++;
             for(const item of result.items || [])if(!state.items.has(item.fullname))state.items.set(item.fullname,item);
             state.status.textContent='Finding your posts and comments… '+n(state.items.size)+' found';
             // Only newest-first lists are chronological. Top/controversial pages may still contain newer matches.
-            if(sort==='new' && rules.from!=null && result.items?.length && result.items.at(-1).created<rules.from)break;
+            if(sort==='new' && rules.from!=null && result.items?.some(item=>!item.pinned && item.created<rules.from))break;
             after=result.hasMore?result.after:null;if(!after || cursors.has(after))break;cursors.add(after);
             if(page===PAGES_PER_LIST-1)state.limited=true;
-          }
+            }
+          }catch(error){if(!current())return;state.failures.push(String(error.message).replace(/\.$/,''));}
         }
+        if(!successful && state.failures.length)throw Error(state.failures.join('; '));
         state.selection=X.select([...state.items.values()],rules);state.phase='previewed';this.renderPreview();
       }catch(error){if(current()){state.phase='error';state.status.textContent='Couldn’t find your items: '+String(error.message).replace(/\.$/,'')+'.';state.status.dataset.error='true';}}
       finally{if(current()){state.form.inert=false;if(state.phase==='error'){this.showStep('filters');state.primary.textContent='Find matching items';}else delete state.status.dataset.error;this.syncPrimary();}}
@@ -150,6 +231,8 @@
       const state=this.state,sel=state.selection,count=sel.matches.length;
       state.status.textContent=n(count)+' '+(count===1?'item matches':'items match')+' ('+n(sel.posts)+' '+(sel.posts===1?'post':'posts')+', '+n(sel.comments)+' '+(sel.comments===1?'comment':'comments')+') out of '+n(sel.found)+' found'+(sel.oldest?' · oldest found: '+dateText(sel.oldest):'')+' · Reddit may not list older items';
       if(state.limited)state.status.append(' · Discovery limit reached; more items may exist.');
+      if(state.failures?.length)state.status.append(' · Incomplete discovery: '+state.failures.join('; ')+'. Only the items found are available below.');
+      state.status.dataset.incomplete=String(Boolean(state.limited || state.failures?.length));
       state.candidates=[...sel.matches];state.selected=new Set(sel.matches.map(item=>item.fullname));state.visibleRows=0;
       const list=state.list=make('ul','rt-redact-rows');list.setAttribute('aria-label','Select items to redact');
       state.selectionCount=make('p','text-14 font-semibold m-0');state.selectAll=make('button','button-small button-secondary button inline-flex items-center justify-center px-md','Deselect all');state.selectAll.type='button';
@@ -184,7 +267,7 @@
     showConfirmation(){
       const state=this.state,count=state.selection.matches.length;if(!count)return;
       state.phase='confirming';state.confirmWrap.hidden=false;state.confirmLabel.textContent='Type “'+X.confirmation(count)+'” to confirm';state.confirm.placeholder=X.confirmation(count);state.confirm.value='';
-      const summary=make('p','text-14 m-0','u/'+state.username+' · '+n(state.selection.posts)+' posts and '+n(state.selection.comments)+' comments selected. These items will be overwritten where possible, then permanently deleted.');
+      const summary=make('p','text-14 m-0','u/'+state.username+' · '+n(state.selection.posts)+' posts and '+n(state.selection.comments)+' comments selected. These items will be overwritten where possible, then permanently deleted.'+(state.limited || state.failures?.length?' Discovery was incomplete; this run includes only the selected items found.':''));
       const replacement=make('blockquote','rt-redact-replacement',state.selection.rules.text);
       state.confirmation.replaceChildren(summary,make('h3','text-14 font-semibold m-0','Replacement text'),replacement,state.confirmWrap);
       state.primary.textContent='Overwrite and delete '+n(count)+' '+(count===1?'item':'items');state.primary.classList.add('rt-redact-danger');this.showStep('confirm');this.syncPrimary();state.confirm.focus({preventScroll:true});

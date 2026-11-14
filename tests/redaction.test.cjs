@@ -52,9 +52,9 @@ test('three failures in a row stop the run; Stop ends it after the current reque
 });
 
 // --- Bridge
-function bridge(t,{fetcher}={}){
- const dom=new JSDOM('<body></body>',{url:'https://www.reddit.com/',runScripts:'outside-only'}),W=dom.window,calls=[];t.after(()=>W.close());W.AbortController=AbortController;
- W.fetch=async(href,options)=>{const u=new URL(href);calls.push({url:u,options});const v=fetcher(u,options);return {ok:(v.status ?? 200)===200,status:v.status ?? 200,headers:new Headers(v.headers || {}),text:async()=>JSON.stringify(v.body ?? {})};};
+function bridge(t,{fetcher,html='<body></body>',url='https://www.reddit.com/'}={}){
+ const dom=new JSDOM(html,{url,runScripts:'outside-only'}),W=dom.window,calls=[];t.after(()=>W.close());W.AbortController=AbortController;
+ W.fetch=async(href,options)=>{const u=new URL(href);calls.push({url:u,options});const v=await fetcher(u,options);return {ok:(v.status ?? 200)===200,status:v.status ?? 200,headers:new Headers(v.headers || {}),text:async()=>typeof v.text==='string'?v.text:JSON.stringify(v.body ?? {})};};
  for(const file of ['post-model.js','post-page-bridge.js'])W.eval(read(file));
  const send=input=>new Promise(resolve=>{const id=crypto.randomUUID(),listener=event=>{const result=JSON.parse(event.detail);if(result.id!==id)return;W.document.removeEventListener('rt-post-response',listener);resolve(result);};W.document.addEventListener('rt-post-response',listener);W.document.dispatchEvent(new W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'redact-test',id,...input})}));});
  return {calls,send};
@@ -90,7 +90,7 @@ async function dialog(t,{items,writes=()=>({written:true}),list}={}){
  const dom=new JSDOM('<main></main>',{url:'https://www.reddit.com/#rt-redact',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[];let r;
  t.after(()=>{r?.destroy();W.close();});
  W.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};W.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
- W.eval(read('date-picker.js'));W.eval(read('redaction-model.js'));W.eval(read('redaction-ui.js'));
+ W.eval(read('feed-filters.js'));W.eval(read('date-picker.js'));W.eval(read('redaction-model.js'));W.eval(read('redaction-ui.js'));
  const readFn=async args=>{calls.push(args);
   if(args.action==='redact-identity')return {username:'Example',canWrite:true};
   if(args.action==='redact-list')return list?list(args):{items:args.source==='overview'?items:[],hasMore:false,after:null};
@@ -152,19 +152,82 @@ test('shared calendar supplies the date bounds and invalidates a previous review
  s.primary().click();await flush();assert.equal(s.r.state.phase,'previewed');s.r.state.cancel.click();
  s.r.state.dateButton.click();picker.reset();assert.equal(s.q('[name=from]').value,'');assert.equal(s.r.state.selection,null);
 });
-test('date discovery stops chronological pagination at the start boundary but keeps score-sorted matches',async t=>{
+test('recent-date discovery uses only the newest native list and stops immediately at the boundary',async t=>{
  const newer=item('a',{created:Date.parse('2023-05-02T00:00:00Z')/1000}),old=item('b',{created:Date.parse('2022-01-01T00:00:00Z')/1000});
- const s=await dialog(t,{list:args=>{
-  if(args.source==='overview')return {items:[newer,old],hasMore:true,after:'past-range'};
-  if(args.source==='comments' && args.sort==='top')return args.after?{items:[newer],hasMore:false}:{items:[old],hasMore:true,after:'still-matching'};
-  return {items:[],hasMore:false};
- }});s.type('kinds','comments');s.type('from','2023-01-01');s.type('to','2023-12-31');s.primary().click();await flush();
- assert.equal(s.calls.filter(c=>c.source==='overview').length,1);assert.equal(s.calls.some(c=>c.source==='submitted'),false);
- assert.equal(s.calls.filter(c=>c.source==='comments' && c.sort==='top').length,2);assert.deepEqual([...s.r.state.selected],['t1_a']);
+ const s=await dialog(t,{list:args=>({items:[newer,old],hasMore:true,after:'past-range'})});
+ s.type('kinds','comments');s.type('from','2023-01-01');s.type('to','2023-12-31');s.primary().click();await flush();
+ const lists=s.calls.filter(c=>c.action==='redact-list');assert.equal(lists.length,1);assert.equal(lists[0].source,'comments');assert.equal(lists[0].sort,'new');assert.equal(lists[0].native,true);assert.deepEqual([...s.r.state.selected],['t1_a']);
 });
 test('inverted dates do not start discovery and Stop completes only the current request',async t=>{
  let release;const gate=new Promise(r=>release=r);const s=await dialog(t,{items:fresh,writes:async()=>{await gate;return {written:true};}});
  s.type('from','2024-01-01');s.type('to','2023-01-01');s.primary().click();await flush();assert.equal(s.calls.length,0);assert.match(s.status(),/start date/);
  s.type('from','');s.type('to','');s.primary().click();await flush();s.primary().click();s.type('confirm','delete 3');s.primary().click();await flush();
  s.r.state.cancel.click();release();await flush();assert.equal(s.calls.filter(c=>c.action==='redact-item').length,1);assert.match(s.status(),/Stopped/);
+});
+
+test('content type reuses menu rows with icons, keyboard navigation and focus restoration',async t=>{
+ const s=await dialog(t,{items:fresh}),state=s.r.state,button=state.controls.kinds.button;
+ assert.equal(s.D.querySelector('select'),null);assert.ok(button.querySelector('svg'));button.click();
+ const menu=state.popup.el;assert.equal(button.getAttribute('aria-expanded'),'true');assert.equal(menu.querySelectorAll('.rt-menu-row[role=menuitemradio]').length,3);
+ menu.dispatchEvent(new s.W.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));assert.equal(s.D.activeElement.dataset.rtOption,'posts');
+ s.D.activeElement.click();assert.equal(state.controls.kinds.input.value,'posts');assert.equal(button.textContent,'Posts only');assert.equal(state.popup,null);assert.equal(s.D.activeElement,button);
+ button.click();state.popup.el.dispatchEvent(new s.W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(state.popup,null);assert.ok(state.dialog.open);
+});
+test('include and exclude communities reuse the shared picker, support exact names and remain independent',async t=>{
+ const s=await dialog(t,{items:fresh}),state=s.r.state;s.W.RTCommunityIcons={peek:()=>'',get:async()=>''};
+ state.controls.onlyIn.button.click();let panel=state.popup.el.rtCommunityPanel;assert.ok(panel.el.matches('.rt-sub-panel'));
+ panel.input.value='r/Alpha';panel.input.dispatchEvent(new s.W.Event('input',{bubbles:true}));panel.input.dispatchEvent(new s.W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+ assert.equal(s.r.rules().onlyIn.join(','),'alpha');assert.equal(state.controls.onlyIn.caption.textContent,'r/alpha');
+ state.controls.neverIn.button.click();panel=state.popup.el.rtCommunityPanel;assert.equal(state.controls.onlyIn.button.getAttribute('aria-expanded'),'false');
+ assert.equal(panel.list.querySelector('[data-rt-sub-all]').getAttribute('aria-label'),'None excluded');
+ panel.input.value='Beta';panel.input.dispatchEvent(new s.W.Event('input',{bubbles:true}));panel.list.querySelector('[data-rt-sub-row="Beta"]').click();
+ assert.equal(s.r.rules().neverIn.join(','),'beta');assert.equal(s.r.rules().onlyIn.join(','),'alpha');
+ panel.list.querySelector('[data-rt-sub-all]').click();assert.equal(s.r.rules().neverIn.length,0);
+ state.controls.kinds.button.dispatchEvent(new s.W.MouseEvent('pointerdown',{bubbles:true}));assert.equal(state.popup,null);
+ assert.equal(s.calls.length,0,'opening selectors never scans the account');
+});
+test('calendar is an icon control beside the other filters and opening it does not insert a form section',async t=>{
+ const s=await dialog(t,{items:fresh}),state=s.r.state;
+ assert.equal(state.dateButton.className,state.controls.kinds.button.className);assert.equal(state.dateButton.querySelectorAll('svg').length,2);
+ assert.equal(state.dateHost.parentElement,state.dialog);state.dateButton.click();assert.equal(state.popup.name,'date');assert.ok(state.dateHost.style.width);
+ state.controls.onlyIn.button.click();assert.equal(state.picker.open,false);assert.equal(state.dateHost.hidden,true);assert.equal(state.popup.name,'onlyIn');
+ assert.match(s.q('[name=keepScoreAtLeast]').closest('label').textContent,/10 or more points; leave blank to ignore score/);
+});
+test('a later source failure keeps already found matches and labels discovery incomplete',async t=>{
+ const s=await dialog(t,{list:args=>{if(args.source==='overview')return {items:fresh,hasMore:false};throw Error('Reddit could not list your comments (HTTP 404).');}});
+ s.primary().click();await flush();assert.equal(s.r.state.phase,'previewed');assert.equal(s.r.state.selected.size,3);assert.match(s.status(),/Incomplete discovery.*HTTP 404/);
+ s.primary().click();assert.match(s.r.state.confirmation.textContent,/Discovery was incomplete/);assert.equal(s.calls.some(c=>c.action==='redact-item'),false);
+});
+const nativeComments=(rows,next='')=>'<main><shreddit-feed>'+rows.map(({id='abc',author='Example',date='2023-05-02T00:00:00Z',score=5,text='Native comment'})=>`<shreddit-profile-comment comment-id="t1_${id}" href="/r/Alpha/comments/p/title/comment/${id}/"><div id="poster-info-t1_${id}"><a href="/user/${author}/">${author}</a></div><faceplate-timeago ts="${date}"></faceplate-timeago><div class="md"><p>${text}</p></div><shreddit-comment-action-row score="${score}" permalink="/r/Alpha/comments/p/title/comment/${id}/"></shreddit-comment-action-row></shreddit-profile-comment>`).join('')+(next?'<faceplate-partial src="'+next.replaceAll('&','&amp;')+'"></faceplate-partial>':'')+'</shreddit-feed></main>';
+test('native discovery reuses the signed-in profile, follows its actual continuation and guards writes',async t=>{
+ const next='/svc/shreddit/profiles/profile_comments-more-posts/new/?after=opaque-token&name=Example';
+ const b=bridge(t,{url:'https://www.reddit.com/user/Example/comments/',html:nativeComments([{id:'a'},{id:'foreign',author:'Other'}],next),fetcher:u=>u.pathname==='/api/me.json'?meBody:u.pathname.includes('more-posts')?{text:nativeComments([{id:'b',date:'2022-01-01T00:00:00Z'}])}:{body:{json:{errors:[]}}}});
+ await b.send({action:'redact-identity'});const page=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});
+ assert.equal(b.calls.length,1,'loaded native cards need no listing request');assert.deepEqual(page.items.map(i=>i.fullname),['t1_a']);assert.equal(page.after,next);assert.equal(page.items[0].body,'Native comment');assert.equal(page.items[0].score,5);
+ const more=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true,after:page.after});assert.equal(more.items[0].fullname,'t1_b');assert.equal(more.hasMore,false);
+ assert.equal(b.calls[1].options.credentials,'include');assert.match(b.calls[1].options.headers.Accept,/partial/);
+ const before=b.calls.length;assert.equal((await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true,after:'/api/me.json'})).ok,false);assert.equal(b.calls.length,before);
+ assert.equal((await b.send({action:'redact-item',username:'Example',fullname:'t1_foreign',step:'delete'})).ok,false);
+ assert.equal((await b.send({action:'redact-item',username:'Example',fullname:'t1_a',step:'overwrite',text:'replacement'})).written,true);
+});
+test('native discovery reads the own profile HTML outside that view and never calls legacy comments JSON',async t=>{
+ const b=bridge(t,{fetcher:u=>u.pathname==='/api/me.json'?meBody:{text:nativeComments([{id:'a'}])}});await b.send({action:'redact-identity'});
+ const page=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});assert.equal(page.items.length,1);assert.equal(b.calls[1].url.pathname,'/user/Example/comments/');assert.equal(b.calls[1].url.searchParams.get('sort'),'new');assert.ok(!b.calls.some(c=>c.url.pathname.endsWith('comments.json')));
+});
+
+test('loaded profile communities appear in the picker without another discovery request',async t=>{
+ const s=await dialog(t,{items:fresh}),card=s.D.createElement('shreddit-profile-comment');card.setAttribute('href','/r/Alpha/comments/p/comment/a/');s.D.querySelector('main').append(card);
+ s.r.state.controls.onlyIn.button.click();assert.ok(s.r.state.popup.el.querySelector('[data-rt-sub-row="alpha"]'));assert.equal(s.calls.length,0);
+});
+test('older pinned items do not stop chronological discovery before newer matches',async t=>{
+ const old=item('pin',{created:Date.parse('2020-01-01T00:00:00Z')/1000,pinned:true}),recent=item('new',{created:Date.parse('2023-05-02T00:00:00Z')/1000});
+ const s=await dialog(t,{list:args=>args.after?{items:[recent],hasMore:false}:{items:[old],hasMore:true,after:'next'}});s.type('from','2023-01-01');s.primary().click();await flush();assert.equal(s.calls.filter(c=>c.action==='redact-list').length,2);assert.deepEqual([...s.r.state.selected],['t1_new']);
+});
+
+test('native discovery refuses unreadable authors and retains long text for keep filters',async t=>{
+ const text='x'.repeat(4500)+' protected phrase';let broken=false;
+ const b=bridge(t,{fetcher:u=>u.pathname==='/api/me.json'?meBody:{text:broken?nativeComments([{id:'a'}]).replace('poster-info-t1_a','missing-author'):nativeComments([{id:'a',text}])}});
+ await b.send({action:'redact-identity'});const page=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});assert.ok(page.items[0].body.endsWith('protected phrase'));
+ assert.equal(model().select(page.items,{keepContaining:'protected phrase'}).matches.length,0);
+ broken=true;const refused=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});assert.equal(refused.ok,false);assert.match(refused.error,/author could not be verified/);
 });
