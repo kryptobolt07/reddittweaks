@@ -138,7 +138,7 @@ Current state: the classification module adds no permissions of its own. The `al
 | R7 | Notifications on new removal, approval, lock and unlock (U4), opt-in | A7: a simulated state change gives one badge increment and one popup entry; no duplicates on recheck; nothing while the setting is off |
 | R8 | Limits and caching per §6 | A8: request counter tests: ≤1 check per item per 10 min, batches ≤100, 429 back-off honoured |
 | R9 | Privacy rules per §7 | A9: tests assert `credentials: 'omit'` on public checks and no Arctic Shift call with the archive off; the manifest diff shows only optional permissions |
-| R10 | Labels and tooltips match Reddit's tone and state their evidence | A10: council visual and copy review against native Reddit; every label has a tooltip naming its source |
+| R10 | Labels and tooltips match Reddit's tone and state their evidence | A10: measured comparison with native Reddit's pills and tooltips (sizes, fonts, colours) and a copy review of every label; every label has a tooltip naming its source |
 | R11 | Matches Reveddit's verdicts | A11: for 20 of the user's real items (L3, read-only), our state matches Reveddit's label, or the difference is explained by a documented rule |
 | R12 | Every applicable transition in §13 behaves as stated | A12: one `probe-timeline` per row (native vs ours), with the expected sequence written before the run; zero flashes, blanks, duplicate requests or lost badges |
 | R13 | Each limit in §12 is shown to the user in the stated wording when it applies | A13: fixtures that trigger each limit show its wording; nothing in a limited state reads as complete or clean |

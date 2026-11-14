@@ -2,7 +2,7 @@
 
 Follow the user's current instructions first. The user has authorized subagents for work in this repository: use gpt-6.1-terra with high reasoning for all subagents, while the main agent manages and reviews the work. Follow any newer user instructions about delegation or model choice.
 
-For extension changes, Claude Code agents use the `verify-loop` skill (spec first; unit, fixture and live levels; fix loop; validation record) and its `council` skill for judging (`.claude/skills/`). The council's roles use the Claude subagent types and models fixed in its SKILL.md; those override the default subagent model above for judging.
+For extension changes, Claude Code agents use the `verify-loop` skill (`.claude/skills/verify-loop/`): spec first, measure native Reddit as data before building, build with Reddit's own markup, unit, fixture and targeted read-only live checks, fix loop, and the main agent verifies its own work. The `council` judging skill is archived and inactive (`.claude/skills-archived/`, with a README on switching back); use it only if the user asks for a council review.
 
 ## Git and commits
 
