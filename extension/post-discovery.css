@@ -398,3 +398,14 @@ dialog.rt-raffle-dialog::backdrop{background-color:var(--color-scrim-background,
 .rt-raffle-winner a{color:inherit}.rt-raffle-comment-link{text-decoration:underline}
 .rt-raffle-excerpt{overflow-wrap:anywhere}
 .rt-raffle-results button{align-self:flex-start}
+/* Redaction dialog (docs/redaction-spec.md), on the raffle dialog's styles. */
+.rt-redact-dialog .rt-raffle-field select,.rt-redact-area{box-sizing:border-box;padding:8px 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:12px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;font-size:14px}
+.rt-redact-dialog .rt-raffle-field select{height:40px;border-radius:20px}
+.rt-redact-area{resize:vertical;min-height:40px}
+.rt-redact-preview,.rt-redact-results{display:flex;flex-direction:column;gap:8px}
+.rt-redact-rows{list-style:none;margin:0;padding:0;max-height:240px;overflow:auto;border:1px solid var(--color-neutral-border-weak,#e5ebee);border-radius:12px}
+.rt-redact-row{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border-bottom:1px solid var(--color-neutral-border-weak,#e5ebee)}
+.rt-redact-row:last-child{border-bottom:0}
+.rt-redact-link{color:var(--color-neutral-content-strong,#0f1a1c);font-size:14px;line-height:20px;overflow-wrap:anywhere}
+.rt-redact-preview button{align-self:flex-start}
+.rt-redact-danger:not([disabled]){background:var(--color-danger-background,#d93900);color:#fff}

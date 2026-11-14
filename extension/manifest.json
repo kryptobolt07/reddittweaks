@@ -114,6 +114,8 @@
         "unapproved-filter.js",
         "raffle-model.js",
         "raffle-ui.js",
+        "redaction-model.js",
+        "redaction-ui.js",
         "thread-restore.js"
       ]
     }

@@ -20,7 +20,7 @@
     return new Promise((resolve,reject)=>{
       const finish=(error,result)=>{clearTimeout(timer);document.removeEventListener('rt-post-response',receive);signal?.removeEventListener('abort',cancel);error?reject(error):resolve(result);};
       const send=detail=>document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify(detail)}));
-      const cancel=()=>{send({channel,id,action:'cancel'});finish(Error('Raffle cancelled.'));};
+      const cancel=()=>{send({channel,id,action:'cancel'});finish(Error('Request cancelled.'));};
       const receive=event=>{let response;try{response=JSON.parse(event.detail);}catch{return;}if(response.channel!==channel || response.id!==id)return;
         if(response.deferred){clearTimeout(timer);setTimeout(()=>{send({channel,id,...parameters});timer=setTimeout(expire,timeout);},Math.min(2000,Number(response.retryAfterMs) || 500));return;}
         finish(response.ok?null:Error(response.error || 'Reddit request failed.'),response);};
