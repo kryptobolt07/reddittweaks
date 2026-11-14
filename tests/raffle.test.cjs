@@ -182,7 +182,7 @@ test('Message winners: separate chats need a second confirmation (warned beside 
  const sent=[];const s=await ui(t,{chat:args=>{if(args.action==='chat-status')return {ready:true};sent.push(args);return args.userId==='idbob'?{sent:false,reason:'Reddit refused the chat.'}:{sent:true,existing:true};}});
  await toMessage(s);
  assert.equal(s.q('#rt-raffle-title').textContent,'Message winners');assert.deepEqual([...s.D.querySelectorAll('.rt-raffle-person-name')].map(e=>e.textContent).sort(),['u/Alice','u/Bob']);
- const send=s.primary();assert.equal(send.textContent,'Send to 2 winners');
+ const send=s.primary();assert.equal(send.textContent,'Send to 2 people');
  assert.match(s.q('.rt-raffle-preview').textContent,/^Congratulations u\/(Alice|Bob)! You won the raffle on this post: https:\/\/www\.reddit\.com\/r\/Alpha\/comments\/post1\/giveaway\/$/);
  assert.ok(s.q('.rt-raffle-textarea').getAttribute('aria-describedby'),'the placeholder hint describes the message field');
  send.click();await flush();assert.equal(sent.length,0,'the first click only asks for confirmation');assert.equal(send.textContent,'Confirm: send 2 messages');assert.match(s.note(),/can’t be unsent/);
@@ -191,15 +191,29 @@ test('Message winners: separate chats need a second confirmation (warned beside 
  assert.equal(sent.length,2);assert.deepEqual(sent.map(a=>a.userId).sort(),['idalice','idbob']);
  const state=name=>s.q('[data-rt-recipient="'+name+'"] .rt-raffle-person-state');
  assert.equal(state('Alice').textContent,'Sent in your existing chat');assert.equal(state('Bob').dataset.state,'failed');
- assert.match(s.note(),/^Sent to 1 of 2 winners\. 1 failed\./);
+ assert.match(s.note(),/^Sent to 1 of 2 people\. 1 failed\./);
  assert.equal(send.textContent,'Send to the remaining 1');send.click();send.click();await flush();
  assert.equal(sent.length,3);assert.equal(sent[2].userId,'idbob','a retry goes only to people not reached');
+});
+test('Message winners: people can be removed, added back, or added by username; only the “Sending to” list is messaged',async t=>{
+ const sent=[];const s=await ui(t,{chat:args=>{if(args.action==='chat-status')return {ready:true};sent.push(args);return {sent:true};}});
+ await toMessage(s);
+ const names=sel=>[...s.D.querySelectorAll(sel+' .rt-raffle-person-name')].map(e=>e.textContent).sort();
+ s.q('[aria-label="Remove u/Bob"]').click();
+ assert.deepEqual(names('[aria-label="Recipients"]'),['u/Alice']);assert.deepEqual(names('.rt-raffle-people-out'),['u/Bob']);assert.equal(s.primary().textContent,'Send to 1 person');
+ const add=s.q('[aria-label="Add someone by username"]');add.value='bad name!';s.q('.rt-raffle-add button').click();assert.equal(s.q('.rt-raffle-add+.rt-raffle-row-caption').textContent,'Enter a Reddit username');
+ add.value='u/Carol';s.q('.rt-raffle-add button').click();await flush();
+ assert.deepEqual(names('[aria-label="Recipients"]'),['u/Alice','u/Carol']);
+ s.q('[aria-label="Add u/Bob"]').click();assert.deepEqual(names('[aria-label="Recipients"]'),['u/Alice','u/Bob','u/Carol']);
+ s.q('[aria-label="Remove u/Alice"]').click();
+ s.primary().click();s.primary().click();await flush();await new Promise(r=>setTimeout(r,1700));await flush();
+ assert.deepEqual(sent.map(a=>a.userId).sort(),['idbob','idcarol']);assert.ok(sent.find(a=>a.userId==='idcarol').text.includes('u/Carol'));
 });
 test('Message winners: one group chat sends once with every winner named',async t=>{
  const calls=[];const s=await ui(t,{chat:args=>{if(args.action==='chat-status')return {ready:true};calls.push(args);return {sent:true,failedInvites:[]};}});
  await toMessage(s);
  const group=s.q('input[name="rt-raffle-mode"][value="group"]');group.checked=true;group.dispatchEvent(new s.W.Event('change'));
- assert.equal(s.primary().textContent,'Start group chat');assert.equal(s.q('.rt-raffle-message .rt-raffle-mini input').value,'Raffle: Giveaway');
+ assert.equal(s.primary().textContent,'Start group chat');assert.equal(s.q('[data-rt-field="group-name"]').value,'Raffle: Giveaway');
  s.primary().click();s.primary().click();await flush();
  assert.equal(calls.length,1);assert.equal(calls[0].action,'chat-group');assert.deepEqual([...calls[0].userIds].sort(),['idalice','idbob']);assert.match(calls[0].text,/^Congratulations u\/\w+, u\/\w+!/);
  assert.match(s.note(),/^Group chat started with 2 winners\./);assert.equal(s.primary().disabled,true);
