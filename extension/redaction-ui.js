@@ -55,10 +55,12 @@
       const dateHost=make('div','rt-redact-popover rt-redact-calendar');dateHost.hidden=true;dialog.append(dateHost);
       const includeField=choice('onlyIn','Include communities','community','','All communities');
       const excludeField=choice('neverIn','Exclude communities','community','','None excluded');
-      form.append(group('Find items',kindsField,dateField,field('Minimum age in days',input('olderThanDays','number','Any age'),'Include items at least this many days old'),
-        includeField,field('Include text',input('onlyContaining','text','Any text'),'Match words in the title or text')),
-        group('Keep items safe',excludeField,field('Keep items with at least this many points',input('keepScoreAtLeast','number','Ignore score'),'Reddit points are upvotes minus downvotes. Enter 10 to keep items with 10 or more points; leave blank to ignore score.'),
-        field('Keep items containing text',input('keepContaining','text','Words to protect')),field('Keep specific items',area('keep','','Reddit links or item IDs, separated by spaces'))),
+      const full=el=>{el.classList.add('rt-redact-full');return el;};
+      form.append(group('Find items',kindsField,dateField,field('Minimum age (days)',input('olderThanDays','number','Any age')),
+        includeField,full(field('Include text',input('onlyContaining','text','Words in the title or text')))),
+        group('Keep items safe',excludeField,field('Minimum votes to keep',input('keepScoreAtLeast','number','Not set')),
+        full(make('p','rt-raffle-hint','10 keeps items with 10 or more votes. Leave empty to ignore votes.')),
+        full(field('Keep text containing',input('keepContaining','text','Words to protect'))),full(field('Keep specific items',area('keep','','Reddit links or item IDs, separated by spaces')))),
         group('Replacement text',field('Overwrite text before deleting',area('text',X.DEFAULT_TEXT),'Link and image posts without text are deleted without an overwrite.')));
       const status=make('p','rt-raffle-status text-12 text-neutral-content-weak m-0');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
       const preview=make('section','rt-redact-preview');preview.hidden=true;preview.setAttribute('aria-label','Matching items');
@@ -130,7 +132,7 @@
     positionFilter(){
       const p=this.state?.popup;if(!p)return;
       if(!p.button.isConnected){this.closeFilter(false);return;}
-      const a=p.button.getBoundingClientRect(),width=Math.min(p.name==='date'?288:320,innerWidth-16),height=p.name==='date'?410:320;
+      const a=p.button.getBoundingClientRect(),width=Math.min(p.name==='date'?288:256,innerWidth-16),height=p.name==='date'?410:240;
       const below=innerHeight-a.bottom-12,above=a.top-12,up=below<Math.min(height,240) && above>below,available=Math.max(80,up?above:below),size=Math.min(height,available);
       p.el.style.width=width+'px';p.el.style.maxHeight=size+'px';p.el.style.setProperty('--rt-popover-height',size+'px');
       p.el.style.left=Math.max(8,Math.min(a.left,innerWidth-width-8))+'px';
@@ -153,12 +155,12 @@
           for(const card of document.querySelectorAll('main shreddit-profile-comment[href]')){const key=card.getAttribute('href')?.match(/^\/r\/([A-Za-z0-9_]{2,21})\/comments\//)?.[1];if(key && !counts.has(key.toLowerCase()))counts.set(key.toLowerCase(),0);}
           const term=panel.input.value.trim().replace(/^\/?r\//i,'');if(/^[a-z0-9_]{2,21}$/i.test(term) && ![...counts.keys()].some(n=>n.toLowerCase()===term.toLowerCase()))counts.set(term,0);
           panel.render({entries:[...counts].map(([key,count])=>({key,count})),picked:picked(),source:'loaded'});
-          s.controls[name].caption.textContent=picked().length?picked().length===1?'r/'+picked()[0]:n(picked().length)+' communities':name==='onlyIn'?'All communities':'None excluded';
+          s.controls[name].caption.textContent=picked().length?picked().length===1?F.subLabel(picked()[0]):n(picked().length)+' communities':name==='onlyIn'?'All communities':'None excluded';
           const row=panel.list.querySelector('[role^=menuitem]');if(row)row.tabIndex=0;
         };
         const panel=F.subredditPanel({ctx,nativeHeader:true,clearLabel:name==='neverIn'?'None excluded':'All communities',onClear:()=>{change('');sync();},onToggle:key=>{const next=picked(),at=next.findIndex(n=>n.toLowerCase()===key.toLowerCase());if(at>=0)next.splice(at,1);else next.push(key);change(next.join(','));sync();panel.input.focus({preventScroll:true});}});
+        panel.input.placeholder='Search or enter r/name';panel.input.title='Search communities or enter an exact r/name';
         panel.input.addEventListener('input',sync);menu.append(panel.el);sync();menu.rtCommunityPanel=panel;
-        menu.append(make('p','rt-redact-menu-hint text-12 text-neutral-content-weak','Search available communities or enter an exact r/name.'));
       }
       s.dialog.append(menu);this.attachFilter(name,menu);
       const focus=menu.rtCommunityPanel?.input || menu.querySelector('[aria-checked=true]') || menu.querySelector('[role^=menuitem]');if(focus){focus.tabIndex=0;focus.focus({preventScroll:true});}
@@ -202,7 +204,7 @@
       try{
         const me=await this.read({action:'redact-identity'},{signal});if(!current())return;
         if(!me.canWrite)throw Error('Reddit didn’t provide the token needed to edit or delete. Reload the page and try again.');
-        state.items.clear();state.limited=false;state.failures=[];state.username=me.username;state.status.textContent='Finding your posts and comments…';
+        state.items.clear();state.limited=false;state.failures=[];state.unread=0;state.username=me.username;state.status.textContent='Finding your posts and comments…';
         const bounded=rules.from!=null || rules.to!=null;
         const sources=bounded?[[rules.kinds==='comments'?'comments':rules.kinds==='posts'?'submitted':'overview','new']]:SOURCES;
         let successful=0;
@@ -213,6 +215,7 @@
             for(let page=0;page<PAGES_PER_LIST;page++){
             const result=await this.read({action:'redact-list',username:state.username,source,sort,after,...(sort==='new'?{native:true}:{})},{signal});if(!current())return;
             successful++;
+            state.unread+=Number(result.unread) || 0;
             for(const item of result.items || [])if(!state.items.has(item.fullname))state.items.set(item.fullname,item);
             state.status.textContent='Finding your posts and comments… '+n(state.items.size)+' found';
             // Only newest-first lists are chronological. Top/controversial pages may still contain newer matches.
@@ -232,7 +235,8 @@
       state.status.textContent=n(count)+' '+(count===1?'item matches':'items match')+' ('+n(sel.posts)+' '+(sel.posts===1?'post':'posts')+', '+n(sel.comments)+' '+(sel.comments===1?'comment':'comments')+') out of '+n(sel.found)+' found'+(sel.oldest?' · oldest found: '+dateText(sel.oldest):'')+' · Reddit may not list older items';
       if(state.limited)state.status.append(' · Discovery limit reached; more items may exist.');
       if(state.failures?.length)state.status.append(' · Incomplete discovery: '+state.failures.join('; ')+'. Only the items found are available below.');
-      state.status.dataset.incomplete=String(Boolean(state.limited || state.failures?.length));
+      if(state.unread)state.status.append(' · Incomplete discovery: '+n(state.unread)+' '+(state.unread===1?'item could':'items could')+' not be read and '+(state.unread===1?'was':'were')+' excluded.');
+      state.status.dataset.incomplete=String(Boolean(state.limited || state.failures?.length || state.unread));
       state.candidates=[...sel.matches];state.selected=new Set(sel.matches.map(item=>item.fullname));state.visibleRows=0;
       const list=state.list=make('ul','rt-redact-rows');list.setAttribute('aria-label','Select items to redact');
       state.selectionCount=make('p','text-14 font-semibold m-0');state.selectAll=make('button','button-small button-secondary button inline-flex items-center justify-center px-md','Deselect all');state.selectAll.type='button';
@@ -250,7 +254,7 @@
         const li=make('li','rt-redact-row'),content=make('div','rt-redact-item'),text=(item.kind==='post'?item.title:item.body) || '(no text)';
         const checkbox=make('input');checkbox.type='checkbox';checkbox.value=item.fullname;checkbox.checked=state.selected.has(item.fullname);checkbox.setAttribute('aria-label','Select '+item.kind+': '+text.slice(0,100));
         checkbox.addEventListener('change',()=>{if(checkbox.checked)state.selected.add(item.fullname);else state.selected.delete(item.fullname);this.syncSelection();});
-        const meta=make('span','text-12 text-neutral-content-weak',(item.kind==='post'?'Post':'Comment')+' · r/'+item.subreddit+' · '+dateText(item.created)+' · '+n(item.score)+' points'+(X.overwritable(item)?'':' · delete only'));
+        const meta=make('span','text-12 text-neutral-content-weak',(item.kind==='post'?'Post':'Comment')+' · '+F.subLabel(item.subreddit)+' · '+dateText(item.created)+' · '+n(item.score)+' votes'+(X.overwritable(item)?'':' · delete only'));
         const title=make('label','rt-redact-excerpt',text.length>220?text.slice(0,219)+'…':text);checkbox.id='rt-redact-select-'+item.fullname;title.htmlFor=checkbox.id;
         const link=make('a','rt-redact-link','View on Reddit');link.href=item.permalink || '#';link.target='_blank';link.rel='noopener noreferrer';
         content.append(meta,title);
@@ -267,7 +271,7 @@
     showConfirmation(){
       const state=this.state,count=state.selection.matches.length;if(!count)return;
       state.phase='confirming';state.confirmWrap.hidden=false;state.confirmLabel.textContent='Type “'+X.confirmation(count)+'” to confirm';state.confirm.placeholder=X.confirmation(count);state.confirm.value='';
-      const summary=make('p','text-14 m-0','u/'+state.username+' · '+n(state.selection.posts)+' posts and '+n(state.selection.comments)+' comments selected. These items will be overwritten where possible, then permanently deleted.'+(state.limited || state.failures?.length?' Discovery was incomplete; this run includes only the selected items found.':''));
+      const summary=make('p','text-14 m-0','u/'+state.username+' · '+n(state.selection.posts)+' posts and '+n(state.selection.comments)+' comments selected. These items will be overwritten where possible, then permanently deleted.'+(state.limited || state.failures?.length || state.unread?' Discovery was incomplete; this run includes only the selected items found.':''));
       const replacement=make('blockquote','rt-redact-replacement',state.selection.rules.text);
       state.confirmation.replaceChildren(summary,make('h3','text-14 font-semibold m-0','Replacement text'),replacement,state.confirmWrap);
       state.primary.textContent='Overwrite and delete '+n(count)+' '+(count===1?'item':'items');state.primary.classList.add('rt-redact-danger');this.showStep('confirm');this.syncPrimary();state.confirm.focus({preventScroll:true});
