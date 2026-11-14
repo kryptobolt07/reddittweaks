@@ -579,7 +579,14 @@
       return {avatar:url};
     }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
-  const ownLists=new Set(['saved','history','hidden','upvoted','downvoted']);
+  const ownLists=new Set(['saved','history','hidden','upvoted','downvoted','removed']);
+  // The Removed list reads your own overview and keeps only the moderation facts Reddit gives the author
+  // (docs/own-removal-detection-spec.md §4.1 E1). The content script classifies them with RTRemovalModel.
+  const moderationOf=(raw,kind)=>{
+    const text=(value,max)=>typeof value==='string'?value.slice(0,max):null;
+    return {category:text(raw.removed_by_category,40),removalReason:Boolean(raw.removal_reason),locked:raw.locked===true,
+      subredditType:text(raw.subreddit_type,40) || 'public',quarantined:raw.quarantine===true,authorBody:text(kind==='t1'?raw.body:raw.selftext,40000) ?? ''};
+  };
   function ownListContext(input){
     const context=route();
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Open your own Reddit profile to search your lists.');
@@ -617,7 +624,7 @@
     if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
     if(input.action==='own-list-identity')return {username};
     if(username.toLowerCase()!==input.username.toLowerCase())throw Error('You can only search your own lists. The signed-in account changed.');
-    const url=new URL('/user/'+encodeURIComponent(username)+'/'+input.list+(input.list==='history'?'/':'.json'),location.origin);
+    const url=new URL('/user/'+encodeURIComponent(username)+'/'+(input.list==='removed'?'overview':input.list)+(input.list==='history'?'/':'.json'),location.origin);
     if(input.list!=='history'){url.searchParams.set('limit','100');url.searchParams.set('raw_json','1');if(input.after)url.searchParams.set('after',input.after);}
     const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:input.list==='history'?'text/html':'application/json'},signal});
     if(!response.ok)throw Error(response.status===401?'Sign in to Reddit to search your lists.':response.status===403?'Reddit denied access to your '+input.list+' list (HTTP 403).':'Reddit could not load your '+input.list+' list (HTTP '+response.status+').');
@@ -627,7 +634,10 @@
     let data;try{data=JSON.parse(text);}catch{throw Error('Reddit returned an unexpected own-list response.');}
     const listing=data?.data;
     if(data.kind!=='Listing' || !Array.isArray(listing?.children) || listing.children.length>100 || listing.after!=null && !/^t[13]_[a-z0-9]{1,32}$/i.test(listing.after))throw Error('Reddit returned an unexpected own-list listing.');
-    const posts=listing.children.map(item=>item.kind==='t3'?M.normalizePost(item.data):item.kind==='t1' && input.list==='saved'?M.normalizeComment(item.data):null);
+    const posts=listing.children.map(item=>item.kind==='t3'?M.normalizePost(item.data):item.kind==='t1' && ['saved','removed'].includes(input.list)?M.normalizeComment(item.data):null);
+    if(input.list==='removed')listing.children.forEach((item,index)=>{const post=posts[index];if(post){
+      // Only the signed-in author's own items are classified (spec §7); anything else is a malformed page.
+      if(post.author.toLowerCase()!==username.toLowerCase())posts[index]=null;else post.moderation=moderationOf(item.data,item.kind);}});
     // A malformed item is an explicit partial load, never silent exhaustion.
     if(posts.some(post=>!post))throw Error('Some '+input.list+' items could not be read. The list search is incomplete.');
     return {posts,after:listing.after || null,hasMore:Boolean(listing.after),scanned:listing.children.length,incomplete:true,source:'reddit'};
