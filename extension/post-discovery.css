@@ -594,6 +594,12 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 .rt-redact-popover .rt-sub-list .rt-menu-row:focus-visible{box-shadow:inset 0 0 0 2px var(--color-a-default,#216ba5)}
 .rt-redact-calendar{padding:0;border:0;background:transparent;box-shadow:none}
 .rt-redact-dialog .rt-redact-rows{max-height:min(48vh,440px);overscroll-behavior:contain;scrollbar-gutter:stable}
+.rt-redact-sections{display:flex;flex-direction:column;gap:16px}
+.rt-redact-section{display:flex;flex-direction:column;gap:6px;min-width:0}
+.rt-redact-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.rt-redact-sections:has(.rt-redact-section+.rt-redact-section) .rt-redact-rows{max-height:min(24vh,220px)}
+.rt-redact-meta{display:flex;align-items:center;gap:8px;min-width:0}
+.rt-redact-meta .rt-community-icon{flex-shrink:0}
 .rt-redact-preview .rt-redact-row{flex-direction:row;gap:12px;padding:12px}
 .rt-redact-row>input[type=checkbox]{appearance:auto;accent-color:var(--color-brand-background,#d93900);width:18px;height:18px;flex:none;margin:2px 0}
 .rt-redact-item{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
@@ -607,7 +613,8 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 .rt-redact-suggestion-status{margin:0;padding:4px 12px;line-height:16px}
 .rt-redact-item .rt-redact-link{align-self:flex-start;font-size:12px;color:var(--color-a-default,#216ba5)}
 .rt-redact-confirmation{display:flex;flex-direction:column;gap:16px}
-.rt-redact-replacement{padding:12px 16px;border-inline-start:3px solid var(--color-neutral-border,#d4dadc);border-radius:4px;background:var(--color-neutral-background-weak,#f6f8f9)}
+.rt-redact-replacement-editor{min-height:80px;line-height:20px}
+.rt-redact-replacement-editor[aria-invalid=true]{border-color:var(--color-danger-content,#d93900)}
 .rt-redact-loading{display:flex;justify-content:center;padding:24px}
 .rt-redact-loading shreddit-loading{width:48px;height:48px}
 @media(max-width:480px){.rt-redact-group{grid-template-columns:minmax(0,1fr)}.rt-redact-review-tools{flex-wrap:wrap}}

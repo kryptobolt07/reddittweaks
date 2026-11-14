@@ -140,7 +140,7 @@ test('review exposes every match and confirmation writes only the selected set',
  Object.defineProperties(s.r.state.list,{clientHeight:{value:400},scrollHeight:{value:800}});s.r.state.list.scrollTop=400;s.r.state.list.dispatchEvent(new s.W.Event('scroll'));assert.equal(s.q('.rt-redact-preview').querySelectorAll('input[type=checkbox]').length,53);assert.equal(s.r.state.tail.hidden,true);
  s.r.state.selectAll.click();assert.equal(s.primary().disabled,true);
  const box=s.q('input[value="t1_a52"]');box.click();assert.equal(s.r.state.selection.matches.length,1);s.primary().click();
- assert.equal(s.r.state.preview.hidden,true);assert.equal(s.r.state.confirmation.hidden,false);assert.match(s.r.state.confirmation.textContent,/u\/Example · 0 posts and 1 comments selected/);
+ assert.equal(s.r.state.preview.hidden,true);assert.equal(s.r.state.confirmation.hidden,false);assert.match(s.r.state.confirmation.textContent,/u\/Example · 0 posts and 1 comment selected/);
  s.type('confirm','delete 1');s.r.state.cancel.click();assert.equal(s.r.state.phase,'previewed');assert.equal(s.r.state.selected.has('t1_a52'),true);assert.equal(s.r.state.confirm.value,'');
  s.primary().click();assert.equal(s.primary().disabled,true);s.type('confirm','delete 1');s.primary().click();await flush();
  assert.deepEqual(s.calls.filter(c=>c.action==='redact-item').map(c=>c.fullname+':'+c.step),['t1_a52:overwrite','t1_a52:delete']);
@@ -261,7 +261,7 @@ test('operation modes perform only their chosen writes and overwrite mode exclud
 test('custom replacement text is editable, confirmed verbatim and used for overwrite-only',async t=>{
  const s=await dialog(t,{items:fresh}),state=s.r.state;assert.equal(s.q('[name=text]').value,'This comment has been redacted by Reddit Tweaks.');
  s.type('text','A custom privacy message.');state.controls.operation.button.click();s.q('[data-rt-option=overwrite]').click();assert.equal(state.messageField.hidden,false);assert.equal(state.controls.operation.caption.textContent,'Overwrite text');
- s.primary().click();await flush();assert.equal(state.selection.matches.length,2);s.primary().click();assert.match(state.confirmation.textContent,/A custom privacy message/);assert.match(state.confirmation.textContent,/remain on Reddit/);
+ s.primary().click();await flush();assert.equal(state.selection.matches.length,2);s.primary().click();assert.equal(state.replacementEditor.value,'A custom privacy message.');assert.match(state.confirmation.textContent,/remain on Reddit/);
  s.type('confirm','delete 2');assert.equal(s.primary().disabled,true);s.type('confirm','overwrite 2');s.primary().click();await flush();
  const writes=s.calls.filter(c=>c.action==='redact-item');assert.deepEqual(writes.map(c=>c.step),['overwrite','overwrite']);assert.ok(writes.every(c=>c.text==='A custom privacy message.'));assert.match(s.status(),/^Overwritten 2 of 2/);
 });
@@ -313,4 +313,46 @@ test('subsequent native discovery refreshes its data after a successful write',a
  const b=bridge(t,{url:'https://www.reddit.com/user/Example/comments/',html:nativeComments([{id:'a',text:'Before'}]),fetcher:(u,o)=>u.pathname==='/api/me.json'?meBody:o.method==='POST'?{body:{json:{errors:[]}}}:{text:nativeComments([{id:'a',text:'After'}])}});
  await b.send({action:'redact-identity'});await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});
  await b.send({action:'redact-item',username:'Example',fullname:'t1_a',step:'overwrite',text:'After'});const next=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});assert.equal(next.items[0].body,'After');assert.ok(b.calls.some(c=>c.url.pathname==='/user/Example/comments/'));
+});
+
+test('matched posts and comments have separate labelled sections with shared community icons',async t=>{
+ const items=[item('a'),item('b',{subreddit:'Beta'}),item('p1',{kind:'post',isSelf:true,title:'First post',body:'Post body'}),item('p2',{kind:'post',isSelf:true,title:'Second post',body:'More text',subreddit:'Beta'})];
+ const s=await dialog(t,{items});s.W.RTCommunityIcons={peek:name=>'https://styles.redditmedia.com/t5_test/'+name+'.png',get:async()=>{throw Error('cached icons need no lookup');}};
+ s.primary().click();await flush();const posts=s.q('[data-rt-redact-kind=post]'),comments=s.q('[data-rt-redact-kind=comment]');
+ assert.equal(posts.querySelector('h3').textContent,'Posts');assert.equal(comments.querySelector('h3').textContent,'Comments');
+ assert.equal(posts.querySelectorAll('input[value^=t3_]').length,2);assert.equal(posts.querySelectorAll('input[value^=t1_]').length,0);assert.equal(comments.querySelectorAll('input[value^=t1_]').length,2);
+ for(const row of s.q('.rt-redact-preview').querySelectorAll('.rt-redact-row')){const box=row.querySelector('input'),expected=items.find(i=>i.fullname===box.value).subreddit,icon=row.querySelector('.rt-community-icon');assert.equal(icon.dataset.rtCommunity,expected);assert.ok(icon.querySelector('img').src.endsWith('/'+expected+'.png'));}
+ const order=[...s.r.state.selection.matches].map(i=>i.fullname);s.r.state.selectAll.click();assert.equal(posts.querySelector('input').checked,false);assert.equal(comments.querySelector('input').checked,false);s.r.state.selectAll.click();assert.deepEqual([...s.r.state.selection.matches].map(i=>i.fullname),order);
+});
+test('both sections load independently on scroll and keep shared offscreen selections',async t=>{
+ const items=[...Array.from({length:60},(_,i)=>item('p'+i,{kind:'post',title:'Post '+i,isSelf:true,body:'Body'})),...Array.from({length:55},(_,i)=>item('c'+i))];
+ const s=await dialog(t,{items});s.primary().click();await flush();const state=s.r.state,posts=state.groups.find(g=>g.kind==='post'),comments=state.groups.find(g=>g.kind==='comment'),first=posts.list.firstElementChild;
+ assert.equal(posts.visible,50);assert.equal(comments.visible,50);state.selectAll.click();
+ for(const group of [posts,comments]){Object.defineProperties(group.list,{clientHeight:{value:300},scrollHeight:{value:600}});group.list.scrollTop=300;}
+ comments.list.dispatchEvent(new s.W.Event('scroll'));assert.equal(comments.visible,55);assert.equal(posts.visible,50);
+ posts.list.dispatchEvent(new s.W.Event('scroll'));assert.equal(posts.visible,60);assert.equal(posts.list.firstElementChild,first);assert.equal(state.visibleRows,115);assert.ok([...state.preview.querySelectorAll('input[type=checkbox]')].every(input=>!input.checked));
+ posts.list.lastElementChild.previousElementSibling.querySelector('input').click();assert.equal(posts.selected.textContent,'1 of 60 selected');assert.equal(comments.selected.textContent,'0 of 55 selected');assert.equal(state.selection.matches.length,1);
+});
+test('community icons load when visible and old section observers cannot append into a later review',async t=>{
+ const s=await dialog(t,{items:Array.from({length:53},(_,i)=>item('a'+i))}),observers=[],reads=[];
+ s.W.IntersectionObserver=class{constructor(callback){this.callback=callback;this.targets=new Set();observers.push(this);}observe(node){this.targets.add(node);}unobserve(node){this.targets.delete(node);}disconnect(){this.disconnected=true;this.targets.clear();}};
+ s.W.RTCommunityIcons={peek:()=>'',get:async name=>{reads.push(name);return 'https://styles.redditmedia.com/t5_test/icon.png';}};
+ s.primary().click();await flush();const old=s.r.state.groups[0],observer=observers[0],icon=old.list.querySelector('.rt-community-icon');assert.equal(reads.length,0);
+ observer.callback([{target:icon,isIntersecting:true}]);await flush();assert.ok(icon.querySelector('img'));assert.equal(reads.length,1);
+ s.r.state.cancel.click();assert.equal(observer.disconnected,true);s.primary().click();await flush();observer.callback([{target:old.tail,isIntersecting:true}]);assert.equal(old.visible,50);assert.equal(s.r.state.groups[0].visible,50);
+ s.r.close(true);assert.ok(observers.every(o=>o.disconnected));
+});
+test('replacement message is editable on confirmation, persists when going back and locks during writes',async t=>{
+ let release;const gate=new Promise(r=>release=r);const s=await dialog(t,{items:[item('a'),item('b')],writes:async()=>{await gate;return {written:true};}});
+ s.type('operation','overwrite');s.primary().click();await flush();s.primary().click();const state=s.r.state,ids=state.selection.matches.map(i=>i.fullname),editor=state.replacementEditor;
+ s.type('confirm','overwrite 2');assert.equal(s.primary().disabled,false);editor.value='Edited on the confirmation screen.\n';editor.dispatchEvent(new s.W.Event('input',{bubbles:true}));
+ assert.equal(state.confirm.value,'');assert.equal(s.primary().disabled,true);assert.deepEqual(state.selection.matches.map(i=>i.fullname),ids);assert.equal(state.form.elements.text.value,editor.value);
+ state.cancel.click();s.primary().click();assert.equal(state.replacementEditor.value,'Edited on the confirmation screen.\n');s.type('confirm','overwrite 2');s.primary().click();assert.equal(state.replacementEditor.disabled,true);
+ state.replacementEditor.value='Too late';state.replacementEditor.dispatchEvent(new s.W.Event('input',{bubbles:true}));assert.equal(state.selection.rules.text,'Edited on the confirmation screen.\n');release();await flush();
+ const calls=s.calls.filter(c=>c.action==='redact-item');assert.equal(calls.length,2);assert.ok(calls.every(c=>c.step==='overwrite' && c.text==='Edited on the confirmation screen.\n'));
+});
+test('empty or oversized confirmation messages cannot run even with the typed phrase',async t=>{
+ const s=await dialog(t,{items:[item('a')]});s.primary().click();await flush();s.primary().click();const editor=s.r.state.replacementEditor;
+ for(const value of ['', 'x'.repeat(1001)]){editor.value=value;editor.dispatchEvent(new s.W.Event('input',{bubbles:true}));s.type('confirm','delete 1');assert.equal(s.primary().disabled,true);assert.equal(editor.getAttribute('aria-invalid'),'true');await s.r.runRedaction();}
+ assert.equal(s.calls.some(c=>c.action==='redact-item'),false);editor.value='Valid edited message';editor.dispatchEvent(new s.W.Event('input',{bubbles:true}));s.type('confirm','delete 1');assert.equal(s.primary().disabled,false);
 });
