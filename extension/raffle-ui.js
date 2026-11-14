@@ -187,7 +187,7 @@
       const state=this.dialog={dialog,card,post,trigger,h2,form,winners,winnersRow,minus,plus,status,statusCard:statusBox,progress,accountHint,announce,note,ack,ackWrap:ackRow,rulesView,resultsView,messageView,views,
         drawButton,draw:drawButton,back,message,again,msgBack,send,publicOption,privateOption,mode:'public',
         raffler:{phase:'checking',signedIn:'',raffle:null,confirm:false,error:'',progress:'',openedOnExisting:false},
-        controller:new AbortController(),entries:new Map(),coverage:null,reading:false,drawing:false,accounts:new Map(),generation:0,view:'rules',result:null,chat:null,draws:0,againConfirm:false,closeAsked:false,touched:false};
+        controller:new AbortController(),entries:new Map(),coverage:null,reading:false,privateReady:false,preparing:false,drawing:false,accounts:new Map(),generation:0,view:'rules',result:null,chat:null,draws:0,againConfirm:false,closeAsked:false,touched:false};
       // Phone ↔ desktop follows rotation and resizing (Reddit's bottom sheet below 640 px).
       state.onMedia=()=>{const small=media.matches;dialog.classList.toggle('rt-raffle-sheet',small);card.setAttribute('appearance',small?'bottom-sheet':'modal');};media?.addEventListener?.('change',state.onMedia);state.media=media;
       const finish=()=>this.close();
@@ -196,7 +196,7 @@
       // A stray click on the dim backdrop never throws away results or interrupts sending.
       dialog.addEventListener('click',event=>{if(event.target===dialog && !state.result && !state.chat?.sending)finish();});
       for(const {radio} of [publicOption,privateOption])radio.addEventListener('change',()=>{if(radio.checked)this.setMode(radio.value,{user:true});});
-      form.addEventListener('input',event=>{state.touched=true;state.raffler.confirm=false;if(event.target.name==='topLevelOnly')this.readEntries();else this.updateSummary();});
+      form.addEventListener('input',event=>{state.touched=true;state.raffler.confirm=false;this.setNote('');if(event.target.name!=='winners')state.qualifiedRange=null;if(event.target.name==='topLevelOnly'){state.privateReady=false;state.coverage=null;state.pool=null;}this.updateSummary();});
       form.addEventListener('change',event=>{if(event.target.name!=='topLevelOnly')this.updateSummary();});
       form.addEventListener('submit',event=>{event.preventDefault();this.primaryAction();});
       ack.addEventListener('change',()=>this.updateSummary());
@@ -207,7 +207,7 @@
       try{dialog.showModal();}catch{dialog.setAttribute('open','');}
       // Focus the heading, not a field: no focus ring, and no phone keyboard over the sheet.
       h2.focus({preventScroll:true});
-      this.setMode('public');this.readEntries();this.checkRaffler();
+      this.setMode('public');this.checkRaffler();
       return state;
     }
     setMode(mode,{user=false}={}){
@@ -247,7 +247,7 @@
     async readEntries(){
       const state=this.dialog;if(!state)return;
       const generation=++state.generation,topLevelOnly=state.form.elements.topLevelOnly.checked,signal=state.controller.signal,current=()=>this.dialog===state && state.generation===generation;
-      state.reading=true;state.error='';state.entries=new Map();state.coverage=null;this.updateSummary('Reading comments…');
+      state.reading=true;state.privateReady=false;state.scanTopLevel=topLevelOnly;state.qualifiedRange=null;state.pool=null;state.ack.checked=false;state.error='';state.entries=new Map();state.coverage=null;this.updateSummary('Reading comments…');
       const add=list=>{for(const raw of list || []){const item=R.entry(raw,{postId:state.post.id});if(!item)continue;const seen=state.entries.get(item.id);if(!seen)state.entries.set(item.id,item);else if(!seen.avatar && item.avatar)seen.avatar=item.avatar;}};
       const topCount=()=>{let count=0;for(const e of state.entries.values())if(e.topLevel)count++;return count;};
       const tree=async loader=>{for(let attempt=0;;attempt++){const page=await this.read({action:'raffle-tree',postId:state.post.id,subreddit:state.post.subreddit,loader},{signal,timeout:45000});
@@ -288,7 +288,7 @@
         }
         state.coverage={topLevelRead:topCount(),stop,stopError,repliesLeft,topLevelOnly,replies:state.entries.size-topCount(),numComments:state.post.numComments};
       }catch(error){if(current())state.error=error.message;}
-      finally{if(current()){state.reading=false;this.updateSummary();this.say(state.error?'Couldn’t read the comments.':this.countText());if(state.result?.official && state.view==='results')this.showOfficial(state.result.official,{keepView:true});}}
+      finally{if(current()){state.reading=false;state.privateReady=!state.error;this.updateSummary();this.say(state.error?'Couldn’t read the comments.':this.countText());}}
     }
     coverageText(){
       const state=this.dialog,c=state.coverage;if(!c)return '';
@@ -301,7 +301,9 @@
       return text;
     }
     incomplete(){const c=this.dialog?.coverage;return Boolean(c && (c.stop!=='end' || c.repliesLeft));}
-    countText(){const pool=this.dialog?.pool;if(!pool)return '';const k=pool.candidates.length;return this.dialog.mode==='public'?'Up to '+n(k)+' '+(k===1?'person':'people')+' can enter':n(k)+' '+(k===1?'person':'people')+' can win';}
+    qualificationKey(){const {winners,...rules}=this.rules();return JSON.stringify(rules);}
+    availableCount(){const state=this.dialog;if(!state?.pool)return 0;return state.qualifiedRange?.key===this.qualificationKey()?state.qualifiedRange.count:state.pool.candidates.length;}
+    countText(){if(!this.dialog?.pool)return '';const k=this.availableCount();return this.dialog.mode==='public'?'Up to '+n(k)+' '+(k===1?'person':'people')+' can enter':n(k)+' '+(k===1?'person':'people')+' can win';}
     /* Rules Reddit Raffler can't follow (§4b). In public mode those rows are disabled with the reason beside them. */
     officialBlockers(){
       const rules=this.rules(),why=[];
@@ -328,6 +330,7 @@
       let line='',detail='',tone='ready';
       if(state.error && !state.reading){line='Couldn’t read the comments';detail=state.error.replace(/\.$/,'');tone='error';}
       else if(message || state.reading){line=message || 'Reading comments…';tone='loading';}
+      else if(!state.privateReady){state.pool=null;line=pub?'Public draw by Reddit Raffler':'Ready for a private draw';detail=pub?'Reddit Raffler reads comments and checks eligibility when you run the draw':'Click Draw privately to read comments and check eligibility';}
       else{
         // A public draw ignores the rows it can't follow (they stay as typed for a private draw).
         state.pool=R.candidates([...state.entries.values()],pub?{...rules,topLevelOnly:true,mustInclude:''}:rules,{postAuthor:state.post.author});
@@ -338,7 +341,7 @@
       }
       if(state.status.dataset.line!==line+'|'+detail){state.status.dataset.line=line+'|'+detail;state.status.replaceChildren(make('strong','',line),...(detail?[document.createTextNode(' · '+detail)]:[]));}
       state.statusCard.dataset.state=tone;
-      const eligible=state.pool?.candidates.length ?? 0;
+      const eligible=this.availableCount();
       winnersCaption.textContent=!valid?'Enter a number from 1 to '+R.MAX_WINNERS:!pub && !state.reading && state.pool && want>eligible?'Only '+n(eligible)+' '+(eligible===1?'person':'people')+' can win':'Between 1 and '+R.MAX_WINNERS;
       winnersCaption.dataset.error=String(!valid || !pub && !state.reading && Boolean(state.pool) && want>eligible);
       state.ackWrap.hidden=pub || !this.incomplete();
@@ -347,7 +350,8 @@
       sub.textContent=r.phase==='checking'?'Checking Reddit Raffler…':r.phase==='unavailable'?'Reddit Raffler isn’t responding. You can still draw privately.':r.phase==='exists'?'This post already has a public raffle. View its results here.':
         r.signedIn?'You’re signed in there as u/'+r.signedIn+(state.post.author && r.signedIn.toLowerCase()===state.post.author.toLowerCase()?', so it’s marked verified.':'; only the post’s author gets a verified mark.'):'As a guest (unverified).';
       sub.dataset.state=r.phase;
-      state.publicOption.radio.disabled=r.phase==='unavailable';
+      const busy=state.preparing || state.reading || state.drawing;
+      state.publicOption.radio.disabled=r.phase==='unavailable' || busy;state.privateOption.radio.disabled=busy;
       if(r.phase==='unavailable'){const retry=make('button','rt-raffle-retry','Try again');retry.type='button';retry.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();r.phase='checking';this.updateSummary();this.checkRaffler();});sub.append(' ',retry);}
       if(!r.signedIn && ['none','error','unavailable'].includes(r.phase)){
         const signIn=make('a','rt-raffle-retry','Sign in with Reddit');
@@ -359,15 +363,15 @@
           window.addEventListener('focus',state.onSignInReturn);
         });sub.append(' ',signIn);
       }
-      if(state.publicOption.radio.disabled && pub){this.setMode('private');return;}
+      if(r.phase==='unavailable' && pub){this.setMode('private');return;}
       // The one main action.
       const b=state.drawButton;
       if(pub){
         b.textContent=r.phase==='exists'?'View public results':r.phase==='creating'?'Drawing…':r.confirm?'Confirm public draw':'Run public draw';
         b.disabled=r.phase==='exists'?!r.raffle:!['none','error'].includes(r.phase) || Boolean(blockers.length) || !valid;
       }else{
-        b.textContent=state.drawing?'Drawing…':'Draw privately';
-        b.disabled=state.reading || Boolean(state.error) || state.drawing || !eligible || !valid || this.incomplete() && !state.ack.checked;
+        b.textContent=state.drawing?'Drawing…':state.reading?'Reading comments…':state.preparing?'Preparing draw…':'Draw privately';
+        b.disabled=busy || !valid || state.privateReady && (!eligible || want>eligible || this.incomplete() && !state.ack.checked);
       }
       b.classList.toggle('rt-raffle-confirm',pub && r.confirm);
       if(state.view==='rules'){
@@ -375,24 +379,35 @@
         else if(pub && r.phase==='error')this.setNote('Reddit Raffler: '+String(r.error).replace(/\.$/,'')+'.',{alert:true});
         else if(pub && r.confirm)this.setNote('This creates a permanent public page on redditraffler.com and can’t be redone.',{alert:true});
         else if(pub && blockers.length && r.phase==='none')this.setNote('Reddit Raffler '+blockers.join(', ')+'.');
-        else this.setNote('');
+        else if(pub)this.setNote('');
       }
       state.again.disabled=state.drawing || !eligible;
     }
     primaryAction(){const state=this.dialog;if(!state || state.drawButton.disabled)return;if(state.mode==='public')this.runOfficial();else this.drawWinners();}
     // B5: private draw.
     async drawWinners(){
-      const state=this.dialog;if(!state || state.reading || state.drawing || state.chat?.sending)return;this.updateSummary();
+      const state=this.dialog;if(!state || state.preparing || state.reading || state.drawing || state.chat?.sending)return;this.updateSummary();
       if(state.mode!=='private' && state.view==='rules')return;
-      const rules=this.rules(),pool=state.pool,signal=state.controller.signal;if(!pool?.candidates.length)return;
-      state.drawing=true;this.updateSummary();
+      const rules=this.rules(),signal=state.controller.signal;state.preparing=true;state.form.inert=true;this.setNote('');this.updateSummary();
       try{
+        if(!state.privateReady || state.scanTopLevel!==rules.topLevelOnly)await this.readEntries();
+        if(this.dialog!==state || signal.aborted)return;this.updateSummary();
+        if(state.error)return;
+        if(this.incomplete() && !state.ack.checked){this.setNote('Some comments could not be read. Confirm that you want to draw from the loaded comments.',{alert:true});return;}
+        const pool=state.pool,available=this.availableCount();
+        if(!pool?.candidates.length || rules.winners>available){this.setNote(available?'Only '+n(available)+' '+(available===1?'person is':'people are')+' available. Choose between 1 and '+n(available)+' winners.':'No eligible entrants match these rules.',{alert:true});return;}
+        state.drawing=true;this.updateSummary();
         const drawnAt=Math.floor(Date.now()/1000);
         const result=await R.draw(pool.candidates,rules,{lookup:name=>this.account(name),random:this.random,signal,onProgress:({checked})=>{if(this.dialog===state && state.view==='rules')this.setNote('Checking accounts… '+n(checked));}});
+        if(this.dialog!==state || signal.aborted)return;
+        if(result.shortBy){
+          if(!result.skipped.unchecked)state.qualifiedRange={key:this.qualificationKey(),count:result.winners.length};
+          this.setNote((result.winners.length?'Only '+n(result.winners.length)+' '+(result.winners.length===1?'eligible person was':'eligible people were')+' found. Choose between 1 and '+n(result.winners.length)+' winners.':'No eligible entrants match these rules.')+(result.skipped.unchecked?' Some accounts could not be checked; try again.':''),{alert:true});return;
+        }
         if(this.dialog!==state)return;state.drawing=false;state.draws++;state.saved=false;state.result={...result,rules,drawnAt,draw:state.draws};state.chat=null;
         this.renderResults(result,rules,drawnAt);this.showView('results');this.fillAvatars(result.winners);this.say(n(result.winners.length)+' '+(result.winners.length===1?'winner':'winners')+' drawn.');
       }catch(error){if(this.dialog===state){state.drawing=false;this.setNote('The draw stopped: '+error.message.replace(/\.$/,'')+'.',{alert:true});}}
-      finally{if(this.dialog===state){state.drawing=false;this.updateSummary();state.message.disabled=!state.result?.winners.length;}}
+      finally{if(this.dialog===state){state.preparing=false;state.drawing=false;state.form.inert=false;this.updateSummary();state.message.disabled=!state.result?.winners.length;}}
     }
     // Drawing again replaces the winners: it asks once, and the results say which draw this is.
     drawAgain(){
@@ -401,7 +416,7 @@
       state.againConfirm=false;state.again.textContent='Draw again';this.drawWinners();
     }
     // Account facts (age, karma, picture, chat ID), read once per dialog.
-    account(name){const state=this.dialog,key=name.toLowerCase();if(!state.accounts.has(key))state.accounts.set(key,this.read({action:'raffle-user',username:name},{signal:state.controller.signal,timeout:20000}));return state.accounts.get(key);}
+    account(name){const state=this.dialog,key=name.toLowerCase();if(!state.accounts.has(key)){const pending=this.read({action:'raffle-user',username:name},{signal:state.controller.signal,timeout:20000}).catch(error=>{if(state.accounts.get(key)===pending)state.accounts.delete(key);throw error;});state.accounts.set(key,pending);}return state.accounts.get(key);}
     // Results header shared by both kinds: title and actions on one row, badge and details below at full width.
     resultsHeader({count,badge,verified,meta,proof}){
       const state=this.dialog,header=make('div','rt-raffle-banner'),top=make('div','rt-raffle-banner-row');
@@ -508,7 +523,7 @@
     // Public results in our winner rows, with comment text from the comments we read when we have them.
     showOfficial(raffle,{keepView=false}={}){
       const state=this.dialog;if(!state)return;
-      const winners=raffle.winners.map(w=>{const entry=w.commentId?state.entries.get(w.commentId):null;
+      const winners=raffle.winners.map(w=>{const entry=w.commentId?(state.winnerEntries?.get(w.commentId) || state.entries.get(w.commentId)):null;
         return {id:w.commentId,author:w.username,official:true,permalink:(w.commentUrl || '').replace(/^https:\/\/reddit\.com\//,'https://www.reddit.com/'),created:entry?.created || 0,body:entry?.body || '',avatar:entry?.avatar || '',accountAgeDays:w.accountAgeDays,commentKarma:w.commentKarma,linkKarma:w.linkKarma};});
       const previous=state.result?.official===raffle?state.result:null;
       state.result={winners,official:raffle,shortBy:0,skipped:{},poolSize:0};state.saved=true;if(!previous)state.chat=null;
@@ -525,6 +540,17 @@
       state.message.disabled=!winners.length;
       if(!keepView)this.showView('results');else state.again.hidden=true;
       this.fillAvatars(winners);
+      this.loadWinnerComments(raffle);
+    }
+    async loadWinnerComments(raffle){
+      const state=this.dialog;if(!state || state.winnerRead===raffle)return;state.winnerRead=raffle;
+      const ids=raffle.winners.filter(w=>w.commentId && !state.winnerEntries?.has(w.commentId) && !state.entries.has(w.commentId)).map(w=>w.commentId);if(!ids.length)return;
+      try{
+        const response=await this.read({action:'raffle-winner-comments',postId:state.post.id,ids},{signal:state.controller.signal,timeout:15000});
+        if(this.dialog!==state || state.result?.official!==raffle)return;
+        state.winnerEntries ||= new Map();let changed=false;for(const raw of response.entries || []){const entry=R.entry(raw,{postId:state.post.id});if(entry && raffle.winners.some(w=>w.commentId===entry.id && w.username.toLowerCase()===entry.author.toLowerCase())){state.winnerEntries.set(entry.id,entry);changed=true;}}
+        if(changed)this.showOfficial(raffle,{keepView:true});
+      }catch{ /* Proof links stay usable if a winner's comment is unavailable. Never scan the thread as a fallback. */ }
     }
 
     /* B7: message the winners through Reddit chat, as you. Separate chats (one private chat each, reusing an existing
