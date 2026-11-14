@@ -1739,3 +1739,11 @@ for(const suffix of ['', 'submitted/', 'comments/'])for(const filled of [false,t
   assert.equal(W.RTFeedFilters.svgIcon('sort').getAttribute('fill'),'none','Sort is a stroked outline');
   for(const name of W.RTFeedFilters.iconNames)assert.ok(W.RTFeedFilters.svgIcon(name),'export renders '+name);
 });
+
+test('profile refresh stays hidden before Feed options mounts and while its native menu is replaced',async t=>{
+ const {d,W}=setup(t,{url:'https://www.reddit.com/user/Example/comments/'});await d.ready;
+ assert.equal(d.host.dataset.rtContext,'profile');assert.equal(d.discover.hidden,true);
+ d.clearActivityMenu();assert.equal(d.host.hasAttribute('data-rt-menu-ready'),false);assert.equal(d.discover.hidden,true);
+ const old=W.document.querySelector('shreddit-sort-dropdown');old?.remove();await d.ensureActivityMenu();assert.equal(d.discover.hidden,true);
+ let refreshes=0;d.refreshActivity=async()=>{refreshes++;};d.discover.click();assert.equal(refreshes,1,'hidden backing action still powers menu refresh');
+});
