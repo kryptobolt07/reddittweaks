@@ -95,3 +95,7 @@ Follow-up (0.34.2): native discovery supports posts on the authenticated authorâ
 ## 0.35.1 review follow-up
 
 Matched Posts and Comments appear in separate labelled sections, each with selected counts and its own scroll continuation. Global select/deselect still spans both, and execution keeps the original oldest-first order. Every row reuses the shared 24px community icon with its cached image or themed fallback; icons load as their rows approach view. Old observers disconnect on reset and close. A single nonempty section retains the larger list area; mixed sections are capped so both remain reachable. Confirmation message edits are supported directly, preserve navigation state and require the typed phrase again.
+
+## 0.35.2 confirmation action switch
+
+The confirmation screen can switch between Overwrite text, Delete, and Overwrite, then delete. Overwrite-only removes selected items without editable text from the run; other modes keep the reviewed selection. The typed phrase, primary label, summary and replacement editor follow the chosen action, and message edits persist across switches.

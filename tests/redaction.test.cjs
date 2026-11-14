@@ -356,3 +356,12 @@ test('empty or oversized confirmation messages cannot run even with the typed ph
  for(const value of ['', 'x'.repeat(1001)]){editor.value=value;editor.dispatchEvent(new s.W.Event('input',{bubbles:true}));s.type('confirm','delete 1');assert.equal(s.primary().disabled,true);assert.equal(editor.getAttribute('aria-invalid'),'true');await s.r.runRedaction();}
  assert.equal(s.calls.some(c=>c.action==='redact-item'),false);editor.value='Valid edited message';editor.dispatchEvent(new s.W.Event('input',{bubbles:true}));s.type('confirm','delete 1');assert.equal(s.primary().disabled,false);
 });
+test('the confirmation screen can switch overwrite, delete and both without losing the reviewed selection',async t=>{
+ const s=await dialog(t,{items:fresh});s.primary().click();await flush();s.primary().click();const state=s.r.state,change=value=>{const select=s.q('[name=confirmationOperation]');select.value=value;select.dispatchEvent(new s.W.Event('change',{bubbles:true}));};
+ assert.equal(s.q('[name=confirmationOperation]').value,'overwrite-delete');assert.ok(state.replacementEditor);
+ change('overwrite');assert.deepEqual(plain(state.selection.matches.map(i=>i.fullname)),['t1_a','t1_b']);assert.equal(state.selection.posts,0);assert.equal(state.selection.comments,2);assert.equal(s.primary().textContent,'Overwrite 2 items');assert.equal(state.confirmLabel.textContent,'Type “overwrite 2” to confirm');assert.ok(state.replacementEditor);assert.equal(state.form.elements.operation.value,'overwrite');
+ s.type('confirm','overwrite 2');assert.equal(s.primary().disabled,false);
+ change('delete');assert.equal(state.selection.matches.length,3);assert.equal(state.replacementEditor,null);assert.equal(s.primary().textContent,'Delete 3 items');assert.equal(state.form.elements.operation.value,'delete');assert.equal(state.confirm.value,'');assert.match(state.confirmation.textContent,/without overwriting/);assert.equal(s.primary().disabled,true);
+ change('overwrite-delete');assert.equal(state.selection.matches.length,3);assert.ok(state.replacementEditor);assert.equal(s.primary().textContent,'Overwrite and delete 3 items');
+ change('delete');s.type('confirm','delete 3');s.primary().click();await flush();assert.deepEqual(plain(s.calls.filter(c=>c.action==='redact-item').map(c=>c.fullname+':'+c.step)),['t1_a:delete','t1_b:delete','t3_p:delete']);
+});

@@ -335,22 +335,46 @@
       state.confirm.value='';state.primary.textContent='Review '+n(sel.matches.length)+' selected '+(sel.matches.length===1?'item':'items');state.primary.classList.remove('rt-redact-danger');this.syncPrimary();
     }
     showConfirmation(){
-      const state=this.state,count=state.selection.matches.length;if(!count)return;
-      const operation=state.selection.rules.operation;
-      state.phase='confirming';state.confirmWrap.hidden=false;state.confirmLabel.textContent='Type “'+X.confirmation(count,operation)+'” to confirm';state.confirm.placeholder=X.confirmation(count,operation);state.confirm.value='';
+      const state=this.state;if(!state || !state.selection.matches.length)return;
+      state.phase='confirming';state.confirmWrap.hidden=false;state.confirm.value='';
+      this.renderConfirmation();this.showStep('confirm');this.syncPrimary();state.confirm.focus({preventScroll:true});
+    }
+    // The action and message stay editable on the confirmation screen; the reviewed selection is kept.
+    changeConfirmationOperation(value){
+      const state=this.state,sel=state?.selection;if(!state || !sel || state.phase!=='confirming')return;
+      sel.rules.operation=value;state.form.elements.operation.value=value;
+      const control=state.controls.operation;if(control)control.caption.textContent=operations[value] || value;
+      this.syncOperation();
+      sel.matches=state.candidates.filter(item=>state.selected.has(item.fullname) && (value!=='overwrite' || X.overwritable(item)));
+      sel.posts=sel.matches.filter(item=>item.kind==='post').length;sel.comments=sel.matches.length-sel.posts;
+      state.confirm.value='';this.renderConfirmation();this.syncPrimary();
+      state.status.textContent=sel.matches.length?'':'No selected items can be '+(value==='delete'?'deleted':'overwritten')+' with this action.';
+      state.confirmation.querySelector('[name="confirmationOperation"]')?.focus({preventScroll:true});
+    }
+    renderConfirmation(){
+      const state=this.state,sel=state.selection,count=sel.matches.length,operation=sel.rules.operation;
+      state.confirmLabel.textContent='Type “'+X.confirmation(count,operation)+'” to confirm';state.confirm.placeholder=X.confirmation(count,operation);
       const action=operation==='overwrite'?'Their text will be replaced; the items will remain on Reddit.':operation==='delete'?'These items will be permanently deleted without overwriting.':'These items will be overwritten where possible, then permanently deleted.';
-      const summary=make('p','text-14 m-0','u/'+state.username+' · '+n(state.selection.posts)+' '+(state.selection.posts===1?'post':'posts')+' and '+n(state.selection.comments)+' '+(state.selection.comments===1?'comment':'comments')+' selected. '+action+(state.limited || state.failures?.length || state.unread?' Discovery was incomplete; this run includes only the selected items found.':''));
-      const replacement=make('label','rt-raffle-field'),editor=make('textarea','rt-redact-area rt-redact-replacement-editor'),hint=make('span','rt-raffle-hint','Edit this message here. Changing it clears the typed confirmation.');
-      state.replacementEditor=operation==='delete'?null:editor;editor.rows=3;editor.maxLength=1000;editor.value=state.selection.rules.text;editor.name='confirmationMessage';
-      editor.setAttribute('aria-label','Replacement message');hint.id='rt-redact-message-hint';editor.setAttribute('aria-describedby',hint.id);
-      editor.setAttribute('aria-invalid',String(!editor.value.trim() || editor.value.length>1000));
-      editor.addEventListener('input',()=>{
-        if(this.state!==state || state.phase!=='confirming')return;
-        state.selection.rules.text=editor.value;state.form.elements.text.value=editor.value;state.confirm.value='';
-        const invalid=!editor.value.trim() || editor.value.length>1000;editor.setAttribute('aria-invalid',String(invalid));hint.textContent=invalid?'Enter a replacement message of 1–1,000 characters.':'Edit this message here. Changing it clears the typed confirmation.';this.syncPrimary();
-      });replacement.append(make('span','rt-raffle-label','Replacement message'),editor,hint);
-      state.confirmation.replaceChildren(summary,...(operation==='delete'?[]:[replacement]),state.confirmWrap);
-      state.primary.textContent=(operation==='overwrite'?'Overwrite':operation==='delete'?'Delete':'Overwrite and delete')+' '+n(count)+' '+(count===1?'item':'items');state.primary.classList.add('rt-redact-danger');this.showStep('confirm');this.syncPrimary();state.confirm.focus({preventScroll:true});
+      const summary=make('p','text-14 m-0','u/'+state.username+' · '+n(sel.posts)+' '+(sel.posts===1?'post':'posts')+' and '+n(sel.comments)+' '+(sel.comments===1?'comment':'comments')+' selected. '+action+(state.limited || state.failures?.length || state.unread?' Discovery was incomplete; this run includes only the selected items found.':''));
+      const operationField=make('label','rt-raffle-field'),select=make('select','rt-redact-operation');
+      select.name='confirmationOperation';select.setAttribute('aria-label','Action for the selected items');
+      for(const [value,label] of [['overwrite',operations.overwrite],['delete',operations.delete],['overwrite-delete',operations['overwrite-delete']]]){const option=make('option','',label);option.value=value;select.append(option);}
+      select.value=operation;select.addEventListener('change',()=>this.changeConfirmationOperation(select.value));
+      operationField.append(make('span','rt-raffle-label','Action'),select);
+      const children=[summary,operationField];
+      if(operation!=='delete'){
+        const replacement=make('label','rt-raffle-field'),editor=make('textarea','rt-redact-area rt-redact-replacement-editor'),hint=make('span','rt-raffle-hint','Edit this message here. Changing it clears the typed confirmation.');
+        state.replacementEditor=editor;editor.rows=3;editor.maxLength=1000;editor.value=sel.rules.text;editor.name='confirmationMessage';
+        editor.setAttribute('aria-label','Replacement message');hint.id='rt-redact-message-hint';editor.setAttribute('aria-describedby',hint.id);
+        editor.setAttribute('aria-invalid',String(!editor.value.trim() || editor.value.length>1000));
+        editor.addEventListener('input',()=>{
+          if(this.state!==state || state.phase!=='confirming')return;
+          sel.rules.text=editor.value;state.form.elements.text.value=editor.value;state.confirm.value='';
+          const invalid=!editor.value.trim() || editor.value.length>1000;editor.setAttribute('aria-invalid',String(invalid));hint.textContent=invalid?'Enter a replacement message of 1–1,000 characters.':'Edit this message here. Changing it clears the typed confirmation.';this.syncPrimary();
+        });replacement.append(make('span','rt-raffle-label','Replacement message'),editor,hint);children.push(replacement);
+      }else state.replacementEditor=null;
+      children.push(state.confirmWrap);state.confirmation.replaceChildren(...children);
+      state.primary.textContent=(operation==='overwrite'?'Overwrite':operation==='delete'?'Delete':'Overwrite and delete')+' '+n(count)+' '+(count===1?'item':'items');state.primary.classList.add('rt-redact-danger');
     }
     download(){
       const state=this.state;if(!state?.selection)return;
