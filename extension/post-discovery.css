@@ -377,3 +377,24 @@ shreddit-feed[data-rt-unapproved-hidden]{display:none!important}
 .rt-unapproved-button svg{width:16px;height:16px;flex:none;fill:currentColor}
 .rt-unapproved{overflow-anchor:none}
 .rt-unapproved-summary[data-error="true"]{color:var(--color-danger-content,#d93900)}
+/* Raffle dialog (docs/raffle-spec.md): Reddit's rpl-modal-card on its measured scrim. */
+dialog.rt-raffle-dialog{padding:0;border:0;background:transparent;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);overflow:visible;color:var(--color-neutral-content-strong,#0f1a1c)}
+dialog.rt-raffle-dialog::backdrop{background-color:var(--color-scrim-background,#00000099)}
+.rt-raffle-card{width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px);border-radius:var(--rem16,16px);box-shadow:var(--boxshadow-modal,0 2px 15px rgba(26,26,27,.3));background:var(--color-ui-modalbackground,#fff)}
+.rt-raffle-body{display:flex;flex-direction:column;gap:12px;padding:4px 16px 0;width:100%;box-sizing:border-box}
+.rt-raffle-post{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-raffle-form{display:flex;flex-direction:column;gap:12px;margin:0}
+.rt-raffle-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (max-width:480px){.rt-raffle-grid{grid-template-columns:1fr}}
+.rt-raffle-field{display:flex;flex-direction:column;gap:4px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#5c6c74)}
+.rt-raffle-label{font-weight:600;color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-raffle-field input{box-sizing:border-box;height:40px;padding:0 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:20px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#0f1a1c);font:inherit;font-size:14px}
+.rt-raffle-field input:focus-visible{outline:2px solid var(--color-neutral-border-strong,#0f1a1c);outline-offset:1px}
+.rt-raffle-check{display:flex;align-items:center;gap:8px;font-size:14px;line-height:20px;cursor:pointer}
+.rt-raffle-check input{width:16px;height:16px;margin:0;accent-color:var(--color-primary-background,#0a449b)}
+.rt-raffle-status[data-error="true"]{color:var(--color-danger-content,#d93900)}
+.rt-raffle-results{display:flex;flex-direction:column;gap:8px;padding-bottom:4px}
+.rt-raffle-winners{margin:0;padding-inline-start:20px;font-size:14px;line-height:20px}
+.rt-raffle-winner a{color:inherit}.rt-raffle-comment-link{text-decoration:underline}
+.rt-raffle-excerpt{overflow-wrap:anywhere}
+.rt-raffle-results button{align-self:flex-start}

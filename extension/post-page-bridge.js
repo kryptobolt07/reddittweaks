@@ -122,12 +122,12 @@
   // Take over as soon as discovery marks a feed, before Reddit's next native
   // pass can virtualize around inserted cards.
   if(typeof MutationObserver==='function')new MutationObserver(scheduleFeedSync).observe(document.documentElement,{subtree:true,attributes:true,attributeFilter:['data-rt-loading-owner','data-rt-profile-discovery']});
-  async function boundedText(response){
-    if(Number(response.headers.get('content-length'))>2500000)throw Error('Reddit response is too large.');
+  async function boundedText(response,max=2500000){
+    if(Number(response.headers.get('content-length'))>max)throw Error('Reddit response is too large.');
     let text='';
-    if(response.body?.getReader){const reader=response.body.getReader(),decoder=new TextDecoder();let bytes=0;try{while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;if(bytes>2500000){await reader.cancel();throw Error('Reddit response is too large.');}text+=decoder.decode(part.value,{stream:true});}text+=decoder.decode();}finally{reader.releaseLock();}}
+    if(response.body?.getReader){const reader=response.body.getReader(),decoder=new TextDecoder();let bytes=0;try{while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;if(bytes>max){await reader.cancel();throw Error('Reddit response is too large.');}text+=decoder.decode(part.value,{stream:true});}text+=decoder.decode();}finally{reader.releaseLock();}}
     else text=await response.text();
-    if(text.length>2500000)throw Error('Reddit response is too large.');
+    if(text.length>max)throw Error('Reddit response is too large.');
     return text;
   }
   // Search mode (the profile search view) adds the user's words to the author query and may sort by relevance or comment count.
@@ -673,9 +673,67 @@
     if(posts.some(post=>!post))throw Error('Some queued posts could not be read.');
     return {posts:posts.filter(post=>post.subreddit.toLowerCase()===name.toLowerCase()),after:listing.after || null,hasMore:Boolean(listing.after)};
   }
+  // Raffles (docs/raffle-spec.md): comments of one post and account facts, read with the reader's session.
+  const raffleId=/^[a-z0-9]{1,10}$/i,raffleComment=/^[a-z0-9]{1,32}$/i;
+  const raffleEntry=(raw,postId)=>{
+    if(!raw || typeof raw!=='object' || !raffleComment.test(raw.id || ''))return null;
+    return {id:raw.id.toLowerCase(),author:typeof raw.author==='string'?raw.author.slice(0,20):'',created_utc:Number(raw.created_utc) || 0,parent_id:typeof raw.parent_id==='string'?raw.parent_id.slice(0,40):'',
+      body:typeof raw.body==='string'?raw.body.slice(0,2000):'',permalink:typeof raw.permalink==='string' && raw.permalink.startsWith('/')?raw.permalink.slice(0,300):'/comments/'+postId+'/comment/'+raw.id+'/',removed_by_category:raw.removed_by_category ?? null};
+  };
+  async function raffleThread(input,signal){
+    if(!raffleId.test(input.postId || ''))throw Error('Invalid post.');
+    const postId=input.postId.toLowerCase(),url=new URL('/comments/'+postId+'.json',location.origin);
+    for(const [k,v] of Object.entries({limit:'500',sort:'old',raw_json:'1',...(input.topLevelOnly===false?{}:{depth:'1'})}))url.searchParams.set(k,v);
+    const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
+    if(!response.ok)throw Error('Reddit could not load the comments (HTTP '+response.status+').');
+    let data;try{data=JSON.parse(await boundedText(response,12000000));}catch(error){throw Error(/too large/.test(error.message)?error.message:'Reddit returned unexpected comments.');}
+    const post=data?.[0]?.data?.children?.[0]?.data,listing=data?.[1]?.data;
+    if(!post || String(post.id).toLowerCase()!==postId || !Array.isArray(listing?.children))throw Error('Reddit returned unexpected comments.');
+    const entries=[],missingTopLevel=[];let missingReplies=0;
+    const walk=children=>{for(const child of children || []){
+      if(child?.kind==='t1'){const entry=raffleEntry(child.data,postId);if(entry)entries.push(entry);walk(child.data?.replies?.data?.children);}
+      else if(child?.kind==='more'){const ids=(Array.isArray(child.data?.children)?child.data.children:[]).filter(id=>raffleComment.test(id));
+        if(String(child.data?.parent_id).toLowerCase()==='t3_'+postId)missingTopLevel.push(...ids.map(id=>id.toLowerCase()));else missingReplies+=Math.max(ids.length,Number(child.data?.count) || 0);}
+    }};walk(listing.children);
+    return {post:{id:postId,author:typeof post.author==='string'?post.author:'',title:typeof post.title==='string'?post.title.slice(0,300):'',subreddit:typeof post.subreddit==='string'?post.subreddit:'',numComments:Number(post.num_comments) || 0,permalink:typeof post.permalink==='string'?post.permalink:''},
+      entries,missingTopLevel:[...new Set(missingTopLevel)].slice(0,20000),missingReplies};
+  }
+  // The rest of the top level, one page per call, by following Reddit's own "more comments" chain. The first call
+  // starts from this post page's loader (and the top-level comments already on the page); later calls pass back the
+  // loader each answer returned, which is checked against the same fixed path.
+  async function raffleMore(input,signal){
+    if(!raffleId.test(input.postId || ''))throw Error('Invalid post.');
+    const postId=input.postId.toLowerCase(),page=location.pathname.match(/^\/(?:r\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i);
+    if(!page || page[1].toLowerCase()!==postId)return {entries:[],available:false,next:null};
+    const path=new RegExp('^/svc/shreddit/more-comments/r/[A-Za-z0-9_]{2,21}/t3_'+postId+'\\?[^#\\s]{0,400}$');
+    const valid=l=>l && typeof l.src==='string' && typeof l.cursor==='string' && l.cursor.length>0 && l.cursor.length<=4000 && path.test(l.src) && /(?:^|[?&])top-level=1(?:&|$)/.test(l.src.split('?')[1] || '');
+    const loaderOf=root=>[...root.querySelectorAll('faceplate-partial[src*="top-level=1"]')].map(p=>({src:p.getAttribute('src') || '',cursor:p.querySelector('input[name="cursor"]')?.value || ''})).filter(valid).pop() || null;
+    const take=root=>[...root.querySelectorAll('shreddit-comment[depth="0"]')].map(node=>{const id=String(node.getAttribute('thingid') || '').toLowerCase().replace(/^t1_/,'');if(!raffleComment.test(id))return null;
+      const body=node.querySelector('[slot="comment"]')?.textContent?.replace(/\s+/g,' ').trim() || '',link=String(node.getAttribute('permalink') || '');
+      return {id,author:String(node.getAttribute('author') || '').slice(0,20),created_utc:Math.floor(Date.parse(node.getAttribute('created') || '')/1000) || 0,parent_id:'t3_'+postId,body:body.slice(0,2000),permalink:link.startsWith('/')?link.slice(0,300):'/comments/'+postId+'/comment/'+id+'/',removed_by_category:/^(?:\[deleted\]|\[removed\])$/.test(body)?'unknown':null};}).filter(Boolean);
+    let loader;
+    if(input.loader==null){loader=loaderOf(document);if(!loader)return {entries:take(document),available:true,next:null};}
+    else if(valid(input.loader))loader={src:input.loader.src,cursor:input.loader.cursor};else throw Error('Invalid comment loader.');
+    const response=await fetch(new URL(loader.src,location.origin).href,{method:'POST',credentials:'include',cache:'no-store',redirect:'error',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({cursor:loader.cursor}),signal});
+    if(!response.ok)throw Error('Reddit could not load more comments (HTTP '+response.status+').');
+    const doc=new DOMParser().parseFromString(await boundedText(response,8000000),'text/html');
+    return {entries:[...(input.loader==null?take(document):[]),...take(doc)],available:true,next:loaderOf(doc)};
+  }
+  async function raffleUser(input,signal){
+    if(!M.validateUsername(input.username))throw Error('Invalid username.');
+    const response=await fetch(new URL('/user/'+encodeURIComponent(input.username)+'/about.json?raw_json=1',location.origin).href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
+    if(response.status===404 || response.status===403)return {unavailable:true};
+    if(!response.ok)throw Error('Reddit could not load u/'+input.username+' (HTTP '+response.status+').');
+    let data;try{data=JSON.parse(await boundedText(response))?.data;}catch{throw Error('Reddit returned an unexpected profile.');}
+    if(!data || data.is_suspended===true)return {suspended:true};
+    return {created:Number(data.created_utc) || 0,commentKarma:Number(data.comment_karma) || 0,postKarma:Number(data.link_karma) || 0};
+  }
   async function read(input,signal){
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
     if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
+    if(input.action==='raffle-thread')return raffleThread(input,signal);
+    if(input.action==='raffle-more')return raffleMore(input,signal);
+    if(input.action==='raffle-user')return raffleUser(input,signal);
     if(input.action==='user-avatar')return userAvatar(input,signal);
     if(input.action==='render-card')return renderCard(input,signal);
     if(input.action==='status')return readStatuses(input,signal);
@@ -761,7 +819,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-more','raffle-user','unapproved','mod-status'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}

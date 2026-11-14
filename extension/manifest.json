@@ -112,6 +112,8 @@
         "profile-search.js",
         "subreddit-archive.js",
         "unapproved-filter.js",
+        "raffle-model.js",
+        "raffle-ui.js",
         "thread-restore.js"
       ]
     }

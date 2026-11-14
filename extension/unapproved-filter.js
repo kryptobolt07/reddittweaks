@@ -25,7 +25,8 @@
 
   class UnapprovedFilter {
     constructor({reddit=defaultReddit,readSettings=defaultSettings,observe=true}={}){
-      this.reddit=reddit;this.readSettings=readSettings;this.status=new Map();this.enabled=false;this.dead=false;this.view=null;this.button=null;this.generation=0;
+      // The page bridge answers "deferred" while it is busy; wait and ask again (bounded).
+      this.reddit=async args=>{for(let attempt=0;;attempt++){const result=await reddit(args);if(!result?.deferred || attempt>=20)return result;await new Promise(resolve=>setTimeout(resolve,Math.min(2000,Number(result.retryAfterMs) || 250)));}};this.readSettings=readSettings;this.status=new Map();this.enabled=false;this.dead=false;this.view=null;this.button=null;this.generation=0;
       this.onRoute=()=>this.sync();
       if(observe){
         this.observer=new MutationObserver(()=>{if(!this.queued){this.queued=true;queueMicrotask(()=>{this.queued=false;this.sync();});}});
@@ -52,8 +53,8 @@
       const key=name.toLowerCase(),saved=this.status.get(key);
       if(saved && (saved.pending || Date.now()-saved.at<STATUS_TTL))return saved.pending?null:saved.moderator;
       const entry={pending:true,at:Date.now(),moderator:false};this.status.set(key,entry);
-      this.reddit({action:'mod-status',subreddit:name}).then(result=>{entry.moderator=result?.moderator===true;},()=>{entry.moderator=false;})
-        .finally(()=>{entry.pending=false;entry.at=Date.now();if(!this.dead)this.sync();});
+      this.reddit({action:'mod-status',subreddit:name}).then(result=>{entry.moderator=result?.moderator===true;},()=>{entry.moderator=false;entry.failed=true;})
+        .finally(()=>{entry.pending=false;entry.at=Date.now()-(entry.failed?STATUS_TTL-30000:0);if(!this.dead)this.sync();});
       return null;
     }
     sortControl(){
