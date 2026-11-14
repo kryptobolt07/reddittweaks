@@ -100,7 +100,7 @@ test('the rules screen offers a public or a private draw, focuses the heading an
  assert.match(s.q('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-option-caption').textContent,/anyone can check · one per post · can’t be redone/);
  assert.equal(s.q('input[name="rt-raffle-draw"][value="public"]').checked,true);assert.equal(s.primary().textContent,'Run public draw');
  assert.equal(s.secondary(),null,'no Cancel: the close button does that');assert.match(s.status(),/^Up to 2 people can enter · Reddit Raffler reads the comments itself and disqualifies anyone with more than one$/);
- assert.equal(s.publicSub(),'As a guest (unverified). Sign in at redditraffler.com to have it verified.');
+ assert.equal(s.publicSub(),'As a guest (unverified). Sign in with Reddit');
  s.mode('private');assert.equal(s.primary().textContent,'Draw privately');assert.equal(s.status(),'2 people can win');
  assert.equal(s.q('.rt-raffle-option[data-rt-mode="private"]').dataset.selected,'true');
 });
@@ -275,7 +275,7 @@ test('bridge raffle-tree reports Reddit’s rate limit instead of failing',async
  const b=bridge(t,{body:()=>({status:429,headers:{'retry-after':'12'}})});const r=await b.send({action:'raffle-tree',postId:'post1',subreddit:'Alpha',loader:null});assert.equal(r.rateLimited,true);assert.equal(r.retryAfterMs,12000);
 });
 test('bridge account facts: suspended, missing, invalid names and profile picture',async t=>{
- const b=bridge(t,{body:u=>u.pathname.includes('Gone')?{status:404}:u.pathname.includes('Banned')?{data:{is_suspended:true}}:{data:{created_utc:1600000000,comment_karma:10,link_karma:5,icon_img:'https://styles.redditmedia.com/t5_x/icon.png?width=256&amp;s=abc',snoovatar_img:''}}});
+ const b=bridge(t,{body:u=>u.pathname.includes('Gone')?{status:404}:u.pathname.includes('Banned')?{data:{is_suspended:true}}:{data:{created_utc:1600000000,comment_karma:10,link_karma:5,icon_img:'https://styles.redditmedia.com/t5_x/icon.png?width=256&amp;s=abc',snoovatar_img:'https://i.redd.it/snoovatar/avatars/abc-123.png'}}});
  const ok=await b.send({action:'raffle-user',username:'Alice'});assert.deepEqual([ok.created,ok.commentKarma,ok.postKarma],[1600000000,10,5]);assert.equal(ok.avatar,'https://styles.redditmedia.com/t5_x/icon.png?width=256&s=abc');
  assert.equal((await b.send({action:'raffle-user',username:'Gone'})).unavailable,true);assert.equal((await b.send({action:'raffle-user',username:'Banned'})).suspended,true);
  assert.equal((await b.send({action:'raffle-user',username:'a/b'})).ok,false);assert.equal(b.calls.length,3);
@@ -356,7 +356,7 @@ test('public mode disables rules Reddit Raffler can’t follow, with the reason 
 test('Reddit Raffler down or refusing: private draw becomes the choice, with a plain explanation',async t=>{
  const down=await ui(t,{raffler:()=>{throw Error('Reddit Raffler is unreachable.');}});await down.open();
  assert.equal(down.q('input[name="rt-raffle-draw"][value="private"]').checked,true);assert.equal(down.q('input[name="rt-raffle-draw"][value="public"]').disabled,true);
- assert.equal(down.publicSub(),'Reddit Raffler isn’t responding. You can still draw privately. Try again');assert.ok(down.q('.rt-raffle-retry'));assert.equal(down.primary().textContent,'Draw privately');assert.equal(down.primary().disabled,false);
+ assert.equal(down.publicSub(),'Reddit Raffler isn’t responding. You can still draw privately. Try again Sign in with Reddit');assert.ok(down.q('.rt-raffle-retry'));assert.equal(down.primary().textContent,'Draw privately');assert.equal(down.primary().disabled,false);
  const refused=await ui(t,{raffler:m=>{if(m.action==='create')throw Error('Reddit Raffler didn’t accept this raffle.');return noRaffle(m);}});await refused.open();
  refused.primary().click();refused.primary().click();await flush();assert.equal(refused.note(),'Reddit Raffler: Reddit Raffler didn’t accept this raffle.');assert.equal(refused.primary().disabled,false,'can try again');
 });
@@ -368,7 +368,7 @@ function rafflerWorker({responses,settings={raffles:true}}){
  let listener;const calls=[];
  const context=vm.createContext({URL,URLSearchParams,AbortController,setTimeout,clearTimeout,JSON,String,Number,Array,Set,Object,Error,Math,
   chrome:{runtime:{id:'own',onMessage:{addListener(fn){listener=fn;}}},storage:{local:{async get(){return {'rt-settings-v1':settings};}}}},
-  fetch:async(url,init)=>{calls.push({url,init});const r=responses(url,init);return {status:r.status ?? 200,ok:(r.status ?? 200)<300,type:r.type || 'basic',headers:{get:()=>null},async text(){return r.text ?? '';}};}});
+  fetch:async(url,init)=>{calls.push({url,init});const r=await responses(url,init);return {status:r.status ?? 200,ok:(r.status ?? 200)<300,type:r.type || 'basic',headers:{get:()=>null},async text(){return r.text ?? '';}};}});
  vm.runInContext(read('post-model.js'),context);vm.runInContext(read('raffler-broker.js'),context);
  const send=(message,sender={})=>new Promise(resolve=>{const result=listener({scope:'rt-raffler',...message},{id:'own',frameId:0,url:'https://www.reddit.com/r/Alpha/',...sender},resolve);if(result!==true)resolve(undefined);});
  return {calls,send,broker:context.RTRafflerBroker};
@@ -406,4 +406,41 @@ test('the Referer rule touches only the create request to Reddit Raffler',()=>{
  assert.equal(rule.action.requestHeaders[0].value,'https://www.redditraffler.com/raffles/new');assert.deepEqual(rule.condition.requestMethods,['post']);
  assert.ok(re.test('https://www.redditraffler.com/api/raffles/new'));for(const url of ['https://www.redditraffler.com/api/raffles/new?x=1','https://www.redditraffler.com/raffles/new','https://evil.test/api/raffles/new'])assert.ok(!re.test(url),url);
  const manifest=JSON.parse(read('manifest.json'));assert.ok(manifest.host_permissions.includes('https://www.redditraffler.com/*'));assert.ok(manifest.declarative_net_request.rule_resources.some(r=>r.path==='raffler-referer-rules.json'));
+});
+
+test('Raffler coalesces concurrent reads, retries a transient failure once, and does not cache failures',async()=>{
+ let attempts=0;const w=rafflerWorker({responses:async()=>{attempts++;if(attempts===1)throw Error('network');return {status:attempts===2?503:404};}});
+ const results=await Promise.all([w.send({action:'status',postId:'post1'}),w.send({action:'status',postId:'post1'})]);
+ assert.equal(w.calls.length,2);assert.ok(results.every(r=>r.ok===false));
+ assert.equal((await w.send({action:'status',postId:'post1'})).exists,false);assert.equal(w.calls.length,3);
+ const temporary=rafflerWorker({responses:()=>({status:temporary.calls.length===1?502:404})});
+ assert.equal((await temporary.send({action:'status',postId:'post1'})).exists,false);assert.equal(temporary.calls.length,2);
+});
+test('Raffler does not retry creation, ordinary 404s or rate limits',async()=>{
+ const w=rafflerWorker({responses:(url,init)=>{if(init.method==='POST')throw Error('connection lost');return url.endsWith('/raffles/new')?{text:'<input name="csrf_token" value="TOKEN-1234567890">'}:{status:404};}});
+ assert.equal((await w.send({action:'create',postId:'post1',params:{winnerCount:1,minAge:0,minComment:0,minLink:0,ignoredUsers:[]}})).ok,false);
+ assert.equal(w.calls.filter(c=>c.init.method==='POST').length,1);
+ await w.send({action:'status',postId:'post1'});assert.equal(w.calls.filter(c=>c.url.endsWith('/raffles/post1')).length,1);
+ const limited=rafflerWorker({responses:()=>({status:429})});assert.equal((await limited.send({action:'status',postId:'post1'})).ok,false);assert.equal(limited.calls.length,1);
+});
+test('Raffler sign-in comes from its form, validates the OAuth destination, and keeps CSRF private',async()=>{
+ const good='https://www.reddit.com/api/v1/authorize?client_id=example&response_type=code&state=state123&redirect_uri=https%3A%2F%2Fwww.redditraffler.com%2Fauth%2Fredirect';
+ for(const href of [good,good.replace('www.reddit.com','evil.test'),good.replace('www.redditraffler.com','evil.test'),'javascript:alert(1)']){
+  const w=rafflerWorker({responses:()=>({text:'<input name="csrf_token" value="TOKEN-1234567890"><a class="button" href="'+href.replaceAll('&','&amp;')+'">Sign in with Reddit</a>'})});
+  const r=await w.send({action:'session'});assert.equal(r.loginUrl,href===good?good:'https://www.redditraffler.com/raffles/new');assert.equal('csrf' in r,false);
+ }
+});
+test('guest sign-in opens separately and refreshes status on return without drawing or changing rules',async t=>{
+ let signedIn=false;const calls=[],s=await ui(t,{raffler:async message=>{calls.push(message.action);return message.action==='status'?{exists:false}:{signedIn:signedIn?'Owner':'',loginUrl:'https://www.reddit.com/api/v1/authorize?state=synthetic'};}});
+ await s.open();s.input('winners','2');s.mode('private');const link=s.q('.rt-raffle-option-state a');assert.equal(link.textContent,'Sign in with Reddit');assert.equal(link.target,'_blank');assert.equal(link.rel,'noopener noreferrer');
+ link.addEventListener('click',e=>e.preventDefault());link.click();signedIn=true;s.W.dispatchEvent(new s.W.Event('focus'));await flush();
+ assert.match(s.publicSub(),/u\/Owner/);assert.equal(s.q('[name=winners]').value,'2');assert.equal(s.primary().textContent,'Draw privately');assert.equal(calls.includes('create'),false);assert.equal(s.q('.rt-raffle-option-state a'),null);
+});
+test('raffle account avatars use native comment icons or headshots instead of full-body Snoovatars',async t=>{
+ const full='https://i.redd.it/snoovatar/avatars/abc-123.png',native='https://cf.preview.redd.it/snoovatar/avatars/abc-123-headshot.png?width=64&height=64&s=signed';
+ const profiles={Alice:{icon_img:native,snoovatar_img:full},Bob:{snoovatar_img:full},Carol:{icon_img:'https://evil.test/avatar.png',snoovatar_img:'https://preview.redd.it/snoovatar/avatars/abc-123.png'}};
+ const b=bridge(t,{body:u=>({data:profiles[u.pathname.split('/')[2]]})});
+ assert.equal((await b.send({action:'raffle-user',username:'Alice'})).avatar,native);
+ assert.equal((await b.send({action:'raffle-user',username:'Bob'})).avatar,full.replace('.png','-headshot.png'));
+ assert.equal((await b.send({action:'raffle-user',username:'Carol'})).avatar,'');
 });

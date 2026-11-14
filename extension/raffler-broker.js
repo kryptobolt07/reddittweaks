@@ -17,10 +17,26 @@
     if(sender?.id!==chrome.runtime.id || sender.frameId!=null && sender.frameId!==0)return false;
     try{const url=new URL(sender.url);return url.protocol==='https:' && ['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(url.hostname) && !url.port;}catch{return false;}
   }
-  async function request(path,init={}){
+  const pendingReads=new Map();
+  function request(path,init={}){
+    if(init.method!=='GET')return requestOnce(path,init);
+    if(pendingReads.has(path))return pendingReads.get(path);
+    const pending=requestOnce(path,init).finally(()=>pendingReads.delete(path));
+    pendingReads.set(path,pending);return pending;
+  }
+  async function requestOnce(path,init={}){
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),TIMEOUT);
     try{
-      const response=await fetch(BASE+path,{credentials:'include',cache:'no-store',...init,signal:controller.signal});
+      // Retry a transient read once, inside the original deadline. Never replay a public draw.
+      let response;
+      for(let attempt=0;attempt<2;attempt++){
+        try{response=await fetch(BASE+path,{credentials:'include',cache:'no-store',...init,signal:controller.signal});}
+        catch(error){if(init.method!=='GET' || attempt || controller.signal.aborted)throw error;}
+        if(response && (init.method!=='GET' || attempt || ![502,503,504].includes(response.status)))break;
+        await response?.body?.cancel?.();
+        await new Promise(resolve=>setTimeout(resolve,250));
+        if(controller.signal.aborted)throw Error('Timed out.');
+      }
       if(Number(response.headers?.get?.('content-length'))>MAX_BYTES)throw Error('Reddit Raffler sent too much data.');
       const text=response.type==='opaqueredirect'?'':await response.text();if(text.length>MAX_BYTES)throw Error('Reddit Raffler sent too much data.');
       return {response,text};
@@ -30,6 +46,16 @@
   const decode=text=>String(text).replace(/&#(\d+);/g,(m,n)=>String.fromCodePoint(Number(n))).replace(/&#x([0-9a-f]+);/gi,(m,n)=>String.fromCodePoint(parseInt(n,16))).replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
   // The signed-in Raffler name, from the header every page renders when you're signed in there.
   const signedInName=html=>/id="logout"/.test(html)?(html.match(/<a class="navbar-link">\s*([A-Za-z0-9_-]{3,20})\s*<\/a>/)?.[1] || ''):'';
+  function loginUrl(html){
+    for(const match of html.matchAll(/<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1/gi)){
+      try{const url=new URL(decode(match[2]));
+        if(url.origin==='https://www.reddit.com' && url.pathname==='/api/v1/authorize' && !url.username && !url.password && !url.hash &&
+          url.searchParams.get('response_type')==='code' && url.searchParams.get('redirect_uri')===BASE+'/auth/redirect' &&
+          url.searchParams.get('client_id') && url.searchParams.get('state'))return url.href;
+      }catch{}
+    }
+    return BASE+'/raffles/new';
+  }
 
   // Results page → plain data. Parsed with patterns (service workers have no DOMParser); unreadable → error.
   function parseResults(html,postId){
@@ -62,7 +88,7 @@
     const {response,text}=await request('/raffles/new',{method:'GET',headers:{Accept:'text/html'}});
     if(!response.ok)return fail('Reddit Raffler is unavailable (HTTP '+response.status+').','unavailable');
     const csrf=text.match(/name="csrf_token" value="([^"]{10,300})"/)?.[1] || '';
-    return {ok:true,signedIn:signedInName(text),csrf};
+    return {ok:true,signedIn:signedInName(text),loginUrl:loginUrl(text),csrf};
   }
   async function create(message){
     const p=message.params || {};
@@ -95,7 +121,7 @@
     if(message.action!=='session' && !postIdOK.test(message.postId || ''))return fail('Invalid post.','invalid-request');
     try{
       if(message.action==='status')return await status(message.postId);
-      if(message.action==='session')return await session().then(r=>r.ok?{ok:true,signedIn:r.signedIn}:r);
+      if(message.action==='session')return await session().then(r=>r.ok?{ok:true,signedIn:r.signedIn,loginUrl:r.loginUrl}:r);
       if(message.action==='create')return await create(message);
       if(message.action==='job')return await job(message.postId);
       return fail('Unknown Raffler action.','invalid-request');
