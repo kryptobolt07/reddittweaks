@@ -8,14 +8,14 @@ const html=fs.readFileSync(path.join(__dirname,'../extension/popup.html'),'utf8'
 const script=fs.readFileSync(path.join(__dirname,'../extension/popup.js'),'utf8');
 const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
 
-function popup(t,{settings,storageFailure=false,runtimeFailure=false}={}){
-  const dom=new JSDOM(html,{runScripts:'outside-only'}),w=dom.window;t.after(()=>w.close());
+function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs}={}){
+  const dom=new JSDOM(html,{runScripts:'outside-only'}),w=dom.window;t.after(w.close.bind(w));
   const messages=[],state={...(settings||{})};
   w.chrome={storage:{local:{
     async get(key){if(storageFailure)throw Error('storage read failed');return {[key]:state[key]};},
     async set(values){if(storageFailure)throw Error('storage write failed');Object.assign(state,values);}
   }},runtime:{async sendMessage(request){messages.push(request);if(runtimeFailure)throw Error('runtime failed');return request.action==='stats'?{ok:true,stats:{messages:42,rooms:3,approxBytes:2048}}:{ok:true};}}};
-  w.eval(script);
+  w.chrome.tabs=tabs;w.eval(script);
   return {w,state,messages};
 }
 
@@ -126,4 +126,14 @@ test('clean sharing is an independent opt-in that persists with all discovery op
  const p=popup(t,{settings:{'rt-settings-v1':{postDiscovery:false,archiveDiscovery:false}}});await settle();const control=p.w.document.querySelector('#clean-share-links');assert.equal(control.checked,false);assert.equal(control.getAttribute('aria-disabled'),null);
  control.checked=true;control.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();assert.equal(p.state['rt-settings-v1'].cleanShareLinks,true);
  const reopened=popup(t,{settings:p.state});await settle();assert.equal(reopened.w.document.querySelector('#clean-share-links').checked,true);assert.equal(reopened.w.document.querySelector('#post-discovery').checked,false);
+});
+
+test('Redaction has its own popup section and opens in the active Reddit tab',async t=>{
+ const updated=[],created=[],p=popup(t,{tabs:{async query(){return [{id:7,url:'https://www.reddit.com/r/Alpha/comments/abc/title/?sort=new'}];},async update(id,options){updated.push({id,...options});},async create(options){created.push(options);}}});let closed=false;p.w.close=()=>{closed=true;};await settle();
+ const button=p.w.document.getElementById('open-redaction');assert.equal(button.closest('section').getAttribute('aria-labelledby'),'redaction-heading');button.click();await settle();
+ assert.deepEqual(updated,[{id:7,url:'https://www.reddit.com/r/Alpha/comments/abc/title/?sort=new#rt-redact'}]);assert.equal(created.length,0);assert.equal(closed,true);
+});
+test('Redaction uses the own-profile fallback outside Reddit and reports tab failures',async t=>{
+ const created=[],p=popup(t,{tabs:{async query(){return [{id:8,url:'https://example.test/'}];},async create(options){created.push(options);}}});p.w.close=()=>{};await settle();p.w.document.getElementById('open-redaction').click();await settle();assert.deepEqual(JSON.parse(JSON.stringify(created)),[{url:'https://www.reddit.com/user/me/#rt-redact'}]);
+ const broken=popup(t,{tabs:{async query(){throw Error('unavailable');}}});await settle();broken.w.document.getElementById('open-redaction').click();await settle();assert.match(broken.w.document.getElementById('redaction-open-status').textContent,/Couldn’t open/);assert.equal(broken.w.document.getElementById('open-redaction').disabled,false);
 });

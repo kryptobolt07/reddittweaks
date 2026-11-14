@@ -22,10 +22,10 @@ Redact.dev lets people bulk delete their Reddit history, overwriting the text fi
 
 ## 3. Behaviour
 
-- **B1. Entry.** The popup's "Redact my posts and comments…" opens `https://www.reddit.com/#rt-redact`; on any Reddit page that address fragment opens the dialog (and is removed from the address). The dialog is Reddit's `rpl-modal-card`, as in the raffle.
+- **B1. Entry.** The popup's dedicated Redaction section’s "Review items to redact…" opens `#rt-redact` on the active Reddit tab, or `/user/me/#rt-redact` in a new tab when outside Reddit; on any Reddit page that address fragment opens the dialog (and is removed from the address). The dialog is Reddit's `rpl-modal-card`, as in the raffle.
 - **B2. Identity.** The dialog first confirms the signed-in account in the page world (`/api/me.json`). Signed out → "Sign in to Reddit to redact your posts and comments." The modhash Reddit needs for writes stays in the page world and is never sent to the extension's other scripts.
-- **B3. Find (dry run).** "Find matching items" reads your own lists (overview newest; posts and comments by top and controversial), 100 per request, up to Reddit's 1,000 per list, with progress. The preview shows: "N items match (P posts, C comments) out of M found", the oldest date reached, the first 50 matches as rows (type, community, date, score, text excerpt, link), and "Download a copy". Changing any rule clears the preview.
-- **B4. Confirm.** The run button stays disabled until you type `delete N` (N = the previewed count). It reads "Overwrite and delete N items".
+- **B3. Find (dry run).** "Find matching items" reads your own lists (overview newest; posts and comments by top and controversial), 100 per request, up to Reddit's 1,000 per list, with progress. The preview shows: "N items match (P posts, C comments) out of M found", the oldest date reached, all matches in a separate scrollable review screen, loaded into the DOM in batches of 50 (type, community, date, score, text, link), individual selection, select/deselect all, and "Download a copy" for the selected items. Filters use the existing shared calendar and are grouped into Find items, Keep items safe, and Replacement text. Newest-first pagination stops after passing the chosen start date; score-sorted lists must continue because dates are not ordered. Irrelevant post/comment sources are skipped. Each discovery starts fresh; reached page limits are reported. Changing any rule clears the preview.
+- **B4. Confirm.** "Review N selected items" opens a separate confirmation screen showing the account, selected post/comment counts and replacement text. Back returns to the selection; a new confirmation always clears the typed phrase. The run button stays disabled until you type `delete N` (N = the selected count). It reads "Overwrite and delete N items".
 - **B5. Run.** Items are processed one at a time, oldest first: overwrite (comments and text posts with text), then delete. At most one write per 1.1 s; HTTP 429 waits for `Retry-After` (at most 5 minutes); three failures in a row stop the run. Progress: "Done X of N · F failed · about M min left", with Stop. Closing the dialog stops after the current request.
 - **B6. Result.** "Deleted X of N. F failed." Failures list each item's link and Reddit's reason. Overwritten-but-not-deleted items are listed separately ("Text overwritten, delete failed").
 - **B7. Ownership guard.** The page bridge writes only to items it read itself from the signed-in account's own lists during this page's life, and re-checks the signed-in name at the start of each run. Any other ID is refused before a request.
@@ -74,6 +74,8 @@ Redact.dev lets people bulk delete their Reddit history, overwriting the text fi
 
 ## 8. How the user tests it (dry run first)
 
-1. Reload the extension, open the popup, choose "Redact my posts and comments…".
+1. Reload the extension, open the popup’s Redaction section, choose "Review items to redact…".
 2. Set a narrow filter (for example one community and an old date range) and choose "Find matching items". Check the preview and "Download a copy".
-3. Type `delete N` for a small N (1–2 test items you made for this), run, and confirm on Reddit that the items show the overwrite text and then `[deleted]`.
+3. Select a small set of test items, choose "Review N selected items", and type `delete N` for a small N (1–2 test items you made for this), run, and confirm on Reddit that the items show the overwrite text and then `[deleted]`.
+
+Default overwrite text: “This comment has been redacted or anonymized by Reddit Tweaks.” These words remain editable before discovery.
