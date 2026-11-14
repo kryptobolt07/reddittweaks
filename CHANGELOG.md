@@ -1,3 +1,10 @@
+# 0.35.2 preview
+
+- **Redaction confirmation actions:** the final step can switch between Overwrite text, Delete, and Overwrite, then delete without going back. Overwrite-only drops selected items without editable text; delete keeps the reviewed selection and hides the message editor. The typed phrase, count, summary and message edits follow the chosen action.
+- **Existing public raffles:** a post that already has a public raffle stays on the rules screen instead of loading its results. The main action is View public results and loads winners only when clicked. If the raffle is unverified and the signed-in Reddit user is the post's author, the dialog offers Raffler sign-in as that author and then Run it yourself; Raffler may still refuse because a post allows one official raffle.
+- **Verification limits:** synthetic tests cover the changed flows. No live redaction or raffle creation was performed; reload the extension and refresh Reddit to see the updated UI.
+- **Version:** patch increment for the confirmation action switch and on-demand public results; no storage migration.
+
 # 0.35.1 preview
 
 - **Editable confirmation message:** the final step now contains a real replacement-message textbox. Edits persist when going back and update the message used by the run, while preserving item selection and clearing the typed confirmation. Empty or oversized messages block execution; the editor locks during writes. Delete-only continues to omit the message.
