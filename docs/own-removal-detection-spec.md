@@ -1,6 +1,6 @@
 # Spec: detect removals of your own posts and comments
 
-Status: phase 0 done (2026-11-13, results in §9.1); classification core implemented and unit-tested (commit `1f1ccf2`, loaded by the manifest in `7282c51`) but not wired into the UI or any network check yet. Target spec written 2026-11-12. This is the bar the feature must reach, not a step list. Each requirement (R…) has an acceptance check (A…). A release may ship a subset; a requirement counts as met only when its check passes. §14 records exactly what exists today.
+Status: phase 0 done (2026-11-13, results in §9.1); classification core implemented (`1f1ccf2`) and used by the on-demand Removed list (U2, 2026-11-14); badges, notifications and settings not built. Target spec written 2026-11-12. This is the bar the feature must reach, not a step list. Each requirement (R…) has an acceptance check (A…). A release may ship a subset; a requirement counts as met only when its check passes. §14 records exactly what exists today.
 
 This spec also follows the [interaction and lifecycle contract](interaction-lifecycle-contract.md). Its rules apply, and §13 lists the transitions this feature must pass. §12 lists where we'll fall short, and how the interface says so.
 
@@ -99,7 +99,7 @@ The 25-second threshold and the "archive saw it visible, so later = moderator" r
 
 All surfaces use Reddit's own components and the styles we already match: search rows, scope pills, Feed options menus, tooltips and status icons.
 
-None of U1–U5 is wired yet; the classification module exists but no surface calls it. §14 tracks each one.
+U2 is built as a list entry (decided 2026-11-14, Q1); U1, U4 and U5 are not built yet, and U3 shows its blocked state. §14 tracks each one.
 
 - **U1. Badges in place.** On your own comments and posts wherever Reddit shows them (threads, your profile, search results), add one compact status pill next to the time, for example "Removed by moderators", with its tooltip. Nothing is added to other people's items, and nothing appears when the state is `visible`.
 - **U2. A Removed view on your own profile.** A list entry next to Saved, History and the others (the same header pill and search-row layout as our list searches), plus a Feed options filter: Removal source (any, moderators, automatic, Reddit, unknown), Type (posts, comments), Date, and Subreddit with counts. Each row shows the state pill, the community and time, the text (restored from the archive if Reddit hides it), and the actions "View as others" and "Open". The summary line says how far back the check reached and how many items were checked, never "all".
@@ -225,7 +225,7 @@ From the contract's catalogue, plus rows specific to this feature. Each row is a
 
 **Lifecycle audit to complete before building:** for the badge pill, the Removed view's header pill, its feed, its filters and the popup badge, record the creator, the remover and every trigger (route events, `MutationObserver` on threads and feeds, settings changes, account changes, alarms, cache updates). Each trigger becomes a transition row above if it isn't one already.
 
-## 14. Implementation status (2026-11-14, extension 0.32.2)
+## 14. Implementation status (2026-11-14)
 
 This is what exists in the current bundle; everything else in this document remains the target.
 
@@ -237,13 +237,17 @@ This is what exists in the current bundle; everything else in this document rema
 | Evidence normalisation and helpers | same file | `evidence()` normalises Reddit and Arctic Shift records; `isRemovedBody()`; `STATES` labels; `change()` computes `removed` / `approved` / `locked` / `unlocked` transitions for future notifications without duplicates. `classify` also carries `locked`, `collapsed` (Crowd Control), `approved-after-auto` and `quarantined-community` flags. |
 | Manifest load | `extension/manifest.json` (commit `7282c51`) | Loaded with the post scripts before `post-discovery.js`. It defines only `RTRemovalModel`, has no side effects, and adds no permissions. |
 | Unit tests | `tests/removal-model.test.cjs` | 10 tests over synthetic fixtures: all rule branches, 25 s and 26 s boundaries, missing archive, archive `[removed]`, deletion precedence, approvals, private communities, flags, and change detection. All pass. This covers A1 and the model half of A2. |
+| U2 Removed list | `post-discovery.js` (`classifyRemoved`, `summarizeRemoved`, `removalPill`), `post-page-bridge.js` (`list:'removed'`), `post-broker.js` (`archive-removal`) | "Removed" in your own profile's List menu (`/user/<you>/search/?rt_list=removed`), with the same header pill, tabs (All, Posts, Comments, Media), query and Feed options filters as Saved and History. The bridge reads your signed-in `overview.json` (100 per page, up to Reddit's 1,000) and keeps only the author-visible moderation facts (`removed_by_category`, whether `removal_reason` is set, `locked`, `subreddit_type`, `quarantine`, your text); another author's item makes the page malformed. Posts classify from those facts. Comments classify only from the archive's first capture (`archive-removal`: ≤25 IDs, your own profile only, needs "Use the archive", your records only). Each row carries one state pill with the evidence as its tooltip. The summary reads "Checked your newest N posts and comments · K removed"; the notes say how many comments couldn't be checked and why, that the account check is blocked (U3), and when Reddit's 1,000 cap applies. An archive failure leaves comments as "Couldn't check" with a note. Tests: `tests/removed-list.test.cjs`. |
 | Anonymous public profile search | `extension/public-browser.js`, `post-page-bridge.js` (commits `18daef4`, `cec6f1a`, `5ffba1f`, `c3e4d90`, packaged 0.32.2) | An invisible credentialless iframe runs Reddit's native signed-out flow and reads the allowlisted `/svc/shreddit/search/` route. It serves the public **comment** discovery stream for profiles and **post** search for explicitly blocked profiles. One frame per page, at most two pending reads, 60 s idle removal, 10 min refusal cooldown, bounded `Retry-After`, verified-session reuse. It has no per-item public thread view and no account check, so it does not feed the removal model. |
 
 ### Not implemented
 
 | Item | Status |
 |---|---|
-| U1 in-place badges, U2 Removed view, U3 account check, U4 notifications and toolbar badge, U5 popup settings | Not started. No UI calls `RTRemovalModel`. |
+| U1 in-place badges | Not started. On thread pages Reddit already shows authors a removal banner on their posts; comments have no evidence without the archive, so badges would mostly read "Couldn't check". |
+| U2 extras | No separate "Removal source" filter (the pill and the query cover it); no "View as others" action, because no logged-out view works from the extension (V1). Deleted items are hidden (Q3 default). |
+| U3 account check | Shown as a fixed "Couldn't check … Reddit blocks logged-out checks" note; no request is made. |
+| U4 notifications and toolbar badge, U5 popup settings | Not started. Background checks would need Reddit reads outside a Reddit tab, which conflicts with keeping credentials in Reddit's page world; the Removed list is checked on demand instead. |
 | E2 per-item public view (thread HTML or `api/info`) | Still blocked by Reddit; the anonymous transport covers profile search only. |
 | E5 account-level check | Not started; same blocked direct route. |
 | C1–C5 checks, batching, scheduling, caching | Not started. No `alarms`, no per-account cache, no request budget. |
@@ -252,4 +256,4 @@ This is what exists in the current bundle; everything else in this document rema
 
 ### Summary
 
-The feature today is a reviewed-in-code, unit-tested **classification core** in an otherwise inactive bundle. The latest 0.32.2 work fixed logged-out **profile search** (public comment discovery and blocked-profile post search) in the anonymous frame; it did not add per-item public verification, so it does not change how comments are classified. The next implementation step is to wire `classify` into a signed-in collection path (author data + optional archive), then add the U1 badges and U2 view with the §6 budgets.
+The feature today is the unit-tested classification core plus the on-demand **Removed list** (U2) on your own profile. The latest 0.32.2 work fixed logged-out **profile search** (public comment discovery and blocked-profile post search) in the anonymous frame; it did not add per-item public verification, so it does not change how comments are classified. Remaining work is U1, U4 and U5, which depend on a public-view route that Reddit currently blocks.

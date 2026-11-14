@@ -4,7 +4,8 @@
   const M=globalThis.RTPostModel;if(!M)return;
   const key='rt-settings-v1';
   const profileBatchSize=25,searchPageBudget=10;
-  const ownLists=['saved','history','hidden','upvoted','downvoted'];
+  const ownLists=['saved','history','hidden','upvoted','downvoted','removed'];
+  const listIcons={saved:'save',history:'history',hidden:'hide',upvoted:'upvote',downvoted:'downvote'};
   // Verified by the page-world /api/me.json read. The last confirmed name is kept for this tab's session so a
   // list search can show its pill with Reddit's first header; every list request still re-confirms the account.
   const identityKey='rt-own-identity-v1';
@@ -632,12 +633,12 @@
       // Reddit's own scope pill markup: leading icon, label, trailing close icon; the whole pill removes it.
       // One pill element per list is kept and moved back after Reddit re-renders its header: a moved pill keeps
       // its rendering, while a fresh one is blank until Reddit's component draws it (a visible blink).
-      this.listChips ||= new Map();let chip=this.listChips.get(route.list);const label=listLabel(route.list),placeholder='Search your '+route.list;
+      this.listChips ||= new Map();let chip=this.listChips.get(route.list);const label=listLabel(route.list),placeholder=route.list==='removed'?'Search your removed posts and comments':'Search your '+route.list;
       if(!chip){
         chip=globalThis.RTFeedFilters?.parsedElement?.('rpl-input-chip',native.className) || make('rpl-input-chip',native.className);
         chip.dataset.rtListChip=route.list;chip.dataset.rtUi='own-list-chip';
         chip.setAttribute('aria-label','Remove '+label+' filter and search your whole profile');chip.style.marginInlineStart='4px';chip.setAttribute('role','button');chip.tabIndex=0;
-        const lead=make('span');lead.slot='leading';const holder=make('div','w-full h-full flex justify-center items-center');holder.append(redditIcon({saved:'save',history:'history',hidden:'hide',upvoted:'upvote',downvoted:'downvote'}[route.list],16));lead.append(holder);
+        const lead=make('span');lead.slot='leading';const holder=make('div','w-full h-full flex justify-center items-center');holder.append(route.list==='removed'?glyph('removed'):redditIcon(listIcons[route.list],16));lead.append(holder);
         const text=make('span','whitespace-nowrap overflow-hidden text-ellipsis text-label-2',label);text.setAttribute('aria-hidden','true');
         const trail=make('span','flex items-center ms-2xs');trail.slot='trailing';trail.append(redditIcon('close',12));chip.append(lead,text,trail);
         const remove=event=>{event.preventDefault();event.stopImmediatePropagation();const now=pageRoute();this.ownHeaderDismissed=location.pathname+':'+(new URLSearchParams(location.search).get('rt_list') || '');this.clearOwnListHeader();if(now?.view==='search')this.navigateProfileSearch(now,now.q,false);};
@@ -694,6 +695,7 @@
     }
     ownListMatch(post){
       if(this.searchParsed?.invalid)return false;
+      if(this.context.list==='removed' && !post.removal?.removed)return false;
       const comment=post.kind==='comment';
       if(this.context.type==='comments'?!comment:this.context.type!=='all' && comment)return false;
       if(this.context.type==='media' && !mediaTypes.includes(post.postType))return false;
@@ -704,6 +706,7 @@
       if(!this.status)return;const state=this.listState;
       if(!state)return;
       const error=this.searchParsed.invalid?this.searchParsed.errors.join('. '):state.error;
+      if(this.context.list==='removed'){this.summarizeRemoved(error);return;}
       this.setStatus(error || 'Searched '+state.scanned.toLocaleString('en-US')+' '+this.context.list+' items'+(state.loading?' · Loading…':''),Boolean(error));
       const notes=[];if(this.searchParsed.invalid)notes.push(error);
       if(this.context.list==='history')notes.push('History only includes your ~20 most recently viewed posts');
@@ -725,7 +728,7 @@
       this.renderedPosts=posts;this.live=new Map(state.items);this.more.hidden=true;this.renderFilterChips();this.renderSubredditOptions();this.summarizeOwnList();this.updateProfileLoading();
       if(!this.listEmpty){this.listEmpty=make('p','rt-posts-notice');this.listEmpty.dataset.rtUi='own-list-empty';this.feed.append(this.listEmpty);}
       this.listEmpty.hidden=posts.length>0 || state.loading || Boolean(state.error) || this.searchParsed.invalid || !state.done;
-      this.listEmpty.textContent='No matches in the '+state.scanned.toLocaleString('en-US')+' '+this.context.list+' items Reddit returned.';
+      this.listEmpty.textContent=this.context.list==='removed'?this.removedEmptyText():'No matches in the '+state.scanned.toLocaleString('en-US')+' '+this.context.list+' items Reddit returned.';
     }
     async loadOwnList({resume=false}={}){
       if(!this.isOwnList() || !this.listState || this.listState.loading)return;
@@ -733,14 +736,15 @@
       if(!resume){for(const node of this.nodes.values())node.remove();this.nodes.clear();}
       const state=this.listState,context=this.context,generation=this.generation;
       const current=()=>!this.dead && this.listState===state && generation===this.generation && pageRoute()?.key===context.key && this.host?.isConnected;
-      if(resume)state.loading=true;else{state.items.clear();state.scanned=0;state.done=false;state.capped=false;state.error='';state.loading=true;state.after=null;}
+      if(resume)state.loading=true;else{state.items.clear();state.removalNotes=new Set();state.scanned=0;state.done=false;state.capped=false;state.error='';state.loading=true;state.after=null;}
       this.discover.disabled=true;this.summarizeOwnList();this.updateProfileLoading();const cursors=new Set(resume && state.after?[state.after]:[]);
       try{
         do{
           const result=await this.request({action:'own-list',username:context.username,list:context.list,after:state.after});if(!current())return;
           if(!Array.isArray(result.posts) || !Number.isInteger(result.scanned) || result.scanned<0 || result.scanned>100 || result.posts.length>100 || result.hasMore && result.scanned===0)throw Error('Reddit returned an unexpected list page.');
           state.scanned+=Math.min(result.scanned,1000-state.scanned);
-          for(const post of result.posts)if(post?.fullname && !state.items.has(itemKey(post)))state.items.set(itemKey(post),post);
+          const added=[];for(const post of result.posts)if(post?.fullname && !state.items.has(itemKey(post))){state.items.set(itemKey(post),post);added.push(post);}
+          if(context.list==='removed'){await this.classifyRemoved(added,context);if(!current())return;}
           state.after=result.after || null;state.capped=state.scanned>=1000 && context.list!=='history';
           if(result.hasMore && (!state.after || cursors.has(state.after)))throw Error('Reddit repeated a list cursor. List search is incomplete.');
           if(state.after)cursors.add(state.after);
@@ -748,6 +752,49 @@
         }while(current() && !state.done);
       }catch(error){if(current()){state.error='Could not search your '+context.list+': '+error.message;if(/signed-in account changed|Sign in to Reddit/i.test(error.message)){state.items.clear();for(const node of this.nodes.values())node.remove();this.nodes.clear();this.clearOwnListHeader();this.ownHeaderDismissed=location.pathname+':'+context.list;this.ownIdentityChecked=false;queueMicrotask(()=>{if(!this.dead)this.scan();});}}}
       finally{if(current()){state.loading=false;this.discover.disabled=false;this.renderOwnList();}}
+    }
+    // Removed list (docs/own-removal-detection-spec.md U2): classify each of your items with RTRemovalModel.
+    // Posts carry Reddit's own removal category; comments only count as removed when the archive captured the
+    // removal (§9.1: Reddit blocks every logged-out check). Unknown is never shown as visible (R2).
+    async classifyRemoved(items,context){
+      const R=globalThis.RTRemovalModel,state=this.listState;if(!R || !state)return;
+      state.removalNotes ||= new Set();
+      const author=post=>{const m=post.moderation || {};return {kind:post.kind==='comment'?'comment':'post',name:post.fullname,body:m.authorBody ?? post.body,selftext:m.authorBody ?? post.body,...(post.kind==='comment'?{}:{title:post.title || ''}),
+        created_utc:post.created,removed_by_category:m.category ?? null,removal_reason:m.removalReason || null,locked:m.locked===true,subreddit_type:m.subredditType || 'public',quarantine:m.quarantined===true};};
+      const comments=items.filter(post=>post.kind==='comment'),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
+      if(archiveStatus==='ok')for(let index=0;index<comments.length;index+=25){
+        const group=comments.slice(index,index+25);
+        try{const result=await this.archive({action:'archive-removal',username:context.username,kind:'comment',ids:group.map(post=>post.id)});
+          for(const raw of result.posts || []){const archived=M.normalizeItem(raw,{source:'arctic-shift'});if(archived?.kind==='comment' && archived.author.toLowerCase()===context.username.toLowerCase())archives.set(archived.fullname,archived);}}
+        catch(error){archiveStatus='failed';state.removalNotes.add('The archive didn’t answer ('+error.message.replace(/\.$/,'')+'); some comments couldn’t be checked');break;}
+      }
+      for(const post of items){
+        const archived=archives.get(post.fullname),archive=archived?{kind:'comment',body:archived.archiveStatus==='removed'?'[removed]':archived.body,created_utc:archived.created,retrieved_on:archived.retrieved || 0}:null;
+        post.removal=R.classify({author:author(post),archive,archiveStatus:archive?'ok':post.kind==='comment' && archiveStatus==='ok'?'missing':archiveStatus});
+      }
+    }
+    removedCounts(){
+      const counts={checked:0,removed:0,unknownComments:0,unknownPosts:0,deleted:0};
+      for(const post of this.listState?.items.values() || []){const r=post.removal;if(!r)continue;if(r.removed)counts.removed++;if(r.state==='deleted')counts.deleted++;if(r.state!=='unknown')counts.checked++;else if(post.kind==='comment')counts.unknownComments++;else counts.unknownPosts++;}
+      return counts;
+    }
+    summarizeRemoved(error){
+      const state=this.listState,counts=this.removedCounts(),n=value=>value.toLocaleString('en-US');
+      this.setStatus(error || 'Checked your newest '+n(state.scanned)+' posts and comments · '+n(counts.removed)+' removed'+(state.loading?' · Loading…':''),Boolean(error));
+      const notes=[];if(this.searchParsed.invalid)notes.push(error);
+      if(counts.unknownComments)notes.push(n(counts.unknownComments)+' '+(counts.unknownComments===1?'comment':'comments')+' couldn’t be checked: Reddit blocks logged-out checks of comments'+(this.settings.archiveDiscovery?'':'. Turn on “Use the archive” to catch removals the archive saw'));
+      if(counts.unknownPosts)notes.push(counts.unknownPosts.toLocaleString('en-US')+' '+(counts.unknownPosts===1?'post':'posts')+' couldn’t be checked (private communities)');
+      for(const note of state.removalNotes || [])notes.push(note);
+      // U3: an account-level check needs a logged-out profile read, which Reddit blocks (§9.1 V3).
+      notes.push('Couldn’t check whether others can see your profile: Reddit blocks logged-out checks');
+      if(state.capped)notes.push('Reddit only returns your newest 1,000 posts and comments');
+      if(state.error)notes.push('The check is incomplete. Select Refresh to retry.');
+      if(this.notice){this.notice.textContent=notes.join(' · ');this.notice.hidden=!notes.length;}
+      this.status.title='Shows your posts and comments that others can’t see, as far as Reddit and the archive tell us. Nothing is edited or reported.';
+    }
+    removedEmptyText(){
+      const counts=this.removedCounts();
+      return 'No removals found in the '+counts.checked.toLocaleString('en-US')+' '+(counts.checked===1?'item':'items')+' that could be checked.';
     }
     isOwnList(){return Boolean(this.context?.list && this.context.view==='search');}
     isSearch(){return this.context?.view==='search';}
@@ -994,9 +1041,9 @@
         if(this.context?.view==='search' && !this.archiveOnly && signedInName && this.context.username.toLowerCase()===signedInName.toLowerCase()){
           let listSub=sub,listEntry=activity;
           if(!this.isOwnList()){listSub=submenu('list');listEntry=entry('List','list-bulleted',listSub);listEntry.dataset.rtUi='own-list-switch';menu.append(listEntry);content.append(listSub);this.activityMenuRows.push(listEntry,listSub);}
-          const current=this.context.list || '',icons={saved:'save',history:'history',hidden:'hide',upvoted:'upvote',downvoted:'downvote'};
-          for(const [value,label] of [['','All activity'],['saved','Saved'],['history','History'],['hidden','Hidden'],['upvoted','Upvoted'],['downvoted','Downvoted']]){
-            const option=row(label,value?redditIcon(icons[value],16):'show');option.dataset.rtListSwitch=value || 'all';option.setAttribute('aria-current',String(value===current));
+          const current=this.context.list || '';
+          for(const [value,label] of [['','All activity'],['saved','Saved'],['history','History'],['hidden','Hidden'],['upvoted','Upvoted'],['downvoted','Downvoted'],['removed','Removed']]){
+            const option=row(label,value==='removed'?'removed':value?redditIcon(listIcons[value],16):'show');option.dataset.rtListSwitch=value || 'all';option.setAttribute('aria-current',String(value===current));
             if(value===current){const mark=glyph('checkmark');mark.dataset.rtCheck='true';option.firstElementChild.append(mark);}
             activate(option,()=>{this.closeFeedMenu(dropdown,open);if(value===current)return;const route=pageRoute();if(route)this.navigateProfileSearch({...route,list:value || undefined},route.q || '',Boolean(value));});
             listSub.append(option);
@@ -2099,6 +2146,13 @@
       if(!own){const rule=make('hr','border-0 border-b-sm border-solid border-b-neutral-border-weak');rule.dataset.rtCardRule='true';node.append(rule);}
       else if(own!==node.lastElementChild)node.append(own);
     }
+    // One compact state pill with its evidence as the tooltip (spec §3, U1/U2).
+    removalPill(removal){
+      const pill=make('span','rt-removal-pill inline-flex items-center gap-2xs font-semibold');pill.dataset.rtRemoval=removal.state;pill.dataset.rtConfidence=removal.confidence;
+      const label=removal.label+(removal.confidence==='likely' && removal.state!=='removed-unknown'?' (likely)':''),why=[removal.why,removal.flags.includes('locked')?'Locked: no new replies.':'',removal.flags.includes('approved-after-auto')?'Approved after an automatic removal.':''].filter(Boolean).join(' ');
+      pill.setAttribute('role','img');pill.setAttribute('aria-label',label+(why?'. '+why:''));pill.title=why || label;
+      pill.append(glyph(removal.state==='deleted'?'deleted':'removed'),make('span','',label));return pill;
+    }
     indicator(post){
       const removed=['deleted','removed'].includes(post.status),label=removed?`${post.status==='deleted'?'Deleted':'Removed'} on Reddit`:post.source==='arctic-shift'?(post.status==='available'?(this.isSearch()?'Not shown in Reddit’s loaded search results · Available on Reddit · Arctic Shift snapshot':'Not shown in this profile feed · Available on Reddit · Arctic Shift snapshot'):'Arctic Shift snapshot · Current Reddit status unknown'):'Not shown in this profile feed · Found through public Reddit search';
       const badge=make('span','rt-post-indicator');badge.setAttribute('role','img');badge.setAttribute('aria-label',label);badge.title=label;badge.dataset.state=post.status;// One icon per real state: trash (deleted), ban (removed by moderators),
@@ -2266,6 +2320,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       const tags=()=>{const out=[];
         if(post.over18){const tag=make('span','rt-search-tag inline-flex items-center gap-2xs font-semibold');tag.style.color='var(--color-tags-nsfw-content,#b2007f)';tag.append(redditIcon('nsfw',12),document.createTextNode('NSFW'));out.push(dot(),tag);}
         if(post.spoiler){const tag=make('span','rt-search-tag font-semibold','Spoiler');out.push(dot(),tag);}
+        if(post.removal && post.removal.state!=='visible'){out.push(dot(),this.removalPill(post.removal));}
         // Archive results and Reddit status say where a result came from, as small cues after the time.
         if(post.source==='arctic-shift' || ['deleted','removed'].includes(post.status)){const cue=this.indicator(post);cue.classList.add('ms-xs');cue.dataset.rtRowSource=post.status || 'unknown';out.push(cue);}
         return out;};

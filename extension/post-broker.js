@@ -236,6 +236,23 @@
     });
     pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
   }
+  // Removal evidence for your own items (docs/own-removal-detection-spec.md §4.1 E3): the archive's first capture
+  // (body or [removed], retrieved_on). Needs only "Use the archive"; restoring deleted text is a separate setting.
+  async function archiveRemoval(message,sender){
+    const kind=message.kind,validId=kind==='comment'?Model.validateCommentId:Model.validateId;
+    if(!['post','comment'].includes(kind) || !Model.validateUsername(message.username) || !Array.isArray(message.ids) || !message.ids.length || message.ids.length>25 || !message.ids.every(validId))return fail('Invalid removal-check IDs.','invalid-request');
+    const username=message.username.toLowerCase(),ids=[...new Set(message.ids.map(id=>id.toLowerCase().replace(kind==='comment'?/^t1_/:/^t3_/,'')))].sort();
+    if(!authorized(sender,username,null))return fail('Removal checks require your own Reddit profile.','forbidden');
+    if(!await enabled())return disabled();
+    const key='removal:'+username+':'+kind+':'+ids.join(','),saved=cache.get(key);
+    if(saved?.expires>Date.now())return saved.value;
+    if(pending.has(key))return pending.get(key);
+    if(pending.size>=50)return fail('Too many archive requests.','busy');
+    const operation=request(username,null,ids,kind,{titles:false}).then(value=>{
+      if(value.ok){value={...value,posts:value.posts.filter(post=>post.author.toLowerCase()===username)};if(cache.size>=50)cache.delete(cache.keys().next().value);cache.set(key,{value,expires:Date.now()+ttl});}return value;
+    });
+    pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
+  }
   // --- Archive search layer: text search, aggregates, subreddit metadata. Same slot, cooldown, backoff, timeout and size bound as request().
   // A second source (e.g. a PullPush adapter) would plug in here by returning the same shapes; none is configured.
   const searchSubreddit=/^[A-Za-z0-9_]{2,21}$/,searchTtl=30000;
@@ -375,6 +392,7 @@
     }
     if(message.action==='archive-parents')return archiveParents(message,sender);
     if(message.action==='archive-recover')return archiveRecover(message,sender);
+    if(message.action==='archive-removal')return archiveRemoval(message,sender);
     if(message.action==='archive-comments')return archiveComments(message,sender);
     if(message.action==='archive-thread-comments')return archiveThreadComments(message,sender);
     if(message.action==='archive-search')return archiveSearch(message,sender);
