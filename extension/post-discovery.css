@@ -600,7 +600,11 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 .rt-redact-review-tools{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .rt-redact-excerpt,.rt-redact-fulltext,.rt-redact-replacement{margin:0;color:var(--color-neutral-content-strong,#181c1f);font-size:14px;line-height:20px;white-space:pre-wrap;overflow-wrap:anywhere}
 .rt-redact-excerpt{cursor:pointer}
-.rt-redact-item details>summary{cursor:pointer;color:var(--color-neutral-content-weak,#576f76)}
+.rt-redact-expand{align-self:flex-start;min-height:24px;margin:0;padding:0;border:0;background:transparent;color:var(--color-a-default,#216ba5);font:inherit;font-size:12px;line-height:16px;cursor:pointer}
+.rt-redact-expand:hover{text-decoration:underline}
+.rt-redact-expand:focus-visible{outline:2px solid var(--color-a-default,#216ba5);outline-offset:2px;border-radius:4px}
+.rt-redact-tail{height:1px;list-style:none}
+.rt-redact-suggestion-status{margin:0;padding:4px 12px;line-height:16px}
 .rt-redact-item .rt-redact-link{align-self:flex-start;font-size:12px;color:var(--color-a-default,#216ba5)}
 .rt-redact-confirmation{display:flex;flex-direction:column;gap:16px}
 .rt-redact-replacement{padding:12px 16px;border-inline-start:3px solid var(--color-neutral-border,#d4dadc);border-radius:4px;background:var(--color-neutral-background-weak,#f6f8f9)}
