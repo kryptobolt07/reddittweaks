@@ -1,3 +1,12 @@
+# 0.34.2 preview
+
+- **Profile-post discovery:** support own-profile post links (`/user/<you>/comments/…`) alongside community links. This fixes “A native profile item is incomplete” when the Overview feed contains pinned profile posts. Unreadable individual cards are excluded from the write allow-list and counted as incomplete; they no longer discard valid matches from the same page.
+- **Compact filters:** reduce community popovers to 256px wide with compact 40px rows and a 160px scrolling list, and remove the oversized help footer. Reset Reddit’s inherited 16px/8px input and textarea margins, shorten labels, and explicitly fill text-field rows so controls align without an empty column. Empty status text no longer reserves space.
+- **Votes:** use votes in the filter and item rows. “Minimum votes to keep” protects items at or above the entered value; its example is concise and occupies a full row.
+- **Validation:** all 1,450 tests pass; 44 JavaScript files parse; ZIP integrity passes; all 58 shipped assets match source, archive and the stable unpacked folder.
+- **Version:** patch increment for the native profile-post parsing failure; no storage migration.
+- **Live evidence and limits:** read-only live inspection identified pinned own-profile posts as the failure, and measured the inherited input/textarea margins and 320px community menu. No live discovery run, redaction or other account write was performed. Updated installed UI review awaits the user’s extension reload; no constructed preview was used.
+
 # 0.34.1 preview
 
 - **Redaction controls:** reuse the existing searchable community selector for include/exclude filters, native-style icon menu rows for content type and the shared calendar. Content type, date and community buttons now match the other controls’ 40px height. Only one popover opens at a time; menus support keyboard navigation, Escape, focus restoration and outside dismissal. The calendar opens in the modal’s top layer without expanding the form. The score filter now explains that entering 10 protects items with at least 10 net Reddit points; blank ignores score.
