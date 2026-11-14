@@ -558,6 +558,7 @@
       if(this.feed)for(const entry of this.nativeEntries())this.initialNative.add(entry.node);
       if(this.feed && !this.batchedProfile && typeof IntersectionObserver==='function')this.nativeObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){this.nativeObserver.unobserve(entry.target);this.queueNative(entry.target);}},{rootMargin:'400px'});this.live=new Map();this.archived=new Map();
       const host=this.host=make('section','rt-posts');host.dataset.rtUi='posts';host.setAttribute('aria-label',context.view==='search'?'Search results':context.kind==='profile'?'Additional public activity':'Archived post snapshot');
+      host.dataset.rtContext=context.kind;
       const toolbar=this.toolbar=make('div','rt-posts-toolbar');
       const noun=context.view==='comments'?'comments':context.view==='overview'?'activity':'posts';
       this.discover=button(this.settingsError?'Retry discovery':context.kind==='profile'?'Discover '+noun:'Check archived post',()=>this.settingsError?this.retrySettings():this.archiveOnly?this.loadArchive():context.kind==='profile'?this.refreshActivity({force:true}):this.loadDetail(),'search');
@@ -565,6 +566,8 @@
       if(context.kind==='post' && !this.settings.archiveDiscovery && !this.settingsError){this.discover.disabled=true;this.discover.title='Enable Arctic Shift archive discovery in Reddit Tweaks to check this post.';}
       this.discover.setAttribute('aria-label',this.discover.textContent);this.discover.textContent='';this.discover.append(glyph(context.kind==='profile'?'refresh':'archive'));
       if(this.archiveOnly){this.discover.setAttribute('aria-label','Search archive');this.discover.title='Find archived public posts and comments for this unavailable account';this.discover.replaceChildren(glyph('archive'));this.discover.disabled=!this.settingsError && !this.settings.archiveDiscovery;}
+      // Profile refresh belongs in Feed options, including while Reddit replaces that menu.
+      this.discover.hidden=context.kind==='profile' && !this.settingsError;
       toolbar.append(this.discover);
       // The archive now loads with Reddit discovery whenever it is enabled;
       // Refresh activity reloads both providers.

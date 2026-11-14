@@ -559,6 +559,8 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
   .rt-raffle-winner{grid-template-columns:16px 32px minmax(0,1fr)}
 }
 /* Redaction dialog (docs/redaction-spec.md), on the raffle dialog's styles. */
+.rt-posts[data-rt-context=profile] .rt-posts-toolbar{min-height:0}
+.rt-posts[data-rt-context=profile]:not(:has(.rt-posts-toolbar>button:not([hidden]),.rt-posts-status[data-error=true],.rt-posts-notice:not([hidden]),.rt-posts-more:not([hidden]))){margin-block:0}
 .rt-redact-dialog .rt-raffle-field select,.rt-redact-area{box-sizing:border-box;padding:8px 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:12px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);font:inherit;font-size:14px}
 .rt-redact-dialog .rt-raffle-field select{height:40px;border-radius:20px}
 .rt-redact-area{resize:vertical;min-height:40px}
