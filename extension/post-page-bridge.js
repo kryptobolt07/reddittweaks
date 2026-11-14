@@ -611,6 +611,34 @@
     if(!M.validateUsername(data?.data?.name))throw Error('Sign in to Reddit to search your lists.');
     return data.data.name;
   }
+  const communitySuggestions=new Map();
+  async function readCommunitySuggestions(input,signal){
+    if(typeof input.query!=='string' || input.query.length>50 || /[\u0000-\u001f\u007f]/.test(input.query) || ['url','origin','headers','method'].some(k=>input[k]!==undefined))throw Error('Invalid community search.');
+    const query=input.query.trim().replace(/^\/?r\//i,''),username=await signedInUsername(signal),key=username.toLowerCase()+'|'+query.toLowerCase();
+    const cached=communitySuggestions.get(key);if(cached?.expires>Date.now())return cached.value;
+    let doc=document;
+    const own=route()?.username?.toLowerCase()===username.toLowerCase() && document.querySelector('main shreddit-feed');
+    if(query || !own){
+      try{
+      const url=new URL(query?'/svc/shreddit/search-typeahead':'/user/'+encodeURIComponent(username)+'/',location.origin);
+      if(query){url.searchParams.set('query',query);url.searchParams.set('cId',crypto.randomUUID());url.searchParams.set('recentSearchesCount','0');url.searchParams.set('mode','search');}else url.searchParams.set('sort','new');
+      const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:query?'text/vnd.reddit.partial+html, text/html;q=0.9':'text/html'},signal});
+      if(!response.ok)throw Error('Reddit community suggestions are unavailable (HTTP '+response.status+').');
+      doc=new DOMParser().parseFromString(await boundedText(response), 'text/html');
+      if(!query && !doc.querySelector('shreddit-feed'))throw Error('Reddit returned no profile suggestions.');
+      }catch(error){if(query || signal?.aborted)throw error;return {username,entries:[],source:'native-profile',unavailable:true};}
+    }
+    const counts=new Map(),add=name=>{if(!/^[A-Za-z0-9_]{2,21}$/.test(name || '') && !/^u_[A-Za-z0-9_-]{3,20}$/.test(name || ''))return;const k=name.toLowerCase(),old=counts.get(k);if(old)old.count++;else counts.set(k,{key:name,count:query?0:1});};
+    if(query){
+      for(const anchor of doc.querySelectorAll('a[href]')){try{const url=new URL(anchor.getAttribute('href'),location.origin),name=url.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})\/$/)?.[1];if(url.origin===location.origin && name && !counts.has(name.toLowerCase()))add(name);}catch{}}
+    }else for(const card of doc.querySelectorAll('main shreddit-feed shreddit-post,main shreddit-feed shreddit-profile-comment')){
+      if(card.closest('[data-rt-ui]'))continue;const author=card.getAttribute('author') || card.querySelector('[id^="poster-info-"] a[href*="/user/"]')?.getAttribute('href')?.match(/\/user\/([A-Za-z0-9_-]{3,20})\/?$/)?.[1];
+      if(author?.toLowerCase()!==username.toLowerCase())continue;
+      add((card.getAttribute('subreddit-name') || card.getAttribute('subreddit-prefixed-name') || (card.getAttribute('href') || card.getAttribute('permalink') || '').match(/^\/r\/([^/]+)\//)?.[1] || '').replace(/^r\//i,''));
+    }
+    const value={username,entries:[...counts.values()].slice(0,100),source:query?'reddit-search':'native-profile'};
+    if(communitySuggestions.size>=50)communitySuggestions.delete(communitySuggestions.keys().next().value);communitySuggestions.set(key,{expires:Date.now()+300000,value});return value;
+  }
   function historyListing(text){
     const doc=new DOMParser().parseFromString(text,'text/html'),cards=[...doc.querySelectorAll('main shreddit-post[id]')];
     if(cards.length>100 || !cards.length && !doc.querySelector('main #empty-feed-content,main [data-testid="empty-state"]'))throw Error('Reddit’s History format changed or History could not be loaded.');
@@ -807,14 +835,14 @@
   }
   // Redaction (docs/redaction-spec.md): writes only to items this page read from the signed-in account's own lists.
   // The modhash stays here, in the page world; the extension's other scripts never receive it.
-  const redaction={username:'',modhash:'',allowed:new Map(),cursors:new Map()};
+  const redaction={username:'',modhash:'',allowed:new Map(),cursors:new Map(),dirty:false};
   const redactSources={overview:['new'],submitted:['new','top','controversial'],comments:['new','top','controversial']};
   async function redactIdentity(signal){
     const response=await fetch(new URL('/api/me.json',location.origin).href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
     if(!response.ok)throw Error(response.status===401 || response.status===403?'Sign in to Reddit to redact your posts and comments.':'Reddit could not confirm your account (HTTP '+response.status+').');
     let data;try{data=JSON.parse(await boundedText(response))?.data;}catch{throw Error('Reddit could not confirm your account.');}
     if(!M.validateUsername(data?.name))throw Error('Sign in to Reddit to redact your posts and comments.');
-    if(redaction.username && redaction.username.toLowerCase()!==data.name.toLowerCase()){redaction.allowed.clear();redaction.cursors.clear();}
+    if(redaction.username && redaction.username.toLowerCase()!==data.name.toLowerCase()){redaction.allowed.clear();redaction.cursors.clear();redaction.dirty=false;}
     redaction.username=data.name;redaction.modhash=typeof data.modhash==='string' && /^[a-z0-9]{10,100}$/i.test(data.modhash)?data.modhash:'';
     return {username:data.name,canWrite:Boolean(redaction.modhash)};
   }
@@ -864,7 +892,7 @@
       const path='/user/'+encodeURIComponent(redaction.username)+'/'+(input.source==='overview'?'':input.source+'/');
       // Reuse the actual signed-in profile only when it still contains its newest native page.
       const current=location.pathname.replace(/\/$/,'').toLowerCase()===path.replace(/\/$/,'').toLowerCase(),params=new URLSearchParams(location.search);
-      if(current && (!params.get('sort') || params.get('sort')==='new') && ![...params.keys()].some(k=>k.startsWith('rt_')) && !document.querySelector('shreddit-feed .virtualized-placeholder') && document.querySelector('shreddit-feed shreddit-post,shreddit-feed shreddit-profile-comment'))return redactNativePage(document,input.source);
+      if(!redaction.dirty && current && (!params.get('sort') || params.get('sort')==='new') && ![...params.keys()].some(k=>k.startsWith('rt_')) && !document.querySelector('shreddit-feed .virtualized-placeholder') && document.querySelector('shreddit-feed shreddit-post,shreddit-feed shreddit-profile-comment'))return redactNativePage(document,input.source);
       url=new URL(path,location.origin);url.searchParams.set('sort','new');
     }
     const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:input.after?'text/vnd.reddit.partial+html, text/html;q=0.9':'text/html'},signal});
@@ -915,9 +943,10 @@
     if(data==null)return {written:false,reason:'Reddit returned an unexpected answer.'};
     if(Array.isArray(errors) && errors.length)return {written:false,reason:'Reddit refused the '+(input.step==='overwrite'?'edit':'delete')+': '+String(errors[0]?.[1] || errors[0]?.[0] || 'unknown error').slice(0,200)+'.'};
     if(input.step==='delete')redaction.allowed.delete(input.fullname);
-    return {written:true};
+    redaction.dirty=true;return {written:true};
   }
   async function read(input,signal){
+    if(input.action==='community-suggestions')return readCommunitySuggestions(input,signal);
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
     if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
     if(input.action==='raffle-thread')return raffleThread(input,signal);
@@ -1014,7 +1043,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}

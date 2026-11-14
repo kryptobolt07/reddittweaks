@@ -4,7 +4,7 @@
   'use strict';
   if(globalThis.RTRedactionModel)return;
   const WRITE_GAP_MS=1100,MAX_BACKOFF_MS=300000,MAX_CONSECUTIVE_FAILURES=3;
-  const DEFAULT_TEXT='This comment has been redacted or anonymized by Reddit Tweaks.';
+  const DEFAULT_TEXT='This comment has been redacted by Reddit Tweaks.';
   const communities=value=>(Array.isArray(value)?value:String(value || '').split(/[\s,]+/)).map(name=>String(name).trim().replace(/^\/?r\//i,'').replace(/^\/?u\//i,'u_').toLowerCase()).filter(name=>/^[a-z0-9_]{2,21}$/.test(name) || /^u_[a-z0-9_-]{3,20}$/.test(name));
   // Links or IDs to keep: t1_/t3_ fullnames, bare IDs, or Reddit permalinks (post or comment).
   function keepIds(value){
@@ -23,7 +23,8 @@
     const date=value=>{if(!value)return null;const t=Date.parse(String(value)+(/^\d{4}-\d{2}-\d{2}$/.test(String(value))?'T00:00:00Z':''));return Number.isFinite(t)?Math.floor(t/1000):null;};
     const kinds=['posts','comments','both'].includes(raw.kinds)?raw.kinds:'both';
     const text=String(raw.text ?? DEFAULT_TEXT).replace(/\u0000/g,'').trim().slice(0,1000) || DEFAULT_TEXT;
-    return {kinds,olderThanDays:num(raw.olderThanDays,0,36500),from:date(raw.from),to:date(raw.to),onlyIn:communities(raw.onlyIn),neverIn:communities(raw.neverIn),
+    const operation=['overwrite','delete','overwrite-delete'].includes(raw.operation)?raw.operation:'overwrite-delete';
+    return {kinds,operation,olderThanDays:num(raw.olderThanDays,0,36500),from:date(raw.from),to:date(raw.to),onlyIn:communities(raw.onlyIn),neverIn:communities(raw.neverIn),
       keepScoreAtLeast:num(raw.keepScoreAtLeast,-1e9,1e9),onlyContaining:String(raw.onlyContaining || '').trim().toLowerCase().slice(0,200),keepContaining:String(raw.keepContaining || '').trim().toLowerCase().slice(0,200),keep:keepIds(raw.keep),text};
   }
   // One item from the bridge (already your own) → whether the rules select it, and why not.
@@ -41,6 +42,7 @@
     if(rules.onlyContaining && !haystack.includes(rules.onlyContaining))return 'text';
     if(rules.keepContaining && haystack.includes(rules.keepContaining))return 'kept-text';
     if(item.deleted)return 'already-deleted';
+    if(rules.operation==='overwrite' && !overwritable(item))return 'no-editable-text';
     return '';
   }
   function select(items,rawRules,{now=Date.now()/1000}={}){
@@ -52,10 +54,10 @@
       found:seen.size,oldest:seen.size?Math.min(...items.filter(Boolean).map(i=>i.created)):null};
   }
   const overwritable=item=>item.kind==='comment' || item.isSelf===true && Boolean(String(item.body || '').trim()) && !['[deleted]','[removed]'].includes(String(item.body).trim());
-  const confirmation=count=>'delete '+count;
-  const confirmed=(typed,count)=>String(typed || '').trim().toLowerCase()===confirmation(count);
+  const confirmation=(count,operation='overwrite-delete')=>(operation==='overwrite'?'overwrite ':'delete ')+count;
+  const confirmed=(typed,count,operation)=>String(typed || '').trim().toLowerCase()===confirmation(count,operation);
 
-  /* Process items one at a time: overwrite (when there is text), then delete. write(item,step,text) resolves
+  /* Process items one at a time using the selected operation; the combined mode overwrites before deleting. write(item,step,text) resolves
      {ok:true} or {ok:false,error,retryAfterMs?,rateLimited?}; it may throw (counted as a failure).
      sleep(ms,signal) and now() are injected so tests run on a fake clock. */
   async function run(items,rules,{write,sleep,now=()=>Date.now(),signal=null,onProgress=null}={}){
@@ -75,8 +77,11 @@
       if(signal?.aborted){stopped='Stopped.';break;}
       let edited=false,outcome;
       try{
-        if(overwritable(item)){outcome=await attempt(item,'overwrite');edited=outcome.ok;}
-        if(!outcome || outcome.ok)outcome=await attempt(item,'delete');
+        if(rules.operation!=='delete'){
+          if(overwritable(item)){outcome=await attempt(item,'overwrite');edited=outcome.ok;}
+          else if(rules.operation==='overwrite')outcome={ok:false,error:'This item has no editable text.'};
+        }
+        if(rules.operation!=='overwrite' && (!outcome || outcome.ok))outcome=await attempt(item,'delete');
       }catch(error){if(error.stopped){stopped='Stopped.';if(edited)overwrittenOnly.push({item,error:'Stopped before deleting.'});break;}outcome={ok:false,error:error.message};}
       if(outcome.ok){done.push(item);consecutive=0;}
       else{(edited?overwrittenOnly:failed).push({item,error:outcome.error});consecutive++;}
@@ -86,7 +91,7 @@
     return {done,failed,overwrittenOnly,stopped,remaining:items.length-done.length-failed.length-overwrittenOnly.length};
   }
   // Rough time left at the pacing rate (two writes for overwritable items).
-  const minutesLeft=items=>Math.max(1,Math.ceil(items.reduce((sum,item)=>sum+(overwritable(item)?2:1),0)*WRITE_GAP_MS/60000));
+  const minutesLeft=(items,operation='overwrite-delete')=>Math.max(1,Math.ceil(items.reduce((sum,item)=>sum+(operation==='overwrite-delete' && overwritable(item)?2:1),0)*WRITE_GAP_MS/60000));
 
   globalThis.RTRedactionModel=Object.freeze({WRITE_GAP_MS,MAX_CONSECUTIVE_FAILURES,DEFAULT_TEXT,normalizeRules,keepIds,select,overwritable,confirmation,confirmed,run,minutesLeft});
 })();

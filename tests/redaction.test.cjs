@@ -86,16 +86,17 @@ test('bridge reports Reddit’s refusals and rate limits without claiming succes
 });
 
 // --- Dialog
-async function dialog(t,{items,writes=()=>({written:true}),list}={}){
+async function dialog(t,{items,writes=()=>({written:true}),list,suggestions=()=>({username:'Example',entries:[]}),settings={},aggregate}={}){
  const dom=new JSDOM('<main></main>',{url:'https://www.reddit.com/#rt-redact',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[];let r;
  t.after(()=>{r?.destroy();W.close();});
  W.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};W.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
  W.eval(read('feed-filters.js'));W.eval(read('date-picker.js'));W.eval(read('redaction-model.js'));W.eval(read('redaction-ui.js'));
  const readFn=async args=>{calls.push(args);
+  if(args.action==='community-suggestions')return suggestions(args);
   if(args.action==='redact-identity')return {username:'Example',canWrite:true};
   if(args.action==='redact-list')return list?list(args):{items:args.source==='overview'?items:[],hasMore:false,after:null};
   if(args.action==='redact-item')return writes(args);throw Error('unexpected');};
- r=new W.RTRedaction.Redaction({read:readFn,sleep:async()=>{}});await flush();
+ r=new W.RTRedaction.Redaction({read:readFn,sleep:async()=>{},readSettings:async()=>settings,aggregate});await flush();
  const D=W.document,q=s=>D.querySelector(s);
  return {W,D,r,calls,q,primary:()=>q('[data-rt-redact] [slot="primary-button"]'),status:()=>q('.rt-raffle-status').textContent,type:(name,value)=>{const el=q('[name="'+name+'"]');el.value=value;el.dispatchEvent(new W.Event('input',{bubbles:true}));}};
 }
@@ -115,7 +116,7 @@ test('find is a dry run; the run needs the typed phrase and uses exactly the pre
  s.type('confirm','delete 2');assert.equal(s.primary().disabled,true);s.type('confirm','delete 3');assert.equal(s.primary().disabled,false);
  s.primary().click();await flush();
  assert.deepEqual(s.calls.filter(c=>c.action==='redact-item').map(c=>c.fullname+':'+c.step),['t1_a:overwrite','t1_a:delete','t1_b:overwrite','t1_b:delete','t3_p:delete']);
- assert.equal(s.calls.find(c=>c.step==='overwrite').text,'This comment has been redacted or anonymized by Reddit Tweaks.');
+ assert.equal(s.calls.find(c=>c.step==='overwrite').text,'This comment has been redacted by Reddit Tweaks.');
  assert.match(s.status(),/^Deleted 3 of 3\. 0 failed\.$/);
 });
 test('changing a rule after the preview clears it, so a run can’t use stale matches',async t=>{
@@ -136,7 +137,7 @@ test('review exposes every match and confirmation writes only the selected set',
  const items=Array.from({length:53},(_,i)=>item('a'+i));const s=await dialog(t,{items});s.primary().click();await flush();
  assert.equal(s.r.state.form.hidden,true);assert.equal(s.r.state.confirmation.hidden,true);
  assert.equal(s.q('.rt-redact-preview').querySelectorAll('input[type=checkbox]').length,50);
- s.r.state.more.click();assert.equal(s.q('.rt-redact-preview').querySelectorAll('input[type=checkbox]').length,53);assert.equal(s.r.state.more.hidden,true);
+ Object.defineProperties(s.r.state.list,{clientHeight:{value:400},scrollHeight:{value:800}});s.r.state.list.scrollTop=400;s.r.state.list.dispatchEvent(new s.W.Event('scroll'));assert.equal(s.q('.rt-redact-preview').querySelectorAll('input[type=checkbox]').length,53);assert.equal(s.r.state.tail.hidden,true);
  s.r.state.selectAll.click();assert.equal(s.primary().disabled,true);
  const box=s.q('input[value="t1_a52"]');box.click();assert.equal(s.r.state.selection.matches.length,1);s.primary().click();
  assert.equal(s.r.state.preview.hidden,true);assert.equal(s.r.state.confirmation.hidden,false);assert.match(s.r.state.confirmation.textContent,/u\/Example · 0 posts and 1 comments selected/);
@@ -184,7 +185,7 @@ test('include and exclude communities reuse the shared picker, support exact nam
  assert.equal(s.r.rules().neverIn.join(','),'beta');assert.equal(s.r.rules().onlyIn.join(','),'alpha');
  panel.list.querySelector('[data-rt-sub-all]').click();assert.equal(s.r.rules().neverIn.length,0);
  state.controls.kinds.button.dispatchEvent(new s.W.MouseEvent('pointerdown',{bubbles:true}));assert.equal(state.popup,null);
- assert.equal(s.calls.length,0,'opening selectors never scans the account');
+ assert.ok(s.calls.every(c=>c.action==='community-suggestions'),'opening selectors never starts redaction discovery');
 });
 test('calendar is an icon control beside the other filters and opening it does not insert a form section',async t=>{
  const s=await dialog(t,{items:fresh}),state=s.r.state;
@@ -216,8 +217,8 @@ test('native discovery reads the own profile HTML outside that view and never ca
 });
 
 test('loaded profile communities appear in the picker without another discovery request',async t=>{
- const s=await dialog(t,{items:fresh}),card=s.D.createElement('shreddit-profile-comment');card.setAttribute('href','/r/Alpha/comments/p/comment/a/');s.D.querySelector('main').append(card);
- s.r.state.controls.onlyIn.button.click();assert.ok(s.r.state.popup.el.querySelector('[data-rt-sub-row="alpha"]'));assert.equal(s.calls.length,0);
+ const s=await dialog(t,{items:fresh,suggestions:()=>({username:'Example',entries:[{key:'alpha',count:3}]})});
+ s.r.state.controls.onlyIn.button.click();await flush();assert.ok(s.r.state.popup.el.querySelector('[data-rt-sub-row="alpha"]'));assert.equal(s.calls.filter(c=>c.action==='community-suggestions').length,1);
 });
 test('older pinned items do not stop chronological discovery before newer matches',async t=>{
  const old=item('pin',{created:Date.parse('2020-01-01T00:00:00Z')/1000,pinned:true}),recent=item('new',{created:Date.parse('2023-05-02T00:00:00Z')/1000});
@@ -245,4 +246,71 @@ test('unread native items are disclosed in review and confirmation without hidin
  const s=await dialog(t,{list:()=>({items:fresh,unread:1,hasMore:false})});s.type('from','2000-01-01');s.primary().click();await flush();
  assert.equal(s.r.state.selected.size,3);assert.match(s.status(),/1 item could not be read and was excluded/);assert.equal(s.r.state.status.dataset.incomplete,'true');
  s.primary().click();assert.match(s.r.state.confirmation.textContent,/Discovery was incomplete/);
+});
+
+test('operation modes perform only their chosen writes and overwrite mode excludes textless items',async()=>{
+ const X=model(),items=[item('a'),item('p',{kind:'post',isSelf:false,body:''})];
+ for(const operation of ['overwrite','delete','overwrite-delete']){
+  const rules=X.normalizeRules({operation,text:'Custom message'}),selected=X.select(items,rules),calls=[];
+  const result=await X.run(selected.matches,rules,{write:async(i,step,text)=>{calls.push([i.fullname,step,text]);return {ok:true};},sleep:async()=>{},now:()=>0});
+  assert.equal(result.failed.length,0);assert.deepEqual(calls.map(c=>c[1]),operation==='overwrite'?['overwrite']:operation==='delete'?['delete','delete']:['overwrite','delete','delete']);
+  assert.ok(calls.every(c=>c[2]==='Custom message'));assert.equal(X.confirmation(1,operation),operation==='overwrite'?'overwrite 1':'delete 1');
+ }
+ let writes=0;const bad=await X.run([items[1]],X.normalizeRules({operation:'overwrite'}),{write:async()=>{writes++;return {ok:true};},sleep:async()=>{}});assert.equal(writes,0);assert.equal(bad.failed.length,1);
+});
+test('custom replacement text is editable, confirmed verbatim and used for overwrite-only',async t=>{
+ const s=await dialog(t,{items:fresh}),state=s.r.state;assert.equal(s.q('[name=text]').value,'This comment has been redacted by Reddit Tweaks.');
+ s.type('text','A custom privacy message.');state.controls.operation.button.click();s.q('[data-rt-option=overwrite]').click();assert.equal(state.messageField.hidden,false);assert.equal(state.controls.operation.caption.textContent,'Overwrite text');
+ s.primary().click();await flush();assert.equal(state.selection.matches.length,2);s.primary().click();assert.match(state.confirmation.textContent,/A custom privacy message/);assert.match(state.confirmation.textContent,/remain on Reddit/);
+ s.type('confirm','delete 2');assert.equal(s.primary().disabled,true);s.type('confirm','overwrite 2');s.primary().click();await flush();
+ const writes=s.calls.filter(c=>c.action==='redact-item');assert.deepEqual(writes.map(c=>c.step),['overwrite','overwrite']);assert.ok(writes.every(c=>c.text==='A custom privacy message.'));assert.match(s.status(),/^Overwritten 2 of 2/);
+});
+test('delete-only hides replacement without losing edits and never overwrites',async t=>{
+ const s=await dialog(t,{items:fresh});s.type('text','Saved custom text');s.type('operation','delete');assert.equal(s.r.state.messageField.hidden,true);
+ s.type('operation','overwrite');assert.equal(s.q('[name=text]').value,'Saved custom text');s.type('operation','delete');s.primary().click();await flush();s.primary().click();
+ assert.equal(s.q('.rt-redact-replacement'),null);assert.match(s.r.state.confirmation.textContent,/without overwriting/);s.type('confirm','delete 3');s.primary().click();await flush();assert.deepEqual(s.calls.filter(c=>c.action==='redact-item').map(c=>c.step),['delete','delete','delete']);
+});
+test('Read full text expands the same excerpt without changing selection or making another copy',async t=>{
+ const body='A long comment '+ 'word '.repeat(80)+'ending';const s=await dialog(t,{items:[item('long',{body})]});s.primary().click();await flush();
+ const row=s.q('.rt-redact-row'),excerpt=row.querySelector('.rt-redact-excerpt'),button=row.querySelector('.rt-redact-expand'),collapsed=excerpt.textContent;assert.notEqual(collapsed,body);
+ button.click();assert.equal(row.querySelector('.rt-redact-excerpt'),excerpt);assert.equal(excerpt.textContent,body);assert.equal(row.querySelector('input').checked,true);assert.equal(row.querySelectorAll('.rt-redact-fulltext,details').length,0);assert.equal(row.textContent.split(body).length-1,1);
+ button.click();assert.equal(excerpt.textContent,collapsed);assert.equal(button.getAttribute('aria-expanded'),'false');
+});
+test('review loads more on scrolling and retains offscreen deselections without paging buttons',async t=>{
+ const s=await dialog(t,{items:Array.from({length:105},(_,i)=>item('a'+i))});s.primary().click();await flush();const state=s.r.state;
+ assert.ok(!state.preview.textContent.includes('Show next'));state.selectAll.click();Object.defineProperties(state.list,{clientHeight:{value:400},scrollHeight:{value:800}});state.list.scrollTop=400;
+ state.list.dispatchEvent(new s.W.Event('scroll'));assert.equal(state.visibleRows,100);state.list.dispatchEvent(new s.W.Event('scroll'));assert.equal(state.visibleRows,105);assert.equal(state.tail.hidden,true);assert.ok([...state.list.querySelectorAll('input')].every(e=>!e.checked));assert.equal(s.primary().disabled,true);
+});
+test('own activity suggestions merge optional archive counts, stay available across selectors and respect opt-out',async t=>{
+ const aggregateCalls=[],suggestions=()=>({username:'Example',entries:[{key:'alpha',count:2}]});
+ const s=await dialog(t,{items:fresh,suggestions,settings:{archiveDiscovery:true},aggregate:async args=>{aggregateCalls.push(args);return {ok:true,buckets:[{key:'beta',count:args.kind==='post'?5:7}]};}});
+ s.r.state.controls.onlyIn.button.click();await flush();const panel=s.r.state.popup.el.rtCommunityPanel;assert.equal(panel.data.entries[0].key,'beta');assert.equal(panel.data.entries[0].count,12);assert.ok(panel.data.entries.some(e=>e.key==='alpha'));
+ s.r.state.controls.neverIn.button.click();await flush();assert.equal(s.calls.filter(c=>c.action==='community-suggestions' && !c.query).length,1);assert.equal(aggregateCalls.length,2);
+ const off=await dialog(t,{items:fresh,suggestions,settings:{archiveDiscovery:false},aggregate:async()=>{throw Error('must not call');}});off.r.state.controls.onlyIn.button.click();await flush();assert.ok(off.r.state.popup.el.rtCommunityPanel.data.entries.some(e=>e.key==='alpha'));assert.equal(off.r.state.historyFailed,false);
+});
+test('Reddit typeahead debounces, rejects stale responses, and clears back to activity suggestions',async t=>{
+ let release;const first=new Promise(r=>release=r);const s=await dialog(t,{items:fresh,suggestions:args=>!args.query?{username:'Example',entries:[{key:'alpha',count:2}]}:args.query==='lap'?first:{username:'Example',entries:[{key:'Android',count:0}]}});
+ s.r.state.controls.onlyIn.button.click();await flush();const panel=s.r.state.popup.el.rtCommunityPanel,input=panel.input;
+ input.value='lap';input.dispatchEvent(new s.W.Event('input',{bubbles:true}));await new Promise(r=>setTimeout(r,280));
+ input.value='phone';input.dispatchEvent(new s.W.Event('input',{bubbles:true}));release({entries:[{key:'Macbook',count:0}]});await new Promise(r=>setTimeout(r,280));await flush();
+ assert.equal(panel.list.querySelector('[data-rt-sub-row=Macbook]'),null);assert.ok(panel.list.querySelector('[data-rt-sub-row=Android]'),'server semantic matches need not contain the query');
+ s.r.state.popup.el.querySelector('.rt-filter-search-clear').click();assert.equal(input.value,'');assert.equal(panel.list.querySelector('[data-rt-sub-row=Android]'),null);assert.ok(panel.list.querySelector('[data-rt-sub-row=alpha]'));
+});
+test('community suggestions use authored profile activity and native typeahead, with account-scoped caching',async t=>{
+ let account='Example';const b=bridge(t,{url:'https://www.reddit.com/user/Example/comments/',html:nativeComments([{id:'own'},{id:'other',author:'Other'}]),fetcher:u=>u.pathname==='/api/me.json'?{body:{data:{name:account,modhash:'NOT-FOR-CALLERS'}}}:u.pathname==='/svc/shreddit/search-typeahead'?{text:'<a href="/r/Laptops/">Laptops</a><a href="https://evil.test/r/Evil/">ignore</a><a href="/r/Laptops/comments/x/">ignore</a>'}:{text:nativeComments([{id:'new',author:'Other'}]).replaceAll('/r/Alpha/','/r/Beta/')}});
+ const own=await b.send({action:'community-suggestions',query:''});assert.equal(own.username,'Example');assert.deepEqual(own.entries,[{key:'Alpha',count:1}]);assert.equal(JSON.stringify(own).includes('NOT-FOR-CALLERS'),false);
+ const search=await b.send({action:'community-suggestions',query:'lap'});assert.deepEqual(search.entries,[{key:'Laptops',count:0}]);await b.send({action:'community-suggestions',query:'lap'});assert.equal(b.calls.filter(c=>c.url.pathname.includes('typeahead')).length,1);
+ const call=b.calls.find(c=>c.url.pathname.includes('typeahead'));assert.equal(call.options.credentials,'include');assert.equal(call.url.searchParams.get('recentSearchesCount'),'0');assert.ok(call.url.searchParams.get('cId'));
+ account='Other';const next=await b.send({action:'community-suggestions',query:''});assert.deepEqual(next.entries,[{key:'Beta',count:1}]);
+ const before=b.calls.length;assert.equal((await b.send({action:'community-suggestions',query:'bad\nquery'})).ok,false);assert.equal(b.calls.length,before);
+});
+test('closing a run stops after its pending request on browsers without AbortSignal.any',async t=>{
+ let release;const gate=new Promise(r=>release=r),s=await dialog(t,{items:fresh,writes:async()=>{await gate;return {written:true};}});
+ s.primary().click();await flush();s.primary().click();s.type('confirm','delete 3');s.primary().click();await flush();
+ s.q('[slot=close-button]').click();s.q('[slot=close-button]').click();release();await flush();assert.equal(s.calls.filter(c=>c.action==='redact-item').length,1);assert.equal(s.r.state,null);
+});
+test('subsequent native discovery refreshes its data after a successful write',async t=>{
+ const b=bridge(t,{url:'https://www.reddit.com/user/Example/comments/',html:nativeComments([{id:'a',text:'Before'}]),fetcher:(u,o)=>u.pathname==='/api/me.json'?meBody:o.method==='POST'?{body:{json:{errors:[]}}}:{text:nativeComments([{id:'a',text:'After'}])}});
+ await b.send({action:'redact-identity'});await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});
+ await b.send({action:'redact-item',username:'Example',fullname:'t1_a',step:'overwrite',text:'After'});const next=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});assert.equal(next.items[0].body,'After');assert.ok(b.calls.some(c=>c.url.pathname==='/user/Example/comments/'));
 });

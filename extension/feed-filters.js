@@ -327,14 +327,14 @@
     if(nativeHeader){
       field=mk('div','rt-filter-field');clear=mk('button','rt-filter-search-clear');clear.type='button';clear.setAttribute('aria-label','Clear community search');clear.hidden=true;clear.append(svgIcon('close',14));
       field.append(svgIcon('search',18),input,clear);head.append(field);
-      clear.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();input.value='';list.scrollTop=0;render();input.focus({preventScroll:true});});
+      clear.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();input.value='';list.scrollTop=0;input.dispatchEvent(new Event('input',{bubbles:true}));input.focus({preventScroll:true});});
     }else head.append(input);
     el.append(head,list,note);
     let observer=null,last={entries:[],picked:[],source:'none'};
     const render=(data=last)=>{
       if(clear)clear.hidden=!input.value;
       last=data;const picked=data.picked||[],pickedKeys=new Set(picked.map(n=>n.toLowerCase())),term=subName(input.value).toLowerCase(),entries=data.entries||[],byKey=new Map(entries.map(e=>[e.key.toLowerCase(),e]));
-      const full=picked.length>=max,rows=[...picked.map(n=>byKey.get(n.toLowerCase())||{key:n,count:0}),...entries.filter(e=>!pickedKeys.has(e.key.toLowerCase()) && (!term || e.key.toLowerCase().includes(term) || subLabel(e.key).toLowerCase().includes(input.value.trim().toLowerCase())))].slice(0,limit);
+      const full=picked.length>=max,rows=[...picked.map(n=>byKey.get(n.toLowerCase())||{key:n,count:0}),...entries.filter(e=>!pickedKeys.has(e.key.toLowerCase()) && (!term || e.matched===true || e.key.toLowerCase().includes(term) || subLabel(e.key).toLowerCase().includes(input.value.trim().toLowerCase())))].slice(0,limit);
       observer?.disconnect();observer=null;
       const keepTop=list.scrollTop;list.replaceChildren();
       const watch=typeof IntersectionObserver==='function'?(observer=new IntersectionObserver(items=>{for(const item of items)if(item.isIntersecting){observer?.unobserve(item.target);loadIcon(item.target);}},{root:list,rootMargin:'48px'})):null;
