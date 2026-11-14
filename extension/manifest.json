@@ -111,6 +111,7 @@
         "post-discovery.js",
         "profile-search.js",
         "subreddit-archive.js",
+        "unapproved-filter.js",
         "thread-restore.js"
       ]
     }
