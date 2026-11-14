@@ -642,8 +642,40 @@
     if(posts.some(post=>!post))throw Error('Some '+input.list+' items could not be read. The list search is incomplete.');
     return {posts,after:listing.after || null,hasMore:Boolean(listing.after),scanned:listing.children.length,incomplete:true,source:'reddit'};
   }
+  // "Not yet approved" filter (docs/unmoderated-filter-spec.md): moderator check and the Unmoderated queue for the
+  // community this page shows. Fixed same-origin paths, the reader's own session, read-only.
+  const communityName=/^[A-Za-z0-9_]{2,21}$/;
+  function modContext(input){
+    const page=location.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})(?:\/(?:hot|new|top|rising|best))?\/?$/i);
+    if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !page || !communityName.test(input.subreddit || '') || page[1].toLowerCase()!==input.subreddit.toLowerCase())throw Error('Open the community’s feed to check its moderation queue.');
+    if(['url','origin','method','headers'].some(key=>input[key]!==undefined))throw Error('Invalid moderation request.');
+    return page[1];
+  }
+  async function modJson(path,params,signal){
+    const url=new URL(path,location.origin);for(const [key,value] of Object.entries(params))url.searchParams.set(key,value);
+    const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
+    if(!response.ok)throw Object.assign(Error(response.status===403 || response.status===401?'Reddit says you don’t moderate this community.':'Reddit could not load the moderation queue (HTTP '+response.status+').'),{status:response.status});
+    try{return JSON.parse(await boundedText(response));}catch{throw Error('Reddit returned an unexpected moderation response.');}
+  }
+  async function readModeration(input,signal){
+    const name=modContext(input),path=pageKey();
+    if(input.action==='mod-status'){
+      const data=await modJson('/r/'+name+'/about.json',{raw_json:'1'},signal);
+      if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
+      return {moderator:data?.data?.user_is_moderator===true,subreddit:typeof data?.data?.display_name==='string' && communityName.test(data.data.display_name)?data.data.display_name:name};
+    }
+    if(input.after!=null && (typeof input.after!=='string' || !/^t3_[a-z0-9]{1,10}$/i.test(input.after)))throw Error('Invalid moderation queue cursor.');
+    const params={limit:'100',only:'links',raw_json:'1'};if(input.after)params.after=input.after;
+    const data=await modJson('/r/'+name+'/about/unmoderated.json',params,signal),listing=data?.data;
+    if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
+    if(data?.kind!=='Listing' || !Array.isArray(listing?.children) || listing.children.length>100 || listing.after!=null && !/^t3_[a-z0-9]{1,10}$/i.test(listing.after))throw Error('Reddit returned an unexpected moderation queue.');
+    const posts=listing.children.filter(item=>item?.kind==='t3').map(item=>M.normalizePost(item.data));
+    if(posts.some(post=>!post))throw Error('Some queued posts could not be read.');
+    return {posts:posts.filter(post=>post.subreddit.toLowerCase()===name.toLowerCase()),after:listing.after || null,hasMore:Boolean(listing.after)};
+  }
   async function read(input,signal){
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
+    if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
     if(input.action==='user-avatar')return userAvatar(input,signal);
     if(input.action==='render-card')return renderCard(input,signal);
     if(input.action==='status')return readStatuses(input,signal);
