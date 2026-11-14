@@ -200,3 +200,4 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
 
 /* Public post archives have their own bounded transport and never join chat queues. */
 importScripts('post-broker.js');
+importScripts('raffler-broker.js');

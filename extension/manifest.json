@@ -144,6 +144,7 @@
   "version_name": "0.33.0 preview",
   "host_permissions": [
     "https://arctic-shift.photon-reddit.com/*",
+    "https://www.redditraffler.com/*",
     "https://reddit.com/*",
     "https://www.reddit.com/*",
     "https://new.reddit.com/*",
@@ -155,6 +156,11 @@
         "id": "logged_out_search_referrer",
         "enabled": true,
         "path": "search-referrer-rules.json"
+      },
+      {
+        "id": "raffler_referer",
+        "enabled": true,
+        "path": "raffler-referer-rules.json"
       }
     ]
   }
