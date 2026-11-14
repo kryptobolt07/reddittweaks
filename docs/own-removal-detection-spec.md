@@ -1,6 +1,6 @@
 # Spec: detect removals of your own posts and comments
 
-Status: phase 0 done (2026-11-13, results in §9.1); building posts first. Target spec written 2026-11-12. This is the bar the feature must reach, not a step list. Each requirement (R…) has an acceptance check (A…). A release may ship a subset; a requirement counts as met only when its check passes.
+Status: phase 0 done (2026-11-13, results in §9.1); classification core implemented and unit-tested (commit `1f1ccf2`, loaded by the manifest in `7282c51`) but not wired into the UI or any network check yet. Target spec written 2026-11-12. This is the bar the feature must reach, not a step list. Each requirement (R…) has an acceptance check (A…). A release may ship a subset; a requirement counts as met only when its check passes. §14 records exactly what exists today.
 
 This spec also follows the [interaction and lifecycle contract](interaction-lifecycle-contract.md). Its rules apply, and §13 lists the transitions this feature must pass. §12 lists where we'll fall short, and how the interface says so.
 
@@ -44,6 +44,8 @@ Reference products, checked on 2026-11-12:
 | P14 | Restore the text if Reddit lost it | Archive copy | No | Yes, we already restore from Arctic Shift |
 | P15 | Public mod-log evidence | Uses public mod logs where subreddits publish them | No | Out of scope for v1 (see §10) |
 
+The "Ours (target)" column is the goal, not current state; §14 lists what is actually implemented.
+
 Beyond parity, we do things these tools can't, because we run inside Reddit's pages: badges on your own items wherever they appear (threads, profile, search), no separate site, and no third-party server besides the optional Arctic Shift archive.
 
 ## 3. States and labels
@@ -72,10 +74,10 @@ Every label opens a short tooltip saying how we know ("Reddit marks this post as
 | Code | Source | Gives us | Status |
 |---|---|---|---|
 | E1 | Your own listings, signed in: `/user/<you>/comments`, `/submitted`, or the shreddit equivalents we already read | Your items with text, as **you** see them; posts carry `removed_by_category`, `removal_reason`, `locked` | Used today for profile pages |
-| E2 | A **public view** of the same items: logged-out `api/info` by ID, or the logged-out thread HTML (`credentials: 'omit'`) | `[removed]` or `[deleted]` body, `collapsed`, removal notices, which is what others see | **Unverified.** A logged-out `api/info.json` from outside the browser got **HTTP 403** on 2026-11-12, and Reveddit's source notes Reddit refusing `api/info` from its extension. Phase-0 check V1 decides which public view works. |
+| E2 | A **public view** of the same items: logged-out `api/info` by ID, or the logged-out thread HTML (`credentials: 'omit'`) | `[removed]` or `[deleted]` body, `collapsed`, removal notices, which is what others see | **Blocked for direct reads (V1).** Logged-out `api/info.json` returned **HTTP 403** on 2026-11-12, and every direct per-item route failed in phase 0. The credentialless anonymous frame now restores logged-out **profile search** for comments (public stream) and blocked-profile posts (see §9.1), but search listings are incomplete and do not expose an individual item's public thread view. |
 | E3 | Arctic Shift records for your items | Body as first captured, `retrieved_on`, so we know whether it was visible or `[removed]` at capture and the latency since posting | Used today (opt-in archive) |
 | E4 | Reddit's author banners on your own posts (`[slot="post-removed-banner"]`, "removed by the moderators", "removed by Reddit's filters") | Post removal source, as Reddit tells the author | Partly parsed today (`M.domStatus`) |
-| E5 | Logged-out profile page for `/user/<you>` | 404 while the name is taken = shadowbanned or deleted; "suspended" notice | Unverified (V3) |
+| E5 | Logged-out profile page for `/user/<you>` | 404 while the name is taken = shadowbanned or deleted; "suspended" notice | Unverified (V3); blocked like E2, and the anonymous search transport does not answer account checks |
 
 ### 4.2 Classification (applied in this order; the first match wins)
 
@@ -96,6 +98,8 @@ The 25-second threshold and the "archive saw it visible, so later = moderator" r
 ## 5. Where it appears (interface)
 
 All surfaces use Reddit's own components and the styles we already match: search rows, scope pills, Feed options menus, tooltips and status icons.
+
+None of U1–U5 is wired yet; the classification module exists but no surface calls it. §14 tracks each one.
 
 - **U1. Badges in place.** On your own comments and posts wherever Reddit shows them (threads, your profile, search results), add one compact status pill next to the time, for example "Removed by moderators", with its tooltip. Nothing is added to other people's items, and nothing appears when the state is `visible`.
 - **U2. A Removed view on your own profile.** A list entry next to Saved, History and the others (the same header pill and search-row layout as our list searches), plus a Feed options filter: Removal source (any, moderators, automatic, Reddit, unknown), Type (posts, comments), Date, and Subreddit with counts. Each row shows the state pill, the community and time, the text (restored from the archive if Reddit hides it), and the actions "View as others" and "Open". The summary line says how far back the check reached and how many items were checked, never "all".
@@ -118,6 +122,8 @@ All surfaces use Reddit's own components and the styles we already match: search
 - Arctic Shift receives only item IDs or your username, and only when "Use the archive" is on.
 - Background checks need `alarms`, and system notifications need `notifications`. Both are `optional_permissions`, requested when the user turns the setting on. No new host permissions beyond what V1 proves necessary.
 - Strictly read-only: this feature never edits, deletes or reports anything.
+
+Current state: the classification module adds no permissions of its own. The `alarms` and `notifications` optional permissions below belong to the unimplemented background and notification parts (§14); the manifest requests neither today.
 
 ## 8. Requirements and acceptance checks
 
@@ -151,16 +157,16 @@ Run read-only in the signed-in browser before building:
 
 | Check | Result |
 |---|---|
-| V1 public view | **No logged-out path works from the extension.** Without cookies, from the Reddit page or from the extension worker, these all return HTTP 403 with Reddit's block page: `api/info.json`, `by_id`, `api.reddit.com`, comment-permalink `.json` and `/comments/<id>.json`. The `svc/shreddit/comments/…` partial and `svc/shreddit/comment/…` are blocked the same way. The logged-out thread HTML loads (200), but it is only a shell: the comments come from that blocked `svc` partial. old.reddit.com redirects logged-out requests to its login page. |
+| V1 public view | **No direct logged-out path works from the extension.** Without cookies, from the Reddit page or from the extension worker, these all return HTTP 403 with Reddit's block page: `api/info.json`, `by_id`, `api.reddit.com`, comment-permalink `.json` and `/comments/<id>.json`. The `svc/shreddit/comments/…` partial and `svc/shreddit/comment/…` are blocked the same way. The logged-out thread HTML loads (200), but it is only a shell: the comments come from that blocked `svc` partial. old.reddit.com redirects logged-out requests to its login page. **Update (0.32.2):** the credentialless anonymous frame now restores logged-out **profile search**: comment search for public streams, and post search for explicitly blocked profiles. The route is allowlisted to `/svc/shreddit/search/`, so there is still no per-item public thread view. |
 | V2 author view | **Posts:** your listing carries `removed_by_category` (15 of 100 posts say `moderator`) and `locked`, so posts are fully determinable. **Comments:** every moderation field is null for all 100 (`removal_reason`, `banned_by`, `mod_reason_*`, `collapsed*`, `comment_type`), so your own data can't show a comment removal. Still unverified for a comment known to be removed (none was known). |
 | V3 account check | Not run separately: it needs the same logged-out fetch that V1 shows is blocked. |
 | V4 Arctic Shift | **Posts** are captured within a median of **18 s** (87 of 100 within 25 s) and carry `removed_by_category`, so the 25 s rule works for posts. **Comments** are captured within a median of **~4 h** (minimum 7 min, none within 25 s), and the `author=` comment search sometimes times out and needs `sort=desc`. None of your 100 comments was captured as `[removed]`. |
 
-**Initial observation (2026-11-13):** a brand-new, cookie-free browser context received Reddit's **"Prove your humanity"** challenge page instead of the thread. Its only cookie was `edgebucket`, and the tested JSON and `svc` requests returned 403 even with its anonymous cookies included. This establishes failure in that context; it does not establish that all signed-out browser sessions are blocked. A subsequent credentialless browser-frame test hydrated Reddit's signed-out homepage and successfully fetched native comment-search HTML. See [hidden browser search](public-browser-checks.md). That search result does not yet verify an individual comment's public thread visibility. Interactive CAPTCHA handling remains with the user.
+**Initial observation (2026-11-13):** a brand-new, cookie-free browser context received Reddit's **"Prove your humanity"** challenge page instead of the thread. Its only cookie was `edgebucket`, and the tested JSON and `svc` requests returned 403 even with its anonymous cookies included. This establishes failure in that context; it does not establish that all signed-out browser sessions are blocked. A subsequent credentialless browser-frame test hydrated Reddit's signed-out homepage and successfully fetched native comment-search HTML. See [hidden browser search](public-browser-checks.md). Follow-up commits made that transport reliable for logged-out profile search: native initialization is awaited, the homepage navigation uses a real origin-only referrer, Reddit's own JS verification is allowed to finish, and a verified anonymous session is reused for later reads (`18daef4`, `cec6f1a`, `5ffba1f`, `c3e4d90`, packaged as 0.32.2). Comment search uses it for the public discovery stream; post search uses it for explicitly blocked profiles. It is still a **search/list** transport: scanning a profile's visible items is not the same as verifying one item's public thread visibility, so it does not by itself classify a removal. Interactive CAPTCHA handling remains with the user.
 
 Also found: Reddit now issues **13-character comment IDs** (e.g. `19sh…`); post IDs are still 7. Our comment ID checks allow up to 32 characters; post ID checks allow 10.
 
-**Current implementation:** posts get the classification based on Reddit's categories and the archive. Comments get only what the archive saw, and otherwise "Couldn't check" when no verified public thread view exists. The account check (U3) is shown as unavailable. Hidden anonymous search now has a working browser transport, but per-item public thread verification and account checks are not implemented through it. Userless OAuth is another route to investigate, subject to app access (§11, Q4).
+**Current implementation (2026-11-14):** the pure classifier `RTRemovalModel.classify` and its helpers exist, are unit-tested, and are loaded by the manifest, but nothing calls them. Posts classify from Reddit's author-visible categories and the archive. Comments classify only from an archive capture of the removal, and otherwise read "Couldn't check". The account check (U3) is unavailable. The anonymous browser transport restores logged-out profile search for posts and comments, but no per-item public verification or account check is built on it. Userless OAuth remains an open route (§11, Q4). See §14 for the full implemented/not-implemented split.
 
 If V1 finds no working logged-out path, the fallback is: posts via E1/E4 (verified categories), and comments marked `removed-unknown` only when the archive or another signal shows removal. The spec then states that comment coverage is partial.
 
@@ -176,7 +182,7 @@ If V1 finds no working logged-out path, the fallback is: posts via E1/E4 (verifi
 1. Should the Removed view be a list entry next to Saved and History (U2), or a filter in Feed options on your own profile, or both?
 2. Notifications: is the toolbar badge enough, or are system notifications wanted from the start?
 3. Should deleted-by-you items appear in the Removed view at all (default: hidden, with a filter to show them)?
-4. Comments can't be checked as others see them (§9.1). Should we offer an opt-in where you register your own Reddit app (client ID pasted in the popup) so comments can be checked through a userless token? Without it, comments show only what the archive saw.
+4. Comments can't be checked as others see them (§9.1). Should we offer an opt-in where you register your own Reddit app (client ID pasted in the popup) so comments can be checked through a userless token? Without it, comments show only what the archive saw. Still open: the anonymous transport covers profile **listing** searches, not per-item public views.
 
 ## 12. Where we'll lag behind (caveats)
 
@@ -184,7 +190,7 @@ These are known limits, not bugs. Each one is shown to the user in the wording g
 
 | # | Limit | Why | What the user sees |
 |---|---|---|---|
-| L1 | Comments may not be checkable at all from the extension | Reddit may refuse a logged-out view (`api/info` got HTTP 403 from outside the browser on 2026-11-12; Reveddit notes the same from its extension). Decided by V1. | Comments: "Couldn't check (Reddit blocks logged-out checks)". Posts still work from what Reddit tells the author. |
+| L1 | Comments may not be checkable at all from the extension | Reddit refuses a direct logged-out view (`api/info` and every per-item route returned HTTP 403; Reveddit notes the same from its extension). The anonymous transport only searches profiles, so it cannot verify one comment. | Comments: "Couldn't check: Reddit blocks logged-out checks of comments. Turn on 'Use the archive' to catch removals the archive saw." Posts still work from what Reddit tells the author. |
 | L2 | Mod vs automatic is a guess for comments | It relies on when the archive captured the comment. Arctic Shift often captures hours later, so the 25 s rule rarely applies to fresh comments. | "Removed: moderators or automatic" until evidence decides; the tooltip says why. |
 | L3 | No mod-log evidence | Reveddit reads subreddits' public mod logs through its own service; we don't (§10). | Fewer confident "Removed automatically" verdicts than Reveddit on subreddits with public mod logs. |
 | L4 | Only your newest 1,000 posts and 1,000 comments from Reddit | Reddit's listing limit | "Checked your newest 1,000 comments"; older ones only if the archive has them, labelled "from the archive". |
@@ -197,7 +203,7 @@ These are known limits, not bugs. Each one is shown to the user in the wording g
 
 ## 13. Transitions this feature must pass
 
-From the contract's catalogue, plus rows specific to this feature. Each row is an acceptance check under R12.
+From the contract's catalogue, plus rows specific to this feature. Each row is an acceptance check under R12. None of these transitions exist yet: there is no injected UI, schedule or cache to exercise (§14).
 
 | T | Transition | Expected |
 |---|---|---|
@@ -219,3 +225,31 @@ From the contract's catalogue, plus rows specific to this feature. Each row is a
 
 **Lifecycle audit to complete before building:** for the badge pill, the Removed view's header pill, its feed, its filters and the popup badge, record the creator, the remover and every trigger (route events, `MutationObserver` on threads and feeds, settings changes, account changes, alarms, cache updates). Each trigger becomes a transition row above if it isn't one already.
 
+## 14. Implementation status (2026-11-14, extension 0.32.2)
+
+This is what exists in the current bundle; everything else in this document remains the target.
+
+### Done
+
+| Item | Where | Notes |
+|---|---|---|
+| Pure classification model | `extension/removal-model.js` (commit `1f1ccf2`) | `RTRemovalModel.classify` applies §4.2 rules 1–8 in order, including deletion precedence, Reddit/admin/filter categories, the 25 s `AUTO_LATENCY` rule, archive-visible → moderator, approval after removal, private communities → "Couldn't check", and failure → "Couldn't check". It never reports `visible` without evidence. |
+| Evidence normalisation and helpers | same file | `evidence()` normalises Reddit and Arctic Shift records; `isRemovedBody()`; `STATES` labels; `change()` computes `removed` / `approved` / `locked` / `unlocked` transitions for future notifications without duplicates. `classify` also carries `locked`, `collapsed` (Crowd Control), `approved-after-auto` and `quarantined-community` flags. |
+| Manifest load | `extension/manifest.json` (commit `7282c51`) | Loaded with the post scripts before `post-discovery.js`. It defines only `RTRemovalModel`, has no side effects, and adds no permissions. |
+| Unit tests | `tests/removal-model.test.cjs` | 10 tests over synthetic fixtures: all rule branches, 25 s and 26 s boundaries, missing archive, archive `[removed]`, deletion precedence, approvals, private communities, flags, and change detection. All pass. This covers A1 and the model half of A2. |
+| Anonymous public profile search | `extension/public-browser.js`, `post-page-bridge.js` (commits `18daef4`, `cec6f1a`, `5ffba1f`, `c3e4d90`, packaged 0.32.2) | An invisible credentialless iframe runs Reddit's native signed-out flow and reads the allowlisted `/svc/shreddit/search/` route. It serves the public **comment** discovery stream for profiles and **post** search for explicitly blocked profiles. One frame per page, at most two pending reads, 60 s idle removal, 10 min refusal cooldown, bounded `Retry-After`, verified-session reuse. It has no per-item public thread view and no account check, so it does not feed the removal model. |
+
+### Not implemented
+
+| Item | Status |
+|---|---|
+| U1 in-place badges, U2 Removed view, U3 account check, U4 notifications and toolbar badge, U5 popup settings | Not started. No UI calls `RTRemovalModel`. |
+| E2 per-item public view (thread HTML or `api/info`) | Still blocked by Reddit; the anonymous transport covers profile search only. |
+| E5 account-level check | Not started; same blocked direct route. |
+| C1–C5 checks, batching, scheduling, caching | Not started. No `alarms`, no per-account cache, no request budget. |
+| `alarms` / `notifications` optional permissions | Not requested. |
+| A3–A14 (badges, view, account lines, notifications, limits, privacy, copy, Reveddit parity, transitions) | Not run; no surface exists to test. |
+
+### Summary
+
+The feature today is a reviewed-in-code, unit-tested **classification core** in an otherwise inactive bundle. The latest 0.32.2 work fixed logged-out **profile search** (public comment discovery and blocked-profile post search) in the anonymous frame; it did not add per-item public verification, so it does not change how comments are classified. The next implementation step is to wire `classify` into a signed-in collection path (author data + optional archive), then add the U1 badges and U2 view with the §6 budgets.
