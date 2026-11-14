@@ -23,7 +23,8 @@
     const parent=String(raw.parent_id || '').toLowerCase(),topLevel=postId?parent==='t3_'+postId.toLowerCase():/^t3_/.test(parent);
     return {id,author,created:Math.floor(created),topLevel,body:typeof raw.body==='string'?raw.body.slice(0,2000):'',
       permalink:typeof raw.permalink==='string' && raw.permalink.startsWith('/')?'https://www.reddit.com'+raw.permalink:'',
-      removed:['[removed]','[deleted]'].includes(String(raw.body).trim()) || raw.removed_by_category!=null || author==='[deleted]'};
+      removed:['[removed]','[deleted]'].includes(String(raw.body).trim()) || raw.removed_by_category!=null || author==='[deleted]',
+      avatar:typeof raw.avatar==='string' && /^https:\/\//.test(raw.avatar)?raw.avatar.slice(0,500):'',score:Number.isFinite(Number(raw.score))?Number(raw.score):null};
   }
 
   /* Filter entries by the rules that need no account lookups. Returns candidates (one per user, their earliest
