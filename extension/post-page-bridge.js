@@ -819,10 +819,11 @@
     return {username:data.name,canWrite:Boolean(redaction.modhash)};
   }
   function redactNativePage(root,source){
-    const feed=root.querySelector('shreddit-feed') || root,items=[];
+    const feed=root.querySelector('shreddit-feed') || root,items=[];let unread=0;
     const wanted=source==='comments'?'shreddit-profile-comment':source==='submitted'?'shreddit-post':'shreddit-post,shreddit-profile-comment';
     for(const card of feed.querySelectorAll(wanted)){
       if(card.closest('[data-rt-ui]'))continue;
+      try{
       const comment=card.tagName==='SHREDDIT-PROFILE-COMMENT',fullname=card.getAttribute(comment?'comment-id':'id');
       const author=comment?card.querySelector('[id^="poster-info-"] a[href*="/user/"]')?.getAttribute('href')?.match(/\/user\/([A-Za-z0-9_-]{3,20})\/?$/)?.[1]:card.getAttribute('author');
       if(!author)throw Error('A native profile author could not be verified.');
@@ -830,7 +831,8 @@
       if(!(comment?/^t1_[a-z0-9]{1,32}$/i:/^t3_[a-z0-9]{1,32}$/i).test(fullname || ''))throw Error('A native profile item could not be read.');
       const action=card.querySelector('shreddit-comment-action-row'),href=card.getAttribute('permalink') || card.getAttribute('href') || action?.getAttribute('permalink') || '';
       let url;try{url=new URL(href,location.origin);}catch{}
-      const subreddit=url?.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})\/comments\//)?.[1];
+      const profile=url?.pathname.match(/^\/user\/([A-Za-z0-9_-]{3,20})\/comments\//)?.[1];
+      const subreddit=url?.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})\/comments\//)?.[1] || (profile?.toLowerCase()===redaction.username.toLowerCase()?'u_'+profile:'');
       const created=Date.parse(card.getAttribute('created-timestamp') || card.querySelector('faceplate-timeago[ts]')?.getAttribute('ts') || card.querySelector('time[datetime]')?.getAttribute('datetime'))/1000;
       const content=card.querySelector(comment?'.md':'[slot="text-body"]');
       if(!subreddit || url.origin!==location.origin || !Number.isFinite(created) || comment && !content)throw Error('A native profile item is incomplete.');
@@ -840,6 +842,7 @@
       const item={fullname:fullname.toLowerCase(),kind:comment?'comment':'post',subreddit,created,score,body:body.slice(0,100000),title:(card.getAttribute('post-title') || card.querySelector('h2')?.textContent || '').trim().slice(0,300),
         isSelf:!comment && (card.getAttribute('post-type')==='text' || Boolean(content)),permalink:url.pathname+url.search,deleted:body==='[deleted]',pinned:card.hasAttribute('stickied') || card.getAttribute('is-stickied')==='true'};
       redaction.allowed.set(item.fullname,item.kind);items.push(item);
+      }catch{unread++; /* Keep readable authored items; skipped cards never enter the write allow-list. */}
     }
     let after=null;
     const view=source==='submitted'?'posts':source;
@@ -849,7 +852,7 @@
       if(url.origin!==location.origin || url.pathname!=='/svc/shreddit/profiles/profile_'+view+'-more-posts/new/' || url.searchParams.get('name')?.toLowerCase()!==redaction.username.toLowerCase() || url.href.length>2048)throw Error('Reddit’s native profile continuation changed.');
       after=url.pathname+url.search;redaction.cursors.set(after,source);break;
     }
-    return {items,after,hasMore:Boolean(after),scanned:items.length,transport:'native-profile'};
+    return {items,after,hasMore:Boolean(after),scanned:items.length+unread,unread,transport:'native-profile'};
   }
   async function redactNativeList(input,signal){
     if(input.sort!=='new')throw Error('Native profile discovery requires newest first.');

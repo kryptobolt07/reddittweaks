@@ -191,7 +191,7 @@ test('calendar is an icon control beside the other filters and opening it does n
  assert.equal(state.dateButton.className,state.controls.kinds.button.className);assert.equal(state.dateButton.querySelectorAll('svg').length,2);
  assert.equal(state.dateHost.parentElement,state.dialog);state.dateButton.click();assert.equal(state.popup.name,'date');assert.ok(state.dateHost.style.width);
  state.controls.onlyIn.button.click();assert.equal(state.picker.open,false);assert.equal(state.dateHost.hidden,true);assert.equal(state.popup.name,'onlyIn');
- assert.match(s.q('[name=keepScoreAtLeast]').closest('label').textContent,/10 or more points; leave blank to ignore score/);
+ assert.equal(s.q('[name=keepScoreAtLeast]').closest('label').firstElementChild.textContent,'Minimum votes to keep');assert.match(s.r.state.form.textContent,/10 keeps items with 10 or more votes/);
 });
 test('a later source failure keeps already found matches and labels discovery incomplete',async t=>{
  const s=await dialog(t,{list:args=>{if(args.source==='overview')return {items:fresh,hasMore:false};throw Error('Reddit could not list your comments (HTTP 404).');}});
@@ -229,5 +229,20 @@ test('native discovery refuses unreadable authors and retains long text for keep
  const b=bridge(t,{fetcher:u=>u.pathname==='/api/me.json'?meBody:{text:broken?nativeComments([{id:'a'}]).replace('poster-info-t1_a','missing-author'):nativeComments([{id:'a',text}])}});
  await b.send({action:'redact-identity'});const page=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});assert.ok(page.items[0].body.endsWith('protected phrase'));
  assert.equal(model().select(page.items,{keepContaining:'protected phrase'}).matches.length,0);
- broken=true;const refused=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});assert.equal(refused.ok,false);assert.match(refused.error,/author could not be verified/);
+ broken=true;const refused=await b.send({action:'redact-list',username:'Example',source:'comments',sort:'new',native:true});assert.equal(refused.ok,true);assert.equal(refused.unread,1);assert.deepEqual(refused.items,[]);
+});
+
+test('native profile posts and unreadable cards do not discard other authored items',async t=>{
+ const post=`<shreddit-post id="t3_pin1" author="Example" permalink="/user/Example/comments/pin1/title/" created-timestamp="2020-01-01T00:00:00Z" post-type="text" score="12" stickied><div slot="text-body"><p>Profile post text</p></div></shreddit-post>`;
+ const html=nativeComments([{id:'good'},{id:'bad'}]).replace('<div class="md"><p>Native comment</p></div><shreddit-comment-action-row score="5" permalink="/r/Alpha/comments/p/title/comment/bad/">','<shreddit-comment-action-row score="5" permalink="/r/Alpha/comments/p/title/comment/bad/">').replace('<shreddit-feed>','<shreddit-feed>'+post);
+ const b=bridge(t,{fetcher:u=>u.pathname==='/api/me.json'?meBody:{text:html}});await b.send({action:'redact-identity'});
+ const page=await b.send({action:'redact-list',username:'Example',source:'overview',sort:'new',native:true});assert.equal(page.ok,true);assert.equal(page.unread,1);assert.deepEqual(page.items.map(i=>i.fullname),['t3_pin1','t1_good']);
+ assert.equal(page.items[0].subreddit,'u_Example');assert.equal(page.items[0].pinned,true);assert.equal(page.items[0].body,'Profile post text');
+ assert.equal((await b.send({action:'redact-item',username:'Example',fullname:'t1_bad',step:'delete'})).ok,false);
+ const X=model();assert.equal(X.select(page.items,{neverIn:'u/Example'}).matches.length,1);
+});
+test('unread native items are disclosed in review and confirmation without hiding valid matches',async t=>{
+ const s=await dialog(t,{list:()=>({items:fresh,unread:1,hasMore:false})});s.type('from','2000-01-01');s.primary().click();await flush();
+ assert.equal(s.r.state.selected.size,3);assert.match(s.status(),/1 item could not be read and was excluded/);assert.equal(s.r.state.status.dataset.incomplete,'true');
+ s.primary().click();assert.match(s.r.state.confirmation.textContent,/Discovery was incomplete/);
 });
