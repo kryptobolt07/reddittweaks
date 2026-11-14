@@ -387,8 +387,10 @@ dialog.rt-raffle-dialog label,dialog.rt-raffle-dialog summary,dialog.rt-raffle-d
 dialog.rt-raffle-dialog details,dialog.rt-raffle-dialog summary{margin:0;border:0;background:none;box-shadow:none;border-radius:0}
 dialog.rt-raffle-dialog details{padding:0}
 dialog.rt-raffle-dialog .rt-raffle-input{margin:0;vertical-align:middle}
-dialog.rt-raffle-dialog:not(.rt-raffle-sheet){margin-top:max(24px,8vh);margin-bottom:auto}
-:root.theme-dark .rt-switch-track,:root[data-theme="dark"] .rt-switch-track{background:color-mix(in srgb,var(--color-neutral-content-weak,#8ba2ad) 45%,transparent)}
+/* Reddit's switch in dark mode (measured on reddit.com settings, 2026-11-15): off rgb(61,73,78), on rgb(151,175,188), white knob. */
+:root.theme-dark .rt-switch-track,:root[data-theme="dark"] .rt-switch-track{background:rgb(61,73,78)}
+:root.theme-dark .rt-switch input:checked+.rt-switch-track,:root[data-theme="dark"] .rt-switch input:checked+.rt-switch-track{background:rgb(151,175,188)}
+dialog.rt-raffle-dialog:focus,dialog.rt-raffle-dialog:focus-visible{outline:none}
 dialog.rt-raffle-dialog::backdrop{background-color:var(--color-scrim-background,#00000099)}
 .rt-raffle-card{width:min(520px,calc(100vw - 32px));max-height:min(720px,calc(100vh - 32px));border-radius:var(--rem16,16px);box-shadow:var(--boxshadow-modal,0 2px 15px rgba(26,26,27,.3));background:var(--color-ui-modalbackground,#fff)}
 .rt-raffle-body{display:flex;flex-direction:column;gap:12px;padding:0 16px 12px;width:100%;box-sizing:border-box;font-size:14px;line-height:20px}
@@ -428,7 +430,10 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-step:hover{background:var(--color-secondary-background-hover,#dbe4e9)}
 /* Reddit's switch (faceplate-switch-input): 48x32 track, 28 px knob. */
 .rt-switch{position:relative;display:inline-flex;flex:none}
-.rt-switch input{position:absolute;inset:0;margin:0;opacity:0;cursor:pointer}
+/* The native checkbox stays invisible even when Reddit's page CSS restyles disabled inputs. */
+.rt-switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;opacity:0!important;background:none!important;box-shadow:none!important;-webkit-appearance:none;appearance:none;cursor:pointer;z-index:1}
+.rt-switch input:disabled{cursor:default}
+.rt-switch:has(input:disabled){opacity:.55}
 .rt-switch-track{display:block;width:48px;height:32px;border-radius:9999px;background:rgb(164,189,202);box-shadow:inset 0 1px 2px rgba(0,0,0,.13);transition:background-color .3s}
 .rt-switch-knob{display:block;width:28px;height:28px;margin:2px;border-radius:9999px;background:#fff;transition:transform .3s}
 .rt-switch input:checked+.rt-switch-track{background:var(--color-primary-background,#000)}
@@ -449,7 +454,6 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-check{display:flex;align-items:flex-start;gap:12px;cursor:pointer}
 .rt-raffle-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:var(--color-secondary-background,#e5ebee);font-size:12px;line-height:16px;font-weight:600;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-verified{background:color-mix(in srgb,var(--color-success-content,#008a10) 14%,transparent);color:var(--color-success-content,#008a10)}
-.rt-raffle-verified::before{content:'✓'}
 .rt-raffle-banner-actions{display:flex;align-items:center;gap:4px;flex:none}
 .rt-raffle-facts-inline{white-space:nowrap}
 /* Choice between a public draw (Reddit Raffler) and a private one. */
@@ -469,7 +473,6 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-retry{min-height:24px;padding:0;border:0;background:none;font:inherit;font-weight:600;text-decoration:underline;color:var(--color-neutral-content-strong,#181c1f);cursor:pointer}
 /* Rows Reddit Raffler doesn't support, in public mode. */
 .rt-raffle-row[data-unsupported="true"] .rt-raffle-row-label{opacity:.55}
-.rt-raffle-row[data-unsupported="true"] .rt-raffle-row-control{opacity:.55}
 .rt-raffle-row-caption[data-error="true"]{color:var(--color-danger-content,#d93900)}
 /* Footer note beside the main button: warnings and progress stay in view on phones. */
 .rt-raffle-footnote{flex:1 1 auto;max-width:300px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76);text-align:start}
@@ -480,12 +483,13 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-banner-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
 .rt-raffle-banner-row .rt-raffle-banner-title{white-space:nowrap}
 .rt-raffle-banner-info{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:4px}
-.rt-raffle-ext{font-weight:400}
+.rt-raffle-ext{font-weight:400;margin-inline-start:4px}
 .rt-raffle-field-title{font-weight:600;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-preview-wrap>summary{cursor:pointer;min-height:24px;display:flex;align-items:center;list-style:none}
 .rt-raffle-details summary::-webkit-details-marker,.rt-raffle-preview-wrap>summary::-webkit-details-marker{display:none}
 .rt-raffle-details summary::before,.rt-raffle-preview-wrap>summary::before{content:'';flex:none;width:6px;height:6px;margin-inline:2px 8px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(-45deg);transition:transform .15s}
 .rt-raffle-details[open]>summary::before,.rt-raffle-preview-wrap[open]>summary::before{transform:rotate(45deg)}
+.rt-raffle-draw-icon::before{content:'';flex:none;width:16px;height:16px;margin-inline-end:8px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M16.6%203H3.4A2.4%202.4%200%20001%205.4v2.2a.9.9%200%2000.9.9%201.5%201.5%200%20010%203%20.9.9%200%2000-.9.9v2.2A2.4%202.4%200%20003.4%2017h13.2a2.4%202.4%200%20002.4-2.4v-2.2a.9.9%200%2000-.9-.9%201.5%201.5%200%20010-3%20.9.9%200%2000.9-.9V5.4A2.4%202.4%200%200016.6%203Zm.6%204.26a3.3%203.3%200%20000%205.48v1.86a.6.6%200%2001-.6.6H3.4a.6.6%200%2001-.6-.6v-1.86a3.3%203.3%200%20000-5.48V5.4a.6.6%200%2001.6-.6h13.2a.6.6%200%2001.6.6v1.86ZM7.1%206.1h1.8v1.8H7.1V6.1Zm0%203h1.8v1.8H7.1V9.1Zm0%203h1.8v1.8H7.1v-1.8Z%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M16.6%203H3.4A2.4%202.4%200%20001%205.4v2.2a.9.9%200%2000.9.9%201.5%201.5%200%20010%203%20.9.9%200%2000-.9.9v2.2A2.4%202.4%200%20003.4%2017h13.2a2.4%202.4%200%20002.4-2.4v-2.2a.9.9%200%2000-.9-.9%201.5%201.5%200%20010-3%20.9.9%200%2000.9-.9V5.4A2.4%202.4%200%200016.6%203Zm.6%204.26a3.3%203.3%200%20000%205.48v1.86a.6.6%200%2001-.6.6H3.4a.6.6%200%2001-.6-.6v-1.86a3.3%203.3%200%20000-5.48V5.4a.6.6%200%2001.6-.6h13.2a.6.6%200%2001.6.6v1.86ZM7.1%206.1h1.8v1.8H7.1V6.1Zm0%203h1.8v1.8H7.1V9.1Zm0%203h1.8v1.8H7.1v-1.8Z%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat}
 /* Winners */
 .rt-raffle-banner{display:block;padding-bottom:8px}
 .rt-raffle-banner-text{display:flex;flex-direction:column;gap:2px;min-width:0}

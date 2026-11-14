@@ -82,6 +82,15 @@ test('a failed settings read keeps raffles on and retries; the item is ensured a
  await new Promise(res=>setTimeout(res,1100));await flush();assert.equal(reads,2,'retried');assert.equal(W.document.querySelector('[data-rt-raffle="item"]'),null,'the real setting applies once read');
  const s2=await ui(t);s2.item().remove();s2.D.querySelector('button[aria-haspopup]').dispatchEvent(new s2.W.Event('pointerdown',{bubbles:true,composed:true}));assert.ok(s2.item(),'re-added as the ⋯ button is pressed');
 });
+test('opening a post’s ⋯ menu shows its Reddit Raffler status on the item, checked once per post',async t=>{
+ const s=await ui(t,{raffler:m=>m.action==='status'?{ok:true,exists:true,raffle:{verified:true}}:{ok:true,signedIn:''}});
+ const press=()=>s.D.querySelector('button[aria-haspopup]').dispatchEvent(new s.W.Event('pointerdown',{bubbles:true,composed:true}));
+ press();await flush();
+ assert.equal(s.item().querySelector('.text-body-2').textContent,'View raffle results');assert.equal(s.item().querySelector('.text-caption-1').textContent,'Drawn on Reddit Raffler · verified');assert.equal(s.item().dataset.rtRaffleState,'drawn');
+ press();await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='status').length,1,'cached per post');
+ const none=await ui(t);none.D.querySelector('button[aria-haspopup]').dispatchEvent(new none.W.Event('pointerdown',{bubbles:true,composed:true}));await flush();
+ assert.equal(none.item().querySelector('.text-body-2').textContent,'Run a raffle');assert.equal(none.item().dataset.rtRaffleState,'none');
+});
 test('the rules screen offers a public or a private draw, focuses the heading and keeps one main action',async t=>{
  const s=await ui(t);const trigger=s.D.querySelector('button[aria-haspopup]');let menuClicks=0;trigger.addEventListener('click',()=>{menuClicks++;trigger.setAttribute('aria-expanded','false');});
  await s.open();
