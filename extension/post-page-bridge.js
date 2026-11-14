@@ -718,6 +718,15 @@
     return {id:raw.id.toLowerCase(),author:typeof raw.author==='string'?raw.author.slice(0,20):'',created_utc:Number(raw.created_utc) || 0,parent_id:typeof raw.parent_id==='string'?raw.parent_id.slice(0,40):'',
       body:typeof raw.body==='string'?raw.body.slice(0,2000):'',permalink:typeof raw.permalink==='string' && raw.permalink.startsWith('/')?raw.permalink.slice(0,300):'/comments/'+postId+'/comment/'+raw.id+'/',removed_by_category:raw.removed_by_category ?? null};
   };
+  async function raffleWinnerComments(input,signal){
+    if(!raffleId.test(input.postId || '') || !Array.isArray(input.ids) || !input.ids.length || input.ids.length>100 || !input.ids.every(id=>typeof id==='string' && raffleComment.test(id)))throw Error('Invalid winner comments.');
+    const ids=new Set(input.ids.map(id=>id.toLowerCase())),postId=input.postId.toLowerCase(),url=new URL('/api/info.json',location.origin);url.searchParams.set('id',[...ids].map(id=>'t1_'+id).join(','));url.searchParams.set('raw_json','1');
+    const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
+    if(!response.ok)throw Error('Reddit could not read the winner comments (HTTP '+response.status+').');
+    let data;try{data=JSON.parse(await boundedText(response));}catch{throw Error('Reddit returned unexpected winner comments.');}
+    if(data?.kind!=='Listing' || !Array.isArray(data.data?.children))throw Error('Reddit returned unexpected winner comments.');
+    return {entries:data.data.children.filter(child=>child.kind==='t1' && ids.has(String(child.data?.id).toLowerCase()) && String(child.data?.link_id).toLowerCase()==='t3_'+postId).map(child=>raffleEntry(child.data,postId)).filter(Boolean)};
+  }
   async function raffleThread(input,signal){
     if(!raffleId.test(input.postId || ''))throw Error('Invalid post.');
     const postId=input.postId.toLowerCase(),url=new URL('/comments/'+postId+'.json',location.origin);
@@ -950,6 +959,7 @@
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
     if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
     if(input.action==='raffle-thread')return raffleThread(input,signal);
+    if(input.action==='raffle-winner-comments')return raffleWinnerComments(input,signal);
     if(input.action==='raffle-tree')return raffleTree(input,signal);
     if(input.action==='raffle-user')return raffleUser(input,signal);
     if(input.action==='chat-status')return chatStatus();
@@ -1043,7 +1053,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}
