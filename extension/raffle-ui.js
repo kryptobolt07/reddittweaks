@@ -534,29 +534,23 @@
       const state=this.dialog,chat=state.chat,winners=state.result.winners,box=state.messageView;box.replaceChildren();
       const field=(label,control,hint)=>{const wrap=make('label','rt-raffle-mini');wrap.append(make('span','rt-raffle-row-caption rt-raffle-field-title',label),control);if(hint){const h=make('span','rt-raffle-row-caption',hint);h.id='rt-raffle-hint-'+label.replace(/\W+/g,'').toLowerCase();control.setAttribute('aria-describedby',h.id);wrap.append(h);}return wrap;};
       const locked=chat.sending || chat.done;
-      // Two sections: who gets the message (removable), and who doesn't (winners left out, or anyone added by name).
-      const person=(winner,action)=>{const li=make('li','rt-raffle-person');li.dataset.rtRecipient=winner.author;li.append(this.avatarEl(winner,24),make('span','rt-raffle-person-name','u/'+winner.author));
-        const outcome=chat.outcomes.get(winner.author);if(outcome){const tag=make('span','rt-raffle-person-state',outcome.text);tag.dataset.state=outcome.state;li.append(tag);}
-        if(action && !locked && outcome?.state!=='sent'){const b=make('button','rt-raffle-person-action',action==='remove'?'×':'+');b.type='button';b.setAttribute('aria-label',(action==='remove'?'Remove u/':'Add u/')+winner.author);
-          b.addEventListener('click',()=>{if(action==='remove'){chat.recipients=chat.recipients.filter(w=>w!==winner);chat.excluded.push(winner);}else{chat.excluded=chat.excluded.filter(w=>w!==winner);chat.recipients.push(winner);}chat.confirm=false;this.renderMessage();});li.append(b);}
+      // Two sections, winners only: who gets the message (× removes), and who doesn't (click to add back).
+      const person=(winner,section)=>{const li=make('li','rt-raffle-person');li.dataset.rtRecipient=winner.author;
+        const outcome=chat.outcomes.get(winner.author),movable=!locked && outcome?.state!=='sent';
+        const move=()=>{if(section==='to'){chat.recipients=chat.recipients.filter(w=>w!==winner);chat.excluded.push(winner);}else{chat.excluded=chat.excluded.filter(w=>w!==winner);chat.recipients.push(winner);}chat.confirm=false;this.renderMessage();};
+        if(section==='out' && movable){const chip=make('button','rt-raffle-person-chip');chip.type='button';chip.setAttribute('aria-label','Add u/'+winner.author+' back');chip.append(this.avatarEl(winner,24),make('span','rt-raffle-person-name','u/'+winner.author));chip.addEventListener('click',move);li.append(chip);}
+        else li.append(this.avatarEl(winner,24),make('span','rt-raffle-person-name','u/'+winner.author));
+        if(outcome){const tag=make('span','rt-raffle-person-state',outcome.text);tag.dataset.state=outcome.state;li.append(tag);}
+        if(section==='to' && movable){const b=make('button','rt-raffle-person-action','×');b.type='button';b.setAttribute('aria-label','Remove u/'+winner.author);b.addEventListener('click',move);li.append(b);}
         return li;};
       const toLabel=make('span','rt-raffle-row-caption rt-raffle-field-title','Sending to ('+n(chat.recipients.length)+')');toLabel.tabIndex=-1;
       const people=make('ul','rt-raffle-people');people.setAttribute('aria-label','Recipients');
-      for(const winner of chat.recipients)people.append(person(winner,'remove'));
-      if(!chat.recipients.length)people.append(make('li','rt-raffle-row-caption','No one yet. Add people below.'));
+      for(const winner of chat.recipients)people.append(person(winner,'to'));
+      if(!chat.recipients.length)people.append(make('li','rt-raffle-row-caption','No one. Click a winner below to add them back.'));
       const toWrap=make('div','rt-raffle-mini');toWrap.append(toLabel,people);
-      const outWrap=make('div','rt-raffle-mini');outWrap.append(make('span','rt-raffle-row-caption rt-raffle-field-title','Not included'));
-      if(chat.excluded.length){const others=make('ul','rt-raffle-people rt-raffle-people-out');others.setAttribute('aria-label','Not included');for(const winner of chat.excluded)others.append(person(winner,'add'));outWrap.append(others);}
-      const addRow=make('div','rt-raffle-add');const addInput=make('input','rt-raffle-input');addInput.type='text';addInput.placeholder='Add someone: u/name';addInput.maxLength=23;addInput.autocomplete='off';addInput.setAttribute('aria-label','Add someone by username');addInput.disabled=locked;
-      const addButton=make('button','rt-raffle-action button-small button-secondary button inline-flex items-center justify-center','Add');addButton.type='button';addButton.disabled=locked;
-      const addError=make('span','rt-raffle-row-caption');addError.dataset.error='true';
-      const add=()=>{const name=addInput.value.trim().replace(/^\/?u\//i,'');
-        if(!/^[A-Za-z0-9_-]{3,20}$/.test(name)){addError.textContent='Enter a Reddit username';return;}
-        const known=[...chat.recipients,...chat.excluded].find(w=>w.author.toLowerCase()===name.toLowerCase());
-        if(known){if(chat.excluded.includes(known)){chat.excluded=chat.excluded.filter(w=>w!==known);chat.recipients.push(known);}chat.confirm=false;this.renderMessage();return;}
-        const added={author:name,avatar:'',permalink:'',body:'',created:0,added:true};chat.recipients.push(added);chat.confirm=false;this.renderMessage();this.fillAvatars([added]);};
-      addButton.addEventListener('click',add);addInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();add();}});
-      addRow.append(addInput,addButton);outWrap.append(addRow,addError);
+      const outWrap=make('div','rt-raffle-mini');outWrap.hidden=!chat.excluded.length;
+      outWrap.append(make('span','rt-raffle-row-caption rt-raffle-field-title','Not included · click to add back'));
+      const others=make('ul','rt-raffle-people rt-raffle-people-out');others.setAttribute('aria-label','Not included');for(const winner of chat.excluded)others.append(person(winner,'out'));outWrap.append(others);
       const modes=make('div','rt-raffle-modes');modes.setAttribute('role','radiogroup');modes.setAttribute('aria-label','How to send');
       for(const [value,label,caption] of [['direct','Separate chats','Each winner gets a private chat with you'],['group','One group chat','Winners can see each other']]){
         const option=make('label','rt-raffle-row rt-raffle-mode');const text=make('span','rt-raffle-row-text');text.append(make('span','rt-raffle-row-label',label),make('span','rt-raffle-row-caption',caption));
@@ -578,7 +572,7 @@
     syncSend(){
       const state=this.dialog,chat=state?.chat;if(!chat)return;const remaining=chat.recipients.filter(w=>chat.outcomes.get(w.author)?.state!=='sent'),count=remaining.length,retry=count<chat.recipients.length;
       state.send.disabled=chat.sending || chat.done || !chat.text.trim() || !count || chat.mode==='group' && chat.groupStarted;
-      state.send.textContent=chat.done?'Sent':chat.sending?'Sending…':chat.confirm?'Confirm: send '+(chat.mode==='group'?'to the group':n(count)+' '+(count===1?'message':'messages')):(chat.mode==='group'?'Start group chat':(retry?'Send to the remaining '+n(count):'Send to '+n(count)+' '+(count===1?'person':'people')));
+      state.send.textContent=chat.done?'Sent':chat.sending?'Sending…':chat.confirm?'Confirm: send '+(chat.mode==='group'?'to the group':n(count)+' '+(count===1?'message':'messages')):(chat.mode==='group'?'Start group chat':(retry?'Send to the remaining '+n(count):'Send to '+n(count)+' '+(count===1?'winner':'winners')));
       state.send.classList.toggle('rt-raffle-confirm',chat.confirm);state.msgBack.disabled=chat.sending;
       // The footer note (beside the button, in view on phones) holds the warning or the last send's outcome.
       if(state.view!=='message')return;
@@ -621,7 +615,7 @@
         }
       }catch(error){if(this.dialog!==state)return;stopped=error.message;for(const w of winners)if(!chat.outcomes.has(w.author))set(w,'skipped','Not sent');}
       chat.sending=false;chat.done=chat.recipients.length>0 && chat.recipients.every(w=>chat.outcomes.get(w.author)?.state==='sent');if(sent)state.saved=true;
-      chat.failed=failed;chat.summary=(chat.mode==='group'?(sent?'Group chat started with '+n(sent)+' '+(sent===1?'winner':'winners')+'.':'The group chat wasn’t started.'):'Sent to '+n(sent)+' of '+n(winners.length)+' '+(winners.length===1?'person':'people')+'.')+(failed?' '+n(failed)+' failed.':'')+(stopped?' '+stopped:'');
+      chat.failed=failed;chat.summary=(chat.mode==='group'?(sent?'Group chat started with '+n(sent)+' '+(sent===1?'winner':'winners')+'.':'The group chat wasn’t started.'):'Sent to '+n(sent)+' of '+n(winners.length)+' '+(winners.length===1?'winner':'winners')+'.')+(failed?' '+n(failed)+' failed.':'')+(stopped?' '+stopped:'');
       this.say(chat.summary);this.syncSend();
     }
   }
