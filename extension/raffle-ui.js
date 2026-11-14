@@ -521,7 +521,7 @@
       const state=this.dialog;if(!state?.result?.winners.length)return;
       if(!state.chat){
         const title=(state.post.title || 'this post').slice(0,120);
-        state.chat={mode:'direct',confirm:false,sending:false,done:false,outcomes:new Map(),
+        state.chat={mode:'direct',confirm:false,sending:false,done:false,outcomes:new Map(),recipients:[...state.result.winners],excluded:[],
           text:'Congratulations {user}! You won the raffle on this post: {link}',groupName:('Raffle: '+title).slice(0,64)};
       }
       this.renderMessage();this.showView('message');
@@ -533,33 +533,52 @@
     renderMessage(){
       const state=this.dialog,chat=state.chat,winners=state.result.winners,box=state.messageView;box.replaceChildren();
       const field=(label,control,hint)=>{const wrap=make('label','rt-raffle-mini');wrap.append(make('span','rt-raffle-row-caption rt-raffle-field-title',label),control);if(hint){const h=make('span','rt-raffle-row-caption',hint);h.id='rt-raffle-hint-'+label.replace(/\W+/g,'').toLowerCase();control.setAttribute('aria-describedby',h.id);wrap.append(h);}return wrap;};
-      const toLabel=make('span','rt-raffle-row-caption rt-raffle-field-title','To');toLabel.tabIndex=-1;
+      const locked=chat.sending || chat.done;
+      // Two sections: who gets the message (removable), and who doesn't (winners left out, or anyone added by name).
+      const person=(winner,action)=>{const li=make('li','rt-raffle-person');li.dataset.rtRecipient=winner.author;li.append(this.avatarEl(winner,24),make('span','rt-raffle-person-name','u/'+winner.author));
+        const outcome=chat.outcomes.get(winner.author);if(outcome){const tag=make('span','rt-raffle-person-state',outcome.text);tag.dataset.state=outcome.state;li.append(tag);}
+        if(action && !locked && outcome?.state!=='sent'){const b=make('button','rt-raffle-person-action',action==='remove'?'×':'+');b.type='button';b.setAttribute('aria-label',(action==='remove'?'Remove u/':'Add u/')+winner.author);
+          b.addEventListener('click',()=>{if(action==='remove'){chat.recipients=chat.recipients.filter(w=>w!==winner);chat.excluded.push(winner);}else{chat.excluded=chat.excluded.filter(w=>w!==winner);chat.recipients.push(winner);}chat.confirm=false;this.renderMessage();});li.append(b);}
+        return li;};
+      const toLabel=make('span','rt-raffle-row-caption rt-raffle-field-title','Sending to ('+n(chat.recipients.length)+')');toLabel.tabIndex=-1;
       const people=make('ul','rt-raffle-people');people.setAttribute('aria-label','Recipients');
-      for(const winner of winners){const li=make('li','rt-raffle-person');li.dataset.rtRecipient=winner.author;li.append(this.avatarEl(winner,24),make('span','rt-raffle-person-name','u/'+winner.author));
-        const outcome=chat.outcomes.get(winner.author);if(outcome){const tag=make('span','rt-raffle-person-state',outcome.text);tag.dataset.state=outcome.state;li.append(tag);}people.append(li);}
+      for(const winner of chat.recipients)people.append(person(winner,'remove'));
+      if(!chat.recipients.length)people.append(make('li','rt-raffle-row-caption','No one yet. Add people below.'));
       const toWrap=make('div','rt-raffle-mini');toWrap.append(toLabel,people);
+      const outWrap=make('div','rt-raffle-mini');outWrap.append(make('span','rt-raffle-row-caption rt-raffle-field-title','Not included'));
+      if(chat.excluded.length){const others=make('ul','rt-raffle-people rt-raffle-people-out');others.setAttribute('aria-label','Not included');for(const winner of chat.excluded)others.append(person(winner,'add'));outWrap.append(others);}
+      const addRow=make('div','rt-raffle-add');const addInput=make('input','rt-raffle-input');addInput.type='text';addInput.placeholder='Add someone: u/name';addInput.maxLength=23;addInput.autocomplete='off';addInput.setAttribute('aria-label','Add someone by username');addInput.disabled=locked;
+      const addButton=make('button','rt-raffle-action button-small button-secondary button inline-flex items-center justify-center','Add');addButton.type='button';addButton.disabled=locked;
+      const addError=make('span','rt-raffle-row-caption');addError.dataset.error='true';
+      const add=()=>{const name=addInput.value.trim().replace(/^\/?u\//i,'');
+        if(!/^[A-Za-z0-9_-]{3,20}$/.test(name)){addError.textContent='Enter a Reddit username';return;}
+        const known=[...chat.recipients,...chat.excluded].find(w=>w.author.toLowerCase()===name.toLowerCase());
+        if(known){if(chat.excluded.includes(known)){chat.excluded=chat.excluded.filter(w=>w!==known);chat.recipients.push(known);}chat.confirm=false;this.renderMessage();return;}
+        const added={author:name,avatar:'',permalink:'',body:'',created:0,added:true};chat.recipients.push(added);chat.confirm=false;this.renderMessage();this.fillAvatars([added]);};
+      addButton.addEventListener('click',add);addInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();add();}});
+      addRow.append(addInput,addButton);outWrap.append(addRow,addError);
       const modes=make('div','rt-raffle-modes');modes.setAttribute('role','radiogroup');modes.setAttribute('aria-label','How to send');
       for(const [value,label,caption] of [['direct','Separate chats','Each winner gets a private chat with you'],['group','One group chat','Winners can see each other']]){
         const option=make('label','rt-raffle-row rt-raffle-mode');const text=make('span','rt-raffle-row-text');text.append(make('span','rt-raffle-row-label',label),make('span','rt-raffle-row-caption',caption));
         const radio=make('input');radio.type='radio';radio.name='rt-raffle-mode';radio.value=value;radio.checked=chat.mode===value;radio.disabled=chat.sending || chat.done || [...chat.outcomes.values()].some(o=>o.state==='sent');
         radio.addEventListener('change',()=>{chat.mode=value;chat.confirm=false;this.renderMessage();});option.append(text,radio);modes.append(option);
-        if(winners.length>100 && value==='group')radio.disabled=true;
+        if(chat.recipients.length>100 && value==='group')radio.disabled=true;
       }
-      const name=make('input','rt-raffle-input');name.type='text';name.maxLength=64;name.value=chat.groupName;name.disabled=chat.sending || chat.done;name.addEventListener('input',()=>{chat.groupName=name.value;chat.confirm=false;this.syncSend();});
+      const name=make('input','rt-raffle-input');name.type='text';name.maxLength=64;name.dataset.rtField='group-name';name.value=chat.groupName;name.disabled=chat.sending || chat.done;name.addEventListener('input',()=>{chat.groupName=name.value;chat.confirm=false;this.syncSend();});
       const area=make('textarea','rt-raffle-input rt-raffle-textarea');area.rows=3;area.maxLength=2000;area.value=chat.text;area.disabled=chat.sending || chat.done;
       const preview=make('p','rt-raffle-preview m-0');
-      const updatePreview=()=>{preview.textContent=this.fill(chat.text,chat.mode==='group'?winners:winners.slice(0,1));};
+      const updatePreview=()=>{const to=chat.recipients.length?chat.recipients:winners;preview.textContent=this.fill(chat.text,chat.mode==='group'?to:to.slice(0,1));};
       area.addEventListener('input',()=>{chat.text=area.value;chat.confirm=false;updatePreview();this.syncSend();});updatePreview();
-      const previewWrap=make('details','rt-raffle-mini rt-raffle-preview-wrap');previewWrap.open=!globalThis.matchMedia?.(MOBILE)?.matches;previewWrap.append(make('summary','rt-raffle-row-caption rt-raffle-field-title',chat.mode==='group'?'Preview':'Preview for u/'+winners[0].author),preview);
-      box.append(toWrap,modes);
+      const previewWrap=make('details','rt-raffle-mini rt-raffle-preview-wrap');previewWrap.open=!globalThis.matchMedia?.(MOBILE)?.matches;previewWrap.append(make('summary','rt-raffle-row-caption rt-raffle-field-title',chat.mode==='group'?'Preview':'Preview for u/'+(chat.recipients[0] || winners[0]).author),preview);
+      box.append(toWrap,outWrap,modes);
       if(chat.mode==='group')box.append(field('Group name',name));
       box.append(field('Message',area,'{user}, {title} and {link} are filled in for each chat'),previewWrap);
       this.syncSend();
     }
     syncSend(){
-      const state=this.dialog,chat=state?.chat;if(!chat)return;const remaining=state.result.winners.filter(w=>chat.outcomes.get(w.author)?.state!=='sent'),count=remaining.length,retry=count<state.result.winners.length;
+      const state=this.dialog,chat=state?.chat;if(!chat)return;const remaining=chat.recipients.filter(w=>chat.outcomes.get(w.author)?.state!=='sent'),count=remaining.length,retry=count<chat.recipients.length;
       state.send.disabled=chat.sending || chat.done || !chat.text.trim() || !count || chat.mode==='group' && chat.groupStarted;
-      state.send.textContent=chat.done?'Sent':chat.sending?'Sending…':chat.confirm?'Confirm: send '+(chat.mode==='group'?'to the group':n(count)+' '+(count===1?'message':'messages')):(chat.mode==='group'?'Start group chat':(retry?'Send to the remaining '+n(count):'Send to '+n(count)+' '+(count===1?'winner':'winners')));
+      state.send.textContent=chat.done?'Sent':chat.sending?'Sending…':chat.confirm?'Confirm: send '+(chat.mode==='group'?'to the group':n(count)+' '+(count===1?'message':'messages')):(chat.mode==='group'?'Start group chat':(retry?'Send to the remaining '+n(count):'Send to '+n(count)+' '+(count===1?'person':'people')));
       state.send.classList.toggle('rt-raffle-confirm',chat.confirm);state.msgBack.disabled=chat.sending;
       // The footer note (beside the button, in view on phones) holds the warning or the last send's outcome.
       if(state.view!=='message')return;
@@ -572,7 +591,7 @@
       if(!chat.confirm){chat.confirm=true;this.syncSend();return;}
       chat.sending=true;chat.confirm=false;chat.summary='';this.renderMessage();
       // Only people not reached yet: a second send (after failures) never repeats a delivered message.
-      const winners=state.result.winners.filter(w=>chat.outcomes.get(w.author)?.state!=='sent'),set=(winner,stateName,text)=>{chat.outcomes.set(winner.author,{state:stateName,text});const li=state.messageView.querySelector('[data-rt-recipient="'+CSS.escape(winner.author)+'"]');if(li){li.querySelector('.rt-raffle-person-state')?.remove();const tag=make('span','rt-raffle-person-state',text);tag.dataset.state=stateName;li.append(tag);}};
+      const winners=chat.recipients.filter(w=>chat.outcomes.get(w.author)?.state!=='sent'),set=(winner,stateName,text)=>{chat.outcomes.set(winner.author,{state:stateName,text});const li=state.messageView.querySelector('[data-rt-recipient="'+CSS.escape(winner.author)+'"]');if(li){li.querySelector('.rt-raffle-person-state')?.remove();const tag=make('span','rt-raffle-person-state',text);tag.dataset.state=stateName;li.append(tag);}};
       let sent=0,failed=0,stopped='';
       try{
         const ready=await this.read({action:'chat-status'},{timeout:15000});
@@ -601,8 +620,8 @@
           }
         }
       }catch(error){if(this.dialog!==state)return;stopped=error.message;for(const w of winners)if(!chat.outcomes.has(w.author))set(w,'skipped','Not sent');}
-      chat.sending=false;chat.done=state.result.winners.every(w=>chat.outcomes.get(w.author)?.state==='sent');if(sent)state.saved=true;
-      chat.failed=failed;chat.summary=(chat.mode==='group'?(sent?'Group chat started with '+n(sent)+' '+(sent===1?'winner':'winners')+'.':'The group chat wasn’t started.'):'Sent to '+n(sent)+' of '+n(winners.length)+' winners.')+(failed?' '+n(failed)+' failed.':'')+(stopped?' '+stopped:'');
+      chat.sending=false;chat.done=chat.recipients.length>0 && chat.recipients.every(w=>chat.outcomes.get(w.author)?.state==='sent');if(sent)state.saved=true;
+      chat.failed=failed;chat.summary=(chat.mode==='group'?(sent?'Group chat started with '+n(sent)+' '+(sent===1?'winner':'winners')+'.':'The group chat wasn’t started.'):'Sent to '+n(sent)+' of '+n(winners.length)+' '+(winners.length===1?'person':'people')+'.')+(failed?' '+n(failed)+' failed.':'')+(stopped?' '+stopped:'');
       this.say(chat.summary);this.syncSend();
     }
   }

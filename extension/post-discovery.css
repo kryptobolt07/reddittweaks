@@ -497,6 +497,12 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-action{gap:6px;padding:0 12px;white-space:nowrap;text-decoration:none}
 .rt-raffle-action svg{flex:none;width:16px;height:16px}
 .rt-raffle-banner-actions{gap:8px}
+.rt-raffle-person-action{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-inline:2px -6px;padding:0;border:0;border-radius:50%;background:transparent;font:inherit;font-size:16px;line-height:1;color:var(--color-neutral-content-weak,#576f76);cursor:pointer}
+.rt-raffle-person-action:hover{background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f)}
+.rt-raffle-people-out .rt-raffle-person{background:transparent;box-shadow:inset 0 0 0 1px var(--color-neutral-border,#d4dadc)}
+.rt-raffle-add{display:flex;align-items:center;gap:8px}
+.rt-raffle-add .rt-raffle-input{flex:1 1 auto;min-width:0}
+.rt-raffle-add+.rt-raffle-row-caption:empty{display:none}
 /* Winners */
 .rt-raffle-banner{display:block;padding-bottom:8px}
 .rt-raffle-banner-text{display:flex;flex-direction:column;gap:2px;min-width:0}
