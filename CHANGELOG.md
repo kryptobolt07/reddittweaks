@@ -1,3 +1,11 @@
+# 0.35.1 preview
+
+- **Editable confirmation message:** the final step now contains a real replacement-message textbox. Edits persist when going back and update the message used by the run, while preserving item selection and clearing the typed confirmation. Empty or oversized messages block execution; the editor locks during writes. Delete-only continues to omit the message.
+- **Review sections:** Posts and Comments have separate labelled lists and selected counts. Global selection still spans both, each list loads more on scroll, and rows remain attached. Every row uses the shared community icon with lazy loading and cached-image/fallback behavior. Observer cleanup prevents stale reviews from rendering into later ones.
+- **Deferred private raffle scan:** opening the dialog, selecting a mode or editing rules does not scan entrants. Draw privately begins comment retrieval and qualification. An unavailable winner count shows the available range on the rules screen instead of producing a partial draw. Loaded comments and successful account facts are reused; failed account lookups can retry. Incomplete comment reads still require acknowledgement. Public results enrich only known winners’ comments and never scan the entrant pool.
+- **Version:** patch increment for editable confirmation and unnecessary pre-draw scans, with review presentation refinements; no storage migration.
+- **Verification limits:** synthetic tests cover the changed flows. No live redaction, raffle creation or messages were performed. Updated installed UI review awaits the user’s reload; no constructed preview was used.
+
 # 0.35.0 preview
 
 - **Redaction actions:** choose Overwrite text, Delete, or Overwrite, then delete. Overwrite-only excludes items without editable text and never deletes; delete-only never overwrites. Review, typed confirmation, time estimates and results reflect the selected action. The replacement message is editable and now defaults to “This comment has been redacted by Reddit Tweaks.” It is hidden for delete-only without losing edits.
