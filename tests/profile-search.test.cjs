@@ -96,7 +96,11 @@ test('results are Reddit\'s search rows: community, time, title, counts and thum
   const c=s.d.searchUnit(s.W.RTPostModel.normalizeComment(comment));
   assert.equal(c.querySelector('h2').textContent,'Parent title');assert.equal(c.querySelectorAll('[data-testid="search-comment-content"] p').length,3,'two body paragraphs and the votes line');
   const thread=[...c.querySelectorAll('a')].find(a=>a.textContent==='Go To Thread');assert.equal(new URL(thread.href).pathname,'/r/Alpha/comments/parent/parent_title/');
-  assert.equal(c.querySelector('[data-testid="search-counter-row"]').textContent.replace(/\s+/g,' ').trim(),'867 votes·100 comments');assert.equal(s.d.searchUnit(s.W.RTPostModel.normalizePost(raw('big',{score:12345,num_comments:1}))).querySelector('[data-testid="search-counter-row"]').textContent,'12.3K votes·1 comment');
+  assert.equal(c.querySelector('[data-testid="search-counter-row"]').textContent.replace(/\s+/g,' ').trim(),'867 votes·100 comments');
+  // The comment text lets clicks through to the comment link beneath it, and the fade appears only when the text is cut off.
+  const box=c.querySelector('[data-testid="search-comment-content"]'),body=box.querySelector('.max-h-\\[260px\\]'),fade=box.querySelector('[data-rt-comment-fade]'),commentLink=box.querySelector('a[aria-label^="Comment by"]');
+  assert.equal(body.style.pointerEvents,'none');assert.ok(commentLink);assert.equal(fade.hidden,true,'no blur over a comment that fits');
+  Object.defineProperty(body,'scrollHeight',{configurable:true,value:400});Object.defineProperty(body,'clientHeight',{configurable:true,value:260});s.W.RTPostDiscovery.clipFade(body,fade);assert.equal(fade.hidden,false,'shown only when the comment is cut off');assert.equal(s.d.searchUnit(s.W.RTPostModel.normalizePost(raw('big',{score:12345,num_comments:1}))).querySelector('[data-testid="search-counter-row"]').textContent,'12.3K votes·1 comment');
 });
 test('Back to a search puts its loaded results back instead of searching again',async t=>{
   const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words&rt_sub=Alpha'});await search(s);

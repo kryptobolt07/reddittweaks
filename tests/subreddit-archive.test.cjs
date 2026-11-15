@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const fs=require('node:fs');
+const fs=require('node:fs');const path=require('node:path');
 const {JSDOM}=require('jsdom');
 
 const modalHtml=(title,name='gone')=>`<guard-community-modal isdesktop="" isloggedin="" subredditname="${name}" subredditid="t5_x" actioned=""><div slot="titleGraphic" class="flex"><svg></svg></div><div slot="closeButton"><a class="button-secondary icon button" href="/"></a></div><div slot="primaryButton"><a class="w-100 button-medium button-primary button inline-flex" href="/"><span><span>Browse Other Communities</span></span></a></div><div slot="title" class="text-24 s:text-20">${title}</div><div><p>This subreddit has been banned for violating the reddit rules</p></div></guard-community-modal>`;
@@ -701,4 +701,9 @@ test('the comment toolbar appears with the post, never before it, and a permalin
   const kids=[...ctx.doc.querySelector('#t1_b1').children].filter(n=>n.matches('shreddit-comment')).map(n=>n.id);assert.equal(kids[0],'t1_b2','then the focused comment');
   assert.ok(ctx.doc.querySelector('#t1_b2').classList.contains('rt-sra-highlighted'));
   ctx.sa.destroy();ctx.W.close();
+});
+
+test('archived comment hits fade only when the comment is cut off, and revealed spoilers in search rows pass clicks through',()=>{
+  const js=fs.readFileSync(path.join(__dirname,'../extension/subreddit-archive.js'),'utf8');assert.match(js,/fade\.hidden=true;[^\n]*clipFade/);
+  const css=fs.readFileSync(path.join(__dirname,'../extension/post-discovery.css'),'utf8');assert.match(css,/\.rt-search-unit \.rt-sensitive\.rt-revealed\{pointer-events:none\}/);
 });

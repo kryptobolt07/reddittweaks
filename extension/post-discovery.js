@@ -146,6 +146,8 @@
   // Reddit's compact counts: 999, 1.2K, 12K, 1.2M.
   function compactCount(value){const n=Number(value) || 0,abs=Math.abs(n);if(abs<1000)return String(n);if(abs<1e6)return (n/1000).toFixed(abs<10000?1:0).replace(/\.0$/,'')+'K';return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M';}
   // Reddit's blur-to-reveal for NSFW media and spoilers: content stays in place, blurred, behind one button.
+  // Reddit's fade over long search comments: shown only when the text is actually cut off (watched as it lays out).
+  function clipFade(content,fade){const check=()=>{fade.hidden=!(content.scrollHeight>content.clientHeight+1);};check();if(typeof ResizeObserver==='function' && !fade.rtWatched){fade.rtWatched=true;new ResizeObserver(check).observe(content);}return fade;}
   function sensitive(content,label,{media=true}={}){
     const box=make('div','relative overflow-hidden rt-sensitive'+(media?' rt-sensitive-media':''));content.classList.add('rt-sensitive-content');box.append(content);
     const reveal=make('button','rt-sensitive-reveal',label);reveal.type='button';
@@ -2357,11 +2359,13 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
         author.append(avatar,document.createTextNode(post.author || '[deleted]'));who.append(author,dot(),time(post.created,'narrow'));
         const commentLink=link('',post.permalink,'absolute inset-0');commentLink.setAttribute('aria-label','Comment by '+(post.author || '[deleted]'));
         const text=(post.archivedBody || post.body || '').trim(),content=make('div','relative max-h-[260px] overflow-hidden text-ellipsis text-neutral-content-strong [--emote-size:20px] text-14');
+        // Plain text: clicks go through to the comment link underneath (the text block otherwise stacks above it).
+        content.style.pointerEvents='none';
         for(const para of (text || '[deleted]').split(/\n{2,}/).slice(0,8))content.append(make('p','my-xs',para.replace(/\s+/g,' ').trim()));
         const shown=post.over18 || post.spoiler?sensitive(content,post.over18?'View NSFW content':'View spoiler',{media:false}):content;
-        const fade=make('div','h-[21px] mt-[-21px] bg-gradient-to-t isolate pointer-events-none relative');fade.style.backgroundImage='linear-gradient(to top,var(--color-neutral-background-weak),transparent)';
+        const fade=make('div','h-[21px] mt-[-21px] bg-gradient-to-t isolate pointer-events-none relative');fade.style.backgroundImage='linear-gradient(to top,var(--color-neutral-background-weak),transparent)';fade.dataset.rtCommentFade='true';fade.hidden=true;
         const votes=make('p','text-neutral-content-weak text-12 m-0 relative');votes.append(count(post.score,'vote','votes'));
-        pad.append(who,commentLink,shown,fade,votes);box.append(pad);
+        pad.append(who,commentLink,shown,fade,votes);box.append(pad);requestAnimationFrame?.(()=>clipFade(content,fade));
         const thread=link('Go To Thread',postHref,'text-12 font-semibold no-underline text-primary-plain mb-xs relative hover:underline');
         col.append(head,title,box,thread);
         if(Number.isFinite(post.postScore) && Number.isFinite(post.postComments)){const counter=make('div','text-neutral-content-weak text-12');counter.dataset.testid='search-counter-row';counter.append(count(post.postScore,'vote','votes'),dot(),count(post.postComments,'comment','comments'));col.append(counter);}
@@ -2687,7 +2691,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
     for(const row of native.querySelectorAll('shreddit-comment-action-row')){row.removeAttribute('inert');row.setAttribute('aria-label','Archived values; open the thread for current actions');}
     return node;
   }
-  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard,PROFILE_REDDIT_SEARCH_CAPABILITIES,avatarHint:name=>avatarHints.get(String(name||'').toLowerCase())?.url || ''});
+  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard,clipFade,PROFILE_REDDIT_SEARCH_CAPABILITIES,avatarHint:name=>avatarHints.get(String(name||'').toLowerCase())?.url || ''});
   // Debug handle in the extension's isolated world only (not visible to Reddit's page).
   if(window.top===window && globalThis.chrome?.runtime?.id)Object.defineProperty(globalThis,'RTDiscoveryDebug',{value:new Discovery()});
 })();

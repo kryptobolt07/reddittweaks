@@ -382,6 +382,8 @@ shreddit-feed[data-rt-unapproved-hidden]{display:none!important}
 [data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1){position:relative;width:fit-content;max-width:100%;color:transparent!important;user-select:none}
 [data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1)::after{--rt-skeleton-base:color-mix(in srgb,var(--color-neutral-content-strong,#1a1a1b) 16%,var(--color-neutral-background,#fff));content:'';position:absolute;inset:3px 0;border-radius:999px;background-image:linear-gradient(90deg,var(--rt-skeleton-base) 30%,color-mix(in srgb,var(--rt-skeleton-base) 45%,var(--color-neutral-background,#fff)) 50%,var(--rt-skeleton-base) 70%);background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite}
 @media(prefers-reduced-motion:reduce){[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1)::after{animation:none}}
+/* In search result rows a revealed spoiler/NSFW comment passes clicks through to the comment link beneath it. */
+.rt-search-unit .rt-sensitive.rt-revealed{pointer-events:none}
 /* Raffle dialog (docs/raffle-spec.md). Reddit's rpl-modal-card on its measured scrim. Rules follow Reddit's settings
    rows (label 14/20, caption 12/16 #576F76, control right, 8 px rows, 48x32 switch); winners follow its comment row
    (32 px avatar, 12/700 name, 12 weak time, 14/20 text). One spacing scale: 4, 8, 12, 16. */

@@ -526,7 +526,7 @@
       const body=make('div','i18n-search-comment-content max-h-[260px] overflow-hidden text-ellipsis text-neutral-content-strong hover:no-underline no-underline no-visited [--emote-size:20px] rt-sra-cs-hit-body');body.dir='auto';
       const rendered=globalThis.RTMarkdown?.fromHtml?.(item.bodyHtml) || globalThis.RTMarkdown?.render?.(item.body || '');if(rendered)body.append(rendered);else for(const para of String(item.body || '').split(/\n{2,}/))body.append(make('p','',para.trim()));
       content.append(body);
-      const fade=make('div','h-[21px] mt-[-21px] from-[color:var(--color-neutral-background-weak)] bg-gradient-to-t isolate pointer-events-none group-hover:from-[color:var(--color-neutral-background-hover)] rt-sra-cs-fade');
+      const fade=make('div','h-[21px] mt-[-21px] from-[color:var(--color-neutral-background-weak)] bg-gradient-to-t isolate pointer-events-none group-hover:from-[color:var(--color-neutral-background-hover)] rt-sra-cs-fade');fade.hidden=true;requestAnimationFrame?.(()=>globalThis.RTPostDiscovery?.clipFade?.(body,fade));
       const score=Number(item.score) || 0,votes=make('p','text-neutral-content-weak text-12 rt-sra-cs-hit-votes');votes.append(make('span','',compact(score)+' '+(Math.abs(score)===1?'vote':'votes')));
       pad.append(head,link,content,fade,votes);return article;
     }

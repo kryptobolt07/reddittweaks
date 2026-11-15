@@ -54,6 +54,7 @@ async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},
  let current=settings;
  const readFn=async args=>{calls.push(args);
   if(args.action==='raffle-me')return {username:me};
+  if(args.action==='user-avatar')return {avatar:'https://styles.redditmedia.com/'+args.username+'-head.png'};
   if(args.action==='raffle-winner-comments')return {entries:args.ids.filter(id=>id==='a1').map(id=>comment(id,'Alice',{body:'First line\nSecond line '+ 'x'.repeat(200)}))};
   if(args.action==='raffle-thread')return thread?thread(args):{post:{author:'Owner',subreddit:'Alpha'},entries:[comment('a1','Alice',{body:'First line\nSecond line '+'x'.repeat(200)}),comment('b1','Bob'),comment('o1','Owner')],missingTopLevel:[],missingReplies:0};
   if(args.action==='raffle-tree')return tree(args,calls.filter(c=>c.action==='raffle-tree').length);
@@ -540,8 +541,8 @@ test('exclude users: suggestions are the post’s commenters from one thread rea
  assert.equal(s.calls.filter(c=>c.action==='raffle-thread').length,1,'the private draw reuses the same thread read');assert.equal(s.q('.rt-raffle-winner[data-rt-winner="Alice"]'),null,'excluded users never win');
 });
 test('exclude users after a private read suggests from the comments already read, with no request',async t=>{
- const s=await ui(t);await s.open();await loadPrivate(s);const before=s.calls.length;
- s.q('[data-rt-raffle-filter="excludeUsers"]').click();await flush();assert.equal(s.calls.length,before);
+ const s=await ui(t);await s.open();await loadPrivate(s);const reads=()=>s.calls.filter(c=>/^raffle-(thread|tree)$/.test(c.action)).length,before=reads();
+ s.q('[data-rt-raffle-filter="excludeUsers"]').click();await flush();assert.equal(reads(),before,'no comment reads; only pictures for shown rows');
  assert.deepEqual([...s.D.querySelectorAll('[data-rt-user-row]')].map(r=>r.dataset.rtUserRow),['Alice','Bob']);
  const owner=s.q('[name="excludeAuthor"]');owner.checked=false;owner.dispatchEvent(new s.W.Event('input',{bubbles:true}));s.q('[data-rt-raffle-filter="excludeUsers"]').click();s.q('[data-rt-raffle-filter="excludeUsers"]').click();await flush();
  assert.deepEqual([...s.D.querySelectorAll('[data-rt-user-row]')].map(r=>r.dataset.rtUserRow),['Alice','Bob','Owner'],'the author is offered when not excluded already');
@@ -614,4 +615,16 @@ test('raffle fields share the redaction dialog’s hover, pressed and focus stat
  const focus=rule('dialog.rt-raffle-dialog :is(.rt-raffle-input,.rt-raffle-field input:not([type=hidden]),.rt-redact-area):focus');assert.match(focus,/outline:2px solid var\(--color-a-default,#216ba5\)/);
  assert.match(rule('dialog.rt-raffle-dialog :is(.rt-redact-control,.rt-raffle-step,.rt-switch input,.rt-raffle-option input,.rt-raffle-more,.rt-raffle-winner a):focus-visible'),/outline:2px solid var\(--color-a-default,#216ba5\)/);
  assert.doesNotMatch(css,/\.rt-raffle-input:focus-visible/,'no second, black focus ring on raffle fields');
+});
+test('commenter pictures: from the page’s comments at once, otherwise looked up only for rows that are shown',async t=>{
+ const s=await ui(t,{url:'https://www.reddit.com/r/Alpha/comments/post1/giveaway/'});
+ s.D.querySelector('main').insertAdjacentHTML('beforeend','<shreddit-comment author="Zoe" depth="0" postid="t3_post1" avatar="https://styles.redditmedia.com/t5_zoe/zoe.png"></shreddit-comment><shreddit-comment author="Evil" depth="0" postid="t3_post1" avatar="https://evil.test/x.png"></shreddit-comment>');
+ await s.open();s.q('[data-rt-raffle-filter="excludeUsers"]').click();await flush();
+ const src=name=>s.q('[data-rt-user-row="'+name+'"] img').getAttribute('src');
+ assert.equal(src('Zoe'),'https://styles.redditmedia.com/t5_zoe/zoe.png','the picture Reddit already drew, no request');
+ assert.equal(src('Alice'),'https://styles.redditmedia.com/Alice-head.png','looked up for a row on screen');assert.equal(src('Bob'),'https://styles.redditmedia.com/Bob-head.png');
+ assert.match(src('Evil'),/^https:\/\/(www\.redditstatic\.com|styles\.redditmedia\.com)\//,'a picture from another host is never used');
+ const lookups=()=>s.calls.filter(c=>c.action==='user-avatar').map(c=>c.username).sort();assert.deepEqual(plain(lookups()),['Alice','Bob','Evil'],'Zoe needed none');
+ s.q('[data-rt-raffle-filter="excludeUsers"]').click();s.q('[data-rt-raffle-filter="excludeUsers"]').click();await flush();assert.equal(lookups().length,3,'kept for the dialog: reopening looks up nothing');
+ assert.equal(src('Alice'),'https://styles.redditmedia.com/Alice-head.png');
 });
