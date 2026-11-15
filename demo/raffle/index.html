@@ -36,6 +36,7 @@ customElements.define('rpl-modal-card',class extends HTMLElement{constructor(){s
 customElements.define('faceplate-timeago',class extends HTMLElement{connectedCallback(){const s=Math.max(60,(Date.now()-Date.parse(this.getAttribute('ts')))/1000);this.textContent=s<3600?Math.round(s/60)+'m ago':s<86400?Math.round(s/3600)+'h ago':Math.round(s/86400)+'d ago';}});
 </script>
 <script src="/extension/post-model.js"></script>
+<script src="/extension/feed-filters.js"></script>
 <script src="/extension/raffle-model.js"></script>
 <script src="/extension/raffle-ui.js"></script>
 <script src="/demo/raffle/preview.js"></script>

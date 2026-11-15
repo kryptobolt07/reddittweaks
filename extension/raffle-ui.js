@@ -4,7 +4,7 @@
 (() => {
   'use strict';
   if(globalThis.RTRaffle)return;
-  const M=globalThis.RTPostModel,R=globalThis.RTRaffleModel;if(!M || !R)return;
+  const M=globalThis.RTPostModel,R=globalThis.RTRaffleModel,F=globalThis.RTFeedFilters;if(!M || !R || !F)return;
   // Reading limits (FINDINGS.md: ~90 top-level comments per client page, ~83 KB per "more replies" page).
   const TOP_PAGES=120,REPLY_REQUESTS=800,REPLY_PARALLEL=2;
   const MOBILE='(max-width: 640px)';
@@ -14,8 +14,27 @@
   // A ticket outline (Reddit has no raffle icon), drawn on Reddit's 20 px grid.
   const TICKET='M16.6 3H3.4A2.4 2.4 0 001 5.4v2.2a.9.9 0 00.9.9 1.5 1.5 0 010 3 .9.9 0 00-.9.9v2.2A2.4 2.4 0 003.4 17h13.2a2.4 2.4 0 002.4-2.4v-2.2a.9.9 0 00-.9-.9 1.5 1.5 0 010-3 .9.9 0 00.9-.9V5.4A2.4 2.4 0 0016.6 3Zm.6 4.26a3.3 3.3 0 000 5.48v1.86a.6.6 0 01-.6.6H3.4a.6.6 0 01-.6-.6v-1.86a3.3 3.3 0 000-5.48V5.4a.6.6 0 01.6-.6h13.2a.6.6 0 01.6.6v1.86ZM7.1 6.1h1.8v1.8H7.1V6.1Zm0 3h1.8v1.8H7.1V9.1Zm0 3h1.8v1.8H7.1v-1.8Z';
   // Small action icons on Reddit's 20 px grid.
-  const EXTERNAL='M11 2.1h5.1c.99 0 1.8.81 1.8 1.8V9a.9.9 0 11-1.8 0V5.17l-6.36 6.37a.9.9 0 01-1.28-1.28L14.83 3.9H11a.9.9 0 110-1.8ZM4.4 4.9a.5.5 0 00-.5.5v10.2c0 .28.22.5.5.5h10.2a.5.5 0 00.5-.5V12a.9.9 0 111.8 0v3.6a2.3 2.3 0 01-2.3 2.3H4.4a2.3 2.3 0 01-2.3-2.3V5.4a2.3 2.3 0 012.3-2.3H8a.9.9 0 110 1.8H4.4Z';
-  const COPY='M14.6 5.9H8.4a2.3 2.3 0 00-2.3 2.3v7.4a2.3 2.3 0 002.3 2.3h6.2a2.3 2.3 0 002.3-2.3V8.2a2.3 2.3 0 00-2.3-2.3Zm.5 9.7a.5.5 0 01-.5.5H8.4a.5.5 0 01-.5-.5V8.2c0-.28.22-.5.5-.5h6.2c.28 0 .5.22.5.5v7.4ZM11.6 2.1H5.4a2.3 2.3 0 00-2.3 2.3v7.4a.9.9 0 101.8 0V4.4c0-.28.22-.5.5-.5h6.2a.9.9 0 100-1.8Z';
+  /* Section and action symbols: one outline set on Reddit's 20 px grid (1.6 px strokes, round ends), so the rules,
+     the two ways to draw and the result actions read as one family. */
+  const GLYPHS={
+    trophy:['M6.5 3.5h7v4.2a3.5 3.5 0 01-7 0V3.5Z','M6.5 5.2H4.2v1.1a2.6 2.6 0 002.6 2.6','M13.5 5.2h2.3v1.1a2.6 2.6 0 01-2.6 2.6','M10 11.2v3.3','M7 16.5h6'],
+    comment:['M4.5 4h11A1.5 1.5 0 0117 5.5v7.2a1.5 1.5 0 01-1.5 1.5H9.2L5.8 17v-2.8H4.5A1.5 1.5 0 013 12.7V5.5A1.5 1.5 0 014.5 4Z'],
+    person:['M10 9.2a3 3 0 100-6 3 3 0 000 6Z','M4.2 16.8a5.8 5.8 0 0111.6 0'],
+    hash:['M8.2 3.5 6.8 16.5','M13.2 3.5l-1.4 13','M4 7.6h12.5','M3.5 12.4H16'],
+    'person-minus':['M8.5 9.2a3 3 0 100-6 3 3 0 000 6Z','M3 16.8a5.5 5.5 0 019.5-3.8','M13 15h4.5'],
+    shield:['M10 2.8l5.8 2.1v4.4c0 3.6-2.4 6.4-5.8 7.9-3.4-1.5-5.8-4.3-5.8-7.9V4.9L10 2.8Z','M7.4 9.9l1.8 1.8 3.5-3.6'],
+    globe:['M10 17.2a7.2 7.2 0 100-14.4 7.2 7.2 0 000 14.4Z','M2.8 10h14.4','M10 2.8c1.9 2 2.9 4.4 2.9 7.2s-1 5.2-2.9 7.2c-1.9-2-2.9-4.4-2.9-7.2s1-5.2 2.9-7.2Z'],
+    lock:['M5.8 8.8h8.4a1.2 1.2 0 011.2 1.2v5.6a1.2 1.2 0 01-1.2 1.2H5.8a1.2 1.2 0 01-1.2-1.2V10a1.2 1.2 0 011.2-1.2Z','M7.2 8.8V6.6a2.8 2.8 0 015.6 0v2.2','M10 12.2v1.6'],
+    // A results document with a check: "proof", not a generic external-link arrow.
+    proof:['M11.5 2.8H6A1.5 1.5 0 004.5 4.3v11.4A1.5 1.5 0 006 17.2h8a1.5 1.5 0 001.5-1.5V6.8l-4-4Z','M11.5 2.8v4h4','M7.6 11.6l1.7 1.7 3.2-3.3'],
+    copy:['M7.5 7.2h7.3A1.2 1.2 0 0116 8.4v7.4a1.2 1.2 0 01-1.2 1.2H7.5a1.2 1.2 0 01-1.2-1.2V8.4a1.2 1.2 0 011.2-1.2Z','M4.2 12.8V4.4a1.2 1.2 0 011.2-1.2h7.3']
+  };
+  function glyph(name,size=20){
+    const svg=document.createElementNS(svgNS,'svg');
+    for(const [k,v] of Object.entries({fill:'none',stroke:'currentColor','stroke-width':'1.6','stroke-linecap':'round','stroke-linejoin':'round',height:String(size),width:String(size),viewBox:'0 0 20 20','aria-hidden':'true'}))svg.setAttribute(k,v);
+    svg.dataset.icon=name;for(const d of GLYPHS[name]){const path=document.createElementNS(svgNS,'path');path.setAttribute('d',d);svg.append(path);}return svg;
+  }
+  const nameOK=/^[A-Za-z0-9_-]{3,20}$/;
   const CLOSE='m11.273 10 5.363-5.363a.9.9 0 10-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 10-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 101.274 1.273L10 11.273l5.363 5.363a.897.897 0 001.274 0 .9.9 0 000-1.273L11.275 10Z';
   const n=value=>Number(value).toLocaleString('en-US');
 
@@ -60,6 +79,9 @@
       // Safety net: make sure the item exists the moment a post's ⋯ button is pressed, before Reddit draws the menu.
       this.onPress=event=>{const menu=event.composedPath?.().find(node=>node?.tagName==='SHREDDIT-POST-OVERFLOW-MENU');if(menu){this.sync();this.menuStatus(menu);}};
       document.addEventListener('pointerdown',this.onPress,true);document.addEventListener('keydown',this.onPress,true);
+      // Fetch the Reddit Raffler status as ⋯ is hovered or focused, so the menu usually opens with it already known.
+      this.onNear=event=>{if(!this.enabled)return;const menu=event.composedPath?.().find(node=>node?.tagName==='SHREDDIT-POST-OVERFLOW-MENU');if(menu)this.menuStatus(menu);};
+      document.addEventListener('pointerover',this.onNear,true);document.addEventListener('focusin',this.onNear,true);
       this.ready=this.loadSettings();
     }
     /* Settings decide whether the item shows. A failed read (the worker waking, or just reloaded) must not hide raffles
@@ -71,7 +93,7 @@
       else{this.enabled=M.normalizeSettings({}).raffles;if(attempt<6)this.settingsRetry=setTimeout(()=>this.loadSettings(attempt+1),Math.min(30000,1000*2**attempt));}
       this.sync();
     }
-    destroy(){this.dead=true;clearTimeout(this.settingsRetry);document.removeEventListener('pointerdown',this.onPress,true);document.removeEventListener('keydown',this.onPress,true);this.observer?.disconnect();try{chrome.storage?.onChanged?.removeListener(this.onSettings);}catch{}try{chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}this.close(true);for(const item of document.querySelectorAll('[data-rt-raffle="item"]'))item.remove();}
+    destroy(){this.dead=true;clearTimeout(this.settingsRetry);document.removeEventListener('pointerdown',this.onPress,true);document.removeEventListener('keydown',this.onPress,true);document.removeEventListener('pointerover',this.onNear,true);document.removeEventListener('focusin',this.onNear,true);this.observer?.disconnect();try{chrome.storage?.onChanged?.removeListener(this.onSettings);}catch{}try{chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}this.close(true);for(const item of document.querySelectorAll('[data-rt-raffle="item"]'))item.remove();}
 
     // One item per post menu, in the menu's own action slot (B1).
     sync(){
@@ -93,29 +115,35 @@
       const row=make('div','flex justify-between relative px-md gap-xs text-secondary-plain hover:text-secondary-plain-hover active:bg-interactive-pressed hover:bg-neutral-background-hover hover:no-underline cursor-pointer py-2xs -outline-offset-1');
       row.setAttribute('role','menuitem');row.tabIndex=-1;row.style.paddingInlineEnd='16px';
       const lead=make('span','flex items-center gap-xs min-w-0 shrink'),box=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4');box.append(icon(TICKET));
-      const text=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]');text.append(make('span','text-body-2','Run a raffle'),make('span','text-caption-1 text-secondary-plain-weak'));
-      lead.append(box,text);const tail=make('span','flex items-center shrink-0');tail.append(make('span','flex items-center justify-center h-lg'));row.append(lead,tail);li.append(row);
+      const text=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]');text.append(make('span','text-body-2','Run a raffle'));
+      // The status pill always takes its place (invisible until known), so a late answer never moves or relabels anything.
+      const tail=make('span','flex items-center shrink-0'),pill=make('span','rt-raffle-menu-state','Drawn');pill.dataset.state='unknown';pill.setAttribute('aria-hidden','true');tail.append(pill);
+      lead.append(box,text);row.append(lead,tail);li.append(row);
+      const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();this.applyStatus(li,this.raffleStatus?.get(id)?.status);
       const choose=event=>{event.preventDefault();event.stopPropagation();
         const trigger=menu.querySelector('button[aria-haspopup]');if(trigger?.getAttribute('aria-expanded')==='true')trigger.click();
         this.open(this.postOf(menu),trigger);};
       row.addEventListener('click',choose);row.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ')choose(event);});
       return li;
     }
-    /* A post's Reddit Raffler status, shown on its menu item: "View raffle results" when a public raffle exists.
-       Checked when the menu is opened, at most once per post every 5 minutes; a failed check leaves the item as is. */
+    /* A post's Reddit Raffler status, shown as a "Drawn" pill in the item's reserved trailing slot; the label stays.
+       Checked as ⋯ is hovered, focused or pressed, at most once per post every 5 minutes; a failed check leaves the item as is. */
     async menuStatus(menu){
       if(!this.enabled)return;const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();if(!/^[a-z0-9]{1,10}$/.test(id))return;
       this.raffleStatus ||= new Map();const cached=this.raffleStatus.get(id);
       if(!cached || Date.now()-cached.at>300000){
-        const entry={at:Date.now(),pending:this.raffler({action:'status',postId:id}).then(r=>({exists:Boolean(r?.exists),verified:Boolean(r?.raffle?.verified)}),()=>null)};
+        const entry={at:Date.now(),status:null};entry.pending=this.raffler({action:'status',postId:id}).then(r=>entry.status={exists:Boolean(r?.exists),verified:Boolean(r?.raffle?.verified)},()=>null);
         if(this.raffleStatus.size>=200)this.raffleStatus.delete(this.raffleStatus.keys().next().value);this.raffleStatus.set(id,entry);
       }
       const entry=this.raffleStatus.get(id),status=await entry?.pending;
       if(!status){if(this.raffleStatus.get(id)===entry)this.raffleStatus.delete(id);return;}
-      const item=menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]');if(!item)return;
-      item.dataset.rtRaffleState=status.exists?'drawn':'none';
-      item.querySelector('.text-body-2').textContent=status.exists?'View raffle results':'Run a raffle';
-      item.querySelector('.text-caption-1').textContent=status.exists?'Drawn on Reddit Raffler'+(status.verified?' · verified':''):'';
+      this.applyStatus(menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]'),status);
+    }
+    applyStatus(item,status){
+      if(!item || !status)return;const drawn=Boolean(status.exists),pill=item.querySelector('.rt-raffle-menu-state'),row=item.querySelector('[role="menuitem"]');
+      item.dataset.rtRaffleState=drawn?'drawn':'none';pill.dataset.state=drawn?'drawn':'none';pill.setAttribute('aria-hidden',String(!drawn));
+      pill.title=drawn?'A public raffle was drawn on Reddit Raffler'+(status.verified?' (verified)':''):'';
+      if(drawn)row.setAttribute('aria-label','Run a raffle, a public raffle was already drawn on Reddit Raffler');else row.removeAttribute('aria-label');
     }
     postOf(menu){
       const card=menu.closest('shreddit-post');
@@ -133,47 +161,59 @@
       const media=globalThis.matchMedia?.(MOBILE),narrow=media?.matches===true;
       const dialog=make('dialog','rt-raffle-dialog'+(narrow?' rt-raffle-sheet':''));dialog.dataset.rtRaffle='dialog';dialog.setAttribute('aria-labelledby','rt-raffle-title');
       const card=make('rpl-modal-card','rt-raffle-card');card.setAttribute('appearance',narrow?'bottom-sheet':'modal');
-      const head=make('div','flex h-xl items-center mt-md px-md');head.slot='title';const h2=make('h2','m-0 text-title-3 text-neutral-content-strong','Run a raffle');h2.id='rt-raffle-title';h2.tabIndex=-1;head.append(h2);
-      const close=make('button','mt-md me-md button-small button-secondary icon items-center justify-center button inline-flex');close.type='button';close.slot='close-button';close.setAttribute('aria-label','Close');close.append(icon(CLOSE,16));
+      // Header: the post as a small kicker above the title (the redaction dialog uses the same header).
+      const head=make('div','rt-dialog-head');head.slot='title';const h2=make('h2','rt-dialog-title m-0 text-neutral-content-strong','Run a raffle');h2.id='rt-raffle-title';h2.tabIndex=-1;
+      const postLine=make('p','rt-dialog-kicker rt-raffle-post m-0');if(post.subreddit)postLine.append(make('span','rt-raffle-post-sub','r/'+post.subreddit),make('span','rt-raffle-post-dot','•'));postLine.append(make('span','rt-raffle-post-title',post.title || 'Post '+post.id));
+      head.append(postLine,h2);
+      const close=make('button','rt-dialog-close button-small button-secondary icon items-center justify-center button inline-flex');close.type='button';close.slot='close-button';close.setAttribute('aria-label','Close');close.append(icon(CLOSE,16));
       const body=make('div','rt-raffle-body');
-      const postLine=make('p','rt-raffle-post m-0');if(post.subreddit)postLine.append(make('span','rt-raffle-post-sub','r/'+post.subreddit),make('span','rt-raffle-post-dot','•'));postLine.append(make('span','rt-raffle-post-title',post.title || 'Post '+post.id));
       // One polite live region for announcements that matter (reading done, errors, copy, sending), not every keystroke.
       const announce=make('p','rt-raffle-sr');announce.setAttribute('role','status');announce.setAttribute('aria-live','polite');
       // Rules screen.
       const rulesView=make('div','rt-raffle-view');rulesView.dataset.rtRaffleView='rules';
       const chooser=make('div','rt-raffle-choice');chooser.setAttribute('role','radiogroup');chooser.setAttribute('aria-label','How to draw');
-      const option=(value,title,caption)=>{const label=make('label','rt-raffle-option');label.dataset.rtMode=value;const radio=make('input');radio.type='radio';radio.name='rt-raffle-draw';radio.value=value;
-        const text=make('span','rt-raffle-option-text');const sub=make('span','rt-raffle-option-state');text.append(make('span','rt-raffle-option-title',title),make('span','rt-raffle-option-caption',caption),sub);label.append(radio,text);chooser.append(label);return {label,radio,sub};};
-      const publicOption=option('public','Public draw','On Reddit Raffler: a results page anyone can check · one per post · can’t be redone');
-      const privateOption=option('private','Private draw','Only you see the winners · no proof · you can draw again');
+      const option=(value,title,caption,symbol)=>{const label=make('label','rt-raffle-option');label.dataset.rtMode=value;const radio=make('input');radio.type='radio';radio.name='rt-raffle-draw';radio.value=value;
+        const text=make('span','rt-raffle-option-text');const sub=make('span','rt-raffle-option-state');const titleRow=make('span','rt-raffle-option-head');const mark=make('span','rt-raffle-option-icon');mark.append(glyph(symbol,18));titleRow.append(mark,make('span','rt-raffle-option-title',title));
+        text.append(titleRow,make('span','rt-raffle-option-caption',caption),sub);label.append(radio,text);chooser.append(label);return {label,radio,sub};};
+      const publicOption=option('public','Public draw','On Reddit Raffler: a results page anyone can check · one per post · can’t be redone','globe');
+      const privateOption=option('private','Private draw','Only you see the winners · no proof · you can draw again','lock');
       const status=make('p','rt-raffle-status m-0');
       const progress=make('div','rt-raffle-progress');progress.setAttribute('aria-hidden','true');progress.append(make('span'));
       const statusBox=make('div','rt-raffle-status-card');statusBox.append(status,progress);
       const form=make('form','rt-raffle-form');form.noValidate=true;
-      const row=(label,caption,control,{forId,name}={})=>{const wrap=make(forId?'label':'div','rt-raffle-row');if(forId)wrap.htmlFor=forId;if(name)wrap.dataset.rtRow=name;const text=make('span','rt-raffle-row-text');text.append(make('span','rt-raffle-row-label',label));const cap=make('span','rt-raffle-row-caption',caption);text.append(cap);const ctl=make('span','rt-raffle-row-control');ctl.append(control);wrap.append(text,ctl);return wrap;};
+      const symbolBox=name=>{const box=make('span','rt-raffle-row-icon');box.append(glyph(name,18));return box;};
+      const row=(label,caption,control,{forId,name,symbol}={})=>{const wrap=make(forId?'label':'div','rt-raffle-row');if(forId)wrap.htmlFor=forId;if(name)wrap.dataset.rtRow=name;const text=make('span','rt-raffle-row-text');text.append(make('span','rt-raffle-row-label',label));const cap=make('span','rt-raffle-row-caption',caption);text.append(cap);const ctl=make('span','rt-raffle-row-control');ctl.append(control);if(symbol)wrap.append(symbolBox(symbol));wrap.append(text,ctl);return wrap;};
+      // Text-like fields stack under their label at full width, as in the redaction dialog.
+      const stacked=(label,caption,control,{name,symbol,tag='div'})=>{const wrap=make(tag,'rt-raffle-row rt-raffle-row-stacked');wrap.dataset.rtRow=name;const head=make('span','rt-raffle-row-head'),text=make('span','rt-raffle-row-text');text.append(make('span','rt-raffle-row-label',label),make('span','rt-raffle-row-caption',caption));head.append(symbolBox(symbol),text);wrap.append(head,...[].concat(control));return wrap;};
       const toggle=(name,checked,label)=>{const wrap=make('span','rt-switch');const input=make('input');input.type='checkbox';input.name=name;input.id='rt-raffle-'+name;input.checked=checked;input.setAttribute('role','switch');input.setAttribute('aria-label',label);const track=make('span','rt-switch-track');track.append(make('span','rt-switch-knob'));wrap.append(input,track);return wrap;};
       const number=(name,value,min,max,label)=>{const input=make('input','rt-raffle-input');input.type='number';input.name=name;input.value=String(value);input.min=String(min);input.max=String(max);input.inputMode='numeric';input.setAttribute('aria-label',label);return input;};
-      const text=(name,placeholder,label)=>{const input=make('input','rt-raffle-input');input.type='text';input.name=name;input.placeholder=placeholder;input.maxLength=name==='excludeUsers'?2000:100;input.autocomplete='off';input.setAttribute('aria-label',label);return input;};
+      const text=(name,placeholder,label)=>{const input=make('input','rt-raffle-input rt-raffle-text');input.type='text';input.name=name;input.placeholder=placeholder;input.maxLength=100;input.autocomplete='off';input.setAttribute('aria-label',label);return input;};
+      // Exclude users: the redaction dialog's menu control, opening a list of the post's commenters (openUsers).
+      const users=make('button','rt-redact-control'),usersCaption=make('span','rt-redact-control-value','No one excluded'),usersInput=make('input');
+      users.type='button';users.dataset.rtRaffleFilter='excludeUsers';users.setAttribute('aria-label','Exclude users');users.setAttribute('aria-haspopup','menu');users.setAttribute('aria-expanded','false');users.append(usersCaption,F.svgIcon('caret-down',16));
+      usersInput.type='hidden';usersInput.name='excludeUsers';users.addEventListener('click',()=>this.openUsers());
       const winners=number('winners',1,1,R.MAX_WINNERS,'Number of winners');winners.classList.add('rt-raffle-count');
       const stepper=make('span','rt-raffle-stepper');const minus=make('button','rt-raffle-step','−'),plus=make('button','rt-raffle-step','+');
       for(const [b,label,delta] of [[minus,'Fewer winners',-1],[plus,'More winners',1]]){b.type='button';b.setAttribute('aria-label',label);b.addEventListener('click',()=>{winners.value=String(Math.min(R.MAX_WINNERS,Math.max(1,(Number(winners.value) || 1)+delta)));winners.dispatchEvent(new Event('input',{bubbles:true}));});}
       stepper.append(minus,winners,plus);
-      const account=make('details','rt-raffle-account');const summary=make('summary','rt-raffle-row');const sumText=make('span','rt-raffle-row-text');sumText.append(make('span','rt-raffle-row-label','Account requirements'));const accountHint=make('span','rt-raffle-row-caption','None');sumText.append(accountHint);summary.append(sumText,make('span','rt-raffle-chevron'));
+      // Open by default: the minimums are part of the rules, and the body scrolls rather than clipping them.
+      const account=make('details','rt-raffle-account');account.open=true;const summary=make('summary','rt-raffle-row');const sumText=make('span','rt-raffle-row-text');sumText.append(make('span','rt-raffle-row-label','Account requirements'));const accountHint=make('span','rt-raffle-row-caption','None');sumText.append(accountHint);summary.append(symbolBox('shield'),sumText,make('span','rt-raffle-chevron'));
+      account.addEventListener('toggle',()=>{if(account.open)account.scrollIntoView?.({block:'nearest'});});
       const grid=make('div','rt-raffle-grid');
       for(const [name,label,max] of [['minAccountAgeDays','Account age (days)',36500],['minCommentKarma','Comment karma',1e9],['minPostKarma','Post karma',1e9],['minTotalKarma','Total karma',1e9]]){const field=make('label','rt-raffle-mini');field.append(make('span','rt-raffle-row-caption',label),number(name,0,0,max,'Minimum '+label.toLowerCase()));grid.append(field);}
       account.append(summary,grid);
-      const winnersRow=row('Winners','Between 1 and '+R.MAX_WINNERS,stepper,{name:'winners'});
+      const winnersRow=row('Winners','Between 1 and '+R.MAX_WINNERS,stepper,{name:'winners',symbol:'trophy'});
       form.append(winnersRow,
-        row('Top-level comments only','Replies don’t count as entries',toggle('topLevelOnly',true,'Top-level comments only'),{forId:'rt-raffle-topLevelOnly',name:'topLevelOnly'}),
-        row('Exclude the post’s author','',toggle('excludeAuthor',true,'Exclude the post’s author'),{forId:'rt-raffle-excludeAuthor',name:'excludeAuthor'}),
-        row('Comment must include','Empty accepts any comment',text('mustInclude','Code word','Comment must include'),{name:'mustInclude'}),
-        row('Exclude users','Separate names with spaces',text('excludeUsers','u/name','Exclude users'),{name:'excludeUsers'}),account);
+        row('Top-level comments only','Replies don’t count as entries',toggle('topLevelOnly',true,'Top-level comments only'),{forId:'rt-raffle-topLevelOnly',name:'topLevelOnly',symbol:'comment'}),
+        row('Exclude the post’s author','',toggle('excludeAuthor',true,'Exclude the post’s author'),{forId:'rt-raffle-excludeAuthor',name:'excludeAuthor',symbol:'person'}),
+        stacked('Comment must include','Empty accepts any comment',text('mustInclude','Code word','Comment must include'),{name:'mustInclude',symbol:'hash',tag:'label'}),
+        stacked('Exclude users','Pick commenters or enter a username',[users,usersInput],{name:'excludeUsers',symbol:'person-minus'}),account);
       // Consent to draw from an incomplete read: a checkbox, not a switch.
       const ackRow=make('label','rt-raffle-ack');const ack=make('input');ack.type='checkbox';ack.name='acknowledge';ackRow.append(ack,make('span','','Draw from the comments read (Reddit didn’t return every comment)'));ackRow.hidden=true;
       rulesView.append(chooser,statusBox,form,ackRow);
       const resultsView=make('section','rt-raffle-view rt-raffle-results');resultsView.dataset.rtRaffleView='results';resultsView.hidden=true;resultsView.setAttribute('aria-label','Winners');
       const messageView=make('section','rt-raffle-view rt-raffle-message');messageView.dataset.rtRaffleView='message';messageView.hidden=true;messageView.setAttribute('aria-label','Message winners');
-      body.append(postLine,rulesView,resultsView,messageView,announce);
+      body.append(rulesView,resultsView,messageView,announce);
       // Footer: one main action per screen; a note beside it carries warnings (kept in view on phones).
       const button=(label,slot,kind)=>{const b=make('button','button-medium button-'+kind+' button inline-flex items-center justify-center px-md',label);b.type='button';b.slot=slot;return b;};
       const note=make('p','rt-raffle-footnote m-0');note.slot='tertiary-button';
@@ -184,7 +224,7 @@
       const views={rules:[drawButton],results:[back,again,message],message:[msgBack,send]};
       for(const b of [...views.results,...views.message])b.hidden=true;
       card.append(head,close,body,note,drawButton,back,again,message,msgBack,send);dialog.append(card);document.body.append(dialog);
-      const state=this.dialog={dialog,card,post,trigger,h2,form,winners,winnersRow,minus,plus,status,statusCard:statusBox,progress,accountHint,announce,note,ack,ackWrap:ackRow,rulesView,resultsView,messageView,views,
+      const state=this.dialog={dialog,card,post,trigger,h2,form,winners,usersControl:users,usersCaption,winnersRow,minus,plus,status,statusCard:statusBox,progress,accountHint,announce,note,ack,ackWrap:ackRow,rulesView,resultsView,messageView,views,
         drawButton,draw:drawButton,back,message,again,msgBack,send,publicOption,privateOption,mode:'public',
         raffler:{phase:'checking',signedIn:'',me:'',raffle:null,confirm:false,error:'',progress:'',override:false},
         controller:new AbortController(),entries:new Map(),coverage:null,reading:false,privateReady:false,preparing:false,drawing:false,accounts:new Map(),generation:0,view:'rules',result:null,chat:null,draws:0,againConfirm:false,closeAsked:false,touched:false};
@@ -192,11 +232,11 @@
       state.onMedia=()=>{const small=media.matches;dialog.classList.toggle('rt-raffle-sheet',small);card.setAttribute('appearance',small?'bottom-sheet':'modal');};media?.addEventListener?.('change',state.onMedia);state.media=media;
       const finish=()=>this.close();
       close.addEventListener('click',finish);
-      dialog.addEventListener('cancel',event=>{event.preventDefault();finish();});
+      dialog.addEventListener('cancel',event=>{event.preventDefault();if(state.popup)this.closeUsers();else finish();});
       // A stray click on the dim backdrop never throws away results or interrupts sending.
       dialog.addEventListener('click',event=>{if(event.target===dialog && !state.result && !state.chat?.sending)finish();});
       for(const {radio} of [publicOption,privateOption])radio.addEventListener('change',()=>{if(radio.checked)this.setMode(radio.value,{user:true});});
-      form.addEventListener('input',event=>{state.touched=true;state.raffler.confirm=false;this.setNote('');if(event.target.name!=='winners')state.qualifiedRange=null;if(event.target.name==='topLevelOnly'){state.privateReady=false;state.coverage=null;state.pool=null;}this.updateSummary();});
+      form.addEventListener('input',event=>{state.touched=true;state.raffler.confirm=false;this.setNote('');if(event.target.name!=='winners')state.qualifiedRange=null;if(event.target.name==='topLevelOnly'){state.privateReady=false;state.coverage=null;state.pool=null;}if(event.target.name==='excludeUsers')this.syncUsersCaption();this.updateSummary();});
       form.addEventListener('change',event=>{if(event.target.name!=='topLevelOnly')this.updateSummary();});
       form.addEventListener('submit',event=>{event.preventDefault();this.primaryAction();});
       ack.addEventListener('change',()=>this.updateSummary());
@@ -217,7 +257,7 @@
       this.updateSummary();
     }
     showView(view){
-      const state=this.dialog;if(!state)return;state.view=view;state.raffler.confirm=false;state.againConfirm=false;state.closeAsked=false;
+      const state=this.dialog;if(!state)return;this.closeUsers(false);state.view=view;state.raffler.confirm=false;state.againConfirm=false;state.closeAsked=false;
       for(const name of ['rules','results','message']){state[name+'View'].hidden=name!==view;for(const b of state.views[name])b.hidden=name!==view;}
       if(view==='results' && state.result?.official)state.again.hidden=true;
       if(view==='results')state.back.textContent='Back to rules';
@@ -233,7 +273,7 @@
       // Private results exist only here: the first close asks, unless they were copied or messaged.
       if(!force && state.result && !state.result.official && !state.saved && !state.closeAsked){state.closeAsked=true;this.setNote('These winners aren’t saved anywhere. Copy them first, or close again to discard.',{alert:true});return;}
       if(!force && state.chat?.sending){this.setNote('Messages are still sending. Wait for them to finish.',{alert:true});return;}
-      this.dialog=null;state.controller.abort();state.media?.removeEventListener?.('change',state.onMedia);
+      this.closeUsers(false);this.dialog=null;state.controller.abort();state.media?.removeEventListener?.('change',state.onMedia);
       if(state.onSignInReturn)window.removeEventListener('focus',state.onSignInReturn);
       try{state.dialog.close();}catch{}state.dialog.remove();
       if(state.trigger?.isConnected)state.trigger.focus({preventScroll:true});
@@ -254,7 +294,7 @@
         if(!page.rateLimited)return page;if(attempt>=3)throw Object.assign(Error('Reddit kept asking us to slow down.'),{rateLimited:true});
         this.updateSummary('Reddit asked us to slow down · waiting…');await wait(Math.max(1000,Number(page.retryAfterMs) || 30000),signal);}};
       try{
-        const thread=await this.read({action:'raffle-thread',postId:state.post.id,topLevelOnly},{signal,timeout:45000});if(!current())return;
+        const thread=await this.thread(topLevelOnly);if(!current())return;
         for(const key of ['author','subreddit','title'])if(thread.post?.[key] && !state.post[key])state.post[key]=thread.post[key];if(thread.post?.author)state.post.author=thread.post.author;
         state.post.numComments=Number(thread.post?.numComments) || 0;
         add(thread.entries);
@@ -289,6 +329,96 @@
         state.coverage={topLevelRead:topCount(),stop,stopError,repliesLeft,topLevelOnly,replies:state.entries.size-topCount(),numComments:state.post.numComments};
       }catch(error){if(current())state.error=error.message;}
       finally{if(current()){state.reading=false;state.privateReady=!state.error;this.updateSummary();this.say(state.error?'Couldn’t read the comments.':this.countText());}}
+    }
+    /* The thread JSON (one request), shared by user suggestions and the private draw: kept for two minutes, so
+       suggesting names and then drawing reads the thread once. A failed read is never kept. */
+    thread(topLevelOnly){
+      const state=this.dialog;state.threads ||= new Map();const key=String(Boolean(topLevelOnly)),cached=state.threads.get(key);
+      if(cached && Date.now()-cached.at<120000)return cached.pending;
+      const entry={at:Date.now()};entry.pending=this.read({action:'raffle-thread',postId:state.post.id,topLevelOnly:Boolean(topLevelOnly)},{signal:state.controller.signal,timeout:45000}).catch(error=>{if(state.threads.get(key)===entry)state.threads.delete(key);throw error;});
+      state.threads.set(key,entry);return entry.pending;
+    }
+    // Commenters to suggest for Exclude users: from the comments already read, else from the thread JSON.
+    commenters(){
+      const state=this.dialog,rules=this.rules(),author=String(state.post.author || '').toLowerCase(),people=new Map();
+      const source=state.entries.size?[...state.entries.values()]:state.suggestEntries || [];
+      for(const entry of source){const name=entry?.author;if(!nameOK.test(name || '') || name==='AutoModerator' || rules.excludeAuthor && name.toLowerCase()===author)continue;
+        const key=name.toLowerCase(),seen=people.get(key);if(seen){seen.count++;if(!seen.avatar && entry.avatar)seen.avatar=entry.avatar;}else people.set(key,{author:name,avatar:entry.avatar || '',count:1});}
+      return [...people.values()];
+    }
+    async loadCommenters(){
+      const state=this.dialog;if(!state || state.entries.size || state.suggestEntries || state.suggestLoading)return;
+      state.suggestLoading=true;state.suggestFailed=false;state.popup?.render?.();
+      try{const thread=await this.thread(state.form.elements.topLevelOnly.checked);if(this.dialog!==state)return;state.suggestEntries=(thread.entries || []).map(raw=>R.entry(raw,{postId:state.post.id})).filter(Boolean);}
+      catch{if(this.dialog===state)state.suggestFailed=true;}
+      finally{if(this.dialog===state){state.suggestLoading=false;state.popup?.render?.();}}
+    }
+    syncUsersCaption(){const state=this.dialog,names=String(state.form.elements.excludeUsers.value || '').split(/\s+/).filter(Boolean);state.usersCaption.textContent=!names.length?'No one excluded':names.length===1?'u/'+names[0]:n(names.length)+' users';
+      if(names.length)state.usersControl.title=names.map(name=>'u/'+name).join(', ');else state.usersControl.removeAttribute('title');}
+    // Copied results list each winner's account facts once they are known (as Reddit Raffler's page does).
+    syncMarkdown(){
+      const state=this.dialog;if(!state?.result || state.markdownBase==null)return;const lines=state.markdownBase.split('\n');
+      state.result.winners.forEach((w,i)=>{if(!Number.isFinite(w.accountAgeDays))return;const at=lines.findIndex(line=>line.startsWith((i+1)+'. u/'+w.author));if(at>=0)lines[at]+=' · '+n(w.accountAgeDays)+' '+(w.accountAgeDays===1?'day':'days')+' old, '+n(w.commentKarma ?? 0)+' comment karma, '+n(w.linkKarma ?? 0)+' post karma';});
+      state.markdown=lines.join('\n');state.resultsView.dataset.markdown=state.markdown;
+    }
+    /* Exclude users menu, built like the redaction dialog's community menus (same popover, search field and rows):
+       picked names first, then the post's commenters; an exact username can be added from the search field. */
+    openUsers(){
+      const state=this.dialog;if(!state)return;if(state.popup){this.closeUsers();return;}
+      const button=state.usersControl,input=state.form.elements.excludeUsers;
+      const menu=make('div','rt-redact-popover rt-raffle-users');menu.dataset.rtRaffleUsers='';menu.setAttribute('data-rt-feed-options','');menu.setAttribute('role','menu');menu.setAttribute('aria-label','Exclude users');menu.id='rt-raffle-users';
+      const ctx=F.plainContext(kind=>F.svgIcon(kind),{role:'menuitemcheckbox'});
+      const head=make('div','rt-sub-head'),field=make('div','rt-filter-field'),search=make('input','rt-filter-search'),clear=make('button','rt-filter-search-clear');
+      search.type='search';search.placeholder='Search or enter u/name';search.autocomplete='off';search.maxLength=24;search.setAttribute('aria-label','Search commenters or enter a username');
+      clear.type='button';clear.hidden=true;clear.setAttribute('aria-label','Clear user search');clear.append(F.svgIcon('close',14));field.append(F.svgIcon('search',18),search,clear);head.append(field);
+      const list=make('div','rt-sub-list');list.setAttribute('role','group');list.setAttribute('aria-label','Commenters');
+      const note=make('p','rt-redact-suggestion-status text-12 text-neutral-content-weak');note.setAttribute('role','status');menu.append(head,list,note);
+      const picked=()=>String(input.value || '').split(/\s+/).filter(Boolean);
+      const term=()=>search.value.trim().replace(/^\/?u\//i,'');
+      const toggle=name=>{const names=picked(),at=names.findIndex(v=>v.toLowerCase()===name.toLowerCase());if(at>=0)names.splice(at,1);else names.push(name);
+        input.value=names.join(' ');input.dispatchEvent(new Event('input',{bubbles:true}));this.syncUsersCaption();render();search.focus({preventScroll:true});};
+      const render=()=>{
+        const people=this.commenters(),byKey=new Map(people.map(p=>[p.author.toLowerCase(),p])),chosen=picked(),chosenKeys=new Set(chosen.map(v=>v.toLowerCase())),q=term(),ql=q.toLowerCase();
+        const rows=chosen.map(name=>byKey.get(name.toLowerCase()) || {author:name,avatar:'',count:0});
+        if(nameOK.test(q) && !chosenKeys.has(ql) && !byKey.has(ql))rows.push({author:q,avatar:'',count:0,typed:true});
+        rows.push(...people.filter(p=>!chosenKeys.has(p.author.toLowerCase()) && (!ql || p.author.toLowerCase().includes(ql))));
+        clear.hidden=!search.value;const keep=list.scrollTop;list.replaceChildren();
+        for(const person of rows.slice(0,200)){
+          const avatar=this.avatarEl(person,24);avatar.classList.add('rt-sub-icon-box');
+          const row=F.menuOption(ctx,{label:'u/'+person.author,icon:avatar,checked:chosenKeys.has(person.author.toLowerCase()),value:person.author,tail:person.typed?'Add':person.count>1?n(person.count):'',slot:true,onSelect:()=>toggle(person.author)});
+          row.dataset.rtUserRow=person.author;if(person.count>1)row.title=n(person.count)+' comments';list.append(row);
+        }
+        if(!rows.length)list.append(make('div','rt-sub-empty',ql?'No commenters match. Enter a full username to add it.':'No commenters to suggest yet'));
+        list.scrollTop=keep;const first=list.querySelector('[role^=menuitem]');if(first)first.tabIndex=0;
+        note.textContent=state.suggestLoading?'Loading commenters…':state.suggestFailed?'Couldn’t load commenters. Enter a username.':'';note.hidden=!note.textContent;
+        this.placeUsers();
+      };
+      search.addEventListener('input',()=>{list.scrollTop=0;render();});
+      clear.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();search.value='';render();search.focus({preventScroll:true});});
+      menu.addEventListener('keydown',event=>{
+        if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.closeUsers();return;}
+        if(event.key==='Enter' && event.target===search){event.preventDefault();event.stopPropagation();const q=term().toLowerCase(),row=[...list.querySelectorAll('[data-rt-user-row]')].find(r=>r.dataset.rtUserRow.toLowerCase()===q);if(row)row.click();return;}
+        if(!['ArrowDown','ArrowUp'].includes(event.key))return;
+        const rows=[...list.querySelectorAll('[role^=menuitem]')];if(!rows.length)return;event.preventDefault();event.stopPropagation();
+        const at=rows.indexOf(document.activeElement),next=at<0?(event.key==='ArrowUp'?rows.length-1:0):(at+(event.key==='ArrowUp'?-1:1)+rows.length)%rows.length;
+        for(const r of rows)r.tabIndex=-1;rows[next].tabIndex=0;rows[next].focus({preventScroll:true});
+      },true);
+      const popup=state.popup={name:'excludeUsers',el:menu,button,render};
+      popup.place=()=>this.placeUsers();popup.outside=event=>{const path=event.composedPath();if(!path.includes(menu) && !path.includes(button))this.closeUsers(false);};
+      document.addEventListener('pointerdown',popup.outside,true);window.addEventListener('resize',popup.place);window.addEventListener('scroll',popup.place,true);
+      state.dialog.append(menu);button.setAttribute('aria-controls',menu.id);button.setAttribute('aria-expanded','true');
+      render();search.focus({preventScroll:true});this.loadCommenters();
+    }
+    placeUsers(){
+      const p=this.dialog?.popup;if(!p)return;if(!p.button.isConnected){this.closeUsers(false);return;}
+      const a=p.button.getBoundingClientRect(),width=Math.min(Math.max(256,a.width),innerWidth-16),below=innerHeight-a.bottom-12,above=a.top-12,up=below<240 && above>below,size=Math.min(320,Math.max(120,up?above:below));
+      p.el.style.width=width+'px';p.el.style.maxHeight=size+'px';p.el.style.left=Math.max(8,Math.min(a.left,innerWidth-width-8))+'px';
+      p.el.style.top=(up?Math.max(8,a.top-Math.min(p.el.getBoundingClientRect().height || size,size)-4):a.bottom+4)+'px';
+    }
+    closeUsers(restore=true){
+      const state=this.dialog,p=state?.popup;if(!p)return;state.popup=null;
+      document.removeEventListener('pointerdown',p.outside,true);window.removeEventListener('resize',p.place);window.removeEventListener('scroll',p.place,true);
+      p.button.setAttribute('aria-expanded','false');p.el.remove();if(restore && p.button.isConnected)p.button.focus({preventScroll:true});
     }
     coverageText(){
       const state=this.dialog,c=state.coverage;if(!c)return '';
@@ -419,7 +549,7 @@
           this.setNote((result.winners.length?'Only '+n(result.winners.length)+' '+(result.winners.length===1?'eligible person was':'eligible people were')+' found. Choose between 1 and '+n(result.winners.length)+' winners.':'No eligible entrants match these rules.')+(result.skipped.unchecked?' Some accounts could not be checked; try again.':''),{alert:true});return;
         }
         if(this.dialog!==state)return;state.drawing=false;state.draws++;state.saved=false;state.result={...result,rules,drawnAt,draw:state.draws};state.chat=null;
-        this.renderResults(result,rules,drawnAt);this.showView('results');this.fillAvatars(result.winners);this.say(n(result.winners.length)+' '+(result.winners.length===1?'winner':'winners')+' drawn.');
+        this.renderResults(result,rules,drawnAt);this.showView('results');this.fillAccounts(result.winners);this.say(n(result.winners.length)+' '+(result.winners.length===1?'winner':'winners')+' drawn.');
       }catch(error){if(this.dialog===state){state.drawing=false;this.setNote('The draw stopped: '+error.message.replace(/\.$/,'')+'.',{alert:true});}}
       finally{if(this.dialog===state){state.preparing=false;state.drawing=false;state.form.inert=false;this.updateSummary();state.message.disabled=!state.result?.winners.length;}}
     }
@@ -437,9 +567,9 @@
       const title=make('h3','rt-raffle-banner-title m-0',n(count)+' '+(count===1?'winner':'winners'));title.tabIndex=-1;
       const actions=make('div','rt-raffle-banner-actions');
       // Reddit's small secondary/plain buttons: icon + label, the label alone changes.
-      const action=(tag,cls,label,path)=>{const el=make(tag,'rt-raffle-action '+cls+' button-small button inline-flex items-center justify-center');el.append(icon(path,16),make('span','rt-raffle-action-label',label));return el;};
-      if(proof){const link=action('a','rt-raffle-proof button-secondary','View proof',EXTERNAL);link.href=proof;link.target='_blank';link.rel='noopener';link.title='Opens redditraffler.com in a new tab';actions.append(link);}
-      const copy=action('button','rt-raffle-copy button-plain','Copy',COPY);copy.type='button';const copyLabel=copy.querySelector('.rt-raffle-action-label');
+      const action=(tag,cls,label,symbol)=>{const el=make(tag,'rt-raffle-action '+cls+' button-small button inline-flex items-center justify-center');el.append(glyph(symbol,16),make('span','rt-raffle-action-label',label));return el;};
+      if(proof){const link=action('a','rt-raffle-proof button-secondary','View proof','proof');link.href=proof;link.target='_blank';link.rel='noopener';link.title='Opens redditraffler.com in a new tab';actions.append(link);}
+      const copy=action('button','rt-raffle-copy button-plain','Copy','copy');copy.type='button';const copyLabel=copy.querySelector('.rt-raffle-action-label');
       copy.addEventListener('click',async()=>{let ok=true;try{await navigator.clipboard.writeText(state.markdown || '');}catch{ok=false;}copyLabel.textContent=ok?'Copied':'Couldn’t copy';if(ok)state.saved=true;this.say(ok?'Results copied.':'Couldn’t copy the results.');setTimeout(()=>{if(copy.isConnected)copyLabel.textContent='Copy';},2000);});
       actions.append(copy);top.append(title,actions);header.append(top);
       const info=make('div','rt-raffle-banner-info');if(badge)info.append(make('span','rt-raffle-badge'+(verified?' rt-raffle-verified':''),badge));info.append(make('span','rt-raffle-banner-meta',meta));header.append(info);
@@ -454,7 +584,7 @@
       const reasons={age:'account too new',commentKarma:'comment karma too low',postKarma:'post karma too low',totalKarma:'total karma too low',suspended:'suspended',unavailable:'deleted or unavailable',unchecked:'couldn’t be checked'};
       const skipped=Object.entries(result.skipped).map(([key,value])=>n(value)+' '+(reasons[key] || key));
       box.append(this.details([this.coverageText(),'Random, one entry per person'+(state.draws>1?'; this is draw '+n(state.draws)+' on this page':''),...(skipped.length?['Skipped during the draw: '+skipped.join(', ')]:[]),'Rules: '+R.resultsMarkdown({winners:[],rules,poolSize:eligible,drawnAt}).split('Rules: ')[1].split('\n')[0]]));
-      state.markdown=R.resultsMarkdown({winners:result.winners,rules,poolSize:eligible,drawnAt,postUrl:state.post.permalink?'https://www.reddit.com'+state.post.permalink:''})+(state.draws>1?'\nDraw '+state.draws+' (private, not recorded).':'\nPrivate draw, not recorded.');box.dataset.markdown=state.markdown;
+      state.markdownBase=R.resultsMarkdown({winners:result.winners,rules,poolSize:eligible,drawnAt,postUrl:state.post.permalink?'https://www.reddit.com'+state.post.permalink:''})+(state.draws>1?'\nDraw '+state.draws+' (private, not recorded).':'\nPrivate draw, not recorded.');this.syncMarkdown();
     }
     details(lines){const details=make('details','rt-raffle-details');details.append(make('summary','','How this was drawn'));const facts=make('ul','rt-raffle-facts');for(const line of lines.filter(Boolean))facts.append(make('li','',line));details.append(facts);return details;}
     winnerList(winners){const list=make('ol','rt-raffle-winners');winners.forEach((winner,index)=>list.append(this.winnerRow(winner,index+1)));this.measureExcerpts(list);return list;}
@@ -467,14 +597,31 @@
       const meta=make('div','rt-raffle-meta');const name=make('a','rt-raffle-name','u/'+winner.author);name.href='/user/'+encodeURIComponent(winner.author)+'/';name.target='_blank';name.rel='noopener';name.title='Profile, opens in a new tab';
       const time=make('faceplate-timeago','rt-raffle-time');time.setAttribute('ts',new Date(winner.created*1000).toISOString());time.setAttribute('format','narrow');
       meta.append(name);if(winner.created)meta.append(make('span','rt-raffle-dot','•'),time);
-      if(Number.isFinite(winner.accountAgeDays))meta.append(make('span','rt-raffle-dot','•'),make('span','rt-raffle-facts-inline',n(winner.accountAgeDays)+'-day account'));
-      const text=winner.body.trim(),excerpt=make('p','rt-raffle-excerpt',text || (winner.official?'Open the comment to read it':'No text'));excerpt.dataset.rtClamped='true';
+      // Account facts, as Reddit Raffler lists them: from Raffler for a public draw, from each winner's account otherwise.
+      const stats=make('div','rt-raffle-stats');
+      if(Number.isFinite(winner.accountAgeDays))this.setStats(stats,{days:winner.accountAgeDays,commentKarma:winner.commentKarma,postKarma:winner.linkKarma});else{stats.dataset.state='loading';stats.textContent='Checking account…';}
+      const text=winner.body.trim(),excerpt=make('p','rt-raffle-excerpt',text || (winner.official?(winner.loading?'Loading the comment…':'Open the comment to read it'):'No text'));excerpt.dataset.rtClamped='true';if(!text && winner.official)excerpt.dataset.state='placeholder';
       const toggle=make('button','rt-raffle-more','Show more');toggle.type='button';toggle.setAttribute('aria-expanded','false');
       // Shown only when the text is actually cut off (measured after layout); a length guess covers layout-less hosts.
       toggle.hidden=!(text.length>140 || text.includes('\n'));toggle.dataset.rtGuess='true';
       toggle.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const open=excerpt.dataset.rtClamped==='true';excerpt.dataset.rtClamped=String(!open);toggle.textContent=open?'Show less':'Show more';toggle.setAttribute('aria-expanded',String(open));});
-      main.append(meta,excerpt,toggle);
+      main.append(meta,stats,excerpt,toggle);
       li.append(cover,badge,avatar,main);return li;
+    }
+    setStats(box,{days,commentKarma,postKarma}){
+      const plural=(value,one,many)=>n(value)+' '+(value===1?one:many);
+      box.dataset.state='ready';box.dataset.new=String(days<30);if(days<30)box.title='This account is less than 30 days old';else box.removeAttribute('title');box.replaceChildren(make('span','rt-raffle-stat',plural(days,'day old','days old')),make('span','rt-raffle-stat',n(commentKarma ?? 0)+' comment karma'),make('span','rt-raffle-stat',n(postKarma ?? 0)+' post karma'));
+    }
+    rowsFor(winner){return this.dialog?.dialog.querySelectorAll('.rt-raffle-winner[data-rt-winner="'+CSS.escape(winner.author)+'"]') || [];}
+    // A public winner's comment arrived: fill the time and text into the existing row, without rebuilding the list.
+    refreshComment(winner){
+      for(const li of this.rowsFor(winner)){
+        const meta=li.querySelector('.rt-raffle-meta');
+        if(winner.created && !meta.querySelector('faceplate-timeago')){const time=make('faceplate-timeago','rt-raffle-time');time.setAttribute('ts',new Date(winner.created*1000).toISOString());time.setAttribute('format','narrow');meta.querySelector('.rt-raffle-name').after(make('span','rt-raffle-dot','•'),time);}
+        const excerpt=li.querySelector('.rt-raffle-excerpt'),toggle=li.querySelector('.rt-raffle-more'),text=winner.body.trim();
+        excerpt.textContent=text || (winner.loading?'Loading the comment…':'Open the comment to read it');if(text)delete excerpt.dataset.state;else excerpt.dataset.state='placeholder';
+        toggle.hidden=!(text.length>140 || text.includes('\n'));
+      }
     }
     measureExcerpts(list){
       const measure=()=>{for(const li of list.querySelectorAll('.rt-raffle-winner')){const excerpt=li.querySelector('.rt-raffle-excerpt'),toggle=li.querySelector('.rt-raffle-more');if(!excerpt.clientHeight || toggle.dataset.rtGuess!=='true' || excerpt.dataset.rtClamped!=='true')continue;toggle.hidden=excerpt.scrollHeight<=excerpt.clientHeight+1;}};
@@ -485,13 +632,21 @@
       const avatar=make('span','rt-raffle-avatar');avatar.dataset.rtAvatarFor=winner.author;const img=make('img');img.alt='';img.width=size;img.height=size;img.decoding='async';img.referrerPolicy='no-referrer';
       img.src=winner.avatar || defaultAvatar(winner.author);img.addEventListener('error',()=>{if(img.src!==defaultAvatar(winner.author))img.src=defaultAvatar(winner.author);},{once:true});avatar.append(img);return avatar;
     }
-    // Profile pictures for winners the thread JSON didn't carry them for (from about.json, cached with account checks).
-    async fillAvatars(winners){
+    /* Each winner's account (about.json, one read per winner and dialog, shared with account checks): the picture, and
+       for a private draw the age and karma line. A public draw already has those facts from Reddit Raffler. */
+    async fillAccounts(winners){
       const state=this.dialog;if(!state)return;
-      const missing=winners.filter(w=>!w.avatar);
-      for(let i=0;i<missing.length;i+=3)await Promise.all(missing.slice(i,i+3).map(async winner=>{
-        try{const account=await this.account(winner.author);if(this.dialog!==state || !account?.avatar)return;winner.avatar=account.avatar;
-          for(const img of state.dialog.querySelectorAll('[data-rt-avatar-for="'+CSS.escape(winner.author)+'"] img'))img.src=account.avatar;}catch{}
+      const needed=winners.filter(w=>!w.avatar || !Number.isFinite(w.accountAgeDays));
+      for(let i=0;i<needed.length;i+=3)await Promise.all(needed.slice(i,i+3).map(async winner=>{
+        const facts=!Number.isFinite(winner.accountAgeDays);let account=null;
+        try{account=await this.account(winner.author);}catch{}
+        if(this.dialog!==state)return;
+        if(account?.avatar && !winner.avatar){winner.avatar=account.avatar;for(const img of state.dialog.querySelectorAll('[data-rt-avatar-for="'+CSS.escape(winner.author)+'"] img'))img.src=account.avatar;}
+        if(!facts)return;
+        const ok=account && !account.suspended && Number.isFinite(Number(account.created)) && Number(account.created)>0;
+        if(ok){winner.accountAgeDays=Math.max(0,Math.floor((Date.now()/1000-Number(account.created))/86400));winner.commentKarma=Number(account.commentKarma) || 0;winner.linkKarma=Number(account.postKarma) || 0;}
+        if(ok)this.syncMarkdown();
+        for(const li of this.rowsFor(winner)){const box=li.querySelector('.rt-raffle-stats');if(ok)this.setStats(box,{days:winner.accountAgeDays,commentKarma:winner.commentKarma,postKarma:winner.linkKarma});else{box.dataset.state='unavailable';box.textContent='Account details unavailable';}}
       }));
     }
 
@@ -542,7 +697,7 @@
     showOfficial(raffle,{keepView=false}={}){
       const state=this.dialog;if(!state)return;
       const winners=raffle.winners.map(w=>{const entry=w.commentId?(state.winnerEntries?.get(w.commentId) || state.entries.get(w.commentId)):null;
-        return {id:w.commentId,author:w.username,official:true,permalink:(w.commentUrl || '').replace(/^https:\/\/reddit\.com\//,'https://www.reddit.com/'),created:entry?.created || 0,body:entry?.body || '',avatar:entry?.avatar || '',accountAgeDays:w.accountAgeDays,commentKarma:w.commentKarma,linkKarma:w.linkKarma};});
+        return {id:w.commentId,author:w.username,official:true,loading:!entry && Boolean(w.commentId) && state.winnerRead!==raffle,permalink:(w.commentUrl || '').replace(/^https:\/\/reddit\.com\//,'https://www.reddit.com/'),created:entry?.created || 0,body:entry?.body || '',avatar:entry?.avatar || '',accountAgeDays:w.accountAgeDays,commentKarma:w.commentKarma,linkKarma:w.linkKarma};});
       const previous=state.result?.official===raffle?state.result:null;
       state.result={winners,official:raffle,shortBy:0,skipped:{},poolSize:0};state.saved=true;if(!previous)state.chat=null;
       const box=state.resultsView;box.replaceChildren();
@@ -554,10 +709,10 @@
       box.append(this.details(['Reddit Raffler read the post’s top-level comments itself and picked at random. On very large threads it may not read every comment.','People with more than one top-level comment are disqualified by Reddit Raffler.',
         'Minimum account age: '+n(c.minAge || 0)+' days · '+(c.minCombined!=null?'total karma '+n(c.minCombined):'comment karma '+n(c.minComment || 0)+', post karma '+n(c.minLink || 0)),raffle.ignored?.length?'Ignored: '+raffle.ignored.map(u=>'u/'+u).join(', '):'',
         raffle.verified?'Verified: created by the post’s author.':'Not verified: not created by the post’s author while signed in to Reddit Raffler.']));
-      state.markdown=['**Raffle results** ('+n(winners.length)+' '+(winners.length===1?'winner':'winners')+', drawn by Reddit Raffler'+(raffle.verified?', verified':'')+')','',...winners.map((w,i)=>(i+1)+'. u/'+w.author+(w.permalink?' ([comment]('+w.permalink+'))':'')),'','Proof: '+raffle.url].join('\n');box.dataset.markdown=state.markdown;
+      state.markdownBase=['**Raffle results** ('+n(winners.length)+' '+(winners.length===1?'winner':'winners')+', drawn by Reddit Raffler'+(raffle.verified?', verified':'')+')','',...winners.map((w,i)=>(i+1)+'. u/'+w.author+(w.permalink?' ([comment]('+w.permalink+'))':'')),'','Proof: '+raffle.url].join('\n');this.syncMarkdown();
       state.message.disabled=!winners.length;
       if(!keepView)this.showView('results');else state.again.hidden=true;
-      this.fillAvatars(winners);
+      this.fillAccounts(winners);
       this.loadWinnerComments(raffle);
     }
     async loadWinnerComments(raffle){
@@ -565,10 +720,12 @@
       const ids=raffle.winners.filter(w=>w.commentId && !state.winnerEntries?.has(w.commentId) && !state.entries.has(w.commentId)).map(w=>w.commentId);if(!ids.length)return;
       try{
         const response=await this.read({action:'raffle-winner-comments',postId:state.post.id,ids},{signal:state.controller.signal,timeout:15000});
-        if(this.dialog!==state || state.result?.official!==raffle)return;
-        state.winnerEntries ||= new Map();let changed=false;for(const raw of response.entries || []){const entry=R.entry(raw,{postId:state.post.id});if(entry && raffle.winners.some(w=>w.commentId===entry.id && w.username.toLowerCase()===entry.author.toLowerCase())){state.winnerEntries.set(entry.id,entry);changed=true;}}
-        if(changed)this.showOfficial(raffle,{keepView:true});
+        if(this.dialog!==state)return;
+        state.winnerEntries ||= new Map();for(const raw of response.entries || []){const entry=R.entry(raw,{postId:state.post.id});if(entry && raffle.winners.some(w=>w.commentId===entry.id && w.username.toLowerCase()===entry.author.toLowerCase()))state.winnerEntries.set(entry.id,entry);}
       }catch{ /* Proof links stay usable if a winner's comment is unavailable. Never scan the thread as a fallback. */ }
+      if(this.dialog!==state || state.result?.official!==raffle)return;
+      // Fill the rows already on screen (same layout as a private draw); unavailable comments keep a link to open them.
+      for(const winner of state.result.winners){const entry=winner.id?state.winnerEntries?.get(winner.id):null;winner.loading=false;if(entry){winner.body=entry.body || '';winner.created=entry.created || 0;if(!winner.avatar && entry.avatar)winner.avatar=entry.avatar;}this.refreshComment(winner);}
     }
 
     /* B7: message the winners through Reddit chat, as you. Separate chats (one private chat each, reusing an existing

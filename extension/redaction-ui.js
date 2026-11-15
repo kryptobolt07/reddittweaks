@@ -8,6 +8,7 @@
   const FRAGMENT='#rt-redact',PAGES_PER_LIST=10,PREVIEW_ROWS=50;
   const SOURCES=[['overview','new'],['submitted','top'],['submitted','controversial'],['comments','top'],['comments','controversial']];
   const operations={'overwrite-delete':'Overwrite, then delete',overwrite:'Overwrite text',delete:'Delete'};
+  const operationIcons={'overwrite-delete':'collection',overwrite:'text-post',delete:'close'};
   const settingsRead=async()=>{const result=await chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});return result?.ok?result.settings:{};};
   const make=(tag,cls,text)=>{let el;if(tag.includes('-')){const holder=document.createElement('div');holder.innerHTML='<'+tag+'></'+tag+'>';el=holder.firstElementChild;el.remove();}else el=document.createElement(tag);if(cls)el.className=cls;if(text!=null && text!=='')el.textContent=text;return el;};
   const n=value=>Number(value).toLocaleString('en-US');
@@ -32,10 +33,14 @@
       if(this.state){this.state.dialog.querySelector('input,select,textarea')?.focus();return this.state;}
       const dialog=make('dialog','rt-raffle-dialog rt-redact-dialog');dialog.dataset.rtRedact='dialog';dialog.setAttribute('aria-labelledby','rt-redact-title');
       const card=make('rpl-modal-card','rt-raffle-card');card.setAttribute('appearance','modal');
-      const head=make('div','flex h-xl items-center mt-md px-md');head.slot='title';const h2=make('h2','m-0 text-title-3 text-neutral-content-strong','Redact your posts and comments');h2.id='rt-redact-title';head.append(h2);
-      const close=make('button','mt-md me-md button-small button-secondary icon items-center justify-center button inline-flex');close.type='button';close.slot='close-button';close.setAttribute('aria-label','Close');close.append(closeIcon());
+      // Header: the step as a small kicker above the title (shared with the raffle dialog).
+      const head=make('div','rt-dialog-head');head.slot='title';const step=make('p','rt-dialog-kicker rt-redact-step m-0','Step 1 of 3 · Choose filters');
+      const h2=make('h2','rt-dialog-title m-0 text-neutral-content-strong','Redact your posts and comments');h2.id='rt-redact-title';
+      // A three-part progress bar beside the step text (decorative: the kicker already says which step).
+      const steps=make('span','rt-dialog-steps');steps.setAttribute('aria-hidden','true');for(let i=0;i<3;i++){const bar=make('span');bar.dataset.state=i?'todo':'current';steps.append(bar);}
+      const kicker=make('div','rt-dialog-kicker-row');kicker.append(step,steps);head.append(kicker,h2);
+      const close=make('button','rt-dialog-close button-small button-secondary icon items-center justify-center button inline-flex');close.type='button';close.slot='close-button';close.setAttribute('aria-label','Close');close.append(closeIcon());
       const body=make('div','rt-raffle-body');
-      const step=make('p','rt-redact-step text-12 text-neutral-content-weak m-0','Step 1 of 3 · Choose filters');
       const intro=make('p','text-14 text-neutral-content-weak m-0','Overwrites the text of the items you choose, then deletes them. This can’t be undone, and archives that already saved an item keep their copy.');
       const form=make('form','rt-raffle-form');form.noValidate=true;
       const field=(label,input,hint)=>{const wrap=make('label','rt-raffle-field');wrap.append(make('span','rt-raffle-label',label),input);if(hint)wrap.append(make('span','rt-raffle-hint',hint));return wrap;};
@@ -73,11 +78,11 @@
       const confirmLabel=make('span','rt-raffle-label');confirmWrap.append(confirmLabel,confirm);
       const results=make('section','rt-redact-results');results.hidden=true;
       const confirmation=make('section','rt-redact-confirmation');confirmation.hidden=true;confirmation.append(confirmWrap);
-      body.append(step,intro,form,status,preview,confirmation,results);
+      body.append(intro,form,status,preview,confirmation,results);
       const cancel=make('button','button-medium button-secondary button inline-flex items-center justify-center px-md','Cancel');cancel.type='button';cancel.slot='secondary-button';
       const primary=make('button','button-medium button-primary button inline-flex items-center justify-center px-md','Find matching items');primary.type='button';primary.slot='primary-button';
       card.append(head,close,body,cancel,primary);dialog.append(card);document.body.append(dialog);
-      const state=this.state={dialog,h2,step,intro,form,messageField,controls,dateButton,dateHost,from,to,status,preview,confirmation,confirm,confirmWrap,confirmLabel,results,primary,cancel,username:'',items:new Map(),selection:null,phase:'idle',controller:new AbortController(),finding:null,running:null,closeAsked:false};
+      const state=this.state={dialog,h2,step,steps,intro,form,messageField,controls,dateButton,dateHost,from,to,status,preview,confirmation,confirm,confirmWrap,confirmLabel,results,primary,cancel,username:'',items:new Map(),selection:null,phase:'idle',controller:new AbortController(),finding:null,running:null,closeAsked:false};
       const requestClose=()=>this.close();
       close.addEventListener('click',requestClose);cancel.addEventListener('click',()=>{
         if(state.phase==='confirming'){state.phase='previewed';state.confirm.value='';this.showStep('review');this.syncSelection();}
@@ -167,12 +172,15 @@
     openFilter(name){
       const s=this.state;if(!s)return;if(s.popup?.name===name){this.closeFilter();return;}this.closeFilter(false);
       const menu=make('div','rt-redact-popover');menu.setAttribute('data-rt-feed-options','');menu.setAttribute('role','menu');menu.setAttribute('aria-label',s.controls[name].button.getAttribute('aria-label'));
-      const ctx=F.plainContext(kind=>F.svgIcon(kind),{role:['kinds','operation'].includes(name)?'menuitemradio':'menuitemcheckbox'});
+      const radio=['kinds','operation','confirmationOperation'].includes(name),ctx=F.plainContext(kind=>F.svgIcon(kind),{role:radio?'menuitemradio':'menuitemcheckbox'});
       const change=value=>{s.controls[name].input.value=value;s.controls[name].input.dispatchEvent(new Event('input',{bubbles:true}));};
-      if(['kinds','operation'].includes(name)){
-        const choices=name==='kinds'?[['both','Posts and comments','collection'],['posts','Posts only','text-post'],['comments','Comments only','comment']]:[['overwrite-delete',operations['overwrite-delete'],'collection'],['overwrite',operations.overwrite,'text-post'],['delete',operations.delete,'close']];
+      if(radio){
+        const choices=name==='kinds'?[['both','Posts and comments','collection'],['posts','Posts only','text-post'],['comments','Comments only','comment']]:Object.keys(operations).map(value=>[value,operations[value],operationIcons[value]]);
         for(const [value,label,icon] of choices){
-          const row=F.menuOption(ctx,{label,icon,value,checked:s.controls[name].input.value===value,onSelect:()=>{change(value);s.controls[name].caption.textContent=label;this.closeFilter();}});menu.append(row);
+          const row=F.menuOption(ctx,{label,icon,value,checked:s.controls[name].input.value===value,onSelect:()=>{
+            // Step 3: switch the action in place (the selection stays reviewed); the control is rebuilt, so focus the new one.
+            if(name==='confirmationOperation'){this.closeFilter(false);this.changeConfirmationOperation(value);return;}
+            change(value);s.controls[name].caption.textContent=label;this.syncControlIcon(name,icon);this.closeFilter();}});menu.append(row);
         }
       }else{
         const picked=()=>X.normalizeRules({onlyIn:s.controls[name].input.value}).onlyIn;
@@ -207,7 +215,7 @@
       const state=this.state,Picker=globalThis.RCSDatePicker;if(!state || !Picker)return;
       if(state.popup?.name==='date'){this.closeFilter();return;}this.closeFilter(false);
       if(!state.picker){
-        const shadow=state.dateHost.attachShadow({mode:'open'}),style=make('style','',`:host{--rcs-bg:var(--color-neutral-background,#fff);--rcs-soft:var(--color-neutral-background-weak,#f2f4f5);--rcs-text:var(--color-neutral-content-strong,#181c1f);--rcs-muted:var(--color-neutral-content-weak,#576f76);--rcs-line:var(--color-neutral-border-weak,#e5e8eb);--rcs-hover:var(--color-neutral-background-hover,#e8edef);--rcs-accent:var(--color-brand-background,#d93900)}`+(Picker.styles || '')+'.date-popover{position:relative;top:0!important;left:0!important;right:auto!important;width:100%;max-width:100%;max-height:var(--rt-popover-height,420px)!important;pointer-events:auto}.calendar-presets{flex-wrap:wrap;overflow:visible}');
+        const shadow=state.dateHost.attachShadow({mode:'open'}),style=make('style','',`:host{--rcs-bg:var(--color-neutral-background,#fff);--rcs-soft:var(--color-neutral-background-weak,#f2f4f5);--rcs-text:var(--color-neutral-content-strong,#181c1f);--rcs-muted:var(--color-neutral-content-weak,#576f76);--rcs-line:var(--color-neutral-border-weak,#e5e8eb);--rcs-hover:var(--color-neutral-background-hover,#e8edef);--rcs-accent:var(--color-brand-background,#d93900)}`+(Picker.styles || '')+'.date-popover{position:relative;top:0!important;left:0!important;right:auto!important;width:100%;max-width:100%;max-height:var(--rt-popover-height,420px)!important;pointer-events:auto}');
         const picker=state.picker=new Picker({getBounds:()=>({left:8,top:8,right:innerWidth-8,bottom:innerHeight-8}),onChange:bounds=>{
           state.from.value=bounds.from || '';state.to.value=bounds.to || '';state.controls.date.caption.textContent=picker.summary() || 'Any date';
           state.from.dispatchEvent(new Event('input',{bubbles:true}));
@@ -220,6 +228,7 @@
       const s=this.state;s.form.hidden=view!=='filters';s.intro.hidden=view!=='filters';s.preview.hidden=view!=='review';s.confirmation.hidden=view!=='confirm';s.results.hidden=view!=='results';
       s.h2.textContent={filters:'Redact your posts and comments',review:'Review matching items',confirm:'Confirm redaction',results:'Redaction results'}[view];
       s.step.textContent={filters:'Step 1 of 3 · Choose filters',review:'Step 2 of 3 · Review and select',confirm:'Step 3 of 3 · Confirm',results:'Run finished'}[view];
+      const at={filters:0,review:1,confirm:2,results:3}[view];[...s.steps.children].forEach((bar,i)=>{bar.dataset.state=i<at?'done':i===at?'current':'todo';});
       s.cancel.textContent={filters:'Cancel',review:s.phase==='finding'?'Cancel':'Back to filters',confirm:'Back to selection',results:'Close'}[view];
       s.h2.tabIndex=-1;s.h2.focus({preventScroll:true});
     }
@@ -343,24 +352,27 @@
     changeConfirmationOperation(value){
       const state=this.state,sel=state?.selection;if(!state || !sel || state.phase!=='confirming')return;
       sel.rules.operation=value;state.form.elements.operation.value=value;
-      const control=state.controls.operation;if(control)control.caption.textContent=operations[value] || value;
+      const control=state.controls.operation;if(control){control.input.value=value;control.caption.textContent=operations[value] || value;this.syncControlIcon('operation',operationIcons[value]);}
       this.syncOperation();
       sel.matches=state.candidates.filter(item=>state.selected.has(item.fullname) && (value!=='overwrite' || X.overwritable(item)));
       sel.posts=sel.matches.filter(item=>item.kind==='post').length;sel.comments=sel.matches.length-sel.posts;
       state.confirm.value='';this.renderConfirmation();this.syncPrimary();
       state.status.textContent=sel.matches.length?'':'No selected items can be '+(value==='delete'?'deleted':'overwritten')+' with this action.';
-      state.confirmation.querySelector('[name="confirmationOperation"]')?.focus({preventScroll:true});
+      state.controls.confirmationOperation?.button.focus({preventScroll:true});
     }
+    // A menu control's leading icon follows its chosen value.
+    syncControlIcon(name,icon){const button=this.state?.controls[name]?.button,lead=button?.firstElementChild,next=icon && F.svgIcon(icon,20);if(lead?.tagName?.toLowerCase()==='svg' && next)lead.replaceWith(next);}
     renderConfirmation(){
       const state=this.state,sel=state.selection,count=sel.matches.length,operation=sel.rules.operation;
       state.confirmLabel.textContent='Type “'+X.confirmation(count,operation)+'” to confirm';state.confirm.placeholder=X.confirmation(count,operation);
       const action=operation==='overwrite'?'Their text will be replaced; the items will remain on Reddit.':operation==='delete'?'These items will be permanently deleted without overwriting.':'These items will be overwritten where possible, then permanently deleted.';
       const summary=make('p','text-14 m-0','u/'+state.username+' · '+n(sel.posts)+' '+(sel.posts===1?'post':'posts')+' and '+n(sel.comments)+' '+(sel.comments===1?'comment':'comments')+' selected. '+action+(state.limited || state.failures?.length || state.unread?' Discovery was incomplete; this run includes only the selected items found.':''));
-      const operationField=make('label','rt-raffle-field'),select=make('select','rt-redact-operation');
-      select.name='confirmationOperation';select.setAttribute('aria-label','Action for the selected items');
-      for(const [value,label] of [['overwrite',operations.overwrite],['delete',operations.delete],['overwrite-delete',operations['overwrite-delete']]]){const option=make('option','',label);option.value=value;select.append(option);}
-      select.value=operation;select.addEventListener('change',()=>this.changeConfirmationOperation(select.value));
-      operationField.append(make('span','rt-raffle-label','Action'),select);
+      // The same menu control as step 1's Action; its value lives outside the form so a change never clears the review.
+      const operationField=make('div','rt-raffle-field'),button=make('button','rt-redact-control'),caption=make('span','rt-redact-control-value',operations[operation] || operation),hidden=make('input');
+      button.type='button';button.dataset.rtRedactFilter='confirmationOperation';button.setAttribute('aria-label','Action for the selected items');button.setAttribute('aria-haspopup','menu');button.setAttribute('aria-expanded','false');
+      button.append(F.svgIcon(operationIcons[operation] || 'collection',20),caption,F.svgIcon('caret-down',16));hidden.type='hidden';hidden.name='confirmationOperation';hidden.value=operation;
+      button.addEventListener('click',()=>this.openFilter('confirmationOperation'));state.controls.confirmationOperation={button,caption,input:hidden};
+      operationField.append(make('span','rt-raffle-label','Action'),button,hidden);
       const children=[summary,operationField];
       if(operation!=='delete'){
         const replacement=make('label','rt-raffle-field'),editor=make('textarea','rt-redact-area rt-redact-replacement-editor'),hint=make('span','rt-raffle-hint','Edit this message here. Changing it clears the typed confirmation.');
