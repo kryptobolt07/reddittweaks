@@ -397,3 +397,8 @@ test('the popup’s open message opens the dialog in place, without touching the
  assert.equal(listeners[0]({scope:'other'},{id:'ext'},()=>{}),undefined);assert.equal(kept,undefined);
  W.RTRedactionInstance.destroy();
 });
+test('the finding spinner is centred in its own space, with the status line centred under it',async t=>{
+ const css=read('post-discovery.css');
+ assert.match(css,/\.rt-redact-loading\{display:grid;place-items:center;min-height:160px/);assert.match(css,/\.rt-redact-loading shreddit-loading\{display:block;width:48px;height:48px;margin:0\}/);
+ assert.match(css,/\.rt-raffle-body:has\(\.rt-redact-loading\) \.rt-raffle-status\{order:1;text-align:center\}/);
+});
