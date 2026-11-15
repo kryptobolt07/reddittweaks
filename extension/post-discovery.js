@@ -672,6 +672,7 @@
       // Capture removal before Reddit hydrates/replaces its scope control.
       const nativeRemove=native.querySelector('button,[aria-label^="Remove"]') || native;
       this.ownHeader.nativeRemove=nativeRemove;this.ownHeader.onNativeRemove=()=>{this.ownHeaderDismissed=routeKey;this.clearOwnListHeader();};nativeRemove.addEventListener('click',this.ownHeader.onNativeRemove,{once:true});
+      this.fitHeaderChips();
     }
     // Put text into Reddit's header search (as if typed) and focus it; nothing is submitted.
     fillHeaderSearch(text){
@@ -1361,6 +1362,27 @@
         this.headerFilterObserver.observe(root,{childList:true,subtree:true});this.headerFilterRoot=root;
         const form=root.querySelector('form');if(form){this.headerFilterForm=form;form.addEventListener('submit',this.onOwnSubmit,true);}
       }else if(!items.length)this.clearHeaderFilters({keepRow:true});
+      this.fitHeaderChips();
+    }
+    /* All chips in the header search share its row with the text field (Reddit's u/ scope pill, our list pill and
+       filter pills). When they take more than half the field, ours become compact (icon, plus a count such as "3"),
+       with the full name as their tooltip, and Reddit's pill is capped, so typed text keeps most of the row. */
+    fitHeaderChips(){
+      if(!this.onHeaderResize){this.onHeaderResize=()=>this.fitHeaderChips();addEventListener('resize',this.onHeaderResize);}
+      const host=document.querySelector('reddit-search-large'),root=host?.shadowRoot;if(!root)return;
+      const field=root.querySelector('faceplate-search-input[name="q"]'),bar=field?.getBoundingClientRect?.().width || 0;
+      const ours=[...root.querySelectorAll('[data-rt-list-chip],[data-rt-header-filter]')],native=root.querySelector('rpl-input-chip:not([data-rt-list-chip]):not([data-rt-header-filter])');
+      // Full widths are measured only while a chip shows its full label, so deciding never flips the DOM back and forth
+      // (the header observer would see each flip as a change and sync again).
+      this.fullChipWidths ||= new WeakMap();const width=el=>{if(el.dataset.rtCompact!=='true' && !(el===native && native.style.maxWidth))this.fullChipWidths.set(el,el.getBoundingClientRect?.().width || 0);return this.fullChipWidths.get(el) || 0;};
+      const used=bar && ours.length?[native,...ours].filter(Boolean).reduce((sum,el)=>sum+width(el)+4,0):0,on=Boolean(bar) && used>bar*0.5;
+      for(const el of ours){
+        if(el.dataset.rtCompact===String(on))continue;el.dataset.rtCompact=String(on);const label=el.querySelector('.rt-filter-chip-label');
+        if(label){if(label.dataset.rtFull==null)label.dataset.rtFull=label.textContent;const full=label.dataset.rtFull,count=full.match(/^\d[\d,.]*(?=\s)/)?.[0],text=on?(count || full):full;
+          if(label.textContent!==text)label.textContent=text;label.style.display=on && !count?'none':'';if(on)el.title=full;else el.removeAttribute('title');}
+        else{const text=el.querySelector('.text-label-2');if(text){text.style.display=on?'none':'';if(on)el.title=text.textContent.trim();else el.removeAttribute('title');}}
+      }
+      if(native && (native.style.maxWidth==='160px')!==on){native.style.maxWidth=on?'160px':'';native.style.overflow=on?'hidden':'';}
     }
     removeHeaderChip(chip,shown){const f=globalThis.RTFeedFilters,next=chip.remove(f.clone(shown));this.setFilters(shown.sort?next:{...next,sort:this.rtFilters?.sort ?? null});}
     // Estimated pill widths (Reddit's input chip: 11+16+5 before the 600 12px label, 4+16+5 after, 1px borders, 4px apart)
@@ -2665,7 +2687,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       else if(hasText)note.append(this.snapshot(archived.body));else note.append(make('p','rt-post-source','The archive has no original text for this post.'));
       this.results.append(note);this.setStatus(live?`${live.status==='deleted'?'Deleted':'Removed'} on Reddit · Separate archived snapshot`:'Archived snapshot · Current Reddit status unknown');
     });}
-    destroy(){this.dead=true;this.ownIdentityController?.abort();this.clearOwnListHeader();this.clearHeaderFilters();this.ownIdentityError?.remove();document.removeEventListener('submit',this.onOwnSubmit,true);document.removeEventListener('focusin',this.onOwnFocus,true);this.discardAllParked();this.avatarUnsubscribe?.();clearTimeout(this.timer);this.observer?.disconnect();
+    destroy(){this.dead=true;if(this.onHeaderResize)removeEventListener('resize',this.onHeaderResize);this.ownIdentityController?.abort();this.clearOwnListHeader();this.clearHeaderFilters();this.ownIdentityError?.remove();document.removeEventListener('submit',this.onOwnSubmit,true);document.removeEventListener('focusin',this.onOwnFocus,true);this.discardAllParked();this.avatarUnsubscribe?.();clearTimeout(this.timer);this.observer?.disconnect();
       // An orphaned script can no longer reach its extension's APIs.
       try{globalThis.chrome?.runtime?.onMessage?.removeListener?.(this.onWorkerSettings);}catch{}try{globalThis.chrome?.storage?.onChanged?.removeListener?.(this.onSettings);}catch{}
       window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);document.removeEventListener('keydown',this.onEmptyProfileSearch,true);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}

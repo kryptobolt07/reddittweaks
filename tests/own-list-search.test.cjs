@@ -226,3 +226,19 @@ test('crowded header filters fold into one "N filters" pill whose card lists and
  pills[0].querySelector('.rt-filter-chip-remove').click();await flush();assert.equal(s.d.rtFilters.subreddits.length,0);assert.equal(s.d.rtFilters.date,null);assert.equal(s.d.rtFilters.types.length,0,'× clears all');
  s.d.destroy();
 });
+test('a crowded header search turns our chips compact so typed text keeps most of the row',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?q=this%20is%20not%20what%20i%20expected&rt_list=saved',withHeader:true});
+ const box=width=>()=>({width,height:32,top:0,left:0,right:width,bottom:32});
+ s.h.field.getBoundingClientRect=box(820);s.h.native.getBoundingClientRect=box(220);
+ s.d.setFilters({...s.d.rtFilters,subreddits:['Alpha','Beta','Gamma']});await flush();
+ const list=s.h.root.querySelector('[data-rt-list-chip]'),filter=s.h.root.querySelector('[data-rt-header-filter]');
+ list.getBoundingClientRect=box(110);filter.getBoundingClientRect=box(200);s.d.fitHeaderChips();
+ // u/ 220 + Saved 110 + 3 communities 200 (+gaps) is more than half of 820: compact.
+ assert.equal(list.dataset.rtCompact,'true');assert.equal(filter.dataset.rtCompact,'true');
+ assert.equal(list.querySelector('.text-label-2').style.display,'none','the list chip keeps its icon only');assert.equal(list.title,'Saved');
+ assert.equal(filter.querySelector('.rt-filter-chip-label').textContent,'3','a count stays readable');assert.match(filter.title,/3 communities/);
+ assert.equal(s.h.native.style.maxWidth,'160px','Reddit’s u/ pill is capped and truncates');
+ // Plenty of room: full labels come back.
+ s.h.field.getBoundingClientRect=box(2000);s.d.fitHeaderChips();
+ assert.equal(list.dataset.rtCompact,'false');assert.equal(list.querySelector('.text-label-2').style.display,'');assert.equal(filter.querySelector('.rt-filter-chip-label').textContent,'3 communities');assert.equal(s.h.native.style.maxWidth,'');
+});
