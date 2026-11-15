@@ -628,3 +628,14 @@ test('commenter pictures: from the page’s comments at once, otherwise looked u
  s.q('[data-rt-raffle-filter="excludeUsers"]').click();s.q('[data-rt-raffle-filter="excludeUsers"]').click();await flush();assert.equal(lookups().length,3,'kept for the dialog: reopening looks up nothing');
  assert.equal(src('Alice'),'https://styles.redditmedia.com/Alice-head.png');
 });
+test('phones keep two footer buttons on one line; scrolling a dialog never scrolls the page behind it',async t=>{
+ const s=await ui(t,{narrow:true});await s.open();await privateDraw(s,'2');
+ const again=[...s.D.querySelectorAll('[data-rt-raffle] button')].find(b=>/^Draw again/.test(b.textContent));
+ assert.equal(again.slot,'tertiary-button','beside the main button instead of stacked above it');assert.equal(again.dataset.rtSlot,'secondary-button');
+ s.media.matches=false;for(const fn of s.media.listeners)fn();assert.equal(again.slot,'secondary-button','desktop keeps Reddit’s own footer order');
+ s.media.matches=true;for(const fn of s.media.listeners)fn();assert.equal(again.slot,'tertiary-button');
+ const css=read('post-discovery.css');
+ assert.match(css,/@media \(max-width:639px\)\{[^@]*\.rt-raffle-card::part\(footer\)\{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end/);
+ assert.match(css,/@media \(max-width:639px\)\{[^@]*\.rt-raffle-footnote\{flex-basis:100%/);
+ assert.match(css,/dialog\.rt-raffle-dialog\{[^}]*overscroll-behavior:contain/);assert.match(css,/\.rt-raffle-card\{[^}]*overscroll-behavior:contain/);
+});

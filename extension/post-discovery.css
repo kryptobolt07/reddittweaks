@@ -394,7 +394,7 @@ shreddit-feed[data-rt-unapproved-hidden]{display:none!important}
 /* The dialog is a full-viewport flex box that centres the card itself (independent of the browser's dialog layout and
    of Reddit's page CSS). The card is capped at the space available, so its own content scrolls between the header
    and the footer instead of running off-screen. */
-dialog.rt-raffle-dialog{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:16px;box-sizing:border-box;border:0;background:transparent;overflow:hidden;color:var(--color-neutral-content-strong,#181c1f)}
+dialog.rt-raffle-dialog{overscroll-behavior:contain;position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:16px;box-sizing:border-box;border:0;background:transparent;overflow:hidden;color:var(--color-neutral-content-strong,#181c1f)}
 dialog.rt-raffle-dialog[open]{display:flex;align-items:center;justify-content:center}
 dialog.rt-raffle-dialog [slot$="-button"][hidden],dialog.rt-raffle-dialog [hidden]{display:none!important}
 dialog.rt-raffle-dialog label,dialog.rt-raffle-dialog summary,dialog.rt-raffle-dialog h3{text-transform:none;letter-spacing:normal}
@@ -409,7 +409,7 @@ dialog.rt-raffle-dialog:focus,dialog.rt-raffle-dialog:focus-visible{outline:none
 dialog.rt-raffle-dialog::backdrop{background-color:var(--color-scrim-background,#00000099)}
 /* Reddit's rpl-scrollbox fades 2.5em at the content's top and bottom while it can scroll, which made the last rows
    (winners, Download a copy) look blurred; the fade is switched off for these dialogs. */
-.rt-raffle-card{--scrollbox-overlay-height:0px;flex:0 1 auto;width:min(520px,100%);height:auto;min-height:0;max-height:min(760px,100%);border-radius:var(--rem16,16px);box-shadow:var(--boxshadow-modal,0 2px 15px rgba(26,26,27,.3));background:var(--color-ui-modalbackground,#fff)}
+.rt-raffle-card{--scrollbox-overlay-height:0px;overscroll-behavior:contain;flex:0 1 auto;width:min(520px,100%);height:auto;min-height:0;max-height:min(760px,100%);border-radius:var(--rem16,16px);box-shadow:var(--boxshadow-modal,0 2px 15px rgba(26,26,27,.3));background:var(--color-ui-modalbackground,#fff)}
 .rt-raffle-body{display:flex;flex-direction:column;gap:10px;padding:0 16px 8px;width:100%;box-sizing:border-box;font-size:14px;line-height:20px}
 /* Header shared by the raffle and redaction dialogs: a small kicker (the post, or the step) above an 18/24 title,
    with tighter space around it than Reddit's default title row. */
@@ -606,6 +606,12 @@ dialog.rt-raffle-dialog :is(.rt-raffle-input,.rt-redact-area,.rt-redact-control,
 .rt-raffle-preview{padding:8px 12px;border-radius:12px;background:var(--color-neutral-background-hover,#f6f8f9);font-size:14px;line-height:20px;color:var(--color-neutral-content,#333d42);white-space:pre-line;overflow-wrap:anywhere}
 .rt-raffle-send-note{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-send-note:empty{display:none}
+/* Below 640 px Reddit stacks the footer; keep the footnote on its own line and the two buttons side by side. */
+@media (max-width:639px){
+  .rt-raffle-card::part(footer){flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}
+  .rt-raffle-footnote{flex-basis:100%;max-width:none}
+  .rt-raffle-card>[slot="tertiary-button"]:is(button,a){flex:1 1 auto}
+}
 /* Phones: Reddit's bottom sheet (rpl-modal-card appearance="bottom-sheet"). */
 dialog.rt-raffle-sheet{padding:0}
 dialog.rt-raffle-sheet[open]{align-items:flex-end}
