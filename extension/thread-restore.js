@@ -23,6 +23,7 @@
       return response;
     }finally{clearTimeout(timer);}
   }
+  const authorGone=node=>node.getAttribute('author')==='[deleted]' || node.hasAttribute('is-author-deleted');
   async function readSettings(){return (await send({action:'get-settings'})).settings;}
   class ThreadRestore {
     constructor({archive=send,reddit=(...args)=>globalThis.RTPostDiscovery?.redditRead?.(...args),settings=readSettings,observe=true,retryMs=15000,pendingMs=5000}={}){
@@ -60,7 +61,12 @@
         if(M.domStatus(comment)){this.shareComments.add(comment);this.restoreShare(comment,id);}
         // Skeleton instead of Reddit's notice while the archive is asked.
         const notice=this.noticeParagraph(comment);
-        if(!notice){comment.setAttribute('data-rt-settled','');this.checked.add(comment);continue;}
+        if(!notice){
+          // A deleted account keeps its text but shows [deleted] as the author: ask for the author only (same
+          // batched request), with no skeleton since the text is already there.
+          if(authorGone(comment)){this.queue.add(id);this.checked.add(comment);continue;}
+          comment.setAttribute('data-rt-settled','');this.checked.add(comment);continue;
+        }
         this.queue.add(id);
         // Already waited the visible limit once: show Reddit's notice, keep trying quietly.
         if(this.shown.has(id)){this.settleNode(comment);continue;}
@@ -131,7 +137,10 @@
       const text=archived.body?.trim(),hasText=Boolean(text) && !M.noticeStatus(text),author=M.validateUsername(archived.author)?archived.author:'';
       if(!hasText && !author)return;
       if(!comment)return;
-      const p=this.noticeParagraph(comment),body=p?.parentElement;if(!body || this.patches.has(body))return;
+      const p=this.noticeParagraph(comment);
+      // Author only: the text is intact (a deleted account), so only the name changes.
+      if(!p){if(!author || !authorGone(comment) || this.patches.has(comment))return;const patch={original:[],comment,body:comment,authorOnly:true};this.patches.set(comment,patch);this.restoreAuthor(comment,author,patch);return;}
+      const body=p.parentElement;if(!body || this.patches.has(body))return;
       const status=M.noticeStatus(p.textContent) || 'deleted',cue=cueOf(status,p.textContent);
       this.patches.set(body,{original:[...body.childNodes],comment,body});
       if(hasText){
@@ -226,7 +235,16 @@
       const postId=this.postId,native=[...document.querySelectorAll('main shreddit-post[id="t3_'+postId+'"]')].find(node=>!node.closest('[data-rt-ui]'));
       if(!native || this.postState?.native===native || document.documentElement.hasAttribute('data-rt-subreddit-archive'))return;
       const status=M.domStatus(native);this.postState={native,status};
-      if(!status){native.setAttribute('data-rt-settled','');return;}
+      if(!status){
+        // A deleted account's post keeps its content; only its [deleted] author is looked up, with no deletion cues.
+        if(!authorGone(native)){native.setAttribute('data-rt-settled','');return;}
+        const state=this.postState;
+        return this.lookupPost(postId,state).then(result=>{
+          if(this.postState!==state || !this.enabled())return;
+          const found=(result?.posts || []).map(raw=>M.normalizePost(raw,{source:'arctic-shift'})).find(post=>post?.id===postId);
+          if(found && M.validateUsername(found.author))state.patch={native,added:[],title:null,author:this.restorePostAuthor(native,found.author)};
+        }).catch(()=>{}).finally(()=>{if(this.postState===state)native.setAttribute('data-rt-settled','');});
+      }
       native.setAttribute('data-rt-pending','');
       // What Reddit's own notice says decides whether the cue may name the author.
       const reason=[native.getAttribute('post-title'),native.querySelector('[slot="title"]')?.textContent,...[...native.querySelectorAll('[slot="post-removed-banner"],[slot="text-body"] p')].map(node=>node.textContent)].join(' ');
@@ -295,7 +313,7 @@
       clearTimeout(this.retryTimer);this.retryAt=0;for(const timer of this.holdTimers)clearTimeout(timer);this.holdTimers.clear();this.timed=new WeakSet();this.checked=new WeakSet();this.records.clear();this.done.clear();this.shown.clear();for(const [node,attrs] of this.sharePatches){for(const [name,value] of attrs)if(value===null)node.removeAttribute(name);else node.setAttribute(name,value);}this.sharePatches.clear();this.shareComments=new WeakSet();
       this.postState?.reserved?.remove();const post=this.postState?.patch;if(post){for(const node of post.added)node.remove();if(post.title)post.title.node.replaceChildren(...post.title.original);if(post.author?.link.isConnected)post.author.link.replaceWith(post.author.label);}
       if(this.postState?.native){this.postState.native.removeAttribute('data-rt-pending');this.postState.native.removeAttribute('data-rt-settled');}this.postState=null;
-      for(const [body,patch] of this.patches){if(body.isConnected || patch.original.length)body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;if(patch.author?.trigger?.isConnected)patch.author.trigger.replaceWith(patch.author.link);if(patch.author?.link.isConnected)patch.author.link.replaceWith(patch.author.label);if(patch.author?.attribute)patch.author.attribute.comment.setAttribute('author',patch.author.attribute.value);if(patch.avatar)patch.avatar.slot.replaceChildren(...patch.avatar.original);}
+      for(const [body,patch] of this.patches){if(!patch.authorOnly && (body.isConnected || patch.original.length))body.replaceChildren(...patch.original);patch.badge?.remove();if(patch.opened)patch.opened.open=false;if(patch.author?.trigger?.isConnected)patch.author.trigger.replaceWith(patch.author.link);if(patch.author?.link.isConnected)patch.author.link.replaceWith(patch.author.label);if(patch.author?.attribute)patch.author.attribute.comment.setAttribute('author',patch.author.attribute.value);if(patch.avatar)patch.avatar.slot.replaceChildren(...patch.avatar.original);}
       this.patches.clear();
       for(const node of document.querySelectorAll('shreddit-comment[data-rt-pending],shreddit-comment[data-rt-settled]')){node.removeAttribute('data-rt-pending');node.removeAttribute('data-rt-settled');}
       for(const node of document.querySelectorAll('[data-rt-avatar-pending]'))node.removeAttribute('data-rt-avatar-pending');
