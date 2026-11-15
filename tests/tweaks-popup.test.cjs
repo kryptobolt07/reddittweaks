@@ -8,8 +8,8 @@ const html=fs.readFileSync(path.join(__dirname,'../extension/popup.html'),'utf8'
 const script=fs.readFileSync(path.join(__dirname,'../extension/popup.js'),'utf8');
 const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
 
-function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs}={}){
-  const dom=new JSDOM(html,{runScripts:'outside-only'}),w=dom.window;t.after(w.close.bind(w));
+function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,storedTab}={}){
+  const dom=new JSDOM(html,{runScripts:'outside-only',url:'https://extension.test/popup.html'}),w=dom.window;t.after(w.close.bind(w));if(storedTab)w.localStorage.setItem('rt-popup-tab',storedTab);
   const messages=[],state={...(settings||{})};
   w.chrome={storage:{local:{
     async get(key){if(storageFailure)throw Error('storage read failed');return {[key]:state[key]};},
@@ -136,4 +136,50 @@ test('Redaction has its own popup section and opens in the active Reddit tab',as
 test('Redaction uses the own-profile fallback outside Reddit and reports tab failures',async t=>{
  const created=[],p=popup(t,{tabs:{async query(){return [{id:8,url:'https://example.test/'}];},async create(options){created.push(options);}}});p.w.close=()=>{};await settle();p.w.document.getElementById('open-redaction').click();await settle();assert.deepEqual(JSON.parse(JSON.stringify(created)),[{url:'https://www.reddit.com/user/me/#rt-redact'}]);
  const broken=popup(t,{tabs:{async query(){throw Error('unavailable');}}});await settle();broken.w.document.getElementById('open-redaction').click();await settle();assert.match(broken.w.document.getElementById('redaction-open-status').textContent,/Couldn’t open/);assert.equal(broken.w.document.getElementById('open-redaction').disabled,false);
+});
+
+// --- 0.36 popup redesign: tabs, a Home of things to run, grouped settings, data on its own tab
+const redditTab={async query(){return [{id:7,url:'https://www.reddit.com/r/Alpha/'}];},async update(){},async create(){}};
+test('three tabs (Home, Settings, Data) with tab semantics, keyboard movement and a remembered choice',async t=>{
+  const p=popup(t,{tabs:redditTab});await settle();const doc=p.w.document,tabs=[...doc.querySelectorAll('[role="tab"]')];
+  assert.equal(doc.querySelector('[role="tablist"]').getAttribute('aria-label'),'Reddit Tweaks sections');
+  assert.deepEqual(tabs.map(tab=>tab.textContent.trim()),['Home','Settings','Data']);
+  const panel=name=>doc.getElementById('panel-'+name),selected=()=>tabs.find(tab=>tab.getAttribute('aria-selected')==='true').dataset.tab;
+  assert.equal(selected(),'home');assert.equal(panel('home').hidden,false);assert.equal(panel('settings').hidden,true);assert.equal(panel('data').hidden,true);
+  for(const tab of tabs){assert.equal(panel(tab.dataset.tab).getAttribute('role'),'tabpanel');assert.equal(tab.getAttribute('aria-controls'),'panel-'+tab.dataset.tab);assert.equal(panel(tab.dataset.tab).getAttribute('aria-labelledby'),tab.id);}
+  assert.equal(tabs[0].tabIndex,0);assert.equal(tabs[1].tabIndex,-1);
+  tabs[1].click();assert.equal(selected(),'settings');assert.equal(panel('settings').hidden,false);assert.equal(panel('home').hidden,true);
+  tabs[1].dispatchEvent(new p.w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));assert.equal(selected(),'data');assert.equal(doc.activeElement,tabs[2]);
+  tabs[2].dispatchEvent(new p.w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));assert.equal(selected(),'home','wraps');
+  tabs[0].dispatchEvent(new p.w.KeyboardEvent('keydown',{key:'End',bubbles:true}));assert.equal(selected(),'data');assert.equal(p.w.localStorage.getItem('rt-popup-tab'),'data');
+  const again=popup(t,{tabs:redditTab,storedTab:'settings'});await settle();assert.equal(again.w.document.getElementById('panel-settings').hidden,false,'reopens on the last tab');
+  // Sections live in their tabs.
+  assert.ok(panel('home').contains(doc.getElementById('open-redaction')));assert.ok(panel('settings').contains(doc.getElementById('post-discovery')));assert.ok(panel('data').contains(doc.getElementById('clear-messages')));
+});
+test('Home: a step-by-step Redaction card that says where it will open',async t=>{
+  const p=popup(t,{tabs:redditTab});await settle();const doc=p.w.document,card=doc.getElementById('open-redaction').closest('section');
+  assert.equal(card.getAttribute('aria-labelledby'),'redaction-heading');
+  assert.deepEqual([...card.querySelectorAll('.steps li')].map(li=>li.textContent.trim()),['Choose filters','Review matches','Confirm']);
+  assert.match(card.querySelector('.safety').textContent,/Nothing changes until you type the confirmation/);
+  assert.equal(doc.getElementById('open-redaction').textContent.trim(),'Start redaction');assert.equal(doc.getElementById('redaction-destination').textContent,'Opens on this Reddit tab');
+  const away=popup(t,{tabs:{async query(){return [{id:2,url:'https://example.test/'}];}}});await settle();assert.equal(away.w.document.getElementById('redaction-destination').textContent,'Opens your Reddit profile in a new tab');
+});
+test('Home: Raffles explains where to find them and can be turned on in place',async t=>{
+  const p=popup(t,{tabs:redditTab,settings:{'rt-settings-v1':{raffles:false}}});await settle();const doc=p.w.document,card=doc.getElementById('raffles-home');
+  assert.match(card.textContent,/⋯ menu/);assert.equal(card.querySelector('.state-pill').textContent,'Off');const turnOn=doc.getElementById('raffles-turn-on');assert.equal(turnOn.hidden,false);
+  turnOn.click();await settle();assert.equal(p.state['rt-settings-v1'].raffles,true);assert.equal(doc.getElementById('raffles').checked,true);assert.equal(card.querySelector('.state-pill').textContent,'On');assert.equal(turnOn.hidden,true);
+});
+test('Home summarises active features and Manage opens Settings; each settings group counts what is on',async t=>{
+  const p=popup(t,{tabs:redditTab});await settle();const doc=p.w.document;
+  assert.equal(doc.getElementById('feature-summary').textContent,'3 of 8 features on','dependent options whose parent is off do not count');
+  doc.getElementById('manage-features').click();assert.equal(doc.getElementById('panel-settings').hidden,false);
+  const count=id=>doc.querySelector('[aria-labelledby="'+id+'"] .group-count').textContent;
+  assert.equal(count('reddit-heading'),'2 of 3 on');assert.equal(count('tools-heading'),'1 of 1 on');assert.equal(count('archive-heading'),'0 of 4 on');
+  const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));
+  assert.equal(count('archive-heading'),'2 of 4 on','the archive and its already-on restore option');assert.equal(doc.getElementById('feature-summary').textContent,'5 of 8 features on');
+});
+test('popup styles: fluid width and larger targets on touch screens, tabs in both themes',()=>{
+  const css=fs.readFileSync(path.join(__dirname,'../extension/popup.css'),'utf8');
+  assert.match(css,/@media\(hover:none\) and \(pointer:coarse\)\{[^@]*html,body\{width:auto;min-width:0/);assert.match(css,/@media\(hover:none\) and \(pointer:coarse\)\{[^@]*\.tab\{[^}]*min-height:44px/);
+  assert.match(css,/\.tab\[aria-selected="true"\]\{/);assert.match(css,/\.panel\{[^}]*min-height:/,'switching tabs does not collapse the popup');
 });

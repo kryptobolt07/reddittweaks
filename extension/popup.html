@@ -13,9 +13,38 @@
     <span class="version" id="version" aria-label="Version"></span>
   </header>
 
+  <nav class="tabs" role="tablist" aria-label="Reddit Tweaks sections">
+    <button class="tab" type="button" role="tab" id="tab-home" data-tab="home" aria-controls="panel-home" aria-selected="true">Home</button>
+    <button class="tab" type="button" role="tab" id="tab-settings" data-tab="settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
+    <button class="tab" type="button" role="tab" id="tab-data" data-tab="data" aria-controls="panel-data" aria-selected="false" tabindex="-1">Data</button>
+  </nav>
+
   <main>
-    <section class="card" aria-labelledby="reddit-heading">
-      <div class="card-heading"><h1 id="reddit-heading">On Reddit</h1><span class="category-hint">Uses Reddit only</span></div>
+    <div class="panel" id="panel-home" role="tabpanel" aria-labelledby="tab-home">
+      <section class="card tool-card" aria-labelledby="redaction-heading">
+        <div class="tool-head"><span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4.5 3h7.1l3.9 3.9v8.6a1.5 1.5 0 0 1-1.5 1.5H4.5A1.5 1.5 0 0 1 3 15.5v-11A1.5 1.5 0 0 1 4.5 3Zm.3 1.8v10.4h9V7.6h-2.6a1.2 1.2 0 0 1-1.2-1.2V4.8H4.8ZM6 9.1h6v1.6H6V9.1Zm0 3h4v1.6H6v-1.6Z"/></svg></span><div class="tool-copy"><h2 id="redaction-heading">Redaction</h2><p id="open-redaction-desc">Overwrite and delete your own posts and comments in bulk.</p></div></div>
+        <ol class="steps"><li>Choose filters</li><li>Review matches</li><li>Confirm</li></ol>
+        <p class="safety">Finding matches is a dry run. Nothing changes until you type the confirmation.</p>
+        <button id="open-redaction" class="primary-action" type="button" aria-describedby="open-redaction-desc redaction-destination">Start redaction</button>
+        <p id="redaction-destination" class="destination">Opens on this Reddit tab</p>
+        <p id="redaction-open-status" class="settings-status inline-status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card tool-card" id="raffles-home" aria-labelledby="raffles-home-heading">
+        <div class="tool-head"><span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M16.6 3H3.4A2.4 2.4 0 001 5.4v2.2a.9.9 0 00.9.9 1.5 1.5 0 010 3 .9.9 0 00-.9.9v2.2A2.4 2.4 0 003.4 17h13.2a2.4 2.4 0 002.4-2.4v-2.2a.9.9 0 00-.9-.9 1.5 1.5 0 010-3 .9.9 0 00.9-.9V5.4A2.4 2.4 0 0016.6 3Zm.6 4.26a3.3 3.3 0 000 5.48v1.86a.6.6 0 01-.6.6H3.4a.6.6 0 01-.6-.6v-1.86a3.3 3.3 0 000-5.48V5.4a.6.6 0 01.6-.6h13.2a.6.6 0 01.6.6v1.86Z"/></svg></span><div class="tool-copy"><h2 id="raffles-home-heading">Raffles <span class="state-pill">On</span></h2><p>Open any post’s ⋯ menu and choose <strong>Run a raffle</strong>: a public draw on Reddit Raffler or a private one here.</p></div></div>
+        <button id="raffles-turn-on" class="secondary-action" type="button" hidden>Turn on raffles</button>
+      </section>
+
+      <section class="card summary-card" aria-labelledby="features-heading">
+        <h2 id="features-heading" class="visually-hidden">Features</h2>
+        <p id="feature-summary" class="feature-summary">Checking features…</p>
+        <button id="manage-features" class="link-action" type="button">Manage <span aria-hidden="true">›</span></button>
+      </section>
+    </div>
+
+    <div class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+      <section class="card" aria-labelledby="reddit-heading">
+        <div class="card-heading"><h1 id="reddit-heading">Browsing</h1><span class="group-count"></span></div>
       <div class="setting-row">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8.5 2a6.5 6.5 0 0 1 5.18 10.43l3.94 3.95a.9.9 0 0 1-1.27 1.27l-3.95-3.94A6.5 6.5 0 1 1 8.5 2Zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg></span>
         <div class="setting-copy"><label for="post-discovery">Profile search &amp; hidden activity</label><p id="post-discovery-desc">Search any profile, your Saved, History and votes, and show posts a profile hides.</p></div>
@@ -31,22 +60,18 @@
         <div class="setting-copy"><label for="mod-unapproved-filter">Not yet approved filter</label><p id="mod-unapproved-filter-desc">In communities you moderate, show only posts no moderator has approved yet.</p></div>
         <input class="switch" type="checkbox" id="mod-unapproved-filter" data-setting="modUnapprovedFilter" aria-describedby="mod-unapproved-filter-desc">
       </div>
+      </section>
+      <section class="card" aria-labelledby="tools-heading">
+        <div class="card-heading"><h2 id="tools-heading">Tools</h2><span class="group-count"></span></div>
       <div class="setting-row">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M16.6 3H3.4A2.4 2.4 0 001 5.4v2.2a.9.9 0 00.9.9 1.5 1.5 0 010 3 .9.9 0 00-.9.9v2.2A2.4 2.4 0 003.4 17h13.2a2.4 2.4 0 002.4-2.4v-2.2a.9.9 0 00-.9-.9 1.5 1.5 0 010-3 .9.9 0 00.9-.9V5.4A2.4 2.4 0 0016.6 3Zm.6 4.26a3.3 3.3 0 000 5.48v1.86a.6.6 0 01-.6.6H3.4a.6.6 0 01-.6-.6v-1.86a3.3 3.3 0 000-5.48V5.4a.6.6 0 01.6-.6h13.2a.6.6 0 01.6.6v1.86Z"/></svg></span>
         <div class="setting-copy"><label for="raffles">Raffles</label><p id="raffles-desc">Pick winners from a post’s commenters, from its ⋯ menu. Official raffles are drawn on redditraffler.com, which gets the post link and your rules, and publishes a permanent results page.</p></div>
         <input class="switch" type="checkbox" id="raffles" data-setting="raffles" aria-describedby="raffles-desc">
       </div>
-    </section>
-
-    <section class="card" aria-labelledby="redaction-heading">
-      <div class="card-heading"><h2 id="redaction-heading">Redaction</h2><span class="category-hint">Your posts and comments</span></div>
-      <p id="open-redaction-desc" class="note redact-note">Choose your items, review the selection, then overwrite and delete. Opens on your current Reddit page.</p>
-      <div class="cache-actions redact-actions"><button id="open-redaction" type="button" aria-describedby="open-redaction-desc">Review items to redact…</button></div>
-      <p id="redaction-open-status" class="settings-status" role="status" aria-live="polite"></p>
-    </section>
-
-    <section class="card" aria-labelledby="archive-heading">
-      <div class="card-heading"><h2 id="archive-heading">Arctic Shift archive</h2><span class="category-hint">Optional · third party</span></div>
+      </section>
+      <section class="card" aria-labelledby="archive-heading">
+        <div class="card-heading"><h2 id="archive-heading">Arctic Shift archive</h2><span class="group-count"></span></div>
+        <p class="group-note">Optional third-party archive. Off unless you turn it on.</p>
       <div class="setting-row" data-requires="post-discovery">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h13A1.5 1.5 0 0 1 18 4.5v2A1.5 1.5 0 0 1 17 7.9V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.9A1.5 1.5 0 0 1 2 6.5v-2Zm2.8 3.7V15c0 .1.1.2.2.2h10c.1 0 .2-.1.2-.2V8.2H4.8ZM3.8 4.8v1.6h12.4V4.8H3.8Zm3.7 5.3c0-.5.4-.9.9-.9h3.2a.9.9 0 0 1 0 1.8H8.4a.9.9 0 0 1-.9-.9Z"/></svg></span>
         <div class="setting-copy"><label for="archive-discovery">Use the archive</label><p id="archive-discovery-desc">Find and restore deleted activity and browse banned or private communities. Sends usernames, communities and search words to Arctic Shift. Coverage may be incomplete.</p></div>
@@ -67,27 +92,30 @@
         <div class="setting-copy"><label for="subreddit-archive-automatic">Open automatically</label><p id="subreddit-archive-automatic-desc">Skip the notice and load the archive directly.</p></div>
         <input class="switch" type="checkbox" id="subreddit-archive-automatic" data-setting="subredditArchiveAutomatic" aria-describedby="subreddit-archive-automatic-desc">
       </div>
+      </section>
       <p id="settings-status" class="settings-status" role="status" aria-live="polite">Loading settings…</p>
-    </section>
+    </div>
 
-    <section class="card chat-category" aria-labelledby="chat-heading">
-      <div class="card-heading"><h2 id="chat-heading">Chat search</h2><span class="category-hint">Saved on this device</span></div>
-      <div class="chat-intro-row">
-        <p class="chat-intro">Search loaded messages across all chats.</p>
-        <div class="cache-about" id="cache-about">
-          <button type="button" id="cache-info-toggle" class="info-trigger" aria-expanded="false" aria-controls="cache-info-panel" aria-label="About saved chat history" title="About saved chat history"><svg class="info-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.2v4.1"/><circle class="info-dot" cx="8" cy="4.9" r=".6"/></svg></button>
-          <div class="cache-popover" id="cache-info-panel" role="dialog" aria-labelledby="cache-info-title" tabindex="-1" hidden>
-            <div class="popover-head"><strong id="cache-info-title">About saved chat history</strong><button type="button" class="popover-close" aria-label="Close">×</button></div>
-            <p class="note cache-info"><strong>Saved messages only.</strong> History may be incomplete: messages become searchable after Reddit or a conversation search loads them, so older messages, chats or threads may be missing. It stays on this device. Clear removes it for every Reddit account on this device.</p>
+    <div class="panel" id="panel-data" role="tabpanel" aria-labelledby="tab-data" hidden>
+      <section class="card chat-category" aria-labelledby="chat-heading">
+        <div class="card-heading"><h2 id="chat-heading">Chat search</h2><span class="category-hint">Saved on this device</span></div>
+        <div class="chat-intro-row">
+          <p class="chat-intro">Search loaded messages across all chats.</p>
+          <div class="cache-about" id="cache-about">
+            <button type="button" id="cache-info-toggle" class="info-trigger" aria-expanded="false" aria-controls="cache-info-panel" aria-label="About saved chat history" title="About saved chat history"><svg class="info-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.2v4.1"/><circle class="info-dot" cx="8" cy="4.9" r=".6"/></svg></button>
+            <div class="cache-popover" id="cache-info-panel" role="dialog" aria-labelledby="cache-info-title" tabindex="-1" hidden>
+              <div class="popover-head"><strong id="cache-info-title">About saved chat history</strong><button type="button" class="popover-close" aria-label="Close">×</button></div>
+              <p class="note cache-info"><strong>Saved messages only.</strong> History may be incomplete: messages become searchable after Reddit or a conversation search loads them, so older messages, chats or threads may be missing. It stays on this device. Clear removes it for every Reddit account on this device.</p>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="stats"><span class="tile small" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 1a9 9 0 0 0-9 9c0 1.95.79 3.58 1.94 4.96L.23 17.66A.78.78 0 0 0 .79 19H10a9 9 0 0 0 0-18Zm0 16.2H6.16c-.99 0-1.9.05-3.04.14l-.08-.19c.79-.63 1.57-1.34 2.33-2.08l-1.05-1.27C3.3 12.58 2.8 11.33 2.8 10a7.2 7.2 0 1 1 7.2 7.2Z"/></svg></span><p id="message-stats" class="message-stats" role="status">Checking saved messages…</p><a class="chat-link" href="https://www.reddit.com/chat/" target="_blank" rel="noopener noreferrer" aria-label="Open Reddit chat">Open <span aria-hidden="true">↗</span></a></div>
-      <div class="cache-actions"><button id="clear-messages" type="button">Clear saved messages</button><button id="clear-cache" type="button">Clear saved usernames</button></div>
-      <p id="cache-status" role="status" aria-live="polite"></p>
-    </section>
+        <div class="stats"><span class="tile small" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 1a9 9 0 0 0-9 9c0 1.95.79 3.58 1.94 4.96L.23 17.66A.78.78 0 0 0 .79 19H10a9 9 0 0 0 0-18Zm0 16.2H6.16c-.99 0-1.9.05-3.04.14l-.08-.19c.79-.63 1.57-1.34 2.33-2.08l-1.05-1.27C3.3 12.58 2.8 11.33 2.8 10a7.2 7.2 0 1 1 7.2 7.2Z"/></svg></span><p id="message-stats" class="message-stats" role="status">Checking saved messages…</p><a class="chat-link" href="https://www.reddit.com/chat/" target="_blank" rel="noopener noreferrer" aria-label="Open Reddit chat">Open <span aria-hidden="true">↗</span></a></div>
+        <div class="cache-actions"><button id="clear-messages" type="button">Clear saved messages</button><button id="clear-cache" type="button">Clear saved usernames</button></div>
+        <p id="cache-status" role="status" aria-live="polite"></p>
+      </section>
+      <p class="search-syntax-hint">Search anywhere with <code>"phrases"</code>, <code>OR</code>, <code>-word</code>, <code>u/</code>, <code>r/</code>, <code>title:</code>. Press <kbd>Ctrl</kbd>+<kbd>/</kbd> in a search box for tips.</p>
+    </div>
   </main>
-  <p class="search-syntax-hint">Search anywhere with <code>"phrases"</code>, <code>OR</code>, <code>-word</code>, <code>u/</code>, <code>r/</code>, <code>title:</code>. Press <kbd>Ctrl</kbd>+<kbd>/</kbd> in a search box for tips.</p>
   <footer>Independent extension, not affiliated with Reddit.</footer>
   <script src="popup.js"></script>
 </body>
