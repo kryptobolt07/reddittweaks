@@ -1,3 +1,12 @@
+# 0.37.1 preview
+
+- **Signed-out removal checks:** monitoring and the Removed view reuse the independent browser session already used by unsigned profile search. Exact native comment/post fragments establish visibility without new legacy JSON/API calls, permissions or an authenticated fallback. Missing search results never establish removal.
+- **Evidence and interface:** unreadable, gated or blocked responses remain unchecked without an inline “Couldn’t verify” badge on every item. The popup and Removed summary report readable/unchecked coverage. Fresh public visibility supersedes stale archive-only evidence; a readable direct link alone does not erase an explicit community removal. AutoModerator and archive timing attribution remain distinct.
+- **Reuse and lifecycle:** successful proofs cache for ten minutes, unavailable proofs for one minute. Account, body/metadata and route guards prevent stale results; new cards resume after active checks. Item-specific refusals preserve the healthy search session, and shared rate limits remain respected. Cached metadata-only records are rechecked without generating upgrade-related approval alerts. No credentials or item bodies are persisted.
+- **Version:** patch increment for the public-visibility correction; no storage migration.
+- **Validation:** all 1,578 tests pass; 48 JavaScript files parse; ZIP integrity passes; all 62 shipped assets match source, archive and the stable unpacked folder. SHA-256 `4339a2e35541e560ef9c099a8a6b265fc9833a51e51a454813fe22300aca6e92`.
+- **Live evidence and limits:** the existing signed-out transport returned HTTP 200 with exact native comment and post fragments while the parent stayed signed in. Installed end-to-end verification of 0.37.1 is left to the user, who declined the final CDP check. Known removals, AutoModerator transitions and cancellation are covered by synthetic tests; no live writes were performed. Account-wide visibility, complete history and closed-tab monitoring are not claimed. Native fragment routes are Reddit implementation details and can change.
+
 # 0.37.0 preview
 
 - **Your removed content:** opt-in badges on your own native posts and comments, with evidence tooltips. Native automatic-removal evidence and likely archive-based automatic removals are distinguished from moderator, Reddit/filter and unknown causes. Author-visible text alone never proves public visibility.
