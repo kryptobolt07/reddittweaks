@@ -655,11 +655,41 @@
     }
     return {posts,after:null,hasMore:false,scanned:cards.length,incomplete:true,source:'reddit'};
   }
-  const removalCursors=new Map();let removalOwner='';
+  const removalCursors=new Map(),removalItems=new Map(),removalProofs=new Map(),removalPending=new Map();let removalOwner='',removalQueue=Promise.resolve();
+  function removalScope(me){
+    const key=me.owner+':'+me.username.toLowerCase();if(removalOwner!==key){removalCursors.clear();removalItems.clear();removalProofs.clear();removalOwner=key;}return key;
+  }
+  function rememberRemovalItem(post,me){
+    const entry={fullname:post.fullname,username:me.username,owner:me.owner,kind:post.kind==='comment'?'comment':'post',expectsBody:Boolean(post.body?.trim()),originalNotice:M.noticeStatus(post.body),restricted:['private','employees_only','gold_restricted'].includes(post.moderation?.subredditType) || post.moderation?.quarantined===true,revision:JSON.stringify([post.moderation,post.body])};
+    if(removalItems.size>=1000 && !removalItems.has(post.fullname))removalItems.delete(removalItems.keys().next().value);removalItems.set(post.fullname,entry);return entry;
+  }
+  async function readRemovalPublic(input,signal){
+    const N=globalThis.RTNativeRemoval,me=N?.identity(document),path=pageKey();
+    if(!me || input.owner!==me.owner || input.username?.toLowerCase()!==me.username.toLowerCase() || !/^t(?:1_[a-z0-9]{1,32}|3_[a-z0-9]{1,10})$/.test(input.fullname || '') || ['url','origin','method','headers'].some(k=>input[k]!==undefined))throw Error('Invalid own-item public check.');
+    const scope=removalScope(me);
+    for(const node of document.querySelectorAll('shreddit-post,shreddit-profile-comment,shreddit-comment')){
+      if(![node.id,node.getAttribute('comment-id'),node.getAttribute('thingid')].includes(input.fullname))continue;const post=N.item(node,me);if(post)rememberRemovalItem(post,me);
+    }
+    const item=removalItems.get(input.fullname);if(!item || item.owner!==me.owner || item.username.toLowerCase()!==me.username.toLowerCase())throw Error('This item was not observed in your native activity.');
+    if(item.restricted)return {proof:{fullname:item.fullname,status:'unknown',verified:false,source:'signed-out-native',why:'Public visibility cannot be checked for this private or quarantined community.',checkedAt:Date.now()}};
+    const key=scope+':'+item.fullname,saved=removalProofs.get(key);
+    if(input.refresh!==true && saved?.expires>Date.now() && saved.revision===item.revision)return {proof:saved.proof};
+    const pendingKey=key+':'+path+':'+item.revision,running=removalPending.get(pendingKey);if(running && !running.signal?.aborted)return running.operation;
+    const current=()=>{const value=N.identity(document);return !signal?.aborted && pageKey()===path && value?.owner===me.owner && value?.username.toLowerCase()===me.username.toLowerCase();};
+    const operation=removalQueue.catch(()=>{}).then(async()=>{
+      if(!current())throw Error('Account or page changed. Try again.');
+      const url=new URL('/svc/shreddit/'+(item.kind==='comment'?'comment/':'partial-feed-post/')+item.fullname,location.origin);url.searchParams.set('isProfile','true');let proof;
+      try{const html=await publicBrowserRead(url.href,signal,false);proof=N.publicItem(new DOMParser().parseFromString(html,'text/html'),item);}
+      catch(error){if(!current())throw Error('Account or page changed. Try again.');proof={fullname:item.fullname,status:'unknown',verified:false,source:'signed-out-native',why:'Signed-out check unavailable: '+String(error.message || 'request failed').slice(0,200)};}
+      if(!current())throw Error('Account or page changed. Try again.');proof.checkedAt=Date.now();
+      if(removalProofs.size>=1000 && !removalProofs.has(key))removalProofs.delete(removalProofs.keys().next().value);removalProofs.set(key,{proof,revision:item.revision,expires:Date.now()+(proof.verified?600000:60000)});return {proof};
+    });
+    const pending={operation,signal};removalQueue=operation;removalPending.set(pendingKey,pending);try{return await operation;}finally{if(removalPending.get(pendingKey)===pending)removalPending.delete(pendingKey);}
+  }
   async function nativeRemovedList(input,signal){
     const N=globalThis.RTNativeRemoval,me=N?.identity(document),path=pageKey();
     if(!me)throw Error('Reddit’s signed-in account is not ready. Refresh this tab to retry.');
-    const key=me.owner+':'+me.username.toLowerCase();if(removalOwner!==key){removalCursors.clear();removalOwner=key;}
+    const key=removalScope(me);
     if(input.action==='own-list-identity')return {username:me.username};
     if(input.username?.toLowerCase()!==me.username.toLowerCase())throw Error('You can only check your own removed items.');
     if(input.after!=null && (typeof input.after!=='string' || removalCursors.get(input.after)!==key))throw Error('Invalid native profile continuation.');
@@ -669,6 +699,7 @@
     const text=await boundedText(response,6000000),now=N.identity(document);
     if(signal?.aborted || pageKey()!==path || now?.owner!==me.owner || now?.username.toLowerCase()!==me.username.toLowerCase())throw Error('Account or page changed. Try again.');
     const value=N.listing(new DOMParser().parseFromString(text,'text/html'),me);
+    for(const post of value.posts)rememberRemovalItem(post,me);
     if(value.after===input.after && value.after)throw Error('Reddit repeated the native profile continuation.');
     if(value.after){if(removalCursors.size>=1000)removalCursors.delete(removalCursors.keys().next().value);removalCursors.set(value.after,key);}
     return value;
@@ -988,6 +1019,7 @@
     redaction.dirty=true;return {written:true};
   }
   async function read(input,signal){
+    if(input.action==='removal-public')return readRemovalPublic(input,signal);
     if(input.action==='community-suggestions')return readCommunitySuggestions(input,signal);
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
     if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
@@ -1087,7 +1119,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['removal-public','render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}

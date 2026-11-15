@@ -63,7 +63,7 @@
       const cancel=()=>{document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,action:'cancel'})}));finish(Error('Post request cancelled.'));};
       const receive=event=>{let response;try{response=JSON.parse(event.detail);}catch{return;}if(response.channel!==channel || response.id!==id)return;finish(response.ok?null:Error(response.error || 'Public posts could not be loaded.'),response);};
       document.addEventListener('rt-post-response',receive);signal?.addEventListener('abort',cancel,{once:true});
-      timer=setTimeout(()=>{document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,action:'cancel'})}));finish(Error('Public posts took too long to load. Try again.'));},parameters.action==='profile' && (parameters.stream==='public' || parameters.kind!=='comment')?27000:12000);
+      timer=setTimeout(()=>{document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,action:'cancel'})}));finish(Error('Public posts took too long to load. Try again.'));},parameters.action==='removal-public' || parameters.action==='profile' && (parameters.stream==='public' || parameters.kind!=='comment')?27000:12000);
       if(signal?.aborted){cancel();return;}
       document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,...parameters})}));
     });
@@ -778,7 +778,14 @@
       state.removalNotes ||= new Set();
       const author=post=>{const m=post.moderation || {};return {kind:post.kind==='comment'?'comment':'post',name:post.fullname,body:m.authorBody ?? post.body,selftext:m.authorBody ?? post.body,...(post.kind==='comment'?{}:{title:post.title || ''}),
         created_utc:post.created,removed_by_category:m.category ?? null,removal_reason:m.removalReason || null,locked:m.locked===true,subreddit_type:m.subredditType || 'public',quarantine:m.quarantined===true,visibilityKnown:m.visibilityKnown!==false,nativeRemoved:m.nativeRemoved===true};};
-      const candidates=items.filter(post=>post.kind==='comment' || post.moderation?.native),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
+      const publicProofs=new Map(),me=globalThis.RTNativeRemoval?.identity(document),generation=this.generation,current=()=>this.listState===state && this.context===context && this.generation===generation;state.publicChecks=Boolean(me && me.username.toLowerCase()===context.username.toLowerCase());
+      if(me && me.username.toLowerCase()===context.username.toLowerCase())for(const post of items){
+        if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner)throw Error('The signed-in account changed.');
+        try{const result=await this.request({action:'removal-public',owner:me.owner,username:me.username,fullname:post.fullname});if(!current())return;const proof=result.proof;
+          if(proof?.verified===true && proof.fullname===post.fullname)publicProofs.set(post.fullname,proof);else{publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');}}
+        catch(error){if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner || /account changed/i.test(error.message))throw Error('The signed-in account changed.');publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');}
+      }
+      const candidates=items.filter(post=>(post.kind==='comment' || post.moderation?.native) && (publicProofs.get(post.fullname)?.status!=='visible' || post.moderation?.nativeRemoved && !post.moderation.category) && !['private','employees_only','gold_restricted'].includes(post.moderation?.subredditType) && !post.moderation?.quarantined),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
       if(archiveStatus==='ok')for(const kind of ['post','comment'])for(let index=0,grouped=candidates.filter(p=>(p.kind==='comment'?'comment':'post')===kind);index<grouped.length;index+=25){
         const group=grouped.slice(index,index+25);
         try{const result=await this.archive({action:'archive-removal',username:context.username,kind,ids:group.map(post=>post.id)});
@@ -787,23 +794,25 @@
       }
       for(const post of items){
         const archived=archives.get(post.fullname),archive=archived?{kind:post.kind==='comment'?'comment':'post',...(post.kind==='comment'?{}:{title:archived.title || ''}),body:archived.archiveStatus==='removed'?'[removed]':archived.body,created_utc:archived.created,retrieved_on:archived.retrieved || 0}:null;
-        post.removal=R.classify({author:author(post),archive,archiveStatus:archive?'ok':post.kind==='comment' && archiveStatus==='ok'?'missing':archiveStatus});
+        const proof=publicProofs.get(post.fullname),publicView=proof?.verified?{verified:true,visibility:proof.status,moderation:proof.moderation}:proof?{status:'failed'}:null;
+        if(proof)post.publicStatus=proof.verified?proof.status:'unknown';
+        post.removal=R.classify({author:{...author(post),...(proof?{visibilityKnown:false}:{})},publicView,archive,archiveStatus:archive?'ok':post.kind==='comment' && archiveStatus==='ok'?'missing':archiveStatus});
       }
     }
     removedCounts(){
-      const counts={checked:0,removed:0,unknownComments:0,unknownPosts:0,deleted:0};
-      for(const post of this.listState?.items.values() || []){const r=post.removal;if(!r)continue;if(r.removed)counts.removed++;if(r.state==='deleted')counts.deleted++;if(r.state!=='unknown')counts.checked++;else if(post.kind==='comment')counts.unknownComments++;else counts.unknownPosts++;}
+      const counts={checked:0,removed:0,unknownComments:0,unknownPosts:0,deleted:0,publicVisible:0};
+      for(const post of this.listState?.items.values() || []){const r=post.removal;if(!r)continue;if(r.removed)counts.removed++;if(r.state==='visible' && post.publicStatus==='visible')counts.publicVisible++;if(r.state==='deleted')counts.deleted++;if(r.state!=='unknown')counts.checked++;else if(post.kind==='comment')counts.unknownComments++;else counts.unknownPosts++;}
       return counts;
     }
     summarizeRemoved(error){
       const state=this.listState,counts=this.removedCounts(),n=value=>value.toLocaleString('en-US');
-      this.setStatus(error || (state.native?'Observed ':'Checked your newest ')+n(state.scanned)+' posts and comments · '+n(counts.removed)+' removed'+(state.loading?' · Loading…':''),Boolean(error));
+      this.setStatus(error || (state.native?'Observed ':'Checked your newest ')+n(state.scanned)+' posts and comments · '+n(counts.removed)+' removed'+(state.publicChecks?' · '+n(counts.publicVisible)+' readable signed out':'')+(state.loading?' · Loading…':''),Boolean(error));
       const notes=[];if(this.searchParsed.invalid)notes.push(error);
-      if(counts.unknownComments)notes.push(n(counts.unknownComments)+' '+(counts.unknownComments===1?'comment':'comments')+' couldn’t be checked: Reddit blocks logged-out checks of comments'+(this.settings.archiveDiscovery?'':'. Turn on “Use the archive” to catch removals the archive saw'));
-      if(counts.unknownPosts)notes.push(counts.unknownPosts.toLocaleString('en-US')+' '+(counts.unknownPosts===1?'post':'posts')+' couldn’t be checked: native metadata does not establish public visibility');
+      if(counts.unknownComments)notes.push(n(counts.unknownComments)+' '+(counts.unknownComments===1?'comment':'comments')+(state.publicChecks?' couldn’t be checked: the signed-out item view was unavailable or unreadable':' couldn’t be checked: a signed-out item check is unavailable'+(this.settings.archiveDiscovery?'':'. Turn on “Use the archive” to catch removals the archive saw')));
+      if(counts.unknownPosts)notes.push(counts.unknownPosts.toLocaleString('en-US')+' '+(counts.unknownPosts===1?'post':'posts')+(state.publicChecks?' couldn’t be checked: the signed-out item view was unavailable or unreadable':' couldn’t be checked: native metadata does not establish public visibility'));
       for(const note of state.removalNotes || [])notes.push(note);
-      // U3: an account-level check needs a logged-out profile read, which Reddit blocks (§9.1 V3).
-      notes.push('Couldn’t check whether others can see your profile: Reddit blocks logged-out checks');
+      // U3: exact-item reads do not establish account-wide profile visibility.
+      notes.push('Couldn’t check whether others can see your profile: account-level verification is not implemented');
       if(state.native)notes.push((state.capped?'Stopped after 1,000 loaded items; ':'')+'native profile coverage may be incomplete');
       else if(state.capped)notes.push('Reddit only returns your newest 1,000 posts and comments');
       if(state.error)notes.push('The check is incomplete. Select Refresh to retry.');

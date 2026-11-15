@@ -52,6 +52,11 @@
     if(isDeletedBody(a.body) || a.category==='deleted' || a.category==='author')return result('deleted',{confidence:'verified',why:'You deleted this.',flags});
     // L5: a logged-out visitor can't see private communities at all, so "others can't see it" means nothing there.
     if(['private','employees_only','gold_restricted'].includes(String(a.subredditType).toLowerCase()))return result('unknown',{confidence:'unknown',why:'Can’t check: private community.',flags:[...flags,'private-community']});
+    const publicState=publicView?.verified===true && ['visible','removed','deleted'].includes(publicView.visibility)?publicView.visibility:'';
+    const knownRemoval=a.nativeRemoved || Boolean(a.removalReason) || ['automod_filtered','moderator','reddit',...adminCategories].includes(a.category);
+    if(publicState==='visible' && (!knownRemoval || publicView.moderation==='approved'))return result('visible',{confidence:'verified',why:'Visible in a fresh signed-out Reddit view.',flags});
+    if(publicState==='deleted')return result('deleted',{confidence:'verified',why:'The signed-out Reddit view marks this item as deleted.',flags});
+    if(publicState==='removed')publicView={...publicView,body:'[removed]'};
     // 2. Reddit itself.
     if(a.removalReason || adminCategories.has(a.category))return result('removed-admin',{confidence:'verified',why:'Reddit marks this '+a.kind+' as removed by Reddit.',flags});
     if(a.category==='reddit')return result('removed-filter',{confidence:a.kind==='post'?'verified':'likely',why:'Reddit marks this '+a.kind+' as removed by its filters.',flags});
@@ -67,7 +72,7 @@
     };
     // Posts: Reddit tells the author the removal category, so no category means others see it (rules 6 and 7).
     if(a.nativeRemoved)return source();
-    if(a.kind==='post' && a.visibilityKnown && !isRemovedBody(a.body)){
+    if(a.kind==='post' && a.visibilityKnown && !isRemovedBody(a.body) && publicState!=='removed'){
       if(archiveRemoved)return result('visible',{confidence:'verified',why:arc.category==='reddit'?'Reddit\u2019s filters held it at first; it\u2019s visible now, so it was approved.':'The archive saw it removed '+(latency!=null?minutes(latency)+' after posting':'')+'; Reddit shows it now, so a moderator approved it.',flags:[...flags,'approved-after-auto']});
       return result('visible',{confidence:'verified',why:'',flags});
     }

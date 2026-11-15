@@ -3,6 +3,7 @@
   'use strict';
   if(window.top!==window || globalThis.RTPublicBrowser)return;
   const origin='https://www.reddit.com',maxBytes=3000000;
+  const itemRefusals=new Map();
   let frame=null,queue=Promise.resolve(),pending=0,idleTimer=null,cooldownUntil=0,rateLimited=false,verifiedSession=false,activeController=null,revision=0;
   const failure=(message='Reddit blocked logged-out search (HTTP 403).')=>Error(message);
   function discard(){frame?.remove();frame=null;window.removeEventListener('pagehide',close);}
@@ -10,6 +11,9 @@
   function idle(){clearTimeout(idleTimer);if(!pending)idleTimer=setTimeout(discard,60000);}
   function validate(value){
     const url=new URL(value),p=url.searchParams;
+    if(location.origin===origin && url.origin===origin && !url.username && !url.password && !url.port && !url.hash && /^\/svc\/shreddit\/(?:comment\/t1_[a-z0-9]{1,32}|partial-feed-post\/t3_[a-z0-9]{1,10})$/.test(url.pathname)){
+      if(!globalThis.RTNativeRemoval?.identity(document) || p.get('isProfile')!=='true' || [...p.keys()].length!==1)throw failure('Invalid signed-out item check.');return url;
+    }
     const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search))?\/?$/i);
     if(location.origin!==origin || !profile || url.origin!==origin || url.username || url.password || url.port || url.hash || url.pathname!=='/svc/shreddit/search/')throw failure();
     const q=p.get('q') || '',author=q.match(/^author:"([\w-]{1,20})"(?: [^\u0000-\u001f\u007f]{1,300})?$/);
@@ -66,10 +70,12 @@
     }catch(error){controller.abort();throw error;}finally{await reader.cancel().catch(()=>{});}
   }
   async function perform(value,{signal,refresh=false}={}){
-    const url=validate(value),page=location.href,generation=revision;
+    const url=validate(value),page=location.href,generation=revision,itemRead=url.pathname!=='/svc/shreddit/search/';
     if(signal?.aborted)throw failure('Post request cancelled.');
     if(refresh && !rateLimited)cooldownUntil=0;
+    if(itemRead && refresh && !rateLimited)itemRefusals.delete(url.pathname);
     if(cooldownUntil>Date.now())throw failure(rateLimited?'Reddit rate limit reached. Try again later.':undefined);
+    if(itemRead && (itemRefusals.get(url.pathname) || 0)>Date.now())throw failure('Reddit blocked logged-out item checks (HTTP 403).');
     const controller=new AbortController(),cancel=()=>controller.abort();activeController=controller;signal?.addEventListener('abort',cancel,{once:true});
     let timer,node,responseStatus=0,timedOut=false;
     try{
@@ -80,7 +86,8 @@
       responseStatus=response.status;
       if(response.status===429){const hint=response.headers.get('retry-after'),seconds=Number(hint),retry=Number.isFinite(seconds)?seconds*1000:Date.parse(hint)-Date.now();cooldownUntil=Date.now()+Math.min(3600000,retry>0?retry:60000);rateLimited=true;throw failure('Reddit rate limit reached. Try again later.');}
       if(response.status>=500)throw failure('Reddit couldn’t load public search (HTTP '+response.status+').');
-      if(!response.ok || response.redirected || response.url!==url.href)throw failure();
+      if(itemRead && response.status===403){if(itemRefusals.size>=1000)itemRefusals.delete(itemRefusals.keys().next().value);itemRefusals.set(url.pathname,Date.now()+600000);}
+      if(!response.ok || response.redirected || response.url!==url.href)throw failure(itemRead?'Reddit blocked logged-out item checks (HTTP '+response.status+').':undefined);
       const result=await text(response,controller),current=context(node);
       if(controller.signal.aborted || location.href!==page || !current || current.window!==initial.window || current.document!==initial.document)throw failure('Page changed. Try again.');
       verifiedSession=true;
@@ -88,7 +95,7 @@
     }catch(error){
       controller.abort();
       const cancelled=signal?.aborted || generation!==revision || location.href!==page;
-      let reusable=false;try{reusable=!!context(node) && (responseStatus===429 || responseStatus>=500 || timedOut || error.name==='TypeError');}catch{}
+      let reusable=false;try{reusable=!!context(node) && (responseStatus===429 || responseStatus>=500 || itemRead && (responseStatus===403 || cancelled && generation===revision) || timedOut || error.name==='TypeError');}catch{}
       if(!reusable){verifiedSession=false;discard();}
       if(!cancelled && !reusable && cooldownUntil<=Date.now()){cooldownUntil=Date.now()+600000;rateLimited=false;}
       if(cancelled)throw failure('Post request cancelled.');

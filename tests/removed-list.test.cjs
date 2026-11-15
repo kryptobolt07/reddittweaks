@@ -11,13 +11,14 @@ const post=(id,extra={})=>({id,author:'Example',title:'Synthetic '+id,selftext:'
 const comment=(id,extra={})=>({id,author:'Example',body:'Synthetic comment '+id,link_id:'t3_parent',parent_id:'t3_parent',link_title:'Parent',subreddit:'Alpha',subreddit_type:'public',created_utc:created,...extra});
 
 // --- View (isolated world), with the page bridge stubbed by the bridge's real normalization rules.
-async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive}={}){
+async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs}={}){
  const dom=new JSDOM(page,{url:'https://www.reddit.com/user/Example/search/?rt_list=removed',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,archives=[];let d;
  t.after(()=>{d?.destroy();W.close();});
  for(const file of ['search-core.js','post-model.js','feed-filters.js','removal-model.js','post-discovery.js'])W.eval(read(file));
- const M=W.RTPostModel;
+ const M=W.RTPostModel;if(publicProofs)W.RTNativeRemoval={identity:()=>({owner:'t2_self',username:'Example'})};
  const reddit=async args=>{
   if(args.action==='own-list-identity')return {username:'Example'};
+  if(args.action==='removal-public'){assert.equal(args.owner,'t2_self');return {proof:{fullname:args.fullname,...(publicProofs?.[args.fullname] || {status:'unknown',verified:false})}};}
   if(args.action==='own-list'){assert.equal(args.list,'removed');const posts=children.map(([kind,data])=>{const item=kind==='t3'?M.normalizePost(data):M.normalizeComment(data);item.moderation={category:data.removed_by_category ?? null,removalReason:Boolean(data.removal_reason),locked:data.locked===true,subredditType:data.subreddit_type || 'public',quarantined:false,authorBody:kind==='t3'?data.selftext:data.body};return item;});return {posts,scanned:posts.length,hasMore:false,after:null};}
   throw Error('Unexpected request: '+args.action);
  };
@@ -40,7 +41,7 @@ test('Removed shows only your removed posts, each with its state pill and eviden
  assert.equal(s.pill('t3_modpost').dataset.rtRemoval,'removed-mod');assert.match(s.pill('t3_modpost').textContent,/^Removed by moderators$/);assert.match(s.pill('t3_modpost').title,/Reddit marks this post as removed by moderators/);
  assert.equal(s.pill('t3_autopost').textContent,'Removed automatically');assert.equal(s.pill('t3_adminpost').textContent,'Removed by Reddit');
  assert.equal(s.d.status.textContent,'Checked your newest 6 posts and comments · 3 removed');
- assert.match(s.d.notice.textContent,/1 comment couldn’t be checked: Reddit blocks logged-out checks of comments\. Turn on “Use the archive”/);
+ assert.match(s.d.notice.textContent,/1 comment couldn’t be checked: a signed-out item check is unavailable\. Turn on “Use the archive”/);
  assert.match(s.d.notice.textContent,/Couldn’t check whether others can see your profile/);
  assert.equal(s.archives.length,0,'no archive reads while “Use the archive” is off');
 });
@@ -78,6 +79,13 @@ test('native Removed pages state their coverage limit and use archive evidence f
  const s=await view(t,{children:[['t3',post('auto1')]]});const p=[...s.d.listState.items.values()][0];Object.assign(p.moderation,{native:true,nativeRemoved:true,visibilityKnown:false});s.d.settings.archiveDiscovery=true;
  s.d.archive=async args=>{assert.equal(args.kind,'post');return {posts:[s.W.RTPostModel.normalizePost({...post('auto1'),selftext:'[removed]',retrieved_on:created+10},{source:'arctic-shift'})]};};
  await s.d.classifyRemoved([p],s.d.context);assert.equal(p.removal.state,'removed-auto');assert.equal(p.removal.confidence,'likely');s.d.listState.native=true;s.d.listState.capped=true;s.d.summarizeRemoved();assert.match(s.d.notice.textContent,/native profile coverage may be incomplete/i);assert.doesNotMatch(s.d.notice.textContent,/Reddit only returns your newest/);
+});
+test('Removed uses fresh unsigned evidence; search absence or an unreadable public response is not removal',async t=>{
+ const s=await view(t,{children:[['t3',post('oldmod',{removed_by_category:'moderator'})],['t1',comment('publicremoved')],['t1',comment('missing')]],publicProofs:{t3_oldmod:{status:'visible',verified:true,moderation:'approved'},t1_publicremoved:{status:'removed',verified:true}}});
+ assert.deepEqual(s.shown,['t1_publicremoved']);assert.equal([...s.d.listState.items.values()].find(p=>p.id==='oldmod').removal.state,'visible');assert.equal([...s.d.listState.items.values()].find(p=>p.id==='missing').removal.state,'unknown');assert.match(s.d.notice.textContent,/signed.out.*unavailable/i);assert.doesNotMatch(s.d.notice.textContent,/Reddit blocks logged-out checks/);
+});
+test('a readable but explicitly removed native post can still use archive evidence for its removal source',async t=>{
+ const s=await view(t,{children:[['t3',post('both')]],publicProofs:{t3_both:{status:'visible',verified:true}}});const p=[...s.d.listState.items.values()][0];Object.assign(p.moderation,{native:true,nativeRemoved:true,visibilityKnown:false});s.d.settings.archiveDiscovery=true;let reads=0;s.d.archive=async()=>{reads++;return {posts:[s.W.RTPostModel.normalizePost({...post('both'),selftext:'[removed]',retrieved_on:created+10},{source:'arctic-shift'})]};};await s.d.classifyRemoved([p],s.d.context);assert.equal(reads,1);assert.equal(p.removal.state,'removed-auto');
 });
 
 // --- Page bridge (main world).

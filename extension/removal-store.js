@@ -10,7 +10,8 @@
    if(!raw || !/^t[13]_[a-z0-9]{1,32}$/.test(raw.fullname || '') || !Object.hasOwn(R.STATES,raw.state) || !['verified','likely','unknown'].includes(raw.confidence) || !Number.isFinite(raw.checkedAt) || raw.checkedAt<=0 || raw.checkedAt>now()+1000)throw Error('Invalid removal observation.');
    let url;try{url=new URL(raw.permalink,'https://www.reddit.com');}catch{throw Error('Invalid item link.');}
    if(url.origin!=='https://www.reddit.com' || !/^\/(?:r|user)\/[\w-]+\/comments\/[a-z0-9]+\//i.test(url.pathname))throw Error('Invalid item link.');
-   return {fullname:raw.fullname,state:raw.state,removed:raw.state.startsWith('removed-'),confidence:raw.confidence,why:typeof raw.why==='string'?raw.why.slice(0,800):'',flags:Array.isArray(raw.flags)?[...new Set(raw.flags.filter(x=>['locked','collapsed','approved-after-auto','quarantined-community','private-community'].includes(x)))]:[],permalink:url.pathname,checkedAt:Math.floor(raw.checkedAt)};
+   const publicProof=Number.isFinite(raw.publicCheckedAt) && raw.publicCheckedAt>0 && raw.publicCheckedAt<=raw.checkedAt && ['visible','removed','deleted','unknown'].includes(raw.publicStatus)?{publicStatus:raw.publicStatus,publicCheckedAt:raw.publicCheckedAt}:{};
+   return {fullname:raw.fullname,state:raw.state,removed:raw.state.startsWith('removed-'),confidence:raw.confidence,why:typeof raw.why==='string'?raw.why.slice(0,800):'',flags:Array.isArray(raw.flags)?[...new Set(raw.flags.filter(x=>['locked','collapsed','approved-after-auto','quarantined-community','private-community'].includes(x)))]:[],permalink:url.pathname,checkedAt:Math.floor(raw.checkedAt),...publicProof};
   }
   const serial=(owner,run)=>{const previous=locks.get(owner) || Promise.resolve(),job=previous.catch(()=>{}).then(run);locks.set(owner,job);return job.finally(()=>{if(locks.get(owner)===job)locks.delete(owner);});};
   async function read(owner,username){
@@ -27,7 +28,7 @@
     const value=await read(owner,username);
     for(const item of incoming){
      const previous=value.items[item.fullname];if(previous && previous.checkedAt>=item.checkedAt)continue;
-     const known=previous?.known || (previous?.state!=='unknown'?previous:null),transition=R.change(known || previous,item);
+     const known=previous?.known || (previous?.state!=='unknown'?previous:null),transition=item.publicCheckedAt && previous && !previous.publicCheckedAt?null:R.change(known || previous,item);
      if(transition)value.changes.unshift({...item,type:transition,unread:notify===true});
      value.items[item.fullname]={...item,...(item.state==='unknown' && known?{known}:item.state!=='unknown'?{known:{...item}}:{})};
     }

@@ -2,10 +2,11 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 const identity='<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><div id="user-drawer-content"><faceplate-partial src="/svc/shreddit/partial/X/user-drawer-menu?params=username%3DExample"></faceplate-partial></div>';
 const card=id=>`<shreddit-post id="t3_${id}" author="Example" author-id="t2_self" created-timestamp="2026-11-15T10:00:00Z" subreddit-name="Alpha" permalink="/r/Alpha/comments/${id}/title/" post-title="Example" item-state="REMOVED"><div slot="text-body">Text</div></shreddit-post>`;
 function setup(t,{signedIn=true}={}){
- const dom=new JSDOM((signedIn?identity:'')+'<main></main>',{url:'https://www.reddit.com/user/Example/search/?rt_list=removed',runScripts:'outside-only'}),W=dom.window,calls=[];t.after(()=>W.close());W.AbortController=AbortController;
+ const dom=new JSDOM((signedIn?identity:'')+'<main></main>',{url:'https://www.reddit.com/user/Example/search/?rt_list=removed',runScripts:'outside-only'}),W=dom.window,calls=[],publicReads=[];t.after(()=>W.close());W.AbortController=AbortController;
+ W.RTPublicBrowser={async read(url){publicReads.push(new URL(url));return card('first').replace('item-state="REMOVED"','item-state="UNMODERATED"');}};
  W.fetch=async url=>{const u=new URL(url);calls.push(u);assert.doesNotMatch(u.pathname,/\.json$|^\/api\//);return {ok:true,status:200,headers:new Headers(),text:async()=>`<main><shreddit-feed>${card(u.searchParams.has('after')?'second':'first')}${u.searchParams.has('after')?'':'<faceplate-partial src="/svc/shreddit/profiles/profile_overview-more-posts/new/?name=Example&amp;after=next"></faceplate-partial>'}</shreddit-feed></main>`};};
  for(const f of ['post-model.js','native-removal.js','post-page-bridge.js'])W.eval(fs.readFileSync('extension/'+f,'utf8'));
- const send=input=>new Promise(resolve=>{const id=crypto.randomUUID(),listener=e=>{const v=JSON.parse(e.detail);if(v.id!==id)return;W.document.removeEventListener('rt-post-response',listener);resolve(v);};W.document.addEventListener('rt-post-response',listener);W.document.dispatchEvent(new W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'native-removal-tests',id,...input})}));});return {W,send,calls};
+ const send=input=>new Promise(resolve=>{const id=crypto.randomUUID(),listener=e=>{const v=JSON.parse(e.detail);if(v.id!==id)return;W.document.removeEventListener('rt-post-response',listener);resolve(v);};W.document.addEventListener('rt-post-response',listener);W.document.dispatchEvent(new W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'native-removal-tests',id,...input})}));});return {W,send,calls,publicReads};
 }
 test('Removed identity and native overview pagination make no legacy API calls',async t=>{
  const s=setup(t);assert.equal((await s.send({action:'own-list-identity',username:'Example'})).username,'Example');assert.equal(s.calls.length,0);
@@ -17,4 +18,25 @@ test('Removed fails closed if identity is unavailable or changes; arbitrary cont
  const b=setup(t);assert.equal((await b.send({action:'own-list',list:'removed',username:'Other'})).ok,false);
  for(const after of ['https://evil.example/','/svc/shreddit/profiles/profile_overview-more-posts/new/?name=Other','/api/me.json'])assert.equal((await b.send({action:'own-list',list:'removed',username:'Example',after})).ok,false);
  assert.equal(b.calls.length,0);
+});
+test('exact public checks use the existing unsigned browser and cache/coalesce observed own IDs',async t=>{
+ const s=setup(t);await s.send({action:'own-list',list:'removed',username:'Example'});const request={action:'removal-public',username:'Example',owner:'t2_self',fullname:'t3_first'};
+ const [a,b]=await Promise.all([s.send(request),s.send(request)]);assert.equal(a.ok,true,a.error);assert.equal(a.proof.status,'visible');assert.equal(b.proof.status,'visible');assert.equal(s.publicReads.length,1);assert.equal(s.publicReads[0].pathname,'/svc/shreddit/partial-feed-post/t3_first');
+ await s.send(request);assert.equal(s.publicReads.length,1);assert.equal(s.calls.length,1,'only the original native overview used the owner session');
+});
+test('public checks reject unobserved/foreign items and treat unreadable unsigned responses as unknown',async t=>{
+ const s=setup(t),base={action:'removal-public',username:'Example',owner:'t2_self',fullname:'t3_first'};assert.equal((await s.send(base)).ok,false);assert.equal(s.publicReads.length,0);
+ s.W.document.querySelector('main').innerHTML=card('first');assert.equal((await s.send({...base,owner:'t2_other'})).ok,false);assert.equal((await s.send({...base,url:'https://evil.example/'})).ok,false);
+ s.W.RTPublicBrowser.read=async()=>'<p>Log in</p>';const r=await s.send(base);assert.equal(r.ok,true,r.error);assert.equal(r.proof.status,'unknown');assert.equal(r.proof.verified,false);
+});
+test('known private-community items are not sent to the anonymous item endpoint',async t=>{
+ const s=setup(t);s.W.document.querySelector('main').innerHTML=card('first').replace('item-state="REMOVED"','subreddit-type="private" item-state="REMOVED"');const r=await s.send({action:'removal-public',owner:'t2_self',username:'Example',fullname:'t3_first'});assert.equal(r.ok,true,r.error);assert.equal(r.proof.status,'unknown');assert.equal(s.publicReads.length,0);
+});
+test('navigation cannot coalesce a new-route public check into an old-route cancelled read',async t=>{
+ const s=setup(t);s.W.document.querySelector('main').innerHTML=card('first');let release,n=0;const gate=new Promise(r=>release=r);s.W.RTPublicBrowser.read=async()=>{if(++n===1)await gate;return card('first').replace('item-state="REMOVED"','item-state="UNMODERATED"');};
+ const request={action:'removal-public',owner:'t2_self',username:'Example',fullname:'t3_first'},first=s.send(request);await new Promise(r=>setImmediate(r));s.W.history.pushState({},'','/r/Alpha/comments/first/title/');const next=s.send(request);release();assert.equal((await first).ok,false);assert.equal((await next).ok,true);assert.equal(n,2);
+});
+test('a cancelled check cannot swallow a fresh check on the same route',async t=>{
+ const s=setup(t);s.W.document.querySelector('main').innerHTML=card('first');let release,n=0,firstId;const gate=new Promise(r=>release=r);s.W.document.addEventListener('rt-post-request',e=>{const value=JSON.parse(e.detail);if(value.action==='removal-public' && !firstId)firstId=value.id;});s.W.RTPublicBrowser.read=async()=>{if(++n===1)await gate;return card('first').replace('item-state="REMOVED"','item-state="UNMODERATED"');};
+ const request={action:'removal-public',owner:'t2_self',username:'Example',fullname:'t3_first'},first=s.send(request);await new Promise(r=>setImmediate(r));s.W.document.dispatchEvent(new s.W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'native-removal-tests',id:firstId,action:'cancel'})}));const next=s.send(request);release();assert.equal((await first).ok,false);assert.equal((await next).ok,true);assert.equal(n,2);
 });

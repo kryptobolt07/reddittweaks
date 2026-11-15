@@ -43,3 +43,17 @@ test('a thread comment can use the permalink supplied by its native action row',
  const {N,d}=fixture(t,'<shreddit-comment thingid="t1_19gsnavtu46ip" author="Example" author-id="t2_self" created-timestamp="2026-11-15T10:00:00Z"><div slot="comment"><p>Own text</p></div><shreddit-comment-action-row permalink="/r/Alpha/comments/post1/title/19gsnavtu46ip/"></shreddit-comment-action-row></shreddit-comment>');
  assert.equal(N.item(d.querySelector('shreddit-comment'),N.identity(d))?.fullname,'t1_19gsnavtu46ip');
 });
+test('native profile comment bodies use Reddit’s generic rtjson container too',t=>{
+ const {N,d}=fixture(t,comment().replace('t1_19gsnavtu46ip-comment-rtjson-content','-post-rtjson-content'));assert.equal(N.item(d.querySelector('shreddit-profile-comment'),N.identity(d)).body,'Own text');
+});
+test('signed-out evidence requires an exact item, readable content and matching author',t=>{
+ const {N,W}=fixture(t),parse=html=>new W.DOMParser().parseFromString(html,'text/html'),expected={fullname:'t1_19gsnavtu46ip',username:'Example',expectsBody:true};
+ assert.equal(N.publicItem(parse(comment().replace('t1_19gsnavtu46ip-comment-rtjson-content','-post-rtjson-content')),expected).status,'visible');
+ assert.equal(N.publicItem(parse(comment('','Other')),expected).status,'unknown');assert.equal(N.publicItem(parse('<p>Log in</p>'),expected).status,'unknown');
+ assert.equal(N.publicItem(parse(comment().replace('Own text','')),expected).status,'unknown');
+});
+test('signed-out removed/deleted notices are item-specific; nested replies cannot decide parent visibility',t=>{
+ const {N,W}=fixture(t),parse=html=>new W.DOMParser().parseFromString(html,'text/html'),expected={fullname:'t3_post1',username:'Example',expectsBody:true};
+ assert.equal(N.publicItem(parse(post('item-state="REMOVED"')),expected).status,'removed');assert.equal(N.publicItem(parse(post('deleted="true"','[deleted]')),expected).status,'deleted');
+ assert.equal(N.publicItem(parse(post('',comment('item-state="REMOVED"','Other'))),expected).status,'unknown','nested content alone is not the post body');
+});

@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const endpoint=(query='hello')=>'https://www.reddit.com/svc/shreddit/search/?'+new URLSearchParams({q:'author:"Example" '+query,type:'comments',sort:'new',limit:'25',rt_public_search:'1'});
-function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttributes={}}={}){
+function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttributes={},nativeOwner=null}={}){
  const events=[],calls=[],nodes=[],timers=new Map(),listeners={};let next=0,now=100000;
  const location={origin:'https://www.reddit.com',pathname:'/user/Example/',href:'https://www.reddit.com/user/Example/'};
  const state={loggedIn,credentialless};
@@ -15,7 +15,7 @@ function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttri
   nodes.push(node);return node;
  }};
  const window={addEventListener(name,fn){listeners[name]=fn;},removeEventListener(name,fn){if(listeners[name]===fn)delete listeners[name];}};window.top=window;
- const context=vm.createContext({window,document,location,URL,AbortController,TextDecoder,Date:{now:()=>now,parse:Date.parse},setTimeout(fn,ms){const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout(id){timers.delete(id);},setInterval(fn,ms){const id=++next;timers.set(id,{fn,ms,interval:true});return id;},clearInterval(id){timers.delete(id);}});
+ const context=vm.createContext({window,document,location,URL,AbortController,TextDecoder,RTNativeRemoval:{identity:()=>nativeOwner},Date:{now:()=>now,parse:Date.parse},setTimeout(fn,ms){const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout(id){timers.delete(id);},setInterval(fn,ms){const id=++next;timers.set(id,{fn,ms,interval:true});return id;},clearInterval(id){timers.delete(id);}});
  vm.runInContext(fs.readFileSync('extension/public-browser.js','utf8'),context);
  const e={read:(...args)=>context.RTPublicBrowser.read(...args),hasSession:()=>context.RTPublicBrowser.hasSession(),events,calls,nodes,state,location,timers,advance(ms){now+=ms;for(const [id,timer] of [...timers])if(timer.ms<=ms){if(!timer.interval)timers.delete(id);timer.fn();}},pagehide:()=>listeners.pagehide()};return e;
 }
@@ -111,4 +111,12 @@ test('pagehide aborts active work and queued reads without poisoning restored-pa
  const failures=Promise.all([assert.rejects(active,/cancelled/),assert.rejects(queued,/cancelled/)]);
  await tick();e.pagehide();await failures;assert.equal(e.calls.length,1);
  assert.match(await e.read(endpoint('after return')),/public/);assert.equal(e.calls.length,2);
+});
+test('native item reads reuse the unsigned search frame with the same anonymous fetch policy',async()=>{
+ const e=env({nativeOwner:{owner:'t2_self',username:'Example'}});await e.read(endpoint());const url='https://www.reddit.com/svc/shreddit/comment/t1_19gsnavtu46ip?isProfile=true';await e.read(url);assert.equal(e.nodes.length,1);assert.equal(e.calls[1][1].credentials,'same-origin');
+ e.location.pathname='/r/Alpha/comments/post1/title/';e.location.href='https://www.reddit.com'+e.location.pathname;await e.read('https://www.reddit.com/svc/shreddit/partial-feed-post/t3_post1?isProfile=true');assert.equal(e.nodes.length,1);
+ for(const bad of [url+'&token=x',url.replace('isProfile=true','isProfile=false'),url.replace('t1_19gsnavtu46ip','anything'),url.replace('www.reddit.com','evil.example')])await assert.rejects(e.read(bad));
+});
+test('an item endpoint refusal does not discard or pause a healthy unsigned search session',async()=>{
+ const e=env({nativeOwner:{owner:'t2_self',username:'Example'},fetcher:url=>response(url,{status:url.includes('/comment/')?403:200})});await e.read(endpoint());await assert.rejects(e.read('https://www.reddit.com/svc/shreddit/comment/t1_19gsnavtu46ip?isProfile=true'));assert.equal(e.hasSession(),true);await e.read(endpoint('again'));await e.read('https://www.reddit.com/svc/shreddit/partial-feed-post/t3_post1?isProfile=true');assert.equal(e.nodes.length,1);
 });
