@@ -6,6 +6,10 @@
  const ownerOK=value=>/^t2_[a-z0-9]{1,13}$/i.test(value || '');
  const closestCard=node=>node?.closest?.('shreddit-post,shreddit-profile-comment,shreddit-comment');
  const ownQuery=(card,selector)=>[...card.querySelectorAll(selector)].find(n=>closestCard(n)===card);
+ function bodyOf(card){
+  const body=ownQuery(card,'[slot="text-body"],[slot="comment"],[id$="-comment-rtjson-content"],[id$="-post-rtjson-content"],[id$="-rtjson-content"]');
+  if(!body)return '';const copy=body.cloneNode(true);for(const nested of copy.querySelectorAll('shreddit-comment,shreddit-profile-comment,shreddit-post,script,style'))nested.remove();return copy.textContent.trim();
+ }
  function identity(doc=globalThis.document){
   const app=doc.querySelector('shreddit-app'),owner=app?.getAttribute('logged-in-user-id');
   if(app?.getAttribute('user-logged-in')!=='true' || !ownerOK(owner))return null;
@@ -31,7 +35,7 @@
   let url;try{url=new URL(card.getAttribute('permalink') || card.getAttribute('href') || overflow?.getAttribute('permalink') || ownQuery(card,'shreddit-comment-action-row[permalink]')?.getAttribute('permalink'), 'https://www.reddit.com');}catch{return null;}
   const path=url.pathname,postId=path.match(/\/comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.[1];
   if(!postId || url.origin!=='https://www.reddit.com' || comment && !path.split('/').includes(fullname.slice(3)))return null;
-  const body=ownQuery(card,comment?'[id="'+fullname+'-comment-rtjson-content"],[slot="comment"],[slot="text-body"]':'[slot="text-body"],[id$="-post-rtjson-content"]')?.textContent?.trim() || '';
+  const body=bodyOf(card);
   const created=Date.parse(card.getAttribute('created-timestamp') || overflow?.getAttribute('comment-created-timestamp') || ownQuery(card,'faceplate-timeago[ts]')?.getAttribute('ts'))/1000;
   if(!Number.isFinite(created) || created<=0)return null;
   const state=(card.getAttribute('item-state') || '').toUpperCase(),banner=ownQuery(card,'[slot="post-removed-banner"],[slot="comment-removed-banner"]')?.textContent?.trim() || '';
@@ -64,5 +68,22 @@
   }
   return {posts,scanned,unreadable,after,hasMore:Boolean(after),incomplete:true,source:'reddit',transport:'native'};
  }
- globalThis.RTNativeRemoval=Object.freeze({identity,item,listing,ownerOK});
+ function publicItem(doc,expected){
+  const fullname=expected?.fullname,comment=/^t1_/.test(fullname || ''),unknown=why=>({fullname,status:'unknown',verified:false,source:'signed-out-native',why});
+  if(!(comment?M.validateCommentId(fullname):M.validateId(fullname)) || !M.validateUsername(expected?.username))return unknown('Invalid public item identity.');
+  const cards=[...doc.querySelectorAll(comment?'shreddit-profile-comment,shreddit-comment':'shreddit-post')].filter(n=>[n.id,n.getAttribute('comment-id'),n.getAttribute('thingid')].includes(fullname));
+  if(cards.length!==1)return unknown('The signed-out response did not contain one exact matching item.');
+  const card=cards[0],overflow=ownQuery(card,'shreddit-overflow-menu[author-name]'),author=card.getAttribute('author') || overflow?.getAttribute('author-name') || ownQuery(card,'[id^="poster-info-"] a[href*="/user/"]')?.getAttribute('href')?.match(/\/user\/([\w-]+)\/?$/)?.[1] || '';
+  if(author && author!=='[deleted]' && author.toLowerCase()!==expected.username.toLowerCase())return unknown('The signed-out item author did not match.');
+  const body=bodyOf(card),state=(card.getAttribute('item-state') || '').toUpperCase(),flag=name=>card.hasAttribute(name) && card.getAttribute(name)!=='false';
+  const explicit=flag('deleted') || flag('is-comment-deleted') || flag('removed') || ['REMOVED','DELETED','SPAM','FILTERED','AUTOMOD_FILTERED'].includes(state) || ownQuery(card,'[slot="post-removed-banner"],[slot="comment-removed-banner"]');
+  let status=explicit?M.domStatus(card) || (state==='DELETED'?'deleted':'removed'):'';
+  const notice=M.noticeStatus(body);if(!status && notice && notice!==expected.originalNotice)status=notice;
+  if(!status){
+   const readable=Boolean(body) || !comment && !expected.expectsBody && Boolean(card.getAttribute('post-title'));
+   if(author.toLowerCase()!==expected.username.toLowerCase() || !readable)return unknown('The signed-out item was gated or contained no readable content.');status='visible';
+  }
+  return {fullname,status,verified:true,source:'signed-out-native',moderation:state==='APPROVED'?'approved':'',why:status==='visible'?'Visible in a signed-out Reddit view.':status==='removed'?'The signed-out Reddit view marks this item as removed.':'The signed-out Reddit view marks this item as deleted.'};
+ }
+ globalThis.RTNativeRemoval=Object.freeze({identity,item,listing,ownerOK,publicItem});
 })();

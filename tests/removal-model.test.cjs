@@ -96,3 +96,13 @@ test('explicit native removal is evidence but does not identify its actor; negat
 test('native automatic and moderator verdict tooltips identify comments as comments',()=>{
  const m=model();for(const category of ['automod_filtered','moderator'])assert.match(m.classify({author:comment({removed_by_category:category})}).why,/this comment/);
 });
+test('fresh verified unsigned visibility overrides stale owner/archived removal metadata',()=>{
+ const m=model(),publicView={verified:true,visibility:'visible',moderation:'approved'},author=post({removed_by_category:'automod_filtered',nativeRemoved:true,visibilityKnown:false});const result=m.classify({author,publicView,archive:archived(10,{body:'[removed]'})});assert.equal(result.state,'visible');assert.match(result.why,/signed.out/i);
+});
+test('fresh unsigned removal cannot be overridden by author-visible or approved post text',()=>{
+ const m=model();assert.equal(m.classify({author:post(),publicView:{verified:true,visibility:'removed'}}).state,'removed-unknown');assert.equal(m.classify({author:comment(),publicView:{verified:true,visibility:'deleted'}}).state,'deleted');
+});
+
+test('public readability alone does not erase an explicit native removal verdict',()=>{
+ const m=model(),r=m.classify({author:post({removed_by_category:'moderator'}),publicView:{verified:true,visibility:'visible'}});assert.equal(r.state,'removed-mod');
+});

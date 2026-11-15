@@ -35,3 +35,9 @@ test('the oldest entries are evicted at the account cap',async()=>{
 test('posts published to a user profile are valid monitoring links and do not reject the batch',async()=>{
  const {store}=setup();await store.record(report([record('unknown',1799999000000,{fullname:'t3_profile',permalink:'/user/Example/comments/profile/title/'}),record('unknown')]));assert.equal(Object.keys((await store.read('t2_self','Example')).items).length,2);
 });
+test('the cache retains unsigned proof provenance without retaining response bodies',async()=>{
+ const {store}=setup();await store.record(report([record('visible',1799999000100,{publicStatus:'visible',publicCheckedAt:1799999000000,publicBody:'not saved'})]));const item=(await store.read('t2_self','Example')).items.t1_19gsnavtu46ip;assert.equal(item.publicStatus,'visible');assert.equal(item.publicCheckedAt,1799999000000);assert.equal(item.publicBody,undefined);
+});
+test('replacing an old metadata-only verdict with its first public proof establishes a new baseline',async()=>{
+ const {store}=setup();await store.record(report([record('removed-auto',1799999000000,{confidence:'likely'})]));await store.record(report([record('visible',1799999000100,{publicStatus:'visible',publicCheckedAt:1799999000100})],{notify:true}));assert.equal((await store.read('t2_self','Example')).changes.length,0);
+});

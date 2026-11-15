@@ -179,8 +179,8 @@ async function loadRemovalSummary(){
   try{
     const [tab]=await chrome.tabs.query({active:true,currentWindow:true});if(!Number.isInteger(tab?.id) || !/^https:\/\/(?:www\.|new\.|sh\.)?reddit\.com\//.test(tab.url || ''))throw Error('Open a signed-in Reddit tab to view your checks.');
     const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'summary',tabId:tab.id});if(!result?.ok || !/^[\w-]{1,20}$/.test(result.value?.username || ''))throw Error(result?.error || 'Removal history is unavailable. Refresh Reddit to retry.');
-    removalTab=tab.id;removalAccount=result.value;const items=Object.values(result.value.items || {}),unknown=items.filter(x=>x.state==='unknown').length;
-    removalSummary.textContent='u/'+result.value.username+' · '+items.length+' observed'+(unknown?' · '+unknown+' unchecked':'')+(result.value.unread?' · '+result.value.unread+' new changes':'')+'. Checks cover loaded items only.';
+    removalTab=tab.id;removalAccount=result.value;const items=Object.values(result.value.items || {}),unknown=items.filter(x=>x.state==='unknown').length,readable=items.filter(x=>x.state==='visible' && x.publicStatus==='visible').length;
+    removalSummary.textContent='u/'+result.value.username+' · '+items.length+' observed'+(readable?' · '+readable+' readable signed out':'')+(unknown?' · '+unknown+' unchecked':'')+(result.value.unread?' · '+result.value.unread+' new changes':'')+'. Checks cover loaded items only.';
     renderRemovalHistory(result.value);for(const id of ['open-removed','removal-history-toggle','clear-removal-history'])document.getElementById(id).disabled=false;
   }catch(e){removalAccount=null;removalTab=null;removalHistory.replaceChildren();removalHistory.hidden=true;removalSummary.textContent=e.message;for(const id of ['open-removed','removal-history-toggle','clear-removal-history'])document.getElementById(id).disabled=true;}
   syncFade(document.getElementById('panel-home'));
