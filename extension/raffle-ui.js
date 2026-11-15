@@ -47,6 +47,8 @@
     svg.dataset.icon='raffler';for(const d of RAFFLER_MARK){const path=document.createElementNS(svgNS,'path');path.setAttribute('d',d);svg.append(path);}return svg;
   }
   const nameOK=/^[A-Za-z0-9_-]{3,20}$/;
+  // Profile pictures only from Reddit's own image hosts.
+  const safePicture=value=>{try{const url=new URL(String(value || ''));return url.protocol==='https:' && !url.username && !url.password && /(?:^|\.)(?:redditstatic\.com|redditmedia\.com|redd\.it)$/.test(url.hostname)?url.href:'';}catch{return '';}};
   const CLOSE='m11.273 10 5.363-5.363a.9.9 0 10-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 10-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 101.274 1.273L10 11.273l5.363 5.363a.897.897 0 001.274 0 .9.9 0 000-1.273L11.275 10Z';
   const n=value=>Number(value).toLocaleString('en-US');
 
@@ -358,12 +360,24 @@
       const source=state.entries.size?[...state.entries.values()]:[...this.pageCommenters(),...(state.suggestEntries || [])];
       for(const entry of source){const name=entry?.author;if(!nameOK.test(name || '') || name==='AutoModerator' || rules.excludeAuthor && name.toLowerCase()===author)continue;
         const key=name.toLowerCase(),seen=people.get(key);if(seen){seen.count++;if(!seen.avatar && entry.avatar)seen.avatar=entry.avatar;}else people.set(key,{author:name,avatar:entry.avatar || '',count:1});}
+      for(const person of people.values())if(!person.avatar)person.avatar=state.pictures?.get(person.author.toLowerCase()) || '';
       return [...people.values()];
+    }
+    /* Pictures for commenters the page hasn't drawn (the thread JSON has none): looked up only for rows that are shown,
+       with the extension's cached avatar read, at most 60 per dialog and kept for the dialog. */
+    loadPicture(name){
+      const state=this.dialog,key=name.toLowerCase();if(!state)return;state.pictures ||= new Map();state.picturePending ||= new Set();
+      if(state.pictures.has(key) || state.picturePending.has(key) || state.picturePending.size+state.pictures.size>=60)return;
+      state.picturePending.add(key);
+      this.read({action:'user-avatar',username:name},{signal:state.controller.signal,timeout:10000}).then(result=>safePicture(result?.avatar),()=>'').then(url=>{
+        if(this.dialog!==state)return;state.picturePending.delete(key);state.pictures.set(key,url);if(!url)return;
+        for(const img of state.dialog.querySelectorAll('[data-rt-avatar-for="'+CSS.escape(name)+'"] img'))img.src=url;
+      });
     }
     // Commenters Reddit has already drawn on this page for this post (no request): top-level ones unless replies count.
     pageCommenters(){
       const state=this.dialog,topLevelOnly=state.form.elements.topLevelOnly.checked,out=[];
-      for(const el of document.querySelectorAll('shreddit-comment[author]')){const post=String(el.getAttribute('postid') || '').replace(/^t3_/i,'').toLowerCase();if(post && post!==state.post.id)continue;if(topLevelOnly && Number(el.getAttribute('depth') || 0)!==0)continue;out.push({author:el.getAttribute('author'),avatar:''});}
+      for(const el of document.querySelectorAll('shreddit-comment[author]')){const post=String(el.getAttribute('postid') || '').replace(/^t3_/i,'').toLowerCase();if(post && post!==state.post.id)continue;if(topLevelOnly && Number(el.getAttribute('depth') || 0)!==0)continue;out.push({author:el.getAttribute('author'),avatar:safePicture(el.getAttribute('avatar'))});}
       return out;
     }
     async loadCommenters(){
@@ -402,11 +416,14 @@
         const rows=chosen.map(name=>byKey.get(name.toLowerCase()) || {author:name,avatar:'',count:0});
         if(nameOK.test(q) && !chosenKeys.has(ql) && !byKey.has(ql))rows.push({author:q,avatar:'',count:0,typed:true});
         rows.push(...people.filter(p=>!chosenKeys.has(p.author.toLowerCase()) && (!ql || p.author.toLowerCase().includes(ql))));
-        clear.hidden=!search.value;const keep=list.scrollTop;list.replaceChildren();
+        clear.hidden=!search.value;const keep=list.scrollTop;list.replaceChildren();popup.watch?.disconnect();
+        // Rows without a picture ask for one as they come into view (the first rows at once where that can't be watched).
+        popup.watch=typeof IntersectionObserver==='function'?new IntersectionObserver(seen=>{for(const item of seen)if(item.isIntersecting){popup.watch.unobserve(item.target);this.loadPicture(item.target.dataset.rtUserRow);}},{root:list,rootMargin:'40px'}):null;let shown=0;
         for(const person of rows.slice(0,200)){
           const avatar=this.avatarEl(person,24);avatar.classList.add('rt-sub-icon-box');
           const row=F.menuOption(ctx,{label:'u/'+person.author,icon:avatar,checked:chosenKeys.has(person.author.toLowerCase()),value:person.author,tail:person.typed?'Add':person.count>1?n(person.count):'',slot:true,onSelect:()=>toggle(person.author)});
           row.dataset.rtUserRow=person.author;if(person.count>1)row.title=n(person.count)+' comments';list.append(row);
+          if(!person.avatar){if(popup.watch)popup.watch.observe(row);else if(shown<8)this.loadPicture(person.author);}shown++;
         }
         if(!rows.length)list.append(make('div','rt-sub-empty',ql?'No commenters match. Enter a full username to add it.':'No commenters to suggest yet'));
         list.scrollTop=keep;const first=list.querySelector('[role^=menuitem]');if(first)first.tabIndex=0;
@@ -423,7 +440,7 @@
         const at=rows.indexOf(document.activeElement),next=at<0?(event.key==='ArrowUp'?rows.length-1:0):(at+(event.key==='ArrowUp'?-1:1)+rows.length)%rows.length;
         for(const r of rows)r.tabIndex=-1;rows[next].tabIndex=0;rows[next].focus({preventScroll:true});
       },true);
-      const popup=state.popup={name:'excludeUsers',el:menu,button,render};
+      const popup=state.popup={name:'excludeUsers',el:menu,button,render,watch:null};
       popup.place=()=>this.placeUsers();popup.outside=event=>{const path=event.composedPath();if(!path.includes(menu) && !path.includes(button))this.closeUsers(false);};
       // Reddit's scrollbox scrolls inside the card's shadow root, where scroll events don't reach the page: follow wheel and touch too.
       popup.follow=()=>requestAnimationFrame(popup.place);
@@ -440,7 +457,7 @@
     closeUsers(restore=true){
       const state=this.dialog,p=state?.popup;if(!p)return;state.popup=null;
       document.removeEventListener('pointerdown',p.outside,true);window.removeEventListener('resize',p.place);window.removeEventListener('scroll',p.place,true);state.dialog.removeEventListener('wheel',p.follow);state.dialog.removeEventListener('touchmove',p.follow);
-      p.button.setAttribute('aria-expanded','false');p.el.remove();if(restore && p.button.isConnected)p.button.focus({preventScroll:true});
+      p.watch?.disconnect();p.button.setAttribute('aria-expanded','false');p.el.remove();if(restore && p.button.isConnected)p.button.focus({preventScroll:true});
     }
     coverageText(){
       const state=this.dialog,c=state.coverage;if(!c)return '';
