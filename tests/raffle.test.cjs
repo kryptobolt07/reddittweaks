@@ -353,7 +353,8 @@ test('public draw: says how it will be created, warns before confirming, sends R
  assert.equal(s.q('.rt-raffle-badge').textContent,'Verified public raffle');assert.match(s.q('.rt-raffle-banner-meta').textContent,/^Drawn by Reddit Raffler · .*2026.* · created by u\/Owner$/);
  const row=s.q('.rt-raffle-winner[data-rt-winner="Alice"]');assert.match(row.querySelector('.rt-raffle-excerpt').textContent,/^First line/);
  // Reddit Raffler's own facts: account age and both karmas, in the same line a private draw shows.
- assert.deepEqual([...row.querySelectorAll('.rt-raffle-stat')].map(e=>e.textContent),['243 days old','5 comment karma','1 post karma']);
+ assert.deepEqual([...row.querySelectorAll('.rt-raffle-stat')].map(e=>e.textContent),['7mo','5','1']);
+ assert.deepEqual([...row.querySelectorAll('.rt-raffle-stat')].map(e=>e.title),['Account 243 days old','5 comment karma','1 post karma']);
  const proofIcon=proof.querySelector('svg');assert.equal(proofIcon.dataset.icon,'raffler','Reddit Raffler’s own mark');assert.equal(proofIcon.getAttribute('viewBox'),'0 0 159 159');assert.equal(proofIcon.getAttribute('fill'),'currentColor','follows the button’s colour in both themes');assert.equal(proofIcon.querySelectorAll('path').length,7,'the mark only, without the wordmark');
  assert.equal(s.secondary(),null,'no Draw again for a public draw');assert.equal(s.primary().textContent,'Message winners');
  assert.match(s.q('[data-rt-raffle-view="results"]').dataset.markdown,/Proof: https:\/\/www\.redditraffler\.com\/raffles\/post1$/);
@@ -501,10 +502,15 @@ test('public results enrich only winning comments without scanning entrants',asy
  const s=await ui(t,{raffler:m=>m.action==='status'?{exists:true,raffle:officialRaffle()}:{signedIn:''}});await s.open();s.primary().click();await flush();
  assert.ok(s.calls.some(c=>c.action==='raffle-winner-comments' && c.ids.join(',')==='a1'));assert.equal(s.calls.some(c=>['raffle-thread','raffle-tree'].includes(c.action)),false);assert.equal(s.r.dialog.privateReady,false);assert.equal(s.r.dialog.entries.size,0);assert.match(s.q('.rt-raffle-excerpt').textContent,/First line/);
 });
-test('winner comment enrichment is read-only and excludes unrelated comments',async t=>{
- const b=bridge(t,{body:()=>({kind:'Listing',data:{children:[{kind:'t1',data:comment('a1','Alice',{link_id:'t3_post1'})},{kind:'t1',data:comment('b1','Bob',{link_id:'t3_other'})},{kind:'t1',data:comment('extra','Carol',{link_id:'t3_post1'})}]}})});
- const result=await b.send({action:'raffle-winner-comments',postId:'post1',ids:['a1','b1']});assert.deepEqual(result.entries.map(e=>e.id),['a1']);assert.equal(b.calls[0].url.pathname,'/api/info.json');assert.equal(b.calls[0].url.searchParams.get('id'),'t1_a1,t1_b1');assert.equal(b.calls[0].options.method,'GET');
+test('winner comments are read from each comment’s permalink JSON (Reddit now refuses /api/info.json), read-only, own post only',async t=>{
+ const thread=(id,data)=>[{kind:'Listing',data:{children:[{kind:'t3',data:{id:'post1'}}]}},{kind:'Listing',data:{children:data?[{kind:'t1',data}]:[]}}];
+ const b=bridge(t,{body:u=>{const id=u.pathname.split('/')[4].replace(/\.json$/,'');if(id==='gone')return {status:404};if(id==='b1')return thread(id,comment('b1','Bob',{link_id:'t3_other'}));return thread(id,comment(id,'Winner '+id,{link_id:'t3_post1'}));}});
+ const result=await b.send({action:'raffle-winner-comments',postId:'post1',ids:['a1','b1','gone','c1']});assert.equal(result.ok,true,result.error);
+ assert.deepEqual(result.entries.map(e=>e.id).sort(),['a1','c1'],'another post’s comment and a missing one are left out; the rest still load');
+ assert.ok(b.calls.every(c=>c.url.pathname.startsWith('/comments/post1/_/') && c.url.pathname.endsWith('.json') && c.url.searchParams.get('depth')==='1' && c.url.searchParams.get('limit')==='1' && c.options.method==='GET'));assert.equal(b.calls.some(c=>c.url.pathname==='/api/info.json'),false);
+ assert.deepEqual(b.calls.map(c=>c.url.pathname.split('/')[4].replace(/\.json$/,'')).sort(),['a1','b1','c1','gone'],'one read per winner');
  const before=b.calls.length;assert.equal((await b.send({action:'raffle-winner-comments',postId:'../x',ids:['a1']})).ok,false);assert.equal((await b.send({action:'raffle-winner-comments',postId:'post1',ids:['bad/id']})).ok,false);assert.equal(b.calls.length,before);
+ const none=bridge(t,{body:()=>({status:500})});assert.equal((await none.send({action:'raffle-winner-comments',postId:'post1',ids:['a1']})).ok,false,'every read failing reports an error');
 });
 
 // --- 0.36: rules layout, user suggestions, winner facts, one results layout
@@ -551,8 +557,10 @@ test('private winners show account age and both karmas, read once per winner, in
  const now=Math.floor(Date.now()/1000),users={Alice:{userId:'ida',created:now-120*86400-60,commentKarma:1234,postKarma:56,avatar:''},Bob:{userId:'idb',created:now-3*86400,commentKarma:1,postKarma:0,avatar:''}};
  const s=await ui(t,{users});await s.open();await privateDraw(s,'2');await flush();
  const alice=s.q('.rt-raffle-winner[data-rt-winner="Alice"]');
- assert.deepEqual([...alice.querySelectorAll('.rt-raffle-stat')].map(e=>e.textContent),['120 days old','1,234 comment karma','56 post karma']);
- assert.deepEqual([...s.q('.rt-raffle-winner[data-rt-winner="Bob"]').querySelectorAll('.rt-raffle-stat')].map(e=>e.textContent),['3 days old','1 comment karma','0 post karma']);
+ assert.deepEqual([...alice.querySelectorAll('.rt-raffle-stat')].map(e=>e.textContent),['3mo','1.2K','56']);assert.equal(alice.querySelector('.rt-raffle-stat').getAttribute('aria-label'),'Account 120 days old');
+ assert.deepEqual([...s.q('.rt-raffle-winner[data-rt-winner="Bob"]').querySelectorAll('.rt-raffle-stat')].map(e=>e.textContent),['3d','1','0']);
+ // One line with the name and time; each chip carries an icon like the profile search filter chips.
+ assert.ok(alice.querySelector('.rt-raffle-meta .rt-raffle-stats'));assert.deepEqual([...alice.querySelectorAll('.rt-raffle-stat svg')].map(i=>i.dataset.icon),['cake','comment','post']);
  assert.equal(s.calls.filter(c=>c.action==='raffle-user' && c.username==='Alice').length,1,'one lookup per winner');
  // One layout for both kinds: banner (title, badge, details, actions), rows (rank, avatar, name and time, facts, comment).
  for(const part of ['.rt-raffle-banner .rt-raffle-banner-title','.rt-raffle-banner .rt-raffle-badge','.rt-raffle-banner .rt-raffle-banner-meta','.rt-raffle-banner .rt-raffle-copy'])assert.ok(s.q(part),part);
@@ -568,7 +576,7 @@ test('public results use the private layout: the same rows fill in place when th
  s.primary().click();const row=s.q('.rt-raffle-winner[data-rt-winner="Alice"]');assert.ok(row);await flush();
  assert.equal(s.q('.rt-raffle-winner[data-rt-winner="Alice"]'),row,'updated in place, never rebuilt');
  assert.ok(row.querySelector('.rt-raffle-meta faceplate-timeago'),'the comment’s time, like a private draw');assert.match(row.querySelector('.rt-raffle-excerpt').textContent,/^First line/);
- assert.deepEqual([...row.querySelectorAll('.rt-raffle-stat')].map(e=>e.textContent),['243 days old','5 comment karma','1 post karma']);
+ assert.deepEqual([...row.querySelectorAll('.rt-raffle-stat')].map(e=>e.textContent),['7mo','5','1']);
  assert.equal(s.calls.filter(c=>c.action==='raffle-user').length,1,'only the picture is looked up; Raffler gave the facts');
  const proof=s.q('.rt-raffle-proof');assert.ok(proof.classList.contains('rt-raffle-action'));assert.equal(proof.querySelector('.rt-raffle-action-label').textContent,'View proof');
  const css=read('post-discovery.css');assert.match(css,/\.rt-raffle-banner-actions \.rt-raffle-action\.button-small\{[^}]*padding:0 12px 0 10px/,'even leading and trailing space over Reddit’s button padding');
@@ -603,7 +611,7 @@ test('winners screen: a trophy header, medal ranks, readable names and fact chip
  assert.deepEqual([...s.D.querySelectorAll('.rt-raffle-rank')].map(r=>r.dataset.rank),['1','2']);
  const css=read('post-discovery.css');
  assert.match(css,/\.rt-raffle-rank\[data-rank="1"\]\{[^}]*background:#f5b400/);assert.match(css,/\.rt-raffle-rank\[data-rank="2"\]\{/);assert.match(css,/\.rt-raffle-rank\[data-rank="3"\]\{/);
- assert.match(css,/\.rt-raffle-name\{[^}]*font-size:14px/);assert.match(css,/\.rt-raffle-stat\{[^}]*background:var\(--color-secondary-background/);
+ assert.match(css,/\.rt-raffle-name\{[^}]*font-size:14px/);assert.match(css,/\.rt-raffle-stat\{[^}]*border:1px solid color-mix\(in srgb,#ff4500 22%/,'the profile search filter-chip look');
  assert.match(css,/\.rt-raffle-excerpt\{[^}]*color:var\(--color-neutral-content-strong/,'comment text at full strength, not faded');
  assert.match(css,/\.rt-raffle-winner\{[^}]*border:1px solid/);assert.doesNotMatch(css,/\.rt-raffle-stat\+\.rt-raffle-stat::before/);
 });
@@ -638,4 +646,8 @@ test('phones keep two footer buttons on one line; scrolling a dialog never scrol
  assert.match(css,/@media \(max-width:639px\)\{[^@]*\.rt-raffle-card::part\(footer\)\{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end/);
  assert.match(css,/@media \(max-width:639px\)\{[^@]*\.rt-raffle-footnote\{flex-basis:100%/);
  assert.match(css,/dialog\.rt-raffle-dialog\{[^}]*overscroll-behavior:contain/);assert.match(css,/\.rt-raffle-card\{[^}]*overscroll-behavior:contain/);
+});
+test('Message winners carries a chat icon',async t=>{
+ const s=await ui(t);await s.open();await privateDraw(s);assert.ok(s.primary().classList.contains('rt-raffle-chat-icon'));assert.equal(s.primary().textContent,'Message winners');
+ assert.match(read('post-discovery.css'),/\.rt-raffle-chat-icon::before\{[^}]*mask:url/);
 });
