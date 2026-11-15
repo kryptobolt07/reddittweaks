@@ -337,3 +337,21 @@ This supersedes §15's metadata-only visibility limitation. Reuse the **existing
 Proof levels: unit tests first for allowlists, parser, classifier precedence, cache provenance, unknown UI, ownership, cancellation and source integration. Minimal read-only live source probe is recorded under `artifacts/research/verify/unsigned-removal/transport-probe.json`; final installed checks are restricted to a small read-only sample. Reveddit's supplied description is reference context only; the earlier local source copy was unavailable and is not needed for the implementation. Main verification must distinguish healthy source extraction from actual known-removed samples, which may only have synthetic coverage.
 
 §16 implementation evidence: successful proofs carry their source/status/time through the metadata cache; pre-0.37.1 metadata-only verdicts cannot suppress the first signed-out check or generate approval notifications during migration. Item-level refusals preserve the healthy anonymous search frame and pause only that item; rate limits still pause the shared transport. Route changes and cancellation cannot coalesce new work with a cancelled old read, and native cards arriving during a read are checked after it settles. Unknown/visible badges are omitted; the popup and Removed summary report coverage. The supplied Reveddit description was sufficient reference; no Reveddit download or challenge-solver code was used.
+
+
+## 17. Own-profile Removed entry (2026-11-15)
+
+Expose the existing Removed view from **Feed options → Activity → Removed** on the authenticated user's Overview, Posts and Comments tabs. Reuse the current native menu row, removed icon, keyboard handling and navigation; no new detector, archive scan, timer or API transport is introduced. Overview opens `rt_list=removed&type=all`, Posts opens `type=posts`, Comments opens `type=comments`. The destination's existing All/Posts/Comments tabs remain usable. The existing Deleted activity filter retains its present behavior, including verified deletion/removal recovery; this entry opens the separately verified own-removal list. Deleted items not listed by Reddit cannot be recovered by this entry and must never be inferred from absence.
+
+| Target | Acceptance |
+|---|---|
+| Own-profile gating | Current native account identity must match the viewed username; absent identity, sign-out, another profile and archive-only pages offer no entry. Stale saved username is insufficient |
+| Scope | One navigation to the existing Removed route, selecting All/Posts/Comments to match the source view; no scan begins just from mounting/opening the menu |
+| Native reuse | Existing rpl-menu-item row, removed glyph, submenu focus/keyboard/close handlers; no new CSS or standalone filter control |
+| T1/T7 | Identity arriving after menu mount inserts one entry; repeated scans/native menu replacement retain one entry |
+| T2/T3/T4 | Use existing real-link navigation and parked profile/search restoration; no new history/scroll logic |
+| T5/T8 | Click/Enter/Space closes Feed options, navigates once and preserves source content scope |
+| T10/T11 | Existing discovery opt-out restores the menu; native account loss/change removes entry and an old detached entry cannot navigate |
+| T12–T16 | Existing extension recovery, paused-tab, responsive/theme and Old Reddit behavior unchanged; no new background work |
+
+Lifecycle: ensureActivityMenu creates/rebuilds the own-profile entry on current native identity, its existing teardown removes it when menu/route/settings change, and activation checks identity again. Tests are written before implementation for entry visibility, typed destination, no eager checks, keyboard activation, late identity, account changes and native host replacement. Prior native-profile menu measurements and the committed native-profile-controls fixture supply native markup; no new presentation is introduced. Per user preference final live installed review is left to the user, with no CDP or constructed preview for this addition.

@@ -1754,3 +1754,29 @@ test('profile refresh stays hidden before Feed options mounts and while its nati
  const old=W.document.querySelector('shreddit-sort-dropdown');old?.remove();await d.ensureActivityMenu();assert.equal(d.discover.hidden,true);
  let refreshes=0;d.refreshActivity=async()=>{refreshes++;};d.discover.click();assert.equal(refreshes,1,'hidden backing action still powers menu refresh');
 });
+
+
+function ownProfileAccount(W,name='Example',owner='t2_self'){
+ let app=W.document.querySelector('shreddit-app');if(!app){app=W.document.createElement('shreddit-app');W.document.body.prepend(app);}app.setAttribute('user-logged-in','true');app.setAttribute('logged-in-user-id',owner);
+ const card=W.document.querySelector('shreddit-post');card.setAttribute('author-id',owner);card.setAttribute('author',name);
+ if(!W.RTNativeRemoval)W.eval(fs.readFileSync('extension/native-removal.js','utf8'));
+ return app;
+}
+function removedEntryNavigations(W){const urls=[];W.document.addEventListener('click',event=>{const anchor=event.target.closest?.('a[href]');if(anchor && new URL(anchor.href).searchParams.get('rt_list')==='removed'){event.preventDefault();urls.push(new URL(anchor.href));}},true);return urls;}
+for(const [tab,type] of [['','all'],['submitted/','posts'],['comments/','comments']])test('own '+(tab || 'Overview')+' exposes Removed without eager reads and keeps the content scope',async t=>{
+ const {W,d,calls}=setup(t,{url:'https://www.reddit.com/user/Example/'+tab});ownProfileAccount(W);const urls=removedEntryNavigations(W);await d.ready;
+ const option=d.activityMenu.querySelector('[data-rt-activity-filter="removed"]');assert.ok(option);assert.equal(option.getAttribute('aria-label'),'Removed');assert.ok(option.querySelector('svg'));assert.equal(calls.length,0,'mounting the entry must not scan');
+ d.activityDropdown.setAttribute('open','');d.openFeedSubmenu(d.activityMenu);option.click();assert.equal(urls.length,1);assert.equal(urls[0].pathname,'/user/Example/search/');assert.equal(urls[0].searchParams.get('rt_list'),'removed');assert.equal(urls[0].searchParams.get('type'),type);assert.equal(d.activityDropdown.hasAttribute('open'),false);assert.equal(calls.length,0,'source menu only navigates; destination owns the check');
+});
+test('Removed appears after native identity, survives menu replacement once, and supports keyboard activation',async t=>{
+ const {W,d}=setup(t);const urls=removedEntryNavigations(W);await d.ready;assert.equal(d.activityMenu.querySelector('[data-rt-activity-filter="removed"]'),null);
+ ownProfileAccount(W);d.ensureActivityMenu();d.ensureActivityMenu();assert.equal(d.activityMenu.querySelectorAll('[data-rt-activity-filter="removed"]').length,1);
+ const old=d.activityDropdown;old.insertAdjacentHTML('afterend',nativeControls);old.remove();d.ensureActivityMenu();const option=d.activityMenu.querySelector('[data-rt-activity-filter="removed"]');assert.ok(option);assert.equal(d.activityMenu.querySelectorAll('[data-rt-activity-filter="removed"]').length,1);
+ option.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));assert.equal(urls.length,1);assert.equal(urls[0].searchParams.get('type'),'posts');
+});
+test('Removed is own-only and stale entries stop navigating after account loss or a change',async t=>{
+ const {W,d}=setup(t);const urls=removedEntryNavigations(W);const app=ownProfileAccount(W,'Other');await d.ready;assert.equal(d.activityMenu.querySelector('[data-rt-activity-filter="removed"]'),null);
+ ownProfileAccount(W);d.ensureActivityMenu();const stale=d.activityMenu.querySelector('[data-rt-activity-filter="removed"]');assert.ok(stale);
+ ownProfileAccount(W,'Example','t2_other');stale.click();assert.equal(urls.length,0,'same username with a different native account id cannot use old entry');d.ensureActivityMenu();assert.equal(d.activityMenu.querySelectorAll('[data-rt-activity-filter="removed"]').length,1);
+ app.setAttribute('user-logged-in','false');stale.click();d.ensureActivityMenu();assert.equal(urls.length,0);assert.equal(d.activityMenu.querySelector('[data-rt-activity-filter="removed"]'),null);
+});

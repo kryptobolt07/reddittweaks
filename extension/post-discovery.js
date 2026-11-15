@@ -681,7 +681,7 @@
       input.value=text;input.dispatchEvent(new Event('input',{bubbles:true,composed:true}));input.focus({preventScroll:true});input.setSelectionRange?.(text.length,text.length);return true;
     }
     navigateProfileSearch(route,q,withList=true){
-      const params=new URLSearchParams({q});if(withList && route.list)params.set('rt_list',route.list);
+      const params=new URLSearchParams({q});if(withList && route.list){params.set('rt_list',route.list);if(['all','posts','comments','media'].includes(route.type))params.set('type',route.type);}
       // Filters shown as header pills belong to the search scope, so a new query keeps them.
       if(route.view==='search')for(const [name,value] of new URLSearchParams(location.search))if(/^rt_(?:date|type|sub|sort)$/.test(name))params.set(name,value);
       const anchor=make('a');anchor.href='/user/'+encodeURIComponent(route.username)+'/search/?'+params;anchor.hidden=true;document.body.append(anchor);try{anchor.click();}finally{anchor.remove();}
@@ -1026,6 +1026,9 @@
       if(this.controlsTarget?.contains(dropdown) && dropdown.shadowRoot && ![...this.nativeLoadingStyles].some(style=>style.parentNode===dropdown.shadowRoot)){const style=make('style');style.dataset.rtUi='controls-style';style.textContent='#hovercard{position:absolute!important;z-index:20!important}';dropdown.shadowRoot.append(style);this.nativeLoadingStyles.add(style);}
       // Reddit's dropdown popup sits at z-index 1, so card buttons (z-10) and our chips painted over the open menu. Lift it.
       const popper=dropdown.shadowRoot?.querySelector('rpl-popper')?.shadowRoot;if(popper && ![...this.nativeLoadingStyles].some(style=>style.parentNode===popper)){const style=make('style');style.dataset.rtUi='popup-style';style.textContent='.popup{z-index:1000!important}';popper.append(style);this.nativeLoadingStyles.add(style);}
+      const nativeOwner=!this.archiveOnly && ['overview','posts','comments'].includes(this.context.view)?globalThis.RTNativeRemoval?.identity(document):null;
+      const removalOwner=nativeOwner?.username.toLowerCase()===this.context.username.toLowerCase()?nativeOwner.owner:'';
+      if(this.activityMain===menu && (this.activityMenu?.dataset.rtRemovalOwner || '')!==removalOwner)this.clearActivityMenu();
       if(this.activityMain!==menu){
         this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;queueMicrotask(()=>this.placeFilterChips());
         const content=menu.parentElement,subs=[],polished=true;
@@ -1064,6 +1067,14 @@
         }
         const sub=this.activityMenu=submenu('activity'),activity=entry(this.isOwnList()?'List':'Activity','activity',sub);activity.dataset.rtActivity='true';activity.dataset.rtUi='activity-filter-option';activity.querySelector('[data-rt-menu-value]').dataset.rtActivityValue='true';menu.append(activity);
         for(const [value,label,icon] of (this.isOwnList()?[]:[['all','All activity','show'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']])){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{if(this.activityFilter!==value){this.activityFilter=value;this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});}if(value!=='all' && !this.archiveOnly)this.verifyArchiveStatuses([...this.archived.values()].filter(post=>post.source==='arctic-shift'));this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();this.closeFeedMenu(dropdown,open);this.ensureActivityArchive();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
+        sub.dataset.rtRemovalOwner=removalOwner;
+        if(removalOwner){
+          const source=this.context,option=row('Removed','removed');option.dataset.rtActivityFilter='removed';
+          activate(option,()=>{const me=globalThis.RTNativeRemoval?.identity(document),route=pageRoute();
+            if(me?.owner!==removalOwner || me?.username.toLowerCase()!==source.username.toLowerCase() || route?.key!==source.key || this.context?.key!==source.key)return;
+            this.closeFeedMenu(dropdown,open);this.navigateProfileSearch({...route,list:'removed',type:source.view==='overview'?'all':source.view},'');
+          });sub.append(option);
+        }
         // Your own profile's search: switch between all activity and your lists (Saved, History, …) in place.
         if(this.context?.view==='search' && !this.archiveOnly && signedInName && this.context.username.toLowerCase()===signedInName.toLowerCase()){
           let listSub=sub,listEntry=activity;
