@@ -31,7 +31,7 @@ function saveSetting(control) {
     const latest=await storage.get(SETTINGS_KEY),merged={...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY]||{}),[key]:next};
     await storage.set({[SETTINGS_KEY]:merged});
   }).then(()=>{status.textContent='Settings saved automatically.';},()=>{
-    control.checked=!next;syncDependencies();status.textContent='Could not save this setting. Please retry.';status.classList.add('error');
+    control.checked=!next;syncDependencies();syncSummary();status.textContent='Could not save this setting. Please retry.';status.classList.add('error');
   }).finally(()=>{control.disabled=false;});
   return settingsWrite;
 }
@@ -104,7 +104,7 @@ function syncDependencies(){
 }
 document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]'))syncDependencies();});
 try{const manifest=globalThis.chrome?.runtime?.getManifest?.();const version=document.querySelector('#version');if(manifest && version)version.textContent='v'+(manifest.version_name || manifest.version).replace(/ preview$/,'');}catch{}
-loadSettings().then(syncDependencies);
+loadSettings().then(()=>{syncDependencies();syncSummary();});
 updateMessageStats();
 
 // Redaction runs on Reddit itself (docs/redaction-spec.md); the fragment opens its dialog there.
@@ -119,3 +119,42 @@ document.getElementById('open-redaction')?.addEventListener('click',async event=
     window.close?.();
   }catch{button.disabled=false;document.getElementById('redaction-open-status').textContent='Couldn’t open Redaction. Open a Reddit page and try again.';}
 });
+
+// --- Sections (docs: popup redesign 0.36): Home has things to run, Settings the switches, Data the saved history.
+const TAB_KEY='rt-popup-tab',tabs=[...document.querySelectorAll('[role="tab"]')];
+function showTab(name,{focus=false}={}){
+  const tab=tabs.find(t=>t.dataset.tab===name) || tabs[0];
+  for(const t of tabs){const on=t===tab;t.setAttribute('aria-selected',String(on));t.tabIndex=on?0:-1;document.getElementById(t.getAttribute('aria-controls')).hidden=!on;}
+  if(focus)tab.focus({preventScroll:true});
+  try{localStorage.setItem(TAB_KEY,tab.dataset.tab);}catch{}
+}
+for(const tab of tabs){
+  tab.addEventListener('click',()=>showTab(tab.dataset.tab));
+  tab.addEventListener('keydown',event=>{
+    const at=tabs.indexOf(tab),next={ArrowRight:(at+1)%tabs.length,ArrowLeft:(at-1+tabs.length)%tabs.length,Home:0,End:tabs.length-1}[event.key];
+    if(next==null)return;event.preventDefault();showTab(tabs[next].dataset.tab,{focus:true});
+  });
+}
+{let saved='';try{saved=localStorage.getItem(TAB_KEY) || '';}catch{}showTab(saved || 'home');}
+document.getElementById('manage-features')?.addEventListener('click',()=>showTab('settings',{focus:true}));
+
+// A feature counts as on when its switch is on and everything it needs is on too.
+const isActive=control=>control.checked && !control.closest('.setting-row')?.classList.contains('is-inactive');
+function syncSummary(){
+  const controls=[...document.querySelectorAll('[data-setting]')],pill=document.querySelector('#raffles-home .state-pill');
+  if(controls.some(c=>c.classList.contains('is-unavailable'))){const summary=document.getElementById('feature-summary');if(summary)summary.textContent='Settings unavailable';if(pill)pill.hidden=true;return;}
+  const summary=document.getElementById('feature-summary');if(summary)summary.textContent=controls.filter(isActive).length+' of '+controls.length+' features on';
+  for(const card of document.querySelectorAll('#panel-settings .card')){const own=[...card.querySelectorAll('[data-setting]')],count=card.querySelector('.group-count');if(count)count.textContent=own.filter(isActive).length+' of '+own.length+' on';}
+  const raffles=document.getElementById('raffles'),card=document.getElementById('raffles-home');
+  if(raffles && card){card.querySelector('.state-pill').textContent=raffles.checked?'On':'Off';card.dataset.state=raffles.checked?'on':'off';document.getElementById('raffles-turn-on').hidden=raffles.checked;}
+}
+document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]'))syncSummary();});
+document.getElementById('raffles-turn-on')?.addEventListener('click',()=>{const raffles=document.getElementById('raffles');if(!raffles || raffles.disabled || raffles.checked)return;raffles.checked=true;raffles.dispatchEvent(new Event('change',{bubbles:true}));});
+
+// Where Start redaction will open: the active Reddit tab, or the signed-in profile in a new tab.
+(async()=>{
+  const hint=document.getElementById('redaction-destination');if(!hint)return;
+  try{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});const url=new URL(tab?.url);
+    hint.textContent=url.protocol==='https:' && ['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(url.hostname)?'Opens on this Reddit tab':'Opens your Reddit profile in a new tab';}
+  catch{hint.textContent='Opens your Reddit profile in a new tab';}
+})();
