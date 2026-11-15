@@ -171,3 +171,28 @@ test('profile-notice marks the held notice paragraph, ignores later "[removed]" 
  const held=W.document.querySelector('shreddit-comment[thingid="t1_a1"] p');assert.equal(held.dataset.rtHold,'');assert.equal(held.dataset.rtNotice,'true');assert.equal(W.document.querySelector('shreddit-comment[thingid="t1_u1"]').hasAttribute('data-rt-pending'),false);
  W.close();
 });
+
+// Deleted accounts: Reddit keeps the text but shows [deleted] as the author (no deletion notice).
+const kept=(id,text)=>`<shreddit-comment thingid="${id}" postid="t3_abc12" author="[deleted]" is-author-deleted><details open><summary><div slot="commentAvatar"><span avatar><svg class="default"></svg></span></div><div slot="commentMeta"><div class="author-name-meta"><span dir="auto">[deleted]</span></div><div class="row"></div></div></summary><div slot="comment"><p>${text}</p></div></details></shreddit-comment>`;
+test('a comment whose account was deleted gets its archived author back, its text untouched',async()=>{
+ const e=setup({html:page(kept('t1_19sngis212s0x','Username does check out'),`<shreddit-comment thingid="t1_live1" postid="t3_abc12" author="Someone"><div slot="comment"><p>hi</p></div></shreddit-comment>`),archive:async message=>({ok:true,posts:message.ids.map(id=>archived(id.slice(3),'Username does check out',{author:'CheckedOut'}))})});
+ assert.equal(comment(e.doc,'t1_19sngis212s0x').hasAttribute('data-rt-pending'),false,'no skeleton: the text is already there');
+ await e.r.ready;await settle();
+ assert.deepEqual(JSON.parse(JSON.stringify(e.calls.map(c=>c.ids))),[['t1_19sngis212s0x']],'only the deleted-author comment is asked, in one batch');
+ const node=comment(e.doc,'t1_19sngis212s0x');
+ assert.equal(node.querySelector('[data-rt-archived-author]')?.textContent,'CheckedOut');assert.equal(node.getAttribute('author'),'CheckedOut');
+ assert.equal(node.querySelector('[slot="comment"] p').textContent,'Username does check out','the text is never replaced');assert.equal(node.querySelector('.rt-recovered-md'),null);
+ assert.equal(node.hasAttribute('data-rt-settled'),true);
+ e.r.restoreAll();assert.equal(node.getAttribute('author'),'[deleted]');assert.equal(node.querySelector('[slot="comment"] p').textContent,'Username does check out','undo keeps the comment');assert.equal(node.querySelector('[data-rt-archived-author]'),null);
+ e.r.destroy();e.W.close();
+});
+test('a post whose account was deleted gets its archived author back, without deletion cues',async()=>{
+ const html=`<main><shreddit-post id="t3_abc12" author="[deleted]" post-title="What are you doing on a Friday night?"><div slot="credit-bar"><span class="author">[deleted]</span><shreddit-post-overflow-menu></shreddit-post-overflow-menu></div><a slot="title">What are you doing on a Friday night?</a><div slot="text-body"><p>Real text</p></div></shreddit-post></main>`;
+ const e=setup({html,archive:async message=>({ok:true,posts:message.action==='archive-ids'?[{id:'abc12',author:'FridayPoster',title:'What are you doing on a Friday night?',selftext:'Real text',created_utc:1700000000,subreddit:'AskReddit'}]:[]})});
+ await e.r.ready;await settle();
+ const post=e.doc.querySelector('shreddit-post');
+ assert.equal(post.querySelector('[data-rt-archived-author]')?.textContent,'FridayPoster');assert.equal(post.querySelector('[data-rt-source]'),null,'not deleted or removed: no status cue');
+ assert.equal(post.querySelector('[slot="text-body"] p').textContent,'Real text');assert.equal(post.querySelector('[data-rt-skeleton]'),null);
+ e.r.restoreAll();assert.equal(post.querySelector('[data-rt-archived-author]'),null);assert.equal(post.querySelector('[slot="credit-bar"] .author').textContent,'[deleted]');
+ e.r.destroy();e.W.close();
+});
