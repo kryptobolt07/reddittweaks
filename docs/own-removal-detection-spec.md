@@ -257,3 +257,58 @@ This is what exists in the current bundle; everything else in this document rema
 ### Summary
 
 The feature today is the unit-tested classification core plus the on-demand **Removed list** (U2) on your own profile. The latest 0.32.2 work fixed logged-out **profile search** (public comment discovery and blocked-profile post search) in the anonymous frame; it did not add per-item public verification, so it does not change how comments are classified. Remaining work is U1, U4 and U5, which depend on a public-view route that Reddit currently blocks.
+
+## 15. Native-first monitoring increment (2026-11-15)
+
+This increment supersedes legacy-JSON assumptions in §§4, 6, 13 and 14 for new removal work. It extends the existing classifier and Removed view rather than building another discovery feed. Removals monitoring is opt-in; no content writes, public-view bypasses, new host permissions, or public Data API credentials are introduced.
+
+### Parity and limits
+
+| Capability | Increment | Limit shown to the user |
+|---|---|---|
+| Own-item badges (U1) | Native ownership, moderation state and notices; matching archive evidence when enabled; cached badges reattach to replacement cards | Missing native evidence is “Couldn’t check”; author-visible text and UNMODERATED are not proof of public visibility |
+| Removed view (U2) | Native overview HTML and its validated newest-first continuation, with existing filters and archive classification | Native listing/search coverage may be incomplete; no invented 1,000-item completeness claim for HTML |
+| Identity | Logged-in app ID plus native account drawer/author-ID mapping; no `/api/me.json` needed for Removed | Unresolved or conflicting identity stops the check; viewing a profile does not establish ownership |
+| AutoModerator | Explicit native automatic-removal evidence, or archive removal within 0–25 s labelled likely | Plain REMOVED/SPAM does not identify the actor; historical capture alone does not establish current visibility |
+| Change history and toolbar count (U4) | Local per-account verdict cache, bounded recent changes, opt-in unread count; no duplicate changes across tabs/reloads | Monitoring operates while browsing Reddit, not with all Reddit tabs closed; initial historical discoveries do not trigger alerts |
+| Popup (U5) | Monitoring/notification preferences, current account summary, recent changes, open Removed and clear own monitoring data | No active signed-in Reddit page means no account summary; no other account's history is substituted |
+| Account shadowban/public view (U3/E2) | Existing explicit unavailable state retained | No inference from an empty search, an unavailable native card, or a failed request |
+
+Native inspection through the approved Chrome relay found `shreddit-app[user-logged-in][logged-in-user-id]`, an account-specific native user-drawer partial, post `author-id` and `item-state`, and profile comment author identity in its matching overflow control. The profile comment's `user-id` is the **viewer**, so it must never establish authorship. Evidence and styles are recorded under ignored `artifacts/research/api-phaseout-2026-11-15/native-removal-*.json`. No live writes were made. Further CDP use is limited to one targeted read-only installed verification; synthetic tests cover state combinations unavailable live.
+
+### Expectations and proof
+
+| ID | Observable expectation | Proof |
+|---|---|---|
+| N1 | Removed identity/list discovery makes zero legacy `.json`/`/api/` requests | Bridge tests with native fixtures reject any legacy request |
+| N2 | Native author IDs/names must match the authenticated identity; viewer IDs, profile URLs and quoted replies cannot claim ownership | Native reader tests, including long comment IDs and foreign-author fixtures |
+| N3 | Empty categories, UNMODERATED, failed reads, and missing cards never prove visible/approved | Model tests with incomplete native evidence; no current removal inferred only from a stale archive |
+| N4 | Automatic, moderator, Reddit/filter, unknown and self-deleted verdicts preserve confidence/source | Model/reader tests; negative/late archive timestamps cannot identify AutoModerator |
+| N5 | Persist only bounded account-scoped metadata/verdicts, not comment bodies or credentials | Store/broker tests for account isolation, caps, TTL, concurrent updates, deduplication and clear |
+| N6 | Visible native own cards get one badge; re-renders and Back reuse cached results; hidden tabs pause optional requests | Monitor DOM tests with request counters and cancellation |
+| N7 | Popup/settings changes stop/restart observers cleanly; identity changes remove prior account badges immediately | Monitor/popup integration tests; late responses cannot update another account |
+| N8 | Notifications count transitions, never failed checks, initial history, duplicate reports or history opened in the popup | Store/broker tests, including worker restart and account switching |
+| N9 | Native continuations stay on the same profile/source/sort and reject repeated/foreign cursors | Bridge pagination tests; existing Removed filters and scroll snapshots retained |
+
+### Lifecycle ownership and transitions
+
+The native reader owns no DOM. The existing Discovery owns the Removed header/feed/filters and its route snapshots. The monitoring controller alone creates/removes in-place badge nodes, observers, pending reads and its timers. The worker owns serialized per-account cache/change writes and tab-scoped toolbar badges. The popup owns its current-account summary and clears only that account's history.
+
+| T-row | Expected sequence |
+|---|---|
+| T1 | Wait for authenticated native identity/card metadata; mount badges once; a startup host swap reattaches them without restarting loaded work |
+| T2/T4 | Keep badges on connected outgoing cards until Reddit replaces them; validate the new route before publishing async work |
+| T3 | Restore the existing Removed route snapshot/scroll; attach cached badges without fresh archive reads |
+| T5 | Existing local filters use loaded results; one URL update; native listing continuations remain scope-bound |
+| T6/T7 | Newly visible own cards are checked once per freshness window; replacement hosts reuse verdicts; no comment skeletons or feed remount |
+| T8 | Popup controls remain keyboard accessible; opening change history acknowledges that account only |
+| T9 | Native metadata/body changes invalidate only the affected observation; self-deletion never becomes a removal alert |
+| T10 | Turning monitoring off aborts pending work, removes its badges and toolbar counts, preserves cached history; archive-off prevents archive reads |
+| T11 | Account switch/sign-out cancels the generation and clears visible prior-account state before any new reads |
+| T12 | A disconnected extension stops checks and exposes refresh guidance rather than claiming successful checks |
+| T13 | Worker restarts recover stored metadata; duplicate reports remain idempotent; no alarm or background credential storage |
+| T14 | Hidden tabs pause checks; foreground resumes bounded stale work once without a catch-up burst |
+| T15 | Reuse existing native metadata/pill classes and theme tokens; wrap within the card at narrow widths; no fixed-height spacers |
+| T16 | Off on Old Reddit |
+
+Standing checks S1–S9 apply to page/popup surfaces; chat layout changes are n/a because no chat UI is changed. Native style measurements precede implementation. Logic, transitions, account isolation and zero-legacy-transport checks are synthetic tests; live claims are restricted to the final measured read-only pass. No preview browser or destructive live test is used. System notification delivery, closed-tab monitoring and unrestricted logged-out verification are not claimed by this increment.

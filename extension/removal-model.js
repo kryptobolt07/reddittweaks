@@ -33,7 +33,7 @@
     return {kind,body:kind==='comment'?raw.body:raw.selftext ?? raw.body,created:Number(raw.created_utc ?? raw.created) || 0,retrievedOn:Number(raw.retrieved_on ?? raw.retrievedOn) || 0,
       category:raw.removed_by_category ?? raw.removedByCategory ?? null,removalReason:raw.removal_reason ?? raw.removalReason ?? null,
       locked:raw.locked===true,collapsed:raw.collapsed===true && (raw.collapsed_because_crowd_control===true || raw.collapsed_reason_code==='CROWD_CONTROL' || raw.collapsedByCrowdControl===true),
-      subredditType:raw.subreddit_type ?? raw.subredditType ?? 'public',quarantined:raw.quarantine===true || raw.quarantined===true,author:raw.author ?? ''};
+      subredditType:raw.subreddit_type ?? raw.subredditType ?? 'public',quarantined:raw.quarantine===true || raw.quarantined===true,author:raw.author ?? '',visibilityKnown:raw.visibilityKnown!==false,nativeRemoved:raw.nativeRemoved===true};
   }
 
   function result(state,{confidence,why,flags=[]}={}){
@@ -61,12 +61,13 @@
     const latency=arc && arc.retrievedOn && a.created?arc.retrievedOn-a.created:null;
     const archiveRemoved=Boolean(arc) && (isRemovedBody(arc.body) || ['automod_filtered','moderator','reddit'].includes(arc.category) || adminCategories.has(arc.category));
     const source=()=>{
-      if(archiveRemoved && latency!=null && latency<=AUTO_LATENCY)return result('removed-auto',{confidence:'likely',why:'The archive saw it already removed '+minutes(latency)+' after posting, so it was likely removed automatically.',flags});
+      if(archiveRemoved && latency!=null && latency>=0 && latency<=AUTO_LATENCY)return result('removed-auto',{confidence:'likely',why:'The archive saw it already removed '+minutes(latency)+' after posting, so it was likely removed automatically.',flags});
       if(arc && !archiveRemoved && latency!=null)return result('removed-mod',{confidence:'likely',why:'The archive saw it still visible '+minutes(latency)+' after posting, so it was likely removed later by a moderator.',flags});
       return result('removed-unknown',{confidence:'likely',why:arc?'The archive saw it removed '+(latency!=null?minutes(latency)+' after posting':'')+', too late to tell who removed it.':'Others can’t see it; there is no archive copy to tell who removed it.',flags});
     };
     // Posts: Reddit tells the author the removal category, so no category means others see it (rules 6 and 7).
-    if(a.kind==='post' && !isRemovedBody(a.body)){
+    if(a.nativeRemoved)return source();
+    if(a.kind==='post' && a.visibilityKnown && !isRemovedBody(a.body)){
       if(archiveRemoved)return result('visible',{confidence:'verified',why:arc.category==='reddit'?'Reddit\u2019s filters held it at first; it\u2019s visible now, so it was approved.':'The archive saw it removed '+(latency!=null?minutes(latency)+' after posting':'')+'; Reddit shows it now, so a moderator approved it.',flags:[...flags,'approved-after-auto']});
       return result('visible',{confidence:'verified',why:'',flags});
     }

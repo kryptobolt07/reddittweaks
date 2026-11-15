@@ -70,6 +70,11 @@ test('no removals says how many items could be checked, not that nothing was rem
  assert.deepEqual(s.shown,[]);assert.equal(s.d.listEmpty.hidden,false);assert.equal(s.d.listEmpty.textContent,'No removals found in the 2 items that could be checked.');
 });
 
+test('native metadata without a visibility verdict remains unchecked and exposes its limit',async t=>{
+ const s=await view(t,{children:[['t3',post('a')]]});const item=[...s.d.listState.items.values()][0];item.moderation.visibilityKnown=false;
+ await s.d.classifyRemoved([item],s.d.context);s.d.renderOwnList();assert.equal(item.removal.state,'unknown');assert.match(s.d.notice.textContent,/native metadata does not establish public visibility/);assert.match(s.d.listEmpty.textContent,/0 items that could be checked/);
+});
+
 // --- Page bridge (main world).
 function bridge(t,{children,username='Example'}){
  const dom=new JSDOM('<body></body>',{url:'https://www.reddit.com/user/Example/search/?rt_list=removed',runScripts:'outside-only'}),W=dom.window,calls=[];t.after(()=>W.close());W.AbortController=AbortController;
@@ -78,12 +83,9 @@ function bridge(t,{children,username='Example'}){
  const send=input=>new Promise(resolve=>{const id=crypto.randomUUID(),listener=event=>{const result=JSON.parse(event.detail);if(result.id!==id)return;W.document.removeEventListener('rt-post-response',listener);resolve(result);};W.document.addEventListener('rt-post-response',listener);W.document.dispatchEvent(new W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'removed-test',id,...input})}));});
  return {calls,send};
 }
-test('bridge reads your overview with comments and keeps only author-visible moderation facts',async t=>{
+test('legacy Removed listing fails closed when native authenticated identity is unavailable',async t=>{
  const b=bridge(t,{children:[{kind:'t3',data:post('p1',{removed_by_category:'moderator',locked:true})},{kind:'t1',data:comment('c1')}]});
- const result=await b.send({action:'own-list',username:'Example',list:'removed'});assert.equal(result.ok,true,result.error);
- assert.deepEqual(b.calls.map(u=>u.pathname),['/api/me.json','/user/Example/overview.json']);
- assert.deepEqual(result.posts[0].moderation,{category:'moderator',removalReason:false,locked:true,subredditType:'public',quarantined:false,authorBody:'Synthetic body'});
- assert.equal(result.posts[1].kind,'comment');assert.equal(result.posts[1].moderation.authorBody,'Synthetic comment c1');
+ const result=await b.send({action:'own-list',username:'Example',list:'removed'});assert.equal(result.ok,false);assert.equal(b.calls.length,0);
 });
 test('bridge treats another author’s item in your overview as a malformed page',async t=>{
  const b=bridge(t,{children:[{kind:'t3',data:post('p1',{author:'Someone'})}]});

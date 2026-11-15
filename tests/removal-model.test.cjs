@@ -82,3 +82,14 @@ test('changes between checks drive notifications without duplicates',()=>{
   assert.equal(m.change(removed,removed),null,'no duplicate on recheck');
   const unknown=m.classify({author:comment()});assert.equal(m.change(removed,unknown),null,'a failed check is not an approval');assert.equal(m.change(unknown,visible),null);
 });
+
+test('native author-visible text without public evidence never proves visibility or approval',()=>{
+ const m=model(),author=post({visibilityKnown:false});assert.equal(m.classify({author}).state,'unknown');
+ const past=archived(10,{body:'[removed]'});const r=m.classify({author,archive:past});assert.notEqual(r.state,'visible');assert.equal(r.flags.includes('approved-after-auto'),false);
+});
+test('explicit native removal is evidence but does not identify its actor; negative archive latency is not automatic',()=>{
+ const m=model(),author=comment({nativeRemoved:true,visibilityKnown:false});
+ assert.equal(m.classify({author}).state,'removed-unknown');
+ assert.equal(m.classify({author,archive:archived(-1,{body:'[removed]'})}).state,'removed-unknown');
+ assert.equal(m.classify({author,archive:archived(25,{body:'[removed]'})}).state,'removed-auto');
+});
