@@ -167,7 +167,7 @@ function renderRemovalHistory(value){
   const labels={'removed-auto':'Removed automatically','removed-mod':'Removed by moderators','removed-admin':'Removed by Reddit','removed-filter':'Removed by Reddit’s filters','removed-unknown':'Removed: moderators or automatic'};
   for(const change of (value.changes || []).slice(0,20)){
     let url;try{url=new URL(change.permalink,'https://www.reddit.com');}catch{continue;}
-    if(url.origin!=='https://www.reddit.com' || !/^\/r\/[\w-]+\/comments\/[a-z0-9]+\//i.test(url.pathname))continue;
+    if(url.origin!=='https://www.reddit.com' || !/^\/(?:r|user)\/[\w-]+\/comments\/[a-z0-9]+\//i.test(url.pathname))continue;
     const row=document.createElement('a');row.href=url.href;row.target='_blank';row.rel='noopener noreferrer';row.className='removal-change';
     const label=document.createElement('strong');label.textContent=(change.type==='removed'?(labels[change.state] || 'Removed'):({approved:'Approved',locked:'Locked',unlocked:'Unlocked'}[change.type] || 'Changed'))+(change.confidence==='likely'?' (likely)':'');
     const time=document.createElement('span');time.textContent=new Date(change.checkedAt).toLocaleString();row.title=change.why || '';row.append(label,time);removalHistory.append(row);
