@@ -597,7 +597,7 @@
       }
       keptController?.abort();
       const target=this.navigation=make('div','contents');target.id='rt-nav-'+crypto.randomUUID();target.dataset.rtUi='community-navigation';target.dataset.state='idle';target.dataset.subreddit=name;
-      const reserve=make('div','left-sidebar theme-rpl order-first hidden m:block');reserve.setAttribute('aria-hidden','true');target.append(reserve);layout.append(target);
+      const reserve=make('div','left-sidebar theme-rpl order-first hidden m:block');reserve.setAttribute('aria-hidden','true');const skeleton=globalThis.RTPostDiscovery?.navSkeleton?.();if(skeleton)reserve.append(skeleton);target.append(reserve);layout.append(target);
     }
     async loadNavigation(){
       const target=this.navigation;if(!target?.isConnected || ['loading','ready'].includes(target.dataset.state))return;

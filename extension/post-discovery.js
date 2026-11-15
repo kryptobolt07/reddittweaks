@@ -147,6 +147,17 @@
   function compactCount(value){const n=Number(value) || 0,abs=Math.abs(n);if(abs<1000)return String(n);if(abs<1e6)return (n/1000).toFixed(abs<10000?1:0).replace(/\.0$/,'')+'K';return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M';}
   // Reddit's blur-to-reveal for NSFW media and spoilers: content stays in place, blurred, behind one button.
   // Reddit's fade over long search comments: shown only when the text is actually cut off (watched as it lays out).
+  // The reader's left-navigation state (Reddit's own preference cookie, or the page's nav), so a page we build
+  // reserves the same column width the native navigation will take.
+  function navClass(){
+    const native=document.querySelector('flex-left-nav-container[expanded]'),grid=native?.closest('.grid-container');
+    if(grid?.classList.contains('flex-nav-collapsed'))return 'flex-nav-collapsed';if(grid?.classList.contains('flex-nav-expanded'))return 'flex-nav-expanded';
+    const value=document.cookie.split(';').map(part=>part.trim()).find(part=>part.startsWith('hui_flex_nav_expanded_state='))?.split('=')[1];
+    if(value==='0' || value==='1')return value==='0'?'flex-nav-collapsed':'flex-nav-expanded';
+    return native?.getAttribute('expanded')==='0'?'flex-nav-collapsed':'flex-nav-expanded';
+  }
+  // Skeleton rows in the navigation column while Reddit's navigation loads, instead of an empty column.
+  function navSkeleton(){const box=make('div','rt-skeleton rt-nav-skeleton');box.setAttribute('aria-hidden','true');for(let i=0;i<7;i++)box.append(make('span','rt-skeleton-line rt-skeleton-fallback'));return box;}
   function clipFade(content,fade){const check=()=>{fade.hidden=!(content.scrollHeight>content.clientHeight+1);};check();if(typeof ResizeObserver==='function' && !fade.rtWatched){fade.rtWatched=true;new ResizeObserver(check).observe(content);}return fade;}
   function sensitive(content,label,{media=true}={}){
     const box=make('div','relative overflow-hidden rt-sensitive'+(media?' rt-sensitive-media':''));content.classList.add('rt-sensitive-content');box.append(content);
@@ -907,7 +918,7 @@
     searchBudgetPaused(){return this.isSearch() && this.searchSteps>=searchPageBudget;}
     mountArchiveProfile(context,notice,anchor=notice,state='deleted'){
       this.accountState=state;this.archiveOnly=true;this.archiveNotice=notice;this.archiveNoticeAnchor=anchor;
-      const layout=this.archiveShell=make('div','grid-container theme-rpl grid flex-nav-expanded');layout.dataset.rtUi='archive-profile';layout.dataset.rtUsername=context.username;layout.dataset.rtAccountState=state;layout.dir='ltr';
+      const layout=this.archiveShell=make('div','grid-container theme-rpl grid '+navClass());layout.dataset.rtUi='archive-profile';layout.dataset.rtUsername=context.username;layout.dataset.rtAccountState=state;layout.dir='ltr';
       const subgrid=make('div','subgrid-container m:col-start-2 box-border flex flex-col order-2 w-full m:w-[1120px] xs:px-md m:px-lg mx-auto min-h-[calc(100dvh_-_var(--shreddit-header-height))] justify-stretch');subgrid.id='subgrid-container';
       const columns=make('div','main-container gap-lg w-full flex-1 grid place-content-between grid-cols-[minmax(0,1fr)] fixed-sidebar xs:[&.fixed-sidebar]:grid-cols-[minmax(0,756px)_minmax(0,316px)] xs:[&.flex-sidebar]:grid-cols-[minmax(0,756px)_auto]');
       const shell=this.archiveMain=make('main','main w-full min-w-0');shell.id='main-content';
@@ -934,7 +945,7 @@
     }
     navigationTarget(){
       if(this.profileNavigation)return this.profileNavigation;
-      const target=this.profileNavigation=make('div','contents');target.id='rt-nav-'+crypto.randomUUID();target.dataset.rtUi='profile-navigation';target.dataset.state='idle';const reserve=make('div','left-sidebar theme-rpl order-first hidden m:block');reserve.setAttribute('aria-hidden','true');target.append(reserve);return target;
+      const target=this.profileNavigation=make('div','contents');target.id='rt-nav-'+crypto.randomUUID();target.dataset.rtUi='profile-navigation';target.dataset.state='idle';const reserve=make('div','left-sidebar theme-rpl order-first hidden m:block');reserve.setAttribute('aria-hidden','true');reserve.append(navSkeleton());target.append(reserve);return target;
     }
     navigationFallback(target){
       const left=make('flex-left-nav-container','left-sidebar theme-rpl isolate order-first hidden m:block border-0 border-solid s:border-e-sm border-e-neutral-border');left.id='left-sidebar-container';left.setAttribute('expanded','1');left.setAttribute('parent-grid-selector','.grid-container');
@@ -2691,7 +2702,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
     for(const row of native.querySelectorAll('shreddit-comment-action-row')){row.removeAttribute('inert');row.setAttribute('aria-label','Archived values; open the thread for current actions');}
     return node;
   }
-  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard,clipFade,PROFILE_REDDIT_SEARCH_CAPABILITIES,avatarHint:name=>avatarHints.get(String(name||'').toLowerCase())?.url || ''});
+  globalThis.RTPostDiscovery=Object.freeze({Discovery,pageRoute,glyph,redditRead,archiveCard,clipFade,navSkeleton,PROFILE_REDDIT_SEARCH_CAPABILITIES,avatarHint:name=>avatarHints.get(String(name||'').toLowerCase())?.url || ''});
   // Debug handle in the extension's isolated world only (not visible to Reddit's page).
   if(window.top===window && globalThis.chrome?.runtime?.id)Object.defineProperty(globalThis,'RTDiscoveryDebug',{value:new Discovery()});
 })();
