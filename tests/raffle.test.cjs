@@ -65,7 +65,7 @@ async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},
  const visible=slot=>q('[data-rt-raffle] [slot="'+slot+'"]:not([hidden])');
  return {W,D,r,calls,rafflerCalls,media,q,setSettings:async v=>{current=v;await r.loadSettings();},item:()=>q('[data-rt-raffle="item"]'),dialog:()=>q('[data-rt-raffle="dialog"]'),
   status:()=>q('.rt-raffle-status').textContent,note:()=>q('.rt-raffle-footnote').textContent,primary:()=>visible('primary-button'),secondary:()=>visible('secondary-button'),tertiary:()=>visible('tertiary-button:not(.rt-raffle-footnote)') || [...D.querySelectorAll('[data-rt-raffle] [slot="tertiary-button"]:not([hidden])')].find(e=>e.tagName==='BUTTON'),
-  publicSub:()=>q('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-option-state').textContent,mode:v=>{const radio=q('input[name="rt-raffle-draw"][value="'+v+'"]');radio.checked=true;radio.dispatchEvent(new W.Event('change'));},
+  publicSub:()=>q('.rt-raffle-raffler-state').textContent,mode:v=>{const radio=q('input[name="rt-raffle-draw"][value="'+v+'"]');radio.checked=true;radio.dispatchEvent(new W.Event('change'));},
   input:(name,value)=>{const el=q('[name="'+name+'"]');el.value=value;el.dispatchEvent(new W.Event('input',{bubbles:true}));},
   open:async()=>{q('[data-rt-raffle="item"] [role="menuitem"]').click();await flush();}};
 }
@@ -113,7 +113,8 @@ test('the rules screen offers a public or a private draw, focuses the heading an
  assert.equal(menuClicks,1);assert.ok(s.dialog().hasAttribute('open'));assert.equal(s.dialog().querySelector('rpl-modal-card').getAttribute('appearance'),'modal');
  assert.equal(s.D.activeElement?.id,'rt-raffle-title','focus starts on the heading, not a field');
  assert.deepEqual([...s.D.querySelectorAll('.rt-raffle-option-title')].map(e=>e.textContent),['Public draw','Private draw']);
- assert.match(s.q('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-option-caption').textContent,/anyone can check · one per post · can’t be redone/);
+ assert.equal(s.q('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-option-caption').textContent,'Results page anyone can check');assert.equal(s.q('.rt-raffle-option[data-rt-mode="private"] .rt-raffle-option-caption').textContent,'Only you see the winners');
+ assert.equal(s.q('.rt-raffle-option .rt-raffle-option-state'),null,'the Raffler status sits under both cards, so they stay the same height');
  assert.equal(s.q('input[name="rt-raffle-draw"][value="public"]').checked,true);assert.equal(s.primary().textContent,'Run public draw');
  assert.equal(s.secondary(),null,'no Cancel: the close button does that');assert.match(s.status(),/^Public draw by Reddit Raffler/);assert.equal(s.calls.length,0);
  assert.equal(s.publicSub(),'As a guest (unverified). Sign in with Reddit');
@@ -360,7 +361,7 @@ test('an existing public raffle is not loaded automatically; View public results
  assert.match(s.publicSub(),/^This post already has a public raffle\. View its results here\. Sign in as u\/Owner$/);
  assert.equal(s.primary().textContent,'View public results');assert.equal(s.calls.some(c=>c.action==='raffle-thread'),false,'opening never scans comments');
  assert.match(s.note(),/This raffle is unverified\. Sign in as u\/Owner to run it yourself/);
- const signIn=[...s.D.querySelectorAll('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-retry')].find(a=>a.textContent==='Sign in as u/Owner');assert.ok(signIn);
+ const signIn=[...s.D.querySelectorAll('.rt-raffle-raffler-state .rt-raffle-retry')].find(a=>a.textContent==='Sign in as u/Owner');assert.ok(signIn);
  assert.equal(s.rafflerCalls.filter(c=>c.action==='create').length,0);
  s.primary().click();await flush();assert.equal(s.q('#rt-raffle-title').textContent,'Winners','the public results open only when asked');
 });
@@ -371,8 +372,8 @@ test('the post author can sign in and run an unverified public raffle themselves
   if(m.action==='create')exists=true;return {ok:true,exists:true};}});
  await s.open();
  assert.equal(s.primary().textContent,'View public results');assert.match(s.note(),/Run it yourself to create a verified draw/);
- const run=[...s.D.querySelectorAll('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-retry')].find(a=>a.textContent==='Run it yourself');assert.ok(run);
- run.click();assert.equal(s.primary().textContent,'Run it yourself');assert.match(s.note(),/allows one official raffle per post/);assert.ok([...s.D.querySelectorAll('.rt-raffle-option[data-rt-mode="public"] .rt-raffle-retry')].some(a=>a.textContent==='View public results'));
+ const run=[...s.D.querySelectorAll('.rt-raffle-raffler-state .rt-raffle-retry')].find(a=>a.textContent==='Run it yourself');assert.ok(run);
+ run.click();assert.equal(s.primary().textContent,'Run it yourself');assert.match(s.note(),/allows one official raffle per post/);assert.ok([...s.D.querySelectorAll('.rt-raffle-raffler-state .rt-raffle-retry')].some(a=>a.textContent==='View public results'));
  s.primary().click();assert.equal(s.primary().textContent,'Confirm public draw');assert.match(s.note(),/permanent public page/);
  s.primary().click();await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='create').length,1);
 });
@@ -464,7 +465,7 @@ test('Raffler sign-in comes from its form, validates the OAuth destination, and 
 });
 test('guest sign-in opens separately and refreshes status on return without drawing or changing rules',async t=>{
  let signedIn=false;const calls=[],s=await ui(t,{raffler:async message=>{calls.push(message.action);return message.action==='status'?{exists:false}:{signedIn:signedIn?'Owner':'',loginUrl:'https://www.reddit.com/api/v1/authorize?state=synthetic'};}});
- await s.open();s.input('winners','2');s.mode('private');const link=s.q('.rt-raffle-option-state a');assert.equal(link.textContent,'Sign in with Reddit');assert.equal(link.target,'_blank');assert.equal(link.rel,'noopener noreferrer');
+ await s.open();s.input('winners','2');const link=s.q('.rt-raffle-raffler-state a');s.mode('private');assert.equal(s.q('.rt-raffle-raffler-state').hidden,true,'Raffler status only matters for a public draw');assert.equal(link.textContent,'Sign in with Reddit');assert.equal(link.target,'_blank');assert.equal(link.rel,'noopener noreferrer');
  link.addEventListener('click',e=>e.preventDefault());link.click();signedIn=true;s.W.dispatchEvent(new s.W.Event('focus'));await flush();
  assert.match(s.publicSub(),/u\/Owner/);assert.equal(s.q('[name=winners]').value,'2');assert.equal(s.primary().textContent,'Draw privately');assert.equal(calls.includes('create'),false);assert.equal(s.q('.rt-raffle-option-state a'),null);
 });
@@ -506,10 +507,11 @@ test('winner comment enrichment is read-only and excludes unrelated comments',as
 test('rules: every section has its own symbol, text fields match the redaction fields and account minimums start open',async t=>{
  const s=await ui(t);await s.open();
  for(const name of ['winners','topLevelOnly','excludeAuthor','mustInclude','excludeUsers'])assert.ok(s.q('[data-rt-row="'+name+'"] .rt-raffle-row-icon svg[data-icon]'),name+' has a section symbol');
- assert.ok(s.q('.rt-raffle-account > summary .rt-raffle-row-icon svg[data-icon="shield"]'));
+ assert.ok(s.q('.rt-raffle-account > .rt-raffle-row .rt-raffle-row-icon svg[data-icon="shield"]'));
  assert.ok(s.q('.rt-raffle-option[data-rt-mode="public"] svg[data-icon="globe"]'));assert.ok(s.q('.rt-raffle-option[data-rt-mode="private"] svg[data-icon="lock"]'));
  const keyword=s.q('[data-rt-row="mustInclude"]');assert.ok(keyword.classList.contains('rt-raffle-row-stacked'));assert.ok(s.q('[name="mustInclude"]').classList.contains('rt-raffle-text'));
- assert.equal(s.q('.rt-raffle-account').open,true,'account requirements are expanded by default');
+ assert.equal(s.q('.rt-raffle-account').tagName,'DIV','account requirements are always shown, not a collapsible');assert.equal(s.q('.rt-raffle-account summary'),null);
+ await flush();assert.equal(s.q('.rt-raffle-body').scrollTop,0,'opens at the top');let scrolled=0;s.W.Element.prototype.scrollIntoView=()=>{scrolled++;};await s.open();await flush();assert.equal(scrolled,0,'nothing scrolls a section into view on open');
  const css=read('post-discovery.css');
  assert.match(css,/\.rt-raffle-text\{[^}]*width:100%[^}]*height:40px[^}]*border-radius:20px/,'the same 40 px pill as the redaction fields');
  assert.match(css,/\.rt-raffle-body\{[^}]*overflow-y:auto/,'the body scrolls instead of clipping at the bottom');assert.match(css,/@media \(max-width:640px\)\{[^]*\.rt-raffle-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
@@ -577,4 +579,16 @@ test('very new winner accounts are flagged, and the copied results carry the acc
 test('the Exclude users control names everyone it counts',async t=>{
  const s=await ui(t);await s.open();s.input('excludeUsers','alice bob carol');const control=s.q('[data-rt-raffle-filter="excludeUsers"]');
  assert.equal(control.querySelector('.rt-redact-control-value').textContent,'3 users');assert.equal(control.title,'u/alice, u/bob, u/carol');
+});
+test('exclude users lists the commenters already on the page at once, then adds the rest from the thread read',async t=>{
+ const s=await ui(t,{url:'https://www.reddit.com/r/Alpha/comments/post1/giveaway/',thread:()=>new Promise(()=>{})});
+ s.D.querySelector('main').insertAdjacentHTML('beforeend','<shreddit-comment author="Zoe" depth="0" postid="t3_post1"></shreddit-comment><shreddit-comment author="Yan" depth="1" postid="t3_post1"></shreddit-comment><shreddit-comment author="Other" depth="0" postid="t3_other"></shreddit-comment><shreddit-comment author="Owner" depth="0" postid="t3_post1"></shreddit-comment>');
+ await s.open();s.q('[data-rt-raffle-filter="excludeUsers"]').click();await flush();
+ assert.deepEqual([...s.D.querySelectorAll('[data-rt-user-row]')].map(r=>r.dataset.rtUserRow),['Zoe'],'top-level commenters on this post, at once, while the thread read is still running');
+ assert.match(s.q('.rt-raffle-users .rt-redact-suggestion-status').textContent,/Loading more commenters/);
+ assert.match(read('post-discovery.css'),/\.rt-raffle-users\{[^}]*max-height:260px/);
+});
+test('the user menu is compact: Reddit’s menu width, not the field’s',async t=>{
+ const s=await ui(t);await s.open();const control=s.q('[data-rt-raffle-filter="excludeUsers"]');control.getBoundingClientRect=()=>({left:20,top:100,bottom:140,width:480,height:40,right:500});
+ control.click();await flush();assert.equal(s.q('[data-rt-raffle-users]').style.width,'256px');
 });

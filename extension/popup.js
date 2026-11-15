@@ -104,7 +104,7 @@ function syncDependencies(){
 }
 document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]'))syncDependencies();});
 try{const manifest=globalThis.chrome?.runtime?.getManifest?.();const version=document.querySelector('#version');if(manifest && version)version.textContent='v'+(manifest.version_name || manifest.version).replace(/ preview$/,'');}catch{}
-loadSettings().then(()=>{syncDependencies();syncSummary();});
+loadSettings().then(()=>{syncDependencies();syncSummary();for(const panel of document.querySelectorAll('.panel:not([hidden])'))syncFade(panel);});
 updateMessageStats();
 
 // Redaction runs on Reddit itself (docs/redaction-spec.md); the fragment opens its dialog there.
@@ -130,7 +130,12 @@ function showTab(name,{focus=false}={}){
   for(const t of tabs){const on=t===tab;t.setAttribute('aria-selected',String(on));t.tabIndex=on?0:-1;document.getElementById(t.getAttribute('aria-controls')).hidden=!on;}
   if(focus)tab.focus({preventScroll:true});
   try{localStorage.setItem(TAB_KEY,tab.dataset.tab);}catch{}
+  syncFade(document.getElementById(tab.getAttribute('aria-controls')));
 }
+// No scrollbar: a panel with more content fades at the edge where it continues.
+function syncFade(panel){if(!panel)return;const room=panel.scrollHeight-panel.clientHeight,top=panel.scrollTop;panel.dataset.more=room<=1?'none':top<=1?'end':top>=room-1?'start':'both';}
+for(const panel of document.querySelectorAll('.panel'))panel.addEventListener('scroll',()=>syncFade(panel),{passive:true});
+document.addEventListener('change',()=>{for(const panel of document.querySelectorAll('.panel:not([hidden])'))syncFade(panel);});
 for(const tab of tabs){
   tab.addEventListener('click',()=>showTab(tab.dataset.tab));
   tab.addEventListener('keydown',event=>{

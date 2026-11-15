@@ -173,10 +173,12 @@
       const rulesView=make('div','rt-raffle-view');rulesView.dataset.rtRaffleView='rules';
       const chooser=make('div','rt-raffle-choice');chooser.setAttribute('role','radiogroup');chooser.setAttribute('aria-label','How to draw');
       const option=(value,title,caption,symbol)=>{const label=make('label','rt-raffle-option');label.dataset.rtMode=value;const radio=make('input');radio.type='radio';radio.name='rt-raffle-draw';radio.value=value;
-        const text=make('span','rt-raffle-option-text');const sub=make('span','rt-raffle-option-state');const titleRow=make('span','rt-raffle-option-head');const mark=make('span','rt-raffle-option-icon');mark.append(glyph(symbol,18));titleRow.append(mark,make('span','rt-raffle-option-title',title));
-        text.append(titleRow,make('span','rt-raffle-option-caption',caption),sub);label.append(radio,text);chooser.append(label);return {label,radio,sub};};
-      const publicOption=option('public','Public draw','On Reddit Raffler: a results page anyone can check · one per post · can’t be redone','globe');
-      const privateOption=option('private','Private draw','Only you see the winners · no proof · you can draw again','lock');
+        const text=make('span','rt-raffle-option-text');const titleRow=make('span','rt-raffle-option-head');const mark=make('span','rt-raffle-option-icon');mark.append(glyph(symbol,18));titleRow.append(mark,make('span','rt-raffle-option-title',title));
+        text.append(titleRow,make('span','rt-raffle-option-caption',caption));label.append(radio,text);chooser.append(label);return {label,radio};};
+      // Two equal cards with one short line each; Reddit Raffler's status (sign-in, existing raffle) sits under both.
+      const publicOption=option('public','Public draw','Results page anyone can check','globe');
+      const privateOption=option('private','Private draw','Only you see the winners','lock');
+      publicOption.sub=make('p','rt-raffle-raffler-state m-0');
       const status=make('p','rt-raffle-status m-0');
       const progress=make('div','rt-raffle-progress');progress.setAttribute('aria-hidden','true');progress.append(make('span'));
       const statusBox=make('div','rt-raffle-status-card');statusBox.append(status,progress);
@@ -196,9 +198,8 @@
       const stepper=make('span','rt-raffle-stepper');const minus=make('button','rt-raffle-step','−'),plus=make('button','rt-raffle-step','+');
       for(const [b,label,delta] of [[minus,'Fewer winners',-1],[plus,'More winners',1]]){b.type='button';b.setAttribute('aria-label',label);b.addEventListener('click',()=>{winners.value=String(Math.min(R.MAX_WINNERS,Math.max(1,(Number(winners.value) || 1)+delta)));winners.dispatchEvent(new Event('input',{bubbles:true}));});}
       stepper.append(minus,winners,plus);
-      // Open by default: the minimums are part of the rules, and the body scrolls rather than clipping them.
-      const account=make('details','rt-raffle-account');account.open=true;const summary=make('summary','rt-raffle-row');const sumText=make('span','rt-raffle-row-text');sumText.append(make('span','rt-raffle-row-label','Account requirements'));const accountHint=make('span','rt-raffle-row-caption','None');sumText.append(accountHint);summary.append(symbolBox('shield'),sumText,make('span','rt-raffle-chevron'));
-      account.addEventListener('toggle',()=>{if(account.open)account.scrollIntoView?.({block:'nearest'});});
+      // Always shown (not a collapsible): the minimums are part of the rules.
+      const account=make('div','rt-raffle-account');const summary=make('div','rt-raffle-row');const sumText=make('span','rt-raffle-row-text');sumText.append(make('span','rt-raffle-row-label','Account requirements'));const accountHint=make('span','rt-raffle-row-caption','None');sumText.append(accountHint);summary.append(symbolBox('shield'),sumText);
       const grid=make('div','rt-raffle-grid');
       for(const [name,label,max] of [['minAccountAgeDays','Account age (days)',36500],['minCommentKarma','Comment karma',1e9],['minPostKarma','Post karma',1e9],['minTotalKarma','Total karma',1e9]]){const field=make('label','rt-raffle-mini');field.append(make('span','rt-raffle-row-caption',label),number(name,0,0,max,'Minimum '+label.toLowerCase()));grid.append(field);}
       account.append(summary,grid);
@@ -210,7 +211,7 @@
         stacked('Exclude users','Pick commenters or enter a username',[users,usersInput],{name:'excludeUsers',symbol:'person-minus'}),account);
       // Consent to draw from an incomplete read: a checkbox, not a switch.
       const ackRow=make('label','rt-raffle-ack');const ack=make('input');ack.type='checkbox';ack.name='acknowledge';ackRow.append(ack,make('span','','Draw from the comments read (Reddit didn’t return every comment)'));ackRow.hidden=true;
-      rulesView.append(chooser,statusBox,form,ackRow);
+      rulesView.append(chooser,publicOption.sub,statusBox,form,ackRow);
       const resultsView=make('section','rt-raffle-view rt-raffle-results');resultsView.dataset.rtRaffleView='results';resultsView.hidden=true;resultsView.setAttribute('aria-label','Winners');
       const messageView=make('section','rt-raffle-view rt-raffle-message');messageView.dataset.rtRaffleView='message';messageView.hidden=true;messageView.setAttribute('aria-label','Message winners');
       body.append(rulesView,resultsView,messageView,announce);
@@ -341,10 +342,16 @@
     // Commenters to suggest for Exclude users: from the comments already read, else from the thread JSON.
     commenters(){
       const state=this.dialog,rules=this.rules(),author=String(state.post.author || '').toLowerCase(),people=new Map();
-      const source=state.entries.size?[...state.entries.values()]:state.suggestEntries || [];
+      const source=state.entries.size?[...state.entries.values()]:[...this.pageCommenters(),...(state.suggestEntries || [])];
       for(const entry of source){const name=entry?.author;if(!nameOK.test(name || '') || name==='AutoModerator' || rules.excludeAuthor && name.toLowerCase()===author)continue;
         const key=name.toLowerCase(),seen=people.get(key);if(seen){seen.count++;if(!seen.avatar && entry.avatar)seen.avatar=entry.avatar;}else people.set(key,{author:name,avatar:entry.avatar || '',count:1});}
       return [...people.values()];
+    }
+    // Commenters Reddit has already drawn on this page for this post (no request): top-level ones unless replies count.
+    pageCommenters(){
+      const state=this.dialog,topLevelOnly=state.form.elements.topLevelOnly.checked,out=[];
+      for(const el of document.querySelectorAll('shreddit-comment[author]')){const post=String(el.getAttribute('postid') || '').replace(/^t3_/i,'').toLowerCase();if(post && post!==state.post.id)continue;if(topLevelOnly && Number(el.getAttribute('depth') || 0)!==0)continue;out.push({author:el.getAttribute('author'),avatar:''});}
+      return out;
     }
     async loadCommenters(){
       const state=this.dialog;if(!state || state.entries.size || state.suggestEntries || state.suggestLoading)return;
@@ -390,7 +397,7 @@
         }
         if(!rows.length)list.append(make('div','rt-sub-empty',ql?'No commenters match. Enter a full username to add it.':'No commenters to suggest yet'));
         list.scrollTop=keep;const first=list.querySelector('[role^=menuitem]');if(first)first.tabIndex=0;
-        note.textContent=state.suggestLoading?'Loading commenters…':state.suggestFailed?'Couldn’t load commenters. Enter a username.':'';note.hidden=!note.textContent;
+        note.textContent=state.suggestLoading?(rows.length?'Loading more commenters…':'Loading commenters…'):state.suggestFailed?'Couldn’t load commenters. Enter a username.':'';note.hidden=!note.textContent;
         this.placeUsers();
       };
       search.addEventListener('input',()=>{list.scrollTop=0;render();});
@@ -411,7 +418,7 @@
     }
     placeUsers(){
       const p=this.dialog?.popup;if(!p)return;if(!p.button.isConnected){this.closeUsers(false);return;}
-      const a=p.button.getBoundingClientRect(),width=Math.min(Math.max(256,a.width),innerWidth-16),below=innerHeight-a.bottom-12,above=a.top-12,up=below<240 && above>below,size=Math.min(320,Math.max(120,up?above:below));
+      const a=p.button.getBoundingClientRect(),width=Math.min(256,innerWidth-16),below=innerHeight-a.bottom-12,above=a.top-12,up=below<200 && above>below,size=Math.min(260,Math.max(120,up?above:below));
       p.el.style.width=width+'px';p.el.style.maxHeight=size+'px';p.el.style.left=Math.max(8,Math.min(a.left,innerWidth-width-8))+'px';
       p.el.style.top=(up?Math.max(8,a.top-Math.min(p.el.getBoundingClientRect().height || size,size)-4):a.bottom+4)+'px';
     }
@@ -482,7 +489,7 @@
       const sub=state.publicOption.sub,blockers=this.officialBlockers();
       sub.textContent=r.phase==='checking'?'Checking Reddit Raffler…':r.phase==='unavailable'?'Reddit Raffler isn’t responding. You can still draw privately.':r.phase==='exists'?'This post already has a public raffle. View its results here.':
         r.signedIn?'You’re signed in there as u/'+r.signedIn+(state.post.author && r.signedIn.toLowerCase()===state.post.author.toLowerCase()?', so it’s marked verified.':'; only the post’s author gets a verified mark.'):'As a guest (unverified).';
-      sub.dataset.state=r.phase;
+      sub.dataset.state=r.phase;sub.hidden=!pub;
       const busy=state.preparing || state.reading || state.drawing;
       state.publicOption.radio.disabled=r.phase==='unavailable' || busy;state.privateOption.radio.disabled=busy;
       if(r.phase==='unavailable'){const retry=make('button','rt-raffle-retry','Try again');retry.type='button';retry.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();r.phase='checking';this.updateSummary();this.checkRaffler();});sub.append(' ',retry);}

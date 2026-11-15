@@ -184,8 +184,17 @@ test('Home summarises active features and Manage opens Settings; each settings g
 test('popup styles: fluid width and larger targets on touch screens, tabs in both themes',()=>{
   const css=fs.readFileSync(path.join(__dirname,'../extension/popup.css'),'utf8');
   // One size for every tab: panels share a fixed height and scroll without a visible scrollbar; the page never scrolls.
-  assert.match(css,/\.panel\{[^}]*height:430px[^}]*overflow-y:auto[^}]*scrollbar-width:none/);assert.match(css,/\.panel::-webkit-scrollbar\{display:none\}/);
+  assert.match(css,/\.panel\{[^}]*height:240px[^}]*overflow-y:auto[^}]*scrollbar-width:none/,'measured: Home 238 px and Data 240 px fill it');
+  assert.match(css,/\.panel\[data-more=end\]\{[^}]*mask-image:linear-gradient/);assert.match(css,/#cache-status:empty\{display:none\}/);assert.match(css,/\.panel::-webkit-scrollbar\{display:none\}/);
   assert.match(css,/html\{[^}]*overflow:hidden/);assert.doesNotMatch(css,/\.safety|\.steps|\.destination/);
   assert.match(css,/@media\(hover:none\) and \(pointer:coarse\)\{[^@]*html,body\{width:auto;min-width:0/);assert.match(css,/@media\(hover:none\) and \(pointer:coarse\)\{[^@]*\.tab\{[^}]*min-height:44px/);
   assert.match(css,/\.tab\[aria-selected="true"\]\{/);
+});
+test('a tab taller than the popup fades at the edge that has more, instead of showing a scrollbar',async t=>{
+  const p=popup(t,{tabs:redditTab});await settle();const panel=p.w.document.getElementById('panel-settings');p.w.document.getElementById('tab-settings').click();
+  Object.defineProperty(panel,'scrollHeight',{configurable:true,value:600});Object.defineProperty(panel,'clientHeight',{configurable:true,value:240});
+  panel.dispatchEvent(new p.w.Event('scroll'));assert.equal(panel.dataset.more,'end');
+  panel.scrollTop=100;panel.dispatchEvent(new p.w.Event('scroll'));assert.equal(panel.dataset.more,'both');
+  panel.scrollTop=360;panel.dispatchEvent(new p.w.Event('scroll'));assert.equal(panel.dataset.more,'start');
+  assert.match(p.w.document.querySelector('#raffles-home').textContent,/⋯ menu/);
 });
