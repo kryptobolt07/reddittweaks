@@ -357,11 +357,31 @@ test('empty or oversized confirmation messages cannot run even with the typed ph
  assert.equal(s.calls.some(c=>c.action==='redact-item'),false);editor.value='Valid edited message';editor.dispatchEvent(new s.W.Event('input',{bubbles:true}));s.type('confirm','delete 1');assert.equal(s.primary().disabled,false);
 });
 test('the confirmation screen can switch overwrite, delete and both without losing the reviewed selection',async t=>{
- const s=await dialog(t,{items:fresh});s.primary().click();await flush();s.primary().click();const state=s.r.state,change=value=>{const select=s.q('[name=confirmationOperation]');select.value=value;select.dispatchEvent(new s.W.Event('change',{bubbles:true}));};
- assert.equal(s.q('[name=confirmationOperation]').value,'overwrite-delete');assert.ok(state.replacementEditor);
+ const s=await dialog(t,{items:fresh});s.primary().click();await flush();s.primary().click();const state=s.r.state,control=()=>s.q('[data-rt-redact-filter=confirmationOperation]');
+ const change=value=>{control().click();s.q('.rt-redact-popover[role=menu] [data-rt-option="'+value+'"]').click();};
+ // Step 3 uses the same styled menu control as step 1, not a native select.
+ assert.equal(s.q('select'),null);assert.equal(control().className,'rt-redact-control');assert.equal(control().getAttribute('aria-haspopup'),'menu');
+ assert.equal(control().querySelector('.rt-redact-control-value').textContent,'Overwrite, then delete');assert.equal(s.q('[name=confirmationOperation]').value,'overwrite-delete');assert.ok(state.replacementEditor);
+ control().click();const menu=s.q('.rt-redact-popover[role=menu]');assert.equal(control().getAttribute('aria-expanded'),'true');assert.deepEqual([...menu.querySelectorAll('[data-rt-option]')].map(row=>row.dataset.rtOption),['overwrite-delete','overwrite','delete']);
+ assert.equal(menu.querySelector('[aria-checked=true]').dataset.rtOption,'overwrite-delete');control().click();assert.equal(s.q('.rt-redact-popover[role=menu]'),null,'the control toggles its menu');
+ assert.equal(state.phase,'confirming','opening the menu never leaves the confirmation');
  change('overwrite');assert.deepEqual(plain(state.selection.matches.map(i=>i.fullname)),['t1_a','t1_b']);assert.equal(state.selection.posts,0);assert.equal(state.selection.comments,2);assert.equal(s.primary().textContent,'Overwrite 2 items');assert.equal(state.confirmLabel.textContent,'Type “overwrite 2” to confirm');assert.ok(state.replacementEditor);assert.equal(state.form.elements.operation.value,'overwrite');
  s.type('confirm','overwrite 2');assert.equal(s.primary().disabled,false);
  change('delete');assert.equal(state.selection.matches.length,3);assert.equal(state.replacementEditor,null);assert.equal(s.primary().textContent,'Delete 3 items');assert.equal(state.form.elements.operation.value,'delete');assert.equal(state.confirm.value,'');assert.match(state.confirmation.textContent,/without overwriting/);assert.equal(s.primary().disabled,true);
  change('overwrite-delete');assert.equal(state.selection.matches.length,3);assert.ok(state.replacementEditor);assert.equal(s.primary().textContent,'Overwrite and delete 3 items');
+ assert.equal(control().querySelector('.rt-redact-control-value').textContent,'Overwrite, then delete');assert.equal(state.phase,'confirming');assert.equal(s.D.activeElement,control(),'focus returns to the action control');
  change('delete');s.type('confirm','delete 3');s.primary().click();await flush();assert.deepEqual(plain(s.calls.filter(c=>c.action==='redact-item').map(c=>c.fullname+':'+c.step)),['t1_a:delete','t1_b:delete','t3_p:delete']);
+});
+test('dialog header: a step kicker above a styled title, tightened for every step',async t=>{
+ const s=await dialog(t,{items:fresh});const head=s.q('[data-rt-redact] [slot="title"]');
+ assert.ok(head.classList.contains('rt-dialog-head'));assert.equal(head.querySelector('.rt-dialog-kicker').textContent,'Step 1 of 3 · Choose filters');assert.ok(head.querySelector('h2#rt-redact-title.rt-dialog-title'));
+ assert.equal(s.q('.rt-raffle-body .rt-redact-step'),null,'the step lives in the header, not the body');
+ s.primary().click();await flush();assert.equal(head.querySelector('.rt-dialog-kicker').textContent,'Step 2 of 3 · Review and select');assert.equal(s.q('#rt-redact-title').textContent,'Review matching items');
+ const css=read('post-discovery.css');assert.match(css,/\.rt-dialog-title\{[^}]*font-size:18px[^}]*font-weight:700/);assert.match(css,/\.rt-dialog-kicker\{[^}]*font-size:12px/);
+ assert.match(css,/\.rt-raffle-body\{[^}]*gap:10px;padding:0 16px 8px/);
+});
+test('the header shows a three-step progress bar that follows the step',async t=>{
+ const s=await dialog(t,{items:fresh});const bars=()=>[...s.D.querySelectorAll('.rt-dialog-steps > span')].map(b=>b.dataset.state);
+ assert.deepEqual(bars(),['current','todo','todo']);assert.equal(s.q('.rt-dialog-steps').getAttribute('aria-hidden'),'true','the kicker text already says the step');
+ s.primary().click();await flush();assert.deepEqual(bars(),['done','current','todo']);s.primary().click();assert.deepEqual(bars(),['done','done','current']);
 });

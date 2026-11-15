@@ -377,6 +377,11 @@ shreddit-feed[data-rt-unapproved-hidden]{display:none!important}
 .rt-unapproved-button svg{width:16px;height:16px;flex:none;fill:currentColor}
 .rt-unapproved{overflow-anchor:none}
 .rt-unapproved-summary[data-error="true"]{color:var(--color-danger-content,#d93900)}
+/* ⋯ menu item: the Reddit Raffler status pill sits in the item's trailing slot from the start, invisible until known,
+   so the label and the menu's size never change when the answer arrives. */
+.rt-raffle-menu-state{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f);font-size:12px;line-height:16px;font-weight:600;white-space:nowrap;opacity:0}
+.rt-raffle-menu-state[data-state="drawn"]{opacity:1}
+@media (prefers-reduced-motion:no-preference){.rt-raffle-menu-state{transition:opacity .15s ease}}
 /* Raffle dialog (docs/raffle-spec.md). Reddit's rpl-modal-card on its measured scrim. Rules follow Reddit's settings
    rows (label 14/20, caption 12/16 #576F76, control right, 8 px rows, 48x32 switch); winners follow its comment row
    (32 px avatar, 12/700 name, 12 weak time, 14/20 text). One spacing scale: 4, 8, 12, 16. */
@@ -397,10 +402,24 @@ dialog.rt-raffle-dialog .rt-raffle-input{margin:0;vertical-align:middle}
 dialog.rt-raffle-dialog:focus,dialog.rt-raffle-dialog:focus-visible{outline:none}
 dialog.rt-raffle-dialog::backdrop{background-color:var(--color-scrim-background,#00000099)}
 .rt-raffle-card{flex:0 1 auto;width:min(520px,100%);height:auto;min-height:0;max-height:min(760px,100%);border-radius:var(--rem16,16px);box-shadow:var(--boxshadow-modal,0 2px 15px rgba(26,26,27,.3));background:var(--color-ui-modalbackground,#fff)}
-.rt-raffle-body{display:flex;flex-direction:column;gap:12px;padding:0 16px 12px;width:100%;box-sizing:border-box;font-size:14px;line-height:20px}
-.rt-raffle-post{display:flex;align-items:baseline;gap:4px;min-width:0;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#5c6c74)}
-.rt-raffle-post-sub{flex:none;font-weight:600}
-.rt-raffle-post-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-raffle-body{display:flex;flex-direction:column;gap:10px;padding:0 16px 8px;width:100%;box-sizing:border-box;font-size:14px;line-height:20px;max-height:calc(100dvh - 176px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+dialog.rt-raffle-sheet .rt-raffle-body{max-height:calc(92dvh - 152px)}
+/* Header shared by the raffle and redaction dialogs: a small kicker (the post, or the step) above an 18/24 title,
+   with tighter space around it than Reddit's default title row. */
+.rt-dialog-head{display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:0;min-height:40px;box-sizing:border-box;padding:12px 8px 6px 16px}
+.rt-dialog-kicker{display:flex;align-items:baseline;gap:4px;min-width:0;margin:0;overflow:hidden;font-size:12px;line-height:16px;font-weight:600;color:var(--color-neutral-content-weak,#576f76);white-space:nowrap}
+.rt-dialog-kicker-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.rt-dialog-steps{display:flex;flex:none;gap:3px}
+.rt-dialog-steps>span{width:18px;height:4px;border-radius:2px;background:var(--color-neutral-border-weak,#e5ebee)}
+.rt-dialog-steps>span[data-state="done"]{background:var(--color-neutral-content-weak,#576f76)}
+.rt-dialog-steps>span[data-state="current"]{background:var(--color-brand-background,#d93900)}
+@media (prefers-reduced-motion:no-preference){.rt-dialog-steps>span{transition:background-color .2s ease}}
+.rt-dialog-title{margin:0;font-size:18px;line-height:24px;font-weight:700;letter-spacing:-.01em;color:var(--color-neutral-content-strong,#181c1f);overflow-wrap:anywhere}
+.rt-dialog-title:focus{outline:none}
+.rt-dialog-close{margin:12px 12px 0 0}
+.rt-raffle-card::part(footer){padding-top:8px;padding-bottom:12px}
+.rt-raffle-post-sub{flex:none;color:var(--color-neutral-content-strong,#181c1f)}
+.rt-raffle-post-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:400}
 .rt-raffle-view{display:flex;flex-direction:column}
 .rt-raffle-view[data-rt-raffle-view="rules"]{gap:12px}
 #rt-raffle-title:focus,.rt-raffle-field-title:focus{outline:none}
@@ -419,7 +438,16 @@ dialog.rt-raffle-dialog::backdrop{background-color:var(--color-scrim-background,
 .rt-raffle-form{display:flex;flex-direction:column;margin:0}
 .rt-raffle-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 0;min-height:32px;cursor:default}
 label.rt-raffle-row{cursor:pointer}
-.rt-raffle-row-text{display:flex;flex-direction:column;min-width:0}
+.rt-raffle-row-text{display:flex;flex-direction:column;flex:1 1 auto;min-width:0}
+/* Section symbols: an outline glyph in a round tile at the start of each rule. */
+.rt-raffle-row-icon{display:inline-flex;flex:none;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f)}
+.rt-raffle-row{gap:12px}
+.rt-raffle-row-stacked{flex-direction:column;align-items:stretch;gap:8px}
+.rt-raffle-row-head{display:flex;align-items:center;gap:12px;min-width:0}
+/* Text fields match the redaction dialog's: full width, 40 px, pill-shaped. */
+dialog.rt-raffle-dialog .rt-raffle-text{display:block;width:100%;height:40px;padding:0 14px;border-radius:20px}
+.rt-raffle-text{display:block;width:100%;height:40px;border-radius:20px}
+.rt-raffle-row[data-unsupported="true"] .rt-raffle-text{opacity:.55}
 .rt-raffle-row-label{font-size:14px;line-height:20px;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-row-caption{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-row-control{display:flex;align-items:center;flex:none}
@@ -447,7 +475,7 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-chevron,.rt-raffle-details summary::before,.rt-raffle-preview-wrap>summary::before{content:'';flex:none;width:20px;height:20px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M10%2013.7a.897.897%200%2001-.636-.264l-4.6-4.6a.9.9%200%20111.272-1.273L10%2011.526l3.964-3.963a.9.9%200%20011.272%201.273l-4.6%204.6A.897.897%200%200110%2013.7Z%22%2F%3E%3C%2Fsvg%3E") center/20px no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M10%2013.7a.897.897%200%2001-.636-.264l-4.6-4.6a.9.9%200%20111.272-1.273L10%2011.526l3.964-3.963a.9.9%200%20011.272%201.273l-4.6%204.6A.897.897%200%200110%2013.7Z%22%2F%3E%3C%2Fsvg%3E") center/20px no-repeat;transition:transform .15s}
 .rt-raffle-chevron{margin-inline:12px 0;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-account[open] .rt-raffle-chevron{transform:rotate(180deg)}
-.rt-raffle-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:4px 0 8px}
+.rt-raffle-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:0 0 8px 44px}
 .rt-raffle-mini{display:flex;flex-direction:column;gap:4px;min-width:0}
 .rt-raffle-mini .rt-raffle-input{width:100%}
 /* Shared with the redaction dialog. */
@@ -469,6 +497,8 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-option:has(input:disabled) .rt-raffle-option-title,.rt-raffle-option:has(input:disabled) .rt-raffle-option-caption{opacity:.55}
 .rt-raffle-option input{flex:none;width:18px;height:18px;margin:1px 0 0;accent-color:var(--color-primary-background,#000)}
 .rt-raffle-option-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.rt-raffle-option-head{display:flex;align-items:center;gap:6px;min-width:0}
+.rt-raffle-option-icon{display:inline-flex;flex:none;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-option-title{font-size:14px;line-height:20px;font-weight:600;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-option-caption,.rt-raffle-option-state{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-option-state:empty{display:none}
@@ -494,8 +524,11 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-details summary::before,.rt-raffle-preview-wrap>summary::before{width:16px;height:16px;-webkit-mask-size:16px;mask-size:16px;margin-inline-end:4px;transform:rotate(-90deg)}
 .rt-raffle-details[open]>summary::before,.rt-raffle-preview-wrap[open]>summary::before{transform:none}
 .rt-raffle-draw-icon::before{content:'';flex:none;width:16px;height:16px;margin-inline-end:8px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M16.6%203H3.4A2.4%202.4%200%20001%205.4v2.2a.9.9%200%2000.9.9%201.5%201.5%200%20010%203%20.9.9%200%2000-.9.9v2.2A2.4%202.4%200%20003.4%2017h13.2a2.4%202.4%200%20002.4-2.4v-2.2a.9.9%200%2000-.9-.9%201.5%201.5%200%20010-3%20.9.9%200%2000.9-.9V5.4A2.4%202.4%200%200016.6%203Zm.6%204.26a3.3%203.3%200%20000%205.48v1.86a.6.6%200%2001-.6.6H3.4a.6.6%200%2001-.6-.6v-1.86a3.3%203.3%200%20000-5.48V5.4a.6.6%200%2001.6-.6h13.2a.6.6%200%2001.6.6v1.86ZM7.1%206.1h1.8v1.8H7.1V6.1Zm0%203h1.8v1.8H7.1V9.1Zm0%203h1.8v1.8H7.1v-1.8Z%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M16.6%203H3.4A2.4%202.4%200%20001%205.4v2.2a.9.9%200%2000.9.9%201.5%201.5%200%20010%203%20.9.9%200%2000-.9.9v2.2A2.4%202.4%200%20003.4%2017h13.2a2.4%202.4%200%20002.4-2.4v-2.2a.9.9%200%2000-.9-.9%201.5%201.5%200%20010-3%20.9.9%200%2000.9-.9V5.4A2.4%202.4%200%200016.6%203Zm.6%204.26a3.3%203.3%200%20000%205.48v1.86a.6.6%200%2001-.6.6H3.4a.6.6%200%2001-.6-.6v-1.86a3.3%203.3%200%20000-5.48V5.4a.6.6%200%2001.6-.6h13.2a.6.6%200%2001.6.6v1.86ZM7.1%206.1h1.8v1.8H7.1V6.1Zm0%203h1.8v1.8H7.1V9.1Zm0%203h1.8v1.8H7.1v-1.8Z%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat}
-.rt-raffle-action{gap:6px;padding:0 12px;white-space:nowrap;text-decoration:none}
-.rt-raffle-action svg{flex:none;width:16px;height:16px}
+.rt-raffle-action{gap:6px;padding:0 12px 0 10px;white-space:nowrap;text-decoration:none}
+/* Over Reddit's .button-small padding: even space before the icon and after the label. */
+.rt-raffle-banner-actions .rt-raffle-action.button-small{box-sizing:border-box;height:32px;min-width:0;padding:0 12px 0 10px;gap:6px;font-size:12px;line-height:16px;font-weight:600}
+.rt-raffle-action svg{flex:none;width:16px;height:16px;margin:0}
+.rt-raffle-action-label{white-space:nowrap}
 .rt-raffle-banner-actions{gap:8px}
 .rt-raffle-person-action{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-inline:2px -6px;padding:0;border:0;border-radius:50%;background:transparent;font:inherit;font-size:16px;line-height:1;color:var(--color-neutral-content-weak,#576f76);cursor:pointer}
 .rt-raffle-person-action:hover{background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f)}
@@ -504,30 +537,38 @@ label.rt-raffle-row{cursor:pointer}
 .rt-raffle-people-out .rt-raffle-person{opacity:.75}
 .rt-raffle-people-out .rt-raffle-person:hover{opacity:1;background:var(--color-neutral-background-hover,#f6f8f9)}
 /* Winners */
-.rt-raffle-banner{display:block;padding-bottom:8px}
+.rt-raffle-banner{display:block;padding-bottom:4px}
 .rt-raffle-banner-text{display:flex;flex-direction:column;gap:2px;min-width:0}
 .rt-raffle-banner-title{font-size:16px;line-height:20px;font-weight:700;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-banner-title:focus{outline:none}
 .rt-raffle-banner-meta{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-copy{flex:none}
 .rt-raffle-winners{list-style:none;margin:0 -8px;padding:0;display:flex;flex-direction:column}
-.rt-raffle-winner{position:relative;display:grid;grid-template-columns:20px 32px minmax(0,1fr);column-gap:8px;align-items:start;padding:8px;border-radius:12px}
+.rt-raffle-winner{position:relative;display:grid;grid-template-columns:16px 32px minmax(0,1fr);column-gap:8px;align-items:start;padding:6px 8px;border-radius:12px}
 .rt-raffle-winner:hover{background:var(--color-neutral-background-hover,#f6f8f9)}
 .rt-raffle-cover{position:absolute;inset:0;border-radius:inherit;z-index:0}
 .rt-raffle-rank{display:flex;align-items:center;justify-content:center;height:32px;font-size:12px;font-weight:700;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-avatar{display:block;flex:none;width:32px;height:32px;border-radius:50%;overflow:hidden;background:var(--color-secondary-background,#e5ebee)}
 .rt-raffle-avatar img{display:block;width:100%;height:100%;object-fit:cover}
-.rt-raffle-winner-main{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
+.rt-raffle-winner-main{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0}
+/* Account facts under the name (as Reddit Raffler lists them): age, comment karma, post karma. */
+.rt-raffle-stats{display:flex;flex-wrap:wrap;align-items:center;min-height:16px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76);font-variant-numeric:tabular-nums}
+.rt-raffle-stats[data-state="loading"]{opacity:.7}
+.rt-raffle-stat{white-space:nowrap}
+.rt-raffle-stat+.rt-raffle-stat::before{content:'·';margin-inline:4px}
+/* An account under 30 days old is flagged on its age (raffle hosts often check this). */
+.rt-raffle-stats[data-new="true"] .rt-raffle-stat:first-child{color:var(--color-warning-content,#8a5300);font-weight:600}
+.rt-raffle-excerpt[data-state="placeholder"]{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-meta{display:flex;align-items:center;min-width:0;max-width:100%;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-name{position:relative;z-index:1;font-weight:700;color:var(--color-neutral-content-strong,#181c1f);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-raffle-name:hover{text-decoration:underline}
 .rt-raffle-dot{margin-inline:4px}
 .rt-raffle-time{white-space:nowrap}
-.rt-raffle-excerpt{margin:0;font-size:14px;line-height:20px;color:var(--color-neutral-content,#333d42);white-space:pre-line;overflow-wrap:anywhere}
+.rt-raffle-excerpt{margin:2px 0 0;font-size:14px;line-height:20px;color:var(--color-neutral-content,#333d42);white-space:pre-line;overflow-wrap:anywhere}
 .rt-raffle-excerpt[data-rt-clamped="true"]{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.rt-raffle-more{position:relative;z-index:1;min-height:24px;padding:4px 0;border:0;background:none;font:inherit;font-size:12px;font-weight:600;line-height:16px;color:var(--color-neutral-content-weak,#576f76);cursor:pointer}
+.rt-raffle-more{position:relative;z-index:1;min-height:20px;padding:2px 0;border:0;background:none;font:inherit;font-size:12px;font-weight:600;line-height:16px;color:var(--color-neutral-content-weak,#576f76);cursor:pointer}
 .rt-raffle-more:hover{color:var(--color-neutral-content-strong,#181c1f);text-decoration:underline}
-.rt-raffle-details{padding-top:8px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-raffle-details{padding-top:4px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-details summary{cursor:pointer;font-weight:600;width:max-content;min-height:24px;display:flex;align-items:center}
 .rt-raffle-details summary:hover{color:var(--color-neutral-content-strong,#181c1f);text-decoration:underline}
 .rt-raffle-facts{margin:8px 0 0;padding-inline-start:16px;display:flex;flex-direction:column;gap:4px}
@@ -556,7 +597,16 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
   .rt-raffle-footnote{max-width:none;text-align:center}
   .rt-raffle-more,.rt-raffle-details summary{min-height:32px}
   .rt-raffle-row-control>.rt-raffle-input{width:136px}
-  .rt-raffle-winner{grid-template-columns:16px 32px minmax(0,1fr)}
+  .rt-raffle-winner{grid-template-columns:14px 28px minmax(0,1fr);column-gap:6px;padding:6px}
+  .rt-raffle-winner .rt-raffle-avatar{width:28px;height:28px}
+  .rt-raffle-rank{height:28px}
+  .rt-raffle-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding-inline-start:0}
+  .rt-raffle-row-icon{width:28px;height:28px}
+  .rt-raffle-row,.rt-raffle-row-head{gap:10px}
+  .rt-raffle-banner-row{flex-wrap:wrap;gap:8px}
+  .rt-raffle-banner-actions .rt-raffle-action.button-small{height:36px}
+  .rt-dialog-head{padding:12px 8px 4px 16px}
+  .rt-redact-popover.rt-raffle-users .rt-menu-row{min-height:44px}
 }
 /* Redaction dialog (docs/redaction-spec.md), on the raffle dialog's styles. */
 .rt-posts[data-rt-context=profile] .rt-posts-toolbar{min-height:0}
@@ -570,7 +620,7 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 .rt-redact-link{color:var(--color-neutral-content-strong,#181c1f);font-size:14px;line-height:20px;overflow-wrap:anywhere}
 .rt-redact-preview button{align-self:flex-start}
 .rt-redact-danger:not([disabled]){background:var(--color-danger-background,#d93900);color:#fff}
-.rt-redact-group{min-width:0;margin:0;padding:12px 0;border:0;border-top:1px solid var(--color-neutral-border-weak,#e5ebee);display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;align-items:start}
+.rt-redact-group{min-width:0;margin:0;padding:10px 0;border:0;border-top:1px solid var(--color-neutral-border-weak,#e5ebee);display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;align-items:start}
 .rt-redact-group legend{padding:0 8px 0 0;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-redact-group:last-child{grid-template-columns:minmax(0,1fr)}
 /* Use the same control size for content, date, community and numeric fields. Popovers stay in the modal top layer. */
@@ -612,8 +662,7 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 .rt-redact-tail{height:1px;list-style:none}
 .rt-redact-suggestion-status{margin:0;padding:4px 12px;line-height:16px}
 .rt-redact-item .rt-redact-link{align-self:flex-start;font-size:12px;color:var(--color-a-default,#216ba5)}
-.rt-redact-confirmation{display:flex;flex-direction:column;gap:16px}
-.rt-redact-operation{box-sizing:border-box;width:100%;height:40px;padding:0 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:12px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);font:inherit;font-size:14px}
+.rt-redact-confirmation{display:flex;flex-direction:column;gap:12px}
 .rt-redact-replacement-editor{min-height:80px;line-height:20px}
 .rt-redact-replacement-editor[aria-invalid=true]{border-color:var(--color-danger-content,#d93900)}
 .rt-redact-loading{display:flex;justify-content:center;padding:24px}

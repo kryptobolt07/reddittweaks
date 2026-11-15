@@ -99,3 +99,7 @@ Matched Posts and Comments appear in separate labelled sections, each with selec
 ## 0.35.2 confirmation action switch
 
 The confirmation screen can switch between Overwrite text, Delete, and Overwrite, then delete. Overwrite-only removes selected items without editable text from the run; other modes keep the reviewed selection. The typed phrase, primary label, summary and replacement editor follow the chosen action, and message edits persist across switches.
+
+## 0.36.0 styled confirmation action and header
+
+The confirmation step's Action is the same menu control and icon menu as step 1 (no native select); its value is kept outside the filter form, so switching it never clears the reviewed selection, and focus returns to the control. Step 1's Action and Content type controls show the chosen value's icon. The header shows the step as a kicker with a three-part progress bar above an 18/24 title, with tighter spacing around the header, body and footer. The calendar's quick ranges are no longer forced to wrap in this dialog: they scroll sideways like everywhere else.
