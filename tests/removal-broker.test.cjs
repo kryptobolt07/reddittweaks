@@ -16,7 +16,7 @@ test('toolbar unread is tab-scoped; popup history acknowledges only the active a
  const b=setup(),t=Date.now()-1000;for(const [state,time] of [['visible',t],['removed-mod',t+1]])await b.send({action:'record',owner:'t2_self',username:'Example',records:[rec(state,time)]});
  assert.equal(b.badges.at(-1).text,'1');assert.equal(b.badges.at(-1).tabId,1);
  const summary=await b.send({action:'summary',tabId:1},b.popup);assert.equal(summary.value.unread,1);
- assert.equal((await b.send({action:'seen',tabId:1},b.popup)).value.unread,0);assert.equal(b.badges.at(-1).text,'');
+ assert.equal((await b.send({action:'seen',tabId:1,owner:'t2_self'},b.popup)).value.unread,0);assert.equal(b.badges.at(-1).text,'');
  b.setMe(null);assert.equal((await b.send({action:'summary',tabId:1},b.popup)).ok,false);
 });
 test('monitoring off blocks records; notifications off leaves toolbar empty',async()=>{
@@ -25,5 +25,8 @@ test('monitoring off blocks records; notifications off leaves toolbar empty',asy
 });
 test('a site page cannot clear history or choose another tab; only the extension popup may do that',async()=>{
  const b=setup();assert.equal((await b.send({action:'clear',tabId:1})).ok,false);assert.equal((await b.send({action:'summary',tabId:999})).ok,false);
- assert.equal((await b.send({action:'clear',tabId:1},b.popup)).ok,true);
+ assert.equal((await b.send({action:'clear',tabId:1,owner:'t2_self'},b.popup)).ok,true);
+});
+test('popup acknowledgement and clear cannot affect an account other than the one displayed',async()=>{
+ const b=setup();b.setMe({owner:'t2_other',username:'Other'});for(const action of ['seen','clear'])assert.equal((await b.send({action,tabId:1,owner:'t2_self'},b.popup)).ok,false);
 });
