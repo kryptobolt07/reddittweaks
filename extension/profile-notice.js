@@ -84,6 +84,7 @@
     const doc=globalThis.document || window.document;if(!doc)return;
     const loc=window.location || globalThis.location;
     holdModals(doc,loc);
+    if(enabled && settingsKnown)linkSuspendedCards(doc,records);
     const profile=/^\/user\/[\w-]{1,20}(?:\/(?:submitted|comments|search))?\/?$/i.test(loc?.pathname || '');
     // Post pages: let CSS show a skeleton over removal titles until restoration settles.
     const restoreHere=restore && !doc.documentElement?.hasAttribute('data-rt-subreddit-archive') && /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/[a-z0-9]{1,10}(?:\/|$)/i.test(loc?.pathname || '');
@@ -106,6 +107,25 @@
     if(Array.isArray(records)){for(const record of records){if(record.target.nodeType===1){const parent=record.target.closest(selector);if(parent)candidates.add(parent);}for(const node of record.addedNodes)if(node.nodeType===1){if(node.matches(selector))candidates.add(node);for(const notice of node.querySelectorAll(selector))candidates.add(notice);}}}else for(const notice of doc.querySelectorAll(selector))candidates.add(notice);
     for(const notice of candidates){if(!notice.isConnected || notice.id==='shreddit-forbidden' && !unavailableState(notice))continue;
       const anchor=doc.createComment('rt-profile-notice');notice.replaceWith(anchor);notices.set(notice,anchor);
+    }
+  }
+  /* Reddit's user hover card links a live account's name and picture to its profile (new tab) but leaves a suspended
+     account's as plain text (captured 2026-11-15). Give them the same links, with the live card's classes, so the
+     profile (and its archived activity) is one click away. Only cards Reddit marks suspended are changed. */
+  const cardSelector='[data-testid="user-hover-card"]';
+  function linkSuspendedCards(doc,records){
+    const cards=new Set();
+    if(Array.isArray(records)){for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1){if(node.matches(cardSelector))cards.add(node);for(const card of node.querySelectorAll?.(cardSelector) || [])cards.add(card);}}
+    else for(const card of doc.querySelectorAll(cardSelector))cards.add(card);
+    for(const card of cards){
+      if(card.dataset.rtProfileLinked || !(card.querySelector('img[src*="suspended-snoo"]') || /\bAccount suspended\b/i.test(card.textContent)))continue;
+      const label=card.querySelector('span.font-bold.text-18'),handle=card.querySelector('span.truncate[dir]')?.textContent.trim().replace(/^u\//i,'');
+      const name=(label?.textContent.trim() || handle || '');if(!label || label.closest('a') || !/^[A-Za-z0-9_-]{3,20}$/.test(name))continue;
+      card.dataset.rtProfileLinked='true';const href='/user/'+name+'/';
+      const link=doc.createElement('a');link.setAttribute('rpl','');link.className='inline-flex items-center font-bold text-18 text-neutral-content-strong a no-visited hover:underline cursor-pointer';link.href=href;link.target='_blank';
+      const plate=doc.createElement('span');plate.className='inline-flex items-center max-w-full whitespace-nowrap';plate.dir='auto';plate.dataset.testid='nameplate';const text=doc.createElement('span');text.className='truncate';text.textContent=name;plate.append(text);link.append(plate);label.replaceWith(link);
+      const picture=card.querySelector('img[src*="suspended-snoo"]');
+      if(picture && !picture.closest('a')){const wrap=doc.createElement('a');wrap.setAttribute('rpl','');wrap.className=' a no-visited hover:underline cursor-pointer';wrap.href=href;wrap.target='_blank';wrap.setAttribute('aria-label','u/'+name+'’s profile');picture.replaceWith(wrap);wrap.append(picture);}
     }
   }
   function unavailableNotice(){for(const [notice,anchor] of notices)if(anchor.isConnected){const state=notice.querySelector('img[alt="Deleted user"]')?'deleted':notice.id==='shreddit-forbidden'?'banned':'';if(state)return {notice,anchor,state};}return null;}
