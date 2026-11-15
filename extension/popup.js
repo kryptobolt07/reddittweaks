@@ -151,10 +151,3 @@ function syncSummary(){
 document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]'))syncSummary();});
 document.getElementById('raffles-turn-on')?.addEventListener('click',()=>{const raffles=document.getElementById('raffles');if(!raffles || raffles.disabled || raffles.checked)return;raffles.checked=true;raffles.dispatchEvent(new Event('change',{bubbles:true}));});
 
-// Where Start redaction will open: the active Reddit tab, or the signed-in profile in a new tab.
-(async()=>{
-  const hint=document.getElementById('redaction-destination');if(!hint)return;
-  try{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});const url=new URL(tab?.url);
-    hint.textContent=url.protocol==='https:' && ['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(url.hostname)?'Opens on this Reddit tab':'Opens your Reddit profile in a new tab';}
-  catch{hint.textContent='Opens your Reddit profile in a new tab';}
-})();
