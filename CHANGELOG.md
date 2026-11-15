@@ -1,3 +1,11 @@
+# 0.37.2 preview
+
+- **Removed from your profile:** Feed options → Activity → Removed is now available on your own Overview, Posts and Comments tabs. It opens the existing verified-removal view with All, Posts or Comments selected to match. Moderator, AutoModerator and Reddit/filter removals are included; self-deleted items are excluded.
+- **Account and scope:** the entry requires current native account ownership and rechecks it when activated. Late identity and replaced menus reconcile without duplicates. Opening the menu starts no scan. Scoped list navigation also retains the selected content type when submitting a search or switching lists.
+- **Version:** patch increment to expose the existing removal feature on the expected profile tabs and retain scope; no new detector, permissions or storage changes.
+- **Validation:** all 1,583 tests pass; 48 JavaScript files parse; ZIP integrity passes; all 62 shipped assets match source, archive and the stable unpacked folder. SHA-256 `80ae6b798c1a51bafcb1f33ac43f301fae46486f5921ca9577d99cf8b6d03a0a`.
+- **Verification limits:** synthetic tests cover menu visibility, ownership changes, stale activation, native host replacement, keyboard activation and scoped navigation, alongside the existing removal classifier. No live CDP or preview browser was used for this addition; final installed review is left to the user. Existing signed-out transport and archive limits still apply.
+
 # 0.37.1 preview
 
 - **Signed-out removal checks:** monitoring and the Removed view reuse the independent browser session already used by unsigned profile search. Exact native comment/post fragments establish visibility without new legacy JSON/API calls, permissions or an authenticated fallback. Missing search results never establish removal.
