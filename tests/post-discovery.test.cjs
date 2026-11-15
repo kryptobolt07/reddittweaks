@@ -292,6 +292,13 @@ test('deleted profiles use archive discovery with native tabs and native card hy
  await d.loadReddit();await new Promise(r=>setImmediate(r));assert.ok(calls.every(call=>['render-navigation','render-controls'].includes(call.action)));assert.equal(nativeRenders,1);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,1);assert.ok(d.archiveShell.querySelector('faceplate-tabgroup[for="profile-feed-tabs"]'));assert.equal(d.feed.tagName,'SHREDDIT-FEED');
  d.reset();assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);assert.equal(W.document.querySelector('[data-rt-ui="archive-profile"]'),null);
 });
+test('a deleted profile keeps the reader’s collapsed navigation and shows a skeleton column, not blank space, while it loads',async t=>{
+ const {W,d}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},archive:async()=>({posts:[],hasMore:false})});
+ W.document.cookie='hui_flex_nav_expanded_state=0; path=/';await d.ready;d.reset();deletedPage(W);d.autoDiscover=true;d.scan();
+ const reserve=W.document.querySelector('[data-rt-ui="profile-navigation"] .left-sidebar');assert.ok(reserve?.querySelector('.rt-nav-skeleton .rt-skeleton-line'),'Reddit-style skeleton rows while the navigation is requested');
+ await new Promise(r=>setImmediate(r));
+ const shell=W.document.querySelector('[data-rt-ui="archive-profile"]');assert.equal(shell.classList.contains('flex-nav-collapsed'),true);assert.equal(shell.classList.contains('flex-nav-expanded'),false);
+});
 test('deleted-account Overview combines archived posts/comments and empty/error states stay explicit',async t=>{
  let fail=false,empty=false;const requests=[];
  const {W,d,calls}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{archiveDiscovery:true},archive:async input=>{requests.push(input);if(fail)throw Error('Archive unavailable');return {posts:empty?[]:input.kind==='comment'?[comment()]:[raw()],hasMore:false};}});

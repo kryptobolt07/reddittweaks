@@ -739,3 +739,9 @@ test('a verified anonymous session skips redundant cookie-free requests without 
  assert.equal((await e.send(input)).ok,true);assert.equal((await e.send(input)).ok,true);assert.equal(browser.length,2);assert.equal(e.calls.length,0);
  assert.equal((await e.send({...input,stream:'authenticated'})).ok,true);assert.equal(e.calls.length,1);assert.equal(e.calls[0][1].credentials,'include');
 });
+test('profile navigation seeds the native collapsed controller too, so a collapsed layout never widens',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('<flex-left-nav-container expanded="1" id="left-sidebar-container"><nav>Native sidebar</nav></flex-left-nav-container>')}),target=navigationTarget(e);
+ target.parentElement.classList.add('grid-container','flex-nav-collapsed');
+ const result=await e.send({action:'render-navigation',username:'Example',target:target.id});assert.equal(result.rendered,true);
+ const native=target.querySelector('flex-left-nav-container');assert.equal(native.getAttribute('expanded'),'0');assert.equal(native.getAttribute('parent-grid-selector'),'[data-rt-ui="archive-profile"]');assert.equal(native.hasAttribute('no-animate'),true);
+});
