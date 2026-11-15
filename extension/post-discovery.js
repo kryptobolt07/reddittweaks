@@ -777,7 +777,7 @@
       const R=globalThis.RTRemovalModel,state=this.listState;if(!R || !state)return;
       state.removalNotes ||= new Set();
       const author=post=>{const m=post.moderation || {};return {kind:post.kind==='comment'?'comment':'post',name:post.fullname,body:m.authorBody ?? post.body,selftext:m.authorBody ?? post.body,...(post.kind==='comment'?{}:{title:post.title || ''}),
-        created_utc:post.created,removed_by_category:m.category ?? null,removal_reason:m.removalReason || null,locked:m.locked===true,subreddit_type:m.subredditType || 'public',quarantine:m.quarantined===true};};
+        created_utc:post.created,removed_by_category:m.category ?? null,removal_reason:m.removalReason || null,locked:m.locked===true,subreddit_type:m.subredditType || 'public',quarantine:m.quarantined===true,visibilityKnown:m.visibilityKnown!==false,nativeRemoved:m.nativeRemoved===true};};
       const comments=items.filter(post=>post.kind==='comment'),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
       if(archiveStatus==='ok')for(let index=0;index<comments.length;index+=25){
         const group=comments.slice(index,index+25);
@@ -800,7 +800,7 @@
       this.setStatus(error || 'Checked your newest '+n(state.scanned)+' posts and comments · '+n(counts.removed)+' removed'+(state.loading?' · Loading…':''),Boolean(error));
       const notes=[];if(this.searchParsed.invalid)notes.push(error);
       if(counts.unknownComments)notes.push(n(counts.unknownComments)+' '+(counts.unknownComments===1?'comment':'comments')+' couldn’t be checked: Reddit blocks logged-out checks of comments'+(this.settings.archiveDiscovery?'':'. Turn on “Use the archive” to catch removals the archive saw'));
-      if(counts.unknownPosts)notes.push(counts.unknownPosts.toLocaleString('en-US')+' '+(counts.unknownPosts===1?'post':'posts')+' couldn’t be checked (private communities)');
+      if(counts.unknownPosts)notes.push(counts.unknownPosts.toLocaleString('en-US')+' '+(counts.unknownPosts===1?'post':'posts')+' couldn’t be checked: native metadata does not establish public visibility');
       for(const note of state.removalNotes || [])notes.push(note);
       // U3: an account-level check needs a logged-out profile read, which Reddit blocks (§9.1 V3).
       notes.push('Couldn’t check whether others can see your profile: Reddit blocks logged-out checks');
