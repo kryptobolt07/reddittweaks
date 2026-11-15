@@ -77,20 +77,56 @@ test('styles: compact footprint, readable text, Reddit accents and no fixed year
   const sizes=[...styles.matchAll(/font-size:\s*([\d.]+)px/g)].map(match=>Number(match[1]));assert.ok(sizes.length>=8);assert.ok(Math.min(...sizes)>=12,`smallest font ${Math.min(...sizes)}px`);
   for(const match of styles.matchAll(/font:\s*(?:\d+\s+)?([\d.]+)px/g))assert.ok(Number(match[1])>=12);
   // Close to the original 264 px popover; floating chat narrower still.
-  assert.match(styles,/width:264px/);assert.match(styles,/:host\(\[data-rcs-compact\]\) \.date-popover\{[^}]*width:240px/);
-  assert.match(styles,/--calendar-cell:28px/);assert.match(styles,/--calendar-cell:26px/);assert.match(styles,/pointer:coarse[^}]*--calendar-cell:34px/);
+  // Slimmer than the original 264 px popover; floating chat narrower still; touch keeps 34 px days.
+  assert.match(styles,/width:248px/);assert.match(styles,/:host\(\[data-rcs-compact\]\) \.date-popover\{[^}]*width:232px/);
+  assert.match(styles,/--calendar-cell:26px/);assert.match(styles,/--calendar-cell:24px/);assert.match(styles,/pointer:coarse[^}]*--calendar-cell:34px/);
   assert.doesNotMatch(styles,/min-height:var\(--calendar-body\)/,'the grid fits the month instead of reserving empty rows');
-  assert.match(styles,/gap:0\}/);assert.doesNotMatch(styles,/width:63px/);assert.doesNotMatch(styles,/#1a1a1b|#0002/);
+  assert.match(styles,/\.calendar-grid\{[^}]*gap:2px\}/,'days are spaced so a range reads as separate boxes');assert.doesNotMatch(styles,/width:63px/);assert.doesNotMatch(styles,/#1a1a1b|#0002/);
   // Reddit's brand accent marks the active mode, today, the selection and Apply.
   assert.match(styles,/--calendar-accent:var\(--color-brand-background,#d93900\)/);
   assert.match(styles,/\.date-mode\[aria-checked=true\]\{[^}]*box-shadow:inset 0 -2px 0 var\(--calendar-accent\)/);
   assert.match(styles,/\.calendar-day\.today\{color:var\(--calendar-accent\)/);assert.match(styles,/\.calendar-apply\{background:var\(--calendar-accent\)/);
-  // Presets stay on one row and scroll instead of wrapping into extra rows.
-  assert.match(styles,/\.calendar-presets\{[^}]*flex-wrap:nowrap[^}]*overflow-x:auto/);
+  // Presets stay on one slim row that scrolls sideways with no scrollbar, fading at an edge with more to see.
+  assert.match(styles,/\.calendar-presets\{[^}]*flex-wrap:nowrap[^}]*overflow-x:auto[^}]*scrollbar-width:none/);assert.match(styles,/\.calendar-presets::-webkit-scrollbar\{display:none\}/);
+  assert.match(styles,/\.calendar-preset\{[^}]*height:22px/);assert.match(styles,/\.calendar-presets\[data-fade=end\]\{[^}]*mask-image:linear-gradient/);assert.match(styles,/\.calendar-presets\[data-fade=both\]\{[^}]*mask-image/);
+  // A range is a row of separate faded boxes: no merged band, gradients or joined corners.
+  assert.match(styles,/\.calendar-day\.range::before(?:,[^{]+)?\{background:var\(--calendar-band\)\}/);assert.doesNotMatch(styles,/linear-gradient\(90deg,transparent 50%/);assert.doesNotMatch(styles,/band-start|band-end/);
   assert.match(styles,/focus-visible\{outline:2px solid var\(--calendar-focus\);outline-offset:-2px\}/);assert.match(styles,/\.calendar-day:focus-visible::before\{outline:2px/);
   assert.match(styles,/@container \(max-width:231px\)/);assert.match(styles,/wd-short\{display:inline\}/);
 });
 test('styles: transitions exist only under prefers-reduced-motion: no-preference',t=>{
   const styles=css();const gated=styles.slice(styles.indexOf('@media (prefers-reduced-motion:no-preference)'));assert.ok(gated.includes('transition'));assert.equal(styles.slice(0,styles.indexOf('@media (prefers-reduced-motion:no-preference)')).includes('transition'),false);
   assert.doesNotMatch(styles,/calendar-quick/);
+});
+test('quick ranges scroll sideways with the wheel, keep their place across a re-render and fade only where more are hidden',t=>{
+  const {W,picker,q}=setup(t);
+  const size=strip=>{Object.defineProperty(strip,'scrollWidth',{configurable:true,value:400});Object.defineProperty(strip,'clientWidth',{configurable:true,value:232});return strip;};
+  let strip=size(q('.calendar-presets'));picker.syncPresetFade(strip);assert.equal(strip.dataset.fade,'end');
+  const wheel=new W.WheelEvent('wheel',{deltaY:60,bubbles:true,cancelable:true});strip.dispatchEvent(wheel);
+  assert.equal(strip.scrollLeft,60);assert.equal(wheel.defaultPrevented,true,'a vertical wheel scrolls the strip, not the page');assert.equal(strip.dataset.fade,'both');
+  const sideways=new W.WheelEvent('wheel',{deltaX:30,deltaY:2,bubbles:true,cancelable:true});strip.dispatchEvent(sideways);assert.equal(sideways.defaultPrevented,false,'trackpad sideways scrolling stays native');
+  q('[data-preset="Last month"]').click();strip=q('.calendar-presets');assert.equal(strip.scrollLeft,60,'choosing a range keeps the strip where it was');
+  assert.equal(q('[data-preset="Last month"]').getAttribute('aria-pressed'),'true');
+  const fits=q('.calendar-presets');Object.defineProperty(fits,'scrollWidth',{configurable:true,value:200});Object.defineProperty(fits,'clientWidth',{configurable:true,value:232});fits.scrollLeft=0;picker.syncPresetFade(fits);assert.equal(fits.dataset.fade,'none');
+  const still=new W.WheelEvent('wheel',{deltaY:60,bubbles:true,cancelable:true});fits.dispatchEvent(still);assert.equal(still.defaultPrevented,false,'nothing to scroll: the page scrolls as usual');
+});
+test('hosts never force the quick ranges to wrap',()=>{
+  for(const file of ['redaction-ui.js','post-discovery.js','subreddit-archive.js'])assert.doesNotMatch(readFileSync(join(__dirname,'../extension',file),'utf8'),/\.calendar-presets\{flex-wrap:wrap/,file);
+});
+test('choosing a range previews the days between the start and the hovered day as the same faded boxes',t=>{
+  const {W,picker,q}=setup(t);picker.setMode('Between');q('[data-date="2026-10-05"]').click();
+  q('[data-date="2026-10-09"]').dispatchEvent(new W.Event('pointerover',{bubbles:true}));
+  assert.deepEqual([...picker.element.querySelectorAll('.calendar-day.preview')].map(d=>d.dataset.date),['2026-10-06','2026-10-07','2026-10-08','2026-10-09']);
+  q('[data-date="2026-10-02"]').dispatchEvent(new W.Event('pointerover',{bubbles:true}));assert.deepEqual([...picker.element.querySelectorAll('.calendar-day.preview')].map(d=>d.dataset.date),['2026-10-02','2026-10-03','2026-10-04'],'backwards too');
+  q('.calendar-grid').dispatchEvent(new W.Event('pointerleave'));assert.equal(picker.element.querySelectorAll('.preview').length,0);
+  q('[data-date="2026-10-09"]').click();q('[data-date="2026-10-20"]').dispatchEvent(new W.Event('pointerover',{bubbles:true}));assert.equal(picker.element.querySelectorAll('.preview').length,0,'no preview once the range is complete');
+  const styles=picker.constructor.styles;assert.match(styles,/\.calendar-day\.preview::before\{[^}]*background:var\(--calendar-band\)/);
+});
+test('quick ranges: arrow keys move along the strip and the chosen range is scrolled into view',t=>{
+  const {W,picker,q,key}=setup(t);
+  q('[data-preset="Today"]').focus();key(q('[data-preset="Today"]'),'ArrowRight');assert.equal(W.document.activeElement.dataset.preset,'Yesterday');
+  key(W.document.activeElement,'End');assert.equal(W.document.activeElement.dataset.preset,'This year');key(W.document.activeElement,'Home');assert.equal(W.document.activeElement.dataset.preset,'Today');
+  key(W.document.activeElement,'ArrowLeft');assert.equal(W.document.activeElement.dataset.preset,'This year','wraps around');
+  const strip=q('.calendar-presets'),chip=q('[data-preset="This year"]');Object.defineProperty(strip,'clientWidth',{configurable:true,value:200});Object.defineProperty(chip,'offsetLeft',{configurable:true,value:500});Object.defineProperty(chip,'offsetWidth',{configurable:true,value:70});
+  picker.revealPreset(strip,chip);assert.equal(strip.scrollLeft,500+70-200+6);
 });
