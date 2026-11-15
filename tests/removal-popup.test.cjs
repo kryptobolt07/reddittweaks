@@ -14,7 +14,7 @@ test('without an active Reddit identity popup never substitutes another account 
  const s=await setup(t,{active:false}),d=s.W.document;assert.match(d.querySelector('#removal-summary').textContent,/signed-in Reddit tab/);assert.equal(d.querySelector('#open-removed').disabled,true);assert.equal(d.querySelector('#removal-history-toggle').disabled,true);
 });
 test('clearing removal history needs a second click and identifies the current account scope',async t=>{
- const s=await setup(t),d=s.W.document,b=d.querySelector('#clear-removal-history');b.click();assert.equal(s.calls.some(m=>m.scope==='rt-removal'&&m.action==='clear'),false);assert.match(b.textContent,/Confirm/);b.click();await settle();assert.ok(s.calls.some(m=>m.scope==='rt-removal'&&m.action==='clear'&&m.tabId===1));
+ const s=await setup(t),d=s.W.document,b=d.querySelector('#clear-removal-history');b.click();assert.equal(s.calls.some(m=>m.scope==='rt-removal'&&m.action==='clear'),false);assert.match(b.textContent,/Confirm/);b.click();await settle();assert.ok(s.calls.some(m=>m.scope==='rt-removal'&&m.action==='clear'&&m.tabId===1&&m.owner==='t2_self'));
 });
 
 test('recent changes keep links to posts published on a user profile',async t=>{

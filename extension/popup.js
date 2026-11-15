@@ -188,14 +188,14 @@ async function loadRemovalSummary(){
 document.getElementById('open-removed')?.addEventListener('click',async()=>{if(!removalAccount)return;try{await chrome.tabs.create({url:'https://www.reddit.com/user/'+encodeURIComponent(removalAccount.username)+'/search/?rt_list=removed'});}catch{document.getElementById('removal-status').textContent='Could not open your removed content.';}});
 document.getElementById('removal-history-toggle')?.addEventListener('click',async event=>{
   const open=removalHistory.hidden;removalHistory.hidden=!open;event.currentTarget.setAttribute('aria-expanded',String(open));
-  if(open && removalTab!=null)try{const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'seen',tabId:removalTab});if(!result?.ok)throw Error(result?.error);await loadRemovalSummary();}catch{document.getElementById('removal-status').textContent='Could not acknowledge changes. Reopen the popup to retry.';}
+  if(open && removalTab!=null)try{const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'seen',tabId:removalTab,owner:removalAccount?.owner});if(!result?.ok)throw Error(result?.error);await loadRemovalSummary();}catch{document.getElementById('removal-status').textContent='Could not acknowledge changes. Reopen the popup to retry.';}
   syncFade(document.getElementById('panel-home'));
 });
 document.getElementById('clear-removal-history')?.addEventListener('click',async event=>{
   const button=event.currentTarget;if(removalTab==null)return;
   if(!removalClearTimer){button.textContent='Confirm clear for u/'+removalAccount.username;removalClearTimer=setTimeout(()=>{removalClearTimer=null;button.textContent='Clear this account’s checks';},6000);return;}
   clearTimeout(removalClearTimer);removalClearTimer=null;button.disabled=true;
-  try{const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'clear',tabId:removalTab});if(!result?.ok)throw Error(result?.error);document.getElementById('removal-status').textContent='This account’s checks cleared. New observations start a fresh baseline.';await loadRemovalSummary();}
+  try{const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'clear',tabId:removalTab,owner:removalAccount?.owner});if(!result?.ok)throw Error(result?.error);document.getElementById('removal-status').textContent='This account’s checks cleared. New observations start a fresh baseline.';await loadRemovalSummary();}
   catch{document.getElementById('removal-status').textContent='Could not clear checks. Please retry.';}finally{button.disabled=removalTab==null;button.textContent='Clear this account’s checks';}
 });
 loadRemovalSummary();

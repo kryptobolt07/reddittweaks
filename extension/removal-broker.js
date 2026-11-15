@@ -23,10 +23,10 @@
   const popup=!sender.tab && sender.url===chrome.runtime.getURL('popup.html');
   if(['summary','seen','clear'].includes(message.action)){
    if(!popup || !Number.isInteger(message.tabId))throw Error('Open Reddit Tweaks to manage removal history.');
-   const me=await context(message.tabId);let value;
+   const me=await context(message.tabId);if(message.action!=='summary' && message.owner!==me.owner)throw Error('The signed-in account changed. Reopen Reddit Tweaks.');let value;
    if(message.action==='clear'){await store.clear(me.owner);value=await store.read(me.owner,me.username);for(const [id,bound] of bindings)if(bound.owner===me.owner)await chrome.tabs.sendMessage(id,{scope:'rt-removal',action:'cleared',owner:me.owner},{frameId:0}).catch(()=>{});}
    else value=message.action==='seen'?await store.seen(me.owner,me.username):await store.read(me.owner,me.username);
-   await update(me.owner,value);return {ok:true,value};
+   await update(me.owner,value);if((await context(message.tabId)).owner!==me.owner)throw Error('The signed-in account changed. Reopen Reddit Tweaks.');return {ok:true,value};
   }
   if(!reddit(sender))throw Error('Monitoring requires a top-level Reddit page.');
   if(message.action==='reset'){bindings.delete(sender.tab.id);await badge(sender.tab.id,'');return {ok:true};}
