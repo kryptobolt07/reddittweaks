@@ -114,7 +114,10 @@ document.getElementById('open-redaction')?.addEventListener('click',async event=
     const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
     let url;try{url=new URL(tab?.url);}catch{}
     if(tab?.id!=null && url?.protocol==='https:' && ['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(url.hostname)){
-      url.hash='rt-redact';await chrome.tabs.update(tab.id,{url:url.href});
+      // Ask the page to open the dialog in place. Changing the address (even only its #fragment) makes Reddit's router
+      // redraw parts of the page, such as the right sidebar; the fragment is only for a tab whose script isn't connected.
+      let opened=false;try{opened=(await chrome.tabs.sendMessage(tab.id,{scope:'rt-redact',action:'open'},{frameId:0}))?.opened===true;}catch{}
+      if(!opened){url.hash='rt-redact';await chrome.tabs.update(tab.id,{url:url.href});}
     }else await chrome.tabs.create({url:'https://www.reddit.com/user/me/#rt-redact'});
     window.close?.();
   }catch{button.disabled=false;document.getElementById('redaction-open-status').textContent='Couldn’t open Redaction. Open a Reddit page and try again.';}

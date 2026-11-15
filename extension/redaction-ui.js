@@ -20,9 +20,14 @@
   class Redaction {
     constructor({read=(...args)=>globalThis.RTRaffle.bridgeRead(...args),sleep=sleepFor,readSettings=settingsRead,aggregate=args=>globalThis.RTArchiveQuery?.aggregate(args),observe=true}={}){
       this.read=read;this.sleep=sleep;this.readSettings=readSettings;this.aggregate=aggregate;this.state=null;this.dead=false;
-      if(observe){this.onHash=()=>this.checkFragment();addEventListener('hashchange',this.onHash);this.checkFragment();}
+      if(observe){
+        this.onHash=()=>this.checkFragment();addEventListener('hashchange',this.onHash);this.checkFragment();
+        // The popup asks the page to open the dialog by message: no address change, so Reddit's router redraws nothing.
+        this.onMessage=(message,sender,reply)=>{if(message?.scope!=='rt-redact' || message.action!=='open' || sender?.id!==globalThis.chrome?.runtime?.id || this.dead)return;this.open();reply({ok:true,opened:true});};
+        try{chrome.runtime?.onMessage?.addListener(this.onMessage);}catch{}
+      }
     }
-    destroy(){this.dead=true;if(this.onHash)removeEventListener('hashchange',this.onHash);this.close(true);}
+    destroy(){this.dead=true;if(this.onHash)removeEventListener('hashchange',this.onHash);try{if(this.onMessage)chrome.runtime?.onMessage?.removeListener(this.onMessage);}catch{}this.close(true);}
     checkFragment(){
       if(this.dead || location.hash!==FRAGMENT)return;
       // Remove the fragment once (a different address, so Reddit's router doesn't reload; contract F3).

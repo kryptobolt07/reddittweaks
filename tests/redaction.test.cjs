@@ -385,3 +385,15 @@ test('the header shows a three-step progress bar that follows the step',async t=
  assert.deepEqual(bars(),['current','todo','todo']);assert.equal(s.q('.rt-dialog-steps').getAttribute('aria-hidden'),'true','the kicker text already says the step');
  s.primary().click();await flush();assert.deepEqual(bars(),['done','current','todo']);s.primary().click();assert.deepEqual(bars(),['done','done','current']);
 });
+test('the popup’s open message opens the dialog in place, without touching the address',async t=>{
+ const dom=new JSDOM('<main></main>',{url:'https://www.reddit.com/r/Alpha/',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;t.after(()=>W.close());
+ W.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};W.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
+ const listeners=[];let replaced=0;W.history.replaceState=()=>{replaced++;};
+ W.chrome={runtime:{id:'ext',onMessage:{addListener:fn=>listeners.push(fn),removeListener(){}},sendMessage:async()=>({ok:true,settings:{}})}};
+ W.eval(read('feed-filters.js'));W.eval(read('date-picker.js'));W.eval(read('redaction-model.js'));W.eval(read('redaction-ui.js'));
+ assert.equal(listeners.length,1);let answer;const kept=listeners[0]({scope:'rt-redact',action:'open'},{id:'ext'},value=>{answer=value;});
+ assert.equal(answer.ok,true);assert.ok(W.document.querySelector('[data-rt-redact="dialog"][open]'));assert.equal(W.location.href,'https://www.reddit.com/r/Alpha/');assert.equal(replaced,0);
+ listeners[0]({scope:'rt-redact',action:'open'},{id:'ext'},()=>{});assert.equal(W.document.querySelectorAll('[data-rt-redact="dialog"]').length,1,'a second open reuses the dialog');
+ assert.equal(listeners[0]({scope:'other'},{id:'ext'},()=>{}),undefined);assert.equal(kept,undefined);
+ W.RTRedactionInstance.destroy();
+});

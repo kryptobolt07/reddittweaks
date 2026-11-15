@@ -128,10 +128,14 @@ test('clean sharing is an independent opt-in that persists with all discovery op
  const reopened=popup(t,{settings:p.state});await settle();assert.equal(reopened.w.document.querySelector('#clean-share-links').checked,true);assert.equal(reopened.w.document.querySelector('#post-discovery').checked,false);
 });
 
-test('Redaction has its own popup section and opens in the active Reddit tab',async t=>{
- const updated=[],created=[],p=popup(t,{tabs:{async query(){return [{id:7,url:'https://www.reddit.com/r/Alpha/comments/abc/title/?sort=new'}];},async update(id,options){updated.push({id,...options});},async create(options){created.push(options);}}});let closed=false;p.w.close=()=>{closed=true;};await settle();
+test('Redaction opens in the active Reddit tab by message, without changing its address (no Reddit re-render)',async t=>{
+ const updated=[],created=[],sent=[],p=popup(t,{tabs:{async query(){return [{id:7,url:'https://www.reddit.com/r/Alpha/comments/abc/title/?sort=new'}];},async sendMessage(id,message,options){sent.push({id,message,options});return {ok:true,opened:true};},async update(id,options){updated.push({id,...options});},async create(options){created.push(options);}}});let closed=false;p.w.close=()=>{closed=true;};await settle();
  const button=p.w.document.getElementById('open-redaction');assert.equal(button.closest('section').getAttribute('aria-labelledby'),'redaction-heading');button.click();await settle();
- assert.deepEqual(updated,[{id:7,url:'https://www.reddit.com/r/Alpha/comments/abc/title/?sort=new#rt-redact'}]);assert.equal(created.length,0);assert.equal(closed,true);
+ assert.deepEqual(JSON.parse(JSON.stringify(sent)),[{id:7,message:{scope:'rt-redact',action:'open'},options:{frameId:0}}]);assert.equal(updated.length,0,'the tab address is never touched');assert.equal(created.length,0);assert.equal(closed,true);
+});
+test('Redaction falls back to the address fragment only when the page has no connected script',async t=>{
+ const updated=[],p=popup(t,{tabs:{async query(){return [{id:7,url:'https://www.reddit.com/r/Alpha/'}];},async sendMessage(){throw Error('Could not establish connection. Receiving end does not exist.');},async update(id,options){updated.push({id,...options});}}});p.w.close=()=>{};await settle();
+ p.w.document.getElementById('open-redaction').click();await settle();assert.deepEqual(updated,[{id:7,url:'https://www.reddit.com/r/Alpha/#rt-redact'}]);
 });
 test('Redaction uses the own-profile fallback outside Reddit and reports tab failures',async t=>{
  const created=[],p=popup(t,{tabs:{async query(){return [{id:8,url:'https://example.test/'}];},async create(options){created.push(options);}}});p.w.close=()=>{};await settle();p.w.document.getElementById('open-redaction').click();await settle();assert.deepEqual(JSON.parse(JSON.stringify(created)),[{url:'https://www.reddit.com/user/me/#rt-redact'}]);
