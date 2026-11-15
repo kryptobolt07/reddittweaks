@@ -1,6 +1,6 @@
 :root{color-scheme:light dark;--accent:#ff4500;--accent-soft:#fff0e9;--text:#0f1a1c;--muted:#576f76;--surface:#f6f8f9;--card:#fff;--line:#e3e8ea;--page:#eef2f3;--tile:#fff0e9;--danger:#b42318;--link-bg:#c23600;--track:#7b8a91}
 *{box-sizing:border-box}
-html{width:368px;min-width:368px;margin:0;padding:0;overflow-x:hidden}
+html{width:368px;min-width:368px;margin:0;padding:0;overflow:hidden}
 body{width:368px;min-width:368px;margin:0;padding:8px 12px 6px;background:var(--page);color:var(--text);font:13px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
 svg{display:block}
 
@@ -16,7 +16,10 @@ svg{display:block}
 .tab{min-height:30px;margin:0;padding:0 8px;border:0;border-radius:999px;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:650;cursor:pointer;transition:background .15s ease,color .15s ease}
 .tab:hover{color:var(--text);background:var(--surface)}
 .tab[aria-selected="true"]{background:var(--accent);color:#fff;box-shadow:0 1px 3px rgba(194,54,0,.3)}
-.panel{display:flex;flex-direction:column;gap:8px;min-height:352px}
+/* Every tab has the same fixed height, so switching never resizes the popup; longer tabs scroll with no visible scrollbar. */
+.panel{display:flex;flex-direction:column;gap:8px;height:430px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.panel::-webkit-scrollbar{display:none}
+.panel>*{flex:none}
 .panel[hidden]{display:none}
 .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
@@ -26,16 +29,10 @@ svg{display:block}
 .tool-copy{min-width:0;flex:1}
 .tool-copy h2{display:flex;align-items:center;gap:6px;margin:0;font-size:14px;font-weight:750;letter-spacing:-.1px}
 .tool-copy p{margin:2px 0 0;color:var(--muted);font-size:11.5px;line-height:1.45}.tool-copy strong{color:var(--text)}
-.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:0;padding:0;list-style:none;counter-reset:step}
-.steps li{display:flex;align-items:center;gap:6px;min-width:0;padding:6px 8px;border-radius:10px;background:var(--surface);font-size:11px;font-weight:650;line-height:1.25;counter-increment:step}
-.steps li:before{content:counter(step);display:grid;place-items:center;flex:none;width:18px;height:18px;border-radius:50%;background:var(--tile);color:var(--accent);font-size:10.5px;font-weight:800}
-.safety{position:relative;margin:0;padding-left:18px;color:var(--muted);font-size:11px;line-height:1.45}
-.safety:before{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;background:#2e9e5b;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 1.5 3 4.3v5.2c0 4.2 2.9 7.8 7 9 4.1-1.2 7-4.8 7-9V4.3l-7-2.8Zm-.9 11.4-3-3 1.3-1.3 1.7 1.7 3.7-3.7 1.3 1.3-5 5Z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 1.5 3 4.3v5.2c0 4.2 2.9 7.8 7 9 4.1-1.2 7-4.8 7-9V4.3l-7-2.8Zm-.9 11.4-3-3 1.3-1.3 1.7 1.7 3.7-3.7 1.3 1.3-5 5Z'/%3E%3C/svg%3E") center/contain no-repeat}
 .primary-action,.secondary-action{display:flex;align-items:center;justify-content:center;width:100%;min-height:34px;margin:0;padding:0 14px;border-radius:999px;font:inherit;font-size:12.5px;font-weight:750;cursor:pointer;transition:filter .15s ease,background .15s ease}
 .primary-action{border:0;background:var(--link-bg);color:#fff}.primary-action:hover{filter:brightness(1.07)}.primary-action:disabled{opacity:.6;cursor:wait}
 .secondary-action{border:1px solid var(--line);background:var(--card);color:var(--text)}.secondary-action:hover{background:var(--surface)}
 .secondary-action[hidden]{display:none}
-.destination{margin:-2px 0 0;color:var(--muted);font-size:10.5px;text-align:center}
 .inline-status{margin:0;padding-left:0;text-align:center}.inline-status:before{display:none}.inline-status:empty{display:none}
 .state-pill{padding:1px 7px;border-radius:999px;background:#e3f4ea;color:#17663a;font-size:10px;font-weight:750;letter-spacing:.2px}
 #raffles-home[data-state="off"] .state-pill{background:var(--surface);color:var(--muted)}
@@ -124,8 +121,8 @@ footer{padding:8px 6px 0;color:var(--muted);font-size:9.5px;line-height:1.4;text
   .switch{width:44px;height:26px}.switch:after{width:20px;height:20px}.switch:checked:after{transform:translateX(18px)}
   .cache-actions button{min-height:40px;font-size:12px}
   .setting-copy label{font-size:14px}.setting-copy p,.tool-copy p{font-size:12.5px}
-  .steps li{font-size:12px;padding:8px}
-  .panel{min-height:0}
+  html{overflow:auto}
+  .panel{height:auto;overflow:visible}
 }
 @media(forced-colors:active){
   .switch{background:ButtonFace;border:2px solid ButtonText;forced-color-adjust:none}

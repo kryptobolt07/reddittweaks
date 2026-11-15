@@ -156,13 +156,12 @@ test('three tabs (Home, Settings, Data) with tab semantics, keyboard movement an
   // Sections live in their tabs.
   assert.ok(panel('home').contains(doc.getElementById('open-redaction')));assert.ok(panel('settings').contains(doc.getElementById('post-discovery')));assert.ok(panel('data').contains(doc.getElementById('clear-messages')));
 });
-test('Home: a step-by-step Redaction card that says where it will open',async t=>{
+test('Home: a plain Redaction card: no step list, badge icon or destination text',async t=>{
   const p=popup(t,{tabs:redditTab});await settle();const doc=p.w.document,card=doc.getElementById('open-redaction').closest('section');
-  assert.equal(card.getAttribute('aria-labelledby'),'redaction-heading');
-  assert.deepEqual([...card.querySelectorAll('.steps li')].map(li=>li.textContent.trim()),['Choose filters','Review matches','Confirm']);
-  assert.match(card.querySelector('.safety').textContent,/Nothing changes until you type the confirmation/);
-  assert.equal(doc.getElementById('open-redaction').textContent.trim(),'Start redaction');assert.equal(doc.getElementById('redaction-destination').textContent,'Opens on this Reddit tab');
-  const away=popup(t,{tabs:{async query(){return [{id:2,url:'https://example.test/'}];}}});await settle();assert.equal(away.w.document.getElementById('redaction-destination').textContent,'Opens your Reddit profile in a new tab');
+  assert.equal(card.getAttribute('aria-labelledby'),'redaction-heading');assert.equal(doc.getElementById('open-redaction').textContent.trim(),'Start redaction');
+  assert.match(doc.getElementById('open-redaction-desc').textContent,/until you confirm/);
+  for(const gone of ['.steps','.safety','#redaction-destination'])assert.equal(doc.querySelector(gone),null,gone);
+  assert.equal(doc.getElementById('open-redaction').getAttribute('aria-describedby'),'open-redaction-desc');
 });
 test('Home: Raffles explains where to find them and can be turned on in place',async t=>{
   const p=popup(t,{tabs:redditTab,settings:{'rt-settings-v1':{raffles:false}}});await settle();const doc=p.w.document,card=doc.getElementById('raffles-home');
@@ -180,6 +179,9 @@ test('Home summarises active features and Manage opens Settings; each settings g
 });
 test('popup styles: fluid width and larger targets on touch screens, tabs in both themes',()=>{
   const css=fs.readFileSync(path.join(__dirname,'../extension/popup.css'),'utf8');
+  // One size for every tab: panels share a fixed height and scroll without a visible scrollbar; the page never scrolls.
+  assert.match(css,/\.panel\{[^}]*height:430px[^}]*overflow-y:auto[^}]*scrollbar-width:none/);assert.match(css,/\.panel::-webkit-scrollbar\{display:none\}/);
+  assert.match(css,/html\{[^}]*overflow:hidden/);assert.doesNotMatch(css,/\.safety|\.steps|\.destination/);
   assert.match(css,/@media\(hover:none\) and \(pointer:coarse\)\{[^@]*html,body\{width:auto;min-width:0/);assert.match(css,/@media\(hover:none\) and \(pointer:coarse\)\{[^@]*\.tab\{[^}]*min-height:44px/);
-  assert.match(css,/\.tab\[aria-selected="true"\]\{/);assert.match(css,/\.panel\{[^}]*min-height:/,'switching tabs does not collapse the popup');
+  assert.match(css,/\.tab\[aria-selected="true"\]\{/);
 });
