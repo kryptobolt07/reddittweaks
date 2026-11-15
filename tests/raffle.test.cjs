@@ -85,27 +85,30 @@ test('a failed settings read keeps raffles on and retries; the item is ensured a
  await new Promise(res=>setTimeout(res,1100));await flush();assert.equal(reads,2,'retried');assert.equal(W.document.querySelector('[data-rt-raffle="item"]'),null,'the real setting applies once read');
  const s2=await ui(t);s2.item().remove();s2.D.querySelector('button[aria-haspopup]').dispatchEvent(new s2.W.Event('pointerdown',{bubbles:true,composed:true}));assert.ok(s2.item(),'re-added as the ⋯ button is pressed');
 });
-test('a post’s Reddit Raffler status shows as a pill in the item’s reserved slot: the label never swaps or reflows',async t=>{
+test('the ⋯ item shows Reddit’s skeleton until the Raffler status is known, then the full wording, at the same height',async t=>{
  const s=await ui(t,{raffler:m=>m.action==='status'?{ok:true,exists:true,raffle:{verified:true}}:{ok:true,signedIn:''}});
- const pill=()=>s.item().querySelector('.rt-raffle-menu-state'),label=()=>s.item().querySelector('.text-body-2').textContent;
- // The pill is in the item from the start (space reserved, invisible), so a later status changes nothing around it.
- assert.equal(pill().dataset.state,'unknown');assert.equal(pill().getAttribute('aria-hidden'),'true');assert.equal(s.item().querySelector('.text-caption-1'),null,'no caption line to appear later');
+ const label=()=>s.item().querySelector('.text-body-2').textContent,caption=()=>s.item().querySelector('.text-caption-1').textContent;
+ // Unknown status: a skeleton over both lines (the text stays for screen readers), never a wrong label to swap later.
+ assert.equal(s.item().dataset.rtRaffleState,'loading');assert.equal(s.item().querySelector('[role="menuitem"]').getAttribute('aria-busy'),'true');assert.ok(s.item().querySelector('.text-caption-1'),'two lines from the start: no height change later');
+ assert.equal(s.item().querySelector('.rt-raffle-menu-state'),null,'no pill');
  const press=()=>s.D.querySelector('button[aria-haspopup]').dispatchEvent(new s.W.Event('pointerdown',{bubbles:true,composed:true}));
  press();await flush();
- assert.equal(label(),'Run a raffle');assert.equal(s.item().dataset.rtRaffleState,'drawn');assert.equal(pill().dataset.state,'drawn');assert.equal(pill().textContent,'Drawn');
- assert.equal(pill().getAttribute('aria-hidden'),'false');assert.match(pill().title,/public raffle.*Reddit Raffler.*verified/i);assert.match(s.item().querySelector('[role="menuitem"]').getAttribute('aria-label'),/^Run a raffle, a public raffle was already drawn/);
+ assert.equal(label(),'View raffle results');assert.equal(caption(),'Drawn on Reddit Raffler · verified');assert.equal(s.item().dataset.rtRaffleState,'drawn');assert.equal(s.item().querySelector('[role="menuitem"]').hasAttribute('aria-busy'),false);
  press();await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='status').length,1,'cached per post');
  const none=await ui(t);none.D.querySelector('button[aria-haspopup]').dispatchEvent(new none.W.Event('pointerdown',{bubbles:true,composed:true}));await flush();
- assert.equal(none.item().querySelector('.text-body-2').textContent,'Run a raffle');assert.equal(none.item().dataset.rtRaffleState,'none');assert.equal(none.item().querySelector('.rt-raffle-menu-state').dataset.state,'none');
- const css=read('post-discovery.css');assert.match(css,/\.rt-raffle-menu-state\{[^}]*opacity:0/);assert.match(css,/\.rt-raffle-menu-state\[data-state="drawn"\]\{[^}]*opacity:1/);
+ assert.equal(none.item().querySelector('.text-body-2').textContent,'Run a raffle');assert.equal(none.item().querySelector('.text-caption-1').textContent,'Pick winners from the comments');assert.equal(none.item().dataset.rtRaffleState,'none');
+ const down=await ui(t,{raffler:m=>{throw Error('unreachable');}});down.D.querySelector('button[aria-haspopup]').dispatchEvent(new down.W.Event('pointerdown',{bubbles:true,composed:true}));await flush();
+ assert.equal(down.item().dataset.rtRaffleState,'none','a failed check falls back to Run a raffle, never a stuck skeleton');
+ const css=read('post-discovery.css');assert.match(css,/\[data-rt-raffle-state="loading"\] :is\(\.text-body-2,\.text-caption-1\)\{[^}]*color:transparent/);assert.match(css,/\[data-rt-raffle-state="loading"\] :is\(\.text-body-2,\.text-caption-1\)::after\{[^}]*animation:rt-shimmer/);
+ assert.doesNotMatch(css,/\[data-rt-raffle-state="loading"\][^{]*\{[^}]*margin/,'the skeleton never changes the item’s size');
 });
 test('hovering or focusing ⋯ fetches the status early, so a menu opened afterwards is drawn with it already in place',async t=>{
  const s=await ui(t,{raffler:m=>m.action==='status'?{ok:true,exists:true,raffle:{verified:false}}:{ok:true,signedIn:''}});
  const trigger=s.D.querySelector('button[aria-haspopup]');
  trigger.dispatchEvent(new s.W.Event('pointerover',{bubbles:true,composed:true}));await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='status').length,1,'prefetched on hover');
  trigger.dispatchEvent(new s.W.Event('pointerover',{bubbles:true,composed:true}));trigger.dispatchEvent(new s.W.FocusEvent('focusin',{bubbles:true,composed:true}));await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='status').length,1,'once per post');
- // Reddit redraws the menu: the new item starts in the known state synchronously, with no flash.
- s.item().remove();s.r.sync();assert.equal(s.item().dataset.rtRaffleState,'drawn');assert.equal(s.item().querySelector('.rt-raffle-menu-state').dataset.state,'drawn');assert.doesNotMatch(s.item().querySelector('.rt-raffle-menu-state').title,/verified/);
+ // Reddit redraws the menu: the new item starts with the final wording synchronously, with no skeleton or flash.
+ s.item().remove();s.r.sync();assert.equal(s.item().dataset.rtRaffleState,'drawn');assert.equal(s.item().querySelector('.text-body-2').textContent,'View raffle results');assert.equal(s.item().querySelector('.text-caption-1').textContent,'Drawn on Reddit Raffler');
 });
 test('the rules screen offers a public or a private draw, focuses the heading and keeps one main action',async t=>{
  const s=await ui(t);const trigger=s.D.querySelector('button[aria-haspopup]');let menuClicks=0;trigger.addEventListener('click',()=>{menuClicks++;trigger.setAttribute('aria-expanded','false');});
@@ -350,7 +353,7 @@ test('public draw: says how it will be created, warns before confirming, sends R
  const row=s.q('.rt-raffle-winner[data-rt-winner="Alice"]');assert.match(row.querySelector('.rt-raffle-excerpt').textContent,/^First line/);
  // Reddit Raffler's own facts: account age and both karmas, in the same line a private draw shows.
  assert.deepEqual([...row.querySelectorAll('.rt-raffle-stat')].map(e=>e.textContent),['243 days old','5 comment karma','1 post karma']);
- const proofIcon=proof.querySelector('svg');assert.equal(proofIcon.dataset.icon,'proof','a proof certificate, not a generic external-link arrow');
+ const proofIcon=proof.querySelector('svg');assert.equal(proofIcon.dataset.icon,'raffler','Reddit Raffler’s own mark');assert.equal(proofIcon.getAttribute('viewBox'),'0 0 159 159');assert.equal(proofIcon.getAttribute('fill'),'currentColor','follows the button’s colour in both themes');assert.equal(proofIcon.querySelectorAll('path').length,7,'the mark only, without the wordmark');
  assert.equal(s.secondary(),null,'no Draw again for a public draw');assert.equal(s.primary().textContent,'Message winners');
  assert.match(s.q('[data-rt-raffle-view="results"]').dataset.markdown,/Proof: https:\/\/www\.redditraffler\.com\/raffles\/post1$/);
 });
@@ -514,7 +517,8 @@ test('rules: every section has its own symbol, text fields match the redaction f
  await flush();assert.equal(s.q('.rt-raffle-body').scrollTop,0,'opens at the top');let scrolled=0;s.W.Element.prototype.scrollIntoView=()=>{scrolled++;};await s.open();await flush();assert.equal(scrolled,0,'nothing scrolls a section into view on open');
  const css=read('post-discovery.css');
  assert.match(css,/\.rt-raffle-text\{[^}]*width:100%[^}]*height:40px[^}]*border-radius:20px/,'the same 40 px pill as the redaction fields');
- assert.match(css,/\.rt-raffle-body\{[^}]*overflow-y:auto/,'the body scrolls instead of clipping at the bottom');assert.match(css,/@media \(max-width:640px\)\{[^]*\.rt-raffle-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+ // Reddit's own scrollbox scrolls the card; its 2.5em fade overlay is switched off so nothing at the edges looks blurred.
+ assert.match(css,/\.rt-raffle-card\{[^}]*--scrollbox-overlay-height:0px/);assert.doesNotMatch(css,/\.rt-raffle-body\{[^}]*overflow-y:auto/,'no second scroll area inside the card');assert.match(css,/@media \(max-width:640px\)\{[^]*\.rt-raffle-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
 });
 test('exclude users: suggestions are the post’s commenters from one thread read, which a later draw reuses',async t=>{
  const s=await ui(t);await s.open();
@@ -552,7 +556,7 @@ test('private winners show account age and both karmas, read once per winner, in
  // One layout for both kinds: banner (title, badge, details, actions), rows (rank, avatar, name and time, facts, comment).
  for(const part of ['.rt-raffle-banner .rt-raffle-banner-title','.rt-raffle-banner .rt-raffle-badge','.rt-raffle-banner .rt-raffle-banner-meta','.rt-raffle-banner .rt-raffle-copy'])assert.ok(s.q(part),part);
  for(const part of ['.rt-raffle-rank','.rt-raffle-avatar','.rt-raffle-meta .rt-raffle-name','.rt-raffle-meta faceplate-timeago','.rt-raffle-stats','.rt-raffle-excerpt'])assert.ok(alice.querySelector(part),part);
- const css=read('post-discovery.css');assert.match(css,/\.rt-raffle-winner\{[^}]*padding:6px 8px/);assert.match(css,/\.rt-raffle-stat\+\.rt-raffle-stat::before\{content:'·'/);
+ const css=read('post-discovery.css');assert.match(css,/\.rt-raffle-winner\{[^}]*padding:8px 10px/);
 });
 test('a winner whose account can’t be read says so instead of leaving a gap',async t=>{
  const s=await ui(t,{users:{Bob:Error('HTTP 500')}});await s.open();s.mode('private');s.input('excludeUsers','Alice');await loadPrivate(s);s.primary().click();await flush();
@@ -591,4 +595,23 @@ test('exclude users lists the commenters already on the page at once, then adds 
 test('the user menu is compact: Reddit’s menu width, not the field’s',async t=>{
  const s=await ui(t);await s.open();const control=s.q('[data-rt-raffle-filter="excludeUsers"]');control.getBoundingClientRect=()=>({left:20,top:100,bottom:140,width:480,height:40,right:500});
  control.click();await flush();assert.equal(s.q('[data-rt-raffle-users]').style.width,'256px');
+});
+test('winners screen: a trophy header, medal ranks, readable names and fact chips',async t=>{
+ const s=await ui(t);await s.open();await privateDraw(s,'2');await flush();
+ assert.ok(s.q('.rt-raffle-banner .rt-raffle-hero-icon svg[data-icon="trophy"]'));assert.equal(s.q('.rt-raffle-hero-icon').getAttribute('aria-hidden'),'true');
+ assert.deepEqual([...s.D.querySelectorAll('.rt-raffle-rank')].map(r=>r.dataset.rank),['1','2']);
+ const css=read('post-discovery.css');
+ assert.match(css,/\.rt-raffle-rank\[data-rank="1"\]\{[^}]*background:#f5b400/);assert.match(css,/\.rt-raffle-rank\[data-rank="2"\]\{/);assert.match(css,/\.rt-raffle-rank\[data-rank="3"\]\{/);
+ assert.match(css,/\.rt-raffle-name\{[^}]*font-size:14px/);assert.match(css,/\.rt-raffle-stat\{[^}]*background:var\(--color-secondary-background/);
+ assert.match(css,/\.rt-raffle-excerpt\{[^}]*color:var\(--color-neutral-content-strong/,'comment text at full strength, not faded');
+ assert.match(css,/\.rt-raffle-winner\{[^}]*border:1px solid/);assert.doesNotMatch(css,/\.rt-raffle-stat\+\.rt-raffle-stat::before/);
+});
+test('raffle fields share the redaction dialog’s hover, pressed and focus states',()=>{
+ const css=read('post-discovery.css'),rule=sel=>css.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\{([^}]*)\\}'))?.[1] || '';
+ const hover=rule('dialog.rt-raffle-dialog :is(.rt-redact-control,.rt-raffle-input,.rt-raffle-field input:not([type=hidden]),.rt-redact-area,.rt-raffle-step,.rt-raffle-option):hover');
+ assert.match(hover,/background:var\(--color-neutral-background-hover,#e8edef\)/);assert.match(hover,/border-color:var\(--color-neutral-border-strong,#5c6c74\)/);
+ assert.match(rule('dialog.rt-raffle-dialog :is(.rt-redact-control,.rt-raffle-step,.rt-raffle-option):active'),/background:var\(--color-interactive-pressed/);
+ const focus=rule('dialog.rt-raffle-dialog :is(.rt-raffle-input,.rt-raffle-field input:not([type=hidden]),.rt-redact-area):focus');assert.match(focus,/outline:2px solid var\(--color-a-default,#216ba5\)/);
+ assert.match(rule('dialog.rt-raffle-dialog :is(.rt-redact-control,.rt-raffle-step,.rt-switch input,.rt-raffle-option input,.rt-raffle-more,.rt-raffle-winner a):focus-visible'),/outline:2px solid var\(--color-a-default,#216ba5\)/);
+ assert.doesNotMatch(css,/\.rt-raffle-input:focus-visible/,'no second, black focus ring on raffle fields');
 });

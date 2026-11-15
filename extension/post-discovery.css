@@ -377,11 +377,11 @@ shreddit-feed[data-rt-unapproved-hidden]{display:none!important}
 .rt-unapproved-button svg{width:16px;height:16px;flex:none;fill:currentColor}
 .rt-unapproved{overflow-anchor:none}
 .rt-unapproved-summary[data-error="true"]{color:var(--color-danger-content,#d93900)}
-/* ⋯ menu item: the Reddit Raffler status pill sits in the item's trailing slot from the start, invisible until known,
-   so the label and the menu's size never change when the answer arrives. */
-.rt-raffle-menu-state{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f);font-size:12px;line-height:16px;font-weight:600;white-space:nowrap;opacity:0}
-.rt-raffle-menu-state[data-state="drawn"]{opacity:1}
-@media (prefers-reduced-motion:no-preference){.rt-raffle-menu-state{transition:opacity .15s ease}}
+/* ⋯ menu item: Reddit's skeleton over the label and caption until the Reddit Raffler status is known; the text
+   underneath keeps the final size, so the wording arrives without moving anything. */
+[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1){position:relative;width:fit-content;max-width:100%;color:transparent!important;user-select:none}
+[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1)::after{--rt-skeleton-base:color-mix(in srgb,var(--color-neutral-content-strong,#1a1a1b) 16%,var(--color-neutral-background,#fff));content:'';position:absolute;inset:3px 0;border-radius:999px;background-image:linear-gradient(90deg,var(--rt-skeleton-base) 30%,color-mix(in srgb,var(--rt-skeleton-base) 45%,var(--color-neutral-background,#fff)) 50%,var(--rt-skeleton-base) 70%);background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1)::after{animation:none}}
 /* Raffle dialog (docs/raffle-spec.md). Reddit's rpl-modal-card on its measured scrim. Rules follow Reddit's settings
    rows (label 14/20, caption 12/16 #576F76, control right, 8 px rows, 48x32 switch); winners follow its comment row
    (32 px avatar, 12/700 name, 12 weak time, 14/20 text). One spacing scale: 4, 8, 12, 16. */
@@ -401,9 +401,10 @@ dialog.rt-raffle-dialog .rt-raffle-input{margin:0;vertical-align:middle}
 :root.theme-dark .rt-switch input:checked+.rt-switch-track,:root[data-theme="dark"] .rt-switch input:checked+.rt-switch-track{background:rgb(151,175,188)}
 dialog.rt-raffle-dialog:focus,dialog.rt-raffle-dialog:focus-visible{outline:none}
 dialog.rt-raffle-dialog::backdrop{background-color:var(--color-scrim-background,#00000099)}
-.rt-raffle-card{flex:0 1 auto;width:min(520px,100%);height:auto;min-height:0;max-height:min(760px,100%);border-radius:var(--rem16,16px);box-shadow:var(--boxshadow-modal,0 2px 15px rgba(26,26,27,.3));background:var(--color-ui-modalbackground,#fff)}
-.rt-raffle-body{display:flex;flex-direction:column;gap:10px;padding:0 16px 8px;width:100%;box-sizing:border-box;font-size:14px;line-height:20px;max-height:calc(100dvh - 176px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
-dialog.rt-raffle-sheet .rt-raffle-body{max-height:calc(92dvh - 152px)}
+/* Reddit's rpl-scrollbox fades 2.5em at the content's top and bottom while it can scroll, which made the last rows
+   (winners, Download a copy) look blurred; the fade is switched off for these dialogs. */
+.rt-raffle-card{--scrollbox-overlay-height:0px;flex:0 1 auto;width:min(520px,100%);height:auto;min-height:0;max-height:min(760px,100%);border-radius:var(--rem16,16px);box-shadow:var(--boxshadow-modal,0 2px 15px rgba(26,26,27,.3));background:var(--color-ui-modalbackground,#fff)}
+.rt-raffle-body{display:flex;flex-direction:column;gap:10px;padding:0 16px 8px;width:100%;box-sizing:border-box;font-size:14px;line-height:20px}
 /* Header shared by the raffle and redaction dialogs: a small kicker (the post, or the step) above an 18/24 title,
    with tighter space around it than Reddit's default title row. */
 .rt-dialog-head{display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:0;min-height:40px;box-sizing:border-box;padding:12px 8px 6px 16px}
@@ -455,13 +456,20 @@ dialog.rt-raffle-dialog .rt-raffle-text{display:block;width:100%;height:40px;pad
 .rt-raffle-row-control{display:flex;align-items:center;flex:none}
 .rt-raffle-input{box-sizing:border-box;height:32px;padding:0 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:999px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);font:inherit;font-size:14px;line-height:20px}
 .rt-raffle-row-control>.rt-raffle-input{width:168px}
-.rt-raffle-input:hover{border-color:var(--color-neutral-border-strong,#5c6c74)}
-.rt-raffle-input:focus-visible,.rt-switch input:focus-visible+.rt-switch-track,.rt-raffle-step:focus-visible,.rt-raffle-winner a:focus-visible,.rt-raffle-more:focus-visible{outline:2px solid var(--color-neutral-border-strong,#181c1f);outline-offset:2px}
+/* One set of field states for the raffle and redaction dialogs (the redaction controls' look): hover lightens the
+   fill and darkens the border, pressing uses Reddit's pressed fill, and focus is the same blue ring everywhere. */
+dialog.rt-raffle-dialog :is(.rt-redact-control,.rt-raffle-input,.rt-raffle-field input:not([type=hidden]),.rt-redact-area,.rt-raffle-step,.rt-raffle-option):hover{background:var(--color-neutral-background-hover,#e8edef);border-color:var(--color-neutral-border-strong,#5c6c74)}
+dialog.rt-raffle-dialog :is(.rt-redact-control,.rt-raffle-step,.rt-raffle-option):active{background:var(--color-interactive-pressed,#d5dde0)}
+dialog.rt-raffle-dialog :is(.rt-raffle-input,.rt-raffle-field input:not([type=hidden]),.rt-redact-area):focus{outline:2px solid var(--color-a-default,#216ba5);outline-offset:2px;border-color:var(--color-neutral-border-strong,#5c6c74);background:var(--color-neutral-background,#fff)}
+dialog.rt-raffle-dialog :is(.rt-redact-control,.rt-raffle-step,.rt-switch input,.rt-raffle-option input,.rt-raffle-more,.rt-raffle-winner a):focus-visible{outline:2px solid var(--color-a-default,#216ba5);outline-offset:2px}
+dialog.rt-raffle-dialog .rt-switch input:focus-visible+.rt-switch-track{outline:2px solid var(--color-a-default,#216ba5);outline-offset:2px}
+dialog.rt-raffle-dialog :is(.rt-raffle-input,.rt-redact-area,.rt-redact-control,.rt-raffle-option){transition:background-color .12s ease,border-color .12s ease}
+@media (prefers-reduced-motion:reduce){dialog.rt-raffle-dialog :is(.rt-raffle-input,.rt-redact-area,.rt-redact-control,.rt-raffle-option){transition:none}}
 .rt-raffle-stepper{display:flex;align-items:center;gap:4px}
 .rt-raffle-stepper .rt-raffle-count{width:48px;padding:0 4px;text-align:center;-moz-appearance:textfield}
 .rt-raffle-count::-webkit-outer-spin-button,.rt-raffle-count::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .rt-raffle-step{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f);font:inherit;font-size:18px;line-height:1;cursor:pointer}
-.rt-raffle-step:hover{background:var(--color-secondary-background-hover,#dbe4e9)}
+.rt-raffle-step{border:1px solid transparent}
 /* Reddit's switch (faceplate-switch-input): 48x32 track, 28 px knob. */
 .rt-switch{position:relative;display:inline-flex;flex:none}
 /* The native checkbox stays invisible even when Reddit's page CSS restyles disabled inputs. */
@@ -490,7 +498,7 @@ dialog.rt-raffle-dialog .rt-raffle-text{display:block;width:100%;height:40px;pad
 /* Choice between a public draw (Reddit Raffler) and a private one. */
 .rt-raffle-choice{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .rt-raffle-option{position:relative;display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:12px;cursor:pointer}
-.rt-raffle-option[data-selected="true"]{border-color:var(--color-neutral-content-strong,#181c1f);box-shadow:inset 0 0 0 1px var(--color-neutral-content-strong,#181c1f)}
+.rt-raffle-option[data-selected="true"],dialog.rt-raffle-dialog .rt-raffle-option[data-selected="true"]:hover{border-color:var(--color-neutral-content-strong,#181c1f);box-shadow:inset 0 0 0 1px var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-option:has(input:disabled){cursor:default}
 .rt-raffle-option:has(input:disabled) .rt-raffle-option-title,.rt-raffle-option:has(input:disabled) .rt-raffle-option-caption{opacity:.55}
 .rt-raffle-option input{flex:none;width:18px;height:18px;margin:1px 0 0;accent-color:var(--color-primary-background,#000)}
@@ -515,7 +523,7 @@ dialog.rt-raffle-dialog .rt-raffle-text{display:block;width:100%;height:40px;pad
 .rt-raffle-ack input{flex:none;width:16px;height:16px;margin:0;accent-color:var(--color-primary-background,#000)}
 .rt-raffle-banner-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
 .rt-raffle-banner-row .rt-raffle-banner-title{white-space:nowrap}
-.rt-raffle-banner-info{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:4px}
+.rt-raffle-banner-info{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0}
 .rt-raffle-field-title{font-weight:600;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-preview-wrap>summary{cursor:pointer;min-height:24px;display:flex;align-items:center;list-style:none}
 .rt-raffle-details summary::-webkit-details-marker,.rt-raffle-preview-wrap>summary::-webkit-details-marker{display:none}
@@ -535,34 +543,40 @@ dialog.rt-raffle-dialog .rt-raffle-text{display:block;width:100%;height:40px;pad
 .rt-raffle-people-out .rt-raffle-person{opacity:.75}
 .rt-raffle-people-out .rt-raffle-person:hover{opacity:1;background:var(--color-neutral-background-hover,#f6f8f9)}
 /* Winners */
-.rt-raffle-banner{display:block;padding-bottom:4px}
-.rt-raffle-banner-text{display:flex;flex-direction:column;gap:2px;min-width:0}
-.rt-raffle-banner-title{font-size:16px;line-height:20px;font-weight:700;color:var(--color-neutral-content-strong,#181c1f)}
+.rt-raffle-banner{display:block;padding:4px 0 6px}
+/* Results header: a trophy tile, the count over its badge and details, the actions at the end. */
+.rt-raffle-hero-icon{display:inline-flex;flex:none;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;background:color-mix(in srgb,var(--color-brand-background,#d93900) 14%,transparent);color:var(--color-brand-background,#d93900)}
+.rt-raffle-banner-text{display:flex;flex:1 1 auto;flex-direction:column;gap:2px;min-width:0}
+.rt-raffle-banner-title{font-size:18px;line-height:24px;font-weight:800;letter-spacing:-.01em;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-banner-title:focus{outline:none}
 .rt-raffle-banner-meta{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-copy{flex:none}
-.rt-raffle-winners{list-style:none;margin:0 -8px;padding:0;display:flex;flex-direction:column}
-.rt-raffle-winner{position:relative;display:grid;grid-template-columns:16px 32px minmax(0,1fr);column-gap:8px;align-items:start;padding:6px 8px;border-radius:12px}
-.rt-raffle-winner:hover{background:var(--color-neutral-background-hover,#f6f8f9)}
+.rt-raffle-winners{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+/* Each winner is a bordered card: medal rank, 36 px avatar, name and time, fact chips, then the comment. */
+.rt-raffle-winner{position:relative;display:grid;grid-template-columns:24px 36px minmax(0,1fr);column-gap:10px;align-items:start;padding:8px 10px;border:1px solid var(--color-neutral-border-weak,#e5ebee);border-radius:12px;background:var(--color-neutral-background,#fff)}
+.rt-raffle-winner:hover{background:var(--color-neutral-background-hover,#f6f8f9);border-color:var(--color-neutral-border,#d4dadc)}
 .rt-raffle-cover{position:absolute;inset:0;border-radius:inherit;z-index:0}
-.rt-raffle-rank{display:flex;align-items:center;justify-content:center;height:32px;font-size:12px;font-weight:700;color:var(--color-neutral-content-weak,#576f76)}
+.rt-raffle-rank{display:flex;align-items:center;justify-content:center;width:24px;height:24px;margin-top:6px;border-radius:50%;background:var(--color-secondary-background,#e5ebee);font-size:12px;line-height:1;font-weight:800;color:var(--color-neutral-content-strong,#181c1f);font-variant-numeric:tabular-nums}
+.rt-raffle-rank[data-rank="1"]{background:#f5b400;color:#3d2b00}
+.rt-raffle-rank[data-rank="2"]{background:#c5ced4;color:#1f2a31}
+.rt-raffle-rank[data-rank="3"]{background:#dd9a5e;color:#3a1d00}
 .rt-raffle-avatar{display:block;flex:none;width:32px;height:32px;border-radius:50%;overflow:hidden;background:var(--color-secondary-background,#e5ebee)}
 .rt-raffle-avatar img{display:block;width:100%;height:100%;object-fit:cover}
+.rt-raffle-winner>.rt-raffle-avatar{width:36px;height:36px}
 .rt-raffle-winner-main{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0}
 /* Account facts under the name (as Reddit Raffler lists them): age, comment karma, post karma. */
-.rt-raffle-stats{display:flex;flex-wrap:wrap;align-items:center;min-height:16px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76);font-variant-numeric:tabular-nums}
+.rt-raffle-stats{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-height:20px;margin-top:2px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76);font-variant-numeric:tabular-nums}
 .rt-raffle-stats[data-state="loading"]{opacity:.7}
-.rt-raffle-stat{white-space:nowrap}
-.rt-raffle-stat+.rt-raffle-stat::before{content:'·';margin-inline:4px}
+.rt-raffle-stat{padding:2px 8px;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f);font-weight:500;white-space:nowrap}
 /* An account under 30 days old is flagged on its age (raffle hosts often check this). */
-.rt-raffle-stats[data-new="true"] .rt-raffle-stat:first-child{color:var(--color-warning-content,#8a5300);font-weight:600}
+.rt-raffle-stats[data-new="true"] .rt-raffle-stat:first-child{background:color-mix(in srgb,var(--color-warning-content,#8a5300) 16%,transparent);color:var(--color-warning-content,#8a5300);font-weight:600}
 .rt-raffle-excerpt[data-state="placeholder"]{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-raffle-meta{display:flex;align-items:center;min-width:0;max-width:100%;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
-.rt-raffle-name{position:relative;z-index:1;font-weight:700;color:var(--color-neutral-content-strong,#181c1f);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-raffle-name{position:relative;z-index:1;font-size:14px;line-height:20px;font-weight:700;color:var(--color-neutral-content-strong,#181c1f);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-raffle-name:hover{text-decoration:underline}
 .rt-raffle-dot{margin-inline:4px}
 .rt-raffle-time{white-space:nowrap}
-.rt-raffle-excerpt{margin:2px 0 0;font-size:14px;line-height:20px;color:var(--color-neutral-content,#333d42);white-space:pre-line;overflow-wrap:anywhere}
+.rt-raffle-excerpt{margin:6px 0 0;font-size:14px;line-height:20px;color:var(--color-neutral-content-strong,#181c1f);white-space:pre-line;overflow-wrap:anywhere}
 .rt-raffle-excerpt[data-rt-clamped="true"]{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .rt-raffle-more{position:relative;z-index:1;min-height:20px;padding:2px 0;border:0;background:none;font:inherit;font-size:12px;font-weight:600;line-height:16px;color:var(--color-neutral-content-weak,#576f76);cursor:pointer}
 .rt-raffle-more:hover{color:var(--color-neutral-content-strong,#181c1f);text-decoration:underline}
@@ -595,9 +609,10 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
   .rt-raffle-footnote{max-width:none;text-align:center}
   .rt-raffle-more,.rt-raffle-details summary{min-height:32px}
   .rt-raffle-row-control>.rt-raffle-input{width:136px}
-  .rt-raffle-winner{grid-template-columns:14px 28px minmax(0,1fr);column-gap:6px;padding:6px}
-  .rt-raffle-winner .rt-raffle-avatar{width:28px;height:28px}
-  .rt-raffle-rank{height:28px}
+  .rt-raffle-winner{grid-template-columns:22px 32px minmax(0,1fr);column-gap:8px;padding:8px}
+  .rt-raffle-winner>.rt-raffle-avatar{width:32px;height:32px}
+  .rt-raffle-rank{width:22px;height:22px;margin-top:5px}
+  .rt-raffle-hero-icon{width:36px;height:36px}
   .rt-raffle-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding-inline-start:0}
   .rt-raffle-row-icon{width:28px;height:28px}
   .rt-raffle-row,.rt-raffle-row-head{gap:10px}
@@ -664,6 +679,8 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 .rt-redact-confirmation{display:flex;flex-direction:column;gap:12px}
 .rt-redact-replacement-editor{min-height:80px;line-height:20px}
 .rt-redact-replacement-editor[aria-invalid=true]{border-color:var(--color-danger-content,#d93900)}
-.rt-redact-loading{display:flex;justify-content:center;padding:24px}
-.rt-redact-loading shreddit-loading{width:48px;height:48px}
+/* While finding: the spinner is centred in its own box, and the status line sits centred under it, not above. */
+.rt-redact-loading{display:grid;place-items:center;min-height:160px;padding:0}
+.rt-redact-loading shreddit-loading{display:block;width:48px;height:48px;margin:0}
+.rt-raffle-body:has(.rt-redact-loading) .rt-raffle-status{order:1;text-align:center}
 @media(max-width:480px){.rt-redact-group{grid-template-columns:minmax(0,1fr)}.rt-redact-review-tools{flex-wrap:wrap}}

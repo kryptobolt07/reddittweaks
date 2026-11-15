@@ -122,7 +122,7 @@
     closeFilter(restore=true){
       const s=this.state,p=s?.popup;if(!p)return;s.popup=null;
       clearTimeout(p.searchTimer);document.removeEventListener('pointerdown',p.outside,true);document.removeEventListener('focusin',p.focus);
-      window.removeEventListener('resize',p.place);window.removeEventListener('scroll',p.place,true);
+      window.removeEventListener('resize',p.place);window.removeEventListener('scroll',p.place,true);if(p.follow){s.dialog.removeEventListener('wheel',p.follow);s.dialog.removeEventListener('touchmove',p.follow);}
       p.button.setAttribute('aria-expanded','false');
       if(p.name==='date'){s.picker?.close(false);p.el.hidden=true;}else p.el.remove();
       if(restore && p.button.isConnected)p.button.focus({preventScroll:true});
@@ -135,6 +135,8 @@
       p.focus=event=>{const path=event.composedPath();if(!path.includes(el) && !path.includes(button))this.closeFilter(false);};
       document.addEventListener('pointerdown',p.outside,true);document.addEventListener('focusin',p.focus);
       window.addEventListener('resize',p.place);window.addEventListener('scroll',p.place,true);
+      // The card scrolls inside Reddit's scrollbox (a shadow root), whose scroll events don't reach the page.
+      p.follow=()=>requestAnimationFrame(p.place);s.dialog.addEventListener('wheel',p.follow,{passive:true});s.dialog.addEventListener('touchmove',p.follow,{passive:true});
       if(name!=='date')el.addEventListener('keydown',event=>{
         if(event.key==='Escape'){event.preventDefault();event.stopPropagation();this.closeFilter();return;}
         if(event.key==='Enter' && event.target.matches('input[type=search]')){

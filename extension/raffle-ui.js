@@ -25,14 +25,26 @@
     shield:['M10 2.8l5.8 2.1v4.4c0 3.6-2.4 6.4-5.8 7.9-3.4-1.5-5.8-4.3-5.8-7.9V4.9L10 2.8Z','M7.4 9.9l1.8 1.8 3.5-3.6'],
     globe:['M10 17.2a7.2 7.2 0 100-14.4 7.2 7.2 0 000 14.4Z','M2.8 10h14.4','M10 2.8c1.9 2 2.9 4.4 2.9 7.2s-1 5.2-2.9 7.2c-1.9-2-2.9-4.4-2.9-7.2s1-5.2 2.9-7.2Z'],
     lock:['M5.8 8.8h8.4a1.2 1.2 0 011.2 1.2v5.6a1.2 1.2 0 01-1.2 1.2H5.8a1.2 1.2 0 01-1.2-1.2V10a1.2 1.2 0 011.2-1.2Z','M7.2 8.8V6.6a2.8 2.8 0 015.6 0v2.2','M10 12.2v1.6'],
-    // A results document with a check: "proof", not a generic external-link arrow.
-    proof:['M11.5 2.8H6A1.5 1.5 0 004.5 4.3v11.4A1.5 1.5 0 006 17.2h8a1.5 1.5 0 001.5-1.5V6.8l-4-4Z','M11.5 2.8v4h4','M7.6 11.6l1.7 1.7 3.2-3.3'],
     copy:['M7.5 7.2h7.3A1.2 1.2 0 0116 8.4v7.4a1.2 1.2 0 01-1.2 1.2H7.5a1.2 1.2 0 01-1.2-1.2V8.4a1.2 1.2 0 011.2-1.2Z','M4.2 12.8V4.4a1.2 1.2 0 011.2-1.2h7.3']
   };
   function glyph(name,size=20){
     const svg=document.createElementNS(svgNS,'svg');
     for(const [k,v] of Object.entries({fill:'none',stroke:'currentColor','stroke-width':'1.6','stroke-linecap':'round','stroke-linejoin':'round',height:String(size),width:String(size),viewBox:'0 0 20 20','aria-hidden':'true'}))svg.setAttribute(k,v);
     svg.dataset.icon=name;for(const d of GLYPHS[name]){const path=document.createElementNS(svgNS,'path');path.setAttribute('d',d);svg.append(path);}return svg;
+  }
+  // Reddit Raffler's ticket mark (the logo without its wordmark, from redditraffler.com/assets/img/brand_white.svg),
+  // filled with the current text colour so it suits light and dark themes.
+  const RAFFLER_MARK=[
+    'M95.37,56.64,91.1,57.78,92.87,83l2.78-.75A12.29,12.29,0,0,0,99.06,81a6.92,6.92,0,0,0,2.93-6.5l-.94-13.26Q100.62,55.24,95.37,56.64Z',
+    'M158.21,107.75,133.52,15.61h0l.91,3.41L41.24,44a54,54,0,0,0,9.63,2.78l2.7,8.55L48.3,53.63a37.63,37.63,0,0,1-13-7.57l29.1,108.63,79-21.16A21,21,0,0,0,158.21,107.75Zm-49.39,22.34L95.23,94.22l-1.52.64,2.68,38.56L84.3,136.66,78.12,48.49l17.6-4.72q13.31-3.51,16.5,8.45a30.44,30.44,0,0,1,.91,5.79l1,13.26q.78,11.64-8.49,17.88l16.48,37.39Z',
+    'M20.14,42.1c-2-.72-4.08-1.48-6.14-2.14a66.1,66.1,0,0,0-6.38-1.84,5.82,5.82,0,0,0-2.81.38c-.83.25-.87.75-.32,1.51a4.85,4.85,0,0,0,3.05,1.76C11.76,42.8,16,42.46,20.14,42.1Z',
+    'M48.56,26.51a10.82,10.82,0,0,0,1.5-3,5.23,5.23,0,0,0-.21-2c-.62.11-1.4,0-1.81.35a14.82,14.82,0,0,0-3,3.29c-1.8,3-3.37,6.19-5.16,9.52C43.07,32.15,46.18,29.74,48.56,26.51Z',
+    'M30.88,50.54a43.75,43.75,0,0,1-7,16.14s-.08.06-.17.11a33.12,33.12,0,0,0-3.41-7.72c-.12-.19,0-.66.18-.88A53,53,0,0,0,26.21,48L1.62,54.6,25.4,143.34a21,21,0,0,0,25.78,14.88l10.57-2.83-2.59.7Z',
+    'M33.42,38.13c2.81-4.33,5.58-8.68,8.41-13a14.15,14.15,0,0,1,4.73-4.6c2.18-1.26,4-.62,5.14,1.82a7.31,7.31,0,0,1-.63,7.59,37.36,37.36,0,0,1-7.17,7.75l89-23.86A21.06,21.06,0,0,0,107.74.72L28.79,21.88l4.43,16.55Z',
+    'M7.77,45.85A7.4,7.4,0,0,1,3,39.48a2.84,2.84,0,0,1,2.07-3A9.18,9.18,0,0,1,10,36c2.59.49,5.17,1.09,7.73,1.75,3.1.79,6.18,1.71,9.27,2.54a2,2,0,0,0,1.1-.05l-4.56-17-8,2.14a21,21,0,0,0-15.28,24l10.44-2.79C9.76,46.36,8.76,46.15,7.77,45.85Z'];
+  function rafflerMark(size=16){
+    const svg=document.createElementNS(svgNS,'svg');for(const [k,v] of Object.entries({fill:'currentColor',height:String(size),width:String(size),viewBox:'0 0 159 159','aria-hidden':'true'}))svg.setAttribute(k,v);
+    svg.dataset.icon='raffler';for(const d of RAFFLER_MARK){const path=document.createElementNS(svgNS,'path');path.setAttribute('d',d);svg.append(path);}return svg;
   }
   const nameOK=/^[A-Za-z0-9_-]{3,20}$/;
   const CLOSE='m11.273 10 5.363-5.363a.9.9 0 10-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 10-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 101.274 1.273L10 11.273l5.363 5.363a.897.897 0 001.274 0 .9.9 0 000-1.273L11.275 10Z';
@@ -115,10 +127,11 @@
       const row=make('div','flex justify-between relative px-md gap-xs text-secondary-plain hover:text-secondary-plain-hover active:bg-interactive-pressed hover:bg-neutral-background-hover hover:no-underline cursor-pointer py-2xs -outline-offset-1');
       row.setAttribute('role','menuitem');row.tabIndex=-1;row.style.paddingInlineEnd='16px';
       const lead=make('span','flex items-center gap-xs min-w-0 shrink'),box=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4');box.append(icon(TICKET));
-      const text=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]');text.append(make('span','text-body-2','Run a raffle'));
-      // The status pill always takes its place (invisible until known), so a late answer never moves or relabels anything.
-      const tail=make('span','flex items-center shrink-0'),pill=make('span','rt-raffle-menu-state','Drawn');pill.dataset.state='unknown';pill.setAttribute('aria-hidden','true');tail.append(pill);
-      lead.append(box,text);row.append(lead,tail);li.append(row);
+      // Two lines from the start (label and caption), shown as Reddit's skeleton until the Reddit Raffler status is
+      // known, so the final wording replaces the skeleton without changing the item's height.
+      const text=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]');text.append(make('span','text-body-2','Run a raffle'),make('span','text-caption-1 text-secondary-plain-weak','Pick winners from the comments'));
+      const tail=make('span','flex items-center shrink-0');tail.append(make('span','flex items-center justify-center h-lg'));
+      lead.append(box,text);row.append(lead,tail);li.append(row);li.dataset.rtRaffleState='loading';row.setAttribute('aria-busy','true');
       const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();this.applyStatus(li,this.raffleStatus?.get(id)?.status);
       const choose=event=>{event.preventDefault();event.stopPropagation();
         const trigger=menu.querySelector('button[aria-haspopup]');if(trigger?.getAttribute('aria-expanded')==='true')trigger.click();
@@ -126,8 +139,8 @@
       row.addEventListener('click',choose);row.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ')choose(event);});
       return li;
     }
-    /* A post's Reddit Raffler status, shown as a "Drawn" pill in the item's reserved trailing slot; the label stays.
-       Checked as ⋯ is hovered, focused or pressed, at most once per post every 5 minutes; a failed check leaves the item as is. */
+    /* A post's Reddit Raffler status: "View raffle results" when a public raffle exists, otherwise "Run a raffle".
+       Checked as ⋯ is hovered, focused or pressed, at most once per post every 5 minutes; a failed check shows "Run a raffle". */
     async menuStatus(menu){
       if(!this.enabled)return;const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();if(!/^[a-z0-9]{1,10}$/.test(id))return;
       this.raffleStatus ||= new Map();const cached=this.raffleStatus.get(id);
@@ -136,14 +149,14 @@
         if(this.raffleStatus.size>=200)this.raffleStatus.delete(this.raffleStatus.keys().next().value);this.raffleStatus.set(id,entry);
       }
       const entry=this.raffleStatus.get(id),status=await entry?.pending;
-      if(!status){if(this.raffleStatus.get(id)===entry)this.raffleStatus.delete(id);return;}
+      if(!status){if(this.raffleStatus.get(id)===entry)this.raffleStatus.delete(id);this.applyStatus(menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]'),{exists:false});return;}
       this.applyStatus(menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]'),status);
     }
     applyStatus(item,status){
-      if(!item || !status)return;const drawn=Boolean(status.exists),pill=item.querySelector('.rt-raffle-menu-state'),row=item.querySelector('[role="menuitem"]');
-      item.dataset.rtRaffleState=drawn?'drawn':'none';pill.dataset.state=drawn?'drawn':'none';pill.setAttribute('aria-hidden',String(!drawn));
-      pill.title=drawn?'A public raffle was drawn on Reddit Raffler'+(status.verified?' (verified)':''):'';
-      if(drawn)row.setAttribute('aria-label','Run a raffle, a public raffle was already drawn on Reddit Raffler');else row.removeAttribute('aria-label');
+      if(!item || !status)return;const drawn=Boolean(status.exists);
+      item.querySelector('.text-body-2').textContent=drawn?'View raffle results':'Run a raffle';
+      item.querySelector('.text-caption-1').textContent=drawn?'Drawn on Reddit Raffler'+(status.verified?' · verified':''):'Pick winners from the comments';
+      item.dataset.rtRaffleState=drawn?'drawn':'none';item.querySelector('[role="menuitem"]').removeAttribute('aria-busy');
     }
     postOf(menu){
       const card=menu.closest('shreddit-post');
@@ -412,7 +425,9 @@
       },true);
       const popup=state.popup={name:'excludeUsers',el:menu,button,render};
       popup.place=()=>this.placeUsers();popup.outside=event=>{const path=event.composedPath();if(!path.includes(menu) && !path.includes(button))this.closeUsers(false);};
-      document.addEventListener('pointerdown',popup.outside,true);window.addEventListener('resize',popup.place);window.addEventListener('scroll',popup.place,true);
+      // Reddit's scrollbox scrolls inside the card's shadow root, where scroll events don't reach the page: follow wheel and touch too.
+      popup.follow=()=>requestAnimationFrame(popup.place);
+      document.addEventListener('pointerdown',popup.outside,true);window.addEventListener('resize',popup.place);window.addEventListener('scroll',popup.place,true);state.dialog.addEventListener('wheel',popup.follow,{passive:true});state.dialog.addEventListener('touchmove',popup.follow,{passive:true});
       state.dialog.append(menu);button.setAttribute('aria-controls',menu.id);button.setAttribute('aria-expanded','true');
       render();search.focus({preventScroll:true});this.loadCommenters();
     }
@@ -424,7 +439,7 @@
     }
     closeUsers(restore=true){
       const state=this.dialog,p=state?.popup;if(!p)return;state.popup=null;
-      document.removeEventListener('pointerdown',p.outside,true);window.removeEventListener('resize',p.place);window.removeEventListener('scroll',p.place,true);
+      document.removeEventListener('pointerdown',p.outside,true);window.removeEventListener('resize',p.place);window.removeEventListener('scroll',p.place,true);state.dialog.removeEventListener('wheel',p.follow);state.dialog.removeEventListener('touchmove',p.follow);
       p.button.setAttribute('aria-expanded','false');p.el.remove();if(restore && p.button.isConnected)p.button.focus({preventScroll:true});
     }
     coverageText(){
@@ -571,15 +586,18 @@
     // Results header shared by both kinds: title and actions on one row, badge and details below at full width.
     resultsHeader({count,badge,verified,meta,proof}){
       const state=this.dialog,header=make('div','rt-raffle-banner'),top=make('div','rt-raffle-banner-row');
+      const hero=make('span','rt-raffle-hero-icon');hero.setAttribute('aria-hidden','true');hero.append(glyph('trophy',22));
       const title=make('h3','rt-raffle-banner-title m-0',n(count)+' '+(count===1?'winner':'winners'));title.tabIndex=-1;
       const actions=make('div','rt-raffle-banner-actions');
       // Reddit's small secondary/plain buttons: icon + label, the label alone changes.
-      const action=(tag,cls,label,symbol)=>{const el=make(tag,'rt-raffle-action '+cls+' button-small button inline-flex items-center justify-center');el.append(glyph(symbol,16),make('span','rt-raffle-action-label',label));return el;};
-      if(proof){const link=action('a','rt-raffle-proof button-secondary','View proof','proof');link.href=proof;link.target='_blank';link.rel='noopener';link.title='Opens redditraffler.com in a new tab';actions.append(link);}
+      const action=(tag,cls,label,symbol)=>{const el=make(tag,'rt-raffle-action '+cls+' button-small button inline-flex items-center justify-center');el.append(symbol==='raffler'?rafflerMark(16):glyph(symbol,16),make('span','rt-raffle-action-label',label));return el;};
+      if(proof){const link=action('a','rt-raffle-proof button-secondary','View proof','raffler');link.href=proof;link.target='_blank';link.rel='noopener';link.title='Opens redditraffler.com in a new tab';actions.append(link);}
       const copy=action('button','rt-raffle-copy button-plain','Copy','copy');copy.type='button';const copyLabel=copy.querySelector('.rt-raffle-action-label');
       copy.addEventListener('click',async()=>{let ok=true;try{await navigator.clipboard.writeText(state.markdown || '');}catch{ok=false;}copyLabel.textContent=ok?'Copied':'Couldn’t copy';if(ok)state.saved=true;this.say(ok?'Results copied.':'Couldn’t copy the results.');setTimeout(()=>{if(copy.isConnected)copyLabel.textContent='Copy';},2000);});
-      actions.append(copy);top.append(title,actions);header.append(top);
-      const info=make('div','rt-raffle-banner-info');if(badge)info.append(make('span','rt-raffle-badge'+(verified?' rt-raffle-verified':''),badge));info.append(make('span','rt-raffle-banner-meta',meta));header.append(info);
+      actions.append(copy);
+      // Trophy, then the count over its badge and details; the actions sit at the end of the same row.
+      const text=make('div','rt-raffle-banner-text'),info=make('div','rt-raffle-banner-info');if(badge)info.append(make('span','rt-raffle-badge'+(verified?' rt-raffle-verified':''),badge));info.append(make('span','rt-raffle-banner-meta',meta));
+      text.append(title,info);top.append(hero,text,actions);header.append(top);
       return header;
     }
     // B6: private-draw winners as Reddit comment rows; each row opens its comment.
@@ -598,7 +616,7 @@
     winnerRow(winner,rank){
       const li=make('li','rt-raffle-winner');li.dataset.rtWinner=winner.author;
       const cover=make('a','rt-raffle-cover');cover.href=winner.permalink || '#';cover.target='_blank';cover.rel='noopener';cover.setAttribute('aria-label','u/'+winner.author+'’s comment (opens in a new tab)');
-      const badge=make('span','rt-raffle-rank',String(rank));badge.setAttribute('aria-hidden','true');
+      const badge=make('span','rt-raffle-rank',String(rank));badge.setAttribute('aria-hidden','true');badge.dataset.rank=String(rank);
       const avatar=this.avatarEl(winner,32);
       const main=make('div','rt-raffle-winner-main');
       const meta=make('div','rt-raffle-meta');const name=make('a','rt-raffle-name','u/'+winner.author);name.href='/user/'+encodeURIComponent(winner.author)+'/';name.target='_blank';name.rel='noopener';name.title='Profile, opens in a new tab';
