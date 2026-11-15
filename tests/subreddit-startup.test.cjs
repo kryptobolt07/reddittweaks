@@ -34,3 +34,22 @@ test('forwarded worker settings release an automatic hold when trusted-only stor
  c.message({postDiscovery:true,archiveDiscovery:true,subredditArchive:false,subredditArchiveAutomatic:true});await tick();assert.equal(c.modal.style.display,'');
  c.message({postDiscovery:true,archiveDiscovery:true,subredditArchive:true,subredditArchiveAutomatic:true});await tick();assert.equal(c.modal.style.display,'none');
 });
+
+// Reddit's user hover card (captured 2026-11-15): a suspended account's name and picture are not links.
+const suspendedCard=name=>`<faceplate-hovercard data-id="user-hover-card" label="${name} details"><span class="author-hovercard-trigger">x</span><div slot="content"><div class="user-hover-card w-[272px]" data-testid="user-hover-card"><div class="p-md flex flex-col"><div class="flex flex-row justify-items-start items-center"><div class="me-sm"><img src="https://www.redditstatic.com/shreddit/assets/suspended-snoo.png" alt="u/${name} avatar" class="mb-0" width="34" height="57"></div><div class="flex flex-col max-w-[calc(100%-60px)] -me-2xs"><div class="flex overflow-hidden text-ellipsis w-[calc(100%+4px)]"><div class="flex items-center"><span class="font-bold text-18 text-neutral-content-strong" dir="auto">${name}</span></div></div><div class="flex items-start justify-start text-neutral-content-weak"><span class="truncate" dir="auto">u/${name}</span></div></div></div><hr><div class="flex flex-wrap"><div class="text-16 font-bold"> Account suspended </div></div></div></div></div></faceplate-hovercard>`;
+test('a suspended account’s hover card links its name and picture to the profile, like a live account’s card',async t=>{
+  const c=start(t,{path:'/r/techIndia/comments/1xwlzrn/comment/19sns0b6zt9pd/'});c.answer();await tick();
+  c.W.document.body.insertAdjacentHTML('beforeend',suspendedCard('This-Bet3831'));await tick();
+  const card=c.W.document.querySelector('[data-testid="user-hover-card"]'),name=card.querySelector('a.text-18');
+  assert.ok(name,'the name is a link');assert.equal(name.getAttribute('href'),'/user/This-Bet3831/');assert.equal(name.target,'_blank','opens like Reddit’s own card');
+  assert.match(name.className,/inline-flex items-center font-bold text-18 text-neutral-content-strong a no-visited hover:underline cursor-pointer/);assert.equal(name.querySelector('[data-testid="nameplate"] .truncate').textContent,'This-Bet3831');
+  const picture=card.querySelector('img[src*="suspended-snoo"]');assert.equal(picture.closest('a')?.getAttribute('href'),'/user/This-Bet3831/');
+  c.W.document.body.insertAdjacentHTML('beforeend',suspendedCard('Second_One'));await tick();assert.equal(c.W.document.querySelectorAll('[data-testid="user-hover-card"] a.text-18').length,2,'every card that appears');
+  // A live card already links; it is left alone. Turning the feature off stops new links.
+  const off=start(t,{settings:{postDiscovery:false}});off.answer();await tick();off.W.document.body.insertAdjacentHTML('beforeend',suspendedCard('This-Bet3831'));await tick();assert.equal(off.W.document.querySelector('[data-testid="user-hover-card"] a'),null);
+});
+test('cards for live accounts and unreadable names are never changed',async t=>{
+  const c=start(t);c.answer();await tick();
+  c.W.document.body.insertAdjacentHTML('beforeend','<div data-testid="user-hover-card"><a class="text-18" href="/user/spez/">spez</a><div>Post karma</div></div>'+suspendedCard('bad name!'));await tick();
+  assert.equal(c.W.document.querySelectorAll('[data-testid="user-hover-card"] a').length,1);
+});
