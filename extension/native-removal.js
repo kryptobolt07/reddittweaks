@@ -35,7 +35,7 @@
   const created=Date.parse(card.getAttribute('created-timestamp') || overflow?.getAttribute('comment-created-timestamp') || ownQuery(card,'faceplate-timeago[ts]')?.getAttribute('ts'))/1000;
   if(!Number.isFinite(created) || created<=0)return null;
   const state=(card.getAttribute('item-state') || '').toUpperCase(),banner=ownQuery(card,'[slot="post-removed-banner"],[slot="comment-removed-banner"]')?.textContent?.trim() || '';
-  let category=card.getAttribute('removed-by-category') || null;
+  let category=card.getAttribute('removed-by-category') || (state==='AUTOMOD_FILTERED'?'automod_filtered':null);
   if(!category && /removed by (?:the )?automoderator/i.test(banner))category='automod_filtered';
   if(!category && /removed by reddit[’']s filters/i.test(banner))category='reddit';
   if(!category && /removed by (?:the )?moderators/i.test(banner))category='moderator';
@@ -46,7 +46,7 @@
    score:Number(card.getAttribute('score') || ownQuery(card,'shreddit-comment-action-row[score]')?.getAttribute('score')) || 0,num_comments:Number(card.getAttribute('comment-count')) || 0,
    is_self:['text','textmedia'].includes(card.getAttribute('post-type')) || Boolean(body),over_18:card.hasAttribute('nsfw') || card.hasAttribute('is-nsfw'),spoiler:card.hasAttribute('spoiler')};
   const value=(comment?M.normalizeComment:M.normalizePost)(raw,{source:'reddit'});if(!value)return null;
-  value.moderation={category,removalReason:false,locked:card.hasAttribute('is-locked') || card.hasAttribute('locked'),subredditType:card.getAttribute('subreddit-type') || 'public',quarantined:card.hasAttribute('quarantined'),authorBody:body,
+  value.kind=comment?'comment':'post';value.moderation={category,removalReason:false,locked:card.hasAttribute('is-locked') || card.hasAttribute('locked'),subredditType:card.getAttribute('subreddit-type') || 'public',quarantined:card.hasAttribute('quarantined'),authorBody:body,
    nativeRemoved,visibilityKnown:state==='APPROVED',native:true};return value;
  }
  function listing(doc,me,source='overview'){

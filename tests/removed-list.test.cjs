@@ -74,6 +74,11 @@ test('native metadata without a visibility verdict remains unchecked and exposes
  const s=await view(t,{children:[['t3',post('a')]]});const item=[...s.d.listState.items.values()][0];item.moderation.visibilityKnown=false;
  await s.d.classifyRemoved([item],s.d.context);s.d.renderOwnList();assert.equal(item.removal.state,'unknown');assert.match(s.d.notice.textContent,/native metadata does not establish public visibility/);assert.match(s.d.listEmpty.textContent,/0 items that could be checked/);
 });
+test('native Removed pages state their coverage limit and use archive evidence for own posts too',async t=>{
+ const s=await view(t,{children:[['t3',post('auto1')]]});const p=[...s.d.listState.items.values()][0];Object.assign(p.moderation,{native:true,nativeRemoved:true,visibilityKnown:false});s.d.settings.archiveDiscovery=true;
+ s.d.archive=async args=>{assert.equal(args.kind,'post');return {posts:[s.W.RTPostModel.normalizePost({...post('auto1'),selftext:'[removed]',retrieved_on:created+10},{source:'arctic-shift'})]};};
+ await s.d.classifyRemoved([p],s.d.context);assert.equal(p.removal.state,'removed-auto');assert.equal(p.removal.confidence,'likely');s.d.listState.native=true;s.d.listState.capped=true;s.d.summarizeRemoved();assert.match(s.d.notice.textContent,/native profile coverage may be incomplete/i);assert.doesNotMatch(s.d.notice.textContent,/Reddit only returns your newest/);
+});
 
 // --- Page bridge (main world).
 function bridge(t,{children,username='Example'}){
@@ -93,9 +98,9 @@ test('bridge treats another author’s item in your overview as a malformed page
 });
 
 // --- Broker (worker).
-function broker({settings={postDiscovery:true,archiveDiscovery:true},data}={}){
+function broker({settings={postDiscovery:true,archiveDiscovery:true},data,monitorIdentity=null}={}){
  let listener;const calls=[];
- const context=vm.createContext({URL,AbortController,Date,console,setTimeout,clearTimeout,
+ const context=vm.createContext({URL,AbortController,Date,console,setTimeout,clearTimeout,RTRemovalBroker:{verify:async()=>monitorIdentity},
   chrome:{runtime:{id:'own',onMessage:{addListener(fn){listener=fn;}}},storage:{onChanged:{addListener(){}},local:{async get(){return {'rt-settings-v1':settings};}}},tabs:{async sendMessage(){}}},
   fetch:async url=>{calls.push(new URL(url));return {ok:true,status:200,headers:{get:()=>null},async text(){return JSON.stringify({data});}};}});
  for(const file of ['post-model.js','post-broker.js'])vm.runInContext(read(file),context);
@@ -109,4 +114,13 @@ test('archive-removal needs the archive on and your own profile, takes at most 2
  assert.equal((await b.send({ids:Array.from({length:26},(_,i)=>'c'+i)})).code,'invalid-request');
  assert.equal((await b.send({},{url:'https://www.reddit.com/user/Other/'})).code,'forbidden');
  assert.equal((await broker({settings:{postDiscovery:true}}).send({})).code,'disabled');
+});
+
+test('native monitoring may check observed own items on a thread only after current account verification',async()=>{
+ const sender={url:'https://www.reddit.com/r/Alpha/comments/parent/title/'};
+ const cfg={postDiscovery:false,ownRemoval:true,archiveDiscovery:true};
+ const good=broker({settings:cfg,data:[comment('c1')],monitorIdentity:{owner:'t2_self',username:'Example'}});
+ const answer=await good.send({monitor:true,owner:'t2_self'},sender);assert.equal(answer.ok,true,answer.error);assert.equal(good.calls.length,1);
+ const bad=broker({settings:cfg,data:[],monitorIdentity:{owner:'t2_other',username:'Other'}});assert.equal((await bad.send({monitor:true,owner:'t2_self'},sender)).ok,false);assert.equal(bad.calls.length,0);
+ const off=broker({settings:{...cfg,ownRemoval:false},data:[],monitorIdentity:{owner:'t2_self',username:'Example'}});assert.equal((await off.send({monitor:true,owner:'t2_self'},sender)).ok,false);assert.equal(off.calls.length,0);
 });

@@ -42,9 +42,9 @@
   }
   backoffLoaded=loadBackoff();
   function fail(message,code='archive-error',extra={}){return {ok:false,error:message,code,incomplete:true,...extra};}
-  async function enabled(requireRestoration=false){
+  async function enabled(requireRestoration=false,monitor=false){
     const stored=await chrome.storage.local.get('rt-settings-v1'),settings=Model.normalizeSettings(stored['rt-settings-v1']);
-    const allowed=settings.postDiscovery && settings.archiveDiscovery;if(!allowed){cache.clear();titles.clear();commentContexts.clear();}return allowed && (!requireRestoration || settings.restoreDeletedContent);
+    const allowed=(monitor?settings.ownRemoval:settings.postDiscovery) && settings.archiveDiscovery;if(!allowed){cache.clear();titles.clear();commentContexts.clear();}return allowed && (!requireRestoration || settings.restoreDeletedContent);
   }
   const disabled=()=>fail('Enable archive discovery in Reddit Tweaks settings.','disabled');
   function authorized(sender,username,ids){
@@ -85,10 +85,10 @@
     }else text=await response.text();
     return text.length>3000000?null:text;
   }
-  async function request(username,before,ids,kind='post',{contextOnly=false,recoverSender=null,titles=true,force=false}={}){
+  async function request(username,before,ids,kind='post',{contextOnly=false,recoverSender=null,titles=true,force=false,monitor=false}={}){
     const release=await slot();let released=false;const freeSlot=()=>{if(!released){released=true;release();}};
     try{
-      if(!await enabled(Boolean(recoverSender)))return disabled();
+      if(!await enabled(Boolean(recoverSender),monitor))return disabled();
       await backoffLoaded;await loadBackoff();
       if(recoverSender && !authorized(recoverSender,username,null))return fail('Archive recovery requires the matching Reddit profile.','forbidden');
       if(cooldownUntil>Date.now())return fail('Archive requests are cooling down.','rate-limited',{retryAt:cooldownUntil});
@@ -242,13 +242,14 @@
     const kind=message.kind,validId=kind==='comment'?Model.validateCommentId:Model.validateId;
     if(!['post','comment'].includes(kind) || !Model.validateUsername(message.username) || !Array.isArray(message.ids) || !message.ids.length || message.ids.length>25 || !message.ids.every(validId))return fail('Invalid removal-check IDs.','invalid-request');
     const username=message.username.toLowerCase(),ids=[...new Set(message.ids.map(id=>id.toLowerCase().replace(kind==='comment'?/^t1_/:/^t3_/,'')))].sort();
-    if(!authorized(sender,username,null))return fail('Removal checks require your own Reddit profile.','forbidden');
-    if(!await enabled())return disabled();
+    if(message.monitor===true){const me=await globalThis.RTRemovalBroker?.verify(sender,username);if(!me || me.owner!==message.owner)return fail('The signed-in account changed.','forbidden');}
+    else if(!authorized(sender,username,null))return fail('Removal checks require your own Reddit profile.','forbidden');
+    if(!await enabled(false,message.monitor===true))return disabled();
     const key='removal:'+username+':'+kind+':'+ids.join(','),saved=cache.get(key);
     if(saved?.expires>Date.now())return saved.value;
     if(pending.has(key))return pending.get(key);
     if(pending.size>=50)return fail('Too many archive requests.','busy');
-    const operation=request(username,null,ids,kind,{titles:false}).then(value=>{
+    const operation=request(username,null,ids,kind,{titles:false,monitor:message.monitor===true}).then(value=>{
       if(value.ok){value={...value,posts:value.posts.filter(post=>post.author.toLowerCase()===username)};if(cache.size>=50)cache.delete(cache.keys().next().value);cache.set(key,{value,expires:Date.now()+ttl});}return value;
     });
     pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
@@ -430,6 +431,6 @@
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     if(message?.scope!=='rt-posts')return;
     sender={...sender,page:typeof message.pageUrl==='string' && message.pageUrl.length<4096?message.pageUrl:undefined};
-    handle(message,sender).then(async value=>{if(message.action!=='get-settings' && value?.ok && !await enabled(['archive-recover','archive-comments'].includes(message.action)))value=disabled();if(message.action==='archive-recover' && value?.ok && !authorized(sender,message.username,null))value=fail('Archive recovery requires the matching Reddit profile.','forbidden');rememberCommentContexts(message,sender,value);sendResponse(value);},()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
+    handle(message,sender).then(async value=>{const monitor=message.action==='archive-removal' && message.monitor===true;if(message.action!=='get-settings' && value?.ok && !await enabled(['archive-recover','archive-comments'].includes(message.action),monitor))value=disabled();if(monitor && value?.ok){const me=await globalThis.RTRemovalBroker?.verify(sender,message.username);if(!me || me.owner!==message.owner)value=fail('The signed-in account changed.','forbidden');}if(message.action==='archive-recover' && value?.ok && !authorized(sender,message.username,null))value=fail('Archive recovery requires the matching Reddit profile.','forbidden');rememberCommentContexts(message,sender,value);sendResponse(value);},()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
   });
 })();

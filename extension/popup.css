@@ -142,3 +142,7 @@ footer{padding:8px 6px 0;color:var(--muted);font-size:9.5px;line-height:1.4;text
 }
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important}}
 .cache-popover:focus{outline:none}
+#removal-history{display:flex;flex-direction:column;gap:6px;max-height:160px;overflow:auto;overscroll-behavior:contain}
+#removal-history[hidden]{display:none}
+.removal-change{display:flex;flex-direction:column;gap:2px;padding:6px 8px;border-radius:8px;color:var(--text);background:var(--surface);text-decoration:none;overflow-wrap:anywhere}
+.removal-change:hover{background:var(--line)}.removal-change span{font-size:10px;color:var(--muted)}

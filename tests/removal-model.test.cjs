@@ -84,7 +84,7 @@ test('changes between checks drive notifications without duplicates',()=>{
 });
 
 test('native author-visible text without public evidence never proves visibility or approval',()=>{
- const m=model(),author=post({visibilityKnown:false});assert.equal(m.classify({author}).state,'unknown');
+ const m=model(),author=post({visibilityKnown:false});assert.equal(m.classify({author}).state,'unknown');assert.match(m.classify({author}).why,/native.*public visibility/i);assert.doesNotMatch(m.classify({author}).why,/checks of comments/);
  const past=archived(10,{body:'[removed]'});const r=m.classify({author,archive:past});assert.notEqual(r.state,'visible');assert.equal(r.flags.includes('approved-after-auto'),false);
 });
 test('explicit native removal is evidence but does not identify its actor; negative archive latency is not automatic',()=>{

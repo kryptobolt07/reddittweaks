@@ -759,7 +759,7 @@
         do{
           const result=await this.request({action:'own-list',username:context.username,list:context.list,after:state.after});if(!current())return;
           if(!Array.isArray(result.posts) || !Number.isInteger(result.scanned) || result.scanned<0 || result.scanned>100 || result.posts.length>100 || result.hasMore && result.scanned===0)throw Error('Reddit returned an unexpected list page.');
-          state.scanned+=Math.min(result.scanned,1000-state.scanned);
+          state.native=result.transport==='native';state.scanned+=Math.min(result.scanned,1000-state.scanned);
           const added=[];for(const post of result.posts)if(post?.fullname && !state.items.has(itemKey(post))){state.items.set(itemKey(post),post);added.push(post);}
           if(context.list==='removed'){await this.classifyRemoved(added,context);if(!current())return;}
           state.after=result.after || null;state.capped=state.scanned>=1000 && context.list!=='history';
@@ -778,15 +778,15 @@
       state.removalNotes ||= new Set();
       const author=post=>{const m=post.moderation || {};return {kind:post.kind==='comment'?'comment':'post',name:post.fullname,body:m.authorBody ?? post.body,selftext:m.authorBody ?? post.body,...(post.kind==='comment'?{}:{title:post.title || ''}),
         created_utc:post.created,removed_by_category:m.category ?? null,removal_reason:m.removalReason || null,locked:m.locked===true,subreddit_type:m.subredditType || 'public',quarantine:m.quarantined===true,visibilityKnown:m.visibilityKnown!==false,nativeRemoved:m.nativeRemoved===true};};
-      const comments=items.filter(post=>post.kind==='comment'),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
-      if(archiveStatus==='ok')for(let index=0;index<comments.length;index+=25){
-        const group=comments.slice(index,index+25);
-        try{const result=await this.archive({action:'archive-removal',username:context.username,kind:'comment',ids:group.map(post=>post.id)});
-          for(const raw of result.posts || []){const archived=M.normalizeItem(raw,{source:'arctic-shift'});if(archived?.kind==='comment' && archived.author.toLowerCase()===context.username.toLowerCase())archives.set(archived.fullname,archived);}}
-        catch(error){archiveStatus='failed';state.removalNotes.add('The archive didn’t answer ('+error.message.replace(/\.$/,'')+'); some comments couldn’t be checked');break;}
+      const candidates=items.filter(post=>post.kind==='comment' || post.moderation?.native),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
+      if(archiveStatus==='ok')for(const kind of ['post','comment'])for(let index=0,grouped=candidates.filter(p=>(p.kind==='comment'?'comment':'post')===kind);index<grouped.length;index+=25){
+        const group=grouped.slice(index,index+25);
+        try{const result=await this.archive({action:'archive-removal',username:context.username,kind,ids:group.map(post=>post.id)});
+          for(const raw of result.posts || []){const archived=M.normalizeItem(raw,{source:'arctic-shift'});if(archived && (archived.kind==='comment')===(kind==='comment') && archived.author.toLowerCase()===context.username.toLowerCase())archives.set(archived.fullname,archived);}}
+        catch(error){archiveStatus='failed';state.removalNotes.add('The archive didn’t answer ('+error.message.replace(/\.$/,'')+'); some '+(kind==='comment'?'comments':'posts')+' couldn’t be checked');break;}
       }
       for(const post of items){
-        const archived=archives.get(post.fullname),archive=archived?{kind:'comment',body:archived.archiveStatus==='removed'?'[removed]':archived.body,created_utc:archived.created,retrieved_on:archived.retrieved || 0}:null;
+        const archived=archives.get(post.fullname),archive=archived?{kind:post.kind==='comment'?'comment':'post',...(post.kind==='comment'?{}:{title:archived.title || ''}),body:archived.archiveStatus==='removed'?'[removed]':archived.body,created_utc:archived.created,retrieved_on:archived.retrieved || 0}:null;
         post.removal=R.classify({author:author(post),archive,archiveStatus:archive?'ok':post.kind==='comment' && archiveStatus==='ok'?'missing':archiveStatus});
       }
     }
@@ -797,14 +797,15 @@
     }
     summarizeRemoved(error){
       const state=this.listState,counts=this.removedCounts(),n=value=>value.toLocaleString('en-US');
-      this.setStatus(error || 'Checked your newest '+n(state.scanned)+' posts and comments · '+n(counts.removed)+' removed'+(state.loading?' · Loading…':''),Boolean(error));
+      this.setStatus(error || (state.native?'Observed ':'Checked your newest ')+n(state.scanned)+' posts and comments · '+n(counts.removed)+' removed'+(state.loading?' · Loading…':''),Boolean(error));
       const notes=[];if(this.searchParsed.invalid)notes.push(error);
       if(counts.unknownComments)notes.push(n(counts.unknownComments)+' '+(counts.unknownComments===1?'comment':'comments')+' couldn’t be checked: Reddit blocks logged-out checks of comments'+(this.settings.archiveDiscovery?'':'. Turn on “Use the archive” to catch removals the archive saw'));
       if(counts.unknownPosts)notes.push(counts.unknownPosts.toLocaleString('en-US')+' '+(counts.unknownPosts===1?'post':'posts')+' couldn’t be checked: native metadata does not establish public visibility');
       for(const note of state.removalNotes || [])notes.push(note);
       // U3: an account-level check needs a logged-out profile read, which Reddit blocks (§9.1 V3).
       notes.push('Couldn’t check whether others can see your profile: Reddit blocks logged-out checks');
-      if(state.capped)notes.push('Reddit only returns your newest 1,000 posts and comments');
+      if(state.native)notes.push((state.capped?'Stopped after 1,000 loaded items; ':'')+'native profile coverage may be incomplete');
+      else if(state.capped)notes.push('Reddit only returns your newest 1,000 posts and comments');
       if(state.error)notes.push('The check is incomplete. Select Refresh to retry.');
       if(this.notice){this.notice.textContent=notes.join(' · ');this.notice.hidden=!notes.length;}
       this.status.title='Shows your posts and comments that others can’t see, as far as Reddit and the archive tell us. Nothing is edited or reported.';

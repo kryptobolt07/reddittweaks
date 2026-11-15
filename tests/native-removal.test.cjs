@@ -27,6 +27,7 @@ test('native reader verifies authorship, accepts long comment IDs, and never tre
 test('native moderation evidence distinguishes explicit removal, AutoModerator and no visibility evidence',t=>{
  const {N,d}=fixture(t,post('item-state="UNMODERATED"'));let item=N.item(d.querySelector('shreddit-post'),N.identity(d));assert.equal(item.moderation.visibilityKnown,false);assert.equal(item.moderation.nativeRemoved,false);
  const card=d.querySelector('shreddit-post');card.setAttribute('item-state','REMOVED');item=N.item(card,N.identity(d));assert.equal(item.moderation.nativeRemoved,true);assert.equal(item.moderation.category,null,'REMOVED does not name a moderator');
+ card.setAttribute('item-state','AUTOMOD_FILTERED');item=N.item(card,N.identity(d));assert.equal(item.moderation.category,'automod_filtered');
  card.setAttribute('removed-by-category','automod_filtered');item=N.item(card,N.identity(d));assert.equal(item.moderation.category,'automod_filtered');
 });
 test('quoted removal text and nested foreign comment metadata cannot classify the own item',t=>{

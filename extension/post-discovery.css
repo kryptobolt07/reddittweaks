@@ -373,6 +373,7 @@ div.overflow-auto:has(>[data-rt-ui="search-inline-filters"])::-webkit-scrollbar{
 .rt-header-filters .rt-filter-chip-icon{display:inline-flex;width:16px;height:16px;border-radius:50%;overflow:hidden}
 /* Removed list: one state pill after the time (docs/own-removal-detection-spec.md §3). */
 .rt-removal-pill{white-space:nowrap;color:var(--color-danger-content,#d93900)}
+.rt-own-removal{white-space:normal;max-width:100%;margin-inline-start:4px;vertical-align:middle;line-height:16px;overflow-wrap:anywhere}
 .rt-removal-pill[data-rt-removal="deleted"],.rt-removal-pill[data-rt-removal="unknown"]{color:var(--color-neutral-content-weak,#5c6c74)}
 .rt-removal-pill svg{width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 /* "Not yet approved" filter for moderators (docs/unmoderated-filter-spec.md). */
