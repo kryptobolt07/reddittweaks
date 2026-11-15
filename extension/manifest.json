@@ -118,7 +118,8 @@
         "raffle-ui.js",
         "redaction-model.js",
         "redaction-ui.js",
-        "thread-restore.js"
+        "thread-restore.js",
+        "own-removal.js"
       ]
     }
   ],

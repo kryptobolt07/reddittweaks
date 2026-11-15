@@ -81,6 +81,7 @@
     // No public view (comments today, §9.1): only an archive capture of the removal is evidence.
     if(archiveRemoved)return source();
     if(publicView)return result('unknown',{confidence:'unknown',why:publicView.status==='rate-limited'?'Couldn’t check: Reddit is limiting requests. Try again later.':'Couldn’t check: the check failed.',flags});
+    if(!a.visibilityKnown)return result('unknown',{confidence:'unknown',why:'Couldn’t check: native metadata does not establish public visibility.'+(archiveStatus==='off'?' Turn on “Use the archive” to see historical removal evidence.':archiveStatus==='failed'?' The archive didn’t answer.':''),flags});
     return result('unknown',{confidence:'unknown',why:'Couldn’t check: Reddit blocks logged-out checks of comments.'+(archiveStatus==='off'?' Turn on “Use the archive” to catch removals the archive saw.':archiveStatus==='failed'?' The archive didn’t answer.':''),flags});
   }
 

@@ -1,6 +1,6 @@
 # Spec: detect removals of your own posts and comments
 
-Status: phase 0 done (2026-11-13, results in §9.1); classification core implemented (`1f1ccf2`) and used by the on-demand Removed list (U2, 2026-11-14); badges, notifications and settings not built. Target spec written 2026-11-12. This is the bar the feature must reach, not a step list. Each requirement (R…) has an acceptance check (A…). A release may ship a subset; a requirement counts as met only when its check passes. §14 records exactly what exists today.
+Status: native-first Removed discovery, in-place own-item badges, per-account change history and opt-in toolbar counts implemented November 15, 2026 (§15). Public-view/account verification, closed-tab checks and system notifications remain unavailable. Earlier implementation status in §14 is historical.
 
 This spec also follows the [interaction and lifecycle contract](interaction-lifecycle-contract.md). Its rules apply, and §13 lists the transitions this feature must pass. §12 lists where we'll fall short, and how the interface says so.
 
@@ -225,7 +225,7 @@ From the contract's catalogue, plus rows specific to this feature. Each row is a
 
 **Lifecycle audit to complete before building:** for the badge pill, the Removed view's header pill, its feed, its filters and the popup badge, record the creator, the remover and every trigger (route events, `MutationObserver` on threads and feeds, settings changes, account changes, alarms, cache updates). Each trigger becomes a transition row above if it isn't one already.
 
-## 14. Implementation status (2026-11-14)
+## 14. Historical implementation status (2026-11-14; superseded by §15)
 
 This is what exists in the current bundle; everything else in this document remains the target.
 
@@ -282,7 +282,7 @@ Native inspection through the approved Chrome relay found `shreddit-app[user-log
 |---|---|---|
 | N1 | Removed identity/list discovery makes zero legacy `.json`/`/api/` requests | Bridge tests with native fixtures reject any legacy request |
 | N2 | Native author IDs/names must match the authenticated identity; viewer IDs, profile URLs and quoted replies cannot claim ownership | Native reader tests, including long comment IDs and foreign-author fixtures |
-| N3 | Empty categories, UNMODERATED, failed reads, and missing cards never prove visible/approved | Model tests with incomplete native evidence; no current removal inferred only from a stale archive |
+| N3 | Empty categories, UNMODERATED, failed reads, and missing cards never prove visible/approved | Model tests with incomplete native evidence; archive-only verdicts remain likely and do not prove current approval |
 | N4 | Automatic, moderator, Reddit/filter, unknown and self-deleted verdicts preserve confidence/source | Model/reader tests; negative/late archive timestamps cannot identify AutoModerator |
 | N5 | Persist only bounded account-scoped metadata/verdicts, not comment bodies or credentials | Store/broker tests for account isolation, caps, TTL, concurrent updates, deduplication and clear |
 | N6 | Visible native own cards get one badge; re-renders and Back reuse cached results; hidden tabs pause optional requests | Monitor DOM tests with request counters and cancellation |
@@ -314,3 +314,5 @@ The native reader owns no DOM. The existing Discovery owns the Removed header/fe
 Standing checks S1–S9 apply to page/popup surfaces; chat layout changes are n/a because no chat UI is changed. Native style measurements precede implementation. Logic, transitions, account isolation and zero-legacy-transport checks are synthetic tests; live claims are restricted to the final measured read-only pass. No preview browser or destructive live test is used. System notification delivery, closed-tab monitoring and unrestricted logged-out verification are not claimed by this increment.
 
 Storage implementation: `removal-store.js` and `removal-broker.js` persist metadata only, serialize writes per account, retain a last-known verdict through failed checks, and verify the current native tab identity before accepting reports or exposing popup history. Initial observations establish a baseline; only later transitions enter change history. N5/N8 are covered by `tests/removal-store.test.cjs` and `tests/removal-broker.test.cjs` alongside the existing worker/cache regressions.
+
+Current monitoring behavior: native metadata is observed as Reddit loads or updates cards; no independent polling/crawl or closed-tab alarms run. Optional archive checks batch at most 25 own IDs per kind and reuse the shared backoff/transport. In-memory verdicts are reused for ten minutes; native evidence changes invalidate the affected item. The account store is capped at 5,000 metadata records and 50 changes; the popup shows the newest 20. Hidden tabs pause enrichment. The existing Removed-view safety budget remains 1,000 loaded items, labelled as a local stop rather than an HTML/API completeness limit. Tests cover cached reattachment, duplicate hosts, native text edits, authorship changes, archive-off, stale account responses, worker restart, and popup acknowledgement/clear controls.
