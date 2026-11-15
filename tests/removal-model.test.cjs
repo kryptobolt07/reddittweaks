@@ -93,3 +93,6 @@ test('explicit native removal is evidence but does not identify its actor; negat
  assert.equal(m.classify({author,archive:archived(-1,{body:'[removed]'})}).state,'removed-unknown');
  assert.equal(m.classify({author,archive:archived(25,{body:'[removed]'})}).state,'removed-auto');
 });
+test('native automatic and moderator verdict tooltips identify comments as comments',()=>{
+ const m=model();for(const category of ['automod_filtered','moderator'])assert.match(m.classify({author:comment({removed_by_category:category})}).why,/this comment/);
+});

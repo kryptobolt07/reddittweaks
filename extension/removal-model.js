@@ -56,8 +56,8 @@
     if(a.removalReason || adminCategories.has(a.category))return result('removed-admin',{confidence:'verified',why:'Reddit marks this '+a.kind+' as removed by Reddit.',flags});
     if(a.category==='reddit')return result('removed-filter',{confidence:a.kind==='post'?'verified':'likely',why:'Reddit marks this '+a.kind+' as removed by its filters.',flags});
     // 3, 4. Categories Reddit gives the author of a post.
-    if(a.category==='automod_filtered')return result('removed-auto',{confidence:'verified',why:'Reddit marks this post as removed automatically (AutoModerator or the spam filter).',flags});
-    if(a.category==='moderator')return result('removed-mod',{confidence:'verified',why:'Reddit marks this post as removed by moderators.',flags});
+    if(a.category==='automod_filtered')return result('removed-auto',{confidence:'verified',why:'Reddit marks this '+a.kind+' as removed automatically (AutoModerator or the spam filter).',flags});
+    if(a.category==='moderator')return result('removed-mod',{confidence:'verified',why:'Reddit marks this '+a.kind+' as removed by moderators.',flags});
     const latency=arc && arc.retrievedOn && a.created?arc.retrievedOn-a.created:null;
     const archiveRemoved=Boolean(arc) && (isRemovedBody(arc.body) || ['automod_filtered','moderator','reddit'].includes(arc.category) || adminCategories.has(arc.category));
     const source=()=>{

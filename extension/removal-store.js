@@ -9,7 +9,7 @@
   function clean(raw){
    if(!raw || !/^t[13]_[a-z0-9]{1,32}$/.test(raw.fullname || '') || !Object.hasOwn(R.STATES,raw.state) || !['verified','likely','unknown'].includes(raw.confidence) || !Number.isFinite(raw.checkedAt) || raw.checkedAt<=0 || raw.checkedAt>now()+1000)throw Error('Invalid removal observation.');
    let url;try{url=new URL(raw.permalink,'https://www.reddit.com');}catch{throw Error('Invalid item link.');}
-   if(url.origin!=='https://www.reddit.com' || !/^\/r\/[\w-]+\/comments\/[a-z0-9]+\//i.test(url.pathname))throw Error('Invalid item link.');
+   if(url.origin!=='https://www.reddit.com' || !/^\/(?:r|user)\/[\w-]+\/comments\/[a-z0-9]+\//i.test(url.pathname))throw Error('Invalid item link.');
    return {fullname:raw.fullname,state:raw.state,removed:raw.state.startsWith('removed-'),confidence:raw.confidence,why:typeof raw.why==='string'?raw.why.slice(0,800):'',flags:Array.isArray(raw.flags)?[...new Set(raw.flags.filter(x=>['locked','collapsed','approved-after-auto','quarantined-community','private-community'].includes(x)))]:[],permalink:url.pathname,checkedAt:Math.floor(raw.checkedAt)};
   }
   const serial=(owner,run)=>{const previous=locks.get(owner) || Promise.resolve(),job=previous.catch(()=>{}).then(run);locks.set(owner,job);return job.finally(()=>{if(locks.get(owner)===job)locks.delete(owner);});};

@@ -32,3 +32,6 @@ test('notification-off records changes without unread counts; self-deletion neve
 test('the oldest entries are evicted at the account cap',async()=>{
  const {store}=setup({limit:2});await store.record(report([record('unknown',1799999000000,{fullname:'t3_a'}),record('unknown',1799999000100,{fullname:'t3_b'}),record('unknown',1799999000200,{fullname:'t3_c'})]));const a=await store.read('t2_self','Example');assert.deepEqual(Object.keys(a.items).sort(),['t3_b','t3_c']);
 });
+test('posts published to a user profile are valid monitoring links and do not reject the batch',async()=>{
+ const {store}=setup();await store.record(report([record('unknown',1799999000000,{fullname:'t3_profile',permalink:'/user/Example/comments/profile/title/'}),record('unknown')]));assert.equal(Object.keys((await store.read('t2_self','Example')).items).length,2);
+});

@@ -39,3 +39,7 @@ test('native listing keeps readable own cards, reports unreadable records, and v
  const page=N.listing(d,N.identity(d),'overview');assert.equal(page.posts.length,2);assert.equal(page.unreadable,1);assert.equal(page.hasMore,true);assert.match(page.after,/profile_overview-more-posts/);assert.equal(page.incomplete,true);
  d.querySelector('main faceplate-partial').setAttribute('src','/svc/shreddit/profiles/profile_overview-more-posts/new/?name=Other');assert.throws(()=>N.listing(d,N.identity(d),'overview'),/continuation/i);
 });
+test('a thread comment can use the permalink supplied by its native action row',t=>{
+ const {N,d}=fixture(t,'<shreddit-comment thingid="t1_19gsnavtu46ip" author="Example" author-id="t2_self" created-timestamp="2026-11-15T10:00:00Z"><div slot="comment"><p>Own text</p></div><shreddit-comment-action-row permalink="/r/Alpha/comments/post1/title/19gsnavtu46ip/"></shreddit-comment-action-row></shreddit-comment>');
+ assert.equal(N.item(d.querySelector('shreddit-comment'),N.identity(d))?.fullname,'t1_19gsnavtu46ip');
+});

@@ -28,7 +28,7 @@
   const overflow=ownQuery(card,'shreddit-overflow-menu[author-id]'),authorId=card.getAttribute('author-id') || overflow?.getAttribute('author-id');
   const author=card.getAttribute('author') || overflow?.getAttribute('author-name') || ownQuery(card,'[id^="poster-info-"] a[href*="/user/"]')?.getAttribute('href')?.match(/\/user\/([\w-]+)\/?$/)?.[1];
   if(author?.toLowerCase()!==me.username.toLowerCase() || authorId && authorId.toLowerCase()!==me.owner.toLowerCase())return null;
-  let url;try{url=new URL(card.getAttribute('permalink') || card.getAttribute('href') || overflow?.getAttribute('permalink'), 'https://www.reddit.com');}catch{return null;}
+  let url;try{url=new URL(card.getAttribute('permalink') || card.getAttribute('href') || overflow?.getAttribute('permalink') || ownQuery(card,'shreddit-comment-action-row[permalink]')?.getAttribute('permalink'), 'https://www.reddit.com');}catch{return null;}
   const path=url.pathname,postId=path.match(/\/comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.[1];
   if(!postId || url.origin!=='https://www.reddit.com' || comment && !path.split('/').includes(fullname.slice(3)))return null;
   const body=ownQuery(card,comment?'[id="'+fullname+'-comment-rtjson-content"],[slot="comment"],[slot="text-body"]':'[slot="text-body"],[id$="-post-rtjson-content"]')?.textContent?.trim() || '';
