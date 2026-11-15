@@ -717,15 +717,26 @@
     return {id:raw.id.toLowerCase(),author:typeof raw.author==='string'?raw.author.slice(0,20):'',created_utc:Number(raw.created_utc) || 0,parent_id:typeof raw.parent_id==='string'?raw.parent_id.slice(0,40):'',
       body:typeof raw.body==='string'?raw.body.slice(0,2000):'',permalink:typeof raw.permalink==='string' && raw.permalink.startsWith('/')?raw.permalink.slice(0,300):'/comments/'+postId+'/comment/'+raw.id+'/',removed_by_category:raw.removed_by_category ?? null};
   };
+  // Winners' comments for a public draw. Reddit refuses /api/info.json on www.reddit.com (HTTP 403, measured
+  // 2026-11-15), so each winner's comment is read from its permalink JSON, three at a time; one failure skips
+  // only that comment.
   async function raffleWinnerComments(input,signal){
     if(!raffleId.test(input.postId || '') || !Array.isArray(input.ids) || !input.ids.length || input.ids.length>100 || !input.ids.every(id=>typeof id==='string' && raffleComment.test(id)))throw Error('Invalid winner comments.');
-    const ids=new Set(input.ids.map(id=>id.toLowerCase())),postId=input.postId.toLowerCase(),url=new URL('/api/info.json',location.origin);url.searchParams.set('id',[...ids].map(id=>'t1_'+id).join(','));url.searchParams.set('raw_json','1');
-    const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
-    if(!response.ok)throw Error('Reddit could not read the winner comments (HTTP '+response.status+').');
-    let data;try{data=JSON.parse(await boundedText(response));}catch{throw Error('Reddit returned unexpected winner comments.');}
-    if(data?.kind!=='Listing' || !Array.isArray(data.data?.children))throw Error('Reddit returned unexpected winner comments.');
-    return {entries:data.data.children.filter(child=>child.kind==='t1' && ids.has(String(child.data?.id).toLowerCase()) && String(child.data?.link_id).toLowerCase()==='t3_'+postId).map(child=>raffleEntry(child.data,postId)).filter(Boolean)};
+    const postId=input.postId.toLowerCase(),ids=[...new Set(input.ids.map(id=>id.toLowerCase()))],entries=[];let failures=0;
+    const one=async id=>{
+      const url=new URL('/comments/'+postId+'/_/'+id+'.json',location.origin);for(const [k,v] of Object.entries({depth:'1',limit:'1',raw_json:'1'}))url.searchParams.set(k,v);
+      try{
+        const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
+        if(!response.ok)throw Error('HTTP '+response.status);
+        const data=JSON.parse(await boundedText(response,2000000)),child=(data?.[1]?.data?.children || []).find(c=>c?.kind==='t1' && String(c.data?.id).toLowerCase()===id);
+        if(child && String(child.data?.link_id).toLowerCase()==='t3_'+postId){const entry=raffleEntry(child.data,postId);if(entry)entries.push(entry);}
+      }catch(error){if(signal?.aborted)throw error;failures++;}
+    };
+    for(let i=0;i<ids.length;i+=3)await Promise.all(ids.slice(i,i+3).map(one));
+    if(failures===ids.length)throw Error('Reddit could not read the winner comments.');
+    return {entries};
   }
+
   async function raffleMe(signal){
     try{return {username:await signedInUsername(signal)};}catch{return {username:''};}
   }

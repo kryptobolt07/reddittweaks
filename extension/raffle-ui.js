@@ -25,6 +25,8 @@
     shield:['M10 2.8l5.8 2.1v4.4c0 3.6-2.4 6.4-5.8 7.9-3.4-1.5-5.8-4.3-5.8-7.9V4.9L10 2.8Z','M7.4 9.9l1.8 1.8 3.5-3.6'],
     globe:['M10 17.2a7.2 7.2 0 100-14.4 7.2 7.2 0 000 14.4Z','M2.8 10h14.4','M10 2.8c1.9 2 2.9 4.4 2.9 7.2s-1 5.2-2.9 7.2c-1.9-2-2.9-4.4-2.9-7.2s1-5.2 2.9-7.2Z'],
     lock:['M5.8 8.8h8.4a1.2 1.2 0 011.2 1.2v5.6a1.2 1.2 0 01-1.2 1.2H5.8a1.2 1.2 0 01-1.2-1.2V10a1.2 1.2 0 011.2-1.2Z','M7.2 8.8V6.6a2.8 2.8 0 015.6 0v2.2','M10 12.2v1.6'],
+    cake:['M4 10.5h12v5.3a1.2 1.2 0 01-1.2 1.2H5.2A1.2 1.2 0 014 15.8v-5.3Z','M4 13c1.3 0 1.3-1 2.7-1s1.3 1 2.6 1 1.3-1 2.7-1 1.3 1 2.7 1','M10 10.5V8','M10 6.2c.9-.6.9-1.7 0-2.7-.9 1-.9 2.1 0 2.7Z'],
+    post:['M5.3 3h9.4A1.3 1.3 0 0116 4.3v11.4a1.3 1.3 0 01-1.3 1.3H5.3A1.3 1.3 0 014 15.7V4.3A1.3 1.3 0 015.3 3Z','M7 7.2h6','M7 10h6','M7 12.8h3.5'],
     copy:['M7.5 7.2h7.3A1.2 1.2 0 0116 8.4v7.4a1.2 1.2 0 01-1.2 1.2H7.5a1.2 1.2 0 01-1.2-1.2V8.4a1.2 1.2 0 011.2-1.2Z','M4.2 12.8V4.4a1.2 1.2 0 011.2-1.2h7.3']
   };
   function glyph(name,size=20){
@@ -234,7 +236,7 @@
       const button=(label,slot,kind)=>{const b=make('button','button-medium button-'+kind+' button inline-flex items-center justify-center px-md',label);b.type='button';b.slot=slot;return b;};
       const note=make('p','rt-raffle-footnote m-0');note.slot='tertiary-button';
       const drawButton=button('Run public draw','primary-button','primary');drawButton.disabled=true;drawButton.classList.add('rt-raffle-draw-icon');
-      const back=button('Back to rules','tertiary-button','plain'),again=button('Draw again','secondary-button','secondary'),message=button('Message winners','primary-button','primary');
+      const back=button('Back to rules','tertiary-button','plain'),again=button('Draw again','secondary-button','secondary'),message=button('Message winners','primary-button','primary');message.classList.add('rt-raffle-chat-icon');
       const msgBack=button('Back','secondary-button','secondary'),send=button('Send','primary-button','primary');
       again.classList.add('rt-raffle-draw-icon');
       const views={rules:[drawButton],results:[back,again,message],message:[msgBack,send]};
@@ -643,20 +645,24 @@
       const meta=make('div','rt-raffle-meta');const name=make('a','rt-raffle-name','u/'+winner.author);name.href='/user/'+encodeURIComponent(winner.author)+'/';name.target='_blank';name.rel='noopener';name.title='Profile, opens in a new tab';
       const time=make('faceplate-timeago','rt-raffle-time');time.setAttribute('ts',new Date(winner.created*1000).toISOString());time.setAttribute('format','narrow');
       meta.append(name);if(winner.created)meta.append(make('span','rt-raffle-dot','•'),time);
-      // Account facts, as Reddit Raffler lists them: from Raffler for a public draw, from each winner's account otherwise.
-      const stats=make('div','rt-raffle-stats');
+      // Account facts, as Reddit Raffler lists them (from Raffler for a public draw, from each winner's account
+      // otherwise): short chips on the name line, with the full wording in their labels.
+      const stats=make('span','rt-raffle-stats');meta.append(stats);
       if(Number.isFinite(winner.accountAgeDays))this.setStats(stats,{days:winner.accountAgeDays,commentKarma:winner.commentKarma,postKarma:winner.linkKarma});else{stats.dataset.state='loading';stats.textContent='Checking account…';}
       const text=winner.body.trim(),excerpt=make('p','rt-raffle-excerpt',text || (winner.official?(winner.loading?'Loading the comment…':'Open the comment to read it'):'No text'));excerpt.dataset.rtClamped='true';if(!text && winner.official)excerpt.dataset.state='placeholder';
       const toggle=make('button','rt-raffle-more','Show more');toggle.type='button';toggle.setAttribute('aria-expanded','false');
       // Shown only when the text is actually cut off (measured after layout); a length guess covers layout-less hosts.
       toggle.hidden=!(text.length>140 || text.includes('\n'));toggle.dataset.rtGuess='true';
       toggle.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const open=excerpt.dataset.rtClamped==='true';excerpt.dataset.rtClamped=String(!open);toggle.textContent=open?'Show less':'Show more';toggle.setAttribute('aria-expanded',String(open));});
-      main.append(meta,stats,excerpt,toggle);
+      main.append(meta,excerpt,toggle);
       li.append(cover,badge,avatar,main);return li;
     }
     setStats(box,{days,commentKarma,postKarma}){
-      const plural=(value,one,many)=>n(value)+' '+(value===1?one:many);
-      box.dataset.state='ready';box.dataset.new=String(days<30);if(days<30)box.title='This account is less than 30 days old';else box.removeAttribute('title');box.replaceChildren(make('span','rt-raffle-stat',plural(days,'day old','days old')),make('span','rt-raffle-stat',n(commentKarma ?? 0)+' comment karma'),make('span','rt-raffle-stat',n(postKarma ?? 0)+' post karma'));
+      const compact=value=>new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1}).format(Number(value) || 0);
+      const age=days<31?days+'d':days<365?Math.floor(days/30.44)+'mo':Math.floor(days/365.25)+'y';
+      const chip=(symbol,text,label)=>{const el=make('span','rt-raffle-stat');el.title=label;el.setAttribute('aria-label',label);el.append(glyph(symbol,12),document.createTextNode(text));return el;};
+      box.dataset.state='ready';box.dataset.new=String(days<30);if(days<30)box.title='This account is less than 30 days old';else box.removeAttribute('title');
+      box.replaceChildren(chip('cake',age,'Account '+n(days)+' '+(days===1?'day':'days')+' old'),chip('comment',compact(commentKarma),n(commentKarma ?? 0)+' comment karma'),chip('post',compact(postKarma),n(postKarma ?? 0)+' post karma'));
     }
     rowsFor(winner){return this.dialog?.dialog.querySelectorAll('.rt-raffle-winner[data-rt-winner="'+CSS.escape(winner.author)+'"]') || [];}
     // A public winner's comment arrived: fill the time and text into the existing row, without rebuilding the list.

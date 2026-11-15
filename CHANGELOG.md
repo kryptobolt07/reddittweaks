@@ -10,6 +10,9 @@
 - **Comment search rows:** clicking a comment's text opens the comment again (the text block sat above its link), and the fade over a comment shows only when it is actually cut off, in profile search and archived community search.
 - **Deleted accounts:** comments and posts whose account was deleted (text kept, author shown as [deleted]) now get their author back from Arctic Shift, in the same batched request; their text is never touched and no deletion cue is added.
 - **Left navigation on deleted profiles and communities:** the page keeps your collapsed or expanded navigation from the start and shows skeleton rows while Reddit's navigation loads, instead of a blank column that later collapses.
+- **Raffle comment text:** public results show each winner's comment again. Reddit now refuses the batched comment lookup (/api/info.json, HTTP 403), so comments are read from their permalinks, one small request per winner. Account facts are compact chips on the name line (for example 7mo, 1.2K), and Message winners has a chat icon.
+- **Suspended accounts:** in Reddit's user hover card, a suspended account's name and picture now link to its profile like a live account's.
+- **Dialogs on phones:** two footer buttons share one line, and scrolling past a dialog's end no longer scrolls the page.
 - **Calendar:** quick ranges are one sideways strip without a scrollbar (wheel, arrow keys, edge fades, position kept), the popover is smaller, range days are separate faded boxes, and the range previews as you hover its end.
 - **Validation:** all 1,506 tests pass; 44 JavaScript files parse; ZIP integrity passes; all 58 shipped assets match source, archive and the stable unpacked folder. SHA-256 `013c98bfe5e395a02d4c19b311f2081371ddc2ef769e0aa529bfc35948b0cb61`.
 - **Version:** minor increment for exclude-user suggestions, winner account facts and the reorganised popup; no storage migration.

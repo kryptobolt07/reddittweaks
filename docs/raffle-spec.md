@@ -134,3 +134,9 @@ When the existing raffle is unverified and the Reddit account is the post's auth
 - **Menu item states.** The item keeps Reddit's two-line layout throughout: "Run a raffle / Pick winners from the comments", or "View raffle results / Drawn on Reddit Raffler (· verified)". Until the status is known, both lines show Reddit's shimmer skeleton over the same-sized text, so the final wording appears without a height change; a failed check shows Run a raffle.
 - **Field states.** The raffle and redaction dialogs share one set of hover (lighter fill, darker border), pressed (Reddit's pressed fill) and focus (blue 2 px ring) states.
 - **No edge fade.** Reddit's modal scrollbox fades 2.5em at the content's edges while it can scroll, which made the last rows look blurred; the fade is off for both dialogs, and the card's own scrollbox does the scrolling (no second scroll area).
+
+### Winner comment text and fact chips (0.36.0)
+
+- Reddit now refuses `/api/info.json` on www.reddit.com (HTTP 403, measured 2026-11-15), which left public results without comment text. Each winner's comment is read from its permalink JSON (`/comments/<post>/_/<comment>.json?depth=1&limit=1`), three at a time; a failed read affects only that row, and only comments of the open post are used. Private draws already carry the text they read.
+- Account facts are short chips on the name line, in the profile search filter-chip look: age (`7mo`, `3d`, `13y`), comment karma and post karma in compact numbers (`1.2K`), each with an icon and its full wording as the label and tooltip. Copied results keep the full wording.
+- Message winners carries a chat icon. On phones, two footer buttons share one line (the secondary moves to the leading slot; Reddit's card stacks its button group below 640 px), and scrolling past a dialog's end never scrolls the page.
