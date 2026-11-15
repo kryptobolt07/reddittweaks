@@ -13,8 +13,9 @@
 - **Raffle comment text:** public results show each winner's comment again. Reddit now refuses the batched comment lookup (/api/info.json, HTTP 403), so comments are read from their permalinks, one small request per winner. Account facts are compact chips on the name line (for example 7mo, 1.2K), and Message winners has a chat icon.
 - **Suspended accounts:** in Reddit's user hover card, a suspended account's name and picture now link to its profile like a live account's.
 - **Dialogs on phones:** two footer buttons share one line, and scrolling past a dialog's end no longer scrolls the page.
+- **Header search chips:** multiple profile and filter chips compact to the available width, keeping the search text usable instead of squeezing it out of the header.
 - **Calendar:** quick ranges are one sideways strip without a scrollbar (wheel, arrow keys, edge fades, position kept), the popover is smaller, range days are separate faded boxes, and the range previews as you hover its end.
-- **Validation:** all 1,506 tests pass; 44 JavaScript files parse; ZIP integrity passes; all 58 shipped assets match source, archive and the stable unpacked folder. SHA-256 `013c98bfe5e395a02d4c19b311f2081371ddc2ef769e0aa529bfc35948b0cb61`.
+- **Validation:** all 1,512 tests pass; 44 JavaScript files parse; ZIP integrity passes; all 58 shipped assets match source, archive and the stable unpacked folder. SHA-256 `ed4cbc9144c5c4e533a729dc79985b1e84656f949c473f9f2c0693a5f7952f23`.
 - **Version:** minor increment for exclude-user suggestions, winner account facts and the reorganised popup; no storage migration.
 - **Verification limits:** synthetic unit tests only, as requested: no screenshots, live raffles, messages or redaction runs. Reload the extension and refresh Reddit to see the new UI.
 
