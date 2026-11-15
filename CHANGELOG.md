@@ -1,3 +1,15 @@
+# 0.36.0 preview
+
+- **Raffle menu item:** the label stays "Run a raffle"; a reserved "Drawn" pill fades in when the post already has a public raffle, so the menu no longer jumps or swaps text. The status is fetched as ⋯ is hovered or focused, so it is usually ready before the menu opens.
+- **Raffle rules:** the post moves into a compact header above an 18/24 title; rules have outline section symbols; Comment must include matches the redaction fields; account requirements start expanded; the dialog body scrolls instead of clipping.
+- **Exclude users:** a menu of the post's commenters (search, avatars, comment counts, exact usernames), built like the redaction community menu. It uses comments already read, or one thread read that a later private draw reuses.
+- **Winners:** public and private results share one compact layout with each winner's account age, comment karma and post karma (from Reddit Raffler, or one account read per winner). Accounts under 30 days are flagged, and copied results include the facts. Public rows fill in place as comments arrive. View proof has a proof icon and even padding.
+- **Redaction:** the confirmation step's action uses the same styled menu as step 1; the header shows the step with a progress bar; both dialogs have tighter spacing.
+- **Calendar:** quick ranges are one sideways strip without a scrollbar (wheel, arrow keys, edge fades, position kept), the popover is smaller, range days are separate faded boxes, and the range previews as you hover its end.
+- **Validation:** all 1,487 tests pass; 44 JavaScript files parse; ZIP integrity passes; all 58 shipped assets match source, archive and the stable unpacked folder. SHA-256 `d413801e0b94959b58f54f79fcb45a40414919d9957cc999da45df8b3a1bd628`.
+- **Version:** minor increment for exclude-user suggestions and winner account facts; no storage migration.
+- **Verification limits:** synthetic unit tests only, as requested: no screenshots, live raffles, messages or redaction runs. Reload the extension and refresh Reddit to see the new UI.
+
 # 0.35.2 preview
 
 - **Redaction confirmation actions:** the final step can switch between Overwrite text, Delete, and Overwrite, then delete without going back. Overwrite-only drops selected items without editable text; delete keeps the reviewed selection and hides the message editor. The typed phrase, count, summary and message edits follow the chosen action.
