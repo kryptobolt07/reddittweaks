@@ -87,7 +87,9 @@
       const cancel=make('button','button-medium button-secondary button inline-flex items-center justify-center px-md','Cancel');cancel.type='button';cancel.slot='secondary-button';
       const primary=make('button','button-medium button-primary button inline-flex items-center justify-center px-md','Find matching items');primary.type='button';primary.slot='primary-button';
       card.append(head,close,body,cancel,primary);dialog.append(card);document.body.append(dialog);
-      const state=this.state={dialog,h2,step,steps,intro,form,messageField,controls,dateButton,dateHost,from,to,status,preview,confirmation,confirm,confirmWrap,confirmLabel,results,primary,cancel,username:'',items:new Map(),selection:null,phase:'idle',controller:new AbortController(),finding:null,running:null,closeAsked:false};
+      // Below 640 px Reddit's card stacks its button group: Cancel moves to the leading slot, on the main action's line.
+      cancel.dataset.rtSlot='secondary-button';const media=globalThis.matchMedia?.('(max-width: 639px)'),footer=()=>{cancel.slot=media?.matches?'tertiary-button':'secondary-button';};footer();media?.addEventListener?.('change',footer);
+      const state=this.state={media,onMedia:footer,dialog,h2,step,steps,intro,form,messageField,controls,dateButton,dateHost,from,to,status,preview,confirmation,confirm,confirmWrap,confirmLabel,results,primary,cancel,username:'',items:new Map(),selection:null,phase:'idle',controller:new AbortController(),finding:null,running:null,closeAsked:false};
       const requestClose=()=>this.close();
       close.addEventListener('click',requestClose);cancel.addEventListener('click',()=>{
         if(state.phase==='confirming'){state.phase='previewed';state.confirm.value='';this.showStep('review');this.syncSelection();}
@@ -113,7 +115,7 @@
     close(force=false){
       const state=this.state;if(!state)return;
       if(state.phase==='running' && !force && !state.closeAsked){state.closeAsked=true;state.status.textContent='A run is in progress. Close again to stop it after the current request and close.';return;}
-      this.closeFilter(false);state.rowObserver?.disconnect();this.state=null;state.picker?.close(false);state.controller.abort();try{state.dialog.close();}catch{}state.dialog.remove();
+      this.closeFilter(false);state.rowObserver?.disconnect();state.media?.removeEventListener?.('change',state.onMedia);this.state=null;state.picker?.close(false);state.controller.abort();try{state.dialog.close();}catch{}state.dialog.remove();
     }
     syncOperation(){
       const s=this.state,operation=this.rules().operation;s.messageField.hidden=operation==='delete';

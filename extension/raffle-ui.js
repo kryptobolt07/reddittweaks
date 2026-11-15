@@ -240,12 +240,16 @@
       const views={rules:[drawButton],results:[back,again,message],message:[msgBack,send]};
       for(const b of [...views.results,...views.message])b.hidden=true;
       card.append(head,close,body,note,drawButton,back,again,message,msgBack,send);dialog.append(card);document.body.append(dialog);
+      // Below 640 px Reddit's card stacks its button group; a secondary button moved to the leading slot sits on the
+      // same line as the main one instead (the footer becomes a row in post-discovery.css).
+      for(const b of [again,msgBack])b.dataset.rtSlot=b.slot;
+      const footerSlots=small=>{for(const b of [again,msgBack])b.slot=small?'tertiary-button':b.dataset.rtSlot;};footerSlots(narrow);
       const state=this.dialog={dialog,card,post,trigger,h2,form,winners,usersControl:users,usersCaption,winnersRow,minus,plus,status,statusCard:statusBox,progress,accountHint,announce,note,ack,ackWrap:ackRow,rulesView,resultsView,messageView,views,
         drawButton,draw:drawButton,back,message,again,msgBack,send,publicOption,privateOption,mode:'public',
         raffler:{phase:'checking',signedIn:'',me:'',raffle:null,confirm:false,error:'',progress:'',override:false},
         controller:new AbortController(),entries:new Map(),coverage:null,reading:false,privateReady:false,preparing:false,drawing:false,accounts:new Map(),generation:0,view:'rules',result:null,chat:null,draws:0,againConfirm:false,closeAsked:false,touched:false};
       // Phone ↔ desktop follows rotation and resizing (Reddit's bottom sheet below 640 px).
-      state.onMedia=()=>{const small=media.matches;dialog.classList.toggle('rt-raffle-sheet',small);card.setAttribute('appearance',small?'bottom-sheet':'modal');};media?.addEventListener?.('change',state.onMedia);state.media=media;
+      state.onMedia=()=>{const small=media.matches;dialog.classList.toggle('rt-raffle-sheet',small);card.setAttribute('appearance',small?'bottom-sheet':'modal');footerSlots(small);};media?.addEventListener?.('change',state.onMedia);state.media=media;
       const finish=()=>this.close();
       close.addEventListener('click',finish);
       dialog.addEventListener('cancel',event=>{event.preventDefault();if(state.popup)this.closeUsers();else finish();});

@@ -402,3 +402,12 @@ test('the finding spinner is centred in its own space, with the status line cent
  assert.match(css,/\.rt-redact-loading\{display:grid;place-items:center;min-height:160px/);assert.match(css,/\.rt-redact-loading shreddit-loading\{display:block;width:48px;height:48px;margin:0\}/);
  assert.match(css,/\.rt-raffle-body:has\(\.rt-redact-loading\) \.rt-raffle-status\{order:1;text-align:center\}/);
 });
+test('on phones the redaction footer keeps Cancel and the main action on one line',async t=>{
+ const dom=new JSDOM('<main></main>',{url:'https://www.reddit.com/#rt-redact',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;t.after(()=>W.close());
+ W.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};W.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
+ const media={matches:true,listeners:[],addEventListener(type,fn){this.listeners.push(fn);},removeEventListener(){}};W.matchMedia=()=>media;
+ W.eval(read('feed-filters.js'));W.eval(read('date-picker.js'));W.eval(read('redaction-model.js'));W.eval(read('redaction-ui.js'));
+ const r=new W.RTRedaction.Redaction({read:async()=>({}),sleep:async()=>{},readSettings:async()=>({})});await flush();
+ const cancel=W.document.querySelector('[data-rt-redact] button[data-rt-slot="secondary-button"]');assert.equal(cancel.slot,'tertiary-button');
+ media.matches=false;for(const fn of media.listeners)fn();assert.equal(cancel.slot,'secondary-button');r.destroy();
+});
