@@ -17,14 +17,18 @@ svg{display:block}
 .tab:hover{color:var(--text);background:var(--surface)}
 .tab[aria-selected="true"]{background:var(--accent);color:#fff;box-shadow:0 1px 3px rgba(194,54,0,.3)}
 /* Every tab has the same fixed height, so switching never resizes the popup; longer tabs scroll with no visible scrollbar. */
-.panel{display:flex;flex-direction:column;gap:8px;height:430px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.panel{display:flex;flex-direction:column;gap:8px;height:240px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+/* Measured: Home and Data fill the height; a taller tab (Settings) fades at the edge that has more. */
+.panel[data-more=end]{-webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent);mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
+.panel[data-more=start]{-webkit-mask-image:linear-gradient(transparent,#000 20px);mask-image:linear-gradient(transparent,#000 20px)}
+.panel[data-more=both]{-webkit-mask-image:linear-gradient(transparent,#000 20px,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(transparent,#000 20px,#000 calc(100% - 28px),transparent)}
 .panel::-webkit-scrollbar{display:none}
 .panel>*{flex:none}
 .panel[hidden]{display:none}
 .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
 /* Home: things to run */
-.tool-card{display:flex;flex-direction:column;gap:8px;padding:12px}
+.tool-card{display:flex;flex-direction:column;gap:8px;padding:10px 12px}
 .tool-head{display:flex;align-items:flex-start;gap:10px}
 .tool-copy{min-width:0;flex:1}
 .tool-copy h2{display:flex;align-items:center;gap:6px;margin:0;font-size:14px;font-weight:750;letter-spacing:-.1px}
@@ -33,6 +37,8 @@ svg{display:block}
 .primary-action{border:0;background:var(--link-bg);color:#fff}.primary-action:hover{filter:brightness(1.07)}.primary-action:disabled{opacity:.6;cursor:wait}
 .secondary-action{border:1px solid var(--line);background:var(--card);color:var(--text)}.secondary-action:hover{background:var(--surface)}
 .secondary-action[hidden]{display:none}
+#cache-status:empty{display:none}
+.turn-on{flex:none;align-self:center;min-height:28px;margin:0;padding:0 12px;border:0;border-radius:999px;background:var(--link-bg);color:#fff;font:inherit;font-size:11.5px;font-weight:750;cursor:pointer}.turn-on:hover{filter:brightness(1.07)}.turn-on[hidden]{display:none}
 .inline-status{margin:0;padding-left:0;text-align:center}.inline-status:before{display:none}.inline-status:empty{display:none}
 .state-pill{padding:1px 7px;border-radius:999px;background:#e3f4ea;color:#17663a;font-size:10px;font-weight:750;letter-spacing:.2px}
 #raffles-home[data-state="off"] .state-pill{background:var(--surface);color:var(--muted)}
@@ -100,9 +106,10 @@ main{display:flex;flex-direction:column;gap:8px}
 .cache-actions button:hover{background:var(--surface);border-color:#c8d0d3}.cache-actions button:disabled{opacity:.55;cursor:wait}
 .cache-actions button.confirming{border-color:var(--danger);color:var(--danger);font-weight:750}
 /* Two reserved lines: longer results clamp instead of growing the card. */
-#cache-status{display:-webkit-box;height:31px;margin:6px 2px 0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;color:var(--muted);font-size:10.5px;line-height:1.45}
+#cache-status{display:-webkit-box;margin:6px 2px 0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;color:var(--muted);font-size:10.5px;line-height:1.45}
 
-.search-syntax-hint{margin:8px 6px 0;color:var(--muted);font-size:10.5px;line-height:1.45;text-align:center}.search-syntax-hint kbd{padding:0 4px;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:10px;color:var(--text)}.search-syntax-hint code{font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text)}
+.tips-card{padding:9px 12px}.tips-card h2{margin:0 0 3px;font-size:12px;font-weight:750}
+.search-syntax-hint{margin:0;color:var(--muted);font-size:10.5px;line-height:1.5}.search-syntax-hint kbd{padding:0 4px;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:10px;color:var(--text)}.search-syntax-hint code{font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text)}
 footer{padding:8px 6px 0;color:var(--muted);font-size:9.5px;line-height:1.4;text-align:center}
 
 @media(prefers-color-scheme:dark){

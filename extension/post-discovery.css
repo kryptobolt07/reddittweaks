@@ -439,6 +439,8 @@ dialog.rt-raffle-sheet .rt-raffle-body{max-height:calc(92dvh - 152px)}
 .rt-raffle-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 0;min-height:32px;cursor:default}
 label.rt-raffle-row{cursor:pointer}
 .rt-raffle-row-text{display:flex;flex-direction:column;flex:1 1 auto;min-width:0}
+/* Exclude users menu: Reddit's menu size, never the width of the field it opens from. */
+.rt-raffle-users{width:256px;max-height:260px}
 /* Section symbols: an outline glyph in a round tile at the start of each rule. */
 .rt-raffle-row-icon{display:inline-flex;flex:none;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-row{gap:12px}
@@ -454,7 +456,7 @@ dialog.rt-raffle-dialog .rt-raffle-text{display:block;width:100%;height:40px;pad
 .rt-raffle-input{box-sizing:border-box;height:32px;padding:0 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:999px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);font:inherit;font-size:14px;line-height:20px}
 .rt-raffle-row-control>.rt-raffle-input{width:168px}
 .rt-raffle-input:hover{border-color:var(--color-neutral-border-strong,#5c6c74)}
-.rt-raffle-input:focus-visible,.rt-switch input:focus-visible+.rt-switch-track,.rt-raffle-step:focus-visible,.rt-raffle-winner a:focus-visible,.rt-raffle-more:focus-visible,.rt-raffle-account>summary:focus-visible{outline:2px solid var(--color-neutral-border-strong,#181c1f);outline-offset:2px}
+.rt-raffle-input:focus-visible,.rt-switch input:focus-visible+.rt-switch-track,.rt-raffle-step:focus-visible,.rt-raffle-winner a:focus-visible,.rt-raffle-more:focus-visible{outline:2px solid var(--color-neutral-border-strong,#181c1f);outline-offset:2px}
 .rt-raffle-stepper{display:flex;align-items:center;gap:4px}
 .rt-raffle-stepper .rt-raffle-count{width:48px;padding:0 4px;text-align:center;-moz-appearance:textfield}
 .rt-raffle-count::-webkit-outer-spin-button,.rt-raffle-count::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
@@ -470,11 +472,7 @@ dialog.rt-raffle-dialog .rt-raffle-text{display:block;width:100%;height:40px;pad
 .rt-switch-knob{display:block;width:28px;height:28px;margin:2px;border-radius:9999px;background:#fff;transition:transform .3s}
 .rt-switch input:checked+.rt-switch-track{background:var(--color-primary-background,#000)}
 .rt-switch input:checked+.rt-switch-track .rt-switch-knob{transform:translateX(16px)}
-.rt-raffle-account>summary{list-style:none;cursor:pointer;padding:8px 0;font-weight:400}
-.rt-raffle-account>summary::-webkit-details-marker{display:none}
-.rt-raffle-chevron,.rt-raffle-details summary::before,.rt-raffle-preview-wrap>summary::before{content:'';flex:none;width:20px;height:20px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M10%2013.7a.897.897%200%2001-.636-.264l-4.6-4.6a.9.9%200%20111.272-1.273L10%2011.526l3.964-3.963a.9.9%200%20011.272%201.273l-4.6%204.6A.897.897%200%200110%2013.7Z%22%2F%3E%3C%2Fsvg%3E") center/20px no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M10%2013.7a.897.897%200%2001-.636-.264l-4.6-4.6a.9.9%200%20111.272-1.273L10%2011.526l3.964-3.963a.9.9%200%20011.272%201.273l-4.6%204.6A.897.897%200%200110%2013.7Z%22%2F%3E%3C%2Fsvg%3E") center/20px no-repeat;transition:transform .15s}
-.rt-raffle-chevron{margin-inline:12px 0;color:var(--color-neutral-content-weak,#576f76)}
-.rt-raffle-account[open] .rt-raffle-chevron{transform:rotate(180deg)}
+.rt-raffle-details summary::before,.rt-raffle-preview-wrap>summary::before{content:'';flex:none;width:20px;height:20px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M10%2013.7a.897.897%200%2001-.636-.264l-4.6-4.6a.9.9%200%20111.272-1.273L10%2011.526l3.964-3.963a.9.9%200%20011.272%201.273l-4.6%204.6A.897.897%200%200110%2013.7Z%22%2F%3E%3C%2Fsvg%3E") center/20px no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20d%3D%22M10%2013.7a.897.897%200%2001-.636-.264l-4.6-4.6a.9.9%200%20111.272-1.273L10%2011.526l3.964-3.963a.9.9%200%20011.272%201.273l-4.6%204.6A.897.897%200%200110%2013.7Z%22%2F%3E%3C%2Fsvg%3E") center/20px no-repeat;transition:transform .15s}
 .rt-raffle-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:0 0 8px 44px}
 .rt-raffle-mini{display:flex;flex-direction:column;gap:4px;min-width:0}
 .rt-raffle-mini .rt-raffle-input{width:100%}
@@ -491,7 +489,7 @@ dialog.rt-raffle-dialog .rt-raffle-text{display:block;width:100%;height:40px;pad
 .rt-raffle-facts-inline{white-space:nowrap}
 /* Choice between a public draw (Reddit Raffler) and a private one. */
 .rt-raffle-choice{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.rt-raffle-option{position:relative;display:flex;align-items:flex-start;gap:8px;padding:12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:12px;cursor:pointer}
+.rt-raffle-option{position:relative;display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--color-neutral-border,#d4dadc);border-radius:12px;cursor:pointer}
 .rt-raffle-option[data-selected="true"]{border-color:var(--color-neutral-content-strong,#181c1f);box-shadow:inset 0 0 0 1px var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-option:has(input:disabled){cursor:default}
 .rt-raffle-option:has(input:disabled) .rt-raffle-option-title,.rt-raffle-option:has(input:disabled) .rt-raffle-option-caption{opacity:.55}
@@ -500,11 +498,11 @@ dialog.rt-raffle-dialog .rt-raffle-text{display:block;width:100%;height:40px;pad
 .rt-raffle-option-head{display:flex;align-items:center;gap:6px;min-width:0}
 .rt-raffle-option-icon{display:inline-flex;flex:none;color:var(--color-neutral-content-strong,#181c1f)}
 .rt-raffle-option-title{font-size:14px;line-height:20px;font-weight:600;color:var(--color-neutral-content-strong,#181c1f)}
-.rt-raffle-option-caption,.rt-raffle-option-state{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
-.rt-raffle-option-state:empty{display:none}
-.rt-raffle-option[data-rt-mode="private"] .rt-raffle-option-state{display:none}
-.rt-raffle-option-state{margin-top:4px;padding-top:6px;border-top:1px solid var(--color-neutral-border-weak,#00000019);color:var(--color-neutral-content,#333d42)}
-.rt-raffle-option-state[data-state="unavailable"],.rt-raffle-option-state[data-state="exists"]{font-weight:600}
+.rt-raffle-option-caption{font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Reddit Raffler's status for a public draw: one line under both cards, so the cards keep the same height. */
+.rt-raffle-raffler-state{margin:-4px 0 0;font-size:12px;line-height:16px;color:var(--color-neutral-content,#333d42)}
+.rt-raffle-raffler-state:empty{display:none}
+.rt-raffle-raffler-state[data-state="unavailable"],.rt-raffle-raffler-state[data-state="exists"]{font-weight:600}
 .rt-raffle-retry{min-height:24px;padding:0;border:0;background:none;font:inherit;font-weight:600;text-decoration:underline;color:var(--color-neutral-content-strong,#181c1f);cursor:pointer}
 /* Rows Reddit Raffler doesn't support, in public mode. */
 .rt-raffle-row[data-unsupported="true"] .rt-raffle-row-label{opacity:.55}
@@ -607,6 +605,7 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
   .rt-raffle-banner-actions .rt-raffle-action.button-small{height:36px}
   .rt-dialog-head{padding:12px 8px 4px 16px}
   .rt-redact-popover.rt-raffle-users .rt-menu-row{min-height:44px}
+  .rt-raffle-option{padding:10px}
 }
 /* Redaction dialog (docs/redaction-spec.md), on the raffle dialog's styles. */
 .rt-posts[data-rt-context=profile] .rt-posts-toolbar{min-height:0}
