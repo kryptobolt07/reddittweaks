@@ -312,3 +312,5 @@ The native reader owns no DOM. The existing Discovery owns the Removed header/fe
 | T16 | Off on Old Reddit |
 
 Standing checks S1–S9 apply to page/popup surfaces; chat layout changes are n/a because no chat UI is changed. Native style measurements precede implementation. Logic, transitions, account isolation and zero-legacy-transport checks are synthetic tests; live claims are restricted to the final measured read-only pass. No preview browser or destructive live test is used. System notification delivery, closed-tab monitoring and unrestricted logged-out verification are not claimed by this increment.
+
+Storage implementation: `removal-store.js` and `removal-broker.js` persist metadata only, serialize writes per account, retain a last-known verdict through failed checks, and verify the current native tab identity before accepting reports or exposing popup history. Initial observations establish a baseline; only later transitions enter change history. N5/N8 are covered by `tests/removal-store.test.cjs` and `tests/removal-broker.test.cjs` alongside the existing worker/cache regressions.
