@@ -15,9 +15,8 @@ import shutil
 import sys
 import zipfile
 
-# Shipped but not referenced at runtime: the detailed mascot the 48/128px icons are rendered from.
-EXTRA_FILES = {'icons/logo.svg'}
-REQUIRED_FILES = {'popup.js', 'popup.css', 'icons/logo.svg', 'icons/logo-small.svg'}
+EXTRA_FILES = set()
+REQUIRED_FILES = {'popup.js', 'popup.css', 'icons/96.png'}
 ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 
 
