@@ -616,18 +616,18 @@
       globalThis.RTPostDiscovery?.Discovery?.prototype.navigationFallback.call(this,target);
       const retry=make('button','button button-small button-plain px-md','Retry navigation');retry.type='button';retry.addEventListener('click',()=>{target.dataset.state='idle';this.loadNavigation();});target.querySelector('nav')?.append(retry);
     }
-    // Reddit's subreddit header: banner, overlapping avatar, r/name, and the community state where Join would be.
+    // Reddit's subreddit header: banner, overlapping avatar and r/name with the existing state glyph.
     renderHeader(){
       const header=this.headerEl,name=this.name;header.replaceChildren();
       const banner=make('div','rt-sra-banner');banner.setAttribute('aria-hidden','true');
       const row=make('section','flex relative items-center xs:items-end justify-between px-md xs:-top-[2.25rem] xs:-mb-[2.25rem] mt-xs mb-2xs xs:mt-0 rt-sra-header-row');
       const content=make('div','flex flex-1 items-end justify-between flex-col xs:flex-row rt-sra-header-content'),identity=make('div','flex items-end justify-start xs:justify-center gap-xs w-100 xs:w-auto rt-sra-identity');
       const avatar=make('div','xs:w-[88px] xs:h-[88px] w-2xl h-2xl text-48 shrink-0 rt-sra-avatar');avatar.append(this.avatar(88));
-      const titleWrap=make('div','flex flex-col'),title=make('h1','flex items-center font-bold text-18 xs:text-32 mb-0 text-neutral-content-strong rt-sra-name','r/'+name);title.dataset.testid='subreddit-name';
+      const titleWrap=make('div','flex items-center gap-xs min-w-0'),title=make('h1','flex items-center font-bold text-18 xs:text-32 mb-0 text-neutral-content-strong rt-sra-name','r/'+name);title.dataset.testid='subreddit-name';
       const state=make('span','rt-sra-state');state.dataset.testid='subreddit-archive-state';state.dataset.state=this.kind;
-      state.append(glyph(this.kind==='banned'?'removed':'hidden'),make('span','',(this.kind==='private'?'Private':'Banned')+' · Archived posts'));
-      state.title=(this.kind==='private'?'r/'+name+' is private':'r/'+name+' is banned')+'. Showing archived posts.';
-      titleWrap.append(title);identity.append(avatar,titleWrap);const actions=make('div','flex w-100 xs:w-auto mt-xs xs:mt-0 items-center gap-sm rt-sra-header-actions');actions.append(state);content.append(identity,actions);row.append(content);header.append(banner,row);
+      state.append(glyph(this.kind==='banned'?'removed':'hidden'));state.setAttribute('role','img');
+      state.title=(this.kind==='private'?'r/'+name+' is private':'r/'+name+' is banned')+'. Showing archived posts.';state.setAttribute('aria-label',state.title);
+      titleWrap.append(title,state);identity.append(avatar,titleWrap);content.append(identity);row.append(content);header.append(banner,row);
     }
     // Reddit's community sidebar: one rounded column of sections (12px uppercase headers, 14px body) split by
     // rules. Only what the extension honestly knows: the community state, what the archive is, what has been

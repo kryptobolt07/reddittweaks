@@ -12,3 +12,7 @@
 ## Validation
 
 Run targeted settings, early startup, feed pagination, comment-tree, sharing and native bridge regression tests using synthetic records. Browser validation must use live Reddit in Brave, per the user’s instruction: direct startup, collapsed navigation, scroll down/up, continuation, reply expansion, sticky sidebars and clean sharing. Run the full suite and package validation, compare source/ZIP/stable unpacked bytes, then record the release and any live-validation limits. No private captures are committed.
+
+## Compact community state (2026-11-17)
+
+Replace the large Banned · Archived posts masthead pill with the existing removed/banner glyph immediately beside r/name. Private archives use their existing hidden glyph in the same position. Reuse the exact glyph helper; no new artwork. Keep an accessible state/source label and native tooltip, while visible title text remains r/name. No Join-area pill, border, padding or extra header row; desktop/mobile native masthead geometry stays intact. Tests first for location, no visible pill text, accessible attribution, shared SVG and unchanged heading/spacing. Existing mount/filter/navigation/opt-out transitions retain a single icon and current state. No live writes or new requests.
