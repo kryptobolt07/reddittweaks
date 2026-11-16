@@ -57,7 +57,9 @@
     if(!result.length)add(raw.thumbnail,'thumbnail');
     return result;
   }
-  function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true,restoreDeletedContent:raw?.restoreDeletedContent!==false,subredditArchive:raw?.subredditArchive===true,subredditArchiveAutomatic:raw?.subredditArchiveAutomatic===true,cleanShareLinks:raw?.cleanShareLinks===true,modUnapprovedFilter:raw?.modUnapprovedFilter!==false,raffles:raw?.raffles!==false,ownRemoval:raw?.ownRemoval===true,removalNotifications:raw?.removalNotifications===true};}
+  // Viewed-posts History: 20 is Reddit's own limit (nothing recorded); 0 means no limit.
+  const historyLimits=[20,100,500,1000,5000,0];
+  function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true,restoreDeletedContent:raw?.restoreDeletedContent!==false,subredditArchive:raw?.subredditArchive===true,subredditArchiveAutomatic:raw?.subredditArchiveAutomatic===true,cleanShareLinks:raw?.cleanShareLinks===true,modUnapprovedFilter:raw?.modUnapprovedFilter!==false,raffles:raw?.raffles!==false,ownRemoval:raw?.ownRemoval===true,removalNotifications:raw?.removalNotifications===true,historyLimit:historyLimits.includes(raw?.historyLimit)?raw.historyLimit:20};}
   // Strip share tracking without resolving URLs or touching message/clipboard contents that are not a single URL.
   function cleanShareUrl(value,canonical=''){
     if(typeof value!=='string' || value!==value.trim())return value;

@@ -119,7 +119,7 @@
         "redaction-model.js",
         "redaction-ui.js",
         "thread-restore.js",
-        "own-removal.js"
+        "own-removal.js", "viewed-history.js"
       ]
     }
   ],
@@ -139,6 +139,7 @@
   },
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "declarativeNetRequestWithHostAccess"
   ],
   "background": {

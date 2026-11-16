@@ -4,7 +4,7 @@ const fs=require('node:fs'),vm=require('node:vm');
 function model(){const context=vm.createContext({URL});vm.runInContext(fs.readFileSync('extension/post-model.js','utf8'),context);return context.RTPostModel;}
 const post=(extra={})=>({id:'abc12',author:'Example',created_utc:1700000000,title:'Title',selftext:'Original body',...extra});
 test('automatic deleted-content restoration defaults on independently of archive opt-in',()=>{
- const m=model();assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false});
+ const m=model();assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,historyLimit:20});
  assert.equal(m.normalizeSettings({restoreDeletedContent:false}).restoreDeletedContent,false);
  for(const value of [true,null,0,'false'])assert.equal(m.normalizeSettings({restoreDeletedContent:value}).restoreDeletedContent,true);
  assert.equal(m.normalizeSettings({restoreDeletedContent:true,archiveDiscovery:false}).archiveDiscovery,false);

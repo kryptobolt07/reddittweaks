@@ -36,6 +36,21 @@ function saveSetting(control) {
   return settingsWrite;
 }
 
+// History length (docs/viewed-history-spec.md): 20 is Reddit's own limit and records nothing; 0 is no limit.
+const HISTORY_LIMITS=[20,100,500,1000,5000,0];
+async function loadHistoryLimit(){
+  const select=document.getElementById('history-limit');if(!select || !globalThis.chrome?.storage?.local?.get)return;
+  try{const stored=(await chrome.storage.local.get(SETTINGS_KEY))?.[SETTINGS_KEY] || {};select.value=String(HISTORY_LIMITS.includes(stored.historyLimit)?stored.historyLimit:20);select.disabled=false;}
+  catch{select.disabled=true;return;}
+  select.addEventListener('change',()=>{
+    const next=Number(select.value),status=document.querySelector('#settings-status');if(!HISTORY_LIMITS.includes(next))return;
+    select.disabled=true;status.classList.remove('error');status.textContent='Saving…';
+    settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{const latest=await chrome.storage.local.get(SETTINGS_KEY);await chrome.storage.local.set({[SETTINGS_KEY]:{...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY] || {}),historyLimit:next}});})
+      .then(()=>{status.textContent='Settings saved automatically.';},()=>{status.textContent='Could not save this setting. Please retry.';status.classList.add('error');}).finally(()=>{select.disabled=false;});
+  });
+}
+loadHistoryLimit();
+
 async function updateMessageStats() {
   const element=document.querySelector('#message-stats');
   try {
