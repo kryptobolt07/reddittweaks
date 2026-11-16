@@ -1,3 +1,11 @@
+# 0.38.5 preview
+
+- **Unified Removed profile feed:** selecting Removed in your horizontal profile tabs shows posts and comments together, like the other profile lists. It has no search content-type sub-tabs. Old profile URLs carrying Posts/Comments/Media now open that same unified feed and share its navigation cache; layout controls drop the obsolete scope parameter.
+- **Search matches Reddit:** every own-list search has exactly Posts / Comments / Media. All has been removed. Missing, invalid and legacy `type=all` search parameters default to Posts. Searching from the unified Removed profile opens Removed search at Posts; existing Comments/Media searches retain their selected type, query and filters.
+- **Version:** patch increment correcting the profile/search distinction; no new permissions, endpoints, archive policy or storage changes. Native cards, layout controls, cached removal evidence and request pacing remain in use.
+- **Validation:** all 1,651 tests pass; 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `49f51b444dd9797b525d42600b46c2ddc48a85d14799c55a94caf1243af67fbf`.
+- **Verification limits:** synthetic fixtures and existing captured native markup; no browser/CDP, constructed preview or live account actions. Installed review follows extension reload and Reddit refresh.
+
 # 0.38.4 preview
 
 - **Saved and Removed search tabs:** list search now has its own native-styled All / Posts / Comments / Media row above the inline filters, whether Reddit supplies a tab bar or not. Native observed attributes configure the row immediately and after component upgrade; it no longer waits for page-world definitions or changes Reddit's linked result-panel pagination.
