@@ -11,8 +11,8 @@ const post=(id,extra={})=>({id,author:'Example',title:'Synthetic '+id,selftext:'
 const comment=(id,extra={})=>({id,author:'Example',body:'Synthetic comment '+id,link_id:'t3_parent',parent_id:'t3_parent',link_title:'Parent',subreddit:'Alpha',subreddit_type:'public',created_utc:created,...extra});
 
 // --- View (isolated world), with the page bridge stubbed by the bridge's real normalization rules.
-async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[],cache=null,saved=[]}={}){
- const dom=new JSDOM(page,{url:'https://www.reddit.com/user/Example/search/?rt_list=removed',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,archives=[];let d;
+async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[],cache=null,saved=[],type=children?.every(([kind])=>kind==='t1')?'comments':'posts'}={}){
+ const dom=new JSDOM(page,{url:'https://www.reddit.com/user/Example/search/?rt_list=removed&type='+type,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,archives=[];let d;
  t.after(()=>{d?.destroy();W.close();});
  for(const file of ['search-core.js','post-model.js','feed-filters.js','removal-model.js','post-discovery.js'])W.eval(read(file));
  const M=W.RTPostModel;if(publicProofs)W.RTNativeRemoval={identity:()=>({owner:'t2_self',username:'Example'})};
@@ -33,7 +33,7 @@ async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:fa
 
 test('rt_list=removed is an own list route; other accounts cannot open it',async t=>{
  const s=await view(t,{children:[]});const route=s.W.RTPostDiscovery.pageRoute;
- assert.equal(route('/user/Example/search/','?rt_list=removed').list,'removed');assert.equal(route('/user/Example/search/','?rt_list=removed').type,'all');
+ assert.equal(route('/user/Example/search/','?rt_list=removed').list,'removed');assert.equal(route('/user/Example/search/','?rt_list=removed').type,'posts');
  assert.equal(route('/user/Other/search/','?rt_list=removed','Example'),null);
 });
 
@@ -42,12 +42,12 @@ test('Removed shows only your removed posts, each with its state pill and eviden
  assert.deepEqual(s.shown.sort(),['t3_adminpost','t3_autopost','t3_modpost']);
  assert.equal(s.pill('t3_modpost').dataset.rtRemoval,'removed-mod');assert.match(s.pill('t3_modpost').textContent,/^Removed by moderators$/);assert.match(s.pill('t3_modpost').title,/Reddit marks this post as removed by moderators/);
  assert.equal(s.pill('t3_autopost').textContent,'Removed automatically');assert.equal(s.pill('t3_adminpost').textContent,'Removed by Reddit');
- assert.equal(s.d.status.textContent,'Checked your newest 6 posts and comments · 3 removed');
+ assert.equal(s.d.status.textContent,'Checked your newest 5 posts · 3 removed');
  // The Posts and Comments tabs count only what they list (no comments counted under Posts).
  s.d.context.type='posts';s.d.summarizeRemoved();assert.equal(s.d.status.textContent,'Checked your newest 5 posts · 3 removed');
  s.d.context.type='comments';s.d.summarizeRemoved();assert.equal(s.d.status.textContent,'Checked your newest 1 comments · 0 removed');
- s.d.context.type='all';s.d.setFilters?.({...s.d.rtFilters,subreddits:['Other']});s.d.summarizeRemoved();assert.match(s.d.status.textContent,/^Checked your newest 0 posts and comments in this view · 0 removed/,'a community filter scopes the counts too');
- s.d.rtFilters={...s.d.rtFilters,subreddits:[]};s.d.summarizeRemoved();
+ s.d.context.type='posts';s.d.setFilters?.({...s.d.rtFilters,subreddits:['Other']});s.d.summarizeRemoved();assert.match(s.d.status.textContent,/^Checked your newest 0 posts · 0 removed/,'a community filter scopes the counts too');
+ s.d.rtFilters={...s.d.rtFilters,subreddits:[]};s.d.context.type='comments';s.d.summarizeRemoved();
  assert.match(s.d.notice.title,/1 comment couldn’t be checked: a signed-out item check is unavailable\. Turn on “Use the archive”/);
  assert.match(s.d.notice.title,/Couldn’t check whether others can see your profile/);
  assert.equal(s.archives.length,0,'no archive reads while “Use the archive” is off');
@@ -89,7 +89,7 @@ test('native Removed pages state their coverage limit and use archive evidence f
  await s.d.classifyRemoved([p],s.d.context);assert.equal(p.removal.state,'removed-auto');assert.equal(p.removal.confidence,'likely');s.d.listState.native=true;s.d.listState.capped=true;s.d.summarizeRemoved();assert.match(s.d.notice.title,/native profile coverage may be incomplete/i);assert.doesNotMatch(s.d.notice.title,/Reddit only returns your newest/);
 });
 test('Removed uses fresh unsigned evidence; search absence or an unreadable public response is not removal',async t=>{
- const s=await view(t,{children:[['t3',post('oldmod',{removed_by_category:'moderator'})],['t1',comment('publicremoved')],['t1',comment('missing')]],publicProofs:{t3_oldmod:{status:'visible',verified:true,moderation:'approved'},t1_publicremoved:{status:'removed',verified:true}}});
+ const s=await view(t,{type:'comments',children:[['t3',post('oldmod',{removed_by_category:'moderator'})],['t1',comment('publicremoved')],['t1',comment('missing')]],publicProofs:{t3_oldmod:{status:'visible',verified:true,moderation:'approved'},t1_publicremoved:{status:'removed',verified:true}}});
  assert.deepEqual(s.shown,['t1_publicremoved']);assert.equal([...s.d.listState.items.values()].find(p=>p.id==='oldmod').removal.state,'visible');assert.equal([...s.d.listState.items.values()].find(p=>p.id==='missing').removal.state,'unknown');assert.match(s.d.notice.title,/signed.out.*unavailable/i);assert.doesNotMatch(s.d.notice.title,/Reddit blocks logged-out checks/);
 });
 test('a readable but explicitly removed native post can still use archive evidence for its removal source',async t=>{
@@ -214,16 +214,16 @@ test('the notice is one short line; the reasons are in its tooltip',async t=>{
  const s=await view(t,{children:[['t1',comment('a')],['t1',comment('b')]],publicProofs:{}});
  assert.equal(s.d.notice.textContent,'2 couldn’t be checked');assert.match(s.d.notice.title,/2 comments couldn’t be checked/);assert.match(s.d.notice.title,/\n/);
 });
-test('the All tab is drawn and selected; Reddit’s Posts highlight moves to the tab the list shows (live: Posts stayed highlighted)',async t=>{
+test('Removed search draws exactly Posts, Comments and Media with Posts selected by default',async t=>{
  const s=await view(t,{children:[['t3',post('m1',{removed_by_category:'moderator'})],['t1',comment('c1',{removed_by_category:'moderator'})]],publicProofs:{}});
  const W=s.W,group=W.document.getElementById('rt-own-list-types'),tabs=()=>[...group.querySelectorAll(':scope > a')];
  W.customElements.define('faceplate-tabgroup',class extends W.HTMLElement{get pages(){return Number(this.getAttribute('pages'));}get pageIndex(){return Number(this.getAttribute('pageindex'));}});
  s.d.syncOwnListTabs();await flush();
- assert.deepEqual(tabs().map(a=>a.textContent.trim()+'@'+a.getAttribute('slot')),['All@page-1','Posts@page-2','Comments@page-3','Media@page-4'],'every tab sits in a slot Reddit draws');
- assert.equal(group.pages,4);assert.equal(group.pageIndex,1);
- const selected=tabs().filter(a=>a.hasAttribute('faceplate-tab-selected') || /tab-selected/.test(a.className)).map(a=>a.textContent.trim());assert.deepEqual(selected,['All']);
+ assert.deepEqual(tabs().map(a=>a.textContent.trim()+'@'+a.getAttribute('slot')),['Posts@page-1','Comments@page-2','Media@page-3'],'every tab sits in a slot Reddit draws');
+ assert.equal(group.pages,3);assert.equal(group.pageIndex,1);
+ const selected=tabs().filter(a=>a.hasAttribute('faceplate-tab-selected') || /tab-selected/.test(a.className)).map(a=>a.textContent.trim());assert.deepEqual(selected,['Posts']);
  assert.match(tabs()[0].className,/bg-secondary-background-selected/);assert.doesNotMatch(tabs()[1].className,/bg-secondary-background-selected|tab-selected/);
- s.d.context.type='posts';s.d.syncOwnListTabs();await flush();assert.equal(group.pageIndex,2);assert.deepEqual(tabs().filter(a=>/tab-selected/.test(a.className)).map(a=>a.textContent.trim()),['Posts']);
+ s.d.context.type='comments';s.d.syncOwnListTabs();await flush();assert.equal(group.pageIndex,2);assert.deepEqual(tabs().filter(a=>/tab-selected/.test(a.className)).map(a=>a.textContent.trim()),['Comments']);
 });
 test('cached signed-out results skip the visitor walk and direct checks; new results are saved without text',async t=>{
  const calls=[],saved=[],now=Date.now();
