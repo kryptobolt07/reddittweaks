@@ -118,3 +118,16 @@ test('selecting Removed scrolls Reddit’s tab strip to it and lets the strip up
  s.d.applySettings({postDiscovery:false,archiveDiscovery:false});s.W.history.pushState({},'','/user/Example/hidden/?rt_view=removed');s.d.applySettings({postDiscovery:true,archiveDiscovery:false});await flush();await new Promise(r=>setTimeout(r,40));
  assert.ok(scrolled>=1,'the strip is told it scrolled, so its fade arrow no longer covers Removed');
 });
+test('re-rendering Removed leaves cards Reddit swapped for placeholders where they are, and moves nothing when the order is unchanged',async t=>{
+ const s=await setup(t);await s.d.refreshActivity();await flush();const feed=s.d.feed,cards=[...s.d.nodes.values()].filter(n=>!n.hidden),first=cards[0];
+ // Reddit's feed virtualization: an off-screen card is replaced by a same-height placeholder.
+ const placeholder=s.W.document.createElement('div');placeholder.className='virtualized-placeholder';placeholder.style.height='200px';first.replaceWith(placeholder);await flush();
+ const moves=[];new s.W.MutationObserver(records=>{for(const r of records)if(r.type==='childList')moves.push(r);}).observe(feed,{childList:true});
+ s.d.renderOwnList();s.d.renderOwnList();await flush();
+ assert.equal(first.isConnected,false,'the virtualized card is not pulled back in');assert.equal(placeholder.isConnected,true);assert.equal(moves.length,0,'no card is moved when nothing changed');
+ assert.deepEqual([...feed.children].filter(n=>n.matches('[data-rt-ui="activity-item"],.virtualized-placeholder')).map(n=>n===placeholder?'placeholder':n.dataset.fullname),['placeholder',...cards.slice(1).map(n=>n.dataset.fullname)]);
+});
+test('a card filtered out while swapped for a placeholder hides that placeholder too',async t=>{
+ const s=await setup(t);await s.d.refreshActivity();await flush();const card=[...s.d.nodes.values()].find(n=>n.dataset.fullname==='t1_reply'),placeholder=s.W.document.createElement('div');placeholder.className='virtualized-placeholder';card.replaceWith(placeholder);await flush();
+ s.d.listState.items.get('t1_reply').removal={...s.d.listState.items.get('t1_reply').removal,removed:false,state:'visible'};s.d.renderOwnList();assert.equal(placeholder.hidden,true,'no blank box is left for a card that is no longer listed');
+});

@@ -815,8 +815,14 @@
       for(const post of posts){const key=itemKey(post);let node=this.nodes.get(key);if(!node){node=this.card(post);this.nodes.set(key,node);
           // Searches use native search rows; the Removed section uses lazy profile cards below.
           if(!this.context.section)this.showSearchUnit(post,node);
-        }this.postMetadata.set(key,post);if(this.context.section && post.source==='arctic-shift' && post.removal?.removed){this.renderArchivedNative(post,node);this.decorateNative(post,node);}node.hidden=false;}
-      let before=this.loading;for(const post of [...posts].reverse()){const node=this.nodes.get(itemKey(post));if(node.nextSibling!==before)this.feed.insertBefore(node,before);before=node;}
+        }else if(!this.context.section && this.postMetadata.get(key)?.saved && this.postMetadata.get(key)!==post)this.showSearchUnit(post,node);
+        this.postMetadata.set(key,post);if(this.context.section && post.source==='arctic-shift' && post.removal?.removed){this.renderArchivedNative(post,node);this.decorateNative(post,node);}node.hidden=false;}
+      // Reddit's feed swaps off-screen cards for same-height placeholders and swaps them back on scroll. Order whatever
+      // currently holds each card's place, so a re-render never pulls a swapped card back in beside its placeholder
+      // (which left blanks and shifted the page), and move nothing that is already in place.
+      this.flushVirtualization();const slots=new Map();for(const [placeholder,original] of this.virtualNodes || [])if(placeholder.parentElement===this.feed)slots.set(original,placeholder);
+      let before=this.loading;for(const post of [...posts].reverse()){const node=this.nodes.get(itemKey(post)),slot=slots.get(node) || node;if(slot!==node)slot.hidden=node.hidden;if(slot.nextSibling!==before)this.feed.insertBefore(slot,before);before=slot;}
+      for(const [original,placeholder] of slots)if(placeholder.hidden!==original.hidden)placeholder.hidden=original.hidden;
       // Cards stay undrawn (display:none) until Reddit's card is ready, so a scroll watcher never sees them: queue them.
       if(this.context.section)for(const post of posts){const node=this.nodes.get(itemKey(post));if(node.dataset.rtNativeState==='idle')this.queueNative(node);}
       this.renderedPosts=posts;this.live=new Map(state.items);this.more.hidden=true;this.renderFilterChips();this.renderSubredditOptions();this.summarizeOwnList();this.updateProfileLoading();
@@ -946,7 +952,8 @@
       const state=this.listState,R=globalThis.RTRemovalModel,item=state?.archiveHistory?.get(key);if(!item || !R?.afterDeletion)return false;
       const existing=state.items.get(key),live=existing && !existing.saved?existing:null;if(live?.source==='arctic-shift' || live && live.removal?.state!=='deleted')return false;
       if(!live && !this.livePassed(item))return false;
-      const removal=R.afterDeletion(item,{deleted:Boolean(live),absent:!live});if(!removal)return false;item.removal=removal;if(existing)this.dropCard(key);state.items.set(key,item);return true;
+      // A saved archive card for the same item is kept and redrawn in place; anything else gets a new card.
+      const removal=R.afterDeletion(item,{deleted:Boolean(live),absent:!live});if(!removal)return false;item.removal=removal;if(existing && !(existing.saved && existing.source==='arctic-shift'))this.dropCard(key);state.items.set(key,item);return true;
     }
     /* The saved Removed list (spec §27): shown at once on open, so search and the list answer before the walk does.
        Each entry is marked saved until a fresh check replaces it; a complete walk drops the rest and saves its result. */
