@@ -46,7 +46,10 @@ jobs:
         run: python3 scripts/verify-package.py --github-output "$GITHUB_OUTPUT"
       - run: npm run package:firefox
       - run: npm run verify:firefox
-      - run: npm run lint:firefox
+      - name: Lint Firefox package with zero warnings
+        run: |
+          set -o pipefail
+          npm run lint:firefox | tee artifacts/firefox-lint.log
       - name: Upload release bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -60,6 +63,7 @@ jobs:
             artifacts/reddit-tweaks-firefox-v${{ steps.verify.outputs.version }}-unsigned.xpi.sha256
             artifacts/reddit-tweaks-firefox-source-v${{ steps.verify.outputs.version }}.zip
             artifacts/reddit-tweaks-firefox-source-v${{ steps.verify.outputs.version }}.zip.sha256
+            artifacts/firefox-lint.log
             artifacts/release-notes.md
           if-no-files-found: error
           retention-days: 14
