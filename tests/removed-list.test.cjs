@@ -51,11 +51,12 @@ test('Removed shows only your removed posts, each with its state pill and eviden
 test('with the archive on, comments are classified from its captures in batches of at most 25',async t=>{
  const children=[['t1',comment('auto1')],['t1',comment('mod1')],['t1',comment('seen1')],['t1',comment('none1')],...Array.from({length:26},(_,i)=>['t1',comment('bulk'+i)])];
  const s=await view(t,{settings:{postDiscovery:true,archiveDiscovery:true},children,archive:async(args,W)=>{
+  if(args.action==='archive-profile')return {ok:true,posts:[],hasMore:false};
   assert.equal(args.action,'archive-removal');assert.equal(args.kind,'comment');assert.ok(args.ids.length<=25);
   const caps={auto1:{body:'[removed]',retrieved_on:created+10},mod1:{body:'Synthetic comment mod1',retrieved_on:created+600}};
   return {ok:true,posts:args.ids.filter(id=>caps[id]).map(id=>W.RTPostModel.normalizeComment({...comment(id),...caps[id]},{source:'arctic-shift'}))};
  }});
- assert.equal(s.archives.length,2);assert.deepEqual(s.archives.map(a=>a.ids.length),[25,5]);
+ const removals=s.archives.filter(a=>a.action==='archive-removal');assert.equal(removals.length,2);assert.deepEqual(removals.map(a=>a.ids.length),[25,5]);
  // Only the archive capture of a removal makes a comment "removed"; one seen visible stays unchecked (no public view).
  assert.deepEqual(s.shown,['t1_auto1']);assert.equal(s.pill('t1_auto1').textContent,'Removed automatically (likely)');assert.match(s.pill('t1_auto1').title,/10 seconds after posting/);
  assert.equal(s.d.listState.items.get('mod1')?.removal?.state ?? [...s.d.listState.items.values()].find(p=>p.id==='mod1').removal.state,'unknown');
@@ -182,4 +183,18 @@ test('an archive “removed” item in a hidden community is checked before othe
  const direct=calls.filter(c=>c.action==='removal-public').map(c=>c.fullname);
  assert.equal(direct[0],'t3_gta','archive-flagged hidden item goes first in the hidden budget');assert.equal(direct.length,30);
  assert.equal(s.shown.includes('t3_gta'),false,'visible now, so not listed as removed');
+});
+
+// Removed, then deleted by you (spec §18 P3): Arctic Shift history for items no longer on the profile.
+test('items no longer on your profile that the archive shows removed are listed as removed, then deleted; self-deleted ones are not',async t=>{
+ const archivePosts=[{...post('gone',{created_utc:created-100}),selftext:'Original words',removed_by_category:'moderator',_meta:{removal_type:'moderator',was_deleted_later:true}},
+  {...post('selfdel',{created_utc:created-200}),_meta:{removal_type:'deleted'}},{...post('kept',{created_utc:created})}];
+ const archive=async args=>args.action==='archive-profile'?{ok:true,posts:args.kind==='post'?archivePosts:[],hasMore:false}:{ok:true,posts:[]};
+ const s=await view(t,{children:[['t3',post('kept',{created_utc:created})],['t3',post('old',{created_utc:created-1000})]],settings:{postDiscovery:true,archiveDiscovery:true},archive,publicProofs:{t3_kept:{status:'visible',verified:true},t3_old:{status:'visible',verified:true}},visitor:pages([{fullname:'t3_kept',created},{fullname:'t3_old',created:created-1000}])});
+ assert.deepEqual(s.shown,['t3_gone']);assert.match(s.pill('t3_gone').textContent,/^Removed by moderators, then deleted by you/);
+ assert.ok(s.archives.some(a=>a.action==='archive-profile' && a.kind==='post' && a.username==='Example'));
+});
+test('with the archive off, removed-then-deleted is skipped and said so',async t=>{
+ const s=await view(t,{children:[['t3',post('kept')]],publicProofs:{t3_kept:{status:'visible',verified:true}},visitor:pages([{fullname:'t3_kept',created}])});
+ assert.equal(s.archives.some(a=>a.action==='archive-profile'),false);assert.match(s.d.notice.textContent,/Turn on “Use the archive” to include items you deleted after a removal/);
 });
