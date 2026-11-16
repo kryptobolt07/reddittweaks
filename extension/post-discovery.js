@@ -263,7 +263,7 @@
       this.settingsPending=true;this.syncProfileNotice();
       // The signed-in account is checked again on every route, but the last confirmed one stays in use meanwhile
       // (every list request re-confirms it in the page world), so Back to a parked list doesn't wait or flash.
-      this.onRoute=()=>{if(ownListCandidate())this.ownIdentityChecked=false;this.syncProfileNotice();this.schedule();};this.onSettings=(changes,area)=>{if(area==='local' && changes[key])this.applySettings(M.normalizeSettings(changes[key].newValue));};
+      this.onRoute=()=>{if(ownListCandidate())this.ownIdentityChecked=false;this.syncProfileNotice();if(this.hasSearchPark())this.scan();else this.schedule();};this.onSettings=(changes,area)=>{if(area==='local' && changes[key])this.applySettings(M.normalizeSettings(changes[key].newValue));};
       this.onOwnSubmit=event=>this.submitOwnList(event);document.addEventListener('submit',this.onOwnSubmit,true);
       this.onOwnFocus=()=>this.syncOwnListHeader();document.addEventListener('focusin',this.onOwnFocus,true);
       this.onEmptyProfileSearch=event=>{
@@ -285,7 +285,9 @@
       if(observe){this.observer=new MutationObserver(records=>{if(this.orphaned())return;this.syncProfileNotice();this.syncOwnListHeader();if(this.feed)this.trackVirtualization(records);
         // Reddit's start-up reconcile removes what we inserted into main (only our nodes change, so the
         // filter below would ignore it): put the search view back before the next paint.
-        if(this.context?.view==='search' && this.host && (!this.host.isConnected || this.isOwnList() && this.listTabsShell && !this.listTabsShell.isConnected) && !this.searchReattachQueued){this.searchReattachQueued=true;queueMicrotask(()=>{this.searchReattachQueued=false;if(!this.dead)this.scan();});}
+        if((this.hasSearchPark() || this.context?.view==='search' && this.host && (!this.host.isConnected || this.isOwnList() && this.listTabsShell && !this.listTabsShell.isConnected)) && !this.searchReattachQueued){this.searchReattachQueued=true;queueMicrotask(()=>{this.searchReattachQueued=false;if(!this.dead)this.scan();});}
+        // Late native empty/skeleton content must not paint over a retained result feed.
+        if(this.context?.view==='search' && this.feed?.isConnected && pageRoute()?.key===this.context.key && records.some(record=>!this.ownsMutation(record) && !this.feed.contains(record.target)))this.suppressSearchPage();
         // Nothing mounted and not a page discovery acts on: unrelated page churn.
         if(this.idleRoute())return;if(records.some(r=>!this.ownsMutation(r) && !(this.feedPresentationObserver && this.feed?.contains(r.target))))this.schedule(true);});this.observer.observe(document.documentElement,{childList:true,subtree:true});window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.addListener(this.onSettings);}
       this.onWorkerSettings=(message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===globalThis.chrome?.runtime?.id)this.onSettings({[key]:{newValue:message.settings}},'local');};
@@ -382,6 +384,7 @@
     // Search results live in our own feed, and Reddit rebuilds its search page on Back, so a search
     // is parked by its address and put back into the rebuilt page (see restoreSearchPark).
     searchParkKey(context=this.context){if(context?.section)return context.key;return context?.view==='search'?context.key+'|'+new URLSearchParams([...new URLSearchParams(location.search)].filter(([name])=>/^rt_/.test(name))).toString():'';}
+    hasSearchPark(context=pageRoute()){return !this.dead && this.settings.postDiscovery && !this.settingsPending && !this.settingsError && context?.view==='search' && Boolean(this.searchParks?.has(this.searchParkKey(context)));}
     parkSearch({keepVisible=false}={}){
       const route=pageRoute();if(!this.searchParkAt || this.context?.view!=='search' || !this.host || !this.feed || this.dead || this.settingsError || !this.settings.postDiscovery || route?.key===this.context.key && this.host.isConnected || !this.listState && !this.nodes.size)return false;
       this.flushVirtualization();const state=this.viewState();state.parkedAt=Date.now();state.scrollY=window.scrollY;
@@ -1219,7 +1222,7 @@
       // Tabs can be outside main, and an empty-query page may never render a
       // result unit. Keep requiring native search evidence so outgoing profile
       // DOM is left alone; the debounced page observer retries late arrivals.
-      if(!pageRoute()?.list && !document.querySelector('#search-results-page-tabgroup') && !main.querySelector('[data-testid="search-sdui-post"],[data-testid="search-sdui-comment-unit"]'))return null;
+      if(!pageRoute()?.list && !document.querySelector('#search-results-page-tabgroup') && !main.querySelector('[data-testid="search-sdui-post"],[data-testid="search-sdui-comment-unit"],[data-testid="search-error-message"]'))return null;
       const feed=this.searchFeed=make('shreddit-feed','nd:visible');feed.dataset.rtUi='search-feed';
       const results=[...main.children].find(el=>el.matches('div.bg-neutral-background') && !el.querySelector('#search-results-page-tabgroup'));
       const tabs=main.querySelector('#search-results-page-tabgroup');
@@ -1247,7 +1250,7 @@
         }
         hide(box);
       }
-      for(const unit of main?.querySelectorAll('[data-testid="search-sdui-post"],[data-testid="search-post-unit"],[data-testid="search-sdui-comment-unit"],#empty-search-results,shreddit-search-load-more,faceplate-partial[loading],shreddit-feed-load-more-observer') || [])hide(unit);
+      for(const unit of main?.querySelectorAll('[data-testid="search-sdui-post"],[data-testid="search-post-unit"],[data-testid="search-sdui-comment-unit"],[data-testid="search-error-message"],#empty-search-results,shreddit-search-load-more,faceplate-partial[loading],shreddit-feed-load-more-observer') || [])hide(unit);
       // The search sort/time controls live outside main in some Reddit layouts.
       for(const spacer of document.querySelectorAll('[data-testid="search-results-filter-spacer-desktop"],[data-testid="search-results-filter-spacer-mobile"]')){
         for(const child of spacer.children)hide(child);
