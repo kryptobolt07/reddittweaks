@@ -33,7 +33,7 @@ jobs:
           path: artifacts
       - name: Check downloaded archive
         working-directory: artifacts
-        run: sha256sum --check "reddit-tweaks-v$VERSION.zip.sha256"
+        run: sha256sum --check *.sha256
       - name: Publish validated extension
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,4 +44,10 @@ jobs:
           gh release create "$RELEASE_TAG" --verify-tag \
             --title "Reddit Tweaks $VERSION" --notes-file artifacts/release-notes.md \
             "${flags[@]}" "artifacts/reddit-tweaks-v$VERSION.zip" \
-            "artifacts/reddit-tweaks-v$VERSION.zip.sha256"
+            "artifacts/reddit-tweaks-v$VERSION.zip.sha256" \
+            "artifacts/reddit-tweaks-firefox-v$VERSION.zip" \
+            "artifacts/reddit-tweaks-firefox-v$VERSION.zip.sha256" \
+            "artifacts/reddit-tweaks-firefox-v$VERSION-unsigned.xpi" \
+            "artifacts/reddit-tweaks-firefox-v$VERSION-unsigned.xpi.sha256" \
+            "artifacts/reddit-tweaks-firefox-source-v$VERSION.zip" \
+            "artifacts/reddit-tweaks-firefox-source-v$VERSION.zip.sha256"
