@@ -25,7 +25,7 @@ async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:fa
   throw Error('Unexpected request: '+args.action);
  };
  d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover:false,reddit,archive:async args=>{archives.push(args);if(!archive)throw Error('No archive expected');return archive(args,W);},readSettings:async()=>({'rt-settings-v1':settings})});
- await d.ready;await flush();await d.refreshActivity();await flush();
+ d.removalGapMs=0;await d.ready;await flush();await d.refreshActivity();await flush();
  const shown=[...d.nodes.values()].filter(n=>!n.hidden).map(n=>n.dataset.fullname);
  const pill=name=>[...d.nodes.values()].find(n=>n.dataset.fullname===name)?.querySelector('.rt-removal-pill');
  return {W,d,archives,shown,pill};
@@ -43,8 +43,13 @@ test('Removed shows only your removed posts, each with its state pill and eviden
  assert.equal(s.pill('t3_modpost').dataset.rtRemoval,'removed-mod');assert.match(s.pill('t3_modpost').textContent,/^Removed by moderators$/);assert.match(s.pill('t3_modpost').title,/Reddit marks this post as removed by moderators/);
  assert.equal(s.pill('t3_autopost').textContent,'Removed automatically');assert.equal(s.pill('t3_adminpost').textContent,'Removed by Reddit');
  assert.equal(s.d.status.textContent,'Checked your newest 6 posts and comments · 3 removed');
- assert.match(s.d.notice.textContent,/1 comment couldn’t be checked: a signed-out item check is unavailable\. Turn on “Use the archive”/);
- assert.match(s.d.notice.textContent,/Couldn’t check whether others can see your profile/);
+ // The Posts and Comments tabs count only what they list (no comments counted under Posts).
+ s.d.context.type='posts';s.d.summarizeRemoved();assert.equal(s.d.status.textContent,'Checked your newest 5 posts · 3 removed');
+ s.d.context.type='comments';s.d.summarizeRemoved();assert.equal(s.d.status.textContent,'Checked your newest 1 comments · 0 removed');
+ s.d.context.type='all';s.d.setFilters?.({...s.d.rtFilters,subreddits:['Other']});s.d.summarizeRemoved();assert.match(s.d.status.textContent,/^Checked your newest 0 posts and comments in this view · 0 removed/,'a community filter scopes the counts too');
+ s.d.rtFilters={...s.d.rtFilters,subreddits:[]};s.d.summarizeRemoved();
+ assert.match(s.d.notice.title,/1 comment couldn’t be checked: a signed-out item check is unavailable\. Turn on “Use the archive”/);
+ assert.match(s.d.notice.title,/Couldn’t check whether others can see your profile/);
  assert.equal(s.archives.length,0,'no archive reads while “Use the archive” is off');
 });
 
@@ -60,12 +65,12 @@ test('with the archive on, comments are classified from its captures in batches 
  // Only the archive capture of a removal makes a comment "removed"; one seen visible stays unchecked (no public view).
  assert.deepEqual(s.shown,['t1_auto1']);assert.equal(s.pill('t1_auto1').textContent,'Removed automatically (likely)');assert.match(s.pill('t1_auto1').title,/10 seconds after posting/);
  assert.equal(s.d.listState.items.get('mod1')?.removal?.state ?? [...s.d.listState.items.values()].find(p=>p.id==='mod1').removal.state,'unknown');
- assert.match(s.d.notice.textContent,/29 comments couldn’t be checked/);assert.doesNotMatch(s.d.notice.textContent,/Turn on “Use the archive”/);
+ assert.match(s.d.notice.title,/29 comments couldn’t be checked/);assert.doesNotMatch(s.d.notice.title,/Turn on “Use the archive”/);
 });
 
 test('an archive failure leaves comments as “Couldn’t check” and says so, never as visible',async t=>{
  const s=await view(t,{settings:{postDiscovery:true,archiveDiscovery:true},children:[['t1',comment('c1')],['t3',post('p1',{removed_by_category:'moderator'})]],archive:async()=>{throw Error('Archive requests are cooling down.');}});
- assert.deepEqual(s.shown,['t3_p1']);assert.match(s.d.notice.textContent,/The archive didn’t answer \(Archive requests are cooling down\); some comments couldn’t be checked/);
+ assert.deepEqual(s.shown,['t3_p1']);assert.match(s.d.notice.title,/The archive didn’t answer \(Archive requests are cooling down\); some comments couldn’t be checked/);
  assert.equal([...s.d.listState.items.values()].find(p=>p.id==='c1').removal.state,'unknown');assert.notEqual(s.d.status.dataset.error,'true');
 });
 
@@ -76,16 +81,16 @@ test('no removals says how many items could be checked, not that nothing was rem
 
 test('native metadata without a visibility verdict remains unchecked and exposes its limit',async t=>{
  const s=await view(t,{children:[['t3',post('a')]]});const item=[...s.d.listState.items.values()][0];item.moderation.visibilityKnown=false;
- await s.d.classifyRemoved([item],s.d.context);s.d.renderOwnList();assert.equal(item.removal.state,'unknown');assert.match(s.d.notice.textContent,/native metadata does not establish public visibility/);assert.match(s.d.listEmpty.textContent,/0 items that could be checked/);
+ await s.d.classifyRemoved([item],s.d.context);s.d.renderOwnList();assert.equal(item.removal.state,'unknown');assert.match(s.d.notice.title,/native metadata does not establish public visibility/);assert.match(s.d.listEmpty.textContent,/0 items that could be checked/);
 });
 test('native Removed pages state their coverage limit and use archive evidence for own posts too',async t=>{
  const s=await view(t,{children:[['t3',post('auto1')]]});const p=[...s.d.listState.items.values()][0];Object.assign(p.moderation,{native:true,nativeRemoved:true,visibilityKnown:false});s.d.settings.archiveDiscovery=true;
  s.d.archive=async args=>{assert.equal(args.kind,'post');return {posts:[s.W.RTPostModel.normalizePost({...post('auto1'),selftext:'[removed]',retrieved_on:created+10},{source:'arctic-shift'})]};};
- await s.d.classifyRemoved([p],s.d.context);assert.equal(p.removal.state,'removed-auto');assert.equal(p.removal.confidence,'likely');s.d.listState.native=true;s.d.listState.capped=true;s.d.summarizeRemoved();assert.match(s.d.notice.textContent,/native profile coverage may be incomplete/i);assert.doesNotMatch(s.d.notice.textContent,/Reddit only returns your newest/);
+ await s.d.classifyRemoved([p],s.d.context);assert.equal(p.removal.state,'removed-auto');assert.equal(p.removal.confidence,'likely');s.d.listState.native=true;s.d.listState.capped=true;s.d.summarizeRemoved();assert.match(s.d.notice.title,/native profile coverage may be incomplete/i);assert.doesNotMatch(s.d.notice.title,/Reddit only returns your newest/);
 });
 test('Removed uses fresh unsigned evidence; search absence or an unreadable public response is not removal',async t=>{
  const s=await view(t,{children:[['t3',post('oldmod',{removed_by_category:'moderator'})],['t1',comment('publicremoved')],['t1',comment('missing')]],publicProofs:{t3_oldmod:{status:'visible',verified:true,moderation:'approved'},t1_publicremoved:{status:'removed',verified:true}}});
- assert.deepEqual(s.shown,['t1_publicremoved']);assert.equal([...s.d.listState.items.values()].find(p=>p.id==='oldmod').removal.state,'visible');assert.equal([...s.d.listState.items.values()].find(p=>p.id==='missing').removal.state,'unknown');assert.match(s.d.notice.textContent,/signed.out.*unavailable/i);assert.doesNotMatch(s.d.notice.textContent,/Reddit blocks logged-out checks/);
+ assert.deepEqual(s.shown,['t1_publicremoved']);assert.equal([...s.d.listState.items.values()].find(p=>p.id==='oldmod').removal.state,'visible');assert.equal([...s.d.listState.items.values()].find(p=>p.id==='missing').removal.state,'unknown');assert.match(s.d.notice.title,/signed.out.*unavailable/i);assert.doesNotMatch(s.d.notice.title,/Reddit blocks logged-out checks/);
 });
 test('a readable but explicitly removed native post can still use archive evidence for its removal source',async t=>{
  const s=await view(t,{children:[['t3',post('both')]],publicProofs:{t3_both:{status:'visible',verified:true}}});const p=[...s.d.listState.items.values()][0];Object.assign(p.moderation,{native:true,nativeRemoved:true,visibilityKnown:false});s.d.settings.archiveDiscovery=true;let reads=0;s.d.archive=async()=>{reads++;return {posts:[s.W.RTPostModel.normalizePost({...post('both'),selftext:'[removed]',retrieved_on:created+10},{source:'arctic-shift'})]};};await s.d.classifyRemoved([p],s.d.context);assert.equal(reads,1);assert.equal(p.removal.state,'removed-auto');
@@ -151,10 +156,12 @@ test('the visitor walk stops once it is older than the items being checked',asyn
  const s=await view(t,{children,publicProofs:{},visitor:pages([{fullname:'t1_new1',created},{fullname:'t1_new2',created:created-60},{fullname:'t1_old',created:created-99999}],[{fullname:'t1_older',created:created-999999}]),calls});
  assert.equal(calls.filter(c=>c.action==='removal-public-profile').length,1,'one page reached past the batch');assert.equal(calls.filter(c=>c.action==='removal-public').length,0);
 });
-test('direct checks are capped at 50 a scan; the rest stay unchecked, never removed',async t=>{
+test('every item the visitor didn’t see gets a paced signed-out check; a refusal stops the rest',async t=>{
  const calls=[],many=Array.from({length:60},(_,i)=>['t1',comment('k'+i,{created_utc:created-i})]);
  const s=await view(t,{children:many,publicProofs:{},visitor:pages([]),calls});
- assert.equal(calls.filter(c=>c.action==='removal-public').length,50);assert.deepEqual(s.shown,[]);assert.match(s.d.notice.textContent,/up to 50 a scan/);
+ assert.equal(calls.filter(c=>c.action==='removal-public').length,60,'no fixed cap');assert.deepEqual(s.shown,[]);
+ const refused=[],r=await view(t,{children:many,publicProofs:new Proxy({},{get:(o,k)=>{refused.push(k);return refused.length===3?{status:'unknown',verified:false,why:'Signed-out check unavailable: Reddit blocked logged-out item checks (HTTP 403).'}:undefined;}}),visitor:pages([]),calls:[]});
+ assert.match(r.d.notice.title,/Reddit paused signed-out checks/);assert.match(r.d.notice.textContent,/couldn’t be checked/);
 });
 test('a post the visitor sees beats an archive snapshot that saw it removed early (approved later)',async t=>{
  const children=[['t3',post('gta',{created_utc:created})]];
@@ -165,7 +172,7 @@ test('a post the visitor sees beats an archive snapshot that saw it removed earl
 test('if the signed-out profile is refused, direct checks still run (capped) and the refusal is reported',async t=>{
  const calls=[],children=[['t1',comment('a')],['t1',comment('b')]];
  const s=await view(t,{children,publicProofs:{t1_a:{status:'visible',verified:true}},calls});
- assert.deepEqual(calls.filter(c=>c.action==='removal-public').map(c=>c.fullname).sort(),['t1_a','t1_b']);assert.match(s.d.notice.textContent,/signed-out profile couldn’t be read/);
+ assert.deepEqual(calls.filter(c=>c.action==='removal-public').map(c=>c.fullname).sort(),['t1_a','t1_b']);assert.match(s.d.notice.title,/signed-out profile couldn’t be read/);
 });
 test('communities a visitor never sees on your profile (profile curation) are not removal evidence; real differences are checked first',async t=>{
  const calls=[],children=[...Array.from({length:40},(_,i)=>['t1',comment('h'+i,{subreddit:'Hidden',created_utc:created-i*60})]),...Array.from({length:10},(_,i)=>['t1',comment('s'+i,{subreddit:'Shown',created_utc:created-i*60-30})])];
@@ -173,15 +180,15 @@ test('communities a visitor never sees on your profile (profile curation) are no
  const s=await view(t,{children,publicProofs:{},visitor,calls});
  const direct=calls.filter(c=>c.action==='removal-public').map(c=>c.fullname);
  assert.deepEqual(direct.slice(0,2).sort(),['t1_s8','t1_s9'],'the two missing from a community the visitor does see go first');
- assert.equal(direct.filter(id=>id.startsWith('t1_h')).length,30,'hidden-community items get their own budget');
- assert.match(s.d.notice.textContent,/communities a signed-out visitor doesn’t see on your profile/);
+ assert.equal(direct.filter(id=>id.startsWith('t1_h')).length,40,'hidden-community items are all checked, after the real differences');
+ assert.match(s.d.notice.title,/communities a signed-out visitor doesn’t see on your profile/);
 });
 test('an archive “removed” item in a hidden community is checked before others there, and a current visible beats it (captured GTA6 case)',async t=>{
  const calls=[],children=[...Array.from({length:35},(_,i)=>['t1',comment('h'+i,{subreddit:'Hidden',created_utc:created-i*60})]),['t3',post('gta',{subreddit:'GTA6unmoderated',created_utc:created-9000,native:true})],['t1',comment('s0',{subreddit:'Shown',created_utc:created-30})]];
  const archive=async args=>args.kind==='post'?{ok:true,posts:[{...post('gta',{subreddit:'GTA6unmoderated',created_utc:created-9000}),selftext:'[removed]',removed_by_category:'reddit',retrieved_on:created-9000+22}]}:{ok:true,posts:[]};
  const s=await view(t,{children,settings:{postDiscovery:true,archiveDiscovery:true},archive,publicProofs:{t3_gta:{status:'visible',verified:true}},visitor:pages([{fullname:'t1_s0',created:created-30,subreddit:'Shown'},{fullname:'t1_x',created:created-999999,subreddit:'Shown'}]),calls});
  const direct=calls.filter(c=>c.action==='removal-public').map(c=>c.fullname);
- assert.equal(direct[0],'t3_gta','archive-flagged hidden item goes first in the hidden budget');assert.equal(direct.length,30);
+ assert.equal(direct[0],'t3_gta','archive-flagged hidden item goes first among hidden-community items');
  assert.equal(s.shown.includes('t3_gta'),false,'visible now, so not listed as removed');
 });
 
@@ -196,5 +203,14 @@ test('items no longer on your profile that the archive shows removed are listed 
 });
 test('with the archive off, removed-then-deleted is skipped and said so',async t=>{
  const s=await view(t,{children:[['t3',post('kept')]],publicProofs:{t3_kept:{status:'visible',verified:true}},visitor:pages([{fullname:'t3_kept',created}])});
- assert.equal(s.archives.some(a=>a.action==='archive-profile'),false);assert.match(s.d.notice.textContent,/Turn on “Use the archive” to include items you deleted after a removal/);
+ assert.equal(s.archives.some(a=>a.action==='archive-profile'),false);assert.match(s.d.notice.title,/Turn on “Use the archive” to include items you deleted after a removal/);
+});
+test('the Subreddit menu on Removed offers only communities with removals, counted on the current tab',async t=>{
+ const s=await view(t,{children:[['t3',post('m1',{subreddit:'Alpha',removed_by_category:'moderator'})],['t3',post('m2',{subreddit:'Alpha',removed_by_category:'moderator'})],['t3',post('m3',{subreddit:'Beta',removed_by_category:'automod_filtered'})],...Array.from({length:6},(_,i)=>['t3',post('v'+i,{subreddit:'Gamma'})])],publicProofs:{}});
+ assert.deepEqual(JSON.parse(JSON.stringify(s.d.subredditCounts().entries)),[{key:'Alpha',count:2},{key:'Beta',count:1}],'no Gamma: nothing was removed there');
+ s.d.context.type='comments';assert.deepEqual(JSON.parse(JSON.stringify(s.d.subredditCounts().entries)),[],'the Comments tab counts only removed comments');
+});
+test('the notice is one short line; the reasons are in its tooltip',async t=>{
+ const s=await view(t,{children:[['t1',comment('a')],['t1',comment('b')]],publicProofs:{}});
+ assert.equal(s.d.notice.textContent,'2 couldn’t be checked');assert.match(s.d.notice.title,/2 comments couldn’t be checked/);assert.match(s.d.notice.title,/\n/);
 });
