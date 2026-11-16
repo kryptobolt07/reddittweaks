@@ -1,0 +1,7 @@
+# Extension icon assets (2026-11-17)
+
+User supplied 307e8828-b6c7-4a18-840d-036bb491b38b.jpeg and asked to remove its background, use a round backdrop, and fix the lower section so it looks drawn for the circle rather than cut from the former square. The pasted repository-root JPEG was moved to ignored artifacts/research/verify/search-back/icon-source.jpeg; it is not committed or packaged. Original Downloads copy is untouched.
+
+Built-in image_gen was used to remove the exterior white background, make the orange backdrop circular, and reconstruct the lower torso/hands to meet the curved rim. Final prompt: precisely edit the lower third; preserve face/goggles/gear/colors; remove the horizontal red crop strip; extend connected white torso/hands down to the circular rim; preserve screwdriver; continuous orange backdrop and true transparent exterior; no text/new accessories. The final transparent master is scripts/assets/extension-icon.png. Reproducible size conversion uses Pillow through scripts/icons.py; no AI generation is needed to rebuild the size variants.
+
+Runtime PNGs: 16/32 (toolbar), 48/96 (browser/Firefox and popup), 128 (manager). Listing PNGs: 256/512 under scripts/assets/. All use the same master, square dimensions, RGBA alpha and no stretching; retain opaque white mascot details. Retire the previous SVG mascots and cached renders. Tests first check exact dimensions/transparency and runtime references; inspect the final master and exported contact sheet. Rebuild Chromium and Firefox artifacts only after the replacements are in place.
