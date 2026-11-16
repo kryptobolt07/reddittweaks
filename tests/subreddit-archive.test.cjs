@@ -208,7 +208,7 @@ test('community masthead and sidebar use one header, native sort row, and no ext
  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();const {doc}=ctx;
  assert.equal(doc.querySelector('h1').textContent,'r/gone');assert.ok(doc.querySelector('.masthead.subreddit-feed-masthead section'));
  assert.equal(doc.querySelector('.rt-sra-avatar').parentElement,doc.querySelector('.rt-sra-name').parentElement.parentElement);
- assert.match(doc.querySelector('[data-testid="subreddit-archive-state"]').textContent,/Banned.*Archived posts/);
+ assert.match(doc.querySelector('[data-testid="subreddit-archive-state"]').getAttribute('aria-label'),/banned.*archived posts/i);
  assert.equal(doc.querySelectorAll('main input,main form,faceplate-tabgroup').length,0);
  assert.equal(doc.querySelectorAll('.rt-sra-control-row>div').length,3);assert.match(doc.querySelector('aside').textContent,/Coverage may be partial/);
  assert.equal(ctx.calls[0].kind,'post');assert.equal(ctx.calls[0].subreddit,'gone');
@@ -425,7 +425,7 @@ test('masthead matches Reddit’s no-banner geometry and leaves the title colour
   assert.match(style.textContent,/@media \(min-width:640px\)\{\.rt-sra-header-row\{top:-36px;margin-top:0;margin-bottom:-36px\}\}/);
   assert.ok(title.classList.contains('text-neutral-content-strong'));
   assert.equal(W.getComputedStyle(title).color,W.getComputedStyle(doc.body).color,'our CSS does not override Reddit’s text-neutral-content-strong');
-  assert.match(header.querySelector('[data-testid="subreddit-archive-state"]').textContent,/Banned · Archived posts/);
+  const state=header.querySelector('[data-testid="subreddit-archive-state"]');assert.equal(state.textContent,'');assert.equal(state.previousElementSibling,title);assert.ok(state.querySelector('svg'));assert.match(state.getAttribute('aria-label'),/banned.*archived posts/i);assert.equal(state.getAttribute('role'),'img');assert.equal(header.querySelector('.rt-sra-header-actions'),null);assert.equal(W.getComputedStyle(state).padding,'0px');assert.equal(W.getComputedStyle(state).width,'20px');
   ctx.sa.destroy();ctx.W.close();
 });
 test('notice action is content-sized on the row of Reddit’s own button',async()=>{
