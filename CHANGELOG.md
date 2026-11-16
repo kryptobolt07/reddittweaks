@@ -1,3 +1,12 @@
+# 0.40.0 preview
+
+- **Longer viewed-post History:** choose Reddit’s usual recent views (default), 100, 500, 1,000, 5,000 or No limit in Settings → Profile search & hidden activity → History length. When raised, posts you open in this browser are recorded locally per signed-in account. The profile History tab and List → History search combine Reddit’s recent views with recorded ones, without repeats; the tab draws Reddit’s own cards 25 at a time as you scroll.
+- **History limits and recovery:** recording starts only after raising the limit; earlier visits and other browsers/devices cannot be recovered. Counts are snapshots from the visit. Returning to Reddit’s default deletes recorded history and restores the native tab. Adds `unlimitedStorage` and account-scoped IndexedDB storage; lowering a custom limit trims recorded history. Reload the existing extension installation and refresh Reddit to enable the new scripts while keeping other saved data.
+- **GitHub pipelines:** pushes/PRs build and test the extension and upload a checked ZIP/checksum plus an unpacked artifact. A matching `v<manifest version>` tag runs the same validated build and creates a GitHub release (a prerelease for previews). No automatic store submission or replacement of existing release assets.
+- **Version:** minor increment for the new History feature. Includes the intervening Removed archive-pooling improvements already documented under 0.39.3. Current source is exported to the stable unpacked folder; generated bundles remain uncommitted.
+- **Validation:** all 1,759 tests pass; 52 shipped JavaScript files parse; both workflows pass actionlint 1.7.12; ZIP integrity passes and all 66 shipped files match source/ZIP/stable unpacked output. SHA-256 `cb6987e32d7e0f1743c632c5f2e024f97d48badd5c358f39b67022d14b3a40d9`. Stabilized one existing test’s initial pending-state assertion by removing an unnecessary delay; runtime restoration is unchanged.
+- **Review:** no new browser/CDP checks in this release task; History’s earlier read-only verification is recorded in `docs/viewed-history-spec.md`. GitHub tag-triggered publishing has not been run as part of this update.
+
 # 0.39.3 preview
 
 - **Search reads to the end:** profile search no longer stops after ten pages with "Searched back to…", "Search older" or "Search and archive coverage may be incomplete". It keeps loading as you scroll until Reddit and the archive both have nothing left. Errors still pause with Retry. Subreddit archive search is unchanged.
