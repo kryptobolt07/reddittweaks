@@ -45,7 +45,7 @@
       if(q.length>300 || /[\u0000-\u001f]/.test(q))return null;
       const layout=['cardView','compactView'].includes(params.get('feedViewType'))?params.get('feedViewType'):'';
       const sort=searchSorts.includes(params.get('sort'))?params.get('sort'):q?'relevance':'new',range=['hour','day','week','month','year','all'].includes(params.get('t'))?params.get('t'):'all';
-      if(list){const listSort=['new','old'].includes(params.get('sort'))?params.get('sort'):'list',listType=['posts','comments','media'].includes(params.get('type'))?type:'all';return {kind:'profile',view:'search',username:scoped[1],q,type:listType,list,sort:listSort,range,key:JSON.stringify(['own-list',ownName.toLowerCase(),list,q,listType,listSort,range,layout])};}
+      if(list){const listSort=['new','old'].includes(params.get('sort'))?params.get('sort'):'list',listType=type;return {kind:'profile',view:'search',username:scoped[1],q,type:listType,list,sort:listSort,range,key:JSON.stringify(['own-list',ownName.toLowerCase(),list,q,listType,listSort,range,layout])};}
       return {kind:'profile',view:'search',username:scoped[1],q,type,sort:!q && sort==='relevance'?'new':sort,range,key:JSON.stringify(['profile-search',scoped[1].toLowerCase(),q,type,sort,range,layout])};}
     const ownTab=path.match(/^\/user\/([\w-]{1,20})\/(saved|history|hidden|upvoted|downvoted)\/?$/i);
     if(ownTab)return ownTab[1].toLowerCase()===ownName.toLowerCase()?{kind:'profile',view:'list-tab',username:ownTab[1],list:ownTab[2].toLowerCase(),key:path.toLowerCase()}:null;
@@ -54,7 +54,7 @@
       const sort=['new','hot','top'].includes(params.get('sort'))?params.get('sort'):'new',range=sort==='top' && ['hour','day','week','month','year','all'].includes(params.get('t'))?params.get('t'):'all',layout=['cardView','compactView'].includes(params.get('feedViewType'))?params.get('feedViewType'):'';
       if(params.get('rt_view')==='removed'){
         if(profile[1].toLowerCase()!==ownName.toLowerCase())return null;
-        const type=['posts','comments','media'].includes(params.get('type'))?params.get('type'):'all',order=['new','old'].includes(params.get('sort'))?params.get('sort'):'list';
+        const type='all',order=['new','old'].includes(params.get('sort'))?params.get('sort'):'list';
         return {kind:'profile',view:'search',section:true,list:'removed',username:profile[1],q:'',type,sort:order,range:'all',key:JSON.stringify(['removed-section',ownName.toLowerCase(),type,order,layout])};
       }
       return {kind:'profile',view,username:profile[1],sort,range,key:'profile:'+profile[1].toLowerCase()+':'+view+':'+sort+':'+range+':'+layout};}
@@ -320,11 +320,11 @@
     ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item],[data-rt-ui=activity-slot]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
     // cheap: a page-level mutation, which only needs a full pass if the mounted page changed.
     schedule(cheap=false){if(this.dead)return;if(!cheap)this.scanFull=true;if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;const full=this.scanFull;this.scanFull=false;this.scan({cheap:!full});},60);}
-    reset({retainNavigation=false,detach=false,keepCards=false,restoreImmediately=false}={}){this.flushVirtualization();this.clearHeaderFilters();this.listState=null;if(!detach)this.listEmpty?.remove();this.listEmpty=null;const tabs=this.listTabs,tabShell=this.listTabsShell,allTab=this.listAllTab;
-      const undoTabs=()=>{for(const [tab,state] of tabs || []){tab.setAttribute('href',state.href);tab.toggleAttribute('faceplate-tab-selected',state.selected);if(state.current==null)tab.removeAttribute('aria-current');else tab.setAttribute('aria-current',state.current);tab.removeEventListener('click',state.click,true);}tabShell?.remove();allTab?.remove();};
+    reset({retainNavigation=false,detach=false,keepCards=false,restoreImmediately=false}={}){this.flushVirtualization();this.clearHeaderFilters();this.listState=null;if(!detach)this.listEmpty?.remove();this.listEmpty=null;const tabs=this.listTabs,tabShell=this.listTabsShell;
+      const undoTabs=()=>{for(const [tab,state] of tabs || []){tab.setAttribute('href',state.href);tab.toggleAttribute('faceplate-tab-selected',state.selected);if(state.current==null)tab.removeAttribute('aria-current');else tab.setAttribute('aria-current',state.current);tab.removeEventListener('click',state.click,true);}tabShell?.remove();};
       // A parked list search keeps its tabs on screen; whatever Reddit didn't replace is put back after its page loads.
-      if(!detach || !this.parkingVisible || this.leaveRestoreMs===0 || !tabs)undoTabs();else setTimeout(()=>{const now=pageRoute();if(!(now?.kind==='profile' && now.view==='search') || !allTab?.isConnected)undoTabs();},this.leaveRestoreMs ?? 5000);
-      this.listTabs=null;this.listTabsShell=null;this.listAllTab=null;
+      if(!detach || !this.parkingVisible || this.leaveRestoreMs===0 || !tabs)undoTabs();else setTimeout(()=>{const now=pageRoute();if(!(now?.kind==='profile' && now.view==='search') || !tabShell?.isConnected)undoTabs();},this.leaveRestoreMs ?? 5000);
+      this.listTabs=null;this.listTabsShell=null;
       // Search owns a separate feed; Reddit's original result objects stay in place.
       // Leaving search (opening a result): Reddit's own results stay hidden until Reddit replaces the page,
       // so its unfiltered list never flashes during the transition. Turning the feature off still restores them.
@@ -375,7 +375,7 @@
       this.searchParks.set(key,{state,feed:this.feed});
       // Opening a result: the parked results stay visible while Reddit loads that page, and go with Reddit's page.
       // Another search (tab, query) mounts at once, so its parked predecessor leaves the screen now.
-      const pieces=[this.host,this.feed,this.scopeSwitcher,this.listTabsShell,this.listAllTab];this.parkingVisible=keepVisible;try{this.reset({detach:true,retainNavigation:true});}finally{this.parkingVisible=false;}if(!keepVisible)for(const piece of pieces)piece?.remove();
+      const pieces=[this.host,this.feed,this.scopeSwitcher,this.listTabsShell];this.parkingVisible=keepVisible;try{this.reset({detach:true,retainNavigation:true});}finally{this.parkingVisible=false;}if(!keepVisible)for(const piece of pieces)piece?.remove();
       while(this.searchParks.size>3){const [oldKey,parked]=this.searchParks.entries().next().value;this.searchParks.delete(oldKey);this.discardParked(parked.state);}
       return true;
     }
@@ -693,7 +693,7 @@
       input.value=text;input.dispatchEvent(new Event('input',{bubbles:true,composed:true}));input.focus({preventScroll:true});input.setSelectionRange?.(text.length,text.length);return true;
     }
     navigateProfileSearch(route,q,withList=true){
-      const params=new URLSearchParams({q});if(withList && route.list){params.set('rt_list',route.list);if(['all','posts','comments','media'].includes(route.type))params.set('type',route.type);}
+      const params=new URLSearchParams({q});if(withList && route.list){params.set('rt_list',route.list);params.set('type',['posts','comments','media'].includes(route.type)?route.type:'posts');}
       // Filters shown as header pills belong to the search scope, so a new query keeps them.
       if(route.view==='search')for(const [name,value] of new URLSearchParams(location.search))if(/^rt_(?:date|type|sub|sort)$/.test(name))params.set(name,value);
       const anchor=make('a');anchor.href='/user/'+encodeURIComponent(route.username)+'/search/?'+params;anchor.hidden=true;document.body.append(anchor);try{anchor.click();}finally{anchor.remove();}
@@ -710,31 +710,30 @@
       event.preventDefault();event.stopImmediatePropagation();this.navigateProfileSearch(route,q);return true;
     }
     syncOwnListTabs(){
-      const section=this.context.section,id=section?'rt-removed-types':'rt-own-list-types',native=section?null:document.getElementById('search-results-page-tabgroup');
-      // Reddit's result group may be linked to three native panels. Our All tab must not change that pagination.
+      if(!this.isSearch())return;
+      const id='rt-own-list-types',native=document.getElementById('search-results-page-tabgroup');
+      // Keep list search independent of Reddit's linked result panels.
       if(native){this.searchHidden ||= new Map();if(!this.searchHidden.has(native))this.searchHidden.set(native,native.hidden);native.hidden=true;native.setAttribute('data-rt-search-hidden','');}
       let tabs=document.getElementById(id);
       if(!tabs){
-        const shell=document.createElement('template');shell.innerHTML='<faceplate-tabgroup class="nd:flex nd:gap-xs nd:w-fit mb-md"></faceplate-tabgroup>';tabs=this.listTabsShell=shell.content.firstElementChild;tabs.id=id;tabs.dataset.rtUi='own-list-tabs';tabs.setAttribute('appearance','hug');tabs.setAttribute('aria-label',section?'Removed content type':'Search result type');
+        const shell=document.createElement('template');shell.innerHTML='<faceplate-tabgroup class="nd:flex nd:gap-xs nd:w-fit mb-md"></faceplate-tabgroup>';tabs=this.listTabsShell=shell.content.firstElementChild;tabs.id=id;tabs.dataset.rtUi='own-list-tabs';tabs.setAttribute('appearance','hug');tabs.setAttribute('aria-label','Search result type');
         const template=native?.querySelector('a[href]') || document.querySelector('#profile-feed-tabgroup a[href]'),cls=template?.className.replace(/(?:bg-secondary-background-selected|!text-neutral-content-strong|tab-selected)/g,'') || 'button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex';
-        for(const type of ['posts','comments','media']){const tab=link('', '?type='+type,cls),body=make('span','flex items-center justify-center'),label=make('span','flex items-center gap-xs',listLabel(type));body.append(label);tab.append(body);tab.id=(section?'rt-removed-type-':'rt-own-list-tab-')+type;tab.setAttribute('rpl','');tabs.append(tab);}
+        for(const type of ['posts','comments','media']){const tab=link('', '?type='+type,cls),body=make('span','flex items-center justify-center'),label=make('span','flex items-center gap-xs',listLabel(type));body.append(label);tab.append(body);tab.id='rt-own-list-tab-'+type;tab.setAttribute('rpl','');tabs.append(tab);}
       }
-      const sort=document.querySelector('search-sort-dropdown-menu:not([hidden]),filter-drawer#search_modifier_post_sort,filter-drawer[id^="search_modifier"]'),row=!section && sort?.closest('div.flex.items-center'),before=row || native || this.host || this.feed;
+      const sort=document.querySelector('search-sort-dropdown-menu:not([hidden]),filter-drawer#search_modifier_post_sort,filter-drawer[id^="search_modifier"]'),row=sort?.closest('div.flex.items-center'),before=row || native || this.host || this.feed;
       if(!tabs.isConnected || row && tabs.compareDocumentPosition(row)&Node.DOCUMENT_POSITION_PRECEDING)before.before(tabs);
       this.listTabs ||= new Map();
-      if(!this.listAllTab?.isConnected){this.listAllTab=link('','',tabs.querySelector('a')?.className || '');const body=make('span','flex items-center justify-center'),label=make('span','flex items-center gap-xs','All');body.append(label);this.listAllTab.append(body);this.listAllTab.setAttribute('rpl','');this.listAllTab.dataset.rtUi='own-list-all';this.listAllTab.dataset.rtListType='all';tabs.prepend(this.listAllTab);}
       for(const tab of tabs.querySelectorAll('a[href]')){
         const url=new URL(tab.getAttribute('href'),location.href),type=tab.dataset.rtListType || url.searchParams.get('type') || tab.id.match(/-(posts|comments|media)$/)?.[1];
-        if(!['all','posts','comments','media'].includes(type))continue;
-        const params=new URLSearchParams(location.search);if(section){params.delete('rt_list');params.set('rt_view','removed');}else params.set('rt_list',this.context.list);params.set('type',type);
+        if(!['posts','comments','media'].includes(type))continue;
+        const params=new URLSearchParams(location.search);params.set('rt_list',this.context.list);params.set('type',type);
         if(!this.listTabs.has(tab)){const click=event=>{if(event.button!==0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)return;event.preventDefault();event.stopImmediatePropagation();const anchor=make('a');anchor.href=tab.href;anchor.hidden=true;document.body.append(anchor);try{anchor.click();}finally{anchor.remove();}};this.listTabs.set(tab,{href:tab.getAttribute('href'),selected:tab.hasAttribute('faceplate-tab-selected'),current:tab.getAttribute('aria-current'),click});tab.addEventListener('click',click,true);}
-        const href='/user/'+encodeURIComponent(this.context.username)+(section?'/?':'/search/?')+params;if(tab.getAttribute('href')!==href)tab.setAttribute('href',href);
+        const href='/user/'+encodeURIComponent(this.context.username)+'/search/?'+params;if(tab.getAttribute('href')!==href)tab.setAttribute('href',href);
         tab.toggleAttribute('faceplate-tab-selected',type===this.context.type);if(type===this.context.type)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current');
       }
       // Reddit's tab group draws only slotted tabs, up to its pages count, and its selected look is classes on the tab
-      // (measured 2026-11-16): All gets the first slot, Reddit's tabs follow, and the look moves to the listed type.
-      const all=[...tabs.querySelectorAll(':scope > a[href]')].filter(tab=>tab===this.listAllTab || this.listTabs.has(tab) || /-(posts|comments|media)$/.test(tab.id) || tab.dataset.rtListType);
-      const ordered=[this.listAllTab,...all.filter(tab=>tab!==this.listAllTab)].filter(Boolean);let selectedIndex=0;
+      // (measured 2026-11-16): Posts, Comments and Media have one slot each, with the selected type highlighted.
+      const ordered=[...tabs.querySelectorAll(':scope > a[href]')];let selectedIndex=0;
       ordered.forEach((tab,index)=>{
         const slot='page-'+(index+1);if(tab.getAttribute('slot')!==slot)tab.setAttribute('slot',slot);
         const type=tab.dataset.rtListType || new URL(tab.getAttribute('href'),location.href).searchParams.get('type'),on=type===this.context.type;if(on)selectedIndex=index+1;
@@ -1300,7 +1299,7 @@
           if(node.closest('[data-rt-ui="activity-filter-option"]') && !node.closest('[data-rt-sub-key="sort"],[data-rt-sub-key="view"]'))continue;
           const url=new URL(node.getAttribute('href'),location.href);if(url.origin!==location.origin || !url.pathname.startsWith('/user/'))continue;
           if(!this.removedControlLinks.has(node))this.removedControlLinks.set(node,node.getAttribute('href'));
-          const params=new URLSearchParams(location.search);for(const [key,value] of url.searchParams)params.set(key,value);params.set('rt_view','removed');params.set('type',this.context.type);
+          const params=new URLSearchParams(location.search);for(const [key,value] of url.searchParams)params.set(key,value);params.set('rt_view','removed');params.delete('type');
           node.setAttribute('href','/user/'+encodeURIComponent(this.context.username)+'/?'+params);
         }
       }

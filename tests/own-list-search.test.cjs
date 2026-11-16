@@ -38,8 +38,8 @@ test('own-list routes allow only five lists and a verified matching account',asy
  for(const list of ['saved','history','hidden','upvoted','downvoted']){assert.equal(route('/user/EXAMPLE/search/','?rt_list='+list).list,list);assert.equal(route('/user/Example/'+list+'/').view,'list-tab');}
  for(const [profile,owner] of [['Other','Example'],['Example','']])assert.equal(route('/user/'+profile+'/search/','?rt_list=saved',owner),null);
  for(const list of ['friends','SAVED','https://other.test',''])assert.equal(route('/user/Example/search/','?rt_list='+encodeURIComponent(list)),null);
- assert.equal(route('/user/Example/search/','?rt_list=saved').type,'all');assert.equal(route('/user/Example/search/','?rt_list=saved&type=posts').type,'posts');
- assert.notEqual(route('/user/Example/search/','?rt_list=saved').key,route('/user/Example/search/','?rt_list=saved&type=posts').key);
+ assert.equal(route('/user/Example/search/','?rt_list=saved').type,'posts');assert.equal(route('/user/Example/search/','?rt_list=saved&type=posts').type,'posts');
+ assert.equal(route('/user/Example/search/','?rt_list=saved').key,route('/user/Example/search/','?rt_list=saved&type=posts').key);assert.notEqual(route('/user/Example/search/','?rt_list=saved').key,route('/user/Example/search/','?rt_list=saved&type=comments').key);
  assert.equal(route('/user/Example/search/','?q='+ 'x'.repeat(301)+'&rt_list=saved'),null);
 });
 for(const hydrated of [true,false])test(`own tab header adds native-styled removable pill and submits (${hydrated?'hydrated':'SSR'})`,async t=>{
@@ -155,7 +155,7 @@ test('list search stays available with archives disabled and uses list order acr
 });
 test('Saved includes comments by other authors and allows author/u and dates',async t=>{
  const list=async(args,signal,W)=>({posts:[W.RTPostModel.normalizePost(raw('post')),W.RTPostModel.normalizeComment({id:'comment',author:'Writer',body:'needle comment',subreddit:'Alpha',created_utc:1700000000,link_id:'t3_post',parent_id:'t3_post'})],scanned:2,hasMore:false});
- for(const q of ['author:Writer needle','u/Writer after:2023-01-01 before:2024-01-01','body:needle r/Alpha']){const s=await setup(t,{path:'/user/Example/search/?rt_list=saved&q='+encodeURIComponent(q),list});await s.d.refreshActivity();assert.equal(s.d.searchParsed.invalid,false);assert.deepEqual(shown(s),['t3_post','t1_comment']);s.d.setFilters({...s.d.rtFilters,types:['text']});assert.deepEqual(shown(s),['t3_post']);}
+ for(const q of ['author:Writer needle','u/Writer after:2023-01-01 before:2024-01-01','body:needle r/Alpha']){const s=await setup(t,{path:'/user/Example/search/?rt_list=saved&q='+encodeURIComponent(q),list});await s.d.refreshActivity();assert.equal(s.d.searchParsed.invalid,false);assert.deepEqual(shown(s),['t3_post']);s.d.setFilters({...s.d.rtFilters,types:['text']});assert.deepEqual(shown(s),['t3_post']);}
  const s=await setup(t,{path:'/user/Example/search/?rt_list=saved&type=comments&q=author:Writer',list});await s.d.refreshActivity();assert.deepEqual(shown(s),['t1_comment']);assert.equal(s.d.searchParsed.invalid,false);
 });
 for(const q of ['title:cats','body:needle','author:Writer','u/Writer','subreddit:Alpha','r/Alpha','site:example.test','url:example.test','flair:News','self:no','nsfw:yes','spoiler:yes','type:link','after:2023-01-01 before:2024-01-01','cats OR dogs','cats -dogs'])test('post query filters locally: '+q,async t=>{
@@ -168,7 +168,7 @@ test('Feed options filter list items by date, post type and subreddit with no re
  const s=await setup(t,{path:'/user/Example/search/?rt_list=hidden&rt_date=2023-11-01..2023-11-30&rt_type=image&rt_sub=Alpha',list:async(args,signal,W)=>({posts:[W.RTPostModel.normalizePost(raw('match',{is_self:false,post_hint:'image'})),W.RTPostModel.normalizePost(raw('text')),W.RTPostModel.normalizePost(raw('beta',{is_self:false,post_hint:'image',subreddit:'Beta'})),W.RTPostModel.normalizePost(raw('old',{is_self:false,post_hint:'image',created_utc:1600000000}))],scanned:4,hasMore:false})});await s.d.refreshActivity();assert.deepEqual(shown(s),['t3_match']);s.d.setFilters({...s.d.rtFilters,types:[],subreddits:[],date:null});assert.equal(shown(s).length,4);assert.equal(listCalls(s).length,1);
 });
 test('native tabs keep list scope and filter post/comment/media kind',async t=>{
- const s=await setup(t);assert.equal(s.D.querySelector('[data-rt-list-type="all"]').getAttribute('aria-current'),'page');
+ const s=await setup(t);assert.equal(s.D.getElementById('rt-own-list-tab-posts').getAttribute('aria-current'),'page');assert.equal(s.D.querySelector('[data-rt-list-type="all"]'),null);
  for(const type of ['posts','comments','media']){const a=s.D.getElementById('rt-own-list-tab-'+type);assert.equal(new URL(a.href).searchParams.get('rt_list'),'saved');assert.equal(new URL(a.href).searchParams.get('type'),type);}
  const urls=navigations(s);s.D.getElementById('rt-own-list-tab-media').click();assert.equal(urls.at(-1).searchParams.get('type'),'media');
  s.W.history.pushState({},'','?rt_list=saved&type=media');s.d.scan();await flush();await s.d.refreshActivity();assert.deepEqual(shown(s),[]);
@@ -244,17 +244,17 @@ test('a crowded header search turns our chips compact so typed text keeps most o
 });
 
 
-for(const list of ['saved','removed'])for(const type of ['all','posts','comments','media'])test(`${list} search draws scoped ${type} tabs before filters without a native definition or tab bar`,async t=>{
+for(const list of ['saved','removed'])for(const type of ['posts','comments','media'])test(`${list} search draws scoped ${type} tabs before filters without a native definition or tab bar`,async t=>{
  const html='<main><div id="filters" class="flex items-center"><search-sort-dropdown-menu><button>Relevance</button></search-sort-dropdown-menu></div><div class="bg-neutral-background"><div id="empty-search-results">No native results</div></div></main>',s=await setup(t,{html,path:'/user/Example/search/?rt_list='+list+'&type='+type+'&q=needle&rt_sub=Alpha'});
- assert.equal(s.W.customElements.get('faceplate-tabgroup'),undefined);const tabs=s.D.getElementById('rt-own-list-types');assert.ok(tabs);assert.equal(tabs.getAttribute('pages'),'4');assert.equal(tabs.getAttribute('pageindex'),String(['all','posts','comments','media'].indexOf(type)+1));assert.equal(Object.hasOwn(tabs,'pages'),false,'no isolated-world property shadows native pagination');
- assert.ok(tabs.compareDocumentPosition(s.D.getElementById('filters'))&s.W.Node.DOCUMENT_POSITION_FOLLOWING,'tabs before native inline filters');assert.deepEqual([...tabs.querySelectorAll('a')].map(a=>a.textContent),['All','Posts','Comments','Media']);
+ assert.equal(s.W.customElements.get('faceplate-tabgroup'),undefined);const tabs=s.D.getElementById('rt-own-list-types');assert.ok(tabs);assert.equal(tabs.getAttribute('pages'),'3');assert.equal(tabs.getAttribute('pageindex'),String(['posts','comments','media'].indexOf(type)+1));assert.equal(Object.hasOwn(tabs,'pages'),false,'no isolated-world property shadows native pagination');
+ assert.ok(tabs.compareDocumentPosition(s.D.getElementById('filters'))&s.W.Node.DOCUMENT_POSITION_FOLLOWING,'tabs before native inline filters');assert.deepEqual([...tabs.querySelectorAll('a')].map(a=>a.textContent),['Posts','Comments','Media']);
  for(const a of tabs.querySelectorAll('a')){assert.match(a.className,/button-medium/);const url=new URL(a.href);assert.equal(url.searchParams.get('rt_list'),list);assert.equal(url.searchParams.get('q'),'needle');assert.equal(url.searchParams.get('rt_sub'),'Alpha');assert.equal(a.getAttribute('aria-current')==='page',url.searchParams.get('type')===type);}
  assert.equal(s.calls.filter(c=>c.args.action==='own-list').length,0,'tabs already visible before a scan begins');assert.equal(s.archives.length,0);s.d.scan();assert.equal(s.D.querySelectorAll('#rt-own-list-types').length,1);
 });
 test('own search tabs leave native linked pagination untouched and configure a late component',async t=>{
  const html=page.replace('<faceplate-tabgroup id="search-results-page-tabgroup">','<faceplate-tabgroup id="search-results-page-tabgroup" for="native-results" pages="3" pageindex="1">'),s=await setup(t,{html,path:'/user/Example/search/?rt_list=saved&type=comments'}),native=s.D.getElementById('search-results-page-tabgroup'),tabs=s.D.getElementById('rt-own-list-types');
- assert.ok(tabs);assert.equal(tabs.hasAttribute('for'),false);assert.equal(tabs.getAttribute('pages'),'4');assert.equal(tabs.getAttribute('pageindex'),'3');assert.equal(native.getAttribute('pages'),'3');assert.equal(native.getAttribute('pageindex'),'1');assert.equal(native.hidden,true);
- s.W.customElements.define('faceplate-tabgroup',class extends s.W.HTMLElement{get pages(){return Number(this.getAttribute('pages'));}get pageIndex(){return Number(this.getAttribute('pageindex'));}});await flush();assert.equal(tabs.pages,4);assert.equal(tabs.pageIndex,3);
+ assert.ok(tabs);assert.equal(tabs.hasAttribute('for'),false);assert.equal(tabs.getAttribute('pages'),'3');assert.equal(tabs.getAttribute('pageindex'),'2');assert.equal(native.getAttribute('pages'),'3');assert.equal(native.getAttribute('pageindex'),'1');assert.equal(native.hidden,true);
+ s.W.customElements.define('faceplate-tabgroup',class extends s.W.HTMLElement{get pages(){return Number(this.getAttribute('pages'));}get pageIndex(){return Number(this.getAttribute('pageindex'));}});await flush();assert.equal(tabs.pages,3);assert.equal(tabs.pageIndex,2);
  s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(native.getAttribute('pages'),'3');assert.equal(native.getAttribute('pageindex'),'1');assert.equal(native.hidden,false);assert.equal(native.querySelectorAll('a').length,3);assert.equal(s.D.getElementById('rt-own-list-types'),null);
 });
 test('hydration restores the owned search tabs without refetching and opt-out unhides native tabs',async t=>{
@@ -262,4 +262,8 @@ test('hydration restores the owned search tabs without refetching and opt-out un
  s.D.getElementById('rt-own-list-types').remove();await flush();assert.ok(s.D.getElementById('rt-own-list-types'),'replacement reconciles even when only our tab bar was removed');
  feed.remove();s.d.scan();await flush();assert.equal(s.d.feed,feed);assert.equal([...s.d.nodes.values()][0],node);assert.equal(listCalls(s).length,reads);
  s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(native.hidden,false);assert.equal(native.hasAttribute('data-rt-search-hidden'),false);
+});
+
+for(const list of ['saved','removed','hidden','history','upvoted','downvoted'])for(const suffix of ['', '&type=all'])test(`${list} search defaults to Posts without All (${suffix})`,async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?rt_list='+list+suffix}),tabs=s.D.getElementById('rt-own-list-types');assert.equal(s.d.context.type,'posts');assert.deepEqual([...tabs.querySelectorAll('a')].map(a=>a.textContent),['Posts','Comments','Media']);assert.equal(tabs.getAttribute('pages'),'3');assert.equal(tabs.getAttribute('pageindex'),'1');assert.equal(tabs.querySelector('[aria-current="page"]').textContent,'Posts');
 });
