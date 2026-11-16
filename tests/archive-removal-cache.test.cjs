@@ -28,3 +28,15 @@ test('a cached history response is rejected if the native account changes during
 test('disabling archive during a pending response leaves no cached body and account changes never populate the cache',async()=>{
  let enter,release;const entered=new Promise(r=>enter=r),gate=new Promise(r=>release=r),s=setup({fetcher:async()=>{enter();await gate;return {data:[row('a')]};}});const pending=s.send();await entered;await s.disable();release();assert.equal((await pending).ok,false);assert.equal(JSON.stringify(s.session).includes('Original archived comment'),false);
 });
+test('an archive refusal of a heavy history query (HTTP 422) does not pause your item lookups',async()=>{
+ const s=setup({fetcher:async url=>url.searchParams.has('author')?{status:422}:{data:[row('a')]}});
+ const history=await s.send({action:'archive-profile',purpose:'removal-history',ids:undefined});assert.equal(history.ok,false);
+ const lookup=await s.send({ids:['a']});assert.equal(lookup.ok,true,'a 4xx refusal is about that query, not the service');assert.equal(s.calls.length,2);
+ const again=await s.send({action:'archive-profile',purpose:'removal-history',ids:undefined});assert.equal(again.ok,false);assert.equal(s.calls.length,3,'the history page may be retried');
+});
+test('item lookups go ahead of queued history pages in the shared paced queue',async()=>{
+ const s=setup(),history=b=>s.send({action:'archive-profile',purpose:'removal-history',ids:undefined,before:b});
+ await Promise.all([history(1700000500),history(1700000400),s.send({ids:['a']}),history(1700000300)]);
+ const order=s.calls.map(u=>u.searchParams.has('ids')?'ids':'history:'+u.searchParams.get('before'));
+ assert.deepEqual(order,['history:1700000500','ids','history:1700000400','history:1700000300']);assert.ok(s.starts.every((t,i)=>!i || t-s.starts[i-1]>=1000),'still paced');
+});

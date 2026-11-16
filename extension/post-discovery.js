@@ -243,7 +243,7 @@
       if(tipsCard){event.preventDefault();closeTips(true);return;}const target=tipsTarget(event);if(!target)return;event.preventDefault();event.stopPropagation();openTips(target);},true);}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
-  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError','onRemovedTab','tabPages','removedTabSelection','removedTabObserver','removedTabOwner']),parkLimit=4;let generationSeq=0;
+  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError','onRemovedTab','tabPages','removedTabSelection','removedTabObserver','removedTabOwner','onOwnListLink']),parkLimit=4;let generationSeq=0;
   class Discovery {
     constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={},removalCache=message=>chrome.runtime.sendMessage({scope:'rt-removal',...message})}={}){
       this.removalCache=removalCache;
@@ -713,19 +713,42 @@
       if(q.length>300 || /[\u0000-\u001f]/.test(q))return false;
       event.preventDefault();event.stopImmediatePropagation();this.navigateProfileSearch(route,q);return true;
     }
+    // Reddit's own search controls (sort, Safe Search) link to plain profile search. In a list search a click keeps the
+    // list, its type and filters: New and Old order the list by date; Relevance and Top keep its original order.
+    watchOwnListLinks(){
+      if(this.onOwnListLink)return;
+      this.onOwnListLink=event=>{
+        if(this.dead || event.defaultPrevented || event.button!==0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)return;
+        const path=event.composedPath?.() || [],anchor=path.find(node=>node?.tagName==='A' && node.hasAttribute('href'));if(!anchor || anchor.closest('[data-rt-ui]'))return;
+        // Only links inside Reddit's search controls; our own deliberate moves to plain profile search pass through.
+        if(!path.some(node=>node?.matches?.('search-sort-dropdown-menu,filter-drawer,[id^="search_modifier"],search-results-page-tabs')))return;
+        const route=pageRoute();if(route?.view!=='search' || !route.list || route.section || !this.settings.postDiscovery || this.context?.key!==route.key)return;
+        let url;try{url=new URL(anchor.getAttribute('href'),location.href);}catch{return;}
+        const same=path=>path.replace(/\/?$/,'/').toLowerCase();if(url.origin!==location.origin || same(url.pathname)!==same(location.pathname) || url.searchParams.has('rt_list'))return;
+        event.preventDefault();event.stopImmediatePropagation();
+        const next=new URLSearchParams(url.search),sorted=next.has('sort');next.delete('iId');next.set('rt_list',route.list);if(!['posts','comments','media'].includes(next.get('type')))next.set('type',route.type);
+        if(sorted && !['new','old'].includes(next.get('sort')))next.delete('sort');
+        for(const [name,value] of new URLSearchParams(location.search))if(/^rt_(?:date|type|sub|sort)$/.test(name) && !(sorted && name==='rt_sort') && !next.has(name))next.set(name,value);
+        const link=make('a');link.href='/user/'+encodeURIComponent(route.username)+'/search/?'+next;link.hidden=true;document.body.append(link);try{link.click();}finally{link.remove();}
+      };
+      window.addEventListener('click',this.onOwnListLink,true);
+    }
     syncOwnListTabs(){
       if(!this.isSearch())return;
-      const id='rt-own-list-types',native=document.getElementById('search-results-page-tabgroup');
-      // Keep list search independent of Reddit's linked result panels.
-      if(native){this.searchHidden ||= new Map();if(!this.searchHidden.has(native))this.searchHidden.set(native,native.hidden);native.hidden=true;native.setAttribute('data-rt-search-hidden','');}
-      let tabs=document.getElementById(id);
+      this.watchOwnListLinks();
+      const id='rt-own-list-types',native=document.getElementById('search-results-page-tabgroup'),reuse=Boolean(native?.querySelector(':scope > a[href]'));
+      // Reddit's own Posts / Comments / Media row is reused when the page has one, exactly as profile search shows it:
+      // its links are scoped to the list and clicks navigate. Its in-flow row also sizes the sticky search header,
+      // which keeps the first result clear of the filter row (measured 2026-11-16). Our copy is only for pages without it.
+      if(reuse){document.getElementById(id)?.remove();if(this.listTabsShell)this.listTabsShell=null;}
+      let tabs=reuse?native:document.getElementById(id);
       if(!tabs){
         const shell=document.createElement('template');shell.innerHTML='<faceplate-tabgroup class="nd:flex nd:gap-xs nd:w-fit mb-md"></faceplate-tabgroup>';tabs=this.listTabsShell=shell.content.firstElementChild;tabs.id=id;tabs.dataset.rtUi='own-list-tabs';tabs.setAttribute('appearance','hug');tabs.setAttribute('aria-label','Search result type');
         const template=native?.querySelector('a[href]') || document.querySelector('#profile-feed-tabgroup a[href]'),cls=template?.className.replace(/(?:bg-secondary-background-selected|!text-neutral-content-strong|tab-selected)/g,'') || 'button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex';
         for(const type of ['posts','comments','media']){const tab=link('', '?type='+type,cls),body=make('span','flex items-center justify-center'),label=make('span','flex items-center gap-xs',listLabel(type));body.append(label);tab.append(body);tab.id='rt-own-list-tab-'+type;tab.setAttribute('rpl','');tabs.append(tab);}
       }
       const sort=document.querySelector('search-sort-dropdown-menu:not([hidden]),filter-drawer#search_modifier_post_sort,filter-drawer[id^="search_modifier"]'),row=sort?.closest('div.flex.items-center'),before=row || native || this.host || this.feed;
-      if(!tabs.isConnected || row && tabs.compareDocumentPosition(row)&Node.DOCUMENT_POSITION_PRECEDING)before.before(tabs);
+      if(!reuse && (!tabs.isConnected || row && tabs.compareDocumentPosition(row)&Node.DOCUMENT_POSITION_PRECEDING))before.before(tabs);
       this.listTabs ||= new Map();
       for(const tab of tabs.querySelectorAll('a[href]')){
         const url=new URL(tab.getAttribute('href'),location.href),type=tab.dataset.rtListType || url.searchParams.get('type') || tab.id.match(/-(posts|comments|media)$/)?.[1];
@@ -735,6 +758,7 @@
         const href='/user/'+encodeURIComponent(this.context.username)+'/search/?'+params;if(tab.getAttribute('href')!==href)tab.setAttribute('href',href);
         tab.toggleAttribute('faceplate-tab-selected',type===this.context.type);if(type===this.context.type)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current');
       }
+      if(reuse)return;
       // Reddit's tab group draws only slotted tabs, up to its pages count, and its selected look is classes on the tab
       // (measured 2026-11-16): Posts, Comments and Media have one slot each, with the selected type highlighted.
       const ordered=[...tabs.querySelectorAll(':scope > a[href]')];let selectedIndex=0;
@@ -802,28 +826,42 @@
       if(!resume){for(const node of this.nodes.values())node.remove();this.nodes.clear();}
       const state=this.listState,context=this.context,generation=this.generation;
       const current=()=>!this.dead && this.listState===state && generation===this.generation && pageRoute()?.key===context.key && this.host?.isConnected;
-      if(resume)state.loading=true;else{state.items.clear();state.removalNotes=new Set();state.scanned=0;state.done=false;state.capped=false;state.error='';state.loading=true;state.after=null;}
+      if(resume)state.loading=true;else{state.items.clear();state.removalNotes=new Set();state.scanned=0;state.done=false;state.capped=false;state.error='';state.loading=true;state.after=null;state.source='overview';state.postsScanned=0;state.history=null;state.archiveHistory=new Map();state.visitors={};}
       this.discover.disabled=true;this.summarizeOwnList();this.updateProfileLoading();const cursors=new Set(resume && state.after?[state.after]:[]);
+      const removed=context.list==='removed',cap=this.ownListCap ?? 1000;
+      // Removed checks each page signed out while the next page loads: one chain keeps checks in order and paced.
+      let checks=Promise.resolve();const check=(items,source)=>{checks=checks.then(()=>current()?this.classifyRemoved(items,context,source):undefined).then(()=>{if(current()){this.mergeArchiveHistory();this.renderOwnList();}});checks.catch(()=>{});};
       try{
+        // Arctic Shift history (removed, then deleted) doesn't depend on the profile walk, so it starts with it.
+        if(removed && !state.history)state.history=this.removedThenDeleted(context);
         do{
-          const result=await this.request({action:'own-list',username:context.username,list:context.list,after:state.after});if(!current())return;
+          const source=removed?state.source || 'overview':'overview';
+          const result=await this.request({action:'own-list',username:context.username,list:context.list,after:state.after,...(source==='posts'?{source}:{})});if(!current())return;
           if(!Array.isArray(result.posts) || !Number.isInteger(result.scanned) || result.scanned<0 || result.scanned>100 || result.posts.length>100 || result.hasMore && result.scanned===0)throw Error('Reddit returned an unexpected list page.');
-          state.native=result.transport==='native';state.scanned+=Math.min(result.scanned,1000-state.scanned);
-          const added=[];for(const post of result.posts)if(post?.fullname && !state.items.has(itemKey(post))){state.items.set(itemKey(post),post);added.push(post);}
-          if(context.list==='removed'){await this.classifyRemoved(added,context);if(!current())return;}
-          state.after=result.after || null;state.capped=state.scanned>=1000 && context.list!=='history';
+          state.native=result.transport==='native';
+          if(source==='posts')state.postsScanned+=result.scanned;else state.scanned+=Math.min(result.scanned,cap-state.scanned);
+          // Live evidence replaces an archive record that history recovery added first for the same item.
+          const added=[];for(const post of result.posts){if(!post?.fullname)continue;const key=itemKey(post),had=state.items.get(key);if(had && had.source!=='arctic-shift')continue;if(had)this.dropCard(key);state.items.set(key,post);added.push(post);}
+          if(removed && added.length)check(added,source);
+          state.after=result.after || null;if(source==='overview')state.capped=state.scanned>=cap && context.list!=='history';
           if(result.hasMore && (!state.after || cursors.has(state.after)))throw Error('Reddit repeated a list cursor. List search is incomplete.');
           if(state.after)cursors.add(state.after);
-          state.done=!result.hasMore || state.capped || context.list==='history';this.renderOwnList();
+          const ended=!result.hasMore || context.list==='history' || (source==='posts'?state.postsScanned>=cap:state.capped);
+          // Overview mixes in comments, so its newest 1,000 items can stop well short of older posts: the Posts tab
+          // reaches them (spec §25).
+          if(ended && removed && source==='overview' && state.capped){state.source='posts';state.after=null;cursors.clear();}
+          else state.done=ended;
+          this.renderOwnList();
         }while(current() && !state.done);
-        if(current() && context.list==='removed')await this.removedThenDeleted(context);
+        await checks;if(!current())return;
+        if(removed && state.history){await state.history;if(!current())return;this.mergeArchiveHistory();}
       }catch(error){if(current()){state.error='Could not search your '+context.list+': '+error.message;if(/signed-in account changed|Sign in to Reddit/i.test(error.message)){state.items.clear();for(const node of this.nodes.values())node.remove();this.nodes.clear();this.clearOwnListHeader();this.ownHeaderDismissed=location.pathname+':'+context.list;this.ownIdentityChecked=false;queueMicrotask(()=>{if(!this.dead)this.scan();});}}}
       finally{if(current()){state.loading=false;this.discover.disabled=false;this.renderOwnList();}}
     }
     // Removed list (docs/own-removal-detection-spec.md U2): classify each of your items with RTRemovalModel.
     // Posts carry Reddit's own removal category; comments only count as removed when the archive captured the
     // removal (§9.1: Reddit blocks every logged-out check). Unknown is never shown as visible (R2).
-    async classifyRemoved(items,context){
+    async classifyRemoved(items,context,source='overview'){
       const R=globalThis.RTRemovalModel,state=this.listState;if(!R || !state)return;
       state.removalNotes ||= new Set();
       const author=post=>{const m=post.moderation || {};return {kind:post.kind==='comment'?'comment':'post',name:post.fullname,body:m.authorBody ?? post.body,selftext:m.authorBody ?? post.body,...(post.kind==='comment'?{}:{title:post.title || ''}),
@@ -836,7 +874,7 @@
       // Spec §18: compare with your profile as a signed-out visitor sees it (bulk, page by page). Only items the visitor
       // didn't see get a direct signed-out check, paced.
       const uncached=items.filter(post=>!publicProofs.has(post.fullname));
-      const visitor=state.publicChecks && uncached.length?await this.visitorPages(uncached,me):null;if(state.publicChecks && !current())return;
+      const visitor=state.publicChecks && uncached.length?await this.visitorPages(uncached,me,source):null;if(state.publicChecks && !current())return;
       state.directChecks ||= 0;state.hiddenChecks ||= 0;
       // Communities a visitor never sees on your profile are hidden by your profile settings (Reddit's profile
       // curation), not removed: their items get a smaller budget of their own, after the real differences.
@@ -880,6 +918,16 @@
     /* Removed, then deleted by you (spec §18 P3): your Arctic Shift history over the time the profile walk covered.
        Items no longer on your profile that the archive recorded as removed by moderators, Reddit or AutoModerator are
        added; self-deleted items are not. Only with "Use the archive" on. */
+    // A record from your archive history joins the list when nothing live has it, or when the live item turned out
+    // self-deleted. A live item that is still being checked waits; mergeArchiveHistory runs again after each check.
+    mergeArchiveItem(key){
+      const state=this.listState,R=globalThis.RTRemovalModel,item=state?.archiveHistory?.get(key);if(!item || !R?.afterDeletion)return false;
+      const existing=state.items.get(key);if(existing?.source==='arctic-shift' || existing && existing.removal?.state!=='deleted')return false;
+      const removal=R.afterDeletion(item,{deleted:Boolean(existing)});if(!removal)return false;item.removal=removal;if(existing)this.dropCard(key);state.items.set(key,item);return true;
+    }
+    // The card was drawn for a different record of this item (live or archived); the next render draws a new one.
+    dropCard(key){const node=this.nodes.get(key);if(!node)return;this.nativeObserver?.unobserve?.(node);node.remove();this.nodes.delete(key);this.postMetadata?.delete(key);}
+    mergeArchiveHistory(){let merged=0;for(const key of this.listState?.archiveHistory?.keys() || [])if(this.mergeArchiveItem(key))merged++;return merged;}
     async removedThenDeleted(context){
       const state=this.listState,R=globalThis.RTRemovalModel;if(!state || !R?.afterDeletion)return;const generation=this.generation,current=()=>!this.dead && this.listState===state && this.context===context && this.generation===generation && pageRoute()?.key===context.key;const me=globalThis.RTNativeRemoval?.identity(document);
       if(!this.settings.archiveDiscovery){state.removalNotes.add('Turn on “Use the archive” to include items you deleted after a removal.');return;}
@@ -888,14 +936,18 @@
         let before=null;const cursors=new Set();
         for(let page=0;page<removedHistoryPages;page++){
           if(!current())return;
-          let result;try{result=await this.archive({action:'archive-profile',username:context.username,kind,...(me?{purpose:'removal-history',owner:me.owner}:{}),...(before?{before}:{})});}
-          catch(error){if(!current())return;state.archiveHistoryError=true;state.removalNotes.add('The archive didn’t answer for deleted items ('+String(error.message || 'request failed').replace(/\.$/,'')+')');break;}
+          // Arctic Shift sometimes refuses a heavy author query once (HTTP 422) and answers the next try.
+          let result,failure=null;
+          for(let attempt=0;attempt<3;attempt++){
+            try{result=await this.archive({action:'archive-profile',username:context.username,kind,...(me?{purpose:'removal-history',owner:me.owner}:{}),...(before?{before}:{})});failure=null;break;}
+            catch(error){failure=error;if(!current())return;if(/turned off|preference|account changed|forbidden/i.test(error.message || ''))break;if(attempt<2)await new Promise(resolve=>setTimeout(resolve,this.archiveRetryMs ?? 2000));}
+          }
+          if(failure){if(!current())return;state.archiveHistoryError=true;state.removalNotes.add('The archive didn’t answer for deleted items ('+String(failure.message || 'request failed').replace(/\.$/,'')+')');break;}
           if(!current())return;
           const found=(result?.posts || []).map(raw=>raw?.kind && raw.kind!==kind?null:(kind==='comment'?M.normalizeComment:M.normalizePost)(raw,{source:'arctic-shift'})).filter(Boolean);
           for(const item of found){
             if((item.kind==='comment'?'comment':'post')!==kind || item.author.toLowerCase()!==context.username.toLowerCase())continue;
-            const key=itemKey(item),existing=state.items.get(key);if(existing && existing.removal?.state!=='deleted')continue;
-            const removal=R.afterDeletion(item,{deleted:existing?.removal?.state==='deleted'});if(!removal)continue;item.removal=removal;state.items.set(key,item);added++;
+            const key=itemKey(item);state.archiveHistory ||= new Map();if(!state.archiveHistory.has(key))state.archiveHistory.set(key,item);if(this.mergeArchiveItem(key))added++;
           }
           if(added)this.renderOwnList();
           if(!result?.hasMore)break;
@@ -908,12 +960,12 @@
     }
     // Your profile as a signed-out visitor sees it, newest first, read only as far back as the items being checked
     // (spec §18). Page 1 can be a cached copy, so newer items simply aren't seen and get direct checks instead.
-    async visitorPages(items,me){
-      const state=this.listState,v=state.visitor ||= {seen:new Set(),subs:new Set(),after:null,done:false,failed:false,tail:Infinity,pages:0};
+    async visitorPages(items,me,source='overview'){
+      const state=this.listState,visitors=state.visitors ||= {},v=visitors[source] ||= {seen:new Set(),subs:new Set(),after:null,done:false,failed:false,tail:Infinity,pages:0};
       const floor=Math.min(...items.map(p=>Number(p.created) || 0));
       while(!v.done && !v.failed && v.tail>=floor && v.pages<60){
         try{
-          const r=await this.request({action:'removal-public-profile',owner:me.owner,username:me.username,...(v.after?{after:v.after}:{})});if(this.listState!==state)return v;
+          const r=await this.request({action:'removal-public-profile',owner:me.owner,username:me.username,...(source==='posts'?{source}:{}),...(v.after?{after:v.after}:{})});if(this.listState!==state)return v;
           v.pages++;const list=r?.items || [];for(const item of list)if(item?.fullname){v.seen.add(item.fullname);if(item.subreddit)v.subs.add(String(item.subreddit).toLowerCase());}
           // A page's last item is its oldest (pinned posts come first on page 1).
           const last=list.at(-1);if(last?.created)v.tail=Math.min(v.tail,last.created);

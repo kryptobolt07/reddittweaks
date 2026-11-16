@@ -75,8 +75,9 @@
  /* Your profile as a signed-out visitor sees it (spec §18): which of your items are listed, with their times, and the
     native continuation. The page is your own profile, so a card counts when its author name is yours; viewer-only
     markers (author IDs on menus) may be absent signed out. */
- function publicListing(doc,me,{continuation=false}={}){
-  if(!ownerOK(me?.owner) || !M.validateUsername(me?.username))throw Error('Invalid own signed-out profile read.');
+ function publicListing(doc,me,{continuation=false,source='overview'}={}){
+  // Overview, or the Posts tab, which reaches older posts than Overview's newest 1,000 items.
+  if(!ownerOK(me?.owner) || !M.validateUsername(me?.username) || !['overview','posts'].includes(source))throw Error('Invalid own signed-out profile read.');
   const feed=doc.querySelector('main shreddit-feed,shreddit-feed') || doc,items=[],seen=new Set();let scanned=0;
   for(const card of feed.querySelectorAll('shreddit-post,shreddit-profile-comment')){
    scanned++;const comment=card.tagName!=='SHREDDIT-POST',fullname=(card.getAttribute(comment?'comment-id':'id') || card.getAttribute('thingid') || '').toLowerCase();
@@ -91,7 +92,7 @@
   let after=null;
   for(const partial of feed.querySelectorAll('faceplate-partial[src*="/svc/shreddit/profiles/"]')){
    const url=new URL(partial.getAttribute('src'),'https://www.reddit.com');if(!url.pathname.includes('more-posts'))continue;
-   if(url.origin!=='https://www.reddit.com' || url.pathname!=='/svc/shreddit/profiles/profile_overview-more-posts/new/' || url.searchParams.get('name')?.toLowerCase()!==me.username.toLowerCase() || url.href.length>4096)throw Error('Reddit’s signed-out profile continuation changed.');
+   if(url.origin!=='https://www.reddit.com' || url.pathname!=='/svc/shreddit/profiles/profile_'+source+'-more-posts/new/' || url.searchParams.get('name')?.toLowerCase()!==me.username.toLowerCase() || url.href.length>4096)throw Error('Reddit’s signed-out profile continuation changed.');
    after=url.pathname+url.search;break;
   }
   return {items,after,hasMore:Boolean(after)};

@@ -655,6 +655,9 @@
     }
     return {posts,after:null,hasMore:false,scanned:cards.length,incomplete:true,source:'reddit'};
   }
+  // Removed reads Overview, then the Posts tab, which reaches posts older than Overview's newest 1,000 items.
+  const removalSource=input=>{if(input.source!=null && !['overview','posts'].includes(input.source))throw Error('Invalid native profile source.');return input.source || 'overview';};
+  const removalFirstPage=(me,source)=>'/user/'+encodeURIComponent(me.username)+'/'+(source==='posts'?'submitted/':'')+'?sort=new';
   const removalPublicCursors=new Map(),removalCursors=new Map(),removalItems=new Map(),removalProofs=new Map(),removalPending=new Map();let removalOwner='',removalQueue=Promise.resolve();
   function removalScope(me){
     const key=me.owner+':'+me.username.toLowerCase();if(removalOwner!==key){removalCursors.clear();removalItems.clear();removalProofs.clear();removalOwner=key;}return key;
@@ -691,12 +694,12 @@
   async function readRemovalPublicProfile(input,signal){
     const N=globalThis.RTNativeRemoval,me=N?.identity(document),path=pageKey();
     if(!me || input.owner!==me.owner || input.username?.toLowerCase()!==me.username.toLowerCase() || ['url','origin','method','headers'].some(k=>input[k]!==undefined))throw Error('Invalid own signed-out profile read.');
-    const key=removalScope(me);
+    const source=removalSource(input),key=removalScope(me)+':'+source;
     if(input.after!=null && (typeof input.after!=='string' || removalPublicCursors.get(input.after)!==key))throw Error('Invalid signed-out profile continuation.');
-    const url=new URL(input.after || '/user/'+encodeURIComponent(me.username)+'/?sort=new',location.origin);
+    const url=new URL(input.after || removalFirstPage(me,source),location.origin);
     const html=await publicBrowserRead(url.href,signal,false),now=N.identity(document);
     if(signal?.aborted || pageKey()!==path || now?.owner!==me.owner || now?.username.toLowerCase()!==me.username.toLowerCase())throw Error('Account or page changed. Try again.');
-    const value=N.publicListing(new DOMParser().parseFromString(html,'text/html'),me,{continuation:Boolean(input.after)});
+    const value=N.publicListing(new DOMParser().parseFromString(html,'text/html'),me,{continuation:Boolean(input.after),source});
     if(value.after===input.after && value.after)throw Error('Reddit repeated the signed-out profile continuation.');
     if(value.after){if(removalPublicCursors.size>=1000)removalPublicCursors.delete(removalPublicCursors.keys().next().value);removalPublicCursors.set(value.after,key);}
     return value;
@@ -704,16 +707,17 @@
   async function nativeRemovedList(input,signal){
     const N=globalThis.RTNativeRemoval,me=N?.identity(document),path=pageKey();
     if(!me)throw Error('Reddit’s signed-in account is not ready. Refresh this tab to retry.');
-    const key=removalScope(me);
+    const scope=removalScope(me);
     if(input.action==='own-list-identity')return {username:me.username};
     if(input.username?.toLowerCase()!==me.username.toLowerCase())throw Error('You can only check your own removed items.');
+    const source=removalSource(input),key=scope+':'+source;
     if(input.after!=null && (typeof input.after!=='string' || removalCursors.get(input.after)!==key))throw Error('Invalid native profile continuation.');
-    const url=new URL(input.after || '/user/'+encodeURIComponent(me.username)+'/?sort=new',location.origin);
+    const url=new URL(input.after || removalFirstPage(me,source),location.origin);
     const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:input.after?'text/vnd.reddit.partial+html, text/html;q=0.9':'text/html'},signal});
     if(!response.ok)throw Error('Reddit could not load your native profile (HTTP '+response.status+').');
     const text=await boundedText(response,6000000),now=N.identity(document);
     if(signal?.aborted || pageKey()!==path || now?.owner!==me.owner || now?.username.toLowerCase()!==me.username.toLowerCase())throw Error('Account or page changed. Try again.');
-    const value=N.listing(new DOMParser().parseFromString(text,'text/html'),me,'overview',{continuation:Boolean(input.after)});
+    const value=N.listing(new DOMParser().parseFromString(text,'text/html'),me,source,{continuation:Boolean(input.after)});
     for(const post of value.posts)rememberRemovalItem(post,me);
     if(value.after===input.after && value.after)throw Error('Reddit repeated the native profile continuation.');
     if(value.after){if(removalCursors.size>=1000)removalCursors.delete(removalCursors.keys().next().value);removalCursors.set(value.after,key);}

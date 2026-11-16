@@ -168,9 +168,9 @@ test('Feed options filter list items by date, post type and subreddit with no re
  const s=await setup(t,{path:'/user/Example/search/?rt_list=hidden&rt_date=2023-11-01..2023-11-30&rt_type=image&rt_sub=Alpha',list:async(args,signal,W)=>({posts:[W.RTPostModel.normalizePost(raw('match',{is_self:false,post_hint:'image'})),W.RTPostModel.normalizePost(raw('text')),W.RTPostModel.normalizePost(raw('beta',{is_self:false,post_hint:'image',subreddit:'Beta'})),W.RTPostModel.normalizePost(raw('old',{is_self:false,post_hint:'image',created_utc:1600000000}))],scanned:4,hasMore:false})});await s.d.refreshActivity();assert.deepEqual(shown(s),['t3_match']);s.d.setFilters({...s.d.rtFilters,types:[],subreddits:[],date:null});assert.equal(shown(s).length,4);assert.equal(listCalls(s).length,1);
 });
 test('native tabs keep list scope and filter post/comment/media kind',async t=>{
- const s=await setup(t);assert.equal(s.D.getElementById('rt-own-list-tab-posts').getAttribute('aria-current'),'page');assert.equal(s.D.querySelector('[data-rt-list-type="all"]'),null);
- for(const type of ['posts','comments','media']){const a=s.D.getElementById('rt-own-list-tab-'+type);assert.equal(new URL(a.href).searchParams.get('rt_list'),'saved');assert.equal(new URL(a.href).searchParams.get('type'),type);}
- const urls=navigations(s);s.D.getElementById('rt-own-list-tab-media').click();assert.equal(urls.at(-1).searchParams.get('type'),'media');
+ const s=await setup(t);assert.equal(s.D.getElementById('search-results-page-tab-posts').getAttribute('aria-current'),'page');assert.equal(s.D.querySelector('[data-rt-list-type="all"]'),null);
+ for(const type of ['posts','comments','media']){const a=s.D.getElementById('search-results-page-tab-'+type);assert.equal(new URL(a.href).searchParams.get('rt_list'),'saved');assert.equal(new URL(a.href).searchParams.get('type'),type);}
+ const urls=[];s.D.addEventListener('click',event=>{const a=event.target.closest?.('a');if(a && a.hidden){event.preventDefault();urls.push(new URL(a.href));}},true);s.D.getElementById('search-results-page-tab-media').click();assert.equal(urls.at(-1).searchParams.get('type'),'media');
  s.W.history.pushState({},'','?rt_list=saved&type=media');s.d.scan();await flush();await s.d.refreshActivity();assert.deepEqual(shown(s),[]);
  s.d.leaveRestoreMs=0;s.W.history.pushState({},'','/r/Alpha/');s.d.scan();assert.equal(s.D.getElementById('search-results-page-tab-posts').getAttribute('href'),'?type=posts');assert.equal(s.D.querySelector('[data-rt-list-type="all"]'),null);
 });
@@ -251,19 +251,31 @@ for(const list of ['saved','removed'])for(const type of ['posts','comments','med
  for(const a of tabs.querySelectorAll('a')){assert.match(a.className,/button-medium/);const url=new URL(a.href);assert.equal(url.searchParams.get('rt_list'),list);assert.equal(url.searchParams.get('q'),'needle');assert.equal(url.searchParams.get('rt_sub'),'Alpha');assert.equal(a.getAttribute('aria-current')==='page',url.searchParams.get('type')===type);}
  assert.equal(s.calls.filter(c=>c.args.action==='own-list').length,0,'tabs already visible before a scan begins');assert.equal(s.archives.length,0);s.d.scan();assert.equal(s.D.querySelectorAll('#rt-own-list-types').length,1);
 });
-test('own search tabs leave native linked pagination untouched and configure a late component',async t=>{
- const html=page.replace('<faceplate-tabgroup id="search-results-page-tabgroup">','<faceplate-tabgroup id="search-results-page-tabgroup" for="native-results" pages="3" pageindex="1">'),s=await setup(t,{html,path:'/user/Example/search/?rt_list=saved&type=comments'}),native=s.D.getElementById('search-results-page-tabgroup'),tabs=s.D.getElementById('rt-own-list-types');
- assert.ok(tabs);assert.equal(tabs.hasAttribute('for'),false);assert.equal(tabs.getAttribute('pages'),'3');assert.equal(tabs.getAttribute('pageindex'),'2');assert.equal(native.getAttribute('pages'),'3');assert.equal(native.getAttribute('pageindex'),'1');assert.equal(native.hidden,true);
- s.W.customElements.define('faceplate-tabgroup',class extends s.W.HTMLElement{get pages(){return Number(this.getAttribute('pages'));}get pageIndex(){return Number(this.getAttribute('pageindex'));}});await flush();assert.equal(tabs.pages,3);assert.equal(tabs.pageIndex,2);
- s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(native.getAttribute('pages'),'3');assert.equal(native.getAttribute('pageindex'),'1');assert.equal(native.hidden,false);assert.equal(native.querySelectorAll('a').length,3);assert.equal(s.D.getElementById('rt-own-list-types'),null);
+test('list search reuses Reddit’s own result tabs: no copy, native pagination untouched, scoped links restored on opt-out',async t=>{
+ const html=page.replace('<faceplate-tabgroup id="search-results-page-tabgroup">','<faceplate-tabgroup id="search-results-page-tabgroup" for="native-results" pages="3" pageindex="2">'),s=await setup(t,{html,path:'/user/Example/search/?rt_list=saved&type=comments&q=needle&rt_sub=Alpha'}),native=s.D.getElementById('search-results-page-tabgroup');
+ assert.equal(s.D.getElementById('rt-own-list-types'),null,'no second tab row');assert.equal(native.hidden,false);assert.equal(native.getAttribute('pages'),'3');assert.equal(native.getAttribute('pageindex'),'2');
+ for(const a of native.querySelectorAll('a')){const url=new URL(a.href);assert.equal(url.pathname,'/user/Example/search/');assert.equal(url.searchParams.get('rt_list'),'saved');assert.equal(url.searchParams.get('q'),'needle');assert.equal(url.searchParams.get('rt_sub'),'Alpha');assert.equal(a.getAttribute('aria-current')==='page',url.searchParams.get('type')==='comments');}
+ s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.deepEqual([...native.querySelectorAll('a')].map(a=>a.getAttribute('href')),['?type=posts','?type=comments','?type=media']);assert.equal(native.hidden,false);
 });
-test('hydration restores the owned search tabs without refetching and opt-out unhides native tabs',async t=>{
- const s=await setup(t,{observe:true});await s.d.refreshActivity();await flush();const native=s.D.getElementById('search-results-page-tabgroup'),feed=s.d.feed,node=[...s.d.nodes.values()][0],reads=listCalls(s).length;
- s.D.getElementById('rt-own-list-types').remove();await flush();assert.ok(s.D.getElementById('rt-own-list-types'),'replacement reconciles even when only our tab bar was removed');
+
+test('a re-rendered native tab row is scoped again without refetching',async t=>{
+ const s=await setup(t,{observe:true});await s.d.refreshActivity();await flush();const feed=s.d.feed,node=[...s.d.nodes.values()][0],reads=listCalls(s).length;
+ const fresh=s.D.getElementById('search-results-page-tabgroup').cloneNode(false);fresh.innerHTML='<a href="?type=posts">Posts</a><a href="?type=comments">Comments</a><a href="?type=media">Media</a>';s.D.getElementById('search-results-page-tabgroup').replaceWith(fresh);await flush();s.d.scan();await flush();
+ assert.ok([...fresh.querySelectorAll('a')].every(a=>new URL(a.href).searchParams.get('rt_list')==='saved'));assert.equal(s.D.getElementById('rt-own-list-types'),null);
  feed.remove();s.d.scan();await flush();assert.equal(s.d.feed,feed);assert.equal([...s.d.nodes.values()][0],node);assert.equal(listCalls(s).length,reads);
- s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(native.hidden,false);assert.equal(native.hasAttribute('data-rt-search-hidden'),false);
 });
 
 for(const list of ['saved','removed','hidden','history','upvoted','downvoted'])for(const suffix of ['', '&type=all'])test(`${list} search defaults to Posts without All (${suffix})`,async t=>{
- const s=await setup(t,{path:'/user/Example/search/?rt_list='+list+suffix}),tabs=s.D.getElementById('rt-own-list-types');assert.equal(s.d.context.type,'posts');assert.deepEqual([...tabs.querySelectorAll('a')].map(a=>a.textContent),['Posts','Comments','Media']);assert.equal(tabs.getAttribute('pages'),'3');assert.equal(tabs.getAttribute('pageindex'),'1');assert.equal(tabs.querySelector('[aria-current="page"]').textContent,'Posts');
+ const s=await setup(t,{path:'/user/Example/search/?rt_list='+list+suffix}),tabs=s.D.getElementById('search-results-page-tabgroup');assert.equal(s.d.context.type,'posts');assert.deepEqual([...tabs.querySelectorAll('a')].map(a=>a.textContent),['Posts','Comments','Media']);assert.equal(tabs.querySelector('[aria-current="page"]').textContent,'Posts');
+});
+
+for(const list of ['saved','history','hidden','upvoted','downvoted','removed'])test(`${list} search keeps its list when Reddit’s own sort or Safe Search link is chosen`,async t=>{
+ const html=page.replace('</main>','<div class="flex items-center"><search-sort-dropdown-menu><a id="sort-new" href="/user/Example/search/?q=&amp;type=comments&amp;sort=new&amp;iId=abc">New</a><a id="sort-top" href="/user/Example/search/?q=&amp;type=comments&amp;sort=top&amp;iId=def">Top</a><a id="safe" href="https://www.reddit.com/user/Example/search/?q=&amp;type=comments&amp;iId=ghi">Off</a></search-sort-dropdown-menu><a id="away" href="/r/Alpha/">Alpha</a></div></main>'),s=await setup(t,{html,path:'/user/Example/search/?rt_list='+list+'&type=comments&q=&rt_date=month&rt_sort=old'}),urls=navigations(s);
+ s.D.getElementById('sort-new').click();s.D.getElementById('sort-top').click();s.D.getElementById('safe').click();s.D.getElementById('away').click();
+ const [byNew,byTop,safe,away]=urls;
+ for(const url of [byNew,byTop,safe]){assert.equal(url.pathname,'/user/Example/search/');assert.equal(url.searchParams.get('rt_list'),list);assert.equal(url.searchParams.get('type'),'comments');assert.equal(url.searchParams.get('rt_date'),'month');assert.equal(url.searchParams.has('iId'),false);}
+ assert.equal(byNew.searchParams.get('sort'),'new');assert.equal(byNew.searchParams.has('rt_sort'),false,'Reddit’s sort replaces the earlier list order');
+ assert.equal(byTop.searchParams.has('sort'),false,'Top has no meaning for a list: original order');assert.equal(safe.searchParams.get('rt_sort'),'old','a link without a sort keeps the list order');
+ assert.equal(away.pathname,'/r/Alpha/');assert.equal(away.searchParams.has('rt_list'),false,'other links are untouched');
+ s.d.applySettings({postDiscovery:false,archiveDiscovery:false});const after=navigations(s);s.D.getElementById('sort-new').click();assert.equal(after.at(-1).searchParams.has('rt_list'),false,'off: Reddit’s links behave natively');
 });

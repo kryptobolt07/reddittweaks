@@ -81,3 +81,11 @@ test('a signed-out removed comment (captured 2026-11-16) is read as removed, not
  const deleted=new W.DOMParser().parseFromString(removed.replace('[removed]','[deleted]'),'text/html');assert.equal(N.publicItem(deleted,{fullname:'t1_19sfh5eexcxic',username:'Example'}).status,'deleted');
  const quoted=new W.DOMParser().parseFromString(removed.replace(' [removed] ','I said [removed] in jest'),'text/html');assert.notEqual(N.publicItem(quoted,{fullname:'t1_19sfh5eexcxic',username:'Example'}).status,'removed','only a block that is exactly the notice counts');
 });
+test('the signed-out Posts tab listing follows its own continuation and rejects the overview one',t=>{
+ const {W,N}=fixture(t);const me={owner:'t2_self',username:'Example'},parse=html=>new W.DOMParser().parseFromString(html,'text/html');
+ const more='/svc/shreddit/profiles/profile_posts-more-posts/new/?sort=new&after=dDNfYWJj&name=Example';
+ const value=N.publicListing(parse('<shreddit-feed>'+post()+'<faceplate-partial src="'+more.replace(/&/g,'&amp;')+'"></faceplate-partial></shreddit-feed>'),me,{source:'posts'});
+ assert.deepEqual([...value.items].map(i=>i.fullname),['t3_post1']);assert.equal(value.after,more);
+ assert.throws(()=>N.publicListing(parse('<shreddit-feed>'+post()+'<faceplate-partial src="'+more.replace('profile_posts','profile_overview').replace(/&/g,'&amp;')+'"></faceplate-partial></shreddit-feed>'),me,{source:'posts'}),/continuation changed/);
+ assert.throws(()=>N.publicListing(parse('<shreddit-feed>'+post()+'</shreddit-feed>'),me,{source:'comments'}),/Invalid/);
+});

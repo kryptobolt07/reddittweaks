@@ -50,3 +50,15 @@ test('signed-out profile pages (spec §18) list what a visitor sees, through the
  for(const after of ['/svc/shreddit/profiles/profile_overview-more-posts/new/?sort=new&name=Example&after=forged','https://evil.example/'])assert.equal((await s.send({action:'removal-public-profile',owner:'t2_self',username:'Example',after})).ok,false,after);
  assert.equal((await s.send({action:'removal-public-profile',owner:'t2_other',username:'Example'})).ok,false,'another account');
 });
+test('the Posts tab is read signed in and signed out with its own continuations, which never cross sources',async t=>{
+ const s=setup(t),feed=(ids,source,next)=>`<main><shreddit-feed>${ids.map(card).join('')}${next?'<faceplate-partial src="/svc/shreddit/profiles/profile_'+source+'-more-posts/new/?sort=new&amp;name=Example&amp;after='+next+'"></faceplate-partial>':''}</shreddit-feed></main>`;
+ s.W.fetch=async url=>{const u=new URL(url);s.calls.push(u);return {ok:true,status:200,headers:new Headers(),text:async()=>u.pathname==='/user/Example/submitted/'?feed(['old1'],'posts','p2'):feed(['old2'],'posts',null)};};
+ s.W.RTPublicBrowser={async read(url){const u=new URL(url);s.publicReads.push(u);return u.pathname==='/user/Example/submitted/'?feed(['old1'],'posts','v2'):feed(['old2'],'posts',null);}};
+ const own=await s.send({action:'own-list',list:'removed',username:'Example',source:'posts'});assert.equal(own.ok,true,own.error);assert.equal(s.calls[0].pathname,'/user/Example/submitted/');assert.equal(s.calls[0].search,'?sort=new');assert.deepEqual(own.posts.map(p=>p.fullname),['t3_old1']);
+ const own2=await s.send({action:'own-list',list:'removed',username:'Example',source:'posts',after:own.after});assert.equal(own2.ok,true,own2.error);assert.deepEqual(own2.posts.map(p=>p.fullname),['t3_old2']);
+ assert.equal((await s.send({action:'own-list',list:'removed',username:'Example',after:own.after})).ok,false,'a Posts cursor is not an Overview cursor');
+ const out=await s.send({action:'removal-public-profile',owner:'t2_self',username:'Example',source:'posts'});assert.equal(out.ok,true,out.error);assert.equal(s.publicReads[0].pathname,'/user/Example/submitted/');
+ assert.equal((await s.send({action:'removal-public-profile',owner:'t2_self',username:'Example',after:out.after})).ok,false,'a Posts cursor is not an Overview cursor');
+ assert.equal((await s.send({action:'removal-public-profile',owner:'t2_self',username:'Example',source:'posts',after:out.after})).ok,true);
+ for(const source of ['comments','../x'])assert.equal((await s.send({action:'own-list',list:'removed',username:'Example',source})).ok,false,source);
+});
