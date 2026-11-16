@@ -11,8 +11,8 @@ const post=(id,extra={})=>({id,author:'Example',title:'Synthetic '+id,selftext:'
 const comment=(id,extra={})=>({id,author:'Example',body:'Synthetic comment '+id,link_id:'t3_parent',parent_id:'t3_parent',link_title:'Parent',subreddit:'Alpha',subreddit_type:'public',created_utc:created,...extra});
 
 // --- View (isolated world), with the page bridge stubbed by the bridge's real normalization rules.
-async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[],cache=null,saved=[],ownList,before,publicDelay=0,type=children?.every(([kind])=>kind==='t1')?'comments':'posts'}={}){
- const dom=new JSDOM(page,{url:'https://www.reddit.com/user/Example/search/?rt_list=removed&type='+type,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,archives=[];let d;
+async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[],cache=null,saved=[],ownList,before,publicDelay=0,list=[],listSaved=[],q='',type=children?.every(([kind])=>kind==='t1')?'comments':'posts'}={}){
+ const dom=new JSDOM(page,{url:'https://www.reddit.com/user/Example/search/?rt_list=removed&type='+type+(q?'&q='+encodeURIComponent(q):''),runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,archives=[];let d;
  t.after(()=>{d?.destroy();W.close();});
  for(const file of ['search-core.js','post-model.js','feed-filters.js','removal-model.js','post-discovery.js'])W.eval(read(file));
  const M=W.RTPostModel;if(publicProofs)W.RTNativeRemoval={identity:()=>({owner:'t2_self',username:'Example'})};
@@ -25,7 +25,7 @@ async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:fa
   if(args.action==='own-list'){assert.equal(args.list,'removed');const posts=children.map(([kind,data])=>{const item=kind==='t3'?M.normalizePost(data):M.normalizeComment(data);item.moderation={category:data.removed_by_category ?? null,removalReason:Boolean(data.removal_reason),locked:data.locked===true,subredditType:data.subreddit_type || 'public',quarantined:false,authorBody:kind==='t3'?data.selftext:data.body,...(data.native?{native:true}:{})};return item;});return {posts,scanned:posts.length,hasMore:false,after:null};}
   throw Error('Unexpected request: '+args.action);
  };
- d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover:false,removalCache:async message=>{if(message.action==='proofs-load')return {ok:true,proofs:cache || {}};saved.push(...message.proofs);return {ok:true};},reddit,archive:async args=>{archives.push(args);if(!archive)throw Error('No archive expected');return archive(args,W);},readSettings:async()=>({'rt-settings-v1':settings})});
+ d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover:false,removalCache:async message=>{if(message.action==='proofs-load')return {ok:true,proofs:cache || {}};if(message.action==='list-load')return {ok:true,items:list,savedAt:1};if(message.action==='list-save'){listSaved.push(message.items);return {ok:true};}saved.push(...message.proofs);return {ok:true};},reddit,archive:async args=>{archives.push(args);if(!archive)throw Error('No archive expected');return archive(args,W);},readSettings:async()=>({'rt-settings-v1':settings})});
  d.removalGapMs=0;d.archiveRetryMs=0;await d.ready;await flush();await before?.(d);await d.refreshActivity();await flush();
  const shown=[...d.nodes.values()].filter(n=>!n.hidden).map(n=>n.dataset.fullname);
  const pill=name=>[...d.nodes.values()].find(n=>n.dataset.fullname===name)?.querySelector('.rt-removal-pill');
@@ -41,8 +41,8 @@ test('rt_list=removed is an own list route; other accounts cannot open it',async
 test('Removed shows only your removed posts, each with its state pill and evidence tooltip',async t=>{
  const s=await view(t,{children:[['t3',post('visible1')],['t3',post('modpost',{removed_by_category:'moderator'})],['t3',post('autopost',{removed_by_category:'automod_filtered'})],['t3',post('adminpost',{removed_by_category:'anti_evil_ops'})],['t3',post('mine',{removed_by_category:'deleted',selftext:'[deleted]'})],['t1',comment('c1')]]});
  assert.deepEqual(s.shown.sort(),['t3_adminpost','t3_autopost','t3_modpost']);
- assert.equal(s.pill('t3_modpost').dataset.rtRemoval,'removed-mod');assert.match(s.pill('t3_modpost').textContent,/^Removed by moderators$/);assert.match(s.pill('t3_modpost').title,/Reddit marks this post as removed by moderators/);
- assert.equal(s.pill('t3_autopost').textContent,'Removed automatically');assert.equal(s.pill('t3_adminpost').textContent,'Removed by Reddit');
+ assert.equal(s.pill('t3_modpost').dataset.rtRemoval,'removed-mod');assert.match(s.pill('t3_modpost').dataset.rtLabel,/^Removed by moderators$/);assert.match(s.pill('t3_modpost').title,/Reddit marks this post as removed by moderators/);
+ assert.equal(s.pill('t3_autopost').dataset.rtLabel,'Removed automatically');assert.equal(s.pill('t3_adminpost').dataset.rtLabel,'Removed by Reddit');
  assert.equal(s.d.status.textContent,'Checked your newest 5 posts · 3 removed');
  // The Posts and Comments tabs count only what they list (no comments counted under Posts).
  s.d.context.type='posts';s.d.summarizeRemoved();assert.equal(s.d.status.textContent,'Checked your newest 5 posts · 3 removed');
@@ -64,7 +64,7 @@ test('with the archive on, comments are classified from its captures in batches 
  }});
  const removals=s.archives.filter(a=>a.action==='archive-removal');assert.equal(removals.length,2);assert.deepEqual(removals.map(a=>a.ids.length),[25,5]);
  // Only the archive capture of a removal makes a comment "removed"; one seen visible stays unchecked (no public view).
- assert.deepEqual(s.shown,['t1_auto1']);assert.equal(s.pill('t1_auto1').textContent,'Removed automatically (likely)');assert.match(s.pill('t1_auto1').title,/10 seconds after posting/);
+ assert.deepEqual(s.shown,['t1_auto1']);assert.equal(s.pill('t1_auto1').dataset.rtLabel,'Removed automatically (likely)');assert.match(s.pill('t1_auto1').title,/10 seconds after posting/);
  assert.equal(s.d.listState.items.get('mod1')?.removal?.state ?? [...s.d.listState.items.values()].find(p=>p.id==='mod1').removal.state,'unknown');
  assert.match(s.d.notice.title,/29 comments couldn’t be checked/);assert.doesNotMatch(s.d.notice.title,/Turn on “Use the archive”/);
 });
@@ -199,7 +199,7 @@ test('items no longer on your profile that the archive shows removed are listed 
   {...post('selfdel',{created_utc:created-200}),_meta:{removal_type:'deleted'}},{...post('kept',{created_utc:created})}];
  const archive=async args=>args.action==='archive-profile'?{ok:true,posts:args.kind==='post'?archivePosts:[],hasMore:false}:{ok:true,posts:[]};
  const s=await view(t,{children:[['t3',post('kept',{created_utc:created})],['t3',post('old',{created_utc:created-1000})]],settings:{postDiscovery:true,archiveDiscovery:true},archive,publicProofs:{t3_kept:{status:'visible',verified:true},t3_old:{status:'visible',verified:true}},visitor:pages([{fullname:'t3_kept',created},{fullname:'t3_old',created:created-1000}])});
- assert.deepEqual(s.shown,['t3_gone']);assert.match(s.pill('t3_gone').textContent,/^Removed by moderators, then deleted by you/);
+ assert.deepEqual(s.shown,['t3_gone']);assert.match(s.pill('t3_gone').dataset.rtLabel,/^Removed by moderators, then deleted by you/);
  assert.ok(s.archives.some(a=>a.action==='archive-profile' && a.kind==='post' && a.username==='Example'));
 });
 test('with the archive off, removed-then-deleted is skipped and said so',async t=>{
@@ -227,7 +227,7 @@ test('cached signed-out results skip the visitor walk and direct checks; new res
  const s=await view(t,{children:[['t1',comment('cached',{created_utc:created})],['t1',comment('fresh',{created_utc:created-60})]],publicProofs:{t1_fresh:{status:'removed',verified:true}},visitor:pages([]),calls,cache:{t1_cached:{status:'visible',checkedAt:now-60000}},saved});
  assert.equal(calls.filter(c=>c.action==='removal-public' && c.fullname==='t1_cached').length,0,'cached: no signed-out request');
  assert.equal(calls.filter(c=>c.action==='removal-public' && c.fullname==='t1_fresh').length,1);
- assert.deepEqual(JSON.parse(JSON.stringify(saved.map(p=>[p.fullname,p.status]))),[['t1_fresh','removed']],'only new verified results are saved');assert.equal(Object.keys(saved[0]).sort().join(),'checkedAt,fullname,status');
+ assert.deepEqual(JSON.parse(JSON.stringify(saved.map(p=>[p.fullname,p.status]))),[['t1_fresh','removed']],'only new verified results are saved');assert.equal(Object.keys(saved[0]).sort().join(),'checkedAt,created,fullname,status','status, time and item date only');
  assert.deepEqual(s.shown,['t1_fresh']);
  const again=[],quiet=await view(t,{children:[['t1',comment('cached',{created_utc:created})]],publicProofs:{},visitor:pages([]),calls:again,cache:{t1_cached:{status:'visible',checkedAt:now}}});
  assert.equal(again.filter(c=>c.action==='removal-public-profile' || c.action==='removal-public').length,0,'everything cached: no signed-out reads at all');
@@ -251,12 +251,12 @@ for(const type of ['posts','comments','media'])test(`Removed search ${type} keep
 for(const empty of [false,true])test(`archive recovery includes older removed-then-deleted posts and comments (empty profile=${empty})`,async t=>{
  const archive=async args=>({posts:args.kind==='post'?[{...post('oldpost',{created_utc:created-1000000,removed_by_category:'moderator'}),_meta:{removal_type:'deleted',was_deleted_later:true}},post('ordinary',{created_utc:created-1000001}),post('onlyremoved',{created_utc:created-1000002,removed_by_category:'moderator'}),{...post('selfonly',{created_utc:created-1000003}),_meta:{removal_type:'deleted'}}]:[{...comment('oldcomment',{created_utc:created-2000000,removed_by_category:'moderator'}),_meta:{removal_type:'deleted',was_deleted_later:true}}],hasMore:false});
  const s=await view(t,{children:empty?[]:[['t3',post('live',{removed_by_category:'moderator'})]],type:'posts',settings:{postDiscovery:true,archiveDiscovery:true},archive});
- assert.ok(s.d.listState.items.has('oldpost'));assert.ok(s.d.listState.items.has('t1_oldcomment'));assert.equal(s.d.listState.items.has('ordinary'),false);assert.equal(s.d.listState.items.has('onlyremoved'),false);assert.equal(s.d.listState.items.has('selfonly'),false);assert.ok(s.pill('t3_oldpost').textContent.includes('then deleted'));
+ assert.ok(s.d.listState.items.has('oldpost'));assert.ok(s.d.listState.items.has('t1_oldcomment'));assert.equal(s.d.listState.items.has('ordinary'),false);assert.equal(s.d.listState.items.has('onlyremoved'),false);assert.equal(s.d.listState.items.has('selfonly'),false);assert.ok(s.pill('t3_oldpost').dataset.rtLabel.includes('then deleted'));
  assert.equal(s.archives.filter(a=>a.action==='archive-profile').length,2);
 });
 test('archive recovery enriches a current deleted item but never overrides a current visible item',async t=>{
  const s=await view(t,{children:[['t3',post('deleted',{selftext:'[deleted]',removed_by_category:'deleted'})],['t3',post('visible')]],publicProofs:{t3_deleted:{status:'deleted',verified:true},t3_visible:{status:'visible',verified:true}},visitor:pages([{fullname:'t3_visible',created}]),settings:{postDiscovery:true,archiveDiscovery:true},archive:async args=>({posts:args.kind==='post'?[post('deleted',{removed_by_category:'moderator'}),{...post('visible',{removed_by_category:'moderator'}),_meta:{removal_type:'deleted'}}]:[],hasMore:false})});
- assert.deepEqual(s.shown,['t3_deleted']);assert.ok(s.pill('t3_deleted').textContent.includes('then deleted'));assert.equal(s.d.listState.items.get('visible').removal.state,'visible');
+ assert.deepEqual(s.shown,['t3_deleted']);assert.ok(s.pill('t3_deleted').dataset.rtLabel.includes('then deleted'));assert.equal(s.d.listState.items.get('visible').removal.state,'visible');
 });
 test('archive history stops repeated/stalled cursors with an honest coverage note',async t=>{
  const calls=[];const s=await view(t,{children:[],settings:{postDiscovery:true,archiveDiscovery:true},archive:async args=>{calls.push(args);return {posts:[args.kind==='post'?post('same'):comment('same')],hasMore:true,before:created,cursorStalled:args.before===created};}});
@@ -325,4 +325,40 @@ test('the next profile page is requested while the previous page is still being 
  await view(t,{ownList,calls,visitor:()=>({items:[],after:null}),publicProofs:{t1_a:{status:'removed',verified:true},t1_b:{status:'removed',verified:true}},publicDelay:40});
  const page2=calls.findIndex(c=>c.action==='own-list' && c.after==='p2'),aDone=calls.findIndex(c=>c.action==='public-done' && c.fullname==='t1_a');
  assert.ok(page2>-1 && aDone>-1 && page2<aDone,'page 2 is fetched before page 1 finishes its checks');
+});
+
+test('an archived removal that your complete profile no longer lists is shown as gone',async t=>{
+ const archive=async args=>({posts:args.kind==='post'?[post('spam',{created_utc:created-50,removed_by_category:'reddit',selftext:'[removed]'}),post('live',{created_utc:created-60,removed_by_category:'reddit',selftext:'[removed]'}),post('plain',{created_utc:created-70})]:[],hasMore:false});
+ const s=await view(t,{children:[['t3',post('live',{created_utc:created-60,removed_by_category:'reddit',native:true})]],settings:{postDiscovery:true,archiveDiscovery:true},archive});
+ assert.ok(s.shown.includes('t3_spam'));assert.match(s.pill('t3_spam').dataset.rtLabel,/no longer on your profile/);assert.equal(s.d.listState.items.get('spam').source,'arctic-shift');
+ assert.notEqual(s.d.listState.items.get('live').source,'arctic-shift','a live item keeps its live record');assert.equal(s.d.listState.items.has('plain'),false,'no removal evidence, not listed');
+});
+test('archive records wait until the profile walk has passed their date before they are added',async t=>{
+ let release;const gate=new Promise(r=>release=r),seen=[];
+ const ownList=async(args,M)=>{if(args.source==='posts')return {posts:[],scanned:0,hasMore:false,after:null};if(!args.after)return {posts:[native(M,'t1',comment('new',{created_utc:created}))],scanned:1,hasMore:true,after:'p2'};await gate;return {posts:[native(M,'t3',post('older',{created_utc:created-100}))],scanned:1,hasMore:false,after:null};};
+ const archive=async args=>{const r={posts:args.kind==='post'?[{...post('older',{created_utc:created-100,removed_by_category:'moderator'}),_meta:{removal_type:'deleted',was_deleted_later:true}}]:[],hasMore:false};setTimeout(()=>{seen.push([...view.state?.items.keys() || []]);release();},20);return r;};
+ const s=await view(t,{ownList,archive,settings:{postDiscovery:true,archiveDiscovery:true},visitor:()=>({items:[{fullname:'t1_new',created,subreddit:'alpha'},{fullname:'t3_older',created:created-100,subreddit:'alpha'}],after:null}),publicProofs:{},before:d=>{view.state=null;const orig=d.loadOwnList.bind(d);d.loadOwnList=async(...a)=>{view.state=d.listState;return orig(...a);};}});
+ assert.ok(seen.length && !seen[0].includes('older'),'not added while the walk had not reached its date');assert.notEqual(s.d.listState.items.get('older').source,'arctic-shift','the live record decides');assert.equal(s.shown.includes('t3_older'),false);
+});
+
+const savedItem=(id,extra={})=>({fullname:'t3_'+id,kind:'post',id,created:created-10,subreddit:'Alpha',permalink:'/r/Alpha/comments/'+id+'/title/',title:'Saved needle '+id,body:'Saved body',source:'reddit',removal:{state:'removed-mod',confidence:'verified',why:'Earlier check',flags:[]},...extra});
+test('reopening Removed shows the saved list at once, before the profile walk answers',async t=>{
+ let d,atFirstPage=null;const ownList=(args,M)=>{if(atFirstPage==null)atFirstPage=[...d.nodes.values()].filter(n=>!n.hidden).map(n=>n.dataset.fullname);return args.source==='posts'?{posts:[],scanned:0,hasMore:false,after:null}:{posts:[native(M,'t3',post('kept',{created_utc:created-10,removed_by_category:'moderator'}))],scanned:1,hasMore:false,after:null};};
+ const listSaved=[],s=await view(t,{ownList,list:[savedItem('kept'),savedItem('stale')],listSaved,publicProofs:{},visitor:()=>({items:[],after:null}),before:x=>{d=x;}});
+ assert.deepEqual(atFirstPage.sort(),['t3_kept','t3_stale'],'saved removals are shown before the first page arrives');
+ assert.deepEqual(s.shown,['t3_kept'],'the complete walk confirms kept and drops what it no longer finds');assert.equal(s.d.listState.items.get('kept').saved,undefined,'the live record replaced the saved one');
+ assert.equal(listSaved.length,1);assert.deepEqual([...listSaved[0]].map(i=>i.fullname),['t3_kept']);assert.equal(listSaved[0][0].title,'Synthetic kept');
+});
+test('Removed search matches saved items immediately',async t=>{
+ let d,atFirstPage=null;const ownList=(args,M)=>{if(atFirstPage==null)atFirstPage=[...d.nodes.values()].filter(n=>!n.hidden).map(n=>n.dataset.fullname);return {posts:[],scanned:0,hasMore:false,after:null};};
+ await view(t,{ownList,q:'needle',list:[savedItem('match'),savedItem('other',{title:'Unrelated',body:'nothing'})],publicProofs:{},visitor:()=>({items:[],after:null}),before:x=>{d=x;}});
+ assert.deepEqual(atFirstPage,['t3_match']);
+});
+test('signed-out results are saved with the item date so settled items keep them longer',async t=>{
+ const saved=[];await view(t,{children:[['t1',comment('dated',{created_utc:created-77})]],publicProofs:{t1_dated:{status:'removed',verified:true}},visitor:()=>({items:[],after:null}),saved});
+ assert.equal(saved.find(p=>p.fullname==='t1_dated')?.created,created-77);
+});
+test('a deferred profile-list read is retried rather than reported as a failure',async t=>{
+ let n=0;const ownList=(args,M)=>{if(args.source==='posts')return {posts:[],scanned:0,hasMore:false,after:null};if(!n++)return {deferred:true,retryAfterMs:1};return {posts:[native(M,'t3',post('ok',{removed_by_category:'moderator'}))],scanned:1,hasMore:false,after:null};};
+ const s=await view(t,{ownList,publicProofs:{},visitor:()=>({items:[],after:null})});assert.equal(s.d.listState.error,'');assert.deepEqual(s.shown,['t3_ok']);
 });

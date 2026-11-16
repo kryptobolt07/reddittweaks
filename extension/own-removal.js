@@ -49,7 +49,8 @@
    if(!this.current(me,generation))return;
    const pending=[],hosts=new Map(),observations=new Map(),owned=new Set(),time=this.now(),strength=p=>p.moderation.category?3:p.moderation.nativeRemoved?2:p.moderation.visibilityKnown?1:0;
    const controller=new AbortController();this.proofController=controller;
-   for(const card of [...this.doc.querySelectorAll('shreddit-post,shreddit-profile-comment,shreddit-comment')].filter(n=>this.visible(n)).slice(0,100)){
+   // Cards in the Removed views carry that view's own icon.
+   for(const card of [...this.doc.querySelectorAll('shreddit-post,shreddit-profile-comment,shreddit-comment')].filter(n=>!n.closest('[data-rt-ui="removed-feed"],[data-rt-ui="search-feed"]') && this.visible(n)).slice(0,100)){
     const p=N.item(card,me);if(!p)continue;owned.add(card);if(!hosts.has(p.fullname))hosts.set(p.fullname,[]);hosts.get(p.fullname).push(card);
     const previous=observations.get(p.fullname);if(!previous || strength(p)>strength(previous))observations.set(p.fullname,p);
    }
@@ -97,9 +98,10 @@
   paint(card,record){
    const existing=[...card.querySelectorAll('[data-rt-own-removal]')].filter(n=>n.closest('shreddit-post,shreddit-profile-comment,shreddit-comment')===card);
    if(record.state==='visible' || record.state==='unknown'){for(const n of existing)n.remove();return;}
-   let pill=existing.shift();for(const n of existing)n.remove();if(!pill){pill=this.doc.createElement('span');pill.dataset.rtOwnRemoval='';pill.className='rt-removal-pill rt-own-removal inline-flex items-center gap-2xs text-12 font-semibold';}
+   // One red ban icon after the time, as in the Removed view; the wording is in its tooltip (spec §27).
+   let pill=existing.shift();for(const n of existing)n.remove();if(!pill){pill=this.doc.createElement('span');pill.dataset.rtOwnRemoval='';pill.className='rt-removal-pill rt-own-removal rt-post-indicator';pill.tabIndex=0;const ns='http://www.w3.org/2000/svg',svg=this.doc.createElementNS(ns,'svg'),path=this.doc.createElementNS(ns,'path');for(const [k,v] of Object.entries({viewBox:'0 0 24 24','aria-hidden':'true',width:'16',height:'16'}))svg.setAttribute(k,v);path.setAttribute('d','M5 5l14 14M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20');svg.append(path);pill.append(svg);}
    const label=(R.STATES[record.state]?.label || 'Couldn’t check')+(record.confidence==='likely' && record.state!=='removed-unknown'?' (likely)':'');
-   if(pill.textContent!==label)pill.textContent=label;pill.dataset.rtRemoval=record.state;pill.title=[record.why,'Checked '+new Date(record.checkedAt).toLocaleString()].filter(Boolean).join(' · ');pill.setAttribute('role','img');pill.setAttribute('aria-label',label+'. '+record.why);
+   pill.dataset.rtLabel=label;pill.dataset.rtRemoval=record.state;pill.title=[label,[record.why,'Checked '+new Date(record.checkedAt).toLocaleString()].filter(Boolean).join(' · ')].join('\n');pill.setAttribute('role','img');pill.setAttribute('aria-label',label+'. '+record.why);
    if(!pill.isConnected){const time=[...card.querySelectorAll('faceplate-timeago')].find(n=>n.closest('shreddit-post,shreddit-profile-comment,shreddit-comment')===card);const meta=card.querySelector('[slot="commentMeta"],[slot="credit-bar"],[id^="poster-info-"]');if(time)time.after(pill);else if(meta)meta.append(pill);}
   }
   destroy(){this.dead=true;this.generation++;this.proofController?.abort();this.watch(false);if(this.queued)this.doc.defaultView.cancelAnimationFrame(this.queued);globalThis.chrome?.runtime?.onMessage?.removeListener?.(this.message);this.clearBadges();this.entries.clear();}

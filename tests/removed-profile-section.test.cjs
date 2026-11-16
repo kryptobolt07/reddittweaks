@@ -65,8 +65,8 @@ test('Removed hides only profile list chrome, reconciles replacements and restor
  const replacement=D.createElement('div');replacement.innerHTML='<create-post-entry-point-wrapper id="late-create"><a href="/submit">Create post</a></create-post-entry-point-wrapper>'+controls;D.getElementById('profile-tools').replaceWith(replacement);s.d.scan({cheap:true});assert.equal(replacement.hidden,true);assert.equal(s.d.feed,feed);assert.equal(s.calls.filter(c=>c.action==='own-list').length,reads);
  s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(replacement.hidden,false);assert.equal(D.getElementById('late-create').hidden,false);assert.equal(D.querySelector('shreddit-layout-event-setter').hidden,false);assert.equal(D.getElementById('original-feed').hidden,false);
 });
-test('Removed scan failure keeps a reachable retry without opening filter menus',async t=>{
- const s=await setup(t,{listError:'Synthetic unavailable listing'});await s.d.refreshActivity();assert.match(s.d.status.textContent,/Synthetic unavailable/);assert.equal(s.d.discover.hidden,false);assert.equal(s.d.discover.disabled,false);assert.equal(s.d.activityDropdown,null);
+test('Removed scan failure says how to retry without a refresh button or filter menus',async t=>{
+ const s=await setup(t,{listError:'Synthetic unavailable listing'});await s.d.refreshActivity();assert.match(s.d.status.textContent,/Synthetic unavailable/);assert.equal(s.d.discover.hidden,true,'Removed has no refresh button');assert.match(s.d.notice.title,/Reload the page to retry/);assert.equal(s.d.activityDropdown,null);
 });
 test('Removed historical deleted cards use archived text instead of requesting live placeholders',async t=>{
  const s=await setup(t),M=s.W.RTPostModel;s.d.listState.done=true;
@@ -78,8 +78,8 @@ test('Removed mounts independently when the native hidden list has no feed',asyn
  s.d.applySettings({postDiscovery:true,archiveDiscovery:false});assert.equal(s.d.context?.section,true);assert.ok(s.d.feed?.isConnected);assert.equal(empty.hidden,true);await s.d.refreshActivity();await flush();assert.equal([...s.d.nodes.values()].filter(n=>!n.hidden).length,2);
  s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(empty.hidden,false);assert.equal(s.W.document.querySelector('[data-rt-ui="removed-feed"]'),null);
 });
-test('archive recovery failures remain retryable in the plain Removed list',async t=>{
- const s=await setup(t);s.d.settings.archiveDiscovery=true;s.d.archive=async()=>{throw Error('Synthetic archive failure');};await s.d.refreshActivity();assert.match(s.d.notice.title,/Synthetic archive failure/);assert.equal(s.d.discover.hidden,false);assert.equal(s.d.discover.disabled,false);assert.equal(s.d.activityDropdown,null);
+test('archive recovery failures are reported in the plain Removed list without a refresh button',async t=>{
+ const s=await setup(t);s.d.settings.archiveDiscovery=true;s.d.archive=async()=>{throw Error('Synthetic archive failure');};await s.d.refreshActivity();assert.match(s.d.notice.title,/Synthetic archive failure/);assert.equal(s.d.discover.hidden,true,'Removed has no refresh button');assert.equal(s.d.activityDropdown,null);
 });
 test('Removed merges recovered archive cards into newest-first unified order',async t=>{
  const s=await setup(t);await s.d.refreshActivity();const p=s.W.RTPostModel.normalizePost({id:'newpast',title:'Recovered newest',selftext:'Archived newest text',author:'Example',subreddit:'Alpha',created_utc:1800000000},{source:'arctic-shift'});p.archiveDeletedLater=true;p.removal={removed:true,state:'removed-mod',confidence:'verified',label:'Removed by moderators',why:'Archive captured removal',flags:['deleted-later']};s.d.listState.items.set(p.id,p);s.d.renderOwnList();await flush();assert.deepEqual([...s.d.feed.querySelectorAll(':scope > [data-rt-ui="activity-item"]')].filter(n=>!n.hidden).map(n=>n.dataset.fullname),['t3_newpast','t3_gone','t1_reply']);
@@ -97,4 +97,24 @@ test('Removed re-asserts the tab count when Reddit resets the drawn pages under 
  const changes=[];new s.W.MutationObserver(records=>{for(const r of records)if(r.attributeName==='pages')changes.push(group.getAttribute('pages'));}).observe(group,{attributes:true});
  draw(9);s.d.scan();await flush();assert.equal(group.getAttribute('pages'),'9');changes.length=0;
  draw(8);await flush();assert.ok(changes.length>=1,'the pages attribute is written again so the component redraws nine tabs');assert.equal(group.getAttribute('pages'),'9');
+});
+test('Removed cards are drawn even when they are hidden from the scroll watcher until ready',async t=>{
+ const s=await setup(t,{path:'/user/Example/hidden/?rt_view=removed&rt_noop=1'});s.W.IntersectionObserver=class{observe(){}unobserve(){}disconnect(){}};s.d.applySettings({postDiscovery:false,archiveDiscovery:false});s.d.applySettings({postDiscovery:true,archiveDiscovery:false});await s.d.refreshActivity();await flush();
+ assert.deepEqual([...s.renders].sort(),['t1_reply','t3_gone'],'both the post and the comment are drawn');
+});
+test('a removal label appears once per card, inside the card’s credit line',async t=>{
+ const s=await setup(t);await s.d.refreshActivity();await flush();const node=[...s.d.nodes.values()].find(n=>n.dataset.fullname==='t3_gone'),post=s.d.postMetadata.get(node.dataset.key);
+ s.d.decorateNative(post,node);s.d.decorateNative({...post,removal:{...post.removal,label:'Removed by Reddit'}},node);
+ assert.equal(node.querySelectorAll('.rt-removal-pill').length,1);assert.match(node.querySelector('.rt-removal-pill').dataset.rtLabel,/Removed by Reddit/);
+});
+test('clicking a blurred NSFW or spoiler area reveals it and never opens the post; plain card space still opens it',async t=>{
+ const s=await setup(t),D=s.W.document,card=D.createElement('div');card.className='rt-native-card';card.innerHTML='<shreddit-post><a slot="full-post-link" href="/r/Alpha/comments/abc/x/">Open</a><shreddit-blurred-container blurred><div id="blur">media</div></shreddit-blurred-container><div id="plain">text</div></shreddit-post>';D.body.append(card);
+ const opened=[];card.querySelector('a').addEventListener('click',event=>{event.preventDefault();opened.push('open');});
+ D.getElementById('blur').click();await new Promise(r=>setTimeout(r,5));assert.deepEqual(opened,[],'a blur click never opens the post');
+ D.getElementById('plain').click();await new Promise(r=>setTimeout(r,5));assert.deepEqual(opened,['open']);
+});
+test('selecting Removed scrolls Reddit’s tab strip to it and lets the strip update its arrows',async t=>{
+ const s=await setup(t,{path:'/user/Example/'});const D=s.W.document,group=D.querySelector('#profile-feed-tabgroup'),root=group.attachShadow({mode:'open'});root.innerHTML='<div class="container"><div class="tablist" role="tablist"></div></div>';const list=root.querySelector('.tablist');let scrolled=0;list.addEventListener('scroll',()=>scrolled++);
+ s.d.applySettings({postDiscovery:false,archiveDiscovery:false});s.W.history.pushState({},'','/user/Example/hidden/?rt_view=removed');s.d.applySettings({postDiscovery:true,archiveDiscovery:false});await flush();await new Promise(r=>setTimeout(r,40));
+ assert.ok(scrolled>=1,'the strip is told it scrolled, so its fade arrow no longer covers Removed');
 });

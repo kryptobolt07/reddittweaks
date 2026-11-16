@@ -36,3 +36,9 @@ test('the Removed view’s result cache works with monitoring off, for the verif
  const loaded=await b.send({action:'proofs-load',owner:'t2_self',username:'Example'});assert.equal(loaded.ok,true);assert.equal(loaded.proofs.t1_a.status,'visible');
  b.setMe({owner:'t2_other',username:'Other'});assert.equal((await b.send({action:'proofs-load',owner:'t2_self',username:'Example'})).ok,false);
 });
+test('the saved Removed list loads and saves for the verified current account only',async()=>{
+ const b=setup();b.values['rt-settings-v1']={ownRemoval:false};
+ const items=[{fullname:'t3_a1',kind:'post',id:'a1',created:1790000000,subreddit:'Alpha',permalink:'/r/Alpha/comments/a1/title/',title:'T',body:'B',source:'reddit',removal:{state:'removed-mod',confidence:'verified',why:'',flags:[]}}];
+ assert.equal((await b.send({action:'list-save',owner:'t2_self',username:'Example',items})).ok,true);const loaded=await b.send({action:'list-load',owner:'t2_self',username:'Example'});assert.equal(loaded.ok,true);assert.equal(loaded.items[0].fullname,'t3_a1');
+ b.setMe({owner:'t2_other',username:'Other'});assert.equal((await b.send({action:'list-load',owner:'t2_self',username:'Example'})).ok,false);
+});

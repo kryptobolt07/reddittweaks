@@ -12,12 +12,12 @@ test('host replacement, Back-style reattachment and repeated scans reuse state w
  const s=await setup(t,{html:card('post1','Example','AUTOMOD_FILTERED')}),original=s.W.document.querySelector('shreddit-post');const replacement=original.cloneNode(true);original.replaceWith(replacement);await s.m.scan();await s.m.scan();assert.equal(replacement.querySelectorAll('[data-rt-own-removal]').length,1);assert.equal(s.calls.filter(x=>x.action==='record').length,1);assert.equal(s.archives.length,0);
 });
 test('native AutoModerator evidence updates only the affected card and reports a new observation',async t=>{
- const s=await setup(t);s.W.document.querySelector('shreddit-post').setAttribute('removed-by-category','automod_filtered');await s.m.scan();assert.match(s.W.document.querySelector('[data-rt-own-removal]').textContent,/Removed automatically/);assert.equal(s.calls.filter(x=>x.action==='record').length,2);
+ const s=await setup(t);s.W.document.querySelector('shreddit-post').setAttribute('removed-by-category','automod_filtered');await s.m.scan();assert.match(s.W.document.querySelector('[data-rt-own-removal]').dataset.rtLabel,/Removed automatically/);assert.equal(s.calls.filter(x=>x.action==='record').length,2);
 });
 test('archive inference is opt-in, bounded, likely, and cached across scans',async t=>{
  const T=Date.parse('2026-11-15T10:00:00Z')/1000;
  const s=await setup(t,{settings:{ownRemoval:true,archiveDiscovery:true},archive:async()=>({ok:true,posts:[{fullname:'t3_post1',id:'post1',author:'Example',kind:'post',body:'[removed]',archiveStatus:'removed',created:T,retrieved:T+10}]})});
- assert.equal(s.archives.length,1);assert.equal(s.archives[0].monitor,true);assert.match(s.W.document.querySelector('[data-rt-own-removal]').textContent,/likely/);await s.m.scan();assert.equal(s.archives.length,1);
+ assert.equal(s.archives.length,1);assert.equal(s.archives[0].monitor,true);assert.match(s.W.document.querySelector('[data-rt-own-removal]').dataset.rtLabel,/likely/);await s.m.scan();assert.equal(s.archives.length,1);
  await s.m.configure({ownRemoval:true,archiveDiscovery:false});assert.equal(s.W.document.querySelector('[data-rt-own-removal]'),null);assert.equal(s.archives.length,1);
 });
 test('settings off and sign-out clear badges immediately; hidden tabs make no checks',async t=>{
@@ -58,4 +58,12 @@ test('navigation cancels an old public check and cannot cache its late result fo
 });
 test('new native cards arriving during a public check are processed after that check settles',async t=>{
  const s=await setup(t,{html:card(),observe:true});let release,n=0;const gate=new Promise(r=>release=r);s.m.check=async msg=>{if(++n===1)await gate;return {fullname:msg.fullname,status:'visible',verified:true};};const job=s.m.configure({ownRemoval:true});await new Promise(r=>setImmediate(r));s.W.document.querySelector('main').insertAdjacentHTML('beforeend',card('post2'));await new Promise(r=>setTimeout(r,35));release();await job;await new Promise(r=>setTimeout(r,45));assert.equal(n,2);
+});
+test('a removal is a red ban icon after the time, with its wording in the tooltip only',async t=>{
+ const s=await setup(t,{html:card('post1','Example','AUTOMOD_FILTERED')});await s.m.scan?.();await new Promise(r=>setTimeout(r,20));const pill=s.W.document.querySelector('[data-rt-own-removal]');
+ assert.ok(pill);assert.equal(pill.textContent.trim(),'','no text, only the icon');assert.ok(pill.querySelector('svg'));assert.match(pill.title,/Removed/);assert.match(pill.getAttribute('aria-label'),/Removed/);assert.equal(pill.previousElementSibling?.tagName,'FACEPLATE-TIMEAGO');
+});
+test('cards inside the Removed views are left to those views',async t=>{
+ const s=await setup(t,{html:'<shreddit-feed data-rt-ui="removed-feed">'+card('post1','Example','AUTOMOD_FILTERED')+'</shreddit-feed><div data-rt-ui="search-feed">'+card('post2','Example','AUTOMOD_FILTERED')+'</div>'});await s.m.scan?.();await new Promise(r=>setTimeout(r,20));
+ assert.equal(s.W.document.querySelectorAll('[data-rt-own-removal]').length,0);
 });

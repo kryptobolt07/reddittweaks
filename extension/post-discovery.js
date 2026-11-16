@@ -197,7 +197,8 @@
       if(event.defaultPrevented || event.button!==0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)return;
       const path=event.composedPath(),card=path.find(n=>n.classList?.contains('rt-native-card'));if(!card)return;
       // Only what was clicked inside the card counts (the card's own containers are ours too).
-      if(path.slice(0,path.indexOf(card)).some(n=>n.matches?.('a[href],button,input,textarea,select,label,summary,[role="button"],[role="menuitem"],faceplate-dropdown-menu,shreddit-post-overflow-menu,shreddit-comment-action-row')))return;
+      // A click on a blurred NSFW or spoiler area reveals it; that is not a click meant to open the post.
+      if(path.slice(0,path.indexOf(card)).some(n=>n.matches?.('a[href],button,input,textarea,select,label,summary,[role="button"],[role="menuitem"],faceplate-dropdown-menu,shreddit-post-overflow-menu,shreddit-comment-action-row,shreddit-blurred-container,shreddit-spoiler,[blurred],.rt-sensitive')))return;
       if(String(globalThis.getSelection?.() || ''))return;
       const target=card.querySelector('a.absolute.inset-0[href],a[slot="full-post-link"][href],a[data-testid="post-title"][href],a[slot="title"][href],a[href*="/comments/"]');if(!target)return;
       const from=location.href;setTimeout(()=>{if(location.href===from && card.isConnected)target.click();},0);
@@ -814,9 +815,10 @@
       for(const post of posts){const key=itemKey(post);let node=this.nodes.get(key);if(!node){node=this.card(post);this.nodes.set(key,node);
           // Searches use native search rows; the Removed section uses lazy profile cards below.
           if(!this.context.section)this.showSearchUnit(post,node);
-        }this.postMetadata.set(key,post);if(this.context.section && post.source==='arctic-shift' && post.removal?.flags.includes('deleted-later')){this.renderArchivedNative(post,node);this.decorateNative(post,node);}node.hidden=false;}
+        }this.postMetadata.set(key,post);if(this.context.section && post.source==='arctic-shift' && post.removal?.removed){this.renderArchivedNative(post,node);this.decorateNative(post,node);}node.hidden=false;}
       let before=this.loading;for(const post of [...posts].reverse()){const node=this.nodes.get(itemKey(post));if(node.nextSibling!==before)this.feed.insertBefore(node,before);before=node;}
-      if(this.context.section)for(const post of posts){const node=this.nodes.get(itemKey(post));if(node.dataset.rtNativeState==='idle'){if(this.nativeObserver)this.nativeObserver.observe(node);else this.queueNative(node);}}
+      // Cards stay undrawn (display:none) until Reddit's card is ready, so a scroll watcher never sees them: queue them.
+      if(this.context.section)for(const post of posts){const node=this.nodes.get(itemKey(post));if(node.dataset.rtNativeState==='idle')this.queueNative(node);}
       this.renderedPosts=posts;this.live=new Map(state.items);this.more.hidden=true;this.renderFilterChips();this.renderSubredditOptions();this.summarizeOwnList();this.updateProfileLoading();
       if(!this.listEmpty){this.listEmpty=make('p','rt-posts-notice');this.listEmpty.dataset.rtUi='own-list-empty';this.feed.append(this.listEmpty);}
       this.listEmpty.hidden=posts.length>0 || state.loading || Boolean(state.error) || this.searchParsed.invalid || !state.done;
@@ -828,13 +830,14 @@
       if(!resume){for(const node of this.nodes.values())node.remove();this.nodes.clear();}
       const state=this.listState,context=this.context,generation=this.generation;
       const current=()=>!this.dead && this.listState===state && generation===this.generation && pageRoute()?.key===context.key && this.host?.isConnected;
-      if(resume)state.loading=true;else{state.items.clear();state.removalNotes=new Set();state.scanned=0;state.done=false;state.capped=false;state.error='';state.loading=true;state.after=null;state.source='overview';state.postsScanned=0;state.history=null;state.archiveHistory=new Map();state.visitors={};}
+      if(resume)state.loading=true;else{state.items.clear();state.removalNotes=new Set();state.scanned=0;state.done=false;state.capped=false;state.error='';state.loading=true;state.after=null;state.source='overview';state.postsScanned=0;state.history=null;state.archiveHistory=new Map();state.visitors={};state.liveTail={};state.liveDone=false;state.confirmedEnd=null;}
       this.discover.disabled=true;this.summarizeOwnList();this.updateProfileLoading();const cursors=new Set(resume && state.after?[state.after]:[]);
       // Saved, History and the other lists are Reddit listings that end at 1,000 items; Removed reads the whole profile.
       const removed=context.list==='removed',cap=this.ownListCap ?? (removed?removedItemBound:1000);
       // Removed checks each page signed out while the next page loads: one chain keeps checks in order and paced.
       let checks=Promise.resolve();const check=(items,source)=>{checks=checks.then(()=>current()?this.classifyRemoved(items,context,source):undefined).then(()=>{if(current()){this.mergeArchiveHistory();this.renderOwnList();}});checks.catch(()=>{});};
       try{
+        if(removed && !resume){await this.showSavedRemoved(state,context);if(!current())return;}
         // Arctic Shift history (removed, then deleted) doesn't depend on the profile walk, so it starts with it.
         if(removed && !state.history)state.history=this.removedThenDeleted(context);
         do{
@@ -843,9 +846,12 @@
           if(!Array.isArray(result.posts) || !Number.isInteger(result.scanned) || result.scanned<0 || result.scanned>100 || result.posts.length>100 || result.hasMore && result.scanned===0)throw Error('Reddit returned an unexpected list page.');
           state.native=result.transport==='native';
           // Live evidence replaces an archive record that history recovery added first for the same item.
-          const added=[];for(const post of result.posts){if(!post?.fullname)continue;const key=itemKey(post),had=state.items.get(key);if(had && had.source!=='arctic-shift')continue;if(had)this.dropCard(key);state.items.set(key,post);added.push(post);}
+          // A saved entry keeps its card and verdict until this item's fresh check replaces it.
+          const added=[];for(const post of result.posts){if(!post?.fullname)continue;const key=itemKey(post),had=state.items.get(key);if(had && had.source!=='arctic-shift' && !had.saved)continue;if(had?.saved && had.source!=='arctic-shift')post.removal ||= had.removal;else if(had)this.dropCard(key);state.items.set(key,post);added.push(post);}
           // A confirming re-read counts only items it adds.
           const counted=reread?added.length:result.scanned;if(source==='posts')state.postsScanned+=counted;else state.scanned+=Math.min(counted,cap-state.scanned);
+          // How far back this walk has read: a page's last item is its oldest (pinned posts come first on page 1).
+          const last=result.posts.at(-1);if(removed && last?.created){state.liveTail ||= {};state.liveTail[source]=Math.min(state.liveTail[source] ?? Infinity,last.created);}
           if(removed && added.length)check(added,source);
           state.after=result.after || null;if(source==='overview')state.capped=state.scanned>=cap && context.list!=='history';
           if(result.hasMore && (!state.after || cursors.has(state.after)))throw Error('Reddit repeated a list cursor. List search is incomplete.');
@@ -859,8 +865,11 @@
           else state.done=ended;
           this.renderOwnList();
         }while(current() && !state.done);
+        // Every page was read without a safety stop: anything older that it didn't list is no longer on your profile.
+        if(removed && !state.capped)state.liveDone=true;
         await checks;if(!current())return;
         if(removed && state.history){await state.history;if(!current())return;this.mergeArchiveHistory();}
+        if(removed && state.liveDone && !state.error)this.settleSavedRemoved(state);
       }catch(error){if(current()){state.error='Could not search your '+context.list+': '+error.message;if(/signed-in account changed|Sign in to Reddit/i.test(error.message)){state.items.clear();for(const node of this.nodes.values())node.remove();this.nodes.clear();this.clearOwnListHeader();this.ownHeaderDismissed=location.pathname+':'+context.list;this.ownIdentityChecked=false;queueMicrotask(()=>{if(!this.dead)this.scan();});}}}
       finally{if(current()){state.loading=false;this.discover.disabled=false;this.renderOwnList();}}
     }
@@ -917,7 +926,8 @@
       }
       // Keep this batch's new signed-out results (status and time only) for the next visit.
       if(state.publicChecks && me){
-        const fresh=[];for(const [fullname,proof] of publicProofs)if(proof?.verified && proof.source!=='cache' && ['visible','removed','deleted'].includes(proof.status)){const value={fullname,status:proof.status,checkedAt:Number(proof.checkedAt) || Date.now()};fresh.push(value);state.cache?.set(fullname,{status:value.status,checkedAt:value.checkedAt});}
+        const dates=new Map(items.map(post=>[post.fullname,Number(post.created) || 0]));
+        const fresh=[];for(const [fullname,proof] of publicProofs)if(proof?.verified && proof.source!=='cache' && ['visible','removed','deleted'].includes(proof.status)){const value={fullname,status:proof.status,checkedAt:Number(proof.checkedAt) || Date.now(),...(dates.get(fullname)?{created:dates.get(fullname)}:{})};fresh.push(value);state.cache?.set(fullname,{status:value.status,checkedAt:value.checkedAt});}
         for(let i=0;i<fresh.length;i+=500)Promise.resolve(this.removalCache({action:'proofs-save',owner:me.owner,username:me.username,proofs:fresh.slice(i,i+500)})).catch(()=>{});
       }
     }
@@ -926,10 +936,40 @@
        added; self-deleted items are not. Only with "Use the archive" on. */
     // A record from your archive history joins the list when nothing live has it, or when the live item turned out
     // self-deleted. A live item that is still being checked waits; mergeArchiveHistory runs again after each check.
+    // The profile walk is newest first: once it has passed an item's date without listing it, the item is not on your
+    // profile. Posts also count the Posts tab walk; a completed walk has passed everything (spec §27).
+    livePassed(item){
+      const state=this.listState,tail=state?.liveTail || {};if(state?.liveDone)return true;
+      return (tail.overview ?? Infinity)<item.created || item.kind!=='comment' && (tail.posts ?? Infinity)<item.created;
+    }
     mergeArchiveItem(key){
       const state=this.listState,R=globalThis.RTRemovalModel,item=state?.archiveHistory?.get(key);if(!item || !R?.afterDeletion)return false;
-      const existing=state.items.get(key);if(existing?.source==='arctic-shift' || existing && existing.removal?.state!=='deleted')return false;
-      const removal=R.afterDeletion(item,{deleted:Boolean(existing)});if(!removal)return false;item.removal=removal;if(existing)this.dropCard(key);state.items.set(key,item);return true;
+      const existing=state.items.get(key),live=existing && !existing.saved?existing:null;if(live?.source==='arctic-shift' || live && live.removal?.state!=='deleted')return false;
+      if(!live && !this.livePassed(item))return false;
+      const removal=R.afterDeletion(item,{deleted:Boolean(live),absent:!live});if(!removal)return false;item.removal=removal;if(existing)this.dropCard(key);state.items.set(key,item);return true;
+    }
+    /* The saved Removed list (spec §27): shown at once on open, so search and the list answer before the walk does.
+       Each entry is marked saved until a fresh check replaces it; a complete walk drops the rest and saves its result. */
+    async showSavedRemoved(state,context){
+      const me=globalThis.RTNativeRemoval?.identity(document),R=globalThis.RTRemovalModel;if(!me || !R || !this.removalCache || me.username.toLowerCase()!==context.username.toLowerCase())return;
+      let saved;try{saved=await this.removalCache({action:'list-load',owner:me.owner,username:me.username});}catch{return;}if(this.listState!==state || !Array.isArray(saved?.items))return;
+      for(const raw of saved.items){
+        if(raw.source==='arctic-shift' && !this.settings.archiveDiscovery || !R.STATES[raw.removal?.state])continue;
+        const source=raw.source==='arctic-shift'?{source:'arctic-shift'}:undefined,base={id:raw.id,author:context.username,subreddit:raw.subreddit,created_utc:raw.created,permalink:raw.permalink,over_18:raw.over18,spoiler:raw.spoiler};
+        const post=raw.kind==='comment'?M.normalizeComment({...base,body:raw.body,link_id:'t3_'+(raw.permalink.match(/\/comments\/([a-z0-9]+)\//i)?.[1] || '')},source):M.normalizePost({...base,title:raw.title,selftext:raw.body,is_self:true},source);
+        if(!post || state.items.has(itemKey(post)))continue;if(raw.postType)post.postType=raw.postType;
+        post.removal={state:raw.removal.state,label:R.STATES[raw.removal.state].label,confidence:raw.removal.confidence,why:raw.removal.why,flags:[...raw.removal.flags],removed:true};post.saved=true;
+        state.items.set(itemKey(post),post);
+      }
+      if(state.items.size)this.renderOwnList();
+    }
+    settleSavedRemoved(state){
+      const keepArchive=state.archiveHistoryError || !this.settings.archiveDiscovery;
+      for(const [key,post] of state.items)if(post.saved && !(keepArchive && post.source==='arctic-shift')){state.items.delete(key);this.dropCard(key);}
+      this.renderOwnList();
+      const me=globalThis.RTNativeRemoval?.identity(document);if(!me || !this.removalCache)return;
+      const items=[...state.items.values()].filter(post=>post.removal?.removed).slice(0,2000).map(post=>({fullname:post.fullname,kind:post.kind==='comment'?'comment':'post',id:post.id,created:post.created,subreddit:post.subreddit,permalink:post.permalink,title:post.title || '',body:post.source==='arctic-shift'?post.body:post.moderation?.authorBody ?? post.body,source:post.source==='arctic-shift'?'arctic-shift':'reddit',postType:post.postType || '',over18:post.over18===true,spoiler:post.spoiler===true,removal:{state:post.removal.state,confidence:post.removal.confidence,why:post.removal.why,flags:post.removal.flags || []}}));
+      Promise.resolve(this.removalCache({action:'list-save',owner:me.owner,username:me.username,items})).catch(()=>{});
     }
     // The card was drawn for a different record of this item (live or archived); the next render draws a new one.
     dropCard(key){const node=this.nodes.get(key);if(!node)return;this.nativeObserver?.unobserve?.(node);node.remove();this.nodes.delete(key);this.postMetadata?.delete(key);}
@@ -994,7 +1034,7 @@
       return counts;
     }
     summarizeRemoved(error){
-      const state=this.listState,counts=this.removedCounts(),n=value=>value.toLocaleString('en-US');if(this.context.section && this.discover)this.discover.hidden=!Boolean(error || this.settingsError || state.archiveHistoryError);
+      const state=this.listState,counts=this.removedCounts(),n=value=>value.toLocaleString('en-US');if(this.context.section && this.discover)this.discover.hidden=!this.settingsError;
       // On the Posts or Comments tab, or with filters, the counts describe only what that view lists.
       const type=this.context?.type || 'all',scoped=type!=='all' || globalThis.RTFeedFilters?.isActive?.(this.rtFilters),what=type==='posts'?'posts':type==='comments'?'comments':'posts and comments';
       this.setStatus(error || (state.native?'Observed ':'Checked your newest ')+n(scoped || state.native?counts.observed:state.scanned)+' '+what+(scoped && type==='all'?' in this view':'')+' · '+n(counts.removed)+' removed'+(state.publicChecks?' · '+n(counts.publicVisible)+' readable signed out':'')+(state.loading?' · Loading…':''),Boolean(error));
@@ -1006,13 +1046,14 @@
       notes.push('Couldn’t check whether others can see your profile: account-level verification is not implemented');
       // A walk that reached the end of your profile covers everything Reddit lists; only a safety stop is incomplete.
       if(state.capped)notes.push('Stopped after '+n(state.scanned)+' profile items (a safety limit); older items were checked through your Posts tab and the archive only');
-      if(state.error)notes.push('The check is incomplete. Select Refresh to retry.');
+      // Removed has no refresh button (spec §27): reloading the page shows the saved list at once and checks again.
+      if(state.error)notes.push(this.context.section?'The check is incomplete. Reload the page to retry.':'The check is incomplete. Select Refresh to retry.');
       // One short line; every reason is in its tooltip.
       const unknown=counts.unknownComments+counts.unknownPosts,line=[];
       if(this.searchParsed.invalid && error)line.push(error);
       if(unknown)line.push(n(unknown)+' couldn’t be checked');
       if(state.capped)line.push('stopped at '+n(state.scanned)+' items');
-      if(state.error)line.push('incomplete · Refresh to retry');
+      if(state.error)line.push(this.context.section?'incomplete · reload to retry':'incomplete · Refresh to retry');
       if(this.notice){this.notice.textContent=line.join(' · ');this.notice.title=notes.join('\n');this.notice.hidden=!line.length;}
       this.status.title='Shows your posts and comments that others can’t see, as far as Reddit and the archive tell us. Nothing is edited or reported.';
     }
@@ -1253,6 +1294,9 @@
         paintTab(node,false);node.removeAttribute('aria-current');
       }}else if(this.removedTabSelection){for(const [node,state] of this.removedTabSelection)restoreTab(node,state);this.removedTabSelection=null;}
       paintTab(tab,selected);if(selected){if(tab.getAttribute('aria-current')!=='page')tab.setAttribute('aria-current','page');}else tab.removeAttribute('aria-current');
+      // Reddit scrolls its strip for its own selected tab only. Bring Removed into view once per selection and let the
+      // strip recompute its fade arrows, which otherwise keep covering the end of Removed.
+      if(!selected)this.removedTabShown=null;else if(this.removedTabShown!==tab){this.removedTabShown=tab;Promise.resolve(group.updateComplete).then(()=>setTimeout(()=>{const list=group.shadowRoot?.querySelector('.tablist');if(!list || !tab.isConnected || this.removedTabShown!==tab)return;list.scrollLeft=list.scrollWidth;list.dispatchEvent(new Event('scroll'));},0));}
       const slot=Number(tab.getAttribute('slot').split('-')[1]),linked=document.getElementById(group.getAttribute('for')),nativeFeed=document.querySelector('main shreddit-feed:not([data-rt-ui])'),linkedFeed=nativeFeed && linked?.contains(nativeFeed);
       // Native pagination synchronizes through `for`. Selecting a ninth panel would hide a feed hosted in
       // one of Reddit's real panels. Keep that panel, selecting only our header tab and its accessible wrapper.
@@ -2476,11 +2520,12 @@
       else if(own!==node.lastElementChild)node.append(own);
     }
     // One compact state pill with its evidence as the tooltip (spec §3, U1/U2).
+    // A removal is one red ban icon, like the status icons of profile search; its wording is in the tooltip (spec §27).
     removalPill(removal){
-      const pill=make('span','rt-removal-pill inline-flex items-center gap-2xs font-semibold');pill.dataset.rtRemoval=removal.state;pill.dataset.rtConfidence=removal.confidence;
-      const label=removal.label+(removal.flags?.includes('deleted-later')?', then deleted by you':'')+(removal.confidence==='likely' && removal.state!=='removed-unknown'?' (likely)':''),why=[removal.why,removal.flags.includes('locked')?'Locked: no new replies.':'',removal.flags.includes('approved-after-auto')?'Approved after an automatic removal.':''].filter(Boolean).join(' ');
-      pill.setAttribute('role','img');pill.setAttribute('aria-label',label+(why?'. '+why:''));pill.title=why || label;
-      pill.append(glyph(removal.state==='deleted'?'deleted':'removed'),make('span','',label));return pill;
+      const pill=make('span','rt-removal-pill rt-post-indicator');pill.dataset.rtRemoval=removal.state;pill.dataset.rtConfidence=removal.confidence;pill.dataset.state=removal.state==='deleted'?'deleted':'removed';
+      const label=removal.label+(removal.flags?.includes('deleted-later')?', then deleted by you':removal.flags?.includes('gone')?', no longer on your profile':'')+(removal.confidence==='likely' && removal.state!=='removed-unknown'?' (likely)':''),why=[removal.why,removal.flags.includes('locked')?'Locked: no new replies.':'',removal.flags.includes('approved-after-auto')?'Approved after an automatic removal.':''].filter(Boolean).join(' ');
+      pill.dataset.rtLabel=label;pill.setAttribute('role','img');pill.setAttribute('aria-label',label+(why?'. '+why:''));pill.title=label+(why?'\n'+why:'');pill.tabIndex=0;
+      pill.append(glyph(removal.state==='deleted'?'deleted':'removed'));return pill;
     }
     indicator(post){
       const removed=['deleted','removed'].includes(post.status),label=removed?`${post.status==='deleted'?'Deleted':'Removed'} on Reddit`:post.source==='arctic-shift'?(post.status==='available'?(this.isSearch()?'Not shown in Reddit’s loaded search results · Available on Reddit · Arctic Shift snapshot':'Not shown in this profile feed · Available on Reddit · Arctic Shift snapshot'):'Arctic Shift snapshot · Current Reddit status unknown'):'Not shown in this profile feed · Found through public Reddit search';
@@ -2507,7 +2552,10 @@
     communityAvatar(subreddit){
       const avatar=make('span','inline-flex items-center justify-center w-lg h-lg relative shrink-0');avatar.setAttribute('avatar','');
       const url=this.communityAvatarUrl(subreddit);
-      if(url){const image=make('img','mb-0 rounded-full overflow-hidden w-full h-full');image.src=url;image.alt='';image.width=image.height=24;image.loading='lazy';avatar.append(image);return avatar;}
+      const show=src=>{const image=make('img','mb-0 rounded-full overflow-hidden w-full h-full');image.src=src;image.alt='';image.width=image.height=24;image.loading='lazy';avatar.replaceChildren(image);};
+      if(url){show(url);return avatar;}
+      // Not on this page yet: ask the shared icon lookup, as search rows do, and swap the placeholder when it answers.
+      Promise.resolve(globalThis.RTCommunityIcons?.get?.(subreddit)).then(src=>{if(src && M.avatarUrl(src))show(src);},()=>{});
       const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value] of Object.entries({rpl:'',fill:'currentColor',height:'24',width:'24',viewBox:'0 0 20 20','icon-name':'community-fill','aria-hidden':'true'}))icon.setAttribute(key,value);
       const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M11.977 13.79h-1.955l4.549-10.715a.81.81 0 00-.381-1.032C12.447 1.12 10.37.747 8.179 1.18c-3.612.716-6.471 3.68-7.059 7.316a9.01 9.01 0 0010.409 10.377c3.735-.616 6.741-3.635 7.347-7.371.453-2.8-.388-5.405-2.017-7.322a.505.505 0 00-.853.119l-4.029 9.49ZM9.98 8.118a1.752 1.752 0 00-1.148.167 1.664 1.664 0 00-.651.596 1.703 1.703 0 00-.258.948v3.96H5.998V6.322h1.876v1.074h.035c.251-.344.567-.628.948-.851a2.55 2.55 0 011.311-.335c.172 0 .335.014.488.042.153.028.267.058.342.09l-.774 1.849a.766.766 0 00-.244-.073Z');icon.append(path);avatar.append(icon);return avatar;
     }
@@ -2786,10 +2834,11 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       const order=new Map((this.activeProfileBatch?.nodes || []).map((node,index)=>[node,index]));
       batch.queue.sort((a,b)=>{const priority=(order.get(a) ?? Infinity)-(order.get(b) ?? Infinity);if(priority)return priority;const position=a.compareDocumentPosition(b);return position&4?-1:position&2?1:0;});
       while(batch.queue.length){
-        const next=this.postMetadata.get(batch.queue[0].dataset.key),limit=this.batchedProfile?(next?.kind==='comment'?4:2):1;if(batch.active>=limit)break;
+        // Removed draws three at once at most, leaving one of the page bridge's four request slots for its profile walk.
+        const next=this.postMetadata.get(batch.queue[0].dataset.key),limit=this.batchedProfile?(next?.kind==='comment'?4:2):this.context?.section?(next?.kind==='comment'?3:2):1;if(batch.active>=limit)break;
         const node=batch.queue.shift(),post=this.postMetadata.get(node.dataset.key),generation=this.generation;
         if(!post || node.hidden && !this.activeProfileBatch?.nodes.includes(node) && node.dataset.rtQualify!=='true' || !node.isConnected){node.dataset.rtNativeState='idle';continue;}
-        if(this.nativeObserver && !this.activeProfileBatch?.nodes.includes(node) && node.dataset.rtQualify!=='true'){const rect=node.getBoundingClientRect();if(rect.top>innerHeight+400 || rect.bottom< -400){node.dataset.rtNativeState='idle';this.nativeObserver.observe(node);continue;}}
+        if(this.nativeObserver && !this.context?.section && !this.activeProfileBatch?.nodes.includes(node) && node.dataset.rtQualify!=='true'){const rect=node.getBoundingClientRect();if(rect.top>innerHeight+400 || rect.bottom< -400){node.dataset.rtNativeState='idle';this.nativeObserver.observe(node);continue;}}
         if(this.isSearch() && !this.needsTypeProof(post)){this.showSearchUnit(post,node);continue;}
         batch.active++;node.dataset.rtNativeState='loading';
         const operation=this.nativeRenderer?this.nativeRenderer(post,node):this.request({action:'render-card',username:this.context.username,kind:post.kind==='comment'?'comment':'post',postId:post.id,target:node.id});
@@ -2923,8 +2972,9 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       const native=node.matches('shreddit-post,shreddit-profile-comment')?node:node.querySelector('shreddit-post,shreddit-profile-comment');if(!native)return;
       post={...post,status:this.verifiedStatus(post,native)};
       if(this.context.section){
-        this.repairReplyInfo(post,native);node.querySelector('[data-rt-source]')?.remove();node.querySelector('.rt-removal-pill')?.remove();
-        if(post.removal){const credit=native.querySelector('[slot="commentMeta"],[slot="credit-bar"]') || native;credit.append(this.removalPill(post.removal));}return;
+        this.repairReplyInfo(post,native);node.querySelector('[data-rt-source]')?.remove();for(const pill of node.querySelectorAll('.rt-removal-pill'))pill.remove();
+        // One icon, right after the time, as profile search places its status icons.
+        if(post.removal){const pill=this.removalPill(post.removal),time=native.querySelector('faceplate-timeago');if(time)time.after(pill);else (native.querySelector('[slot="commentMeta"],[slot="credit-bar"]') || native).append(pill);}return;
       }
       // Client search matches are ordinary native results. Only archive-only
       // matches and proven removals need a discovery/status cue in this view.

@@ -35,6 +35,8 @@
   // The Removed view's signed-out result cache serves that view whether or not monitoring is on.
   if(message.action==='proofs-load')return {ok:true,proofs:await store.readProofs(me.owner,me.username)};
   if(message.action==='proofs-save'){await store.saveProofs({...me,proofs:message.proofs});return {ok:true};}
+  if(message.action==='list-load')return {ok:true,...await store.readList(me.owner,me.username)};
+  if(message.action==='list-save'){await store.saveList({...me,items:message.items});return {ok:true};}
   const cfg=await settings();if(cfg.ownRemoval!==true)throw Error('Removal monitoring is off.');
   const value=message.action==='load'?await store.read(me.owner,me.username):message.action==='record'?await store.record({...me,records:message.records,notify:cfg.removalNotifications===true}):null;
   if(!value)throw Error('Unknown monitoring action.');await update(me.owner,value);return {ok:true,value};
