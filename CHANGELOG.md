@@ -1,3 +1,11 @@
+# 0.38.1 preview
+
+- **List tabs:** Removed (and other own lists) showed Reddit's Posts tab highlighted while listing posts and comments; the All tab was in the page but never drawn. All is now drawn first and the highlight follows what is listed.
+- **Cached checks:** reopening Removed reused nothing. Signed-out results are now kept per account (status and time only, no text): visible for 12 hours, removed or deleted for 24 hours. Only new or expired items are checked again. Works with monitoring off.
+- **Version:** patch increment for the tab-state fix and the caching performance improvement; no new permissions. Storage gains one per-account key for these results.
+- **Validation:** all 1,600 tests pass; 48 JavaScript files parse; ZIP integrity passes; all 62 shipped assets match source, archive and the stable unpacked folder. SHA-256 `3505b252d2641786a6ec5a29a939a4dea114932a44e4511a916175f3566f2f4a`.
+- **Verification limits:** synthetic tests, with the tab-group behaviour taken from live measurements; not re-checked live after these changes. Refresh reuses cached results within their time limits.
+
 # 0.38.0 preview
 
 - **Removed works on real profiles:** it found the signed-in account only on pages showing your own posts (Reddit names the account with a userName key), and stopped after the first profile page (later pages carry Reddit's modal widgets). Both fixed; the whole profile is walked.
