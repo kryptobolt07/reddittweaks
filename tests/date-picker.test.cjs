@@ -10,6 +10,18 @@ function setup(t,options={}) {
   const month=(y,m)=>{picker.element.querySelector('.calendar-year').click();picker.element.querySelector(`[data-year="${y}"]`).click();picker.element.querySelector('.calendar-month').click();picker.element.querySelector(`[data-month="${m}"]`).click();};
   return {W,picker,changes,month};
 }
+test('calendar glyphs render their paths without writing SVG innerHTML',t=>{
+  const dom=new JSDOM('<!doctype html><body></body>',{runScripts:'outside-only'});t.after(()=>dom.window.close());const W=dom.window;
+  W.eval(readFileSync(join(__dirname,'../extension','search-core.js'),'utf8'));
+  const descriptor=Object.getOwnPropertyDescriptor(W.Element.prototype,'innerHTML');
+  Object.defineProperty(W.Element.prototype,'innerHTML',{...descriptor,set(value){if(this.namespaceURI==='http://www.w3.org/2000/svg')throw new Error('SVG innerHTML writes are blocked');return descriptor.set.call(this,value);}});
+  W.eval(readFileSync(join(__dirname,'../extension','date-picker.js'),'utf8'));
+  const picker=new W.RCSDatePicker();W.document.body.append(picker.element);picker.show();
+  const paths=[...picker.element.querySelectorAll('.calendar-nav-button svg path')];
+  assert.equal(paths.length,2);assert.deepEqual(paths.map(path=>path.getAttribute('d')),['m15 6-6 6 6 6','m9 6 6 6-6 6']);
+  const caret=picker.element.querySelector('.calendar-month svg path');assert.equal(caret.getAttribute('d'),'m6 9 6 6 6-6');
+  const svg=caret.parentElement;assert.equal(svg.getAttribute('viewBox'),'0 0 24 24');assert.equal(svg.getAttribute('stroke'),'currentColor');assert.equal(svg.getAttribute('stroke-width'),'2');assert.equal(svg.getAttribute('aria-hidden'),'true');
+});
 test('a range uses one calendar with accent endpoints and interior days, and commits only on Apply',t=>{
   const {picker,changes,month}=setup(t);month(2026,9);
   picker.element.querySelector('[data-date="2026-10-08"]').click();assert.equal(picker.element.querySelector('.calendar-apply').disabled,true);
