@@ -83,7 +83,8 @@ test('a nested pending reply under an already settled parent hides Reddit’s no
 });
 
 test('pending state is capped: after the limit Reddit’s notice shows, ids stay queued, and a later success applies silently',async()=>{
- let release;const e=setup({pendingMs:40,archive:()=>new Promise(res=>release=res)});await e.r.ready;await settle();
+ let release;const e=setup({pendingMs:40,archive:()=>new Promise(res=>release=res)});await e.r.ready;
+ // Inspect the initial state before yielding to timers: a busy CI worker can overshoot a 20 ms sleep past the 40 ms cap.
  const node=comment(e.doc,'t1_a1');assert.equal(node.hasAttribute('data-rt-pending'),true);assert.ok(node.querySelector('[data-rt-hold]'));
  await settle(80);
  assert.equal(node.hasAttribute('data-rt-pending'),false,'visually settled');assert.equal(node.querySelector('[data-rt-skeleton]'),null);assert.equal(node.querySelector('[data-rt-hold]'),null);assert.equal(node.querySelector('.notice p').textContent,'Comment deleted by user');
