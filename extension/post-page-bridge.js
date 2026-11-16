@@ -655,7 +655,7 @@
     }
     return {posts,after:null,hasMore:false,scanned:cards.length,incomplete:true,source:'reddit'};
   }
-  const removalCursors=new Map(),removalItems=new Map(),removalProofs=new Map(),removalPending=new Map();let removalOwner='',removalQueue=Promise.resolve();
+  const removalPublicCursors=new Map(),removalCursors=new Map(),removalItems=new Map(),removalProofs=new Map(),removalPending=new Map();let removalOwner='',removalQueue=Promise.resolve();
   function removalScope(me){
     const key=me.owner+':'+me.username.toLowerCase();if(removalOwner!==key){removalCursors.clear();removalItems.clear();removalProofs.clear();removalOwner=key;}return key;
   }
@@ -685,6 +685,21 @@
       if(removalProofs.size>=1000 && !removalProofs.has(key))removalProofs.delete(removalProofs.keys().next().value);removalProofs.set(key,{proof,revision:item.revision,expires:Date.now()+(proof.verified?600000:60000)});return {proof};
     });
     const pending={operation,signal};removalQueue=operation;removalPending.set(pendingKey,pending);try{return await operation;}finally{if(removalPending.get(pendingKey)===pending)removalPending.delete(pendingKey);}
+  }
+  // Your profile as a signed-out visitor sees it (spec §18), through the anonymous transport only: which items it
+  // lists, for the Removed view's bulk visibility comparison. Continuations are only those this read handed out.
+  async function readRemovalPublicProfile(input,signal){
+    const N=globalThis.RTNativeRemoval,me=N?.identity(document),path=pageKey();
+    if(!me || input.owner!==me.owner || input.username?.toLowerCase()!==me.username.toLowerCase() || ['url','origin','method','headers'].some(k=>input[k]!==undefined))throw Error('Invalid own signed-out profile read.');
+    const key=removalScope(me);
+    if(input.after!=null && (typeof input.after!=='string' || removalPublicCursors.get(input.after)!==key))throw Error('Invalid signed-out profile continuation.');
+    const url=new URL(input.after || '/user/'+encodeURIComponent(me.username)+'/?sort=new',location.origin);
+    const html=await publicBrowserRead(url.href,signal,false),now=N.identity(document);
+    if(signal?.aborted || pageKey()!==path || now?.owner!==me.owner || now?.username.toLowerCase()!==me.username.toLowerCase())throw Error('Account or page changed. Try again.');
+    const value=N.publicListing(new DOMParser().parseFromString(html,'text/html'),me,{continuation:Boolean(input.after)});
+    if(value.after===input.after && value.after)throw Error('Reddit repeated the signed-out profile continuation.');
+    if(value.after){if(removalPublicCursors.size>=1000)removalPublicCursors.delete(removalPublicCursors.keys().next().value);removalPublicCursors.set(value.after,key);}
+    return value;
   }
   async function nativeRemovedList(input,signal){
     const N=globalThis.RTNativeRemoval,me=N?.identity(document),path=pageKey();
@@ -1020,6 +1035,7 @@
   }
   async function read(input,signal){
     if(input.action==='removal-public')return readRemovalPublic(input,signal);
+    if(input.action==='removal-public-profile')return readRemovalPublicProfile(input,signal);
     if(input.action==='community-suggestions')return readCommunitySuggestions(input,signal);
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
     if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
@@ -1119,7 +1135,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['removal-public','render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['removal-public','removal-public-profile','render-card','render-navigation','render-controls','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}

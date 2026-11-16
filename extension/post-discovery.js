@@ -63,7 +63,7 @@
       const cancel=()=>{document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,action:'cancel'})}));finish(Error('Post request cancelled.'));};
       const receive=event=>{let response;try{response=JSON.parse(event.detail);}catch{return;}if(response.channel!==channel || response.id!==id)return;finish(response.ok?null:Error(response.error || 'Public posts could not be loaded.'),response);};
       document.addEventListener('rt-post-response',receive);signal?.addEventListener('abort',cancel,{once:true});
-      timer=setTimeout(()=>{document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,action:'cancel'})}));finish(Error('Public posts took too long to load. Try again.'));},parameters.action==='removal-public' || parameters.action==='profile' && (parameters.stream==='public' || parameters.kind!=='comment')?27000:12000);
+      timer=setTimeout(()=>{document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,action:'cancel'})}));finish(Error('Public posts took too long to load. Try again.'));},parameters.action==='removal-public' || parameters.action==='removal-public-profile' || parameters.action==='profile' && (parameters.stream==='public' || parameters.kind!=='comment')?27000:12000);
       if(signal?.aborted){cancel();return;}
       document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,...parameters})}));
     });
@@ -779,12 +779,14 @@
       const author=post=>{const m=post.moderation || {};return {kind:post.kind==='comment'?'comment':'post',name:post.fullname,body:m.authorBody ?? post.body,selftext:m.authorBody ?? post.body,...(post.kind==='comment'?{}:{title:post.title || ''}),
         created_utc:post.created,removed_by_category:m.category ?? null,removal_reason:m.removalReason || null,locked:m.locked===true,subreddit_type:m.subredditType || 'public',quarantine:m.quarantined===true,visibilityKnown:m.visibilityKnown!==false,nativeRemoved:m.nativeRemoved===true};};
       const publicProofs=new Map(),me=globalThis.RTNativeRemoval?.identity(document),generation=this.generation,current=()=>this.listState===state && this.context===context && this.generation===generation;state.publicChecks=Boolean(me && me.username.toLowerCase()===context.username.toLowerCase());
-      if(me && me.username.toLowerCase()===context.username.toLowerCase())for(const post of items){
-        if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner)throw Error('The signed-in account changed.');
-        try{const result=await this.request({action:'removal-public',owner:me.owner,username:me.username,fullname:post.fullname});if(!current())return;const proof=result.proof;
-          if(proof?.verified===true && proof.fullname===post.fullname)publicProofs.set(post.fullname,proof);else{publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');}}
-        catch(error){if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner || /account changed/i.test(error.message))throw Error('The signed-in account changed.');publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');}
-      }
+      // Spec §18: compare with your profile as a signed-out visitor sees it (bulk, page by page). Only items the visitor
+      // didn't see get a direct signed-out check, at most 50 a scan, so Reddit doesn't start refusing.
+      const visitor=state.publicChecks?await this.visitorPages(items,me):null;if(state.publicChecks && !current())return;
+      state.directChecks ||= 0;state.hiddenChecks ||= 0;
+      // Communities a visitor never sees on your profile are hidden by your profile settings (Reddit's profile
+      // curation), not removed: their items get a smaller budget of their own, after the real differences.
+      const shownSub=post=>!visitor || visitor.failed || !visitor.subs.size || visitor.subs.has(String(post.subreddit || '').toLowerCase());
+      if(visitor)for(const post of items)if(visitor.seen.has(post.fullname))publicProofs.set(post.fullname,{fullname:post.fullname,status:'visible',verified:true,source:'signed-out-profile'});
       const candidates=items.filter(post=>(post.kind==='comment' || post.moderation?.native) && (publicProofs.get(post.fullname)?.status!=='visible' || post.moderation?.nativeRemoved && !post.moderation.category) && !['private','employees_only','gold_restricted'].includes(post.moderation?.subredditType) && !post.moderation?.quarantined),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
       if(archiveStatus==='ok')for(const kind of ['post','comment'])for(let index=0,grouped=candidates.filter(p=>(p.kind==='comment'?'comment':'post')===kind);index<grouped.length;index+=25){
         const group=grouped.slice(index,index+25);
@@ -792,12 +794,41 @@
           for(const raw of result.posts || []){const archived=M.normalizeItem(raw,{source:'arctic-shift'});if(archived && (archived.kind==='comment')===(kind==='comment') && archived.author.toLowerCase()===context.username.toLowerCase())archives.set(archived.fullname,archived);}}
         catch(error){archiveStatus='failed';state.removalNotes.add('The archive didn’t answer ('+error.message.replace(/\.$/,'')+'); some '+(kind==='comment'?'comments':'posts')+' couldn’t be checked');break;}
       }
+      // Direct checks after the archive lookup, in priority order: real differences (communities the visitor does see),
+      // then items the archive calls removed (a removal can be reversed later, so it needs a current check), then the rest.
+      const unseen=items.filter(post=>!publicProofs.has(post.fullname)),flagged=post=>archives.get(post.fullname)?.archiveStatus==='removed';
+      const ordered=[...unseen.filter(shownSub),...unseen.filter(post=>!shownSub(post) && flagged(post)),...unseen.filter(post=>!shownSub(post) && !flagged(post))];
+      if(me && me.username.toLowerCase()===context.username.toLowerCase())for(const post of ordered){
+        if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner)throw Error('The signed-in account changed.');
+        const hidden=!shownSub(post);if(hidden)state.removalNotes.add('Some items are in communities a signed-out visitor doesn’t see on your profile (likely hidden by your profile settings); those were checked one by one, up to 30 a scan.');
+        if(hidden?state.hiddenChecks>=30:state.directChecks>=50){publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Items a signed-out visitor didn’t see were checked one by one, up to 50 a scan; the rest weren’t checked. Missing results are not removal evidence.');continue;}
+        if(hidden)state.hiddenChecks++;else state.directChecks++;
+        try{const result=await this.request({action:'removal-public',owner:me.owner,username:me.username,fullname:post.fullname});if(!current())return;const proof=result.proof;
+          if(proof?.verified===true && proof.fullname===post.fullname)publicProofs.set(post.fullname,proof);else{publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');}}
+        catch(error){if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner || /account changed/i.test(error.message))throw Error('The signed-in account changed.');publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');}
+      }
       for(const post of items){
         const archived=archives.get(post.fullname),archive=archived?{kind:post.kind==='comment'?'comment':'post',...(post.kind==='comment'?{}:{title:archived.title || ''}),body:archived.archiveStatus==='removed'?'[removed]':archived.body,created_utc:archived.created,retrieved_on:archived.retrieved || 0}:null;
         const proof=publicProofs.get(post.fullname),publicView=proof?.verified?{verified:true,visibility:proof.status,moderation:proof.moderation}:proof?{status:'failed'}:null;
         if(proof)post.publicStatus=proof.verified?proof.status:'unknown';
         post.removal=R.classify({author:{...author(post),...(proof?{visibilityKnown:false}:{})},publicView,archive,archiveStatus:archive?'ok':post.kind==='comment' && archiveStatus==='ok'?'missing':archiveStatus});
       }
+    }
+    // Your profile as a signed-out visitor sees it, newest first, read only as far back as the items being checked
+    // (spec §18). Page 1 can be a cached copy, so newer items simply aren't seen and get direct checks instead.
+    async visitorPages(items,me){
+      const state=this.listState,v=state.visitor ||= {seen:new Set(),subs:new Set(),after:null,done:false,failed:false,tail:Infinity,pages:0};
+      const floor=Math.min(...items.map(p=>Number(p.created) || 0));
+      while(!v.done && !v.failed && v.tail>=floor && v.pages<60){
+        try{
+          const r=await this.request({action:'removal-public-profile',owner:me.owner,username:me.username,...(v.after?{after:v.after}:{})});if(this.listState!==state)return v;
+          v.pages++;const list=r?.items || [];for(const item of list)if(item?.fullname){v.seen.add(item.fullname);if(item.subreddit)v.subs.add(String(item.subreddit).toLowerCase());}
+          // A page's last item is its oldest (pinned posts come first on page 1).
+          const last=list.at(-1);if(last?.created)v.tail=Math.min(v.tail,last.created);
+          if(!r?.after || !list.length)v.done=true;else v.after=r.after;
+        }catch(error){if(this.listState!==state)return v;v.failed=true;state.removalNotes ||= new Set();state.removalNotes.add('The signed-out profile couldn’t be read ('+String(error.message || 'request failed').replace(/\.$/,'')+'); items were checked one by one instead, up to 50 a scan.');}
+      }
+      return v;
     }
     removedCounts(){
       const counts={checked:0,removed:0,unknownComments:0,unknownPosts:0,deleted:0,publicVisible:0};
