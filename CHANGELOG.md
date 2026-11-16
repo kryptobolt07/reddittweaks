@@ -1,3 +1,10 @@
+# 0.39.1 preview
+
+- **Smooth scrolling in Removed:** scrolling down and back up no longer leaves blank spaces that fill in late, and the page no longer shifts when you stop. Reddit's feed swaps off-screen cards for placeholders; Removed's updates were pulling those cards back in beside the placeholders. Updates now work with whatever is holding each card's place and move nothing that's already in place. Cards that came from your saved list are updated in place when fresh results arrive, instead of being rebuilt.
+- **Version:** patch increment for a scrolling fix. No new permissions, endpoints or storage changes.
+- **Validation:** all 1,707 tests pass; 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `b550c5f9b13c945359b28d35ea08cb7f412e11c5375a10079e71f92c23bec19d`.
+- **Live check:** read-only Chrome CDP in a separate tab on the signed-in account, scrolling with real wheel events during the background check. Over three down-and-up cycles: no movement after scrolling stopped, no blank spaces in view, and no card moves besides Reddit's own placeholder swaps.
+
 # 0.39.0 preview
 
 - **Removed opens instantly:** each complete check saves your removed items for your account: their date, community, link, the verdict, and their own title and text so search can match them. Opening Removed or searching it shows that list at once, while a fresh check confirms or updates it in the background. Saved entries that the fresh check no longer finds are dropped. Signed-out results for items older than a week now last 7 days; recent items are still rechecked after 12 hours.
