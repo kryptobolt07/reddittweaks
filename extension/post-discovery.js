@@ -237,7 +237,8 @@
   // Instance fields that belong to the extension, not to one profile view.
   const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError']),parkLimit=4;let generationSeq=0;
   class Discovery {
-    constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={}}={}){
+    constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={},removalCache=message=>chrome.runtime.sendMessage({scope:'rt-removal',...message})}={}){
+      this.removalCache=removalCache;
       this.nativeWaitMs=timing.nativeWaitMs ?? nativeWaitMs;this.retryUnitMs=timing.retryUnitMs ?? 1000;this.sourceWaitMs=timing.sourceWaitMs ?? sourceWaitMs;
       this.runtimeId=globalThis.chrome?.runtime?.id;this.navigationLease=crypto.randomUUID();this.parked=new Map();this.profileOwner=globalThis.RCSDirectory?.getOwner?.() || '';this.nativeRenderer=nativeRenderer;this.autoDiscover=autoDiscover;this.reddit=reddit;this.archive=archive;this.readSettings=readSettings;this.settings={postDiscovery:false,archiveDiscovery:false};this.settingsRevision=0;this.generation=0;this.controllers=new Set();this.nodes=new Map();this.host=null;
       this.settingsPending=true;this.syncProfileNotice();
@@ -709,6 +710,23 @@
         const href='/user/'+encodeURIComponent(this.context.username)+'/search/?'+params;if(tab.getAttribute('href')!==href)tab.setAttribute('href',href);
         tab.toggleAttribute('faceplate-tab-selected',type===this.context.type);if(type===this.context.type)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current');
       }
+      // Reddit's tab group draws only slotted tabs, up to its pages count, and its selected look is classes on the tab
+      // (measured 2026-11-16): All gets the first slot, Reddit's tabs follow, and the look moves to the listed type.
+      const all=[...tabs.querySelectorAll(':scope > a[href]')].filter(tab=>tab===this.listAllTab || this.listTabs.has(tab) || /-(posts|comments|media)$/.test(tab.id) || tab.dataset.rtListType);
+      const ordered=[this.listAllTab,...all.filter(tab=>tab!==this.listAllTab)].filter(Boolean);let selectedIndex=0;
+      ordered.forEach((tab,index)=>{
+        const slot='page-'+(index+1);if(tab.getAttribute('slot')!==slot)tab.setAttribute('slot',slot);
+        const type=tab.dataset.rtListType || new URL(tab.getAttribute('href'),location.href).searchParams.get('type'),on=type===this.context.type;if(on)selectedIndex=index+1;
+        for(const name of ['bg-secondary-background-selected','!text-neutral-content-strong','tab-selected'])tab.classList.toggle(name,on);
+        tab.style.backgroundColor=on?'var(--color-secondary-background-selected)':'transparent';tab.tabIndex=on?0:-1;
+      });
+      this.setTabgroupPages(tabs,ordered.length,selectedIndex);
+    }
+    // Set a Reddit tab group's slot count (and selected page) on the defined component only: a value set before it loads
+    // would shadow the component's own property.
+    setTabgroupPages(group,pages,index=0){
+      const apply=()=>{if(!group.isConnected)return;for(const key of ['pages','pageIndex'])if(Object.prototype.hasOwnProperty.call(group,key))delete group[key];if(!(group.pages>=pages))group.pages=pages;if(index && group.pageIndex!==index)group.pageIndex=index;};
+      if(customElements.get('faceplate-tabgroup'))apply();else customElements.whenDefined('faceplate-tabgroup').then(apply,()=>{});
     }
     ownListMatch(post){
       if(this.searchParsed?.invalid)return false;
@@ -780,14 +798,19 @@
       const author=post=>{const m=post.moderation || {};return {kind:post.kind==='comment'?'comment':'post',name:post.fullname,body:m.authorBody ?? post.body,selftext:m.authorBody ?? post.body,...(post.kind==='comment'?{}:{title:post.title || ''}),
         created_utc:post.created,removed_by_category:m.category ?? null,removal_reason:m.removalReason || null,locked:m.locked===true,subreddit_type:m.subredditType || 'public',quarantine:m.quarantined===true,visibilityKnown:m.visibilityKnown!==false,nativeRemoved:m.nativeRemoved===true};};
       const publicProofs=new Map(),me=globalThis.RTNativeRemoval?.identity(document),generation=this.generation,current=()=>this.listState===state && this.context===context && this.generation===generation;state.publicChecks=Boolean(me && me.username.toLowerCase()===context.username.toLowerCase());
+      // Spec §18 P6: signed-out results checked recently (kept per account by the worker) are reused, so reopening the
+      // view only reads what is new. Text is never stored.
+      if(state.publicChecks && !state.cache){state.cache=new Map();try{const r=await this.removalCache({action:'proofs-load',owner:me.owner,username:me.username});for(const [fullname,proof] of Object.entries(r?.proofs || {}))state.cache.set(fullname,proof);}catch{}if(!current())return;}
+      if(state.cache)for(const post of items){const cached=state.cache.get(post.fullname);if(cached)publicProofs.set(post.fullname,{fullname:post.fullname,status:cached.status,verified:true,source:'cache',checkedAt:cached.checkedAt});}
       // Spec §18: compare with your profile as a signed-out visitor sees it (bulk, page by page). Only items the visitor
-      // didn't see get a direct signed-out check, at most 50 a scan, so Reddit doesn't start refusing.
-      const visitor=state.publicChecks?await this.visitorPages(items,me):null;if(state.publicChecks && !current())return;
+      // didn't see get a direct signed-out check, paced.
+      const uncached=items.filter(post=>!publicProofs.has(post.fullname));
+      const visitor=state.publicChecks && uncached.length?await this.visitorPages(uncached,me):null;if(state.publicChecks && !current())return;
       state.directChecks ||= 0;state.hiddenChecks ||= 0;
       // Communities a visitor never sees on your profile are hidden by your profile settings (Reddit's profile
       // curation), not removed: their items get a smaller budget of their own, after the real differences.
       const shownSub=post=>!visitor || visitor.failed || !visitor.subs.size || visitor.subs.has(String(post.subreddit || '').toLowerCase());
-      if(visitor)for(const post of items)if(visitor.seen.has(post.fullname))publicProofs.set(post.fullname,{fullname:post.fullname,status:'visible',verified:true,source:'signed-out-profile'});
+      if(visitor)for(const post of uncached)if(visitor.seen.has(post.fullname))publicProofs.set(post.fullname,{fullname:post.fullname,status:'visible',verified:true,source:'signed-out-profile'});
       const candidates=items.filter(post=>(post.kind==='comment' || post.moderation?.native) && (publicProofs.get(post.fullname)?.status!=='visible' || post.moderation?.nativeRemoved && !post.moderation.category) && !['private','employees_only','gold_restricted'].includes(post.moderation?.subredditType) && !post.moderation?.quarantined),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
       if(archiveStatus==='ok')for(const kind of ['post','comment'])for(let index=0,grouped=candidates.filter(p=>(p.kind==='comment'?'comment':'post')===kind);index<grouped.length;index+=25){
         const group=grouped.slice(index,index+25);
@@ -816,6 +839,11 @@
         const proof=publicProofs.get(post.fullname),publicView=proof?.verified?{verified:true,visibility:proof.status,moderation:proof.moderation}:proof?{status:'failed'}:null;
         if(proof)post.publicStatus=proof.verified?proof.status:'unknown';
         post.removal=R.classify({author:{...author(post),...(proof?{visibilityKnown:false}:{})},publicView,archive,archiveStatus:archive?'ok':post.kind==='comment' && archiveStatus==='ok'?'missing':archiveStatus});
+      }
+      // Keep this batch's new signed-out results (status and time only) for the next visit.
+      if(state.publicChecks && me){
+        const fresh=[];for(const [fullname,proof] of publicProofs)if(proof?.verified && proof.source!=='cache' && ['visible','removed','deleted'].includes(proof.status)){const value={fullname,status:proof.status,checkedAt:Number(proof.checkedAt) || Date.now()};fresh.push(value);state.cache?.set(fullname,{status:value.status,checkedAt:value.checkedAt});}
+        for(let i=0;i<fresh.length;i+=500)Promise.resolve(this.removalCache({action:'proofs-save',owner:me.owner,username:me.username,proofs:fresh.slice(i,i+500)})).catch(()=>{});
       }
     }
     /* Removed, then deleted by you (spec §18 P3): your Arctic Shift history over the time the profile walk covered.
