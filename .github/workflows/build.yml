@@ -1,0 +1,63 @@
+name: Build extension
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      version:
+        description: Validated extension version
+        value: ${{ jobs.build.outputs.version }}
+      prerelease:
+        description: Whether version_name marks this as a preview
+        value: ${{ jobs.build.outputs.prerelease }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+      prerelease: ${{ steps.verify.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Parse shipped JavaScript
+        run: find extension -name '*.js' -print0 | xargs -0 -n1 node --check
+      - run: npm test
+      - run: npm run package
+      - name: Verify package and prepare checksum and notes
+        id: verify
+        run: python3 scripts/verify-package.py --github-output "$GITHUB_OUTPUT"
+      - name: Upload release bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: extension-package
+          path: |
+            artifacts/reddit-tweaks-v${{ steps.verify.outputs.version }}.zip
+            artifacts/reddit-tweaks-v${{ steps.verify.outputs.version }}.zip.sha256
+            artifacts/release-notes.md
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload unpacked extension
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: reddit-tweaks-unpacked-v${{ steps.verify.outputs.version }}
+          path: artifacts/reddit-chat-search/
+          if-no-files-found: error
+          retention-days: 14
