@@ -452,8 +452,8 @@
     // claims "Activity checked" while something was dropped.
     resumeWork(generation,interrupted,retries,firstLoad){
       if(generation!==this.generation || !this.host?.isConnected)return;
-      // A list parked mid-download continues from its cursor; a finished one needs nothing.
-      if(this.isOwnList() && this.listState){const list=this.listState;if(!list.done && !list.error){list.loading=false;this.loadOwnList({resume:true});}this.renderOwnList();this.updateProfileLoading();return;}
+      // Resume incomplete lists; returning to History refreshes recent views and locally recorded visits.
+      if(this.isOwnList() && this.listState){const list=this.listState;if(this.context.list==='history' && list.done){list.loading=false;this.loadOwnList();return;}if(!list.done && !list.error){list.loading=false;this.loadOwnList({resume:true});}this.renderOwnList();this.updateProfileLoading();return;}
       for(const [key,entry] of retries){this.sourceRetries.set(key,entry);entry.timer=setTimeout(()=>{entry.timer=null;if(generation!==this.generation || !this.host?.isConnected)return;this.retrySource(key);},Math.max(0,(entry.at || 0)-Date.now()));}
       if(firstLoad){if((interrupted.size || this.autoDiscover) && this.context?.kind==='profile'){if(this.archiveOnly){if(this.settings.archiveDiscovery)this.loadArchive();}else this.refreshActivity();}}
       else{
@@ -816,9 +816,9 @@
       if(!state)return;
       const error=this.searchParsed.invalid?this.searchParsed.errors.join('. '):state.error;
       if(this.context.list==='removed'){this.summarizeRemoved(error);return;}
-      this.setStatus(error || 'Searched '+state.scanned.toLocaleString('en-US')+' '+this.context.list+' items'+(state.loading?' · Loading…':''),Boolean(error));
+      this.setStatus(error || 'Searched '+(this.context.list==='history'?state.items.size:state.scanned).toLocaleString('en-US')+' '+this.context.list+' items'+(state.loading?' · Loading…':''),Boolean(error));
       const notes=[];if(this.searchParsed.invalid)notes.push(error);
-      if(this.context.list==='history')notes.push((this.settings.historyLimit ?? 20)===20?'History only includes your ~20 most recently viewed posts':'History adds posts you opened on this device'+(this.settings.historyLimit?' (newest '+this.settings.historyLimit.toLocaleString('en-US')+')':''));
+      if(this.context.list==='history')notes.push((this.settings.historyLimit ?? 20)===20?'History only includes your ~20 most recently viewed posts':'History grows as you browse on this device'+(this.settings.historyLimit?' (saving up to '+this.settings.historyLimit.toLocaleString('en-US')+' posts)':' (no saving limit)'));
       if(state.capped)notes.push('Reddit only returns the newest 1,000 items');
       if(state.error)notes.push('List search is incomplete. Select Refresh to retry.');
       if(this.notice){this.notice.textContent=notes.join(' · ');this.notice.hidden=!notes.length;}
@@ -858,9 +858,9 @@
        recorded, newest first, without repeats, up to the History limit. Reddit's 20 reads nothing. */
     async mergeViewedHistory(state,context,current){
       const limit=this.settings.historyLimit ?? 20;if(limit===20 || !this.viewedHistory)return;
-      const me=globalThis.RTNativeRemoval?.identity(document);if(!me || me.username.toLowerCase()!==context.username.toLowerCase())return;
-      let result;try{result=await this.viewedHistory({action:'load',owner:me.owner,username:me.username});}catch{return;}
-      if(!current() || !result?.ok || !Array.isArray(result.items))return;
+      const me=globalThis.RTNativeRemoval?.identity(document);if(!me || me.username.toLowerCase()!==context.username.toLowerCase())throw Error('Could not verify the account for recorded History.');
+      const seeded=await this.viewedHistory({action:'seed',owner:me.owner,username:me.username,items:[...state.items.values()].slice(0,100)});if(!current())return;if(!seeded?.ok)throw Error(seeded?.error || 'Recent History could not be saved.');
+      const result=await this.viewedHistory({action:'load',owner:me.owner,username:me.username});if(!current())return;if(!result?.ok || !Array.isArray(result.items))throw Error(result?.error || 'Recorded History could not be loaded.');
       for(const raw of result.items){
         if(limit>0 && state.items.size>=limit)break;
         const post=M.normalizePost({id:raw.id,title:raw.title,subreddit:raw.subreddit,author:raw.author,created_utc:raw.created,permalink:raw.permalink,over_18:raw.over18===true,spoiler:raw.spoiler===true,score:raw.score,num_comments:raw.comments,thumbnail:raw.thumbnail,is_self:raw.postType==='text'});

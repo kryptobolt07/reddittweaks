@@ -39,15 +39,26 @@ function saveSetting(control) {
 // History length (docs/viewed-history-spec.md): 20 is Reddit's own limit and records nothing; 0 is no limit.
 const HISTORY_LIMITS=[20,100,500,1000,5000,0];
 async function loadHistoryLimit(){
-  const select=document.getElementById('history-limit');if(!select || !globalThis.chrome?.storage?.local?.get)return;
-  try{const stored=(await chrome.storage.local.get(SETTINGS_KEY))?.[SETTINGS_KEY] || {};select.value=String(HISTORY_LIMITS.includes(stored.historyLimit)?stored.historyLimit:20);select.disabled=false;}
-  catch{select.disabled=true;return;}
-  select.addEventListener('change',()=>{
-    const next=Number(select.value),status=document.querySelector('#settings-status');if(!HISTORY_LIMITS.includes(next))return;
-    select.disabled=true;status.classList.remove('error');status.textContent='Saving…';
-    settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{const latest=await chrome.storage.local.get(SETTINGS_KEY);await chrome.storage.local.set({[SETTINGS_KEY]:{...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY] || {}),historyLimit:next}});})
-      .then(()=>{status.textContent='Settings saved automatically.';},()=>{status.textContent='Could not save this setting. Please retry.';status.classList.add('error');}).finally(()=>{select.disabled=false;});
+  const trigger=document.getElementById('history-limit'),menu=document.getElementById('history-limit-menu'),storage=globalThis.chrome?.storage?.local;
+  if(!trigger || !menu || !storage?.get || !storage?.set)return;
+  const options=[...menu.querySelectorAll('[role="menuitemradio"]')],labels=['Reddit’s 20','100','500','1,000','5,000','No limit'];let saved=20;
+  const paint=()=>{trigger.querySelector('[data-history-value]').textContent=labels[HISTORY_LIMITS.indexOf(saved)];trigger.setAttribute('aria-label','History length: '+labels[HISTORY_LIMITS.indexOf(saved)]);for(const option of options){option.setAttribute('aria-checked',String(Number(option.dataset.value)===saved));option.tabIndex=-1;}};
+  const close=(focus=false)=>{menu.hidden=true;trigger.setAttribute('aria-expanded','false');if(focus)trigger.focus({preventScroll:true});};
+  const open=()=>{if(trigger.disabled)return;paint();menu.hidden=false;const rect=trigger.getBoundingClientRect(),height=menu.getBoundingClientRect().height || 244;menu.style.left=Math.max(8,Math.min(rect.right-200,innerWidth-208))+'px';menu.style.top=Math.max(8,Math.min(rect.bottom+6,innerHeight-height-8))+'px';trigger.setAttribute('aria-expanded','true');options.find(o=>Number(o.dataset.value)===saved)?.focus({preventScroll:true});};
+  trigger.addEventListener('click',()=>menu.hidden?open():close());
+  trigger.addEventListener('keydown',event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();open();}});
+  menu.addEventListener('keydown',event=>{const index=options.indexOf(document.activeElement);if(event.key==='Escape'){event.preventDefault();close(true);}else if(event.key==='Tab')close();else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();options[event.key==='Home'?0:event.key==='End'?options.length-1:(index+(event.key==='ArrowDown'?1:-1)+options.length)%options.length].focus();}});
+  document.addEventListener('click',event=>{if(!menu.contains(event.target) && !trigger.contains(event.target))close();});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape' && !menu.hidden)close(true);});
+  document.addEventListener('scroll',event=>{if(!menu.hidden && !menu.contains(event.target))close();},true);
+  for(const option of options)option.addEventListener('click',()=>{
+    if(trigger.disabled)return;const next=Number(option.dataset.value);close(true);if(next===saved)return;
+    const status=document.querySelector('#settings-status');trigger.disabled=true;status.classList.remove('error');status.textContent='Saving…';
+    settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{const latest=await storage.get(SETTINGS_KEY);await storage.set({[SETTINGS_KEY]:{...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY] || {}),historyLimit:next}});saved=next;paint();})
+      .then(()=>{status.textContent='Settings saved automatically.';},()=>{paint();status.textContent='Could not save this setting. Please retry.';status.classList.add('error');}).finally(()=>{trigger.disabled=false;});
   });
+  try{const stored=(await storage.get(SETTINGS_KEY))?.[SETTINGS_KEY] || {};saved=HISTORY_LIMITS.includes(stored.historyLimit)?stored.historyLimit:20;paint();trigger.disabled=false;}
+  catch{trigger.disabled=true;}
 }
 loadHistoryLimit();
 

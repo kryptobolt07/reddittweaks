@@ -5,15 +5,15 @@ const tabs=['','submitted/','comments/','saved/','history/','hidden/','upvoted/'
 const shell=()=>'<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><div id="user-drawer-content"><faceplate-partial src="/svc/shreddit/partial/X/user-drawer-menu?params=username%3DExample"></faceplate-partial></div><main><faceplate-tabgroup id="profile-feed-tabgroup">'+tabs.map((p,i)=>'<a slot="page-'+(i+1)+'" href="/user/Example/'+p+'" class="button button-plain'+(p==='history/'?' tab-selected bg-secondary-background-selected':'')+'"'+(p==='history/'?' aria-current="page"':'')+'>'+(p || 'Overview')+'</a>').join('')+'</faceplate-tabgroup><faceplate-tabgroup id="search-results-page-tabgroup"><a id="search-results-page-tab-posts" href="?type=posts">Posts</a><a id="search-results-page-tab-comments" href="?type=comments">Comments</a><a id="search-results-page-tab-media" href="?type=media">Media</a></faceplate-tabgroup><shreddit-feed id="original-feed"><shreddit-post id="t3_native">Reddit history card</shreddit-post></shreddit-feed></main>';
 const raw=(id,extra={})=>({id,author:'Writer',title:'Seen '+id,selftext:'',subreddit:'Alpha',created_utc:1790000000,is_self:true,...extra});
 const viewed=(id,n,extra={})=>({fullname:'t3_'+id,id,title:'Viewed '+id,subreddit:'Beta',author:'Writer',permalink:'/r/Beta/comments/'+id+'/v/',created:1780000000,postType:'text',score:3,comments:1,over18:false,spoiler:false,viewedAt:1800000000000-n,...extra});
-async function setup(t,{path='/user/Example/search/?rt_list=history',limit=1000,reddit=['h1','h2'],local=[]}={}){
+async function setup(t,{path='/user/Example/search/?rt_list=history',limit=1000,reddit=['h1','h2'],local=[],autoDiscover=false,historyRead}={}){
  const dom=new JSDOM(shell(),{url:'https://www.reddit.com'+path,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[],loads=[],renders=[];let d;t.after(()=>{d?.destroy();W.close();});
  W.customElements.define('faceplate-tabgroup',class extends W.HTMLElement{get pages(){return Number(this.getAttribute('pages')) || undefined;}set pages(v){this.setAttribute('pages',String(v));}get pageIndex(){return Number(this.getAttribute('pageindex')) || 1;}set pageIndex(v){this.setAttribute('pageindex',String(v));}});
  for(const f of ['search-core.js','post-model.js','native-removal.js','removal-model.js','feed-filters.js','post-discovery.js'])W.eval(read(f));
  W.RTArchiveQuery={async *search(){throw Error('History never reaches the archive');},async aggregate(){throw Error('no');}};
  const settings={postDiscovery:true,archiveDiscovery:false,historyLimit:limit};
- d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover:false,readSettings:async()=>({'rt-settings-v1':settings}),
+ d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover,readSettings:async()=>({'rt-settings-v1':settings}),
   reddit:async args=>{calls.push(args);if(args.action==='own-list-identity')return {username:'Example'};if(args.action==='own-list'){assert.equal(args.list,'history');return {posts:reddit.map(id=>W.RTPostModel.normalizePost(raw(id))),scanned:reddit.length,hasMore:false,after:null};}if(args.action==='render-controls'){return {rendered:true};}if(args.action==='render-search-empty'){W.document.getElementById(args.target).innerHTML='<div data-testid="search-error-message"><div>Hm...we couldn’t find any results</div><div>Hint</div></div>';return {rendered:true};}throw Error('Unexpected '+args.action);},
-  viewedHistory:async message=>{loads.push(message);return {ok:true,items:local,limit};},
+  viewedHistory:async message=>{loads.push(message);return historyRead?historyRead(message):{ok:true,items:local,limit};},
   nativeRenderer:async(post,node)=>{renders.push(post.fullname);node.innerHTML='<shreddit-post id="'+post.fullname+'"><span slot="credit-bar"></span><p>Card</p></shreddit-post>';},
   removalCache:async()=>({ok:true,proofs:{}}),archive:async()=>{throw Error('no archive');}});
  await d.ready;await flush();return {W,d,calls,loads,renders};
@@ -22,7 +22,7 @@ const shown=s=>[...s.d.nodes.values()].filter(n=>!n.hidden).sort((a,b)=>a.compar
 
 test('History search shows Reddit’s recent views first, then older recorded views, without repeats',async t=>{
  const s=await setup(t,{local:[viewed('h2',0),viewed('v3',1),viewed('v4',2)]});await s.d.refreshActivity();await flush();
- assert.deepEqual(shown(s),['t3_h1','t3_h2','t3_v3','t3_v4']);assert.equal(s.loads.length,1);assert.equal(s.loads[0].action,'load');assert.equal(s.loads[0].owner,'t2_self');assert.equal(s.loads[0].username,'Example');
+ assert.deepEqual(shown(s),['t3_h1','t3_h2','t3_v3','t3_v4']);assert.equal(s.loads.length,2);assert.equal(s.loads[0].action,'seed');assert.deepEqual(Array.from(s.loads[0].items,p=>p.id),['h1','h2']);assert.equal(s.loads[1].action,'load');assert.equal(s.loads[1].owner,'t2_self');assert.equal(s.loads[1].username,'Example');
  assert.match(s.d.feed.textContent,/Viewed v3/);assert.doesNotMatch(s.d.notice.textContent+s.d.notice.title,/~20 most recently viewed/);
 });
 test('the History limit caps Reddit’s and recorded views together',async t=>{
@@ -49,4 +49,24 @@ test('the History tab draws cards 25 at a time as you scroll, not all at once',a
  const s=await setup(t,{path:'/user/Example/history/',reddit:[],local:Array.from({length:60},(_,i)=>viewed('y'+i,i))});await s.d.refreshActivity();await flush();
  assert.equal(shown(s).length,25);assert.ok(s.renders.length<=25,'cards are fetched only for the drawn window');
  s.d.revealMoreHistory();await flush();assert.equal(shown(s).length,50);s.d.revealMoreHistory();await flush();assert.equal(shown(s).length,60);
+});
+
+test('changing History length reloads available recorded entries immediately in the profile tab',async t=>{
+ const s=await setup(t,{path:'/user/Example/history/',limit:100,autoDiscover:true,local:Array.from({length:130},(_,i)=>viewed('z'+i,i))});await s.d.refreshActivity();await flush();assert.equal(s.d.listState.items.size,100);s.d.applySettings({postDiscovery:true,archiveDiscovery:false,historyLimit:500});await flush();assert.equal(s.d.listState.items.size,132);while(s.d.listState.hiddenHistory)s.d.revealMoreHistory();assert.equal(shown(s).length,132);
+});
+
+test('History reports the number actually available separately from the configured capacity',async t=>{
+ const s=await setup(t,{limit:500,local:[viewed('v3',1)]});await s.d.refreshActivity();await flush();assert.match(s.d.status.textContent,/3.*History/i);assert.match(s.d.notice.textContent,/500/);assert.match(s.d.notice.textContent,/as you browse|future visits/i);
+});
+
+test('returning to a parked completed History reloads its recent views without a document reload',async t=>{
+ const s=await setup(t,{path:'/user/Example/history/',autoDiscover:true,local:[viewed('v3',1)]});await flush();const before=s.calls.filter(a=>a.action==='own-list').length;s.d.resumeWork(s.d.generation,new Set(),new Map(),false);await flush();assert.ok(s.calls.filter(a=>a.action==='own-list').length>before);assert.equal(s.d.listState.done,true);
+});
+
+test('enabling longer History while the native History is open seeds its existing recent entries',async t=>{
+ const s=await setup(t,{path:'/user/Example/history/',limit:20,autoDiscover:true});assert.equal(s.loads.length,0);s.d.applySettings({postDiscovery:true,archiveDiscovery:false,historyLimit:100});await flush();assert.equal(s.d.context.list,'history');const seeded=s.loads.find(m=>m.action==='seed');assert.deepEqual(Array.from(seeded.items,p=>p.id),['h1','h2']);
+});
+
+test('an unavailable recorded History read is reported instead of claiming the native recent list is complete',async t=>{
+ const s=await setup(t,{limit:500,historyRead:async()=>({ok:false,error:'Worker unavailable'})});await s.d.refreshActivity();await flush();assert.match(s.d.listState.error,/Worker unavailable/);assert.match(s.d.notice.textContent,/incomplete/);assert.deepEqual(shown(s),['t3_h1','t3_h2']);
 });

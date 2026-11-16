@@ -35,6 +35,15 @@
    const db=await open(),tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put({...value,owner,viewedAt:now()});await done(tx);
    await trimOwner(owner,limit);return true;
   }
+  async function seed({owner,items,limit}){
+   if(!ownerOK(owner) || !Array.isArray(items) || items.length>100)return 0;owner=owner.toLowerCase();
+   const values=items.map(clean).filter(Boolean),db=await open(),tx=db.transaction(STORE,'readwrite'),finished=done(tx),store=tx.objectStore(STORE);
+   const oldest=new Promise((resolve,reject)=>{const r=store.index(INDEX).openCursor(range(owner),'next');r.onsuccess=()=>resolve(r.result?.value?.viewedAt);r.onerror=()=>reject(r.error);});
+   const existing=values.map(value=>new Promise((resolve,reject)=>{const r=store.get([owner,value.fullname]);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);}));
+   const [first,found]=await Promise.all([oldest,Promise.all(existing)]),base=Math.min(now(),first ?? now());let added=0;const seen=new Set();
+   for(let i=0;i<values.length;i++){const value=values[i];if(found[i] || seen.has(value.fullname))continue;seen.add(value.fullname);store.put({...value,owner,seeded:true,viewedAt:base-i-1});added++;}
+   await finished;await trimOwner(owner,limit);return added;
+  }
   async function load({owner,limit}){
    if(!ownerOK(owner))return [];owner=owner.toLowerCase();const db=await open(),tx=db.transaction(STORE,'readonly'),items=[];
    await walk(tx.objectStore(STORE).index(INDEX),owner,cursor=>{const {owner:_o,...value}=cursor.value;items.push(value);return !(limit>0 && items.length>=limit);});
@@ -46,7 +55,7 @@
    await done(tx);
   }
   async function clear(){const db=await open(),tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).clear();await done(tx);}
-  return Object.freeze({record,load,trimAll,clear});
+  return Object.freeze({record,seed,load,trimAll,clear});
  }
  globalThis.RTViewedStore=Object.freeze({create,clean});
 })();
