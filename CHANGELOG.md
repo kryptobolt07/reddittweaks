@@ -1,3 +1,13 @@
+# 0.41.0 preview
+
+- **Back to profile search:** restore the same loaded results before Reddit’s temporary no-results/skeleton content paints, including empty-query searches. Filters, row identity, cursors and scroll retain the existing bounded in-memory cache; no repeated initial provider read for a valid retained search.
+- **Compact History picker:** equal-height single-line choices, with 20 labeled like the other numbers. The menu sits outside the Settings panel’s fade mask and stays within the popup viewport, scrolling internally when necessary.
+- **Firefox builds:** separate Firefox 140+ desktop / 142+ Android manifest metadata, a static event-background bundle and an AMO-uploadable unsigned ZIP/XPI from the same source. GitHub builds and tag releases include both browser variants and their unpacked files. Firefox requires Mozilla signing for normal installation; the unsigned export can be uploaded for validation/signing or loaded temporarily. Reddit live UI parity on Firefox is not yet verified.
+- **Firefox limits:** the existing signed-out reader requires credentialless iframes and fails closed when the browser lacks them; this build does not add a replacement transport. Data-transmission declarations cover provider requests; saved chat/history stays local. Mozilla’s linter may flag existing dynamic-HTML assignments for review.
+- **New icon:** circular orange badge with transparent exterior and a cohesive lower torso, exported at toolbar, manager, popup and listing sizes. The pasted JPEG and retired SVG branding are no longer shipped.
+- **Version:** minor increment for the additional Firefox build target; no Chromium permission or storage schema changes. The Firefox ID is reddit-tweaks@kryptobolt07.
+- **Validation:** all 1,783 tests pass in UTC; 52 source JavaScript files parse; both workflows pass actionlint. Chromium’s 65 assets and Firefox’s 66 assets match their source/generated definitions, unpacked folders and archives; ZIP/XPI/source integrity and reproducible source rebuild pass. Firefox web-ext lint: 0 errors, 13 existing HTML-assignment warnings. Firefox 160 temporary install/background/popup smoke passes (six equal 28px menu rows). Chromium SHA-256 `14ee42085d03691ccd1709d313da92a1473ca5d65ea664c8db1af5668cc2f81c`; Firefox SHA-256 `345bdae799221ffb87d081cc7449ecb34d043fd25cd3311c24ea2c55c2fc0837`.
+
 # 0.40.1 preview
 
 - **Preserve existing recent History:** opening extended History now saves the recent entries Reddit already provides, including when enabling it on the native History tab. Missing rows are added without replacing newer recorded visits. Visits Reddit no longer lists remain unrecoverable.
