@@ -1,3 +1,12 @@
+# 0.38.3 preview
+
+- **Removed profile section:** Removed stays beside Saved, History, Hidden, Upvoted and Downvoted on your own profile. It opens a normal profile feed with native post/comment cards, card/compact layouts and All/Posts/Comments/Media scopes. Removal labels retain their existing evidence and confidence. The separate Removed search view remains available through the scoped header.
+- **Profile search Enter:** empty Enter opens a person's profile search again, including with Arctic Shift off and Reddit's current scope-chip markup. Removed/list searches retain their scope and content type. Modified/composing Enter and ordinary typed native searches keep their existing behavior.
+- **Navigation:** loaded Removed cards survive hydration and Back without rescanning; native feed visibility, tab selection and controls restore on opt-out or sign-out. Linked native pagination keeps the profile's real panel visible. This changes presentation/navigation only; existing detection, cache windows and archive pacing remain in use.
+- **Version:** patch increment to repair the existing Removed section and restore profile search behavior; no new permissions, retiring Reddit endpoints or storage migration.
+- **Validation:** all 1,627 tests pass; 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `be8c86c0a1ee2b32f178c80546c9bef2a23d623db0d7d3c11cfa2df7a1cdd0db`.
+- **Verification limits:** synthetic regressions and existing captured native markup/component contracts; no Chrome CDP, preview browser or live account writes. Installed appearance and navigation await user review after reloading the extension.
+
 # 0.38.2 preview
 
 - **Fewer archive reads:** Removed resolves signed-out visibility before archive ID enrichment, skipping items confirmed visible, self-deleted, private/quarantined or already carrying an explicit removal cause. Generic/unknown removals retain historical evidence and cause inference. Hidden-community candidates still receive direct checks without prefetching the archive solely to rank them.
