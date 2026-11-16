@@ -57,3 +57,19 @@ test('signed-out removed/deleted notices are item-specific; nested replies canno
  assert.equal(N.publicItem(parse(post('item-state="REMOVED"')),expected).status,'removed');assert.equal(N.publicItem(parse(post('deleted="true"','[deleted]')),expected).status,'deleted');
  assert.equal(N.publicItem(parse(post('',comment('item-state="REMOVED"','Other'))),expected).status,'unknown','nested content alone is not the post body');
 });
+test('identity reads Reddit’s real drawer partial (userName key, extra query) on pages without own cards, such as profile search',t=>{
+ // Captured live 2026-11-16 on /user/<me>/search/?rt_list=removed: the key is userName, followed by a query parameter.
+ const dom=new JSDOM('<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><div id="user-drawer-content"><faceplate-partial src="/svc/shreddit/partial/SZvQJM/user-drawer-menu?params=userName%3DExample&amp;query=%7B%22q%22%3A%22%22%2C%22rt_list%22%3A%22removed%22%7D"></faceplate-partial></div>',{url:'https://www.reddit.com/user/Example/search/?q=&rt_list=removed',runScripts:'outside-only'});
+ t.after(()=>dom.window.close());dom.window.eval(fs.readFileSync('extension/post-model.js','utf8'));dom.window.eval(source());
+ assert.deepEqual(JSON.parse(JSON.stringify(dom.window.RTNativeRemoval.identity(dom.window.document))),{owner:'t2_self',username:'Example'});
+});
+test('continuation pages: Reddit’s profile modal partials are ignored and an empty last page ends the list (captured 2026-11-16)',t=>{
+ const {W,N}=fixture(t);const me={owner:'t2_self',username:'Example'};
+ const parse=html=>new W.DOMParser().parseFromString(html,'text/html');
+ const more='/svc/shreddit/profiles/profile_overview-more-posts/new/?sort=new&after=dDNfYWJj&name=Example&feedLength=33';
+ const page=parse(post()+'<faceplate-partial src="/svc/shreddit/profiles/:username/profile-active-subreddits-modal"></faceplate-partial><faceplate-partial src="/svc/shreddit/profiles/:username/profile-contributions-modal"></faceplate-partial><faceplate-partial src="/svc/shreddit/profiles/:username/profile-followers-modal"></faceplate-partial><faceplate-partial src="'+more.replace(/&/g,'&amp;')+'"></faceplate-partial>');
+ const value=N.listing(page,me,'overview',{continuation:true});assert.equal(value.posts.length,1);assert.equal(value.after,more);
+ const end=N.listing(parse(''),me,'overview',{continuation:true});assert.deepEqual(JSON.parse(JSON.stringify([end.posts,end.after,end.hasMore])),[[],null,false],'an empty continuation is the end, not an error');
+ assert.throws(()=>N.listing(parse(''),me,'overview'),/could not be verified/,'an empty first page is still an error');
+ assert.throws(()=>N.listing(parse(post()+'<faceplate-partial src="/svc/shreddit/profiles/profile_overview-more-posts/new/?name=Other"></faceplate-partial>'),me,'overview',{continuation:true}),/continuation changed/,'a next link for another account is rejected');
+});

@@ -698,7 +698,7 @@
     if(!response.ok)throw Error('Reddit could not load your native profile (HTTP '+response.status+').');
     const text=await boundedText(response,6000000),now=N.identity(document);
     if(signal?.aborted || pageKey()!==path || now?.owner!==me.owner || now?.username.toLowerCase()!==me.username.toLowerCase())throw Error('Account or page changed. Try again.');
-    const value=N.listing(new DOMParser().parseFromString(text,'text/html'),me);
+    const value=N.listing(new DOMParser().parseFromString(text,'text/html'),me,'overview',{continuation:Boolean(input.after)});
     for(const post of value.posts)rememberRemovalItem(post,me);
     if(value.after===input.after && value.after)throw Error('Reddit repeated the native profile continuation.');
     if(value.after){if(removalCursors.size>=1000)removalCursors.delete(removalCursors.keys().next().value);removalCursors.set(value.after,key);}

@@ -17,7 +17,8 @@
   for(const partial of doc.querySelectorAll('#user-drawer-content faceplate-partial[src]')){
    try{const url=new URL(partial.getAttribute('src'),doc.location?.origin || 'https://www.reddit.com');
     if(url.origin!==(doc.location?.origin || 'https://www.reddit.com') || !/^\/svc\/shreddit\/partial\/[\w-]+\/user-drawer-menu$/.test(url.pathname))continue;
-    add(new URLSearchParams(url.searchParams.get('params') || '').get('username'));
+    // Reddit writes this key as userName (captured 2026-11-16); match it whatever its case.
+    for(const [key,value] of new URLSearchParams(url.searchParams.get('params') || ''))if(key.toLowerCase()==='username')add(value);
    }catch{}
   }
   for(const card of doc.querySelectorAll('shreddit-post[author-id],shreddit-comment[author-id],shreddit-overflow-menu[author-id]')){
@@ -53,16 +54,19 @@
   value.kind=comment?'comment':'post';value.moderation={category,removalReason:false,locked:card.hasAttribute('is-locked') || card.hasAttribute('locked'),subredditType:card.getAttribute('subreddit-type') || 'public',quarantined:card.hasAttribute('quarantined'),authorBody:body,
    nativeRemoved,visibilityKnown:state==='APPROVED',native:true};return value;
  }
- function listing(doc,me,source='overview'){
+ function listing(doc,me,source='overview',{continuation=false}={}){
   const feed=doc.querySelector('main shreddit-feed,shreddit-feed') || doc,posts=[],seen=new Set();let unreadable=0,scanned=0;
   for(const card of feed.querySelectorAll('shreddit-post,shreddit-profile-comment')){
    if(card.closest('[data-rt-ui]'))continue;scanned++;const value=item(card,me);if(!value){unreadable++;continue;}
    if(!seen.has(value.fullname)){seen.add(value.fullname);posts.push(value);}
   }
-  if(scanned && !posts.length || !scanned && !doc.querySelector('shreddit-feed,#empty-feed-content,[data-testid="empty-state"]'))throw Error('Reddit’s native profile items could not be verified.');
+  // A continuation page with no items is the end of the profile (captured 2026-11-16); an empty first page is not.
+  if(scanned && !posts.length || !scanned && !continuation && !doc.querySelector('shreddit-feed,#empty-feed-content,[data-testid="empty-state"]'))throw Error('Reddit’s native profile items could not be verified.');
   let after=null;
   for(const partial of feed.querySelectorAll('faceplate-partial[src*="/svc/shreddit/profiles/"]')){
    const url=new URL(partial.getAttribute('src'),'https://www.reddit.com');
+   // Continuation pages also carry the profile's modal partials (followers, contributions, active communities).
+   if(!url.pathname.includes('more-posts'))continue;
    if(url.origin!=='https://www.reddit.com' || url.pathname!=='/svc/shreddit/profiles/profile_'+source+'-more-posts/new/' || url.searchParams.get('name')?.toLowerCase()!==me.username.toLowerCase() || url.href.length>4096)throw Error('Reddit’s native profile continuation changed.');
    if(after && after!==url.pathname+url.search)throw Error('Reddit returned conflicting native continuations.');after=url.pathname+url.search;
   }
