@@ -1,3 +1,14 @@
+# 0.38.0 preview
+
+- **Removed works on real profiles:** it found the signed-in account only on pages showing your own posts (Reddit names the account with a userName key), and stopped after the first profile page (later pages carry Reddit's modal widgets). Both fixed; the whole profile is walked.
+- **Signed-in vs signed-out comparison:** the view compares your profile with how a signed-out visitor sees it, page by page, through the existing anonymous session. Items a visitor sees are confirmed visible in bulk instead of one request each (one-per-item made Reddit refuse after ~200). Only the rest get a single signed-out check, about one a second, real differences first; a refusal stops the rest and is reported. Signed-out removed comments (a bare "[removed]" block) are now recognised as removed. Communities a visitor never sees on your profile are treated as hidden by your profile settings, not removed. A removal recorded by the archive no longer wins over a current signed-out "visible".
+- **Removed, then deleted by you:** with the archive on, items you deleted after a moderator, Reddit or AutoModerator removal are listed from Arctic Shift; self-deleted items are not.
+- **Removed tab:** your own profile's tab bar gets Removed after Downvoted, replacing the Feed options → Activity → Removed row.
+- **Clearer view:** counts follow the selected tab and filters; the Subreddit menu offers only communities with removals; the notice is one short line with the reasons in its tooltip.
+- **Version:** minor increment for the comparison, removed-then-deleted items and the profile tab; no new permissions or storage changes. Only Reddit's website pages and native fragments plus Arctic Shift are used; no Reddit .json, /api/info or OAuth endpoints.
+- **Validation:** all 1,596 tests pass; 48 JavaScript files parse; ZIP integrity passes; all 62 shipped assets match source, archive and the stable unpacked folder. SHA-256 `53bccb8dd33e995a340811f66785c5da1bf6db6e41e10fa369a3dae53b8b03f2`.
+- **Verification:** live, read-only on the user's account: 32 removals found (previously 0–1), about 80% of items confirmed in bulk; the restored GTA6 post is visible to a signed-out direct check. The tab's rendered size and the paced, uncapped checks were not re-checked live after the final changes.
+
 # 0.37.2 preview
 
 - **Removed from your profile:** Feed options → Activity → Removed is now available on your own Overview, Posts and Comments tabs. It opens the existing verified-removal view with All, Posts or Comments selected to match. Moderator, AutoModerator and Reddit/filter removals are included; self-deleted items are excluded.
