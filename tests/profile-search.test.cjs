@@ -54,7 +54,7 @@ for(const hydrated of [false,true])test(`header handler preserves other input, s
   const chip=root.querySelector('#search-input-chip,#search-input-remove-filter'),chipParent=chip.parentNode;chip.remove();unchanged();chipParent.prepend(chip);
   for(const scope of [{type:'subreddit',name:'Example',path:'/user/Example/'},{type:'profile',name:'Other',path:'/user/Example/'},{type:'profile',name:'Example',path:'/user/Other/'},null]){host.setAttribute('scope',JSON.stringify(scope));unchanged();}
   host.setAttribute('scope',JSON.stringify({type:'profile',name:'Example',path:'/user/Example/'}));
-  for(const settings of [{postDiscovery:false,archiveDiscovery:true},{postDiscovery:true,archiveDiscovery:false}]){s.d.applySettings(settings);unchanged();}
+  for(const settings of [{postDiscovery:false,archiveDiscovery:true}]){s.d.applySettings(settings);unchanged();}
   s.d.applySettings({postDiscovery:true,archiveDiscovery:true});s.W.history.pushState({},'','/r/Example/');unchanged();assert.equal(clicks,0);
 });
 test('search route accepts absent/empty q and preserves query and native tab state',async t=>{
@@ -168,9 +168,9 @@ test('native result list and sort/time controls hide reversibly; native tabs and
   const replacement=s.D.createElement('div');replacement.className='bg-neutral-background';replacement.textContent='SPA continuation';results.after(replacement);s.d.scan();assert.equal(replacement.hidden,true);
   s.W.history.pushState({},'','/r/Synthetic/');s.d.scan();assert.equal(results.hidden,false);assert.equal(sort.hidden,false);assert.equal(time.hidden,true);assert.equal(replacement.hidden,false);assert.equal(s.D.querySelector('[data-rt-ui="search-feed"]'),null);assert.equal(s.D.querySelector('[data-rt-search-hidden]'),null);
 });
-test('archive setting off leaves Reddit search untouched and turning it off restores originals',async t=>{
-  const off=await boot(t,{settings:{postDiscovery:true,archiveDiscovery:false}});assert.equal(off.d.host,null);assert.equal(off.D.querySelector('[data-rt-search-hidden]'),null);assert.equal(off.calls.length,0);assert.equal(off.queries.length,0);assert.equal(off.D.getElementById('native-results').hidden,false);
-  const s=await boot(t);s.d.applySettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(s.d.host,null);assert.equal(s.D.getElementById('native-results').hidden,false);assert.equal(s.D.getElementById('native-sort').hidden,false);
+test('archive off keeps native profile search available and disabling discovery restores originals',async t=>{
+  const off=await boot(t,{settings:{postDiscovery:true,archiveDiscovery:false}});assert.ok(off.d.host);assert.equal(off.D.getElementById('native-results').hidden,true);await search(off);assert.ok(off.calls.some(c=>c.action==='profile'));assert.equal(off.queries.length,0);
+  const s=await boot(t);s.d.applySettings({postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(s.d.host,null);assert.equal(s.D.getElementById('native-results').hidden,false);assert.equal(s.D.getElementById('native-sort').hidden,false);
 });
 test('status retains a searched date on exhausted windows without claiming full coverage',async t=>{
   const s=await boot(t);await search(s);assert.match(s.d.notice.textContent,/Searched back to/);assert.equal(s.d.notice.hidden,false);assert.doesNotMatch(s.d.status.textContent+s.d.notice.textContent,/all results|history complete|search complete/i);
@@ -289,7 +289,7 @@ for(const outside of [false,true])for(const suffix of ['', '?q=laptop','?type=co
   assert.equal(tabs.querySelectorAll('a').length,3);
   assert.equal(s.d.feed.hidden,false);assert.equal(s.d.host.hidden,false);
   s.d.scan();assert.equal(row.hidden,true);
-  if(outside)s.d.applySettings({postDiscovery:true,archiveDiscovery:false});else{s.W.history.pushState({},'','/r/Synthetic/');s.d.scan();}
+  if(outside)s.d.applySettings({postDiscovery:false,archiveDiscovery:false});else{s.W.history.pushState({},'','/r/Synthetic/');s.d.scan();}
   assert.equal(row.hidden,false);assert.equal(banner.hidden,false);assert.equal(s.D.querySelector('[data-rt-search-hidden]'),null);
 });
 test('structural filter suppression hides a sort and time row without Safe Search',async t=>{
@@ -392,4 +392,11 @@ test('picking a subreddit keeps the other subreddits available to add when count
   // With Alpha picked, only Alpha's results load; Beta must still be offered.
   s.d.rtFilters={...f.empty(),subreddits:['Alpha']};s.d.loadedItems=()=>[{fullname:'t3_a1',subreddit:'Alpha'}];
   const entries=Array.from(s.d.subredditCounts().entries);assert.deepEqual(entries.map(e=>e.key),['Alpha','Beta']);assert.equal(entries.find(e=>e.key==='Alpha').count,2,'the larger count is kept');
+});
+
+
+for(const hydrated of [false,true])test(`empty Enter restores native profile search with archive off and a current scope chip (${hydrated})`,async t=>{
+ const s=await boot(t,{url:'https://www.reddit.com/user/Example/',html:'<main></main>',settings:{postDiscovery:true,archiveDiscovery:false},autoDiscover:true}),h=headerSearch(s,hydrated);const chip=h.root.querySelector('#search-input-chip,#search-input-remove-filter');chip.removeAttribute('id');chip.classList.add('scoped-search-pill');chip.setAttribute('slot','chips');const urls=[];
+ s.D.addEventListener('click',event=>{const a=event.target.closest?.('a');if(!a)return;event.preventDefault();urls.push(new URL(a.href));s.W.history.pushState({},'',a.href);s.D.body.innerHTML=page;s.d.scan();},true);
+ assert.equal(enter(s.W,h.input).defaultPrevented,true);await flush();assert.equal(urls.length,1);assert.equal(urls[0].pathname,'/user/Example/search/');assert.equal(s.d.context?.view,'search');assert.ok(s.calls.some(c=>c.action==='profile'));assert.equal(s.queries.length,0,'archive off does not prevent Reddit search or query the archive');
 });

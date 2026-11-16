@@ -1762,7 +1762,7 @@ function ownProfileAccount(W,name='Example',owner='t2_self'){
  if(!W.RTNativeRemoval)W.eval(fs.readFileSync('extension/native-removal.js','utf8'));
  return app;
 }
-function removedEntryNavigations(W){const urls=[];W.document.addEventListener('click',event=>{const anchor=event.target.closest?.('a[href]');if(anchor && new URL(anchor.href).searchParams.get('rt_list')==='removed'){event.preventDefault();urls.push(new URL(anchor.href));}},true);return urls;}
+function removedEntryNavigations(W){const urls=[];W.document.addEventListener('click',event=>{const anchor=event.target.closest?.('a[href]');if(anchor && new URL(anchor.href).searchParams.get('rt_view')==='removed'){event.preventDefault();urls.push(new URL(anchor.href));}},true);return urls;}
 // Removed is a profile section beside Saved and History (spec §18 P4), from Reddit's own tab bar (captured 2026-11-16).
 const profileTabs=(name='Example')=>'<faceplate-tabgroup slot="tabs" id="profile-feed-tabgroup" pageindex="1" for="profile-feed-tabs">'+[['overview',''],['saved','saved/'],['downvoted','downvoted/']].map(([id,path],i)=>'<a rpl="" class=" button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex '+(i?'':'bg-secondary-background-selected !text-neutral-content-strong tab-selected')+'" href="/user/'+name+'/'+path+'" id="profile-tab-'+id+'_tab" slot="page-'+(i+1)+'" tabindex="'+(i?-1:0)+'" type="button"'+(i?'':' faceplate-tab-selected=""')+'><span class="flex items-center justify-center"><span class="flex items-center gap-xs"><span class="flex" actioned="">'+id[0].toUpperCase()+id.slice(1)+'</span></span></span></a>').join('')+'</faceplate-tabgroup>';
 const removedTab=W=>W.document.querySelector('#profile-feed-tabgroup [data-rt-ui="removed-tab"]');
@@ -1772,9 +1772,9 @@ test('your own profile’s tab bar gets a Removed tab like Saved and History, wi
  const {W,d,calls}=setup(t);defineTabgroup(W);W.document.querySelector('main').insertAdjacentHTML('afterbegin',profileTabs());ownProfileAccount(W);const urls=removedEntryNavigations(W);await d.ready;d.ensureActivityMenu();
  const tab=removedTab(W);assert.ok(tab);assert.equal(tab.textContent.trim(),'Removed');assert.equal(tab.getAttribute('slot'),'page-4','after Reddit’s last tab');const group=W.document.querySelector('#profile-feed-tabgroup');assert.equal(group.pages,4,'Reddit’s tab group renders one more page slot (measured: it renders only "pages" slots)');assert.equal(tab.id,'profile-tab-removed_tab');
  assert.match(tab.className,/button-medium .*button-plain/);assert.doesNotMatch(tab.className,/tab-selected|bg-secondary-background-selected/);assert.equal(tab.hasAttribute('faceplate-tab-selected'),false);assert.equal(tab.tabIndex,-1);
- const href=new URL(tab.href);assert.equal(href.pathname,'/user/Example/search/');assert.equal(href.searchParams.get('rt_list'),'removed');assert.equal(href.searchParams.get('type'),'all');
+ const href=new URL(tab.href);assert.equal(href.pathname,'/user/Example/');assert.equal(href.searchParams.get('rt_view'),'removed');
  assert.equal(calls.length,0,'mounting the tab must not scan');assert.equal(d.activityMenu.querySelector('[data-rt-activity-filter="removed"]'),null,'no second entry in Feed options');
- tab.click();assert.equal(urls.length,1);assert.equal(urls[0].searchParams.get('rt_list'),'removed');
+ tab.click();assert.equal(urls.length,1);assert.equal(urls[0].searchParams.get('rt_view'),'removed');
  tab.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));assert.equal(urls.length,2,'keyboard opens it too');
  d.ensureActivityMenu();assert.equal(W.document.querySelectorAll('[data-rt-ui="removed-tab"]').length,1,'added once');
  const old=W.document.querySelector('#profile-feed-tabgroup');old.outerHTML=profileTabs();d.ensureActivityMenu();assert.ok(removedTab(W),'restored after Reddit redraws its tab bar');
