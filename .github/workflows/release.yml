@@ -50,4 +50,5 @@ jobs:
             "artifacts/reddit-tweaks-firefox-v$VERSION-unsigned.xpi" \
             "artifacts/reddit-tweaks-firefox-v$VERSION-unsigned.xpi.sha256" \
             "artifacts/reddit-tweaks-firefox-source-v$VERSION.zip" \
-            "artifacts/reddit-tweaks-firefox-source-v$VERSION.zip.sha256"
+            "artifacts/reddit-tweaks-firefox-source-v$VERSION.zip.sha256" \
+            "artifacts/firefox-lint.log"
