@@ -2192,6 +2192,17 @@
     // Search keeps Reddit's spacing (spec §30): its first result and no-results view sit 8px under the scope switcher.
     // The controls row is drawn inside the filter row, so it keeps no margins or flex box, and an empty toolbar
     // (display:contents in search) must not stop that margin from collapsing.
+    /* Reddit's faceplate-timeago renders <time datetime title>6mo ago</time> into itself once Reddit has loaded its script,
+       which some search pages (Removed comments, Media) never do. An element still empty shortly after drawing gets
+       the same markup, so a row always shows its time. */
+    timeFallback(element,ts){
+      setTimeout(()=>{
+        if(element.querySelector('time') || !element.parentNode || !Number.isFinite(ts))return;
+        const date=new Date(ts*1000),seconds=Math.max(0,Math.floor(Date.now()/1000-ts)),format=new Intl.RelativeTimeFormat('en',{style:'narrow',numeric:'always'});
+        const days=Math.floor(seconds/86400),text=seconds<60?'just now':seconds<3600?format.format(-Math.floor(seconds/60),'minute'):seconds<86400?format.format(-Math.floor(seconds/3600),'hour'):days<30?format.format(-days,'day'):days<365?format.format(-Math.floor(days/30),'month'):format.format(-Math.floor(days/365),'year');
+        const node=document.createElement('time');node.setAttribute('datetime',date.toISOString());node.title=date.toLocaleString(undefined,{dateStyle:'full',timeStyle:'long'});node.textContent=text;element.replaceWith(node);
+      },this.timeFallbackMs ?? 600);
+    }
     syncSearchLayout(){
       const search=this.isSearch();this.host?.toggleAttribute('data-rt-search',search);
       if(this.controlsTarget && this.controlsTarget.className!=='contents'){this.controlsTarget.classList.toggle('my-md',!search);this.controlsTarget.classList.toggle('flex',!search);}
@@ -2732,7 +2743,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       // Plain text: Reddit's faceplate-number would add its own copy of the number.
       const count=(n,one,many)=>make('span','',new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1}).format(Number(n) || 0)+' '+(Number(n)===1?one:many));
       const dot=()=>make('span','mx-2xs','·');
-      const time=(ts,format)=>{const t=make('faceplate-timeago');t.setAttribute('ts',new Date(ts*1000).toISOString());if(format)t.setAttribute('format',format);else t.setAttribute('short','');return t;};
+      const time=(ts,format)=>{const t=make('faceplate-timeago');t.setAttribute('ts',new Date(ts*1000).toISOString());if(format)t.setAttribute('format',format);else t.setAttribute('short','');this.timeFallback(t,ts);return t;};
       const profileName=/^u_([\w-]{1,20})$/i.exec(post.subreddit || '')?.[1],communityHref=profileName?'/user/'+profileName+'/':'/r/'+encodeURIComponent(post.subreddit)+'/',communityLabel=profileName?'u/'+profileName:'r/'+post.subreddit;
       const icon=()=>{
         const outer=make('span','inline-flex items-center justify-center w-lg h-lg relative me-xs');outer.setAttribute('avatar','');

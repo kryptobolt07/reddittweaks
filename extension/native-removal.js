@@ -26,6 +26,13 @@
   }
   return names.size===1?{owner:owner.toLowerCase(),username:[...names.values()][0]}:null;
  }
+ // A profile comment card links to its post (/r/<sub>/comments/<id>/<slug>/) with the post title as the link text;
+ // the overlay link to the comment itself has a /comment/ segment and is skipped (live markup 2026-11-16).
+ function postTitle(card,postId){
+  const pattern=new RegExp('^/(?:r|user)/[\\w-]+/comments/'+postId+'/[^/]*/?$','i');
+  for(const a of card.querySelectorAll('a[href]')){let path;try{path=new URL(a.getAttribute('href'),'https://www.reddit.com').pathname;}catch{continue;}if(pattern.test(path)){const text=a.textContent.trim();if(text)return text.slice(0,300);}}
+  return '';
+ }
  function item(card,me){
   if(!card || !ownerOK(me?.owner) || !M.validateUsername(me?.username) || card.closest('[data-rt-recovered-text]'))return null;
   const comment=card.tagName!=='SHREDDIT-POST',fullname=(card.getAttribute(comment?'comment-id':'id') || card.getAttribute('thingid') || card.id || '').toLowerCase();
@@ -47,7 +54,7 @@
   const nativeRemoved=['REMOVED','SPAM','FILTERED','AUTOMOD_FILTERED'].includes(state) || Boolean(banner && /\bremoved\b/i.test(banner));
   const preview=ownQuery(card,'[slot="post-media-container"] img[src],[slot="post-media-container"] faceplate-img[src],[slot="thumbnail"] img[src],[slot="thumbnail"] faceplate-img[src],[slot="text-body"] img[src],[slot="text-body"] faceplate-img[src],img[data-testid="post-thumbnail"],faceplate-img[data-testid="post-thumbnail"]'),content=card.getAttribute('content-href') || '';
   const raw={url:content,postType:comment?undefined:card.getAttribute('post-type'),thumbnail:comment?undefined:M.mediaUrl(preview?.getAttribute('src') || ownQuery(card,'video[poster]')?.getAttribute('poster') || card.getAttribute('thumbnail') || content),id:fullname.slice(3),author,created_utc:Math.floor(created),subreddit:card.getAttribute('subreddit-name') || path.match(/^\/r\/([^/]+)\//)?.[1] || '',permalink:path+url.search,
-   title:comment?undefined:card.getAttribute('post-title') || ownQuery(card,'[slot="title"]')?.textContent || '',selftext:comment?undefined:body,body:comment?body:undefined,
+   title:comment?postTitle(card,postId):card.getAttribute('post-title') || ownQuery(card,'[slot="title"]')?.textContent || '',selftext:comment?undefined:body,body:comment?body:undefined,
    link_id:comment?'t3_'+postId:undefined,parent_id:comment?card.getAttribute('parentid') || card.getAttribute('parent-id') || 't3_'+postId:undefined,
    score:Number(card.getAttribute('score') || ownQuery(card,'shreddit-comment-action-row[score]')?.getAttribute('score')) || 0,num_comments:Number(card.getAttribute('comment-count')) || 0,
    is_self:['text','textmedia'].includes(card.getAttribute('post-type')) || Boolean(body),over_18:card.hasAttribute('nsfw') || card.hasAttribute('is-nsfw'),spoiler:card.hasAttribute('spoiler')};

@@ -97,3 +97,9 @@ test('own native listing retains post vote/comment facts and its preview rather 
 test('own native listing reads media before faceplate images upgrade',t=>{
  const {N,d}=fixture(t,post('post-type="image"'));const card=d.querySelector('shreddit-post');card.insertAdjacentHTML('beforeend','<span slot="credit-bar"><faceplate-img src="https://www.redditstatic.com/avatar.png"></faceplate-img></span><div slot="post-media-container"><faceplate-img src="https://preview.redd.it/syntheticpreview.jpg?width=320"></faceplate-img></div>');assert.equal(N.item(card,N.identity(d)).thumbnail,'https://preview.redd.it/syntheticpreview.jpg?width=320');
 });
+
+test('a native profile comment carries its post title from the card’s link to the post (live markup 2026-11-16)',t=>{
+ const card=comment().replace('<div id="t1_19gsnavtu46ip-comment-rtjson-content">','<a class="absolute inset-0" href="/r/Alpha/comments/post1/comment/19gsnavtu46ip/?context=3" aria-label="Thread"></a><a class="text-neutral-content-strong" href="/r/Alpha/comments/post1/a_synthetic_post/">A synthetic post</a><div id="t1_19gsnavtu46ip-comment-rtjson-content">');
+ const {N,d}=fixture(t,card);const item=N.item(d.querySelector('shreddit-profile-comment'),N.identity(d));assert.equal(item.title,'A synthetic post');
+ const bare=fixture(t,comment());assert.equal(bare.N.item(bare.d.querySelector('shreddit-profile-comment'),bare.N.identity(bare.d)).title,'','no post link: no invented title');
+});
