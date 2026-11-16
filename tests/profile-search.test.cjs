@@ -5,6 +5,8 @@ const {JSDOM}=require('jsdom');
 const controls=fs.readFileSync('tests/fixtures/native-profile-controls.html','utf8');
 const read=f=>fs.readFileSync('extension/'+f,'utf8');
 const flush=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setImmediate(r));};
+// Shape of Reddit's served no-results view (live 2026-11-16), synthetic strings.
+const nativeEmpty='<div class="flex flex-col items-center" data-testid="search-error-message"><img alt="" src="https://www.redditstatic.com/synthetic-thinking.svg"><div class="text-neutral-content-strong font-bold">Hm...we couldn’t find any results for "rt-empty-synthetic"</div><div class="text-neutral-content-weak">Double-check your spelling or try different keywords</div><div data-testid="search-error-message-ctas"><adjust-search-query-link><button data-testid="search-error-message-primary-cta">Adjust your search</button></adjust-search-query-link></div></div>';
 const raw=(id,extra={})=>({id,author:'Example',title:'Synthetic search post',selftext:'Synthetic words',subreddit:'Alpha',created_utc:1700000000,score:4,num_comments:2,is_self:true,...extra});
 // Synthetic shape from the recon: controls outside main; tabs/scope remain native;
 // post and comment search units are children of the neutral result container.
@@ -21,6 +23,7 @@ function setup(t,{viewer='Viewer',leaveDelay=false,url='https://www.reddit.com/u
     if(args.action==='own-list-identity')return {username:viewer};calls.push(args);
     if(args.action==='render-controls'){W.document.getElementById(args.target).innerHTML=controls;return {rendered:true};}
     if(args.action==='render-navigation')return {rendered:true};
+    if(args.action==='render-search-empty'){W.document.getElementById(args.target).innerHTML=nativeEmpty;return {rendered:true};}
     if(args.action==='status')return {via:'info',statuses:args.ids.map(id=>({fullname:(args.kind==='comment'?'t1_':'t3_')+id,status:'available'}))};
     return reddit?reddit(args):{posts:[raw('live')],hasMore:false};},archive:async()=>{throw Error('Search must use RTArchiveQuery, not archive-profile');}});
   // These tests check restoring right after leaving; the delayed restore has its own test.
@@ -82,7 +85,7 @@ test('OR and exclusions keep Reddit search; Old sort remains archive-only',async
     const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/'+suffix,archive:async()=>({items:[raw('live',{title:'cat'}),raw('archive',{title:'cat',created_utc:1600000000})],hasMore:false,searchedBackTo:1600000000})});await search(s);
     const old=suffix.includes('old');assert.equal(s.calls.filter(c=>c.action==='profile').length,old?0:1,suffix);assert.equal(s.queries.length,1);assert.equal(s.d.clientSearchOn(),!old);
     if(!old)assert.equal(s.calls.find(c=>c.action==='profile').query,suffix.includes('OR')?'(cat OR dog)':'cat');
-    if(suffix.includes('old')){assert.equal(s.queries[0].sort,'asc');assert.deepEqual(shown(s.d),['t3_archive','t3_live']);assert.match(s.d.notice.textContent,/Searched up to/);}
+    if(suffix.includes('old')){assert.equal(s.queries[0].sort,'asc');assert.deepEqual(shown(s.d),['t3_archive','t3_live']);assert.doesNotMatch(s.d.notice.textContent,/Searched up to/);}
   }
 });
 test('results are Reddit\'s search rows: community, time, title, counts and thumbnail; comments get Go To Thread',async t=>{
@@ -172,19 +175,23 @@ test('archive off keeps native profile search available and disabling discovery 
   const off=await boot(t,{settings:{postDiscovery:true,archiveDiscovery:false}});assert.ok(off.d.host);assert.equal(off.D.getElementById('native-results').hidden,true);await search(off);assert.ok(off.calls.some(c=>c.action==='profile'));assert.equal(off.queries.length,0);
   const s=await boot(t);s.d.applySettings({postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true});assert.equal(s.d.host,null);assert.equal(s.D.getElementById('native-results').hidden,false);assert.equal(s.D.getElementById('native-sort').hidden,false);
 });
-test('status retains a searched date on exhausted windows without claiming full coverage',async t=>{
-  const s=await boot(t);await search(s);assert.match(s.d.notice.textContent,/Searched back to/);assert.equal(s.d.notice.hidden,false);assert.doesNotMatch(s.d.status.textContent+s.d.notice.textContent,/all results|history complete|search complete/i);
-  const old=s.d.notice.textContent;s.d.noteSearched({hasMore:false,searchedBackTo:null});s.d.summarize();assert.equal(s.d.notice.textContent,old);
+test('search shows no searched-back date or Search older; it never claims full coverage',async t=>{
+  const s=await boot(t);await search(s);assert.doesNotMatch(s.d.notice.textContent,/Searched back to|Searched up to/);assert.doesNotMatch(s.d.status.textContent+s.d.notice.textContent,/all results|history complete|search complete/i);
+  assert.equal([...s.D.querySelectorAll('button')].some(b=>/Search older/.test(b.textContent) && !b.hidden && !b.closest('[hidden]')),false);
 });
-test('empty state uses Reddit wording while failures remain retryable and incomplete',async t=>{
-  const s=await boot(t,{reddit:async()=>({posts:[],hasMore:false}),archive:async()=>({items:[],hasMore:false})});await search(s);assert.equal(s.d.activityEmpty.hidden,false);assert.match(s.d.emptyTitle.textContent,/couldn't find any results/);assert.match(s.d.activityEmpty.textContent,/coverage may be incomplete/);assert.doesNotMatch(s.d.notice.textContent,/1970/);
-  const fail=await boot(t,{archive:async()=>{throw Error('Archive temporarily unavailable');}});await search(fail);assert.equal(fail.d.status.dataset.error,'true');assert.match(fail.d.status.textContent,/unavailable/);assert.equal(fail.d.nodes.get('live').hidden,false);assert.equal(fail.d.activityEmpty?.hidden ?? true,true);
+test('an empty profile search ends with Reddit’s own no-results view while failures remain retryable',async t=>{
+  const s=await boot(t,{reddit:async()=>({posts:[],hasMore:false}),archive:async()=>({items:[],hasMore:false})});await search(s);
+  const empty=s.d.searchEmpty;assert.ok(empty && !empty.hidden,'Reddit no-results view shown');assert.ok(empty.querySelector('[data-testid="search-error-message"] adjust-search-query-link button'));
+  assert.equal(empty.querySelector('[data-testid="search-error-message"] > div').textContent,'Hm...we couldn’t find any results for "words"');assert.doesNotMatch(empty.textContent,/coverage may be incomplete|rt-empty/);
+  assert.ok(!s.d.activityEmpty || s.d.activityEmpty.hidden,'no extension replica');assert.equal(s.calls.filter(c=>c.action==='render-search-empty').length,1);
+  const fail=await boot(t,{archive:async()=>{throw Error('Archive temporarily unavailable');}});await search(fail);assert.equal(fail.d.status.dataset.error,'true');assert.match(fail.d.status.textContent,/unavailable/);assert.equal(fail.d.nodes.get('live').hidden,false);assert.equal(fail.d.searchEmpty?.hidden ?? true,true);
 });
-test('search pagination continues both cursors and caps each automatic window at ten pages',async t=>{
-  const s=await boot(t,{reddit:async args=>({posts:[],after:'cursor-'+(args.after || 'first'),hasMore:true}),archive:async(args,n)=>({items:[],cursor:1700000000-n,hasMore:true,searchedBackTo:1700000000-n})});await search(s);
-  for(let i=0;i<10;i++)await s.d.loadMore();await flush();
-  assert.equal(s.queries.length,11);assert.equal(s.calls.filter(c=>c.action==='profile').length,11);assert.equal(s.queries[1].cursor,1699999999);assert.equal(s.calls.filter(c=>c.action==='profile')[1].after,'cursor-first');assert.equal(s.d.hasMoreProfile(),true);assert.equal(s.d.searchBudgetPaused(),true);assert.match(s.d.loading.textContent,/Search older/);
-  await s.d.loadMore();assert.equal(s.queries.length,11);s.d.loading.querySelector('button').click();await flush();assert.equal(s.queries.length,12);assert.equal(s.d.searchBudgetPaused(),false);
+test('search keeps paging both cursors past ten pages until both sources end, with no Search older pause',async t=>{
+  const s=await boot(t,{reddit:async args=>{const n=Number(String(args.after || 'cursor-0').split('-')[1]);return n>=24?{posts:[],hasMore:false}:{posts:[],after:'cursor-'+(n+1),hasMore:true};},archive:async(args,n)=>n>=18?{items:[],hasMore:false}:({items:[],cursor:1700000000-n,hasMore:true,searchedBackTo:1700000000-n})});await search(s);
+  for(let i=0;i<30;i++)await s.d.loadMore();await flush();
+  assert.equal(s.queries.length,18);assert.equal(s.calls.filter(c=>c.action==='profile').length,25);assert.equal(s.queries[1].cursor,1699999999);assert.equal(s.calls.filter(c=>c.action==='profile')[1].after,'cursor-1');assert.equal(s.d.hasMoreProfile(),false);
+  assert.doesNotMatch(s.d.loading.textContent,/Search older|coverage may be incomplete/);assert.equal([...s.D.querySelectorAll('button')].some(b=>/Search older/.test(b.textContent) && !b.hidden && !b.closest('[hidden]')),false);
+  assert.ok(s.d.searchEmpty && !s.d.searchEmpty.hidden,'the end of an empty search shows Reddit’s no-results view');
 });
 test('Relevance keeps client ranking ahead of archive-only matches; loaded-item comment sort works',async t=>{
   const s=await boot(t,{reddit:async()=>({posts:[raw('rank1',{created_utc:1500000000}),raw('rank2',{created_utc:1600000000})],hasMore:false}),archive:async()=>({items:[raw('newer',{created_utc:1800000000}),raw('older',{created_utc:1400000000})],hasMore:false})});await search(s);assert.deepEqual(shown(s.d),['t3_rank1','t3_rank2','t3_newer','t3_older']);
@@ -331,7 +338,7 @@ test('structured and negative predicates filter Reddit and archive cards locally
   const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('launch AND NOT spoiler:yes'),reddit:async()=>({posts:records,hasMore:false}),archive:async()=>({items:[...records,raw('archive',{title:'launch',spoiler:false})],hasMore:false,searchedBackTo:1600000000})});await search(s);
   assert.equal(s.calls.find(c=>c.action==='profile').query,'launch');assert.equal(s.d.searchReddit.residual,true);
   assert.deepEqual(shown(s.d),['t3_keep','t3_archive']);assert.match(s.d.status.textContent,/filtered locally/);assert.match(s.d.status.textContent,/may be incomplete/);
-  assert.match(s.d.notice.textContent,/Searched back to/);assert.match(s.d.notice.textContent,/Some matches filtered locally/);assert.doesNotMatch(s.d.status.textContent+s.d.notice.textContent,/search complete|history complete/i);
+  assert.doesNotMatch(s.d.notice.textContent,/Searched back to|filtered locally/);assert.equal(s.d.notice.hidden,true,'no banner above Reddit’s first result; the note stays in the status');assert.doesNotMatch(s.d.status.textContent+s.d.notice.textContent,/search complete|history complete/i);
   s.d.activityFilter='hidden';s.d.deduplicate();await flush();assert.deepEqual(shown(s.d),['t3_archive']);
 });
 
@@ -381,8 +388,8 @@ test('comment predicates search comment bodies and never borrowed parent titles'
 test('sparse Reddit listing metadata uses hydrated body, destination, flair and self type',async t=>{
   const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('body:quiet site:example.test flair:news self:yes'),reddit:async()=>({posts:[raw('sparse',{selftext:'',is_self:undefined})],hasMore:false}),archive:async()=>({items:[],hasMore:false}),renderer:async(post,node)=>{node.innerHTML='<shreddit-post id="'+post.fullname+'" post-type="text" content-href="https://example.test/a"><span slot="credit-bar"></span><p slot="text-body">quiet place</p><span slot="post-flair">news</span></shreddit-post>';}});await search(s);assert.deepEqual(shown(s.d),['t3_sparse']);
 });
-test('residual wording survives archive failures and parse errors remain in the notice',async t=>{
-  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('words NOT spoiler:yes'),archive:async()=>{throw Error('Archive unavailable');}});await search(s);assert.match(s.d.status.textContent,/unavailable/);assert.doesNotMatch(s.d.status.textContent,/filtered locally/,'the error line does not repeat the note');assert.match(s.d.notice.textContent,/filtered locally/);
+test('residual wording survives archive failures in the status and parse errors remain in the notice',async t=>{
+  const s=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q='+encodeURIComponent('words NOT spoiler:yes'),archive:async()=>{throw Error('Archive unavailable');}});await search(s);assert.match(s.d.status.textContent,/unavailable.*filtered locally/,'the status carries the note once');assert.doesNotMatch(s.d.notice.textContent,/filtered locally/,'no banner above the results');
   const invalid=await boot(t,{url:'https://www.reddit.com/user/Example/search/?q=words+OR'});await search(invalid);assert.match(invalid.d.notice.textContent,/word on both sides/);assert.equal(invalid.d.notice.hidden,false);
 });
 test('picking a subreddit keeps the other subreddits available to add when counts come from loaded items',async t=>{
@@ -399,4 +406,12 @@ for(const hydrated of [false,true])test(`empty Enter restores native profile sea
  const s=await boot(t,{url:'https://www.reddit.com/user/Example/',html:'<main></main>',settings:{postDiscovery:true,archiveDiscovery:false},autoDiscover:true}),h=headerSearch(s,hydrated);const chip=h.root.querySelector('#search-input-chip,#search-input-remove-filter');chip.removeAttribute('id');chip.classList.add('scoped-search-pill');chip.setAttribute('slot','chips');const urls=[];
  s.D.addEventListener('click',event=>{const a=event.target.closest?.('a');if(!a)return;event.preventDefault();urls.push(new URL(a.href));s.W.history.pushState({},'',a.href);s.D.body.innerHTML=page;s.d.scan();},true);
  assert.equal(enter(s.W,h.input).defaultPrevented,true);await flush();assert.equal(urls.length,1);assert.equal(urls[0].pathname,'/user/Example/search/');assert.equal(s.d.context?.view,'search');assert.ok(s.calls.some(c=>c.action==='profile'));assert.equal(s.queries.length,0,'archive off does not prevent Reddit search or query the archive');
+});
+
+test('search adds no space above the first result: no controls margin and no local-filter banner',async t=>{
+  const s=await boot(t,{autoDiscover:true});await search(s);s.d.ensureActivityMenu?.();await flush();
+  // Reddit's first result sits 8px under the scope switcher; our zero-height rows must let that margin collapse (live 2026-11-16).
+  const target=s.D.querySelector('[data-rt-ui="profile-controls"]');if(target && target.className!=='contents'){assert.equal(target.classList.contains('my-md'),false,'empty controls row keeps no margins in search');assert.equal(target.classList.contains('flex'),false,'a flex row would stop the margin collapsing');}
+  assert.equal(s.d.notice.hidden,true);assert.equal(s.d.host.hasAttribute('data-rt-search'),true);
+  assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/\.rt-posts\[data-rt-search\] \.rt-posts-toolbar\{display:contents\}/);
 });

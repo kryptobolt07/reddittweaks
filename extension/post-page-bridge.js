@@ -306,17 +306,19 @@
     for(const node of shell.querySelectorAll('shreddit-comment[data-rt-ui="archive-thread-comment"]'))if(node.getAttribute('postid')==='t3_'+input.postId && typeof node.updateChildren==='function')node.updateChildren();
     return {refreshed:true};
   }
+  const emptySearchSelector='[data-testid="search-error-message"]';
   async function renderSearchEmpty(input,signal){
     const context=route(),path=pageKey(),target=typeof input.target==='string' && /^rt-search-empty-[a-z0-9-]{1,60}$/i.test(input.target)?document.getElementById(input.target):null;
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !/\/search\/?$/.test(location.pathname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase() || target?.dataset.rtUi!=='search-empty' || !target.closest('main'))throw Error('Open the matching profile search.');
     if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function')return {deferred:true,retryAfterMs:250};
     const app=document.querySelector('shreddit-app'),now=Date.now(),key=context.username.toLowerCase();for(const [k,v] of emptySearchReads)if(v.app!==app || v.expires<=now)emptySearchReads.delete(k);
-    let root=[...document.querySelectorAll('#empty-search-results')].find(node=>!node.closest('[data-rt-ui]'))?.cloneNode(true),cached=emptySearchReads.get(key);
+    // Reddit's no-results view is [data-testid="search-error-message"] inside a telemetry wrapper; only the view itself is reused.
+    let root=[...document.querySelectorAll(emptySearchSelector)].find(node=>!node.closest('[data-rt-ui]'))?.cloneNode(true),cached=emptySearchReads.get(key);
     if(!root && cached)root=new DOMParser().parseFromString(cached.html,'text/html').body.firstElementChild;
     if(!root){
       if(now<cooldown || active>=2)return {deferred:true,retryAfterMs:Math.max(250,now<cooldown?cooldown-now:250)};
       const url=new URL('/user/'+encodeURIComponent(context.username)+'/search/',location.origin);url.searchParams.set('q','"rt-empty-'+crypto.randomUUID()+'"');url.searchParams.set('type','posts');url.searchParams.set('t','hour');
-      active++;try{const response=await fetch(url.href,{credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'text/html'},signal});if(!response.ok)throw Error('Reddit could not load its empty search view (HTTP '+response.status+').');const doc=new DOMParser().parseFromString(await boundedText(response,6000000),'text/html');root=doc.querySelector('#empty-search-results');if(!root)throw Error('Reddit returned no native empty search view.');if(emptySearchReads.size>=4)emptySearchReads.delete(emptySearchReads.keys().next().value);emptySearchReads.set(key,{html:root.outerHTML,app,expires:now+300000});}finally{active--;}
+      active++;try{const response=await fetch(url.href,{credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'text/html'},signal});if(!response.ok)throw Error('Reddit could not load its empty search view (HTTP '+response.status+').');const doc=new DOMParser().parseFromString(await boundedText(response,6000000),'text/html');root=doc.querySelector(emptySearchSelector);if(!root)throw Error('Reddit returned no native empty search view.');if(emptySearchReads.size>=4)emptySearchReads.delete(emptySearchReads.keys().next().value);emptySearchReads.set(key,{html:root.outerHTML,app,expires:now+300000});}finally{active--;}
     }
     if(signal?.aborted || pageKey()!==path || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
     root.removeAttribute('id');root.removeAttribute('hidden');root.removeAttribute('data-rt-search-hidden');root.classList.remove('hidden');if(root.style.display==='none')root.style.removeProperty('display');
