@@ -373,13 +373,21 @@ the 4 newest comments were missing there yet visible when read directly.
   back as the items being checked. An item present there is publicly visible (`source: signed-out-profile`).
 - **P2 Direct checks for differences only.** An item absent from the signed-out pages that cover its time, newer than
   the signed-out page 1 (cache lag), or older than signed-out coverage (walk stopped) gets one signed-out item read.
-  At most 50 a scan, one at a time; the rest stay unchecked. Absence alone is never removal evidence.
+  Paced about one a second with no fixed cap; a refusal (HTTP 403/429) stops the rest, reported as unchecked.
+  Order: items missing from communities the visitor does see (real differences), then items the archive records as
+  removed (a removal can be reversed, so it needs a current check), then the rest. Communities that never appear in the
+  visitor's view are hidden by the user's profile curation, not removed. Absence alone is never removal evidence.
 - **P3 Removed, then deleted.** With the archive enabled, Arctic Shift author history over the scanned time span adds
   items no longer on the profile whose archive shows a moderator, Reddit or AutoModerator removal
   (`removed_by_category` at capture or `_meta.removal_type` at its re-check). Self-deletion alone (`deleted`) is not
   shown. These rows say "Removed, then deleted by you". Fresh signed-out visibility always beats archive evidence.
 - **P4 Entry.** Removed is a list beside Saved, History, Hidden, Upvoted and Downvoted (same list switcher and header
-  pill), reachable from the own profile like the other lists.
+  pill). On the own profile, Reddit's tab bar gets a Removed tab after its last tab (a copy of that tab, unselected);
+  Reddit's tab group renders only its `pages` count of slots, so the count is raised by one once the component is
+  defined and restored when the tab goes. This replaces §17's Feed options → Activity → Removed row.
+- **P5 Presentation.** The status counts follow the selected tab and filters; the Subreddit menu offers only
+  communities with removed items on that tab. The notice is one short line ("61 couldn't be checked · stopped at
+  1,000 items"); the reasons are its tooltip.
 
 ### Limits
 

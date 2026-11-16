@@ -1763,20 +1763,25 @@ function ownProfileAccount(W,name='Example',owner='t2_self'){
  return app;
 }
 function removedEntryNavigations(W){const urls=[];W.document.addEventListener('click',event=>{const anchor=event.target.closest?.('a[href]');if(anchor && new URL(anchor.href).searchParams.get('rt_list')==='removed'){event.preventDefault();urls.push(new URL(anchor.href));}},true);return urls;}
-for(const [tab,type] of [['','all'],['submitted/','posts'],['comments/','comments']])test('own '+(tab || 'Overview')+' exposes Removed without eager reads and keeps the content scope',async t=>{
- const {W,d,calls}=setup(t,{url:'https://www.reddit.com/user/Example/'+tab});ownProfileAccount(W);const urls=removedEntryNavigations(W);await d.ready;
- const option=d.activityMenu.querySelector('[data-rt-activity-filter="removed"]');assert.ok(option);assert.equal(option.getAttribute('aria-label'),'Removed');assert.ok(option.querySelector('svg'));assert.equal(calls.length,0,'mounting the entry must not scan');
- d.activityDropdown.setAttribute('open','');d.openFeedSubmenu(d.activityMenu);option.click();assert.equal(urls.length,1);assert.equal(urls[0].pathname,'/user/Example/search/');assert.equal(urls[0].searchParams.get('rt_list'),'removed');assert.equal(urls[0].searchParams.get('type'),type);assert.equal(d.activityDropdown.hasAttribute('open'),false);assert.equal(calls.length,0,'source menu only navigates; destination owns the check');
+// Removed is a profile section beside Saved and History (spec §18 P4), from Reddit's own tab bar (captured 2026-11-16).
+const profileTabs=(name='Example')=>'<faceplate-tabgroup slot="tabs" id="profile-feed-tabgroup" pageindex="1" for="profile-feed-tabs">'+[['overview',''],['saved','saved/'],['downvoted','downvoted/']].map(([id,path],i)=>'<a rpl="" class=" button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex '+(i?'':'bg-secondary-background-selected !text-neutral-content-strong tab-selected')+'" href="/user/'+name+'/'+path+'" id="profile-tab-'+id+'_tab" slot="page-'+(i+1)+'" tabindex="'+(i?-1:0)+'" type="button"'+(i?'':' faceplate-tab-selected=""')+'><span class="flex items-center justify-center"><span class="flex items-center gap-xs"><span class="flex" actioned="">'+id[0].toUpperCase()+id.slice(1)+'</span></span></span></a>').join('')+'</faceplate-tabgroup>';
+const removedTab=W=>W.document.querySelector('#profile-feed-tabgroup [data-rt-ui="removed-tab"]');
+// A stand-in for Reddit's faceplate-tabgroup: it renders only "pages" slots, set as a component property.
+const defineTabgroup=W=>{if(!W.customElements.get('faceplate-tabgroup'))W.customElements.define('faceplate-tabgroup',class extends W.HTMLElement{get pages(){return this._pages;}set pages(value){this._pages=value;}});};
+test('your own profile’s tab bar gets a Removed tab like Saved and History, without reads, opening the Removed list',async t=>{
+ const {W,d,calls}=setup(t);defineTabgroup(W);W.document.querySelector('main').insertAdjacentHTML('afterbegin',profileTabs());ownProfileAccount(W);const urls=removedEntryNavigations(W);await d.ready;d.ensureActivityMenu();
+ const tab=removedTab(W);assert.ok(tab);assert.equal(tab.textContent.trim(),'Removed');assert.equal(tab.getAttribute('slot'),'page-4','after Reddit’s last tab');const group=W.document.querySelector('#profile-feed-tabgroup');assert.equal(group.pages,4,'Reddit’s tab group renders one more page slot (measured: it renders only "pages" slots)');assert.equal(tab.id,'profile-tab-removed_tab');
+ assert.match(tab.className,/button-medium .*button-plain/);assert.doesNotMatch(tab.className,/tab-selected|bg-secondary-background-selected/);assert.equal(tab.hasAttribute('faceplate-tab-selected'),false);assert.equal(tab.tabIndex,-1);
+ const href=new URL(tab.href);assert.equal(href.pathname,'/user/Example/search/');assert.equal(href.searchParams.get('rt_list'),'removed');assert.equal(href.searchParams.get('type'),'all');
+ assert.equal(calls.length,0,'mounting the tab must not scan');assert.equal(d.activityMenu.querySelector('[data-rt-activity-filter="removed"]'),null,'no second entry in Feed options');
+ tab.click();assert.equal(urls.length,1);assert.equal(urls[0].searchParams.get('rt_list'),'removed');
+ tab.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));assert.equal(urls.length,2,'keyboard opens it too');
+ d.ensureActivityMenu();assert.equal(W.document.querySelectorAll('[data-rt-ui="removed-tab"]').length,1,'added once');
+ const old=W.document.querySelector('#profile-feed-tabgroup');old.outerHTML=profileTabs();d.ensureActivityMenu();assert.ok(removedTab(W),'restored after Reddit redraws its tab bar');
 });
-test('Removed appears after native identity, survives menu replacement once, and supports keyboard activation',async t=>{
- const {W,d}=setup(t);const urls=removedEntryNavigations(W);await d.ready;assert.equal(d.activityMenu.querySelector('[data-rt-activity-filter="removed"]'),null);
- ownProfileAccount(W);d.ensureActivityMenu();d.ensureActivityMenu();assert.equal(d.activityMenu.querySelectorAll('[data-rt-activity-filter="removed"]').length,1);
- const old=d.activityDropdown;old.insertAdjacentHTML('afterend',nativeControls);old.remove();d.ensureActivityMenu();const option=d.activityMenu.querySelector('[data-rt-activity-filter="removed"]');assert.ok(option);assert.equal(d.activityMenu.querySelectorAll('[data-rt-activity-filter="removed"]').length,1);
- option.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));assert.equal(urls.length,1);assert.equal(urls[0].searchParams.get('type'),'posts');
-});
-test('Removed is own-only and stale entries stop navigating after account loss or a change',async t=>{
- const {W,d}=setup(t);const urls=removedEntryNavigations(W);const app=ownProfileAccount(W,'Other');await d.ready;assert.equal(d.activityMenu.querySelector('[data-rt-activity-filter="removed"]'),null);
- ownProfileAccount(W);d.ensureActivityMenu();const stale=d.activityMenu.querySelector('[data-rt-activity-filter="removed"]');assert.ok(stale);
- ownProfileAccount(W,'Example','t2_other');stale.click();assert.equal(urls.length,0,'same username with a different native account id cannot use old entry');d.ensureActivityMenu();assert.equal(d.activityMenu.querySelectorAll('[data-rt-activity-filter="removed"]').length,1);
- app.setAttribute('user-logged-in','false');stale.click();d.ensureActivityMenu();assert.equal(urls.length,0);assert.equal(d.activityMenu.querySelector('[data-rt-activity-filter="removed"]'),null);
+test('the Removed tab is own-only and leaves after a sign-out or account switch',async t=>{
+ const {W,d}=setup(t);defineTabgroup(W);W.document.querySelector('main').insertAdjacentHTML('afterbegin',profileTabs());const app=ownProfileAccount(W,'Other');await d.ready;d.ensureActivityMenu();assert.equal(removedTab(W),null,'another person’s profile');
+ ownProfileAccount(W);d.ensureActivityMenu();const tab=removedTab(W);assert.ok(tab);const urls=removedEntryNavigations(W);
+ ownProfileAccount(W,'Example','t2_other');tab.click();assert.equal(urls.length,0,'a stale tab never navigates for another account');
+ app.setAttribute('user-logged-in','false');d.ensureActivityMenu();assert.equal(removedTab(W),null);assert.equal(W.document.querySelector('#profile-feed-tabgroup').pages,3,'the native count comes back');
 });
