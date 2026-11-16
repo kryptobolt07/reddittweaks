@@ -30,3 +30,9 @@ test('a site page cannot clear history or choose another tab; only the extension
 test('popup acknowledgement and clear cannot affect an account other than the one displayed',async()=>{
  const b=setup();b.setMe({owner:'t2_other',username:'Other'});for(const action of ['seen','clear'])assert.equal((await b.send({action,tabId:1,owner:'t2_self'},b.popup)).ok,false);
 });
+test('the Removed view’s result cache works with monitoring off, for the verified current account only',async()=>{
+ const b=setup();b.values['rt-settings-v1']={ownRemoval:false};const t=Date.now();
+ assert.equal((await b.send({action:'proofs-save',owner:'t2_self',username:'Example',proofs:[{fullname:'t1_a',status:'visible',checkedAt:t}]})).ok,true);
+ const loaded=await b.send({action:'proofs-load',owner:'t2_self',username:'Example'});assert.equal(loaded.ok,true);assert.equal(loaded.proofs.t1_a.status,'visible');
+ b.setMe({owner:'t2_other',username:'Other'});assert.equal((await b.send({action:'proofs-load',owner:'t2_self',username:'Example'})).ok,false);
+});

@@ -388,6 +388,14 @@ the 4 newest comments were missing there yet visible when read directly.
 - **P5 Presentation.** The status counts follow the selected tab and filters; the Subreddit menu offers only
   communities with removed items on that tab. The notice is one short line ("61 couldn't be checked · stopped at
   1,000 items"); the reasons are its tooltip.
+- **P6 Cache.** Signed-out results are kept per account by the worker (`rt-removal-proofs-v1:<owner>`, status and
+  time only, at most 5,000): visible for 12 hours, removed or deleted for 24 hours, unknown never. Reopening Removed
+  reuses them, so only new or expired items take the visitor walk or a direct check. The cache works with monitoring off
+  and is bound to the verified current account.
+- **P7 Tab state.** On the list's search page Reddit's tab group draws only slotted tabs (Posts, Comments, Media) and
+  shows selection with classes on the tab, so All takes the first slot, Reddit's tabs follow, the slot count is raised
+  on the defined component, and the selected look and page index follow the listed type (live: Posts stayed
+  highlighted while All was listed).
 
 ### Limits
 

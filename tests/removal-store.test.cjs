@@ -41,3 +41,12 @@ test('the cache retains unsigned proof provenance without retaining response bod
 test('replacing an old metadata-only verdict with its first public proof establishes a new baseline',async()=>{
  const {store}=setup();await store.record(report([record('removed-auto',1799999000000,{confidence:'likely'})]));await store.record(report([record('visible',1799999000100,{publicStatus:'visible',publicCheckedAt:1799999000100})],{notify:true}));assert.equal((await store.read('t2_self','Example')).changes.length,0);
 });
+test('signed-out result cache: per account, short-lived, statuses only, no text',async()=>{
+ const now=1800000000000,{store,data}=setup({now:()=>now});const h=3600000;
+ await store.saveProofs({owner:'t2_self',username:'Example',proofs:[{fullname:'t1_visible',status:'visible',checkedAt:now-11*h,body:'secret'},{fullname:'t1_stale',status:'visible',checkedAt:now-13*h},{fullname:'t3_gone',status:'removed',checkedAt:now-23*h},{fullname:'t1_unknown',status:'unknown',checkedAt:now},{fullname:'bad id',status:'visible',checkedAt:now}]});
+ const proofs=await store.readProofs('t2_self','Example');
+ assert.deepEqual(Object.keys(proofs).sort(),['t1_visible','t3_gone'],'visible keeps 12 h, removed 24 h; unknown and invalid are never cached');
+ assert.equal(JSON.stringify(data).includes('secret'),false,'no item text is stored');
+ assert.deepEqual(Object.keys(await store.readProofs('t2_self','Other')),[],'bound to the account name too');
+ await assert.rejects(store.readProofs('nope','Example'));
+});

@@ -32,6 +32,9 @@
   if(message.action==='reset'){bindings.delete(sender.tab.id);await badge(sender.tab.id,'');return {ok:true};}
   const me=await verify(sender,message.username);
   if(!me || me.owner!==message.owner)throw Error('The signed-in account changed.');
+  // The Removed view's signed-out result cache serves that view whether or not monitoring is on.
+  if(message.action==='proofs-load')return {ok:true,proofs:await store.readProofs(me.owner,me.username)};
+  if(message.action==='proofs-save'){await store.saveProofs({...me,proofs:message.proofs});return {ok:true};}
   const cfg=await settings();if(cfg.ownRemoval!==true)throw Error('Removal monitoring is off.');
   const value=message.action==='load'?await store.read(me.owner,me.username):message.action==='record'?await store.record({...me,records:message.records,notify:cfg.removalNotifications===true}):null;
   if(!value)throw Error('Unknown monitoring action.');await update(me.owner,value);return {ok:true,value};

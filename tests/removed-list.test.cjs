@@ -11,7 +11,7 @@ const post=(id,extra={})=>({id,author:'Example',title:'Synthetic '+id,selftext:'
 const comment=(id,extra={})=>({id,author:'Example',body:'Synthetic comment '+id,link_id:'t3_parent',parent_id:'t3_parent',link_title:'Parent',subreddit:'Alpha',subreddit_type:'public',created_utc:created,...extra});
 
 // --- View (isolated world), with the page bridge stubbed by the bridge's real normalization rules.
-async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[]}={}){
+async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[],cache=null,saved=[]}={}){
  const dom=new JSDOM(page,{url:'https://www.reddit.com/user/Example/search/?rt_list=removed',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,archives=[];let d;
  t.after(()=>{d?.destroy();W.close();});
  for(const file of ['search-core.js','post-model.js','feed-filters.js','removal-model.js','post-discovery.js'])W.eval(read(file));
@@ -24,7 +24,7 @@ async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:fa
   if(args.action==='own-list'){assert.equal(args.list,'removed');const posts=children.map(([kind,data])=>{const item=kind==='t3'?M.normalizePost(data):M.normalizeComment(data);item.moderation={category:data.removed_by_category ?? null,removalReason:Boolean(data.removal_reason),locked:data.locked===true,subredditType:data.subreddit_type || 'public',quarantined:false,authorBody:kind==='t3'?data.selftext:data.body,...(data.native?{native:true}:{})};return item;});return {posts,scanned:posts.length,hasMore:false,after:null};}
   throw Error('Unexpected request: '+args.action);
  };
- d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover:false,reddit,archive:async args=>{archives.push(args);if(!archive)throw Error('No archive expected');return archive(args,W);},readSettings:async()=>({'rt-settings-v1':settings})});
+ d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover:false,removalCache:async message=>{if(message.action==='proofs-load')return {ok:true,proofs:cache || {}};saved.push(...message.proofs);return {ok:true};},reddit,archive:async args=>{archives.push(args);if(!archive)throw Error('No archive expected');return archive(args,W);},readSettings:async()=>({'rt-settings-v1':settings})});
  d.removalGapMs=0;await d.ready;await flush();await d.refreshActivity();await flush();
  const shown=[...d.nodes.values()].filter(n=>!n.hidden).map(n=>n.dataset.fullname);
  const pill=name=>[...d.nodes.values()].find(n=>n.dataset.fullname===name)?.querySelector('.rt-removal-pill');
@@ -213,4 +213,25 @@ test('the Subreddit menu on Removed offers only communities with removals, count
 test('the notice is one short line; the reasons are in its tooltip',async t=>{
  const s=await view(t,{children:[['t1',comment('a')],['t1',comment('b')]],publicProofs:{}});
  assert.equal(s.d.notice.textContent,'2 couldn’t be checked');assert.match(s.d.notice.title,/2 comments couldn’t be checked/);assert.match(s.d.notice.title,/\n/);
+});
+test('the All tab is drawn and selected; Reddit’s Posts highlight moves to the tab the list shows (live: Posts stayed highlighted)',async t=>{
+ const s=await view(t,{children:[['t3',post('m1',{removed_by_category:'moderator'})],['t1',comment('c1',{removed_by_category:'moderator'})]],publicProofs:{}});
+ const W=s.W,group=W.document.getElementById('search-results-page-tabgroup'),tabs=()=>[...group.querySelectorAll(':scope > a')];
+ W.customElements.define('faceplate-tabgroup',class extends W.HTMLElement{get pages(){return this._pages;}set pages(v){this._pages=v;}get pageIndex(){return this._index;}set pageIndex(v){this._index=v;}});
+ s.d.syncOwnListTabs();await flush();
+ assert.deepEqual(tabs().map(a=>a.textContent.trim()+'@'+a.getAttribute('slot')),['All@page-1','Posts@page-2','Comments@page-3','Media@page-4'],'every tab sits in a slot Reddit draws');
+ assert.equal(group.pages,4);assert.equal(group.pageIndex,1);
+ const selected=tabs().filter(a=>a.hasAttribute('faceplate-tab-selected') || /tab-selected/.test(a.className)).map(a=>a.textContent.trim());assert.deepEqual(selected,['All']);
+ assert.match(tabs()[0].className,/bg-secondary-background-selected/);assert.doesNotMatch(tabs()[1].className,/bg-secondary-background-selected|tab-selected/);
+ s.d.context.type='posts';s.d.syncOwnListTabs();await flush();assert.equal(group.pageIndex,2);assert.deepEqual(tabs().filter(a=>/tab-selected/.test(a.className)).map(a=>a.textContent.trim()),['Posts']);
+});
+test('cached signed-out results skip the visitor walk and direct checks; new results are saved without text',async t=>{
+ const calls=[],saved=[],now=Date.now();
+ const s=await view(t,{children:[['t1',comment('cached',{created_utc:created})],['t1',comment('fresh',{created_utc:created-60})]],publicProofs:{t1_fresh:{status:'removed',verified:true}},visitor:pages([]),calls,cache:{t1_cached:{status:'visible',checkedAt:now-60000}},saved});
+ assert.equal(calls.filter(c=>c.action==='removal-public' && c.fullname==='t1_cached').length,0,'cached: no signed-out request');
+ assert.equal(calls.filter(c=>c.action==='removal-public' && c.fullname==='t1_fresh').length,1);
+ assert.deepEqual(JSON.parse(JSON.stringify(saved.map(p=>[p.fullname,p.status]))),[['t1_fresh','removed']],'only new verified results are saved');assert.equal(Object.keys(saved[0]).sort().join(),'checkedAt,fullname,status');
+ assert.deepEqual(s.shown,['t1_fresh']);
+ const again=[],quiet=await view(t,{children:[['t1',comment('cached',{created_utc:created})]],publicProofs:{},visitor:pages([]),calls:again,cache:{t1_cached:{status:'visible',checkedAt:now}}});
+ assert.equal(again.filter(c=>c.action==='removal-public-profile' || c.action==='removal-public').length,0,'everything cached: no signed-out reads at all');
 });

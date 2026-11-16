@@ -37,7 +37,22 @@
   }
   const seen=(owner,username)=>{account(owner,username);return serial(owner.toLowerCase(),async()=>{const value=await read(owner,username);for(const c of value.changes)c.unread=false;value.unread=0;await save(value);return value;});};
   const clear=owner=>{account(owner,'valid');return serial(owner.toLowerCase(),()=>storage.remove(prefix+owner.toLowerCase()));};
-  return Object.freeze({read,record,seen,clear});
+  /* The Removed view's cache of signed-out results (spec §18 P6): status and time only, per account, so reopening the
+     view skips items checked recently. Visible results last 12 hours, removed/deleted 24 hours; unknown is never kept. */
+  const proofPrefix='rt-removal-proofs-v1:',ttl={visible:43200000,removed:86400000,deleted:86400000};
+  const freshProofs=(value,username)=>{const out={};if(value?.username?.toLowerCase()!==username.toLowerCase())return out;const t=now();
+   for(const [fullname,raw] of Object.entries(value.proofs || {}))if(/^t[13]_[a-z0-9]{1,32}$/.test(fullname) && Object.hasOwn(ttl,raw?.status) && Number.isFinite(raw.checkedAt) && raw.checkedAt<=t && t-raw.checkedAt<ttl[raw.status])out[fullname]={status:raw.status,checkedAt:raw.checkedAt};return out;};
+  async function readProofs(owner,username){account(owner,username);const key=proofPrefix+owner.toLowerCase();return freshProofs((await storage.get(key))?.[key],username);}
+  function saveProofs({owner,username,proofs}){
+   account(owner,username);if(!Array.isArray(proofs) || proofs.length>500)throw Error('Invalid result batch.');owner=owner.toLowerCase();
+   return serial('proofs:'+owner,async()=>{
+    const key=proofPrefix+owner,current=freshProofs((await storage.get(key))?.[key],username),t=now();
+    for(const proof of proofs)if(/^t[13]_[a-z0-9]{1,32}$/.test(proof?.fullname || '') && Object.hasOwn(ttl,proof.status) && Number.isFinite(proof.checkedAt) && proof.checkedAt<=t && t-proof.checkedAt<ttl[proof.status])current[proof.fullname]={status:proof.status,checkedAt:proof.checkedAt};
+    const kept=Object.entries(current).sort((a,b)=>b[1].checkedAt-a[1].checkedAt).slice(0,limit);
+    await storage.set({[key]:{username,proofs:Object.fromEntries(kept)}});
+   });
+  }
+  return Object.freeze({read,record,seen,clear,readProofs,saveProofs});
  }
  globalThis.RTRemovalStore=Object.freeze({create,prefix});
 })();
