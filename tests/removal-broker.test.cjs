@@ -42,3 +42,11 @@ test('the saved Removed list loads and saves for the verified current account on
  assert.equal((await b.send({action:'list-save',owner:'t2_self',username:'Example',items})).ok,true);const loaded=await b.send({action:'list-load',owner:'t2_self',username:'Example'});assert.equal(loaded.ok,true);assert.equal(loaded.items[0].fullname,'t3_a1');
  b.setMe({owner:'t2_other',username:'Other'});assert.equal((await b.send({action:'list-load',owner:'t2_self',username:'Example'})).ok,false);
 });
+
+test('opening Removed acknowledges new changes for the verified account, clearing the toolbar count',async()=>{
+ const b=setup(),t=Date.now()-1000;for(const [state,time] of [['visible',t],['removed-mod',t+1]])await b.send({action:'record',owner:'t2_self',username:'Example',records:[rec(state,time)]});
+ assert.equal(b.badges.at(-1).text,'1');
+ b.setMe({owner:'t2_other',username:'Other'});assert.equal((await b.send({action:'list-seen',owner:'t2_self',username:'Example'})).ok,false,'another account cannot acknowledge');
+ b.setMe({owner:'t2_self',username:'Example'});assert.equal((await b.send({action:'summary',tabId:1},b.popup)).value.unread,1,'still unread after the refused attempt');assert.equal((await b.send({action:'list-seen',owner:'t2_self',username:'Example'})).ok,true);assert.equal(b.badges.at(-1).text,'');
+ assert.equal((await b.send({action:'summary',tabId:1},b.popup)).value.unread,0);
+});

@@ -11,7 +11,7 @@ const post=(id,extra={})=>({id,author:'Example',title:'Synthetic '+id,selftext:'
 const comment=(id,extra={})=>({id,author:'Example',body:'Synthetic comment '+id,link_id:'t3_parent',parent_id:'t3_parent',link_title:'Parent',subreddit:'Alpha',subreddit_type:'public',created_utc:created,...extra});
 
 // --- View (isolated world), with the page bridge stubbed by the bridge's real normalization rules.
-async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[],cache=null,saved=[],ownList,before,emptyRead,publicDelay=0,list=[],listSaved=[],q='',search='',type=children?.every(([kind])=>kind==='t1')?'comments':'posts'}={}){
+async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[],cache=null,saved=[],ownList,before,emptyRead,publicDelay=0,list=[],listSaved=[],listSaves=[],listHistoryAt=0,seen=[],q='',search='',type=children?.every(([kind])=>kind==='t1')?'comments':'posts'}={}){
  const dom=new JSDOM(page,{url:'https://www.reddit.com/user/Example/search/?rt_list=removed&type='+type+(q?'&q='+encodeURIComponent(q):'')+search,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,archives=[];let d;
  t.after(()=>{d?.destroy();W.close();});
  for(const file of ['search-core.js','post-model.js','feed-filters.js','removal-model.js','post-discovery.js'])W.eval(read(file));
@@ -26,7 +26,7 @@ async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:fa
   if(args.action==='own-list'){assert.equal(args.list,'removed');const posts=children.map(([kind,data])=>{const item=kind==='t3'?M.normalizePost(data):M.normalizeComment(data);item.moderation={category:data.removed_by_category ?? null,removalReason:Boolean(data.removal_reason),locked:data.locked===true,subredditType:data.subreddit_type || 'public',quarantined:false,authorBody:kind==='t3'?data.selftext:data.body,...(data.native?{native:true}:{})};return item;});return {posts,scanned:posts.length,hasMore:false,after:null};}
   throw Error('Unexpected request: '+args.action);
  };
- d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover:false,removalCache:async message=>{if(message.action==='proofs-load')return {ok:true,proofs:cache || {}};if(message.action==='list-load')return {ok:true,items:list,savedAt:1};if(message.action==='list-save'){listSaved.push(message.items);return {ok:true};}saved.push(...message.proofs);return {ok:true};},reddit,archive:async args=>{archives.push(args);if(!archive)throw Error('No archive expected');return archive(args,W);},readSettings:async()=>({'rt-settings-v1':settings})});
+ d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover:false,removalCache:async message=>{if(message.action==='proofs-load')return {ok:true,proofs:cache || {}};if(message.action==='list-seen'){seen.push(message);return {ok:true};}if(message.action==='list-load')return {ok:true,items:list,savedAt:1,historyAt:listHistoryAt};if(message.action==='list-save'){listSaved.push(message.items);listSaves.push(message);return {ok:true};}saved.push(...message.proofs);return {ok:true};},reddit,archive:async args=>{archives.push(args);if(!archive)throw Error('No archive expected');return archive(args,W);},readSettings:async()=>({'rt-settings-v1':settings})});
  d.removalGapMs=0;d.archiveRetryMs=0;await d.ready;await flush();await before?.(d);await d.refreshActivity();await flush();
  const shown=[...d.nodes.values()].filter(n=>!n.hidden).map(n=>n.dataset.fullname);
  const pill=name=>[...d.nodes.values()].find(n=>n.dataset.fullname===name)?.querySelector('.rt-removal-pill');
@@ -55,15 +55,16 @@ test('Removed shows only your removed posts, each with its state pill and eviden
  assert.equal(s.archives.length,0,'no archive reads while “Use the archive” is off');
 });
 
-test('with the archive on, comments are classified from its captures in batches of at most 25',async t=>{
+// Arctic Shift is community-run: one ID request carries up to 100 items (its ID endpoints accept 500), not 25.
+test('with the archive on, comments are classified from its captures in batches of at most 100',async t=>{
  const children=[['t1',comment('auto1')],['t1',comment('mod1')],['t1',comment('seen1')],['t1',comment('none1')],...Array.from({length:26},(_,i)=>['t1',comment('bulk'+i)])];
  const s=await view(t,{settings:{postDiscovery:true,archiveDiscovery:true},children,archive:async(args,W)=>{
   if(args.action==='archive-profile')return {ok:true,posts:[],hasMore:false};
-  assert.equal(args.action,'archive-removal');assert.equal(args.kind,'comment');assert.ok(args.ids.length<=25);
+  assert.equal(args.action,'archive-removal');assert.equal(args.kind,'comment');assert.ok(args.ids.length<=100);
   const caps={auto1:{body:'[removed]',retrieved_on:created+10},mod1:{body:'Synthetic comment mod1',retrieved_on:created+600}};
   return {ok:true,posts:args.ids.filter(id=>caps[id]).map(id=>W.RTPostModel.normalizeComment({...comment(id),...caps[id]},{source:'arctic-shift'}))};
  }});
- const removals=s.archives.filter(a=>a.action==='archive-removal');assert.equal(removals.length,2);assert.deepEqual(removals.map(a=>a.ids.length),[25,5]);
+ const removals=s.archives.filter(a=>a.action==='archive-removal');assert.equal(removals.length,1,'30 comments: one request, not 25 + 5');assert.deepEqual(removals.map(a=>a.ids.length),[30]);
  // Only the archive capture of a removal makes a comment "removed"; one seen visible stays unchecked (no public view).
  assert.deepEqual(s.shown,['t1_auto1']);assert.equal(s.pill('t1_auto1').dataset.rtLabel,'Removed automatically (likely)');assert.match(s.pill('t1_auto1').title,/10 seconds after posting/);
  assert.equal(s.d.listState.items.get('mod1')?.removal?.state ?? [...s.d.listState.items.values()].find(p=>p.id==='mod1').removal.state,'unknown');
@@ -125,11 +126,11 @@ function broker({settings={postDiscovery:true,archiveDiscovery:true},data,monito
  const send=(message,sender={})=>new Promise(resolve=>{const r=listener({scope:'rt-posts',action:'archive-removal',username:'Example',kind:'comment',ids:['c1'],...message},{id:'own',frameId:0,url:'https://www.reddit.com/user/Example/search/?rt_list=removed',...sender},resolve);if(r!==true)resolve(undefined);});
  return {calls,send};
 }
-test('archive-removal needs the archive on and your own profile, takes at most 25 IDs and returns only your records',async()=>{
+test('archive-removal needs the archive on and your own profile, takes at most 100 IDs and returns only your records',async()=>{
  const b=broker({data:[{...comment('c1'),body:'[removed]',retrieved_on:created+5},{...comment('c2'),author:'Someone'}]});
  const result=await b.send({ids:['c1','c2']});assert.equal(result.ok,true);assert.deepEqual([...result.posts.map(p=>p.id)],['c1']);assert.equal(result.posts[0].retrieved,created+5);
  assert.equal(b.calls[0].pathname,'/api/comments/ids');assert.equal(b.calls[0].searchParams.get('ids'),'c1,c2');
- assert.equal((await b.send({ids:Array.from({length:26},(_,i)=>'c'+i)})).code,'invalid-request');
+ assert.equal((await b.send({ids:Array.from({length:101},(_,i)=>'c'+i)})).code,'invalid-request');const hundred=await b.send({ids:Array.from({length:100},(_,i)=>'c'+i)});assert.equal(hundred.ok,true);assert.equal(b.calls.at(-1).searchParams.get('ids').split(',').length,100,'one request carries the whole batch');
  assert.equal((await b.send({},{url:'https://www.reddit.com/user/Other/'})).code,'forbidden');
  assert.equal((await broker({settings:{postDiscovery:true}}).send({})).code,'disabled');
 });
@@ -416,4 +417,32 @@ test('Removed comment rows show the post title and a time even when Reddit’s t
  await new Promise(r=>setTimeout(r,5));const row=s.d.nodes.get('t1_c1') || [...s.d.nodes.values()].find(n=>n.dataset.fullname==='t1_c1');
  assert.equal(row.querySelector('[data-testid="search-sdui-comment-unit"] h2').textContent,'Synthetic thread title');
  const time=row.querySelector('time');assert.ok(time,'Reddit’s rendered <time> markup');assert.equal(time.textContent,'5d ago');assert.ok(time.getAttribute('datetime'));
+});
+
+test('opening Removed acknowledges new removal changes for your account (the toolbar count clears here, not in the popup)',async t=>{
+ const seen=[];await view(t,{children:[],type:'posts',publicProofs:{},seen});assert.equal(seen.length,1);assert.equal(seen[0].owner,'t2_self');assert.equal(seen[0].username,'Example');
+});
+
+// Arctic Shift is community-run: after one complete archive-history read, Removed reads only newer history for a week.
+const historyCase=async(t,{historyAt,pagesNewer=1})=>{
+ const nowS=Math.floor(Date.now()/1000),calls=[],listSaves=[];
+ const page=n=>({ok:true,posts:[{...post('recent'+n,{created_utc:nowS-3600*n,removed_by_category:'moderator'}),_meta:{removal_type:'moderator',was_deleted_later:true}},...(n>=pagesNewer?[post('older'+n,{created_utc:nowS-20*86400})]:[])],hasMore:true,before:nowS-3600*n-1});
+ const archive=async args=>{if(args.action!=='archive-profile')return {ok:true,posts:[]};calls.push(args);if(args.kind==='comment')return {ok:true,posts:[],hasMore:false};const n=calls.filter(c=>c.kind==='post').length;return n>=5?{ok:true,posts:[],hasMore:false}:page(n);};
+ const oldSaved=savedItem('oldgone',{source:'arctic-shift',created:nowS-30*86400,removal:{state:'removed-mod',confidence:'verified',why:'Earlier',flags:['gone']}});
+ const s=await view(t,{children:[],type:'posts',settings:{postDiscovery:true,archiveDiscovery:true},archive,publicProofs:{},visitor:()=>({items:[],after:null}),list:[oldSaved],listHistoryAt:historyAt,listSaves});
+ return {s,calls:calls.filter(c=>c.kind==='post'),listSaves,nowS};
+};
+test('within a week of a complete archive read, Removed reads only newer archive history and keeps older saved removals',async t=>{
+ const at=Date.now()-86400000,{s,calls,listSaves}=await historyCase(t,{historyAt:at});
+ assert.equal(calls.length,1,'stops once the history passes the last complete read (minus a 2-day margin)');
+ assert.deepEqual(s.shown.sort(),['t3_oldgone','t3_recent1'],'the older archive-only removal is kept from the saved list');
+ assert.equal(listSaves.at(-1).historyAt,at,'an incremental read keeps the time of the last complete read');
+});
+test('a stale (over a week) or missing complete-read time reads the whole archive history again and records a new time',async t=>{
+ for(const historyAt of [0,Date.now()-8*86400000]){
+  const before=Date.now(),{s,calls,listSaves}=await historyCase(t,{historyAt});
+  assert.equal(calls.length,5,'whole history, until Arctic Shift has nothing left');
+  assert.ok(listSaves.at(-1).historyAt>=before-1000,'a complete read records when it started');
+  assert.ok(!s.shown.includes('t3_oldgone'),'a complete read drops saved archive removals it no longer finds');
+ }
 });

@@ -3,7 +3,8 @@
   'use strict';
   const M=globalThis.RTPostModel;if(!M)return;
   const key='rt-settings-v1';
-  const profileBatchSize=25;
+  // Arctic Shift is community-run: removal lookups send up to 100 IDs per request instead of 25.
+  const profileBatchSize=25,archiveIdBatch=100,historyFullMs=7*86400000;
   const ownLists=['saved','history','hidden','upvoted','downvoted','removed'];
   const listIcons={saved:'save',history:'history',hidden:'hide',upvoted:'upvote',downvoted:'downvote'};
   // Verified from native account markup or the page-world identity read. The last confirmed name is kept so a
@@ -948,8 +949,8 @@
         catch(error){if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner || /account changed/i.test(error.message))throw Error('The signed-in account changed.');publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');}
       }
       const candidates=items.filter(post=>{const proof=publicProofs.get(post.fullname),verdict=R.classify({author:{...author(post),visibilityKnown:false},publicView:proof?.verified?{verified:true,visibility:proof.status,moderation:proof.moderation}:proof?{status:'failed'}:null,archiveStatus:'off'});return (post.kind==='comment' || post.moderation?.native) && !['visible','deleted','removed-mod','removed-auto','removed-admin','removed-filter'].includes(verdict.state) && !['private','employees_only','gold_restricted'].includes(post.moderation?.subredditType) && !post.moderation?.quarantined;}),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
-      if(archiveStatus==='ok')for(const kind of ['post','comment'])for(let index=0,grouped=candidates.filter(p=>(p.kind==='comment'?'comment':'post')===kind);index<grouped.length;index+=25){
-        const group=grouped.slice(index,index+25);
+      if(archiveStatus==='ok')for(const kind of ['post','comment'])for(let index=0,grouped=candidates.filter(p=>(p.kind==='comment'?'comment':'post')===kind);index<grouped.length;index+=archiveIdBatch){
+        const group=grouped.slice(index,index+archiveIdBatch);
         if(!current())return;
         try{const result=await this.archive({action:'archive-removal',username:context.username,...(me?{owner:me.owner}:{}),kind,ids:group.map(post=>post.id)});if(!current())return;
           for(const raw of result.posts || []){const archived=M.normalizeItem(raw,{source:'arctic-shift'});if(archived && (archived.kind==='comment')===(kind==='comment') && archived.author.toLowerCase()===context.username.toLowerCase())archives.set(archived.fullname,archived);}}
@@ -990,7 +991,10 @@
        Each entry is marked saved until a fresh check replaces it; a complete walk drops the rest and saves its result. */
     async showSavedRemoved(state,context){
       const me=globalThis.RTNativeRemoval?.identity(document),R=globalThis.RTRemovalModel;if(!me || !R || !this.removalCache || me.username.toLowerCase()!==context.username.toLowerCase())return;
+      // Opening Removed reviews your removals: it acknowledges new changes (the toolbar count) for this account.
+      Promise.resolve().then(()=>this.removalCache({action:'list-seen',owner:me.owner,username:me.username})).catch(()=>{});
       let saved;try{saved=await this.removalCache({action:'list-load',owner:me.owner,username:me.username});}catch{return;}if(this.listState!==state || !Array.isArray(saved?.items))return;
+      state.savedHistoryAt=Number.isFinite(saved.historyAt) && saved.historyAt>0?saved.historyAt:0;
       for(const raw of saved.items){
         if(raw.source==='arctic-shift' && !this.settings.archiveDiscovery || !R.STATES[raw.removal?.state])continue;
         const source=raw.source==='arctic-shift'?{source:'arctic-shift'}:undefined,base={id:raw.id,author:context.username,subreddit:raw.subreddit,created_utc:raw.created,score:raw.score,num_comments:raw.comments,postScore:raw.postScore,postComments:raw.postComments,thumbnail:raw.thumbnail,permalink:raw.permalink,over_18:raw.over18,spoiler:raw.spoiler};
@@ -1003,12 +1007,14 @@
     }
     settleSavedRemoved(state){
       const keepArchive=state.archiveHistoryError || !this.settings.archiveDiscovery;
-      for(const [key,post] of state.items)if(post.saved && !(keepArchive && post.source==='arctic-shift')){state.items.delete(key);this.dropCard(key);}
+      // An incremental history read didn't re-read archive removals older than its floor: those stay from the saved list.
+      const unread=post=>post.source==='arctic-shift' && state.historyFloor!=null && !state.archiveHistoryError && post.created<state.historyFloor;
+      for(const [key,post] of state.items)if(post.saved && !(keepArchive && post.source==='arctic-shift') && !unread(post)){state.items.delete(key);this.dropCard(key);}
       this.renderOwnList();
       if(state.window)return; // A date-window search never replaces the saved whole-account result.
       const me=globalThis.RTNativeRemoval?.identity(document);if(!me || !this.removalCache)return;
       const items=[...state.items.values()].filter(post=>post.removal?.removed).slice(0,2000).map(post=>({fullname:post.fullname,kind:post.kind==='comment'?'comment':'post',id:post.id,created:post.created,subreddit:post.subreddit,permalink:post.permalink,title:post.title || '',body:post.source==='arctic-shift'?post.body:post.moderation?.authorBody ?? post.body,source:post.source==='arctic-shift'?'arctic-shift':'reddit',postType:post.postType || '',score:post.score,comments:post.comments,postScore:post.postScore,postComments:post.postComments,thumbnail:(post.media || []).map(m=>m.kind==='video'?m.poster:m.url).find(Boolean) || post.thumbnail || '',over18:post.over18===true,spoiler:post.spoiler===true,removal:{state:post.removal.state,confidence:post.removal.confidence,why:post.removal.why,flags:post.removal.flags || []}}));
-      Promise.resolve(this.removalCache({action:'list-save',owner:me.owner,username:me.username,items})).catch(()=>{});
+      Promise.resolve(this.removalCache({action:'list-save',owner:me.owner,username:me.username,items,historyAt:state.historyComplete?state.historyStartedAt:state.historyFloor!=null && !state.archiveHistoryError?state.savedHistoryAt:0})).catch(()=>{});
     }
     // The card was drawn for a different record of this item (live or archived); the next render draws a new one.
     dropCard(key){const node=this.nodes.get(key);if(!node)return;this.nativeObserver?.unobserve?.(node);node.remove();this.nodes.delete(key);this.postMetadata?.delete(key);}
@@ -1017,6 +1023,11 @@
       const state=this.listState,R=globalThis.RTRemovalModel;if(!state || !R?.afterDeletion)return;const generation=this.generation,current=()=>!this.dead && this.listState===state && this.context===context && this.generation===generation && pageRoute()?.key===context.key;const me=globalThis.RTNativeRemoval?.identity(document);
       if(!this.settings.archiveDiscovery){state.removalNotes.add('Turn on “Use the archive” to include items you deleted after a removal.');return;}
       let added=0;state.archiveHistoryError=false;
+      // Arctic Shift is community-run (spec §31): within a week of a complete history read, read only history newer than
+      // it, less 2 days (the archive re-captures items about 36 h after posting). Older archive-only removals come
+      // from the saved list. Otherwise, or after a week, read the whole history again.
+      const startedAt=Date.now(),savedAt=state.savedHistoryAt || 0,floor=!state.window && savedAt>0 && startedAt-savedAt<historyFullMs?Math.floor(savedAt/1000)-2*86400:null;
+      state.historyFloor=floor;state.historyComplete=false;let complete=true;
       const kinds=state.window?[context.type==='comments'?'comment':'post']:['post','comment'];
       for(const kind of kinds){
         let before=state.window?.before ?? null;const cursors=new Set();
@@ -1029,7 +1040,7 @@
             try{result=await this.archive({action:'archive-profile',username:context.username,kind,...(me?{purpose:'removal-history',owner:me.owner}:{}),...(before?{before}:{})});failure=null;break;}
             catch(error){failure=error;if(!current())return;if(/turned off|preference|account changed|forbidden/i.test(error.message || ''))break;if(attempt<2)await new Promise(resolve=>setTimeout(resolve,this.archiveRetryMs ?? 2000));}
           }
-          if(failure){if(!current())return;state.archiveHistoryError=true;state.removalNotes.add('The archive didn’t answer for deleted items ('+String(failure.message || 'request failed').replace(/\.$/,'')+')');break;}
+          if(failure){if(!current())return;complete=false;state.archiveHistoryError=true;state.removalNotes.add('The archive didn’t answer for deleted items ('+String(failure.message || 'request failed').replace(/\.$/,'')+')');break;}
           if(!current())return;
           const found=(result?.posts || []).map(raw=>raw?.kind && raw.kind!==kind?null:(kind==='comment'?M.normalizeComment:M.normalizePost)(raw,{source:'arctic-shift'})).filter(Boolean);
           for(const item of found){
@@ -1037,12 +1048,13 @@
             const key=itemKey(item);state.archiveHistory ||= new Map();if(!state.archiveHistory.has(key))state.archiveHistory.set(key,item);if(this.mergeArchiveItem(key))added++;
           }
           if(added)this.renderOwnList();
-          if(state.window && found.some(item=>item.created<state.window.after) || !result?.hasMore)break;
-          if(result.cursorStalled || !found.length || !Number.isSafeInteger(result.before) || result.before<=0 || before!=null && result.before>=before || cursors.has(result.before)){state.removalNotes.add('Archive pagination stalled for '+kind+' history; coverage is incomplete.');break;}
-          if(page===historyPages-1){state.removalNotes.add('Archive '+kind+' history stopped at '+historyPages+' pages; coverage is incomplete.');break;}
+          if(state.window && found.some(item=>item.created<state.window.after) || floor!=null && found.some(item=>item.created<floor) || !result?.hasMore)break;
+          if(result.cursorStalled || !found.length || !Number.isSafeInteger(result.before) || result.before<=0 || before!=null && result.before>=before || cursors.has(result.before)){complete=false;state.removalNotes.add('Archive pagination stalled for '+kind+' history; coverage is incomplete.');break;}
+          if(page===historyPages-1){complete=false;state.removalNotes.add('Archive '+kind+' history stopped at '+historyPages+' pages; coverage is incomplete.');break;}
           before=result.before;cursors.add(before);
         }
       }
+      state.historyComplete=complete && floor==null && !state.window && !state.archiveHistoryError;state.historyStartedAt=startedAt;
       if(added)this.renderOwnList();
     }
     // Your profile as a signed-out visitor sees it, newest first, read only as far back as the items being checked

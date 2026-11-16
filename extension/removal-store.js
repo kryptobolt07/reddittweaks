@@ -77,11 +77,13 @@
   async function readList(owner,username){
    account(owner,username);const key=listPrefix+owner.toLowerCase(),value=(await storage.get(key))?.[key];
    if(value?.username?.toLowerCase()!==username.toLowerCase() || !Number.isFinite(value.savedAt) || now()-value.savedAt>=listLife)return {items:[],savedAt:0};
-   return {items:(Array.isArray(value.items)?value.items:[]).slice(0,listLimit).map(cleanListItem).filter(Boolean),savedAt:value.savedAt};
+   const historyAt=Number.isFinite(value.historyAt) && value.historyAt>0 && value.historyAt<=now()?value.historyAt:0;
+   return {items:(Array.isArray(value.items)?value.items:[]).slice(0,listLimit).map(cleanListItem).filter(Boolean),savedAt:value.savedAt,historyAt};
   }
-  function saveList({owner,username,items}){
+  // historyAt: when the last complete archive-history read started (spec §31), so later reads can stop at it.
+  function saveList({owner,username,items,historyAt}){
    account(owner,username);if(!Array.isArray(items) || items.length>listLimit)throw Error('Invalid Removed list.');owner=owner.toLowerCase();
-   return serial('list:'+owner,()=>storage.set({[listPrefix+owner]:{username,savedAt:now(),items:items.map(cleanListItem).filter(Boolean)}}));
+   return serial('list:'+owner,()=>storage.set({[listPrefix+owner]:{username,savedAt:now(),...(Number.isFinite(historyAt) && historyAt>0 && historyAt<=now()?{historyAt}:{}),items:items.map(cleanListItem).filter(Boolean)}}));
   }
   return Object.freeze({read,record,seen,clear,readProofs,saveProofs,readList,saveList});
  }

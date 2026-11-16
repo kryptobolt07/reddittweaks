@@ -78,8 +78,8 @@
    for(const kind of ['post','comment']){
     const candidates=pending.filter(e=>e.p.kind===kind && e.record.publicCheckedAt && !e.archiveDone && !e.p.moderation.category && !['visible','deleted'].includes(e.record.state));
     if(!this.settings.archiveDiscovery)continue;
-    for(let i=0;i<candidates.length;i+=25){
-     if(!this.current(me,generation))return;if(!this.visible())break;const group=candidates.slice(i,i+25);let response;
+    for(let i=0;i<candidates.length;i+=100){
+     if(!this.current(me,generation))return;if(!this.visible())break;const group=candidates.slice(i,i+100);let response;
      try{response=await this.archive({action:'archive-removal',monitor:true,...me,kind,ids:group.map(e=>e.p.id)});if(!response?.ok)throw Error(response?.error || 'Archive unavailable');}
      catch{response=null;}
      if(!this.current(me,generation))return;

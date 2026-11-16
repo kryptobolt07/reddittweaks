@@ -67,3 +67,7 @@ test('cards inside the Removed views are left to those views',async t=>{
  const s=await setup(t,{html:'<shreddit-feed data-rt-ui="removed-feed">'+card('post1','Example','AUTOMOD_FILTERED')+'</shreddit-feed><div data-rt-ui="search-feed">'+card('post2','Example','AUTOMOD_FILTERED')+'</div>'});await s.m.scan?.();await new Promise(r=>setTimeout(r,20));
  assert.equal(s.W.document.querySelectorAll('[data-rt-own-removal]').length,0);
 });
+test('a thread with many of your items asks the archive once per 100 items, not per 25',async t=>{
+ const s=await setup(t,{settings:{ownRemoval:true,archiveDiscovery:true},html:Array.from({length:30},(_,i)=>card('own'+i)).join('')});
+ assert.deepEqual(s.archives.map(a=>a.ids.length),[30]);
+});
