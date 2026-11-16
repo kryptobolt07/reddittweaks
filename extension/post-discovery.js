@@ -243,7 +243,7 @@
       if(tipsCard){event.preventDefault();closeTips(true);return;}const target=tipsTarget(event);if(!target)return;event.preventDefault();event.stopPropagation();openTips(target);},true);}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
-  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError','onRemovedTab','tabPages','removedTabSelection']),parkLimit=4;let generationSeq=0;
+  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError','onRemovedTab','tabPages','removedTabSelection','removedTabObserver','removedTabOwner']),parkLimit=4;let generationSeq=0;
   class Discovery {
     constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={},removalCache=message=>chrome.runtime.sendMessage({scope:'rt-removal',...message})}={}){
       this.removalCache=removalCache;
@@ -751,6 +751,10 @@
     setTabgroupPages(group,pages,index=0){
       const set=(name,value)=>{if(group.getAttribute(name)!==String(value))group.setAttribute(name,String(value));};
       set('pages',pages);if(index)set('pageindex',index);
+      // Reddit can reset the component's pages property without touching the attribute, which then hides
+      // our extra tab. Writing the attribute again makes the component redraw every requested tab.
+      const drawn=group.shadowRoot?.querySelectorAll('.tablist > [role="tab"]').length;
+      if(drawn && drawn!==pages){group.removeAttribute('pages');group.setAttribute('pages',String(pages));}
     }
     ownListMatch(post){
       if(this.searchParsed?.invalid)return false;
@@ -1166,9 +1170,11 @@
     syncRemovedTab(owner,route=pageRoute()){
       const group=document.querySelector('#profile-feed-tabgroup');let tab=document.querySelector('[data-rt-ui="removed-tab"]');
       const me=globalThis.RTNativeRemoval?.identity(document),allowed=!this.dead && this.settings.postDiscovery && owner && me?.owner===owner && route?.kind==='profile' && me.username.toLowerCase()===route.username.toLowerCase();
+      const restoreTab=(node,state)=>{node.className=state.cls;node.tabIndex=state.index;node.toggleAttribute('faceplate-tab-selected',state.selected);if(state.current==null)node.removeAttribute('aria-current');else node.setAttribute('aria-current',state.current);if(state.style==null)node.removeAttribute('style');else if(node.getAttribute('style')!==state.style)node.setAttribute('style',state.style);};
       const restore=()=>{
+        this.removedTabObserver?.disconnect();this.removedTabObserver=null;
         const old=this.tabPages;if(old?.group.isConnected){this.setTabgroupPages(old.group,old.native,old.index);}this.tabPages=null;
-        for(const [node,state] of this.removedTabSelection || []){node.className=state.cls;node.tabIndex=state.index;node.toggleAttribute('faceplate-tab-selected',state.selected);if(state.current==null)node.removeAttribute('aria-current');else node.setAttribute('aria-current',state.current);}
+        for(const [node,state] of this.removedTabSelection || [])restoreTab(node,state);
         this.removedTabSelection=null;tab?.remove();tab=null;
       };
       if(!allowed || !group){restore();return;}
@@ -1181,11 +1187,13 @@
       }
       const href='/user/'+encodeURIComponent(route.username)+'/hidden/?rt_view=removed';if(tab.getAttribute('href')!==href)tab.setAttribute('href',href);
       const selected=Boolean(route.section),classes=['bg-secondary-background-selected','!text-neutral-content-strong','tab-selected'];
+      // Reddit paints the selected tab with an inline background as well as classes, and only from its own page index.
+      const paintTab=(node,on)=>{for(const name of classes)if(node.classList.contains(name)!==on)node.classList.toggle(name,on);node.toggleAttribute('faceplate-tab-selected',on);const index=on?0:-1;if(node.tabIndex!==index)node.tabIndex=index;const background=on?'var(--color-secondary-background-selected)':'transparent';if(node.style.backgroundColor!==background)node.style.backgroundColor=background;};
       if(selected){this.removedTabSelection ||= new Map();for(const node of group.querySelectorAll(':scope > a:not([data-rt-ui="removed-tab"])')){
-        if(!this.removedTabSelection.has(node))this.removedTabSelection.set(node,{cls:node.className,index:node.tabIndex,selected:node.hasAttribute('faceplate-tab-selected'),current:node.getAttribute('aria-current')});
-        for(const name of classes)node.classList.remove(name);node.removeAttribute('faceplate-tab-selected');node.removeAttribute('aria-current');node.tabIndex=-1;
-      }}else if(this.removedTabSelection){for(const [node,state] of this.removedTabSelection){node.className=state.cls;node.tabIndex=state.index;node.toggleAttribute('faceplate-tab-selected',state.selected);if(state.current==null)node.removeAttribute('aria-current');else node.setAttribute('aria-current',state.current);}this.removedTabSelection=null;}
-      for(const name of classes)tab.classList.toggle(name,selected);tab.toggleAttribute('faceplate-tab-selected',selected);tab.tabIndex=selected?0:-1;if(selected)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current');
+        if(!this.removedTabSelection.has(node))this.removedTabSelection.set(node,{cls:node.className,index:node.tabIndex,selected:node.hasAttribute('faceplate-tab-selected'),current:node.getAttribute('aria-current'),style:node.getAttribute('style')});
+        paintTab(node,false);node.removeAttribute('aria-current');
+      }}else if(this.removedTabSelection){for(const [node,state] of this.removedTabSelection)restoreTab(node,state);this.removedTabSelection=null;}
+      paintTab(tab,selected);if(selected){if(tab.getAttribute('aria-current')!=='page')tab.setAttribute('aria-current','page');}else tab.removeAttribute('aria-current');
       const slot=Number(tab.getAttribute('slot').split('-')[1]),linked=document.getElementById(group.getAttribute('for')),nativeFeed=document.querySelector('main shreddit-feed:not([data-rt-ui])'),linkedFeed=nativeFeed && linked?.contains(nativeFeed);
       // Native pagination synchronizes through `for`. Selecting a ninth panel would hide a feed hosted in
       // one of Reddit's real panels. Keep that panel, selecting only our header tab and its accessible wrapper.
@@ -1193,9 +1201,17 @@
       if(!selected && Number(group.getAttribute('pageindex'))===slot)this.setTabgroupPages(group,slot,this.tabPages.index);
       if(selected && linkedFeed)Promise.resolve(group.updateComplete).then(()=>{
         if(!tab.isConnected || !pageRoute()?.section || this.dead)return;
-        for(const node of group.querySelectorAll(':scope > a')){const on=node===tab;node.toggleAttribute('faceplate-tab-selected',on);for(const name of classes)node.classList.toggle(name,on);node.tabIndex=on?0:-1;}
+        for(const node of group.querySelectorAll(':scope > a'))paintTab(node,node===tab);
         for(const wrapper of group.shadowRoot?.querySelectorAll('.tablist > [data-i][role="tab"]') || [])wrapper.setAttribute('aria-selected',String(Number(wrapper.dataset.i)===slot));
       });
+      // A native repaint or a reset tab count re-runs this sync; records from our own writes are dropped below.
+      this.removedTabOwner=owner;
+      if(this.removedTabObserver?.group!==group){
+        this.removedTabObserver?.disconnect();const observer=this.removedTabObserver=new MutationObserver(()=>{if(this.removedTabObserver===observer && !this.dead)this.syncRemovedTab(this.removedTabOwner);});observer.group=group;
+        observer.observe(group,{subtree:true,attributes:true,attributeFilter:['class','style','faceplate-tab-selected','pages','pageindex']});
+      }
+      if(group.shadowRoot && this.removedTabObserver.shadow!==group.shadowRoot){this.removedTabObserver.shadow=group.shadowRoot;this.removedTabObserver.observe(group.shadowRoot,{subtree:true,childList:true});}
+      this.removedTabObserver.takeRecords();
       if(!this.onRemovedTab){
         this.onRemovedTab=event=>{
           const tab=event.target?.closest?.('[data-rt-ui="removed-tab"]');if(!tab || event.type==='keydown' && (!['Enter',' '].includes(event.key) || event.repeat) || event.type==='click' && event.button!==0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)return;
