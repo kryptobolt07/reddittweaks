@@ -120,3 +120,11 @@ test('native item reads reuse the unsigned search frame with the same anonymous 
 test('an item endpoint refusal does not discard or pause a healthy unsigned search session',async()=>{
  const e=env({nativeOwner:{owner:'t2_self',username:'Example'},fetcher:url=>response(url,{status:url.includes('/comment/')?403:200})});await e.read(endpoint());await assert.rejects(e.read('https://www.reddit.com/svc/shreddit/comment/t1_19gsnavtu46ip?isProfile=true'));assert.equal(e.hasSession(),true);await e.read(endpoint('again'));await e.read('https://www.reddit.com/svc/shreddit/partial-feed-post/t3_post1?isProfile=true');assert.equal(e.nodes.length,1);
 });
+test('own signed-out profile pages (spec §18): first page as HTML and native continuations, own profile only, exact parameters',async()=>{
+ const e=env({nativeOwner:{owner:'t2_self',username:'Example'}});
+ const first='https://www.reddit.com/user/Example/?sort=new',next='https://www.reddit.com/svc/shreddit/profiles/profile_overview-more-posts/new/?sort=new&after=dDFfYWJj&name=Example&navigationSessionId=abc-123&feedLength=33&referer=https%3A%2F%2Fwww.reddit.com%2Fuser%2FExample%2F';
+ await e.read(first);assert.equal(e.calls[0][1].headers.Accept,'text/html','the first page is a full document');assert.equal(e.calls[0][1].credentials,'same-origin');
+ await e.read(next);assert.match(e.calls[1][1].headers.Accept,/partial/);await e.read(next+'&distance=25');assert.equal(e.nodes.length,1,'same anonymous frame');
+ for(const bad of ['https://www.reddit.com/user/Other/?sort=new','https://www.reddit.com/user/Example/?sort=top','https://www.reddit.com/user/Example/comments/?sort=new',next.replace('name=Example','name=Other'),next.replace('profile_overview','profile_posts'),next+'&token=x','https://evil.example/user/Example/?sort=new'])await assert.rejects(e.read(bad),undefined,bad);
+ const signedOut=env({nativeOwner:null});await assert.rejects(signedOut.read(first),undefined,'needs the verified own account');
+});

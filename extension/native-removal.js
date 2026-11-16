@@ -72,6 +72,30 @@
   }
   return {posts,scanned,unreadable,after,hasMore:Boolean(after),incomplete:true,source:'reddit',transport:'native'};
  }
+ /* Your profile as a signed-out visitor sees it (spec §18): which of your items are listed, with their times, and the
+    native continuation. The page is your own profile, so a card counts when its author name is yours; viewer-only
+    markers (author IDs on menus) may be absent signed out. */
+ function publicListing(doc,me,{continuation=false}={}){
+  if(!ownerOK(me?.owner) || !M.validateUsername(me?.username))throw Error('Invalid own signed-out profile read.');
+  const feed=doc.querySelector('main shreddit-feed,shreddit-feed') || doc,items=[],seen=new Set();let scanned=0;
+  for(const card of feed.querySelectorAll('shreddit-post,shreddit-profile-comment')){
+   scanned++;const comment=card.tagName!=='SHREDDIT-POST',fullname=(card.getAttribute(comment?'comment-id':'id') || card.getAttribute('thingid') || '').toLowerCase();
+   if(!(comment?M.validateCommentId(fullname)&&fullname.startsWith('t1_'):M.validateId(fullname)&&fullname.startsWith('t3_')))continue;
+   const author=card.getAttribute('author') || ownQuery(card,'shreddit-overflow-menu[author-name]')?.getAttribute('author-name') || ownQuery(card,'[id^="poster-info-"] a[href*="/user/"]')?.getAttribute('href')?.match(/\/user\/([\w-]+)\/?$/)?.[1];
+   if(author && author.toLowerCase()!==me.username.toLowerCase())continue;
+   const created=Date.parse(card.getAttribute('created-timestamp') || ownQuery(card,'faceplate-timeago[ts]')?.getAttribute('ts') || '')/1000;
+   const subreddit=String(card.getAttribute('subreddit-name') || card.getAttribute('subreddit-prefixed-name') || (card.getAttribute('permalink') || card.getAttribute('href') || '').match(/^\/r\/([^/]+)\//)?.[1] || '').replace(/^r\//i,'').toLowerCase();
+   if(!seen.has(fullname)){seen.add(fullname);items.push({fullname,created:Number.isFinite(created) && created>0?Math.floor(created):0,subreddit});}
+  }
+  if(!scanned && !continuation && !doc.querySelector('shreddit-feed,#empty-feed-content,[data-testid="empty-state"]'))throw Error('Reddit’s signed-out profile could not be read.');
+  let after=null;
+  for(const partial of feed.querySelectorAll('faceplate-partial[src*="/svc/shreddit/profiles/"]')){
+   const url=new URL(partial.getAttribute('src'),'https://www.reddit.com');if(!url.pathname.includes('more-posts'))continue;
+   if(url.origin!=='https://www.reddit.com' || url.pathname!=='/svc/shreddit/profiles/profile_overview-more-posts/new/' || url.searchParams.get('name')?.toLowerCase()!==me.username.toLowerCase() || url.href.length>4096)throw Error('Reddit’s signed-out profile continuation changed.');
+   after=url.pathname+url.search;break;
+  }
+  return {items,after,hasMore:Boolean(after)};
+ }
  function publicItem(doc,expected){
   const fullname=expected?.fullname,comment=/^t1_/.test(fullname || ''),unknown=why=>({fullname,status:'unknown',verified:false,source:'signed-out-native',why});
   if(!(comment?M.validateCommentId(fullname):M.validateId(fullname)) || !M.validateUsername(expected?.username))return unknown('Invalid public item identity.');
@@ -82,12 +106,15 @@
   const body=bodyOf(card),state=(card.getAttribute('item-state') || '').toUpperCase(),flag=name=>card.hasAttribute(name) && card.getAttribute(name)!=='false';
   const explicit=flag('deleted') || flag('is-comment-deleted') || flag('removed') || ['REMOVED','DELETED','SPAM','FILTERED','AUTOMOD_FILTERED'].includes(state) || ownQuery(card,'[slot="post-removed-banner"],[slot="comment-removed-banner"]');
   let status=explicit?M.domStatus(card) || (state==='DELETED'?'deleted':'removed'):'';
-  const notice=M.noticeStatus(body);if(!status && notice && notice!==expected.originalNotice)status=notice;
+  // Signed out, Reddit puts a removed or deleted comment's notice in a plain block under the card's .md wrapper, with
+  // no text element and no author line (captured 2026-11-16). Only a block that is exactly the notice counts.
+  const plain=body?'':(ownQuery(card,'.md > div')?.textContent || '').trim();
+  const notice=M.noticeStatus(body || plain);if(!status && notice && notice!==expected.originalNotice)status=notice;
   if(!status){
    const readable=Boolean(body) || !comment && !expected.expectsBody && Boolean(card.getAttribute('post-title'));
    if(author.toLowerCase()!==expected.username.toLowerCase() || !readable)return unknown('The signed-out item was gated or contained no readable content.');status='visible';
   }
   return {fullname,status,verified:true,source:'signed-out-native',moderation:state==='APPROVED'?'approved':'',why:status==='visible'?'Visible in a signed-out Reddit view.':status==='removed'?'The signed-out Reddit view marks this item as removed.':'The signed-out Reddit view marks this item as deleted.'};
  }
- globalThis.RTNativeRemoval=Object.freeze({identity,item,listing,ownerOK,publicItem});
+ globalThis.RTNativeRemoval=Object.freeze({identity,item,listing,ownerOK,publicItem,publicListing});
 })();

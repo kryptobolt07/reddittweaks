@@ -355,3 +355,43 @@ Expose the existing Removed view from **Feed options → Activity → Removed** 
 | T12–T16 | Existing extension recovery, paused-tab, responsive/theme and Old Reddit behavior unchanged; no new background work |
 
 Lifecycle: ensureActivityMenu creates/rebuilds the own-profile entry on current native identity, its existing teardown removes it when menu/route/settings change, and activation checks identity again. Tests are written before implementation for entry visibility, typed destination, no eager checks, keyboard activation, late identity, account changes and native host replacement. Prior native-profile menu measurements and the committed native-profile-controls fixture supply native markup; no new presentation is introduced. Per user preference final live installed review is left to the user, with no CDP or constructed preview for this addition.
+
+## 18. Signed-in vs signed-out profile comparison (2026-11-16; supersedes §16's per-item scan)
+
+Measured live on the user's account (read-only, 2026-11-16): one signed-out item read per profile item (~1,000) made
+Reddit refuse further signed-out reads (HTTP 403) after ~200, leaving most comments unchecked and letting a stale
+archive snapshot decide (a post approved after an early AutoModerator removal showed as "removed"). Signed-out author
+search found only ~220 items (search coverage is incomplete). Through the existing credentialless anonymous session,
+the profile as a signed-out visitor sees it loads page after page (HTTP 200, 25 items), and single signed-out item
+reads work. A plain cookieless request gets page 1 only (403 on continuations). Page 1 for visitors is a cached copy:
+the 4 newest comments were missing there yet visible when read directly.
+
+### Approach
+
+- **P1 Bulk visibility.** Walk the signed-out overview (`/user/<you>/?sort=new` and its `profile_overview-more-posts`
+  continuations, anonymous session only, own profile only) alongside the signed-in walk, newest first, only as far
+  back as the items being checked. An item present there is publicly visible (`source: signed-out-profile`).
+- **P2 Direct checks for differences only.** An item absent from the signed-out pages that cover its time, newer than
+  the signed-out page 1 (cache lag), or older than signed-out coverage (walk stopped) gets one signed-out item read.
+  At most 50 a scan, one at a time; the rest stay unchecked. Absence alone is never removal evidence.
+- **P3 Removed, then deleted.** With the archive enabled, Arctic Shift author history over the scanned time span adds
+  items no longer on the profile whose archive shows a moderator, Reddit or AutoModerator removal
+  (`removed_by_category` at capture or `_meta.removal_type` at its re-check). Self-deletion alone (`deleted`) is not
+  shown. These rows say "Removed, then deleted by you". Fresh signed-out visibility always beats archive evidence.
+- **P4 Entry.** Removed is a list beside Saved, History, Hidden, Upvoted and Downvoted (same list switcher and header
+  pill), reachable from the own profile like the other lists.
+
+### Limits
+
+Signed-out reads still depend on Reddit's anonymous session; a refusal stops P1 and leaves P2's budget to the
+newest differences, reported as unchecked. Visitors' page 1 can lag minutes behind. Arctic Shift records are
+snapshots with their own gaps; P3 lists only what it captured.
+
+### Transitions
+
+| T | Transition | Expected |
+|---|---|---|
+| T18.1 | Signed-out walk refused mid-scan | Already-seen items stay visible; later items take direct checks within budget, the rest unchecked with the reason |
+| T18.2 | Account switch during the walk | Both walks stop; nothing from the old account is classified |
+| T18.3 | Leaving the Removed list | Walks and direct checks are cancelled |
+| T18.4 | Archive off | P3 is skipped and said so; P1/P2 unchanged |

@@ -14,6 +14,17 @@
     if(location.origin===origin && url.origin===origin && !url.username && !url.password && !url.port && !url.hash && /^\/svc\/shreddit\/(?:comment\/t1_[a-z0-9]{1,32}|partial-feed-post\/t3_[a-z0-9]{1,10})$/.test(url.pathname)){
       if(!globalThis.RTNativeRemoval?.identity(document) || p.get('isProfile')!=='true' || [...p.keys()].length!==1)throw failure('Invalid signed-out item check.');return url;
     }
+    // Your own profile as a signed-out visitor sees it (spec §18): its first page and native continuations only.
+    const me=globalThis.RTNativeRemoval?.identity(document),clean=location.origin===origin && url.origin===origin && !url.username && !url.password && !url.port && !url.hash;
+    if(clean && me && url.pathname.toLowerCase()==='/user/'+me.username.toLowerCase()+'/'){
+      if([...p.keys()].length!==1 || p.get('sort')!=='new')throw failure('Invalid signed-out profile read.');return url;
+    }
+    if(clean && url.pathname==='/svc/shreddit/profiles/profile_overview-more-posts/new/'){
+      // Captured 2026-11-16: page 2 onward adds distance.
+      const allowed=['sort','after','name','navigationSessionId','feedLength','referer','distance'];
+      if(!me || p.get('name')?.toLowerCase()!==me.username.toLowerCase() || p.get('sort')!=='new' || url.href.length>4096 || [...p.keys()].some(key=>!allowed.includes(key) || p.getAll(key).length!==1) || [...p.values()].some(value=>/[\u0000-\u001f\u007f]/.test(value)))throw failure('Invalid signed-out profile read.');
+      return url;
+    }
     const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search))?\/?$/i);
     if(location.origin!==origin || !profile || url.origin!==origin || url.username || url.password || url.port || url.hash || url.pathname!=='/svc/shreddit/search/')throw failure();
     const q=p.get('q') || '',author=q.match(/^author:"([\w-]{1,20})"(?: [^\u0000-\u001f\u007f]{1,300})?$/);
@@ -70,7 +81,7 @@
     }catch(error){controller.abort();throw error;}finally{await reader.cancel().catch(()=>{});}
   }
   async function perform(value,{signal,refresh=false}={}){
-    const url=validate(value),page=location.href,generation=revision,itemRead=url.pathname!=='/svc/shreddit/search/';
+    const url=validate(value),page=location.href,generation=revision,itemRead=/^\/svc\/shreddit\/(?:comment|partial-feed-post)\//.test(url.pathname),firstProfilePage=url.pathname.startsWith('/user/');
     if(signal?.aborted)throw failure('Post request cancelled.');
     if(refresh && !rateLimited)cooldownUntil=0;
     if(itemRead && refresh && !rateLimited)itemRefusals.delete(url.pathname);
@@ -82,7 +93,7 @@
       node=create();const initial=await ready(node,controller.signal);
       if(signal?.aborted || controller.signal.aborted)throw failure('Post request cancelled.');
       timer=setTimeout(()=>{timedOut=true;controller.abort();},5000);
-      const response=await initial.window.fetch(url.href,{method:'GET',credentials:'same-origin',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
+      const response=await initial.window.fetch(url.href,{method:'GET',credentials:'same-origin',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',headers:{Accept:firstProfilePage?'text/html':'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
       responseStatus=response.status;
       if(response.status===429){const hint=response.headers.get('retry-after'),seconds=Number(hint),retry=Number.isFinite(seconds)?seconds*1000:Date.parse(hint)-Date.now();cooldownUntil=Date.now()+Math.min(3600000,retry>0?retry:60000);rateLimited=true;throw failure('Reddit rate limit reached. Try again later.');}
       if(response.status>=500)throw failure('Reddit couldn’t load public search (HTTP '+response.status+').');
