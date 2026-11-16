@@ -1,3 +1,14 @@
+# 0.39.3 preview
+
+- **Search reads to the end:** profile search no longer stops after ten pages with "Searched back to…", "Search older" or "Search and archive coverage may be incomplete". It keeps loading as you scroll until Reddit and the archive both have nothing left. Errors still pause with Retry. Subreddit archive search is unchanged.
+- **Reddit's own no-results page:** an empty profile search (plain, Removed, Saved, History and the other lists) shows Reddit's own view: Snoo, "Hm...we couldn’t find any results for "…"", the hint and Adjust your search. 0.39.2 looked for markup Reddit doesn't serve (`#empty-search-results`); the live view is `search-error-message`. Only the view is reused, never Reddit's telemetry wrapper.
+- **No invented zero counts:** Removed results saved before 0.39.2 had no vote or comment counts and showed "0 votes · 0 comments" until the fresh check finished. They now show no count line until real counts arrive. One complete check re-saves the list with counts.
+- **Reddit's spacing:** the first search result and the no-results view now sit where Reddit puts them (8px under "Show results from…"), instead of 28-46px lower. The "Some matches filtered locally" banner is gone from search; the note stays in the screen-reader status.
+- **Version:** patch increment for search reliability and layout fixes. No new permissions, endpoints or storage changes.
+- **Validation:** all 1,727 tests pass; 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `a6542e306e2f501f20889278ac2c3d7acba277b509a13634a3194479c2c944d6`.
+- **Live check (read-only, separate tab):** plain search paged to the end of both sources (back to Sep 2024) with no note or button; an unmatched query showed Reddit's view at the same 204/220/364px positions as a native no-results page; the first result moved from 232px to 204px in plain and Removed search; Removed search showed stored counts at once. Removing the Removed filter kept r/LaptopDealsIndia and the other filters.
+- **Limitation:** Removed's no-results view was seen live with Reddit's title and button on the pre-layout build, but on 0.39.3 Arctic Shift refused the deleted-items read twice, so Removed correctly showed the archive error instead of an empty result. Its position uses the same feed and spacing rules as plain search (measured at 204px) but wasn't measured live.
+
 # 0.39.2 preview
 
 - **Removed search facts:** previews, votes and comment counts now travel from native cards through saved Removed results into search rows. Existing saved entries gain missing facts on their next fresh check.
