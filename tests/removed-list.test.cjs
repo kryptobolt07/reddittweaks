@@ -11,14 +11,15 @@ const post=(id,extra={})=>({id,author:'Example',title:'Synthetic '+id,selftext:'
 const comment=(id,extra={})=>({id,author:'Example',body:'Synthetic comment '+id,link_id:'t3_parent',parent_id:'t3_parent',link_title:'Parent',subreddit:'Alpha',subreddit_type:'public',created_utc:created,...extra});
 
 // --- View (isolated world), with the page bridge stubbed by the bridge's real normalization rules.
-async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[],cache=null,saved=[],ownList,before,publicDelay=0,list=[],listSaved=[],q='',type=children?.every(([kind])=>kind==='t1')?'comments':'posts'}={}){
- const dom=new JSDOM(page,{url:'https://www.reddit.com/user/Example/search/?rt_list=removed&type='+type+(q?'&q='+encodeURIComponent(q):''),runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,archives=[];let d;
+async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:false},archive,publicProofs,visitor,calls=[],cache=null,saved=[],ownList,before,emptyRead,publicDelay=0,list=[],listSaved=[],q='',search='',type=children?.every(([kind])=>kind==='t1')?'comments':'posts'}={}){
+ const dom=new JSDOM(page,{url:'https://www.reddit.com/user/Example/search/?rt_list=removed&type='+type+(q?'&q='+encodeURIComponent(q):'')+search,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,archives=[];let d;
  t.after(()=>{d?.destroy();W.close();});
  for(const file of ['search-core.js','post-model.js','feed-filters.js','removal-model.js','post-discovery.js'])W.eval(read(file));
  const M=W.RTPostModel;if(publicProofs)W.RTNativeRemoval={identity:()=>({owner:'t2_self',username:'Example'})};
  const reddit=async args=>{
   if(args.action==='own-list-identity')return {username:'Example'};
   calls.push(args);
+  if(args.action==='render-search-empty'){if(emptyRead)return emptyRead(args,W);W.document.getElementById(args.target).innerHTML='<faceplate-partial><div class="native-empty-search"><img data-native-empty-art="true" src="https://www.redditstatic.com/synthetic-empty.png"><h2>Hm...we couldn’t find any results for</h2><p>Double-check your spelling</p><button>Adjust your search</button></div></faceplate-partial>';return {rendered:true};}
   if(args.action==='removal-public-profile'){assert.equal(args.owner,'t2_self');if(!visitor)throw Error('Reddit blocked the signed-out profile (HTTP 403).');return visitor(args);}
   if(args.action==='removal-public'){assert.equal(args.owner,'t2_self');if(publicDelay){await new Promise(r=>setTimeout(r,publicDelay));calls.push({action:'public-done',fullname:args.fullname});}return {proof:{fullname:args.fullname,...(publicProofs?.[args.fullname] || {status:'unknown',verified:false})}};}
   if(args.action==='own-list' && ownList)return ownList(args,M);
@@ -77,12 +78,12 @@ test('an archive failure leaves comments as “Couldn’t check” and says so, 
 
 test('no removals says how many items could be checked, not that nothing was removed',async t=>{
  const s=await view(t,{children:[['t3',post('a')],['t3',post('b')],['t1',comment('c')]]});
- assert.deepEqual(s.shown,[]);assert.equal(s.d.listEmpty.hidden,false);assert.equal(s.d.listEmpty.textContent,'No removals found in the 2 items that could be checked.');
+ assert.deepEqual(s.shown,[]);assert.equal(s.d.listEmpty.hidden,false);assert.match(s.d.listEmpty.textContent,/No removed posts match your search/);
 });
 
 test('native metadata without a visibility verdict remains unchecked and exposes its limit',async t=>{
  const s=await view(t,{children:[['t3',post('a')]]});const item=[...s.d.listState.items.values()][0];item.moderation.visibilityKnown=false;
- await s.d.classifyRemoved([item],s.d.context);s.d.renderOwnList();assert.equal(item.removal.state,'unknown');assert.match(s.d.notice.title,/native metadata does not establish public visibility/);assert.match(s.d.listEmpty.textContent,/0 items that could be checked/);
+ await s.d.classifyRemoved([item],s.d.context);s.d.renderOwnList();assert.equal(item.removal.state,'unknown');assert.match(s.d.notice.title,/native metadata does not establish public visibility/);assert.match(s.d.listEmpty.textContent,/could not be verified/i);
 });
 test('native Removed pages state their coverage limit and use archive evidence for own posts too',async t=>{
  const s=await view(t,{children:[['t3',post('auto1')]]});const p=[...s.d.listState.items.values()][0];Object.assign(p.moderation,{native:true,nativeRemoved:true,visibilityKnown:false});s.d.settings.archiveDiscovery=true;
@@ -367,4 +368,31 @@ test('a saved archive card is updated in place when the fresh archive history co
  const ownList=(args,M)=>{if(before==null)before=[...d.nodes.values()].find(n=>n.dataset.fullname==='t3_gonepost');return {posts:[],scanned:0,hasMore:false,after:null};};
  const s=await view(t,{ownList,archive,publicProofs:{},visitor:()=>({items:[],after:null}),settings:{postDiscovery:true,archiveDiscovery:true},list:[savedItem('gonepost',{source:'arctic-shift',created:created-50,removal:{state:'removed-mod',confidence:'verified',why:'Earlier',flags:['deleted-later']}})],before:x=>{d=x;}});
  const after=[...s.d.nodes.values()].find(n=>n.dataset.fullname==='t3_gonepost');assert.ok(before);assert.equal(after,before,'same card node, no remove and re-insert');assert.equal(s.d.listState.items.get('gonepost').saved,undefined);assert.match(after.textContent,/Synthetic gonepost/,'the row shows the fresh record');
+});
+
+test('saved Removed search shows the stored votes, comments and preview before its fresh walk answers',async t=>{
+ let d,preview,facts;const list=[{fullname:'t3_kept',kind:'post',id:'kept',created,subreddit:'Alpha',permalink:'/r/Alpha/comments/kept/title/',title:'Saved facts',body:'Saved text',source:'reddit',postType:'image',score:57,comments:8,thumbnail:'https://preview.redd.it/syntheticpreview.jpg',removal:{state:'removed-mod',confidence:'verified',why:'Native',flags:[]}}];
+ await view(t,{children:[],type:'posts',list,publicProofs:{},before:instance=>d=instance,ownList:async()=>{const node=d.nodes.get('kept');preview ||= node?.querySelector('[data-testid="search_post_thumbnail"]')?.getAttribute('src');facts ||= node?.querySelector('[data-testid="search-counter-row"]')?.textContent;return {posts:[],scanned:0,hasMore:false};}});assert.equal(preview,'https://preview.redd.it/syntheticpreview.jpg');assert.equal(facts,'57 votes·8 comments');
+});
+
+test('Today plus Removed stops profile/archive walks outside the window and never replaces the whole saved list',async t=>{
+ const now=Math.floor(Date.now()/1000),old=now-10*86400,calls=[],listSaved=[],archiveCalls=[];
+ const s=await view(t,{children:[],type:'posts',search:'&t=day',calls,listSaved,settings:{postDiscovery:true,archiveDiscovery:true},ownList:async(args,M)=>{assert.equal(args.after,null,'do not request older continuation pages');return {posts:[native(M,'t3',post('old',{created_utc:old,removed_by_category:'moderator'}))],scanned:1,hasMore:true,after:'older',transport:'native'};},archive:async args=>{archiveCalls.push(args);return {posts:[post('archiveold',{created_utc:old,removed_by_category:'moderator'})],hasMore:true,before:old};}});
+ assert.equal(s.d.listState.error,'');assert.equal(s.d.listState.done,true);assert.equal(s.d.listState.loading,false);assert.deepEqual(s.shown,[]);assert.equal(calls.filter(c=>c.action==='own-list').length,2);assert.equal(calls.some(c=>c.action==='removal-public'),false);assert.equal(archiveCalls.length,1);assert.equal(archiveCalls[0].kind,'post');assert.equal(listSaved.length,0,'a bounded search is never saved as a complete account check');
+});
+test('Today Removed comments search classifies only in-window comments while retaining other current filters',async t=>{
+ const now=Math.floor(Date.now()/1000),calls=[];const s=await view(t,{children:[],type:'comments',search:'&t=day&rt_sub=Alpha',calls,ownList:async(args,M)=>({posts:[native(M,'t3',post('posttoday',{created_utc:now-60,removed_by_category:'moderator'})),native(M,'t1',comment('newcomment',{created_utc:now-60,removed_by_category:'moderator'})),native(M,'t1',comment('oldcomment',{created_utc:now-864000}))],scanned:3,hasMore:true,after:'older',transport:'native'})});assert.deepEqual(s.shown,['t1_newcomment']);assert.equal(s.d.listState.error,'');assert.equal(calls.filter(c=>c.action==='own-list').length,2);assert.equal(s.d.listState.loading,false);
+});
+
+test('a completed empty Removed search reuses Reddit actual empty-search DOM and its adjust-search action',async t=>{
+ const s=await view(t,{children:[],type:'posts',before:d=>{const empty=d.feed.ownerDocument.createElement('div');empty.id='empty-search-results';empty.innerHTML='<img data-native-empty-art="true" src="https://www.redditstatic.com/synthetic-empty.png"><h2>Hm...we couldn’t find any results for</h2><p>Double-check your spelling</p><button>Adjust your search</button>';d.feed.closest('main').append(empty);}});
+ assert.ok(s.d.listEmpty.querySelector('[data-native-empty-art="true"]'));assert.equal(s.d.listEmpty.querySelector('button').textContent,'Adjust your search');assert.equal(s.d.listEmpty.hidden,false);assert.match(s.d.listEmpty.textContent,/removed posts/i);assert.equal(s.d.loading.hidden,true);assert.equal(s.d.listEmpty.querySelector('faceplate-partial')?.tagName,'FACEPLATE-PARTIAL','the bridge hydrates Reddit components in the page world');let adjusted=null;s.d.fillHeaderSearch=q=>{adjusted=q;};s.d.listEmpty.querySelector('button').click();assert.equal(adjusted,'');
+});
+
+test('native Today and an additional local date filter intersect instead of widening Removed search',async t=>{
+ const now=Math.floor(Date.now()/1000);const s=await view(t,{children:[],type:'posts',search:'&t=day&rt_date=week',ownList:async(args,M)=>({posts:[native(M,'t3',post('weekonly',{created_utc:now-3*86400,removed_by_category:'moderator'}))],scanned:1,hasMore:true,after:'older',transport:'native'})});assert.deepEqual(s.shown,[]);assert.equal(s.d.listState.error,'');assert.ok(s.d.listState.window.after>now-2*86400);
+});
+
+test('a failed native empty template is retried only on an explicit list refresh',async t=>{
+ let reads=0;const s=await view(t,{children:[],type:'posts',emptyRead:async()=>{reads++;throw Error('Native template unavailable');}});assert.equal(reads,1);assert.match(s.d.status.textContent,/empty search view could not be loaded/);s.d.renderOwnList();await flush();s.d.renderOwnList();await flush();assert.equal(reads,1,'redraws must not hammer native search');assert.match(s.d.status.textContent,/empty search view could not be loaded/);await s.d.refreshActivity();await flush();assert.equal(reads,2,'an explicit retry may read once again');
 });

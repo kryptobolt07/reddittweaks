@@ -1,5 +1,5 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs'),vm=require('node:vm');
-function setup({limit=5000,now=()=>1800000000000}={}){const data={},storage={async get(key){return {[key]:structuredClone(data[key])};},async set(value){Object.assign(data,structuredClone(value));},async remove(key){delete data[key];}};const c=vm.createContext({Date,URL,Map,Set,Promise});for(const f of ['removal-model.js','removal-store.js'])vm.runInContext(fs.readFileSync('extension/'+f,'utf8'),c);return {store:c.RTRemovalStore.create({storage,now,limit}),data};}
+function setup({limit=5000,now=()=>1800000000000}={}){const data={},storage={async get(key){return {[key]:structuredClone(data[key])};},async set(value){Object.assign(data,structuredClone(value));},async remove(key){delete data[key];}};const c=vm.createContext({Date,URL,Map,Set,Promise});for(const f of ['post-model.js','removal-model.js','removal-store.js'])vm.runInContext(fs.readFileSync('extension/'+f,'utf8'),c);return {store:c.RTRemovalStore.create({storage,now,limit}),data};}
 const record=(state='unknown',checkedAt=1799999000000,extra={})=>({fullname:'t1_19gsnavtu46ip',state,confidence:state==='unknown'?'unknown':'verified',why:'Native evidence',flags:[],permalink:'/r/Alpha/comments/post1/title/19gsnavtu46ip/',checkedAt,...extra});
 const report=(records,extra={})=>({owner:'t2_self',username:'Example',records,...extra});
 test('monitor storage keeps bounded metadata only, account scoped, with no body or credential persistence',async()=>{
@@ -62,4 +62,8 @@ test('the saved Removed list keeps removed items only, per account, bounded, for
  const list=await store.readList('t2_self','Example');assert.deepEqual(list.items.map(i=>i.fullname),['t3_a1','t3_c3']);assert.deepEqual([...list.items[0].removal.flags],['gone']);assert.ok(list.items[1].body.length<=4000);
  assert.equal(JSON.stringify(data).includes('SECRET'),false);assert.equal((await store.readList('t2_self','Other')).items.length,0,'bound to the account name');
  now+=31*day;assert.equal((await store.readList('t2_self','Example')).items.length,0,'expires after 30 days');
+});
+
+test('saved Removed rows keep bounded vote facts and safe preview URLs without retaining unrelated fields',async()=>{
+ const {store}=setup();await store.saveList({owner:'t2_self',username:'Example',items:[{fullname:'t3_facts',kind:'post',id:'facts',created:1790000000,subreddit:'Alpha',permalink:'/r/Alpha/comments/facts/title/',title:'Saved facts',body:'Text',score:57,comments:8,postScore:99,postComments:12,thumbnail:'https://preview.redd.it/syntheticpreview.jpg',token:'SECRET',removal:{state:'removed-mod',confidence:'verified',why:'Native',flags:[]}}]});const [item]=(await store.readList('t2_self','Example')).items;assert.equal(item.score,57);assert.equal(item.comments,8);assert.equal(item.postScore,99);assert.equal(item.postComments,12);assert.equal(item.thumbnail,'https://preview.redd.it/syntheticpreview.jpg');assert.equal(item.token,undefined);
 });

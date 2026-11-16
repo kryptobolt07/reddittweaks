@@ -89,3 +89,11 @@ test('the signed-out Posts tab listing follows its own continuation and rejects 
  assert.throws(()=>N.publicListing(parse('<shreddit-feed>'+post()+'<faceplate-partial src="'+more.replace('profile_posts','profile_overview').replace(/&/g,'&amp;')+'"></faceplate-partial></shreddit-feed>'),me,{source:'posts'}),/continuation changed/);
  assert.throws(()=>N.publicListing(parse('<shreddit-feed>'+post()+'</shreddit-feed>'),me,{source:'comments'}),/Invalid/);
 });
+
+test('own native listing retains post vote/comment facts and its preview rather than avatar artwork',t=>{
+ const {N,d}=fixture(t,post('score="57" comment-count="8" post-type="image" content-href="https://i.redd.it/syntheticpreview.jpg"'));const card=d.querySelector('shreddit-post');card.insertAdjacentHTML('beforeend','<span slot="credit-bar"><img src="https://www.redditstatic.com/avatar.png"></span><div slot="post-media-container"><img src="https://preview.redd.it/syntheticpreview.jpg?width=640"></div>');const item=N.item(card,N.identity(d));assert.equal(item.score,57);assert.equal(item.comments,8);assert.equal(item.thumbnail,'https://preview.redd.it/syntheticpreview.jpg?width=640');assert.equal(item.url,'https://i.redd.it/syntheticpreview.jpg');
+});
+
+test('own native listing reads media before faceplate images upgrade',t=>{
+ const {N,d}=fixture(t,post('post-type="image"'));const card=d.querySelector('shreddit-post');card.insertAdjacentHTML('beforeend','<span slot="credit-bar"><faceplate-img src="https://www.redditstatic.com/avatar.png"></faceplate-img></span><div slot="post-media-container"><faceplate-img src="https://preview.redd.it/syntheticpreview.jpg?width=320"></faceplate-img></div>');assert.equal(N.item(card,N.identity(d)).thumbnail,'https://preview.redd.it/syntheticpreview.jpg?width=320');
+});

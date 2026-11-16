@@ -1,4 +1,4 @@
-/* Per-account verdicts and change history. Never stores content bodies or credentials. */
+/* Per-account verdicts, change history and bounded saved Removed results. Credentials are never stored. */
 (() => {
  'use strict';
  if(globalThis.RTRemovalStore)return;
@@ -68,7 +68,9 @@
    let url;try{url=new URL(raw.permalink,'https://www.reddit.com');}catch{return null;}
    if(url.origin!=='https://www.reddit.com' || !/^\/(?:r|user)\/[\w-]+\/comments\/[a-z0-9]+\//i.test(url.pathname))return null;
    const text=(value,max)=>typeof value==='string'?value.slice(0,max):'';
-   return {fullname,kind:comment?'comment':'post',id:raw.id,created:Math.floor(raw.created),subreddit:/^[\w]{1,21}$/.test(raw.subreddit || '')?raw.subreddit:'',permalink:url.pathname,title:text(raw.title,300),body:text(raw.body,4000),
+   const facts={};for(const key of ['score','comments','postScore','postComments'])if(typeof raw[key]==='number' && Number.isFinite(raw[key]))facts[key]=Math.max(key==='score'||key==='postScore'?-1e9:0,Math.min(1e9,Math.floor(raw[key])));
+   const thumbnail=globalThis.RTPostModel?.mediaUrl(raw.thumbnail);if(thumbnail && thumbnail.length<=2048)facts.thumbnail=thumbnail;
+   return {...facts,fullname,kind:comment?'comment':'post',id:raw.id,created:Math.floor(raw.created),subreddit:/^[\w]{1,21}$/.test(raw.subreddit || '')?raw.subreddit:'',permalink:url.pathname,title:text(raw.title,300),body:text(raw.body,4000),
     source:raw.source==='arctic-shift'?'arctic-shift':'reddit',postType:/^[a-z]{1,16}$/.test(raw.postType || '')?raw.postType:'',over18:raw.over18===true,spoiler:raw.spoiler===true,
     removal:{state:removal.state,confidence:removal.confidence,why:text(removal.why,800),flags:Array.isArray(removal.flags)?[...new Set(removal.flags.filter(flag=>listFlags.includes(flag)))]:[]}};
   }

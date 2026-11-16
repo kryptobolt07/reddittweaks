@@ -45,7 +45,8 @@
   if(!category && /removed by reddit[’']s filters/i.test(banner))category='reddit';
   if(!category && /removed by (?:the )?moderators/i.test(banner))category='moderator';
   const nativeRemoved=['REMOVED','SPAM','FILTERED','AUTOMOD_FILTERED'].includes(state) || Boolean(banner && /\bremoved\b/i.test(banner));
-  const raw={id:fullname.slice(3),author,created_utc:Math.floor(created),subreddit:card.getAttribute('subreddit-name') || path.match(/^\/r\/([^/]+)\//)?.[1] || '',permalink:path+url.search,
+  const preview=ownQuery(card,'[slot="post-media-container"] img[src],[slot="post-media-container"] faceplate-img[src],[slot="thumbnail"] img[src],[slot="thumbnail"] faceplate-img[src],[slot="text-body"] img[src],[slot="text-body"] faceplate-img[src],img[data-testid="post-thumbnail"],faceplate-img[data-testid="post-thumbnail"]'),content=card.getAttribute('content-href') || '';
+  const raw={url:content,postType:comment?undefined:card.getAttribute('post-type'),thumbnail:comment?undefined:M.mediaUrl(preview?.getAttribute('src') || ownQuery(card,'video[poster]')?.getAttribute('poster') || card.getAttribute('thumbnail') || content),id:fullname.slice(3),author,created_utc:Math.floor(created),subreddit:card.getAttribute('subreddit-name') || path.match(/^\/r\/([^/]+)\//)?.[1] || '',permalink:path+url.search,
    title:comment?undefined:card.getAttribute('post-title') || ownQuery(card,'[slot="title"]')?.textContent || '',selftext:comment?undefined:body,body:comment?body:undefined,
    link_id:comment?'t3_'+postId:undefined,parent_id:comment?card.getAttribute('parentid') || card.getAttribute('parent-id') || 't3_'+postId:undefined,
    score:Number(card.getAttribute('score') || ownQuery(card,'shreddit-comment-action-row[score]')?.getAttribute('score')) || 0,num_comments:Number(card.getAttribute('comment-count')) || 0,
