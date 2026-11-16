@@ -362,3 +362,9 @@ test('a deferred profile-list read is retried rather than reported as a failure'
  let n=0;const ownList=(args,M)=>{if(args.source==='posts')return {posts:[],scanned:0,hasMore:false,after:null};if(!n++)return {deferred:true,retryAfterMs:1};return {posts:[native(M,'t3',post('ok',{removed_by_category:'moderator'}))],scanned:1,hasMore:false,after:null};};
  const s=await view(t,{ownList,publicProofs:{},visitor:()=>({items:[],after:null})});assert.equal(s.d.listState.error,'');assert.deepEqual(s.shown,['t3_ok']);
 });
+test('a saved archive card is updated in place when the fresh archive history confirms it',async t=>{
+ let d,before=null;const archive=async args=>({posts:args.kind==='post'?[{...post('gonepost',{created_utc:created-50,removed_by_category:'moderator',selftext:'Fresh archived text'}),_meta:{removal_type:'deleted',was_deleted_later:true}}]:[],hasMore:false});
+ const ownList=(args,M)=>{if(before==null)before=[...d.nodes.values()].find(n=>n.dataset.fullname==='t3_gonepost');return {posts:[],scanned:0,hasMore:false,after:null};};
+ const s=await view(t,{ownList,archive,publicProofs:{},visitor:()=>({items:[],after:null}),settings:{postDiscovery:true,archiveDiscovery:true},list:[savedItem('gonepost',{source:'arctic-shift',created:created-50,removal:{state:'removed-mod',confidence:'verified',why:'Earlier',flags:['deleted-later']}})],before:x=>{d=x;}});
+ const after=[...s.d.nodes.values()].find(n=>n.dataset.fullname==='t3_gonepost');assert.ok(before);assert.equal(after,before,'same card node, no remove and re-insert');assert.equal(s.d.listState.items.get('gonepost').saved,undefined);assert.match(after.textContent,/Synthetic gonepost/,'the row shows the fresh record');
+});
