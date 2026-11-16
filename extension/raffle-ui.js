@@ -8,7 +8,7 @@
   // Reading limits (FINDINGS.md: ~90 top-level comments per client page, ~83 KB per "more replies" page).
   const TOP_PAGES=120,REPLY_REQUESTS=800,REPLY_PARALLEL=2;
   const MOBILE='(max-width: 640px)';
-  const make=(tag,cls,text)=>{let el;if(tag.includes('-')){const holder=document.createElement('div');holder.innerHTML='<'+tag+'></'+tag+'>';el=holder.firstElementChild;el.remove();}else el=document.createElement(tag);if(cls)el.className=cls;if(text!=null && text!=='')el.textContent=text;return el;};
+  const make=(tag,cls,text)=>{let el;if(tag.includes('-')){if(!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(tag))throw Error('Invalid custom element name.');const parsed=new DOMParser().parseFromString('<'+tag+'></'+tag+'>','text/html');el=document.adoptNode(parsed.body.firstElementChild);}else el=document.createElement(tag);if(cls)el.className=cls;if(text!=null && text!=='')el.textContent=text;return el;};
   const svgNS='http://www.w3.org/2000/svg';
   function icon(d,size=20){const svg=document.createElementNS(svgNS,'svg');for(const [k,v] of Object.entries({fill:'currentColor',height:String(size),width:String(size),viewBox:'0 0 20 20','aria-hidden':'true'}))svg.setAttribute(k,v);const path=document.createElementNS(svgNS,'path');path.setAttribute('d',d);svg.append(path);return svg;}
   // A ticket outline (Reddit has no raffle icon), drawn on Reddit's 20 px grid.

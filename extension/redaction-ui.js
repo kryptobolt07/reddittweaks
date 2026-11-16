@@ -10,7 +10,7 @@
   const operations={'overwrite-delete':'Overwrite, then delete',overwrite:'Overwrite text',delete:'Delete'};
   const operationIcons={'overwrite-delete':'collection',overwrite:'text-post',delete:'close'};
   const settingsRead=async()=>{const result=await chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});return result?.ok?result.settings:{};};
-  const make=(tag,cls,text)=>{let el;if(tag.includes('-')){const holder=document.createElement('div');holder.innerHTML='<'+tag+'></'+tag+'>';el=holder.firstElementChild;el.remove();}else el=document.createElement(tag);if(cls)el.className=cls;if(text!=null && text!=='')el.textContent=text;return el;};
+  const make=(tag,cls,text)=>{let el;if(tag.includes('-')){if(!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(tag))throw Error('Invalid custom element name.');const parsed=new DOMParser().parseFromString('<'+tag+'></'+tag+'>','text/html');el=document.adoptNode(parsed.body.firstElementChild);}else el=document.createElement(tag);if(cls)el.className=cls;if(text!=null && text!=='')el.textContent=text;return el;};
   const n=value=>Number(value).toLocaleString('en-US');
   const dateText=seconds=>new Date(seconds*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
   const CLOSE='m11.273 10 5.363-5.363a.9.9 0 10-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 10-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 101.274 1.273L10 11.273l5.363 5.363a.897.897 0 001.274 0 .9.9 0 000-1.273L11.275 10Z';

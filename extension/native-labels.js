@@ -1,5 +1,21 @@
 /* Presentation only. Stable room/sender bindings come from the native client. */
 (() => {
+  // Parse once, then rebuild allowed icon geometry only: no scripts, events, references or URL paints.
+  const safeSvgParts=new Map();
+  function appendSvgParts(target,markup){
+    if(typeof markup!=='string' || markup.length>20000)return;
+    let parts=safeSvgParts.get(markup);
+    if(!parts){
+      const parsed=new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg">'+markup+'</svg>','image/svg+xml');if(parsed.querySelector('parsererror'))return;
+      const shapes=new Set(['path','circle','rect','ellipse','line','polyline','polygon']),numbers=new Set(['x','y','x1','x2','y1','y2','cx','cy','r','rx','ry','width','height','stroke-width','opacity']);parts=[];
+      for(const source of parsed.documentElement.children){if(!shapes.has(source.localName))continue;const attrs=[];
+        for(const {name,value} of source.attributes){const safe=name==='d'?/^[MmZzLlHhVvCcSsQqTtAaEe0-9.,+\-\s]+$/.test(value):name==='points'?/^[0-9eE.,+\-\s]+$/.test(value):numbers.has(name)?/^[+\-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+\-]?\d+)?$/.test(value):['fill','stroke'].includes(name)?/^(?:none|currentColor|#[0-9a-f]{3,8})$/i.test(value):['fill-rule','clip-rule'].includes(name)?/^(?:nonzero|evenodd)$/.test(value):name==='stroke-linecap'?/^(?:butt|round|square)$/.test(value):name==='stroke-linejoin'?/^(?:miter|round|bevel)$/.test(value):false;if(safe)attrs.push([name,value]);}
+        parts.push([source.localName,attrs]);
+      }
+      if(safeSvgParts.size>=64)safeSvgParts.delete(safeSvgParts.keys().next().value);safeSvgParts.set(markup,parts);
+    }
+    for(const [tag,attrs] of parts){const node=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [name,value] of attrs)node.setAttribute(name,value);target.append(node);}
+  }
   const A=RCSAdapter;
   const patches=new Set(),attributePatches=new Set(),badges=new Map();
   let generation=0,inFlight=null;
@@ -17,7 +33,7 @@
     badge.setAttribute('aria-label',marker.label);badge.title=marker.title;
     const icon=document.createElementNS(svgNS,'svg');
     for(const [key,value]of Object.entries({viewBox:'0 0 24 24',width:iconSize,height:iconSize,fill:'none',stroke:'currentColor','stroke-width':1.8,'stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'}))icon.setAttribute(key,value);
-    icon.innerHTML=marker.path;badge.append(icon);
+    appendSvgParts(icon,marker.path);badge.append(icon);
     badge.style.cssText='display:inline-flex;align-items:center;justify-content:center;flex:none;width:'+iconSize+'px;height:'+iconSize+'px;color:var(--color-neutral-content-weak,#829198);line-height:0;';
     return badge;
   }

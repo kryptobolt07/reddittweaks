@@ -1,6 +1,22 @@
 /* Unified local search. Credentials and native history remain in Reddit's page world. */
 (() => {
   'use strict';
+  // Parse once, then rebuild allowed icon geometry only: no scripts, events, references or URL paints.
+  const safeSvgParts=new Map();
+  function appendSvgParts(target,markup){
+    if(typeof markup!=='string' || markup.length>20000)return;
+    let parts=safeSvgParts.get(markup);
+    if(!parts){
+      const parsed=new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg">'+markup+'</svg>','image/svg+xml');if(parsed.querySelector('parsererror'))return;
+      const shapes=new Set(['path','circle','rect','ellipse','line','polyline','polygon']),numbers=new Set(['x','y','x1','x2','y1','y2','cx','cy','r','rx','ry','width','height','stroke-width','opacity']);parts=[];
+      for(const source of parsed.documentElement.children){if(!shapes.has(source.localName))continue;const attrs=[];
+        for(const {name,value} of source.attributes){const safe=name==='d'?/^[MmZzLlHhVvCcSsQqTtAaEe0-9.,+\-\s]+$/.test(value):name==='points'?/^[0-9eE.,+\-\s]+$/.test(value):numbers.has(name)?/^[+\-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+\-]?\d+)?$/.test(value):['fill','stroke'].includes(name)?/^(?:none|currentColor|#[0-9a-f]{3,8})$/i.test(value):['fill-rule','clip-rule'].includes(name)?/^(?:nonzero|evenodd)$/.test(value):name==='stroke-linecap'?/^(?:butt|round|square)$/.test(value):name==='stroke-linejoin'?/^(?:miter|round|bevel)$/.test(value):false;if(safe)attrs.push([name,value]);}
+        parts.push([source.localName,attrs]);
+      }
+      if(safeSvgParts.size>=64)safeSvgParts.delete(safeSvgParts.keys().next().value);safeSvgParts.set(markup,parts);
+    }
+    for(const [tag,attrs] of parts){const node=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [name,value] of attrs)node.setAttribute(name,value);target.append(node);}
+  }
   const C = () => globalThis.RCSCore;
   const make = (tag, cls, text) => { const element = document.createElement(tag); if (cls) element.className = cls; if (text !== undefined) element.textContent = text; return element; };
   // Radius sqrt(8² + 4²) keeps the refresh arc centered at (12,12).
@@ -16,13 +32,13 @@
     {token:'-exclude',label:'Exclude a word or phrase',insert:'-',example:'coffee -"iced latte"'}
   ];
   Object.assign(paths,{unread:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/>',request:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/>',alphabetical:'<path d="m3 17 5-12 5 12M5 13h6M16 5h5l-5 12h5"/>',image:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/>',file:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6M8 13h8M8 17h5"/>',link:'<path d="m10 13 4-4m-5 7-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 0 2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/>',video:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9 5 3-5 3Z"/>',audio:'<path d="M9 17V5l11-2v12M9 9l11-2"/><ellipse cx="6" cy="17" rx="3" ry="3"/><ellipse cx="17" cy="15" rx="3" ry="3"/>'});
-  function svg(name) { const el = document.createElementNS('http://www.w3.org/2000/svg','svg'); el.setAttribute('viewBox','0 0 24 24'); el.setAttribute('width','18'); el.setAttribute('height','18'); el.setAttribute('fill','none'); el.setAttribute('stroke','currentColor'); el.setAttribute('stroke-width','1.8'); el.setAttribute('stroke-linecap','round'); el.setAttribute('stroke-linejoin','round'); el.setAttribute('aria-hidden','true'); el.innerHTML = paths[name] || paths.search; return el; }
+  function svg(name) { const el = document.createElementNS('http://www.w3.org/2000/svg','svg'); el.setAttribute('viewBox','0 0 24 24'); el.setAttribute('width','18'); el.setAttribute('height','18'); el.setAttribute('fill','none'); el.setAttribute('stroke','currentColor'); el.setAttribute('stroke-width','1.8'); el.setAttribute('stroke-linecap','round'); el.setAttribute('stroke-linejoin','round'); el.setAttribute('aria-hidden','true'); appendSvgParts(el,paths[name] || paths.search); return el; }
   // Deleted, banned and merely unavailable accounts share one marker: icon, name and wording come from the directory model.
   function accountMarker(state,historical=false) {
     const model=globalThis.RCSDirectoryModel?.accountMarker?.(state,historical);
     return model || {kind:'unavailable',label:'Unavailable account',path:paths.unavailable,title:'Unavailable account'+(historical?' · Retained username':''),detail:'Unavailable account · Deleted or suspended. Does not mean blocked.'+(historical?' · Retained username':'')};
   }
-  function markerIcon(marker) {const el=svg('unavailable');el.innerHTML=marker.path;return el;}
+  function markerIcon(marker) {const el=svg('unavailable');el.replaceChildren();appendSvgParts(el,marker.path);return el;}
   function filterShape(kind,value){if(kind==='has')return messageTypes.find(([type])=>type===value)?.[2] || 'file';if(['date','before','after'].includes(kind))return 'calendar';if(kind==='chatType')return value==='groups'?'group':'user';if(kind==='status')return {unread:'unread',requests:'request',unavailable:'unavailable'}[value] || 'filter';if(kind==='sort')return {oldest:'history',relevant:'search',alphabetical:'alphabetical',unread:'unread'}[value] || 'sort';return kind==='from'?'user':'filter';}
   function appliedGlyph(shape){const glyph=svg(shape);glyph.classList.add('sender-chip-icon','applied-filter-icon');return glyph;}
   function blockOutsideMenuActivation(isOpen,isInside,onDismiss){let outsidePointer=null;const pointer=event=>{outsidePointer=null;const path=event.composedPath();if(!isOpen()||isInside(path))return;outsidePointer={x:event.clientX,y:event.clientY,at:Date.now()};event.preventDefault();event.stopImmediatePropagation();onDismiss();};const click=event=>{const pending=outsidePointer;if(!pending)return;outsidePointer=null;if(event.detail===0||Date.now()-pending.at>900||Math.abs(event.clientX-pending.x)>3||Math.abs(event.clientY-pending.y)>3)return;event.preventDefault();event.stopImmediatePropagation();};document.addEventListener('pointerdown',pointer,true);document.addEventListener('click',click,true);return()=>{document.removeEventListener('pointerdown',pointer,true);document.removeEventListener('click',click,true);outsidePointer=null;};}

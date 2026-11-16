@@ -10,7 +10,7 @@ const records=[
   {id:'shared',roomId:'alex',text:'alpha saved message',author:'alex_morgan',timestamp:'2026-10-08T10:00:00Z'},
   {id:'shared',roomId:'jules',text:'alpha saved reply',authorSelf:true,author:'fixture_user',timestamp:'2026-10-07T10:00:00Z',thread:true}
 ];
-function setup(t,{compact=false,search,directory,tools=false}={}){
+function setup(t,{compact=false,search,directory,tools=false,beforeContent}={}){
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat/',runScripts:'outside-only',pretendToBeVisual:true});
   t.after(()=>dom.window.close());const W=dom.window;W.matchMedia=()=>({matches:true});
   for(const file of ['demo/fixture.js','extension/search-core.js','extension/adapter.js','extension/date-picker.js'])W.eval(source(file));
@@ -25,7 +25,7 @@ function setup(t,{compact=false,search,directory,tools=false}={}){
   };
   if(directory)W.RCSDirectory=directory;
   if(tools)for(const file of ['extension/global-search-model.js','extension/media-preview.js','extension/unified-search-styles.js','extension/unified-search.js'])W.eval(source(file));
-  W.eval(source('extension/content.js'));
+  beforeContent?.(W);W.eval(source('extension/content.js'));
   const host=W.RCSAdapter.query('[data-rcs-ui="list"]',api.nav),root=host.shadowRoot,input=root.querySelector('input');
   const all=()=>root.querySelector('[data-scope="all"]').click();
   const query=value=>{input.value=value;input.dispatchEvent(new W.Event('input'));};
@@ -174,4 +174,13 @@ test('individual message search uses sticky days with time-only rows and dates e
   for(const row of visibleRows(root))assert.match(row.querySelector('.time').textContent,/,/);
   root.querySelector('[data-control="filter"]').click();root.querySelector('[data-value="sort"]').click();root.querySelector('[data-value="oldest"]').click();assert.equal(root.querySelectorAll('.day-heading').length,1);
   assert.equal(visibleRows(root)[0],rows[1],'changing sort reuses mounted sender/snippet result nodes');
+});
+
+test('chat icon controls render without dynamic SVG HTML writes',async t=>{
+ const {W,api}=setup(t,{tools:true,beforeContent(W){const descriptor=Object.getOwnPropertyDescriptor(W.Element.prototype,'innerHTML');Object.defineProperty(W.Element.prototype,'innerHTML',{...descriptor,set(value){if(/<(?:svg|path|circle|rect)\b/i.test(String(value)))throw Error('SVG HTML sink blocked');return descriptor.set.call(this,value);}});}});await wait(20);
+ const trigger=W.RCSAdapter.query('[data-rcs-ui="message-trigger"]',api.room).shadowRoot.querySelector('button');trigger.click();
+ const root=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room).shadowRoot,input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));
+ for(let i=0;i<60 && visibleRows(root).length!==2;i++)await wait(10);
+ assert.equal(visibleRows(root).length,2);assert.ok(root.querySelector('svg path,svg circle'));
+ root.querySelector('[data-control="filter"]').click();assert.ok(root.querySelectorAll('svg path,svg circle').length>1);
 });

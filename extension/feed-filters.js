@@ -241,7 +241,7 @@
   // leading icon, label, trailing close; a click anywhere on it removes the filter.
   // Reddit's custom elements may set attributes in their constructor, which document.createElement
   // rejects ("The result must not have attributes"). Parsed elements are upgraded later, which is allowed.
-  function parsedElement(tag,cls){const holder=document.createElement('div');holder.innerHTML='<'+tag+'></'+tag+'>';const el=holder.firstElementChild;el.remove();if(cls)el.className=cls;return el;}
+  function parsedElement(tag,cls){if(!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(tag))throw Error('Invalid custom element name.');const parsed=new DOMParser().parseFromString('<'+tag+'></'+tag+'>','text/html'),el=document.adoptNode(parsed.body.firstElementChild);if(cls)el.className=cls;return el;}
   function pill(chip,{make,glyph,onRemove}){
     const el=parsedElement('rpl-input-chip','rt-filter-chip');el.dataset.rtChip=chip.id;
     for(const [key,value] of [['appearance','bordered'],['type','standalone']])el.setAttribute(key,value);

@@ -1,4 +1,20 @@
 (() => {
+  // Parse once, then rebuild allowed icon geometry only: no scripts, events, references or URL paints.
+  const safeSvgParts=new Map();
+  function appendSvgParts(target,markup){
+    if(typeof markup!=='string' || markup.length>20000)return;
+    let parts=safeSvgParts.get(markup);
+    if(!parts){
+      const parsed=new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg">'+markup+'</svg>','image/svg+xml');if(parsed.querySelector('parsererror'))return;
+      const shapes=new Set(['path','circle','rect','ellipse','line','polyline','polygon']),numbers=new Set(['x','y','x1','x2','y1','y2','cx','cy','r','rx','ry','width','height','stroke-width','opacity']);parts=[];
+      for(const source of parsed.documentElement.children){if(!shapes.has(source.localName))continue;const attrs=[];
+        for(const {name,value} of source.attributes){const safe=name==='d'?/^[MmZzLlHhVvCcSsQqTtAaEe0-9.,+\-\s]+$/.test(value):name==='points'?/^[0-9eE.,+\-\s]+$/.test(value):numbers.has(name)?/^[+\-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+\-]?\d+)?$/.test(value):['fill','stroke'].includes(name)?/^(?:none|currentColor|#[0-9a-f]{3,8})$/i.test(value):['fill-rule','clip-rule'].includes(name)?/^(?:nonzero|evenodd)$/.test(value):name==='stroke-linecap'?/^(?:butt|round|square)$/.test(value):name==='stroke-linejoin'?/^(?:miter|round|bevel)$/.test(value):false;if(safe)attrs.push([name,value]);}
+        parts.push([source.localName,attrs]);
+      }
+      if(safeSvgParts.size>=64)safeSvgParts.delete(safeSvgParts.keys().next().value);safeSvgParts.set(markup,parts);
+    }
+    for(const [tag,attrs] of parts){const node=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [name,value] of attrs)node.setAttribute(name,value);target.append(node);}
+  }
   if(window.credentialless===true)return;
   if (globalThis.__rcsStarted) return;
   globalThis.__rcsStarted = true;
@@ -167,11 +183,12 @@
     if (text !== undefined) element.textContent = text;
     return element;
   }
+  function svgIcon(name,attrs={}){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value] of Object.entries({viewBox:'0 0 24 24','aria-hidden':'true',...attrs}))svg.setAttribute(key,value);appendSvgParts(svg,icons[name] || '');return svg;}
   function icon(name, label, handler) {
     const button = node('button', 'icon'); button.type = 'button';
     button.title = label; button.setAttribute('aria-label', label);
     // Static icons only; message text is always inserted with textContent.
-    button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
+    button.append(svgIcon(name));
     button.addEventListener('click', handler);
     return button;
   }
@@ -313,7 +330,7 @@
       this.sync();
       if (kind === 'list') this.ensureData(false,true);
     }
-    updateLoad(){if(this.kind!=='messages'){this.load.textContent=this.loading?'Stop':'Refresh';return;}const label=this.loading?'Stop searching messages':this.inputPending || this.preparingSearch?'Searching messages…':'Refresh messages';this.load.title=label;this.load.setAttribute('aria-label',label);this.load.classList.add('room-refresh','rcs-refresh');this.load.classList.toggle('busy',this.loading || this.inputPending || this.preparingSearch);this.load.setAttribute('aria-busy',String(Boolean(this.loading || this.inputPending || this.preparingSearch)));if(!this.load.querySelector('svg'))this.load.innerHTML=`<span class="refresh-motion"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons.refresh}</svg></span>`;}
+    updateLoad(){if(this.kind!=='messages'){this.load.textContent=this.loading?'Stop':'Refresh';return;}const label=this.loading?'Stop searching messages':this.inputPending || this.preparingSearch?'Searching messages…':'Refresh messages';this.load.title=label;this.load.setAttribute('aria-label',label);this.load.classList.add('room-refresh','rcs-refresh');this.load.classList.toggle('busy',this.loading || this.inputPending || this.preparingSearch);this.load.setAttribute('aria-busy',String(Boolean(this.loading || this.inputPending || this.preparingSearch)));if(!this.load.querySelector('svg')){const motion=node('span','refresh-motion');motion.append(svgIcon('refresh',{width:'18',height:'18',fill:'none',stroke:'currentColor','stroke-width':'1.8','stroke-linecap':'round','stroke-linejoin':'round'}));this.load.replaceChildren(motion);}}
     cancelInput(){clearTimeout(this.inputTimer);this.inputTimer=null;this.inputPending=false;this.results?.setAttribute('aria-busy','false');if(this.load)this.updateLoad();}
     queueInput(){
       this.cancelInput();this.clear.hidden=!this.input.value.trim();this.results.scrollTop=0;this.imageViewport=null;
@@ -586,7 +603,7 @@
         if(row.avatar && (row.avatarUrl!==avatarUrl || !row.image?.isConnected && row.avatarLabel!==speaker)) {
           if(row.image){this.avatarObserver?.unobserve(row.image);this.pendingAvatarSources.delete(row.image);}
           row.avatarUrl=avatarUrl;row.avatarLabel=speaker;row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();
-          if(!speaker || speaker.startsWith('@') || speaker==='Sender unavailable')row.avatar.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">${icons.person}</svg>`;
+          if(!speaker || speaker.startsWith('@') || speaker==='Sender unavailable')row.avatar.replaceChildren(svgIcon('person',{fill:'none',stroke:'currentColor','stroke-width':'1.5'}));
           try {
             const url=new URL(avatarUrl,location.href);
             if(avatarUrl && (url.protocol==='https:' || /^data:image\/(png|jpeg|webp|svg\+xml)[;,]/.test(avatarUrl))) {
@@ -598,7 +615,7 @@
                 image.style.visibility='visible';
                 if(image.parentNode===row.avatar)for(const child of [...row.avatar.childNodes])if(child!==image)child.remove();
               },{once:true});
-              image.addEventListener('error',()=>{if(image.parentNode===row.avatar){row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();if(!speaker || speaker.startsWith('@') || speaker==='Sender unavailable')row.avatar.innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true">${icons.person}</svg>`;}},{once:true});
+              image.addEventListener('error',()=>{if(image.parentNode===row.avatar){row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();if(!speaker || speaker.startsWith('@') || speaker==='Sender unavailable')row.avatar.replaceChildren(svgIcon('person'));}},{once:true});
               image.loading='lazy';image.decoding='async';row.image=image;
               row.avatar.append(image);
               if(this.avatarObserver){this.pendingAvatarSources.set(image,avatarUrl);this.avatarObserver.observe(image);}
