@@ -87,7 +87,7 @@ test('native metadata without a visibility verdict remains unchecked and exposes
 test('native Removed pages state their coverage limit and use archive evidence for own posts too',async t=>{
  const s=await view(t,{children:[['t3',post('auto1')]]});const p=[...s.d.listState.items.values()][0];Object.assign(p.moderation,{native:true,nativeRemoved:true,visibilityKnown:false});s.d.settings.archiveDiscovery=true;
  s.d.archive=async args=>{assert.equal(args.kind,'post');return {posts:[s.W.RTPostModel.normalizePost({...post('auto1'),selftext:'[removed]',retrieved_on:created+10},{source:'arctic-shift'})]};};
- await s.d.classifyRemoved([p],s.d.context);assert.equal(p.removal.state,'removed-auto');assert.equal(p.removal.confidence,'likely');s.d.listState.native=true;s.d.listState.capped=true;s.d.summarizeRemoved();assert.match(s.d.notice.title,/native profile coverage may be incomplete/i);assert.doesNotMatch(s.d.notice.title,/Reddit only returns your newest/);
+ await s.d.classifyRemoved([p],s.d.context);assert.equal(p.removal.state,'removed-auto');assert.equal(p.removal.confidence,'likely');s.d.listState.native=true;s.d.listState.capped=true;s.d.summarizeRemoved();assert.match(s.d.notice.title,/Stopped after .*safety limit/i);assert.doesNotMatch(s.d.notice.title,/newest 1,000/);
 });
 test('Removed uses fresh unsigned evidence; search absence or an unreadable public response is not removal',async t=>{
  const s=await view(t,{type:'comments',children:[['t3',post('oldmod',{removed_by_category:'moderator'})],['t1',comment('publicremoved')],['t1',comment('missing')]],publicProofs:{t3_oldmod:{status:'visible',verified:true,moderation:'approved'},t1_publicremoved:{status:'removed',verified:true}}});
@@ -262,12 +262,28 @@ test('archive history stops repeated/stalled cursors with an honest coverage not
  const calls=[];const s=await view(t,{children:[],settings:{postDiscovery:true,archiveDiscovery:true},archive:async args=>{calls.push(args);return {posts:[args.kind==='post'?post('same'):comment('same')],hasMore:true,before:created,cursorStalled:args.before===created};}});
  assert.equal(calls.length,4);assert.match(s.d.notice.title,/archive.*(?:cursor|pagination).*incomplete/i);
 });
-test('archive history page budget stays bounded and reported after the live profile is exhausted',async t=>{
- let n=0;const s=await view(t,{children:[],settings:{postDiscovery:true,archiveDiscovery:true},archive:async args=>{n++;return {posts:[args.kind==='post'?post('p'+n,{created_utc:created-n}):comment('c'+n,{created_utc:created-n})],hasMore:true,before:created-n};}});
- assert.equal(n,100);assert.match(s.d.notice.title,/archive.*50 pages.*incomplete/i);
-});
-
 const native=(M,kind,data)=>{const item=kind==='t3'?M.normalizePost(data):M.normalizeComment(data);item.moderation={category:data.removed_by_category ?? null,removalReason:false,locked:false,subredditType:'public',quarantined:false,authorBody:kind==='t3'?data.selftext:data.body};return item;};
+test('archive history only stops at its safety bound, and says so',async t=>{
+ let n=0;const s=await view(t,{children:[],settings:{postDiscovery:true,archiveDiscovery:true},before:d=>{d.removedHistoryPages=10;},archive:async args=>{n++;return {posts:[args.kind==='post'?post('p'+n,{created_utc:created-n}):comment('c'+n,{created_utc:created-n})],hasMore:true,before:created-n};}});
+ assert.equal(n,20);assert.match(s.d.notice.title,/archive.*10 pages.*incomplete/i);
+});
+test('archive history is read until Arctic Shift has nothing left, past 50 pages',async t=>{
+ const pages={post:0,comment:0};const s=await view(t,{children:[],settings:{postDiscovery:true,archiveDiscovery:true},archive:async args=>{const n=++pages[args.kind];return {posts:[args.kind==='post'?post('p'+n,{created_utc:created-n}):comment('c'+n,{created_utc:created-n})],hasMore:n<70,before:created-n};}});
+ assert.deepEqual({...pages},{post:70,comment:70});assert.doesNotMatch(s.d.notice.title || '',/stopped at|incomplete/i);
+});
+test('Removed reads your whole profile until Reddit has nothing left, past 1,000 items',async t=>{
+ const calls=[],total=1125,ownList=(args,M)=>{if(args.source==='posts')return {posts:[],scanned:0,hasMore:false,after:null};const page=args.after?Number(args.after):0,items=[];for(let i=page*25;i<Math.min(total,page*25+25);i++)items.push(native(M,'t1',comment('c'+i,{created_utc:created-i})));const more=(page+1)*25<total;return {posts:items,scanned:items.length,hasMore:more,after:more?String(page+1):null};};
+ const visitor=()=>({items:Array.from({length:total},(_,i)=>({fullname:'t1_c'+i,created:created-i,subreddit:'alpha'})),after:null});
+ const s=await view(t,{ownList,visitor,calls,publicProofs:{}});
+ assert.equal(calls.filter(c=>c.action==='own-list' && !c.source).length,46,'45 pages and one confirmation of the last');
+ assert.equal(s.d.listState.scanned,total);assert.equal(s.d.listState.capped,false);assert.equal(s.d.listState.done,true);assert.doesNotMatch(s.d.notice.title || '',/stopped|1,000|coverage may be incomplete/i);
+});
+test('the signed-out comparison follows the visitor profile past 60 pages when your items go back that far',async t=>{
+ const calls=[],ownList=(args,M)=>({posts:[native(M,'t1',comment('old',{created_utc:created-100}))],scanned:1,hasMore:false,after:null});
+ const visitor=args=>{const n=args.after?Number(args.after):0;return n<70?{items:[{fullname:'t1_v'+n,created:created-n,subreddit:'alpha'}],after:String(n+1)}:{items:[{fullname:'t1_old',created:created-100,subreddit:'alpha'}],after:null};};
+ await view(t,{ownList,visitor,calls,publicProofs:{}});
+ assert.equal(calls.filter(c=>c.action==='removal-public-profile').length,71);assert.equal(calls.filter(c=>c.action==='removal-public').length,0,'found by the walk, so no single check');
+});
 test('posts older than the 1,000-item Overview window are walked from the Posts tab and compared signed out',async t=>{
  const calls=[],ownList=(args,M)=>{
   if(args.source==='posts')return {posts:[native(M,'t3',post('recent',{created_utc:created})),native(M,'t3',post('old',{created_utc:created-9000000}))],scanned:2,hasMore:false,after:null};
@@ -279,9 +295,18 @@ test('posts older than the 1,000-item Overview window are walked from the Posts 
  assert.deepEqual(calls.filter(c=>c.action==='removal-public').map(c=>c.fullname),['t3_old'],'only the post a visitor did not see is checked directly');
  assert.deepEqual(s.shown,['t3_old']);assert.equal([...s.d.listState.items.keys()].filter(k=>/recent/.test(k)).length,1,'a post in both walks is listed once');
 });
-test('an Overview that ends inside the window does not walk the Posts tab',async t=>{
- const calls=[];await view(t,{children:[['t3',post('one')]],calls,visitor:()=>({items:[{fullname:'t3_one',created,subreddit:'alpha'}],after:null}),publicProofs:{}});
- assert.equal(calls.filter(c=>c.action==='own-list' && c.source==='posts').length,0);
+test('the Posts tab is always read after Overview, so posts survive a feed Reddit cut short',async t=>{
+ const calls=[],ownList=(args,M)=>args.source==='posts'?{posts:[native(M,'t3',post('one')),native(M,'t3',post('older',{created_utc:created-500}))],scanned:2,hasMore:false,after:null}:{posts:[native(M,'t3',post('one'))],scanned:1,hasMore:false,after:null};
+ const s=await view(t,{ownList,calls,visitor:args=>({items:[{fullname:'t3_one',created,subreddit:'alpha'}],after:null}),publicProofs:{t3_older:{status:'removed',verified:true}}});
+ assert.equal(calls.filter(c=>c.action==='own-list' && c.source==='posts').length,1);assert.deepEqual(s.shown,['t3_older']);
+});
+test('a continuation page that ends the profile is read once more before the walk ends',async t=>{
+ const calls=[],seen={};const ownList=(args,M)=>{if(args.source==='posts')return {posts:[],scanned:0,hasMore:false,after:null};const at=args.after || 'start',n=seen[at]=(seen[at] || 0)+1;
+  if(at==='start')return {posts:[native(M,'t1',comment('a'))],scanned:1,hasMore:true,after:'p2'};
+  if(at==='p2')return n===1?{posts:[native(M,'t1',comment('b'))],scanned:1,hasMore:false,after:null}:{posts:[native(M,'t1',comment('b'))],scanned:1,hasMore:true,after:'p3'};
+  return {posts:[native(M,'t1',comment('c'))],scanned:1,hasMore:false,after:null};};
+ const s=await view(t,{ownList,calls,visitor:()=>({items:['a','b','c'].map(id=>({fullname:'t1_'+id,created,subreddit:'alpha'})),after:null}),publicProofs:{}});
+ assert.deepEqual(calls.filter(c=>c.action==='own-list' && !c.source).map(c=>c.after || null),[null,'p2','p2','p3','p3']);assert.ok(['t1_a','t1_b','t1_c'].every(k=>s.d.listState.items.has(k)));
 });
 test('archive recovery starts with the profile walk instead of after it',{timeout:5000},async t=>{
  let release;const gate=new Promise(r=>release=r),order=[];

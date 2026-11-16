@@ -37,8 +37,10 @@
   // Rate limits, timeouts and gateway failures retry on their own with
   // backoff before a source is reported as failed.
   const retryLimit=5,quietRetries=2;
-  // Removed-then-deleted recovery walks the author archive like an archived profile, up to 5,000 of each kind.
-  const removedHistoryPages=50;
+  // Removed reads your profile, the signed-out view of it and your Arctic Shift history until each has nothing left
+  // (measured 2026-11-16: 2,094 items signed in, 85 pages; 73 pages signed out; Reddit has no 1,000-item limit there).
+  // These bounds only stop a runaway walk, and stopping at one is reported as incomplete.
+  const removedItemBound=20000,removedVisitorPages=1000,removedHistoryPages=500;
   const publicBlockMs=600000,publicBlockedNote='Some comments may be missing · Reddit is blocking logged-out search';
   function removedSectionRoute(username,search,ownName){
     if(username.toLowerCase()!==ownName.toLowerCase())return null;
@@ -828,28 +830,32 @@
       const current=()=>!this.dead && this.listState===state && generation===this.generation && pageRoute()?.key===context.key && this.host?.isConnected;
       if(resume)state.loading=true;else{state.items.clear();state.removalNotes=new Set();state.scanned=0;state.done=false;state.capped=false;state.error='';state.loading=true;state.after=null;state.source='overview';state.postsScanned=0;state.history=null;state.archiveHistory=new Map();state.visitors={};}
       this.discover.disabled=true;this.summarizeOwnList();this.updateProfileLoading();const cursors=new Set(resume && state.after?[state.after]:[]);
-      const removed=context.list==='removed',cap=this.ownListCap ?? 1000;
+      // Saved, History and the other lists are Reddit listings that end at 1,000 items; Removed reads the whole profile.
+      const removed=context.list==='removed',cap=this.ownListCap ?? (removed?removedItemBound:1000);
       // Removed checks each page signed out while the next page loads: one chain keeps checks in order and paced.
       let checks=Promise.resolve();const check=(items,source)=>{checks=checks.then(()=>current()?this.classifyRemoved(items,context,source):undefined).then(()=>{if(current()){this.mergeArchiveHistory();this.renderOwnList();}});checks.catch(()=>{});};
       try{
         // Arctic Shift history (removed, then deleted) doesn't depend on the profile walk, so it starts with it.
         if(removed && !state.history)state.history=this.removedThenDeleted(context);
         do{
-          const source=removed?state.source || 'overview':'overview';
-          const result=await this.request({action:'own-list',username:context.username,list:context.list,after:state.after,...(source==='posts'?{source}:{})});if(!current())return;
+          const source=removed?state.source || 'overview':'overview',requested=state.after,reread=Boolean(requested) && state.confirmedEnd===source+':'+requested;
+          const result=await this.request({action:'own-list',username:context.username,list:context.list,after:requested,...(source==='posts'?{source}:{})});if(!current())return;
           if(!Array.isArray(result.posts) || !Number.isInteger(result.scanned) || result.scanned<0 || result.scanned>100 || result.posts.length>100 || result.hasMore && result.scanned===0)throw Error('Reddit returned an unexpected list page.');
           state.native=result.transport==='native';
-          if(source==='posts')state.postsScanned+=result.scanned;else state.scanned+=Math.min(result.scanned,cap-state.scanned);
           // Live evidence replaces an archive record that history recovery added first for the same item.
           const added=[];for(const post of result.posts){if(!post?.fullname)continue;const key=itemKey(post),had=state.items.get(key);if(had && had.source!=='arctic-shift')continue;if(had)this.dropCard(key);state.items.set(key,post);added.push(post);}
+          // A confirming re-read counts only items it adds.
+          const counted=reread?added.length:result.scanned;if(source==='posts')state.postsScanned+=counted;else state.scanned+=Math.min(counted,cap-state.scanned);
           if(removed && added.length)check(added,source);
           state.after=result.after || null;if(source==='overview')state.capped=state.scanned>=cap && context.list!=='history';
           if(result.hasMore && (!state.after || cursors.has(state.after)))throw Error('Reddit repeated a list cursor. List search is incomplete.');
           if(state.after)cursors.add(state.after);
           const ended=!result.hasMore || context.list==='history' || (source==='posts'?state.postsScanned>=cap:state.capped);
-          // Overview mixes in comments, so its newest 1,000 items can stop well short of older posts: the Posts tab
-          // reaches them (spec §25).
-          if(ended && removed && source==='overview' && state.capped){state.source='posts';state.after=null;cursors.clear();}
+          // Reddit sometimes ends the feed early with a short last page and no next link (measured 2026-11-16: once at
+          // 1,283 of 2,094 items). A continuation that claims to be last is read once more before it is believed.
+          if(removed && !result.hasMore && requested && state.confirmedEnd!==source+':'+requested){state.confirmedEnd=source+':'+requested;state.after=requested;this.renderOwnList();continue;}
+          // Then the Posts tab, always: it also covers posts if Overview was cut short or stopped at its bound (spec §26).
+          if(ended && removed && source==='overview'){state.source='posts';state.after=null;cursors.clear();}
           else state.done=ended;
           this.renderOwnList();
         }while(current() && !state.done);
@@ -934,7 +940,8 @@
       let added=0;state.archiveHistoryError=false;
       for(const kind of ['post','comment']){
         let before=null;const cursors=new Set();
-        for(let page=0;page<removedHistoryPages;page++){
+        const historyPages=this.removedHistoryPages ?? removedHistoryPages;
+        for(let page=0;page<historyPages;page++){
           if(!current())return;
           // Arctic Shift sometimes refuses a heavy author query once (HTTP 422) and answers the next try.
           let result,failure=null;
@@ -952,7 +959,7 @@
           if(added)this.renderOwnList();
           if(!result?.hasMore)break;
           if(result.cursorStalled || !found.length || !Number.isSafeInteger(result.before) || result.before<=0 || before!=null && result.before>=before || cursors.has(result.before)){state.removalNotes.add('Archive pagination stalled for '+kind+' history; coverage is incomplete.');break;}
-          if(page===removedHistoryPages-1){state.removalNotes.add('Archive '+kind+' history stopped at '+removedHistoryPages+' pages; coverage is incomplete.');break;}
+          if(page===historyPages-1){state.removalNotes.add('Archive '+kind+' history stopped at '+historyPages+' pages; coverage is incomplete.');break;}
           before=result.before;cursors.add(before);
         }
       }
@@ -963,7 +970,7 @@
     async visitorPages(items,me,source='overview'){
       const state=this.listState,visitors=state.visitors ||= {},v=visitors[source] ||= {seen:new Set(),subs:new Set(),after:null,done:false,failed:false,tail:Infinity,pages:0};
       const floor=Math.min(...items.map(p=>Number(p.created) || 0));
-      while(!v.done && !v.failed && v.tail>=floor && v.pages<60){
+      while(!v.done && !v.failed && v.tail>=floor && v.pages<(this.removedVisitorPages ?? removedVisitorPages)){
         try{
           const r=await this.request({action:'removal-public-profile',owner:me.owner,username:me.username,...(source==='posts'?{source}:{}),...(v.after?{after:v.after}:{})});if(this.listState!==state)return v;
           v.pages++;const list=r?.items || [];for(const item of list)if(item?.fullname){v.seen.add(item.fullname);if(item.subreddit)v.subs.add(String(item.subreddit).toLowerCase());}
@@ -997,14 +1004,14 @@
       for(const note of state.removalNotes || [])notes.push(note);
       // U3: exact-item reads do not establish account-wide profile visibility.
       notes.push('Couldn’t check whether others can see your profile: account-level verification is not implemented');
-      if(state.native)notes.push((state.capped?'Stopped after 1,000 loaded items; ':'')+'native profile coverage may be incomplete');
-      else if(state.capped)notes.push('Reddit only returns your newest 1,000 posts and comments');
+      // A walk that reached the end of your profile covers everything Reddit lists; only a safety stop is incomplete.
+      if(state.capped)notes.push('Stopped after '+n(state.scanned)+' profile items (a safety limit); older items were checked through your Posts tab and the archive only');
       if(state.error)notes.push('The check is incomplete. Select Refresh to retry.');
       // One short line; every reason is in its tooltip.
       const unknown=counts.unknownComments+counts.unknownPosts,line=[];
       if(this.searchParsed.invalid && error)line.push(error);
       if(unknown)line.push(n(unknown)+' couldn’t be checked');
-      if(state.capped)line.push('stopped at 1,000 items');
+      if(state.capped)line.push('stopped at '+n(state.scanned)+' items');
       if(state.error)line.push('incomplete · Refresh to retry');
       if(this.notice){this.notice.textContent=line.join(' · ');this.notice.title=notes.join('\n');this.notice.hidden=!line.length;}
       this.status.title='Shows your posts and comments that others can’t see, as far as Reddit and the archive tell us. Nothing is edited or reported.';
