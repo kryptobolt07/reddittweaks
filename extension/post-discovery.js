@@ -811,17 +811,9 @@
       // curation), not removed: their items get a smaller budget of their own, after the real differences.
       const shownSub=post=>!visitor || visitor.failed || !visitor.subs.size || visitor.subs.has(String(post.subreddit || '').toLowerCase());
       if(visitor)for(const post of uncached)if(visitor.seen.has(post.fullname))publicProofs.set(post.fullname,{fullname:post.fullname,status:'visible',verified:true,source:'signed-out-profile'});
-      const candidates=items.filter(post=>(post.kind==='comment' || post.moderation?.native) && (publicProofs.get(post.fullname)?.status!=='visible' || post.moderation?.nativeRemoved && !post.moderation.category) && !['private','employees_only','gold_restricted'].includes(post.moderation?.subredditType) && !post.moderation?.quarantined),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
-      if(archiveStatus==='ok')for(const kind of ['post','comment'])for(let index=0,grouped=candidates.filter(p=>(p.kind==='comment'?'comment':'post')===kind);index<grouped.length;index+=25){
-        const group=grouped.slice(index,index+25);
-        try{const result=await this.archive({action:'archive-removal',username:context.username,kind,ids:group.map(post=>post.id)});
-          for(const raw of result.posts || []){const archived=M.normalizeItem(raw,{source:'arctic-shift'});if(archived && (archived.kind==='comment')===(kind==='comment') && archived.author.toLowerCase()===context.username.toLowerCase())archives.set(archived.fullname,archived);}}
-        catch(error){archiveStatus='failed';state.removalNotes.add('The archive didn’t answer ('+error.message.replace(/\.$/,'')+'); some '+(kind==='comment'?'comments':'posts')+' couldn’t be checked');break;}
-      }
-      // Direct checks after the archive lookup, in priority order: real differences (communities the visitor does see),
-      // then items the archive calls removed (a removal can be reversed later, so it needs a current check), then the rest.
-      const unseen=items.filter(post=>!publicProofs.has(post.fullname)),flagged=post=>{const archived=archives.get(post.fullname);return archived?.archiveStatus==='removed' || Boolean(archived?.archiveRemovedBy);};
-      const ordered=[...unseen.filter(shownSub),...unseen.filter(post=>!shownSub(post) && flagged(post)),...unseen.filter(post=>!shownSub(post) && !flagged(post))];
+      // Verify current visibility before asking the archive. Missing profile entries may simply be curated or stale.
+      const unseen=items.filter(post=>!publicProofs.has(post.fullname));
+      const ordered=[...unseen.filter(shownSub),...unseen.filter(post=>!shownSub(post))];
       if(me && me.username.toLowerCase()===context.username.toLowerCase())for(const post of ordered){
         if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner)throw Error('The signed-in account changed.');
         const hidden=!shownSub(post);if(hidden)state.removalNotes.add('Some items are in communities a signed-out visitor doesn’t see on your profile (likely hidden by your profile settings); those were checked one by one.');
@@ -833,6 +825,14 @@
           if(proof?.verified===true && proof.fullname===post.fullname)publicProofs.set(post.fullname,proof);else{publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');
             if(/HTTP 403|HTTP 429|rate limit|blocked/i.test(proof?.why || '')){state.directStopped=true;state.removalNotes.add('Reddit paused signed-out checks, so the rest weren’t checked. Refresh later to continue.');}}}
         catch(error){if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner || /account changed/i.test(error.message))throw Error('The signed-in account changed.');publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');}
+      }
+      const candidates=items.filter(post=>{const proof=publicProofs.get(post.fullname),verdict=R.classify({author:{...author(post),visibilityKnown:false},publicView:proof?.verified?{verified:true,visibility:proof.status,moderation:proof.moderation}:proof?{status:'failed'}:null,archiveStatus:'off'});return (post.kind==='comment' || post.moderation?.native) && !['visible','deleted','removed-mod','removed-auto','removed-admin','removed-filter'].includes(verdict.state) && !['private','employees_only','gold_restricted'].includes(post.moderation?.subredditType) && !post.moderation?.quarantined;}),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
+      if(archiveStatus==='ok')for(const kind of ['post','comment'])for(let index=0,grouped=candidates.filter(p=>(p.kind==='comment'?'comment':'post')===kind);index<grouped.length;index+=25){
+        const group=grouped.slice(index,index+25);
+        if(!current())return;
+        try{const result=await this.archive({action:'archive-removal',username:context.username,...(me?{owner:me.owner}:{}),kind,ids:group.map(post=>post.id)});if(!current())return;
+          for(const raw of result.posts || []){const archived=M.normalizeItem(raw,{source:'arctic-shift'});if(archived && (archived.kind==='comment')===(kind==='comment') && archived.author.toLowerCase()===context.username.toLowerCase())archives.set(archived.fullname,archived);}}
+        catch(error){archiveStatus='failed';state.removalNotes.add('The archive didn’t answer ('+error.message.replace(/\.$/,'')+'); some '+(kind==='comment'?'comments':'posts')+' couldn’t be checked');break;}
       }
       for(const post of items){
         const archived=archives.get(post.fullname),archive=archived?{kind:post.kind==='comment'?'comment':'post',...(post.kind==='comment'?{}:{title:archived.title || ''}),body:archived.archiveStatus==='removed'?'[removed]':archived.body,created_utc:archived.created,retrieved_on:archived.retrieved || 0}:null;
@@ -850,15 +850,16 @@
        Items no longer on your profile that the archive recorded as removed by moderators, Reddit or AutoModerator are
        added; self-deleted items are not. Only with "Use the archive" on. */
     async removedThenDeleted(context){
-      const state=this.listState,R=globalThis.RTRemovalModel;if(!state || !R?.afterDeletion)return;
+      const state=this.listState,R=globalThis.RTRemovalModel;if(!state || !R?.afterDeletion)return;const generation=this.generation,current=()=>!this.dead && this.listState===state && this.generation===generation;const me=globalThis.RTNativeRemoval?.identity(document);
       if(!this.settings.archiveDiscovery){state.removalNotes.add('Turn on “Use the archive” to include items you deleted after a removal.');return;}
       const own=[...state.items.values()];if(!own.length)return;const since=Math.min(...own.map(p=>Number(p.created) || Infinity));let added=0;
       for(const kind of ['post','comment']){
         let before=null;
         for(let page=0;page<10;page++){
-          let result;try{result=await this.archive({action:'archive-profile',username:context.username,kind,...(before?{before}:{})});}
-          catch(error){if(this.listState!==state)return;state.removalNotes.add('The archive didn’t answer for deleted items ('+String(error.message || 'request failed').replace(/\.$/,'')+')');break;}
-          if(this.listState!==state)return;
+          if(!current())return;
+          let result;try{result=await this.archive({action:'archive-profile',username:context.username,kind,...(me?{purpose:'removal-history',owner:me.owner}:{}),...(before?{before}:{})});}
+          catch(error){if(!current())return;state.removalNotes.add('The archive didn’t answer for deleted items ('+String(error.message || 'request failed').replace(/\.$/,'')+')');break;}
+          if(!current())return;
           const found=(result?.posts || []).map(raw=>M.normalizeItem(raw,{source:'arctic-shift'})).filter(Boolean);
           for(const item of found){
             if(item.created<since || item.author.toLowerCase()!==context.username.toLowerCase() || state.items.has(itemKey(item)))continue;
