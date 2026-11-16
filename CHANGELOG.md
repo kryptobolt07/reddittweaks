@@ -1,3 +1,14 @@
+# 0.40.1 preview
+
+- **Preserve existing recent History:** opening extended History now saves the recent entries Reddit already provides, including when enabling it on the native History tab. Missing rows are added without replacing newer recorded visits. Visits Reddit no longer lists remain unrecoverable.
+- **New visits appear without reloading:** record hydrated post pages promptly and before link navigation; revisiting History refreshes its completed cached feed. Re-enabling on the same post and switching accounts record correctly. Failed writes retry at most three times; unavailable recorded History is reported as incomplete while recent native rows remain visible.
+- **History menu:** replace the platform select with a themed, keyboard-accessible radio menu using the popup’s light/dark colors. Failed saves retain the previous selection. Counts now describe available items separately from the configured saving capacity.
+- **Compact archive header:** the large Banned · Archived posts pill is replaced by the existing removal glyph beside r/name; private communities use their existing hidden glyph. State and archive attribution remain in the accessible label and tooltip.
+- **GitHub build:** fix an existing chat-time test’s assumption that the runner is in India; it now formats the fixture’s absolute timestamps in the current timezone. Runtime date formatting is unchanged.
+- **Version:** patch increment for History recording, preservation and refresh reliability. No new permissions, endpoints or storage schema changes; seeded rows have an optional marker and internal ordering key, not a claimed exact view time.
+- **Validation:** all 1,774 tests pass in UTC; 52 shipped JavaScript files parse; ZIP integrity passes and all 66 assets match source/archive/stable unpacked output. History/popup checks: 57 pass; archive-header checks: 69 pass. SHA-256 `ba27b0a043ccf6a87f5d3a5a84445a512a01bb08b6b904ceec690e3924e614f4`.
+- **Review:** no new browser/CDP or real History-clearing checks; synthetic regressions cover the reported flows. Reload the extension and refresh Reddit to install the corrected scripts. GitHub publishing remains tag-triggered and no release tag is pushed by this update.
+
 # 0.40.0 preview
 
 - **Longer viewed-post History:** choose Reddit’s usual recent views (default), 100, 500, 1,000, 5,000 or No limit in Settings → Profile search & hidden activity → History length. When raised, posts you open in this browser are recorded locally per signed-in account. The profile History tab and List → History search combine Reddit’s recent views with recorded ones, without repeats; the tab draws Reddit’s own cards 25 at a time as you scroll.
