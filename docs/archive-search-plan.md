@@ -76,6 +76,7 @@ New background actions. All of them reuse the existing slot, cooldown, maintenan
 - **Server first, local fallback:** if a text query times out on a very active author or subreddit, retry without the text. Then page by date window and match locally with the §2.1 evaluator.
   - **Budget:** at most 10 pages × 100 items per kind for each "Search older" step.
   - The UI always shows "Searched back to <date>" and a **Search older** action. It never claims to be complete.
+  - **Profile search (2026-11-16):** no step budget, date line or **Search older**. It keeps reading both sources as the reader scrolls until both report nothing left, then shows Reddit's own no-results view if nothing matched (own-removal spec §30). Subreddit archive search keeps the step budget.
 - **Post type:** derived in `post-model.js` from `is_self`, `is_video`, `is_gallery`/`gallery_data`, `post_hint` and `crosspost_parent`. It is filtered locally, because Arctic Shift has no type filter.
 - **Caching:** per tab, in memory, keyed by request, for 10 minutes. Nothing is persisted except recent searches (§2.6).
 - **PullPush adapter:** a second source with the same output shape, used only when allowed (§6). It is a fallback when Arctic Shift is down, under maintenance or returns nothing. It is never queried in parallel.

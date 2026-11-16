@@ -19,7 +19,7 @@ async function view(t,{children,settings={postDiscovery:true,archiveDiscovery:fa
  const reddit=async args=>{
   if(args.action==='own-list-identity')return {username:'Example'};
   calls.push(args);
-  if(args.action==='render-search-empty'){if(emptyRead)return emptyRead(args,W);W.document.getElementById(args.target).innerHTML='<faceplate-partial><div class="native-empty-search"><img data-native-empty-art="true" src="https://www.redditstatic.com/synthetic-empty.png"><h2>Hm...we couldn’t find any results for</h2><p>Double-check your spelling</p><button>Adjust your search</button></div></faceplate-partial>';return {rendered:true};}
+  if(args.action==='render-search-empty'){if(emptyRead)return emptyRead(args,W);W.document.getElementById(args.target).innerHTML='<faceplate-partial><div class="flex flex-col items-center" data-testid="search-error-message"><img data-native-empty-art="true" alt="" src="https://www.redditstatic.com/synthetic-thinking.svg"><div class="text-neutral-content-strong font-bold">Hm...we couldn’t find any results for "rt-empty-synthetic"</div><div class="text-neutral-content-weak">Double-check your spelling or try different keywords</div><div data-testid="search-error-message-ctas"><adjust-search-query-link><button data-testid="search-error-message-primary-cta">Adjust your search</button></adjust-search-query-link></div></div></faceplate-partial>';return {rendered:true};}
   if(args.action==='removal-public-profile'){assert.equal(args.owner,'t2_self');if(!visitor)throw Error('Reddit blocked the signed-out profile (HTTP 403).');return visitor(args);}
   if(args.action==='removal-public'){assert.equal(args.owner,'t2_self');if(publicDelay){await new Promise(r=>setTimeout(r,publicDelay));calls.push({action:'public-done',fullname:args.fullname});}return {proof:{fullname:args.fullname,...(publicProofs?.[args.fullname] || {status:'unknown',verified:false})}};}
   if(args.action==='own-list' && ownList)return ownList(args,M);
@@ -78,7 +78,7 @@ test('an archive failure leaves comments as “Couldn’t check” and says so, 
 
 test('no removals says how many items could be checked, not that nothing was removed',async t=>{
  const s=await view(t,{children:[['t3',post('a')],['t3',post('b')],['t1',comment('c')]]});
- assert.deepEqual(s.shown,[]);assert.equal(s.d.listEmpty.hidden,false);assert.match(s.d.listEmpty.textContent,/No removed posts match your search/);
+ assert.deepEqual(s.shown,[]);assert.equal(s.d.listEmpty.hidden,false);assert.equal(s.d.listEmpty.querySelector('[data-testid="search-error-message"] > div').textContent,'Hm...we couldn’t find any results','Reddit’s own title, without the template query');assert.doesNotMatch(s.d.listEmpty.textContent,/rt-empty|No removed/);
 });
 
 test('native metadata without a visibility verdict remains unchecked and exposes its limit',async t=>{
@@ -386,7 +386,7 @@ test('Today Removed comments search classifies only in-window comments while ret
 
 test('a completed empty Removed search reuses Reddit actual empty-search DOM and its adjust-search action',async t=>{
  const s=await view(t,{children:[],type:'posts',before:d=>{const empty=d.feed.ownerDocument.createElement('div');empty.id='empty-search-results';empty.innerHTML='<img data-native-empty-art="true" src="https://www.redditstatic.com/synthetic-empty.png"><h2>Hm...we couldn’t find any results for</h2><p>Double-check your spelling</p><button>Adjust your search</button>';d.feed.closest('main').append(empty);}});
- assert.ok(s.d.listEmpty.querySelector('[data-native-empty-art="true"]'));assert.equal(s.d.listEmpty.querySelector('button').textContent,'Adjust your search');assert.equal(s.d.listEmpty.hidden,false);assert.match(s.d.listEmpty.textContent,/removed posts/i);assert.equal(s.d.loading.hidden,true);assert.equal(s.d.listEmpty.querySelector('faceplate-partial')?.tagName,'FACEPLATE-PARTIAL','the bridge hydrates Reddit components in the page world');let adjusted=null;s.d.fillHeaderSearch=q=>{adjusted=q;};s.d.listEmpty.querySelector('button').click();assert.equal(adjusted,'');
+ assert.ok(s.d.listEmpty.querySelector('[data-native-empty-art="true"]'));assert.equal(s.d.listEmpty.querySelector('button').textContent,'Adjust your search');assert.equal(s.d.listEmpty.hidden,false);assert.match(s.d.listEmpty.textContent,/Double-check your spelling/);assert.equal(s.d.loading.hidden,true);assert.equal(s.d.listEmpty.querySelector('faceplate-partial')?.tagName,'FACEPLATE-PARTIAL','the bridge hydrates Reddit components in the page world');let adjusted=null;s.d.fillHeaderSearch=q=>{adjusted=q;};s.d.listEmpty.querySelector('button').click();assert.equal(adjusted,'');
 });
 
 test('native Today and an additional local date filter intersect instead of widening Removed search',async t=>{
@@ -395,4 +395,18 @@ test('native Today and an additional local date filter intersect instead of wide
 
 test('a failed native empty template is retried only on an explicit list refresh',async t=>{
  let reads=0;const s=await view(t,{children:[],type:'posts',emptyRead:async()=>{reads++;throw Error('Native template unavailable');}});assert.equal(reads,1);assert.match(s.d.status.textContent,/empty search view could not be loaded/);s.d.renderOwnList();await flush();s.d.renderOwnList();await flush();assert.equal(reads,1,'redraws must not hammer native search');assert.match(s.d.status.textContent,/empty search view could not be loaded/);await s.d.refreshActivity();await flush();assert.equal(reads,2,'an explicit retry may read once again');
+});
+
+test('a completed empty Removed search titles Reddit’s view with the actual query',async t=>{
+ const s=await view(t,{children:[],type:'posts',q:'needle'});assert.equal(s.d.listEmpty.querySelector('[data-testid="search-error-message"] > div').textContent,'Hm...we couldn’t find any results for "needle"');
+});
+test('a saved entry without stored counts shows no invented votes until its fresh record supplies them',async t=>{
+ let d,early;const ownList=(args,M)=>{if(early===undefined)early=d.nodes.get('kept')?.querySelector('[data-testid="search-counter-row"]')?.textContent ?? null;return args.source==='posts'?{posts:[],scanned:0,hasMore:false,after:null}:{posts:[native(M,'t3',post('kept',{created_utc:created-10,removed_by_category:'moderator',score:18,num_comments:22}))],scanned:1,hasMore:false,after:null};};
+ const s=await view(t,{ownList,list:[savedItem('kept')],publicProofs:{},visitor:()=>({items:[],after:null}),before:x=>{d=x;}});
+ assert.equal(early,null,'a legacy saved entry has no counts to show, not 0 votes · 0 comments');
+ assert.equal(s.d.nodes.get('kept').querySelector('[data-testid="search-counter-row"]').textContent,'18 votes·22 comments');
+});
+test('Removed search uses the same zero-gap search layout as plain search',async t=>{
+ const s=await view(t,{children:[],type:'posts',q:'needle',before:d=>{const target=d.controlsTarget=d.feed.ownerDocument.createElement('div');target.className='flex items-center gap-xs my-md';target.dataset.rtUi='profile-controls';d.host.before(target);}});
+ assert.equal(s.d.host.hasAttribute('data-rt-search'),true);assert.equal(s.d.controlsTarget.classList.contains('my-md'),false);assert.equal(s.d.controlsTarget.classList.contains('flex'),false);
 });

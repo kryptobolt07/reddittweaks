@@ -706,3 +706,5 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 /* Removed: one red ban icon after the time (spec §27). */
 .rt-removal-pill.rt-post-indicator{width:20px;height:20px;margin:0 0 0 4px;color:var(--color-danger-content,#d93900);vertical-align:middle;cursor:help}
 .rt-removal-pill.rt-post-indicator svg{width:16px;height:16px}
+/* Search: an empty toolbar must not stop Reddit's 8px gap above the first result from collapsing (live 2026-11-16). */
+.rt-posts[data-rt-search] .rt-posts-toolbar{display:contents}
