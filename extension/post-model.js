@@ -150,7 +150,9 @@
       result.archiveStatus=['available','deleted','removed','unknown'].includes(raw.archiveStatus)?raw.archiveStatus:status;
       // Who removed it, at Arctic Shift's first capture or its later re-check, and whether the author deleted it later.
       const removedBy=value=>['moderator','reddit','automod_filtered'].includes(value)?value:'',meta=raw._meta && typeof raw._meta==='object'?raw._meta:{};
-      result.archiveRemovedBy=removedBy(raw.archiveRemovedBy) || removedBy(meta.removal_type) || removedBy(raw.removed_by_category);
+      // Reddit also retitles a removed post "[ Removed by moderator ]", which the archive's re-check can record.
+      const retitled=/^\[\s*Removed by (moderator|Reddit)s?\s*\]$/i.exec(String(meta.edited_title || '').trim())?.[1]?.toLowerCase() || '';
+      result.archiveRemovedBy=removedBy(raw.archiveRemovedBy) || removedBy(meta.removal_type) || removedBy(raw.removed_by_category) || removedBy(retitled);
       result.archiveDeletedLater=raw.archiveDeletedLater===true || meta.was_deleted_later===true || meta.removal_type==='deleted';
       const retrieved=retrievedAt(raw.retrieved_on ?? raw.retrieved);if(retrieved)result.retrieved=retrieved;
       // Server-rendered markdown from the archive. Untrusted: pages must sanitize before display.

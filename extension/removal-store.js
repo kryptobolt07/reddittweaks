@@ -36,23 +36,52 @@
    });
   }
   const seen=(owner,username)=>{account(owner,username);return serial(owner.toLowerCase(),async()=>{const value=await read(owner,username);for(const c of value.changes)c.unread=false;value.unread=0;await save(value);return value;});};
-  const clear=owner=>{account(owner,'valid');return serial(owner.toLowerCase(),()=>storage.remove(prefix+owner.toLowerCase()));};
-  /* The Removed view's cache of signed-out results (spec §18 P6): status and time only, per account, so reopening the
-     view skips items checked recently. Visible results last 12 hours, removed/deleted 24 hours; unknown is never kept. */
-  const proofPrefix='rt-removal-proofs-v1:',ttl={visible:43200000,removed:86400000,deleted:86400000};
+  const clear=owner=>{account(owner,'valid');owner=owner.toLowerCase();return serial(owner,async()=>{for(const key of [prefix,'rt-removal-proofs-v1:','rt-removal-list-v1:'])await storage.remove(key+owner);});};
+  /* The Removed view's cache of signed-out results (spec §18 P6, §27): status, time and item date only, per account, so
+     reopening the view skips items checked recently. For items from the last week, when removals happen, visible lasts
+     12 hours and removed/deleted 24 hours; once an item is older than a week, any result lasts 7 days. Unknown is never kept. */
+  const proofPrefix='rt-removal-proofs-v1:',week=604800000,ttl={visible:43200000,removed:86400000,deleted:86400000};
+  const life=raw=>Number.isFinite(raw.created) && raw.created>0 && raw.checkedAt-raw.created*1000>week?week:ttl[raw.status];
+  const fresh=(raw,t)=>Object.hasOwn(ttl,raw?.status) && Number.isFinite(raw.checkedAt) && raw.checkedAt<=t && t-raw.checkedAt<life(raw);
+  const keep=raw=>({status:raw.status,checkedAt:raw.checkedAt,...(Number.isFinite(raw.created) && raw.created>0?{created:Math.floor(raw.created)}:{})});
   const freshProofs=(value,username)=>{const out={};if(value?.username?.toLowerCase()!==username.toLowerCase())return out;const t=now();
-   for(const [fullname,raw] of Object.entries(value.proofs || {}))if(/^t[13]_[a-z0-9]{1,32}$/.test(fullname) && Object.hasOwn(ttl,raw?.status) && Number.isFinite(raw.checkedAt) && raw.checkedAt<=t && t-raw.checkedAt<ttl[raw.status])out[fullname]={status:raw.status,checkedAt:raw.checkedAt};return out;};
+   for(const [fullname,raw] of Object.entries(value.proofs || {}))if(/^t[13]_[a-z0-9]{1,32}$/.test(fullname) && fresh(raw,t))out[fullname]=keep(raw);return out;};
   async function readProofs(owner,username){account(owner,username);const key=proofPrefix+owner.toLowerCase();return freshProofs((await storage.get(key))?.[key],username);}
   function saveProofs({owner,username,proofs}){
    account(owner,username);if(!Array.isArray(proofs) || proofs.length>500)throw Error('Invalid result batch.');owner=owner.toLowerCase();
    return serial('proofs:'+owner,async()=>{
     const key=proofPrefix+owner,current=freshProofs((await storage.get(key))?.[key],username),t=now();
-    for(const proof of proofs)if(/^t[13]_[a-z0-9]{1,32}$/.test(proof?.fullname || '') && Object.hasOwn(ttl,proof.status) && Number.isFinite(proof.checkedAt) && proof.checkedAt<=t && t-proof.checkedAt<ttl[proof.status])current[proof.fullname]={status:proof.status,checkedAt:proof.checkedAt};
+    for(const proof of proofs)if(/^t[13]_[a-z0-9]{1,32}$/.test(proof?.fullname || '') && fresh(proof,t))current[proof.fullname]=keep(proof);
     const kept=Object.entries(current).sort((a,b)=>b[1].checkedAt-a[1].checkedAt).slice(0,limit);
     await storage.set({[key]:{username,proofs:Object.fromEntries(kept)}});
    });
   }
-  return Object.freeze({read,record,seen,clear,readProofs,saveProofs});
+  /* The saved Removed list (spec §27): the last complete Removed result for this account, so reopening Removed or its
+     search shows it at once while a fresh walk confirms it. Removed items only: identity, date, community, link, verdict
+     and the item's own title and text (bounded) so search can match it. Replaced on each complete walk; kept 30 days. */
+  const listPrefix='rt-removal-list-v1:',listLife=2592000000,listLimit=2000;
+  const listFlags=['deleted-later','gone','locked','approved-after-auto'];
+  function cleanListItem(raw){
+   const comment=raw?.kind==='comment',fullname=String(raw?.fullname || '');
+   if(!(comment?/^t1_[a-z0-9]{1,32}$/:/^t3_[a-z0-9]{1,10}$/).test(fullname) || fullname.slice(3)!==raw.id || !Number.isFinite(raw.created) || raw.created<=0)return null;
+   const removal=raw.removal;if(!removal || !Object.hasOwn(R.STATES,removal.state) || !removal.state.startsWith('removed-') || !['verified','likely'].includes(removal.confidence))return null;
+   let url;try{url=new URL(raw.permalink,'https://www.reddit.com');}catch{return null;}
+   if(url.origin!=='https://www.reddit.com' || !/^\/(?:r|user)\/[\w-]+\/comments\/[a-z0-9]+\//i.test(url.pathname))return null;
+   const text=(value,max)=>typeof value==='string'?value.slice(0,max):'';
+   return {fullname,kind:comment?'comment':'post',id:raw.id,created:Math.floor(raw.created),subreddit:/^[\w]{1,21}$/.test(raw.subreddit || '')?raw.subreddit:'',permalink:url.pathname,title:text(raw.title,300),body:text(raw.body,4000),
+    source:raw.source==='arctic-shift'?'arctic-shift':'reddit',postType:/^[a-z]{1,16}$/.test(raw.postType || '')?raw.postType:'',over18:raw.over18===true,spoiler:raw.spoiler===true,
+    removal:{state:removal.state,confidence:removal.confidence,why:text(removal.why,800),flags:Array.isArray(removal.flags)?[...new Set(removal.flags.filter(flag=>listFlags.includes(flag)))]:[]}};
+  }
+  async function readList(owner,username){
+   account(owner,username);const key=listPrefix+owner.toLowerCase(),value=(await storage.get(key))?.[key];
+   if(value?.username?.toLowerCase()!==username.toLowerCase() || !Number.isFinite(value.savedAt) || now()-value.savedAt>=listLife)return {items:[],savedAt:0};
+   return {items:(Array.isArray(value.items)?value.items:[]).slice(0,listLimit).map(cleanListItem).filter(Boolean),savedAt:value.savedAt};
+  }
+  function saveList({owner,username,items}){
+   account(owner,username);if(!Array.isArray(items) || items.length>listLimit)throw Error('Invalid Removed list.');owner=owner.toLowerCase();
+   return serial('list:'+owner,()=>storage.set({[listPrefix+owner]:{username,savedAt:now(),items:items.map(cleanListItem).filter(Boolean)}}));
+  }
+  return Object.freeze({read,record,seen,clear,readProofs,saveProofs,readList,saveList});
  }
  globalThis.RTRemovalStore=Object.freeze({create,prefix});
 })();

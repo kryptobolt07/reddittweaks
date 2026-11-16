@@ -62,3 +62,8 @@ test('the Posts tab is read signed in and signed out with its own continuations,
  assert.equal((await s.send({action:'removal-public-profile',owner:'t2_self',username:'Example',source:'posts',after:out.after})).ok,true);
  for(const source of ['comments','../x'])assert.equal((await s.send({action:'own-list',list:'removed',username:'Example',source})).ok,false,source);
 });
+test('a profile-list read that arrives while four Reddit requests are running waits its turn instead of failing',async t=>{
+ const s=setup(t);let release;const gate=new Promise(r=>release=r);s.W.RTPublicBrowser={async read(){await gate;return '<main><shreddit-feed></shreddit-feed></main>';}};
+ const busy=[0,1,2,3].map(()=>s.send({action:'removal-public-profile',owner:'t2_self',username:'Example'}));await new Promise(r=>setImmediate(r));
+ const own=await s.send({action:'own-list',list:'removed',username:'Example'});assert.equal(own.ok,true);assert.equal(own.deferred,true,'deferred, so the caller retries');release();await Promise.all(busy);
+});

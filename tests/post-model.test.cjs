@@ -128,3 +128,8 @@ test('community archive preferences require explicit booleans independently of o
  }
  assert.equal(M.normalizeSettings({archiveDiscovery:true}).subredditArchive,false);
 });
+test('Reddit’s “[ Removed by moderator ]” title recorded by the archive is removal evidence',()=>{
+ const M=model();const p=M.normalizePost(post({_meta:{edited_title:'[ Removed by moderator ]',removal_type:'deleted',was_deleted_later:true}}),{source:'arctic-shift'});
+ assert.equal(p.archiveRemovedBy,'moderator');assert.equal(p.archiveDeletedLater,true);
+ assert.equal(M.normalizePost(post({_meta:{edited_title:'A better title'}}),{source:'arctic-shift'}).archiveRemovedBy || '','','an ordinary title edit is not evidence');
+});

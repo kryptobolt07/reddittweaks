@@ -50,3 +50,16 @@ test('signed-out result cache: per account, short-lived, statuses only, no text'
  assert.deepEqual(Object.keys(await store.readProofs('t2_self','Other')),[],'bound to the account name too');
  await assert.rejects(store.readProofs('nope','Example'));
 });
+test('settled visible results last 7 days; items from the last week are rechecked after 12 hours',async()=>{
+ const now=1800000000000,{store}=setup({now:()=>now});const h=3600000,d=24*h,old=Math.floor((now-30*d)/1000),recent=Math.floor((now-2*d)/1000);
+ await store.saveProofs({owner:'t2_self',username:'Example',proofs:[{fullname:'t1_old',status:'visible',checkedAt:now-6*d,created:old},{fullname:'t1_older',status:'visible',checkedAt:now-8*d,created:old},{fullname:'t1_recent',status:'visible',checkedAt:now-13*h,created:recent},{fullname:'t3_oldremoved',status:'removed',checkedAt:now-6*d,created:old}]});
+ assert.deepEqual(Object.keys(await store.readProofs('t2_self','Example')).sort(),['t1_old','t3_oldremoved']);
+});
+test('the saved Removed list keeps removed items only, per account, bounded, for 30 days',async()=>{
+ let now=1800000000000;const {store,data}=setup({now:()=>now}),day=86400000;
+ const item=(id,extra={})=>({fullname:'t3_'+id,kind:'post',id,created:1790000000,subreddit:'Alpha',permalink:'/r/Alpha/comments/'+id+'/title/',title:'Title '+id,body:'Body '+id,source:'reddit',removal:{state:'removed-mod',confidence:'verified',why:'Native evidence',flags:['gone','bogus']},...extra});
+ await store.saveList({owner:'t2_self',username:'Example',items:[item('a1'),item('b2',{removal:{state:'visible',confidence:'verified',why:'',flags:[]}}),item('c3',{token:'SECRET',body:'x'.repeat(9000)}),{fullname:'bad'}]});
+ const list=await store.readList('t2_self','Example');assert.deepEqual(list.items.map(i=>i.fullname),['t3_a1','t3_c3']);assert.deepEqual([...list.items[0].removal.flags],['gone']);assert.ok(list.items[1].body.length<=4000);
+ assert.equal(JSON.stringify(data).includes('SECRET'),false);assert.equal((await store.readList('t2_self','Other')).items.length,0,'bound to the account name');
+ now+=31*day;assert.equal((await store.readList('t2_self','Example')).items.length,0,'expires after 30 days');
+});

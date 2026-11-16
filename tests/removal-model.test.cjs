@@ -113,3 +113,10 @@ test('removed-then-deleted needs deletion proof as well as historical removal, n
  assert.equal(m.afterDeletion({archiveRemovedBy:'automod_filtered'},{deleted:true}).state,'removed-auto');
  const generic=m.afterDeletion({archiveStatus:'removed',archiveDeletedLater:true});assert.equal(generic.state,'removed-unknown');
 });
+test('an archived removal that is no longer on your profile is reported without claiming you deleted it',()=>{
+ const R=model(),gone=R.afterDeletion({archiveRemovedBy:'reddit'},{absent:true});
+ assert.equal(gone.state,'removed-admin');assert.deepEqual([...gone.flags],['gone']);assert.match(gone.why,/no longer on your profile/i);
+ assert.equal(R.afterDeletion({archiveRemovedBy:'reddit'}),null,'without the walk passing it, absence is not established');
+ assert.equal(R.afterDeletion({},{absent:true}),null,'absence alone is not a removal');
+ assert.deepEqual([...R.afterDeletion({archiveRemovedBy:'moderator',archiveDeletedLater:true},{absent:true}).flags],['deleted-later'],'recorded deletion keeps its own wording');
+});
