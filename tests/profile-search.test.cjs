@@ -415,3 +415,22 @@ test('search adds no space above the first result: no controls margin and no loc
   assert.equal(s.d.notice.hidden,true);assert.equal(s.d.host.hasAttribute('data-rt-search'),true);
   assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/\.rt-posts\[data-rt-search\] \.rt-posts-toolbar\{display:contents\}/);
 });
+
+for(const q of ['', 'words'])test('Back restores retained search before paint when Reddit empty shell arrives before tabs ('+q+')',async t=>{
+ const url='/user/Example/search/?q='+q,s=await boot(t,{url:'https://www.reddit.com'+url,observe:true});await search(s);const row=s.d.nodes.get('live'),feed=s.d.feed,reads=s.calls.filter(c=>c.action==='profile').length;assert.ok(row.isConnected);
+ s.W.history.pushState({},'','/r/Alpha/comments/live/synthetic/');s.D.body.innerHTML='<main><shreddit-post id="t3_live"></shreddit-post></main>';s.d.scan();await flush();
+ s.W.history.pushState({},'',url);s.W.dispatchEvent(new s.W.PopStateEvent('popstate'));s.D.body.innerHTML='<main>'+nativeEmpty+'</main>';await Promise.resolve();await Promise.resolve();await Promise.resolve();
+ assert.equal(s.d.feed,feed,'the same cached feed is restored before debounce');assert.equal(row.isConnected,true);const empty=s.D.querySelector('[data-testid="search-error-message"]');assert.equal(empty.closest('[data-rt-search-hidden]')?.hidden,true);assert.equal(s.d.loading.hidden,true,'no initial skeleton over restored rows');await flush();assert.equal(s.calls.filter(c=>c.action==='profile').length,reads);
+ // A later native reconcile must keep the same loaded view too.
+ s.D.querySelector('main').outerHTML=page;await Promise.resolve();await Promise.resolve();await Promise.resolve();assert.equal(s.d.feed,feed);assert.equal(row.isConnected,true);assert.equal(s.d.loading.hidden,true);
+});
+test('native no-results hydration is hidden immediately while a cached search remains mounted',async t=>{
+ const s=await boot(t,{observe:true});await search(s);const row=s.d.nodes.get('live');s.D.querySelector('main').insertAdjacentHTML('beforeend',nativeEmpty);await Promise.resolve();await Promise.resolve();const empty=s.D.querySelector('[data-testid="search-error-message"]');assert.equal(empty.closest('[data-rt-search-hidden]')?.hidden,true);assert.equal(row.isConnected,true);s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(empty.hidden,false,'native state restores on opt-out');
+});
+
+test('Back restores synchronously when Reddit inserts search DOM before popstate; expired parks are not reused',async t=>{
+ const s=await boot(t);await search(s);const row=s.d.nodes.get('live'),feed=s.d.feed;
+ const leave=async()=>{s.W.history.pushState({},'','/r/Alpha/comments/live/synthetic/');s.D.body.innerHTML='<main><shreddit-post id="t3_live"></shreddit-post></main>';s.d.scan();await flush();};
+ await leave();s.D.body.innerHTML='<main>'+nativeEmpty+'</main>';s.W.history.pushState({},'','/user/Example/search/?q=words');s.d.onRoute();assert.equal(s.d.feed,feed);assert.equal(row.isConnected,true,'before returning from the route event');assert.equal(s.d.loading.hidden,true);
+ await leave();for(const park of s.d.searchParks.values())park.state.parkedAt=Date.now()-16*60000;s.D.body.innerHTML='<main>'+nativeEmpty+'</main>';s.W.history.pushState({},'','/user/Example/search/?q=words');s.d.onRoute();assert.notEqual(s.d.feed,feed);assert.equal(row.isConnected,false,'expired rows are discarded');
+});
