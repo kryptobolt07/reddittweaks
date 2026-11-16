@@ -84,3 +84,17 @@ test('archive recovery failures remain retryable in the plain Removed list',asyn
 test('Removed merges recovered archive cards into newest-first unified order',async t=>{
  const s=await setup(t);await s.d.refreshActivity();const p=s.W.RTPostModel.normalizePost({id:'newpast',title:'Recovered newest',selftext:'Archived newest text',author:'Example',subreddit:'Alpha',created_utc:1800000000},{source:'arctic-shift'});p.archiveDeletedLater=true;p.removal={removed:true,state:'removed-mod',confidence:'verified',label:'Removed by moderators',why:'Archive captured removal',flags:['deleted-later']};s.d.listState.items.set(p.id,p);s.d.renderOwnList();await flush();assert.deepEqual([...s.d.feed.querySelectorAll(':scope > [data-rt-ui="activity-item"]')].filter(n=>!n.hidden).map(n=>n.dataset.fullname),['t3_newpast','t3_gone','t1_reply']);
 });
+test('Removed takes Reddit\'s inline selected highlight from Hidden and keeps it after a native repaint',async t=>{
+ const s=await setup(t);s.d.applySettings({postDiscovery:false,archiveDiscovery:false});const D=s.W.document,group=D.querySelector('#profile-feed-tabgroup'),sel='var(--color-secondary-background-selected)',bg=n=>n.style.backgroundColor;
+ const paint=target=>{for(const n of group.querySelectorAll(':scope > a')){const on=n===target;for(const c of ['tab-selected','bg-secondary-background-selected'])if(n.classList.contains(c)!==on)n.classList.toggle(c,on);n.toggleAttribute('faceplate-tab-selected',on);n.style.backgroundColor=on?sel:'transparent';}},hidden=group.querySelector('a[href$="/hidden/"]');
+ paint(hidden);group.setAttribute('pageindex','6');s.d.applySettings({postDiscovery:true,archiveDiscovery:false});await flush();const removed=D.querySelector('[data-rt-ui="removed-tab"]');
+ assert.equal(bg(removed),sel);assert.match(removed.className,/tab-selected/);assert.equal(bg(hidden),'transparent');assert.doesNotMatch(hidden.className,/tab-selected/);assert.equal(hidden.hasAttribute('faceplate-tab-selected'),false);
+ paint(hidden);await flush();assert.equal(bg(hidden),'transparent','a native repaint does not move the highlight back to Hidden');assert.doesNotMatch(hidden.className,/tab-selected/);assert.equal(bg(removed),sel);assert.match(removed.className,/tab-selected/);
+ s.d.applySettings({postDiscovery:false,archiveDiscovery:false});await flush();assert.equal(bg(hidden),sel);assert.match(hidden.className,/tab-selected/);assert.equal(hidden.hasAttribute('faceplate-tab-selected'),true);assert.equal(D.querySelector('[data-rt-ui="removed-tab"]'),null);
+});
+test('Removed re-asserts the tab count when Reddit resets the drawn pages under an unchanged attribute',async t=>{
+ const s=await setup(t,{path:'/user/Example/'});const D=s.W.document,group=D.querySelector('#profile-feed-tabgroup'),root=group.attachShadow?group.shadowRoot || group.attachShadow({mode:'open'}):null,draw=n=>{root.innerHTML='<div class="tablist" role="tablist">'+Array.from({length:n},(_,i)=>'<span role="tab" data-i="'+(i+1)+'"><slot name="page-'+(i+1)+'"></slot></span>').join('')+'</div>';};
+ const changes=[];new s.W.MutationObserver(records=>{for(const r of records)if(r.attributeName==='pages')changes.push(group.getAttribute('pages'));}).observe(group,{attributes:true});
+ draw(9);s.d.scan();await flush();assert.equal(group.getAttribute('pages'),'9');changes.length=0;
+ draw(8);await flush();assert.ok(changes.length>=1,'the pages attribute is written again so the component redraws nine tabs');assert.equal(group.getAttribute('pages'),'9');
+});
