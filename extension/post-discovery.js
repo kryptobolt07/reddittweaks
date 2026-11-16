@@ -767,6 +767,7 @@
           if(state.after)cursors.add(state.after);
           state.done=!result.hasMore || state.capped || context.list==='history';this.renderOwnList();
         }while(current() && !state.done);
+        if(current() && context.list==='removed')await this.removedThenDeleted(context);
       }catch(error){if(current()){state.error='Could not search your '+context.list+': '+error.message;if(/signed-in account changed|Sign in to Reddit/i.test(error.message)){state.items.clear();for(const node of this.nodes.values())node.remove();this.nodes.clear();this.clearOwnListHeader();this.ownHeaderDismissed=location.pathname+':'+context.list;this.ownIdentityChecked=false;queueMicrotask(()=>{if(!this.dead)this.scan();});}}}
       finally{if(current()){state.loading=false;this.discover.disabled=false;this.renderOwnList();}}
     }
@@ -813,6 +814,29 @@
         if(proof)post.publicStatus=proof.verified?proof.status:'unknown';
         post.removal=R.classify({author:{...author(post),...(proof?{visibilityKnown:false}:{})},publicView,archive,archiveStatus:archive?'ok':post.kind==='comment' && archiveStatus==='ok'?'missing':archiveStatus});
       }
+    }
+    /* Removed, then deleted by you (spec §18 P3): your Arctic Shift history over the time the profile walk covered.
+       Items no longer on your profile that the archive recorded as removed by moderators, Reddit or AutoModerator are
+       added; self-deleted items are not. Only with "Use the archive" on. */
+    async removedThenDeleted(context){
+      const state=this.listState,R=globalThis.RTRemovalModel;if(!state || !R?.afterDeletion)return;
+      if(!this.settings.archiveDiscovery){state.removalNotes.add('Turn on “Use the archive” to include items you deleted after a removal.');return;}
+      const own=[...state.items.values()];if(!own.length)return;const since=Math.min(...own.map(p=>Number(p.created) || Infinity));let added=0;
+      for(const kind of ['post','comment']){
+        let before=null;
+        for(let page=0;page<10;page++){
+          let result;try{result=await this.archive({action:'archive-profile',username:context.username,kind,...(before?{before}:{})});}
+          catch(error){if(this.listState!==state)return;state.removalNotes.add('The archive didn’t answer for deleted items ('+String(error.message || 'request failed').replace(/\.$/,'')+')');break;}
+          if(this.listState!==state)return;
+          const found=(result?.posts || []).map(raw=>M.normalizeItem(raw,{source:'arctic-shift'})).filter(Boolean);
+          for(const item of found){
+            if(item.created<since || item.author.toLowerCase()!==context.username.toLowerCase() || state.items.has(itemKey(item)))continue;
+            const removal=R.afterDeletion(item);if(!removal)continue;item.removal=removal;state.items.set(itemKey(item),item);added++;
+          }
+          if(!result?.hasMore || !found.length || Math.min(...found.map(item=>item.created))<since)break;before=result.before;
+        }
+      }
+      if(added)this.renderOwnList();
     }
     // Your profile as a signed-out visitor sees it, newest first, read only as far back as the items being checked
     // (spec §18). Page 1 can be a cached copy, so newer items simply aren't seen and get direct checks instead.
@@ -2239,7 +2263,7 @@
     // One compact state pill with its evidence as the tooltip (spec §3, U1/U2).
     removalPill(removal){
       const pill=make('span','rt-removal-pill inline-flex items-center gap-2xs font-semibold');pill.dataset.rtRemoval=removal.state;pill.dataset.rtConfidence=removal.confidence;
-      const label=removal.label+(removal.confidence==='likely' && removal.state!=='removed-unknown'?' (likely)':''),why=[removal.why,removal.flags.includes('locked')?'Locked: no new replies.':'',removal.flags.includes('approved-after-auto')?'Approved after an automatic removal.':''].filter(Boolean).join(' ');
+      const label=removal.label+(removal.flags?.includes('deleted-later')?', then deleted by you':'')+(removal.confidence==='likely' && removal.state!=='removed-unknown'?' (likely)':''),why=[removal.why,removal.flags.includes('locked')?'Locked: no new replies.':'',removal.flags.includes('approved-after-auto')?'Approved after an automatic removal.':''].filter(Boolean).join(' ');
       pill.setAttribute('role','img');pill.setAttribute('aria-label',label+(why?'. '+why:''));pill.title=why || label;
       pill.append(glyph(removal.state==='deleted'?'deleted':'removed'),make('span','',label));return pill;
     }
