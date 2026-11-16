@@ -410,3 +410,10 @@ test('Removed search uses the same zero-gap search layout as plain search',async
  const s=await view(t,{children:[],type:'posts',q:'needle',before:d=>{const target=d.controlsTarget=d.feed.ownerDocument.createElement('div');target.className='flex items-center gap-xs my-md';target.dataset.rtUi='profile-controls';d.host.before(target);}});
  assert.equal(s.d.host.hasAttribute('data-rt-search'),true);assert.equal(s.d.controlsTarget.classList.contains('my-md'),false);assert.equal(s.d.controlsTarget.classList.contains('flex'),false);
 });
+
+test('Removed comment rows show the post title and a time even when Reddit’s time element never renders',async t=>{
+ const s=await view(t,{children:[],type:'comments',ownList:async(args,M)=>args.source==='posts'?{posts:[],scanned:0,hasMore:false,after:null}:{posts:[native(M,'t1',comment('c1',{created_utc:Math.floor(Date.now()/1000)-5*86400,link_title:'Synthetic thread title',removed_by_category:'moderator'}))],scanned:1,hasMore:false,after:null},before:d=>{d.timeFallbackMs=0;}});
+ await new Promise(r=>setTimeout(r,5));const row=s.d.nodes.get('t1_c1') || [...s.d.nodes.values()].find(n=>n.dataset.fullname==='t1_c1');
+ assert.equal(row.querySelector('[data-testid="search-sdui-comment-unit"] h2').textContent,'Synthetic thread title');
+ const time=row.querySelector('time');assert.ok(time,'Reddit’s rendered <time> markup');assert.equal(time.textContent,'5d ago');assert.ok(time.getAttribute('datetime'));
+});
