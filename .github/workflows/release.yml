@@ -1,0 +1,47 @@
+name: Release extension
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.build.outputs.version }}
+      PRERELEASE: ${{ needs.build.outputs.prerelease }}
+    steps:
+      - name: Validate release tag
+        run: test "$RELEASE_TAG" = "v$VERSION"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: extension-package
+          path: artifacts
+      - name: Check downloaded archive
+        working-directory: artifacts
+        run: sha256sum --check "reddit-tweaks-v$VERSION.zip.sha256"
+      - name: Publish validated extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease --latest=false); fi
+          gh release create "$RELEASE_TAG" --verify-tag \
+            --title "Reddit Tweaks $VERSION" --notes-file artifacts/release-notes.md \
+            "${flags[@]}" "artifacts/reddit-tweaks-v$VERSION.zip" \
+            "artifacts/reddit-tweaks-v$VERSION.zip.sha256"

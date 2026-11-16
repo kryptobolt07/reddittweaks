@@ -1,0 +1,59 @@
+"""Verify the shipped extension and prepare checksum/notes for local or GitHub releases."""
+from pathlib import Path
+import argparse
+import hashlib
+import json
+import re
+import runpy
+import sys
+import zipfile
+
+packager = runpy.run_path(str(Path(__file__).with_name('package.py')))
+PackageError = packager['PackageError']
+check = packager['check']
+
+
+def verify(root, tag=None, github_output=None):
+    source = root / 'extension'
+    manifest = json.loads((source / 'manifest.json').read_text())
+    names = set(packager['validate'](source, manifest))
+    version = manifest['version']
+    check(tag is None or tag == f'v{version}', 'Release tag must match manifest version: v' + version)
+    changelog = (root / 'CHANGELOG.md').read_text()
+    sections = list(re.finditer(r'^# (.+)$', changelog, re.M))
+    section = next((i for i, match in enumerate(sections) if match[1] in (version, version + ' preview')), None)
+    check(section is not None, 'CHANGELOG.md has no section for ' + version)
+    end = sections[section + 1].start() if section + 1 < len(sections) else len(changelog)
+    notes = changelog[sections[section].end():end].strip()
+    check(bool(notes), 'CHANGELOG.md release section is empty')
+    stable = root / 'artifacts' / 'reddit-chat-search'
+    present = {p.relative_to(stable).as_posix() for p in stable.rglob('*') if p.is_file()}
+    check(names == present, 'Unpacked folder membership does not match source')
+    archive = root / 'artifacts' / f'reddit-tweaks-v{version}.zip'
+    with zipfile.ZipFile(archive) as zipped:
+        check(len(zipped.namelist()) == len(names) and set(zipped.namelist()) == names,
+              'ZIP membership does not match source')
+        check(zipped.testzip() is None, 'ZIP integrity check failed')
+        for name in sorted(names):
+            expected = (source / name).read_bytes()
+            check((stable / name).read_bytes() == expected, 'Unpacked bytes differ: ' + name)
+            check(zipped.read(name) == expected, 'ZIP bytes differ: ' + name)
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    archive.with_suffix('.zip.sha256').write_text(f'{digest}  {archive.name}\n')
+    (root / 'artifacts' / 'release-notes.md').write_text(notes + '\n')
+    if github_output:
+        with github_output.open('a') as output:
+            output.write(f'version={version}\nprerelease={str("preview" in manifest.get("version_name", "").lower()).lower()}\n')
+    print(f'Verified {len(names)} assets: source = unpacked = ZIP; SHA-256 {digest}')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument('--tag', help='Require this release tag to match the manifest')
+    parser.add_argument('--github-output', type=Path, help='Append version/prerelease workflow outputs')
+    args = parser.parse_args()
+    try:
+        verify(args.root.resolve(), args.tag, args.github_output)
+    except (PackageError, OSError, ValueError, zipfile.BadZipFile, RuntimeError) as error:
+        sys.exit(f'Package verification failed: {error}')
