@@ -216,8 +216,8 @@ test('the notice is one short line; the reasons are in its tooltip',async t=>{
 });
 test('the All tab is drawn and selected; Reddit’s Posts highlight moves to the tab the list shows (live: Posts stayed highlighted)',async t=>{
  const s=await view(t,{children:[['t3',post('m1',{removed_by_category:'moderator'})],['t1',comment('c1',{removed_by_category:'moderator'})]],publicProofs:{}});
- const W=s.W,group=W.document.getElementById('search-results-page-tabgroup'),tabs=()=>[...group.querySelectorAll(':scope > a')];
- W.customElements.define('faceplate-tabgroup',class extends W.HTMLElement{get pages(){return this._pages;}set pages(v){this._pages=v;}get pageIndex(){return this._index;}set pageIndex(v){this._index=v;}});
+ const W=s.W,group=W.document.getElementById('rt-own-list-types'),tabs=()=>[...group.querySelectorAll(':scope > a')];
+ W.customElements.define('faceplate-tabgroup',class extends W.HTMLElement{get pages(){return Number(this.getAttribute('pages'));}get pageIndex(){return Number(this.getAttribute('pageindex'));}});
  s.d.syncOwnListTabs();await flush();
  assert.deepEqual(tabs().map(a=>a.textContent.trim()+'@'+a.getAttribute('slot')),['All@page-1','Posts@page-2','Comments@page-3','Media@page-4'],'every tab sits in a slot Reddit draws');
  assert.equal(group.pages,4);assert.equal(group.pageIndex,1);
@@ -240,4 +240,13 @@ test('cached signed-out results skip the visitor walk and direct checks; new res
 test('archive enrichment follows public checks and skips visible, self-deleted and explicit native removal causes',async t=>{
  const order=[],s=await view(t,{children:[['t1',comment('visible')],['t1',comment('unresolved')],['t3',post('native',{removed_by_category:'moderator',native:true})],['t1',comment('selfdel',{body:'[deleted]'})],['t3',post('private',{subreddit_type:'private',native:true})]],settings:{postDiscovery:true,archiveDiscovery:true},publicProofs:new Proxy({},{get:(o,k)=>{order.push(k);return {status:k==='t1_visible'?'visible':k==='t1_selfdel'?'deleted':'unknown',verified:k==='t1_visible' || k==='t1_selfdel'};}}),visitor:pages([]),archive:async args=>{if(args.action==='archive-removal')order.push('archive:'+args.ids.join(','));return {ok:true,posts:[],hasMore:false};}});
  const lookups=s.archives.filter(a=>a.action==='archive-removal');assert.equal(lookups.length,1);assert.deepEqual([...lookups[0].ids],['unresolved']);assert.ok(order.indexOf('archive:unresolved')>order.indexOf('t1_unresolved'));assert.equal(lookups[0].owner,'t2_self');
+});
+
+
+for(const type of ['posts','comments','media'])test(`Removed search ${type} keeps removals and removed-then-deleted records in their own content view`,async t=>{
+ const s=await view(t,{children:[['t3',post('post',{removed_by_category:'moderator'})],['t1',comment('comment',{removed_by_category:'moderator'})]]}),M=s.W.RTPostModel;
+ for(const [kind,id] of [['post','oldpost'],['comment','oldcomment']]){const p=kind==='post'?M.normalizePost(post(id)):M.normalizeComment(comment(id));p.removal={removed:true,state:'moderator-removed',label:'Removed by moderators',confidence:'confirmed',flags:['deleted-later'],why:'Historical removal evidence'};s.d.listState.items.set(p.fullname,p);}
+ const image=M.normalizePost(post('image'));image.postType='image';image.removal={removed:true,state:'moderator-removed',label:'Removed by moderators',confidence:'confirmed',flags:[],why:'Native removal'};s.d.listState.items.set(image.fullname,image);
+ s.W.history.replaceState({},'','?rt_list=removed&type='+type);s.d.context={...s.d.context,type};s.d.renderOwnList();s.d.syncOwnListTabs();
+ const visible=[...s.d.nodes.values()].filter(n=>!n.hidden);assert.equal(visible.length,type==='posts'?3:type==='comments'?2:1);assert.ok(visible.every(n=>n.querySelector('[data-rt-search-unit="'+(type==='comments'?'comment':'post')+'"]')));assert.equal(s.W.document.querySelector('[aria-current="page"][href*="type='+type+'"]')?.textContent,type[0].toUpperCase()+type.slice(1));
 });

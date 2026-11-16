@@ -13,8 +13,8 @@ function header(W,{hydrated=true}={}){
  const field=root.querySelector('faceplate-search-input');if(field)field.attachShadow({mode:'open'}).innerHTML='<textarea name="q" placeholder="Search in u/Example"></textarea>';
  return {host,root,form:root.querySelector('form'),field,input:(field?.shadowRoot || root).querySelector('input,textarea'),native:root.querySelector('rpl-input-chip')};
 }
-async function setup(t,{directory=null,path='/user/Example/search/?rt_list=saved',username='Example',list,settings={postDiscovery:true,archiveDiscovery:false},withHeader=false,hydrated=true,autoDiscover=false,observe=false}={}){
- const dom=new JSDOM(page,{url:'https://www.reddit.com'+path,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;const calls=[],archives=[];let d;
+async function setup(t,{html=page,directory=null,path='/user/Example/search/?rt_list=saved',username='Example',list,settings={postDiscovery:true,archiveDiscovery:false},withHeader=false,hydrated=true,autoDiscover=false,observe=false}={}){
+ const dom=new JSDOM(html,{url:'https://www.reddit.com'+path,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;const calls=[],archives=[];let d;
  t.after(()=>{d?.destroy();W.close();});
  for(const file of ['search-core.js','post-model.js','feed-filters.js','post-discovery.js'])W.eval(read(file));
  W.RTArchiveQuery={async *search(args){archives.push(args);throw Error('Private lists must not reach archive search');},async aggregate(args){archives.push(args);throw Error('Private lists must not reach archive aggregates');}};
@@ -31,7 +31,7 @@ async function setup(t,{directory=null,path='/user/Example/search/?rt_list=saved
 }
 const shown=s=>[...s.d.nodes.values()].filter(n=>!n.hidden).sort((a,b)=>a.compareDocumentPosition(b)&4?-1:1).map(n=>n.dataset.fullname);
 const listCalls=s=>s.calls.filter(c=>c.args.action==='own-list');
-function navigations(s){const urls=[];s.D.addEventListener('click',event=>{const a=event.target.closest?.('a');if(a && !a.closest('#search-results-page-tabgroup')){event.preventDefault();urls.push(new URL(a.href));}},true);return urls;}
+function navigations(s){const urls=[];s.D.addEventListener('click',event=>{const a=event.target.closest?.('a');if(a && !a.closest('#search-results-page-tabgroup,#rt-own-list-types')){event.preventDefault();urls.push(new URL(a.href));}},true);return urls;}
 
 test('own-list routes allow only five lists and a verified matching account',async t=>{
  const s=await setup(t);const route=s.W.RTPostDiscovery.pageRoute;
@@ -169,8 +169,8 @@ test('Feed options filter list items by date, post type and subreddit with no re
 });
 test('native tabs keep list scope and filter post/comment/media kind',async t=>{
  const s=await setup(t);assert.equal(s.D.querySelector('[data-rt-list-type="all"]').getAttribute('aria-current'),'page');
- for(const type of ['posts','comments','media']){const a=s.D.getElementById('search-results-page-tab-'+type);assert.equal(new URL(a.href).searchParams.get('rt_list'),'saved');assert.equal(new URL(a.href).searchParams.get('type'),type);}
- const urls=navigations(s);s.D.getElementById('search-results-page-tab-media').click();assert.equal(urls.at(-1).searchParams.get('type'),'media');
+ for(const type of ['posts','comments','media']){const a=s.D.getElementById('rt-own-list-tab-'+type);assert.equal(new URL(a.href).searchParams.get('rt_list'),'saved');assert.equal(new URL(a.href).searchParams.get('type'),type);}
+ const urls=navigations(s);s.D.getElementById('rt-own-list-tab-media').click();assert.equal(urls.at(-1).searchParams.get('type'),'media');
  s.W.history.pushState({},'','?rt_list=saved&type=media');s.d.scan();await flush();await s.d.refreshActivity();assert.deepEqual(shown(s),[]);
  s.d.leaveRestoreMs=0;s.W.history.pushState({},'','/r/Alpha/');s.d.scan();assert.equal(s.D.getElementById('search-results-page-tab-posts').getAttribute('href'),'?type=posts');assert.equal(s.D.querySelector('[data-rt-list-type="all"]'),null);
 });
@@ -241,4 +241,25 @@ test('a crowded header search turns our chips compact so typed text keeps most o
  // Plenty of room: full labels come back.
  s.h.field.getBoundingClientRect=box(2000);s.d.fitHeaderChips();
  assert.equal(list.dataset.rtCompact,'false');assert.equal(list.querySelector('.text-label-2').style.display,'');assert.equal(filter.querySelector('.rt-filter-chip-label').textContent,'3 communities');assert.equal(s.h.native.style.maxWidth,'');
+});
+
+
+for(const list of ['saved','removed'])for(const type of ['all','posts','comments','media'])test(`${list} search draws scoped ${type} tabs before filters without a native definition or tab bar`,async t=>{
+ const html='<main><div id="filters" class="flex items-center"><search-sort-dropdown-menu><button>Relevance</button></search-sort-dropdown-menu></div><div class="bg-neutral-background"><div id="empty-search-results">No native results</div></div></main>',s=await setup(t,{html,path:'/user/Example/search/?rt_list='+list+'&type='+type+'&q=needle&rt_sub=Alpha'});
+ assert.equal(s.W.customElements.get('faceplate-tabgroup'),undefined);const tabs=s.D.getElementById('rt-own-list-types');assert.ok(tabs);assert.equal(tabs.getAttribute('pages'),'4');assert.equal(tabs.getAttribute('pageindex'),String(['all','posts','comments','media'].indexOf(type)+1));assert.equal(Object.hasOwn(tabs,'pages'),false,'no isolated-world property shadows native pagination');
+ assert.ok(tabs.compareDocumentPosition(s.D.getElementById('filters'))&s.W.Node.DOCUMENT_POSITION_FOLLOWING,'tabs before native inline filters');assert.deepEqual([...tabs.querySelectorAll('a')].map(a=>a.textContent),['All','Posts','Comments','Media']);
+ for(const a of tabs.querySelectorAll('a')){assert.match(a.className,/button-medium/);const url=new URL(a.href);assert.equal(url.searchParams.get('rt_list'),list);assert.equal(url.searchParams.get('q'),'needle');assert.equal(url.searchParams.get('rt_sub'),'Alpha');assert.equal(a.getAttribute('aria-current')==='page',url.searchParams.get('type')===type);}
+ assert.equal(s.calls.filter(c=>c.args.action==='own-list').length,0,'tabs already visible before a scan begins');assert.equal(s.archives.length,0);s.d.scan();assert.equal(s.D.querySelectorAll('#rt-own-list-types').length,1);
+});
+test('own search tabs leave native linked pagination untouched and configure a late component',async t=>{
+ const html=page.replace('<faceplate-tabgroup id="search-results-page-tabgroup">','<faceplate-tabgroup id="search-results-page-tabgroup" for="native-results" pages="3" pageindex="1">'),s=await setup(t,{html,path:'/user/Example/search/?rt_list=saved&type=comments'}),native=s.D.getElementById('search-results-page-tabgroup'),tabs=s.D.getElementById('rt-own-list-types');
+ assert.ok(tabs);assert.equal(tabs.hasAttribute('for'),false);assert.equal(tabs.getAttribute('pages'),'4');assert.equal(tabs.getAttribute('pageindex'),'3');assert.equal(native.getAttribute('pages'),'3');assert.equal(native.getAttribute('pageindex'),'1');assert.equal(native.hidden,true);
+ s.W.customElements.define('faceplate-tabgroup',class extends s.W.HTMLElement{get pages(){return Number(this.getAttribute('pages'));}get pageIndex(){return Number(this.getAttribute('pageindex'));}});await flush();assert.equal(tabs.pages,4);assert.equal(tabs.pageIndex,3);
+ s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(native.getAttribute('pages'),'3');assert.equal(native.getAttribute('pageindex'),'1');assert.equal(native.hidden,false);assert.equal(native.querySelectorAll('a').length,3);assert.equal(s.D.getElementById('rt-own-list-types'),null);
+});
+test('hydration restores the owned search tabs without refetching and opt-out unhides native tabs',async t=>{
+ const s=await setup(t,{observe:true});await s.d.refreshActivity();await flush();const native=s.D.getElementById('search-results-page-tabgroup'),feed=s.d.feed,node=[...s.d.nodes.values()][0],reads=listCalls(s).length;
+ s.D.getElementById('rt-own-list-types').remove();await flush();assert.ok(s.D.getElementById('rt-own-list-types'),'replacement reconciles even when only our tab bar was removed');
+ feed.remove();s.d.scan();await flush();assert.equal(s.d.feed,feed);assert.equal([...s.d.nodes.values()][0],node);assert.equal(listCalls(s).length,reads);
+ s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(native.hidden,false);assert.equal(native.hasAttribute('data-rt-search-hidden'),false);
 });
