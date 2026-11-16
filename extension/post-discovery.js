@@ -37,7 +37,14 @@
   // Rate limits, timeouts and gateway failures retry on their own with
   // backoff before a source is reported as failed.
   const retryLimit=5,quietRetries=2;
+  // Removed-then-deleted recovery walks the author archive like an archived profile, up to 5,000 of each kind.
+  const removedHistoryPages=50;
   const publicBlockMs=600000,publicBlockedNote='Some comments may be missing · Reddit is blocking logged-out search';
+  function removedSectionRoute(username,search,ownName){
+    if(username.toLowerCase()!==ownName.toLowerCase())return null;
+    const params=new URLSearchParams(search),layout=['cardView','compactView'].includes(params.get('feedViewType'))?params.get('feedViewType'):'';
+    return {kind:'profile',view:'search',section:true,list:'removed',username,q:'',type:'all',sort:'list',range:'all',key:JSON.stringify(['removed-section',ownName.toLowerCase(),layout])};
+  }
   function pageRoute(path=location.pathname,search=location.search,ownName=signedInName){
     const scoped=path.match(/^\/user\/([\w-]{1,20})\/search\/?$/i);
     if(scoped){const params=new URLSearchParams(search),q=(params.get('q') || '').trim(),type=['posts','comments','media'].includes(params.get('type'))?params.get('type'):'posts';
@@ -48,15 +55,11 @@
       if(list){const listSort=['new','old'].includes(params.get('sort'))?params.get('sort'):'list',listType=type;return {kind:'profile',view:'search',username:scoped[1],q,type:listType,list,sort:listSort,range,key:JSON.stringify(['own-list',ownName.toLowerCase(),list,q,listType,listSort,range,layout])};}
       return {kind:'profile',view:'search',username:scoped[1],q,type,sort:!q && sort==='relevance'?'new':sort,range,key:JSON.stringify(['profile-search',scoped[1].toLowerCase(),q,type,sort,range,layout])};}
     const ownTab=path.match(/^\/user\/([\w-]{1,20})\/(saved|history|hidden|upvoted|downvoted)\/?$/i);
-    if(ownTab)return ownTab[1].toLowerCase()===ownName.toLowerCase()?{kind:'profile',view:'list-tab',username:ownTab[1],list:ownTab[2].toLowerCase(),key:path.toLowerCase()}:null;
+    if(ownTab){if(new URLSearchParams(search).get('rt_view')==='removed')return removedSectionRoute(ownTab[1],search,ownName);return ownTab[1].toLowerCase()===ownName.toLowerCase()?{kind:'profile',view:'list-tab',username:ownTab[1],list:ownTab[2].toLowerCase(),key:path.toLowerCase()}:null;}
     const profile=path.match(/^\/user\/([\w-]{1,20})(?:\/(submitted|comments))?\/?$/i);
     if(profile){const view=profile[2]==='submitted'?'posts':profile[2]==='comments'?'comments':'overview',params=new URLSearchParams(search);
       const sort=['new','hot','top'].includes(params.get('sort'))?params.get('sort'):'new',range=sort==='top' && ['hour','day','week','month','year','all'].includes(params.get('t'))?params.get('t'):'all',layout=['cardView','compactView'].includes(params.get('feedViewType'))?params.get('feedViewType'):'';
-      if(params.get('rt_view')==='removed'){
-        if(profile[1].toLowerCase()!==ownName.toLowerCase())return null;
-        const type='all',order=['new','old'].includes(params.get('sort'))?params.get('sort'):'list';
-        return {kind:'profile',view:'search',section:true,list:'removed',username:profile[1],q:'',type,sort:order,range:'all',key:JSON.stringify(['removed-section',ownName.toLowerCase(),type,order,layout])};
-      }
+      if(params.get('rt_view')==='removed')return removedSectionRoute(profile[1],search,ownName);
       return {kind:'profile',view,username:profile[1],sort,range,key:'profile:'+profile[1].toLowerCase()+':'+view+':'+sort+':'+range+':'+layout};}
     const detail=path.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return detail?{kind:'post',id:detail[1].toLowerCase(),key:'post:'+detail[1].toLowerCase()}:null;
@@ -365,7 +368,7 @@
     }
     // Search results live in our own feed, and Reddit rebuilds its search page on Back, so a search
     // is parked by its address and put back into the rebuilt page (see restoreSearchPark).
-    searchParkKey(context=this.context){return context?.view==='search'?context.key+'|'+new URLSearchParams([...new URLSearchParams(location.search)].filter(([name])=>/^rt_/.test(name))).toString():'';}
+    searchParkKey(context=this.context){if(context?.section)return context.key;return context?.view==='search'?context.key+'|'+new URLSearchParams([...new URLSearchParams(location.search)].filter(([name])=>/^rt_/.test(name))).toString():'';}
     parkSearch({keepVisible=false}={}){
       const route=pageRoute();if(!this.searchParkAt || this.context?.view!=='search' || !this.host || !this.feed || this.dead || this.settingsError || !this.settings.postDiscovery || route?.key===this.context.key && this.host.isConnected || !this.listState && !this.nodes.size)return false;
       this.flushVirtualization();const state=this.viewState();state.parkedAt=Date.now();state.scrollY=window.scrollY;
@@ -545,7 +548,7 @@
       // Back (or Forward) to a parked profile whose feed Reddit put back.
       if(context.kind==='profile' && (this.context?.key!==context.key || !this.host?.isConnected)){const parked=this.parkedFor(context);if(parked){if(this.context)this.leaveProfile();this.adopt(...parked);}}
       if(this.context?.key===context.key && this.host?.isConnected && (!this.feed || this.feed.isConnected) && (!this.archiveOnly || this.archiveNotice?.isConnected || this.archiveNoticeAnchor?.isConnected)){
-        if(context.view==='search'){this.suppressSearchPage();if(context.list)this.syncOwnListTabs();}
+        if(context.view==='search'){this.suppressSearchPage();if(context.list)this.syncOwnListTabs();if(context.section)this.syncRemovedChrome();}
         this.syncFiltersFromUrl();
         if(cheap && this.sameMount()){this.maybeRestoreDetail();this.drainNative(this.nativeBatch);return;}
         this.observeNativeLoading();this.observeFeedPresentation();this.ensureActivityMenu();this.maybeRestoreDetail();this.deduplicate();this.drainNative(this.nativeBatch);this.mountSeen=this.mountIdentity();return;}
@@ -580,7 +583,7 @@
       if(this.feed && !this.batchedProfile && typeof IntersectionObserver==='function')this.nativeObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){this.nativeObserver.unobserve(entry.target);this.queueNative(entry.target);}},{rootMargin:'400px'});this.live=new Map();this.archived=new Map();
       const host=this.host=make('section','rt-posts');host.dataset.rtUi='posts';host.setAttribute('aria-label',context.section?'Removed posts and comments':context.view==='search'?'Search results':context.kind==='profile'?'Additional public activity':'Archived post snapshot');
       host.dataset.rtContext=context.kind;
-      const toolbar=this.toolbar=make('div','rt-posts-toolbar');
+      const toolbar=this.toolbar=make('div','rt-posts-toolbar');if(context.section)toolbar.style.minHeight='0';
       const noun=context.view==='comments'?'comments':context.view==='overview'?'activity':'posts';
       this.discover=button(this.settingsError?'Retry discovery':context.kind==='profile'?'Discover '+noun:'Check archived post',()=>this.settingsError?this.retrySettings():this.archiveOnly?this.loadArchive():context.kind==='profile'?this.refreshActivity({force:true}):this.loadDetail(),'search');
       this.discover.title=context.kind==='profile'?'Find public '+noun+' through Reddit search, including activity omitted from this profile feed':'Look for a separate archived snapshot without replacing the current post';
@@ -598,11 +601,12 @@
       this.more=button('Load more',()=>this.batchedProfile?this.advanceProfileBatch(true):this.loadMore());this.more.className='rt-posts-more';this.more.hidden=true;
       this.notice=make('p','rt-posts-notice');this.notice.setAttribute('role','note');this.notice.hidden=true;
       toolbar.append(this.status,this.notice);host.append(toolbar,this.loading,this.results,this.more);
-      if(context.kind==='profile'){this.rtChips=make('div','rt-filter-chips');this.rtChips.dataset.rtUi='filter-chips';this.rtChips.hidden=true;host.prepend(this.rtChips);this.renderFilterChips();}
+      if(context.kind==='profile' && !context.section){this.rtChips=make('div','rt-filter-chips');this.rtChips.dataset.rtUi='filter-chips';this.rtChips.hidden=true;host.prepend(this.rtChips);this.renderFilterChips();}
       if(context.kind==='profile'){target.before(host);this.results.hidden=true;this.more.textContent=context.view==='search'?'Search older':'More discoveries';toolbar.append(this.more);}else target.after(host);
       if(context.kind==='profile'){this.loading.dataset.rtUi='profile-loading';this.loading.slot='load-after';this.feed.append(this.loading);this.observeBatchTail();}
       if(this.archiveOnly && this.autoDiscover)this.loadNavigation();
-      this.emptyFeed=main.querySelector('#empty-feed-content');this.emptyWasHidden=this.emptyFeed?.hidden;
+      // The Removed section already records the native empty notice in searchHidden before hiding it.
+      this.emptyFeed=context.section?null:main.querySelector('#empty-feed-content');this.emptyWasHidden=this.emptyFeed?.hidden;
       const restored=context.kind==='profile' && this.carryOver(carry);
       if(restored)this.render({reuseCards:true});
       this.observeNativeLoading();this.observeFeedPresentation();this.ensureActivityMenu();
@@ -695,7 +699,7 @@
     navigateProfileSearch(route,q,withList=true){
       const params=new URLSearchParams({q});if(withList && route.list){params.set('rt_list',route.list);params.set('type',['posts','comments','media'].includes(route.type)?route.type:'posts');}
       // Filters shown as header pills belong to the search scope, so a new query keeps them.
-      if(route.view==='search')for(const [name,value] of new URLSearchParams(location.search))if(/^rt_(?:date|type|sub|sort)$/.test(name))params.set(name,value);
+      if(route.view==='search' && !route.section)for(const [name,value] of new URLSearchParams(location.search))if(/^rt_(?:date|type|sub|sort)$/.test(name))params.set(name,value);
       const anchor=make('a');anchor.href='/user/'+encodeURIComponent(route.username)+'/search/?'+params;anchor.hidden=true;document.body.append(anchor);try{anchor.click();}finally{anchor.remove();}
     }
     submitOwnList(event){
@@ -774,11 +778,13 @@
       const state=this.listState;if(!state || !this.feed)return;
       const posts=[...state.items.values()].filter(post=>this.ownListMatch(post)),sort=this.effectiveSort();
       if(sort==='new' || sort==='old')posts.sort((a,b)=>(sort==='old'?1:-1)*(a.created-b.created));
+      // Removed merges profile items with archive-recovered deletions, so it keeps Reddit's newest-first profile order.
+      else if(this.context.list==='removed')posts.sort((a,b)=>(Number(b.created) || 0)-(Number(a.created) || 0));
       for(const node of this.nodes.values())node.hidden=true;
       for(const post of posts){const key=itemKey(post);let node=this.nodes.get(key);if(!node){node=this.card(post);this.nodes.set(key,node);
           // Searches use native search rows; the Removed section uses lazy profile cards below.
           if(!this.context.section)this.showSearchUnit(post,node);
-        }this.postMetadata.set(key,post);node.hidden=false;}
+        }this.postMetadata.set(key,post);if(this.context.section && post.source==='arctic-shift' && post.removal?.flags.includes('deleted-later')){this.renderArchivedNative(post,node);this.decorateNative(post,node);}node.hidden=false;}
       let before=this.loading;for(const post of [...posts].reverse()){const node=this.nodes.get(itemKey(post));if(node.nextSibling!==before)this.feed.insertBefore(node,before);before=node;}
       if(this.context.section)for(const post of posts){const node=this.nodes.get(itemKey(post));if(node.dataset.rtNativeState==='idle'){if(this.nativeObserver)this.nativeObserver.observe(node);else this.queueNative(node);}}
       this.renderedPosts=posts;this.live=new Map(state.items);this.more.hidden=true;this.renderFilterChips();this.renderSubredditOptions();this.summarizeOwnList();this.updateProfileLoading();
@@ -871,22 +877,27 @@
        Items no longer on your profile that the archive recorded as removed by moderators, Reddit or AutoModerator are
        added; self-deleted items are not. Only with "Use the archive" on. */
     async removedThenDeleted(context){
-      const state=this.listState,R=globalThis.RTRemovalModel;if(!state || !R?.afterDeletion)return;const generation=this.generation,current=()=>!this.dead && this.listState===state && this.generation===generation;const me=globalThis.RTNativeRemoval?.identity(document);
+      const state=this.listState,R=globalThis.RTRemovalModel;if(!state || !R?.afterDeletion)return;const generation=this.generation,current=()=>!this.dead && this.listState===state && this.context===context && this.generation===generation && pageRoute()?.key===context.key;const me=globalThis.RTNativeRemoval?.identity(document);
       if(!this.settings.archiveDiscovery){state.removalNotes.add('Turn on “Use the archive” to include items you deleted after a removal.');return;}
-      const own=[...state.items.values()];if(!own.length)return;const since=Math.min(...own.map(p=>Number(p.created) || Infinity));let added=0;
+      let added=0;state.archiveHistoryError=false;
       for(const kind of ['post','comment']){
-        let before=null;
-        for(let page=0;page<10;page++){
+        let before=null;const cursors=new Set();
+        for(let page=0;page<removedHistoryPages;page++){
           if(!current())return;
           let result;try{result=await this.archive({action:'archive-profile',username:context.username,kind,...(me?{purpose:'removal-history',owner:me.owner}:{}),...(before?{before}:{})});}
-          catch(error){if(!current())return;state.removalNotes.add('The archive didn’t answer for deleted items ('+String(error.message || 'request failed').replace(/\.$/,'')+')');break;}
+          catch(error){if(!current())return;state.archiveHistoryError=true;state.removalNotes.add('The archive didn’t answer for deleted items ('+String(error.message || 'request failed').replace(/\.$/,'')+')');break;}
           if(!current())return;
-          const found=(result?.posts || []).map(raw=>M.normalizeItem(raw,{source:'arctic-shift'})).filter(Boolean);
+          const found=(result?.posts || []).map(raw=>raw?.kind && raw.kind!==kind?null:(kind==='comment'?M.normalizeComment:M.normalizePost)(raw,{source:'arctic-shift'})).filter(Boolean);
           for(const item of found){
-            if(item.created<since || item.author.toLowerCase()!==context.username.toLowerCase() || state.items.has(itemKey(item)))continue;
-            const removal=R.afterDeletion(item);if(!removal)continue;item.removal=removal;state.items.set(itemKey(item),item);added++;
+            if((item.kind==='comment'?'comment':'post')!==kind || item.author.toLowerCase()!==context.username.toLowerCase())continue;
+            const key=itemKey(item),existing=state.items.get(key);if(existing && existing.removal?.state!=='deleted')continue;
+            const removal=R.afterDeletion(item,{deleted:existing?.removal?.state==='deleted'});if(!removal)continue;item.removal=removal;state.items.set(key,item);added++;
           }
-          if(!result?.hasMore || !found.length || Math.min(...found.map(item=>item.created))<since)break;before=result.before;
+          if(added)this.renderOwnList();
+          if(!result?.hasMore)break;
+          if(result.cursorStalled || !found.length || !Number.isSafeInteger(result.before) || result.before<=0 || before!=null && result.before>=before || cursors.has(result.before)){state.removalNotes.add('Archive pagination stalled for '+kind+' history; coverage is incomplete.');break;}
+          if(page===removedHistoryPages-1){state.removalNotes.add('Archive '+kind+' history stopped at '+removedHistoryPages+' pages; coverage is incomplete.');break;}
+          before=result.before;cursors.add(before);
         }
       }
       if(added)this.renderOwnList();
@@ -920,10 +931,10 @@
       return counts;
     }
     summarizeRemoved(error){
-      const state=this.listState,counts=this.removedCounts(),n=value=>value.toLocaleString('en-US');
+      const state=this.listState,counts=this.removedCounts(),n=value=>value.toLocaleString('en-US');if(this.context.section && this.discover)this.discover.hidden=!Boolean(error || this.settingsError || state.archiveHistoryError);
       // On the Posts or Comments tab, or with filters, the counts describe only what that view lists.
       const type=this.context?.type || 'all',scoped=type!=='all' || globalThis.RTFeedFilters?.isActive?.(this.rtFilters),what=type==='posts'?'posts':type==='comments'?'comments':'posts and comments';
-      this.setStatus(error || (state.native?'Observed ':'Checked your newest ')+n(scoped?counts.observed:state.scanned)+' '+what+(scoped && type==='all'?' in this view':'')+' · '+n(counts.removed)+' removed'+(state.publicChecks?' · '+n(counts.publicVisible)+' readable signed out':'')+(state.loading?' · Loading…':''),Boolean(error));
+      this.setStatus(error || (state.native?'Observed ':'Checked your newest ')+n(scoped || state.native?counts.observed:state.scanned)+' '+what+(scoped && type==='all'?' in this view':'')+' · '+n(counts.removed)+' removed'+(state.publicChecks?' · '+n(counts.publicVisible)+' readable signed out':'')+(state.loading?' · Loading…':''),Boolean(error));
       const notes=[];if(this.searchParsed.invalid)notes.push(error);
       if(counts.unknownComments)notes.push(n(counts.unknownComments)+' '+(counts.unknownComments===1?'comment':'comments')+(state.publicChecks?' couldn’t be checked: the signed-out item view was unavailable or unreadable':' couldn’t be checked: a signed-out item check is unavailable'+(this.settings.archiveDiscovery?'':'. Turn on “Use the archive” to catch removals the archive saw')));
       if(counts.unknownPosts)notes.push(counts.unknownPosts.toLocaleString('en-US')+' '+(counts.unknownPosts===1?'post':'posts')+(state.publicChecks?' couldn’t be checked: the signed-out item view was unavailable or unreadable':' couldn’t be checked: native metadata does not establish public visibility'));
@@ -952,7 +963,7 @@
     effectiveSort(){return this.isSearch() || this.isOwnList()?(this.rtFilters?.sort || this.context.sort):this.context?.sort;}
     clientSearchOn(){return !this.archiveOnly && !this.oldSort() && !this.searchParsed?.invalid;}
     readFilters(context=this.context){
-      const f=globalThis.RTFeedFilters;if(!f)return null;const state=f.read(location);
+      const f=globalThis.RTFeedFilters;if(!f)return null;if(context?.section)return f.empty();const state=f.read(location);
       if(context?.view!=='search')return state;
       const p=new URLSearchParams(location.search),sort=p.get('rt_sort');
       state.sort=(context.list?['list','new','old']:searchSorts).includes(sort) && (sort!=='relevance' || context.q)?sort:null;
@@ -968,11 +979,23 @@
       if(this.controlsTarget && !this.controlsTarget.isConnected){this.clearActivityMenu();}
       return this.feed.isConnected && this.host.isConnected;
     }
+    syncRemovedChrome(){
+      if(!this.context?.section)return;const main=this.feed?.closest('main');if(!main)return;
+      const protectedNode=node=>node===main || node.matches('aside,#right-sidebar-container') || node.closest('shreddit-feed,aside,[data-rt-ui]') || node.contains(this.feed) || node.contains(this.host) || node.querySelector('#profile-feed-tabgroup,h1,[data-testid="profile-display-name"]');
+      const hidden=new Set(),hide=node=>{if(!node || protectedNode(node))return false;this.searchHidden ||= new Map();if(!this.searchHidden.has(node))this.searchHidden.set(node,node.hidden);node.hidden=true;node.setAttribute('data-rt-search-hidden','');hidden.add(node);return true;};
+      for(const node of main.querySelectorAll('create-post-entry-point-wrapper,shreddit-composer,[data-testid="create-post"],a[href$="/submit"],a[href$="/submit/"],a[href*="/submit?"],button[aria-label="Create post" i],rpl-dropdown:has(button[aria-label="Feed options"]),shreddit-sort-dropdown,shreddit-layout-switcher,[data-testid="feed-view-toggle"]'))hide(node);
+      // Remove empty wrapper space as well, without touching the profile heading, tab strip, sidebar or card actions.
+      for(const start of [...hidden])for(let parent=start.parentElement;parent && !protectedNode(parent);parent=parent.parentElement){
+        const text=[...parent.childNodes].some(n=>n.nodeType===3 && n.textContent.trim());
+        if(text || ![...parent.children].every(child=>child.hidden || child.matches('script,style') || !child.childElementCount && !child.textContent.trim()))break;
+        if(!hide(parent))break;
+      }
+    }
     mountRemovedFeed(main){
-      const native=main.querySelector('shreddit-feed:not([data-rt-ui])');if(!native)return null;
-      this.searchHidden ||= new Map();if(!this.searchHidden.has(native))this.searchHidden.set(native,native.hidden);
-      native.hidden=true;native.setAttribute('data-rt-search-hidden','');
-      const feed=this.searchFeed=make('shreddit-feed','nd:visible');feed.dataset.rtUi='removed-feed';native.before(feed);return feed;
+      const native=main.querySelector('shreddit-feed:not([data-rt-ui])');if(!native && !document.querySelector('#profile-feed-tabgroup'))return null;
+      this.searchHidden ||= new Map();
+      for(const node of [native,...main.querySelectorAll('#empty-feed-content,[data-testid="empty-state"]')].filter(Boolean)){if(!this.searchHidden.has(node))this.searchHidden.set(node,node.hidden);node.hidden=true;node.setAttribute('data-rt-search-hidden','');}
+      const feed=this.searchFeed=make('shreddit-feed','nd:visible');feed.dataset.rtUi='removed-feed';if(native)native.before(feed);else main.append(feed);return feed;
     }
     mountSearchFeed(main){
       // A native feed lets the profile renderer own cards, hydration, virtualization
@@ -1109,7 +1132,6 @@
       padding.append(stats,make('p','text-12 text-neutral-content-weak','Partial archive coverage. Counts and dates describe loaded records, not the complete account history.'),link('Arctic Shift','https://arctic-shift.photon-reddit.com/','text-12 hover:underline'));panel.append(padding);content.append(panel);sidebar.append(content);return sidebar;
     }
     clearActivityMenu(){
-      for(const [node,href] of this.removedControlLinks || [])node.setAttribute('href',href);this.removedControlLinks=null;
       if(this.openSubmenu?.dataset?.rtSubKey && this.activityDropdown?.hasAttribute('open'))this.resumeSubmenu={key:this.openSubmenu.dataset.rtSubKey,at:Date.now()};
       if(this.activityDropdown && this.activityTriggerClick)this.activityDropdown.removeEventListener('click',this.activityTriggerClick,true);
       if(this.activityMain && this.openSubmenu)this.activityMain.classList.remove('hidden');
@@ -1157,7 +1179,7 @@
         const label=tab.querySelector('[actioned]') || [...tab.querySelectorAll('span')].pop() || tab;label.textContent='Removed';
         tab.dataset.rtUi='removed-tab';tab.dataset.rtOwner=owner;last.after(tab);this.tabPages={group,native:Number(group.getAttribute('pages')) || Number(group.pages) || tabs.length,index:Number(group.getAttribute('pageindex')) || group.pageIndex || 1};
       }
-      const href='/user/'+encodeURIComponent(route.username)+'/?rt_view=removed';if(tab.getAttribute('href')!==href)tab.setAttribute('href',href);
+      const href='/user/'+encodeURIComponent(route.username)+'/hidden/?rt_view=removed';if(tab.getAttribute('href')!==href)tab.setAttribute('href',href);
       const selected=Boolean(route.section),classes=['bg-secondary-background-selected','!text-neutral-content-strong','tab-selected'];
       if(selected){this.removedTabSelection ||= new Map();for(const node of group.querySelectorAll(':scope > a:not([data-rt-ui="removed-tab"])')){
         if(!this.removedTabSelection.has(node))this.removedTabSelection.set(node,{cls:node.className,index:node.tabIndex,selected:node.hasAttribute('faceplate-tab-selected'),current:node.getAttribute('aria-current')});
@@ -1186,6 +1208,7 @@
     }
     ensureActivityMenu(){
       if(this.context?.kind!=='profile' || !this.toolbar)return;
+      if(this.context.section){this.clearActivityMenu();this.syncRemovedChrome();return;}
       const main=this.feed?.closest('main'),dropdown=this.findDropdown(main);
       const menu=dropdown?.querySelector('.main-menu-container') || dropdown?.querySelector('rpl-menu');
       if(dropdown && this.controlsTarget?.isConnected && !this.controlsTarget.contains(dropdown)){this.controlsTarget.remove();this.controlsTarget=null;}
@@ -1293,16 +1316,6 @@
       const value=this.activityMain?.querySelector('[data-rt-activity-value]'),labels={all:'All',hidden:'Hidden',deleted:'Deleted'};if(value && value.textContent!==labels[this.activityFilter])value.textContent=labels[this.activityFilter];
       for(const row of this.activityMenu.querySelectorAll('[data-rt-activity-filter]')){const checked=row.dataset.rtActivityFilter===this.activityFilter;if(row.getAttribute('aria-current')!==String(checked))row.setAttribute('aria-current',String(checked));let mark=row.querySelector('[data-rt-check]');if(checked && !mark){mark=glyph('checkmark');mark.dataset.rtCheck='true';row.firstElementChild.append(mark);}else if(!checked)mark?.remove();}
       this.syncFilterMenu();
-      if(this.context.section){
-        this.removedControlLinks ||= new Map();
-        for(const node of dropdown.querySelectorAll('[href]')){
-          if(node.closest('[data-rt-ui="activity-filter-option"]') && !node.closest('[data-rt-sub-key="sort"],[data-rt-sub-key="view"]'))continue;
-          const url=new URL(node.getAttribute('href'),location.href);if(url.origin!==location.origin || !url.pathname.startsWith('/user/'))continue;
-          if(!this.removedControlLinks.has(node))this.removedControlLinks.set(node,node.getAttribute('href'));
-          const params=new URLSearchParams(location.search);for(const [key,value] of url.searchParams)params.set(key,value);params.set('rt_view','removed');params.delete('type');
-          node.setAttribute('href','/user/'+encodeURIComponent(this.context.username)+'/?'+params);
-        }
-      }
       if(this.isSearch())this.syncSearchInlineFilters();else this.closeInlineMenu();
     }
     // Profile search: Reddit's own row already holds "Relevance", "All time" and "Safe Search". Our Feed options
@@ -1477,7 +1490,7 @@
       this.rtSearch=location.search;const next=this.readFilters();if(!f.equal(next,this.rtFilters || f.empty()))this.setFilters(next,{write:false});
     }
     setFilters(next,{write=true}={}){
-      const f=globalThis.RTFeedFilters;if(!f || this.context?.kind!=='profile')return;
+      const f=globalThis.RTFeedFilters;if(!f || this.context?.kind!=='profile' || this.context.section)return;
       next=f.clone(next);next.subreddits=next.subreddits.slice(0,f.maxSubreddits);const prev=this.rtFilters || f.empty();if(f.equal(prev,next))return;
       if(this.isOwnList()){this.rtFilters=next;this.rtPred=null;if(write){const url=new URL(location.href);for(const name of ['rt_date','rt_type','rt_sub','rt_sort'])url.searchParams.delete(name);for(const [name,value] of Object.entries(f.serialize(next)))url.searchParams.set(name,value);replaceUrl(url);}this.rtSearch=location.search;this.renderFilterChips();this.syncFilterMenu();this.renderOwnList();return;}
       if(this.isSearch()){this.restartSearch(next,{write});return;}
