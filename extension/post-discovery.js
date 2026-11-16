@@ -873,7 +873,7 @@
       if(!resume)state.window=removed && this.isSearch()?this.ownListDateRange():null;
       const inWindow=post=>!state.window || post.created>=state.window.after && (state.window.before==null || post.created<state.window.before) && (context.type==='comments'?post.kind==='comment':post.kind!=='comment');
       // Removed checks each page signed out while the next page loads: one chain keeps checks in order and paced.
-      let checks=Promise.resolve();const check=(items,source)=>{checks=checks.then(()=>current()?this.classifyRemoved(items,context,source):undefined).then(()=>{if(current()){this.mergeArchiveHistory();this.renderOwnList();}});checks.catch(()=>{});};
+      let checks=Promise.resolve();const check=(items,source)=>{checks=checks.then(()=>current()?this.classifyRemoved(items,context,source,{pool:true}):undefined).then(()=>{if(current()){this.mergeArchiveHistory();this.renderOwnList();}});checks.catch(()=>{});};
       try{
         if(removed && !resume){await this.showSavedRemoved(state,context);if(!current())return;}
         // Arctic Shift history (removed, then deleted) doesn't depend on the profile walk, so it starts with it.
@@ -906,6 +906,8 @@
         // Every page was read without a safety stop: anything older that it didn't list is no longer on your profile.
         if(removed && !state.capped)state.liveDone=true;
         await checks;if(!current())return;
+        // Pooled archive lookups (spec §31) answer before the list is settled.
+        this.flushArchiveLookups(state);await Promise.all(state.archiveLookups || []);if(!current())return;
         if(removed && state.history){await state.history;if(!current())return;this.mergeArchiveHistory();}
         if(removed && state.liveDone && !state.error)this.settleSavedRemoved(state);
       }catch(error){if(current()){state.error='Could not search your '+context.list+': '+error.message;if(/signed-in account changed|Sign in to Reddit/i.test(error.message)){state.items.clear();for(const node of this.nodes.values())node.remove();this.nodes.clear();this.clearOwnListHeader();this.ownHeaderDismissed=location.pathname+':'+context.list;this.ownIdentityChecked=false;queueMicrotask(()=>{if(!this.dead)this.scan();});}}}
@@ -914,7 +916,31 @@
     // Removed list (docs/own-removal-detection-spec.md U2): classify each of your items with RTRemovalModel.
     // Posts carry Reddit's own removal category; comments only count as removed when the archive captured the
     // removal (§9.1: Reddit blocks every logged-out check). Unknown is never shown as visible (R2).
-    async classifyRemoved(items,context,source='overview'){
+    // Pooled archive removal lookups for the current list (spec §31): queued per kind, sent in requests of up to 100 IDs
+    // once 100 are waiting, after a short window, or when the walk ends. Each caller gets the records for its items.
+    archiveLookup(posts,context,me){
+      const state=this.listState;if(!state)return Promise.resolve({archives:new Map(),failed:new Set()});
+      const pool=state.archivePool ||= {queue:[],timer:null};
+      return new Promise(resolve=>{
+        pool.queue.push({posts,context,me,resolve});
+        const waiting=pool.queue.reduce((n,entry)=>n+entry.posts.length,0);
+        if(waiting>=archiveIdBatch)this.flushArchiveLookups(state);else if(!pool.timer)pool.timer=setTimeout(()=>this.flushArchiveLookups(state),this.archiveBatchMs ?? 8000);
+      });
+    }
+    async flushArchiveLookups(state){
+      const pool=state?.archivePool;if(!pool?.queue.length)return;clearTimeout(pool.timer);pool.timer=null;
+      const entries=pool.queue.splice(0),archives=new Map(),failed=new Set(),{context,me}=entries[0],current=()=>this.listState===state && !this.dead;
+      for(const kind of ['post','comment']){
+        const ids=[...new Set(entries.flatMap(entry=>entry.posts).filter(post=>(post.kind==='comment'?'comment':'post')===kind).map(post=>post.id))];
+        for(let index=0;index<ids.length && current();index+=archiveIdBatch){
+          try{const result=await this.archive({action:'archive-removal',username:context.username,...(me?{owner:me.owner}:{}),kind,ids:ids.slice(index,index+archiveIdBatch)});
+            for(const raw of result.posts || []){const archived=M.normalizeItem(raw,{source:'arctic-shift'});if(archived && (archived.kind==='comment')===(kind==='comment') && archived.author.toLowerCase()===context.username.toLowerCase())archives.set(archived.fullname,archived);}}
+          catch(error){failed.add(kind);state.removalNotes?.add('The archive didn’t answer ('+error.message.replace(/\.$/,'')+'); some '+(kind==='comment'?'comments':'posts')+' couldn’t be checked');break;}
+        }
+      }
+      for(const entry of entries)entry.resolve({archives,failed});
+    }
+    async classifyRemoved(items,context,source='overview',{pool=false}={}){
       const R=globalThis.RTRemovalModel,state=this.listState;if(!R || !state)return;
       state.removalNotes ||= new Set();
       const author=post=>{const m=post.moderation || {};return {kind:post.kind==='comment'?'comment':'post',name:post.fullname,body:m.authorBody ?? post.body,selftext:m.authorBody ?? post.body,...(post.kind==='comment'?{}:{title:post.title || ''}),
@@ -949,18 +975,20 @@
         catch(error){if(!current())return;if(globalThis.RTNativeRemoval.identity(document)?.owner!==me.owner || /account changed/i.test(error.message))throw Error('The signed-in account changed.');publicProofs.set(post.fullname,{status:'unknown',verified:false});state.removalNotes.add('Some signed-out checks were unavailable. Missing results are not removal evidence.');}
       }
       const candidates=items.filter(post=>{const proof=publicProofs.get(post.fullname),verdict=R.classify({author:{...author(post),visibilityKnown:false},publicView:proof?.verified?{verified:true,visibility:proof.status,moderation:proof.moderation}:proof?{status:'failed'}:null,archiveStatus:'off'});return (post.kind==='comment' || post.moderation?.native) && !['visible','deleted','removed-mod','removed-auto','removed-admin','removed-filter'].includes(verdict.state) && !['private','employees_only','gold_restricted'].includes(post.moderation?.subredditType) && !post.moderation?.quarantined;}),archives=new Map();let archiveStatus=this.settings.archiveDiscovery?'ok':'off';
-      if(archiveStatus==='ok')for(const kind of ['post','comment'])for(let index=0,grouped=candidates.filter(p=>(p.kind==='comment'?'comment':'post')===kind);index<grouped.length;index+=archiveIdBatch){
-        const group=grouped.slice(index,index+archiveIdBatch);
-        if(!current())return;
-        try{const result=await this.archive({action:'archive-removal',username:context.username,...(me?{owner:me.owner}:{}),kind,ids:group.map(post=>post.id)});if(!current())return;
-          for(const raw of result.posts || []){const archived=M.normalizeItem(raw,{source:'arctic-shift'});if(archived && (archived.kind==='comment')===(kind==='comment') && archived.author.toLowerCase()===context.username.toLowerCase())archives.set(archived.fullname,archived);}}
-        catch(error){archiveStatus='failed';state.removalNotes.add('The archive didn’t answer ('+error.message.replace(/\.$/,'')+'); some '+(kind==='comment'?'comments':'posts')+' couldn’t be checked');break;}
-      }
-      for(const post of items){
+      // Items needing archive evidence are looked up together. During a profile walk (pool) the lookups of several pages
+      // share one Arctic Shift request (spec §31) and their verdicts follow when it answers; everything else is
+      // classified now, exactly as before.
+      const classify=(posts,archives,statusOf)=>{for(const post of posts){
         const archived=archives.get(post.fullname),archive=archived?{kind:post.kind==='comment'?'comment':'post',...(post.kind==='comment'?{}:{title:archived.title || ''}),body:archived.archiveStatus==='removed'?'[removed]':archived.body,created_utc:archived.created,retrieved_on:archived.retrieved || 0}:null;
-        const proof=publicProofs.get(post.fullname),publicView=proof?.verified?{verified:true,visibility:proof.status,moderation:proof.moderation}:proof?{status:'failed'}:null;
+        const proof=publicProofs.get(post.fullname),publicView=proof?.verified?{verified:true,visibility:proof.status,moderation:proof.moderation}:proof?{status:'failed'}:null,status=statusOf(post);
         if(proof)post.publicStatus=proof.verified?proof.status:'unknown';
-        post.removal=R.classify({author:{...author(post),...(proof?{visibilityKnown:false}:{})},publicView,archive,archiveStatus:archive?'ok':post.kind==='comment' && archiveStatus==='ok'?'missing':archiveStatus});
+        post.removal=R.classify({author:{...author(post),...(proof?{visibilityKnown:false}:{})},publicView,archive,archiveStatus:archive?'ok':post.kind==='comment' && status==='ok'?'missing':status});
+      }};
+      const lookup=archiveStatus==='ok'?candidates:[],waiting=new Set(lookup);
+      classify(items.filter(post=>!waiting.has(post)),archives,()=>archiveStatus);
+      if(lookup.length){
+        const task=this.archiveLookup(lookup,context,me).then(({archives:found,failed})=>{if(!current())return;classify(lookup,found,post=>failed.has(post.kind==='comment'?'comment':'post')?'failed':'ok');if(pool){this.mergeArchiveHistory();this.renderOwnList();}});
+        if(pool)(state.archiveLookups ||= []).push(task);else{this.flushArchiveLookups(state);await task;if(!current())return;}
       }
       // Keep this batch's new signed-out results (status and time only) for the next visit.
       if(state.publicChecks && me){

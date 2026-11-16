@@ -446,3 +446,14 @@ test('a stale (over a week) or missing complete-read time reads the whole archiv
   assert.ok(!s.shown.includes('t3_oldgone'),'a complete read drops saved archive removals it no longer finds');
  }
 });
+// Arctic Shift is community-run: a profile walk pools the archive lookups of its pages instead of one request per page.
+test('archive removal lookups from several profile pages share one request, with the same verdicts',async t=>{
+ const pages={'':{ids:['c1','c2'],after:'p2'},p2:{ids:['c3','c4'],after:'p3'},p3:{ids:['c5','c6'],after:null}};
+ const ownList=(args,M)=>{if(args.source==='posts')return {posts:[],scanned:0,hasMore:false,after:null};const page=pages[args.after || ''];return {posts:page.ids.map(id=>native(M,'t1',comment(id))),scanned:2,hasMore:Boolean(page.after),after:page.after};};
+ const removedIds=new Set(['c1','c3','c5']);
+ const archive=async(args,W)=>{if(args.action==='archive-profile')return {ok:true,posts:[],hasMore:false};assert.equal(args.action,'archive-removal');return {ok:true,posts:args.ids.filter(id=>removedIds.has(id)).map(id=>W.RTPostModel.normalizeComment({...comment(id),body:'[removed]',retrieved_on:created+10},{source:'arctic-shift'}))};};
+ const s=await view(t,{ownList,archive,type:'comments',settings:{postDiscovery:true,archiveDiscovery:true},publicProofs:{},visitor:()=>({items:[],after:null})});
+ const lookups=s.archives.filter(a=>a.action==='archive-removal');
+ assert.equal(lookups.length,1,'one request for all three pages');assert.deepEqual([...lookups[0].ids].sort(),['c1','c2','c3','c4','c5','c6']);
+ assert.deepEqual(s.shown.sort(),['t1_c1','t1_c3','t1_c5']);assert.equal(s.d.listState.loading,false);
+});
