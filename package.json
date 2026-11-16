@@ -6,14 +6,18 @@
     "test": "node --test tests/*.test.cjs",
     "preview": "python3 scripts/preview-server.py 8765",
     "package": "python3 scripts/package.py",
-    "verify:package": "python3 scripts/verify-package.py"
+    "verify:package": "python3 scripts/verify-package.py",
+    "package:firefox": "python3 scripts/package.py --target firefox",
+    "verify:firefox": "python3 scripts/verify-package.py --target firefox",
+    "lint:firefox": "web-ext lint --source-dir artifacts/reddit-tweaks-firefox"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "fake-indexeddb": "^6.2.5",
-    "jsdom": "^26.1.0"
+    "jsdom": "^26.1.0",
+    "web-ext": "10.8.0"
   },
   "private": true
 }

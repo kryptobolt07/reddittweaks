@@ -9,3 +9,7 @@ Release runs only for pushed `v*` tags. It reuses the same tested build, require
 Tests before implementation: verifier accepts an identical package and emits correct checksum/current notes/version metadata; rejects mismatched tags/missing notes, corrupted ZIP, changed or extra unpacked files, differing ZIP bytes and extra ZIP members. Existing packaging tests cover reproducible builds and allowlisted membership. Workflow syntax/types are checked with actionlint; the full test suite and real source/stable/ZIP check must pass before release metadata commit. No extension behavior changes or new live/browser checks in this increment. Remote CI is observed after the authorized push; release publishing remains unexecuted without a release tag.
 
 Reference contracts: [GitHub reusable workflows](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows), [GitHub artifact upload](https://github.com/actions/upload-artifact), and [GitHub CLI release creation](https://cli.github.com/manual/gh_release_create).
+
+## Firefox (2026-11-17)
+
+Build also exports and verifies the separate Firefox manifest/event-background package and its reproducible AMO source ZIP, runs pinned web-ext lint, and uploads a Firefox unpacked artifact. The same release bundle now contains Chromium ZIP, Firefox ZIP/explicitly unsigned XPI, Firefox source ZIP and all checksums. Tags verify every downloaded checksum before attachment. No AMO publication is automated: the user uploads the unsigned Firefox ZIP and optional source ZIP to Mozilla for validation/signing.
