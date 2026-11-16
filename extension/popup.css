@@ -146,3 +146,5 @@ footer{padding:8px 6px 0;color:var(--muted);font-size:9.5px;line-height:1.4;text
 #removal-history[hidden]{display:none}
 .removal-change{display:flex;flex-direction:column;gap:2px;padding:6px 8px;border-radius:8px;color:var(--text);background:var(--surface);text-decoration:none;overflow-wrap:anywhere}
 .removal-change:hover{background:var(--line)}.removal-change span{font-size:10px;color:var(--muted)}
+.setting-select{flex:none;align-self:center;font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit}
+.setting-row.is-inactive .setting-select{pointer-events:none}

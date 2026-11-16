@@ -201,4 +201,6 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
 /* Public post archives have their own bounded transport and never join chat queues. */
 importScripts('removal-model.js','removal-store.js','removal-broker.js');
 importScripts('archive-memo.js','post-broker.js');
+// Viewed-posts History beyond Reddit's 20 (docs/viewed-history-spec.md); needs post-model from post-broker.
+importScripts('viewed-store.js','viewed-broker.js');
 importScripts('raffler-broker.js');

@@ -43,6 +43,13 @@
   // These bounds only stop a runaway walk, and stopping at one is reported as incomplete.
   const removedItemBound=20000,removedVisitorPages=1000,removedHistoryPages=500;
   const publicBlockMs=600000,publicBlockedNote='Some comments may be missing · Reddit is blocking logged-out search';
+  // Viewed-posts History (docs/viewed-history-spec.md): above Reddit's own 20, your History tab is drawn by the extension.
+  let viewedHistoryOn=false;
+  function historySectionRoute(username,search,ownName){
+    if(username.toLowerCase()!==ownName.toLowerCase())return null;
+    const layout=['cardView','compactView'].includes(new URLSearchParams(search).get('feedViewType'))?new URLSearchParams(search).get('feedViewType'):'';
+    return {kind:'profile',view:'search',section:true,list:'history',username,q:'',type:'all',sort:'list',range:'all',key:JSON.stringify(['history-section',ownName.toLowerCase(),layout])};
+  }
   function removedSectionRoute(username,search,ownName){
     if(username.toLowerCase()!==ownName.toLowerCase())return null;
     const params=new URLSearchParams(search),layout=['cardView','compactView'].includes(params.get('feedViewType'))?params.get('feedViewType'):'';
@@ -58,7 +65,7 @@
       if(list){const listSort=['new','old'].includes(params.get('sort'))?params.get('sort'):'list',listType=type;return {kind:'profile',view:'search',username:scoped[1],q,type:listType,list,sort:listSort,range,key:JSON.stringify(['own-list',ownName.toLowerCase(),list,q,listType,listSort,range,layout])};}
       return {kind:'profile',view:'search',username:scoped[1],q,type,sort:!q && sort==='relevance'?'new':sort,range,key:JSON.stringify(['profile-search',scoped[1].toLowerCase(),q,type,sort,range,layout])};}
     const ownTab=path.match(/^\/user\/([\w-]{1,20})\/(saved|history|hidden|upvoted|downvoted)\/?$/i);
-    if(ownTab){if(new URLSearchParams(search).get('rt_view')==='removed')return removedSectionRoute(ownTab[1],search,ownName);return ownTab[1].toLowerCase()===ownName.toLowerCase()?{kind:'profile',view:'list-tab',username:ownTab[1],list:ownTab[2].toLowerCase(),key:path.toLowerCase()}:null;}
+    if(ownTab){if(new URLSearchParams(search).get('rt_view')==='removed')return removedSectionRoute(ownTab[1],search,ownName);if(viewedHistoryOn && ownTab[2].toLowerCase()==='history' && ownName)return historySectionRoute(ownTab[1],search,ownName);return ownTab[1].toLowerCase()===ownName.toLowerCase()?{kind:'profile',view:'list-tab',username:ownTab[1],list:ownTab[2].toLowerCase(),key:path.toLowerCase()}:null;}
     const profile=path.match(/^\/user\/([\w-]{1,20})(?:\/(submitted|comments))?\/?$/i);
     if(profile){const view=profile[2]==='submitted'?'posts':profile[2]==='comments'?'comments':'overview',params=new URLSearchParams(search);
       const sort=['new','hot','top'].includes(params.get('sort'))?params.get('sort'):'new',range=sort==='top' && ['hour','day','week','month','year','all'].includes(params.get('t'))?params.get('t'):'all',layout=['cardView','compactView'].includes(params.get('feedViewType'))?params.get('feedViewType'):'';
@@ -249,8 +256,8 @@
   // Instance fields that belong to the extension, not to one profile view.
   const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError','onRemovedTab','tabPages','removedTabSelection','removedTabObserver','removedTabOwner','onOwnListLink','searchInlineBar','searchInlineButtons']),parkLimit=4;let generationSeq=0;
   class Discovery {
-    constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={},removalCache=message=>chrome.runtime.sendMessage({scope:'rt-removal',...message})}={}){
-      this.removalCache=removalCache;
+    constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={},removalCache=message=>chrome.runtime.sendMessage({scope:'rt-removal',...message}),viewedHistory=message=>chrome.runtime.sendMessage({scope:'rt-viewed',...message})}={}){
+      this.removalCache=removalCache;this.viewedHistory=viewedHistory;
       this.nativeWaitMs=timing.nativeWaitMs ?? nativeWaitMs;this.retryUnitMs=timing.retryUnitMs ?? 1000;this.sourceWaitMs=timing.sourceWaitMs ?? sourceWaitMs;
       this.runtimeId=globalThis.chrome?.runtime?.id;this.navigationLease=crypto.randomUUID();this.parked=new Map();this.profileOwner=globalThis.RCSDirectory?.getOwner?.() || '';this.nativeRenderer=nativeRenderer;this.autoDiscover=autoDiscover;this.reddit=reddit;this.archive=archive;this.readSettings=readSettings;this.settings={postDiscovery:false,archiveDiscovery:false};this.settingsRevision=0;this.generation=0;this.controllers=new Set();this.nodes=new Map();this.host=null;
       this.settingsPending=true;this.syncProfileNotice();
@@ -288,17 +295,19 @@
         if(this.profileOwner!==owner){this.profileOwner=owner;signedInName='';rememberIdentity('');this.ownIdentityChecked=false;this.clearOwnListHeader();this.discardAllParked();this.reset({retainNavigation:false});this.scan();}});
       this.ready=this.loadSettings();
     }
-    async loadSettings(){const revision=this.settingsRevision;try{const saved=await this.readSettings();if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=false;this.settings=M.normalizeSettings(saved?.[key]);this.scan();}catch{if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=true;this.scan();}}
+    async loadSettings(){const revision=this.settingsRevision;try{const saved=await this.readSettings();if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=false;this.settings=M.normalizeSettings(saved?.[key]);viewedHistoryOn=this.settings.postDiscovery && this.settings.historyLimit!==20;this.scan();}catch{if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=true;this.scan();}}
     // Storage and the worker both announce a settings change; only the first one
     // differs. Turning discovery or the archive on or off rebuilds the view; a
     // change to restoring deleted text only adjusts what is already mounted.
     applySettings(next){
-      if(this.dead)return;const previous=this.settings,fresh=this.settingsPending || this.settingsError,names=['postDiscovery','archiveDiscovery','restoreDeletedContent'];
+      if(this.dead)return;const previous=this.settings,fresh=this.settingsPending || this.settingsError,names=['postDiscovery','archiveDiscovery','restoreDeletedContent','historyLimit'];
       if(!fresh && names.every(name=>previous[name]===next[name]))return;
-      const rebuild=fresh || previous.postDiscovery!==next.postDiscovery || previous.archiveDiscovery!==next.archiveDiscovery;
+      viewedHistoryOn=Boolean(next.postDiscovery) && (next.historyLimit ?? 20)!==20;
+      const rebuild=fresh || previous.postDiscovery!==next.postDiscovery || previous.archiveDiscovery!==next.archiveDiscovery || (previous.historyLimit ?? 20)!==(next.historyLimit ?? 20);
       if(rebuild)this.discardAllParked();
       this.settingsRevision++;this.settingsPending=false;this.settingsError=false;this.settings=next;
-      if(rebuild){this.reset();this.scan();return;}
+      // A History limit change on this page swaps between Reddit's own History and the extension's: restore at once.
+      if(rebuild){this.reset({restoreImmediately:(previous.historyLimit ?? 20)!==(next.historyLimit ?? 20)});this.scan();return;}
       this.syncProfileNotice();this.restoreSettingChanged();
     }
     restoreSettingChanged(){
@@ -327,7 +336,7 @@
     ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item],[data-rt-ui=activity-slot]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
     // cheap: a page-level mutation, which only needs a full pass if the mounted page changed.
     schedule(cheap=false){if(this.dead)return;if(!cheap)this.scanFull=true;if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;const full=this.scanFull;this.scanFull=false;this.scan({cheap:!full});},60);}
-    reset({retainNavigation=false,detach=false,keepCards=false,restoreImmediately=false}={}){this.flushVirtualization();this.clearHeaderFilters({keepElements:this.keepSearchControls()});this.listState=null;if(!detach){this.listEmpty?.remove();this.searchEmpty?.remove();}this.listEmpty=null;this.searchEmpty=null;const tabs=this.listTabs,tabShell=this.listTabsShell;
+    reset({retainNavigation=false,detach=false,keepCards=false,restoreImmediately=false}={}){this.flushVirtualization();this.clearHeaderFilters({keepElements:this.keepSearchControls()});this.listState=null;this.historyObserver?.disconnect();this.historyObserver=null;if(!detach){this.listEmpty?.remove();this.searchEmpty?.remove();}this.listEmpty=null;this.searchEmpty=null;const tabs=this.listTabs,tabShell=this.listTabsShell;
       const undoTabs=()=>{for(const [tab,state] of tabs || []){tab.setAttribute('href',state.href);tab.toggleAttribute('faceplate-tab-selected',state.selected);if(state.current==null)tab.removeAttribute('aria-current');else tab.setAttribute('aria-current',state.current);tab.removeEventListener('click',state.click,true);}tabShell?.remove();};
       // A parked list search keeps its tabs on screen; whatever Reddit didn't replace is put back after its page loads.
       if(!detach || !this.parkingVisible || this.leaveRestoreMs===0 || !tabs)undoTabs();else setTimeout(()=>{const now=pageRoute();if(!(now?.kind==='profile' && now.view==='search') || !tabShell?.isConnected)undoTabs();},this.leaveRestoreMs ?? 5000);
@@ -585,7 +594,7 @@
       // (briefly) for discovery coverage.
       if(this.feed)for(const entry of this.nativeEntries())this.initialNative.add(entry.node);
       if(this.feed && !this.batchedProfile && typeof IntersectionObserver==='function')this.nativeObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){this.nativeObserver.unobserve(entry.target);this.queueNative(entry.target);}},{rootMargin:'400px'});this.live=new Map();this.archived=new Map();
-      const host=this.host=make('section','rt-posts');host.dataset.rtUi='posts';host.setAttribute('aria-label',context.section?'Removed posts and comments':context.view==='search'?'Search results':context.kind==='profile'?'Additional public activity':'Archived post snapshot');
+      const host=this.host=make('section','rt-posts');host.dataset.rtUi='posts';host.setAttribute('aria-label',context.section?(context.list==='history'?'Viewed posts':'Removed posts and comments'):context.view==='search'?'Search results':context.kind==='profile'?'Additional public activity':'Archived post snapshot');
       host.dataset.rtContext=context.kind;
       const toolbar=this.toolbar=make('div','rt-posts-toolbar');if(context.section)toolbar.style.minHeight='0';
       const noun=context.view==='comments'?'comments':context.view==='overview'?'activity':'posts';
@@ -809,7 +818,7 @@
       if(this.context.list==='removed'){this.summarizeRemoved(error);return;}
       this.setStatus(error || 'Searched '+state.scanned.toLocaleString('en-US')+' '+this.context.list+' items'+(state.loading?' · Loading…':''),Boolean(error));
       const notes=[];if(this.searchParsed.invalid)notes.push(error);
-      if(this.context.list==='history')notes.push('History only includes your ~20 most recently viewed posts');
+      if(this.context.list==='history')notes.push((this.settings.historyLimit ?? 20)===20?'History only includes your ~20 most recently viewed posts':'History adds posts you opened on this device'+(this.settings.historyLimit?' (newest '+this.settings.historyLimit.toLocaleString('en-US')+')':''));
       if(state.capped)notes.push('Reddit only returns the newest 1,000 items');
       if(state.error)notes.push('List search is incomplete. Select Refresh to retry.');
       if(this.notice){this.notice.textContent=notes.join(' · ');this.notice.hidden=!notes.length;}
@@ -821,6 +830,8 @@
       if(sort==='new' || sort==='old')posts.sort((a,b)=>(sort==='old'?1:-1)*(a.created-b.created));
       // Removed merges profile items with archive-recovered deletions, so it keeps Reddit's newest-first profile order.
       else if(this.context.list==='removed')posts.sort((a,b)=>(Number(b.created) || 0)-(Number(a.created) || 0));
+      // The History tab draws its cards 25 at a time as you scroll: each card is a Reddit read.
+      const historyTab=this.context.section && this.context.list==='history';if(historyTab){state.revealed ||= 25;state.hiddenHistory=Math.max(0,posts.length-state.revealed);posts.length=Math.min(posts.length,state.revealed);this.observeHistoryTail();}
       for(const node of this.nodes.values())node.hidden=true;
       for(const post of posts){const key=itemKey(post);let node=this.nodes.get(key);if(!node){node=this.card(post);this.nodes.set(key,node);
           // Searches use native search rows; the Removed section uses lazy profile cards below.
@@ -843,6 +854,25 @@
     }
     /* Reddit's own no-results view (spec §30) ends every empty profile search: plain search, Removed and the other lists.
        Reddit's title is kept and names the actual query; Removed replaces the hint only while items remain unverified. */
+    /* Viewed-posts History (docs/viewed-history-spec.md): Reddit's own recent views first, then the older posts this device
+       recorded, newest first, without repeats, up to the History limit. Reddit's 20 reads nothing. */
+    async mergeViewedHistory(state,context,current){
+      const limit=this.settings.historyLimit ?? 20;if(limit===20 || !this.viewedHistory)return;
+      const me=globalThis.RTNativeRemoval?.identity(document);if(!me || me.username.toLowerCase()!==context.username.toLowerCase())return;
+      let result;try{result=await this.viewedHistory({action:'load',owner:me.owner,username:me.username});}catch{return;}
+      if(!current() || !result?.ok || !Array.isArray(result.items))return;
+      for(const raw of result.items){
+        if(limit>0 && state.items.size>=limit)break;
+        const post=M.normalizePost({id:raw.id,title:raw.title,subreddit:raw.subreddit,author:raw.author,created_utc:raw.created,permalink:raw.permalink,over_18:raw.over18===true,spoiler:raw.spoiler===true,score:raw.score,num_comments:raw.comments,thumbnail:raw.thumbnail,is_self:raw.postType==='text'});
+        if(!post || state.items.has(itemKey(post)))continue;if(raw.postType)post.postType=raw.postType;if(!Number.isFinite(raw.score))post.factsUnknown=true;post.viewedAt=raw.viewedAt;state.items.set(itemKey(post),post);
+      }
+      this.renderOwnList();
+    }
+    revealMoreHistory(){const state=this.listState;if(!state || !this.context?.section || this.context.list!=='history' || !state.hiddenHistory)return;state.revealed=(state.revealed || 25)+25;this.renderOwnList();}
+    observeHistoryTail(){
+      if(this.historyObserver || typeof IntersectionObserver!=='function' || !this.loading)return;
+      this.historyObserver=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting))this.revealMoreHistory();},{rootMargin:'800px'});this.historyObserver.observe(this.loading);
+    }
     updateSearchEmpty(show,slot='listEmpty'){
       let empty=this[slot];if(!show){if(empty)empty.hidden=true;return;}
       if(!empty || empty.dataset.rtUi!=='search-empty'){empty?.remove();empty=this[slot]=make('div');empty.id='rt-search-empty-'+crypto.randomUUID();empty.dataset.rtUi='search-empty';empty.setAttribute('role','status');empty.addEventListener('click',event=>{if(event.composedPath().some(node=>node?.matches?.('button,[role="button"]')))this.fillHeaderSearch(this.context?.q || '');});}
@@ -903,6 +933,7 @@
           else state.done=ended;
           this.renderOwnList();
         }while(current() && !state.done);
+        if(context.list==='history'){await this.mergeViewedHistory(state,context,current);if(!current())return;}
         // Every page was read without a safety stop: anything older that it didn't list is no longer on your profile.
         if(removed && !state.capped)state.liveDone=true;
         await checks;if(!current())return;
@@ -1366,7 +1397,7 @@
         tab.dataset.rtUi='removed-tab';tab.dataset.rtOwner=owner;last.after(tab);this.tabPages={group,native:Number(group.getAttribute('pages')) || Number(group.pages) || tabs.length,index:Number(group.getAttribute('pageindex')) || group.pageIndex || 1};
       }
       const href='/user/'+encodeURIComponent(route.username)+'/hidden/?rt_view=removed';if(tab.getAttribute('href')!==href)tab.setAttribute('href',href);
-      const selected=Boolean(route.section),classes=['bg-secondary-background-selected','!text-neutral-content-strong','tab-selected'];
+      const selected=Boolean(route.section) && route.list==='removed',classes=['bg-secondary-background-selected','!text-neutral-content-strong','tab-selected'];
       // Reddit paints the selected tab with an inline background as well as classes, and only from its own page index.
       const paintTab=(node,on)=>{for(const name of classes)if(node.classList.contains(name)!==on)node.classList.toggle(name,on);node.toggleAttribute('faceplate-tab-selected',on);const index=on?0:-1;if(node.tabIndex!==index)node.tabIndex=index;const background=on?'var(--color-secondary-background-selected)':'transparent';if(node.style.backgroundColor!==background)node.style.backgroundColor=background;};
       if(selected){this.removedTabSelection ||= new Map();for(const node of group.querySelectorAll(':scope > a:not([data-rt-ui="removed-tab"])')){
@@ -1383,7 +1414,7 @@
       this.setTabgroupPages(group,slot,selected && !linkedFeed?slot:0);
       if(!selected && Number(group.getAttribute('pageindex'))===slot)this.setTabgroupPages(group,slot,this.tabPages.index);
       if(selected && linkedFeed)Promise.resolve(group.updateComplete).then(()=>{
-        if(!tab.isConnected || !pageRoute()?.section || this.dead)return;
+        if(!tab.isConnected || pageRoute()?.list!=='removed' || !pageRoute()?.section || this.dead)return;
         for(const node of group.querySelectorAll(':scope > a'))paintTab(node,node===tab);
         for(const wrapper of group.shadowRoot?.querySelectorAll('.tablist > [data-i][role="tab"]') || [])wrapper.setAttribute('aria-selected',String(Number(wrapper.dataset.i)===slot));
       });
@@ -2536,7 +2567,7 @@
     updateProfileLoading(){
       // The loader follows the page kind (search skeleton or profile halo) once the route is known.
       if(this.loading && this.context && !this.isOwnList()){const halo=this.loading.querySelector('.rt-native-loading'),want=this.isSearch()?'search':'feed';if(halo && (halo.dataset.rtLoader || 'feed')!==want){const next=this.feedLoader();next.hidden=halo.hidden;halo.replaceWith(next);}}
-      if(this.isOwnList()){const hidden=!this.listState?.loading;if(this.loading && this.loading.hidden!==hidden)this.loading.hidden=hidden;return;}
+      if(this.isOwnList()){const hidden=!this.listState?.loading && !this.listState?.hiddenHistory;if(this.loading && this.loading.hidden!==hidden)this.loading.hidden=hidden;return;}
       if(!this.feed || !this.loading)return;
       const pending=this.batchedProfile && this.pendingProfilePosts().length>0,more=this.hasMoreProfile();
       const paused=this.nativeBatch.blocked || (this.batchAutoPaused || this.primaryFailure()) && !pending && !this.activeProfileBatch;
