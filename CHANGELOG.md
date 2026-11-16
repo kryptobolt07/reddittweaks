@@ -1,3 +1,13 @@
+# 0.39.2 preview
+
+- **Removed search facts:** previews, votes and comment counts now travel from native cards through saved Removed results into search rows. Existing saved entries gain missing facts on their next fresh check.
+- **Independent, stable filters:** removing the Removed chip preserves the query, Posts/Comments/Media scope, native time/sort/Safe Search and other filters. The inline filter controls stay in place through native navigation and menu replacement.
+- **Time-bounded Removed search:** Today/Past hour and custom date windows stop profile/archive walks once they pass the selected range, check only relevant items and retain the complete saved account list. Native and custom dates intersect. Changing dates cancels the previous walk.
+- **Reddit’s actual empty view:** completed empty Removed searches use Reddit’s served empty-search component, artwork and Adjust your search button, with Removed-specific wording. Existing native markup is reused; otherwise one normal same-origin HTML search supplies it and is cached for five minutes. A missing/blocked template shows an error and is retried only on explicit refresh.
+- **Version:** patch increment for search reliability, performance and missing result facts. No new permissions, deprecated Reddit endpoints or storage schema changes; saved rows gain optional bounded facts and a safe preview URL.
+- **Validation:** all 1,723 tests pass (542 focused regressions); 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `bcf418640c9a398cbc4b07aa4730eaebd6563724fba094533a6ea18545e4a324`.
+- **Review:** no browser/CDP or account writes in this increment. Installed native layout and loading transitions await extension reload, Reddit tab refresh and user review. A first uncached check still depends on Reddit and archive response times; date bounds avoid unrelated historical work.
+
 # 0.39.1 preview
 
 - **Smooth scrolling in Removed:** scrolling down and back up no longer leaves blank spaces that fill in late, and the page no longer shifts when you stop. Reddit's feed swaps off-screen cards for placeholders; Removed's updates were pulling those cards back in beside the placeholders. Updates now work with whatever is holding each card's place and move nothing that's already in place. Cards that came from your saved list are updated in place when fresh results arrive, instead of being rebuilt.
