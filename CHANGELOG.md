@@ -1,3 +1,12 @@
+# 0.38.4 preview
+
+- **Saved and Removed search tabs:** list search now has its own native-styled All / Posts / Comments / Media row above the inline filters, whether Reddit supplies a tab bar or not. Native observed attributes configure the row immediately and after component upgrade; it no longer waits for page-world definitions or changes Reddit's linked result-panel pagination.
+- **Content separation:** Posts, Comments and Media retain their own scope, query and filters, including removals followed by author deletion. All remains the combined view. Existing removal evidence, scan limits, archive cache windows and request pacing are unchanged.
+- **Hydration and cleanup:** a removed tab row is restored without refetching loaded items; reattaching the result feed retains the original native visibility state. Leaving list search or disabling discovery restores Reddit's original tabs untouched. The Removed profile entry also configures its pagination through shared DOM attributes.
+- **Version:** patch increment for a visible search-navigation reliability fix; no new permissions, endpoints or storage changes.
+- **Validation:** all 1,640 tests pass (428 focused); 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `2eafd2e9ef63c2563f121ebb348d3f6e8eacf7d8d274fb07ea7d257f9d7164ab`.
+- **Verification limits:** regression fixtures and existing native component/markup captures plus user screenshots; no CDP, constructed preview or live account writes. Installed appearance and navigation await user review after reloading the extension and refreshing Reddit.
+
 # 0.38.3 preview
 
 - **Removed profile section:** Removed stays beside Saved, History, Hidden, Upvoted and Downvoted on your own profile. It opens a normal profile feed with native post/comment cards, card/compact layouts and All/Posts/Comments/Media scopes. Removal labels retain their existing evidence and confidence. The separate Removed search view remains available through the scoped header.
