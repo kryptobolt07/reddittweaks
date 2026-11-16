@@ -5,10 +5,10 @@
  if(globalThis.RTViewedBroker)return;
  const store=globalThis.RTViewedStore.create({indexedDB:globalThis.indexedDB}),key='rt-settings-v1';
  const reddit=sender=>{try{const u=new URL(sender.url);return (sender.frameId==null || sender.frameId===0) && Number.isInteger(sender.tab?.id) && u.protocol==='https:' && !u.port && ['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(u.hostname);}catch{return false;}};
- const limitOf=async()=>globalThis.RTPostModel.normalizeSettings((await chrome.storage.local.get(key))?.[key]).historyLimit;
+ const limitOf=async()=>{const settings=globalThis.RTPostModel.normalizeSettings((await chrome.storage.local.get(key))?.[key]);return settings.postDiscovery?settings.historyLimit:20;};
  async function handle(message,sender){
   if(sender?.id!==chrome.runtime.id)throw Error('Invalid extension sender.');
-  if(!['record','load'].includes(message.action))throw Error('Unknown History action.');
+  if(!['record','seed','load'].includes(message.action))throw Error('Unknown History action.');
   // Recording comes from a top-level Reddit page, keyed by the logged-in account ID the page carries (post pages have no
   // username). Reading the list needs the account verified in that tab, as Removed does.
   if(message.action==='record'){
@@ -18,7 +18,8 @@
   }
   const me=await globalThis.RTRemovalBroker?.verify(sender,message.username);
   if(!me || me.owner!==message.owner)throw Error('The signed-in account changed.');
-  const limit=await limitOf();if(limit===20)return {ok:true,items:[],limit};
+  const limit=await limitOf();if(limit===20)return message.action==='seed'?{ok:true,recorded:false}:{ok:true,items:[],limit};
+  if(message.action==='seed'){if(!Array.isArray(message.items) || message.items.length>100)throw Error('Invalid recent History.');return {ok:true,recorded:Boolean(await store.seed({owner:me.owner,items:message.items,limit}))};}
   return {ok:true,items:await store.load({owner:me.owner,limit}),limit};
  }
  chrome.runtime.onMessage.addListener((message,sender,respond)=>{

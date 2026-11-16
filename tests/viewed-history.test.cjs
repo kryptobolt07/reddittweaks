@@ -107,3 +107,31 @@ test('the recorder reads settings from the worker (pages cannot read extension s
  assert.deepEqual({scope:asked[0].scope,action:asked[0].action},{scope:'rt-posts',action:'get-settings'});assert.equal(r.limit,500);
  push({scope:'rt-posts',action:'settings-changed',settings:{historyLimit:20}},{id:'own'});assert.equal(r.limit,20);push({scope:'rt-posts',action:'settings-changed',settings:{historyLimit:0}},{id:'evil'});assert.equal(r.limit,20,'only this extension');
 });
+
+test('re-enabling History on the same post after clearing the default records it again',async t=>{
+ const s=page(t);await s.r.ready;await s.r.scan();assert.equal(s.sent.length,1);s.r.configure({historyLimit:20});s.r.configure({historyLimit:500});await s.r.scan();assert.equal(s.sent.length,2);
+});
+test('switching accounts on the same post records the visit for the new account',async t=>{
+ const s=page(t);await s.r.ready;await s.r.scan();s.W.document.querySelector('shreddit-app').setAttribute('logged-in-user-id','t2_other');await s.r.scan();assert.deepEqual(s.sent.map(m=>m.owner),['t2_self','t2_other']);
+});
+test('a rejected History write does not permanently mark the visit recorded and discovery off records nothing',async t=>{
+ const s=page(t);s.r.send=async()=>({ok:false,error:'Temporary failure'});await s.r.ready;await s.r.scan();assert.equal(s.r.done,false);s.r.configure({postDiscovery:false,historyLimit:500});s.r.send=async m=>{s.sent.push(m);return {ok:true};};await s.r.scan();assert.equal(s.sent.length,0);
+});
+
+test('seeded native recent History survives when Reddit stops listing it and does not replace actual visits',async()=>{
+ const s=storeContext();await s.store.record({owner:'t2_self',item:item('new1'),limit:100});await s.store.seed({owner:'t2_self',items:[item('old1'),item('old2'),item('new1',{title:'Stale native title'})],limit:100});let rows=await s.store.load({owner:'t2_self',limit:100});assert.equal(rows.length,3);assert.equal(rows[0].id,'new1');assert.notEqual(rows[0].title,'Stale native title');await s.store.seed({owner:'t2_self',items:[item('old1')],limit:100});rows=await s.store.load({owner:'t2_self',limit:100});assert.equal(rows.length,3);
+});
+test('the broker seeds recent History only for the verified account and active extended History',async()=>{
+ const b=brokerContext();assert.equal((await b.send({action:'seed',items:[item('old1')]})).ok,true);assert.equal((await b.send({action:'load'})).items[0].id,'old1');b.setMe({owner:'t2_other',username:'Other'});assert.equal((await b.send({action:'seed',items:[item('old2')]})).ok,false);const off=brokerContext({limit:20});assert.equal((await off.send({action:'seed',items:[item('old1')]})).recorded,false);
+});
+test('returning to the same post after a non-post route is a new visit',async t=>{
+ const s=page(t);await s.r.ready;await s.r.scan();s.W.history.pushState({},'','/user/Example/');await s.r.scan();s.W.history.pushState({},'','/r/Alpha/comments/abc123/a_viewed_post/');await s.r.scan();assert.equal(s.sent.length,2);
+});
+
+test('SPA hydration and a quick profile-link navigation record the visible post without a reload',async t=>{
+ const dom=new JSDOM('<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><main><shreddit-post id="t3_abc123" post-title="SPA post" subreddit-name="Alpha" author="Writer" permalink="/r/Alpha/comments/abc123/title/"></shreddit-post><a href="/user/Example/">Profile</a></main>',{url:'https://www.reddit.com/r/Alpha/comments/abc123/title/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());W.chrome={runtime:{onMessage:{addListener(){},removeListener(){}}}};for(const file of ['post-model.js','viewed-history.js'])W.eval(read(file));const sent=[],r=new W.RTViewedHistory.Recorder({readSettings:async()=>({historyLimit:100}),send:async m=>{sent.push(m);return {ok:true,recorded:true};}});t.after(()=>r.destroy());await r.ready;
+ const card=W.document.querySelector('shreddit-post');card.setAttribute('created-timestamp','2026-11-10T10:00:00Z');W.document.addEventListener('click',e=>{e.preventDefault();W.history.pushState({},'','/user/Example/');card.remove();});W.document.querySelector('a').click();await flush();assert.equal(sent.length,1,'capture records the current post before SPA replaces it');assert.equal(sent[0].item.id,'abc123');
+});
+test('native attribute hydration alone wakes the recorder and failures have bounded retries',async t=>{
+ const dom=new JSDOM('<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><main><shreddit-post id="t3_abc123" post-title="SPA post" subreddit-name="Alpha" author="Writer" permalink="/r/Alpha/comments/abc123/title/"></shreddit-post></main>',{url:'https://www.reddit.com/r/Alpha/comments/abc123/title/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());W.chrome={runtime:{onMessage:{addListener(){},removeListener(){}}}};for(const file of ['post-model.js','viewed-history.js'])W.eval(read(file));let reads=0;const r=new W.RTViewedHistory.Recorder({readSettings:async()=>({historyLimit:100}),retryMs:1,send:async()=>{reads++;return {ok:false};}});t.after(()=>r.destroy());await r.ready;await new Promise(res=>setTimeout(res,10));assert.equal(reads,0);W.document.querySelector('shreddit-post').setAttribute('created-timestamp','2026-11-10T10:00:00Z');for(let i=0;i<100 && reads<3;i++)await new Promise(res=>setTimeout(res,5));assert.equal(reads,3);await new Promise(res=>setTimeout(res,10));assert.equal(reads,3);
+});
