@@ -9,15 +9,26 @@
   const archiveInit={credentials:'omit',referrerPolicy:'no-referrer',redirect:'error'};
   const pending=new Map(),cache=new Map(),titles=new Map(),profiles=new Map(),commentContexts=new Map(),subscribers=new Set();
   const ownMemo=globalThis.RTArchiveMemo?.create({storage:chrome.storage.session});
-  let ownArchiveTail=Promise.resolve(),ownArchivePending=0,ownArchiveLast=0,ownArchiveEpoch=0,ownArchiveFailure=null;
-  function ownArchiveQueue(run){
+  let ownArchiveBusy=false,ownArchivePending=0,ownArchiveLast=0,ownArchiveEpoch=0,ownArchiveFailure=null;const ownArchiveWaiting=[];
+  // One paced queue for your own archive reads. Item lookups decide what Removed shows now, so they go ahead of
+  // waiting author-history pages (low); each kind keeps its own order.
+  function ownArchiveQueue(run,{low=false}={}){
     if(ownArchivePending>=50)return Promise.resolve(fail('Too many archive requests.','busy'));
-    ownArchivePending++;const task=ownArchiveTail.catch(()=>{}).then(run);ownArchiveTail=task;return task.finally(()=>ownArchivePending--);
+    ownArchivePending++;
+    return new Promise((resolve,reject)=>{ownArchiveWaiting.push({run,low,resolve,reject});drainOwnArchive();}).finally(()=>ownArchivePending--);
+  }
+  async function drainOwnArchive(){
+    if(ownArchiveBusy)return;ownArchiveBusy=true;
+    try{while(ownArchiveWaiting.length){const index=Math.max(0,ownArchiveWaiting.findIndex(job=>!job.low)),[job]=ownArchiveWaiting.splice(index,1);try{job.resolve(await job.run());}catch(error){job.reject(error);}}}
+    finally{ownArchiveBusy=false;}
   }
   async function paceOwnArchive(run){
     if(ownArchiveFailure?.retryAt>Date.now())return ownArchiveFailure;
     const wait=Math.max(0,1000-(Date.now()-ownArchiveLast));if(wait)await new Promise(resolve=>setTimeout(resolve,wait));ownArchiveLast=Date.now();
-    const value=await run();if(['timeout','network-error','http-error','invalid-response'].includes(value.code))ownArchiveFailure={...value,retryAt:Date.now()+60000};else if(value.ok)ownArchiveFailure=null;return value;
+    // Service trouble pauses your archive reads for a minute. A 4xx refuses that one query (Arctic Shift answers a
+    // heavy author query with 422 at times), so it doesn't stop item lookups or a retry.
+    const value=await run(),refused=value.code==='http-error' && value.status>=400 && value.status<500;
+    if(!refused && ['timeout','network-error','http-error','invalid-response'].includes(value.code))ownArchiveFailure={...value,retryAt:Date.now()+60000};else if(value.ok)ownArchiveFailure=null;return value;
   }
   async function ownArchiveAccount(message,sender,username){
     if(!message.owner)return null;const me=await globalThis.RTRemovalBroker?.verify(sender,username);
@@ -127,7 +138,7 @@
         const operation=(async()=>{
           const response=await fetch(url.href,{...archiveInit,signal:controller.signal});cooldown(response);
           if([502,503,504].includes(response.status))return markUnavailable(response,controller,force && unavailableUntil>Date.now());
-          if(!response.ok)return fail(response.status===429?'Archive rate limit reached.':'Archive service could not load posts.',response.status===429?'rate-limited':'http-error',{retryAt:cooldownUntil||undefined});
+          if(!response.ok)return fail(response.status===429?'Archive rate limit reached.':'Archive service could not load posts.',response.status===429?'rate-limited':'http-error',{retryAt:cooldownUntil||undefined,status:response.status});
           // Both transport text and accepted record count are bounded before normalization.
           const text=await readBounded(response,controller);if(text==null)return fail('Archive response is too large.','invalid-response');
           let json;try{json=JSON.parse(text);}catch{return fail('Invalid archive response.','invalid-response');}
@@ -453,7 +464,7 @@
         const value=await paceOwnArchive(async()=>await ownArchiveAllowed(message,sender,me,epoch)?request(username,before,null,kind):fail('The archive preference or signed-in account changed.','forbidden'));
         if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
         if(value.ok)await ownMemo.put([{key,value,ttl:21600000}],epoch);return value;
-      });
+      },{low:true});
     }
     const profileKey=ids?'ids:'+normalizedIds.join(','):kind+':'+username,key=profileKey+':'+(before??'initial'),now=Date.now();
     for(const [key,value] of cache)if(value.expires<=now)cache.delete(key);

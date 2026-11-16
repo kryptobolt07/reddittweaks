@@ -16,10 +16,10 @@
     }
     // Your own profile as a signed-out visitor sees it (spec §18): its first page and native continuations only.
     const me=globalThis.RTNativeRemoval?.identity(document),clean=location.origin===origin && url.origin===origin && !url.username && !url.password && !url.port && !url.hash;
-    if(clean && me && url.pathname.toLowerCase()==='/user/'+me.username.toLowerCase()+'/'){
+    if(clean && me && ['/user/'+me.username.toLowerCase()+'/','/user/'+me.username.toLowerCase()+'/submitted/'].includes(url.pathname.toLowerCase())){
       if([...p.keys()].length!==1 || p.get('sort')!=='new')throw failure('Invalid signed-out profile read.');return url;
     }
-    if(clean && url.pathname==='/svc/shreddit/profiles/profile_overview-more-posts/new/'){
+    if(clean && /^\/svc\/shreddit\/profiles\/profile_(?:overview|posts)-more-posts\/new\/$/.test(url.pathname)){
       // Captured 2026-11-16: page 2 onward adds distance.
       const allowed=['sort','after','name','navigationSessionId','feedLength','referer','distance'];
       if(!me || p.get('name')?.toLowerCase()!==me.username.toLowerCase() || p.get('sort')!=='new' || url.href.length>4096 || [...p.keys()].some(key=>!allowed.includes(key) || p.getAll(key).length!==1) || [...p.values()].some(value=>/[\u0000-\u001f\u007f]/.test(value)))throw failure('Invalid signed-out profile read.');

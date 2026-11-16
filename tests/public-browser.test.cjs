@@ -125,6 +125,12 @@ test('own signed-out profile pages (spec §18): first page as HTML and native co
  const first='https://www.reddit.com/user/Example/?sort=new',next='https://www.reddit.com/svc/shreddit/profiles/profile_overview-more-posts/new/?sort=new&after=dDFfYWJj&name=Example&navigationSessionId=abc-123&feedLength=33&referer=https%3A%2F%2Fwww.reddit.com%2Fuser%2FExample%2F';
  await e.read(first);assert.equal(e.calls[0][1].headers.Accept,'text/html','the first page is a full document');assert.equal(e.calls[0][1].credentials,'same-origin');
  await e.read(next);assert.match(e.calls[1][1].headers.Accept,/partial/);await e.read(next+'&distance=25');assert.equal(e.nodes.length,1,'same anonymous frame');
- for(const bad of ['https://www.reddit.com/user/Other/?sort=new','https://www.reddit.com/user/Example/?sort=top','https://www.reddit.com/user/Example/comments/?sort=new',next.replace('name=Example','name=Other'),next.replace('profile_overview','profile_posts'),next+'&token=x','https://evil.example/user/Example/?sort=new'])await assert.rejects(e.read(bad),undefined,bad);
+ for(const bad of ['https://www.reddit.com/user/Other/?sort=new','https://www.reddit.com/user/Example/?sort=top','https://www.reddit.com/user/Example/comments/?sort=new',next.replace('name=Example','name=Other'),next.replace('profile_overview','profile_comments'),next+'&token=x','https://evil.example/user/Example/?sort=new'])await assert.rejects(e.read(bad),undefined,bad);
  const signedOut=env({nativeOwner:null});await assert.rejects(signedOut.read(first),undefined,'needs the verified own account');
+});
+test('own signed-out Posts tab: first page and native continuations are allowed for the own account only',async()=>{
+ const e=env({nativeOwner:{owner:'t2_self',username:'Example'}});
+ const first='https://www.reddit.com/user/Example/submitted/?sort=new',next='https://www.reddit.com/svc/shreddit/profiles/profile_posts-more-posts/new/?sort=new&after=dDNfYWJj&name=Example&navigationSessionId=abc-123&feedLength=25';
+ await e.read(first);assert.equal(e.calls[0][1].headers.Accept,'text/html');await e.read(next);assert.match(e.calls[1][1].headers.Accept,/partial/);
+ for(const bad of ['https://www.reddit.com/user/Other/submitted/?sort=new','https://www.reddit.com/user/Example/submitted/?sort=top','https://www.reddit.com/user/Example/submitted/?sort=new&t=all',next.replace('name=Example','name=Other')])await assert.rejects(e.read(bad),undefined,bad);
 });
