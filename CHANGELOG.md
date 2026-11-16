@@ -1,3 +1,10 @@
+# 0.38.7 preview
+
+- **Removed tab highlight:** selecting Removed now highlights Removed instead of Hidden. Removed opens on your Hidden list's address, where Reddit draws Hidden's highlight as an inline style and never repaints it. Removed now takes that highlight, and the original styling is restored exactly when you leave or turn the feature off. If Reddit resets its tab count, which stopped Removed being drawn, the count is written again. A later native repaint of the tab strip can't move the highlight back to Hidden.
+- **Version:** patch increment for a visible navigation fix to 0.38.6. No new permissions, endpoints or storage changes.
+- **Validation:** all 1,666 tests pass; 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `0e6b5b1137be59f6f2e11fda49b1e9f153ffe8586301e033c2a535e87efa0728`.
+- **Live check:** read-only Chrome CDP in a separate tab on the signed-in account. Clicking Removed, loading its address directly, and going to Hidden and back each highlight exactly one tab, with all nine tabs drawn.
+
 # 0.38.6 preview
 
 - **Removed opens like History or Upvoted:** the Removed tab in your profile tab bar now opens through Reddit's own list shell (`/user/<you>/hidden/?rt_view=removed`) as one newest-first feed of posts and comments. It has no feed filters, sort or content sub-tabs, and the Overview composer and feed controls are hidden reversibly. Turning the feature off restores Reddit's own empty-list notice and controls.
