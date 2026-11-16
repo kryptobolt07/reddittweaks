@@ -1,3 +1,12 @@
+# 0.38.6 preview
+
+- **Removed opens like History or Upvoted:** the Removed tab in your profile tab bar now opens through Reddit's own list shell (`/user/<you>/hidden/?rt_view=removed`) as one newest-first feed of posts and comments. It has no feed filters, sort or content sub-tabs, and the Overview composer and feed controls are hidden reversibly. Turning the feature off restores Reddit's own empty-list notice and controls.
+- **Search keeps its filters:** pressing Enter in the scoped search bar opens Removed search with Posts / Comments / Media and the usual filter ribbon.
+- **Deleted removals recovered from Arctic Shift:** items removed and then deleted aren't on your profile or in Reddit search. Recovery now walks your archived author history the same way an archived profile is paged, for both posts and comments. It no longer stops at the oldest item still on your profile, runs even when the profile is empty, and goes up to 50 pages (5,000 records) per kind. Stalled cursors and the page limit are reported as incomplete coverage. Recovered items are merged into the feed by date and show their archived text.
+- **Version:** patch increment for user-visible reliability fixes. No new permissions, endpoints or storage changes. The existing six-hour history cache and the one-second shared archive pacing still apply.
+- **Validation:** all 1,664 tests pass; 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `f2a18053833fafb9a8ecf61f388cda564a12f256d68d6b287a399790209db63d`.
+- **Verification limits:** synthetic fixtures and existing captured native markup only; no live browser check in this release. Installed review needs an extension reload and a Reddit refresh.
+
 # 0.38.5 preview
 
 - **Unified Removed profile feed:** selecting Removed in your horizontal profile tabs shows posts and comments together, like the other profile lists. It has no search content-type sub-tabs. Old profile URLs carrying Posts/Comments/Media now open that same unified feed and share its navigation cache; layout controls drop the obsolete scope parameter.
