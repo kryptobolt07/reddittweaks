@@ -279,3 +279,19 @@ for(const list of ['saved','history','hidden','upvoted','downvoted','removed'])t
  assert.equal(away.pathname,'/r/Alpha/');assert.equal(away.searchParams.has('rt_list'),false,'other links are untouched');
  s.d.applySettings({postDiscovery:false,archiveDiscovery:false});const after=navigations(s);s.D.getElementById('sort-new').click();assert.equal(after.at(-1).searchParams.has('rt_list'),false,'off: Reddit’s links behave natively');
 });
+
+test('removing the Removed list chip keeps native time/sort/safe-search, content type and other filter chips',async t=>{
+ const s=await setup(t,{path:'/user/Example/search/?rt_list=removed&type=comments&q=needle&sort=new&t=day&include_over_18=true&rt_sub=Alpha&rt_date=week&rt_type=text',withHeader:true}),urls=navigations(s);
+ s.h.root.querySelector('[data-rt-list-chip]').click();const url=urls.at(-1);assert.equal(url.searchParams.has('rt_list'),false);for(const [k,v] of Object.entries({q:'needle',type:'comments',sort:'new',t:'day',include_over_18:'true',rt_sub:'Alpha',rt_date:'week',rt_type:'text'}))assert.equal(url.searchParams.get(k),v,k);
+});
+test('native time/sort navigation and menu replacement keep the same inline filter controls',async t=>{
+ const html='<div id="native-filter-row" class="flex items-center"><search-sort-dropdown-menu><a href="?t=day">Today</a></search-sort-dropdown-menu></div>'+page,s=await setup(t,{html,path:'/user/Example/search/?rt_list=saved&rt_sub=Alpha',withHeader:true}),bar=s.d.searchInlineBar,buttons=[...bar.querySelectorAll('button')];assert.ok(buttons.length);
+ s.W.history.pushState({},'','?rt_list=saved&rt_sub=Alpha&t=day');s.d.scan();await flush();assert.equal(s.d.searchInlineBar,bar);assert.equal(bar.isConnected,true);for(const b of buttons)assert.ok(bar.contains(b),'keep existing button '+b.textContent);
+ s.d.clearActivityMenu();assert.equal(bar.isConnected,true,'menu reconciliation does not remove the filter strip');s.d.ensureActivityMenu();await flush();assert.equal(s.d.searchInlineBar,bar);for(const b of buttons)assert.ok(bar.contains(b));
+ s.d.applySettings({postDiscovery:false,archiveDiscovery:false});assert.equal(bar.isConnected,false);
+});
+
+test('changing the local date cancels the old Removed walk without rebuilding its filter strip',async t=>{
+ let release;const old=Math.floor(Date.now()/1000)-10*86400,html='<div class="flex items-center"><search-sort-dropdown-menu><button>Relevance</button></search-sort-dropdown-menu></div>'+page,s=await setup(t,{html,path:'/user/Example/search/?rt_list=removed',list:async(args,signal,W,n)=>{if(n===1)return new Promise(r=>release=r);return {posts:[W.RTPostModel.normalizePost(raw('old',{created_utc:old}))],scanned:1,hasMore:true,after:'older',transport:'native'};}}),bar=s.d.searchInlineBar;
+ const pending=s.d.refreshActivity();await flush();s.d.setFilters({...s.d.rtFilters,date:{preset:'24h'}});await flush();await flush();release({posts:[],scanned:0,hasMore:false});await pending;await flush();assert.equal(s.d.listState.done,true);assert.equal(s.d.listState.loading,false);assert.equal(s.d.listState.error,'');assert.equal(listCalls(s).length,3);assert.equal(s.d.searchInlineBar,bar);assert.equal(bar.isConnected,true);assert.equal(new URL(s.W.location.href).searchParams.get('rt_date'),'24h');
+});
