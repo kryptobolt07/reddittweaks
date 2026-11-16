@@ -275,3 +275,8 @@ test('thread comment pagination detects stalled cursors and focused IDs remain s
  const r=await e.send({action:'archive-thread-comments',postId:'abc12',before:1700000001,focusId:'focus'},sender);assert.equal(r.ok,true);assert.equal(r.hasMore,true);assert.equal(r.cursorStalled,true);assert.equal(r.posts.some(p=>p.id==='focus'),false);
  e.setSettings({postDiscovery:true,archiveDiscovery:false});assert.equal((await e.send({action:'archive-thread-comments',postId:'abc12'},sender)).code,'disabled');
 });
+
+test('archive profile reads support the dedicated Removed list shell without opening other list routes',async()=>{
+ const e=env();assert.equal((await e.send({}, {url:'https://www.reddit.com/user/Example/hidden/?rt_view=removed'})).ok,true);
+ for(const url of ['https://www.reddit.com/user/Other/hidden/?rt_view=removed','https://www.reddit.com/user/Example/hidden/','https://www.reddit.com/user/Example/saved/'])assert.equal((await e.send({}, {url})).code,'forbidden');
+});

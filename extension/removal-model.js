@@ -103,9 +103,10 @@
 
     // An item no longer on the profile that Arctic Shift recorded as removed (spec §18 P3): removed, then deleted by you.
   // Self-deletion alone is not a removal and returns null.
-  function afterDeletion(archived){
-    const state={moderator:'removed-mod',reddit:'removed-admin',automod_filtered:'removed-auto'}[archived?.archiveRemovedBy];if(!state)return null;
-    return result(state,{confidence:'verified',why:'Arctic Shift recorded this as '+STATES[state].label.toLowerCase()+'. It’s no longer on your profile because you deleted it later.',flags:['deleted-later']});
+  function afterDeletion(archived,{deleted=false}={}){
+    if(!archived?.archiveDeletedLater && !deleted)return null;
+    const state={moderator:'removed-mod',reddit:'removed-admin',automod_filtered:'removed-auto'}[archived.archiveRemovedBy] || (archived.archiveStatus==='removed'?'removed-unknown':'');if(!state)return null;
+    return result(state,{confidence:'verified',why:'Arctic Shift recorded this removal before a later deletion. The displayed text is an archived snapshot.',flags:['deleted-later']});
   }
   globalThis.RTRemovalModel=Object.freeze({AUTO_LATENCY,STATES,classify,change,evidence,isRemovedBody,afterDeletion});
 })();

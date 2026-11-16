@@ -1772,7 +1772,7 @@ test('your own profile’s tab bar gets a Removed tab like Saved and History, wi
  const {W,d,calls}=setup(t);defineTabgroup(W);W.document.querySelector('main').insertAdjacentHTML('afterbegin',profileTabs());ownProfileAccount(W);const urls=removedEntryNavigations(W);await d.ready;d.ensureActivityMenu();
  const tab=removedTab(W);assert.ok(tab);assert.equal(tab.textContent.trim(),'Removed');assert.equal(tab.getAttribute('slot'),'page-4','after Reddit’s last tab');const group=W.document.querySelector('#profile-feed-tabgroup');assert.equal(group.pages,4,'Reddit’s tab group renders one more page slot (measured: it renders only "pages" slots)');assert.equal(tab.id,'profile-tab-removed_tab');
  assert.match(tab.className,/button-medium .*button-plain/);assert.doesNotMatch(tab.className,/tab-selected|bg-secondary-background-selected/);assert.equal(tab.hasAttribute('faceplate-tab-selected'),false);assert.equal(tab.tabIndex,-1);
- const href=new URL(tab.href);assert.equal(href.pathname,'/user/Example/');assert.equal(href.searchParams.get('rt_view'),'removed');
+ const href=new URL(tab.href);assert.equal(href.pathname,'/user/Example/hidden/');assert.equal(href.searchParams.get('rt_view'),'removed');
  assert.equal(calls.length,0,'mounting the tab must not scan');assert.equal(d.activityMenu.querySelector('[data-rt-activity-filter="removed"]'),null,'no second entry in Feed options');
  tab.click();assert.equal(urls.length,1);assert.equal(urls[0].searchParams.get('rt_view'),'removed');
  tab.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));assert.equal(urls.length,2,'keyboard opens it too');

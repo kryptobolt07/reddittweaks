@@ -250,3 +250,22 @@ for(const type of ['posts','comments','media'])test(`Removed search ${type} keep
  s.W.history.replaceState({},'','?rt_list=removed&type='+type);s.d.context={...s.d.context,type};s.d.renderOwnList();s.d.syncOwnListTabs();
  const visible=[...s.d.nodes.values()].filter(n=>!n.hidden);assert.equal(visible.length,type==='posts'?3:type==='comments'?2:1);assert.ok(visible.every(n=>n.querySelector('[data-rt-search-unit="'+(type==='comments'?'comment':'post')+'"]')));assert.equal(s.W.document.querySelector('[aria-current="page"][href*="type='+type+'"]')?.textContent,type[0].toUpperCase()+type.slice(1));
 });
+
+for(const empty of [false,true])test(`archive recovery includes older removed-then-deleted posts and comments (empty profile=${empty})`,async t=>{
+ const archive=async args=>({posts:args.kind==='post'?[{...post('oldpost',{created_utc:created-1000000,removed_by_category:'moderator'}),_meta:{removal_type:'deleted',was_deleted_later:true}},post('ordinary',{created_utc:created-1000001}),post('onlyremoved',{created_utc:created-1000002,removed_by_category:'moderator'}),{...post('selfonly',{created_utc:created-1000003}),_meta:{removal_type:'deleted'}}]:[{...comment('oldcomment',{created_utc:created-2000000,removed_by_category:'moderator'}),_meta:{removal_type:'deleted',was_deleted_later:true}}],hasMore:false});
+ const s=await view(t,{children:empty?[]:[['t3',post('live',{removed_by_category:'moderator'})]],type:'posts',settings:{postDiscovery:true,archiveDiscovery:true},archive});
+ assert.ok(s.d.listState.items.has('oldpost'));assert.ok(s.d.listState.items.has('t1_oldcomment'));assert.equal(s.d.listState.items.has('ordinary'),false);assert.equal(s.d.listState.items.has('onlyremoved'),false);assert.equal(s.d.listState.items.has('selfonly'),false);assert.ok(s.pill('t3_oldpost').textContent.includes('then deleted'));
+ assert.equal(s.archives.filter(a=>a.action==='archive-profile').length,2);
+});
+test('archive recovery enriches a current deleted item but never overrides a current visible item',async t=>{
+ const s=await view(t,{children:[['t3',post('deleted',{selftext:'[deleted]',removed_by_category:'deleted'})],['t3',post('visible')]],publicProofs:{t3_deleted:{status:'deleted',verified:true},t3_visible:{status:'visible',verified:true}},visitor:pages([{fullname:'t3_visible',created}]),settings:{postDiscovery:true,archiveDiscovery:true},archive:async args=>({posts:args.kind==='post'?[post('deleted',{removed_by_category:'moderator'}),{...post('visible',{removed_by_category:'moderator'}),_meta:{removal_type:'deleted'}}]:[],hasMore:false})});
+ assert.deepEqual(s.shown,['t3_deleted']);assert.ok(s.pill('t3_deleted').textContent.includes('then deleted'));assert.equal(s.d.listState.items.get('visible').removal.state,'visible');
+});
+test('archive history stops repeated/stalled cursors with an honest coverage note',async t=>{
+ const calls=[];const s=await view(t,{children:[],settings:{postDiscovery:true,archiveDiscovery:true},archive:async args=>{calls.push(args);return {posts:[args.kind==='post'?post('same'):comment('same')],hasMore:true,before:created,cursorStalled:args.before===created};}});
+ assert.equal(calls.length,4);assert.match(s.d.notice.title,/archive.*(?:cursor|pagination).*incomplete/i);
+});
+test('archive history page budget stays bounded and reported after the live profile is exhausted',async t=>{
+ let n=0;const s=await view(t,{children:[],settings:{postDiscovery:true,archiveDiscovery:true},archive:async args=>{n++;return {posts:[args.kind==='post'?post('p'+n,{created_utc:created-n}):comment('c'+n,{created_utc:created-n})],hasMore:true,before:created-n};}});
+ assert.equal(n,100);assert.match(s.d.notice.title,/archive.*50 pages.*incomplete/i);
+});

@@ -106,3 +106,10 @@ test('fresh unsigned removal cannot be overridden by author-visible or approved 
 test('public readability alone does not erase an explicit native removal verdict',()=>{
  const m=model(),r=m.classify({author:post({removed_by_category:'moderator'}),publicView:{verified:true,visibility:'visible'}});assert.equal(r.state,'removed-mod');
 });
+
+test('removed-then-deleted needs deletion proof as well as historical removal, not just profile absence',()=>{
+ const m=model();assert.equal(m.afterDeletion({archiveRemovedBy:'moderator'}),null);assert.equal(m.afterDeletion({archiveDeletedLater:true}),null);
+ const known=m.afterDeletion({archiveRemovedBy:'moderator',archiveDeletedLater:true});assert.equal(known.state,'removed-mod');assert.ok(known.flags.includes('deleted-later'));
+ assert.equal(m.afterDeletion({archiveRemovedBy:'automod_filtered'},{deleted:true}).state,'removed-auto');
+ const generic=m.afterDeletion({archiveStatus:'removed',archiveDeletedLater:true});assert.equal(generic.state,'removed-unknown');
+});
