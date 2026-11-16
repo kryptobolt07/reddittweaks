@@ -183,12 +183,12 @@ test('communities a visitor never sees on your profile (profile curation) are no
  assert.equal(direct.filter(id=>id.startsWith('t1_h')).length,40,'hidden-community items are all checked, after the real differences');
  assert.match(s.d.notice.title,/communities a signed-out visitor doesn’t see on your profile/);
 });
-test('an archive “removed” item in a hidden community is checked before others there, and a current visible beats it (captured GTA6 case)',async t=>{
+test('a hidden-community item verified visible never needs archive ID enrichment (captured GTA6 case)',async t=>{
  const calls=[],children=[...Array.from({length:35},(_,i)=>['t1',comment('h'+i,{subreddit:'Hidden',created_utc:created-i*60})]),['t3',post('gta',{subreddit:'GTA6unmoderated',created_utc:created-9000,native:true})],['t1',comment('s0',{subreddit:'Shown',created_utc:created-30})]];
  const archive=async args=>args.kind==='post'?{ok:true,posts:[{...post('gta',{subreddit:'GTA6unmoderated',created_utc:created-9000}),selftext:'[removed]',removed_by_category:'reddit',retrieved_on:created-9000+22}]}:{ok:true,posts:[]};
  const s=await view(t,{children,settings:{postDiscovery:true,archiveDiscovery:true},archive,publicProofs:{t3_gta:{status:'visible',verified:true}},visitor:pages([{fullname:'t1_s0',created:created-30,subreddit:'Shown'},{fullname:'t1_x',created:created-999999,subreddit:'Shown'}]),calls});
  const direct=calls.filter(c=>c.action==='removal-public').map(c=>c.fullname);
- assert.equal(direct[0],'t3_gta','archive-flagged hidden item goes first among hidden-community items');
+ assert.ok(direct.includes('t3_gta'));assert.equal(s.archives.filter(a=>a.action==='archive-removal' && a.ids.includes('gta')).length,0,'current visibility settles the item before archive enrichment');
  assert.equal(s.shown.includes('t3_gta'),false,'visible now, so not listed as removed');
 });
 
@@ -234,4 +234,10 @@ test('cached signed-out results skip the visitor walk and direct checks; new res
  assert.deepEqual(s.shown,['t1_fresh']);
  const again=[],quiet=await view(t,{children:[['t1',comment('cached',{created_utc:created})]],publicProofs:{},visitor:pages([]),calls:again,cache:{t1_cached:{status:'visible',checkedAt:now}}});
  assert.equal(again.filter(c=>c.action==='removal-public-profile' || c.action==='removal-public').length,0,'everything cached: no signed-out reads at all');
+});
+
+
+test('archive enrichment follows public checks and skips visible, self-deleted and explicit native removal causes',async t=>{
+ const order=[],s=await view(t,{children:[['t1',comment('visible')],['t1',comment('unresolved')],['t3',post('native',{removed_by_category:'moderator',native:true})],['t1',comment('selfdel',{body:'[deleted]'})],['t3',post('private',{subreddit_type:'private',native:true})]],settings:{postDiscovery:true,archiveDiscovery:true},publicProofs:new Proxy({},{get:(o,k)=>{order.push(k);return {status:k==='t1_visible'?'visible':k==='t1_selfdel'?'deleted':'unknown',verified:k==='t1_visible' || k==='t1_selfdel'};}}),visitor:pages([]),archive:async args=>{if(args.action==='archive-removal')order.push('archive:'+args.ids.join(','));return {ok:true,posts:[],hasMore:false};}});
+ const lookups=s.archives.filter(a=>a.action==='archive-removal');assert.equal(lookups.length,1);assert.deepEqual([...lookups[0].ids],['unresolved']);assert.ok(order.indexOf('archive:unresolved')>order.indexOf('t1_unresolved'));assert.equal(lookups[0].owner,'t2_self');
 });

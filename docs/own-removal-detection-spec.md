@@ -411,3 +411,23 @@ snapshots with their own gaps; P3 lists only what it captured.
 | T18.2 | Account switch during the walk | Both walks stop; nothing from the old account is classified |
 | T18.3 | Leaving the Removed list | Walks and direct checks are cancelled |
 | T18.4 | Archive off | P3 is skipped and said so; P1/P2 unchanged |
+
+
+## 19. Bounded archive traffic (2026-11-16)
+
+Replace §18's archive-before-direct ordering: resolve cached/profile/direct signed-out evidence first. Only items still lacking public visibility or needing a removal cause use archive ID lookup; explicit native cause, self-deleted, private/quarantined and currently visible items skip it. Public failure remains unknown unless historical evidence exists; archive snapshots never become current public proof. Archive-off makes zero archive requests. No new Reddit endpoints, background crawl, UI or live writes.
+
+| Expectation | Test evidence |
+|---|---|
+| X1 | All newly verified visible items cause zero archive-removal calls; explicit native causes also skip enrichment |
+| X2 | Unknown/generic removed items retain archive classification, 25-ID batching and error/incomplete reporting after direct checks |
+| X3 | Worker uses per-account, per-item archive reuse across different batch groupings and tabs; duplicate overlapping work is serialized and rechecked before a fetch |
+| X4 | Found records cache 24 h; successful misses 1 h; failures are never negative results. Own-history pages cache 6 h. Expired entries refresh; bodies are temporary only |
+| X5 | Temporary cache lives in trusted chrome.storage.session (browser memory), survives worker sleep, is bounded to 512 entries/2 MiB and evicts oldest. No archive response is written to storage.local/sync or disk; no new permissions |
+| X6 | Native owner/name verified before using/writing a cached result and after network reads; account mismatch cancels. Archive disable clears temporary cache and stale in-flight writes cannot refill it |
+| X7 | All cache-miss own-removal ID/history reads share one queue, spaced at least 1 s apart; transient network/HTTP/invalid-response failures pause new own-archive reads for 1 min (cached successes remain usable); existing global server cooldowns and maintenance pauses remain authoritative |
+| X8 | Removed-then-deleted scans reuse history pages (including empty pages), retain existing time/page bounds, dedup and incomplete/error behavior; no invented complete-history claim |
+
+Lifecycle: the worker owns shared temporary cache/queue; content view and passive monitor still cancel/account-check their own results. Existing native menu, loading and card markup unchanged. T1/T3/T7 reuse evidence; T5 filters/tabs reuse shared archive records; T6 only new/expired IDs/pages fetch; T9 direct/public state is authoritative regardless of cached historical snapshots; T10 archive-off clears temporary responses; T11 account changes reject old work; T13 worker reload recovers session cache; T14 no new hidden-tab work. T2/T4/T8/T12/T15/T16 retain existing behavior. Standing S1–S9: transport/evidence/cancellation checked synthetically; native layout/chat/Old Reddit changes n/a because untouched. User handles installed review; no CDP or preview browser used. No fresh native measurement is needed for this transport-only change; earlier native observations remain the input contracts.
+
+Honest limits: cached archive snapshots can lag ingestion for the stated windows; successful absence is not removal evidence. Clearing browser session cache or restarting the browser resets this optimization. Manual Refresh still reuses unexpired historical responses; it does not bypass the shared cooldown/cache. Temporary response bodies are retained in browser memory solely to reuse original archived rows, and are cleared on archive opt-out. Account-scoped current public proof storage remains unchanged.

@@ -1,4 +1,4 @@
-/* Opt-in, credential-free public archive requests. No archive data is persisted. */
+/* Opt-in, credential-free public archive requests. Own-removal responses reuse bounded browser-session memory. */
 (() => {
   'use strict';
   if(!globalThis.RTPostModel)importScripts('post-model.js');
@@ -8,6 +8,25 @@
   const titleTtl=600000,titleMax=2000,titleTimeoutMs=6000;
   const archiveInit={credentials:'omit',referrerPolicy:'no-referrer',redirect:'error'};
   const pending=new Map(),cache=new Map(),titles=new Map(),profiles=new Map(),commentContexts=new Map(),subscribers=new Set();
+  const ownMemo=globalThis.RTArchiveMemo?.create({storage:chrome.storage.session});
+  let ownArchiveTail=Promise.resolve(),ownArchivePending=0,ownArchiveLast=0,ownArchiveEpoch=0,ownArchiveFailure=null;
+  function ownArchiveQueue(run){
+    if(ownArchivePending>=50)return Promise.resolve(fail('Too many archive requests.','busy'));
+    ownArchivePending++;const task=ownArchiveTail.catch(()=>{}).then(run);ownArchiveTail=task;return task.finally(()=>ownArchivePending--);
+  }
+  async function paceOwnArchive(run){
+    if(ownArchiveFailure?.retryAt>Date.now())return ownArchiveFailure;
+    const wait=Math.max(0,1000-(Date.now()-ownArchiveLast));if(wait)await new Promise(resolve=>setTimeout(resolve,wait));ownArchiveLast=Date.now();
+    const value=await run();if(['timeout','network-error','http-error','invalid-response'].includes(value.code))ownArchiveFailure={...value,retryAt:Date.now()+60000};else if(value.ok)ownArchiveFailure=null;return value;
+  }
+  async function ownArchiveAccount(message,sender,username){
+    if(!message.owner)return null;const me=await globalThis.RTRemovalBroker?.verify(sender,username);
+    return me && me.owner===message.owner && me.username.toLowerCase()===username?me:null;
+  }
+  async function ownArchiveAllowed(message,sender,me,epoch){
+    if(epoch!==ownArchiveEpoch || !await enabled(false,message.monitor===true))return false;
+    const current=await ownArchiveAccount(message,sender,me.username.toLowerCase());return current?.owner===me.owner;
+  }
   let active=0,cooldownUntil=0;const waiters=[];
   // Arctic Shift answers 503 {"error":"Under maintenance"} while it is down.
   // Pause every archive request (all tabs) with growing backoff, so pages fail
@@ -245,6 +264,20 @@
     if(message.monitor===true){const me=await globalThis.RTRemovalBroker?.verify(sender,username);if(!me || me.owner!==message.owner)return fail('The signed-in account changed.','forbidden');}
     else if(!authorized(sender,username,null))return fail('Removal checks require your own Reddit profile.','forbidden');
     if(!await enabled(false,message.monitor===true))return disabled();
+    const me=await ownArchiveAccount(message,sender,username);if(message.owner && !me)return fail('The signed-in account changed.','forbidden');
+    if(me && ownMemo){const epoch=ownArchiveEpoch;return ownArchiveQueue(async()=>{
+      if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
+      const key=id=>me.owner+':'+username+':'+kind+':'+id,stored=await ownMemo.get(ids.map(key)),missing=ids.filter(id=>!Object.hasOwn(stored,key(id)));
+      if(missing.length){
+        const value=await paceOwnArchive(async()=>await ownArchiveAllowed(message,sender,me,epoch)?request(username,null,missing,kind,{titles:false,monitor:message.monitor===true}):fail('The archive preference or signed-in account changed.','forbidden'));
+        if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
+        if(!value.ok)return value;
+        const owned=value.posts.filter(post=>post.author.toLowerCase()===username),records=missing.map(id=>{const post=owned.find(p=>p.id===id);return {key:key(id),value:{posts:post?[post]:[]},ttl:post?86400000:3600000};});
+        await ownMemo.put(records,epoch);for(const record of records)stored[record.key]=record.value;
+      }
+      if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
+      return {ok:true,posts:ids.flatMap(id=>stored[key(id)].posts),source:'arctic-shift',incomplete:true};
+    });}
     const key='removal:'+username+':'+kind+':'+ids.join(','),saved=cache.get(key);
     if(saved?.expires>Date.now())return saved.value;
     if(pending.has(key))return pending.get(key);
@@ -410,6 +443,18 @@
     if(before!=null && (typeof before!=='number'||!Number.isSafeInteger(before)||before<=0||before>32503680000))return fail('Invalid archive cursor.','invalid-request');
     if(!authorized(sender,username,normalizedIds))return fail('Archive requests require the matching Reddit profile.','forbidden');
     if(!await enabled())return disabled();
+    if(message.purpose==='removal-history'){
+      if(ids)return fail('Invalid archive history request.','invalid-request');
+      const me=await ownArchiveAccount(message,sender,username);if(!me)return fail('The signed-in account changed.','forbidden');const epoch=ownArchiveEpoch;
+      if(ownMemo)return ownArchiveQueue(async()=>{
+        if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
+        const key=me.owner+':'+username+':history:'+kind+':'+(before??'initial'),stored=await ownMemo.get([key]);
+        if(Object.hasOwn(stored,key)){if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');return stored[key];}
+        const value=await paceOwnArchive(async()=>await ownArchiveAllowed(message,sender,me,epoch)?request(username,before,null,kind):fail('The archive preference or signed-in account changed.','forbidden'));
+        if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
+        if(value.ok)await ownMemo.put([{key,value,ttl:21600000}],epoch);return value;
+      });
+    }
     const profileKey=ids?'ids:'+normalizedIds.join(','):kind+':'+username,key=profileKey+':'+(before??'initial'),now=Date.now();
     for(const [key,value] of cache)if(value.expires<=now)cache.delete(key);
     if(cache.has(key))return cache.get(key).value;
@@ -421,9 +466,10 @@
     finally{pending.delete(key);if(profiles.get(profileKey)===operation)profiles.delete(profileKey);}
   }
   // Only normalized public preferences cross the worker boundary. Chat storage stays trusted-only.
-  chrome.storage.onChanged?.addListener((changes,area)=>{
+  chrome.storage.onChanged?.addListener(async(changes,area)=>{
     if(area!=='local' || !changes['rt-settings-v1'])return;
     cache.clear();titles.clear();commentContexts.clear();
+    if(Model.normalizeSettings(changes['rt-settings-v1'].newValue).archiveDiscovery!==true){ownArchiveEpoch++;await ownMemo?.clear();}
     for(const id of subscribers){
       Promise.resolve(chrome.tabs?.sendMessage(id,{scope:'rt-posts',action:'settings-changed',settings:Model.normalizeSettings(changes['rt-settings-v1'].newValue)},{frameId:0})).catch(()=>subscribers.delete(id));
     }
