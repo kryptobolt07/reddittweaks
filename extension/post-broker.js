@@ -7,7 +7,7 @@
   // Comment parent titles: in-memory only, keyed by post ID, shared across profiles.
   const titleTtl=600000,titleMax=2000,titleTimeoutMs=6000;
   const archiveInit={credentials:'omit',referrerPolicy:'no-referrer',redirect:'error'};
-  const pending=new Map(),cache=new Map(),titles=new Map(),profiles=new Map(),commentContexts=new Map(),subscribers=new Set();
+  const removalWanted=new Map(),pending=new Map(),cache=new Map(),titles=new Map(),profiles=new Map(),commentContexts=new Map(),subscribers=new Set();
   const ownMemo=globalThis.RTArchiveMemo?.create({storage:chrome.storage.session});
   let ownArchiveBusy=false,ownArchivePending=0,ownArchiveLast=0,ownArchiveEpoch=0,ownArchiveFailure=null;const ownArchiveWaiting=[];
   // One paced queue for your own archive reads. Item lookups decide what Removed shows now, so they go ahead of
@@ -158,7 +158,8 @@
       // Title fill has its own budget and runs after the page timer is cleared, so it never turns a page into a timeout.
       // The transport slot is not held while parent titles are looked up.
       freeSlot();
-      if(value.ok && kind==='comment' && !contextOnly && titles)await fillCommentTitles(value.posts);
+      // Removal history needs titles only for comments the archive saw removed (the only ones Removed can list).
+      if(value.ok && kind==='comment' && !contextOnly && titles)await fillCommentTitles(titles==='removed'?value.posts.filter(post=>post.archiveStatus==='removed' || ['moderator','reddit','automod_filtered'].includes(post.archiveRemovedBy)):value.posts);
       return value;
     }finally{freeSlot();}
   }
@@ -270,25 +271,31 @@
   // (body or [removed], retrieved_on). Needs only "Use the archive"; restoring deleted text is a separate setting.
   async function archiveRemoval(message,sender){
     const kind=message.kind,validId=kind==='comment'?Model.validateCommentId:Model.validateId;
-    if(!['post','comment'].includes(kind) || !Model.validateUsername(message.username) || !Array.isArray(message.ids) || !message.ids.length || message.ids.length>25 || !message.ids.every(validId))return fail('Invalid removal-check IDs.','invalid-request');
+    // Up to 100 IDs per Arctic Shift request (its ID endpoints accept 500; responses here are bounded to 100 records).
+    if(!['post','comment'].includes(kind) || !Model.validateUsername(message.username) || !Array.isArray(message.ids) || !message.ids.length || message.ids.length>100 || !message.ids.every(validId))return fail('Invalid removal-check IDs.','invalid-request');
     const username=message.username.toLowerCase(),ids=[...new Set(message.ids.map(id=>id.toLowerCase().replace(kind==='comment'?/^t1_/:/^t3_/,'')))].sort();
     if(message.monitor===true){const me=await globalThis.RTRemovalBroker?.verify(sender,username);if(!me || me.owner!==message.owner)return fail('The signed-in account changed.','forbidden');}
     else if(!authorized(sender,username,null))return fail('Removal checks require your own Reddit profile.','forbidden');
     if(!await enabled(false,message.monitor===true))return disabled();
     const me=await ownArchiveAccount(message,sender,username);if(message.owner && !me)return fail('The signed-in account changed.','forbidden');
-    if(me && ownMemo){const epoch=ownArchiveEpoch;return ownArchiveQueue(async()=>{
+    if(me && ownMemo){
+      // Arctic Shift is community-run. Lookups for the same account and kind wait in one paced queue; whichever runs
+      // first also takes the IDs the others are waiting on, so a profile walk costs one request per 100 IDs.
+      const epoch=ownArchiveEpoch,group=me.owner+':'+username+':'+kind,wanted=removalWanted.get(group) || new Set();removalWanted.set(group,wanted);for(const id of ids)wanted.add(id);
+      return ownArchiveQueue(async()=>{
       if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
       const key=id=>me.owner+':'+username+':'+kind+':'+id,stored=await ownMemo.get(ids.map(key)),missing=ids.filter(id=>!Object.hasOwn(stored,key(id)));
       if(missing.length){
-        const value=await paceOwnArchive(async()=>await ownArchiveAllowed(message,sender,me,epoch)?request(username,null,missing,kind,{titles:false,monitor:message.monitor===true}):fail('The archive preference or signed-in account changed.','forbidden'));
+        const others=[...wanted].filter(id=>!missing.includes(id)),othersStored=others.length?await ownMemo.get(others.map(key)):{},batch=[...missing,...others.filter(id=>!Object.hasOwn(othersStored,key(id)))].slice(0,100);
+        const value=await paceOwnArchive(async()=>await ownArchiveAllowed(message,sender,me,epoch)?request(username,null,batch,kind,{titles:false,monitor:message.monitor===true}):fail('The archive preference or signed-in account changed.','forbidden'));
         if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
         if(!value.ok)return value;
-        const owned=value.posts.filter(post=>post.author.toLowerCase()===username),records=missing.map(id=>{const post=owned.find(p=>p.id===id);return {key:key(id),value:{posts:post?[post]:[]},ttl:post?86400000:3600000};});
+        const owned=value.posts.filter(post=>post.author.toLowerCase()===username),records=batch.map(id=>{const post=owned.find(p=>p.id===id);return {key:key(id),value:{posts:post?[post]:[]},ttl:post?86400000:3600000};});
         await ownMemo.put(records,epoch);for(const record of records)stored[record.key]=record.value;
       }
       if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
       return {ok:true,posts:ids.flatMap(id=>stored[key(id)].posts),source:'arctic-shift',incomplete:true};
-    });}
+    }).finally(()=>{for(const id of ids)wanted.delete(id);if(!wanted.size && removalWanted.get(group)===wanted)removalWanted.delete(group);});}
     const key='removal:'+username+':'+kind+':'+ids.join(','),saved=cache.get(key);
     if(saved?.expires>Date.now())return saved.value;
     if(pending.has(key))return pending.get(key);
@@ -461,7 +468,7 @@
         if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
         const key=me.owner+':'+username+':history:'+kind+':'+(before??'initial'),stored=await ownMemo.get([key]);
         if(Object.hasOwn(stored,key)){if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');return stored[key];}
-        const value=await paceOwnArchive(async()=>await ownArchiveAllowed(message,sender,me,epoch)?request(username,before,null,kind):fail('The archive preference or signed-in account changed.','forbidden'));
+        const value=await paceOwnArchive(async()=>await ownArchiveAllowed(message,sender,me,epoch)?request(username,before,null,kind,{titles:'removed'}):fail('The archive preference or signed-in account changed.','forbidden'));
         if(!await ownArchiveAllowed(message,sender,me,epoch))return fail('The archive preference or signed-in account changed.','forbidden');
         if(value.ok)await ownMemo.put([{key,value,ttl:21600000}],epoch);return value;
       },{low:true});

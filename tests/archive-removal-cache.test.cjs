@@ -11,7 +11,7 @@ test('removal evidence cache reuses overlapping IDs and successful misses across
  const resumed=setup({session,clock});await resumed.send({ids:['missing','a']});assert.equal(resumed.calls.length,0);clock.now+=3600001;await resumed.send({ids:['a','missing']});assert.equal(resumed.calls[0].searchParams.get('ids'),'missing','miss refreshes after 1 h while a found record stays cached');clock.now+=86400001;await resumed.send({ids:['a']});assert.equal(resumed.calls.length,2);
 });
 test('overlapping concurrent archive requests share records; ID and history misses use a single paced queue',async()=>{
- const s=setup();await Promise.all([s.send({ids:['a','b']}),s.send({ids:['b','c']})]);await s.send({action:'archive-profile',purpose:'removal-history',ids:undefined});assert.deepEqual(s.calls.slice(0,2).map(u=>u.searchParams.get('ids')),['a,b','c']);assert.ok(s.starts.every((t,i)=>!i || t-s.starts[i-1]>=1000));
+ const s=setup();const [first,second]=await Promise.all([s.send({ids:['a','b']}),s.send({ids:['b','c']})]);await s.send({action:'archive-profile',purpose:'removal-history',ids:undefined});assert.deepEqual(s.calls.slice(0,1).map(u=>u.searchParams.get('ids')),['a,b,c'],'waiting lookups for the same account share one request');assert.deepEqual([...first.posts.map(p=>p.id)],['a','b']);assert.deepEqual([...second.posts.map(p=>p.id)],['b','c']);assert.ok(s.starts.every((t,i)=>!i || t-s.starts[i-1]>=1000));
 });
 test('own history pages including empty pages survive worker restart for 6 h without affecting normal profile reads',async()=>{
  const session={},clock={now:1800000000000},s=setup({session,clock}),query={action:'archive-profile',purpose:'removal-history',ids:undefined};await s.send(query);const resumed=setup({session,clock});await resumed.send(query);assert.equal(resumed.calls.length,0);await resumed.send({...query,purpose:undefined});assert.equal(resumed.calls.length,1,'regular profile activity is independent');clock.now+=21600001;await resumed.send(query);assert.equal(resumed.calls.length,2);
@@ -39,4 +39,18 @@ test('item lookups go ahead of queued history pages in the shared paced queue',a
  await Promise.all([history(1700000500),history(1700000400),s.send({ids:['a']}),history(1700000300)]);
  const order=s.calls.map(u=>u.searchParams.has('ids')?'ids':'history:'+u.searchParams.get('before'));
  assert.deepEqual(order,['history:1700000500','ids','history:1700000400','history:1700000300']);assert.ok(s.starts.every((t,i)=>!i || t-s.starts[i-1]>=1000),'still paced');
+});
+// Arctic Shift is community-run: history pages only need post titles for comments the archive saw removed,
+// because only those can be listed as removed-then-deleted (RTRemovalModel.afterDeletion).
+test('removal history looks up post titles only for archived comments that were removed',async()=>{
+ const s=setup({fetcher:url=>url.pathname==='/api/comments/search'?{data:[{...row('keep1'),link_id:'t3_p1'},{...row('gone2'),link_id:'t3_p2',body:'[removed]'},{...row('keep3'),link_id:'t3_p3'}]}:{data:[{id:'p2',title:'Removed thread',subreddit:'Alpha'}]}});
+ const history=await s.send({action:'archive-profile',purpose:'removal-history',ids:undefined});assert.equal(history.ok,true);
+ const titles=s.calls.filter(u=>u.pathname==='/api/posts/ids');assert.equal(titles.length,1);assert.equal(titles[0].searchParams.get('ids'),'p2');
+ assert.equal(history.posts.find(p=>p.id==='gone2').title,'Removed thread');
+});
+
+test('removal lookups queued while the archive is paced are merged into one request per account and kind',async()=>{
+ const s=setup();const results=await Promise.all(['a','b','c','d'].map(id=>s.send({ids:[id]})));
+ assert.deepEqual(s.calls.map(u=>u.searchParams.get('ids')),['a,b,c,d']);assert.deepEqual(results.map(r=>[...r.posts.map(p=>p.id)]),[['a'],['b'],['c'],['d']]);
+ const other=await s.send({ids:['e'],kind:'post'});assert.equal(other.ok,true);assert.equal(s.calls.at(-1).pathname,'/api/posts/ids','other kinds keep their own requests');
 });

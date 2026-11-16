@@ -67,3 +67,10 @@ test('the saved Removed list keeps removed items only, per account, bounded, for
 test('saved Removed rows keep bounded vote facts and safe preview URLs without retaining unrelated fields',async()=>{
  const {store}=setup();await store.saveList({owner:'t2_self',username:'Example',items:[{fullname:'t3_facts',kind:'post',id:'facts',created:1790000000,subreddit:'Alpha',permalink:'/r/Alpha/comments/facts/title/',title:'Saved facts',body:'Text',score:57,comments:8,postScore:99,postComments:12,thumbnail:'https://preview.redd.it/syntheticpreview.jpg',token:'SECRET',removal:{state:'removed-mod',confidence:'verified',why:'Native',flags:[]}}]});const [item]=(await store.readList('t2_self','Example')).items;assert.equal(item.score,57);assert.equal(item.comments,8);assert.equal(item.postScore,99);assert.equal(item.postComments,12);assert.equal(item.thumbnail,'https://preview.redd.it/syntheticpreview.jpg');assert.equal(item.token,undefined);
 });
+
+test('the saved Removed list remembers when its last complete archive-history read started, never a future or bogus time',async()=>{
+ let now=1800000000000;const {store}=setup({now:()=>now});const item={fullname:'t3_a1',kind:'post',id:'a1',created:1790000000,subreddit:'Alpha',permalink:'/r/Alpha/comments/a1/title/',title:'T',body:'B',source:'arctic-shift',removal:{state:'removed-mod',confidence:'verified',why:'',flags:['gone']}};
+ await store.saveList({owner:'t2_self',username:'Example',items:[item],historyAt:now-1000});assert.equal((await store.readList('t2_self','Example')).historyAt,now-1000);
+ await store.saveList({owner:'t2_self',username:'Example',items:[item]});assert.equal((await store.readList('t2_self','Example')).historyAt,0,'no complete read: no time');
+ for(const bad of [now+60000,'x',-5]){await store.saveList({owner:'t2_self',username:'Example',items:[item],historyAt:bad});assert.equal((await store.readList('t2_self','Example')).historyAt,0);}
+});

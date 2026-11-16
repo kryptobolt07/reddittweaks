@@ -159,38 +159,17 @@ function syncSummary(){
 document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]'))syncSummary();});
 document.getElementById('raffles-turn-on')?.addEventListener('click',()=>{const raffles=document.getElementById('raffles');if(!raffles || raffles.disabled || raffles.checked)return;raffles.checked=true;raffles.dispatchEvent(new Event('change',{bubbles:true}));});
 
-// The active Reddit tab supplies identity; never substitute another account's saved history.
+// The active Reddit tab supplies identity; clearing never touches another account's saved checks.
+// Removed and its recent changes live on your profile; the popup only offers clearing (with the removal settings).
 let removalTab=null,removalAccount=null,removalClearTimer=null;
-const removalSummary=document.getElementById('removal-summary'),removalHistory=document.getElementById('removal-history');
-function renderRemovalHistory(value){
-  removalHistory.replaceChildren();
-  const labels={'removed-auto':'Removed automatically','removed-mod':'Removed by moderators','removed-admin':'Removed by Reddit','removed-filter':'Removed by Reddit’s filters','removed-unknown':'Removed: moderators or automatic'};
-  for(const change of (value.changes || []).slice(0,20)){
-    let url;try{url=new URL(change.permalink,'https://www.reddit.com');}catch{continue;}
-    if(url.origin!=='https://www.reddit.com' || !/^\/(?:r|user)\/[\w-]+\/comments\/[a-z0-9]+\//i.test(url.pathname))continue;
-    const row=document.createElement('a');row.href=url.href;row.target='_blank';row.rel='noopener noreferrer';row.className='removal-change';
-    const label=document.createElement('strong');label.textContent=(change.type==='removed'?(labels[change.state] || 'Removed'):({approved:'Approved',locked:'Locked',unlocked:'Unlocked'}[change.type] || 'Changed'))+(change.confidence==='likely'?' (likely)':'');
-    const time=document.createElement('span');time.textContent=new Date(change.checkedAt).toLocaleString();row.title=change.why || '';row.append(label,time);removalHistory.append(row);
-  }
-  if(!removalHistory.childElementCount){const empty=document.createElement('p');empty.className='group-note';empty.textContent='No changes observed yet. Initial checks establish a baseline.';removalHistory.append(empty);}
-}
 async function loadRemovalSummary(){
-  if(!removalSummary)return;
+  const clear=document.getElementById('clear-removal-history');if(!clear)return;
   try{
-    const [tab]=await chrome.tabs.query({active:true,currentWindow:true});if(!Number.isInteger(tab?.id) || !/^https:\/\/(?:www\.|new\.|sh\.)?reddit\.com\//.test(tab.url || ''))throw Error('Open a signed-in Reddit tab to view your checks.');
+    const [tab]=await chrome.tabs.query({active:true,currentWindow:true});if(!Number.isInteger(tab?.id) || !/^https:\/\/(?:www\.|new\.|sh\.)?reddit\.com\//.test(tab.url || ''))throw Error('Open a signed-in Reddit tab to manage your checks.');
     const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'summary',tabId:tab.id});if(!result?.ok || !/^[\w-]{1,20}$/.test(result.value?.username || ''))throw Error(result?.error || 'Removal history is unavailable. Refresh Reddit to retry.');
-    removalTab=tab.id;removalAccount=result.value;const items=Object.values(result.value.items || {}),unknown=items.filter(x=>x.state==='unknown').length,readable=items.filter(x=>x.state==='visible' && x.publicStatus==='visible').length;
-    removalSummary.textContent='u/'+result.value.username+' · '+items.length+' observed'+(readable?' · '+readable+' readable signed out':'')+(unknown?' · '+unknown+' unchecked':'')+(result.value.unread?' · '+result.value.unread+' new changes':'')+'. Checks cover loaded items only.';
-    renderRemovalHistory(result.value);for(const id of ['open-removed','removal-history-toggle','clear-removal-history'])document.getElementById(id).disabled=false;
-  }catch(e){removalAccount=null;removalTab=null;removalHistory.replaceChildren();removalHistory.hidden=true;removalSummary.textContent=e.message;for(const id of ['open-removed','removal-history-toggle','clear-removal-history'])document.getElementById(id).disabled=true;}
-  syncFade(document.getElementById('panel-home'));
+    removalTab=tab.id;removalAccount=result.value;clear.disabled=false;
+  }catch{removalAccount=null;removalTab=null;clear.disabled=true;}
 }
-document.getElementById('open-removed')?.addEventListener('click',async()=>{if(!removalAccount)return;try{await chrome.tabs.create({url:'https://www.reddit.com/user/'+encodeURIComponent(removalAccount.username)+'/search/?rt_list=removed'});}catch{document.getElementById('removal-status').textContent='Could not open your removed content.';}});
-document.getElementById('removal-history-toggle')?.addEventListener('click',async event=>{
-  const open=removalHistory.hidden;removalHistory.hidden=!open;event.currentTarget.setAttribute('aria-expanded',String(open));
-  if(open && removalTab!=null)try{const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'seen',tabId:removalTab,owner:removalAccount?.owner});if(!result?.ok)throw Error(result?.error);await loadRemovalSummary();}catch{document.getElementById('removal-status').textContent='Could not acknowledge changes. Reopen the popup to retry.';}
-  syncFade(document.getElementById('panel-home'));
-});
 document.getElementById('clear-removal-history')?.addEventListener('click',async event=>{
   const button=event.currentTarget;if(removalTab==null)return;
   if(!removalClearTimer){button.textContent='Confirm clear for u/'+removalAccount.username;removalClearTimer=setTimeout(()=>{removalClearTimer=null;button.textContent='Clear this account’s checks';},6000);return;}
