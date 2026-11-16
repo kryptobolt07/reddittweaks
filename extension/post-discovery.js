@@ -271,7 +271,7 @@
       if(observe){this.observer=new MutationObserver(records=>{if(this.orphaned())return;this.syncProfileNotice();this.syncOwnListHeader();if(this.feed)this.trackVirtualization(records);
         // Reddit's start-up reconcile removes what we inserted into main (only our nodes change, so the
         // filter below would ignore it): put the search view back before the next paint.
-        if(this.context?.view==='search' && this.host && !this.host.isConnected && !this.searchReattachQueued){this.searchReattachQueued=true;queueMicrotask(()=>{this.searchReattachQueued=false;if(!this.dead)this.scan();});}
+        if(this.context?.view==='search' && this.host && (!this.host.isConnected || this.isOwnList() && this.listTabsShell && !this.listTabsShell.isConnected) && !this.searchReattachQueued){this.searchReattachQueued=true;queueMicrotask(()=>{this.searchReattachQueued=false;if(!this.dead)this.scan();});}
         // Nothing mounted and not a page discovery acts on: unrelated page churn.
         if(this.idleRoute())return;if(records.some(r=>!this.ownsMutation(r) && !(this.feedPresentationObserver && this.feed?.contains(r.target))))this.schedule(true);});this.observer.observe(document.documentElement,{childList:true,subtree:true});window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.addListener(this.onSettings);}
       this.onWorkerSettings=(message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===globalThis.chrome?.runtime?.id)this.onSettings({[key]:{newValue:message.settings}},'local');};
@@ -710,9 +710,19 @@
       event.preventDefault();event.stopImmediatePropagation();this.navigateProfileSearch(route,q);return true;
     }
     syncOwnListTabs(){
-      const section=this.context.section;let tabs=document.getElementById(section?'rt-removed-types':'search-results-page-tabgroup');if(!tabs){tabs=this.listTabsShell=make('faceplate-tabgroup');tabs.id=section?'rt-removed-types':'search-results-page-tabgroup';tabs.dataset.rtUi='own-list-tabs';this.feed.before(tabs);for(const type of ['posts','comments','media']){const tab=link(listLabel(type),'?type='+type);tab.id=(section?'rt-removed-type-':'search-results-page-tab-')+type;if(section)tab.className=document.querySelector('#profile-feed-tabgroup a')?.className.replace(/(?:bg-secondary-background-selected|!text-neutral-content-strong|tab-selected)/g,'') || 'button button-medium button-plain';tabs.append(tab);}}
+      const section=this.context.section,id=section?'rt-removed-types':'rt-own-list-types',native=section?null:document.getElementById('search-results-page-tabgroup');
+      // Reddit's result group may be linked to three native panels. Our All tab must not change that pagination.
+      if(native){this.searchHidden ||= new Map();if(!this.searchHidden.has(native))this.searchHidden.set(native,native.hidden);native.hidden=true;native.setAttribute('data-rt-search-hidden','');}
+      let tabs=document.getElementById(id);
+      if(!tabs){
+        const shell=document.createElement('template');shell.innerHTML='<faceplate-tabgroup class="nd:flex nd:gap-xs nd:w-fit mb-md"></faceplate-tabgroup>';tabs=this.listTabsShell=shell.content.firstElementChild;tabs.id=id;tabs.dataset.rtUi='own-list-tabs';tabs.setAttribute('appearance','hug');tabs.setAttribute('aria-label',section?'Removed content type':'Search result type');
+        const template=native?.querySelector('a[href]') || document.querySelector('#profile-feed-tabgroup a[href]'),cls=template?.className.replace(/(?:bg-secondary-background-selected|!text-neutral-content-strong|tab-selected)/g,'') || 'button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex';
+        for(const type of ['posts','comments','media']){const tab=link('', '?type='+type,cls),body=make('span','flex items-center justify-center'),label=make('span','flex items-center gap-xs',listLabel(type));body.append(label);tab.append(body);tab.id=(section?'rt-removed-type-':'rt-own-list-tab-')+type;tab.setAttribute('rpl','');tabs.append(tab);}
+      }
+      const sort=document.querySelector('search-sort-dropdown-menu:not([hidden]),filter-drawer#search_modifier_post_sort,filter-drawer[id^="search_modifier"]'),row=!section && sort?.closest('div.flex.items-center'),before=row || native || this.host || this.feed;
+      if(!tabs.isConnected || row && tabs.compareDocumentPosition(row)&Node.DOCUMENT_POSITION_PRECEDING)before.before(tabs);
       this.listTabs ||= new Map();
-      if(!this.listAllTab?.isConnected){this.listAllTab=link('All','',tabs.querySelector('a')?.className || '');this.listAllTab.dataset.rtUi='own-list-all';this.listAllTab.dataset.rtListType='all';tabs.prepend(this.listAllTab);}
+      if(!this.listAllTab?.isConnected){this.listAllTab=link('','',tabs.querySelector('a')?.className || '');const body=make('span','flex items-center justify-center'),label=make('span','flex items-center gap-xs','All');body.append(label);this.listAllTab.append(body);this.listAllTab.setAttribute('rpl','');this.listAllTab.dataset.rtUi='own-list-all';this.listAllTab.dataset.rtListType='all';tabs.prepend(this.listAllTab);}
       for(const tab of tabs.querySelectorAll('a[href]')){
         const url=new URL(tab.getAttribute('href'),location.href),type=tab.dataset.rtListType || url.searchParams.get('type') || tab.id.match(/-(posts|comments|media)$/)?.[1];
         if(!['all','posts','comments','media'].includes(type))continue;
@@ -733,11 +743,11 @@
       });
       this.setTabgroupPages(tabs,ordered.length,selectedIndex);
     }
-    // Set a Reddit tab group's slot count (and selected page) on the defined component only: a value set before it loads
-    // would shadow the component's own property.
+    // These are observed native attributes. DOM is shared with the page world; its custom-element registry and
+    // JS properties need not be visible here. Attributes also configure elements that upgrade after this scan.
     setTabgroupPages(group,pages,index=0){
-      const apply=()=>{if(!group.isConnected)return;for(const key of ['pages','pageIndex'])if(Object.prototype.hasOwnProperty.call(group,key))delete group[key];if(!(group.pages>=pages))group.pages=pages;if(index && group.pageIndex!==index)group.pageIndex=index;};
-      if(customElements.get('faceplate-tabgroup'))apply();else customElements.whenDefined('faceplate-tabgroup').then(apply,()=>{});
+      const set=(name,value)=>{if(group.getAttribute(name)!==String(value))group.setAttribute(name,String(value));};
+      set('pages',pages);if(index)set('pageindex',index);
     }
     ownListMatch(post){
       if(this.searchParsed?.invalid)return false;
@@ -955,7 +965,7 @@
       if(this.context.section){const fresh=this.mountRemovedFeed(main);if(!fresh)return false;fresh.replaceWith(this.feed);this.searchFeed=this.feed;this.feed.before(this.host);return true;}
       const results=[...main.children].find(el=>el.matches('div.bg-neutral-background') && !el.querySelector('#search-results-page-tabgroup')),tabs=main.querySelector('#search-results-page-tabgroup');
       if(results)results.before(this.feed);else if(tabs){let row=tabs;while(row.parentElement!==main)row=row.parentElement;row.after(this.feed);}else main.append(this.feed);
-      this.feed.before(this.host);this.scopeSwitcher?.remove();this.scopeSwitcher=null;this.searchHidden=new Map();
+      this.feed.before(this.host);this.scopeSwitcher?.remove();this.scopeSwitcher=null;this.searchHidden ||= new Map();
       if(this.controlsTarget && !this.controlsTarget.isConnected){this.clearActivityMenu();}
       return this.feed.isConnected && this.host.isConnected;
     }
@@ -1136,7 +1146,7 @@
       const group=document.querySelector('#profile-feed-tabgroup');let tab=document.querySelector('[data-rt-ui="removed-tab"]');
       const me=globalThis.RTNativeRemoval?.identity(document),allowed=!this.dead && this.settings.postDiscovery && owner && me?.owner===owner && route?.kind==='profile' && me.username.toLowerCase()===route.username.toLowerCase();
       const restore=()=>{
-        const old=this.tabPages;if(old?.group.isConnected){old.group.pages=old.native;if(old.index && old.group.pageIndex!==old.index)old.group.pageIndex=old.index;}this.tabPages=null;
+        const old=this.tabPages;if(old?.group.isConnected){this.setTabgroupPages(old.group,old.native,old.index);}this.tabPages=null;
         for(const [node,state] of this.removedTabSelection || []){node.className=state.cls;node.tabIndex=state.index;node.toggleAttribute('faceplate-tab-selected',state.selected);if(state.current==null)node.removeAttribute('aria-current');else node.setAttribute('aria-current',state.current);}
         this.removedTabSelection=null;tab?.remove();tab=null;
       };
@@ -1146,7 +1156,7 @@
         tab=last.cloneNode(true);tab.id='profile-tab-removed_tab';tab.removeAttribute('style');tab.removeAttribute('aria-current');
         tab.setAttribute('slot','page-'+(Math.max(...tabs.map(a=>Number(a.getAttribute('slot').split('-')[1]) || 0))+1));
         const label=tab.querySelector('[actioned]') || [...tab.querySelectorAll('span')].pop() || tab;label.textContent='Removed';
-        tab.dataset.rtUi='removed-tab';tab.dataset.rtOwner=owner;last.after(tab);this.tabPages={group,native:Number(group.pages) || tabs.length,index:group.pageIndex || 1};
+        tab.dataset.rtUi='removed-tab';tab.dataset.rtOwner=owner;last.after(tab);this.tabPages={group,native:Number(group.getAttribute('pages')) || Number(group.pages) || tabs.length,index:Number(group.getAttribute('pageindex')) || group.pageIndex || 1};
       }
       const href='/user/'+encodeURIComponent(route.username)+'/?rt_view=removed';if(tab.getAttribute('href')!==href)tab.setAttribute('href',href);
       const selected=Boolean(route.section),classes=['bg-secondary-background-selected','!text-neutral-content-strong','tab-selected'];
@@ -1159,7 +1169,7 @@
       // Native pagination synchronizes through `for`. Selecting a ninth panel would hide a feed hosted in
       // one of Reddit's real panels. Keep that panel, selecting only our header tab and its accessible wrapper.
       this.setTabgroupPages(group,slot,selected && !linkedFeed?slot:0);
-      if(!selected && group.pageIndex===slot)group.pageIndex=this.tabPages.index;
+      if(!selected && Number(group.getAttribute('pageindex'))===slot)this.setTabgroupPages(group,slot,this.tabPages.index);
       if(selected && linkedFeed)Promise.resolve(group.updateComplete).then(()=>{
         if(!tab.isConnected || !pageRoute()?.section || this.dead)return;
         for(const node of group.querySelectorAll(':scope > a')){const on=node===tab;node.toggleAttribute('faceplate-tab-selected',on);for(const name of classes)node.classList.toggle(name,on);node.tabIndex=on?0:-1;}
