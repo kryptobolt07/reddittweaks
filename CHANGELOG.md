@@ -1,3 +1,12 @@
+# 0.38.2 preview
+
+- **Fewer archive reads:** Removed resolves signed-out visibility before archive ID enrichment, skipping items confirmed visible, self-deleted, private/quarantined or already carrying an explicit removal cause. Generic/unknown removals retain historical evidence and cause inference. Hidden-community candidates still receive direct checks without prefetching the archive solely to rank them.
+- **Shared archive cache:** own-removal ID hits are reused for 24 hours, successful misses for one hour and author-history pages for six hours. Per-ID keys reuse records across overlapping batches, tabs and passive monitoring; empty history pages are cached too. The trusted browser-session cache survives worker sleep and is bounded to 512 entries / 2 MiB; responses are held in browser memory, not local/sync storage or disk, and cleared on archive opt-out. Native account checks and preference-generation guards reject stale work.
+- **Request pacing:** new own-removal ID/history reads share one queue, at least one second apart. Transient HTTP/network/invalid-response failures pause new attempts for a minute without caching false absence. Existing service cooldowns and maintenance pauses remain in effect.
+- **Version and limits:** patch increment for request-volume and reliability improvements; no new permissions or persistent storage migration. Archive snapshots can lag ingestion during their cache windows. Refresh reuses unexpired historical results; restarting the browser clears this temporary cache. Other archive features retain their existing policies.
+- **Validation:** all 1,611 tests pass; 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `9d4535581220d9463771f1352687ec354e1cc6e356e3398c042909309d1041c4`.
+- **Verification limits:** synthetic request-count, expiry, worker-restart, overlapping-batch, ownership, opt-out, failure and ordering tests; no live CDP, preview browser or account writes. Final installed review is left to the user.
+
 # 0.38.1 preview
 
 - **List tabs:** Removed (and other own lists) showed Reddit's Posts tab highlighted while listing posts and comments; the All tab was in the page but never drawn. All is now drawn first and the highlight follows what is listed.
