@@ -167,7 +167,7 @@ test('individual message search uses sticky days with time-only rows and dates e
   const {W,api}=setup(t,{tools:true});await wait(20);const host=W.RCSAdapter.query('[data-rcs-ui="messages"]',api.room),root=host.shadowRoot;
   root.querySelector('.toggle').click();const input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new W.Event('input'));await wait(190);
   const rows=visibleRows(root);assert.equal(rows.length,2);assert.equal(root.querySelectorAll('.day-heading').length,1);
-  const expected=[33,34].map(minute=>new Date(2026,9,8,9,minute).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}));
+  const expected=[3,4].map(minute=>new Date(Date.UTC(2026,9,8,4,minute)).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}));
   assert.deepEqual(rows.map(row=>row.querySelector('.time').textContent).sort(),expected.sort());
   for(const row of rows)assert.match(row.querySelector('.time').title,/Thu.*Oct.*8.*2026/);
   root.querySelector('[data-control="filter"]').click();root.querySelector('[data-value="sort"]').click();root.querySelector('[data-value="relevant"]').click();assert.equal(root.querySelector('.day-heading'),null);
