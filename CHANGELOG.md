@@ -1,3 +1,12 @@
+# 0.38.9 preview
+
+- **Removed reads everything:** your own profile has no 1,000-item limit, and the limits were ours. Removed now reads your profile until Reddit has nothing left (2,094 items back to 2020 on the test account), compares it with the signed-out view to its end, and reads your Arctic Shift history to its end. Live results decide every item Reddit still lists; Arctic Shift adds removed items you later deleted. Very high safety stops only end a runaway walk, and say so if ever reached. Saved, History, Hidden, Upvoted and Downvoted keep Reddit's real 1,000-item limit.
+- **A feed cut short is caught:** Reddit once ended the profile early with no error. A page that claims to be the last is read once more before the walk stops, and your Posts tab is always read afterwards so posts are covered either way.
+- **Version:** patch increment for a coverage fix. No new permissions, endpoints or storage changes.
+- **Validation:** all 1,686 tests pass; 49 JavaScript files parse; ZIP integrity passes; all 63 shipped assets match source, archive and the stable unpacked folder. SHA-256 `637a03d327db6545f49f05dfb1d5f11d310adac755efc5c4333ef9f496ce7d6a`.
+- **Live check:** read-only Chrome CDP in a separate tab on the signed-in account. All 2,094 profile items were checked by about 130 s with cached signed-out results, finding 58 removals (up from 47). 8,245 archive records were read to the end by about 280 s, with no coverage warnings.
+- **Limits:** a first, uncached load still checks items in communities hidden from your signed-out profile one at a time, about one a second. While the archive history is still being read, "Loading…" stays shown after the profile results are complete.
+
 # 0.38.8 preview
 
 - **List search matches profile search:** Saved, History, Hidden, Upvoted, Downvoted and Removed search now use Reddit's own Posts / Comments / Media row, so spacing matches profile search and the first result is no longer cut off under the filter row. Choosing a sort (New, Old, Relevance, Top) or Safe Search in Reddit's menus keeps you in the list search, with its type and filters; New and Old order the list by date.
