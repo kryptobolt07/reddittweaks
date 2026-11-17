@@ -14,12 +14,12 @@
   const app=doc.querySelector('shreddit-app'),owner=app?.getAttribute('logged-in-user-id');
   if(app?.getAttribute('user-logged-in')!=='true' || !ownerOK(owner))return null;
   const names=new Map(),add=name=>{if(M.validateUsername(name))names.set(name.toLowerCase(),name);};
-  for(const partial of doc.querySelectorAll('#user-drawer-content faceplate-partial[src]')){
-   try{const url=new URL(partial.getAttribute('src'),doc.location?.origin || 'https://www.reddit.com');
-    if(url.origin!==(doc.location?.origin || 'https://www.reddit.com') || !/^\/svc\/shreddit\/partial\/[\w-]+\/user-drawer-menu$/.test(url.pathname))continue;
-    // Reddit writes this key as userName (captured 2026-11-16); match it whatever its case.
-    for(const [key,value] of new URLSearchParams(url.searchParams.get('params') || ''))if(key.toLowerCase()==='username')add(value);
-   }catch{}
+  // A name counts only when Reddit pairs it with the logged-in account ID. The account-menu loader's username names the
+  // page's profile, not the signed-in account (live 2026-11-17: /user/<other>/ carries username=<other>), so it is unused.
+  // Profile pages (overview, tabs, search) carry {profile:{id,name}} page data; a match there is your own profile.
+  for(const el of doc.querySelectorAll('reddit-page-data[data],shreddit-screenview-data[data]')){
+   const raw=el.getAttribute('data');if(raw.length>200000)continue;
+   try{const profile=JSON.parse(raw)?.profile;if(typeof profile?.id==='string' && profile.id.toLowerCase()===owner.toLowerCase())add(profile.name);}catch{}
   }
   for(const card of doc.querySelectorAll('shreddit-post[author-id],shreddit-comment[author-id],shreddit-overflow-menu[author-id]')){
    if(card.getAttribute('author-id')?.toLowerCase()===owner.toLowerCase())add(card.getAttribute('author') || card.getAttribute('author-name'));

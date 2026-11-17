@@ -1,5 +1,5 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const {JSDOM}=require('jsdom');
-const identity='<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><div id="user-drawer-content"><faceplate-partial src="/svc/shreddit/partial/X/user-drawer-menu?params=username%3DExample"></faceplate-partial></div>';
+const identity='<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><div id="user-drawer-content"><faceplate-partial src="/svc/shreddit/partial/X/user-drawer-menu?params=username%3DExample"></faceplate-partial></div><reddit-page-data data="{&quot;profile&quot;:{&quot;id&quot;:&quot;t2_self&quot;,&quot;name&quot;:&quot;Example&quot;}}"></reddit-page-data>';
 const card=id=>`<shreddit-post id="t3_${id}" author="Example" author-id="t2_self" created-timestamp="2026-11-15T10:00:00Z" subreddit-name="Alpha" permalink="/r/Alpha/comments/${id}/title/" post-title="Example" item-state="REMOVED"><div slot="text-body">Text</div></shreddit-post>`;
 function setup(t,{signedIn=true}={}){
  const dom=new JSDOM((signedIn?identity:'')+'<main></main>',{url:'https://www.reddit.com/user/Example/search/?rt_list=removed',runScripts:'outside-only'}),W=dom.window,calls=[],publicReads=[];t.after(()=>W.close());W.AbortController=AbortController;
