@@ -1850,3 +1850,11 @@ test('the extension’s Feed options row sits where Reddit’s own Posts row put
   assert.match(css,/\[data-rt-native-inset\] shreddit-layout-event-setter\{margin-inline-start:\.5rem\}/,'Reddit’s gap-xs after its empty loader');
   assert.match(css,/\.rt-posts-status\[data-error=false\]\{position:fixed;[^}]*left:0;top:0/,'the screen-reader status is fixed, so it cannot overflow sideways');
 });
+
+test('native tab updates restore the own-profile Removed tab before the next paint',async t=>{
+ const {W,d}=setup(t);defineTabgroup(W);W.document.querySelector('main').insertAdjacentHTML('afterbegin',profileTabs());ownProfileAccount(W);await d.ready;d.ensureActivityMenu();
+ const group=W.document.querySelector('#profile-feed-tabgroup'),old=removedTab(W);assert.ok(old);old.remove();
+ await Promise.resolve();await Promise.resolve();
+ assert.ok(removedTab(W),'native child replacement restores the tab in the mutation checkpoint');
+ assert.equal(group.querySelectorAll('[data-rt-ui="removed-tab"]').length,1);
+});
