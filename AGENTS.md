@@ -30,5 +30,6 @@ For extension changes, Claude Code agents use the `verify-loop` skill (`.claude/
 - Support full-screen, floating, and minimized Reddit chat.
 - Reuse Reddit's authenticated native client and events; no second sync loop and no visible background scrolling.
 - Keep credentials inside Reddit's page world. Scope persistent data to the authenticated account.
+  - Exception (user-approved 2026-11-17): the account switcher (`extension/account-broker.js`, `docs/account-switcher-spec.md`) stores each saved account's five Reddit session cookies in worker-only extension storage, via the `cookies` permission. Cookie values never reach pages or the popup; it never calls Reddit's Log Out; removing an account deletes its snapshot. Do not widen this to other cookies or data.
 - Distinguish cached/searchable data from verified history completeness. Never label incomplete or failed loads as complete.
 - Use synthetic fixtures for committed tests/screenshots. Put private live diagnostics only in ignored `artifacts/research/`.

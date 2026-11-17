@@ -120,7 +120,8 @@
         "redaction-ui.js",
         "thread-restore.js",
         "own-removal.js",
-        "viewed-history.js"
+        "viewed-history.js",
+        "account-switcher.js"
       ]
     }
   ],
@@ -142,6 +143,7 @@
   "permissions": [
     "storage",
     "unlimitedStorage",
+    "cookies",
     "declarativeNetRequestWithHostAccess"
   ],
   "background": {
