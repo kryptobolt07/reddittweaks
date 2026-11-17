@@ -651,3 +651,9 @@ test('Message winners carries a chat icon',async t=>{
  const s=await ui(t);await s.open();await privateDraw(s);assert.ok(s.primary().classList.contains('rt-raffle-chat-icon'));assert.equal(s.primary().textContent,'Message winners');
  assert.match(read('post-discovery.css'),/\.rt-raffle-chat-icon::before\{[^}]*mask:url/);
 });
+// Reported 2026-11-17 (slow connection): before Reddit's script defines the post menu, its light-DOM children render in
+// place, so the raffle item's ticket icon showed beside the card. It stays hidden until the menu element is defined.
+test('the raffle menu item never renders outside an undefined post menu',()=>{
+  const css=fs.readFileSync('extension/post-discovery.css','utf8');
+  assert.match(css,/shreddit-post-overflow-menu:not\(:defined\)>\[slot="devvit-context-actions"\]\{display:none!important\}/);
+});

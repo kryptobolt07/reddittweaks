@@ -1366,7 +1366,7 @@
     }
     detachActivityMenu(){
       // Leave the menu as it is in the parked view; only drop live references.
-      this.activityMenuObserver?.disconnect();this.activityMenuObserver=null;this.menuGroups=[];this.activityMenuRows=[];this.activityMenu=this.activityMain=this.activityDropdown=null;this.activityOpen=false;this.openSubmenu=null;this.controlsTarget=null;
+      this.activityMenuObserver?.disconnect();this.activityMenuObserver=null;this.feedSheetObserver?.disconnect();this.feedSheetObserver=null;this.feedSheetScrim?.remove();this.feedSheetScrim=null;this.feedSheetDropdown?.removeAttribute('data-rt-feed-sheet');this.feedSheetDropdown=null;this.menuGroups=[];this.activityMenuRows=[];this.activityMenu=this.activityMain=this.activityDropdown=null;this.activityOpen=false;this.openSubmenu=null;this.controlsTarget=null;
     }
     // Choosing an option closes Reddit's whole dropdown, whichever way it keeps its open state.
     closeFeedMenu(dropdown,open){
@@ -1441,6 +1441,22 @@
         window.addEventListener('click',this.onRemovedTab,true);window.addEventListener('keydown',this.onRemovedTab,true);
       }
     }
+    phoneLayout(){return Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);}
+    // Below 768 px (Reddit's phone layout) the Feed options popup is a bottom sheet over a dimmed backdrop, like the
+    // filter sheets profile search opens. The backdrop sits beside the popup (same stacking context) and closes it.
+    syncFeedSheet(dropdown){
+      if(!dropdown)return;dropdown.toggleAttribute('data-rt-feed-sheet',!this.isSearch());
+      if(this.feedSheetDropdown!==dropdown){this.feedSheetObserver?.disconnect();this.feedSheetScrim?.remove();this.feedSheetScrim=null;this.feedSheetDropdown=dropdown;this.feedSheetObserver=new MutationObserver(()=>this.updateFeedSheetScrim());this.feedSheetObserver.observe(dropdown,{attributes:true,attributeFilter:['open']});}
+      this.updateFeedSheetScrim();
+    }
+    updateFeedSheetScrim(){
+      const dropdown=this.feedSheetDropdown,open=Boolean(dropdown?.isConnected && dropdown.hasAttribute('open') && dropdown.hasAttribute('data-rt-feed-sheet') && this.phoneLayout());
+      if(!open){this.feedSheetScrim?.remove();this.feedSheetScrim=null;return;}
+      if(this.feedSheetScrim?.isConnected)return;
+      const scrim=this.feedSheetScrim=make('div','rt-inline-sheet-scrim');scrim.dataset.rtUi='feed-sheet-scrim';scrim.setAttribute('aria-hidden','true');scrim.style.cssText='position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6)';
+      scrim.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if('open' in dropdown)dropdown.open=false;dropdown.removeAttribute('open');});
+      (dropdown.shadowRoot || document.body).append(scrim);
+    }
     ensureActivityMenu(){
       if(this.context?.kind!=='profile' || !this.toolbar)return;
       if(this.context.section){this.clearActivityMenu();this.syncRemovedChrome();return;}
@@ -1460,7 +1476,9 @@
       // under the feed. Lift it, keeping its static position.
       if(this.controlsTarget?.contains(dropdown) && dropdown.shadowRoot && ![...this.nativeLoadingStyles].some(style=>style.parentNode===dropdown.shadowRoot)){const style=make('style');style.dataset.rtUi='controls-style';style.textContent='#hovercard{position:absolute!important;z-index:20!important}';dropdown.shadowRoot.append(style);this.nativeLoadingStyles.add(style);}
       // Reddit's dropdown popup sits at z-index 1, so card buttons (z-10) and our chips painted over the open menu. Lift it.
-      const popper=dropdown.shadowRoot?.querySelector('rpl-popper')?.shadowRoot;if(popper && ![...this.nativeLoadingStyles].some(style=>style.parentNode===popper)){const style=make('style');style.dataset.rtUi='popup-style';style.textContent='.popup{z-index:1000!important}';popper.append(style);this.nativeLoadingStyles.add(style);}
+      const popper=dropdown.shadowRoot?.querySelector('rpl-popper')?.shadowRoot;if(popper && ![...this.nativeLoadingStyles].some(style=>style.parentNode===popper)){const style=make('style');style.dataset.rtUi='popup-style';style.textContent='.popup{z-index:1000!important}@media (max-width:767.98px){:host([data-rt-sheet]) .popup{position:fixed!important;left:0!important;right:0!important;top:auto!important;bottom:0!important;transform:none!important;width:auto!important;max-height:85vh;overflow-y:auto;z-index:1001!important}:host([data-rt-sheet]) .popup-safe-area{display:none!important}}';popper.append(style);this.nativeLoadingStyles.add(style);}
+      // Phones: Feed options on the profile feed opens as Reddit's bottom sheet (search builds its own sheets).
+      if(popper)popper.host.toggleAttribute('data-rt-sheet',!this.isSearch());this.syncFeedSheet(dropdown);
       const nativeOwner=!this.archiveOnly && ['overview','posts','comments'].includes(this.context.view)?globalThis.RTNativeRemoval?.identity(document):null;
       const removalOwner=nativeOwner?.username.toLowerCase()===this.context.username.toLowerCase()?nativeOwner.owner:'';
       this.syncRemovedTab(globalThis.RTNativeRemoval?.identity(document)?.owner,this.context);
@@ -2733,8 +2751,10 @@
       if(isComment){
         native.className='w-full nd:visible rounded-4 my-2xs';native.setAttribute('comment-id',post.fullname);native.setAttribute('href',post.permalink);
         const inner=make('div','hover:bg-neutral-background-hover relative rounded-4'),padding=make('div','px-md py-sm'),credit=make('div','text-12 relative w-fit'),context=make('div','flex items-center');
-        const heading=make('h2','inline-block m-0');heading.append(link(post.title || 'View post',post.permalink,'text-neutral-content-strong font-normal hover:underline'));
-        context.append(community,make('span','px-2xs',' • '),heading);const identity=make('div','text-neutral-content-weak inline-block ms-xl mt-2xs');const info=make('span');info.id='poster-info-'+post.fullname;info.dataset.rtReplyInfo='true';if(this.context.kind==='archive'){info.append(archiveAuthor(),document.createTextNode(' commented'));}identity.append(info,document.createTextNode(' '),date);credit.append(context,identity);
+        // Reddit's own header: the community name stays on one line and the post title wraps in the remaining width
+        // (a shrinking name broke one letter per line on phones).
+        const heading=make('h2','m-0 min-w-0');heading.append(link(post.title || 'View post',post.permalink,'text-neutral-content-strong font-normal hover:underline'));
+        community.classList.add('whitespace-nowrap','shrink-0');context.append(community,make('span','px-2xs shrink-0',' • '),heading);const identity=make('div','text-neutral-content-weak inline-block ms-xl mt-2xs');const info=make('span');info.id='poster-info-'+post.fullname;info.dataset.rtReplyInfo='true';if(this.context.kind==='archive'){info.append(archiveAuthor(),document.createTextNode(' commented'));}identity.append(info,document.createTextNode(' '),date);credit.append(context,identity);
         const content=make('div','ms-[22px] mt-2xs ps-[10px] md'),text=make('div','md pt-xs pb-2xs break-words');text.append(snapshotText?this.archivedText(body,post.archivedBodyHtml || post.bodyHtml,media):restrictedText?sensitive(this.archivedText(body,post.archivedBodyHtml || post.bodyHtml),post.over18?'View NSFW content':'View spoiler',{media:false}):make('p','',body));content.append(text);
         const actions=make('div','block ms-lg relative'),row=make('shreddit-comment-action-row','block');row.setAttribute('comment-id',post.fullname);row.setAttribute('score',String(post.score));row.setAttribute('permalink',post.permalink);row.setAttribute('telemetry-source','profile');row.setAttribute('vote-state','NONE');row.setAttribute('is-desktop-viewport','true');row.setAttribute('inert','');row.setAttribute('aria-disabled','true');row.title=listSnapshot?'List snapshot · Open the item for current actions':'Archived values · Current actions unavailable';
         const reply=link('',post.permalink,'button rpl-cab border-sm text-label-2 button-plain-weak inline-flex items-center px-sm py-xs');reply.slot='comment-reply';reply.style.height='var(--size-button-sm-h)';const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value] of Object.entries({rpl:'','aria-hidden':'true','fill':'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','icon-name':'comment'}))icon.setAttribute(key,value);const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9Zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2Z');icon.append(path);const leading=make('span','flex text-body-1 me-2xs');leading.append(icon);reply.append(leading,make('span','rpl-cab--content','Reply'));

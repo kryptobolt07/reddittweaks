@@ -278,3 +278,7 @@ img.rt-avatar-deleted{background:linear-gradient(0deg,#97afbc,#fff 75%);object-f
 .rt-sra-cs-avatar img{width:24px;height:24px}
 .rt-sra-cs-empty-img{width:68px;height:48px;flex:none}
 .rt-sra-cs-adjust{padding:0;border:0;background:none;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
+/* Phones: menus open as Reddit's bottom sheet (head and close button reuse the profile-search sheet classes). */
+.rt-sra-menu.rt-sra-sheet{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;min-width:0;max-width:none;max-height:85vh;margin:0;padding:0 0 calc(8px + env(safe-area-inset-bottom,0));z-index:1001;border-radius:12px 12px 0 0;box-shadow:0 2px 15px 0 rgba(26,26,27,.3)}
+.rt-sra-menu:not(.rt-sra-sheet)>:is(.rt-inline-sheet-head,.rt-inline-sheet-close){display:none}
+.rt-sra-sheet-scrim{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6)}

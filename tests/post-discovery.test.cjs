@@ -1804,3 +1804,36 @@ test('the Smooth long feeds setting marks the page for the feed bridge and clear
   d.applySettings({postDiscovery:true,archiveDiscovery:false,smoothFeeds:true});assert.equal(html.hasAttribute('data-rt-smooth-feed'),true);
   d.applySettings({postDiscovery:false,archiveDiscovery:false,smoothFeeds:true});assert.equal(html.hasAttribute('data-rt-smooth-feed'),false,'off with profile discovery');
 });
+// Phones (reported 2026-11-17): an archived comment's community name wrapped one letter per line because the long post
+// title took the row. Like Reddit's own header, the community name stays on one line and the title wraps.
+test('archived comment headers keep the community name on one line and let the post title wrap',async t=>{
+  const {W,d}=setup(t);await d.ready;await d.loadReddit();
+  const post=W.RTPostModel.normalizeComment({id:'c9',author:'Example',body:'Deleted words',link_id:'t3_p9',link_title:'A long post title that needs the remaining width on a narrow phone screen',subreddit:'kanpur',created_utc:1700000000},{source:'arctic-shift'});
+  const node=W.document.createElement('div');d.renderArchivedNative(post,node);
+  const card=node.querySelector('shreddit-profile-comment'),community=[...card.querySelectorAll('a')].find(a=>/r\/kanpur/.test(a.textContent)),title=card.querySelector('h2');
+  assert.ok(community.classList.contains('whitespace-nowrap') && community.classList.contains('shrink-0'),'community never shrinks or wraps');
+  assert.ok(title.classList.contains('min-w-0'),'the title takes the remaining width and wraps');assert.equal(title.classList.contains('inline-block'),false);
+  const separator=community.nextElementSibling;assert.ok(separator.classList.contains('shrink-0'));
+});
+// Phones: profile search already opens its filters as Reddit's bottom sheet; Feed options on the profile feed used the
+// desktop popover. Under 768 px it now opens as the same sheet over a dimmed backdrop.
+test('on phones the profile Feed options opens as a bottom sheet with a backdrop that closes it',async t=>{
+  const {W,d}=setup(t);let phone=true;W.matchMedia=query=>({matches:/max-width/.test(query)?phone:false,media:query,addEventListener(){},removeEventListener(){}});
+  await d.ready;d.ensureActivityMenu();const dropdown=d.activityDropdown;assert.ok(dropdown,'Feed options is mounted');
+  // Reddit's popper lives in the dropdown's shadow root; the sheet style goes there.
+  const shadow=dropdown.shadowRoot || dropdown.attachShadow({mode:'open'});const popper=W.document.createElement('rpl-popper');popper.attachShadow({mode:'open'}).innerHTML='<div part="popup" class="popup"></div>';shadow.append(popper);
+  d.ensureActivityMenu();assert.equal(dropdown.hasAttribute('data-rt-feed-sheet'),true);assert.equal(popper.hasAttribute('data-rt-sheet'),true);
+  assert.match([...popper.shadowRoot.querySelectorAll('style')].map(s=>s.textContent).join(''),/@media \(max-width:767\.98px\)\{:host\(\[data-rt-sheet\]\) \.popup\{position:fixed!important/);
+  dropdown.setAttribute('open','');await new Promise(r=>setImmediate(r));const find=()=>dropdown.shadowRoot.querySelector('[data-rt-ui="feed-sheet-scrim"]') || W.document.querySelector('[data-rt-ui="feed-sheet-scrim"]');const scrim=find();assert.ok(scrim,'a dimmed backdrop');
+  scrim.click();await new Promise(r=>setImmediate(r));assert.equal(dropdown.hasAttribute('open'),false,'tapping it closes the sheet');assert.equal(find(),null);
+  phone=false;dropdown.setAttribute('open','');await new Promise(r=>setImmediate(r));assert.equal(find(),null,'desktop keeps the popover');
+});
+test('the Feed options sheet fills the phone width in Reddit sheet style',()=>{
+  const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/@media \(max-width:767\.98px\)\{rpl-dropdown\[data-rt-feed-sheet\]>\[slot="content"\]\{width:100%!important/);
+});
+// Reported 2026-11-17: the next card's status icon (z-index 1, later in the page) painted over an open three-dot menu,
+// whose popup Reddit also places at z-index 1. At 0 it stays above its own card's link but under any open menu.
+test('comment status icons stay under open card menus',()=>{
+  const css=fs.readFileSync('extension/post-discovery.css','utf8');const rule=css.match(/\.rt-comment-source-host>\.rt-post-indicator\{[^}]*\}/)?.[0] || '';
+  assert.match(rule,/z-index:0/);assert.doesNotMatch(rule,/z-index:[1-9]/);
+});
