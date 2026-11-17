@@ -1,4 +1,6 @@
-/* Reddit owns the cards. These styles apply only to extension controls and notes. */
+/* Reddit owns the cards. Styles cover extension controls and managed-profile presentation. */
+/* Keep the centered native columns in place while extension results leave and arrive. */
+html[data-rt-profile-discovery]{scrollbar-gutter:stable}
 /* This native creative identifies the curated-profile Welcome panel. Keep other
    empty/error states visible; do not wait for a successful discovery response. */
 html[data-rt-profile-discovery] main #empty-feed-content:has(img[src*="/shreddit/assets/snoo_wave."]),
