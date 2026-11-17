@@ -30,6 +30,8 @@
       "match_about_blank": true,
       "run_at": "document_start",
       "js": [
+        "adapter.js",
+        "chat-startup.js",
         "directory-model.js",
         "search-core.js",
         "data-client.js",
@@ -47,7 +49,6 @@
       "match_about_blank": true,
       "run_at": "document_idle",
       "js": [
-        "adapter.js",
         "room-header-actions.js",
         "native-labels.js",
         "date-picker.js",

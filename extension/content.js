@@ -853,6 +853,7 @@
     if (stopped || !globalThis.document?.documentElement || document.hidden) return;
     if (idle && Date.now()<probeAt) return;
     const roots = A.chatRoots();
+    globalThis.RCSChatStartup?.check(roots);
     if (!roots.length && !controls.size && !observed.size && !retainedLists.size && !collapsedControl && !openListRequested) {
       idle=true;probeAt=Date.now()+probeDelay;probeDelay=Math.min(probeDelay*2,maxProbeDelay);return;
     }

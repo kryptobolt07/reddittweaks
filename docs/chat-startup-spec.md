@@ -5,7 +5,7 @@ User report (screenshots): opening Reddit chat after a while or after a browser 
 ## Status
 
 - Done: later cached pages read 100 at a time (`extension/chat-cache-read.js`, page world, wraps `rs-matrix-client.startSync` → `client.store.getSavedSync`).
-- Pending: holding the list until it settles (Behaviour below).
+- Implemented: one-time bounded presentation hold (`extension/chat-startup.js`), loaded at document start with bounded shadow-hydration discovery; no additional sync loop or ongoing timer after the first hold.
 
 ## Measured (live, read-only)
 
@@ -31,6 +31,14 @@ User report (screenshots): opening Reddit chat after a while or after a browser 
 | T3 | Reddit never finishes a row (deleted account, slow avatar) | Revealed by the 1.2 s avatar grace or the 4.5 s cap |
 | T4 | Switch conversation / list re-render after startup | Never hidden again |
 | T5 | Extension reloaded mid-hold / page hidden | Hold released; no stale placeholders |
+
+## Verification and lifecycle
+
+- Synthetic shadow-DOM fixtures cover room-order changes, nameless rows, incomplete image avatars, offscreen rows, empty lists, the deadline, cleanup and zero-sized minimized lists. Native scroll position and prior inline styles/ARIA state are retained.
+- Native measurement on 2026-11-17: row frame 60px, padding 8px 12px, gap 8px; scroller is in the nav shadow root, rows are inside the scroller shadow root. Avatars render `[avatar]` with a snoovatar/SVG or image. The page registers `faceplate-shimmer`, reused when available with a reduced-motion fallback.
+- Early chat-root observation and bounded 100ms shadow-hydration probes find the first list before document-idle controls; existing content-script discovery is a backup. Starting the hold disconnects these observers and cancels hydration probing; releasing it clears both bounded timers and removes its listeners and overlay. Later discovery does nothing. Hidden/pagehide/detached scroller/invalid extension context release it.
+
+- Live packaged Chrome check: placeholder and native scroller bounds matched exactly (299.44px by 586.46px, top107.99px); placeholder rows matched native60px. The first hold was observed at1198ms and released by1923ms, with no remaining overlay. Chrome isolated worlds can have a null custom-element registry; the themed fallback handles this without blocking startup. The original long-gap nameless startup and all display modes were not reproduced live.
 
 ## Limits
 
