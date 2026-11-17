@@ -941,3 +941,13 @@ test('picking a conversation in the chat list keeps an opened search bar open; a
   assert.equal(c.scopeBar.hidden,false,'still open after choosing a chat');
   p.fixture.room.dispatchEvent(new p.w.Event('pointerdown',{bubbles:true,composed:true}));await settle();assert.equal(c.scopeBar.hidden,true,'closes on a click outside the chat list');
 });
+
+test('the conversation-list search bar keeps one height whichever conversation is open',async t=>{
+  // Live 2026-11-17: the list bar followed the open conversation's header (44 px → 32 px field, taller → 40 px), so
+  // switching conversations squeezed it. The list uses Reddit's standard 52 px toolbar; room search still follows its header.
+  const s=await setup(t),control=s.control,adapter=control.adapter;let header=44;
+  control.adapter={...adapter,searchToolbarHeight:()=>header};
+  control.updateLayout(true);const first=control.host.style.getPropertyValue('--rcs-native-header-height');
+  header=64;control.updateLayout(true);assert.equal(control.host.style.getPropertyValue('--rcs-native-header-height'),first);
+  assert.equal(first,'','the list falls back to the standard 52px toolbar');
+});
