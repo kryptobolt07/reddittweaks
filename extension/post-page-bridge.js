@@ -17,6 +17,27 @@
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
+  // Reddit's nav connects using its SSR expanded attribute before it reads the
+  // saved preference. Seed each incoming native profile nav once, before paint;
+  // later native toggles remain entirely under Reddit's control. Cookie access
+  // stays in the page world and no cookie value is sent to the extension.
+  const seededProfileNavs=new WeakSet(),profileNavSelector='flex-left-nav-container#left-sidebar-container';
+  function seedProfileNavigation(records){
+    if(!globalThis.document?.documentElement?.hasAttribute('data-rt-profile-discovery') || !window.location || !route()?.username)return;
+    const nodes=new Set();
+    if(!records || records.some(record=>record.type==='attributes'))for(const nav of document.querySelectorAll(profileNavSelector))nodes.add(nav);
+    else for(const record of records)for(const node of record.addedNodes){if(node.nodeType!==1 || node.closest('main,shreddit-feed') || node.matches('shreddit-post,shreddit-profile-comment'))continue;if(node.matches(profileNavSelector))nodes.add(node);for(const nav of node.querySelectorAll(profileNavSelector))nodes.add(nav);}
+    if(!nodes.size)return;
+    const value=document.cookie.split(';').map(part=>part.trim()).find(part=>part.startsWith('hui_flex_nav_expanded_state='))?.slice('hui_flex_nav_expanded_state='.length);
+    if(value!=='0' && value!=='1')return;
+    for(const nav of nodes){if(seededProfileNavs.has(nav) || nav.closest('[data-rt-ui]'))continue;const grid=nav.closest('.grid-container');if(!grid)continue;
+      seededProfileNavs.add(nav);nav.setAttribute('expanded',value);grid.classList.toggle('flex-nav-collapsed',value==='0');grid.classList.toggle('flex-nav-expanded',value==='1');
+    }
+  }
+  const profileNavObserver=new MutationObserver(seedProfileNavigation);
+  profileNavObserver.observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['data-rt-profile-discovery']});
+  window.addEventListener('pagehide',event=>{if(!event.persisted)profileNavObserver.disconnect();});
+  seedProfileNavigation();
   // Reddit's feed virtualizer assumes its placeholders form one block at the top
   // of the feed, in stack order. Discovery inserts and reorders cards, which
   // breaks that: entries end up out of order, duplicated or detached, Reddit

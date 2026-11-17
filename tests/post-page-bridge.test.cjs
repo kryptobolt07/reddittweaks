@@ -792,3 +792,18 @@ test('with smooth feeds, posts beyond two screens skip drawing at their measured
 test('the skip rule hides drawing only, keeping the remembered height',()=>{
  const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/shreddit-feed\[data-rt-loading-owner\]>\[data-rt-skip\]\{content-visibility:hidden/);
 });
+
+test('new profile navigation starts in the saved collapsed state before native upgrade',async t=>{
+ const {W}=setup(t);W.document.documentElement.setAttribute('data-rt-profile-discovery','');W.document.cookie='hui_flex_nav_expanded_state=0; path=/';
+ const grid=W.document.createElement('div');grid.className='grid-container flex-nav-expanded';grid.innerHTML='<flex-left-nav-container id="left-sidebar-container" expanded="1"></flex-left-nav-container>';W.document.body.append(grid);await Promise.resolve();
+ const nav=grid.querySelector('flex-left-nav-container');assert.equal(nav.getAttribute('expanded'),'0');assert.equal(grid.classList.contains('flex-nav-collapsed'),true);assert.equal(grid.classList.contains('flex-nav-expanded'),false);
+ W.customElements.define('flex-left-nav-container',class extends W.HTMLElement{connectedCallback(){this.closest('.grid-container').classList.toggle('flex-nav-expanded',this.getAttribute('expanded')==='1');}});assert.equal(grid.classList.contains('flex-nav-expanded'),false);
+ const next=grid.cloneNode(false);next.className='grid-container flex-nav-expanded';next.innerHTML='<flex-left-nav-container id="left-sidebar-container" expanded="1"></flex-left-nav-container>';grid.replaceWith(next);await Promise.resolve();assert.equal(next.querySelector('flex-left-nav-container').getAttribute('expanded'),'0');assert.equal(next.classList.contains('flex-nav-collapsed'),true);
+ const current=next.querySelector('flex-left-nav-container');current.setAttribute('expanded','1');next.classList.replace('flex-nav-collapsed','flex-nav-expanded');current.append(W.document.createElement('span'));await Promise.resolve();assert.equal(current.getAttribute('expanded'),'1');assert.equal(next.classList.contains('flex-nav-expanded'),true,'a later native user toggle is respected');
+});
+
+test('profile navigation seeding leaves invalid preference and disabled discovery alone',async t=>{
+ const {W}=setup(t);W.document.cookie='hui_flex_nav_expanded_state=invalid; path=/';W.document.documentElement.setAttribute('data-rt-profile-discovery','');
+ const grid=W.document.createElement('div');grid.className='grid-container flex-nav-expanded';grid.innerHTML='<flex-left-nav-container id="left-sidebar-container" expanded="1"></flex-left-nav-container>';W.document.body.append(grid);await Promise.resolve();assert.equal(grid.querySelector('flex-left-nav-container').getAttribute('expanded'),'1');assert.equal(grid.className,'grid-container flex-nav-expanded');
+ W.document.documentElement.removeAttribute('data-rt-profile-discovery');W.document.cookie='hui_flex_nav_expanded_state=0; path=/';const other=grid.cloneNode(true);W.document.body.append(other);await Promise.resolve();assert.equal(other.querySelector('flex-left-nav-container').getAttribute('expanded'),'1');assert.equal(other.className,'grid-container flex-nav-expanded');
+});
