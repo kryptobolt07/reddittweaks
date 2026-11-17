@@ -446,7 +446,7 @@
       const bar=make('div','block px-md xs:px-0 rt-sra-comment-toolbar');bar.dataset.rtUi='archive-comment-toolbar';
       const row=make('div','flex gap-xs items-center w-full flex-wrap mt-sm'),host=make('div','flex gap-xs items-center flex-wrap nd:min-h-xl rt-sra-cs-host');row.append(host);bar.append(row);
       const labels={best:'Best',top:'Top',new:'New',old:'Old'},f=globalThis.RTFeedFilters;
-      let menu=null;const sort=this.dropdown(labels[state.commentSort || 'best'],el=>{menu=el;});
+      let menu=null;const sort=this.dropdown(labels[state.commentSort || 'best'],el=>{menu=el;},{title:'Sort comments'});
       const build=()=>{menu.replaceChildren();for(const [key,label] of Object.entries(labels)){
         const choose=()=>{this.closeMenus();if((state.commentSort || 'best')===key)return;state.commentSort=key;state.childOrder=new Map();state.shownTop=TOP_BATCH;state.shownReplies=new Map();sort.text.textContent=label;this.renderThread();state.toolbarEl?.scrollIntoView?.({block:'start'});};
         let el;if(f?.menuOption){el=f.menuOption(f.plainContext(glyph,{role:'menuitemradio'}),{label,icon:false,value:key,checked:(state.commentSort || 'best')===key,onSelect:choose});}
@@ -703,15 +703,27 @@
       if(f)f.write(this.filters);setParams({rt_top:this.top?'1':null});
       this.syncAll();this.refresh();
     }
-    dropdown(label,build){
+    // Phones (below Reddit's 768 px layout): each menu opens as Reddit's bottom sheet (dimmed backdrop, 48 px title row,
+    // round close button), like profile search's filter sheets; desktop keeps the popover.
+    dropdown(label,build,{title=''}={}){
       // Same classes and chevron as Reddit's sort dropdown button (text plus caret, no leading icon).
       const wrap=make('div','rt-sra-dropdown'),button=make('button','rt-sra-dropdown-button text-neutral-content-weak button-small button-plain items-center justify-center button inline-flex');button.type='button';button.setAttribute('aria-haspopup','menu');button.setAttribute('aria-expanded','false');button.setAttribute('rpl','');
       const text=make('span','flex items-center gap-xs',label),caret=make('span','flex ms-2xs me-[-2px]');caret.append(redditCaret());button.append(text,caret);
       const menu=make('div','rt-sra-menu');menu.setAttribute('role','menu');menu.hidden=true;menu.dataset.rtUi='subreddit-menu';
-      button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const open=menu.hidden;this.closeMenus();if(open){this.syncMenu();menu.hidden=false;button.setAttribute('aria-expanded','true');this.openMenuEl=menu;}});
+      button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const open=menu.hidden;this.closeMenus();if(open){this.syncMenu();
+        const sheet=Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);menu.classList.toggle('rt-sra-sheet',sheet);
+        if(sheet){
+          if(!menu.querySelector(':scope>.rt-inline-sheet-head')){
+            const head=make('div','rt-inline-sheet-head'),name=make('span','text-16 text-neutral-content-strong font-bold',title || text.textContent.trim());head.append(name);
+            const close=make('button','rt-inline-sheet-close');close.type='button';close.setAttribute('aria-label','Close');close.append(glyph('close'));close.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.closeMenus();button.focus();});
+            menu.prepend(close,head);
+          }
+          const scrim=this.menuScrim=make('div','rt-sra-sheet-scrim');scrim.dataset.rtUi='subreddit-menu-scrim';scrim.setAttribute('aria-hidden','true');scrim.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.closeMenus();});wrap.insertBefore(scrim,menu);
+        }
+        menu.hidden=false;button.setAttribute('aria-expanded','true');this.openMenuEl=menu;}});
       wrap.append(button,menu);build(menu);return {wrap,button,text,menu};
     }
-    closeMenus(){if(!this.openMenuEl)return;this.openMenuEl.hidden=true;this.openMenuEl.parentElement?.querySelector('button')?.setAttribute('aria-expanded','false');this.openMenuEl=null;}
+    closeMenus(){this.menuScrim?.remove();this.menuScrim=null;if(!this.openMenuEl)return;this.openMenuEl.hidden=true;this.openMenuEl.parentElement?.querySelector('button')?.setAttribute('aria-expanded','false');this.openMenuEl=null;}
     buildControls(){
       const f=globalThis.RTFeedFilters,wrap=make('div','rt-sra-controls');wrap.dataset.rtUi='subreddit-controls';
       const fx=this.fx=f.plainContext(glyph,{role:'menuitemradio'}),current=()=>f.clone(this.filterState());this.menuRows={sort:new Map(),date:new Map()};
@@ -722,16 +734,16 @@
         option(menu,'sort','old',{label:'Old',icon:false,value:'old',onSelect:()=>{const next=current();next.sort='old';this.applyFilters(next,{top:false});close();}});
         option(menu,'sort','top',{label:'Top',subtitle:'Among loaded posts',icon:false,value:'top',onSelect:()=>{const next=current();next.sort=null;this.applyFilters(next,{top:true});close();}});
         option(menu,'sort','comments',{label:'Most commented',subtitle:'Among loaded posts',icon:false,value:'comments',onSelect:()=>{const next=current();next.sort='comments';this.applyFilters(next,{top:false});close();}});
-      });
+      },{title:'Sort'});
       this.dateMenu=this.dropdown('All time',menu=>{
         option(menu,'date','any',{label:'All time',icon:false,value:'any',onSelect:()=>{const next=current();next.date=null;this.applyFilters(next);close();}});
         for(const preset of f.presets)option(menu,'date',preset.id,{label:preset.label,icon:false,value:preset.id,onSelect:()=>{const next=current();next.date={preset:preset.id};this.applyFilters(next);close();}});
         option(menu,'date','custom',{label:'Custom range…',icon:false,value:'custom',onSelect:()=>{close();this.openDatePicker();}});
-      });
+      },{title:'Date'});
       this.typeMenu=this.dropdown('All posts',menu=>{
         this.typeList=f.typeOptions(fx,{iconSize:16,outline:true,allIcon:'show',append:el=>menu.append(el),onClear:()=>{const next=current();next.types=[];this.applyFilters(next);},onToggle:name=>{const next=current();next.types=next.types.includes(name)?next.types.filter(x=>x!==name):[...next.types,name];this.applyFilters(next);}});
         for(const el of this.typeList.elements)el.setAttribute('role',el.dataset.rtSection?'presentation':'menuitemcheckbox');
-      });
+      },{title:'Post type'});
       this.chipsEl=make('div','rt-filter-chips');this.chipsEl.hidden=true;
       const row=make('div','rt-sra-control-row');row.append(this.sortMenu.wrap,this.dateMenu.wrap,this.typeMenu.wrap);wrap.append(row,this.chipsEl);
       return wrap;

@@ -48,7 +48,7 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-profile-avatar .rt-unavailable-avatar{display:block;width:64px;height:64px;object-fit:contain;object-position:center;border-radius:50%}
 .rt-account-state{line-height:16px}.rt-account-state>svg{flex:none;width:14px;height:14px}
 .rt-comment-source-host{position:relative}
-.rt-comment-source-host>.rt-post-indicator{position:absolute;top:8px;inset-inline-end:16px;margin:0;z-index:1}
+.rt-comment-source-host>.rt-post-indicator{position:absolute;top:8px;inset-inline-end:16px;margin:0;z-index:0}
 .rt-comment-source-credit{padding-inline-end:32px}
 
 .rt-native-placeholder faceplate-shimmer:not(:defined){display:block;background:var(--color-neutral-background-weak,#f2f4f5)}
@@ -710,3 +710,8 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 .rt-posts[data-rt-search] .rt-posts-toolbar{display:contents}
 /* Smooth long feeds: posts far off screen skip drawing at their measured height (set inline by the feed bridge). */
 html[data-rt-smooth-feed] shreddit-feed[data-rt-loading-owner]>[data-rt-skip]{content-visibility:hidden}
+/* Phones: Feed options opens as Reddit's bottom sheet (the popup is pinned by the style injected into its popper). */
+@media (max-width:767.98px){rpl-dropdown[data-rt-feed-sheet]>[slot="content"]{width:100%!important;box-sizing:border-box;border-radius:12px 12px 0 0;overflow:hidden;padding-bottom:env(safe-area-inset-bottom,0)}rpl-dropdown[data-rt-feed-sheet]>[slot="content"] rpl-menu{width:100%!important;max-width:none!important}}
+/* Before Reddit's script defines the post menu (slow connections), its light-DOM children render in place: keep the
+   raffle item hidden until the menu can slot it into its closed popup. */
+shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{display:none!important}
