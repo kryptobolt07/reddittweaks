@@ -4,20 +4,27 @@ const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
 const source=()=>fs.readFileSync('extension/native-removal.js','utf8');
 function fixture(t,html=''){
- const dom=new JSDOM('<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><header><div id="user-drawer-content"><faceplate-partial src="/svc/shreddit/partial/Bundle/user-drawer-menu?params=username%3DExample"></faceplate-partial></div></header>'+html,{url:'https://www.reddit.com/user/Example/',runScripts:'outside-only'});
+ const dom=new JSDOM('<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><header><div id="user-drawer-content"><faceplate-partial src="/svc/shreddit/partial/Bundle/user-drawer-menu?params=username%3DExample"></faceplate-partial></div></header><reddit-page-data data="{&quot;profile&quot;:{&quot;id&quot;:&quot;t2_self&quot;,&quot;name&quot;:&quot;Example&quot;}}"></reddit-page-data>'+html,{url:'https://www.reddit.com/user/Example/',runScripts:'outside-only'});
  t.after(()=>dom.window.close());dom.window.eval(fs.readFileSync('extension/post-model.js','utf8'));dom.window.eval(source());return {W:dom.window,N:dom.window.RTNativeRemoval,d:dom.window.document};
 }
 const post=(attrs='',body='Own text')=>`<shreddit-post id="t3_post1" author="Example" author-id="t2_self" created-timestamp="2026-11-15T10:00:00Z" subreddit-name="Alpha" permalink="/r/Alpha/comments/post1/title/" post-title="A post" ${attrs}><div slot="text-body">${body}</div></shreddit-post>`;
 const comment=(attrs='',author='Example')=>`<shreddit-profile-comment comment-id="t1_19gsnavtu46ip" user-id="t2_self" href="/r/Alpha/comments/post1/title/19gsnavtu46ip/" ${attrs}><span id="poster-info-t1_19gsnavtu46ip"><a href="/user/${author}/">${author}</a><faceplate-timeago ts="2026-11-15T10:00:00Z"></faceplate-timeago></span><div id="t1_19gsnavtu46ip-comment-rtjson-content"><p>Own text</p></div><shreddit-overflow-menu comment-id="t1_19gsnavtu46ip" author-name="${author}" author-id="${author==='Example'?'t2_self':'t2_other'}"></shreddit-overflow-menu></shreddit-profile-comment>`;
 
-test('native identity uses authenticated app plus account drawer, not the viewed profile or viewer ID',t=>{
+test('native identity pairs Reddit’s logged-in account ID with a name: page profile data or own cards, never the viewed profile',t=>{
  const {N,d}=fixture(t,post());assert.deepEqual(JSON.parse(JSON.stringify(N.identity(d))),{owner:'t2_self',username:'Example'});
- d.querySelector('#user-drawer-content').remove();assert.equal(N.identity(d).username,'Example','matching author ID is a native fallback');
- d.querySelector('shreddit-post').remove();assert.equal(N.identity(d),null,'a profile URL cannot establish the signed-in name');
+ d.querySelector('reddit-page-data').remove();assert.equal(N.identity(d).username,'Example','matching author ID is a native fallback');
+ d.querySelector('shreddit-post').remove();assert.equal(N.identity(d),null,'the account-menu loader names the page’s profile, not the signed-in account');
 });
-test('signed-out, contradictory, or foreign-origin native identity is rejected',t=>{
+test('another user’s profile is never taken as yours, even when Reddit’s menu loader names them (live 2026-11-17)',t=>{
+ // Captured on /user/<other>/: the loader inside #user-drawer-content carries the viewed name; page data says visitor.
+ const {N,d}=fixture(t);d.querySelector('faceplate-partial').setAttribute('src','/svc/shreddit/partial/X/user-drawer-menu?params=username%3DOther');
+ d.querySelector('reddit-page-data').setAttribute('data',JSON.stringify({profile:{id:'t2_other',name:'Other'}}));d.body.insertAdjacentHTML('beforeend','<shreddit-screenview-data data=\'{"profile":{"id":"t2_other","name":"Other","context":"visitor"}}\'></shreddit-screenview-data>');
+ assert.equal(N.identity(d),null);
+});
+test('signed-out, contradictory, or malformed native identity is rejected',t=>{
  const {N,d}=fixture(t);d.querySelector('shreddit-app').setAttribute('user-logged-in','false');assert.equal(N.identity(d),null);
- d.querySelector('shreddit-app').setAttribute('user-logged-in','true');d.querySelector('faceplate-partial').setAttribute('src','https://evil.example/svc/shreddit/partial/X/user-drawer-menu?params=username%3DExample');assert.equal(N.identity(d),null);
+ d.querySelector('shreddit-app').setAttribute('user-logged-in','true');d.body.insertAdjacentHTML('beforeend','<shreddit-screenview-data data=\'{"profile":{"id":"t2_self","name":"Someone"}}\'></shreddit-screenview-data>');assert.equal(N.identity(d),null,'two names for one account');
+ d.querySelector('shreddit-screenview-data').setAttribute('data','{not json');assert.equal(N.identity(d).username,'Example');
 });
 test('native reader verifies authorship, accepts long comment IDs, and never treats user-id as author-id',t=>{
  const {N,d}=fixture(t,comment()+comment('','Other'));const me=N.identity(d),cards=d.querySelectorAll('shreddit-profile-comment');
@@ -57,9 +64,9 @@ test('signed-out removed/deleted notices are item-specific; nested replies canno
  assert.equal(N.publicItem(parse(post('item-state="REMOVED"')),expected).status,'removed');assert.equal(N.publicItem(parse(post('deleted="true"','[deleted]')),expected).status,'deleted');
  assert.equal(N.publicItem(parse(post('',comment('item-state="REMOVED"','Other'))),expected).status,'unknown','nested content alone is not the post body');
 });
-test('identity reads Reddit’s real drawer partial (userName key, extra query) on pages without own cards, such as profile search',t=>{
- // Captured live 2026-11-16 on /user/<me>/search/?rt_list=removed: the key is userName, followed by a query parameter.
- const dom=new JSDOM('<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><div id="user-drawer-content"><faceplate-partial src="/svc/shreddit/partial/SZvQJM/user-drawer-menu?params=userName%3DExample&amp;query=%7B%22q%22%3A%22%22%2C%22rt_list%22%3A%22removed%22%7D"></faceplate-partial></div>',{url:'https://www.reddit.com/user/Example/search/?q=&rt_list=removed',runScripts:'outside-only'});
+test('identity reads Reddit’s profile search page data (search and profile keys) without own cards',t=>{
+ // Captured live 2026-11-17 on /user/<me>/search/: reddit-page-data holds {search, profile:{id,name}}.
+ const dom=new JSDOM('<shreddit-app user-logged-in="true" logged-in-user-id="t2_self"></shreddit-app><div id="user-drawer-content"><faceplate-partial src="/svc/shreddit/partial/SZvQJM/user-drawer-menu?params=userName%3DExample"></faceplate-partial></div><reddit-page-data data=\'{"search":{"query":""},"profile":{"id":"t2_self","name":"Example"}}\'></reddit-page-data>',{url:'https://www.reddit.com/user/Example/search/?q=&rt_list=removed',runScripts:'outside-only'});
  t.after(()=>dom.window.close());dom.window.eval(fs.readFileSync('extension/post-model.js','utf8'));dom.window.eval(source());
  assert.deepEqual(JSON.parse(JSON.stringify(dom.window.RTNativeRemoval.identity(dom.window.document))),{owner:'t2_self',username:'Example'});
 });
