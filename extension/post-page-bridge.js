@@ -57,6 +57,7 @@
     const stack=Array.isArray(controller.topStack)?controller.topStack:[];
     for(let pass=0;pass<4 && stack.length;pass++){const entries=stack.splice(0);for(const entry of entries.reverse())if(entry && !restoreEntry(controller.host,entry) && entry.node?.nodeType===1 && !entry.node.isConnected)stack.push(entry);if(stack.length===entries.length)break;}
     for(const placeholder of controller.host?.querySelectorAll?.(':scope > .virtualized-placeholder') || [])placeholder.remove();
+    for(const node of controller.host?.querySelectorAll?.(':scope > [data-rt-skip]') || [])node.removeAttribute('data-rt-skip');
     controller.topStack=[];controller.topPadding=0;
   }
   // One pass: measure everything first, then change the DOM, then correct the
@@ -74,10 +75,12 @@
   }
   function reconcileFeed(feed,controller){
     // Restore within 4 screens either way (the observer's margin); virtualize only beyond 5, so nothing thrashes.
-    const height=Math.max(1,window.innerHeight || 0),restoreAbove=-4*height,restoreBelow=4*height,virtualizeAbove=-Math.max(5*height,height+2000);
+    // Smooth long feeds keeps posts mounted (the browser skips drawing far ones) and swaps out only very distant ones.
+    const smooth=smoothFeed(),height=Math.max(1,window.innerHeight || 0),restoreAbove=-4*height,restoreBelow=4*height,virtualizeAbove=smooth?-Math.max(40*height,20000):-Math.max(5*height,height+2000);
     // Read phase.
     const rows=[];let anchor=null;
     for(let child=feed.firstElementChild;child;child=child.nextElementSibling){
+      observeForSkip(child,smooth);
       const rect=child.getBoundingClientRect(),row={child,top:rect.top,bottom:rect.bottom,height:rect.height,placeholder:child.classList.contains('virtualized-placeholder')};rows.push(row);
       if(!anchor && !row.placeholder && row.height>0 && row.bottom>0 && row.top<window.innerHeight)anchor={child,top:row.top};
     }
@@ -139,6 +142,23 @@
     controller.topPadding=stack.reduce((sum,entry)=>sum+(entry.placeholder?.isConnected && Number.isFinite(entry.height)?entry.height:0),0);
     // A restored entry can itself be an older placeholder; it is observed like any other.
     observePlaceholders(feed);feedObserver?.takeRecords();
+  }
+  /* Smooth long feeds (setting, default on): a post more than two screens away gets content-visibility:hidden at its
+     measured height (CSS [data-rt-skip]), so the browser skips laying it out and painting it, and draws it again as it
+     comes within two screens. Posts near the screen are never contained, so their menus and pop-ups work. */
+  const smoothFeed=()=>document.documentElement.hasAttribute('data-rt-smooth-feed');
+  const skipObserver=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{
+    const on=smoothFeed();
+    for(const entry of entries){const node=entry.target,height=Math.round(entry.boundingClientRect?.height || 0);
+      if(!on || entry.isIntersecting){if(node.hasAttribute('data-rt-skip'))node.removeAttribute('data-rt-skip');continue;}
+      if(height>0 && !node.hasAttribute('data-rt-skip')){node.style.containIntrinsicSize='auto '+height+'px';node.setAttribute('data-rt-skip','');}}
+  },{rootMargin:'200% 0px 200% 0px'}):null;
+  const skipObserved=new WeakSet();
+  function observeForSkip(child,smooth){
+    if(!skipObserver)return;
+    if(!smooth){if(child.hasAttribute('data-rt-skip'))child.removeAttribute('data-rt-skip');return;}
+    if(skipObserved.has(child) || child.classList.contains('virtualized-placeholder') || child.dataset.rtUi && child.dataset.rtUi!=='activity-item')return;
+    skipObserved.add(child);skipObserver.observe(child);
   }
   function scheduleFeedSync(){
     const quiet=performance.now()-lastScroll;
