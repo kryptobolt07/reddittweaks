@@ -1,3 +1,11 @@
+# 0.42.0 preview
+
+- **Smooth long feeds (new setting, on by default):** on profiles the extension manages, loaded posts stay in the page and those more than two screens away skip layout and painting (`content-visibility`) at their measured height, so fast flicks no longer reach empty placeholders that must be rebuilt first. Posts near the screen are drawn normally, so menus and pop-ups work. Posts are still swapped out beyond 40 screens to bound memory. Turn it off under Profile search & hidden activity for the previous behaviour.
+- **Scrolling without blank screens:** measured with phone emulation and 4× CPU while scrolling a long profile, the page's main thread was blocked 48.7 s of 90 s, about 23 s of it forced layout from extension code, and a fast flick up showed a fully blank screen for ~0.9 s. The feed bridge no longer measures every post on every scroll frame: placeholders come back through an IntersectionObserver within four screens, and the full measure-and-tidy pass runs after scrolling pauses. Feed re-ordering and card publishing also wait while you scroll away from the feed end.
+- **Version:** minor increment for the new setting. No new permissions or storage schema changes; the setting is one optional preference key.
+- **Validation:** all 1,795 tests pass; Firefox lint reports 0 errors, 0 notices and 0 warnings. Chromium’s 65 assets and Firefox’s 66 match source, unpacked folders and ZIPs. SHA-256 Chromium `d059edea39d8bca9efece7be45bdcba5f8c12157baaa7886623521b10063c05f`, Firefox `85aa3d227c978da72cbe7914c3fec5b36b733205cce5c7cce731fa314768e303`.
+- **Limits:** the improvement applies to profile feeds the extension manages; other Reddit feeds keep Reddit's own behaviour. Very slow devices can still drop frames while Reddit's post components draw; the aim is no blank screens, not a fixed frame rate. Not yet confirmed on a physical phone.
+
 # 0.41.0 preview
 
 - **Back to profile search:** restore the same loaded results before Reddit’s temporary no-results/skeleton content paints, including empty-query searches. Filters, row identity, cursors and scroll retain the existing bounded in-memory cache; no repeated initial provider read for a valid retained search.
