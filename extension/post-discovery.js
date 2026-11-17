@@ -1428,8 +1428,10 @@
       // A native repaint or a reset tab count re-runs this sync; records from our own writes are dropped below.
       this.removedTabOwner=owner;
       if(this.removedTabObserver?.group!==group){
-        this.removedTabObserver?.disconnect();const observer=this.removedTabObserver=new MutationObserver(()=>{if(this.removedTabObserver===observer && !this.dead)this.syncRemovedTab(this.removedTabOwner);});observer.group=group;
-        observer.observe(group,{subtree:true,attributes:true,attributeFilter:['class','style','faceplate-tab-selected','pages','pageindex']});
+        this.removedTabObserver?.disconnect();const observer=this.removedTabObserver=new MutationObserver(records=>{if(this.removedTabObserver===observer && !this.dead && records.some(record=>record.type!=='childList' || record.target===group || record.target.getRootNode()===group.shadowRoot))this.syncRemovedTab(this.removedTabOwner);});observer.group=group;
+        // Reddit can replace the light-DOM tab children on navigation. Restore
+        // Removed in the same mutation checkpoint so the strip keeps its width.
+        observer.observe(group,{subtree:true,childList:true,attributes:true,attributeFilter:['class','style','faceplate-tab-selected','pages','pageindex']});
       }
       if(group.shadowRoot && this.removedTabObserver.shadow!==group.shadowRoot){this.removedTabObserver.shadow=group.shadowRoot;this.removedTabObserver.observe(group.shadowRoot,{subtree:true,childList:true});}
       this.removedTabObserver.takeRecords();
