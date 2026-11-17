@@ -1837,3 +1837,16 @@ test('comment status icons stay under open card menus',()=>{
   const css=fs.readFileSync('extension/post-discovery.css','utf8');const rule=css.match(/\.rt-comment-source-host>\.rt-post-indicator\{[^}]*\}/)?.[0] || '';
   assert.match(rule,/z-index:0/);assert.doesNotMatch(rule,/z-index:[1-9]/);
 });
+
+test('the extension’s Feed options row sits where Reddit’s own Posts row puts it, and the hidden status never widens the page',async t=>{
+  // Live 2026-11-17: Reddit's Posts row is [faceplate-loader (0 wide), Feed options] with an 8px gap, so Feed options sits
+  // 8px in from the tabs; our row on Comments sat flush, so switching Posts ↔ Comments slid the controls 8px and back.
+  const dom=new JSDOM('<main id="main-content"><div class="flex items-center gap-xs my-md"><shreddit-sort-dropdown></shreddit-sort-dropdown></div><shreddit-feed><shreddit-profile-comment comment-id="t1_native"></shreddit-profile-comment></shreddit-feed></main>',{url:'https://www.reddit.com/user/Example/comments/',runScripts:'outside-only',pretendToBeVisual:true});const W=dom.window;
+  for(const file of ['post-model.js','post-discovery.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
+  const d=new W.RTPostDiscovery.Discovery({observe:false,autoDiscover:true,readSettings:async()=>({'rt-settings-v1':{postDiscovery:true,archiveDiscovery:false}}),nativeRenderer:async()=>{},reddit:async args=>{if(args.action==='render-controls'){W.document.getElementById(args.target).innerHTML=nativeControls;return {rendered:true};}return {posts:[],hasMore:false,after:null};}});
+  t.after(()=>{d.destroy();W.close();});await d.ready;for(let i=0;i<10;i++)await new Promise(r=>setImmediate(r));
+  const target=W.document.querySelector('[data-rt-ui="profile-controls"]');assert.ok(target,'controls rendered by the extension');assert.equal(target.dataset.rtNativeInset,'true');
+  const css=fs.readFileSync('extension/post-discovery.css','utf8');
+  assert.match(css,/\[data-rt-native-inset\] shreddit-layout-event-setter\{margin-inline-start:\.5rem\}/,'Reddit’s gap-xs after its empty loader');
+  assert.match(css,/\.rt-posts-status\[data-error=false\]\{position:fixed;[^}]*left:0;top:0/,'the screen-reader status is fixed, so it cannot overflow sideways');
+});
