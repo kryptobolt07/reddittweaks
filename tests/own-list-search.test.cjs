@@ -296,3 +296,15 @@ test('changing the local date cancels the old Removed walk without rebuilding it
  let release;const old=Math.floor(Date.now()/1000)-10*86400,html='<div class="flex items-center"><search-sort-dropdown-menu><button>Relevance</button></search-sort-dropdown-menu></div>'+page,s=await setup(t,{html,path:'/user/Example/search/?rt_list=removed',list:async(args,signal,W,n)=>{if(n===1)return new Promise(r=>release=r);return {posts:[W.RTPostModel.normalizePost(raw('old',{created_utc:old}))],scanned:1,hasMore:true,after:'older',transport:'native'};}}),bar=s.d.searchInlineBar;
  const pending=s.d.refreshActivity();await flush();s.d.setFilters({...s.d.rtFilters,date:{preset:'24h'}});await flush();await flush();release({posts:[],scanned:0,hasMore:false});await pending;await flush();assert.equal(s.d.listState.done,true);assert.equal(s.d.listState.loading,false);assert.equal(s.d.listState.error,'');assert.equal(listCalls(s).length,3);assert.equal(s.d.searchInlineBar,bar);assert.equal(bar.isConnected,true);assert.equal(new URL(s.W.location.href).searchParams.get('rt_date'),'24h');
 });
+// Account switching: the per-tab signed-in name cache belongs to one Reddit account ID; another account (or signed out)
+// must never inherit it, or its lists and Removed would open under the previous account's name.
+test('a cached signed-in name is used only for the same logged-in account',()=>{
+ const route=(owner,saved)=>{const dom=new JSDOM('<shreddit-app user-logged-in="'+(owner?'true':'false')+'"'+(owner?' logged-in-user-id="'+owner+'"':'')+'></shreddit-app>',{url:'https://www.reddit.com/user/Example/',runScripts:'outside-only'}),W=dom.window;
+  W.sessionStorage.setItem('rt-own-identity-v1',JSON.stringify(saved));for(const f of ['search-core.js','post-model.js','feed-filters.js','post-discovery.js'])W.eval(read(f));
+  const r=W.RTPostDiscovery.pageRoute('/user/Example/search/','?rt_list=saved');W.close();return r;};
+ const now=Date.now();
+ assert.equal(route('t2_self',{name:'Example',at:now,owner:'t2_self'})?.list,'saved','same account');
+ assert.equal(route('t2_other',{name:'Example',at:now,owner:'t2_self'}),null,'switched account');
+ assert.equal(route('',{name:'Example',at:now,owner:'t2_self'}),null,'signed out');
+ assert.equal(route('t2_self',{name:'Example',at:now}),null,'old cache without an account is not trusted');
+});

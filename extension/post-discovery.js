@@ -10,8 +10,10 @@
   // Verified from native account markup or the page-world identity read. The last confirmed name is kept so a
   // list search can show its pill with Reddit's first header; every list request still re-confirms the account.
   const identityKey='rt-own-identity-v1';
-  let signedInName=(()=>{try{const saved=JSON.parse(sessionStorage.getItem(identityKey) || 'null');return saved && Date.now()-saved.at<3600000 && /^[\w-]{3,20}$/.test(saved.name)?saved.name:'';}catch{return '';}})();
-  const rememberIdentity=name=>{try{if(name)sessionStorage.setItem(identityKey,JSON.stringify({name,at:Date.now()}));else sessionStorage.removeItem(identityKey);}catch{}};
+  // The cached name belongs to one Reddit account ID: after switching accounts (or signing out) it is never reused.
+  const loggedInOwner=()=>{const app=document.querySelector('shreddit-app'),owner=app?.getAttribute('logged-in-user-id') || '';return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/i.test(owner)?owner.toLowerCase():'';};
+  let signedInName=(()=>{try{const saved=JSON.parse(sessionStorage.getItem(identityKey) || 'null'),owner=loggedInOwner();return saved && owner && saved.owner===owner && Date.now()-saved.at<3600000 && /^[\w-]{3,20}$/.test(saved.name)?saved.name:'';}catch{return '';}})();
+  const rememberIdentity=name=>{try{const owner=loggedInOwner();if(name && owner)sessionStorage.setItem(identityKey,JSON.stringify({name,owner,at:Date.now()}));else sessionStorage.removeItem(identityKey);}catch{}};
   const listLabel=list=>list[0].toUpperCase()+list.slice(1);
   const ownListCandidate=()=>{const match=location.pathname.match(/^\/user\/([\w-]{1,20})\/(saved|history|hidden|upvoted|downvoted|search)\/?$/i);return match && (match[2].toLowerCase()!=='search' || new URLSearchParams(location.search).has('rt_list'))?match:null;};
   const searchSorts=['relevance','new','old','top','comments','hot'],mediaTypes=['image','gif','video','gallery'];
