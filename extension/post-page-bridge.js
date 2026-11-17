@@ -73,7 +73,8 @@
     finally{feedObserver?.takeRecords();}
   }
   function reconcileFeed(feed,controller){
-    const height=Math.max(1,window.innerHeight || 0),restoreAbove=-1.5*height,restoreBelow=2.5*height,virtualizeAbove=-Math.max(3*height,height+1000);
+    // Restore within 4 screens either way (the observer's margin); virtualize only beyond 5, so nothing thrashes.
+    const height=Math.max(1,window.innerHeight || 0),restoreAbove=-4*height,restoreBelow=4*height,virtualizeAbove=-Math.max(5*height,height+2000);
     // Read phase.
     const rows=[];let anchor=null;
     for(let child=feed.firstElementChild;child;child=child.nextElementSibling){
@@ -107,17 +108,49 @@
       if(node.parentElement!==feed)continue;
       const placeholder=document.createElement('div');placeholder.className='virtualized-placeholder';placeholder.style.height=size+'px';feed.replaceChild(placeholder,node);controller.topStack.push({node,placeholder,height:size});changed=true;
     }
+    observePlaceholders(feed);
     if(!changed)return;
     controller.topPadding=controller.topStack.reduce((sum,entry)=>sum+(entry.placeholder?.isConnected && Number.isFinite(entry.height)?entry.height:0),0);
     // Restored cards may differ from their saved heights; keep what the reader
     // is looking at in place.
     if(anchor?.child.isConnected){const delta=anchor.child.getBoundingClientRect().top-anchor.top;if(Math.abs(delta)>0.5)window.scrollBy({top:delta,behavior:'instant'});}
   }
+  // Fast flicks (measured 2026-11-17, phone emulation at 4x CPU): measuring every feed child on every scroll frame
+  // forced seconds of layout, and a 1.5-screen restore window let flicks up reach placeholders (blank screens). While
+  // the reader scrolls, an IntersectionObserver swaps placeholders back as they come within 4 screens, with no layout
+  // reads of ours; the full measure-and-virtualize pass waits until scrolling pauses.
+  let lastScroll=-Infinity,idleTimer=null,restoreFrame=null;const pendingRestore=new Set(),observedPlaceholders=new WeakSet();
+  const idleMs=()=>Number(window.__rtFeedIdleMs) || 200;
+  const restoreObserver=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{const near=entries.filter(entry=>entry.isIntersecting).map(entry=>entry.target);if(near.length)queueRestore(near);},{rootMargin:'400% 0px 400% 0px'}):null;
+  function observePlaceholders(feed){if(!restoreObserver || !feed)return;for(const placeholder of feed.querySelectorAll(':scope > .virtualized-placeholder'))if(!observedPlaceholders.has(placeholder)){observedPlaceholders.add(placeholder);restoreObserver.observe(placeholder);}}
+  function queueRestore(list){for(const placeholder of list)pendingRestore.add(placeholder);if(restoreFrame!==null || typeof requestAnimationFrame!=='function')return;restoreFrame=requestAnimationFrame(()=>{restoreFrame=null;try{restorePlaceholders();}catch{ /* the next full pass restores them */ }});}
+  function restorePlaceholders(){
+    const feed=currentFeed(),list=[...pendingRestore];pendingRestore.clear();
+    if(!ownedFeed(feed))return;const controller=manageFeed(feed);if(!controller)return;
+    const stack=controller.topStack,byPlaceholder=new Map();for(const entry of stack)if(entry?.placeholder)byPlaceholder.set(entry.placeholder,entry);
+    const done=new Set();let changed=false;
+    for(const placeholder of list){
+      if(!placeholder.isConnected || placeholder.parentElement!==feed)continue;
+      restoreObserver.unobserve(placeholder);observedPlaceholders.delete(placeholder);
+      const entry=byPlaceholder.get(placeholder);if(entry){restoreEntry(feed,entry);done.add(entry);}else placeholder.remove();changed=true;
+    }
+    if(!changed)return;
+    if(done.size){const keep=stack.filter(entry=>!done.has(entry));stack.length=0;stack.push(...keep);}
+    controller.topPadding=stack.reduce((sum,entry)=>sum+(entry.placeholder?.isConnected && Number.isFinite(entry.height)?entry.height:0),0);
+    // A restored entry can itself be an older placeholder; it is observed like any other.
+    observePlaceholders(feed);feedObserver?.takeRecords();
+  }
   function scheduleFeedSync(){
+    const quiet=performance.now()-lastScroll;
+    if(restoreObserver && quiet<idleMs()){
+      observePlaceholders(currentFeed());
+      if(!idleTimer)idleTimer=setTimeout(()=>{idleTimer=null;scheduleFeedSync();},idleMs()-quiet+5);
+      return;
+    }
     if(syncFrame!==null || typeof requestAnimationFrame!=='function')return;
     syncFrame=requestAnimationFrame(()=>{syncFrame=null;try{syncFeed();}catch{ /* Native virtualization remains if Reddit's contract changes. */ }});
   }
-  document.addEventListener('scroll',scheduleFeedSync,{passive:true});
+  document.addEventListener('scroll',()=>{lastScroll=performance.now();scheduleFeedSync();},{passive:true});
   window.addEventListener('resize',scheduleFeedSync,{passive:true});
   // Take over as soon as discovery marks a feed, before Reddit's next native
   // pass can virtualize around inserted cards.

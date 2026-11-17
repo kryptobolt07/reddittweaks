@@ -1785,3 +1785,14 @@ test('the Removed tab is own-only and leaves after a sign-out or account switch'
  ownProfileAccount(W,'Example','t2_other');tab.click();assert.equal(urls.length,0,'a stale tab never navigates for another account');
  app.setAttribute('user-logged-in','false');d.ensureActivityMenu();assert.equal(removedTab(W),null);assert.equal(W.document.querySelector('#profile-feed-tabgroup').pages,3,'the native count comes back');
 });
+// Measured 2026-11-17 (phone emulation, 4x CPU, fast flick up a long profile): each finished background card re-ordered the
+// whole feed with forced layouts (~165 ms each), starving Reddit's own placeholder swaps, so the flick showed blank screens.
+test('cards finished during a flick away from the feed end are reconciled once the scrolling stops',async t=>{
+  const {W,d}=setup(t);await d.ready;await d.loadReddit();await new Promise(r=>setImmediate(r));
+  let settles=0,dedupes=0;const settle=d.settleProfileBatch.bind(d),dedupe=d.deduplicate.bind(d);d.settleProfileBatch=()=>{settles++;return settle();};d.deduplicate=()=>{dedupes++;return dedupe();};
+  d.scrollIdleMs=30;d.batchInView=false;d.lastScrollAt=W.performance.now();
+  d.reconcileFeed();d.reconcileFeed();d.reconcileFeed();assert.equal(dedupes,0,'nothing re-orders the feed mid-flick');
+  await new Promise(r=>setTimeout(r,80));assert.equal(dedupes,1,'one coalesced run after scrolling stops');assert.equal(settles,1);
+  d.lastScrollAt=W.performance.now();d.batchInView=true;d.reconcileFeed();assert.equal(dedupes,2,'near the feed end, new cards are published at once');
+  d.lastScrollAt=undefined;d.batchInView=false;d.reconcileFeed();assert.equal(dedupes,3,'when not scrolling, it runs at once');
+});

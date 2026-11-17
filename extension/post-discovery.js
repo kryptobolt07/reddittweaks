@@ -289,7 +289,7 @@
         // Late native empty/skeleton content must not paint over a retained result feed.
         if(this.context?.view==='search' && this.feed?.isConnected && pageRoute()?.key===this.context.key && records.some(record=>!this.ownsMutation(record) && !this.feed.contains(record.target)))this.suppressSearchPage();
         // Nothing mounted and not a page discovery acts on: unrelated page churn.
-        if(this.idleRoute())return;if(records.some(r=>!this.ownsMutation(r) && !(this.feedPresentationObserver && this.feed?.contains(r.target))))this.schedule(true);});this.observer.observe(document.documentElement,{childList:true,subtree:true});window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.addListener(this.onSettings);}
+        if(this.idleRoute())return;if(records.some(r=>!this.ownsMutation(r) && !(this.feedPresentationObserver && this.feed?.contains(r.target))))this.schedule(true);});this.observer.observe(document.documentElement,{childList:true,subtree:true});this.onUserScroll=()=>{this.lastScrollAt=performance.now();};window.addEventListener('scroll',this.onUserScroll,{passive:true});window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.addListener(this.onSettings);}
       this.onWorkerSettings=(message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===globalThis.chrome?.runtime?.id)this.onSettings({[key]:{newValue:message.settings}},'local');};
       if(observe)globalThis.chrome?.runtime?.onMessage?.addListener(this.onWorkerSettings);
       this.avatarUnsubscribe=globalThis.RCSDirectory?.onChange?.(value=>{const owner=globalThis.RCSDirectory?.getOwner?.() || '';if(value?.owner && value.owner!==owner)return;// Learning the account at start-up (none → yours) isn't a switch; a different account or signing out is.
@@ -2223,9 +2223,26 @@
       }
       return ids;
     }
+    /* Measured 2026-11-17 (phone emulation, 4x CPU, fast flicks on a long profile): re-ordering the feed forces layout
+       of the whole feed, and doing it while the reader flicks starved Reddit's own frame work, so flicks reached blank
+       placeholders. While the reader scrolls away from the feed end, this work waits until scrolling pauses, merged
+       into one run; near the end (new cards are needed) it runs at once. */
+    deferWhileScrolling(key,run){
+      const idle=this.scrollIdleMs ?? 200,since=performance.now()-(this.lastScrollAt ?? -Infinity);if(since>=idle || this.batchInView)return false;
+      (this.scrollDeferred ||= new Map()).set(key,run);if(!this.scrollDeferTimer)this.scrollDeferTimer=setTimeout(()=>this.flushScrollDeferred(),idle-since+10);return true;
+    }
+    flushScrollDeferred(){
+      this.scrollDeferTimer=null;if(this.dead || !this.scrollDeferred?.size)return;
+      const idle=this.scrollIdleMs ?? 200,since=performance.now()-(this.lastScrollAt ?? -Infinity);
+      if(since<idle && !this.batchInView){this.scrollDeferTimer=setTimeout(()=>this.flushScrollDeferred(),idle-since+10);return;}
+      const jobs=[...this.scrollDeferred.values()];this.scrollDeferred.clear();for(const job of jobs)job();
+    }
+    // A finished background card: publish what's ready and put the feed in order.
+    reconcileFeed(){if(this.deferWhileScrolling('reconcile',()=>this.reconcileFeed()))return;this.settleProfileBatch();this.deduplicate();}
     deduplicate(){
       if(this.isOwnList())return;
       if(!this.host || this.context.kind!=='profile')return;
+      if(this.deferWhileScrolling('deduplicate',()=>this.deduplicate()))return;
       return this.withFeedViewport(()=>{
       this.syncActivityPresentation();
       const entries=this.nativeEntries(),visible=this.visibleIds(),sort=this.effectiveSort(),normal=entries.filter(e=>!e.pinned && (sort==='top'?Number.isFinite(e.score):sort==='hot' || Number.isFinite(e.timestamp))),rank=new Map(this.renderedPosts.map((post,index)=>[post.fullname,index]));
@@ -3009,7 +3026,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
           const retry=button('Retry',()=>{this.nativeRetries.delete(node);node.dataset.rtNativeState='idle';this.queueNative(node);});retry.className='button button-small button-bordered';retry.title=error?.message || 'Reddit could not load this card.';fallback.append(retry);node.append(fallback);this.ensureCardRule(node);
         }).finally(()=>{batch.active--;
           // A render from a parked or replaced view must not reconcile the current one.
-          if(batch!==this.nativeBatch)return;this.settleProfileBatch();this.deduplicate();this.drainNative(batch);this.updateProfileLoading();});
+          if(batch!==this.nativeBatch)return;this.reconcileFeed();this.drainNative(batch);this.updateProfileLoading();});
       }
     }
     forgetRecoveredBodies(){this.replyPatches=new Map();this.recoveredTitles=new Map();this.recoveredMedia=new Set();this.recoveredBodies=new Map();this.nativeDecorations=new Set();}
@@ -3169,7 +3186,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
     destroy(){this.dead=true;this.syncRemovedTab('');if(this.onRemovedTab){window.removeEventListener('click',this.onRemovedTab,true);window.removeEventListener('keydown',this.onRemovedTab,true);}document.querySelector('[data-rt-ui="removed-tab"]')?.remove();if(this.onHeaderResize)removeEventListener('resize',this.onHeaderResize);this.ownIdentityController?.abort();this.clearOwnListHeader();this.clearHeaderFilters();this.ownIdentityError?.remove();document.removeEventListener('submit',this.onOwnSubmit,true);document.removeEventListener('focusin',this.onOwnFocus,true);this.discardAllParked();this.avatarUnsubscribe?.();clearTimeout(this.timer);this.observer?.disconnect();
       // An orphaned script can no longer reach its extension's APIs.
       try{globalThis.chrome?.runtime?.onMessage?.removeListener?.(this.onWorkerSettings);}catch{}try{globalThis.chrome?.storage?.onChanged?.removeListener?.(this.onSettings);}catch{}
-      window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);document.removeEventListener('keydown',this.onEmptyProfileSearch,true);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}
+      window.removeEventListener('popstate',this.onRoute);if(this.onUserScroll)window.removeEventListener('scroll',this.onUserScroll);clearTimeout(this.scrollDeferTimer);document.removeEventListener('reddit:route',this.onRoute);document.removeEventListener('keydown',this.onEmptyProfileSearch,true);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}
   }
   // One archive item as the same Reddit-native card the profile archive draws, for pages that are not a
   // profile (the subreddit archive). Inert actions, archive status badge, no live Reddit lookups.

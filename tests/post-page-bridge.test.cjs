@@ -2,8 +2,10 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
-function setup(t,{url='https://www.reddit.com/user/Example/',fetcher}={}){
+function setup(t,{url='https://www.reddit.com/user/Example/',fetcher,intersection=false}={}){
   const dom=new JSDOM('<body></body>',{url,runScripts:'outside-only'}),W=dom.window,calls=[];t.after(()=>W.close());W.AbortController=AbortController;
+  // jsdom has no IntersectionObserver; feed tests install a controllable one before the bridge loads.
+  if(intersection){W.__observers=[];W.IntersectionObserver=class{constructor(callback,options){this.callback=callback;this.options=options;this.targets=new Set();W.__observers.push(this);}observe(target){this.targets.add(target);}unobserve(target){this.targets.delete(target);}disconnect(){this.targets.clear();}};}
   W.fetch=async(...args)=>{calls.push(args);return fetcher?fetcher(...args):{ok:true,status:200,headers:new Headers(),text:async()=>new URL(args[0]).pathname==='/svc/shreddit/search/'?nativePostHtml():JSON.stringify({data:{children:[{kind:'t3',data:{id:'abc12',author:'Example',title:'Public',created_utc:1700000000}}],after:'t3_abc12'}})};};
   for(const file of ['post-model.js','post-page-bridge.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
   function send(input){return new Promise(resolve=>{const id=crypto.randomUUID(),channel='test';const listener=e=>{const r=JSON.parse(e.detail);if(r.id!==id)return;W.document.removeEventListener('rt-post-response',listener);resolve(r);};W.document.addEventListener('rt-post-response',listener);W.document.dispatchEvent(new W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,...input})}));});}
@@ -54,26 +56,29 @@ test('Reddit reads use a fixed same-origin GET and return only compact public po
   const e=setup(t),r=await e.send({action:'profile',username:'Example'});assert.equal(r.ok,true);assert.equal(r.posts[0].id,'abc12');const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/svc/shreddit/search/');assert.equal(new URL(url).searchParams.get('type'),'posts');assert.equal(new URL(url).searchParams.get('q'),'author:"Example"');assert.equal(options.credentials,'include');assert.equal(options.method,'GET');assert.equal(r.cookie,undefined);assert.equal(r.posts[0].body,'');assert.equal(r.posts[0].status,'unknown');
 });
 function virtualFeed(t,{owned=true}={}){
- const {W,calls}=setup(t);if(owned)W.document.documentElement.setAttribute('data-rt-profile-discovery','');
+ const {W,calls}=setup(t,{intersection:true});if(owned)W.document.documentElement.setAttribute('data-rt-profile-discovery','');
  W.document.body.innerHTML=`<main><shreddit-feed${owned?' data-rt-loading-owner="extension"':''}></shreddit-feed></main>`;
  const feed=W.document.querySelector('shreddit-feed'),frames=[],nativeCalls=[];W.requestAnimationFrame=callback=>{frames.push(callback);return frames.length;};
+ const observers=W.__observers;
+ const intersect=targets=>{for(const o of observers)o.callback(targets.filter(t=>o.targets.has(t)).map(target=>({target,isIntersecting:true})),o);};
  Object.defineProperty(W,'innerHeight',{value:600,configurable:true});W.scrollBy=()=>{};
  const controller={host:feed,topStack:[],topPadding:0,_virtualizeTop(distance){nativeCalls.push(distance);}};feed.virtualization=controller;
  const at=(element,top,height)=>{element.getBoundingClientRect=()=>({top,bottom:top+height,height});return element;};
  const card=(name,top,height)=>{const node=W.document.createElement('article');node.id=name;return at(node,top,height);};
  const held=(name,top,height)=>{const placeholder=at(W.document.createElement('div'),top,height);placeholder.className='virtualized-placeholder';const node=card(name,top,height);feed.append(placeholder);return {node,placeholder,height};};
  const run=()=>{while(frames.length)frames.shift()();};
- return {W,calls,feed,controller,nativeCalls,at,card,held,run};
+ const idle=()=>new Promise(resolve=>setTimeout(resolve,W.__rtFeedIdleMs*2+20));W.__rtFeedIdleMs=30;
+ return {W,calls,feed,controller,nativeCalls,at,card,held,run,observers,intersect,idle};
 }
 test('owned profile feeds restore any placeholder near the viewport, whatever its stack order',async t=>{
- const {W,feed,controller,held,card,run}=virtualFeed(t);
+ const {W,feed,controller,held,card,run,idle}=virtualFeed(t);
  // Discovery reordered the feed: the entry nearest the viewport is buried
  // under entries for placeholders far above, which stopped Reddit's own pop loop.
  const near=held('near',-300,500),far=held('far',-9000,400),beyond=held('beyond',-8000,400);
  const dup=held('dup',100,200);feed.append(dup.node);// card already back in the feed
  const detachedPlaceholder=W.document.createElement('div');const detached={node:card('detached',0,100),placeholder:detachedPlaceholder,height:100};
  controller.topStack.push(near,detached,dup,far,beyond);
- W.document.dispatchEvent(new W.Event('scroll'));run();
+ W.document.dispatchEvent(new W.Event('scroll'));run();await idle();run();
  assert.equal(near.node.parentElement,feed,'the visible card returns to its own position');assert.equal(near.placeholder.isConnected,false);
  assert.equal(dup.placeholder.isConnected,false,'a duplicate placeholder is dropped, its card stays');assert.equal(feed.querySelectorAll('#dup').length,1);
  assert.deepEqual(controller.topStack.map(entry=>entry.node.id),['far','beyond'],'far entries and nothing stale remain');
@@ -90,7 +95,7 @@ test('owned feeds virtualize only cards far above the viewport, in Reddit\'s ent
 test('ordinary feeds keep native virtualization, and releasing a feed restores what it holds',async t=>{
  const plain=virtualFeed(t,{owned:false});plain.held('x',-200,100);plain.controller.topStack.push({node:plain.card('x',0,1),placeholder:plain.feed.firstElementChild,height:100});plain.W.document.dispatchEvent(new plain.W.Event('scroll'));plain.run();
  assert.equal(plain.feed.firstElementChild.className,'virtualized-placeholder','an ordinary feed is untouched');assert.equal(plain.calls.length,0);
- const {W,feed,controller,nativeCalls,held,run}=virtualFeed(t);const entry=held('kept',-9000,300);controller.topStack.push(entry);W.document.dispatchEvent(new W.Event('scroll'));run();assert.equal(entry.placeholder.isConnected,true);
+ const {W,feed,controller,nativeCalls,held,run,idle}=virtualFeed(t);const entry=held('kept',-9000,300);controller.topStack.push(entry);W.document.dispatchEvent(new W.Event('scroll'));run();await idle();run();assert.equal(entry.placeholder.isConnected,true);
  W.document.documentElement.removeAttribute('data-rt-profile-discovery');controller._virtualizeTop(-50);
  assert.equal(entry.node.parentElement,feed,'held cards return before Reddit resumes');assert.equal(controller.topStack.length,0);assert.equal(controller.topPadding,0);assert.deepEqual(nativeCalls,[-50]);
 });
@@ -744,4 +749,26 @@ test('profile navigation seeds the native collapsed controller too, so a collaps
  target.parentElement.classList.add('grid-container','flex-nav-collapsed');
  const result=await e.send({action:'render-navigation',username:'Example',target:target.id});assert.equal(result.rendered,true);
  const native=target.querySelector('flex-left-nav-container');assert.equal(native.getAttribute('expanded'),'0');assert.equal(native.getAttribute('parent-grid-selector'),'[data-rt-ui="archive-profile"]');assert.equal(native.hasAttribute('no-animate'),true);
+});
+
+// Measured 2026-11-17 (your Chrome, phone emulation, 4x CPU, user scrolling u/EmployeeFeisty6589): measuring every feed
+// child on every scroll frame forced ~10 s of layout in 90 s, and the 1.5-screen restore window let fast flicks up
+// reach unrestored placeholders (blank screens for ~0.9 s).
+test('scrolling never measures the whole feed; one full pass runs after scrolling pauses',async t=>{
+ const {W,feed,controller,card,run,idle}=virtualFeed(t);let reads=0;
+ const counted=(name,top,height)=>{const node=card(name,top,height),m=node.getBoundingClientRect;node.getBoundingClientRect=()=>{reads++;return m();};return node;};
+ const old=counted('old',-5000,500),visible=counted('visible',0,500);feed.append(old,visible);await new Promise(r=>setTimeout(r,0));run();await idle();run();reads=0;
+ for(let i=0;i<20;i++){W.document.dispatchEvent(new W.Event('scroll'));run();}
+ assert.equal(reads,0,'no layout reads while the reader is scrolling');
+ await idle();run();assert.ok(reads>0,'the full pass runs once scrolling stops');
+});
+test('placeholders are swapped back as they come within four screens, from the observer alone, without measuring',async t=>{
+ const {W,feed,controller,held,run,observers,intersect}=virtualFeed(t);
+ const ahead=held('ahead',-2000,400),far=held('far',-9000,400);controller.topStack.push(ahead,far);
+ W.document.dispatchEvent(new W.Event('scroll'));run();
+ const io=observers.find(o=>o.targets.has(ahead.placeholder));assert.ok(io,'placeholders are observed');assert.match(io.options.rootMargin,/400%/);
+ let reads=0;for(const el of feed.children){const m=el.getBoundingClientRect;el.getBoundingClientRect=()=>{reads++;return m.call(el);};}
+ intersect([ahead.placeholder]);run();
+ assert.equal(ahead.node.parentElement,feed,'restored ahead of the reader');assert.equal(ahead.placeholder.isConnected,false);assert.equal(far.placeholder.isConnected,true);
+ assert.deepEqual(controller.topStack.map(e=>e.node.id),['far']);assert.equal(controller.topPadding,400);assert.equal(reads,0);
 });
