@@ -71,3 +71,24 @@ test('page unload cancels a queued mobile restore',async t=>{
   const counts=p.counts();p.api.nav.hidden=false;p.w.dispatchEvent(new p.w.PageTransitionEvent('pagehide',{persisted:false}));await p.paint();
   assert.equal(c.destroyed,true);assert.equal(c.host.isConnected,false);assert.deepEqual(p.counts(),counts);
 });
+
+test('native scrolling defers ordinary reconciliation until the scroll pauses',async t=>{
+  const p=await setup(t),c=p.control;await wait(200);let syncs=0;const sync=c.sync.bind(c);c.sync=()=>{syncs++;return sync();};
+  const scroll=p.api.nav.shadowRoot.querySelector('rs-virtual-scroll'),row=p.w.RCSAdapter.query(p.w.RCSAdapter.selectors.row,p.api.nav);
+  for(let i=0;i<4;i++){scroll.dispatchEvent(new p.w.Event('scroll'));row.append(p.w.document.createElement('span'));await wait(90);}
+  assert.equal(syncs,0,'virtualized updates do not repeatedly rescan during a scroll');
+  await wait(250);assert.ok(syncs>0,'the latest native data is reconciled after scrolling');
+});
+
+test('sidebar route changes still reconcile immediately while native scrolling',async t=>{
+  const p=await setup(t);await wait(200);const scroll=p.api.nav.shadowRoot.querySelector('rs-virtual-scroll');
+  scroll.dispatchEvent(new p.w.Event('scroll'));p.api.nav.hidden=true;await p.paint();
+  assert.equal(p.control.suspended,true,'navigation remains urgent');
+});
+
+test('continuous native scrolling cannot indefinitely postpone reconciliation',async t=>{
+  const p=await setup(t),c=p.control;await wait(200);let syncs=0;const sync=c.sync.bind(c);c.sync=()=>{syncs++;return sync();};
+  const scroll=p.api.nav.shadowRoot.querySelector('rs-virtual-scroll'),row=p.w.RCSAdapter.query(p.w.RCSAdapter.selectors.row,p.api.nav);
+  for(let i=0;i<15;i++){scroll.dispatchEvent(new p.w.Event('scroll'));row.append(p.w.document.createElement('span'));await wait(100);}
+  assert.ok(syncs>0,'reconcile at the bounded delay even if scrolling continues');
+});

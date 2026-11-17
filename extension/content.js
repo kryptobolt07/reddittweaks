@@ -796,9 +796,25 @@
   const chatSelector='rs-app, rs-room, [data-testid="chat-room-list"], [data-testid="chat-room"]';
   const wakeProbe=()=>{idle=false;probeDelay=1800;probeAt=0;};
   const chatCandidate=node=>node.nodeType===1 && Boolean(node.shadowRoot || node.localName?.startsWith('rs-') || node.matches?.(chatSelector));
+  // Native virtualization replaces rows on every scroll. Reconcile those
+  // mutations once the gesture pauses, while bounding how long data can wait.
+  let lastNativeScroll=0, pendingSince=0;
+  const scrollQuietMs=180, maxScrollDelayMs=1200;
+  function scrollActive(){return lastNativeScroll && Date.now()-lastNativeScroll<scrollQuietMs;}
+  function queueRefresh(delay){
+    clearTimeout(refreshTimer);
+    refreshTimer=setTimeout(()=>{
+      refreshTimer=null;
+      if(scrollActive() && Date.now()-pendingSince<maxScrollDelayMs){queueRefresh(Math.min(scrollQuietMs,maxScrollDelayMs-(Date.now()-pendingSince)));return;}
+      scheduled=false;pendingSince=0;refresh();
+    },delay);
+  }
   function schedule() {
-    if (scheduled || stopped) return; scheduled = true;
-    refreshTimer=setTimeout(() => { refreshTimer=null;scheduled = false; refresh(); },120);
+    if (scheduled || stopped) return; scheduled = true;pendingSince=Date.now();queueRefresh(120);
+  }
+  function nativeScroll(event){
+    if(stopped || extensionNode(event.target) || !event.target.matches?.(A.selectors.scroller))return;
+    lastNativeScroll=Date.now();
   }
   function composedParent(node){return node.parentElement || node.host || node.getRootNode?.().host;}
   function extensionNode(node){for(let current=node;current;current=composedParent(current))if(current.matches?.('[data-rcs-ui]'))return true;return false;}
@@ -819,7 +835,7 @@
   }
   function scheduleNavigation(){
     if(stopped || fastScheduled)return;
-    clearTimeout(refreshTimer);refreshTimer=null;scheduled=true;fastScheduled=true;
+    clearTimeout(refreshTimer);refreshTimer=null;pendingSince=0;scheduled=true;fastScheduled=true;
     // Mutation delivery precedes paint: remount retained search with the native
     // sidebar, rather than showing Reddit's list during the ordinary debounce.
     queueMicrotask(()=>{fastScheduled=false;scheduled=false;if(stopped || !globalThis.document?.documentElement)return;refresh();
@@ -859,9 +875,10 @@
     }
     idle=false;probeDelay=1800;
     const liveRoots = new Set(roots);
-    for (const [root, observer] of observed) if (!liveRoots.has(root)) { observer.disconnect(); observed.delete(root); }
+    for (const [root, observer] of observed) if (!liveRoots.has(root)) { observer.disconnect(); root.removeEventListener('scroll',nativeScroll,true); observed.delete(root); }
     for (const root of roots) if (!observed.has(root)) {
       const observer = new MutationObserver(mutationsChanged);
+      root.addEventListener('scroll',nativeScroll,{capture:true,passive:true});
       observer.observe(root,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['room','room-id','channel-id','data-room-id','data-id','data-rcs-event-id','data-rcs-sender','data-rcs-author-self','hidden','selected','style','class']}); observed.set(root,observer);
     }
     const find = selector => [...new Set(roots.flatMap(root => [...(root.matches?.(selector) ? [root] : []), ...root.querySelectorAll(selector)]))];
@@ -910,7 +927,7 @@
   // Shadow roots attached after an element is inserted don't emit DOM mutations.
   // A modest discovery heartbeat covers delayed Lit hydration without patching Reddit.
   // The heartbeat's refresh returns immediately while the probe back-off applies, so it is a bare timer wake on pages without chat.
-  const heartbeat = setInterval(refresh,1800);
+  const heartbeat = setInterval(()=>{if(scrollActive())schedule();else refresh();},1800);
   const observer = new MutationObserver(mutationsChanged); observer.observe(document,{childList:true,subtree:true});
   document.addEventListener('visibilitychange',schedule);
   // Reddit's page world announces chat components as they connect.
@@ -918,7 +935,7 @@
   window.addEventListener('pagehide',event => {
     if (event.persisted) return;
     stopped = true; clearInterval(heartbeat);clearTimeout(refreshTimer);cancelAnimationFrame(navigationFrame);observer.disconnect();
-    for (const observer of observed.values()) observer.disconnect();
+    for (const [root,observer] of observed){observer.disconnect();root.removeEventListener('scroll',nativeScroll,true);}
     clearRetainedLists();for (const control of controls.values()) control.destroy(); index.clear();
     directory.clear();completeRooms.clear();
     globalThis.RCSNativeLabels?.clear();
