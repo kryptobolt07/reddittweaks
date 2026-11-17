@@ -204,3 +204,5 @@ importScripts('archive-memo.js','post-broker.js');
 // Viewed-posts History beyond Reddit's 20 (docs/viewed-history-spec.md); needs post-model from post-broker.
 importScripts('viewed-store.js','viewed-broker.js');
 importScripts('raffler-broker.js');
+// Saved Reddit accounts and session swaps (docs/account-switcher-spec.md); needs post-model from post-broker.
+importScripts('account-broker.js');
