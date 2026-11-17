@@ -1858,3 +1858,12 @@ test('native tab updates restore the own-profile Removed tab before the next pai
  assert.ok(removedTab(W),'native child replacement restores the tab in the mutation checkpoint');
  assert.equal(group.querySelectorAll('[data-rt-ui="removed-tab"]').length,1);
 });
+
+test('profile discovery keeps its document gutter stable across loading and ready cards, releasing it on opt-out',async t=>{
+ const {W,d}=setup(t);const style=W.document.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(style);
+ const gutter=()=>W.getComputedStyle(W.document.documentElement).getPropertyValue('scrollbar-gutter');await d.ready;
+ d.feed.replaceChildren();assert.equal(gutter(),'stable','empty/loading profile reserves the same scrollbar space as its populated feed');
+ await d.loadReddit();await new Promise(r=>setImmediate(r));assert.ok(d.feed.querySelector('.rt-native-card'));assert.equal(gutter(),'stable','attaching native cards does not change gutter policy');
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.notEqual(gutter(),'stable','opt-out restores native document styling');
+ W.history.pushState({},'','/user/Example/saved/');d.onRoute();assert.notEqual(gutter(),'stable','unsupported native sections keep their own styling');
+});

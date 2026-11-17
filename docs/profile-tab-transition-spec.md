@@ -27,3 +27,20 @@ A separate report on a public profile showed the entire main column move right a
 Reddit's cached native navigation implementation first applies the server-rendered `expanded` attribute to its grid, then asynchronously reads the saved UI preference. For each incoming native profile navigation, the page-world bridge seeds the valid saved preference once onto the navigation and its grid. It leaves missing or invalid preferences alone, ignores extension-owned navigation, and does not override later native toggles. The profile discovery marker gates this behavior; cookie access stays in the page world. Native node insertion, a later element upgrade, whole-grid replacement, discovery opt-out and a later user toggle are the relevant transitions. The pre-fix test reproduced the server-rendered expanded/collapsed-preference mismatch; the post-fix bridge tests cover seeding and invalid preference. Live post-fix reproduction and physical clicks are not verified by those synthetic tests.
 
 After the seed was packaged and reloaded, a foreground check of the three views kept the grid in `flex-nav-collapsed`; visible cards remained aligned to the main column and Feed options was 12 px inside it. The viewport changed from 1422 to 1280 px during that capture, so its absolute x coordinates cannot be directly compared with the baseline. The user subsequently reported that the shift appears fixed. This does not establish results for other widths or all navigation paths.
+
+## Brave: extension-result loading and the document scrollbar
+
+The follow-up report remained reproducible in Brave 0.43.0 when discovery supplied the cards. Read-only measurements on the requested public profiles at a 1280px viewport showed a different transition: the sidebar remained collapsed, but document client width changed 1265 → 1280 → 1265px as the outgoing results disappeared and the incoming native cards attached. Main/feed/card x changed 112.5 → 120 → 112.5px. On the second profile the empty interval began at 1074ms and enough comments arrived to restore the scrollbar at 4127ms. Thus classic scrollbar removal widened the centered layout; the native-sidebar seeding alone could not prevent this shift.
+
+Reserve the document scrollbar gutter while the existing early profile-discovery marker is active. Use the browser's `scrollbar-gutter: stable`, preserving Reddit's own columns, padding and sidebar state. The same rule covers loading, populated, empty and error states. It is removed through the existing marker lifecycle on unsupported routes or discovery opt-out. No custom viewport width, margin, cookie change, network request or extra observer is needed. Overlay-scrollbar browsers retain their native behavior.
+
+| Transition | Acceptance |
+|---|---|
+| Populated Posts → empty/loading Comments → attached extension cards | Rendered column width and main/feed x remain constant; loaded cards align to the feed. |
+| Populated Comments → loading Overview/Posts | Same stable gutter and native column position. |
+| Empty/error result | Gutter stays reserved while the discovery profile is active; no loading-only centering change. |
+| Unsupported route / discovery disabled | The scoped rule stops applying with the early marker; native page behavior resumes. |
+
+The regression test checks computed gutter behavior with the actual early profile marker through empty/loading and populated feeds, then opt-out and an unsupported native profile section. Live verification must use Brave with extension-sourced results and classic scrollbars; the earlier Chrome native-feed checks did not establish this behavior.
+
+With the exact scoped CSS applied temporarily in the affected Brave tab, Comments → Posts kept main/feed/card x at 112.5px throughout the empty/loading interval and while 1–12 extension posts attached. The DOM clientWidth still reflects physical scrollbar presence (1280/1265px), but the reserved gutter keeps the rendered columns stable. The temporary verification style is removed after inspection; the packaged stylesheet supplies the permanent rule after extension reload and page refresh.
