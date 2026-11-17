@@ -15,6 +15,7 @@
       "run_at": "document_start",
       "world": "MAIN",
       "js": [
+        "chat-cache-read.js",
         "history-store.js",
         "native-identities.js",
         "page-bridge.js"
