@@ -297,12 +297,14 @@
         if(this.profileOwner!==owner){this.profileOwner=owner;signedInName='';rememberIdentity('');this.ownIdentityChecked=false;this.clearOwnListHeader();this.discardAllParked();this.reset({retainNavigation:false});this.scan();}});
       this.ready=this.loadSettings();
     }
-    async loadSettings(){const revision=this.settingsRevision;try{const saved=await this.readSettings();if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=false;this.settings=M.normalizeSettings(saved?.[key]);viewedHistoryOn=this.settings.postDiscovery && this.settings.historyLimit!==20;this.scan();}catch{if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=true;this.scan();}}
+    async loadSettings(){const revision=this.settingsRevision;try{const saved=await this.readSettings();if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=false;this.settings=M.normalizeSettings(saved?.[key]);this.syncSmoothFeed();viewedHistoryOn=this.settings.postDiscovery && this.settings.historyLimit!==20;this.scan();}catch{if(revision!==this.settingsRevision)return;this.settingsPending=false;this.settingsError=true;this.scan();}}
     // Storage and the worker both announce a settings change; only the first one
     // differs. Turning discovery or the archive on or off rebuilds the view; a
     // change to restoring deleted text only adjusts what is already mounted.
+    // Smooth long feeds (setting): the page-world feed bridge keeps posts mounted and skips drawing far ones.
+    syncSmoothFeed(){const on=!this.dead && Boolean(this.settings?.postDiscovery) && this.settings?.smoothFeeds!==false;document.documentElement.toggleAttribute('data-rt-smooth-feed',on);}
     applySettings(next){
-      if(this.dead)return;const previous=this.settings,fresh=this.settingsPending || this.settingsError,names=['postDiscovery','archiveDiscovery','restoreDeletedContent','historyLimit'];
+      if(this.dead)return;document.documentElement.toggleAttribute('data-rt-smooth-feed',Boolean(next?.postDiscovery) && next?.smoothFeeds!==false);const previous=this.settings,fresh=this.settingsPending || this.settingsError,names=['postDiscovery','archiveDiscovery','restoreDeletedContent','historyLimit'];
       if(!fresh && names.every(name=>previous[name]===next[name]))return;
       viewedHistoryOn=Boolean(next.postDiscovery) && (next.historyLimit ?? 20)!==20;
       const rebuild=fresh || previous.postDiscovery!==next.postDiscovery || previous.archiveDiscovery!==next.archiveDiscovery || (previous.historyLimit ?? 20)!==(next.historyLimit ?? 20);
@@ -3186,7 +3188,7 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
     destroy(){this.dead=true;this.syncRemovedTab('');if(this.onRemovedTab){window.removeEventListener('click',this.onRemovedTab,true);window.removeEventListener('keydown',this.onRemovedTab,true);}document.querySelector('[data-rt-ui="removed-tab"]')?.remove();if(this.onHeaderResize)removeEventListener('resize',this.onHeaderResize);this.ownIdentityController?.abort();this.clearOwnListHeader();this.clearHeaderFilters();this.ownIdentityError?.remove();document.removeEventListener('submit',this.onOwnSubmit,true);document.removeEventListener('focusin',this.onOwnFocus,true);this.discardAllParked();this.avatarUnsubscribe?.();clearTimeout(this.timer);this.observer?.disconnect();
       // An orphaned script can no longer reach its extension's APIs.
       try{globalThis.chrome?.runtime?.onMessage?.removeListener?.(this.onWorkerSettings);}catch{}try{globalThis.chrome?.storage?.onChanged?.removeListener?.(this.onSettings);}catch{}
-      window.removeEventListener('popstate',this.onRoute);if(this.onUserScroll)window.removeEventListener('scroll',this.onUserScroll);clearTimeout(this.scrollDeferTimer);document.removeEventListener('reddit:route',this.onRoute);document.removeEventListener('keydown',this.onEmptyProfileSearch,true);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}
+      document.documentElement.removeAttribute('data-rt-smooth-feed');window.removeEventListener('popstate',this.onRoute);if(this.onUserScroll)window.removeEventListener('scroll',this.onUserScroll);clearTimeout(this.scrollDeferTimer);document.removeEventListener('reddit:route',this.onRoute);document.removeEventListener('keydown',this.onEmptyProfileSearch,true);this.reset({retainNavigation:false});document.documentElement.removeAttribute('data-rt-profile-discovery');}
   }
   // One archive item as the same Reddit-native card the profile archive draws, for pages that are not a
   // profile (the subreddit archive). Inert actions, archive status badge, no live Reddit lookups.

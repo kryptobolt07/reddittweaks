@@ -1796,3 +1796,11 @@ test('cards finished during a flick away from the feed end are reconciled once t
   d.lastScrollAt=W.performance.now();d.batchInView=true;d.reconcileFeed();assert.equal(dedupes,2,'near the feed end, new cards are published at once');
   d.lastScrollAt=undefined;d.batchInView=false;d.reconcileFeed();assert.equal(dedupes,3,'when not scrolling, it runs at once');
 });
+
+test('the Smooth long feeds setting marks the page for the feed bridge and clears with it',async t=>{
+  const {W,d}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:false}});await d.ready;const html=W.document.documentElement;
+  assert.equal(html.hasAttribute('data-rt-smooth-feed'),true,'on by default');
+  d.applySettings({postDiscovery:true,archiveDiscovery:false,smoothFeeds:false});assert.equal(html.hasAttribute('data-rt-smooth-feed'),false);
+  d.applySettings({postDiscovery:true,archiveDiscovery:false,smoothFeeds:true});assert.equal(html.hasAttribute('data-rt-smooth-feed'),true);
+  d.applySettings({postDiscovery:false,archiveDiscovery:false,smoothFeeds:true});assert.equal(html.hasAttribute('data-rt-smooth-feed'),false,'off with profile discovery');
+});

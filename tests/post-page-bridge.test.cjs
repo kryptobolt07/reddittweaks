@@ -772,3 +772,23 @@ test('placeholders are swapped back as they come within four screens, from the o
  assert.equal(ahead.node.parentElement,feed,'restored ahead of the reader');assert.equal(ahead.placeholder.isConnected,false);assert.equal(far.placeholder.isConnected,true);
  assert.deepEqual(controller.topStack.map(e=>e.node.id),['far']);assert.equal(controller.topPadding,400);assert.equal(reads,0);
 });
+// Smooth long feeds (setting, default on): loaded posts stay in the page and the browser skips drawing those far off
+// screen (content-visibility), instead of swapping them for placeholders that must be rebuilt while flicking.
+test('with smooth feeds, nearby-far posts stay mounted; only very distant ones are swapped out',async t=>{
+ const {W,feed,controller,card,run}=virtualFeed(t);W.document.documentElement.setAttribute('data-rt-smooth-feed','');
+ const old=card('old',-4000,500),ancient=card('ancient',-40000,500),visible=card('visible',0,500);feed.append(ancient,old,visible);await new Promise(r=>setTimeout(r,0));run();
+ assert.equal(old.isConnected,true,'5+ screens above stays in the page');assert.equal(ancient.isConnected,false,'beyond the safety distance it is still swapped out');assert.deepEqual(controller.topStack.map(e=>e.node.id),['ancient']);
+});
+test('with smooth feeds, posts beyond two screens skip drawing at their measured height and draw again as they near',async t=>{
+ const {W,feed,card,run,observers}=virtualFeed(t);W.document.documentElement.setAttribute('data-rt-smooth-feed','');
+ const far=card('far',-3000,480),near=card('near',0,300),loader=card('loader',900,40);loader.dataset.rtUi='profile-loading';feed.append(far,near,loader);await new Promise(r=>setTimeout(r,0));run();
+ const skip=observers.find(o=>o.targets.has(far));assert.ok(skip,'feed posts are observed');assert.match(skip.options.rootMargin,/200%/);assert.equal(skip.targets.has(loader),false,'extension UI is left alone');
+ skip.callback([{target:far,isIntersecting:false,boundingClientRect:{height:480}},{target:near,isIntersecting:true,boundingClientRect:{height:300}}],skip);run();
+ assert.equal(far.hasAttribute('data-rt-skip'),true);assert.equal(far.style.containIntrinsicSize,'auto 480px');assert.equal(near.hasAttribute('data-rt-skip'),false);
+ skip.callback([{target:far,isIntersecting:true,boundingClientRect:{height:480}}],skip);run();assert.equal(far.hasAttribute('data-rt-skip'),false,'drawn again as it nears');
+ W.document.documentElement.removeAttribute('data-rt-smooth-feed');W.document.dispatchEvent(new W.Event('scroll'));await new Promise(r=>setTimeout(r,W.__rtFeedIdleMs*2+20));run();
+ skip.callback([{target:far,isIntersecting:false,boundingClientRect:{height:480}}],skip);run();assert.equal(far.hasAttribute('data-rt-skip'),false,'off: nothing is skipped');
+});
+test('the skip rule hides drawing only, keeping the remembered height',()=>{
+ const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/shreddit-feed\[data-rt-loading-owner\]>\[data-rt-skip\]\{content-visibility:hidden/);
+});
