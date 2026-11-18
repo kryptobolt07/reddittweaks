@@ -65,11 +65,16 @@
   // Observe only candidate chat roots; timer probing is bounded to hydration.
   let discoveryTimer=0,queued=false,hydrationUntil=0;
   const watched=new Set(),observers=[];
-  const candidate=node=>node.nodeType===1 && (node.localName?.startsWith('rs-') || node.matches?.('[data-testid="chat-room-list"]') || Boolean(node.shadowRoot));
+  // Only chat elements or a floating-chat shell position: Reddit's posts and players also have shadow roots, and treating
+  // every one as a candidate re-ran discovery on each batch of posts while scrolling (measured 2026-11-19).
+  const candidate=node=>A.chatNode?A.chatNode(node):node.nodeType===1 && (node.localName?.startsWith('rs-') || node.matches?.('[data-testid="chat-room-list"]'));
   function endDiscovery(){clearTimeout(discoveryTimer);for(const observer of observers)observer.disconnect();observers.length=0;watched.clear();document.removeEventListener('rcs-chat-present',wake);document.removeEventListener('rcs-chat-starting',wake);}
   function discover(){
     queued=false;clearTimeout(discoveryTimer);if(used)return;
     const roots=A.chatRoots();check(roots);if(used)return;
+    // The floating shell is in every page even with chat closed; only an open chat app has a list to catch. Opening
+    // chat announces itself (rcs-chat-present), so a closed shell is neither watched nor polled (measured 2026-11-19).
+    if(!roots.some(root=>root.querySelector?.('rs-app, rs-rooms-nav, [data-testid="chat-room-list"]')))return;
     for(const root of roots)if(!watched.has(root)){
       watched.add(root);const observer=new MutationObserver(wake);observer.observe(root,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','class','style']});observers.push(observer);
     }

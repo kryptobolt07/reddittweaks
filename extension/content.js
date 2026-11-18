@@ -795,7 +795,8 @@
   const maxProbeDelay=30000;
   const chatSelector='rs-app, rs-room, [data-testid="chat-room-list"], [data-testid="chat-room"]';
   const wakeProbe=()=>{idle=false;probeDelay=1800;probeAt=0;};
-  const chatCandidate=node=>node.nodeType===1 && Boolean(node.shadowRoot || node.localName?.startsWith('rs-') || node.matches?.(chatSelector));
+  // Chat elements or a shell position only: Reddit's feed components also carry shadow roots (measured 2026-11-19).
+  const chatCandidate=node=>node.nodeType===1 && Boolean(A.chatNode?.(node) || node.localName?.startsWith('rs-') || node.matches?.(chatSelector));
   // Native virtualization replaces rows on every scroll. Reconcile those
   // mutations once the gesture pauses, while bounding how long data can wait.
   let lastNativeScroll=0, pendingSince=0;
