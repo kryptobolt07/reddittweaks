@@ -178,10 +178,16 @@
    player.dispatchEvent(new this.win.Event('rt-prepare-feed-preview',{bubbles:true}));
    if(video.readyState>=1)this.playPreview(player,preview);
   }
+  // Playback goes through Reddit's own player (page bridge) so its controls show the playing state; a direct
+  // <video>.play() left Reddit's play icon and poster up (measured 2026-11-19).
+  play(player,video){
+   if(!player.dispatchEvent(new this.win.Event('rt-play-video',{bubbles:true,cancelable:true})))return Promise.resolve();
+   return video.play();
+  }
   playPreview(player,preview){
    if(preview.requested || this.hovered!==player)return;
    preview.requested=true;
-   preview.video.play()?.catch?.(()=>{
+   this.play(player,preview.video)?.catch?.(()=>{
     if(this.previews.get(player)===preview && preview.active)this.stopHover();
    });
   }
@@ -235,7 +241,7 @@
    else video.muted=true;
    if(video.paused){
     this.continued.add(video);
-    video.play()?.catch?.(()=>this.continued.delete(video));
+    this.play(player,video)?.catch?.(()=>this.continued.delete(video));
    }
   }
   remember(event){
@@ -342,7 +348,7 @@
    video.playbackRate=rate;
    if(muted){video.volume=volume;video.muted=true;}else this.fadeIn(video,volume,player);
    this.continued.add(video);
-   video.play()?.catch?.(()=>this.continued.delete(video));
+   this.play(player,video)?.catch?.(()=>this.continued.delete(video));
   }
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
@@ -406,7 +412,7 @@
    this.away.delete(player);delete player.dataset.rtPausedAway;
    if(Math.abs(video.currentTime-away.time)>0.25)video.currentTime=away.time;
    this.continued.add(video);
-   video.play()?.catch?.(()=>this.continued.delete(video));
+   this.play(player,video)?.catch?.(()=>this.continued.delete(video));
   }
   // The feed video at least 60 % visible and nearest the middle of the screen previews; one at a time.
   pickInView(){
