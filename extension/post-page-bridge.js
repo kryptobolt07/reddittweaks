@@ -136,6 +136,69 @@
     event.preventDefault();
     Promise.resolve(player.play()).catch(()=>{});
   });
+  // YouTube embeds: Reddit renders lite-youtube with its YouTube player API (js-api) inside shreddit-embed. Previews,
+  // sound and continuation use that player; nothing is fetched beyond what Reddit's own activation loads.
+  const ytPlayers=new WeakMap(),youTubeEmbed='shreddit-embed[providername="YouTube"]';
+  const liteOf=embed=>embed?.matches?.(youTubeEmbed) && typeof embed.liteYoutubeElement?.activate==='function' ? embed.liteYoutubeElement : null;
+  async function youTubePlayer(embed,params={}){
+    const lite=liteOf(embed);if(!lite)return null;
+    if(!lite.classList.contains('lyt-activated')){
+      const own=new URLSearchParams(lite.getAttribute('params') || '');
+      for(const [key,value] of Object.entries(params))own.set(key,value);
+      lite.setAttribute('params',own.toString());
+      embed.hasActivatedYouTubePlayer=true;
+      await lite.activate();
+    }
+    const player=await lite.getYTPlayer?.();
+    if(player)ytPlayers.set(embed,player);
+    return player || null;
+  }
+  const youTubeCall=(embed,run)=>Promise.resolve(ytPlayers.get(embed) || null).then(player=>player && run(player)).catch(()=>{});
+  // A YouTube video the user starts with its own play button is followed too, so opening its post continues it.
+  document.addEventListener('click',event=>{
+    const embed=event.composedPath().find(node=>node.matches?.(youTubeEmbed)),lite=liteOf(embed);
+    if(lite)setTimeout(()=>{if(lite.classList.contains('lyt-activated'))Promise.resolve(lite.getYTPlayer()).then(player=>{if(player)ytPlayers.set(embed,player);},()=>{});},0);
+  },true);
+  document.addEventListener('rt-embed-preview',event=>{
+    const embed=event.target;if(!liteOf(embed))return;
+    event.preventDefault();
+    youTubePlayer(embed,{mute:'1'}).then(player=>{if(embed.dataset.rtEmbedPreview!=='on')return;player?.mute();player?.playVideo();},()=>{});
+  });
+  // End of a preview: pause where it is and restore sound for the user's own play button.
+  document.addEventListener('rt-embed-stop',event=>youTubeCall(event.target,player=>{player.pauseVideo();player.unMute();}));
+  document.addEventListener('rt-embed-sound',event=>youTubeCall(event.target,player=>{
+    const target=player.getVolume?.() || 50,begin=performance.now();
+    player.setVolume(0);player.unMute();player.playVideo();
+    const step=()=>{const t=Math.min(1,(performance.now()-begin)/200);player.setVolume(Math.round(target*t));if(t<1)setTimeout(step,16);};
+    step();
+  }));
+  // Synchronous read for the content script: whether it plays, where, and with sound.
+  document.addEventListener('rt-embed-snapshot',event=>{
+    const embed=event.target,player=ytPlayers.get(embed);
+    delete embed.dataset.rtEmbedState;delete embed.dataset.rtEmbedTime;delete embed.dataset.rtEmbedMuted;
+    try{
+      if(!player?.getPlayerState)return;
+      // During YouTube's pre-roll ad the state stays "unstarted" (-1) while the ad's own clock runs: the video
+      // itself starts from 0.
+      const state=player.getPlayerState(),time=player.getCurrentTime(),ad=state===-1 && time>0;
+      embed.dataset.rtEmbedState=state===1 || state===3 || ad ? 'playing' : 'paused';
+      embed.dataset.rtEmbedTime=String(ad?0:time);
+      embed.dataset.rtEmbedMuted=String(player.isMuted());
+    }catch{}
+  });
+  // The post's own embed continues where the feed's was (data-rt-start, data-rt-muted).
+  document.addEventListener('rt-embed-continue',event=>{
+    const embed=event.target,start=Number(embed.dataset.rtStart),muted=embed.dataset.rtMuted==='true',id=route()?.id;
+    if(!liteOf(embed) || !id || embed.closest('shreddit-post')?.id!=='t3_'+id || embed.closest('shreddit-feed') || !(start>=0))return;
+    event.preventDefault();
+    youTubePlayer(embed,{start:String(Math.floor(start)),...(muted?{mute:'1'}:{})}).then(player=>{
+      if(!player)return;
+      player.seekTo(start,true);
+      if(muted)player.mute();
+      else{embed.dispatchEvent(new Event('rt-embed-sound'));return;}
+      player.playVideo();
+    },()=>{});
+  });
   // Sound for a preview that plays for real goes through Reddit's own volume state, which every player follows.
   document.addEventListener('rt-video-sound',event=>{
     const player=event.target,video=player.shadowRoot?.querySelector?.('video'),volume=player.volumeController;
