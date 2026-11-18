@@ -170,6 +170,27 @@ const nativeFeedOptions=()=>'<div class="flex items-center"><shreddit-sort-dropd
 const sortedFeed=()=>feed().replace('<div><shreddit-sort-dropdown></shreddit-sort-dropdown></div>',nativeFeedOptions());
 const sortedPath='/r/Example/top/?t=week&rt_type=video&f=flair_name%3A%22News%22&feedViewType=compactView';
 const replaced='data-rt-community-sort-replaced';
+const heldSorts='data-rt-community-sort-boot';
+
+test('the production startup hides native feed sort before settings settle and restores it on opt-out',async t=>{
+ const {window:W}=new JSDOM('<body></body>',{url:'https://www.reddit.com'+sortedPath,runScripts:'outside-only'}),D=W.document;
+ t.after(()=>{W.RTLiveSubredditFiltersDebug?.destroy();W.close();});
+ let settings;
+ W.chrome={runtime:{id:'test',sendMessage:()=>new Promise(resolve=>{settings=resolve;}),onMessage:{addListener(){}}}};
+ const script=JSON.parse(read('manifest.json')).content_scripts.find(entry=>entry.js?.includes('live-subreddit-filters.js'));
+ assert.equal(script.run_at,'document_start');
+ for(const name of script.js.filter(name=>['feed-filters.js','feed-sheet.js','live-subreddit-filters.js'].includes(name)))W.eval(read(name));
+ assert.equal(D.documentElement.hasAttribute(heldSorts),true,'the gate is present before any feed markup');
+ D.body.innerHTML=sortedFeed();
+ const bootRule=read('post-discovery.css').split('\n').find(line=>line.startsWith('html['+heldSorts+']'));
+ assert.ok(bootRule,'the prepaint gate has a stylesheet rule');
+ const style=D.createElement('style');style.textContent=bootRule;D.head.append(style);
+ assert.equal(W.getComputedStyle(D.querySelector('[sort-event="feed-sort-change"]')).display,'none');
+ assert.notEqual(W.getComputedStyle(D.querySelector('shreddit-layout-switcher')).display,'none');
+ settings({ok:true,settings:{postDiscovery:false}});await flush();
+ assert.equal(D.documentElement.hasAttribute(heldSorts),false);
+ assert.notEqual(W.getComputedStyle(D.querySelector('[sort-event="feed-sort-change"]')).display,'none');
+});
 
 test('desktop Feed options moves native sorting and Top time ranges into Sort, preserving other filters',t=>{
  const {D,targets,W,controller}=setup(t,sortedPath,sortedFeed());
@@ -221,4 +242,14 @@ test('native sort stays visible until links arrive and a replaced control is int
  assert.equal(D.querySelectorAll('shreddit-sort-dropdown['+replaced+']').length,2);
  controller.destroy();
  assert.equal(D.querySelectorAll('['+replaced+']').length,0);
+});
+
+test('an unsupported native feed sort remains available and the boot gate stays off on search',async t=>{
+ const {D,W}=setup(t,'/r/Example/',sortedFeed().replace(/<a href="\/r\/Example\/(?:best|new|top)\/">(Best|New|Top)<\/a>/g,''));
+ const sort=D.querySelector('[sort-event="feed-sort-change"]');
+ assert.equal(sort.hasAttribute(replaced),false);
+ assert.equal(sort.hasAttribute('data-rt-community-sort-native'),true);
+ W.history.pushState({},'','/r/Example/search/?q=fixture');
+ D.dispatchEvent(new W.Event('reddit:route'));await flush();
+ assert.equal(D.documentElement.hasAttribute(heldSorts),false);
 });

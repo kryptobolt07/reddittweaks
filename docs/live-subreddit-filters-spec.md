@@ -21,10 +21,12 @@ On Media search, the Media type submenu lets users combine Photos, Videos, GIFs 
 
 ## Sort in subreddit feed options
 
-Live Reddit renders native sorts and Top time ranges as separate `shreddit-sort-dropdown` controls with `feed-sort-change` and `feed-time-sort-change`. Use the native links from those controls inside desktop Sort and the phone sheet. The active sort and time range use Reddit's selected labels. Preserve flair, the local type filter and feed layout on sort navigation. Hide an original control only when its replacement has usable links. Restore it on navigation or opt-out. Search keeps its own native Sort control. The independent feed View control stays available.
+Live Reddit renders native sorts and Top time ranges as separate `shreddit-sort-dropdown` controls with `feed-sort-change` and `feed-time-sort-change`. The main sort's links arrive in Reddit's initial markup. Use those links inside desktop Sort and the phone sheet. The active sort and time range use Reddit's selected labels. Preserve flair, the local type filter and feed layout on sort navigation. Hide those identified controls from the first paint on managed feed routes. Return a control to Reddit if its menu cannot be populated. Search keeps its own native Sort control. The independent feed View control stays available.
 
 | Transition | Acceptance |
 |---|---|
-| Feed load or native sort hydration | One Sort entry in desktop Feed options or one Sort group in its phone sheet. Native controls are hidden only after populated choices are available. |
+| Feed load or native sort hydration | Suppress the recognized sort controls before the managed toolbar appears, then show one Sort entry in Feed options. Restore unsupported controls and release the hold on opt-out. |
 | Select a sort or a Top time range | Follow Reddit's same-community destination and preserve unrelated filters. Current values reflect the destination. |
 | Feed or native controls are replaced | Pick up the new controls, with no duplicate extension menu. Restore the native controls on disable or teardown. |
+
+With this extension alone in a clean Chromium profile, the first frame containing the sort rail on a live subreddit had Feed options and Reddit's View control visible. The native Sort control had zero visible frames.
