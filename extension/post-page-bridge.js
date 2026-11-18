@@ -17,6 +17,78 @@
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
+  const videoPlayers='shreddit-player,shreddit-player-2';
+  let heldVideo;
+  function movePlayer(parent,player,before=null){
+    if(parent.moveBefore)parent.moveBefore(player,before);
+    else parent.insertBefore(player,before);
+  }
+  function releaseVideo(){
+    if(!heldVideo)return;
+    const {player,slot,stage,controller,restorePause}=heldVideo;
+    heldVideo=null;
+    restorePause();
+    if(slot.isConnected)movePlayer(slot.parentNode,player,slot);
+    slot.remove();
+    controller.endDomReparent();
+    stage.remove();
+  }
+  document.addEventListener('rt-hold-feed-video',event=>{
+    const player=event.target,id=player.getAttribute?.('post-id'),controller=player.mediaFbpController;
+    const video=player.shadowRoot?.querySelector('video');
+    if(heldVideo || !player.matches?.(videoPlayers) || player.getAttribute('player-type')!=='in_feed_player' ||
+       !id || player.closest('shreddit-post')?.id!==id || !video || video.paused || video.ended ||
+       typeof controller?.beginDomReparent!=='function' || typeof controller.endDomReparent!=='function' ||
+       controller.shouldPreserveMedia?.() || typeof player.pause!=='function')return;
+    const {left,top,width,height}=player.getBoundingClientRect();
+    if(!width || !height || !document.body)return;
+    const stage=document.createElement('div'),slot=document.createElement('div');
+    stage.setAttribute('aria-hidden','true');
+    slot.setAttribute('aria-hidden','true');
+    slot.style.height=height+'px';
+    Object.assign(stage.style,{position:'fixed',zIndex:'3',pointerEvents:'none',overflow:'hidden',
+      left:left+'px',top:top+'px',width:width+'px',height:height+'px'});
+    player.before(slot);
+    document.body.append(stage);
+    const pause=player.pause,ownPause=Object.hasOwn(player,'pause');
+    function preserveNavigation(reason,...args){
+      // Reddit calls the background pause for both route changes and actual tab visibility.
+      if(reason==='background' && document.visibilityState==='visible')return;
+      return pause.call(this,reason,...args);
+    }
+    player.pause=preserveNavigation;
+    const restorePause=()=>{
+      if(player.pause!==preserveNavigation)return;
+      if(ownPause)player.pause=pause;
+      else delete player.pause;
+    };
+    controller.beginDomReparent();
+    movePlayer(stage,player);
+    heldVideo={player,id,slot,stage,controller,restorePause};
+    event.preventDefault();
+  });
+  document.addEventListener('rt-place-held-video',event=>{
+    const detail=event.target,id=route()?.id;
+    if(!heldVideo || !id || heldVideo.id!=='t3_'+id || !detail.matches?.(videoPlayers) ||
+       detail.getAttribute('player-type')!=='post_detail_screen' || detail.getAttribute('post-id')!==heldVideo.id ||
+       detail.closest('shreddit-post')?.id!==heldVideo.id || detail.localName!==heldVideo.player.localName)return;
+    const {player,slot,stage,controller,restorePause}=heldVideo;
+    heldVideo=null;
+    // Keep a fresh feed player in Reddit's cached card for Back navigation.
+    slot.replaceWith(player.cloneNode(true));
+    for(const name of ['class','style','slot','player-type','data-post-click-location','priority','is-mobile','hide-autoplay-toggle']){
+      const value=detail.getAttribute(name);
+      if(value===null)player.removeAttribute(name);
+      else if(player.getAttribute(name)!==value)player.setAttribute(name,value);
+    }
+    movePlayer(detail.parentNode,player,detail);
+    detail.remove();
+    restorePause();
+    controller.endDomReparent();
+    stage.remove();
+    event.preventDefault();
+  });
+  document.addEventListener('rt-release-feed-video',releaseVideo);
   // A lazy native player needs Reddit's own media loader before its <video> has metadata.
   document.addEventListener('rt-prepare-detail-video',event=>{
     const player=event.target,id=route()?.id;
