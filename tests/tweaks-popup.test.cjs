@@ -177,7 +177,7 @@ test('Home summarises active features and Manage opens Settings; each settings g
   assert.equal(doc.getElementById('feature-summary').textContent,'8 of 15 features on','dependent options whose parent is off do not count; Smooth scrolling and the video options are on by default');
   doc.getElementById('manage-features').click();assert.equal(doc.getElementById('panel-settings').hidden,false);
   const count=id=>doc.querySelector('[aria-labelledby="'+id+'"] .group-count').textContent;
-  assert.equal(count('reddit-heading'),'7 of 8 on');assert.equal(count('tools-heading'),'1 of 1 on');assert.equal(count('archive-heading'),'0 of 4 on');
+  assert.equal(count('reddit-heading'),'3 of 4 on');assert.equal(count('videos-heading'),'4 of 4 on','previews, keep playing, pause away and autoplay in their own card');assert.equal(count('tools-heading'),'1 of 1 on');assert.equal(count('archive-heading'),'0 of 4 on');
   const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));
   assert.equal(count('archive-heading'),'2 of 4 on','the archive and its already-on restore option');assert.equal(doc.getElementById('feature-summary').textContent,'10 of 15 features on');
 });
