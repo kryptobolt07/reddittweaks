@@ -763,3 +763,8 @@ shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{displa
 .rt-fsheet-lead.rt-fsheet-avatar .rt-account-glyph svg{width:20px;height:20px}
 .rt-account-glyph.rt-plain{background:transparent}
 .rt-account-glyph{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#0f1a1c)}
+/* Desktop Switch accounts panel header: round Back and the title (Reddit menu metrics). */
+.rt-accounts-head{display:flex;align-items:center;gap:8px;padding:4px 16px 4px 8px;min-height:48px;box-sizing:border-box}
+.rt-accounts-back{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex:none;margin:0;padding:0;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-strong,#0f1a1c);cursor:pointer}
+.rt-accounts-back:hover,.rt-accounts-back:focus-visible{background:var(--color-neutral-background-hover,#f2f4f5);outline:none}
+.rt-accounts-title{font-size:16px;line-height:20px;font-weight:600;color:var(--color-neutral-content-strong,#0f1a1c)}

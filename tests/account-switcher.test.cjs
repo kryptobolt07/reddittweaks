@@ -130,7 +130,7 @@ async function page(t,{owner='t2_alice',loggedIn=true,menu='user-drawer-content'
 const rows=d=>[...d.querySelectorAll('[data-rt-ui="account-row"]')].map(li=>li.querySelector('.text-body-2').textContent+'|'+li.querySelector('.text-caption-1').textContent);
 
 const signedOutMenu=id=>'<div id="'+id+'"><ul class="w-100 p-0 m-0 list-none my-xs"><li class="relative list-none mt-0"><a class="flex justify-between relative px-md py-xs" href="/login/"><span class="flex items-center gap-xs"><svg></svg><span>Log In / Sign Up</span></span></a></li><li><a href="/advertise">Advertise on Reddit</a></li></ul></div>';
-const panelRows=d=>[...d.querySelectorAll('[data-rt-ui="accounts-panel"] [data-rt-ui="account-row"],[data-rt-ui="accounts-panel"] [data-rt-ui="account-back"]')].map(li=>li.querySelector('.text-body-2').textContent+'|'+(li.querySelector('.text-caption-1').hidden?'':li.querySelector('.text-caption-1').textContent));
+const panelRows=d=>[...d.querySelectorAll('[data-rt-ui="accounts-panel"] [data-rt-ui="account-row"],[data-rt-ui="accounts-panel"] [data-rt-ui="account-back"]')].map(li=>li.dataset.rtUi==='account-back'?'←'+li.querySelector('.rt-accounts-title').textContent:li.querySelector('.text-body-2').textContent+'|'+(li.querySelector('.text-caption-1').hidden?'':li.querySelector('.text-caption-1').textContent));
 const entry=d=>d.querySelector('[data-rt-ui="accounts"] a');
 const open=async d=>{entry(d).click();await flush();};
 test('one Switch accounts row sits right after View Profile, built from Reddit’s own row',async t=>{
@@ -143,9 +143,9 @@ test('one Switch accounts row sits right after View Profile, built from Reddit�
 test('the submenu replaces Reddit’s sections in place: current account checked, others, Browse signed out, Add account',async t=>{
  const {d}=await page(t);await open(d);const menu=d.querySelector('#user-drawer-content');
  assert.equal([...menu.children].filter(c=>c.dataset.rtUi!=='accounts-panel').every(c=>c.style.display==='none'),true,'Reddit’s sections are hidden, not removed');
- assert.deepEqual(panelRows(d),['Switch accounts|','u/alice|Signed in','u/bob|Switch to this account','Anonymous browsing|Use Reddit without an account','Add account|Sign in to another account']);
+ assert.deepEqual(panelRows(d),['←Accounts','u/alice|Signed in','u/bob|Switch to this account','Anonymous browsing|Use Reddit without an account','Add account|Sign in to another account']);
  assert.ok(d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_alice"] [data-rt-icon="checkmark"]'));assert.equal(d.querySelector('[data-owner="t2_bob"] img').src,'https://styles.redditmedia.com/b.png');
- d.querySelector('[data-rt-ui="account-back"] a').click();await flush();assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null);assert.equal([...menu.children].some(c=>c.style.display==='none'),false,'Back restores Reddit’s menu');
+ assert.equal(d.querySelector('[data-rt-ui="account-back"] button').getAttribute('aria-label'),'Back to menu');assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]').textContent.includes('Switch accounts'),false,'the row we came from is not repeated');d.querySelector('[data-rt-ui="account-back"] button').click();await flush();assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null);assert.equal([...menu.children].some(c=>c.style.display==='none'),false,'Back restores Reddit’s menu');
  await open(d);d.dispatchEvent(new d.defaultView.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await flush();assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null,'Escape goes back first');
  await open(d);d.body.insertAdjacentHTML('beforeend','<button id="expand-user-drawer-button"></button>');d.querySelector('#expand-user-drawer-button').dispatchEvent(new d.defaultView.Event('pointerdown',{bubbles:true}));assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null,'reopening Reddit’s menu starts from its own view');
 });
