@@ -179,6 +179,7 @@
     const held=heldEmbed;if(!held)return;
     heldEmbed=null;
     if(held.lite.isConnected){movePlayer(held.lite,held.ifr);restoreStyle(held.ifr,held.style);}
+    restoreStyle(held.lite,held.liteStyle);
     held.stage.remove();
   }
   const restoreStyle=(node,value)=>{if(value===null)node.removeAttribute('style');else node.setAttribute('style',value);};
@@ -192,10 +193,12 @@
     Object.assign(stage.style,{position:'fixed',zIndex:'3',pointerEvents:'none',overflow:'hidden',
       left:left+'px',top:top+'px',width:width+'px',height:height+'px'});
     document.body.append(stage);
-    const style=ifr.getAttribute('style');
+    const style=ifr.getAttribute('style'),liteStyle=lite.getAttribute('style');
     stage.moveBefore(ifr,null);
+    // The emptied card would show Reddit's thumbnail and play button wherever the feed moves meanwhile.
+    lite.style.visibility='hidden';
     Object.assign(ifr.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
-    heldEmbed={embed,lite,ifr,player,stage,style,rect:{left,top,width,height},id:embed.closest('shreddit-post')?.id};
+    heldEmbed={embed,lite,ifr,player,stage,style,liteStyle,rect:{left,top,width,height},id:embed.closest('shreddit-post')?.id};
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-embed',event=>{
@@ -211,11 +214,21 @@
     restoreStyle(held.ifr,held.style);
     ytPlayers.set(embed,held.player);
     held.stage.remove();
+    // The cached feed card gets a fresh, unplayed embed for Back.
+    restoreStyle(held.lite,held.liteStyle);
+    held.lite.classList.remove('lyt-activated');delete held.lite.playerPromise;
+    held.embed.hasActivatedYouTubePlayer=false;ytPlayers.delete(held.embed);
     const from=held.rect,box=held.ifr.getBoundingClientRect();
     if(typeof held.ifr.animate==='function' && box.width && box.height && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){
-      const scale=from.width/box.width,x=from.left+from.width/2-box.left-box.width/2,y=from.top+from.height/2-box.top-box.height/2;
-      if(Math.abs(x)>=1 || Math.abs(y)>=1 || Math.abs(scale-1)>=.01)
-        held.ifr.animate([{transform:`translate(${x}px,${y}px) scale(${scale})`},{transform:'none'}],{duration:FLIGHT_MS,easing:'cubic-bezier(.2,.8,.2,1)'});
+      // One scale from YouTube's 16:9 picture to picture, clipped to the card's box at the start, as for videos.
+      const a=picture(from,16/9),b=picture(box,16/9),scale=a.width/b.width;
+      const x=from.left+from.width/2-box.left-box.width/2,y=from.top+from.height/2-box.top-box.height/2;
+      if(Math.abs(x)>=1 || Math.abs(y)>=1 || Math.abs(scale-1)>=.01){
+        const timing={duration:FLIGHT_MS,easing:'cubic-bezier(.2,.8,.2,1)'};
+        const insetX=Math.max(0,(box.width-from.width/scale)/2),insetY=Math.max(0,(box.height-from.height/scale)/2);
+        held.ifr.animate([{transform:`translate(${x}px,${y}px) scale(${scale})`},{transform:'none'}],timing);
+        held.ifr.animate([{clipPath:`inset(${insetY}px ${insetX}px)`},{clipPath:'inset(0px 0px)'}],timing);
+      }
     }
     event.preventDefault();
   });
