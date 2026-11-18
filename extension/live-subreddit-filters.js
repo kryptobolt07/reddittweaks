@@ -8,6 +8,9 @@
 
   const hidden = 'data-rt-community-filtered';
   const paused = 'data-rt-community-paused';
+  const outgoing = 'data-rt-community-outgoing';
+  const restoring = 'data-rt-community-restoring';
+  const returnInputs = ['wheel','touchstart','pointerdown','keydown'];
   const resultsSelector = '[data-testid="search-sdui-post"],[data-testid="search-sdui-comment"]';
   const flairKey = 'rt-community-flairs-v1';
   const searchSorts = [['relevance','Relevance','search'], ['new','New','new'], ['top','Top','top'], ['hot','Hot','hot'], ['comments','Most comments','comment']];
@@ -49,6 +52,8 @@
     return image ? 'image' : '';
   }
   const fold = value => String(value || '').toLowerCase();
+  const postId = path => /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase();
+  const historyEntry = () => window.navigation?.currentEntry?.key || location.href;
 
   function route(url = location) {
     const match = /^\/r\/([a-z0-9_]{2,21})(?:\/(best|hot|new|top|rising|controversial|search))?\/?$/i.exec(url.pathname);
@@ -160,15 +165,42 @@
       this.hidden = new Set();
       this.flairs = loadFlairs();
       this.links = new Map();
+      this.positions = new Map();
       this.onRoute = () => {
         this.panel?.close();
         this.schedule();
       };
+      this.onHistory = () => {
+        const entry = historyEntry();
+        if (this.returnEntry !== entry) {
+          this.returnEntry = entry;
+          this.returnDeadline = performance.now() + 2500;
+        }
+        this.onRoute();
+      };
+      this.onEntry = event => event.navigationType === 'traverse' ? this.onHistory() : this.onRoute();
+      this.onNavigate = event => {
+        if (event.navigationType === 'push') this.rememberPost(new URL(event.destination.url));
+      };
+      this.onPostClick = event => {
+        if (event.defaultPrevented || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        const path = event.composedPath();
+        const link = path.find(node => node.matches?.('a[href]'));
+        const card = path.find(node => node.matches?.('shreddit-post'));
+        if (!card || !link || link.hasAttribute('download') || (link.target && link.target !== '_self')) return;
+        this.rememberPost(new URL(link.href),card);
+      };
+      this.onReturnInput = () => this.finishReturn();
       this.onKeys = event => this.handleKey(event);
       this.onFocus = event => this.prepareInput(event);
       this.onScroll = () => this.resumeWhenScrolled();
       this.observer = new MutationObserver(records => {
         if ((!this.enabled && !this.waitingForSettings) || (!this.scope && !route())) return;
+        if (this.departure?.opened && !this.departure.feed.isConnected && postId(location.pathname) === this.departure.id) {
+          this.toolbar?.remove();
+          this.note?.remove();
+          return;
+        }
         if (records.some(record => {
           if (record.target.closest?.('[data-rt-ui]')) return false;
           return [...record.addedNodes, ...record.removedNodes].some(node =>
@@ -176,8 +208,12 @@
         })) this.schedule();
       });
       this.observer.observe(document, {childList:true, subtree:true});
-      window.addEventListener('popstate', this.onRoute);
+      window.addEventListener('popstate', this.onHistory);
+      window.navigation?.addEventListener('navigate',this.onNavigate);
+      window.navigation?.addEventListener('currententrychange',this.onEntry);
+      for (const type of returnInputs) window.addEventListener(type,this.onReturnInput,{capture:true,passive:true});
       document.addEventListener('reddit:route', this.onRoute);
+      document.addEventListener('click',this.onPostClick,true);
       document.addEventListener('keydown', this.onKeys, true);
       document.addEventListener('focusin', this.onFocus, true);
       window.addEventListener('scroll', this.onScroll, {passive:true});
@@ -209,7 +245,93 @@
       if (this.enabled === enabled && !this.waitingForSettings) return;
       this.waitingForSettings = false;
       this.enabled = enabled;
+      if (!enabled) this.positions.clear();
       this.refresh();
+    }
+
+    rememberPost(url, card = null) {
+      const id = postId(url.pathname), feed = this.feed;
+      if (!id || url.origin !== location.origin || !this.enabled || !feed?.isConnected ||
+          this.url.href !== location.href || !this.selectedTypes().length) return;
+      const entry = historyEntry();
+      if (this.departure?.entry === entry && this.departure?.id === id && !card) return;
+      card ||= feed.querySelector(`shreddit-post[id="t3_${id}"]`);
+      if (card?.id !== 't3_' + id || !feed.contains(card) || card.closest('[' + hidden + ']')) return;
+      const offset = (card.closest('article') || card).getBoundingClientRect().top;
+      this.departure = {id,entry,feed,href:location.href,offset,y:scrollY};
+    }
+
+    releaseDeparture() {
+      this.departure?.feed.removeAttribute(outgoing);
+      this.departure = null;
+    }
+
+    holdDeparture(url) {
+      const state = this.departure;
+      if (!state) return false;
+      if (this.enabled && url.href === state.href && !state.opened) return false;
+      if (!this.enabled || postId(url.pathname) !== state.id) {
+        this.releaseDeparture();
+        return false;
+      }
+      if (!state.opened) {
+        state.opened = true;
+        const {entry,id,href,offset,y} = state;
+        this.positions.delete(entry);
+        this.positions.set(entry,{id,href,offset,y});
+        if (this.positions.size > 8) this.positions.delete(this.positions.keys().next().value);
+      }
+      if (state.feed.isConnected && state.feed.querySelector('shreddit-post[view-context="CommentsPage"]')) {
+        this.releaseDeparture();
+        return false;
+      }
+      // Keep filtering the exact outgoing native objects until Reddit is done with them.
+      state.feed.toggleAttribute(outgoing,state.feed.isConnected);
+      if (!state.feed.isConnected) {
+        this.toolbar?.remove();
+        this.note?.remove();
+      }
+      return true;
+    }
+
+    releaseScrollHold() {
+      if (!this.scrollReturn) return;
+      this.scrollReturn.feed.removeAttribute(restoring);
+      window.cancelAnimationFrame(this.scrollReturn.frame);
+      this.scrollReturn = null;
+    }
+
+    finishReturn() {
+      this.returnEntry = null;
+      this.releaseScrollHold();
+    }
+
+    restoreAfterBack() {
+      const saved = this.positions.get(this.returnEntry), feed = this.feed;
+      if (!saved || saved.href !== location.href || !feed || this.scrollReturn?.feed === feed) return;
+      this.releaseScrollHold();
+      const state = this.scrollReturn = {feed,until:this.returnDeadline,stable:0};
+      feed.setAttribute(restoring,'');
+      const step = () => {
+        if (this.scrollReturn !== state) return;
+        if (!feed.isConnected) { this.releaseScrollHold(); return; }
+        if (performance.now() >= state.until || saved.href !== location.href) { this.finishReturn(); return; }
+        const card = feed.querySelector(`shreddit-post[id="t3_${saved.id}"]`);
+        const box = card && !card.closest('[' + hidden + ']') && (card.closest('article') || card).getBoundingClientRect();
+        if (box?.height) {
+          const delta = box.top - saved.offset;
+          if (Math.abs(delta) >= 1) {
+            state.stable = 0;
+            window.scrollBy({top:delta,behavior:'instant'});
+          } else if (++state.stable >= 2) { this.finishReturn(); return; }
+        } else {
+          const max = Math.max(0,document.documentElement.scrollHeight - innerHeight);
+          const target = Math.min(saved.y,max);
+          if (Math.abs(scrollY - target) >= 1) window.scrollTo({top:target,behavior:'instant'});
+        }
+        state.frame = window.requestAnimationFrame(step);
+      };
+      step();
     }
 
     clear() {
@@ -227,9 +349,11 @@
 
     refresh() {
       const url = new URL(location.href);
+      if (!this.enabled || (this.returnEntry && this.returnEntry !== historyEntry())) this.finishReturn();
       const current = route(url);
       const archive = current && document.querySelector('[data-rt-ui="archive-subreddit"]');
       document.documentElement?.toggleAttribute(sortBoot,Boolean((this.enabled || this.waitingForSettings) && current?.kind === 'feed' && !archive));
+      if (this.holdDeparture(url)) return;
       const scope = this.enabled && current;
       const main = document.querySelector('main');
       const feed = scope?.kind === 'feed' && main?.querySelector('shreddit-feed');
@@ -255,6 +379,7 @@
       else this.placeSearchControls(tabs);
       this.collectFlairs();
       this.filterResults();
+      this.restoreAfterBack();
       this.updateToolbar();
       this.updateLinks();
       if (!this.feed) this.prepareBrowseHeader();
@@ -1054,11 +1179,17 @@
     destroy() {
       if (this.dead) return;
       this.dead = true;
+      this.finishReturn();
+      this.releaseDeparture();
       this.clear();
       document.documentElement?.removeAttribute(sortBoot);
       this.observer.disconnect();
-      window.removeEventListener('popstate',this.onRoute);
+      window.removeEventListener('popstate',this.onHistory);
+      window.navigation?.removeEventListener('navigate',this.onNavigate);
+      window.navigation?.removeEventListener('currententrychange',this.onEntry);
+      for (const type of returnInputs) window.removeEventListener(type,this.onReturnInput,true);
       document.removeEventListener('reddit:route',this.onRoute);
+      document.removeEventListener('click',this.onPostClick,true);
       document.removeEventListener('keydown',this.onKeys,true);
       document.removeEventListener('focusin',this.onFocus,true);
       window.removeEventListener('scroll',this.onScroll);

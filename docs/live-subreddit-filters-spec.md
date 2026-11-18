@@ -42,3 +42,15 @@ The subreddit toolbar button and its phone sheet are named **Feed options**, the
 | Post type, Flair | Drill-ins in the menu | Chips and a Flair drill-in in the sheet |
 
 Reddit's native sort menu carries no icons; the New glyph is the outline clock with a heavier ring, not a filled variant.
+
+## Opening and returning to a filtered feed
+
+On live Brave, opening **Circus champion tricks** from the Videos feed changed the URL while the original subreddit feed was still mounted. The old card filter was cleared at that point, before Reddit attached the detail page. Back reused the outgoing feed and its paginated cards. Save the opened card's ID and viewport offset before navigation so the filtered layout can correct Reddit's restored scroll position.
+
+| Transition | Acceptance |
+|---|---|
+| T2, T7: open a post from a type-filtered feed | Keep the old feed filtered. Hide it while Reddit replaces it, including opens where no video was playing. A detail card mounted in the same container remains visible. |
+| T3, T4: return to that feed history entry | Apply the saved URL's filters before restoring the card and its viewport offset. Let geometry settle before revealing the feed. If the card is missing, try the saved scroll coordinate for a bounded time. |
+| T10, T16: redirect, user interaction or opt-out | Release the hold. A different feed entry, a new-tab click or a reader taking over scrolling does not inherit the saved position. |
+
+The same-document return state is scoped to the browser history entry. On the same live Videos feed in Brave, a later paginated video opened with the outgoing feed hidden and its filter marks intact. After Back, a probe shifted the scroll by 180 px during restoration. The card returned to its original 109 px viewport offset before the feed was shown. Fresh documents still use Reddit's native scroll restoration.

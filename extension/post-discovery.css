@@ -774,6 +774,7 @@ shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{displa
 /* Keep the feed's scroll geometry while only the held video is painted. */
 
 /* Live feed options and inline native search filters. */
+[data-rt-community-outgoing],[data-rt-community-restoring]{visibility:hidden!important;opacity:0!important;pointer-events:none!important}
 [data-rt-community-filtered],[data-rt-community-paused],[data-rt-community-sort-replaced],.rt-community-note [hidden]{display:none!important}
 html[data-rt-community-sort-boot] main shreddit-sort-dropdown:is([sort-event="feed-sort-change"],[sort-event="feed-time-sort-change"]):not([data-rt-community-sort-native]){display:none!important}
 .rt-community-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding-block:4px 8px}

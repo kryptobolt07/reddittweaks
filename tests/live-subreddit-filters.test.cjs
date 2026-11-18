@@ -20,6 +20,69 @@ test('only scoped live feed and search routes qualify',t=>{
  assert.equal(api.route(new W.URL('/r/Example/top/',W.location)).kind,'feed');
  assert.equal(api.route(new W.URL('/r/Example/search/',W.location)).kind,'search');
 });
+
+const filteredFeedPath='/r/Example/?rt_type=video';
+const filteredPostPath='/r/Example/comments/circus/circus_champion_tricks/';
+const outgoing='data-rt-community-outgoing';
+const arriving='data-rt-community-restoring';
+function navigationFixture(t){
+ const markup=feed().replace('<shreddit-post post-type="video">','<shreddit-post id="t3_circus" view-context="SubredditFeed" post-type="video"><a slot="title" href="'+filteredPostPath+'">Circus champion tricks</a>');
+ const f=setup(t,filteredFeedPath,markup),{W,D}=f;
+ let y=850,top=980;
+ const frames=[];
+ Object.defineProperty(W,'scrollY',{get:()=>y});
+ W.scrollBy=({top:delta})=>{y+=delta;};
+ W.scrollTo=({top:target})=>{y=target;};
+ W.requestAnimationFrame=run=>frames.push(run);
+ W.cancelAnimationFrame=()=>{};
+ const original=D.querySelector('shreddit-feed'),article=D.querySelector('#t3_circus').closest('article');
+ const measure=node=>{node.getBoundingClientRect=()=>({top:top-y,height:540});};
+ measure(article);
+ return {...f,article,original,measure,frames,setLayout:(value,now)=>{top=value;y=now;},
+  route(path,{back=false}={}){
+   W.history.pushState({},'',path);
+   (back?W:D).dispatchEvent(new W.Event(back?'popstate':'reddit:route'));
+  }};
+}
+
+test('opening a filtered post hides the outgoing feed and Back restores the clicked card offset',async t=>{
+ const p=navigationFixture(t),{D,W,original,article}=p;
+ const hidden=original.querySelector('article['+stop+']');
+ const title=article.querySelector('a');title.addEventListener('click',event=>event.preventDefault());
+ title.click();p.route(filteredPostPath);await flush();
+ const css=D.createElement('style');css.textContent=read('post-discovery.css').split('\n').find(line=>line.includes('['+outgoing+']'));
+ D.head.append(css);
+ assert.equal(original.hasAttribute(outgoing),true);
+ assert.equal(W.getComputedStyle(original).visibility,'hidden');
+ assert.equal(hidden.hasAttribute(stop),true,'hidden posts never become visible in the outgoing feed');
+ const detail=D.createElement('shreddit-post');detail.setAttribute('view-context','CommentsPage');
+ original.replaceWith(detail);await flush();
+ p.setLayout(1210,50);
+ p.route(filteredFeedPath,{back:true});detail.replaceWith(original);await flush();
+ assert.equal(article.getBoundingClientRect().top,130,'use the saved viewport offset after layout changes');
+ assert.equal(original.hasAttribute(outgoing),false);
+ assert.equal(hidden.hasAttribute(stop),true);
+ for(let count=0;count<4&&p.frames.length;count++)p.frames.shift()();
+ assert.equal(original.hasAttribute(arriving),false);
+});
+
+test('an in-place post swap releases the outgoing hold and input cancels Back correction',async t=>{
+ const p=navigationFixture(t),{D,W,original,article}=p;
+ const title=article.querySelector('a');title.addEventListener('click',event=>event.preventDefault());
+ title.click();p.route(filteredPostPath);await flush();
+ const oldNodes=[...original.childNodes];
+ original.innerHTML='<shreddit-post id="t3_circus" view-context="CommentsPage"></shreddit-post>';
+ await flush();
+ assert.equal(original.hasAttribute(outgoing),false,'the incoming detail can paint inside a reused container');
+ original.replaceChildren(...oldNodes);p.setLayout(1210,0);
+ p.route(filteredFeedPath,{back:true});await flush();
+ assert.equal(original.hasAttribute(arriving),true);
+ W.dispatchEvent(new W.Event('wheel'));
+ assert.equal(original.hasAttribute(arriving),false);
+ p.setLayout(1350,200);
+ for(let count=0;count<4&&p.frames.length;count++)p.frames.shift()();
+ assert.equal(W.scrollY,200,'the reader owns scrolling again');
+});
 test('type filtering hides complete article/separator pairs and leaves native paging live',async t=>{
  const {W,D,controller}=setup(t,'/r/Example/?rt_type=video');
  assert.equal(D.querySelectorAll('article['+stop+']').length,1);
