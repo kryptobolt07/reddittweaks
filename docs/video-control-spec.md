@@ -12,33 +12,66 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 - With lazy loading, the detail player can have no active source until Reddit initializes it. Calling its native `load('metadata')` method attaches the source and loads metadata without starting playback.
 - `/api/v1/me/prefs` is not readable from the page (401/403). Reddit's settings page (`/settings/preferences`) carries the account's preferences in `settings-preferences[initialstate]`, including `isVideoAutoplayDisabled` (true for the user's account), yet videos autoplayed.
 
-## Behaviour
+## Measured 2026-11-19 (live, user's Chrome, frame logs and traces)
 
-- **Respect Reddit's “Autoplay media” setting** (`videoRespectAutoplay`, default on): the preference is read once per browser session per signed-in account (session storage, bound to the account ID; re-read after 1 hour or after visiting Reddit's settings). When autoplay is off, a video that starts playing without a tap, click or key on that same player within the last 1.5 s is paused at once. Playing after your own tap is never touched. Signed out or unknown preference: nothing is blocked.
-- **Muted hover previews** (`videoPreviews`, default on): rest the mouse on a paused native feed video briefly to start it muted. Leaving the player pauses the preview at its current position. Explicit playback stays in control once the preview has been accepted. Touch-only feeds keep their native Play controls.
-- **Turn on sound when playing a preview** (`videoUnmutePreview`, default on): Play, the video surface and opening the post continue at the preview's current position. Leave the switch off to keep the preview muted when continuing. Reddit's own mute control still sets sound directly. Captions, seeking and fullscreen retain their own actions.
-- **Keep playing when opening a post** (`videoContinueOnOpen`, default on): on same-document navigation, keep the live player and its media buffer mounted while Reddit prepares the post. Move that player into the matching detail slot without seeking or calling Play again. A cancelled open returns the player to its feed slot. A full navigation or a native player without the reparenting hook uses the saved position and sound settings. The handoff expires after 12 seconds. Media controls, other links, new-tab clicks, paused videos and silent previews leave playback alone.
-- **Pause videos that scroll away** (`videoPauseOffscreen`, default on): a playing video pauses as soon as less than half of it is on screen, including a video continued into a post. It does not resume by itself. This is independent of the option above.
-- All apply to `shreddit-player` and `shreddit-player-2` anywhere on Reddit (feeds, posts, search), on phones and desktop.
+- Desktop 1280×625, previewed video opened from its title: the preview **paused** when the pointer moved from the player to the title (14.21 s, 0.64 s before the click), resumed **with sound** at the URL change, then floated alone for **0.81 s over a blank page** (the extension hides the outgoing feed) at its feed size 588×540. It snapped into Reddit's 303 px detail slot (the 180 ms ease is clamped to ±120 px and 0.85–1.15 scale), and Reddit's layout then moved the slot from y=267 to y=168. Playback itself was continuous (14.28 → 18.98 s, same element).
+- Phone 390×844 (touch emulation): Reddit plays in-feed video muted; opening the post kept the same element playing (11.31 → 18.04 s, still muted), but the screen was **white except the floating video for about 0.6 s**, then the post appeared around it and the video grew from 358 px to the full 390 px.
+- Without the extension, Reddit keeps the outgoing feed on screen until the post page is ready.
+- Reddit keeps sound in its own volume state (`volumeController.setVolume`, saved as `@reddit/shreddit-player-media-volume` plus an in-memory session value). A new post player re-applies it to every player, and players Reddit counts as autoplay are muted unless sound was chosen this session. Setting `video.muted` directly was undone at post load (desktop and phone).
+- Reddit re-applies its saved volume when a video starts, so a preview could start with sound once the saved state was unmuted.
+- Reddit's autoplay observer pauses a player (`pause('scroll')`) while less than its threshold is visible unless the reparent window (`beginDomReparent`) is open; a moving picture that is partly off screen tripped it.
+- Reddit's main thread is busy for 0.1–1 s while it renders the post; a frame-driven move got about four frames.
+- On a post page (Reddit autoplay off), our scroll-away rule paused the post's video at 42 % visible and nothing resumed it.
+
+## Behaviour (expected, desktop and phone)
+
+### Previews — the YouTube model
+- A preview is **muted and inline**; it never takes the sound or the page by itself.
+- **Desktop:** resting the mouse on a paused feed video for 160 ms starts its preview. Moving within the **same post card** (to its title, flair, votes) keeps it playing; leaving the card for 250 ms pauses it where it is.
+- **Phones** (no hover): optional **in-view previews** — the feed video that is at least 60 % visible and nearest the middle of the screen previews muted; scrolling another one into that spot moves the preview there. Off by default.
+- A preview stays muted even when Reddit's saved volume is unmuted.
+- **Clicking or tapping a preview** follows *Clicking a preview*: **Open the post** (default, as YouTube does) or **Play here**. Reddit's own mute/volume button always works in place (a preview you unmute keeps playing where it is), as do captions, seeking and fullscreen.
+- Opening a previewed video continues from *Opened previews start*: **where the preview is** (default) or **from the beginning**, with sound per *Sound when opening a preview* (default on; the sound fades in over 200 ms). Sound is turned on through Reddit's own volume state, as Reddit's sound button does, so the post's player keeps it.
+- With Reddit's autoplay off, a video Reddit starts on its own (not a preview, not your tap) is paused.
+
+### Keep playing when opening a post (shared-element transition)
+- Opening a post whose video is playing (or previewing) keeps **the same video element** playing without a seek or reload.
+- The **feed stays on screen**, exactly as Reddit leaves it, and the video stays at its place in its card until Reddit has laid out the post's video slot. Nothing is hidden and nothing blanks.
+- When the slot is laid out, the video takes it at once, and its picture moves from where it was in the card to the slot over **220 ms** (ease-out): one uniform scale from picture to picture (no distortion, no clamp), clipped to the card's box at the start, on the compositor so Reddit rendering the post cannot stall it. Reddit's reparent window stays open until the move ends. Later layout shifts of the post page carry it with them. With reduced motion it takes the slot without moving.
+- A video playing with sound keeps it in the post.
+- Opening another page, Back before the post appears, a player control, or 12 s without a slot: the video returns to its card. Back after the move: the feed card has its own fresh player and the post player stops.
+
+### Scrolling away
+- Feed: a playing video pauses when less than half of it is on screen and stays paused.
+- Post page: the post's own video plays on while any of it is visible, pauses once it is fully out of view, and resumes at the same time when half of it is back (reloading Reddit's source first if Reddit unloaded it). A video the user paused stays paused.
+
+### Popup options (Videos)
+| Option | Setting key | Default |
+|---|---|---|
+| Respect Reddit's autoplay setting | `videoRespectAutoplay` | On |
+| Muted previews | `videoPreviews` | On |
+| &nbsp;&nbsp;Preview while in view on phones | `videoPreviewsInView` | Off |
+| &nbsp;&nbsp;Clicking a preview plays it here (off: opens the post) | `videoPreviewClickPlays` | Off |
+| &nbsp;&nbsp;Play opened previews from the start (off: where the preview is) | `videoPreviewRestart` | Off |
+| &nbsp;&nbsp;Sound when opening a preview | `videoUnmutePreview` | On |
+| Keep playing when opening a post | `videoContinueOnOpen` | On |
+| Pause videos that scroll away | `videoPauseOffscreen` | On |
 
 ## Transitions
 
-| | Transition | Expected |
-|---|---|---|
-| T1 | Feed with autoplay off scrolls a video into view without hovering | Reddit attempts autoplay; the extension pauses it and the poster stays |
-| T2 | Tap play | Plays normally |
-| T3 | Scroll a playing video half off screen | Paused |
-| T4 | Scroll it back | Stays paused (autoplay off) until tapped |
-| T5 | Autoplay on in Reddit | Reddit's autoplay kept; only the off-screen pause applies |
-| T6 | Start a feed video, open its post | The post player starts at the latest feed position with the same sound and speed |
-| T7 | Continue a video into a post, then scroll it half off screen | Paused; the scroll-away option still applies |
-| T8 | Reddit keeps the outgoing feed mounted while the post loads | Hide the outgoing content without collapsing its layout. The original video stays visible and playing until it occupies Reddit's detail slot |
-| T9 | Use a player control, open a different page, go back before the video loads, or turn continuation off | Release the move and restore the feed slot when still mounted |
-| T10 | Back after a completed move | The retained feed still has its own native player, and the old detail player cannot keep playing offscreen |
-| T11 | The post settles and the reader scrolls away | Discard visibility readings from before or during the player move. Measure the player in the painted post and pause when a fresh reading shows it below the scroll-away threshold |
-| T12 | Move the pointer onto a paused feed video and away again | Start one muted preview after a short hover, then pause at the current position on leave |
-| T13 | Press Play or use Reddit's mute button during a preview | Play continues without seeking and applies the sound preference. Mute uses Reddit's own toggle and keeps playing |
-| T14 | Open the previewed post after moving the pointer to its title | Transfer the same playback position and sound setting. Ease the live player into the detail layout and use an immediate move with reduced motion |
+| | Transition | Desktop | Phone |
+|---|---|---|---|
+| V1 | Rest on / leave a paused feed video | Muted preview after 160 ms; leaving the card for 250 ms pauses at its position | — (no hover) |
+| V2 | Pointer from preview to its title | Preview keeps playing | — |
+| V3 | Scroll a video into the middle | — | With in-view previews: muted preview; the previous one pauses |
+| V4 | Click/tap a preview's surface | Opens the post (default) or plays here with sound | Same |
+| V5 | Reddit's mute button on a preview | Unmutes in place, keeps playing | Same |
+| V6 | Open a playing/previewing video's post | Feed stays; video stays in its card, then moves into the post slot in 220 ms; position kept; sound per option, faded in | Same, full width slot |
+| V7 | Reddit's autoplay (autoplay off) | Paused; poster stays | Same |
+| V8 | Scroll a playing feed video half off screen | Paused, no auto-resume | Same |
+| V8b | Scroll a post's playing video fully away, then back | Plays while visible; paused once gone; resumes at the same time when half back | Same |
+| V9 | Back / other page / control before the slot is laid out | Video returns to its card, still playing | Same |
+| V10 | Back after the move | Feed card has a fresh player; the post player stops | Same |
 
 ## Limits
 
@@ -46,6 +79,13 @@ The preference read is a one-off request for Reddit's settings page (about 400 K
 Native buffering can still interrupt a video. A full document navigation cannot carry the original media element across documents. If the browser blocks playback after such a navigation, the video is positioned for the user's next Play press.
 
 ## Verification
+
+2026-11-19, live in the user's Chrome (0.46.0 plus these changes), frame sampler on the moving video:
+- Desktop 1280×625: the preview kept playing when the pointer moved to the title and paused 251 ms after leaving the card. Clicking it opened the post through its permalink; the same element kept playing, sound faded 0 → 0.25 over about 160 ms and stayed on after the post loaded; the feed stayed on screen while the post rendered; the picture then moved into the 620×319 slot over 220 ms at full frame rate with no pause.
+- Phone 390×844 (touch emulation): a tapped video and a tapped in-view preview both continued into the post with sound, moving from 358 px to the full 390 px slot without a pause. In-view previews moved from one video to the next while scrolling.
+- Post page: the video played at 16 % visible, paused when fully out of view at 5.6 s and resumed at 5.6 s when scrolled back.
+
+Earlier verification (0.45):
 
 A clean Chromium profile running only this extension loaded a real Reddit feed, started a video with Reddit's own control, then opened its title. The same video stayed connected, advanced from 0.54 s to 1.40 s during the 0.86 s transition, and continued to 2.29 s. It emitted no pause, seek, waiting or source-reset events during the move. Synthetic tests also cover retained feeds, cancelling the move, a fresh document, delayed metadata and continuation with Reddit autoplay disabled.
 

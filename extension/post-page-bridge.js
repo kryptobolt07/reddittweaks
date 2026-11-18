@@ -17,38 +17,55 @@
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
-  const videoPlayers='shreddit-player,shreddit-player-2';
+  const videoPlayers='shreddit-player,shreddit-player-2',FLIGHT_MS=220;
   let heldVideo;
   function movePlayer(parent,player,before=null){
     if(parent.moveBefore)parent.moveBefore(player,before);
     else parent.insertBefore(player,before);
   }
-  function easeVideoMove(player,from,retry=true){
-    if(!from || !player.isConnected)return;
-    const to=player.getBoundingClientRect();
-    if(!to.width || !to.height){
-      if(retry)window.requestAnimationFrame(()=>easeVideoMove(player,from,false));
-      return;
-    }
-    const limit=value=>Math.max(-120,Math.min(120,value));
-    const x=limit(from.left+from.width/2-to.left-to.width/2);
-    const y=limit(from.top+from.height/2-to.top-to.height/2);
-    const scale=Math.max(.85,Math.min(1.15,Math.min(from.width/to.width,from.height/to.height)));
-    if(Math.abs(x)<1 && Math.abs(y)<1 && Math.abs(scale-1)<.01)return;
-    const animation=player.animate([{transform:`translate(${x}px,${y}px) scale(${scale})`},{transform:'none'}],
-      {duration:180,easing:'cubic-bezier(.2,.8,.2,1)'});
-    animation.id='rt-video-placement';
+  // The move is over: video-control starts watching visibility again.
+  function landed(player){
+    player.removeAttribute('data-rt-video-flying');
+    player.dispatchEvent(new Event('rt-video-placed'));
   }
   function releaseVideo(){
     if(!heldVideo)return;
-    const {player,slot,stage,surface,controller,restorePause}=heldVideo;
+    const {player,slot,stage,controller,restorePause}=heldVideo;
     heldVideo=null;
     restorePause();
     if(slot.isConnected)movePlayer(slot.parentNode,player,slot);
     slot.remove();
     controller.endDomReparent();
     stage.remove();
-    surface?.removeAttribute('data-rt-video-outgoing');
+  }
+  // The picture inside a box (Reddit's video is object-fit: contain).
+  function picture(box,aspect){
+    if(!(aspect>0))return box;
+    const width=Math.min(box.width,box.height*aspect),height=width/aspect;
+    return {width,height};
+  }
+  // Shared-element move: the held player takes Reddit's detail slot at once, then its picture travels from where it
+  // was in the feed card to the slot (220 ms, ease-out). Transform runs on the compositor, so Reddit rendering the post
+  // cannot stall it; one uniform scale keeps the picture undistorted, and a clip shows only the feed card's box at the
+  // start. No clamps; reduced motion skips it.
+  // Reddit's reparent window stays open until the move ends: its autoplay observer otherwise pauses the player while
+  // the moving picture is partly outside the viewport (measured 2026-11-19).
+  function moveIntoSlot(player,from,controller){
+    const video=player.shadowRoot?.querySelector('video'),to=player.getBoundingClientRect(),end=()=>controller.endDomReparent();
+    if(!from || typeof player.animate!=='function' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ||
+       !to.width || !to.height){end();return;}
+    const aspect=video?.videoWidth/video?.videoHeight,a=picture(from,aspect),b=picture(to,aspect);
+    const scale=aspect>0?a.width/b.width:Math.min(from.width/to.width,from.height/to.height);
+    const x=from.left+from.width/2-to.left-to.width/2,y=from.top+from.height/2-to.top-to.height/2;
+    if(Math.abs(x)<1 && Math.abs(y)<1 && Math.abs(scale-1)<.01){end();return;}
+    const insetX=Math.max(0,(to.width-from.width/scale)/2),insetY=Math.max(0,(to.height-from.height/scale)/2);
+    const timing={duration:FLIGHT_MS,easing:'cubic-bezier(.2,.8,.2,1)'};
+    player.setAttribute('data-rt-video-flying','');
+    const motion=player.animate([{transform:`translate(${x}px,${y}px) scale(${scale})`},{transform:'none'}],timing);
+    motion.id='rt-video-placement';
+    player.animate([{clipPath:`inset(${insetY}px ${insetX}px)`},{clipPath:'inset(0px 0px)'}],timing);
+    const done=()=>{end();landed(player);};
+    Promise.resolve(motion.finished).then(done,done);
   }
   document.addEventListener('rt-hold-feed-video',event=>{
     const player=event.target,id=player.getAttribute?.('post-id'),controller=player.mediaFbpController;
@@ -59,7 +76,7 @@
        controller.shouldPreserveMedia?.() || typeof player.pause!=='function')return;
     const {left,top,width,height}=player.getBoundingClientRect();
     if(!width || !height || !document.body)return;
-    const surface=player.closest('main') || player.closest('shreddit-feed');
+    // The feed stays on screen as Reddit leaves it; the video stays at its card's place above it until the post is laid out.
     const stage=document.createElement('div'),slot=document.createElement('div');
     stage.setAttribute('aria-hidden','true');
     slot.setAttribute('aria-hidden','true');
@@ -82,8 +99,7 @@
     };
     controller.beginDomReparent();
     movePlayer(stage,player);
-    surface?.setAttribute('data-rt-video-outgoing','');
-    heldVideo={player,id,slot,stage,surface,controller,restorePause};
+    heldVideo={player,id,slot,stage,controller,restorePause,rect:{left,top,width,height}};
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-video',event=>{
@@ -91,10 +107,12 @@
     if(!heldVideo || !id || heldVideo.id!=='t3_'+id || !detail.matches?.(videoPlayers) ||
        detail.getAttribute('player-type')!=='post_detail_screen' || detail.getAttribute('post-id')!==heldVideo.id ||
        detail.closest('shreddit-post')?.id!==heldVideo.id || detail.localName!==heldVideo.player.localName)return;
-    const {player,slot,stage,surface,controller,restorePause}=heldVideo;
+    const {player,slot,stage,controller,restorePause,rect}=heldVideo;
     heldVideo=null;
-    const from=typeof player.animate==='function' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches &&
-      player.getBoundingClientRect();
+    // A post player re-applies Reddit's session sound state when the move ends (and mutes autoplay without one); a
+    // video playing with sound keeps it.
+    const video=player.shadowRoot?.querySelector('video');
+    if(video && !video.muted && video.volume>0 && !player.forceMuted)player.volumeController?.setVolume?.(Math.sqrt(video.volume));
     // Keep a fresh feed player in Reddit's cached card for Back navigation.
     slot.replaceWith(player.cloneNode(true));
     for(const name of ['class','style','slot','player-type','data-post-click-location','priority','is-mobile','hide-autoplay-toggle']){
@@ -105,11 +123,15 @@
     movePlayer(detail.parentNode,player,detail);
     detail.remove();
     restorePause();
-    controller.endDomReparent();
     stage.remove();
-    surface?.removeAttribute('data-rt-video-outgoing');
-    easeVideoMove(player,from);
+    moveIntoSlot(player,rect,controller);
     event.preventDefault();
+  });
+  // Sound for a preview that plays for real goes through Reddit's own volume state, which every player follows.
+  document.addEventListener('rt-video-sound',event=>{
+    const player=event.target,video=player.shadowRoot?.querySelector?.('video'),volume=player.volumeController;
+    if(!player.matches?.(videoPlayers) || !video || player.forceMuted || typeof volume?.setVolume!=='function')return;
+    volume.setVolume(Math.sqrt(video.volume>0?video.volume:.25));
   });
   document.addEventListener('rt-release-feed-video',releaseVideo);
   document.addEventListener('rt-prepare-feed-preview',event=>{

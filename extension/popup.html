@@ -94,11 +94,23 @@
         <input class="switch" type="checkbox" id="video-respect-autoplay" data-setting="videoRespectAutoplay" aria-describedby="video-respect-autoplay-desc">
       </div>
       <div class="setting-row">
-        <div class="setting-copy"><label for="video-previews">Muted hover previews</label><p id="video-previews-desc">Hover over a video in the feed to preview it. Move away to pause.</p></div>
+        <div class="setting-copy"><label for="video-previews">Muted previews</label><p id="video-previews-desc">Rest the pointer on a feed video to preview it without sound. Leaving its post pauses it.</p></div>
         <input class="switch" type="checkbox" id="video-previews" data-setting="videoPreviews" aria-describedby="video-previews-desc">
       </div>
       <div class="setting-row" data-requires="video-previews" data-detail>
-        <div class="setting-copy"><label for="video-unmute-preview">Turn on sound when playing a preview</label><p id="video-unmute-preview-desc">Applies when you press Play or open the post. Playback continues from the preview's position.</p></div>
+        <div class="setting-copy"><label for="video-previews-in-view">Preview while in view on phones</label><p id="video-previews-in-view-desc">On touch screens, the video in the middle of the screen previews. Off by default.</p></div>
+        <input class="switch" type="checkbox" id="video-previews-in-view" data-setting="videoPreviewsInView" aria-describedby="video-previews-in-view-desc">
+      </div>
+      <div class="setting-row" data-requires="video-previews" data-detail>
+        <div class="setting-copy"><label for="video-preview-click-plays">Clicking a preview plays it here</label><p id="video-preview-click-plays-desc">Off: clicking opens the post and the video carries on there. The sound button always works in place.</p></div>
+        <input class="switch" type="checkbox" id="video-preview-click-plays" data-setting="videoPreviewClickPlays" aria-describedby="video-preview-click-plays-desc">
+      </div>
+      <div class="setting-row" data-requires="video-previews" data-detail>
+        <div class="setting-copy"><label for="video-preview-restart">Play opened previews from the start</label><p id="video-preview-restart-desc">Off: playback continues from where the preview is.</p></div>
+        <input class="switch" type="checkbox" id="video-preview-restart" data-setting="videoPreviewRestart" aria-describedby="video-preview-restart-desc">
+      </div>
+      <div class="setting-row" data-requires="video-previews" data-detail>
+        <div class="setting-copy"><label for="video-unmute-preview">Sound when opening a preview</label><p id="video-unmute-preview-desc">When a preview plays for real, its sound fades in.</p></div>
         <input class="switch" type="checkbox" id="video-unmute-preview" data-setting="videoUnmutePreview" aria-describedby="video-unmute-preview-desc">
       </div>
       <div class="setting-row">
@@ -106,7 +118,7 @@
         <input class="switch" type="checkbox" id="video-continue-on-open" data-setting="videoContinueOnOpen" aria-describedby="video-continue-on-open-desc">
       </div>
       <div class="setting-row">
-        <div class="setting-copy"><label for="video-pause-offscreen">Pause videos that scroll away</label><p id="video-pause-offscreen-desc">A playing video pauses as soon as less than half of it is on screen.</p></div>
+        <div class="setting-copy"><label for="video-pause-offscreen">Pause videos that scroll away</label><p id="video-pause-offscreen-desc">Feed videos pause when less than half is on screen. A post’s video pauses once it is out of view and resumes where it was when you scroll back.</p></div>
         <input class="switch" type="checkbox" id="video-pause-offscreen" data-setting="videoPauseOffscreen" aria-describedby="video-pause-offscreen-desc">
       </div>
       <div class="setting-row">

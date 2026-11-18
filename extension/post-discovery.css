@@ -772,7 +772,6 @@ shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{displa
 .rt-accounts-title{font-size:16px;line-height:20px;font-weight:600;color:var(--color-neutral-content-strong,#0f1a1c)}
 
 /* Keep the feed's scroll geometry while only the held video is painted. */
-[data-rt-video-outgoing]{visibility:hidden!important;opacity:0!important;pointer-events:none!important}
 
 /* Live feed options and inline native search filters. */
 [data-rt-community-filtered],[data-rt-community-paused],[data-rt-community-sort-replaced],.rt-community-note [hidden]{display:none!important}
