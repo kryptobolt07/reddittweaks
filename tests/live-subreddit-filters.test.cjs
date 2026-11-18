@@ -235,6 +235,15 @@ const sortedPath='/r/Example/top/?t=week&rt_type=video&f=flair_name%3A%22News%22
 const replaced='data-rt-community-sort-replaced';
 const heldSorts='data-rt-community-sort-boot';
 
+test('active feed chips shrink inside the native rail so the Card view control keeps its hit area',t=>{
+ const {D,W}=setup(t,sortedPath,sortedFeed());
+ const view=D.querySelector('shreddit-layout-switcher a'),bar=D.querySelector('.rt-community-in-feed-rail');
+ assert.ok(bar.querySelector('.rt-community-chips[data-rt-rail]'),'reuse the inline sizing instead of a full-width chip row');
+ const url=new W.URL(view.href);
+ assert.equal(url.searchParams.get('feedViewType'),'cardView');
+ assert.equal(url.searchParams.get('rt_type'),'video');
+});
+
 test('the production startup hides native feed sort before settings settle and restores it on opt-out',async t=>{
  const {window:W}=new JSDOM('<body></body>',{url:'https://www.reddit.com'+sortedPath,runScripts:'outside-only'}),D=W.document;
  t.after(()=>{W.RTLiveSubredditFiltersDebug?.destroy();W.close();});
