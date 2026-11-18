@@ -553,7 +553,9 @@ test('a playing YouTube embed keeps its player: held at its card, then placed in
  target.addEventListener('rt-place-held-embed',event=>{placed.push('place');if(ready)event.preventDefault();});
  target.addEventListener('rt-embed-sound',()=>placed.push('sound'));
  controller.scan();assert.deepEqual(placed,['place'],'waits for the post embed');
+ assert.equal(target.style.visibility,'hidden','Reddit’s own embed UI stays hidden meanwhile');
  ready=true;controller.scan();
+ assert.equal(target.style.visibility,'');assert.equal(target.dataset.rtIncoming,undefined);
  assert.deepEqual(placed,['place','place','sound']);
  assert.equal(p.W.sessionStorage.getItem(embedKey),null);
 });

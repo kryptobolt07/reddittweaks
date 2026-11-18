@@ -307,6 +307,11 @@
    // The same YouTube player moves into the post (page bridge); without it, the post's embed starts at this second.
    const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
    this.embedPending={id,from:this.win.location.pathname,held,restart,muted};
+   // A held player is placed on the first frame the post's embed is ready, not on the next 200 ms scan.
+   if(held){
+    const pending=this.embedPending,watch=()=>{if(this.embedPending!==pending || this.dead)return;this.embedHandoff();this.win.requestAnimationFrame(watch);};
+    this.win.requestAnimationFrame(watch);
+   }
    this.embedExpiry=this.win.setTimeout(()=>this.clearEmbedHandoff(),CONTINUE_MS);
    if(!held)embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
    return true;
@@ -323,8 +328,10 @@
    const embed=[...this.doc.querySelectorAll(EMBED)].find(node=>node.closest('shreddit-post')?.id==='t3_'+id && !node.closest('shreddit-feed'));
    if(!embed)return;
    if(pending?.held){
-    // Waits until Reddit has laid out the post's embed.
+    // Waits until Reddit has laid out the post's embed; its own thumbnail and play button stay hidden meanwhile.
+    if(!('rtIncoming' in embed.dataset)){embed.dataset.rtIncoming=embed.style.visibility;embed.style.visibility='hidden';}
     if(embed.dispatchEvent(new this.win.Event('rt-place-held-embed',{bubbles:true,cancelable:true})))return;
+    embed.style.visibility=embed.dataset.rtIncoming;delete embed.dataset.rtIncoming;
     this.embedPending=null;this.clearEmbedHandoff();
     if(pending.restart){embed.dataset.rtStart='0';embed.dataset.rtMuted=String(saved.muted===true);embed.dispatchEvent(new this.win.Event('rt-embed-continue',{bubbles:true,cancelable:true}));}
     else if(!saved.muted)embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
@@ -335,6 +342,7 @@
   }
   clearEmbedHandoff(){
    this.win.clearTimeout(this.embedExpiry);
+   for(const embed of this.doc.querySelectorAll('[data-rt-incoming]')){embed.style.visibility=embed.dataset.rtIncoming;delete embed.dataset.rtIncoming;}
    if(this.embedPending?.held)this.doc.dispatchEvent(new this.win.Event('rt-release-feed-embed'));
    this.embedPending=null;
    try{this.win.sessionStorage.removeItem(EMBED_KEY);}catch{}
