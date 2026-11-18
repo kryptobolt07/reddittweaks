@@ -124,6 +124,7 @@
         "thread-restore.js",
         "own-removal.js",
         "viewed-history.js",
+        "smooth-scroll.js",
         "account-switcher.js"
       ]
     }

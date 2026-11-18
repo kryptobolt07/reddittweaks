@@ -1,5 +1,5 @@
 const SETTINGS_KEY='rt-settings-v1';
-const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true};
+const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false};
 
 async function loadSettings() {
   const controls=[...document.querySelectorAll('[data-setting]')],status=document.querySelector('#settings-status');
@@ -176,10 +176,12 @@ document.getElementById('manage-features')?.addEventListener('click',()=>showTab
 // A feature counts as on when its switch is on and everything it needs is on too.
 const isActive=control=>control.checked && !control.closest('.setting-row')?.classList.contains('is-inactive');
 function syncSummary(){
-  const controls=[...document.querySelectorAll('[data-setting]')],pill=document.querySelector('#raffles-home .state-pill');
+  // Sub-options of a feature (data-detail rows) refine it and are not counted as features of their own.
+  const counted=c=>!c.closest('.setting-row')?.hasAttribute('data-detail');
+  const controls=[...document.querySelectorAll('[data-setting]')].filter(counted),pill=document.querySelector('#raffles-home .state-pill');
   if(controls.some(c=>c.classList.contains('is-unavailable'))){const summary=document.getElementById('feature-summary');if(summary)summary.textContent='Settings unavailable';if(pill)pill.hidden=true;return;}
   const summary=document.getElementById('feature-summary');if(summary)summary.textContent=controls.filter(isActive).length+' of '+controls.length+' features on';
-  for(const card of document.querySelectorAll('#panel-settings .card')){const own=[...card.querySelectorAll('[data-setting]')],count=card.querySelector('.group-count');if(count)count.textContent=own.filter(isActive).length+' of '+own.length+' on';}
+  for(const card of document.querySelectorAll('#panel-settings .card')){const own=[...card.querySelectorAll('[data-setting]')].filter(counted),count=card.querySelector('.group-count');if(count)count.textContent=own.filter(isActive).length+' of '+own.length+' on';}
   const raffles=document.getElementById('raffles'),card=document.getElementById('raffles-home');
   if(raffles && card){card.querySelector('.state-pill').textContent=raffles.checked?'On':'Off';card.dataset.state=raffles.checked?'on':'off';document.getElementById('raffles-turn-on').hidden=raffles.checked;}
 }
