@@ -109,12 +109,17 @@
    const panel=document.createElement('ul');panel.className=list.className;panel.dataset.rtUi='accounts-panel';panel.setAttribute('role','menu');panel.setAttribute('aria-label','Switch accounts');
    const hidden=[];for(const child of container.children){if(child===panel || child.dataset?.rtUi==='accounts-panel')continue;hidden.push([child,child.style.display]);child.style.display='none';}
    state.hidden=hidden;state.node=panel;state.open=true;container.append(panel);
-   const me=state.me,back=this.row(state.source,{label:'Switch accounts',caption:'',lead:'back',run:async()=>{this.closePanel(menu,true);return {ok:true,stay:true};}});
-   back.dataset.rtUi='account-back';panel.append(back);
+   // A compact header: round Back (Reddit's arrow) and the panel's title, rather than repeating the row we came from.
+   const me=state.me,back=document.createElement('li');back.className='rt-accounts-head list-none';back.setAttribute('role','presentation');back.dataset.rtUi='account-back';
+   const backButton=document.createElement('button');backButton.type='button';backButton.className='rt-accounts-back';backButton.setAttribute('aria-label','Back to menu');backButton.title='Back';
+   backButton.append(globalThis.RTFeedFilters?.svgIcon?.('arrow-back',20) || icon('back'));
+   const heading=document.createElement('span');heading.className='rt-accounts-title';heading.textContent='Accounts';back.append(backButton,heading);
+   backButton.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.closePanel(menu,true);});
+   for(const type of ['pointerdown','pointerup','touchstart','touchend','mousedown','mouseup'])backButton.addEventListener(type,event=>event.stopPropagation());
+   panel.append(back);
    this.load(menu,me).then(result=>{
     if(!panel.isConnected || this.dead)return;
     const rows=[],rule=()=>{const li=document.createElement('li');li.setAttribute('role','separator');li.className='list-none';const hr=document.createElement('hr');hr.className='h-px w-100 bg-neutral-border-weak border-0 my-xs';li.append(hr);return li;};
-    rows.push(rule());
     if(!result?.ok)rows.push(this.row(state.source,{label:'Accounts unavailable',caption:result?.error || 'Reload this tab to retry.',disabled:true}));
     else for(const account of result.accounts){
      const current=!result.anonymous && account.owner===me.owner;
@@ -127,7 +132,7 @@
     panel.append(...rows);
     panel.querySelector('[data-owner] a[tabindex="0"],[data-rt-ui="account-row"] a[tabindex="0"]')?.focus?.({preventScroll:true});
    });
-   back.querySelector(':scope > a')?.focus?.({preventScroll:true});
+   backButton.focus?.({preventScroll:true});
   }
   phone(){return Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);}
   // Phones: an Accounts sheet shaped like Reddit's app (accounts, Anonymous browsing, Add account) over Reddit's own
