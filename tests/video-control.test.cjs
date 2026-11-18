@@ -538,3 +538,29 @@ test('on phones a YouTube embed in view previews once scrolling stops',async t=>
  await hoverController(p,{videoPreviewsInView:true});scroll(p);await settle();
  assert.deepEqual(e.calls,['rt-embed-preview']);
 });
+
+test('a playing YouTube embed keeps its player: held at its card, then placed in the post, with sound',async t=>{
+ const p=page(t);const e=embed(p,{muted:true});const controller=await hoverController(p);
+ const card=e.node.closest('shreddit-post'),feed=p.d.createElement('shreddit-feed');card.before(feed);feed.append(card);
+ e.node.addEventListener('rt-hold-feed-embed',event=>{e.calls.push('hold');event.preventDefault();});
+ e.over();await waitForHover();
+ p.click(p.title);
+ assert.deepEqual(e.calls,['rt-embed-preview','hold'],'held, not stopped');
+ p.W.history.pushState({},'',postPath);
+ const post=p.d.createElement('shreddit-post');post.id='t3_test';p.d.body.append(post);
+ const target=p.d.createElement('shreddit-embed');target.setAttribute('providername','YouTube');post.append(target);
+ const placed=[];let ready=false;
+ target.addEventListener('rt-place-held-embed',event=>{placed.push('place');if(ready)event.preventDefault();});
+ target.addEventListener('rt-embed-sound',()=>placed.push('sound'));
+ controller.scan();assert.deepEqual(placed,['place'],'waits for the post embed');
+ ready=true;controller.scan();
+ assert.deepEqual(placed,['place','place','sound']);
+ assert.equal(p.W.sessionStorage.getItem(embedKey),null);
+});
+test('Back before the post embed is ready returns the held YouTube player to its card',async t=>{
+ const p=page(t);const e=embed(p);await hoverController(p);
+ e.node.addEventListener('rt-hold-feed-embed',event=>event.preventDefault());
+ let released=0;p.d.addEventListener('rt-release-feed-embed',()=>released++);
+ p.click(p.title);p.W.dispatchEvent(new p.W.PopStateEvent('popstate'));
+ assert.equal(released,1);assert.equal(p.W.sessionStorage.getItem(embedKey),null);
+});

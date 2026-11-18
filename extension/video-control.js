@@ -300,9 +300,15 @@
    const time=Number(embed.dataset.rtEmbedTime);
    if(!preview && embed.dataset.rtEmbedState!=='playing' || !(time>=0))return false;
    const muted=preview?!this.unmutePreview:embed.dataset.rtEmbedMuted==='true';
-   try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify({id,owner:owner(this.doc),at:Date.now(),time:preview && this.restartPreview?0:time,muted}));}catch{}
-   if(preview){this.ePreview=null;preview.layer?.remove();delete embed.dataset.rtEmbedPreview;}
-   embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
+   const restart=Boolean(preview && this.restartPreview);
+   this.clearEmbedHandoff();
+   try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify({id,owner:owner(this.doc),at:Date.now(),time:restart?0:time,muted}));}catch{}
+   if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;}
+   // The same YouTube player moves into the post (page bridge); without it, the post's embed starts at this second.
+   const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
+   this.embedPending={id,from:this.win.location.pathname,held,restart,muted};
+   this.embedExpiry=this.win.setTimeout(()=>this.clearEmbedHandoff(),CONTINUE_MS);
+   if(!held)embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
    return true;
   }
   embedHandoff(){
@@ -311,14 +317,28 @@
    if(!saved)return;
    const id=postId(this.win.location.pathname),age=Date.now()-saved.at;
    if(!this.continueOnOpen || !(age>=0 && age<CONTINUE_MS) || saved.owner!==owner(this.doc)){this.clearEmbedHandoff();return;}
-   if(saved.id!==id)return;
+   const pending=this.embedPending;
+   if(saved.id!==id){if(pending && this.win.location.pathname!==pending.from)this.clearEmbedHandoff();return;}
    // Reddit keeps the outgoing feed (with this post's card) in the page: only the post's own embed continues.
    const embed=[...this.doc.querySelectorAll(EMBED)].find(node=>node.closest('shreddit-post')?.id==='t3_'+id && !node.closest('shreddit-feed'));
    if(!embed)return;
+   if(pending?.held){
+    // Waits until Reddit has laid out the post's embed.
+    if(embed.dispatchEvent(new this.win.Event('rt-place-held-embed',{bubbles:true,cancelable:true})))return;
+    this.embedPending=null;this.clearEmbedHandoff();
+    if(pending.restart){embed.dataset.rtStart='0';embed.dataset.rtMuted=String(saved.muted===true);embed.dispatchEvent(new this.win.Event('rt-embed-continue',{bubbles:true,cancelable:true}));}
+    else if(!saved.muted)embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
+    return;
+   }
    embed.dataset.rtStart=String(saved.time);embed.dataset.rtMuted=String(saved.muted===true);
    if(!embed.dispatchEvent(new this.win.Event('rt-embed-continue',{bubbles:true,cancelable:true})))this.clearEmbedHandoff();
   }
-  clearEmbedHandoff(){try{this.win.sessionStorage.removeItem(EMBED_KEY);}catch{}}
+  clearEmbedHandoff(){
+   this.win.clearTimeout(this.embedExpiry);
+   if(this.embedPending?.held)this.doc.dispatchEvent(new this.win.Event('rt-release-feed-embed'));
+   this.embedPending=null;
+   try{this.win.sessionStorage.removeItem(EMBED_KEY);}catch{}
+  }
   // Follow the card's own permalink, so Reddit routes it and the playing preview continues into the post.
   openPost(player){
    const card=player.closest('shreddit-post'),id=card?.id?.replace(/^t3_/,'');
