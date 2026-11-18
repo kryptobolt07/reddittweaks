@@ -773,3 +773,30 @@ shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{displa
 /* Silent video previews (video-control.js): a small label on the player while it previews. */
 shreddit-player[data-rt-preview],shreddit-player-2[data-rt-preview]{position:relative}
 shreddit-player[data-rt-preview]::after,shreddit-player-2[data-rt-preview]::after{content:"Preview";position:absolute;top:8px;inset-inline-start:8px;z-index:3;padding:2px 8px;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font:600 12px/16px var(--font-sans,system-ui,sans-serif);pointer-events:none}
+
+/* Live community feeds and native search share the filter sheet. */
+[data-rt-community-filtered],[data-rt-community-paused],.rt-community-note [hidden]{display:none!important}
+.rt-community-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding-block:4px 8px}
+.rt-community-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;margin:0;padding:0 12px;border:0;border-radius:999px;background:transparent;color:var(--color-secondary-plain,#0f1a1c);font:600 12px/16px var(--font-sans,inherit);text-decoration:none;cursor:pointer}
+.rt-community-button:hover{background:var(--color-secondary-background-hover,#e5ebee);text-decoration:none}
+.rt-community-button:focus-visible,.rt-community-flair-form input:focus-visible{outline:2px solid var(--color-global-focus,#0079d3);outline-offset:2px}
+.rt-community-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0;margin:0}
+.rt-community-note{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 12px;font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-community-flair-form{display:flex;gap:8px;padding:8px 16px 12px}
+.rt-community-flair-form input{flex:1;min-width:0;margin:0;padding:8px 12px;border:1px solid var(--color-neutral-border,#ccd2d4);border-radius:999px;background:var(--color-neutral-background,#fff);color:inherit;font:inherit}
+.rt-community-flair-form button{background:var(--color-secondary-background,#e5ebee)}
+@media(min-width:768px){
+  .rt-community-sheet[data-rt-anchored] .rt-fsheet-scrim{background:transparent}
+  .rt-community-sheet[data-rt-anchored] .rt-fsheet{position:fixed;transform:none;transition:none;padding-bottom:0;border-radius:8px;box-shadow:0 4px 8px #0002,0 6px 12px #0004}
+  .rt-community-sheet[data-rt-anchored] .rt-fsheet-head{min-height:44px;box-sizing:border-box;padding:6px 12px}
+  .rt-community-sheet[data-rt-anchored] .rt-fsheet-title{font-size:14px;line-height:20px}
+  .rt-community-sheet[data-rt-anchored] :is(.rt-fsheet-close,.rt-fsheet-back){width:32px;height:32px}
+  .rt-community-sheet[data-rt-anchored] .rt-fsheet-row{min-height:48px;font-size:14px}
+  .rt-community-sheet[data-rt-anchored] .rt-fsheet-sub{font-size:12px;line-height:16px}
+  .rt-community-sheet[data-rt-anchored] .rt-fsheet-chip{min-height:30px;padding-inline:10px;font-size:12px}
+  .rt-community-sheet[data-rt-anchored] .rt-fsheet-section{font-size:12px;line-height:16px}
+}
+@media(max-width:767.98px){
+  .rt-community-button{min-height:40px}
+  .rt-community-sheet{inset-inline-end:auto;width:100dvw}
+}
