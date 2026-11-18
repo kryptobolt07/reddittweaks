@@ -33,6 +33,18 @@ function worker({jar=jarFor('alice'),privateJar=new Map(),focused={id:1,incognit
 const alice={owner:'t2_alice',username:'alice',avatar:'https://styles.redditmedia.com/t5_a/styles/profileIcon_alice.png'};
 const bob={owner:'t2_bob',username:'bob',avatar:'https://styles.redditmedia.com/t5_b/styles/profileIcon_bob.png'};
 
+test('the native account picture backfills the active saved account without touching its session',async()=>{
+ const w=worker();await w.send({action:'save-current',...alice,avatar:''});
+ const before=structuredClone(w.values['rt-accounts-v1'].accounts[0]);
+ assert.equal((await w.send({action:'update-avatar',owner:alice.owner,avatar:alice.avatar},w.popup)).ok,false);
+ assert.equal((await w.send({action:'update-avatar',owner:bob.owner,avatar:bob.avatar})).ok,false);
+ assert.equal((await w.send({action:'update-avatar',owner:alice.owner,avatar:alice.avatar})).ok,true);
+ const row=(await w.send({action:'list'},w.popup)).accounts[0];
+ assert.equal(row.avatar,alice.avatar);
+ assert.deepEqual(w.values['rt-accounts-v1'].accounts[0],{...before,avatar:alice.avatar});
+ assert.deepEqual(w.reloads,[]);
+});
+
 test('saving the current account keeps only its five session cookies, and lists never expose cookie values',async()=>{
  const w=worker();assert.equal((await w.send({action:'save-current',...alice})).ok,true);
  const saved=w.values['rt-accounts-v1'].accounts[0];assert.equal(saved.owner,'t2_alice');assert.deepEqual(saved.cookies.map(c=>c.name).sort(),[...SESSION].sort(),'analytics and device cookies are not part of an account');
@@ -211,6 +223,12 @@ test('an unsaved account is saved when the menu first shows; Reddit re-renders n
  await open(d);d.querySelector('[data-rt-ui="accounts-panel"]').remove();s.scan();await flush();assert.equal(d.querySelectorAll('[data-rt-ui="accounts-panel"]').length,1,'reopened after Reddit re-rendered');
  assert.equal(sent.filter(m=>m.action==='list').length,1,'a re-render reuses the list just read');
 });
+test('a late SVG picture in Reddit’s account header reaches the saved account once',async t=>{
+ const {d,s,sent}=await page(t);
+ d.body.insertAdjacentHTML('afterbegin','<button id="expand-user-drawer-button"><span avatar><svg><image href="'+alice.avatar+'"></image></svg></span></button>');
+ await flush();s.scan();await flush();
+ assert.deepEqual(sent.filter(m=>m.action==='update-avatar'),[{action:'update-avatar',owner:alice.owner,avatar:alice.avatar}]);
+});
 test('the phone sheet gets the same row; signed out it follows Log In when accounts are saved; a failed list says so',async t=>{
  const phone=await page(t,{menu:'hui-user-drawer-bottom-sheet'});assert.ok(phone.d.querySelector('#hui-user-drawer-bottom-sheet [data-rt-ui="accounts"]'));await open(phone.d);assert.equal(panelRows(phone.d).length,5);
  const dom=new JSDOM('<shreddit-app user-logged-in="false"></shreddit-app>'+signedOutMenu('user-drawer-content'),{url:'https://www.reddit.com/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());W.__rtAccountSwitcherTest=true;W.eval(read('account-switcher.js'));
@@ -240,6 +258,13 @@ test('the popup offers Browse signed out (asks twice) and labels private-window 
  assert.match(popupRows(d)[1],/This private window/);const button=d.querySelector('#browse-signed-out');assert.equal(button.textContent,'Anonymous browsing');
  button.click();await flush();assert.equal(sent.some(m=>m.action==='anonymous'),false,'first click only asks');assert.equal(button.textContent,'Sign out here?');
  button.click();await flush();assert.deepEqual(sent.find(m=>m.action==='anonymous'),{scope:'rt-accounts',action:'anonymous'});
+});
+test('an unavailable account picture falls back to that account’s initial in the popup',async t=>{
+ const {W,d}=await popupPage(t);
+ const row=d.querySelector('[data-owner="t2_bob"]');
+ row.querySelector('img').dispatchEvent(new W.Event('error'));
+ assert.equal(row.querySelector('img'),null);
+ assert.equal(row.querySelector('.account-avatar').textContent,'b');
 });
 test('removing needs a second click, and a failed list is reported',async t=>{
  const {d,sent}=await popupPage(t);const remove=d.querySelector('#account-list > li:nth-child(2) .account-remove');assert.equal(remove.getAttribute('aria-label'),'Remove u/bob from this device');
