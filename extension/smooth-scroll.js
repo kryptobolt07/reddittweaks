@@ -11,6 +11,9 @@
   search:'[data-testid="sdui-post-unit"]',
   comments:'shreddit-comment[depth="0"]'
  };
+ // Lists the extension renders itself: profile search and discovery rows, archive cards (measured 2026-11-19: 100 profile
+ // search results on a 6,735 px page were never smoothed). The bridge keeps the profile feeds it owns.
+ const OWN='[data-rt-ui="activity-item"], [data-rt-ui="archive-item"], [data-rt-ui="posts"] .rt-native-card, [data-rt-ui="archive-subreddit"] .rt-native-card';
  const ALL=Object.values(UNITS).join(',');
  // Which sub-option governs this page.
  function area(path=location.pathname){
@@ -24,7 +27,7 @@
  }
  const KEYS={home:'smoothHome',subreddits:'smoothSubreddits',profiles:'smoothProfiles',search:'smoothSearch',comments:'smoothComments'};
  const enabled=(settings,name)=>settings?.smoothFeeds!==false && (name==='comments'?settings?.[KEYS[name]]===true:settings?.[KEYS[name]]!==false);
- const selectorFor=name=>name==='comments'?UNITS.comments:name==='search'?UNITS.search:UNITS.feed;
+ const selectorFor=name=>(name==='comments'?UNITS.comments:name==='search'?UNITS.search:UNITS.feed)+', '+OWN;
 
  class Smooth{
   constructor({doc=document,readSettings,observe=true}={}){
@@ -49,7 +52,10 @@
   watch(unit){
    if(this.observed.has(unit) || !this.io)return;
    // The extension's own profile feeds are handled by its page-world bridge; its own UI is never touched.
-   if(unit.closest('shreddit-feed[data-rt-loading-owner],[data-rt-ui]'))return;
+   if(unit.closest('shreddit-feed[data-rt-loading-owner]'))return;
+   const own=unit.matches(OWN);
+   if(!own && unit.closest('[data-rt-ui]'))return;
+   if(own && unit.matches('.rt-native-card') && unit.parentElement?.closest('[data-rt-ui="activity-item"],[data-rt-ui="archive-item"]'))return;
    this.observed.add(unit);unit.setAttribute('data-rt-smooth','');this.io.observe(unit);
   }
   onIntersect(entries){
