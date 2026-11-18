@@ -1,3 +1,10 @@
+# 0.45.2 preview
+
+- **Video post navigation:** keep playing after the post finishes loading. Start visibility tracking again after the detail player paints so an old feed reading cannot pause it. Hide the outgoing feed while the video moves, then restore its visibility for Back navigation.
+- **Live Brave check:** the feed stayed hidden during navigation. The original video advanced from 0.77 seconds in the feed to 4.38 seconds after the post settled, with no pause event.
+- **Version:** patch increment for the playback and visual transition fixes.
+- **Validation:** 1,898 tests passed. Firefox lint reported zero errors, notices and warnings. All 74 Chromium assets and 75 Firefox assets match their unpacked folders and ZIPs. Chromium SHA-256 `56162f9cbbdd6b59065da03cf7a62e8c90ead7d05fbc292c41dc9d7770222d4e`. Firefox SHA-256 `09199981b5e7b574f01954715131c0659fc6ecbe9fe6bc3749892c37612a8993`.
+
 # 0.45.1 preview
 
 - **Uninterrupted feed video:** retain the same native playing video through Reddit's in-app post navigation and move it into the full post. The saved-position fallback still covers full page loads. In live Chromium, the video advanced through a 0.86-second transition with zero pause, seek or buffering events.
