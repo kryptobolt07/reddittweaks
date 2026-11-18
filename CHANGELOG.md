@@ -1,3 +1,11 @@
+# 0.44.0 preview
+
+- **Live subreddit filters:** select post types and flair from the feed. Reddit keeps its sort, view and continuation controls. The local type filter follows newly loaded cards and pauses automatic loading after two consecutive empty continuations. Load more resumes the native pager.
+- **Search a subreddit without keywords:** press Enter in its empty scoped search field or choose Browse posts. Reddit supplies the Posts, Comments and Media results, with sort, date and flair controls. Enforce the selected period on dated Posts and Comments cards when Reddit’s sort ignores it. Media uses Reddit’s date handling.
+- **Filter appearance:** reuse the shared icons, applied filter pills, anchored dropdown and phone sheet. Live Brave checks covered native flair, empty Enter, later feed pages, date filtering and the desktop and emulated phone layouts. Physical phone behavior and live Firefox UI remain unverified.
+- **Version:** minor bump for the live subreddit filter and search features, including the unreleased 0.43.0 changes below.
+- **Validation:** 1,882 tests passed. Firefox lint reported zero errors, notices or warnings. The 74 Chromium assets and 75 Firefox assets match their verified archives and unpacked folders. Chromium SHA-256 `3b793e094d5324a599ecc69a1178dda134e7cccff04094c8369300ed280c1323`. Firefox SHA-256 `7e9e2c3dc37fd0ac8b702d6ca82c7e29370865b455722cb5f273bfc282d5441b`.
+
 # 0.43.0 preview
 
 - **Account switching:** switch saved Reddit accounts from the native account menu or popup; Add account uses Reddit’s sign-in. Exactly five session cookies are stored in worker-only extension storage, never exposed to pages or the popup. Removing an account deletes its snapshot. Reddit’s Log Out is never called. Add account sign-in was confirmed working by the user.
