@@ -43,6 +43,7 @@
      this.updatePlayback(pending);
      this.saveHandoff();
     }
+    this.releaseHeldVideo();
     this.pending=null;
    };
    for(const type of ['pointerdown','keydown','click'])doc.addEventListener(type,this.onGesture,true);
@@ -103,16 +104,27 @@
    const source=[...card.querySelectorAll(PLAYERS)].find(player=>player.getAttribute('player-type')===FEED_PLAYER);
    const sourceVideo=source && this.video(source);
    if(!sourceVideo || sourceVideo.paused || sourceVideo.ended || !this.started.has(sourceVideo) || this.previews.has(source))return;
+   this.clearHandoff();
    const saved={id,owner:owner(this.doc),at:Date.now(),...playback(sourceVideo)};
    this.pending={saved,source,sourceVideo,from:this.win.location.pathname,reached:false};
    this.saveHandoff();
+   this.pending.held=!source.dispatchEvent(new this.win.Event('rt-hold-feed-video',{bubbles:true,cancelable:true}));
+   this.expiry=this.win.setTimeout(()=>this.clearHandoff(),CONTINUE_MS);
   }
   saveHandoff(){
    try{this.win.sessionStorage.setItem(CONTINUE_KEY,JSON.stringify(this.pending.saved));}catch{}
   }
   clearHandoff(){
+   this.releaseHeldVideo();
    this.pending=null;
    try{this.win.sessionStorage.removeItem(CONTINUE_KEY);}catch{}
+  }
+  releaseHeldVideo(){
+   this.win.clearTimeout(this.expiry);
+   if(this.pending?.held){
+    this.pending.held=false;
+    this.doc.dispatchEvent(new this.win.Event('rt-release-feed-video'));
+   }
   }
   restoreHandoff(){
    let saved;
@@ -141,6 +153,11 @@
    if(!pending?.reached)return;
    const player=this.doc.querySelector(`[player-type="${DETAIL_PLAYER}"][post-id="t3_${pending.saved.id}"]:is(${PLAYERS})`);
    if(!player)return;
+   if(pending.held && !player.dispatchEvent(new this.win.Event('rt-place-held-video',{bubbles:true,cancelable:true}))){
+    pending.held=false;
+    this.clearHandoff();
+    return;
+   }
    this.attach(player);
    const video=this.video(player);
    if(!video)return;
@@ -194,7 +211,7 @@
   onVisibility(entries){
    if(!this.pauseAway)return;
    const pending=this.activeHandoff();
-   for(const entry of entries){if(entry.intersectionRatio>=0.5 || entry.target===pending?.source && pending.reached)continue;const video=this.video(entry.target),preview=this.previews.get(entry.target);if(video && !video.paused){video.pause();entry.target.dataset.rtPausedAway='true';}if(video && preview)video.currentTime=preview.start;}
+   for(const entry of entries){if(entry.intersectionRatio>=0.5 || entry.target===pending?.source && (pending.held || pending.reached))continue;const video=this.video(entry.target),preview=this.previews.get(entry.target);if(video && !video.paused){video.pause();entry.target.dataset.rtPausedAway='true';}if(video && preview)video.currentTime=preview.start;}
   }
   destroy(){
    this.dead=true;this.mo?.disconnect();this.io?.disconnect();
