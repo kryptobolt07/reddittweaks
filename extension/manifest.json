@@ -125,6 +125,7 @@
         "own-removal.js",
         "viewed-history.js",
         "smooth-scroll.js",
+        "video-control.js",
         "account-switcher.js"
       ]
     }
