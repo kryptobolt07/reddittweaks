@@ -65,9 +65,29 @@
           <button type="button" role="menuitemradio" data-value="0" aria-checked="false">No limit</button>
         </div>
       </div>
-      <div class="setting-row" data-requires="post-discovery">
-        <div class="setting-copy"><label for="smooth-feeds">Smooth long feeds</label><p id="smooth-feeds-desc">Keep loaded posts in place and skip drawing the ones far off screen, so fast scrolling stays filled. Uses a little more memory on very long profiles.</p></div>
+      <div class="setting-row">
+        <div class="setting-copy"><label for="smooth-feeds">Smooth scrolling</label><p id="smooth-feeds-desc">Skip drawing posts and comments far off screen so fast scrolling stays filled. Reddit keeps everything loaded drawn; this keeps it in place without drawing it.</p></div>
         <input class="switch" type="checkbox" id="smooth-feeds" data-setting="smoothFeeds" aria-describedby="smooth-feeds-desc">
+      </div>
+      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
+        <div class="setting-copy"><label for="smooth-home">Home, Popular &amp; All</label><p id="smooth-home-desc">Your home feed and Reddit’s shared feeds.</p></div>
+        <input class="switch" type="checkbox" id="smooth-home" data-setting="smoothHome" aria-describedby="smooth-home-desc">
+      </div>
+      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
+        <div class="setting-copy"><label for="smooth-subreddits">Subreddits</label><p id="smooth-subreddits-desc">Community feeds.</p></div>
+        <input class="switch" type="checkbox" id="smooth-subreddits" data-setting="smoothSubreddits" aria-describedby="smooth-subreddits-desc">
+      </div>
+      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
+        <div class="setting-copy"><label for="smooth-profiles">Profiles</label><p id="smooth-profiles-desc">User profiles, including the ones profile search loads.</p></div>
+        <input class="switch" type="checkbox" id="smooth-profiles" data-setting="smoothProfiles" aria-describedby="smooth-profiles-desc">
+      </div>
+      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
+        <div class="setting-copy"><label for="smooth-search">Search results</label><p id="smooth-search-desc">Post results on Reddit search.</p></div>
+        <input class="switch" type="checkbox" id="smooth-search" data-setting="smoothSearch" aria-describedby="smooth-search-desc">
+      </div>
+      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
+        <div class="setting-copy"><label for="smooth-comments">Long comment threads</label><p id="smooth-comments-desc">Skips drawing top-level comments far off screen. Off by default: very new.</p></div>
+        <input class="switch" type="checkbox" id="smooth-comments" data-setting="smoothComments" aria-describedby="smooth-comments-desc">
       </div>
       <div class="setting-row">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8 5H5a5 5 0 0 0 0 10h3v-2H5a3 3 0 0 1 0-6h3V5Zm4 0v2h3a3 3 0 0 1 0 6h-3v2h3a5 5 0 0 0 0-10h-3ZM5 9v2h10V9H5Z"/></svg></span>

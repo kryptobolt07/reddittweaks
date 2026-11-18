@@ -28,8 +28,11 @@ test('failed History saves keep the last stored selection and allow retry',async
 test('History menu escapes the masked settings panel, uses uniform rows and stays inside a short popup',async t=>{
  const s=await setup(t),d=s.W.document,b=d.getElementById('history-limit'),menu=d.getElementById('history-limit-menu');Object.defineProperty(s.W,'innerWidth',{value:250});Object.defineProperty(s.W,'innerHeight',{value:160});b.getBoundingClientRect=()=>({right:240,bottom:140});menu.getBoundingClientRect=()=>({height:190,width:164});b.click();assert.equal(menu.parentElement,d.body);assert.equal(menu.closest('.panel'),null);const options=[...menu.querySelectorAll('[role="menuitemradio"]')];assert.equal(options[0].textContent.trim(),'20');assert.ok(options.every(o=>!o.querySelector('span')),'all options are a single line');assert.ok(Number.parseFloat(menu.style.maxHeight)<=144);assert.ok(Number.parseFloat(menu.style.top)+Number.parseFloat(menu.style.maxHeight)<=152);assert.ok(Number.parseFloat(menu.style.left)+Number.parseFloat(menu.style.width)<=242);menu.dispatchEvent(new s.W.Event('scroll'));assert.equal(menu.hidden,false,'scrolling the overlay does not dismiss it');
 });
-test('Smooth long feeds is on by default, depends on profile discovery and saves like other switches',async t=>{
+test('Smooth scrolling is on by default for the whole site, with per-area sub-options, and saves like other switches',async t=>{
  const s=await setup(t),d=s.W.document,box=d.querySelector('#smooth-feeds');await settle();
- assert.ok(box);assert.equal(box.dataset.setting,'smoothFeeds');assert.equal(box.checked,true);assert.equal(box.closest('.setting-row').dataset.requires,'post-discovery');assert.match(d.querySelector('#smooth-feeds-desc').textContent,/memory/i);
+ assert.ok(box);assert.equal(box.dataset.setting,'smoothFeeds');assert.equal(box.checked,true);assert.equal(box.closest('.setting-row').dataset.requires,undefined,'no longer needs profile discovery');assert.match(d.querySelector('label[for="smooth-feeds"]').textContent,/Smooth scrolling/);
+ const subs=[...d.querySelectorAll('.setting-row[data-requires="smooth-feeds"]')].map(r=>r.querySelector('input').dataset.setting+':'+r.querySelector('input').checked);assert.deepEqual(subs,['smoothHome:true','smoothSubreddits:true','smoothProfiles:true','smoothSearch:true','smoothComments:false']);
+ assert.ok([...d.querySelectorAll('.setting-row[data-requires="smooth-feeds"]')].every(r=>r.dataset.level==='2' && r.hasAttribute('data-detail')));
+ d.querySelector('#smooth-comments').click();await settle();assert.equal(s.storage['rt-settings-v1'].smoothComments,true);
  box.click();await settle();assert.equal(s.storage['rt-settings-v1'].smoothFeeds,false);
 });
