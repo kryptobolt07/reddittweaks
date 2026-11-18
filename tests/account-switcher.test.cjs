@@ -99,6 +99,11 @@ test('any signed-in account Reddit reports is saved straight away, without openi
  const w=worker();const r=await w.send({action:'remember',owner:'t2_alice'});assert.equal(r.save,true,'the page is asked to read its name and save');
  await w.send({action:'save-current',...alice});assert.equal((await w.send({action:'remember',owner:'t2_alice'})).save,false,'saved accounts only refresh');
 });
+test('on phones the popup opens as a tab and still manages accounts',async()=>{
+ const w=worker();await w.send({action:'save-current',...alice});const asTab={...w.popup,tab:{id:7,windowId:1}};
+ const list=await w.send({action:'list'},asTab);assert.equal(list.ok,true);assert.equal(list.accounts.length,1);
+ assert.equal((await w.send({action:'add'},asTab)).ok,true);assert.equal(w.created.at(-1).url,'https://www.reddit.com/login/','opens sign-in in a new tab, never in the popup’s own tab');assert.equal(w.updates.length,0);
+});
 test('a private window switches its own cookie store, keeps its accounts in session storage and reloads only private tabs',async()=>{
  const w=worker({privateJar:jarFor('carol')});await w.send({action:'save-current',...alice});
  // Carol is signed in only in the private window.

@@ -12,7 +12,8 @@
  const ownerOK=value=>/^t2_[a-z0-9]{1,13}$/i.test(value || ''),nameOK=value=>/^[\w-]{1,20}$/.test(value || '');
  const avatarOf=value=>{const url=globalThis.RTPostModel?.avatarUrl?.(value) || '';return url.length<=2048?url:'';};
  const redditPage=sender=>{try{const u=new URL(sender.url);return (sender.frameId==null || sender.frameId===0) && Number.isInteger(sender.tab?.id) && u.protocol==='https:' && !u.port && ['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(u.hostname);}catch{return false;}};
- const popupPage=sender=>!sender.tab && sender.url===chrome.runtime.getURL('popup.html');
+ // The popup: a panel on desktop, a tab on phones (Firefox for Android, Kiwi). Its extension URL identifies it either way.
+ const popupPage=sender=>{try{const u=new URL(sender.url),own=new URL(chrome.runtime.getURL('popup.html'));return u.origin===own.origin && u.pathname===own.pathname;}catch{return false;}};
 
  // ---- Cookie store of the asking tab or window: {id (undefined = the browser's default), private, windowId}. ----
  async function jarOf(sender){

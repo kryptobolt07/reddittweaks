@@ -20,7 +20,8 @@
  }
  async function handle(message,sender){
   if(sender.id!==chrome.runtime.id)throw Error('Invalid extension sender.');
-  const popup=!sender.tab && sender.url===chrome.runtime.getURL('popup.html');
+  // The popup is a panel on desktop and a tab on phones; its extension URL identifies it either way.
+  const popup=(()=>{try{const u=new URL(sender.url),own=new URL(chrome.runtime.getURL('popup.html'));return u.origin===own.origin && u.pathname===own.pathname;}catch{return false;}})();
   if(['summary','seen','clear'].includes(message.action)){
    if(!popup || !Number.isInteger(message.tabId))throw Error('Open Reddit Tweaks to manage removal history.');
    const me=await context(message.tabId);if(message.action!=='summary' && message.owner!==me.owner)throw Error('The signed-in account changed. Reopen Reddit Tweaks.');let value;
