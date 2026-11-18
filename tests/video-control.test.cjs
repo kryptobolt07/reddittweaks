@@ -399,30 +399,49 @@ test('an opened preview can start from the beginning and keep its sound off',asy
  const saved=JSON.parse(p.W.sessionStorage.getItem(continuationKey));
  assert.equal(saved.time,0);assert.equal(saved.muted,true);assert.equal(p.video.muted,true);
 });
-function phone(p,coarse=true){p.W.matchMedia=query=>({matches:coarse && /hover: none|pointer: coarse/.test(query)});}
-test('on phones the feed video most in view previews muted when chosen, and stops when it leaves',async t=>{
- const p=page(t);phone(p);await hoverController(p,{videoPreviewsInView:true});
- p.io.cb([{target:p.player,intersectionRatio:0.7}]);await waitForHover();
+function phone(p,coarse=true,top=200){
+ p.W.matchMedia=query=>({matches:coarse && /hover: none|pointer: coarse/.test(query)});
+ const box={top,height:300};p.player.getBoundingClientRect=()=>({top:box.top,bottom:box.top+box.height,height:box.height,left:0,width:390});
+ return box;
+}
+const settle=()=>new Promise(resolve=>setTimeout(resolve,650));
+const scroll=p=>p.W.dispatchEvent(new p.W.Event('scroll'));
+test('on phones a muted preview starts once scrolling stops on a video, and a tap opens its post',async t=>{
+ const p=page(t);const box=phone(p);await hoverController(p,{videoPreviewsInView:true});
+ scroll(p);await new Promise(resolve=>setTimeout(resolve,300));scroll(p);await new Promise(resolve=>setTimeout(resolve,300));
+ assert.equal(p.video.paused,true,'nothing starts while scrolling');
+ await new Promise(resolve=>setTimeout(resolve,400));
  assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
+ box.top=-60;scroll(p);await new Promise(resolve=>setTimeout(resolve,100));
+ assert.equal(p.video.paused,false,'a playing preview keeps going while scrolling');
  const c=surfaceClick(p);p.click(p.video);assert.deepEqual(c.count(),{toggled:0,opened:1},'a tap opens the post');
- const q=page(t);phone(q);await hoverController(q,{videoPreviewsInView:true});
- q.io.cb([{target:q.player,intersectionRatio:0.7}]);await waitForHover();
- q.io.cb([{target:q.player,intersectionRatio:0.55}]);assert.equal(q.video.paused,true,'below 60 % it is no longer the one in view');
 });
-test('a video already in view when the settings arrive previews',async t=>{
+test('a phone preview stops when it scrolls half away and the next settled video takes over',async t=>{
+ const p=page(t);const box=phone(p);await hoverController(p,{videoPreviewsInView:true});
+ scroll(p);await settle();assert.equal(p.video.paused,false);
+ box.top=-200;p.io.cb([{target:p.player,intersectionRatio:0.3}]);
+ assert.equal(p.video.paused,true);
+ scroll(p);await settle();assert.equal(p.video.paused,true,'below 60 % it is not chosen again');
+});
+test('a video already in view when the settings arrive previews after the pause',async t=>{
  const p=page(t);phone(p);
  p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
  Object.defineProperty(p.video,'readyState',{value:1,configurable:true});
- let settle;const controller=new p.W.RTVideoControl.Videos({readSettings:()=>new Promise(r=>settle=r),readPreference:async()=>true,observe:false});
- controller.scan();p.io.cb([{target:p.player,intersectionRatio:1}]);
- settle({videoPreviewsInView:true});await controller.ready;await waitForHover();
+ let finish;const controller=new p.W.RTVideoControl.Videos({readSettings:()=>new Promise(r=>finish=r),readPreference:async()=>true,observe:false});
+ controller.scan();finish({videoPreviewsInView:true});await controller.ready;await settle();
  assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
  controller.configure({});assert.equal(p.video.paused,true,'turning the option off stops it');
+});
+test('a phone preview starts for a video that loads into view without a scroll',async t=>{
+ const p=page(t);phone(p);const post=p.player.parentElement,player=p.player;player.remove();
+ const controller=await hoverController(p,{videoPreviewsInView:true});await settle();
+ post.append(player);controller.scan();await settle();
+ assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
 });
 test('in-view previews are off by default and never run with a mouse',async t=>{
  for(const [coarse,settings] of [[true,{}],[false,{videoPreviewsInView:true}],[true,{videoPreviewsInView:true,videoPreviews:false}]]){
   const p=page(t);phone(p,coarse);await hoverController(p,settings);
-  p.io.cb([{target:p.player,intersectionRatio:0.9}]);await waitForHover();
+  scroll(p);await settle();
   assert.equal(p.video.paused,true,JSON.stringify(settings));
  }
 });

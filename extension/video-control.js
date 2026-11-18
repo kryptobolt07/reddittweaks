@@ -6,7 +6,7 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=160,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=160,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
  const PLAY_BUTTON='.poster-play-button,.play-pause-button';
  const SOUND_CONTROL='.mute-button,.volume-slider';
  const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen';
@@ -26,7 +26,7 @@
  class Videos{
   constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,observe=true}={}){
    this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new WeakMap();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;
-   this.visibilityReady=new WeakMap();this.fading=new WeakMap();this.ratios=new Map();this.away=new WeakMap();
+   this.visibilityReady=new WeakMap();this.fading=new WeakMap();this.away=new WeakMap();
    this.onGesture=event=>{
     if(!event.isTrusted && !globalThis.__rtVideoControlTest)return;
     const path=event.composedPath();
@@ -41,6 +41,8 @@
    };
    this.onHover=event=>this.hover(event);
    this.onTabVisibility=()=>{if(this.doc.hidden)this.stopHover();};
+   // Phones, like YouTube's feed: a preview starts once scrolling has stopped for a moment.
+   this.onScroll=()=>{if(this.inView)this.settle();};
    this.onRemember=event=>this.remember(event);
    this.onRoute=()=>{this.stopHover();this.handoff();};
    this.onBack=()=>{this.stopHover();this.clearHandoff();};
@@ -57,6 +59,7 @@
    for(const type of ['pointerdown','keydown','click'])doc.addEventListener(type,this.onGesture,true);
    for(const type of ['pointerover','pointerout'])doc.addEventListener(type,this.onHover,true);
    doc.addEventListener('visibilitychange',this.onTabVisibility);
+   this.win.addEventListener('scroll',this.onScroll,{passive:true,capture:true});
    doc.addEventListener('click',this.onRemember,true);
    doc.addEventListener('reddit:route',this.onRoute);
    this.win.addEventListener('popstate',this.onBack);
@@ -74,7 +77,7 @@
    else if(!this.configured)this.restoreHandoff();
    this.configured=true;this.scan();
    // Visibility reports that arrived before the settings did still choose the in-view preview.
-   if(this.inView)this.pickInView();
+   if(this.inView)this.settle();
    else if(this.viewing)this.stopHover();
    // Reddit's preference is read only while this option is on; a video Reddit started before it arrived is paused then.
    if(this.respect && !this.preference)this.preference=Promise.resolve().then(()=>this.readPreference({doc:this.doc})).then(value=>{this.autoplayDisabled=value;if(value===true && this.respect)for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.started.has(video) && !this.continued.has(video))this.block(player,video);}},()=>{});
@@ -108,14 +111,15 @@
   scan(){
    for(const player of this.players)if(!player.isConnected){
     if(this.hovered===player)this.stopHover();
-    this.players.delete(player);this.previews.delete(player);this.ratios.delete(player);this.io?.unobserve(player);
+    this.players.delete(player);this.previews.delete(player);this.io?.unobserve(player);
    }
    for(const player of this.doc.querySelectorAll(PLAYERS))this.attach(player);
    this.handoff();
   }
   attach(player){
    if(this.players.has(player) || !player.shadowRoot)return;
-   this.players.add(player);this.io?.observe(player);this.ratios.delete(player);
+   this.players.add(player);this.io?.observe(player);
+   if(this.inView && !this.viewing)this.settle();
    if(this.attached.has(player))return;
    this.attached.add(player);
    player.shadowRoot.addEventListener('play',event=>this.onPlay(player,event),true);
@@ -381,9 +385,10 @@
   }
   onVisibility(entries){
    const pending=this.activeHandoff();
+   // Feed layout settling without a scroll (cards loading in) also picks a phone preview.
+   if(this.inView && !this.viewing)this.settle();
    for(const entry of entries){
     const player=entry.target,ready=this.visibilityReady.get(player);
-    if(player.getAttribute('player-type')===FEED_PLAYER)this.ratios.set(player,entry.intersectionRatio);
     if((ready!==undefined && !(entry.time>=ready)) || (player===pending?.source && (pending.held || pending.reached)))continue;
     // A post's own video pauses once it is fully out of view and resumes where it was when half of it is back;
     // a feed video pauses when less than half of it is on screen and stays paused.
@@ -398,7 +403,6 @@
      if(detail)this.away.set(player,{video,time:video.currentTime});
     }
    }
-   if(this.inView)this.pickInView();
   }
   resumeAway(player){
    const away=this.away.get(player),video=this.video(player);
@@ -414,19 +418,25 @@
    this.continued.add(video);
    this.play(player,video)?.catch?.(()=>this.continued.delete(video));
   }
-  // The feed video at least 60 % visible and nearest the middle of the screen previews; one at a time.
+  settle(){
+   this.win.clearTimeout(this.settleTimer);
+   this.settleTimer=this.win.setTimeout(()=>{if(this.inView && !this.dead)this.pickInView();},DWELL_MS);
+  }
+  // After scrolling stops, the feed video at least 60 % visible and nearest the middle of the screen previews, one at a
+  // time; a playing preview keeps going while it stays at least half on screen.
   pickInView(){
-   const middle=this.win.innerHeight/2;let best=null,distance=Infinity;
-   for(const [player,ratio] of this.ratios){
-    if(ratio<IN_VIEW || !player.isConnected || player.getAttribute('player-type')!==FEED_PLAYER)continue;
-    const box=player.getBoundingClientRect(),gap=Math.abs(box.top+box.height/2-middle);
-    if(gap<distance){best=player;distance=gap;}
+   const height=this.win.innerHeight,middle=height/2;let best=null,distance=Infinity;
+   for(const player of this.players){
+    if(!player.isConnected || player.getAttribute('player-type')!==FEED_PLAYER)continue;
+    const box=player.getBoundingClientRect();if(!(box.height>0))continue;
+    const shown=(Math.min(box.top+box.height,height)-Math.max(box.top,0))/box.height,gap=Math.abs(box.top+box.height/2-middle);
+    if(shown>=IN_VIEW && gap<distance){best=player;distance=gap;}
    }
    if(best===this.hovered)return;
    this.stopHover();
    if(!best)return;
    this.hovered=best;this.viewing=true;
-   this.hoverTimer=this.win.setTimeout(()=>this.startPreview(best),HOVER_MS);
+   this.startPreview(best);
   }
   destroy(){
    this.dead=true;this.mo?.disconnect();this.io?.disconnect();
@@ -434,6 +444,7 @@
    for(const type of ['pointerdown','keydown','click'])this.doc.removeEventListener(type,this.onGesture,true);
    for(const type of ['pointerover','pointerout'])this.doc.removeEventListener(type,this.onHover,true);
    this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
+   this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);
    this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);
    this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
    this.clearHandoff();

@@ -131,6 +131,8 @@
   document.addEventListener('rt-play-video',event=>{
     const player=event.target;
     if(!player.matches?.(videoPlayers) || typeof player.play!=='function' || !player.mediaActionsController)return;
+    // Reddit's play() refuses (pauses) until its own visibility observer has seen the player; play directly then.
+    if(player.mediaVisibilityController?.isVideoInView?.()===false && !player.playOutOfViewport)return;
     event.preventDefault();
     Promise.resolve(player.play()).catch(()=>{});
   });

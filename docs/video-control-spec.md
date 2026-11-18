@@ -22,6 +22,7 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 - Reddit's autoplay observer pauses a player (`pause('scroll')`) while less than its threshold is visible unless the reparent window (`beginDomReparent`) is open; a moving picture that is partly off screen tripped it.
 - Reddit's main thread is busy for 0.1–1 s while it renders the post; a frame-driven move got about four frames.
 - Reddit's controls (play icon, poster) follow its own `play()`; a preview started with `<video>.play()` left the opened post showing Reddit's play icon over the playing video. Our plays now go through Reddit's player.
+- Reddit's `play()` pauses a player its visibility observer has not reported yet (about 150 ms after load on the phone feed); such a play goes to the `<video>` directly.
 - On a post page (Reddit autoplay off), our scroll-away rule paused the post's video at 42 % visible and nothing resumed it.
 
 ## Behaviour (expected, desktop and phone)
@@ -29,7 +30,7 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 ### Previews — the YouTube model
 - A preview is **muted and inline**; it never takes the sound or the page by itself.
 - **Desktop:** resting the mouse on a paused feed video for 160 ms starts its preview. Moving within the **same post card** (to its title, flair, votes) keeps it playing; leaving the card for 250 ms pauses it where it is.
-- **Phones** (no hover): optional **in-view previews** — the feed video that is at least 60 % visible and nearest the middle of the screen previews muted; scrolling another one into that spot moves the preview there. Off by default.
+- **Phones** (no hover): optional **in-view previews**, like YouTube's phone feed — once scrolling has stopped for 600 ms (or the feed has loaded without a scroll), the feed video that is at least 60 % visible and nearest the middle of the screen previews muted. A playing preview keeps going while you scroll until less than half of it is on screen; the next one starts only after scrolling stops again. Off by default, so turning off Reddit's autoplay still stops videos starting on their own.
 - A preview stays muted even when Reddit's saved volume is unmuted.
 - **Clicking or tapping a preview** follows *Clicking a preview*: **Open the post** (default, as YouTube does) or **Play here**. Reddit's own mute/volume button always works in place (a preview you unmute keeps playing where it is), as do captions, seeking and fullscreen.
 - Opening a previewed video continues from *Opened previews start*: **where the preview is** (default) or **from the beginning**, with sound per *Sound when opening a preview* (default on; the sound fades in over 200 ms). Sound is turned on through Reddit's own volume state, as Reddit's sound button does, so the post's player keeps it.
@@ -64,7 +65,7 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 |---|---|---|---|
 | V1 | Rest on / leave a paused feed video | Muted preview after 160 ms; leaving the card for 250 ms pauses at its position | — (no hover) |
 | V2 | Pointer from preview to its title | Preview keeps playing | — |
-| V3 | Scroll a video into the middle | — | With in-view previews: muted preview; the previous one pauses |
+| V3 | Stop scrolling on a video | — | With in-view previews: muted preview after 600 ms; the previous one paused when it went half off screen |
 | V4 | Click/tap a preview's surface | Opens the post (default) or plays here with sound | Same |
 | V5 | Reddit's mute button on a preview | Unmutes in place, keeps playing | Same |
 | V6 | Open a playing/previewing video's post | Feed stays; video stays in its card, then moves into the post slot in 220 ms; position kept; sound per option, faded in | Same, full width slot |
