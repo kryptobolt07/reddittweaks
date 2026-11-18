@@ -23,6 +23,7 @@
  class Videos{
   constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,observe=true}={}){
    this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new Map();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;
+   this.visibilityReady=new WeakMap();
    this.onGesture=event=>{
     if(!event.isTrusted && !globalThis.__rtVideoControlTest)return;
     const path=event.composedPath();
@@ -155,6 +156,7 @@
    if(!player)return;
    if(pending.held && !player.dispatchEvent(new this.win.Event('rt-place-held-video',{bubbles:true,cancelable:true}))){
     pending.held=false;
+    this.observeAfterMove(pending.source);
     this.clearHandoff();
     return;
    }
@@ -208,10 +210,28 @@
    video.currentTime=state.start;video.muted=state.muted;
    setTimeout(()=>{if(video.paused)video.play()?.catch?.(()=>{});},0);
   }
+  observeAfterMove(player){
+   if(!this.io)return;
+   this.visibilityReady.set(player,Infinity);
+   this.io.unobserve(player);
+   // Discard feed geometry and wait for the relocated player to paint in the post.
+   this.win.requestAnimationFrame(()=>this.win.requestAnimationFrame(()=>{
+    if(this.dead)return;
+    this.visibilityReady.set(player,this.win.performance.now());
+    if(player.isConnected && this.players.has(player))this.io.observe(player);
+   }));
+  }
   onVisibility(entries){
    if(!this.pauseAway)return;
    const pending=this.activeHandoff();
-   for(const entry of entries){if(entry.intersectionRatio>=0.5 || entry.target===pending?.source && (pending.held || pending.reached))continue;const video=this.video(entry.target),preview=this.previews.get(entry.target);if(video && !video.paused){video.pause();entry.target.dataset.rtPausedAway='true';}if(video && preview)video.currentTime=preview.start;}
+   for(const entry of entries){
+    const player=entry.target,ready=this.visibilityReady.get(player);
+    if(entry.intersectionRatio>=0.5 || (ready!==undefined && !(entry.time>=ready)) ||
+       (player===pending?.source && (pending.held || pending.reached)))continue;
+    const video=this.video(player),preview=this.previews.get(player);
+    if(video && !video.paused){video.pause();player.dataset.rtPausedAway='true';}
+    if(video && preview)video.currentTime=preview.start;
+   }
   }
   destroy(){
    this.dead=true;this.mo?.disconnect();this.io?.disconnect();

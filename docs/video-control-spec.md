@@ -7,6 +7,7 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 - Reddit's player is `shreddit-player` (attributes include `is-mobile`, `single-playback`, `player-type=in_feed_player`) with an open shadow root holding the `<video>` (`autoplay=false`, `preload=metadata`): playback is started by Reddit's script, not the `autoplay` attribute.
 - On Brave desktop, opening a native video post changes the URL while the original `in_feed_player` is still mounted. Reddit then replaces it with a `post_detail_screen` player with the same `post-id`. The feed card's title and full-post links both point to the post permalink.
 - The feed host's ordinary disconnect calls `stop()`, which pauses and clears the media source. Reddit's player has a reparenting hook that suppresses both disconnect teardown and its off-screen pause while native playback moves between containers. Reddit also calls its background pause at the start of an in-app route change. Suppress that call on the held player while the tab is visible, and restore its normal handler on placement or cancellation.
+- In Brave with 0.45.1 installed, the outgoing feed remained visible after the post URL changed. The moved player was fully in view at post load (381 px high at y=168 in a 687 px viewport), but the extension's scroll-away observer paused it at placement.
 - With lazy loading, the detail player can have no active source until Reddit initializes it. Calling its native `load('metadata')` method attaches the source and loads metadata without starting playback.
 - `/api/v1/me/prefs` is not readable from the page (401/403). Reddit's settings page (`/settings/preferences`) carries the account's preferences in `settings-preferences[initialstate]`, including `isVideoAutoplayDisabled` (true for the user's account), yet videos autoplayed.
 
@@ -29,9 +30,10 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 | T5 | Autoplay on in Reddit | Reddit's autoplay kept; only the off-screen pause applies |
 | T6 | Start a feed video, open its post | The post player starts at the latest feed position with the same sound and speed |
 | T7 | Continue a video into a post, then scroll it half off screen | Paused; the scroll-away option still applies |
-| T8 | Reddit removes its feed before the detail player appears | The original video stays connected and playing while the post loads, then occupies Reddit's detail slot |
+| T8 | Reddit keeps the outgoing feed mounted while the post loads | Hide the outgoing content without collapsing its layout. The original video stays visible and playing until it occupies Reddit's detail slot |
 | T9 | Use a player control, open a different page, go back before the video loads, or turn continuation off | Release the move and restore the feed slot when still mounted |
 | T10 | Back after a completed move | The retained feed still has its own native player, and the old detail player cannot keep playing offscreen |
+| T11 | The post settles and the reader scrolls away | Discard visibility readings from before or during the player move. Measure the player in the painted post and pause when a fresh reading shows it below the scroll-away threshold |
 
 ## Limits
 
@@ -41,3 +43,5 @@ Native buffering can still interrupt a video. A full document navigation cannot 
 ## Verification
 
 A clean Chromium profile running only this extension loaded a real Reddit feed, started a video with Reddit's own control, then opened its title. The same video stayed connected, advanced from 0.54 s to 1.40 s during the 0.86 s transition, and continued to 2.29 s. It emitted no pause, seek, waiting or source-reset events during the move. Synthetic tests also cover retained feeds, cancelling the move, a fresh document, delayed metadata and continuation with Reddit autoplay disabled.
+
+On live Reddit in Brave, the outgoing feed and its main column were hidden through the move. The same video advanced from 0.77 s on the feed to 2.03 s at placement and 4.38 s after the post settled, with no pause event. Synthetic checks inject an outdated intersection report and then a fresh scroll-away report to exercise both paths.
