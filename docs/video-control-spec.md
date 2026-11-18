@@ -38,7 +38,7 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 
 ### Keep playing when opening a post (shared-element transition)
 - Opening a post whose video is playing (or previewing) keeps **the same video element** playing without a seek or reload.
-- The **feed stays on screen**, exactly as Reddit leaves it, and the video stays at its place in its card until Reddit has laid out the post's video slot. Nothing is hidden and nothing blanks.
+- The **feed stays on screen**, exactly as Reddit leaves it, and the video stays at its place in its card until Reddit has laid out the post's video slot. Nothing is hidden and nothing blanks. The page bridge sets `html[data-rt-media-moving]` from the hold until placement; a type-filtered subreddit feed, which otherwise conceals itself during post navigation, stays visible (still filtered) while it is set.
 - When the slot is laid out, the video takes it at once, and its picture moves from where it was in the card to the slot over **220 ms** (ease-out): one uniform scale from picture to picture (no distortion, no clamp), clipped to the card's box at the start, on the compositor so Reddit rendering the post cannot stall it. Reddit's reparent window stays open until the move ends. Later layout shifts of the post page carry it with them. With reduced motion it takes the slot without moving.
 - A video playing with sound keeps it in the post.
 - Opening another page, Back before the post appears, a player control, or 12 s without a slot: the video returns to its card. Back after the move: the feed card has its own fresh player and the post player stops.

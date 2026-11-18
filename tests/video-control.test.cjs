@@ -161,6 +161,7 @@ test('the same playing media survives feed removal and moves into the detail slo
  const before=surface.outerHTML.length;
  p.click(p.title);
  assert.notEqual(p.player.parentElement,feed);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-media-moving'),true,'filtered feeds stay visible while it moves');
  assert.equal(fs.readFileSync('extension/post-discovery.css','utf8').includes('data-rt-video-outgoing'),false);
  assert.equal([...surface.attributes].length,0,'the feed stays on screen as Reddit leaves it');
  assert.ok(surface.outerHTML.length<before,'only the player left the card');
@@ -183,6 +184,7 @@ test('the same playing media survives feed removal and moves into the detail slo
  assert.equal(p.player.className,'detail-layout');
  assert.equal(feed.querySelector('shreddit-player').getAttribute('player-type'),'in_feed_player','a cached feed still has its player when restored');
  assert.deepEqual(calls,['begin','end']);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-media-moving'),false);
  assert.equal(p.W.sessionStorage.getItem(continuationKey),null);
  p.player.pause('background');
  assert.equal(p.video.paused,true,'normal pause behavior resumes after placement');

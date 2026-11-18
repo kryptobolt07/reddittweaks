@@ -49,7 +49,7 @@ On live Brave, opening **Circus champion tricks** from the Videos feed changed t
 
 | Transition | Acceptance |
 |---|---|
-| T2, T7: open a post from a type-filtered feed | Keep the old feed filtered. Hide it while Reddit replaces it, including opens where no video was playing. A detail card mounted in the same container remains visible. |
+| T2, T7: open a post from a type-filtered feed | Keep the old feed filtered. Hide it while Reddit replaces it, including opens where no video was playing. A detail card mounted in the same container remains visible. Exception (user decision 2026-11-19): while a playing video or YouTube player waits at its card and moves into the post (`html[data-rt-media-moving]`), the filtered feed stays visible behind it, so the video never floats on a blank page. |
 | T3, T4: return to that feed history entry | Apply the saved URL's filters before restoring the card and its viewport offset. Let geometry settle before revealing the feed. If the card is missing, try the saved scroll coordinate for a bounded time. |
 | T10, T16: redirect, user interaction or opt-out | Release the hold. A different feed entry, a new-tab click or a reader taking over scrolling does not inherit the saved position. |
 

@@ -18,7 +18,10 @@
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
   const videoPlayers='shreddit-player,shreddit-player-2',FLIGHT_MS=220;
-  let heldVideo;
+  let heldVideo,heldEmbed=null;
+  // While a video or YouTube player waits at its card and moves into its post, the page says so, so that nothing
+  // hides the outgoing feed behind it (a filtered feed otherwise conceals itself during post navigation).
+  const markMove=()=>document.documentElement.toggleAttribute('data-rt-media-moving',Boolean(heldVideo || heldEmbed));
   function movePlayer(parent,player,before=null){
     if(parent.moveBefore)parent.moveBefore(player,before);
     else parent.insertBefore(player,before);
@@ -31,7 +34,7 @@
   function releaseVideo(){
     if(!heldVideo)return;
     const {player,slot,stage,controller,restorePause}=heldVideo;
-    heldVideo=null;
+    heldVideo=null;markMove();
     restorePause();
     if(slot.isConnected)movePlayer(slot.parentNode,player,slot);
     slot.remove();
@@ -99,7 +102,7 @@
     };
     controller.beginDomReparent();
     movePlayer(stage,player);
-    heldVideo={player,id,slot,stage,controller,restorePause,rect:{left,top,width,height}};
+    heldVideo={player,id,slot,stage,controller,restorePause,rect:{left,top,width,height}};markMove();
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-video',event=>{
@@ -108,7 +111,7 @@
        detail.getAttribute('player-type')!=='post_detail_screen' || detail.getAttribute('post-id')!==heldVideo.id ||
        detail.closest('shreddit-post')?.id!==heldVideo.id || detail.localName!==heldVideo.player.localName)return;
     const {player,slot,stage,controller,restorePause,rect}=heldVideo;
-    heldVideo=null;
+    heldVideo=null;markMove();
     // A post player re-applies Reddit's session sound state when the move ends (and mutes autoplay without one); a
     // video playing with sound keeps it.
     const video=player.shadowRoot?.querySelector('video');
@@ -174,10 +177,9 @@
   }));
   // Shared-element move for a playing YouTube embed: its iframe (kept alive by moveBefore, no reload) stays at its
   // card above the visible feed, then takes the post's embed, so the post never shows its thumbnail or play button.
-  let heldEmbed=null;
   function releaseEmbed(){
     const held=heldEmbed;if(!held)return;
-    heldEmbed=null;
+    heldEmbed=null;markMove();
     if(held.lite.isConnected){movePlayer(held.lite,held.ifr);restoreStyle(held.ifr,held.style);}
     restoreStyle(held.lite,held.liteStyle);
     held.stage.remove();
@@ -198,14 +200,14 @@
     // The emptied card would show Reddit's thumbnail and play button wherever the feed moves meanwhile.
     lite.style.visibility='hidden';
     Object.assign(ifr.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
-    heldEmbed={embed,lite,ifr,player,stage,style,liteStyle,rect:{left,top,width,height},id:embed.closest('shreddit-post')?.id};
+    heldEmbed={embed,lite,ifr,player,stage,style,liteStyle,rect:{left,top,width,height},id:embed.closest('shreddit-post')?.id};markMove();
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-embed',event=>{
     const embed=event.target,lite=liteOf(embed),id=route()?.id,held=heldEmbed;
     if(!held || !lite || !id || held.id!=='t3_'+id || embed.closest('shreddit-post')?.id!==held.id || embed.closest('shreddit-feed'))return;
     const to=lite.getBoundingClientRect();if(!to.width || !to.height)return;
-    heldEmbed=null;
+    heldEmbed=null;markMove();
     lite.classList.add('lyt-activated');
     embed.hasActivatedYouTubePlayer=true;
     lite.playerPromise=Promise.resolve(held.player);

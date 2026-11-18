@@ -66,6 +66,15 @@ test('opening a filtered post hides the outgoing feed and Back restores the clic
  assert.equal(original.hasAttribute(arriving),false);
 });
 
+test('a video or YouTube player moving into the post keeps the filtered feed on screen behind it',async t=>{
+ const p=navigationFixture(t),{D,original,article}=p;
+ const hidden=original.querySelector('article['+stop+']');
+ const title=article.querySelector('a');title.addEventListener('click',event=>event.preventDefault());
+ D.documentElement.setAttribute('data-rt-media-moving','');
+ title.click();p.route(filteredPostPath);await flush();
+ assert.equal(original.hasAttribute(outgoing),false,'no blank page behind the moving video');
+ assert.equal(hidden.hasAttribute(stop),true,'the feed stays filtered');
+});
 test('an in-place post swap releases the outgoing hold and input cancels Back correction',async t=>{
  const p=navigationFixture(t),{D,W,original,article}=p;
  const title=article.querySelector('a');title.addEventListener('click',event=>event.preventDefault());
