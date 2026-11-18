@@ -43,9 +43,9 @@ To publish a GitHub release, commit matching manifest/runtime versions and a CHA
 
 ## Live subreddit feeds and search
 
-Use **Filters** on a subreddit to choose post types and flair. Post types filter the cards Reddit has loaded, and flair uses Reddit’s own community filter. If two more pages return no matches, **Load more** resumes Reddit’s pager when you want to look further.
+Use **Filters** on a subreddit to choose sort, post types and flair. The Sort submenu includes Top’s time ranges when Reddit offers them. Post types filter the cards Reddit has loaded, and flair uses Reddit’s own community filter. If two more pages return no matches, **Load more** resumes Reddit’s pager when you want to look further.
 
-Choose **Browse posts** or press Enter in an empty subreddit search field to open the community’s results. Use the Posts, Comments and Media views with sort, date and flair controls. Media cards use Reddit’s date handling because they lack timestamps. The controls share the extension’s filter icons and applied pills, with a dropdown on desktop and a bottom sheet on phones.
+Press Enter in the existing subreddit search field while it’s empty to open the community’s results. Use the Posts, Comments and Media views with sort, date and flair controls. On the Media tab, select multiple types such as Videos and GIFs. Media cards use Reddit’s date handling because they lack timestamps. Subreddit search filters sit beside Reddit’s search controls, with individual dropdowns on desktop and sheets on phones.
 
 ## Archived communities
 

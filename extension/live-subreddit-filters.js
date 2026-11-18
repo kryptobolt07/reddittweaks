@@ -12,7 +12,40 @@
   const flairKey = 'rt-community-flairs-v1';
   const searchSorts = [['relevance','Relevance','search'], ['new','New','new'], ['top','Top','top'], ['hot','Hot','hot'], ['comments','Most comments','comment']];
   const searchDates = [['all','All time'], ['hour','Past hour'], ['day','Past 24 hours'], ['week','Past week'], ['month','Past month'], ['year','Past year']];
-  const resultTypes = [['posts','Posts','text-post'], ['comments','Comments','comment'], ['media','Media','image']];
+  const mediaTypes = new Map([['image','Photos'],['video','Videos'],['gif','GIFs'],['gallery','Galleries']]);
+  const mediaUnits = 'search-media-feed search-telemetry-tracker[view-events="search/view/post"]';
+  const videoHosts = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|streamable\.com|twitch\.tv|dailymotion\.com|dai\.ly|gfycat\.com|redgifs\.com|tiktok\.com|rumble\.com)$/i;
+  const isPhone = () => Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);
+  const nativeFeedSort = 'shreddit-sort-dropdown:not([hidden]),shreddit-layout-switcher:not([hidden])';
+  const sortReplaced = 'data-rt-community-sort-replaced';
+  const feedSortIcons = {best:'best',hot:'hot',new:'new',top:'top',rising:'top',controversial:'sort'};
+  const nativeSearchSort = 'search-sort-dropdown-menu:not([hidden]),shreddit-sort-dropdown:not([hidden]),filter-drawer[id*="sort"]:not([hidden]),[data-testid="search-sort"]';
+  const nativeSearchTime = 'search-time-dropdown-menu:not([hidden]),shreddit-time-dropdown:not([hidden]),filter-drawer[id*="time"]:not([hidden]),[data-testid="search-time"]';
+
+  function externalVideo(unit) {
+    const direct = unit.getAttribute?.('content-href') || unit.getAttribute?.('url') || '';
+    const domain = String(unit.getAttribute?.('domain') || '').replace(/^www\./i,'');
+    try { if (direct && videoHosts.test(new URL(direct,location.href).hostname)) return true; } catch {}
+    if (domain && videoHosts.test(domain)) return true;
+    for (const link of unit.querySelectorAll('a[href]')) {
+      try {
+        if (videoHosts.test(new URL(link.getAttribute('href'),location.href).hostname)) return true;
+      } catch {}
+    }
+    return false;
+  }
+
+  function mediaType(unit) {
+    const explicit = filters.inferType(unit.querySelector('[post-type]') || unit);
+    if (explicit === 'video' || explicit === 'gif' || explicit === 'gallery') return explicit;
+    if (unit.querySelector('shreddit-gallery-carousel,[data-testid="galleryIcon"],a[href^="/gallery/"]')) return 'gallery';
+    const image = unit.querySelector('img[data-post-media-primary]');
+    const source = image?.getAttribute('src') || '';
+    if (/\.gif(?:[?#]|$)|[?&]format=gif(?:&|$)/i.test(source)) return 'gif';
+    if (unit.querySelector('[data-testid="videoIcon"],shreddit-player,shreddit-player-2,video') || externalVideo(unit)) return 'video';
+    if (explicit === 'image') return 'image';
+    return image ? 'image' : '';
+  }
   const fold = value => String(value || '').toLowerCase();
 
   function route(url = location) {
@@ -130,6 +163,7 @@
       };
       this.onKeys = event => this.handleKey(event);
       this.onFocus = event => this.prepareInput(event);
+      this.onScroll = () => this.resumeWhenScrolled();
       this.observer = new MutationObserver(records => {
         if (!this.enabled || (!this.scope && !route())) return;
         if (records.some(record => {
@@ -143,6 +177,7 @@
       document.addEventListener('reddit:route', this.onRoute);
       document.addEventListener('keydown', this.onKeys, true);
       document.addEventListener('focusin', this.onFocus, true);
+      window.addEventListener('scroll', this.onScroll, {passive:true});
       this.refresh();
     }
 
@@ -179,6 +214,8 @@
       this.note?.remove();
       this.toolbar = this.note = this.feed = this.main = this.scope = null;
       this.clearHidden();
+      this.setReplacedSorts([]);
+      this.feedSorts = null;
       this.clearPager();
       this.restoreLinks();
     }
@@ -189,7 +226,7 @@
       const main = document.querySelector('main');
       const feed = scope?.kind === 'feed' && main?.querySelector('shreddit-feed');
       const tabs = scope?.kind === 'search' && document.querySelector('#search-results-page-tabgroup');
-      const search = scope?.kind === 'search' && (tabs || main?.querySelector('[slot="filters"],[data-testid="search-sdui-post"],[data-testid="search-error-message"]'));
+      const search = scope?.kind === 'search' && (tabs || main?.querySelector('[slot="filters"],search-media-feed,[data-testid="search-sdui-post"],[data-testid="search-error-message"]'));
       if (!scope || !main || (!feed && !search) || main.closest('[data-rt-ui]') || main.querySelector('[data-rt-ui="archive-subreddit"]') ||
           document.querySelector('[data-rt-ui="archive-subreddit"]')) {
         this.clear();
@@ -206,7 +243,9 @@
         this.scope = scope;
       }
       this.url = url;
-      if (!this.toolbar?.isConnected) this.mount(tabs);
+      if (!this.toolbar?.isConnected) { this.panel?.close(); this.mount(tabs); }
+      if (this.feed) this.placeFeedControls();
+      else this.placeSearchControls(tabs);
       this.collectFlairs();
       this.filterResults();
       this.updateToolbar();
@@ -217,30 +256,162 @@
     mount(tabs) {
       const bar = this.toolbar = make('div','rt-community-controls');
       bar.dataset.rtUi = 'community-filters';
-      const options = this.options = make('button','rt-search-inline-filter rt-community-button','Filters');
-      options.type = 'button';
-      options.dataset.rtCommunityOptions = '';
-      options.setAttribute('aria-haspopup','dialog');
-      options.setAttribute('aria-expanded','false');
-      options.prepend(filters.svgIcon('filter',16));
-      options.append(filters.svgIcon('caret-down',16));
-      options.addEventListener('click', () => this.open());
-      bar.append(options);
-      if (this.feed) {
-        const browse = this.browse = make('a','rt-search-inline-filter rt-community-button','Browse posts');
-        browse.prepend(filters.svgIcon('search',16));
-        browse.addEventListener('click',event => {
-          if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.button !== 0) return;
-          event.preventDefault();
-          this.navigate(new URL(browse.href));
-        });
-        bar.append(browse);
-      }
       this.chips = make('div','rt-community-chips rt-filter-chips');
+      if (this.feed) {
+        const options = this.options = make('button','rt-search-inline-filter rt-community-button','Filters');
+        options.type = 'button';
+        options.dataset.rtCommunityOptions = '';
+        options.setAttribute('aria-haspopup','true');
+        options.setAttribute('aria-expanded','false');
+        options.append(filters.svgIcon('caret-down',16));
+        options.prepend(filters.svgIcon('filter',16));
+        options.addEventListener('click', () => this.open());
+        bar.append(options,this.chips);
+        this.placeFeedControls();
+        return;
+      }
+      this.searchButtons = new Map();
+      for (const [key,title] of [['sort','Sort'],['date','Date'],['flair','Flair'],['media','Media type']]) {
+        const button = make('button','rt-search-inline-filter');
+        button.type = 'button';
+        button.dataset.rtCommunitySearch = key;
+        button.setAttribute('aria-haspopup','true');
+        button.setAttribute('aria-expanded','false');
+        const text = make('span','',title);
+        button.append(text,filters.svgIcon('caret-down',16));
+        button.addEventListener('click',() => this.openSearchMenu(button,key,title));
+        this.searchButtons.set(key,{button,text,title});
+        bar.append(button);
+      }
       bar.append(this.chips);
-      if (this.feed) this.feed.before(bar);
-      else if (tabs?.parentElement) tabs.parentElement.after(bar);
-      else this.main.prepend(bar);
+      this.placeSearchControls(tabs);
+    }
+
+    placeFeedControls() {
+      this.readFeedSorts();
+      const sort = this.main.querySelector(nativeFeedSort);
+      const rail = sort?.closest('div.flex.items-center');
+      const bar = this.toolbar;
+      bar?.classList.toggle('rt-community-in-feed-rail',Boolean(rail));
+      if (rail) {
+        if (bar.parentElement !== rail) rail.append(bar);
+      } else if (this.feed && bar.parentElement !== this.feed.parentElement) {
+        this.feed.before(bar);
+      }
+    }
+
+    setReplacedSorts(nodes) {
+      const next = new Set(nodes);
+      for (const node of this.replacedSorts || []) {
+        if (!next.has(node)) node.removeAttribute(sortReplaced);
+      }
+      for (const node of next) {
+        if (!node.hasAttribute(sortReplaced)) node.setAttribute(sortReplaced,'');
+      }
+      this.replacedSorts = next;
+    }
+
+    readFeedSorts() {
+      const dropDowns = [...this.main.querySelectorAll('shreddit-sort-dropdown:not([hidden])')];
+      const sort = dropDowns.find(node => node.getAttribute('sort-event') === 'feed-sort-change') ||
+        dropDowns.find(node => !node.hasAttribute('sort-event') && node.getAttribute('header-text') !== 'View');
+      const time = dropDowns.find(node => node.getAttribute('sort-event') === 'feed-time-sort-change');
+      const read = (node, isTime = false) => {
+        if (!node) return null;
+        const current = node.querySelector('[slot="selected-item"]')?.textContent.trim() || '';
+        const choices = new Map();
+        for (const link of node.querySelectorAll('a[href],rpl-menu-item[href]')) {
+          const hrefNow = link.getAttribute('href');
+          const patched = this.links.get(link);
+          const href = patched?.applied === hrefNow ? patched.original : hrefNow;
+          const label = (link.getAttribute('aria-label') || link.textContent).trim();
+          let url;
+          try { url = new URL(href,this.url); } catch { continue; }
+          const target = route(url);
+          if (!label || url.origin !== this.url.origin || target?.kind !== 'feed' ||
+              fold(target.name) !== fold(this.scope.name)) continue;
+          const sortKey = fold(url.pathname.split('/').filter(Boolean)[2]);
+          const key = isTime ? url.searchParams.get('t') : sortKey;
+          if (!key) continue;
+          const currentKey = isTime ? this.url.searchParams.get('t') :
+            fold(this.url.pathname.split('/').filter(Boolean)[2]);
+          const selected = currentKey ? key === currentKey : fold(label) === fold(current);
+          choices.set(key,{label,selected,url,icon:isTime ? 'calendar' : feedSortIcons[key] || 'sort'});
+        }
+        if (!choices.size) return null;
+        return {node,current:[...choices.values()].find(choice => choice.selected)?.label || current,choices:[...choices.values()]};
+      };
+      const sorting = read(sort);
+      const range = sorting ? read(time,true) : null;
+      this.feedSorts = {sorting,range};
+      this.setReplacedSorts([sorting?.node,range?.node].filter(Boolean));
+    }
+
+    chooseFeedSort(choice) {
+      const url = new URL(choice.url);
+      for (const name of ['rt_type','f','feedViewType','t']) {
+        const value = this.url.searchParams.get(name);
+        if (value && (name !== 't' || !url.searchParams.has(name))) url.searchParams.set(name,value);
+      }
+      this.go(url);
+    }
+
+    placeSearchControls(tabs) {
+      const sort = document.querySelector(nativeSearchSort);
+      const rail = sort?.closest('div.flex.items-center');
+      const anchor = tabs?.parentElement;
+      const bar = this.toolbar;
+      bar?.classList.toggle('rt-community-in-search-rail',Boolean(rail));
+      if (rail) {
+        if (bar.parentElement !== rail) rail.append(bar);
+      } else if (anchor) {
+        if (anchor.nextElementSibling !== bar) anchor.after(bar);
+      } else if (bar.parentElement !== this.main) {
+        this.main.prepend(bar);
+      }
+      const native = el => el && !bar.contains(el);
+      const railControls = rail ? [...rail.querySelectorAll('button,a,[role="button"]')].filter(native) : [];
+      const labelOf = el => fold(el.getAttribute('aria-label') || el.textContent).trim();
+      const nativeSort = Boolean(sort) || railControls.some(el => /sort by/.test(labelOf(el)));
+      const nativeTime = Boolean(document.querySelector(nativeSearchTime)) ||
+        railControls.some(el => /^(?:all time|past hour|past 24 hours|past week|past month|past year)$/.test(labelOf(el)));
+      const state = {
+        sort:{hidden:nativeSort,value:searchSorts.find(([id]) => id === this.url.searchParams.get('sort'))?.[1]},
+        date:{hidden:nativeTime,value:searchDates.find(([id]) => id !== 'all' && id === this.url.searchParams.get('t'))?.[1]},
+        flair:{value:this.activeFlair()},
+        media:{hidden:!this.isMedia(),value:this.typeLabel()},
+      };
+      for (const [key,{button,text,title}] of this.searchButtons) {
+        button.hidden = Boolean(state[key].hidden);
+        const label = state[key].value || title;
+        if (text.textContent !== label) text.textContent = label;
+        button.setAttribute('aria-label',title + (state[key].value ? ', ' + label : ''));
+      }
+    }
+
+    isMedia() {
+      return !this.feed && this.url.searchParams.get('type') === 'media';
+    }
+
+    selectedTypes() {
+      const types = filters.parse(this.url.search).types;
+      if (this.feed) return types;
+      return this.isMedia() ? types.filter(type => mediaTypes.has(type)) : [];
+    }
+
+    typeLabel() {
+      const types = this.selectedTypes();
+      if (types.length > 1) return types.length + ' types';
+      return this.feed ? filters.typeLabels[types[0]] : mediaTypes.get(types[0]);
+    }
+
+    activeFlair() {
+      return this.feed ? feedFlair(this.url) : searchParts(this.url).flair;
+    }
+
+    toggleType(type) {
+      const current = this.selectedTypes();
+      this.applyTypes(current.includes(type) ? current.filter(value => value !== type) : [...current,type]);
     }
 
     collectFlairs() {
@@ -264,29 +435,58 @@
     clearPager() {
       this.paging?.pager?.removeAttribute(paused);
       this.paging = null;
+      this.pausedAt = 0;
+    }
+
+    // Scrolling after an empty-filter pause is a request for more results: let the native
+    // pager load another couple of pages instead of leaving the reader on an empty feed.
+    resumeWhenScrolled() {
+      const paging = this.paging;
+      if (!paging?.pager?.hasAttribute(paused)) return;
+      if (this.pausedAt && performance.now() - this.pausedAt < 400) return;
+      paging.emptyPages = 0;
+      this.pausedAt = 0;
+      this.filterResults();
     }
 
     filterResults() {
-      const types = this.feed ? filters.parse(this.url.search).types : [];
+      const types = this.selectedTypes();
       const period = this.feed ? '' : this.url.searchParams.get('t');
       const date = period && filters.dateRange({date:{preset:period === 'day' ? '24h' : period}});
       const next = new Set();
       let matching = 0;
-      if (types.length) {
+      if (this.feed && types.length) {
         const wanted = new Set(types);
         for (const card of this.feed.querySelectorAll('shreddit-post')) {
           const unit = card.closest('article') || card;
           const parent = unit.parentElement;
           if (parent !== this.feed && !parent?.matches('faceplate-batch,faceplate-partial')) continue;
           if (card.parentElement?.closest('shreddit-post,shreddit-ad-post')) continue;
-          if (wanted.has(filters.inferType(card))) matching++;
+          const type = filters.inferType(card);
+          if (wanted.has(type) || (wanted.has('video') && type === 'embed' && externalVideo(card))) matching++;
           else {
             next.add(unit);
             if (unit.nextElementSibling?.tagName === 'HR') next.add(unit.nextElementSibling);
           }
         }
+        // Promoted units are not posts of the chosen type; hiding the posts around them
+        // otherwise leaves the feed looking like an ad list.
+        for (const ad of this.feed.querySelectorAll('shreddit-ad-post')) {
+          const unit = ad.closest('article') || ad;
+          const parent = unit.parentElement;
+          if (parent !== this.feed && !parent?.matches('faceplate-batch,faceplate-partial')) continue;
+          next.add(unit);
+          if (unit.nextElementSibling?.tagName === 'HR') next.add(unit.nextElementSibling);
+        }
       }
-      if (date) for (const unit of this.main.querySelectorAll(resultsSelector)) {
+      if (this.isMedia() && types.length) {
+        const wanted = new Set(types);
+        for (const unit of this.main.querySelectorAll(mediaUnits)) {
+          if (wanted.has(mediaType(unit))) matching++;
+          else next.add(unit);
+        }
+      }
+      if (date && !this.isMedia()) for (const unit of this.main.querySelectorAll(resultsSelector)) {
         // New and some other sorts may ignore t on Reddit's server.
         const time = unit.querySelector('faceplate-timeago[ts],time[datetime]');
         const seconds = Date.parse(time?.getAttribute('ts') || time?.getAttribute('datetime') || '') / 1000;
@@ -317,8 +517,10 @@
       }
       this.paging = {key,pager,emptyPages};
       const waiting = Boolean(pager && emptyPages >= 2);
+      if (waiting && !pager.hasAttribute(paused)) this.pausedAt = performance.now();
+      if (!waiting) this.pausedAt = 0;
       pager?.toggleAttribute(paused,waiting);
-      this.updateNote(date ? 'No loaded results match this date range.' : 'No loaded posts match these types.',waiting);
+      this.updateNote(date && !this.isMedia() ? 'No loaded results match this date range.' : 'No loaded posts match these types.',waiting);
     }
 
     updateNote(message, waiting) {
@@ -337,25 +539,28 @@
         });
         this.note.append(this.noteText,this.more);
         if (this.feed) this.feed.before(this.note);
-        else this.toolbar.after(this.note);
+        else {
+          const results = this.main.querySelector('search-media-feed,' + resultsSelector);
+          if (results) results.before(this.note);
+          else this.main.append(this.note);
+        }
       }
       if (this.noteText.textContent !== message) this.noteText.textContent = message;
       this.more.hidden = !waiting;
     }
 
     updateToolbar() {
-      const types = this.feed ? filters.parse(this.url.search).types : [];
-      const flair = this.feed ? feedFlair(this.url) : searchParts(this.url).flair;
+      const types = this.selectedTypes();
+      const flair = this.activeFlair();
       const period = !this.feed && searchDates.find(([value]) => value !== 'all' && value === this.url.searchParams.get('t'));
       const key = JSON.stringify([types,flair,period]);
-      if (this.browse?.isConnected) this.browse.href = searchUrl(this.url,this.scope.name).href;
       if (this.chips.dataset.state === key) return;
       this.chips.dataset.state = key;
       this.chips.replaceChildren();
       const chip = (id, label, icon, onRemove) => this.chips.append(filters.pill(
         {id,label,icon},{make,glyph:name => filters.svgIcon(name,16),onRemove}
       ));
-      for (const type of types) chip('type-' + type,filters.typeLabels[type],filters.typeIcons[type],
+      for (const type of types) chip('type-' + type,this.feed ? filters.typeLabels[type] : mediaTypes.get(type),filters.typeIcons[type],
         () => this.applyTypes(types.filter(value => value !== type)));
       if (flair) chip('flair',flair,'filter',() => this.go(withFlair(this.url,'')));
       if (period) chip('date',period[1],'calendar',() => this.go(setSearchOption(this.url,'t','all')));
@@ -366,7 +571,7 @@
       // Carry local types across native feed sort/view/flair changes, and
       // carry sort/date across native search result tabs.
       const used = new Set();
-      const types = this.feed && this.url.searchParams.get('rt_type');
+      const types = this.selectedTypes().join(',');
       const candidates = this.feed
         ? document.querySelectorAll('a[href*="flair_name"],shreddit-sort-dropdown a,shreddit-layout-switcher a')
         : document.querySelectorAll('#search-results-page-tabgroup a[href],search-sort-dropdown-menu a[href]');
@@ -384,6 +589,7 @@
         } else {
           if (!url.searchParams.has('type') || url.searchParams.get('q') !== this.url.searchParams.get('q')) continue;
           const preserve = link.closest('search-sort-dropdown-menu') ? ['t'] : ['sort','t'];
+          if (types && url.searchParams.get('type') === 'media') url.searchParams.set('rt_type',types);
           for (const key of preserve) if (this.url.searchParams.has(key) && !url.searchParams.has(key)) {
             url.searchParams.set(key,this.url.searchParams.get(key));
           }
@@ -415,104 +621,382 @@
     open() {
       if (!this.scope) return;
       if (this.panel) { this.panel.close(); return; }
+      if (!isPhone()) { this.openFeedMenu(); return; }
       const button = this.options;
-      const desktop = !globalThis.matchMedia?.('(max-width: 767.98px)').matches;
       button.setAttribute('aria-expanded','true');
-      const onScroll = event => {
-        if (!(event.target instanceof Node) || !this.panel?.root.contains(event.target)) this.panel?.close();
-      };
-      const onResize = () => this.panel?.close();
       this.panel = sheet.open({
         title:'Filters', returnFocus:button,
         onClose: () => {
           this.panel = null;
           button.setAttribute('aria-expanded','false');
-          window.removeEventListener('scroll',onScroll,true);
-          window.removeEventListener('resize',onResize);
         },
-        build: (_body, ui) => this.buildOptions(ui),
+        build: (_body, ui) => this.buildPhoneFeed(ui),
       });
-      const root = this.panel.root;
-      root.classList.add('rt-community-sheet');
-      if (!desktop) return;
-
-      root.dataset.rtAnchored = '';
-      const popup = root.querySelector('.rt-fsheet');
-      popup.classList.add('rt-inline-menu');
-      const rect = button.getBoundingClientRect();
-      const viewportWidth = document.documentElement.clientWidth || innerWidth;
-      const viewportHeight = document.documentElement.clientHeight || innerHeight;
-      const width = Math.min(360,viewportWidth - 16);
-      const below = viewportHeight - rect.bottom - 16;
-      const above = rect.top - 16;
-      const useAbove = below < 240 && above > below;
-      const preferredLeft = getComputedStyle(button).direction === 'rtl' ? rect.right - width : rect.left;
-      popup.style.width = width + 'px';
-      popup.style.left = Math.max(8,Math.min(preferredLeft,viewportWidth - width - 8)) + 'px';
-      popup.style.maxHeight = Math.min(560,Math.max(90,useAbove ? above : below)) + 'px';
-      if (useAbove) popup.style.bottom = (viewportHeight - rect.top + 8) + 'px';
-      else popup.style.top = (rect.bottom + 8) + 'px';
-      window.addEventListener('scroll',onScroll,true);
-      window.addEventListener('resize',onResize);
+      this.panel.root.classList.add('rt-community-sheet');
     }
 
-    buildOptions(ui) {
-      if (this.feed) {
-        const chosen = filters.parse(this.url.search).types;
-        const update = type => {
-          const current = filters.parse(this.url.search).types;
-          this.applyTypes(current.includes(type) ? current.filter(value => value !== type) : [...current,type]);
-        };
-        ui.chips('Post type',[
-          {label:'All types', icon:filters.svgIcon('show',16), selected:!chosen.length, keepOpen:true, onSelect:() => this.applyTypes([])},
-          ...filters.typeSections.flatMap(({label,types}) => [{heading:label},...types.map(type => ({
-            label:filters.typeLabels[type], icon:filters.svgIcon(type === 'gif' ? 'gif-post-outline' : filters.typeIcons[type],16),
-            selected:chosen.includes(type), keepOpen:true, onSelect:() => update(type),
-          }))]),
-        ]);
-      } else {
-        const options = (label, key, values, fallback) => ui.chips(label,values.map(([value,text,icon]) => ({
-          label:text, icon:filters.svgIcon(icon || 'calendar',16), selected:(this.url.searchParams.get(key) || fallback) === value,
-          onSelect:() => this.go(setSearchOption(this.url,key,value)),
-        })));
-        options('Sort','sort',searchSorts,'relevance');
-        options('Date','t',searchDates,'all');
-        if (this.url.searchParams.get('type') === 'media') {
-          ui.title('Reddit handles the date range for Media. Media cards do not show dates.');
+    openPanel(button, root, {phone = false, back = () => false} = {}) {
+      this.panel?.close();
+      const scrim = phone ? make('div','rt-inline-sheet-scrim') : null;
+      const overflow = document.documentElement.style;
+      const oldOverflow = overflow.getPropertyValue('overflow');
+      const oldPriority = overflow.getPropertyPriority('overflow');
+      const close = (focus = true) => {
+        if (this.panel?.root !== root) return;
+        this.panel = null;
+        button.setAttribute('aria-expanded','false');
+        document.removeEventListener('pointerdown',outside,true);
+        document.removeEventListener('keydown',keys,true);
+        window.removeEventListener('resize',resize);
+        window.removeEventListener('scroll',place);
+        if (phone) {
+          if (oldOverflow) overflow.setProperty('overflow',oldOverflow,oldPriority);
+          else overflow.removeProperty('overflow');
         }
-        options('Results','type',resultTypes,'posts');
+        root.remove();
+        scrim?.remove();
+        if (focus && button.isConnected) button.focus({preventScroll:true});
+      };
+      const outside = event => {
+        const path = event.composedPath();
+        if (!path.includes(root) && !path.includes(button)) close(false);
+      };
+      const keys = event => {
+        if (event.key === 'Escape' && (root.contains(document.activeElement) || document.activeElement === button)) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!back()) close();
+          return;
+        }
+        if (!['ArrowDown','ArrowUp'].includes(event.key) || !root.contains(document.activeElement) ||
+            document.activeElement.matches('input,textarea')) return;
+        const rows = [...root.querySelectorAll('[role^="menuitem"]:not([hidden]),[data-rt-sub-back]')];
+        if (!rows.length) return;
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        const index = rows.indexOf(document.activeElement);
+        event.preventDefault();
+        rows[(index + step + rows.length) % rows.length]?.focus({preventScroll:true});
+      };
+      const place = () => {
+        if (phone || !button.isConnected) return;
+        const box = button.getBoundingClientRect();
+        const width = root.getBoundingClientRect().width;
+        const vw = document.documentElement.clientWidth || innerWidth;
+        const vh = document.documentElement.clientHeight || innerHeight;
+        const below = vh - box.bottom - 16;
+        const above = box.top - 16;
+        const flip = below < 200 && above > below;
+        const x = getComputedStyle(button).direction === 'rtl' ? box.right - width : box.left;
+        root.style.left = Math.max(8,Math.min(x,vw - width - 8)) + 'px';
+        root.style.maxHeight = Math.max(90,flip ? above : below) + 'px';
+        root.style.top = flip ? 'auto' : box.bottom + 8 + 'px';
+        root.style.bottom = flip ? vh - box.top + 8 + 'px' : 'auto';
+      };
+      const resize = () => isPhone() === phone ? place() : close();
+      this.panel = {root,close};
+      button.setAttribute('aria-expanded','true');
+      if (scrim) {
+        scrim.dataset.rtUi = 'community-filter-scrim';
+        scrim.setAttribute('aria-hidden','true');
+        document.body.append(scrim);
+        overflow.setProperty('overflow','hidden');
       }
+      document.body.append(root);
+      place();
+      document.addEventListener('pointerdown',outside,true);
+      document.addEventListener('keydown',keys,true);
+      window.addEventListener('resize',resize);
+      window.addEventListener('scroll',place,{passive:true});
+      return {close,place};
+    }
+
+    openFeedMenu() {
+      const root = make('div','rt-inline-menu rt-community-feed-menu');
+      root.dataset.rtUi = 'community-filter-menu';
+      root.dataset.rtFeedOptions = '';
+      root.setAttribute('role','menu');
+      root.setAttribute('aria-label','Feed options');
+      const ctx = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitem'});
+      const choices = filters.plainContext(name => filters.svgIcon(name,16));
+      let section = '';
+      let menu;
+      const back = () => {
+        if (!section) return false;
+        const previous = section;
+        render(previous === 'Time range' ? 'Sort' : '');
+        root.querySelector('[aria-label="' + previous + '"]')?.focus({preventScroll:true});
+        return true;
+      };
+      const render = (view = '') => {
+        section = view;
+        root.replaceChildren();
+        root.toggleAttribute('data-rt-drill',Boolean(view));
+        const entry = (list,label,icon,value) => {
+          const row = ctx.row(label,icon);
+          row.setAttribute('aria-haspopup','menu');
+          const trailing = make('span','rt-menu-value text-12 text-neutral-content-weak',value);
+          trailing.dataset.rtMenuValue = '';
+          row.firstElementChild.append(trailing,filters.svgIcon('chevron-right',16));
+          ctx.activate(row,() => render(label));
+          list.append(row);
+        };
+        if (view === 'Sort' || view === 'Time range') {
+          const header = filters.submenuHeader(view,back);
+          const list = make('div','rt-community-menu-body');
+          root.append(header.head,list);
+          const {sorting,range} = this.feedSorts || {};
+          const radios = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitemradio'});
+          for (const choice of (view === 'Sort' ? sorting : range)?.choices || []) {
+            list.append(filters.menuOption(radios,{
+              label:choice.label,icon:filters.svgIcon(choice.icon,16),checked:choice.selected,slot:true,
+              onSelect:() => { this.chooseFeedSort(choice); menu.close(); },
+            }));
+          }
+          if (view === 'Sort' && range) entry(list,'Time range','calendar',range.current || 'All time');
+          menu?.place();
+          header.back.focus({preventScroll:true});
+          return;
+        }
+        if (view === 'Post type') {
+          const header = filters.submenuHeader(view,back);
+          const list = make('div','rt-community-menu-body');
+          root.append(header.head,list);
+          const types = filters.typeOptions(choices,{
+            append:el => list.append(el),iconSize:16,outline:true,allIcon:'show',
+            onToggle:type => { this.toggleType(type); types.sync(this.selectedTypes()); },
+            onClear:() => { this.applyTypes([]); types.sync(this.selectedTypes()); },
+          });
+          types.sync(this.selectedTypes());
+          menu?.place();
+          header.back.focus({preventScroll:true});
+          return;
+        }
+        if (view === 'Flair') {
+          const panel = this.flairPanel({
+            active:this.activeFlair(), onBack:back,
+            onChoose:label => { this.go(withFlair(this.url,label)); menu.close(); },
+          });
+          root.append(panel.panel);
+          menu?.place();
+          panel.search.focus({preventScroll:true});
+          return;
+        }
+        const list = make('div','rt-community-menu-body');
+        root.append(list);
+        root.prepend(filters.sectionLabel('Feed options'));
+        const sorting = this.feedSorts?.sorting;
+        if (sorting) entry(list,'Sort','sort',sorting.current);
+        entry(list,'Post type','text-post',this.typeLabel() || 'All');
+        entry(list,'Flair','filter',this.activeFlair() || 'All');
+        menu?.place();
+      };
+      render();
+      menu = this.openPanel(this.options,root,{back});
+      root.querySelector('[role="menuitem"]')?.focus({preventScroll:true});
+    }
+
+    openSearchMenu(button, key, title) {
+      if (this.panel?.root.dataset.rtSearchMenu === key) { this.panel.close(); return; }
+      const phone = isPhone();
+      const root = make('div','rt-inline-menu rt-community-search-menu' + (phone ? ' rt-inline-sheet' : '') +
+        (key === 'flair' ? ' rt-community-flair-menu' : ''));
+      root.dataset.rtUi = 'community-filter-menu';
+      root.dataset.rtSearchMenu = key;
+      root.setAttribute('role',phone ? 'dialog' : 'menu');
+      root.setAttribute('aria-label',title);
+      let closeButton;
+      if (phone) {
+        root.setAttribute('aria-modal','true');
+        closeButton = make('button','rt-inline-sheet-close');
+        closeButton.type = 'button';
+        closeButton.setAttribute('aria-label','Close');
+        closeButton.append(filters.svgIcon('close',16));
+        const header = make('div','rt-inline-sheet-head');
+        const heading = make('span');
+        heading.append(make('span','',title));
+        header.append(heading);
+        root.append(closeButton,header);
+      }
+      let flair;
+      let list;
+      if (key === 'flair') {
+        flair = this.flairPanel({
+          active:this.activeFlair(),
+          onChoose:label => { this.go(withFlair(this.url,label)); this.panel?.close(); },
+        });
+        root.append(flair.panel);
+      } else {
+        list = make('ul','rt-inline-menu-list');
+        list.setAttribute('role','menu');
+        list.setAttribute('aria-label',title);
+        root.append(list);
+      }
+      const row = ({label,selected,onSelect,check = false,value,icon = ''}) => {
+        const item = make('li','relative list-none mt-0');
+        item.setAttribute('role','presentation');
+        const choice = make('div','rt-inline-menu-item');
+        choice.tabIndex = -1;
+        choice.setAttribute('role',check ? 'menuitemcheckbox' : 'menuitemradio');
+        choice.setAttribute('aria-label',label);
+        choice.setAttribute('aria-checked',String(Boolean(selected)));
+        const mark = make('span','rt-inline-mark');
+        mark.append(check ? make('span','rt-inline-check') : filters.svgIcon(selected ? 'radio-button-fill' : 'radio-button',phone ? 20 : 16));
+        const lead = make('span','rt-community-search-lead');
+        lead.append(mark);
+        if (icon) lead.append(filters.svgIcon(icon,16));
+        lead.append(make('span','rt-inline-menu-label',label));
+        choice.append(lead);
+        const choose = event => {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect();
+          if (!check) { this.panel?.close(); button.focus({preventScroll:true}); }
+          else {
+            renderMedia();
+            list.querySelector('[data-rt-media-type="' + value + '"]')?.focus({preventScroll:true});
+          }
+        };
+        choice.addEventListener('click',choose);
+        choice.addEventListener('keydown',event => {
+          if (event.key === 'Enter' || event.key === ' ') choose(event);
+        });
+        if (check) choice.dataset.rtMediaType = value;
+        item.append(choice);
+        list.append(item);
+      };
+      const renderMedia = () => {
+        if (!list) return;
+        list.replaceChildren();
+        const types = this.selectedTypes();
+        row({label:'All media',value:'all',icon:'show',selected:!types.length,check:true,onSelect:() => this.applyTypes([])});
+        for (const [value,label] of mediaTypes) {
+          row({label,value,icon:value === 'gif' ? 'gif-post-outline' : filters.typeIcons[value],selected:types.includes(value),check:true,onSelect:() => this.toggleType(value)});
+        }
+      };
+      if (key === 'media') renderMedia();
+      else if (key !== 'flair') {
+        const sort = key === 'sort';
+        const param = sort ? 'sort' : 't';
+        const selected = this.url.searchParams.get(param) || (sort ? 'relevance' : 'all');
+        for (const [value,label] of sort ? searchSorts : searchDates) {
+          row({label,selected:selected === value,onSelect:() => this.go(setSearchOption(this.url,param,value))});
+        }
+        if (!sort && this.isMedia()) root.append(filters.sectionLabel('Media dates are handled by Reddit.'));
+      }
+      const menu = this.openPanel(button,root,{phone});
+      closeButton?.addEventListener('click',() => menu.close());
+      (list?.querySelector('[aria-checked="true"]') || list?.querySelector('.rt-inline-menu-item') ||
+        flair?.search || closeButton)?.focus({preventScroll:true});
+    }
+
+    buildPhoneFeed(ui) {
+      const {sorting,range} = this.feedSorts || {};
+      const addSortRows = (page,choices) => {
+        for (const choice of choices) page.row({
+          label:choice.label,icon:filters.svgIcon(choice.icon,20),selected:choice.selected,
+          onSelect:() => this.chooseFeedSort(choice),
+        });
+      };
+      if (sorting) {
+        ui.title('Sort');
+        addSortRows(ui,sorting.choices);
+        if (range) ui.row({
+          label:'Time range',subtitle:range.current,icon:filters.svgIcon('calendar',20),
+          chevron:true,keepOpen:true,onSelect:() => ui.push({
+            title:'Time range',build:(_body,page) => addSortRows(page,range.choices),
+          }),
+        });
+        ui.divider();
+      }
+      const chosen = this.selectedTypes();
+      ui.chips('Post type',[
+        {label:'All types', icon:filters.svgIcon('show',16), selected:!chosen.length, keepOpen:true, onSelect:() => this.applyTypes([])},
+        ...filters.typeSections.flatMap(({label,types}) => [{heading:label},...types.map(type => ({
+          label:filters.typeLabels[type], icon:filters.svgIcon(type === 'gif' ? 'gif-post-outline' : filters.typeIcons[type],16),
+          selected:chosen.includes(type), keepOpen:true, onSelect:() => this.toggleType(type),
+        }))]),
+      ]);
       ui.divider();
-      const active = this.feed ? feedFlair(this.url) : searchParts(this.url).flair;
+      const active = this.activeFlair();
       ui.row({label:'Flair', icon:filters.svgIcon('filter',16), subtitle:active || 'All flairs', chevron:true, keepOpen:true, onSelect:() => {
-        ui.push({title:'Flair',build:(body, page) => this.buildFlairs(body,page,active)});
+        ui.push({title:'Flair',build:(body, page) => {
+          const panel = this.flairPanel({
+            active:this.activeFlair(),
+            onChoose:label => { this.go(withFlair(this.url,label)); page.close(); },
+          });
+          body.append(panel.panel);
+          return {stay:true};
+        }});
         return {stay:true};
       }});
     }
 
-    buildFlairs(body, ui, active) {
-      ui.row({label:'All flairs', selected:!active, onSelect:() => this.go(withFlair(this.url,''))});
-      const choices = new Set(this.flairs.get(fold(this.scope.name)) || []);
-      if (active) choices.add(active);
-      for (const label of [...choices].sort((a,b) => a.localeCompare(b))) {
-        ui.row({label, selected:label === active, onSelect:() => this.go(withFlair(this.url,label))});
-      }
-      const form = make('form','rt-community-flair-form');
-      const input = make('input');
-      input.type = 'text';
-      input.maxLength = 100;
-      input.placeholder = 'Exact flair name';
-      input.setAttribute('aria-label','Exact flair name');
-      input.required = true;
-      const submit = make('button','rt-community-button','Apply');
-      submit.type = 'submit';
-      form.append(input,submit);
-      form.addEventListener('submit',event => {
-        event.preventDefault();
-        const label = flairName(input.value);
-        if (label) { this.go(withFlair(this.url,label)); ui.close(); }
+    // The Flair picker follows the Community picker: a back header, a search field, and a
+    // scrolling list capped to the menu height. Typing an unseen name offers to apply it.
+    flairPanel({active, onBack = null, onChoose}) {
+      const panel = make('div','rt-sub-panel');
+      panel.dataset.rtUi = 'flair-panel';
+      if (onBack) panel.append(filters.submenuHeader('Flair',onBack).head);
+      const head = make('div','rt-sub-head');
+      const field = make('div','rt-filter-field');
+      const search = make('input','rt-filter-search');
+      search.type = 'search';
+      search.placeholder = 'Search flairs';
+      search.setAttribute('aria-label','Search flairs');
+      search.autocomplete = 'off';
+      const clear = make('button','rt-filter-search-clear');
+      clear.type = 'button';
+      clear.setAttribute('aria-label','Clear flair search');
+      clear.hidden = true;
+      clear.append(filters.svgIcon('close',14));
+      field.append(filters.svgIcon('search',16),search,clear);
+      head.append(field);
+      const list = make('div','rt-sub-list');
+      list.dataset.rtSubList = 'true';
+      list.setAttribute('role','group');
+      list.setAttribute('aria-label','Flairs');
+      panel.append(head,list);
+      const ctx = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitemradio'});
+      const labels = new Set(this.flairs.get(fold(this.scope.name)) || []);
+      if (active) labels.add(active);
+      const choices = [...labels].sort((a,b) => a.localeCompare(b));
+      const render = () => {
+        const term = search.value.trim();
+        const wanted = fold(term);
+        clear.hidden = !term;
+        list.replaceChildren();
+        const add = (label,selected,icon,value,onSelect) => {
+          const row = filters.menuOption(ctx,{label,icon,checked:selected,value,slot:true,onSelect});
+          row.dataset.rtUi = 'filter-option';
+          row.dataset.rtFlairRow = label;
+          list.append(row);
+          return row;
+        };
+        add('All flairs',!active,'show','all',() => onChoose(''));
+        for (const label of choices) {
+          if (wanted && !fold(label).includes(wanted)) continue;
+          add(label,label === active,'filter',label,() => onChoose(label));
+        }
+        if (term && !choices.some(label => fold(label) === wanted)) {
+          add('Use “' + term + '”',false,'search','custom',() => onChoose(term));
+        }
+        if (!list.querySelector('[data-rt-flair-row]:not([data-rt-option="all"])') && !term) {
+          list.append(make('div','rt-sub-empty text-12 text-neutral-content-weak','No flairs seen yet. Search for the exact flair name to apply it.'));
+        }
+      };
+      search.addEventListener('input',render);
+      search.addEventListener('keydown',event => {
+        if (event.key !== 'Escape') event.stopPropagation();
       });
-      body.append(form);
+      clear.addEventListener('click',event => {
+        event.preventDefault();
+        event.stopPropagation();
+        search.value = '';
+        render();
+        search.focus({preventScroll:true});
+      });
+      render();
+      return {panel,list,search,render};
     }
 
     prepareBrowseHeader() {
@@ -560,12 +1044,14 @@
       document.removeEventListener('reddit:route',this.onRoute);
       document.removeEventListener('keydown',this.onKeys,true);
       document.removeEventListener('focusin',this.onFocus,true);
+      window.removeEventListener('scroll',this.onScroll);
     }
   }
 
   globalThis.RTLiveSubredditFilters = Object.freeze({Controller,route,searchUrl,withFlair});
   if (globalThis.chrome?.runtime?.id) {
     const controller = new Controller({enabled:false});
+    globalThis.RTLiveSubredditFiltersDebug = controller;
     const update = settings => controller.setEnabled(settings?.postDiscovery !== false);
     chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'}).then(result => {
       if (result?.ok) update(result.settings);
