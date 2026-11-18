@@ -41,7 +41,7 @@ test('a video Reddit started before the preference arrived is paused when it doe
 });
 test('a playing video pauses once less than half of it is on screen, and stays paused',async t=>{
  const {W,player,video,io}=page(t);const v=new W.RTVideoControl.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await v.ready;await flush();
- assert.deepEqual([...io.options.threshold],[0,0.5,1]);video._playing=true;
+ assert.deepEqual([...io.options.threshold],[0,0.5,0.6,1]);video._playing=true;
  io.cb([{target:player,intersectionRatio:0.8}]);assert.equal(video.paused,false);io.cb([{target:player,intersectionRatio:0.3}]);assert.equal(video.paused,true);assert.equal(player.dataset.rtPausedAway,'true');
  const off=page(t);const v2=new off.W.RTVideoControl.Videos({readSettings:async()=>({videoPauseOffscreen:false}),readPreference:async()=>false,observe:false});await v2.ready;off.video._playing=true;off.io.cb([{target:off.player,intersectionRatio:0}]);assert.equal(off.video.paused,false,'switch off');
 });
@@ -56,9 +56,11 @@ test('a playing feed video carries its position into its post, and the scroll-aw
  let plays=0;b.W.HTMLMediaElement.prototype.play=function(){plays++;this._playing=true;return Promise.resolve();};
  Object.defineProperty(b.video,'duration',{value:30,configurable:true});Object.defineProperty(b.video,'readyState',{value:1,configurable:true});
  const v=new b.W.RTVideoControl.Videos({readSettings:async()=>({videoContinueOnOpen:true}),readPreference:async()=>true,observe:false});await v.ready;await flush();
- assert.equal(b.video.currentTime,13.75,'the post resumes at the position reached when the feed page left');assert.equal(b.video.muted,false);assert.equal(b.video.volume,0.4);assert.equal(b.video.playbackRate,1.5);assert.equal(b.video._playing,true);assert.equal(plays,1);
+ assert.equal(b.video.currentTime,13.75,'the post resumes at the position reached when the feed page left');assert.equal(b.video.muted,false);
+ assert.ok(b.video.volume<0.4,'sound fades in');await new Promise(r=>setTimeout(r,260));assert.equal(b.video.volume,0.4);assert.equal(b.video.playbackRate,1.5);assert.equal(b.video._playing,true);assert.equal(plays,1);
  assert.equal(b.W.sessionStorage.getItem(continuationKey),null,'the handoff is used once');
- b.io.cb([{target:b.player,intersectionRatio:0.2}]);assert.equal(b.video.paused,true,'scrolling it away still pauses it');
+ b.io.cb([{target:b.player,intersectionRatio:0.2}]);assert.equal(b.video.paused,false,'a post video plays on while partly visible');
+ b.io.cb([{target:b.player,intersectionRatio:0}]);assert.equal(b.video.paused,true,'scrolling it fully away pauses it');
  const c=page(t,{detail:true});c.W.sessionStorage.setItem(continuationKey,saved);Object.defineProperty(c.video,'duration',{value:30,configurable:true});Object.defineProperty(c.video,'readyState',{value:1,configurable:true});
  const off=new c.W.RTVideoControl.Videos({readSettings:async()=>({videoContinueOnOpen:false}),readPreference:async()=>false,observe:false});await off.ready;await flush();assert.equal(c.video.currentTime,0,'switch off');
 });
@@ -126,20 +128,43 @@ function nativeMove(p){
  p.player.getBoundingClientRect=()=>({left:100,top:160,width:640,height:360});
  return calls;
 }
+test('a post video pauses once fully out of view and resumes at the same time when half of it is back',async t=>{
+ const p=page(t,{detail:true});
+ const v=new p.W.RTVideoControl.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await v.ready;await flush();
+ let plays=0;p.W.HTMLMediaElement.prototype.play=function(){plays++;this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ p.startFromControl();p.video.currentTime=20;
+ p.io.cb([{target:p.player,intersectionRatio:0.3}]);assert.equal(p.video.paused,false);
+ p.io.cb([{target:p.player,intersectionRatio:0}]);assert.equal(p.video.paused,true);
+ p.io.cb([{target:p.player,intersectionRatio:0.3}]);assert.equal(p.video.paused,true,'a sliver does not restart it');
+ // Reddit unloaded the source while it was far away.
+ p.video.currentTime=0;Object.defineProperty(p.video,'readyState',{value:0,configurable:true});
+ let loads=0;p.player.addEventListener('rt-prepare-detail-video',()=>loads++);
+ p.io.cb([{target:p.player,intersectionRatio:0.6}]);p.io.cb([{target:p.player,intersectionRatio:1}]);
+ assert.equal(loads,1);assert.equal(p.video.paused,true);
+ Object.defineProperty(p.video,'readyState',{value:1,configurable:true});p.video.dispatchEvent(new p.W.Event('loadedmetadata'));
+ assert.equal(p.video.currentTime,20);assert.equal(p.video.paused,false);assert.equal(plays,1);
+ assert.equal(p.player.dataset.rtPausedAway,undefined);
+ p.video.pause();p.io.cb([{target:p.player,intersectionRatio:0}]);p.io.cb([{target:p.player,intersectionRatio:1}]);
+ assert.equal(p.video.paused,true,'a video the user paused stays paused');
+ const f=page(t);const vf=new f.W.RTVideoControl.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await vf.ready;
+ f.video._playing=true;f.io.cb([{target:f.player,intersectionRatio:0.3}]);f.io.cb([{target:f.player,intersectionRatio:1}]);
+ assert.equal(f.video.paused,true,'feed videos pause at half and stay paused');
+ const off=page(t,{detail:true});const vo=new off.W.RTVideoControl.Videos({readSettings:async()=>({videoPauseOffscreen:false}),readPreference:async()=>false,observe:false});await vo.ready;
+ off.video._playing=true;off.io.cb([{target:off.player,intersectionRatio:0}]);assert.equal(off.video.paused,false,'switch off');
+});
 test('the same playing media survives feed removal and moves into the detail slot without another play',async t=>{
  const p=page(t),calls=nativeMove(p);
  const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
  p.startFromControl();p.video.currentTime=8;
  const feed=p.player.parentElement;
  const surface=feed.closest('main');
- const style=p.d.createElement('style');
- style.textContent=fs.readFileSync('extension/post-discovery.css','utf8').split('\n').find(line=>line.startsWith('[data-rt-video-outgoing]'));
- p.d.head.append(style);
+ const before=surface.outerHTML.length;
  p.click(p.title);
  assert.notEqual(p.player.parentElement,feed);
- assert.equal(surface.hasAttribute('data-rt-video-outgoing'),true,'conceal the still-mounted feed during navigation');
- assert.equal(p.W.getComputedStyle(surface).visibility,'hidden');
- assert.equal(p.player.closest('[data-rt-video-outgoing]'),null,'the held video remains visible');
+ assert.equal(fs.readFileSync('extension/post-discovery.css','utf8').includes('data-rt-video-outgoing'),false);
+ assert.equal([...surface.attributes].length,0,'the feed stays on screen as Reddit leaves it');
+ assert.ok(surface.outerHTML.length<before,'only the player left the card');
+ assert.equal(p.player.parentElement.style.position,'fixed','the video stays at its card place above the feed');
  assert.deepEqual(calls,['begin']);
  p.player.pause('background');
  assert.equal(p.video.paused,false,'Reddit’s navigation pause leaves the held player running');
@@ -157,7 +182,6 @@ test('the same playing media survives feed removal and moves into the detail slo
  assert.equal(p.video.currentTime,9.25);assert.equal(p.video.paused,false);
  assert.equal(p.player.className,'detail-layout');
  assert.equal(feed.querySelector('shreddit-player').getAttribute('player-type'),'in_feed_player','a cached feed still has its player when restored');
- assert.equal(surface.hasAttribute('data-rt-video-outgoing'),false,'the old feed can be drawn on Back');
  assert.deepEqual(calls,['begin','end']);
  assert.equal(p.W.sessionStorage.getItem(continuationKey),null);
  p.player.pause('background');
@@ -171,7 +195,6 @@ test('cancelling before the detail slot mounts restores the playing player to it
  assert.notEqual(p.player.parentElement,feed);
  p.W.dispatchEvent(new p.W.PopStateEvent('popstate'));
  assert.equal(p.player.parentElement,feed);
- assert.equal(feed.closest('main').hasAttribute('data-rt-video-outgoing'),false);
  assert.equal(p.video.paused,false);
  assert.deepEqual(calls,['begin','end']);
 });
@@ -186,34 +209,66 @@ test('placement ignores old visibility readings and observes the painted post fo
  p.d.querySelector('main shreddit-post').append(detail);
  controller.scan();
  assert.equal(p.player.getAttribute('player-type'),'post_detail_screen');
- assert.equal(p.d.querySelector('main').hasAttribute('data-rt-video-outgoing'),false,'a reused main can paint the incoming post');
  assert.equal(p.io.unobserved.at(-1),p.player);
  const stale={target:p.player,intersectionRatio:0,time:p.W.performance.now()};
  p.io.cb([stale]);assert.equal(p.video.paused,false);
  frames.shift()();frames.shift()();
  assert.equal(p.io.observed.filter(player=>player===p.player).length,2);
  p.io.cb([stale]);assert.equal(p.video.paused,false,'a queued feed entry cannot pause the detail player');
- p.io.cb([{target:p.player,intersectionRatio:0.3,time:p.W.performance.now()}]);
+ p.io.cb([{target:p.player,intersectionRatio:0,time:p.W.performance.now()}]);
  assert.equal(p.video.paused,true,'fresh geometry still pauses real scroll-away');
 });
-test('post placement eases the same player and defers visibility tracking for the movement',async t=>{
- const p=page(t);nativeMove(p);
- const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
- let finish;
- const animation={finished:new Promise(resolve=>{finish=resolve;})},frames=[];
- p.W.requestAnimationFrame=callback=>frames.push(callback);
+function flight(p){
+ const frames=[],animations=[];p.W.requestAnimationFrame=callback=>frames.push(callback);
+ Object.defineProperty(p.video,'videoWidth',{value:1600});Object.defineProperty(p.video,'videoHeight',{value:900});
  p.player.getBoundingClientRect=()=>p.player.getAttribute('player-type')==='in_feed_player'
-  ? {left:120,top:140,width:700,height:394} : {left:140,top:180,width:740,height:416};
- p.player.animate=keyframes=>{assert.match(keyframes[0].transform,/translate\(/);return animation;};
- p.player.getAnimations=()=>[animation];
+  ? {left:100,top:160,width:640,height:360} : {left:0,top:100,width:390,height:220};
+ const finishes=[];
+ p.player.animate=(keyframes,timing)=>{const animation={keyframes,timing,finished:new Promise(resolve=>{finishes.push(resolve);})};animations.push(animation);return animation;};
  p.startFromControl();p.click(p.title);p.W.history.pushState({},'',postPath);
- const detail=p.player.cloneNode();detail.setAttribute('player-type','post_detail_screen');
- p.d.querySelector('main shreddit-post').append(detail);controller.scan();
- assert.equal(animation.id,'rt-video-placement');assert.equal(frames.length,1);
- frames.shift()();assert.equal(frames.length,0);
+ const feed=p.d.querySelector('main shreddit-post'),stage=p.player.parentElement;
+ const detail=p.player.cloneNode();detail.setAttribute('player-type','post_detail_screen');detail.className='detail-layout';
+ const post=p.d.createElement('shreddit-post');post.id='t3_test';post.append(detail);p.d.querySelector('main').append(post);
+ let placed=0;p.player.addEventListener('rt-video-placed',()=>placed++);
+ return {frames,animations,feed,stage,detail,post,placed:()=>placed,finish:()=>finishes[0]()};
+}
+test('the held video takes the post slot at once and its picture moves there from the card, unclamped, on the compositor',async t=>{
+ const p=page(t),calls=nativeMove(p);
+ const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
+ const sound=[];p.player.volumeController={setVolume(position){sound.push(position);}};p.video.muted=false;p.video.volume=0.36;
+ const f=flight(p);controller.scan();
+ assert.deepEqual(sound,[0.6],'its sound is kept in Reddit’s state, which the post player re-applies');
+ assert.equal(f.post.querySelector('shreddit-player'),p.player);assert.equal(f.detail.isConnected,false);
+ assert.equal(p.player.getAttribute('player-type'),'post_detail_screen');assert.equal(p.player.className,'detail-layout');
+ assert.equal(f.stage.isConnected,false);assert.deepEqual(calls,['begin'],'Reddit’s reparent window stays open while it moves');
+ assert.equal(f.feed.querySelector('shreddit-player').getAttribute('player-type'),'in_feed_player','Back finds a fresh feed player');
  assert.equal(p.player.shadowRoot.querySelector('video'),p.video);assert.equal(p.video.paused,false);
- finish();await Promise.resolve();
- assert.equal(frames.length,1);
+ const [motion,clip]=f.animations;
+ assert.equal(motion.id,'rt-video-placement');assert.equal(motion.timing.duration,220);
+ const [,x,y,scale]=/translate\(([-\d.]+)px,([-\d.]+)px\) scale\(([\d.]+)\)/.exec(motion.keyframes[0].transform).map(Number);
+ assert.deepEqual([x,y],[225,130],'from the card centre, beyond the old ±120 px clamp');
+ assert.ok(Math.abs(scale-640/390)<1e-6,'one scale from picture to picture');
+ assert.match(clip.keyframes[0].clipPath,/^inset\(0\.3125px 0px\)$/);
+ assert.equal(p.player.hasAttribute('data-rt-video-flying'),true);
+ assert.equal(p.io.unobserved.at(-1),p.player,'feed geometry is discarded');
+ f.finish();await flush();
+ assert.equal(f.placed(),1);assert.equal(p.player.hasAttribute('data-rt-video-flying'),false);assert.deepEqual(calls,['begin','end']);
+ f.frames.shift()();
+ assert.equal(p.io.observed.at(-1),p.player,'visibility is watched again once it has landed');
+});
+test('with reduced motion the video takes the slot without moving',async t=>{
+ const p=page(t);nativeMove(p);p.W.matchMedia=query=>({matches:/reduced-motion/.test(query)});
+ const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
+ const f=flight(p);controller.scan();
+ assert.equal(p.player.getAttribute('player-type'),'post_detail_screen');assert.equal(f.animations.length,0);
+ assert.equal(p.player.hasAttribute('data-rt-video-flying'),false);
+});
+test('sound for a preview goes through Reddit’s own volume state',async t=>{
+ const p=page(t);nativeMove(p);await hoverController(p,{videoPreviewClickPlays:true});
+ const set=[];p.player.volumeController={setVolume(position){set.push(position);}};
+ p.video.volume=0.25;pointer(p);await waitForHover();p.click(p.video);
+ assert.deepEqual(set,[0.5],'Reddit squares its slider position');
+ assert.equal(p.video.muted,false);
 });
 test('the held video stays visible until Reddit lays out the detail slot',async t=>{
  const p=page(t);nativeMove(p);
@@ -222,19 +277,19 @@ test('the held video stays visible until Reddit lays out the detail slot',async 
  p.W.ResizeObserver=class{constructor(callback){notify=callback;}observe(){}disconnect(){}};
  p.startFromControl();p.click(p.title);p.W.history.pushState({},'',postPath);
  const detail=p.player.cloneNode();detail.setAttribute('player-type','post_detail_screen');
- detail.getBoundingClientRect=()=>({width:visible?700:0,height:visible?390:0});
+ detail.getBoundingClientRect=()=>({left:0,top:90,width:visible?700:0,height:visible?390:0});
  p.d.querySelector('main shreddit-post').append(detail);controller.scan();
  assert.equal(p.player.getAttribute('player-type'),'in_feed_player');
- assert.equal(p.player.closest('[data-rt-video-outgoing]'),null);
+ assert.equal(p.player.parentElement.style.position,'fixed');
  assert.equal(p.video.paused,false);
  visible=true;notify();
  assert.equal(p.player.getAttribute('player-type'),'post_detail_screen');
  assert.equal(p.video.paused,false);
 });
-function pointer(p,type='pointerover',pointerType='mouse'){
- const event=new p.W.MouseEvent(type,{bubbles:true,composed:true});
+function pointer(p,type='pointerover',pointerType='mouse',{target=p.player,related=null}={}){
+ const event=new p.W.MouseEvent(type,{bubbles:true,composed:true,relatedTarget:related});
  Object.defineProperty(event,'pointerType',{value:pointerType});
- p.player.dispatchEvent(event);
+ target.dispatchEvent(event);
 }
 async function hoverController(p,settings={}){
  p.W.HTMLMediaElement.prototype.play=function(){
@@ -263,6 +318,8 @@ test('leaving pauses the preview at its playhead and opening the post keeps that
  const p=page(t);await hoverController(p,{videoUnmutePreview:false});
  pointer(p);await waitForHover();p.video.currentTime=6.5;
  pointer(p,'pointerout');
+ assert.equal(p.video.paused,false,'a short grace after leaving the card');
+ await new Promise(resolve=>setTimeout(resolve,260));
  assert.equal(p.video.paused,true);assert.equal(p.video.currentTime,6.5);
  p.click(p.title);
  const saved=JSON.parse(p.W.sessionStorage.getItem(continuationKey));
@@ -273,8 +330,95 @@ test('captions keep preview mode and the native mute button can promote playback
  pointer(p);await waitForHover();
  p.click(p.root.getElementById('cc'));assert.equal(p.video.muted,true);
  p.root.getElementById('mute').addEventListener('click',()=>{p.video.muted=!p.video.muted;});
- p.click(p.root.getElementById('mute'));pointer(p,'pointerout');
+ let opened=0;p.title.addEventListener('click',()=>opened++);
+ p.click(p.root.getElementById('mute'));pointer(p,'pointerout');assert.equal(opened,0,'sound acts in place');
  assert.equal(p.video.muted,false);assert.equal(p.video.paused,false);
+});
+test('moving from a playing preview to its title keeps it; leaving the card pauses after 250 ms unless the pointer returns',async t=>{
+ const p=page(t);await hoverController(p);
+ pointer(p);await waitForHover();
+ pointer(p,'pointerout','mouse',{related:p.title});pointer(p,'pointerover','mouse',{target:p.title,related:p.player});
+ await new Promise(resolve=>setTimeout(resolve,300));
+ assert.equal(p.video.paused,false,'the title is part of the card');assert.equal(p.video.muted,true);
+ pointer(p,'pointerout','mouse',{target:p.title,related:p.d.body});
+ await new Promise(resolve=>setTimeout(resolve,100));
+ pointer(p,'pointerover','mouse',{target:p.title,related:p.d.body});
+ await new Promise(resolve=>setTimeout(resolve,300));
+ assert.equal(p.video.paused,false,'returning within the grace keeps it');
+ pointer(p,'pointerout','mouse',{target:p.title,related:p.d.body});
+ await new Promise(resolve=>setTimeout(resolve,260));
+ assert.equal(p.video.paused,true);
+});
+test('a preview stays muted when Reddit re-applies a saved unmuted volume',async t=>{
+ const p=page(t);await hoverController(p);
+ pointer(p);await waitForHover();
+ p.video.muted=false;p.video.dispatchEvent(new p.W.Event('volumechange'));
+ assert.equal(p.video.muted,true);
+ p.root.getElementById('mute').addEventListener('click',()=>{p.video.muted=false;p.video.dispatchEvent(new p.W.Event('volumechange'));});
+ p.click(p.root.getElementById('mute'));assert.equal(p.video.muted,false,'the user’s own sound button still works');
+});
+test('a pointer that leaves the player before the preview starts cancels it',async t=>{
+ const p=page(t);await hoverController(p);
+ pointer(p);pointer(p,'pointerout','mouse',{related:p.title});
+ await waitForHover();assert.equal(p.video.paused,true);
+});
+function surfaceClick(p){
+ let toggled=0,opened=0;
+ p.video.addEventListener('click',()=>toggled++);p.title.addEventListener('click',()=>opened++);
+ return {count:()=>({toggled,opened})};
+}
+test('clicking a preview opens its post by default, carrying the preview on with sound faded in',async t=>{
+ const p=page(t);await hoverController(p);const c=surfaceClick(p);
+ p.video.volume=0.8;pointer(p);await waitForHover();p.video.currentTime=3.5;
+ p.click(p.video);
+ assert.deepEqual(c.count(),{toggled:0,opened:1},'Reddit’s player does not see the click; its permalink does');
+ const saved=JSON.parse(p.W.sessionStorage.getItem(continuationKey));
+ assert.equal(saved.time,3.5);assert.equal(saved.muted,false);assert.equal(saved.volume,0.8,'the target volume, not the fade');
+ assert.equal(p.video.paused,false);assert.equal(p.video.muted,false);assert.ok(p.video.volume<0.8);
+ await new Promise(resolve=>setTimeout(resolve,260));assert.equal(p.video.volume,0.8);
+});
+test('Play here plays a clicked preview in place, and From the beginning restarts it',async t=>{
+ const p=page(t);await hoverController(p,{videoPreviewClickPlays:true,videoPreviewRestart:true});const c=surfaceClick(p);
+ pointer(p);await waitForHover();p.video.currentTime=3.5;
+ p.click(p.video);
+ assert.deepEqual(c.count(),{toggled:0,opened:0});
+ assert.equal(p.video.currentTime,0);assert.equal(p.video.paused,false);assert.equal(p.video.muted,false);
+ pointer(p,'pointerout');await new Promise(resolve=>setTimeout(resolve,260));
+ assert.equal(p.video.paused,false,'it is no longer a preview');
+});
+test('an opened preview can start from the beginning and keep its sound off',async t=>{
+ const p=page(t);await hoverController(p,{videoPreviewRestart:true,videoUnmutePreview:false});
+ pointer(p);await waitForHover();p.video.currentTime=3.5;
+ p.click(p.video);
+ const saved=JSON.parse(p.W.sessionStorage.getItem(continuationKey));
+ assert.equal(saved.time,0);assert.equal(saved.muted,true);assert.equal(p.video.muted,true);
+});
+function phone(p,coarse=true){p.W.matchMedia=query=>({matches:coarse && /hover: none|pointer: coarse/.test(query)});}
+test('on phones the feed video most in view previews muted when chosen, and stops when it leaves',async t=>{
+ const p=page(t);phone(p);await hoverController(p,{videoPreviewsInView:true});
+ p.io.cb([{target:p.player,intersectionRatio:0.7}]);await waitForHover();
+ assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
+ const c=surfaceClick(p);p.click(p.video);assert.deepEqual(c.count(),{toggled:0,opened:1},'a tap opens the post');
+ const q=page(t);phone(q);await hoverController(q,{videoPreviewsInView:true});
+ q.io.cb([{target:q.player,intersectionRatio:0.7}]);await waitForHover();
+ q.io.cb([{target:q.player,intersectionRatio:0.55}]);assert.equal(q.video.paused,true,'below 60 % it is no longer the one in view');
+});
+test('a video already in view when the settings arrive previews',async t=>{
+ const p=page(t);phone(p);
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ Object.defineProperty(p.video,'readyState',{value:1,configurable:true});
+ let settle;const controller=new p.W.RTVideoControl.Videos({readSettings:()=>new Promise(r=>settle=r),readPreference:async()=>true,observe:false});
+ controller.scan();p.io.cb([{target:p.player,intersectionRatio:1}]);
+ settle({videoPreviewsInView:true});await controller.ready;await waitForHover();
+ assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
+ controller.configure({});assert.equal(p.video.paused,true,'turning the option off stops it');
+});
+test('in-view previews are off by default and never run with a mouse',async t=>{
+ for(const [coarse,settings] of [[true,{}],[false,{videoPreviewsInView:true}],[true,{videoPreviewsInView:true,videoPreviews:false}]]){
+  const p=page(t);phone(p,coarse);await hoverController(p,settings);
+  p.io.cb([{target:p.player,intersectionRatio:0.9}]);await waitForHover();
+  assert.equal(p.video.paused,true,JSON.stringify(settings));
+ }
 });
 test('a hover that ends during metadata loading cannot start playback later',async t=>{
  const p=page(t);await hoverController(p);
