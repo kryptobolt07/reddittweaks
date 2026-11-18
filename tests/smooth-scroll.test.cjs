@@ -41,3 +41,12 @@ test('comment threads (opt-in) skip top-level comments only; search results skip
  const on=page(t,{path:'/r/pics/comments/abc/title/',html});const s2=new on.W.RTSmoothScroll.Smooth({readSettings:async()=>({smoothComments:true}),observe:false});await s2.ready;assert.deepEqual([...on.io.observed].map(e=>e.id),['c1']);
  const search=page(t,{path:'/search/',html:'<div data-testid="sdui-post-unit" id="r1"></div><div data-testid="sdui-post-unit" id="r2"></div>'});const s3=new search.W.RTSmoothScroll.Smooth({readSettings:async()=>({}),observe:false});await s3.ready;assert.deepEqual([...search.io.observed].map(e=>e.id),['r1','r2']);
 });
+test('lists the extension renders itself (profile search, archives) are smoothed too; bridge-owned feeds and nested cards are not doubled',async t=>{
+ // Measured 2026-11-19: a profile search held 100 extension-rendered results on a 6,735 px page with none smoothed.
+ const html='<main><section data-rt-ui="posts"><div><div data-rt-ui="activity-item" id="i1"><div class="rt-native-card" id="inner"></div></div><div class="rt-native-card" id="c2"></div></div></section>'+
+  '<div data-rt-ui="archive-subreddit"><div class="rt-native-card" id="a1"></div></div><shreddit-feed data-rt-loading-owner="x"><div data-rt-ui="activity-item" id="owned"></div></shreddit-feed></main>';
+ const {W,io,fire,d}=page(t,{path:'/user/someone/search/',html});const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>({}),observe:false});await s.ready;
+ assert.deepEqual([...io.observed].map(e=>e.id).sort(),['a1','c2','i1'],'extension items, not the card inside an item, not the bridge-owned feed');
+ fire(d.getElementById('i1'),{height:420});assert.equal(d.getElementById('i1').hasAttribute('data-rt-skip'),true);
+ const off=page(t,{path:'/user/someone/search/',html});const s2=new off.W.RTSmoothScroll.Smooth({readSettings:async()=>({smoothSearch:false}),observe:false});await s2.ready;assert.equal(off.io.observed.size,0,'the page’s option still governs');
+});
