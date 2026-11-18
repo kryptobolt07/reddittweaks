@@ -4,7 +4,7 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000;
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,PREVIEW_S=10,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000;
  const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
  // Reddit's preference, from its settings page (the prefs API needs a token the page does not expose).
  async function readAutoplayDisabled({doc=document,fetcher=globalThis.fetch,store=globalThis.sessionStorage}={}){
@@ -19,8 +19,8 @@
  }
  class Videos{
   constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,observe=true}={}){
-   this.doc=doc;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.gesture={at:-Infinity,path:[]};this.dead=false;
-   this.onGesture=event=>{this.gesture={at:performance.now(),path:event.composedPath?.() || [event.target]};};
+   this.doc=doc;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.previews=new Map();this.gesture={at:-Infinity,path:[]};this.dead=false;
+   this.onGesture=event=>{const path=event.composedPath?.() || [event.target];this.gesture={at:performance.now(),path};for(const player of this.previews.keys())if(path.includes(player))this.endPreview(player);};
    for(const type of ['pointerdown','keydown','click'])doc.addEventListener(type,this.onGesture,true);
    this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onVisibility(entries),{threshold:[0,0.5,1]}):null;
    this.mo=observe?new MutationObserver(()=>this.schedule()):null;this.mo?.observe(doc.documentElement,{childList:true,subtree:true});
@@ -30,27 +30,44 @@
   configure(settings){
    this.settings=settings || {};this.scan();
    // Reddit's preference is read only while this option is on; a video Reddit started before it arrived is paused then.
-   if(this.respect && !this.preference)this.preference=Promise.resolve().then(()=>this.readPreference({doc:this.doc})).then(value=>{this.autoplayDisabled=value;if(value===true && this.respect)for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.userStarted(player)){video.pause();player.dataset.rtAutoplayBlocked='true';}}},()=>{});
+   if(this.respect && !this.preference)this.preference=Promise.resolve().then(()=>this.readPreference({doc:this.doc})).then(value=>{this.autoplayDisabled=value;if(value===true && this.respect)for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.userStarted(player))this.block(player,video);}},()=>{});
   }
   get respect(){return this.settings.videoRespectAutoplay!==false;}
   get pauseAway(){return this.settings.videoPauseOffscreen!==false;}
+  get previewsOn(){return this.settings.videoPreviews!==false;}
   schedule(){if(this.queued || this.dead)return;this.queued=true;setTimeout(()=>{this.queued=false;if(!this.dead)this.scan();},200);}
   scan(){for(const player of this.doc.querySelectorAll(PLAYERS))this.attach(player);}
   attach(player){
    if(this.players.has(player) || !player.shadowRoot)return;
    this.players.add(player);this.io?.observe(player);
    player.shadowRoot.addEventListener('play',event=>this.onPlay(player,event),true);
+   player.shadowRoot.addEventListener('timeupdate',event=>this.onTime(player,event),true);
   }
   video(player){return player.shadowRoot?.querySelector('video') || null;}
   userStarted(player){return performance.now()-this.gesture.at<GESTURE_MS && this.gesture.path.includes(player);}
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
-   if(this.respect && this.autoplayDisabled===true && !this.userStarted(player)){video.pause();player.dataset.rtAutoplayBlocked='true';return;}
+   if(this.previews.has(player))return;
+   if(this.respect && this.autoplayDisabled===true && !this.userStarted(player)){this.block(player,video);return;}
    delete player.dataset.rtAutoplayBlocked;
+  }
+  // Autoplay that Reddit's setting says should not happen: a silent preview (first 10 s, muted, looping, never
+  // advancing the real position) or, with previews off, a pause.
+  block(player,video){
+   if(!this.previewsOn){video.pause();player.dataset.rtAutoplayBlocked='true';return;}
+   if(!this.previews.has(player))this.previews.set(player,{start:Number(video.currentTime) || 0,muted:video.muted});
+   video.muted=true;player.dataset.rtPreview='true';delete player.dataset.rtAutoplayBlocked;
+  }
+  onTime(player,event){const state=this.previews.get(player),video=event.target;if(state && video.currentTime>=state.start+PREVIEW_S)video.currentTime=state.start;}
+  // Your tap: the preview ends, the video goes back to where it started and plays with Reddit's sound setting.
+  endPreview(player){
+   const state=this.previews.get(player),video=this.video(player);this.previews.delete(player);delete player.dataset.rtPreview;if(!state || !video)return;
+   video.currentTime=state.start;video.muted=state.muted;
+   setTimeout(()=>{if(video.paused)video.play()?.catch?.(()=>{});},0);
   }
   onVisibility(entries){
    if(!this.pauseAway)return;
-   for(const entry of entries){if(entry.intersectionRatio>=0.5)continue;const video=this.video(entry.target);if(video && !video.paused){video.pause();entry.target.dataset.rtPausedAway='true';}}
+   for(const entry of entries){if(entry.intersectionRatio>=0.5)continue;const video=this.video(entry.target),preview=this.previews.get(entry.target);if(video && !video.paused){video.pause();entry.target.dataset.rtPausedAway='true';}if(video && preview)video.currentTime=preview.start;}
   }
   destroy(){this.dead=true;this.mo?.disconnect();this.io?.disconnect();for(const type of ['pointerdown','keydown','click'])this.doc.removeEventListener(type,this.onGesture,true);}
  }
