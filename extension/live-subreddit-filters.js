@@ -285,8 +285,10 @@
         this.releaseDeparture();
         return false;
       }
-      // Keep filtering the exact outgoing native objects until Reddit is done with them.
-      state.feed.toggleAttribute(outgoing,state.feed.isConnected);
+      // Keep filtering the exact outgoing native objects until Reddit is done with them. While a playing video or
+      // YouTube player moves into the post (data-rt-media-moving, docs/video-control-spec.md) the feed stays on
+      // screen behind it instead of leaving it on a blank page.
+      state.feed.toggleAttribute(outgoing,state.feed.isConnected && !document.documentElement.hasAttribute('data-rt-media-moving'));
       if (!state.feed.isConnected) {
         this.toolbar?.remove();
         this.note?.remove();
