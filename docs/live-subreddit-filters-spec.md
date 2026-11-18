@@ -30,3 +30,15 @@ Live Reddit renders native sorts and Top time ranges as separate `shreddit-sort-
 | Feed or native controls are replaced | Pick up the new controls, with no duplicate extension menu. Restore the native controls on disable or teardown. |
 
 With this extension alone in a clean Chromium profile, the first frame containing the sort rail on a live subreddit had Feed options and Reddit's View control visible. The native Sort control had zero visible frames.
+
+## Naming and phone parity (2026-11-19)
+
+The subreddit toolbar button and its phone sheet are named **Feed options**, the name of the profile menu they mirror (previously "Filters"). Live at 390 px the button is 143 px wide and stays on one row with the type chip and Reddit's View control.
+
+| | Desktop | Phone |
+|---|---|---|
+| Sort | Feed options → Sort lists Reddit's own sort links with the shared outline icons | The sheet lists the same sorts at the top |
+| Top time range | Reddit renders a time control only on Top; Sort then shows Time range | Same: a Time range row drills into Reddit's ranges (measured on `/top/?t=week`) |
+| Post type, Flair | Drill-ins in the menu | Chips and a Flair drill-in in the sheet |
+
+Reddit's native sort menu carries no icons; the New glyph is the outline clock with a heavier ring, not a filled variant.

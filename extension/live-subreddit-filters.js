@@ -265,7 +265,8 @@
       bar.dataset.rtUi = 'community-filters';
       this.chips = make('div','rt-community-chips rt-filter-chips');
       if (this.feed) {
-        const options = this.options = make('button','rt-search-inline-filter rt-community-button','Filters');
+        // Same name as the profile's Feed options menu, which this toolbar mirrors.
+        const options = this.options = make('button','rt-search-inline-filter rt-community-button','Feed options');
         options.type = 'button';
         options.dataset.rtCommunityOptions = '';
         options.setAttribute('aria-haspopup','true');
@@ -640,7 +641,7 @@
       const button = this.options;
       button.setAttribute('aria-expanded','true');
       this.panel = sheet.open({
-        title:'Filters', returnFocus:button,
+        title:'Feed options', returnFocus:button,
         onClose: () => {
           this.panel = null;
           button.setAttribute('aria-expanded','false');
