@@ -90,6 +90,14 @@
         <input class="switch" type="checkbox" id="smooth-comments" data-setting="smoothComments" aria-describedby="smooth-comments-desc">
       </div>
       <div class="setting-row">
+        <div class="setting-copy"><label for="video-respect-autoplay">Respect Reddit’s autoplay setting</label><p id="video-respect-autoplay-desc">When “Autoplay media” is off in your Reddit settings, videos start only when you tap them. Reddit’s phone layout ignores that setting.</p></div>
+        <input class="switch" type="checkbox" id="video-respect-autoplay" data-setting="videoRespectAutoplay" aria-describedby="video-respect-autoplay-desc">
+      </div>
+      <div class="setting-row">
+        <div class="setting-copy"><label for="video-pause-offscreen">Pause videos that scroll away</label><p id="video-pause-offscreen-desc">A playing video pauses as soon as less than half of it is on screen.</p></div>
+        <input class="switch" type="checkbox" id="video-pause-offscreen" data-setting="videoPauseOffscreen" aria-describedby="video-pause-offscreen-desc">
+      </div>
+      <div class="setting-row">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8 5H5a5 5 0 0 0 0 10h3v-2H5a3 3 0 0 1 0-6h3V5Zm4 0v2h3a3 3 0 0 1 0 6h-3v2h3a5 5 0 0 0 0-10h-3ZM5 9v2h10V9H5Z"/></svg></span>
         <div class="setting-copy"><label for="clean-share-links">Clean shared links</label><p id="clean-share-links-desc">Copy post and comment links without Reddit’s sharing identifiers.</p></div>
         <input class="switch" type="checkbox" id="clean-share-links" data-setting="cleanShareLinks" aria-describedby="clean-share-links-desc">
