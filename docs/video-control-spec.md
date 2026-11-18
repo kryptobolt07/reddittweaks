@@ -64,7 +64,7 @@ Measured 2026-11-19 (r/india, desktop): Reddit renders a YouTube link post as `s
 
 - **Previews** follow the video rules: desktop hover (160 ms, same card grace), phone in-view after scrolling stops. The player is activated muted (`mute=1`) through Reddit's own lite-youtube, so YouTube's pre-roll ad may play first.
 - While it previews, a transparent layer over the embed takes the click (YouTube's iframe would otherwise take it): **Open the post** or **Play here** per *Clicking a preview*. A round sound button on the layer unmutes in place. Ending a preview pauses it and turns its sound back on for YouTube's own play button.
-- **Opening the post** of a playing YouTube embed (preview, Play here, or the user's own play) continues it in the post's own embed at the same second (from 0 during an ad), with sound per option, faded in. The cached feed copy is paused and never restarted.
+- **Opening the post** of a playing YouTube embed (preview, Play here, or the user's own play) keeps the same YouTube player: its iframe moves (with `moveBefore`, which keeps an iframe loaded; moving Reddit's `shreddit-embed` itself makes Reddit rebuild it) into a fixed stage at its card while the feed stays on screen, then into the post's own embed once Reddit has laid it out, with the 220 ms compositor move. The post never shows its thumbnail or play button. Sound follows the option; *Play opened previews from the start* seeks to 0. Back before the post is ready returns the iframe to its card. Where moving is unavailable, the post's embed starts at the same second instead (from 0 during an ad). The cached feed copy is never restarted.
 - Other providers (Vimeo, TikTok, Streamable, …) have no preview or continuation: their players live in other origins without an API this page loads. Reddit's own scroll-away pause still applies to Vimeo and TikTok.
 
 ## Transitions
@@ -95,7 +95,7 @@ Native buffering can still interrupt a video. A full document navigation cannot 
 - Phone 390×844 (touch emulation): a tapped video and a tapped in-view preview both continued into the post with sound, moving from 358 px to the full 390 px slot without a pause. In-view previews moved from one video to the next while scrolling.
 - Post page: the video played at 16 % visible, paused when fully out of view at 5.6 s and resumed at 5.6 s when scrolled back.
 
-- YouTube embed (r/india): hover started a muted preview with the layer; clicking with *Play here* on played it with sound in place; opening its title continued in the post's own embed with sound while the feed copy was gone.
+- YouTube embed (r/india): hover started a muted preview with the layer; clicking with *Play here* on played it with sound in place; opening its title kept the same iframe at its card for about 2 s while Reddit rendered the post, then moved it into the post's embed; it played on with sound (5 s → 11.4 s) with no reload.
 
 Earlier verification (0.45):
 

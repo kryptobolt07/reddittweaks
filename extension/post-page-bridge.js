@@ -172,6 +172,54 @@
     const step=()=>{const t=Math.min(1,(performance.now()-begin)/200);player.setVolume(Math.round(target*t));if(t<1)setTimeout(step,16);};
     step();
   }));
+  // Shared-element move for a playing YouTube embed: its iframe (kept alive by moveBefore, no reload) stays at its
+  // card above the visible feed, then takes the post's embed, so the post never shows its thumbnail or play button.
+  let heldEmbed=null;
+  function releaseEmbed(){
+    const held=heldEmbed;if(!held)return;
+    heldEmbed=null;
+    if(held.lite.isConnected){movePlayer(held.lite,held.ifr);restoreStyle(held.ifr,held.style);}
+    held.stage.remove();
+  }
+  const restoreStyle=(node,value)=>{if(value===null)node.removeAttribute('style');else node.setAttribute('style',value);};
+  document.addEventListener('rt-hold-feed-embed',event=>{
+    const embed=event.target,lite=liteOf(embed),ifr=lite?.querySelector('iframe'),player=ytPlayers.get(embed);
+    if(heldEmbed || !ifr || !player || !document.body || typeof document.body.moveBefore!=='function')return;
+    const {left,top,width,height}=ifr.getBoundingClientRect();
+    if(!width || !height)return;
+    const stage=document.createElement('div');
+    stage.setAttribute('aria-hidden','true');
+    Object.assign(stage.style,{position:'fixed',zIndex:'3',pointerEvents:'none',overflow:'hidden',
+      left:left+'px',top:top+'px',width:width+'px',height:height+'px'});
+    document.body.append(stage);
+    const style=ifr.getAttribute('style');
+    stage.moveBefore(ifr,null);
+    Object.assign(ifr.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
+    heldEmbed={embed,lite,ifr,player,stage,style,rect:{left,top,width,height},id:embed.closest('shreddit-post')?.id};
+    event.preventDefault();
+  });
+  document.addEventListener('rt-place-held-embed',event=>{
+    const embed=event.target,lite=liteOf(embed),id=route()?.id,held=heldEmbed;
+    if(!held || !lite || !id || held.id!=='t3_'+id || embed.closest('shreddit-post')?.id!==held.id || embed.closest('shreddit-feed'))return;
+    const to=lite.getBoundingClientRect();if(!to.width || !to.height)return;
+    heldEmbed=null;
+    lite.classList.add('lyt-activated');
+    embed.hasActivatedYouTubePlayer=true;
+    lite.playerPromise=Promise.resolve(held.player);
+    for(const old of lite.querySelectorAll('iframe'))old.remove();
+    movePlayer(lite,held.ifr);
+    restoreStyle(held.ifr,held.style);
+    ytPlayers.set(embed,held.player);
+    held.stage.remove();
+    const from=held.rect,box=held.ifr.getBoundingClientRect();
+    if(typeof held.ifr.animate==='function' && box.width && box.height && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){
+      const scale=from.width/box.width,x=from.left+from.width/2-box.left-box.width/2,y=from.top+from.height/2-box.top-box.height/2;
+      if(Math.abs(x)>=1 || Math.abs(y)>=1 || Math.abs(scale-1)>=.01)
+        held.ifr.animate([{transform:`translate(${x}px,${y}px) scale(${scale})`},{transform:'none'}],{duration:FLIGHT_MS,easing:'cubic-bezier(.2,.8,.2,1)'});
+    }
+    event.preventDefault();
+  });
+  document.addEventListener('rt-release-feed-embed',releaseEmbed);
   // Synchronous read for the content script: whether it plays, where, and with sound.
   document.addEventListener('rt-embed-snapshot',event=>{
     const embed=event.target,player=ytPlayers.get(embed);
