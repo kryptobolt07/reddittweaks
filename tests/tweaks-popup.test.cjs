@@ -25,10 +25,10 @@ test('Reddit Tweaks popup loads defaults and persists individual changes while p
   assert.equal(post.checked,true);assert.equal(archive.checked,false);assert.equal(restore.checked,true);
   archive.checked=true;archive.dispatchEvent(new p.w.Event('change'));
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true,videoUnmutePreview:true});
   post.checked=false;post.dispatchEvent(new p.w.Event('change'));
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true,videoUnmutePreview:true});
   assert.equal(p.w.document.querySelector('#settings-status').textContent,'Settings saved automatically.');
 });
 
@@ -37,7 +37,7 @@ test('automatic restoration stays independent of archive opt-in and serialized w
   const restore=p.w.document.querySelector('#restore-deleted-content'),post=p.w.document.querySelector('#post-discovery');
   assert.equal(restore.checked,false);assert.equal(restore.closest('.setting-row').hidden,true,'folds away until the archive is on');
   restore.checked=true;restore.dispatchEvent(new p.w.Event('change'));post.checked=false;post.dispatchEvent(new p.w.Event('change'));await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true,futureOption:'preserve'});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true,videoUnmutePreview:true,futureOption:'preserve'});
   const reopened=popup(t,{settings:p.state});await settle();assert.equal(reopened.w.document.querySelector('#restore-deleted-content').checked,true);assert.equal(reopened.w.document.querySelector('#archive-discovery').checked,false);
 });
 
@@ -174,12 +174,12 @@ test('Home: Raffles explains where to find them and can be turned on in place',a
 });
 test('Home summarises active features and Manage opens Settings; each settings group counts what is on',async t=>{
   const p=popup(t,{tabs:redditTab});await settle();const doc=p.w.document;
-  assert.equal(doc.getElementById('feature-summary').textContent,'7 of 14 features on','dependent options whose parent is off do not count; Smooth scrolling and the video options are on by default');
+  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 15 features on','dependent options whose parent is off do not count; Smooth scrolling and the video options are on by default');
   doc.getElementById('manage-features').click();assert.equal(doc.getElementById('panel-settings').hidden,false);
   const count=id=>doc.querySelector('[aria-labelledby="'+id+'"] .group-count').textContent;
-  assert.equal(count('reddit-heading'),'6 of 7 on');assert.equal(count('tools-heading'),'1 of 1 on');assert.equal(count('archive-heading'),'0 of 4 on');
+  assert.equal(count('reddit-heading'),'7 of 8 on');assert.equal(count('tools-heading'),'1 of 1 on');assert.equal(count('archive-heading'),'0 of 4 on');
   const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));
-  assert.equal(count('archive-heading'),'2 of 4 on','the archive and its already-on restore option');assert.equal(doc.getElementById('feature-summary').textContent,'9 of 14 features on');
+  assert.equal(count('archive-heading'),'2 of 4 on','the archive and its already-on restore option');assert.equal(doc.getElementById('feature-summary').textContent,'10 of 15 features on');
 });
 test('popup styles: fluid width and larger targets on touch screens, tabs in both themes',()=>{
   const css=fs.readFileSync(path.join(__dirname,'../extension/popup.css'),'utf8');

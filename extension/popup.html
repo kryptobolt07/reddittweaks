@@ -93,9 +93,13 @@
         <div class="setting-copy"><label for="video-respect-autoplay">Respect Reddit’s autoplay setting</label><p id="video-respect-autoplay-desc">When “Autoplay media” is off in your Reddit settings, videos start only when you tap them. Reddit’s phone layout ignores that setting.</p></div>
         <input class="switch" type="checkbox" id="video-respect-autoplay" data-setting="videoRespectAutoplay" aria-describedby="video-respect-autoplay-desc">
       </div>
-      <div class="setting-row" data-requires="video-respect-autoplay" data-level="2" data-detail>
-        <div class="setting-copy"><label for="video-previews">Silent previews</label><p id="video-previews-desc">Instead of stopping, show a muted preview of the first seconds that doesn’t move the video on. Tap to watch from the start with sound.</p></div>
+      <div class="setting-row">
+        <div class="setting-copy"><label for="video-previews">Muted hover previews</label><p id="video-previews-desc">Hover over a video in the feed to preview it. Move away to pause.</p></div>
         <input class="switch" type="checkbox" id="video-previews" data-setting="videoPreviews" aria-describedby="video-previews-desc">
+      </div>
+      <div class="setting-row" data-requires="video-previews" data-detail>
+        <div class="setting-copy"><label for="video-unmute-preview">Turn on sound when playing a preview</label><p id="video-unmute-preview-desc">Applies when you press Play or open the post. Playback continues from the preview's position.</p></div>
+        <input class="switch" type="checkbox" id="video-unmute-preview" data-setting="videoUnmutePreview" aria-describedby="video-unmute-preview-desc">
       </div>
       <div class="setting-row">
         <div class="setting-copy"><label for="video-continue-on-open">Keep playing when opening a post</label><p id="video-continue-on-open-desc">A playing video carries on from the same position on its post page instead of stopping.</p></div>
