@@ -1,3 +1,12 @@
+# 0.47.0 preview
+
+- **Filtered subreddit Back navigation:** keep the outgoing feed hidden with its filter applied while opening a post. Returning to that history entry restores the selected card's viewport offset after the filters are applied. In Brave, a paginated video returned to its original offset after a deliberate 180 px scroll shift during restoration. Fresh documents use Reddit's native scroll restoration.
+- **Subreddit View:** size active filter chips to fit beside Reddit's native View button. In Brave, both Card and Compact rendered in their selected layouts with Videos still applied.
+- **Account pictures:** use the profile picture Reddit renders in its signed-in header or account menu. Saved accounts can pick up their photo when they are active on a Reddit page. Unavailable pictures fall back to an initial.
+- **Video previews:** includes the committed phone previews after scrolling settles, native player control updates, and YouTube embed previews and continuation.
+- **Version:** minor increment for the new phone and YouTube preview behavior included in this bundle.
+- **Validation:** 1,936 tests passed. Firefox lint reported zero errors, notices and warnings. All 74 Chromium assets and 75 Firefox assets match their unpacked folders and ZIPs. Chromium SHA-256 `d2a65d0c4323786b76caeeda29f4e1d39df00b818989f8505f97e4443e480e4d`. Firefox SHA-256 `ecbbdb8ebe0e02fcaf200087b1ef2e6a11bcc3a86bb6a311f4923b8d41e55068`.
+
 # 0.46.0 preview
 
 - **Muted hover previews:** hover over a paused native feed video to start playback with sound off. Move away to pause at the current position. Click Play, click the video, or open the post to continue from there. The separate **Turn on sound when playing a preview** setting is on by default. Reddit's mute and other media controls retain their own actions.
