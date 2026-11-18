@@ -123,6 +123,16 @@ test('the popup opened from a private window acts on that window’s cookie stor
  assert.equal((await w.send({action:'switch',owner:'t2_alice'},w.popup)).ok,true);assert.equal(w.privateJar.get('reddit_session').value,'reddit_session-alice');assert.equal(w.jar.get('reddit_session').value,'reddit_session-alice');
 });
 
+test('Reddit’s device settings (sort, view, chat layout, codecs, consent) are never touched by switching, adding or anonymous browsing',async()=>{
+ // Measured 2026-11-19: these reddit.com cookies hold device preferences; only the five session cookies belong to an account.
+ const device=['pc','csv','subreddit_sort','edgebucket','reddit_chat_path','reddit_chat_view','reddit_supported_media_codecs','ads_cookie'];
+ const seed=jar=>{for(const name of device)jar.set(name,{name,value:name+'-device',domain:'.reddit.com',path:'/',secure:true,httpOnly:false,sameSite:'lax',hostOnly:false,session:false,expirationDate:1900000000});return jar;};
+ const w=worker({jar:seed(jarFor('alice'))});await w.send({action:'save-current',...alice});
+ for(const [k,v] of jarFor('bob'))w.jar.set(k,v);await w.send({action:'save-current',...bob});
+ await w.send({action:'switch',owner:'t2_alice',from:'t2_bob'});await w.send({action:'anonymous',from:'t2_alice',...alice});await w.send({action:'switch',owner:'t2_bob'});await w.send({action:'add',...bob});
+ for(const name of device)assert.equal(w.jar.get(name)?.value,name+'-device',name+' kept');
+});
+
 // Reddit's account menu, as measured live 2026-11-17 (synthetic names): ul sections, View Profile first.
 const viewProfile=name=>'<faceplate-tracker class="contents"><li rpl="" class="relative list-none mt-0 " role="presentation"><a class="flex justify-between relative px-md gap-xs text-secondary-plain hover:bg-neutral-background-hover cursor-pointer py-xs no-underline" href="/user/'+name+'/" style="padding-inline-end: 16px"><span class="flex items-center gap-xs min-w-0 shrink"><span class="flex shrink-0 items-center justify-center h-xl w-xl "><span class="text-20 leading-4"><span avatar="">default</span></span></span><span class="flex flex-col justify-center min-w-0 shrink py-[0.375rem]"><span class="text-body-2">View Profile</span><span class="text-caption-1 text-secondary-plain-weak">u/'+name+'</span></span></span><span class="flex items-center shrink-0"><span class="flex items-center justify-center h-lg"></span></span></a></li></faceplate-tracker>';
 const menuHtml=(id,name)=>'<div id="'+id+'"><faceplate-loader></faceplate-loader><ul class="w-100 p-0 m-0 list-none my-xs">'+viewProfile(name)+'<faceplate-tracker class="contents"><li><a href="/avatar">Edit Avatar</a></li></faceplate-tracker></ul><hr class="h-px w-100 bg-neutral-border-weak border-0"><ul class="w-100 p-0 m-0 list-none my-xs"><li><a href="/settings">Settings</a></li></ul></div>';
