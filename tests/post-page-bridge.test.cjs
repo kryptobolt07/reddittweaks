@@ -11,6 +11,19 @@ function setup(t,{url='https://www.reddit.com/user/Example/',fetcher,intersectio
   function send(input){return new Promise(resolve=>{const id=crypto.randomUUID(),channel='test';const listener=e=>{const r=JSON.parse(e.detail);if(r.id!==id)return;W.document.removeEventListener('rt-post-response',listener);resolve(r);};W.document.addEventListener('rt-post-response',listener);W.document.dispatchEvent(new W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,...input})}));});}
   return {W,calls,send};
 }
+test('video preload only asks the current post detail player to load metadata',t=>{
+ const {W,calls}=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'});
+ const players=[];
+ for(const [type,id] of [['in_feed_player','abc12'],['post_detail_screen','other'],['post_detail_screen','abc12']]){
+  const player=W.document.createElement('shreddit-player');
+  player.setAttribute('player-type',type);player.setAttribute('post-id','t3_'+id);
+  player.load=async mode=>players.push([type,id,mode]);
+  W.document.body.append(player);
+  player.dispatchEvent(new W.Event('rt-prepare-detail-video',{bubbles:true}));
+ }
+ assert.deepEqual(players,[['post_detail_screen','abc12','metadata']]);
+ assert.equal(calls.length,0);
+});
 test('archive comment bootstrap uses only current shell descriptors and rejects late route changes',async t=>{
  const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'}),w=e.W;
  w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"></div><faceplate-loader name="PdpStandardClientAssets_fixture" src="concat:chunkA,chunkB" data-prefix="en-US/"></faceplate-loader>';

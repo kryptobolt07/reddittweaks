@@ -17,6 +17,13 @@
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
+  // A lazy native player needs Reddit's own media loader before its <video> has metadata.
+  document.addEventListener('rt-prepare-detail-video',event=>{
+    const player=event.target,id=route()?.id;
+    if(!id || !player.matches?.(':is(shreddit-player,shreddit-player-2)[player-type="post_detail_screen"]') ||
+       player.getAttribute('post-id')!=='t3_'+id || typeof player.load!=='function')return;
+    player.load('metadata')?.catch?.(()=>{});
+  });
   // Reddit's nav connects using its SSR expanded attribute before it reads the
   // saved preference. Seed each incoming native profile nav once, before paint;
   // later native toggles remain entirely under Reddit's control. Cookie access
