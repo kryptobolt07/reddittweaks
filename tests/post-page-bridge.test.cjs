@@ -820,3 +820,18 @@ test('profile navigation seeding leaves invalid preference and disabled discover
  const grid=W.document.createElement('div');grid.className='grid-container flex-nav-expanded';grid.innerHTML='<flex-left-nav-container id="left-sidebar-container" expanded="1"></flex-left-nav-container>';W.document.body.append(grid);await Promise.resolve();assert.equal(grid.querySelector('flex-left-nav-container').getAttribute('expanded'),'1');assert.equal(grid.className,'grid-container flex-nav-expanded');
  W.document.documentElement.removeAttribute('data-rt-profile-discovery');W.document.cookie='hui_flex_nav_expanded_state=0; path=/';const other=grid.cloneNode(true);W.document.body.append(other);await Promise.resolve();assert.equal(other.querySelector('flex-left-nav-container').getAttribute('expanded'),'1');assert.equal(other.className,'grid-container flex-nav-expanded');
 });
+
+test('a type-filtered community feed keeps its cards mounted so Reddit does not rebuild their embeds',async t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/india/?rt_type=video'});
+ W.document.body.innerHTML='<main><shreddit-feed></shreddit-feed></main>';
+ const feed=W.document.querySelector('shreddit-feed'),batch=W.document.createElement('faceplate-batch'),placeholder=W.document.createElement('div');
+ placeholder.className='virtualized-placeholder';feed.append(placeholder);
+ const nativeCalls=[];const controller={host:feed,topStack:[{node:batch,placeholder,height:400}],topPadding:400,_virtualizeTop(distance){nativeCalls.push(distance);}};feed.virtualization=controller;
+ W.dispatchEvent(new W.Event('scroll'));await new Promise(r=>setTimeout(r,5));
+ controller._virtualizeTop(5000);
+ assert.deepEqual(nativeCalls,[],'Reddit does not swap cards out');
+ assert.equal(batch.parentElement,feed,'a card swapped out before the filter applied is restored');
+ assert.equal(controller.topStack.length,0);assert.equal(controller.topPadding,0);
+ W.history.replaceState({},'','/r/india/');controller._virtualizeTop(5000);
+ assert.deepEqual(nativeCalls,[5000],'without a type filter Reddit virtualizes as usual');
+});

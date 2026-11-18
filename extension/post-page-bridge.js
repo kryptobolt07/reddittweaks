@@ -345,6 +345,25 @@
     for(const node of controller.host?.querySelectorAll?.(':scope > [data-rt-skip]') || [])node.removeAttribute('data-rt-skip');
     controller.topStack=[];controller.topPadding=0;
   }
+  // Type-filtered community feeds (rt_type): Reddit swaps out a whole batch once it is a screen above the viewport,
+  // and a batch that shows one or two cards comes and goes far more often. Each return makes Reddit rebuild its
+  // embeds (shreddit-embed drops its content on disconnect: a new lite-youtube, thumbnail loaded again, a playing
+  // YouTube video lost). Keep those cards mounted; the hidden ones cost no layout.
+  const keptFeeds=new WeakSet(),typeFiltered=()=>new URLSearchParams(location.search).has('rt_type');
+  function keepFilteredFeeds(){
+    for(const feed of document.querySelectorAll('shreddit-feed')){
+      const controller=feed.virtualization;
+      if(!controller || keptFeeds.has(controller) || typeof controller._virtualizeTop!=='function' || !Array.isArray(controller.topStack))continue;
+      keptFeeds.add(controller);
+      const native=controller._virtualizeTop;
+      controller._virtualizeTop=function(distance){
+        if(typeFiltered() && !ownedFeed(this.host)){if(this.topStack.length)releaseFeed(this);return;}
+        return native.call(this,distance);
+      };
+    }
+  }
+  let keepQueued=false;
+  addEventListener('scroll',()=>{if(keepQueued || !typeFiltered())return;keepQueued=true;setTimeout(()=>{keepQueued=false;keepFilteredFeeds();},0);},{capture:true,passive:true});
   // One pass: measure everything first, then change the DOM, then correct the
   // scroll position. Measuring between writes would force a layout each time.
   function syncFeed(){
