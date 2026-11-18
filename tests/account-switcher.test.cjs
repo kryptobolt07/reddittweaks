@@ -10,19 +10,25 @@ const SESSION=['reddit_session','token_v2','loid','csrf_token','session_tracker'
 // A cookie jar keyed by name: the browser's current reddit.com cookies.
 function jarFor(account){const jar=new Map();for(const name of SESSION)jar.set(name,{name,value:name+'-'+account,domain:name==='csrf_token'?'.reddit.com':'.reddit.com',path:'/',secure:true,httpOnly:['reddit_session','token_v2'].includes(name),sameSite:'lax',hostOnly:false,session:name==='csrf_token',expirationDate:name==='csrf_token'?undefined:1900000000});
  jar.set('_ga',{name:'_ga',value:'device',domain:'.reddit.com',path:'/',secure:false,httpOnly:false,sameSite:'unspecified',hostOnly:false,session:false,expirationDate:1900000000});return jar;}
-function worker({jar=jarFor('alice')}={}){
- const values={},tabs=[{id:1,url:'https://www.reddit.com/user/alice/'},{id:2,url:'https://www.reddit.com/r/pics/'}],reloads=[],updates=[],created=[],hooks={};let listener;
+function worker({jar=jarFor('alice'),privateJar=new Map(),focused={id:1,incognito:false,tabs:[{id:1,active:true}]}}={}){
+ // Store '0' is the normal cookie jar; store '1' is a private (incognito) window's jar with tab 3.
+ const values={},sessionValues={},tabs=[{id:1,url:'https://www.reddit.com/user/alice/'},{id:2,url:'https://www.reddit.com/r/pics/'},{id:3,url:'https://www.reddit.com/',incognito:true}],reloads=[],updates=[],created=[],hooks={};let listener;
+ const jars={'0':jar,'1':privateJar},pick=storeId=>jars[storeId ?? '0'];
+ const area=bag=>({async get(k){if(k===null)return structuredClone(bag);return {[k]:structuredClone(bag[k])};},async set(v){Object.assign(bag,structuredClone(v));}});
  const chrome={runtime:{id:'own',getURL:p=>'chrome-extension://own/'+p,onMessage:{addListener(fn){listener=fn;}}},
-  storage:{local:{async get(k){return {[k]:structuredClone(values[k])};},async set(v){Object.assign(values,structuredClone(v));}}},
-  cookies:{async getAll({domain}){return [...jar.values()].filter(c=>c.domain.replace(/^\./,'').endsWith(domain)).map(c=>({...c}));},
-   async remove({url,name}){jar.delete(name);return {url,name};},
-   async set(details){assert.ok(details.url.startsWith('https://'),'cookie urls are https');const {url,...rest}=details;jar.set(details.name,{hostOnly:!details.domain,session:!details.expirationDate,...rest,domain:details.domain || new URL(url).hostname});return details;}},
+  storage:{local:area(values),session:area(sessionValues)},
+  windows:{async getLastFocused(){return structuredClone(focused);}},
+  cookies:{async getAll({domain,storeId}){return [...pick(storeId).values()].filter(c=>c.domain.replace(/^\./,'').endsWith(domain)).map(c=>({...c}));},
+   async getAllCookieStores(){return [{id:'0',tabIds:[1,2]},{id:'1',tabIds:[3]}];},
+   async remove({url,name,storeId}){pick(storeId).delete(name);return {url,name};},
+   async set(details){assert.ok(details.url.startsWith('https://'),'cookie urls are https');const {url,storeId,...rest}=details;pick(storeId).set(details.name,{hostOnly:!details.domain,session:!details.expirationDate,...rest,domain:details.domain || new URL(url).hostname});return details;}},
   tabs:{async query(){return tabs.map(t=>({...t}));},async reload(id){reloads.push(id);},async update(id,props){updates.push([id,props]);return {id,...props};},async create(props){created.push(props);return {id:9,...props};},onRemoved:{addListener(fn){hooks.removed=fn;}}}};
  const ctx=vm.createContext({chrome,URL,console,setTimeout,clearTimeout,structuredClone});
  for(const file of ['post-model.js','account-broker.js'])vm.runInContext(read(file),ctx);
  const reddit={id:'own',frameId:0,tab:{id:1},url:'https://www.reddit.com/user/alice/'},popup={id:'own',url:'chrome-extension://own/popup.html'};
  const send=(message,from=reddit)=>new Promise(resolve=>{if(listener({scope:'rt-accounts',...message},from,resolve)!==true)resolve(undefined);});
- return {send,values,jar,reloads,updates,created,reddit,popup,hooks};
+ const incognito={id:'own',frameId:0,tab:{id:3,incognito:true,windowId:7},url:'https://www.reddit.com/'};
+ return {send,values,sessionValues,jar,privateJar,reloads,updates,created,reddit,popup,incognito,hooks};
 }
 const alice={owner:'t2_alice',username:'alice',avatar:'https://styles.redditmedia.com/t5_a/styles/profileIcon_alice.png'};
 const bob={owner:'t2_bob',username:'bob',avatar:'https://styles.redditmedia.com/t5_b/styles/profileIcon_bob.png'};
@@ -68,7 +74,7 @@ test('the popup never drops a signed-in session that was not saved: Add account 
  const w=worker({jar:jarFor('bob')});await w.send({action:'remember',owner:'t2_bob'});
  // Alice is saved from earlier; Bob is signed in now but was never saved.
  w.values['rt-accounts-v1'].accounts.push({owner:'t2_alice',username:'alice',avatar:'',savedAt:1,expired:false,cookies:[...jarFor('alice').values()].filter(c=>SESSION.includes(c.name))});
- const added=await w.send({action:'add'},w.popup);assert.equal(added.ok,false);assert.match(added.error,/account menu/);assert.equal(w.jar.get('reddit_session').value,'reddit_session-bob','session kept');assert.equal(w.created.length,0);
+ const added=await w.send({action:'add'},w.popup);assert.equal(added.ok,false);assert.match(added.error,/Reload a Reddit tab/);assert.equal(w.jar.get('reddit_session').value,'reddit_session-bob','session kept');assert.equal(w.created.length,0);
  const switched=await w.send({action:'switch',owner:'t2_alice'},w.popup);assert.equal(switched.ok,false);assert.equal(w.jar.get('reddit_session').value,'reddit_session-bob');
  // Signed out: Add account just opens Reddit's sign-in.
  const out=worker({jar:new Map()});assert.equal((await out.send({action:'add'},out.popup)).ok,true);assert.equal(out.created.at(-1).url,'https://www.reddit.com/login/');
@@ -89,6 +95,29 @@ test('signing in to a new account during Add account asks the page to save it, a
  assert.equal(w.jar.get('reddit_session').value,'reddit_session-bob','no restore once signed in');assert.deepEqual(w.values['rt-accounts-v1'].accounts.map(a=>a.owner).sort(),['t2_alice','t2_bob']);
 });
 
+test('any signed-in account Reddit reports is saved straight away, without opening the account menu',async()=>{
+ const w=worker();const r=await w.send({action:'remember',owner:'t2_alice'});assert.equal(r.save,true,'the page is asked to read its name and save');
+ await w.send({action:'save-current',...alice});assert.equal((await w.send({action:'remember',owner:'t2_alice'})).save,false,'saved accounts only refresh');
+});
+test('a private window switches its own cookie store, keeps its accounts in session storage and reloads only private tabs',async()=>{
+ const w=worker({privateJar:jarFor('carol')});await w.send({action:'save-current',...alice});
+ // Carol is signed in only in the private window.
+ await w.send({action:'save-current',owner:'t2_carol',username:'carol',avatar:''},w.incognito);
+ assert.equal(w.values['rt-accounts-v1'].accounts.some(a=>a.owner==='t2_carol'),false,'never written to persistent storage');
+ assert.ok(w.sessionValues['rt-accounts-v1:1'].accounts.some(a=>a.owner==='t2_carol'));
+ const list=await w.send({action:'list',owner:'t2_carol'},w.incognito);assert.deepEqual(JSON.parse(JSON.stringify(list.accounts.map(a=>a.owner+(a.private?'*':'')).sort())),['t2_alice','t2_carol*'],'normal accounts are offered too');assert.equal(list.private,true);
+ const r=await w.send({action:'switch',owner:'t2_alice',from:'t2_carol'},w.incognito);assert.equal(r.ok,true);
+ assert.equal(w.privateJar.get('reddit_session').value,'reddit_session-alice','private store switched');assert.equal(w.jar.get('reddit_session').value,'reddit_session-alice','normal store untouched');
+ assert.deepEqual(JSON.parse(JSON.stringify(w.reloads)),[3],'only the private window’s Reddit tabs reload');
+ assert.equal(w.values['rt-accounts-v1'].accounts.find(a=>a.owner==='t2_alice').cookies.find(c=>c.name==='reddit_session').value,'reddit_session-alice','the normal record is never overwritten from a private window');
+});
+test('the popup opened from a private window acts on that window’s cookie store',async()=>{
+ const w=worker({privateJar:jarFor('carol'),focused:{id:7,incognito:true,tabs:[{id:3,active:true}]}});await w.send({action:'save-current',...alice});
+ await w.send({action:'remember',owner:'t2_carol'},w.incognito);await w.send({action:'save-current',owner:'t2_carol',username:'carol',avatar:''},w.incognito);
+ const list=await w.send({action:'list'},w.popup);assert.equal(list.private,true);assert.equal(list.current,'t2_carol');
+ assert.equal((await w.send({action:'switch',owner:'t2_alice'},w.popup)).ok,true);assert.equal(w.privateJar.get('reddit_session').value,'reddit_session-alice');assert.equal(w.jar.get('reddit_session').value,'reddit_session-alice');
+});
+
 // Reddit's account menu, as measured live 2026-11-17 (synthetic names): ul sections, View Profile first.
 const viewProfile=name=>'<faceplate-tracker class="contents"><li rpl="" class="relative list-none mt-0 " role="presentation"><a class="flex justify-between relative px-md gap-xs text-secondary-plain hover:bg-neutral-background-hover cursor-pointer py-xs no-underline" href="/user/'+name+'/" style="padding-inline-end: 16px"><span class="flex items-center gap-xs min-w-0 shrink"><span class="flex shrink-0 items-center justify-center h-xl w-xl "><span class="text-20 leading-4"><span avatar="">default</span></span></span><span class="flex flex-col justify-center min-w-0 shrink py-[0.375rem]"><span class="text-body-2">View Profile</span><span class="text-caption-1 text-secondary-plain-weak">u/'+name+'</span></span></span><span class="flex items-center shrink-0"><span class="flex items-center justify-center h-lg"></span></span></a></li></faceplate-tracker>';
 const menuHtml=(id,name)=>'<div id="'+id+'"><faceplate-loader></faceplate-loader><ul class="w-100 p-0 m-0 list-none my-xs">'+viewProfile(name)+'<faceplate-tracker class="contents"><li><a href="/avatar">Edit Avatar</a></li></faceplate-tracker></ul><hr class="h-px w-100 bg-neutral-border-weak border-0"><ul class="w-100 p-0 m-0 list-none my-xs"><li><a href="/settings">Settings</a></li></ul></div>';
@@ -100,23 +129,35 @@ async function page(t,{owner='t2_alice',loggedIn=true,menu='user-drawer-content'
 }
 const rows=d=>[...d.querySelectorAll('[data-rt-ui="account-row"]')].map(li=>li.querySelector('.text-body-2').textContent+'|'+li.querySelector('.text-caption-1').textContent);
 
-test('the Accounts group sits directly after View Profile in Reddit’s menu, built from Reddit’s own row',async t=>{
+const signedOutMenu=id=>'<div id="'+id+'"><ul class="w-100 p-0 m-0 list-none my-xs"><li class="relative list-none mt-0"><a class="flex justify-between relative px-md py-xs" href="/login/"><span class="flex items-center gap-xs"><svg></svg><span>Log In / Sign Up</span></span></a></li><li><a href="/advertise">Advertise on Reddit</a></li></ul></div>';
+const panelRows=d=>[...d.querySelectorAll('[data-rt-ui="accounts-panel"] [data-rt-ui="account-row"],[data-rt-ui="accounts-panel"] [data-rt-ui="account-back"]')].map(li=>li.querySelector('.text-body-2').textContent+'|'+(li.querySelector('.text-caption-1').hidden?'':li.querySelector('.text-caption-1').textContent));
+const entry=d=>d.querySelector('[data-rt-ui="accounts"] a');
+const open=async d=>{entry(d).click();await flush();};
+test('one Switch accounts row sits right after View Profile, built from Reddit’s own row',async t=>{
  const {d,sent}=await page(t);assert.deepEqual(sent[0],{action:'remember',owner:'t2_alice'});
- const group=d.querySelector('[data-rt-ui="accounts"]'),tracker=d.querySelector('faceplate-tracker');assert.equal(group.previousElementSibling,tracker,'right after View Profile');
- assert.deepEqual(rows(d),['u/alice|Signed in','u/bob|Switch account','Add account|Sign in to another account']);
- const alice=d.querySelector('[data-owner="t2_alice"] a'),bob=d.querySelector('[data-owner="t2_bob"] a');
- assert.equal(alice.getAttribute('aria-current'),'true');assert.ok(alice.querySelector('[data-rt-icon="checkmark"]'));assert.equal(bob.hasAttribute('href'),false,'rows never navigate');
- assert.match(bob.className,/hover:bg-neutral-background-hover/,'Reddit’s own row classes');assert.equal(bob.querySelector('img').src,'https://styles.redditmedia.com/b.png');
- assert.equal(group.querySelectorAll('hr').length,2,'Reddit’s dividers around the group');
+ const wrap=d.querySelector('[data-rt-ui="accounts"]');assert.equal(wrap.previousElementSibling,d.querySelector('faceplate-tracker'),'directly after View Profile');
+ assert.equal(entry(d).querySelector('.text-body-2').textContent,'Switch accounts');assert.equal(entry(d).querySelector('.text-caption-1').textContent,'1 other account');assert.equal(entry(d).querySelector('.text-caption-1').hidden,false,'the caption shows');
+ assert.ok(entry(d).querySelector('[data-rt-icon="swap"]') && entry(d).querySelector('[data-rt-icon="next"]'));assert.equal(entry(d).getAttribute('aria-haspopup'),'menu');
+ assert.match(entry(d).className,/hover:bg-neutral-background-hover/,'Reddit’s own row classes');assert.equal(d.querySelectorAll('[data-owner="t2_bob"]').length,0,'accounts stay in the submenu');
 });
-test('choosing an account switches from the current one; Add account and an expired account run the add flow',async t=>{
- const {d,sent}=await page(t,{accounts:[{owner:'t2_alice',username:'alice',avatar:''},{owner:'t2_bob',username:'bob',avatar:''},{owner:'t2_carol',username:'carol',avatar:'',expired:true}]});
- assert.deepEqual(rows(d)[2],'u/carol|Sign in again');
- d.querySelector('[data-owner="t2_bob"] a').click();await flush();assert.deepEqual(sent.at(-1),{action:'switch',owner:'t2_bob',from:'t2_alice'});
- assert.equal(d.querySelector('[data-owner="t2_bob"] .text-caption-1').textContent,'Switching…');
- const carol=d.querySelector('[data-owner="t2_carol"] a'),press=()=>carol.dispatchEvent(new d.defaultView.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));press();await flush();assert.notEqual(sent.at(-1).action,'add','Add account signs Reddit out here, so it asks first');assert.match(carol.querySelector('.text-caption-1').textContent,/again/);press();await flush();assert.equal(sent.at(-1).action,'add');assert.equal(sent.at(-1).owner,'t2_alice');assert.equal(sent.at(-1).username,'alice');
- const before=sent.length;d.querySelector('[data-owner="t2_alice"] a').click();await flush();assert.equal(sent.length,before,'the current account does nothing');
- const addRow=[...d.querySelectorAll('[data-rt-ui="account-row"] a')].at(-1);const adds=()=>sent.filter(m=>m.action==='add').length,n=adds();addRow.click();await flush();assert.equal(adds(),n,'first press only asks');addRow.click();await flush();assert.equal(adds(),n+1);
+test('the submenu replaces Reddit’s sections in place: current account checked, others, Browse signed out, Add account',async t=>{
+ const {d}=await page(t);await open(d);const menu=d.querySelector('#user-drawer-content');
+ assert.equal([...menu.children].filter(c=>c.dataset.rtUi!=='accounts-panel').every(c=>c.style.display==='none'),true,'Reddit’s sections are hidden, not removed');
+ assert.deepEqual(panelRows(d),['Switch accounts|','u/alice|Signed in','u/bob|Switch to this account','Browse signed out|Use Reddit without an account','Add account|Sign in to another account']);
+ assert.ok(d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_alice"] [data-rt-icon="checkmark"]'));assert.equal(d.querySelector('[data-owner="t2_bob"] img').src,'https://styles.redditmedia.com/b.png');
+ d.querySelector('[data-rt-ui="account-back"] a').click();await flush();assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null);assert.equal([...menu.children].some(c=>c.style.display==='none'),false,'Back restores Reddit’s menu');
+ await open(d);d.dispatchEvent(new d.defaultView.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await flush();assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null,'Escape goes back first');
+ await open(d);d.body.insertAdjacentHTML('beforeend','<button id="expand-user-drawer-button"></button>');d.querySelector('#expand-user-drawer-button').dispatchEvent(new d.defaultView.Event('pointerdown',{bubbles:true}));assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null,'reopening Reddit’s menu starts from its own view');
+});
+test('switching sends the current account; Browse signed out, Add account and expired accounts ask twice',async t=>{
+ const {d,sent}=await page(t,{accounts:[{owner:'t2_alice',username:'alice',avatar:''},{owner:'t2_bob',username:'bob',avatar:''},{owner:'t2_carol',username:'carol',avatar:'',expired:true}]});await open(d);
+ d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_bob"] a').click();await flush();assert.deepEqual(sent.at(-1),{action:'switch',owner:'t2_bob',from:'t2_alice'});assert.equal(d.querySelector('[data-owner="t2_bob"] .text-caption-1').textContent,'Switching…');
+ const count=action=>sent.filter(m=>m.action===action).length,rowNamed=label=>[...d.querySelectorAll('[data-rt-ui="accounts-panel"] [data-rt-ui="account-row"]')].find(li=>li.querySelector('.text-body-2').textContent===label).querySelector('a');
+ const carol=d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_carol"] a'),press=el=>el.dispatchEvent(new d.defaultView.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+ press(carol);await flush();assert.equal(count('add'),0);assert.match(carol.querySelector('.text-caption-1').textContent,/again/);press(carol);await flush();assert.equal(count('add'),1);
+ rowNamed('Browse signed out').click();await flush();assert.equal(count('anonymous'),0,'first press only asks');rowNamed('Browse signed out').click();await flush();assert.deepEqual(sent.at(-1),{action:'anonymous',from:'t2_alice',username:'alice',avatar:''});
+ rowNamed('Add account').click();await flush();assert.equal(count('add'),1);rowNamed('Add account').click();await flush();assert.equal(count('add'),2);
+ const before=sent.length;d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_alice"] a').click();await flush();assert.equal(sent.length,before,'the current account does nothing');
 });
 test('after signing in through Add account the page saves the new account under its own name',async t=>{
  const dom=new JSDOM('<shreddit-app user-logged-in="true" logged-in-user-id="t2_bob"></shreddit-app>',{url:'https://www.reddit.com/',runScripts:'outside-only'}),W=dom.window,sent=[];t.after(()=>W.close());W.__rtAccountSwitcherTest=true;
@@ -124,23 +165,36 @@ test('after signing in through Add account the page saves the new account under 
  W.eval(read('account-switcher.js'));const s=new W.RTAccountSwitcher.Switcher({send:async m=>{sent.push(JSON.parse(JSON.stringify(m)));return m.action==='remember'?{ok:true,save:true}:{ok:true};}});await s.ready;await flush();s.destroy();
  assert.deepEqual(sent[1],{action:'save-current',owner:'t2_bob',username:'bob',avatar:'https://styles.redditmedia.com/b.png?x=1'});
 });
-test('a scripted click (not the person) never switches or opens Add account',async t=>{
- const {W,d,sent}=await page(t);W.__rtAccountSwitcherTest=false;const before=sent.length;
- d.querySelector('[data-owner="t2_bob"] a').click();[...d.querySelectorAll('[data-rt-ui="account-row"] a')].at(-1).dispatchEvent(new W.MouseEvent('click',{bubbles:true}));await flush();
- assert.equal(sent.length,before);assert.equal(d.querySelector('[data-owner="t2_bob"] .text-caption-1').textContent,'Switch account');
+test('a scripted click (not the person) never switches, and taps on rows never reach Reddit’s menu handlers',async t=>{
+ const {W,d,sent}=await page(t);await open(d);W.__rtAccountSwitcherTest=false;const before=sent.length;
+ d.querySelector('[data-owner="t2_bob"] a').click();await flush();assert.equal(sent.length,before);assert.equal(d.querySelector('[data-owner="t2_bob"] .text-caption-1').textContent,'Switch to this account');
+ let reached=0;d.querySelector('#user-drawer-content').addEventListener('pointerdown',()=>reached++);d.querySelector('[data-owner="t2_bob"] a').dispatchEvent(new W.Event('pointerdown',{bubbles:true}));assert.equal(reached,0,'the phone sheet never sees the tap');
 });
-test('an unsaved signed-in account is saved when the menu first shows; Reddit re-renders never duplicate the group',async t=>{
+test('a tap on a phone acts on pointerup even when the sheet swallows the click, and the late click never acts twice',async t=>{
+ const {W,d,sent}=await page(t,{menu:'hui-user-drawer-bottom-sheet'});
+ const tap=(el,{x=10,y=10,dx=0,type='touch'}={})=>{const ev=(name,cx)=>{const e=new W.Event(name,{bubbles:true,cancelable:true});Object.assign(e,{pointerType:type,clientX:cx,clientY:y,pointerId:1});return e;};el.dispatchEvent(ev('pointerdown',x));el.dispatchEvent(ev('pointerup',x+dx));};
+ tap(entry(d));await flush();assert.ok(d.querySelector('[data-rt-ui="accounts-panel"]'),'the tap opened the submenu without a click');
+ const bob=d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_bob"] a');tap(bob);await flush();assert.equal(sent.filter(m=>m.action==='switch').length,1);
+ bob.click();await flush();assert.equal(sent.filter(m=>m.action==='switch').length,1,'the click that follows the tap is ignored');
+ const add=[...d.querySelectorAll('[data-rt-ui="accounts-panel"] [data-rt-ui="account-row"] a')].at(-1);tap(add,{dx:40});await flush();assert.doesNotMatch(add.querySelector('.text-caption-1').textContent,/again/,'a drag is not a tap');
+ tap(add,{type:'mouse'});await flush();assert.doesNotMatch(add.querySelector('.text-caption-1').textContent,/again/,'mouse input waits for its click');
+});
+test('an unsaved account is saved when the menu first shows; Reddit re-renders never duplicate the row or lose the open submenu',async t=>{
  const {d,sent,s}=await page(t,{accounts:[]});assert.deepEqual(sent.find(m=>m.action==='save-current'),{action:'save-current',owner:'t2_alice',username:'alice',avatar:''});
- assert.deepEqual(rows(d),['u/alice|Signed in','Add account|Sign in to another account']);
  d.querySelector('[data-rt-ui="accounts"]').remove();s.scan();await flush();s.scan();await flush();assert.equal(d.querySelectorAll('[data-rt-ui="accounts"]').length,1);
- const lists=sent.filter(m=>m.action==='list').length;assert.equal(lists,1,'a re-render reuses the list just read');
+ await open(d);d.querySelector('[data-rt-ui="accounts-panel"]').remove();s.scan();await flush();assert.equal(d.querySelectorAll('[data-rt-ui="accounts-panel"]').length,1,'reopened after Reddit re-rendered');
+ assert.equal(sent.filter(m=>m.action==='list').length,1,'a re-render reuses the list just read');
 });
-test('the phone bottom sheet gets the same group; signed out gets none; a failed list says so',async t=>{
- const phone=await page(t,{menu:'hui-user-drawer-bottom-sheet'});assert.equal(phone.d.querySelector('#hui-user-drawer-bottom-sheet [data-rt-ui="accounts"]').previousElementSibling.matches('faceplate-tracker'),true);
- const out=await page(t,{loggedIn:false,owner:''});assert.deepEqual(out.sent[0],{action:'remember',owner:''});assert.equal(out.d.querySelector('[data-rt-ui="accounts"]'),null);
- const failed=await page(t,{list:()=>({ok:false,error:'Worker unavailable'})});assert.deepEqual(rows(failed.d),['Accounts unavailable|Worker unavailable','Add account|Sign in to another account']);
+test('the phone sheet gets the same row; signed out it follows Log In when accounts are saved; a failed list says so',async t=>{
+ const phone=await page(t,{menu:'hui-user-drawer-bottom-sheet'});assert.ok(phone.d.querySelector('#hui-user-drawer-bottom-sheet [data-rt-ui="accounts"]'));await open(phone.d);assert.equal(panelRows(phone.d).length,5);
+ const dom=new JSDOM('<shreddit-app user-logged-in="false"></shreddit-app>'+signedOutMenu('user-drawer-content'),{url:'https://www.reddit.com/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());W.__rtAccountSwitcherTest=true;W.eval(read('account-switcher.js'));
+ const out=new W.RTAccountSwitcher.Switcher({send:async m=>m.action==='list'?{ok:true,anonymous:true,accounts:[{owner:'t2_alice',username:'alice',avatar:''}]}:{ok:true}});await out.ready;await flush();
+ const row=W.document.querySelector('[data-rt-ui="accounts"]');assert.equal(row.previousElementSibling.textContent.trim(),'Log In / Sign Up');assert.equal(row.querySelector('.text-caption-1').textContent,'Browsing signed out');
+ row.querySelector('a').click();await flush();assert.deepEqual(panelRows(W.document).slice(1,3),['u/alice|Switch to this account','Browse signed out|Signed out here']);out.destroy();
+ const none=new JSDOM('<shreddit-app user-logged-in="false"></shreddit-app>'+signedOutMenu('user-drawer-content'),{url:'https://www.reddit.com/',runScripts:'outside-only'}).window;t.after(()=>none.close());none.__rtAccountSwitcherTest=true;none.eval(read('account-switcher.js'));
+ const empty=new none.RTAccountSwitcher.Switcher({send:async m=>m.action==='list'?{ok:true,anonymous:false,accounts:[]}:{ok:true}});await empty.ready;await flush();assert.equal(none.document.querySelector('[data-rt-ui="accounts"]'),null,'nothing saved: only Reddit’s Log In');empty.destroy();
+ const failed=await page(t,{list:()=>({ok:false,error:'Worker unavailable'})});assert.equal(entry(failed.d).querySelector('.text-caption-1').textContent,'Worker unavailable');
 });
-
 async function popupPage(t,{accounts=[{owner:'t2_alice',username:'alice',avatar:'',expired:false,current:true},{owner:'t2_bob',username:'bob',avatar:'https://styles.redditmedia.com/b.png',expired:false,current:false},{owner:'t2_carol',username:'carol',avatar:'',expired:true,current:false}],fail=''}={}){
  const dom=new JSDOM(fs.readFileSync('extension/popup.html','utf8'),{url:'https://extension.test/popup.html',runScripts:'outside-only'}),W=dom.window,sent=[];t.after(()=>W.close());
  W.chrome={runtime:{async sendMessage(m){sent.push(JSON.parse(JSON.stringify(m)));if(m.scope!=='rt-accounts')return {ok:true};if(m.action==='list')return fail?{ok:false,error:fail}:{ok:true,accounts};if(m.action==='remove'){accounts=accounts.filter(a=>a.owner!==m.owner);return {ok:true,accounts};}return {ok:true};}}};
@@ -154,6 +208,12 @@ test('the popup Accounts card lists saved accounts with Switch, Sign in again an
  d.querySelector('#account-list > li:nth-child(2) .account-switch').click();await flush();assert.deepEqual(sent.find(m=>m.action==='switch'),{scope:'rt-accounts',action:'switch',owner:'t2_bob'});assert.match(d.querySelector('#accounts-status').textContent,/Reddit tabs reload/);
  d.querySelector('#account-list > li:nth-child(3) .account-switch').click();await flush();assert.equal(sent.at(-1).action,'add');
  d.querySelector('#add-account').click();await flush();assert.equal(sent.at(-1).action,'add');
+});
+test('the popup offers Browse signed out (asks twice) and labels private-window accounts',async t=>{
+ const {d,sent}=await popupPage(t,{accounts:[{owner:'t2_alice',username:'alice',avatar:'',expired:false,current:true},{owner:'t2_carol',username:'carol',avatar:'',expired:false,current:false,private:true}]});
+ assert.match(popupRows(d)[1],/This private window/);const button=d.querySelector('#browse-signed-out');
+ button.click();await flush();assert.equal(sent.some(m=>m.action==='anonymous'),false,'first click only asks');assert.equal(button.textContent,'Sign out here?');
+ button.click();await flush();assert.deepEqual(sent.find(m=>m.action==='anonymous'),{scope:'rt-accounts',action:'anonymous'});
 });
 test('removing needs a second click, and a failed list is reported',async t=>{
  const {d,sent}=await popupPage(t);const remove=d.querySelector('#account-list > li:nth-child(2) .account-remove');assert.equal(remove.getAttribute('aria-label'),'Remove u/bob from this device');

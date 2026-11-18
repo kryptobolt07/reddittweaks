@@ -28,6 +28,7 @@ svg{display:block}
 .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
 /* Home: things to run */
+.account-actions{display:flex;gap:8px}.account-actions .secondary-action{flex:1}.account-actions .secondary-action.confirming{border-color:var(--danger);color:var(--danger)}
 .account-list{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}.account-list:empty{display:none}
 .account-list>li{display:flex;align-items:center;gap:10px;padding:6px 2px;border-top:1px solid var(--line)}
 .account-list>li.account-empty{display:block;color:var(--muted);font-size:11.5px}
