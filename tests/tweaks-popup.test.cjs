@@ -198,3 +198,9 @@ test('a tab taller than the popup fades at the edge that has more, instead of sh
   panel.scrollTop=360;panel.dispatchEvent(new p.w.Event('scroll'));assert.equal(panel.dataset.more,'start');
   assert.match(p.w.document.querySelector('#raffles-home').textContent,/⋯ menu/);
 });
+
+test('on touch screens (phones open the popup as a page) tabs stay pinned and controls are at least 40px; desktop is unchanged',()=>{
+  const css=fs.readFileSync('extension/popup.css','utf8'),touch=css.slice(css.indexOf('@media(hover:none) and (pointer:coarse){'));const block=touch.slice(0,touch.indexOf('\n}')+2);
+  for(const rule of ['.tabs{position:sticky;top:0','.switch{width:52px;height:32px}','.setting-row .setting-choice{min-height:40px','.info-trigger{width:40px;height:40px','.link-action,.chat-link{min-height:40px','.account-switch,.account-remove{min-height:40px}'])assert.ok(block.includes(rule),rule);
+  assert.match(css,/\.account-actions\{display:flex;flex-wrap:wrap;gap:8px\}\.account-actions \.secondary-action\{flex:1 1 auto;width:auto;white-space:nowrap\}/,'account buttons keep one-line labels and wrap as a row');
+});

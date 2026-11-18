@@ -50,3 +50,8 @@ test('opening Removed acknowledges new changes for the verified account, clearin
  b.setMe({owner:'t2_self',username:'Example'});assert.equal((await b.send({action:'summary',tabId:1},b.popup)).value.unread,1,'still unread after the refused attempt');assert.equal((await b.send({action:'list-seen',owner:'t2_self',username:'Example'})).ok,true);assert.equal(b.badges.at(-1).text,'');
  assert.equal((await b.send({action:'summary',tabId:1},b.popup)).value.unread,0);
 });
+test('on phones the popup opens as a tab and is still trusted; a Reddit page claiming to be it is not',async()=>{
+ const b=setup(),t=Date.now()-1000;for(const [state,time] of [['visible',t],['removed-mod',t+1]])await b.send({action:'record',owner:'t2_self',username:'Example',records:[rec(state,time)]});
+ const asTab={...b.popup,tab:{id:9}};assert.equal((await b.send({action:'summary',tabId:1},asTab)).value.unread,1);
+ assert.equal((await b.send({action:'summary',tabId:1},{id:'extension',tab:{id:1},url:'https://www.reddit.com/'})).ok,false);
+});
