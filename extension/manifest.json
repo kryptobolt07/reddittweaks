@@ -86,7 +86,10 @@
       "run_at": "document_start",
       "js": [
         "profile-notice.js",
-        "share-links-settings.js"
+        "share-links-settings.js",
+        "feed-filters.js",
+        "feed-sheet.js",
+        "live-subreddit-filters.js"
       ],
       "css": [
         "post-discovery.css",
@@ -109,9 +112,6 @@
         "archive-query.js",
         "recent-searches.js",
         "community-icons.js",
-        "feed-filters.js",
-        "feed-sheet.js",
-        "live-subreddit-filters.js",
         "removal-model.js",
         "native-removal.js",
         "post-discovery.js",

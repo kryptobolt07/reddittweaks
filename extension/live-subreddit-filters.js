@@ -18,6 +18,8 @@
   const isPhone = () => Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);
   const nativeFeedSort = 'shreddit-sort-dropdown:not([hidden]),shreddit-layout-switcher:not([hidden])';
   const sortReplaced = 'data-rt-community-sort-replaced';
+  const sortBoot = 'data-rt-community-sort-boot';
+  const sortNative = 'data-rt-community-sort-native';
   const feedSortIcons = {best:'best',hot:'hot',new:'new',top:'top',rising:'top',controversial:'sort'};
   const nativeSearchSort = 'search-sort-dropdown-menu:not([hidden]),shreddit-sort-dropdown:not([hidden]),filter-drawer[id*="sort"]:not([hidden]),[data-testid="search-sort"]';
   const nativeSearchTime = 'search-time-dropdown-menu:not([hidden]),shreddit-time-dropdown:not([hidden]),filter-drawer[id*="time"]:not([hidden]),[data-testid="search-time"]';
@@ -151,9 +153,10 @@
   }
 
   class Controller {
-    constructor({navigate: go = navigate, enabled = true} = {}) {
+    constructor({navigate: go = navigate, enabled = true, waitingForSettings = false} = {}) {
       this.navigate = go;
       this.enabled = enabled;
+      this.waitingForSettings = waitingForSettings;
       this.hidden = new Set();
       this.flairs = loadFlairs();
       this.links = new Map();
@@ -165,7 +168,7 @@
       this.onFocus = event => this.prepareInput(event);
       this.onScroll = () => this.resumeWhenScrolled();
       this.observer = new MutationObserver(records => {
-        if (!this.enabled || (!this.scope && !route())) return;
+        if ((!this.enabled && !this.waitingForSettings) || (!this.scope && !route())) return;
         if (records.some(record => {
           if (record.target.closest?.('[data-rt-ui]')) return false;
           return [...record.addedNodes, ...record.removedNodes].some(node =>
@@ -203,7 +206,8 @@
     }
 
     setEnabled(enabled) {
-      if (this.enabled === enabled) return;
+      if (this.enabled === enabled && !this.waitingForSettings) return;
+      this.waitingForSettings = false;
       this.enabled = enabled;
       this.refresh();
     }
@@ -215,6 +219,7 @@
       this.toolbar = this.note = this.feed = this.main = this.scope = null;
       this.clearHidden();
       this.setReplacedSorts([]);
+      this.setNativeSorts([]);
       this.feedSorts = null;
       this.clearPager();
       this.restoreLinks();
@@ -222,13 +227,15 @@
 
     refresh() {
       const url = new URL(location.href);
-      const scope = this.enabled && route(url);
+      const current = route(url);
+      const archive = current && document.querySelector('[data-rt-ui="archive-subreddit"]');
+      document.documentElement?.toggleAttribute(sortBoot,Boolean((this.enabled || this.waitingForSettings) && current?.kind === 'feed' && !archive));
+      const scope = this.enabled && current;
       const main = document.querySelector('main');
       const feed = scope?.kind === 'feed' && main?.querySelector('shreddit-feed');
       const tabs = scope?.kind === 'search' && document.querySelector('#search-results-page-tabgroup');
       const search = scope?.kind === 'search' && (tabs || main?.querySelector('[slot="filters"],search-media-feed,[data-testid="search-sdui-post"],[data-testid="search-error-message"]'));
-      if (!scope || !main || (!feed && !search) || main.closest('[data-rt-ui]') || main.querySelector('[data-rt-ui="archive-subreddit"]') ||
-          document.querySelector('[data-rt-ui="archive-subreddit"]')) {
+      if (!scope || !main || (!feed && !search) || main.closest('[data-rt-ui]') || archive) {
         this.clear();
         return;
       }
@@ -311,6 +318,13 @@
       this.replacedSorts = next;
     }
 
+    setNativeSorts(nodes) {
+      const next = new Set(nodes);
+      for (const node of this.nativeSorts || []) if (!next.has(node)) node.removeAttribute(sortNative);
+      for (const node of next) node.setAttribute(sortNative,'');
+      this.nativeSorts = next;
+    }
+
     readFeedSorts() {
       const dropDowns = [...this.main.querySelectorAll('shreddit-sort-dropdown:not([hidden])')];
       const sort = dropDowns.find(node => node.getAttribute('sort-event') === 'feed-sort-change') ||
@@ -345,6 +359,7 @@
       const range = sorting ? read(time,true) : null;
       this.feedSorts = {sorting,range};
       this.setReplacedSorts([sorting?.node,range?.node].filter(Boolean));
+      this.setNativeSorts([sorting ? null : sort,range ? null : time].filter(Boolean));
     }
 
     chooseFeedSort(choice) {
@@ -1039,6 +1054,7 @@
       if (this.dead) return;
       this.dead = true;
       this.clear();
+      document.documentElement?.removeAttribute(sortBoot);
       this.observer.disconnect();
       window.removeEventListener('popstate',this.onRoute);
       document.removeEventListener('reddit:route',this.onRoute);
@@ -1050,14 +1066,23 @@
 
   globalThis.RTLiveSubredditFilters = Object.freeze({Controller,route,searchUrl,withFlair});
   if (globalThis.chrome?.runtime?.id) {
-    const controller = new Controller({enabled:false});
+    const controller = new Controller({enabled:false,waitingForSettings:true});
     globalThis.RTLiveSubredditFiltersDebug = controller;
     const update = settings => controller.setEnabled(settings?.postDiscovery !== false);
-    chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'}).then(result => {
-      if (result?.ok) update(result.settings);
-    }).catch(() => {});
+    let receivedChange = false;
+    const failed = () => { if (!receivedChange) controller.setEnabled(false); };
+    try {
+      Promise.resolve(globalThis.RTProfileNoticeGuard?.settings || chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(result => {
+        if (receivedChange) return;
+        if (result?.ok) update(result.settings);
+        else failed();
+      },failed);
+    } catch { failed(); }
     chrome.runtime.onMessage.addListener(message => {
-      if (message?.scope === 'rt-posts' && message.action === 'settings-changed') update(message.settings);
+      if (message?.scope === 'rt-posts' && message.action === 'settings-changed') {
+        receivedChange = true;
+        update(message.settings);
+      }
     });
   }
 })();
