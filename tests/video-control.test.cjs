@@ -464,3 +464,77 @@ test('native Play pressed before preview metadata arrives takes control immediat
  assert.equal(p.video.paused,false);
  assert.equal(p.video.muted,false);
 });
+
+// YouTube embeds (lite-youtube in shreddit-embed), driven through page-bridge events.
+const embedKey='rt-embed-continue-v1';
+function embed(p,{state='playing',time=12.5,muted=false}={}){
+ const node=p.d.createElement('shreddit-embed');node.setAttribute('providername','YouTube');
+ const lite=node.attachShadow({mode:'open'}).appendChild(p.d.createElement('lite-youtube'));
+ p.player.closest('shreddit-post').append(node);
+ const calls=[];
+ for(const type of ['rt-embed-preview','rt-embed-stop','rt-embed-sound','rt-embed-continue'])node.addEventListener(type,event=>{calls.push(type);event.preventDefault();});
+ node.addEventListener('rt-embed-snapshot',()=>{Object.assign(node.dataset,{rtEmbedState:state,rtEmbedTime:String(time),rtEmbedMuted:String(muted)});});
+ const over=(type='pointerover',target=lite,related=null)=>{const event=new p.W.MouseEvent(type,{bubbles:true,composed:true,relatedTarget:related});Object.defineProperty(event,'pointerType',{value:'mouse'});target.dispatchEvent(event);};
+ return {node,lite,calls,over,layer:()=>lite.querySelector('[data-rt-embed-layer]')};
+}
+test('hovering a feed YouTube embed previews it muted, the title keeps it, and leaving the card stops it after 250 ms',async t=>{
+ const p=page(t);const e=embed(p);await hoverController(p);
+ e.over();await waitForHover();
+ assert.deepEqual(e.calls,['rt-embed-preview']);assert.ok(e.layer(),'a layer takes clicks while it previews');
+ e.over('pointerout',e.lite,p.title);e.over('pointerover',p.title,e.node);
+ await new Promise(resolve=>setTimeout(resolve,300));assert.deepEqual(e.calls,['rt-embed-preview']);
+ e.over('pointerout',p.title,p.d.body);await new Promise(resolve=>setTimeout(resolve,260));
+ assert.deepEqual(e.calls,['rt-embed-preview','rt-embed-stop']);assert.equal(e.layer(),null);
+});
+test('clicking a YouTube preview opens its post and continues there at the same second with sound',async t=>{
+ const p=page(t);const e=embed(p,{muted:true});await hoverController(p);
+ let opened=0;p.title.addEventListener('click',()=>opened++);
+ e.over();await waitForHover();
+ e.layer().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+ assert.equal(opened,1);
+ const saved=JSON.parse(p.W.sessionStorage.getItem(embedKey));
+ assert.equal(saved.id,'test');assert.equal(saved.time,12.5);assert.equal(saved.muted,false,'Sound when opening a preview');
+ assert.deepEqual(e.calls,['rt-embed-preview','rt-embed-stop']);assert.equal(e.layer(),null);
+});
+test('the sound button unmutes a YouTube preview in place, and Play here does the same for a click',async t=>{
+ for(const settings of [{},{videoPreviewClickPlays:true}]){
+  const p=page(t);const e=embed(p);await hoverController(p,settings);
+  let opened=0;p.title.addEventListener('click',()=>opened++);
+  e.over();await waitForHover();
+  const target=settings.videoPreviewClickPlays?e.layer():e.layer().querySelector('button');
+  target.dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+  assert.equal(opened,0);assert.deepEqual(e.calls,['rt-embed-preview','rt-embed-sound']);assert.equal(e.layer(),null);
+  e.over('pointerout',e.lite,p.d.body);await new Promise(resolve=>setTimeout(resolve,260));
+  assert.deepEqual(e.calls,['rt-embed-preview','rt-embed-sound'],'it is the user’s now');
+ }
+});
+test('a YouTube video the user plays continues into its post; a paused one does not',async t=>{
+ const p=page(t);const e=embed(p,{muted:false,time:40});await hoverController(p);
+ p.click(p.title);
+ assert.deepEqual(JSON.parse(p.W.sessionStorage.getItem(embedKey)),{...JSON.parse(p.W.sessionStorage.getItem(embedKey)),id:'test',time:40,muted:false});
+ const q=page(t);embed(q,{state:'paused'});await hoverController(q);
+ q.click(q.title);assert.equal(q.W.sessionStorage.getItem(embedKey),null);
+});
+test('the post page starts its YouTube embed at the saved second once it appears',async t=>{
+ const p=page(t,{detail:true});
+ p.W.sessionStorage.setItem(embedKey,JSON.stringify({id:'test',owner:'t2_alice',at:Date.now(),time:33.4,muted:false}));
+ const controller=await hoverController(p);
+ // Reddit keeps the outgoing feed, with this post's own card and embed, in the page.
+ const feed=p.d.createElement('shreddit-feed'),cached=p.d.createElement('shreddit-post');cached.id='t3_test';feed.append(cached);p.d.body.prepend(feed);
+ const stale=p.d.createElement('shreddit-embed');stale.setAttribute('providername','YouTube');cached.append(stale);
+ let wrong=0;stale.addEventListener('rt-embed-continue',()=>wrong++);
+ const e=embed(p);controller.scan();
+ assert.equal(wrong,0,'the cached feed copy is left alone');
+ assert.deepEqual(e.calls,['rt-embed-continue']);assert.equal(e.node.dataset.rtStart,'33.4');assert.equal(e.node.dataset.rtMuted,'false');
+ assert.equal(p.W.sessionStorage.getItem(embedKey),null);
+ const q=page(t,{detail:true});
+ q.W.sessionStorage.setItem(embedKey,JSON.stringify({id:'test',owner:'t2_bob',at:Date.now(),time:3,muted:false}));
+ const c2=await hoverController(q);const e2=embed(q);c2.scan();
+ assert.deepEqual(e2.calls,[],'another account’s handoff is dropped');
+});
+test('on phones a YouTube embed in view previews once scrolling stops',async t=>{
+ const p=page(t);phone(p,true,-900);const e=embed(p);
+ e.node.getBoundingClientRect=()=>({top:200,bottom:500,height:300,left:0,width:390});
+ await hoverController(p,{videoPreviewsInView:true});scroll(p);await settle();
+ assert.deepEqual(e.calls,['rt-embed-preview']);
+});
