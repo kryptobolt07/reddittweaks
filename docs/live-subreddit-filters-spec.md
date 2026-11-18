@@ -54,3 +54,7 @@ On live Brave, opening **Circus champion tricks** from the Videos feed changed t
 | T10, T16: redirect, user interaction or opt-out | Release the hold. A different feed entry, a new-tab click or a reader taking over scrolling does not inherit the saved position. |
 
 The same-document return state is scoped to the browser history entry. On the same live Videos feed in Brave, a later paginated video opened with the outgoing feed hidden and its filter marks intact. After Back, a probe shifted the scroll by 180 px during restoration. The card returned to its original 109 px viewport offset before the feed was shown. Fresh documents still use Reddit's native scroll restoration.
+
+On the filtered subreddit in Brave, Reddit's Card and Compact destinations already included the Videos filter. The shared chip wrapper used its default full-width sizing inside Reddit's compact toolbar, so the chip container received pointer input at the center of the native View button. Use the existing inline chip rail sizing when the community toolbar sits in Reddit's feed rail. The native trigger must receive pointer input with filters active, and the Card and Compact links must retain the filter.
+
+With the inline rail sizing applied in Brave, the same pointer coordinates opened Reddit's View menu. Both links retained Videos and loaded cards with their requested `cardView` and `compactView` layouts.

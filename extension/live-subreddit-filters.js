@@ -426,6 +426,7 @@
       const rail = sort?.closest('div.flex.items-center');
       const bar = this.toolbar;
       bar?.classList.toggle('rt-community-in-feed-rail',Boolean(rail));
+      this.chips.toggleAttribute('data-rt-rail',Boolean(rail));
       if (rail) {
         if (bar.parentElement !== rail) rail.append(bar);
       } else if (this.feed && bar.parentElement !== this.feed.parentElement) {
