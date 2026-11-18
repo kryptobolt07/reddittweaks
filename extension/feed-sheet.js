@@ -26,15 +26,35 @@
   const pages=[{title,build}];
   const state={root,body,closeFn:null,returnFocus,onClose,pages,leaving:[]};
   const ui={
-   // A list row: real link when href is given (Reddit's own navigation), else a button.
-   row({label,subtitle='',icon=null,selected=false,chevron=false,href='',onSelect=null,keepOpen=false,role=''}){
+   // A list row: real link when href is given (Reddit's own navigation), else a button. Optional: an avatar (URL or
+   // node) in the lead, a trailing action button (for example sign out), ask-twice (confirm), and an async onSelect
+   // whose {ok:false,error} result stays on screen.
+   row({label,subtitle='',icon=null,avatar=null,selected=false,chevron=false,href='',onSelect=null,keepOpen=false,role='',confirm=false,busy='',action=null}){
     const el=make(href?'a':'button','rt-fsheet-row');if(href)el.href=href;else el.type='button';if(role)el.setAttribute('role',role);
     if(selected)el.setAttribute('aria-current','true');
-    const lead=make('span','rt-fsheet-lead');if(icon)lead.append(icon);el.append(lead);
-    const copy=make('span','rt-fsheet-copy');copy.append(make('span','rt-fsheet-label',label));if(subtitle)copy.append(make('span','rt-fsheet-sub',subtitle));el.append(copy);
+    const lead=make('span','rt-fsheet-lead');
+    if(avatar){lead.classList.add('rt-fsheet-avatar');if(typeof avatar==='string'){const img=make('img');img.src=avatar;img.alt='';img.referrerPolicy='no-referrer';img.loading='lazy';lead.append(img);}else lead.append(avatar);}
+    else if(icon)lead.append(icon);
+    el.append(lead);
+    const copy=make('span','rt-fsheet-copy'),sub=make('span','rt-fsheet-sub',subtitle);copy.append(make('span','rt-fsheet-label',label),sub);sub.hidden=!subtitle;el.append(copy);
     const tail=make('span','rt-fsheet-tail');if(selected)tail.append(glyph('check'));else if(chevron)tail.append(glyph('next'));el.append(tail);
-    el.addEventListener('click',event=>{if(!onSelect){if(href)close();return;}event.preventDefault();onSelect(event);if(!keepOpen)close();else ui.refresh();});
-    body.append(el);return el;
+    const say=text=>{sub.textContent=text;sub.hidden=!text;};
+    const run=async(handler,{ask,working,stay})=>{
+     if(el.getAttribute('aria-busy')==='true')return;
+     if(ask && !el.dataset.armed){el.dataset.armed='true';say('Tap again to continue');clearTimeout(el.rtDisarm);el.rtDisarm=setTimeout(()=>{delete el.dataset.armed;say(subtitle);},4000);return;}
+     clearTimeout(el.rtDisarm);delete el.dataset.armed;
+     const result=handler();
+     if(!result || typeof result.then!=='function'){if(!stay)close();else ui.refresh();return;}
+     el.setAttribute('aria-busy','true');if(working)say(working);
+     const value=await result.catch(error=>({ok:false,error:error?.message}));el.removeAttribute('aria-busy');
+     if(value?.ok===false){say(value.error || 'Something went wrong. Try again.');return;}
+     if(!stay && !value?.stay)close();else ui.refresh();
+    };
+    el.addEventListener('click',event=>{if(!onSelect){if(href)close();return;}event.preventDefault();run(()=>onSelect(event),{ask:confirm,working:busy,stay:keepOpen});});
+    if(!action){body.append(el);return el;}
+    const item=make('div','rt-fsheet-item'),button=make('button','rt-fsheet-action');button.type='button';button.setAttribute('aria-label',action.label);button.title=action.label;if(action.icon)button.append(action.icon);
+    button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();run(()=>action.onSelect(event),{ask:action.confirm,working:action.busy,stay:false});});
+    item.append(el,button);body.append(item);return el;
    },
    // A titled group of toggle chips.
    chips(title,items){

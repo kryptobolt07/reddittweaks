@@ -2,7 +2,7 @@
    (#user-drawer-content) and the phone bottom sheet (#hui-user-drawer-bottom-sheet) share one structure: ul sections
    whose first row is View Profile (faceplate-tracker > li > a[href="/user/<you>/"]), measured live 2026-11-17; signed
    out, the first row is Log In. One "Switch accounts" row goes right after that first row, built by cloning it.
-   Selecting it shows, in the same menu, a panel: Back, saved accounts, Browse signed out and Add account.
+   Selecting it shows, in the same menu, a panel: Back, saved accounts, Anonymous browsing and Add account (phones: an Accounts sheet instead).
    Session cookies stay in the worker; this script only sees names, avatars and states. */
 (() => {
  'use strict';
@@ -16,7 +16,14 @@
   back:'M12.6 3.6 6.2 10l6.4 6.4 1.3-1.3L8.8 10l5.1-5.1-1.3-1.3Z',
   signedOut:'M2.3 1.1 1.1 2.3l3.1 3.1C2.8 6.5 1.7 8.1 1 10c1.4 3.8 5 6.5 9 6.5 1.6 0 3.1-.4 4.4-1.1l3.3 3.3 1.2-1.2L2.3 1.1ZM10 14.7c-3 0-5.8-1.9-7.1-4.7.6-1.3 1.5-2.4 2.6-3.2l1.7 1.7a3 3 0 0 0 3.9 3.9l1.6 1.6c-.9.5-1.8.7-2.7.7Zm0-11.2c-1.2 0-2.3.2-3.3.6l1.4 1.4c.6-.2 1.2-.2 1.9-.2 3 0 5.8 1.9 7.1 4.7-.4.9-1 1.7-1.6 2.4l1.3 1.3c.9-1 1.7-2.3 2.2-3.7-1.4-3.8-5-6.5-9-6.5Z'
  };
- const icon=(name,size=20)=>{const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','currentColor');s.setAttribute('aria-hidden','true');s.dataset.rtIcon=name;const p=document.createElementNS(SVG,'path');p.setAttribute('d',ICONS[name]);s.append(p);return s;};
+ // Reddit's Log Out icon (icon-name="logout", captured from its account menu 2026-11-18).
+ ICONS.logout='M13.701 1H6.298a3.299 3.299 0 00-3.299 3.299v8.402A3.299 3.299 0 006.298 16h.701v.858a2.26 2.26 0 002.255 2.259c.293 0 .594-.058.889-.184l5.487-2.347a2.257 2.257 0 001.369-2.075V4.299A3.298 3.298 0 0013.701 1ZM7 6.767V14.2h-.701A1.5 1.5 0 014.8 12.701V4.299A1.5 1.5 0 016.299 2.8h6.494L8.37 4.692A2.257 2.257 0 007 6.767Zm8.2 7.744a.457.457 0 01-.277.42l-5.487 2.347a.461.461 0 01-.181.039.46.46 0 01-.455-.459V6.767c0-.183.109-.348.277-.42L14.564 4a.461.461 0 01.181-.039.46.46 0 01.455.459v10.091ZM10.3 9.7h1.8v2.585h-1.8V9.7Z';
+ // Switch accounts: a portrait card with a second card stacked behind it (Reddit's web has no such icon; drawn in its
+ // 20 px outline style). Strokes, not fills.
+ const STROKES={switchAccount:['M2.8 13.2V4.6c0-1 .8-1.8 1.8-1.8h8.6','M7.6 5.8h7.8c1 0 1.8.8 1.8 1.8v7.8c0 1-.8 1.8-1.8 1.8H7.6c-1 0-1.8-.8-1.8-1.8V7.6c0-1 .8-1.8 1.8-1.8Z','M11.5 8.3a1.9 1.9 0 1 1 0 3.8 1.9 1.9 0 0 1 0-3.8Z','M8.4 17.1c.5-1.8 1.6-2.8 3.1-2.8s2.6 1 3.1 2.8']};
+
+ const icon=(name,size=20)=>{if(STROKES[name]){const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','none');s.setAttribute('stroke','currentColor');s.setAttribute('stroke-width','1.7');s.setAttribute('stroke-linecap','round');s.setAttribute('stroke-linejoin','round');s.setAttribute('aria-hidden','true');s.dataset.rtIcon=name;for(const d of STROKES[name]){const p=document.createElementNS(SVG,'path');p.setAttribute('d',d);s.append(p);}return s;}
+  const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','currentColor');s.setAttribute('aria-hidden','true');s.dataset.rtIcon=name;const p=document.createElementNS(SVG,'path');p.setAttribute('d',ICONS[name]);s.append(p);return s;};
  const send=message=>new Promise(resolve=>{try{chrome.runtime.sendMessage({scope:'rt-accounts',...message},response=>{void chrome.runtime.lastError;resolve(response || {ok:false,error:'Accounts are unavailable. Reload this tab.'});});}catch{resolve({ok:false,error:'Accounts are unavailable. Reload this tab.'});}});
  // Reddit's logged-in account ID; '' when signed out; null before Reddit's app element exists.
  const signedIn=()=>{const app=document.querySelector('shreddit-app');if(!app)return null;const owner=(app.getAttribute('logged-in-user-id') || '').toLowerCase();return app.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(owner)?owner:'';};
@@ -82,7 +89,7 @@
   // The single entry row in Reddit's menu.
   render(menu,anchor,row,owner){
    const me=this.context(row,owner);
-   const entry=this.row(row,{label:'Switch accounts',caption:'',lead:'swap',tail:'next',run:async()=>{this.openPanel(menu);return {ok:true,stay:true};}});
+   const entry=this.row(row,{label:'Switch accounts',caption:'',lead:'switchAccount',tail:'next',run:async()=>{if(this.phone() && globalThis.RTFeedSheet)await this.openSheet(menu,entry);else this.openPanel(menu);return {ok:true,stay:true};}});
    entry.dataset.rtUi='accounts';entry.dataset.owner=owner;entry.querySelector(':scope > a')?.setAttribute('aria-haspopup','menu');
    const wrap=anchor.matches('faceplate-tracker')?(()=>{const w=document.createElement('div');w.className='contents';w.setAttribute('role','presentation');return w;})():null;
    if(wrap){wrap.dataset.rtUi='accounts';wrap.dataset.owner=owner;delete entry.dataset.rtUi;wrap.append(entry);anchor.after(wrap);}else anchor.after(entry);
@@ -91,7 +98,7 @@
     if(!entry.isConnected || this.dead)return;const caption=entry.querySelector('.text-caption-1');
     if(!result?.ok){if(caption){caption.textContent=result?.error || 'Reload this tab to retry.';caption.hidden=false;}return;}
     const others=result.accounts.filter(a=>a.owner!==owner).length;
-    if(caption){caption.textContent=result.anonymous?'Browsing signed out':others?others+(others===1?' other account':' other accounts'):'Add another account';caption.hidden=false;}
+    if(caption){caption.textContent=result.anonymous?'Browsing anonymously':others?others+(others===1?' other account':' other accounts'):'Add another account';caption.hidden=false;}
    });
   }
   // The panel replaces the menu's sections in place; Reddit's nodes are hidden, never removed.
@@ -115,12 +122,31 @@
       confirm:account.expired && !current,run:current?null:account.expired?()=>this.add(me):()=>this.switchTo(account.owner,me.owner)}));
     }
     rows.push(rule());
-    rows.push(this.row(state.source,{label:'Browse signed out',caption:result?.anonymous?'Signed out here':'Use Reddit without an account',lead:'signedOut',check:result?.anonymous===true,confirm:true,run:result?.anonymous?null:()=>this.anonymousMode(me)}));
+    rows.push(this.row(state.source,{label:'Anonymous browsing',caption:result?.anonymous?'Signed out here':'Use Reddit without an account',lead:'signedOut',check:result?.anonymous===true,confirm:true,run:result?.anonymous?null:()=>this.anonymousMode(me)}));
     rows.push(this.row(state.source,{label:'Add account',caption:'Sign in to another account',lead:'add',confirm:true,run:()=>this.add(me)}));
     panel.append(...rows);
     panel.querySelector('[data-owner] a[tabindex="0"],[data-rt-ui="account-row"] a[tabindex="0"]')?.focus?.({preventScroll:true});
    });
    back.querySelector(':scope > a')?.focus?.({preventScroll:true});
+  }
+  phone(){return Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);}
+  // Phones: an Accounts sheet shaped like Reddit's app (accounts, Anonymous browsing, Add account) over Reddit's own
+  // menu sheet, instead of swapping that sheet's content in place.
+  async openSheet(menu,entry){
+   const state=this.panels.get(menu);if(!state?.source)return;const me=state.me,result=await this.load(menu,me);if(this.dead)return;
+   const ownAvatar=()=>{const node=state.source.querySelector('[avatar]');return node?node.cloneNode(true):null;};
+   const circle=(name,plain=false)=>{const wrap=document.createElement('span');wrap.className='rt-account-glyph'+(plain?' rt-plain':'');wrap.append(icon(name));return wrap;};
+   globalThis.RTFeedSheet.open({title:'Accounts',returnFocus:entry.querySelector(':scope > a') || entry,build:(body,ui)=>{
+    if(!result?.ok){ui.row({label:'Accounts unavailable',subtitle:result?.error || 'Reload this tab to retry.'});return;}
+    for(const account of result.accounts){
+     const current=!result.anonymous && account.owner===me.owner;
+     ui.row({label:'u/'+account.username,subtitle:account.expired?'Sign in again':account.private?'This private window':'',avatar:current && me.owner?(account.avatar || ownAvatar() || circle('switchAccount')):(account.avatar || circle('switchAccount')),selected:current,
+      confirm:account.expired && !current,busy:account.expired?'Opening Reddit sign-in…':'Switching…',onSelect:current?()=>({ok:true,stay:true}):account.expired?()=>this.add(me):()=>this.switchTo(account.owner,me.owner),keepOpen:current,
+      action:current?{icon:icon('logout'),label:'Sign out of u/'+account.username+' here',confirm:true,busy:'Signing out here…',onSelect:()=>this.anonymousMode(me)}:null});
+    }
+    ui.row({label:'Anonymous browsing',subtitle:result.anonymous?'Signed out here':'',avatar:circle('signedOut'),selected:result.anonymous===true,confirm:!result.anonymous,busy:'Signing out here…',keepOpen:result.anonymous===true,onSelect:result.anonymous?()=>({ok:true,stay:true}):()=>this.anonymousMode(me)});
+    ui.row({label:'Add account',avatar:circle('add',true),confirm:true,busy:'Opening Reddit sign-in…',onSelect:()=>this.add(me)});
+   }});
   }
   closePanel(menu,focus=false){
    const state=this.panels.get(menu);if(!state?.open)return;
@@ -155,7 +181,7 @@
     if(event.type==='keydown' && !['Enter',' '].includes(event.key))return;if(!event.isTrusted && !globalThis.__rtAccountSwitcherTest)return;
     // Keep Reddit's menu (and its phone sheet) from treating our row as one of its own items and closing.
     event.preventDefault();event.stopPropagation();event.stopImmediatePropagation?.();if(!run || li.dataset.busy)return;
-    // Signing out here (Add account, Browse signed out) asks once more; the current account is saved first.
+    // Signing out here (Add account, Anonymous browsing) asks once more; the current account is saved first.
     if(confirm && !li.dataset.armed){li.dataset.armed='true';texts[1].hidden=false;texts[1].textContent='Select again to continue';clearTimeout(li.rtDisarm);li.rtDisarm=setTimeout(()=>{delete li.dataset.armed;if(!li.dataset.busy){texts[1].textContent=caption;texts[1].hidden=!caption;}},4000);return;}
     clearTimeout(li.rtDisarm);delete li.dataset.armed;li.dataset.busy='true';
     const working=lead==='add'?'Opening Reddit sign-in…':lead==='signedOut'?'Signing out here…':lead?'':'Switching…';if(working){texts[1].hidden=false;texts[1].textContent=working;}
