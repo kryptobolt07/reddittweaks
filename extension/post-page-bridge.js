@@ -127,6 +127,13 @@
     moveIntoSlot(player,rect,controller);
     event.preventDefault();
   });
+  // Our plays go through Reddit's player, which keeps its controls, poster and session in step with the video.
+  document.addEventListener('rt-play-video',event=>{
+    const player=event.target;
+    if(!player.matches?.(videoPlayers) || typeof player.play!=='function' || !player.mediaActionsController)return;
+    event.preventDefault();
+    Promise.resolve(player.play()).catch(()=>{});
+  });
   // Sound for a preview that plays for real goes through Reddit's own volume state, which every player follows.
   document.addEventListener('rt-video-sound',event=>{
     const player=event.target,video=player.shadowRoot?.querySelector?.('video'),volume=player.volumeController;

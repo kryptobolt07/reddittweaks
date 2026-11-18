@@ -21,6 +21,7 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 - Reddit re-applies its saved volume when a video starts, so a preview could start with sound once the saved state was unmuted.
 - Reddit's autoplay observer pauses a player (`pause('scroll')`) while less than its threshold is visible unless the reparent window (`beginDomReparent`) is open; a moving picture that is partly off screen tripped it.
 - Reddit's main thread is busy for 0.1–1 s while it renders the post; a frame-driven move got about four frames.
+- Reddit's controls (play icon, poster) follow its own `play()`; a preview started with `<video>.play()` left the opened post showing Reddit's play icon over the playing video. Our plays now go through Reddit's player.
 - On a post page (Reddit autoplay off), our scroll-away rule paused the post's video at 42 % visible and nothing resumed it.
 
 ## Behaviour (expected, desktop and phone)

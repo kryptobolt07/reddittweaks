@@ -263,6 +263,12 @@ test('with reduced motion the video takes the slot without moving',async t=>{
  assert.equal(p.player.getAttribute('player-type'),'post_detail_screen');assert.equal(f.animations.length,0);
  assert.equal(p.player.hasAttribute('data-rt-video-flying'),false);
 });
+test('previews start through Reddit’s own player so its controls show them playing',async t=>{
+ const p=page(t);nativeMove(p);await hoverController(p);
+ let plays=0;p.player.mediaActionsController={};p.player.play=function(){plays++;p.video._playing=true;p.video.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ pointer(p);await waitForHover();
+ assert.equal(plays,1);assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
+});
 test('sound for a preview goes through Reddit’s own volume state',async t=>{
  const p=page(t);nativeMove(p);await hoverController(p,{videoPreviewClickPlays:true});
  const set=[];p.player.volumeController={setVolume(position){set.push(position);}};
