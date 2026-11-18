@@ -10,6 +10,7 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 ## Behaviour
 
 - **Respect Reddit's “Autoplay media” setting** (`videoRespectAutoplay`, default on): the preference is read once per browser session per signed-in account (session storage, bound to the account ID; re-read after 1 hour or after visiting Reddit's settings). When autoplay is off, a video that starts playing without a tap, click or key on that same player within the last 1.5 s is paused at once. Playing after your own tap is never touched. Signed out or unknown preference: nothing is blocked.
+- **Silent previews** (`videoPreviews`, default on, sub-option of the above): instead of pausing Reddit's autoplay, the video plays muted, looping its first 10 s, labelled "Preview"; scrolling away pauses it and resets it to where it started, so it never advances. Your tap ends the preview: back to the start, Reddit's sound setting restored, playing.
 - **Pause videos that scroll away** (`videoPauseOffscreen`, default on): a playing video pauses as soon as less than half of it is on screen. It does not resume by itself.
 - Both apply to `shreddit-player` and `shreddit-player-2` anywhere on Reddit (feeds, posts, search), on phones and desktop.
 
