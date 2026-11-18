@@ -42,3 +42,8 @@ test('a lent node (the community picker) goes back home when its page closes',as
 test('the sheet resets page margins so it sits flush on the bottom edge (Reddit gives section a 16px bottom margin)',()=>{
  assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/\.rt-fsheet\{position:relative;box-sizing:border-box;width:100%;margin:0;/);
 });
+test('New uses Reddit’s own icon (icon-name="new", a filled clock with an up arrow), not a stroked sparkle',()=>{
+ const dom=new JSDOM('<body></body>',{runScripts:'outside-only'}),W=dom.window;W.eval(fs.readFileSync('extension/feed-filters.js','utf8'));
+ const svg=W.RTFeedFilters.svgIcon('new',16);assert.equal(svg.getAttribute('fill'),'currentColor');assert.equal(svg.hasAttribute('stroke'),false);
+ assert.match(svg.querySelector('path').getAttribute('d'),/^M10 10\.9H4\.678V9\.1H9\.1V4\.678/);W.close();
+});

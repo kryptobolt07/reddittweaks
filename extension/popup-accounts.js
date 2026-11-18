@@ -11,7 +11,7 @@
  async function refresh(){
   const result=await send({action:'list'});
   if(!result?.ok){list.replaceChildren();say(result?.error || 'Accounts are unavailable.',true);return;}
-  signedOut=result.anonymous===true;if(anonymous){anonymous.textContent=signedOut?'Browsing signed out':'Browse signed out';anonymous.disabled=signedOut;anonymous.setAttribute('aria-pressed',String(signedOut));}
+  signedOut=result.anonymous===true;if(anonymous){anonymous.textContent=signedOut?'Browsing anonymously':'Anonymous browsing';anonymous.disabled=signedOut;anonymous.setAttribute('aria-pressed',String(signedOut));}
   if(!result.accounts.length){list.replaceChildren(make('li','account-empty','No saved accounts yet. Accounts you’re signed in to on Reddit are saved automatically, or use Add account.'));return;}
   list.replaceChildren(...result.accounts.map(row));
  }
@@ -40,13 +40,13 @@
   return li;
  }
  add.addEventListener('click',addAccount);
- // Browse signed out signs Reddit out in this window (accounts stay saved), so it asks once more.
+ // Anonymous browsing signs Reddit out in this window (accounts stay saved), so it asks once more.
  let armed=0;
  anonymous?.addEventListener('click',async()=>{
   if(signedOut)return;
-  if(!anonymous.classList.contains('confirming')){anonymous.classList.add('confirming');anonymous.textContent='Sign out here?';clearTimeout(armed);armed=setTimeout(()=>{anonymous.classList.remove('confirming');anonymous.textContent='Browse signed out';},4000);return;}
+  if(!anonymous.classList.contains('confirming')){anonymous.classList.add('confirming');anonymous.textContent='Sign out here?';clearTimeout(armed);armed=setTimeout(()=>{anonymous.classList.remove('confirming');anonymous.textContent='Anonymous browsing';},4000);return;}
   clearTimeout(armed);anonymous.classList.remove('confirming');busy(true);say('Signing Reddit out here…');const r=await send({action:'anonymous'});busy(false);
-  if(r?.ok){say('Browsing Reddit signed out. Your accounts stay saved; switch back any time.');refresh();}else{anonymous.textContent='Browse signed out';say(r?.error || 'Could not sign out here.',true);}
+  if(r?.ok){say('Browsing Reddit signed out. Your accounts stay saved; switch back any time.');refresh();}else{anonymous.textContent='Anonymous browsing';say(r?.error || 'Could not sign out here.',true);}
  });
  refresh();
 })();

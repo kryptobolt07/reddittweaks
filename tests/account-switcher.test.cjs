@@ -137,17 +137,28 @@ test('one Switch accounts row sits right after View Profile, built from Reddit�
  const {d,sent}=await page(t);assert.deepEqual(sent[0],{action:'remember',owner:'t2_alice'});
  const wrap=d.querySelector('[data-rt-ui="accounts"]');assert.equal(wrap.previousElementSibling,d.querySelector('faceplate-tracker'),'directly after View Profile');
  assert.equal(entry(d).querySelector('.text-body-2').textContent,'Switch accounts');assert.equal(entry(d).querySelector('.text-caption-1').textContent,'1 other account');assert.equal(entry(d).querySelector('.text-caption-1').hidden,false,'the caption shows');
- assert.ok(entry(d).querySelector('[data-rt-icon="swap"]') && entry(d).querySelector('[data-rt-icon="next"]'));assert.equal(entry(d).getAttribute('aria-haspopup'),'menu');
+ assert.ok(entry(d).querySelector('[data-rt-icon="switchAccount"]') && entry(d).querySelector('[data-rt-icon="next"]'));assert.equal(entry(d).getAttribute('aria-haspopup'),'menu');
  assert.match(entry(d).className,/hover:bg-neutral-background-hover/,'Reddit’s own row classes');assert.equal(d.querySelectorAll('[data-owner="t2_bob"]').length,0,'accounts stay in the submenu');
 });
 test('the submenu replaces Reddit’s sections in place: current account checked, others, Browse signed out, Add account',async t=>{
  const {d}=await page(t);await open(d);const menu=d.querySelector('#user-drawer-content');
  assert.equal([...menu.children].filter(c=>c.dataset.rtUi!=='accounts-panel').every(c=>c.style.display==='none'),true,'Reddit’s sections are hidden, not removed');
- assert.deepEqual(panelRows(d),['Switch accounts|','u/alice|Signed in','u/bob|Switch to this account','Browse signed out|Use Reddit without an account','Add account|Sign in to another account']);
+ assert.deepEqual(panelRows(d),['Switch accounts|','u/alice|Signed in','u/bob|Switch to this account','Anonymous browsing|Use Reddit without an account','Add account|Sign in to another account']);
  assert.ok(d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_alice"] [data-rt-icon="checkmark"]'));assert.equal(d.querySelector('[data-owner="t2_bob"] img').src,'https://styles.redditmedia.com/b.png');
  d.querySelector('[data-rt-ui="account-back"] a').click();await flush();assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null);assert.equal([...menu.children].some(c=>c.style.display==='none'),false,'Back restores Reddit’s menu');
  await open(d);d.dispatchEvent(new d.defaultView.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await flush();assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null,'Escape goes back first');
  await open(d);d.body.insertAdjacentHTML('beforeend','<button id="expand-user-drawer-button"></button>');d.querySelector('#expand-user-drawer-button').dispatchEvent(new d.defaultView.Event('pointerdown',{bubbles:true}));assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null,'reopening Reddit’s menu starts from its own view');
+});
+test('on phones Switch accounts opens an Accounts sheet: accounts (current checked, sign out here), Anonymous browsing, Add account',async t=>{
+ const {W,d,sent}=await page(t,{menu:'hui-user-drawer-bottom-sheet'});W.eval(read('feed-sheet.js'));W.matchMedia=q=>({matches:/max-width/.test(q),addEventListener(){},removeEventListener(){}});
+ await open(d);await flush();const sheet=d.querySelector('[data-rt-ui="feed-sheet"]');assert.ok(sheet,'the Accounts sheet opens');assert.equal(d.querySelector('[data-rt-ui="accounts-panel"]'),null,'Reddit’s sheet content is left alone');
+ assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Accounts');
+ assert.deepEqual([...sheet.querySelectorAll('.rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent+(r.hasAttribute('aria-current')?'✓':'')),['u/alice✓','u/bob','Anonymous browsing','Add account']);
+ assert.equal(sheet.querySelector('.rt-fsheet-row[aria-current] img,.rt-fsheet-row[aria-current] [avatar]')!==null,true,'the current account keeps Reddit’s own avatar');assert.equal(sheet.querySelectorAll('.rt-fsheet-row')[1].querySelector('img').src,'https://styles.redditmedia.com/b.png');
+ const out=sheet.querySelector('.rt-fsheet-action');assert.equal(out.getAttribute('aria-label'),'Sign out of u/alice here');assert.ok(out.querySelector('[data-rt-icon="logout"]'),'Reddit’s Log Out door');
+ out.click();await flush();assert.equal(sent.some(m=>m.action==='anonymous'),false,'signing out asks once more');out.click();await flush();assert.deepEqual(sent.find(m=>m.action==='anonymous'),{action:'anonymous',from:'t2_alice',username:'alice',avatar:''});
+ await open(d);await flush();const bob=[...d.querySelectorAll('.rt-fsheet-row')].find(r=>r.textContent.includes('u/bob'));bob.click();await flush();assert.deepEqual(sent.at(-1),{action:'switch',owner:'t2_bob',from:'t2_alice'});
+ await open(d);await flush();const add=[...d.querySelectorAll('.rt-fsheet-row')].find(r=>r.textContent.includes('Add account'));add.click();await flush();assert.match(add.textContent,/Tap again/);add.click();await flush();assert.equal(sent.at(-1).action,'add');
 });
 test('switching sends the current account; Browse signed out, Add account and expired accounts ask twice',async t=>{
  const {d,sent}=await page(t,{accounts:[{owner:'t2_alice',username:'alice',avatar:''},{owner:'t2_bob',username:'bob',avatar:''},{owner:'t2_carol',username:'carol',avatar:'',expired:true}]});await open(d);
@@ -155,7 +166,7 @@ test('switching sends the current account; Browse signed out, Add account and ex
  const count=action=>sent.filter(m=>m.action===action).length,rowNamed=label=>[...d.querySelectorAll('[data-rt-ui="accounts-panel"] [data-rt-ui="account-row"]')].find(li=>li.querySelector('.text-body-2').textContent===label).querySelector('a');
  const carol=d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_carol"] a'),press=el=>el.dispatchEvent(new d.defaultView.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
  press(carol);await flush();assert.equal(count('add'),0);assert.match(carol.querySelector('.text-caption-1').textContent,/again/);press(carol);await flush();assert.equal(count('add'),1);
- rowNamed('Browse signed out').click();await flush();assert.equal(count('anonymous'),0,'first press only asks');rowNamed('Browse signed out').click();await flush();assert.deepEqual(sent.at(-1),{action:'anonymous',from:'t2_alice',username:'alice',avatar:''});
+ rowNamed('Anonymous browsing').click();await flush();assert.equal(count('anonymous'),0,'first press only asks');rowNamed('Anonymous browsing').click();await flush();assert.deepEqual(sent.at(-1),{action:'anonymous',from:'t2_alice',username:'alice',avatar:''});
  rowNamed('Add account').click();await flush();assert.equal(count('add'),1);rowNamed('Add account').click();await flush();assert.equal(count('add'),2);
  const before=sent.length;d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_alice"] a').click();await flush();assert.equal(sent.length,before,'the current account does nothing');
 });
@@ -189,8 +200,8 @@ test('the phone sheet gets the same row; signed out it follows Log In when accou
  const phone=await page(t,{menu:'hui-user-drawer-bottom-sheet'});assert.ok(phone.d.querySelector('#hui-user-drawer-bottom-sheet [data-rt-ui="accounts"]'));await open(phone.d);assert.equal(panelRows(phone.d).length,5);
  const dom=new JSDOM('<shreddit-app user-logged-in="false"></shreddit-app>'+signedOutMenu('user-drawer-content'),{url:'https://www.reddit.com/',runScripts:'outside-only'}),W=dom.window;t.after(()=>W.close());W.__rtAccountSwitcherTest=true;W.eval(read('account-switcher.js'));
  const out=new W.RTAccountSwitcher.Switcher({send:async m=>m.action==='list'?{ok:true,anonymous:true,accounts:[{owner:'t2_alice',username:'alice',avatar:''}]}:{ok:true}});await out.ready;await flush();
- const row=W.document.querySelector('[data-rt-ui="accounts"]');assert.equal(row.previousElementSibling.textContent.trim(),'Log In / Sign Up');assert.equal(row.querySelector('.text-caption-1').textContent,'Browsing signed out');
- row.querySelector('a').click();await flush();assert.deepEqual(panelRows(W.document).slice(1,3),['u/alice|Switch to this account','Browse signed out|Signed out here']);out.destroy();
+ const row=W.document.querySelector('[data-rt-ui="accounts"]');assert.equal(row.previousElementSibling.textContent.trim(),'Log In / Sign Up');assert.equal(row.querySelector('.text-caption-1').textContent,'Browsing anonymously');
+ row.querySelector('a').click();await flush();assert.deepEqual(panelRows(W.document).slice(1,3),['u/alice|Switch to this account','Anonymous browsing|Signed out here']);out.destroy();
  const none=new JSDOM('<shreddit-app user-logged-in="false"></shreddit-app>'+signedOutMenu('user-drawer-content'),{url:'https://www.reddit.com/',runScripts:'outside-only'}).window;t.after(()=>none.close());none.__rtAccountSwitcherTest=true;none.eval(read('account-switcher.js'));
  const empty=new none.RTAccountSwitcher.Switcher({send:async m=>m.action==='list'?{ok:true,anonymous:false,accounts:[]}:{ok:true}});await empty.ready;await flush();assert.equal(none.document.querySelector('[data-rt-ui="accounts"]'),null,'nothing saved: only Reddit’s Log In');empty.destroy();
  const failed=await page(t,{list:()=>({ok:false,error:'Worker unavailable'})});assert.equal(entry(failed.d).querySelector('.text-caption-1').textContent,'Worker unavailable');
@@ -211,7 +222,7 @@ test('the popup Accounts card lists saved accounts with Switch, Sign in again an
 });
 test('the popup offers Browse signed out (asks twice) and labels private-window accounts',async t=>{
  const {d,sent}=await popupPage(t,{accounts:[{owner:'t2_alice',username:'alice',avatar:'',expired:false,current:true},{owner:'t2_carol',username:'carol',avatar:'',expired:false,current:false,private:true}]});
- assert.match(popupRows(d)[1],/This private window/);const button=d.querySelector('#browse-signed-out');
+ assert.match(popupRows(d)[1],/This private window/);const button=d.querySelector('#browse-signed-out');assert.equal(button.textContent,'Anonymous browsing');
  button.click();await flush();assert.equal(sent.some(m=>m.action==='anonymous'),false,'first click only asks');assert.equal(button.textContent,'Sign out here?');
  button.click();await flush();assert.deepEqual(sent.find(m=>m.action==='anonymous'),{scope:'rt-accounts',action:'anonymous'});
 });

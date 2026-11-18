@@ -752,3 +752,14 @@ shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{displa
 /* The community picker lent to the sheet uses the sheet's own Back. */
 .rt-fsheet .rt-sub-panel .rt-sub-back{display:none}
 .rt-fsheet .rt-sub-panel{padding:0 8px}
+.rt-fsheet-item{display:flex;align-items:center;padding-inline-end:12px}.rt-fsheet-item>.rt-fsheet-row{flex:1;min-width:0}
+.rt-fsheet-action{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;flex:none;margin:0;padding:0;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:pointer}
+.rt-fsheet-action:hover,.rt-fsheet-action:focus-visible{background:var(--color-neutral-background-hover,#f2f4f5);outline:none}
+.rt-fsheet-avatar{width:32px;height:32px;border-radius:999px;overflow:hidden}.rt-fsheet-avatar img{width:100%;height:100%;object-fit:cover}
+.rt-fsheet-lead.rt-fsheet-avatar svg{width:32px;height:32px}
+.rt-fsheet-row[aria-current] .rt-fsheet-tail{color:var(--color-primary,#0045ac)}
+.rt-fsheet-row[aria-busy="true"]{opacity:.7;cursor:progress}
+.rt-fsheet-row[data-armed] .rt-fsheet-sub,.rt-fsheet-error{color:var(--color-danger-content,#b32424)}
+.rt-fsheet-lead.rt-fsheet-avatar .rt-account-glyph svg{width:20px;height:20px}
+.rt-account-glyph.rt-plain{background:transparent}
+.rt-account-glyph{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#0f1a1c)}
