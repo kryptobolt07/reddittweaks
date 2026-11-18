@@ -23,6 +23,22 @@
     if(parent.moveBefore)parent.moveBefore(player,before);
     else parent.insertBefore(player,before);
   }
+  function easeVideoMove(player,from,retry=true){
+    if(!from || !player.isConnected)return;
+    const to=player.getBoundingClientRect();
+    if(!to.width || !to.height){
+      if(retry)window.requestAnimationFrame(()=>easeVideoMove(player,from,false));
+      return;
+    }
+    const limit=value=>Math.max(-120,Math.min(120,value));
+    const x=limit(from.left+from.width/2-to.left-to.width/2);
+    const y=limit(from.top+from.height/2-to.top-to.height/2);
+    const scale=Math.max(.85,Math.min(1.15,Math.min(from.width/to.width,from.height/to.height)));
+    if(Math.abs(x)<1 && Math.abs(y)<1 && Math.abs(scale-1)<.01)return;
+    const animation=player.animate([{transform:`translate(${x}px,${y}px) scale(${scale})`},{transform:'none'}],
+      {duration:180,easing:'cubic-bezier(.2,.8,.2,1)'});
+    animation.id='rt-video-placement';
+  }
   function releaseVideo(){
     if(!heldVideo)return;
     const {player,slot,stage,surface,controller,restorePause}=heldVideo;
@@ -77,6 +93,8 @@
        detail.closest('shreddit-post')?.id!==heldVideo.id || detail.localName!==heldVideo.player.localName)return;
     const {player,slot,stage,surface,controller,restorePause}=heldVideo;
     heldVideo=null;
+    const from=typeof player.animate==='function' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches &&
+      player.getBoundingClientRect();
     // Keep a fresh feed player in Reddit's cached card for Back navigation.
     slot.replaceWith(player.cloneNode(true));
     for(const name of ['class','style','slot','player-type','data-post-click-location','priority','is-mobile','hide-autoplay-toggle']){
@@ -90,9 +108,17 @@
     controller.endDomReparent();
     stage.remove();
     surface?.removeAttribute('data-rt-video-outgoing');
+    easeVideoMove(player,from);
     event.preventDefault();
   });
   document.addEventListener('rt-release-feed-video',releaseVideo);
+  document.addEventListener('rt-prepare-feed-preview',event=>{
+    const player=event.target;
+    if(!player.matches?.(videoPlayers) || player.getAttribute('player-type')!=='in_feed_player' ||
+       player.closest('shreddit-post')?.id!==player.getAttribute('post-id'))return;
+    player.mediaSyncController?.muteForAutoplayRetry?.();
+    if(player.shadowRoot?.querySelector('video')?.readyState===0)player.load?.('metadata')?.catch?.(()=>{});
+  });
   // A lazy native player needs Reddit's own media loader before its <video> has metadata.
   document.addEventListener('rt-prepare-detail-video',event=>{
     const player=event.target,id=route()?.id;

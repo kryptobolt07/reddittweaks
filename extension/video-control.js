@@ -4,7 +4,9 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,PREVIEW_S=10,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=160,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
+ const PLAY_BUTTON='.poster-play-button,.play-pause-button';
+ const SOUND_CONTROL='.mute-button,.volume-slider';
  const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen';
  const postId=path=>/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase() || '';
  const playback=video=>({time:video.currentTime,muted:video.muted,volume:video.volume,rate:video.playbackRate});
@@ -22,7 +24,7 @@
  }
  class Videos{
   constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,observe=true}={}){
-   this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new Map();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;
+   this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new WeakMap();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;
    this.visibilityReady=new WeakMap();
    this.onGesture=event=>{
     if(!event.isTrusted && !globalThis.__rtVideoControlTest)return;
@@ -32,12 +34,15 @@
     if(!player)return;
     this.attach(player);
     const video=this.video(player);
-    if(video && (!video.paused || this.previews.has(player)))this.started.add(video);
-    if(this.previews.has(player))this.endPreview(player);
+    if(this.previews.get(player)?.video===video){
+     if(event.type==='click' && event.button===0)this.usePreview(player,event,path);
+    }else if(video && !video.paused)this.started.add(video);
    };
+   this.onHover=event=>this.hover(event);
+   this.onTabVisibility=()=>{if(this.doc.hidden)this.stopHover();};
    this.onRemember=event=>this.remember(event);
-   this.onRoute=()=>this.handoff();
-   this.onBack=()=>this.clearHandoff();
+   this.onRoute=()=>{this.stopHover();this.handoff();};
+   this.onBack=()=>{this.stopHover();this.clearHandoff();};
    this.onPageExit=()=>{
     const pending=this.activeHandoff();
     if(pending?.sourceVideo){
@@ -45,9 +50,12 @@
      this.saveHandoff();
     }
     this.releaseHeldVideo();
+    this.stopHover();
     this.pending=null;
    };
    for(const type of ['pointerdown','keydown','click'])doc.addEventListener(type,this.onGesture,true);
+   for(const type of ['pointerover','pointerout'])doc.addEventListener(type,this.onHover,true);
+   doc.addEventListener('visibilitychange',this.onTabVisibility);
    doc.addEventListener('click',this.onRemember,true);
    doc.addEventListener('reddit:route',this.onRoute);
    this.win.addEventListener('popstate',this.onBack);
@@ -60,6 +68,7 @@
   }
   configure(settings){
    this.settings=settings || {};
+   if(!this.previewsOn){this.stopHover();this.previews=new WeakMap();}
    if(!this.continueOnOpen)this.clearHandoff();
    else if(!this.configured)this.restoreHandoff();
    this.configured=true;this.scan();
@@ -69,10 +78,12 @@
   get respect(){return this.settings.videoRespectAutoplay!==false;}
   get pauseAway(){return this.settings.videoPauseOffscreen!==false;}
   get previewsOn(){return this.settings.videoPreviews!==false;}
+  get unmutePreview(){return this.settings.videoUnmutePreview!==false;}
   get continueOnOpen(){return this.settings.videoContinueOnOpen!==false;}
   schedule(){if(this.queued || this.dead)return;this.queued=true;setTimeout(()=>{this.queued=false;if(!this.dead)this.scan();},200);}
   scan(){
    for(const player of this.players)if(!player.isConnected){
+    if(this.hovered===player)this.stopHover();
     this.players.delete(player);this.previews.delete(player);this.io?.unobserve(player);
    }
    for(const player of this.doc.querySelectorAll(PLAYERS))this.attach(player);
@@ -84,14 +95,94 @@
    if(this.attached.has(player))return;
    this.attached.add(player);
    player.shadowRoot.addEventListener('play',event=>this.onPlay(player,event),true);
-   player.shadowRoot.addEventListener('timeupdate',event=>this.onTime(player,event),true);
+   player.shadowRoot.addEventListener('timeupdate',event=>this.onTime(event),true);
    player.shadowRoot.addEventListener('pause',event=>{
     if(event.target.paused)this.continued.delete(event.target);
    },true);
-   player.shadowRoot.addEventListener('loadedmetadata',()=>this.handoff(),true);
+   player.shadowRoot.addEventListener('loadedmetadata',event=>{
+    const preview=this.previews.get(player);
+    if(preview?.active && preview.video===event.target)this.playPreview(player,preview);
+    this.handoff();
+   },true);
   }
   video(player){return player.shadowRoot?.querySelector('video') || null;}
   userStarted(player){return performance.now()-this.gesture.at<GESTURE_MS && this.gesture.path.includes(player);}
+  hover(event){
+   if(!this.configured || !this.previewsOn || event.pointerType!=='mouse' ||
+      (!event.isTrusted && !globalThis.__rtVideoControlTest))return;
+   const player=event.composedPath().find(node=>node.matches?.(PLAYERS));
+   if(!player || player.getAttribute('player-type')!==FEED_PLAYER)return;
+   if(event.relatedTarget===player || (event.relatedTarget?.nodeType && player.contains(event.relatedTarget)))return;
+   if(event.type==='pointerout'){
+    if(this.hovered===player)this.stopHover();
+    return;
+   }
+   if(event.buttons || this.hovered===player)return;
+   this.stopHover();
+   this.hovered=player;
+   this.hoverTimer=this.win.setTimeout(()=>this.startPreview(player),HOVER_MS);
+  }
+  startPreview(player){
+   const video=this.video(player);
+   if(this.doc.hidden || this.hovered!==player || !player.isConnected || !video?.paused ||
+      video.ended || this.started.has(video))return;
+   for(const other of this.players){
+    const media=this.video(other);
+    if(media && !media.paused && this.started.has(media))return;
+   }
+   this.attach(player);
+   const previous=this.previews.get(player);
+   const preview={video,muted:video.muted,active:true,played:previous?.video===video && previous.played};
+   this.previews.set(player,preview);
+   video.muted=true;
+   player.dispatchEvent(new this.win.Event('rt-prepare-feed-preview',{bubbles:true}));
+   if(video.readyState>=1)this.playPreview(player,preview);
+  }
+  playPreview(player,preview){
+   if(preview.requested || this.hovered!==player)return;
+   preview.requested=true;
+   preview.video.play()?.catch?.(()=>{
+    if(this.previews.get(player)===preview && preview.active)this.stopHover();
+   });
+  }
+  stopHover(){
+   this.win.clearTimeout(this.hoverTimer);
+   const player=this.hovered;
+   this.hovered=null;
+   const preview=player && this.previews.get(player);
+   if(!preview?.active)return;
+   preview.active=false;
+   preview.video.pause();
+   preview.video.muted=preview.muted;
+   if(!preview.played)this.previews.delete(player);
+  }
+  usePreview(player,event,path){
+   const preview=this.previews.get(player);
+   if(path.some(node=>node.matches?.(SOUND_CONTROL))){
+    this.promotePreview(player,true);
+    return;
+   }
+   if(!path.some(node=>node.matches?.(PLAY_BUTTON)) && path[0]!==preview.video)return;
+   if(!preview.played){this.stopHover();return;}
+   event.preventDefault();
+   event.stopImmediatePropagation();
+   this.promotePreview(player);
+  }
+  promotePreview(player,nativeSound=false){
+   const preview=this.previews.get(player);
+   if(!preview || (!preview.played && !(nativeSound && preview.active)))return;
+   const video=preview.video;
+   this.previews.delete(player);
+   this.started.add(video);
+   if(this.hovered===player)this.stopHover();
+   if(nativeSound)return;
+   video.muted=!this.unmutePreview;
+   if(this.unmutePreview && video.volume===0)video.volume=0.5;
+   if(video.paused){
+    this.continued.add(video);
+    video.play()?.catch?.(()=>this.continued.delete(video));
+   }
+  }
   remember(event){
    if(!this.configured || !this.continueOnOpen || (!event.isTrusted && !globalThis.__rtVideoControlTest) ||
       event.defaultPrevented || event.button!==0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)return;
@@ -104,6 +195,7 @@
    if(url.origin!==this.win.location.origin || !id || card.id!=='t3_'+id || postId(this.win.location.pathname)===id)return;
    const source=[...card.querySelectorAll(PLAYERS)].find(player=>player.getAttribute('player-type')===FEED_PLAYER);
    const sourceVideo=source && this.video(source);
+   if(sourceVideo && this.previews.get(source)?.video===sourceVideo)this.promotePreview(source);
    if(!sourceVideo || sourceVideo.paused || sourceVideo.ended || !this.started.has(sourceVideo) || this.previews.has(source))return;
    this.clearHandoff();
    const saved={id,owner:owner(this.doc),at:Date.now(),...playback(sourceVideo)};
@@ -122,6 +214,7 @@
   }
   releaseHeldVideo(){
    this.win.clearTimeout(this.expiry);
+   this.pending?.layoutObserver?.disconnect();
    if(this.pending?.held){
     this.pending.held=false;
     this.doc.dispatchEvent(new this.win.Event('rt-release-feed-video'));
@@ -149,11 +242,24 @@
   updatePlayback(pending){
    if(pending.sourceVideo?.isConnected)Object.assign(pending.saved,playback(pending.sourceVideo));
   }
+  waitForDetailLayout(pending,player){
+   if(!this.win.ResizeObserver)return false;
+   const {width,height}=player.getBoundingClientRect();
+   if(width && height)return false;
+   if(pending.layoutTarget!==player){
+    pending.layoutObserver?.disconnect();
+    pending.layoutTarget=player;
+    pending.layoutObserver=new this.win.ResizeObserver(()=>this.handoff());
+    pending.layoutObserver.observe(player);
+   }
+   return true;
+  }
   handoff(){
    const pending=this.activeHandoff();
    if(!pending?.reached)return;
    const player=this.doc.querySelector(`[player-type="${DETAIL_PLAYER}"][post-id="t3_${pending.saved.id}"]:is(${PLAYERS})`);
    if(!player)return;
+   if(pending.held && this.waitForDetailLayout(pending,player))return;
    if(pending.held && !player.dispatchEvent(new this.win.Event('rt-place-held-video',{bubbles:true,cancelable:true}))){
     pending.held=false;
     this.observeAfterMove(pending.source);
@@ -174,7 +280,7 @@
    const {time,muted,volume,rate}=pending.saved;
    this.clearHandoff();
    this.previews.delete(player);
-   delete player.dataset.rtPreview;delete player.dataset.rtAutoplayBlocked;
+   delete player.dataset.rtAutoplayBlocked;
    if(pending.sourceVideo===video && !video.paused)return;
    if(pending.sourceVideo && !pending.sourceVideo.paused)pending.sourceVideo.pause();
    video.currentTime=Number.isFinite(video.duration)?Math.min(time,Math.max(0,video.duration-0.1)):time;
@@ -185,57 +291,53 @@
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
    if(this.continued.has(video))return;
+   const preview=this.previews.get(player);
+   if(preview?.active && preview.video===video){preview.played=true;return;}
    const userStarted=this.userStarted(player);
-   if(userStarted)this.started.add(video);
+   if(userStarted){this.started.add(video);this.previews.delete(player);}
    else this.started.delete(video);
-   if(this.previews.has(player))return;
    if(this.respect && this.autoplayDisabled===true && !userStarted){this.block(player,video);return;}
    delete player.dataset.rtAutoplayBlocked;
   }
-  // Autoplay that Reddit's setting says should not happen: a silent preview (first 10 s, muted, looping, never
-  // advancing the real position) or, with previews off, a pause.
   block(player,video){
-   if(!this.previewsOn){video.pause();player.dataset.rtAutoplayBlocked='true';return;}
-   if(!this.previews.has(player))this.previews.set(player,{start:Number(video.currentTime) || 0,muted:video.muted});
-   video.muted=true;player.dataset.rtPreview='true';delete player.dataset.rtAutoplayBlocked;
+   if(this.previews.get(player)?.active)return;
+   video.pause();player.dataset.rtAutoplayBlocked='true';
   }
-  onTime(player,event){
-   const state=this.previews.get(player),video=event.target;
-   if(state && video.currentTime>=state.start+PREVIEW_S)video.currentTime=state.start;
-   if(this.pending?.sourceVideo===video)this.updatePlayback(this.pending);
-  }
-  // Your tap: the preview ends, the video goes back to where it started and plays with Reddit's sound setting.
-  endPreview(player){
-   const state=this.previews.get(player),video=this.video(player);this.previews.delete(player);delete player.dataset.rtPreview;if(!state || !video)return;
-   video.currentTime=state.start;video.muted=state.muted;
-   setTimeout(()=>{if(video.paused)video.play()?.catch?.(()=>{});},0);
-  }
+  onTime(event){if(this.pending?.sourceVideo===event.target)this.updatePlayback(this.pending);}
   observeAfterMove(player){
    if(!this.io)return;
    this.visibilityReady.set(player,Infinity);
    this.io.unobserve(player);
    // Discard feed geometry and wait for the relocated player to paint in the post.
-   this.win.requestAnimationFrame(()=>this.win.requestAnimationFrame(()=>{
+   const observe=()=>this.win.requestAnimationFrame(()=>{
     if(this.dead)return;
     this.visibilityReady.set(player,this.win.performance.now());
     if(player.isConnected && this.players.has(player))this.io.observe(player);
-   }));
+   });
+   this.win.requestAnimationFrame(()=>{
+    const motion=player.getAnimations?.().find(animation=>animation.id==='rt-video-placement');
+    if(motion)motion.finished.then(observe,observe);
+    else observe();
+   });
   }
   onVisibility(entries){
-   if(!this.pauseAway)return;
    const pending=this.activeHandoff();
    for(const entry of entries){
     const player=entry.target,ready=this.visibilityReady.get(player);
     if(entry.intersectionRatio>=0.5 || (ready!==undefined && !(entry.time>=ready)) ||
        (player===pending?.source && (pending.held || pending.reached)))continue;
-    const video=this.video(player),preview=this.previews.get(player);
+    if(player===this.hovered)this.stopHover();
+    if(!this.pauseAway)continue;
+    const video=this.video(player);
     if(video && !video.paused){video.pause();player.dataset.rtPausedAway='true';}
-    if(video && preview)video.currentTime=preview.start;
    }
   }
   destroy(){
    this.dead=true;this.mo?.disconnect();this.io?.disconnect();
+   this.stopHover();
    for(const type of ['pointerdown','keydown','click'])this.doc.removeEventListener(type,this.onGesture,true);
+   for(const type of ['pointerover','pointerout'])this.doc.removeEventListener(type,this.onHover,true);
+   this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
    this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);
    this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
    this.clearHandoff();

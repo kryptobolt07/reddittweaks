@@ -12,7 +12,7 @@ function page(t,{owner='t2_alice',detail=false}={}){
  Object.defineProperty(W.HTMLMediaElement.prototype,'paused',{get(){return !this._playing;},configurable:true});W.HTMLMediaElement.prototype.pause=function(){this._playing=false;};
  const io={cb:null,observed:[],unobserved:[]};
  W.IntersectionObserver=class{constructor(cb,o){io.cb=cb;io.options=o;}observe(player){io.observed.push(player);}unobserve(player){io.unobserved.push(player);}disconnect(){}};
- const player=W.document.getElementById('p1'),root=player.attachShadow({mode:'open'});root.innerHTML='<button id="play">Play</button><video></video>';
+ const player=W.document.getElementById('p1'),root=player.attachShadow({mode:'open'});root.innerHTML='<button id="play" class="play-pause-button">Play</button><button id="mute" class="mute-button">Mute</button><button id="cc">Captions</button><video></video>';
  W.__rtVideoControlTest=true;W.eval(fs.readFileSync('extension/video-control.js','utf8'));
  const video=root.querySelector('video'),start=()=>{video._playing=true;video.dispatchEvent(new W.Event('play'));};
  const click=(target,options)=>target.dispatchEvent(new W.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,...options}));
@@ -196,13 +196,102 @@ test('placement ignores old visibility readings and observes the painted post fo
  p.io.cb([{target:p.player,intersectionRatio:0.3,time:p.W.performance.now()}]);
  assert.equal(p.video.paused,true,'fresh geometry still pauses real scroll-away');
 });
-test('silent previews: Reddit’s autoplay becomes a muted 10 s loop marked Preview that never advances; your tap starts from the beginning with sound',async t=>{
- const {W,player,root,video,start,io}=page(t);let plays=0;W.HTMLMediaElement.prototype.play=function(){plays++;this._playing=true;return Promise.resolve();};
- const v=new W.RTVideoControl.Videos({readSettings:async()=>({videoPreviews:true}),readPreference:async()=>true,observe:false});await v.ready;await flush();
- video.currentTime=0;video.muted=false;start();assert.equal(video.paused,false,'keeps playing as a preview');assert.equal(video.muted,true,'without sound');assert.equal(player.dataset.rtPreview,'true');
- video.currentTime=10.4;video.dispatchEvent(new W.Event('timeupdate'));assert.equal(video.currentTime,0,'loops the first 10 s');
- video.currentTime=6;io.cb([{target:player,intersectionRatio:0.2}]);assert.equal(video.paused,true,'stops when scrolled away');assert.equal(video.currentTime,0,'and does not advance');
- start();video.currentTime=4;root.getElementById('play').dispatchEvent(new W.Event('pointerdown',{bubbles:true,composed:true}));await flush();
- assert.equal(player.dataset.rtPreview,undefined,'your tap ends the preview');assert.equal(video.currentTime,0,'from the beginning');assert.equal(video.muted,false,'with Reddit’s sound');assert.equal(video.paused,false);
- const off=page(t);const v2=new off.W.RTVideoControl.Videos({readSettings:async()=>({videoPreviews:false}),readPreference:async()=>true,observe:false});await v2.ready;await flush();off.start();assert.equal(off.video.paused,true,'option off: plain pause');assert.equal(off.player.dataset.rtPreview,undefined);
+test('post placement eases the same player and defers visibility tracking for the movement',async t=>{
+ const p=page(t);nativeMove(p);
+ const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
+ let finish;
+ const animation={finished:new Promise(resolve=>{finish=resolve;})},frames=[];
+ p.W.requestAnimationFrame=callback=>frames.push(callback);
+ p.player.getBoundingClientRect=()=>p.player.getAttribute('player-type')==='in_feed_player'
+  ? {left:120,top:140,width:700,height:394} : {left:140,top:180,width:740,height:416};
+ p.player.animate=keyframes=>{assert.match(keyframes[0].transform,/translate\(/);return animation;};
+ p.player.getAnimations=()=>[animation];
+ p.startFromControl();p.click(p.title);p.W.history.pushState({},'',postPath);
+ const detail=p.player.cloneNode();detail.setAttribute('player-type','post_detail_screen');
+ p.d.querySelector('main shreddit-post').append(detail);controller.scan();
+ assert.equal(animation.id,'rt-video-placement');assert.equal(frames.length,1);
+ frames.shift()();assert.equal(frames.length,0);
+ assert.equal(p.player.shadowRoot.querySelector('video'),p.video);assert.equal(p.video.paused,false);
+ finish();await Promise.resolve();
+ assert.equal(frames.length,1);
+});
+test('the held video stays visible until Reddit lays out the detail slot',async t=>{
+ const p=page(t);nativeMove(p);
+ const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
+ let notify,visible=false;
+ p.W.ResizeObserver=class{constructor(callback){notify=callback;}observe(){}disconnect(){}};
+ p.startFromControl();p.click(p.title);p.W.history.pushState({},'',postPath);
+ const detail=p.player.cloneNode();detail.setAttribute('player-type','post_detail_screen');
+ detail.getBoundingClientRect=()=>({width:visible?700:0,height:visible?390:0});
+ p.d.querySelector('main shreddit-post').append(detail);controller.scan();
+ assert.equal(p.player.getAttribute('player-type'),'in_feed_player');
+ assert.equal(p.player.closest('[data-rt-video-outgoing]'),null);
+ assert.equal(p.video.paused,false);
+ visible=true;notify();
+ assert.equal(p.player.getAttribute('player-type'),'post_detail_screen');
+ assert.equal(p.video.paused,false);
+});
+function pointer(p,type='pointerover',pointerType='mouse'){
+ const event=new p.W.MouseEvent(type,{bubbles:true,composed:true});
+ Object.defineProperty(event,'pointerType',{value:pointerType});
+ p.player.dispatchEvent(event);
+}
+async function hoverController(p,settings={}){
+ p.W.HTMLMediaElement.prototype.play=function(){
+  this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();
+ };
+ Object.defineProperty(p.video,'readyState',{value:1,configurable:true});
+ const controller=new p.W.RTVideoControl.Videos({readSettings:async()=>settings,readPreference:async()=>true,observe:false});
+ await controller.ready;await flush();return controller;
+}
+const waitForHover=()=>new Promise(resolve=>setTimeout(resolve,210));
+test('only hovering a paused feed video previews it, and play continues with audio from the current position',async t=>{
+ const p=page(t);
+ await hoverController(p);
+ p.start();assert.equal(p.video.paused,true,'idle autoplay stays paused');
+ pointer(p,'pointerover','touch');await waitForHover();assert.equal(p.video.paused,true);
+ pointer(p);await waitForHover();
+ assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
+ p.video.currentTime=4.25;
+ p.root.getElementById('play').addEventListener('click',()=>p.video.pause());
+ p.click(p.root.getElementById('play'));
+ pointer(p,'pointerout');
+ assert.equal(p.video.currentTime,4.25);
+ assert.equal(p.video.muted,false);assert.equal(p.video.paused,false,'the first play click cannot become pause');
+});
+test('leaving pauses the preview at its playhead and opening the post keeps that position and the chosen mute setting',async t=>{
+ const p=page(t);await hoverController(p,{videoUnmutePreview:false});
+ pointer(p);await waitForHover();p.video.currentTime=6.5;
+ pointer(p,'pointerout');
+ assert.equal(p.video.paused,true);assert.equal(p.video.currentTime,6.5);
+ p.click(p.title);
+ const saved=JSON.parse(p.W.sessionStorage.getItem(continuationKey));
+ assert.equal(saved.time,6.5);assert.equal(saved.muted,true);
+});
+test('captions keep preview mode and the native mute button can promote playback without a second toggle',async t=>{
+ const p=page(t);await hoverController(p);
+ pointer(p);await waitForHover();
+ p.click(p.root.getElementById('cc'));assert.equal(p.video.muted,true);
+ p.root.getElementById('mute').addEventListener('click',()=>{p.video.muted=!p.video.muted;});
+ p.click(p.root.getElementById('mute'));pointer(p,'pointerout');
+ assert.equal(p.video.muted,false);assert.equal(p.video.paused,false);
+});
+test('a hover that ends during metadata loading cannot start playback later',async t=>{
+ const p=page(t);await hoverController(p);
+ Object.defineProperty(p.video,'readyState',{value:0,configurable:true});
+ let loads=0;p.player.addEventListener('rt-prepare-feed-preview',()=>loads++);
+ pointer(p);await waitForHover();assert.equal(loads,1);
+ pointer(p,'pointerout');
+ Object.defineProperty(p.video,'readyState',{value:1,configurable:true});
+ p.video.dispatchEvent(new p.W.Event('loadedmetadata'));
+ assert.equal(p.video.paused,true);
+});
+test('native Play pressed before preview metadata arrives takes control immediately',async t=>{
+ const p=page(t);await hoverController(p);
+ Object.defineProperty(p.video,'readyState',{value:0,configurable:true});
+ pointer(p);await waitForHover();
+ p.root.getElementById('play').addEventListener('click',p.start);
+ p.click(p.root.getElementById('play'));pointer(p,'pointerout');
+ assert.equal(p.video.paused,false);
+ assert.equal(p.video.muted,false);
 });
