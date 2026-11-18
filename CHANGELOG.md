@@ -1,3 +1,10 @@
+# 0.46.0 preview
+
+- **Muted hover previews:** hover over a paused native feed video to start playback with sound off. Move away to pause at the current position. Click Play, click the video, or open the post to continue from there. The separate **Turn on sound when playing a preview** setting is on by default. Reddit's mute and other media controls retain their own actions.
+- **Smoother video transition:** keep the active video visible until the detail player has a layout, then ease the same player into place. Reduced motion skips the animation. In live Brave, hover playback was muted, clicking enabled sound without seeking, and opening the post continued the same video through the placement animation.
+- **Version:** minor increment for hover playback and its sound setting. Touch-only feeds retain their native Play controls. Live checks covered desktop Brave.
+- **Validation:** 1,904 tests passed. Firefox lint reported zero errors, notices and warnings. All 74 Chromium assets and 75 Firefox assets match their unpacked folders and ZIPs. Chromium SHA-256 `7ff46278f9aae4024a58d35f35ab744c6fba54684babb834b32d649fa60c2fd1`. Firefox SHA-256 `56b2fe0bb1b5ee4c70a15fb4b1acc9849540894f738b3496a2fa879a0c5a489d`.
+
 # 0.45.2 preview
 
 - **Video post navigation:** keep playing after the post finishes loading. Start visibility tracking again after the detail player paints so an old feed reading cannot pause it. Hide the outgoing feed while the video moves, then restore its visibility for Back navigation.
