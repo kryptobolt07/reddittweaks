@@ -100,6 +100,13 @@
    await save(s);return {ok:true,save:Boolean(now) && !known(s,now),current:s.current,anonymous:s.anonymous};
   }
   if(message.action==='save-current'){if(!redditPage(sender) || !ownerOK(owner))throw Error('Open Reddit signed in to save this account.');if(!await store(s,{owner,username:message.username,avatar:message.avatar}))throw Error('Reddit’s session was not found.');s.current=owner;s.anonymous=false;await save(s);return {ok:true,accounts:view(s,owner),current:owner,anonymous:false};}
+  if(message.action==='update-avatar'){
+   const avatar=avatarOf(message.avatar);
+   if(!redditPage(sender) || s.anonymous || s.current!==owner || !avatar || !known(s,owner))return {ok:false};
+   const account=s.accounts.find(a=>a.owner===owner);
+   if(account && account.avatar!==avatar){account.avatar=avatar;await save(s);}
+   return {ok:true};
+  }
   if(message.action==='remove'){
    if(!ownerOK(owner))throw Error('Unknown account.');s.accounts=s.accounts.filter(a=>a.owner!==owner);await save(s);
    // From a private window, an account saved in normal windows is forgotten there too.

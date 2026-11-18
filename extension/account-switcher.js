@@ -30,7 +30,15 @@
  const profileRow=menu=>{for(const li of menu.querySelectorAll('li')){const href=li.querySelector(':scope > a')?.getAttribute('href') || '';if(/^\/user\/[\w-]{3,20}\/?$/.test(href))return li;}return null;};
  // Signed out, Reddit's menu starts with its Log In row: the switcher sits after that one.
  const firstRow=menu=>[...menu.querySelectorAll('ul li')].find(li=>li.querySelector(':scope > a, :scope > button') && !li.closest('[data-rt-ui]')) || null;
- const avatarOf=row=>{const img=row.querySelector('img[src^="https://"]');return img?img.src:'';};
+ const avatarOf=root=>{
+  const portrait=root?.querySelector('[avatar]') || root;
+  const image=portrait?.querySelector('img[src],svg image[href]');
+  try{
+   const url=new URL(image?.currentSrc || image?.getAttribute('src') || image?.getAttribute('href') || '');
+   return url.protocol==='https:' && !url.username && !url.password &&
+    /(^|\.)(redditmedia\.com|redditstatic\.com|redd\.it|reddit\.com)$/i.test(url.hostname) ? url.href : '';
+  }catch{return '';}
+ };
 
  class Switcher{
   constructor({send:transport=send}={}){
@@ -41,7 +49,7 @@
    this.onPress=event=>{if(event.target?.closest?.('#expand-user-drawer-button'))for(const menu of document.querySelectorAll(MENUS))this.closePanel(menu);};
    this.onKey=event=>{if(event.key!=='Escape')return;const menu=[...document.querySelectorAll(MENUS)].find(m=>this.panels.get(m)?.open);if(!menu)return;event.preventDefault();event.stopPropagation();this.closePanel(menu,true);};
    document.addEventListener('pointerdown',this.onPress,true);document.addEventListener('keydown',this.onKey,true);
-   this.ready=this.remember().then(()=>this.scan());
+   this.ready=this.remember().then(()=>{this.remembered=true;this.scan();});
   }
   remember(){
    const owner=signedIn();if(owner===null)return Promise.resolve();
@@ -53,12 +61,22 @@
   async saveNew(owner){
    try{const response=await fetch('/api/me.json',{credentials:'include',cache:'no-store',headers:{Accept:'application/json'}});if(!response.ok)return;const me=(await response.json())?.data;
     if(!me || 't2_'+String(me.id || '').toLowerCase()!==owner || !/^[\w-]{3,20}$/.test(me.name || ''))return;
-    return this.send({action:'save-current',owner,username:me.name,avatar:String(me.icon_img || '').split('?')[0].startsWith('https://')?me.icon_img:''});}catch{}
+    const avatar=avatarOf(document.getElementById('expand-user-drawer-button')) ||
+      (String(me.icon_img || '').startsWith('https://')?me.icon_img:'');
+    return this.send({action:'save-current',owner,username:me.name,avatar});}catch{}
   }
   schedule(){if(this.queued || this.dead)return;this.queued=true;queueMicrotask(()=>{this.queued=false;if(!this.dead)this.scan();});}
   scan(){
-   const owner=signedIn();
-   for(const menu of document.querySelectorAll(MENUS)){
+   const owner=signedIn(),menus=[...document.querySelectorAll(MENUS)];
+   if(owner && this.remembered){
+    const avatar=avatarOf(document.getElementById('expand-user-drawer-button')) ||
+      menus.map(menu=>avatarOf(profileRow(menu))).find(Boolean);
+    if(avatar && (this.reportedAvatar?.owner!==owner || this.reportedAvatar.avatar!==avatar)){
+     this.reportedAvatar={owner,avatar};
+     this.send({action:'update-avatar',owner,avatar});
+    }
+   }
+   for(const menu of menus){
     const row=owner?profileRow(menu):owner===''?firstRow(menu):null,entry=menu.querySelector('[data-rt-ui="accounts"]');
     if(!row){entry?.remove();this.closePanel(menu);continue;}
     const anchor=row.parentElement?.matches('faceplate-tracker')?row.parentElement:row;

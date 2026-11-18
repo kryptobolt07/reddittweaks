@@ -18,7 +18,13 @@
  async function addAccount(){busy(true);say('Opening Reddit sign-in…');const r=await send({action:'add'});busy(false);if(!r?.ok)say(r?.error || 'Could not open Reddit sign-in.',true);else say('Sign in on the Reddit tab. The new account is saved when you do.');}
  function row(account){
   const li=make('li');li.dataset.owner=account.owner;if(account.current)li.dataset.current='true';if(account.expired)li.dataset.expired='true';
-  let avatar;if(account.avatar){avatar=make('img','account-avatar');avatar.src=account.avatar;avatar.alt='';avatar.referrerPolicy='no-referrer';}else avatar=make('span','account-avatar',(account.username || '?')[0]);avatar.setAttribute('aria-hidden','true');
+  const fallback=make('span','account-avatar',(account.username || '?')[0]);fallback.setAttribute('aria-hidden','true');
+  let avatar=fallback;
+  if(account.avatar){
+   avatar=make('img','account-avatar');avatar.alt='';avatar.referrerPolicy='no-referrer';
+   avatar.addEventListener('error',()=>avatar.replaceWith(fallback),{once:true});
+   avatar.src=account.avatar;
+  }
   const copy=make('span','account-copy');copy.append(make('span','account-name','u/'+account.username),make('span','account-caption',account.current?'Signed in':account.expired?'Session expired':account.private?'This private window':'Saved on this device'));
   li.append(avatar,copy);
   if(!account.current){
