@@ -10,7 +10,8 @@ function page(t,{owner='t2_alice',detail=false}={}){
  const dom=new JSDOM('<!doctype html><body><shreddit-app user-logged-in="'+Boolean(owner)+'" logged-in-user-id="'+owner+'"></shreddit-app><shreddit-post id="t3_test"><a slot="title" href="'+postPath+'">Video title</a><a href="/user/example/">Author</a><shreddit-player id="p1" post-id="t3_test" player-type="'+(detail?'post_detail_screen':'in_feed_player')+'"></shreddit-player></shreddit-post></body>',{url:'https://www.reddit.com'+(detail?postPath:'/r/videos/'),runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;t.after(()=>W.close());
  // jsdom has no media playback: a playing flag stands in for it.
  Object.defineProperty(W.HTMLMediaElement.prototype,'paused',{get(){return !this._playing;},configurable:true});W.HTMLMediaElement.prototype.pause=function(){this._playing=false;};
- const io={cb:null};W.IntersectionObserver=class{constructor(cb,o){io.cb=cb;io.options=o;}observe(){}unobserve(){}disconnect(){}};
+ const io={cb:null,observed:[],unobserved:[]};
+ W.IntersectionObserver=class{constructor(cb,o){io.cb=cb;io.options=o;}observe(player){io.observed.push(player);}unobserve(player){io.unobserved.push(player);}disconnect(){}};
  const player=W.document.getElementById('p1'),root=player.attachShadow({mode:'open'});root.innerHTML='<button id="play">Play</button><video></video>';
  W.__rtVideoControlTest=true;W.eval(fs.readFileSync('extension/video-control.js','utf8'));
  const video=root.querySelector('video'),start=()=>{video._playing=true;video.dispatchEvent(new W.Event('play'));};
@@ -113,6 +114,8 @@ test('returning to the feed before metadata arrives cancels the pending detail p
 });
 function nativeMove(p){
  for(const name of ['post-model.js','post-page-bridge.js'])p.W.eval(fs.readFileSync('extension/'+name,'utf8'));
+ const main=p.d.createElement('main');
+ p.d.body.append(main);main.append(p.player.closest('shreddit-post'));
  const calls=[];
  p.player.mediaFbpController={
   shouldPreserveMedia(){return false;},
@@ -128,8 +131,15 @@ test('the same playing media survives feed removal and moves into the detail slo
  const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
  p.startFromControl();p.video.currentTime=8;
  const feed=p.player.parentElement;
+ const surface=feed.closest('main');
+ const style=p.d.createElement('style');
+ style.textContent=fs.readFileSync('extension/post-discovery.css','utf8').split('\n').find(line=>line.startsWith('[data-rt-video-outgoing]'));
+ p.d.head.append(style);
  p.click(p.title);
  assert.notEqual(p.player.parentElement,feed);
+ assert.equal(surface.hasAttribute('data-rt-video-outgoing'),true,'conceal the still-mounted feed during navigation');
+ assert.equal(p.W.getComputedStyle(surface).visibility,'hidden');
+ assert.equal(p.player.closest('[data-rt-video-outgoing]'),null,'the held video remains visible');
  assert.deepEqual(calls,['begin']);
  p.player.pause('background');
  assert.equal(p.video.paused,false,'Reddit’s navigation pause leaves the held player running');
@@ -147,6 +157,7 @@ test('the same playing media survives feed removal and moves into the detail slo
  assert.equal(p.video.currentTime,9.25);assert.equal(p.video.paused,false);
  assert.equal(p.player.className,'detail-layout');
  assert.equal(feed.querySelector('shreddit-player').getAttribute('player-type'),'in_feed_player','a cached feed still has its player when restored');
+ assert.equal(surface.hasAttribute('data-rt-video-outgoing'),false,'the old feed can be drawn on Back');
  assert.deepEqual(calls,['begin','end']);
  assert.equal(p.W.sessionStorage.getItem(continuationKey),null);
  p.player.pause('background');
@@ -160,8 +171,30 @@ test('cancelling before the detail slot mounts restores the playing player to it
  assert.notEqual(p.player.parentElement,feed);
  p.W.dispatchEvent(new p.W.PopStateEvent('popstate'));
  assert.equal(p.player.parentElement,feed);
+ assert.equal(feed.closest('main').hasAttribute('data-rt-video-outgoing'),false);
  assert.equal(p.video.paused,false);
  assert.deepEqual(calls,['begin','end']);
+});
+test('placement ignores old visibility readings and observes the painted post for scroll-away pauses',async t=>{
+ const p=page(t);nativeMove(p);
+ const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
+ const frames=[];
+ p.W.requestAnimationFrame=callback=>frames.push(callback);
+ p.startFromControl();p.click(p.title);
+ p.W.history.pushState({},'',postPath);
+ const detail=p.player.cloneNode();detail.setAttribute('player-type','post_detail_screen');
+ p.d.querySelector('main shreddit-post').append(detail);
+ controller.scan();
+ assert.equal(p.player.getAttribute('player-type'),'post_detail_screen');
+ assert.equal(p.d.querySelector('main').hasAttribute('data-rt-video-outgoing'),false,'a reused main can paint the incoming post');
+ assert.equal(p.io.unobserved.at(-1),p.player);
+ const stale={target:p.player,intersectionRatio:0,time:p.W.performance.now()};
+ p.io.cb([stale]);assert.equal(p.video.paused,false);
+ frames.shift()();frames.shift()();
+ assert.equal(p.io.observed.filter(player=>player===p.player).length,2);
+ p.io.cb([stale]);assert.equal(p.video.paused,false,'a queued feed entry cannot pause the detail player');
+ p.io.cb([{target:p.player,intersectionRatio:0.3,time:p.W.performance.now()}]);
+ assert.equal(p.video.paused,true,'fresh geometry still pauses real scroll-away');
 });
 test('silent previews: Reddit’s autoplay becomes a muted 10 s loop marked Preview that never advances; your tap starts from the beginning with sound',async t=>{
  const {W,player,root,video,start,io}=page(t);let plays=0;W.HTMLMediaElement.prototype.play=function(){plays++;this._playing=true;return Promise.resolve();};

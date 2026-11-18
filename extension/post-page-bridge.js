@@ -25,13 +25,14 @@
   }
   function releaseVideo(){
     if(!heldVideo)return;
-    const {player,slot,stage,controller,restorePause}=heldVideo;
+    const {player,slot,stage,surface,controller,restorePause}=heldVideo;
     heldVideo=null;
     restorePause();
     if(slot.isConnected)movePlayer(slot.parentNode,player,slot);
     slot.remove();
     controller.endDomReparent();
     stage.remove();
+    surface?.removeAttribute('data-rt-video-outgoing');
   }
   document.addEventListener('rt-hold-feed-video',event=>{
     const player=event.target,id=player.getAttribute?.('post-id'),controller=player.mediaFbpController;
@@ -42,6 +43,7 @@
        controller.shouldPreserveMedia?.() || typeof player.pause!=='function')return;
     const {left,top,width,height}=player.getBoundingClientRect();
     if(!width || !height || !document.body)return;
+    const surface=player.closest('main') || player.closest('shreddit-feed');
     const stage=document.createElement('div'),slot=document.createElement('div');
     stage.setAttribute('aria-hidden','true');
     slot.setAttribute('aria-hidden','true');
@@ -64,7 +66,8 @@
     };
     controller.beginDomReparent();
     movePlayer(stage,player);
-    heldVideo={player,id,slot,stage,controller,restorePause};
+    surface?.setAttribute('data-rt-video-outgoing','');
+    heldVideo={player,id,slot,stage,surface,controller,restorePause};
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-video',event=>{
@@ -72,7 +75,7 @@
     if(!heldVideo || !id || heldVideo.id!=='t3_'+id || !detail.matches?.(videoPlayers) ||
        detail.getAttribute('player-type')!=='post_detail_screen' || detail.getAttribute('post-id')!==heldVideo.id ||
        detail.closest('shreddit-post')?.id!==heldVideo.id || detail.localName!==heldVideo.player.localName)return;
-    const {player,slot,stage,controller,restorePause}=heldVideo;
+    const {player,slot,stage,surface,controller,restorePause}=heldVideo;
     heldVideo=null;
     // Keep a fresh feed player in Reddit's cached card for Back navigation.
     slot.replaceWith(player.cloneNode(true));
@@ -86,6 +89,7 @@
     restorePause();
     controller.endDomReparent();
     stage.remove();
+    surface?.removeAttribute('data-rt-video-outgoing');
     event.preventDefault();
   });
   document.addEventListener('rt-release-feed-video',releaseVideo);
