@@ -1,3 +1,10 @@
+# 0.45.1 preview
+
+- **Uninterrupted feed video:** retain the same native playing video through Reddit's in-app post navigation and move it into the full post. The saved-position fallback still covers full page loads. In live Chromium, the video advanced through a 0.86-second transition with zero pause, seek or buffering events.
+- **Subreddit Sort:** hide the native Sort and Top time controls from the first frame while Feed options takes over. Reddit's View control stays visible. The standalone sorts stay available when the extension cannot replace them. On a live Chromium subreddit load, the first toolbar frame showed Feed options and View with zero visible frames of native Sort.
+- **Version:** patch increment for both transition fixes. Live validation used desktop Chromium. Physical phones and live Firefox playback remain unverified.
+- **Validation:** 1,897 tests passed. Firefox lint reported zero errors, notices and warnings. All 74 Chromium assets and 75 Firefox assets match their unpacked folders and ZIPs. Chromium SHA-256 `bba34831ab5b333cc8e6a9214f0c6ad504381d97c30a87d10cb327e0c12f95db`. Firefox SHA-256 `862f4c61746f938e60ec271b7282db310a77cb2d228719a07d202f5bcb8fb214`.
+
 # 0.45.0 preview
 
 - **Continue feed videos:** open the post for a native Reddit video you started in the feed and resume from the latest position with the same volume, mute setting and speed. The feed player can keep playing while the post loads. **Keep playing when opening a post** is on by default in the extension settings. Silent previews no longer have a badge.
