@@ -23,3 +23,14 @@ test('search toolbars use the local native header height in CSS pixels through h
   b.header.style.display='none';assert.equal(w.RCSAdapter.searchToolbarHeight(b.nav),64,'search may hide the native header');b.header.style.display='block';b.header.style.height='56px';w.document.body.style.setProperty('--fixture-resize','1');assert.equal(w.RCSAdapter.searchToolbarHeight(b.nav),56);
   const next=w.document.createElement('header');next.style.cssText='height:40px;padding:3px;border:1px solid;box-sizing:content-box';b.header.replaceWith(next);assert.equal(w.RCSAdapter.searchToolbarHeight(b.nav),48,'replacement includes padding and border without applying display scale twice');assert.equal(w.RCSAdapter.searchToolbarHeight(b.room),48);
 });
+
+test('chat discovery looks for the floating shell only where it lives, and feed components with shadow roots are not chat',t=>{
+  // Measured 2026-11-19: scanning every div (about 3,000 on a feed) and treating every shadow-root element as a chat
+  // candidate re-ran chat discovery on each batch of posts while scrolling.
+  const dom=new JSDOM('<body><shreddit-app></shreddit-app></body>',{runScripts:'outside-only',url:'https://www.reddit.com/r/pics/'}),w=dom.window;t.after(()=>w.close());w.eval(fs.readFileSync(path.join(__dirname,'../extension/adapter.js'),'utf8'));
+  const app=w.document.querySelector('shreddit-app'),shell=w.document.createElement('div');shell.attachShadow({mode:'open'}).innerHTML='<div id="resizable"><rs-app></rs-app></div>';app.append(shell);
+  const feed=w.document.createElement('main'),deep=w.document.createElement('div');deep.attachShadow({mode:'open'}).innerHTML='<div id="resizable"></div>';feed.append(deep);app.append(feed);
+  const post=w.document.createElement('shreddit-post');post.attachShadow({mode:'open'});
+  assert.ok(w.RCSAdapter.chatRoots().includes(shell),'the shell under shreddit-app is found');assert.equal(w.RCSAdapter.chatRoots().includes(deep),false,'a div deep in the feed is not scanned');
+  assert.equal(w.RCSAdapter.chatNode(post),false,'a post with a shadow root is not chat');assert.equal(w.RCSAdapter.chatNode(shell),true);assert.equal(w.RCSAdapter.chatNode(w.document.createElement('rs-room')),true);
+});

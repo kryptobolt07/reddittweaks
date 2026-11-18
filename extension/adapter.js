@@ -22,11 +22,24 @@
     }
     return output;
   }
+  const shellCandidates = 'shreddit-app > div, body > div, reddit-chat-host > div';
+  // A node that may be (part of) chat: a chat element, or a shadow-root div where the floating shell lives.
+  const chatNode = node => node?.nodeType === 1 && (node.localName?.startsWith('rs-') || node.matches?.('[data-testid="chat-room-list"], [data-testid="chat-room"], reddit-chat-host') || Boolean(node.shadowRoot && node.localName === 'div' && node.matches?.(shellCandidates)));
+  // One lookup per frame: content.js, native-labels.js and chat-startup.js all ask after the same DOM changes.
+  let cachedRoots = null;
   function chatRoots() {
+    if (cachedRoots) return cachedRoots;
+    cachedRoots = findChatRoots();
+    (globalThis.requestAnimationFrame || (fn => setTimeout(fn, 16)))(() => { cachedRoots = null; });
+    return cachedRoots;
+  }
+  function findChatRoots() {
     // The floating chat's shell is an otherwise anonymous div with a shadow root.
     // Inspect these shallow shell candidates instead of walking the feed's post roots.
     const direct = document.querySelector('rs-app, rs-room, [data-testid="chat-room-list"], [data-testid="chat-room"]');
-    const shells = [...document.querySelectorAll('div')].filter(element =>
+    // Measured 2026-11-19: the shell is a direct child of shreddit-app (the page has ~3,000 divs; scanning them all on
+    // every feed change cost ~1 s per 12 s of scrolling).
+    const shells = [...document.querySelectorAll(shellCandidates)].filter(element =>
       element.shadowRoot?.querySelector('#resizable, button[aria-label="Maximize chat view"]'));
     const scopes = [...(direct ? [direct] : []), ...shells];
     return [...new Set(scopes.flatMap(roots))];
@@ -237,5 +250,5 @@
     messageHighlight=new Highlight(...ranges);CSS.highlights.set('rcs-message-match',messageHighlight);const current=messageHighlight;
     highlightTimer=setTimeout(()=>{if(CSS.highlights.get('rcs-message-match')===current)CSS.highlights.delete('rcs-message-match');},2400);
   }
-  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, query, queryAll, text, visible, conversation, chatListMetrics, searchToolbarHeight, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, revealMessage, scrollContainer});
+  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, chatNode, query, queryAll, text, visible, conversation, chatListMetrics, searchToolbarHeight, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, revealMessage, scrollContainer});
 })();
