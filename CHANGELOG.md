@@ -1,3 +1,10 @@
+# 0.45.0 preview
+
+- **Continue feed videos:** open the post for a native Reddit video you started in the feed and resume from the latest position with the same volume, mute setting and speed. The feed player can keep playing while the post loads. **Keep playing when opening a post** is on by default in the extension settings. Silent previews no longer have a badge.
+- **Live verification:** Brave desktop handed off a playing video at 14.40 seconds with 1.25× speed and sound preserved. Reddit can remove the old player before the new one is ready, so there may be a brief gap. Physical phones and live Firefox playback remain unverified.
+- **Version:** minor increment for feed-to-post playback continuation. No new extension permissions.
+- **Validation:** 1,893 tests passed. Firefox lint reported zero errors, notices and warnings. All 74 Chromium assets and 75 Firefox assets match their unpacked folders and ZIPs. Chromium SHA-256 `6369fa0227d2e5d4ce620a08f8b1f989cd6aa72cedd07500a0d94f14b55f450c`. Firefox SHA-256 `6e5abee7513eb931dd314597347dd33f62562b0793149e28706f030b7d98adbb`.
+
 # 0.44.0 preview
 
 - **Live subreddit Feed options:** sort, post type and flair share one menu. Sort includes Reddit’s Top time ranges when available. View and pagination continue to use Reddit’s controls. The local type filter follows newly loaded cards and pauses automatic loading after two consecutive empty continuations. Load more resumes the native pager.
