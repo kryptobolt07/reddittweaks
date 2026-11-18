@@ -719,3 +719,36 @@ html[data-rt-smooth-feed] shreddit-feed[data-rt-loading-owner]>[data-rt-skip]{co
 /* Before Reddit's script defines the post menu (slow connections), its light-DOM children render in place: keep the
    raffle item hidden until the menu can slot it into its closed popup. */
 shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{display:none!important}
+/* Phones: Feed options sheet shaped like Reddit's app (docs/feed-options-sheet-spec.md). */
+.rt-fsheet-root{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:flex-end;font-family:var(--font-sans,inherit);color:var(--color-neutral-content-strong,#0f1a1c)}
+.rt-fsheet-scrim{position:absolute;inset:0;background:rgba(0,0,0,.6)}
+.rt-fsheet{position:relative;box-sizing:border-box;width:100%;margin:0;max-height:88vh;display:flex;flex-direction:column;background:var(--color-neutral-background,#fff);border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0);box-shadow:0 -4px 16px rgba(0,0,0,.2);transform:translateY(100%);transition:transform .22s ease-out}
+.rt-fsheet-root[data-open] .rt-fsheet{transform:none}
+@media (prefers-reduced-motion:reduce){.rt-fsheet{transition:none}}
+.rt-fsheet-head{display:flex;align-items:center;gap:8px;padding:16px 16px 12px;border-bottom:1px solid var(--color-neutral-border-weak,#e5ebee)}
+.rt-fsheet-title{flex:1;min-width:0;margin:0;font-size:20px;line-height:28px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-fsheet-close,.rt-fsheet-back{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;flex:none;margin:0;padding:0;border:0;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:inherit;cursor:pointer}
+.rt-fsheet-back{background:transparent}.rt-fsheet-back[hidden]{display:none}
+.rt-fsheet-close:hover,.rt-fsheet-back:hover{background:var(--color-secondary-background-hover,#d9e0e3)}
+.rt-fsheet-body{overflow-y:auto;overscroll-behavior:contain;padding:4px 0 12px}
+.rt-fsheet-row{display:flex;align-items:center;gap:12px;box-sizing:border-box;width:100%;min-height:52px;margin:0;padding:8px 16px;border:0;background:none;color:inherit;font:inherit;font-size:16px;line-height:20px;text-align:start;text-decoration:none;cursor:pointer}
+.rt-fsheet-row:hover,.rt-fsheet-row:focus-visible{background:var(--color-neutral-background-hover,#f2f4f5);outline:none}
+.rt-fsheet-lead{display:inline-flex;width:20px;height:20px;flex:none;align-items:center;justify-content:center}.rt-fsheet-lead:empty{display:none}
+.rt-fsheet-lead svg{width:20px;height:20px}
+.rt-fsheet-copy{display:flex;flex-direction:column;min-width:0;flex:1}
+.rt-fsheet-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-fsheet-sub{font-size:14px;line-height:18px;color:var(--color-neutral-content-weak,#576f76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-fsheet-tail{display:inline-flex;flex:none}.rt-fsheet-tail:empty{display:none}
+.rt-fsheet-divider{height:1px;margin:8px 16px;border:0;background:var(--color-neutral-border-weak,#e5ebee)}
+.rt-fsheet-section{padding:8px 16px 4px;font-size:16px;line-height:20px;font-weight:600;color:var(--color-neutral-content-weak,#576f76)}
+.rt-fsheet-group{padding:4px 16px 8px}
+.rt-fsheet-group-title{padding:4px 0 8px;font-size:14px;line-height:18px;font-weight:600}
+.rt-fsheet-chips{display:flex;flex-wrap:wrap;gap:8px}
+.rt-fsheet-chip-heading{flex-basis:100%;padding-top:4px;font-size:12px;line-height:16px;color:var(--color-neutral-content-weak,#576f76)}
+.rt-fsheet-chip{display:inline-flex;align-items:center;gap:6px;min-height:36px;margin:0;padding:0 14px;border:1px solid var(--color-neutral-border,#c5cdd0);border-radius:999px;background:transparent;color:inherit;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.rt-fsheet-chip svg{width:16px;height:16px}
+.rt-fsheet-chip[aria-pressed="true"]{border-color:transparent;background:var(--color-secondary-background-selected,#d2dadd)}
+.rt-fsheet-chip:focus-visible{outline:2px solid var(--color-focus,#0045ac);outline-offset:1px}
+/* The community picker lent to the sheet uses the sheet's own Back. */
+.rt-fsheet .rt-sub-panel .rt-sub-back{display:none}
+.rt-fsheet .rt-sub-panel{padding:0 8px}

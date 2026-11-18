@@ -110,6 +110,7 @@
         "recent-searches.js",
         "community-icons.js",
         "feed-filters.js",
+        "feed-sheet.js",
         "removal-model.js",
         "native-removal.js",
         "post-discovery.js",
