@@ -66,6 +66,9 @@
    this.win.addEventListener('scroll',this.onScroll,{passive:true,capture:true});
    doc.addEventListener('click',this.onRemember,true);
    doc.addEventListener('reddit:route',this.onRoute);
+   // The page bridge reports a YouTube player that started (by its own controls, a preview or a continuation).
+   this.onEmbedPlaying=event=>{if(event.target?.matches?.(EMBED))this.exclusive(event.target);};
+   doc.addEventListener('rt-embed-playing',this.onEmbedPlaying);
    this.win.addEventListener('popstate',this.onBack);
    this.win.addEventListener('pagehide',this.onPageExit);
    this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onVisibility(entries),{threshold:[0,0.5,IN_VIEW,1]}):null;
@@ -494,14 +497,27 @@
   }
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
-   if(this.continued.has(video))return;
+   if(this.continued.has(video)){this.exclusive(video);return;}
    const preview=this.previews.get(player);
-   if(preview?.active && preview.video===video){preview.played=true;return;}
+   if(preview?.active && preview.video===video){preview.played=true;this.exclusive(video);return;}
    const userStarted=this.userStarted(player);
    if(userStarted){this.started.add(video);this.previews.delete(player);this.away.delete(player);}
    else this.started.delete(video);
    if(this.blocksAutoplay && !userStarted){this.block(player,video);return;}
    delete player.dataset.rtAutoplayBlocked;
+   this.exclusive(video);
+  }
+  // One video plays at a time, as on YouTube: whatever starts (a video, a preview, a YouTube player) pauses the rest.
+  // A video held for its post keeps playing; YouTube players are paused by the page bridge.
+  exclusive(source){
+   for(const player of this.players){
+    const video=this.video(player);
+    if(!video || video===source || video.paused || this.pending?.sourceVideo===video)continue;
+    if(this.previews.get(player)?.active && this.hovered===player){this.stopHover();continue;}
+    video.pause();
+   }
+   if(this.ePreview && this.ePreview.embed!==source)this.stopEmbed();
+   source.dispatchEvent(new this.win.Event('rt-media-exclusive',{bubbles:true,composed:true}));
   }
   block(player,video){
    if(this.previews.get(player)?.active)return;
@@ -590,7 +606,7 @@
    for(const type of ['pointerover','pointerout'])this.doc.removeEventListener(type,this.onHover,true);
    this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
    this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);
-   this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);
+   this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);
    this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
    this.clearHandoff();
   }
