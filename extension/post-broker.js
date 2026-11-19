@@ -488,8 +488,13 @@
     if(area!=='local' || !changes['rt-settings-v1'])return;
     cache.clear();titles.clear();commentContexts.clear();
     if(Model.normalizeSettings(changes['rt-settings-v1'].newValue).archiveDiscovery!==true){ownArchiveEpoch++;await ownMemo?.clear();}
-    for(const id of subscribers){
-      Promise.resolve(chrome.tabs?.sendMessage(id,{scope:'rt-posts',action:'settings-changed',settings:Model.normalizeSettings(changes['rt-settings-v1'].newValue)},{frameId:0})).catch(()=>subscribers.delete(id));
+    // Every open Reddit tab, looked up now: the worker sleeps after ~30 s idle and forgets the tabs that asked for
+    // settings, so a popup change made later never reached them until a reload (seen 2026-11-19).
+    const targets=new Set(subscribers);
+    try{for(const tab of await chrome.tabs?.query?.({url:['https://*.reddit.com/*','https://reddit.com/*']}) || [])if(Number.isInteger(tab.id))targets.add(tab.id);}catch{}
+    const settings=Model.normalizeSettings(changes['rt-settings-v1'].newValue);
+    for(const id of targets){
+      Promise.resolve(chrome.tabs?.sendMessage(id,{scope:'rt-posts',action:'settings-changed',settings},{frameId:0})).catch(()=>subscribers.delete(id));
     }
   });
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{

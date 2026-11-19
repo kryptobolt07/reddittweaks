@@ -51,10 +51,11 @@ test('lists the extension renders itself (profile search, archives) are smoothed
  const off=page(t,{path:'/user/someone/search/',html});const s2=new off.W.RTSmoothScroll.Smooth({readSettings:async()=>({smoothSearch:false}),observe:false});await s2.ready;assert.equal(off.io.observed.size,0,'the page’s option still governs');
 });
 
-test('phones keep eight screens drawn either way; a mouse keeps two',async t=>{
- for(const [coarse,margin] of [[true,'800%'],[false,'200%']]){
-  const {W,io}=page(t);W.matchMedia=q=>({matches:coarse && /hover: none|pointer: coarse/.test(q)});
+test('touch screens never skip drawing; a mouse keeps two screens drawn either way',async t=>{
+ for(const [coarse,observing] of [[true,false],[false,true]]){
+  const {W,d,io}=page(t);W.matchMedia=q=>({matches:coarse && /hover: none|pointer: coarse/.test(q)});io.options=null;
   const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>({}),observe:false});await s.ready;
-  assert.equal(io.options.rootMargin,margin+' 0px '+margin+' 0px');s.destroy();
+  assert.equal(Boolean(io.options),observing);if(observing)assert.equal(io.options.rootMargin,'200% 0px 200% 0px');
+  assert.equal(d.querySelectorAll('[data-rt-smooth]').length>0,observing,coarse?'phones leave Reddit’s posts alone':'desktop marks feed posts');s.destroy();
  }
 });
