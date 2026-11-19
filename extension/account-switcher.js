@@ -117,7 +117,7 @@
   render(menu,anchor,row,owner){
    const me=this.context(row,owner);
    const entry=this.row(row,{label:'Switch accounts',caption:'',lead:'switchAccount',tail:'next',run:async()=>{if(this.phone() && globalThis.RTFeedSheet)await this.openSheet(menu,entry);else this.openPanel(menu);return {ok:true,stay:true};}});
-   entry.dataset.rtUi='accounts';entry.dataset.owner=owner;entry.querySelector(':scope > a')?.setAttribute('aria-haspopup','menu');
+   entry.dataset.rtUi='accounts';entry.dataset.owner=owner;entry.querySelector(':scope > a')?.setAttribute('aria-haspopup',this.phone() && globalThis.RTFeedSheet?'dialog':'menu');
    const wrap=anchor.matches('faceplate-tracker')?(()=>{const w=document.createElement('div');w.className='contents';w.setAttribute('role','presentation');return w;})():null;
    if(wrap){wrap.dataset.rtUi='accounts';wrap.dataset.owner=owner;delete entry.dataset.rtUi;wrap.append(entry);anchor.after(wrap);}else anchor.after(entry);
    this.panels.set(menu,{...(this.panels.get(menu) || {}),source:row,me,open:this.panels.get(menu)?.open || false});
@@ -165,17 +165,20 @@
   // Phones: an Accounts sheet shaped like Reddit's app (accounts, Anonymous browsing, Add account) over Reddit's own
   // menu sheet, instead of swapping that sheet's content in place.
   async openSheet(menu,entry){
-   const state=this.panels.get(menu);if(!state?.source)return;const me=state.me,result=await this.load(menu,me);if(this.dead)return;
+   const state=this.panels.get(menu);if(!state?.source)return;
+   const me=state.me,drawer=menu.closest('rpl-bottom-sheet'),result=await this.load(menu,me);
+   if(this.dead || !entry.isConnected || signedIn()!==me.owner || drawer && !drawer.hasAttribute('open'))return;
    const ownAvatar=()=>{const node=state.source.querySelector('[avatar]');return node?node.cloneNode(true):null;};
    const circle=(name,plain=false)=>{const wrap=document.createElement('span');wrap.className='rt-account-glyph'+(plain?' rt-plain':'');wrap.append(icon(name));return wrap;};
-   globalThis.RTFeedSheet.open({title:'Accounts',returnFocus:entry.querySelector(':scope > a') || entry,build:(body,ui)=>{
+   this.accountSheet=globalThis.RTFeedSheet.open({title:'Accounts',modal:true,returnFocus:entry.querySelector(':scope > a') || entry,build:(_body,ui)=>{
     if(!result?.ok){ui.row({label:'Accounts unavailable',subtitle:result?.error || 'Reload this tab to retry.'});return;}
     for(const account of result.accounts){
      const current=!result.anonymous && account.owner===me.owner;
-     ui.row({label:'u/'+account.username,subtitle:account.expired?'Sign in again':account.private?'This private window':'',avatar:current && me.owner?(account.avatar || ownAvatar() || circle('switchAccount')):(account.avatar || circle('switchAccount')),selected:current,
+     ui.row({label:'u/'+account.username,subtitle:current?'Signed in':account.expired?'Sign in again':account.private?'This private window':'',avatar:current && me.owner?(account.avatar || ownAvatar() || circle('switchAccount')):(account.avatar || circle('switchAccount')),selected:current,
       confirm:account.expired && !current,busy:account.expired?'Opening Reddit sign-in…':'Switching…',onSelect:current?()=>({ok:true,stay:true}):account.expired?()=>this.add(me):()=>this.switchTo(account.owner,me.owner),keepOpen:current,
       action:current?{icon:icon('logout'),label:'Sign out of u/'+account.username+' here',confirm:true,busy:'Signing out here…',onSelect:()=>this.anonymousMode(me)}:null});
     }
+    ui.divider();
     ui.row({label:'Anonymous browsing',subtitle:result.anonymous?'Signed out here':'',avatar:circle('signedOut'),selected:result.anonymous===true,confirm:!result.anonymous,busy:'Signing out here…',keepOpen:result.anonymous===true,onSelect:result.anonymous?()=>({ok:true,stay:true}):()=>this.anonymousMode(me)});
     ui.row({label:'Add account',avatar:circle('add',true),confirm:true,busy:'Opening Reddit sign-in…',onSelect:()=>this.add(me)});
    }});
@@ -234,6 +237,7 @@
   anonymousMode(me){return this.send({action:'anonymous',from:me.owner,username:me.username,avatar:me.avatar});}
   destroy(){
    this.dead=true;this.observer.disconnect();document.removeEventListener('pointerdown',this.onPress,true);document.removeEventListener('keydown',this.onKey,true);
+   if(this.accountSheet?.root.isConnected)this.accountSheet.close();
    for(const menu of document.querySelectorAll(MENUS))this.closePanel(menu);for(const node of document.querySelectorAll('[data-rt-ui="accounts"],[data-rt-ui="accounts-panel"]'))node.remove();
   }
  }

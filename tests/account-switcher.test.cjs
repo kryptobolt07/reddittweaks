@@ -202,6 +202,24 @@ test('on phones Switch accounts opens an Accounts sheet: accounts (current check
  await open(d);await flush();const bob=[...d.querySelectorAll('.rt-fsheet-row')].find(r=>r.textContent.includes('u/bob'));bob.click();await flush();assert.deepEqual(sent.at(-1),{action:'switch',owner:'t2_bob',from:'t2_alice'});
  await open(d);await flush();const add=[...d.querySelectorAll('.rt-fsheet-row')].find(r=>r.textContent.includes('Add account'));add.click();await flush();assert.match(add.textContent,/Tap again/);add.click();await flush();assert.equal(sent.at(-1).action,'add');
 });
+test('the phone account drawer opens above the native menu as a modal and returns focus on dismiss',async t=>{
+ const {W,d}=await page(t,{menu:'hui-user-drawer-bottom-sheet'});W.eval(read('feed-sheet.js'));W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ let modal;W.HTMLDialogElement.prototype.showModal=function(){modal=this;this.setAttribute('open','');};
+ const opener=entry(d);
+ await open(d);
+ const sheet=d.querySelector('dialog[data-rt-ui="feed-sheet"][open]');
+ assert.ok(sheet);assert.equal(sheet,modal);assert.equal(d.getElementById(sheet.getAttribute('aria-labelledby')).textContent,'Accounts');
+ assert.ok(sheet.querySelector('.rt-fsheet-divider'));
+ d.querySelector('.rt-fsheet-close').click();
+ assert.equal(d.querySelector('[data-rt-ui="feed-sheet"]'),null);assert.equal(d.activeElement,opener);
+});
+test('a late phone account list cannot reopen the sheet after Reddit removes the opener',async t=>{
+ const {W,d,s}=await page(t,{menu:'hui-user-drawer-bottom-sheet'});W.eval(read('feed-sheet.js'));W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ const menu=d.querySelector('#hui-user-drawer-bottom-sheet');let finish;
+ s.load=()=>new Promise(resolve=>{finish=resolve;});
+ entry(d).click();menu.remove();finish({ok:true,accounts:[]});await flush();
+ assert.equal(d.querySelector('[data-rt-ui="feed-sheet"]'),null);
+});
 test('switching sends the current account; Browse signed out, Add account and expired accounts ask twice',async t=>{
  const {d,sent}=await page(t,{accounts:[{owner:'t2_alice',username:'alice',avatar:''},{owner:'t2_bob',username:'bob',avatar:''},{owner:'t2_carol',username:'carol',avatar:'',expired:true}]});await open(d);
  d.querySelector('[data-rt-ui="accounts-panel"] [data-owner="t2_bob"] a').click();await flush();assert.deepEqual(sent.at(-1),{action:'switch',owner:'t2_bob',from:'t2_alice'});assert.equal(d.querySelector('[data-owner="t2_bob"] .text-caption-1').textContent,'Switching…');

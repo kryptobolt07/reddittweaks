@@ -37,7 +37,7 @@ User request: switch between Reddit accounts easily, built into Reddit's own int
 | | Transition | Expected |
 |---|---|---|
 | T1 | Open the account menu (desktop) | Switch accounts row after View Profile |
-| T2 | Open the account menu (phone) | Same row and panel inside Reddit's bottom sheet; taps switch |
+| T2 | Open the account menu (phone) | The Switch accounts row opens a modal Accounts sheet above Reddit's drawer. Accounts and their actions are grouped above Anonymous browsing and Add account. |
 | T3 | Switch to a saved account | Current re-saved, cookies swapped, all Reddit tabs reload as the target |
 | T4 | Add account | Current saved, local session cleared, login page opens; next sign-in saved |
 | T5 | Switch to an expired session | Marked "Sign in again"; Add account flow instead |
@@ -45,7 +45,7 @@ User request: switch between Reddit accounts easily, built into Reddit's own int
 | T6 | Remove an account | Gone from both lists; nothing else changes |
 | T7 | Reddit re-renders the menu | Row re-inserted once, never duplicated; an open panel stays open |
 | T8 | Extension turned off / signed out | No Switch accounts row unless something is saved; saved accounts stay until removed |
-| T9 | Open Switch accounts, then Back / Escape / reopen the menu | Panel in place; Reddit's menu restored exactly |
+| T9 | Dismiss Switch accounts or close the original account menu while the list is loading | Dismiss returns focus to the row if it is still present. A late list does not reopen a sheet after Reddit removes or closes its menu. |
 | T10 | Private window: sign in, switch | Acts on the private store only; normal windows untouched |
 | T11 | Browse signed out, then switch back | Signed out here with accounts saved; switching restores the chosen account |
 
