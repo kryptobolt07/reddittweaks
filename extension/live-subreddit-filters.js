@@ -299,6 +299,8 @@
       document.addEventListener('keydown', this.onKeys, true);
       document.addEventListener('focusin', this.onFocus, true);
       window.addEventListener('scroll', this.onScroll, {passive:true});
+      this.phoneLayout=globalThis.matchMedia?.('(max-width: 767.98px)');
+      this.phoneLayout?.addEventListener?.('change',this.onRoute);
       this.refresh();
     }
 
@@ -512,13 +514,13 @@
     placeFeedControls() {
       this.readFeedSorts();
       const sort = this.main.querySelector(nativeFeedSort);
-      const rail = sort?.closest('div.flex.items-center');
+      const rail = !this.scope.owner || !isPhone() ? sort?.closest('div.flex.items-center') : null;
       const bar = this.toolbar;
       bar?.classList.toggle('rt-community-in-feed-rail',Boolean(rail));
       this.chips.toggleAttribute('data-rt-rail',Boolean(rail));
       if (rail) {
         if (bar.parentElement !== rail) rail.append(bar);
-      } else if (this.feed && bar.parentElement !== this.feed.parentElement) {
+      } else if (this.feed && bar.nextElementSibling !== this.feed) {
         this.feed.before(bar);
       }
     }
@@ -1407,6 +1409,7 @@
       document.removeEventListener('keydown',this.onKeys,true);
       document.removeEventListener('focusin',this.onFocus,true);
       window.removeEventListener('scroll',this.onScroll);
+      this.phoneLayout?.removeEventListener?.('change',this.onRoute);
     }
   }
 

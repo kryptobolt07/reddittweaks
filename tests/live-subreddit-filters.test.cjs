@@ -37,6 +37,18 @@ test('a custom feed uses the same sort and post options scoped to the owner and 
  const url=new URL(targets[0]);
  assert.equal(url.pathname,customPath+'top/');assert.equal(url.searchParams.get('t'),'day');assert.equal(url.searchParams.get('rt_type'),'video');
 });
+test('custom feed filters stay out of the mobile Feed and About tab rail',t=>{
+ const markup=customFeed().replace('<div class="flex items-center">','<div class="flex items-center" id="native-tabs"><a>Feed</a><a>About</a>');
+ const {D,W,controller}=setup(t,customPath+'?rt_type=video,image',markup);
+ W.matchMedia=()=>({matches:true});controller.refresh();
+ const rail=D.querySelector('#native-tabs'),bar=D.querySelector('.rt-community-controls'),chips=bar.querySelector('.rt-community-chips');
+ assert.equal(rail.contains(bar),false);
+ assert.equal(bar.nextElementSibling,D.querySelector('shreddit-feed'));
+ assert.equal(chips.hasAttribute('data-rt-rail'),false);
+ assert.equal(chips.hidden,false);
+ W.matchMedia=()=>({matches:false});controller.refresh();
+ assert.equal(bar.parentElement,rail,'desktop keeps the inline controls');
+});
 test('empty Enter opens the native custom-feed search and carries its active filters',t=>{
  const {D,W,targets}=setup(t,customPath+'?rt_nsfw=1',customFeed());
  const host=D.createElement('reddit-search-large');host.setAttribute('scope',JSON.stringify({type:'custom_feed',path:customPath}));D.body.prepend(host);
