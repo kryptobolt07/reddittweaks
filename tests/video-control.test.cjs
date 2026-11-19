@@ -14,6 +14,9 @@ function page(t,{owner='t2_alice',detail=false}={}){
  W.IntersectionObserver=class{constructor(cb,o){io.cb=cb;io.options=o;}observe(player){io.observed.push(player);}unobserve(player){io.unobserved.push(player);}disconnect(){}};
  const player=W.document.getElementById('p1'),root=player.attachShadow({mode:'open'});root.innerHTML='<button id="play" class="play-pause-button">Play</button><button id="mute" class="mute-button">Mute</button><button id="cc">Captions</button><video></video>';
  W.__rtVideoControlTest=true;W.eval(fs.readFileSync('extension/video-control.js','utf8'));
+ // Defaults are Reddit's behaviour; behaviour tests opt into the features they exercise unless they say otherwise.
+ const Raw=W.RTVideoControl;W.RTVideoControlRaw=Raw;
+ W.RTVideoControl={...Raw,Videos:class extends Raw.Videos{constructor(options={}){const read=options.readSettings;super({...options,readSettings:async()=>({videoStart:'hover',videoOpenPost:'continue',videoScrollAway:'pause',...(read?await read():{})})});}}};
  const video=root.querySelector('video'),start=()=>{video._playing=true;video.dispatchEvent(new W.Event('play'));};
  const click=(target,options)=>target.dispatchEvent(new W.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,...options}));
  const title=W.document.querySelector('[slot="title"]');W.document.addEventListener('click',event=>event.preventDefault());
@@ -28,22 +31,22 @@ test('Reddit’s autoplay preference is read from its settings page once per ses
  d.querySelector('shreddit-app').setAttribute('logged-in-user-id','t2_bob');assert.equal(await W.RTVideoControl.readAutoplayDisabled({doc:d,fetcher:async()=>({text:async()=>settingsHtml(false)}),store:storage}),false,'another account reads its own');
  d.querySelector('shreddit-app').setAttribute('user-logged-in','false');assert.equal(await W.RTVideoControl.readAutoplayDisabled({doc:d,fetcher,store:storage}),null,'signed out: nothing is enforced');
 });
-test('Like Reddit follows Reddit’s autoplay setting; On hover and When I press Play start nothing by themselves',async t=>{
+test('Autoplay (the default) follows Reddit’s autoplay setting; On hover and When I press Play start nothing by themselves',async t=>{
  const {W,d,player,root,video,start}=page(t);const v=new W.RTVideoControl.Videos({readSettings:async()=>({videoStart:'reddit'}),readPreference:async()=>true,observe:false});await v.ready;await flush();
  start();assert.equal(video.paused,true,'Reddit’s autoplay is stopped when its setting is off');assert.equal(player.dataset.rtAutoplayBlocked,'true');
  root.getElementById('play').dispatchEvent(new W.Event('pointerdown',{bubbles:true,composed:true}));start();assert.equal(video.paused,false,'your tap plays');
  const on=page(t);const v3=new on.W.RTVideoControl.Videos({readSettings:async()=>({videoStart:'reddit'}),readPreference:async()=>false,observe:false});await v3.ready;await flush();on.start();assert.equal(on.video.paused,false,'autoplay on in Reddit: kept');
  for(const settings of [{},{videoStart:'play'}]){
-  const p=page(t);let asked=0;const c=new p.W.RTVideoControl.Videos({readSettings:async()=>settings,readPreference:async()=>{asked++;return false;},observe:false});await c.ready;await flush();
+  const p=page(t);let asked=0;const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoStart:'hover',...settings}),readPreference:async()=>{asked++;return false;},observe:false});await c.ready;await flush();
   p.start();assert.equal(p.video.paused,true,JSON.stringify(settings)+': Reddit’s autoplay is stopped');assert.equal(asked,0,'Reddit’s preference is not read');
  }
 });
-test('the 0.46–0.47 video switches migrate to the new choices',()=>{
+test('video choices default to Reddit’s behaviour and only the old opt-ins carry over',()=>{
  const W=new JSDOM('',{runScripts:'outside-only'}).window;W.eval(fs.readFileSync('extension/post-model.js','utf8'));
  const n=raw=>{const all=W.RTPostModel.normalizeSettings(raw);return Object.fromEntries(Object.entries(all).filter(([k])=>k.startsWith('video')));};
- assert.deepEqual(JSON.parse(JSON.stringify(n({}))),{videoStart:'hover',videoStartTouch:'reddit',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'continue',videoScrollAway:'pause'});
- assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:false,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false,videoContinueOnOpen:false,videoPauseOffscreen:false}))),{videoStart:'reddit',videoStartTouch:'stop',videoPreviewClick:'here',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'reddit',videoScrollAway:'reddit'});
- assert.equal(n({videoStart:'play',videoPreviews:false}).videoStart,'play','a new choice wins over an old switch');
+ assert.deepEqual(JSON.parse(JSON.stringify(n({}))),{videoStart:'reddit',videoStartTouch:'reddit',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'reddit',videoScrollAway:'reddit'},'Reddit’s own behaviour by default');
+ assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:true,videoContinueOnOpen:true,videoPauseOffscreen:true,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false}))),{videoStart:'reddit',videoStartTouch:'stop',videoPreviewClick:'here',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'reddit',videoScrollAway:'reddit'},'only the old opt-ins carry over');
+ assert.equal(n({videoStart:'hover'}).videoStart,'hover');
  W.close();
 });
 test('a video Reddit started before the preference arrived is paused when it does',async t=>{
@@ -54,7 +57,7 @@ test('a playing video pauses once less than half of it is on screen, and stays p
  const {W,player,video,io}=page(t);const v=new W.RTVideoControl.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await v.ready;await flush();
  assert.deepEqual([...io.options.threshold],[0,0.5,0.6,1]);video._playing=true;
  io.cb([{target:player,intersectionRatio:0.8}]);assert.equal(video.paused,false);io.cb([{target:player,intersectionRatio:0.3}]);assert.equal(video.paused,true);assert.equal(player.dataset.rtPausedAway,'true');
- const off=page(t);const v2=new off.W.RTVideoControl.Videos({readSettings:async()=>({videoPauseOffscreen:false}),readPreference:async()=>false,observe:false});await v2.ready;off.video._playing=true;off.io.cb([{target:off.player,intersectionRatio:0}]);assert.equal(off.video.paused,false,'switch off');
+ const off=page(t);const v2=new off.W.RTVideoControl.Videos({readSettings:async()=>({videoScrollAway:'reddit'}),readPreference:async()=>false,observe:false});await v2.ready;off.video._playing=true;off.io.cb([{target:off.player,intersectionRatio:0}]);assert.equal(off.video.paused,false,'switch off');
 });
 test('a playing feed video carries its position into its post, and the scroll-away knob still pauses it',async t=>{
  const a=page(t);a.video.currentTime=12.5;a.video.muted=false;
@@ -66,14 +69,14 @@ test('a playing feed video carries its position into its post, and the scroll-aw
  const b=page(t,{detail:true});b.W.sessionStorage.setItem(continuationKey,saved);
  let plays=0;b.W.HTMLMediaElement.prototype.play=function(){plays++;this._playing=true;return Promise.resolve();};
  Object.defineProperty(b.video,'duration',{value:30,configurable:true});Object.defineProperty(b.video,'readyState',{value:1,configurable:true});
- const v=new b.W.RTVideoControl.Videos({readSettings:async()=>({videoContinueOnOpen:true}),readPreference:async()=>true,observe:false});await v.ready;await flush();
+ const v=new b.W.RTVideoControl.Videos({readSettings:async()=>({videoOpenPost:'continue'}),readPreference:async()=>true,observe:false});await v.ready;await flush();
  assert.equal(b.video.currentTime,13.75,'the post resumes at the position reached when the feed page left');assert.equal(b.video.muted,false);
  assert.ok(b.video.volume<0.4,'sound fades in');await new Promise(r=>setTimeout(r,260));assert.equal(b.video.volume,0.4);assert.equal(b.video.playbackRate,1.5);assert.equal(b.video._playing,true);assert.equal(plays,1);
  assert.equal(b.W.sessionStorage.getItem(continuationKey),null,'the handoff is used once');
  b.io.cb([{target:b.player,intersectionRatio:0.2}]);assert.equal(b.video.paused,false,'a post video plays on while partly visible');
  b.io.cb([{target:b.player,intersectionRatio:0}]);assert.equal(b.video.paused,true,'scrolling it fully away pauses it');
  const c=page(t,{detail:true});c.W.sessionStorage.setItem(continuationKey,saved);Object.defineProperty(c.video,'duration',{value:30,configurable:true});Object.defineProperty(c.video,'readyState',{value:1,configurable:true});
- const off=new c.W.RTVideoControl.Videos({readSettings:async()=>({videoContinueOnOpen:false}),readPreference:async()=>false,observe:false});await off.ready;await flush();assert.equal(c.video.currentTime,0,'switch off');
+ const off=new c.W.RTVideoControl.Videos({readSettings:async()=>({videoOpenPost:'reddit'}),readPreference:async()=>false,observe:false});await off.ready;await flush();assert.equal(c.video.currentTime,0,'switch off');
 });
 test('only opening the playing video’s own post in the same tab prepares continuation',async t=>{
  const p=page(t);
@@ -160,7 +163,7 @@ test('a post video pauses once fully out of view and resumes at the same time wh
  const f=page(t);const vf=new f.W.RTVideoControl.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await vf.ready;
  f.video._playing=true;f.io.cb([{target:f.player,intersectionRatio:0.3}]);f.io.cb([{target:f.player,intersectionRatio:1}]);
  assert.equal(f.video.paused,true,'feed videos pause at half and stay paused');
- const off=page(t,{detail:true});const vo=new off.W.RTVideoControl.Videos({readSettings:async()=>({videoPauseOffscreen:false}),readPreference:async()=>false,observe:false});await vo.ready;
+ const off=page(t,{detail:true});const vo=new off.W.RTVideoControl.Videos({readSettings:async()=>({videoScrollAway:'reddit'}),readPreference:async()=>false,observe:false});await vo.ready;
  off.video._playing=true;off.io.cb([{target:off.player,intersectionRatio:0}]);assert.equal(off.video.paused,false,'switch off');
 });
 test('the same playing media survives feed removal and moves into the detail slot without another play',async t=>{
