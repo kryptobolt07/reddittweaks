@@ -752,8 +752,7 @@ reddit-header-small [data-rt-home-search]{display:none}
     background:var(--color-neutral-background,#fff);
     transform:translateY(-100%);transition:transform .16s ease-out;pointer-events:none
   }
-  reddit-header-small[data-rt-home-nav="shown"]>header,
-  reddit-header-small[data-rt-home-nav]>header:focus-within{transform:none;pointer-events:auto}
+  reddit-header-small[data-rt-home-nav="shown"]>header{transform:none;pointer-events:auto}
   reddit-header-small[data-rt-home-nav] [data-rt-home-search]{display:inline-flex;width:40px;flex:none}
 }
 @media (prefers-reduced-motion:reduce){reddit-header-small[data-rt-home-nav]>header{transition:none}}

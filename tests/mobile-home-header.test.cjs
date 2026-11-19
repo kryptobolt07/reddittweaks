@@ -67,3 +67,13 @@ test('a native search trigger that hydrates after the header remains usable in c
  await new Promise(resolve=>setImmediate(resolve));
  assert.ok(D.querySelector('[data-rt-home-search]'));assert.equal(header().getAttribute(attr),'shown');
 });
+test('focus returning from the sidebar cannot pin the Home header during a downward scroll',t=>{
+ const {D,header,scroll}=fixture(t);
+ const menu=D.querySelector('#navbar-menu-button');
+ scroll(400);assert.equal(header().getAttribute(attr),'hidden');
+ menu.focus();assert.equal(header().getAttribute(attr),'shown','keyboard focus can reveal the header');
+ scroll(430);assert.equal(header().getAttribute(attr),'hidden');
+ assert.equal(D.activeElement,menu,'keep Reddit’s return focus');
+ const css=fs.readFileSync('extension/post-discovery.css','utf8');
+ assert.doesNotMatch(css,/reddit-header-small\[data-rt-home-nav\]>header:focus-within/);
+});
