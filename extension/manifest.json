@@ -127,6 +127,7 @@
         "own-removal.js",
         "viewed-history.js",
         "smooth-scroll.js",
+        "embed-player-hosts.js",
         "video-control.js",
         "account-switcher.js"
       ]
@@ -151,12 +152,22 @@
     "storage",
     "unlimitedStorage",
     "cookies",
+    "scripting",
     "declarativeNetRequestWithHostAccess"
   ],
   "background": {
     "service_worker": "cache-broker.js"
   },
   "version_name": "0.50.0 preview",
+  "optional_host_permissions": [
+    "https://www.redgifs.com/*",
+    "https://player.vimeo.com/*",
+    "https://vimeo.com/*",
+    "https://streamable.com/*",
+    "https://clips.twitch.tv/*",
+    "https://player.twitch.tv/*",
+    "https://cdn.embedly.com/*"
+  ],
   "host_permissions": [
     "https://arctic-shift.photon-reddit.com/*",
     "https://www.redditraffler.com/*",

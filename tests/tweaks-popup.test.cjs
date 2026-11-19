@@ -8,7 +8,7 @@ const html=fs.readFileSync(path.join(__dirname,'../extension/popup.html'),'utf8'
 const script=fs.readFileSync(path.join(__dirname,'../extension/popup.js'),'utf8');
 const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
 
-function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,storedTab,mirror,touch=false}={}){
+function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,storedTab,mirror,touch=false,embedAccess}={}){
   const dom=new JSDOM(html,{runScripts:'outside-only',url:'https://extension.test/popup.html'}),w=dom.window;t.after(w.close.bind(w));if(storedTab)w.localStorage.setItem('rt-popup-tab',storedTab);if(mirror)w.localStorage.setItem('rt-settings-mirror-v1',JSON.stringify(mirror));
   const frames=[];
   w.requestAnimationFrame=callback=>frames.push(callback);
@@ -18,9 +18,24 @@ function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,stored
     async get(key){reads.push(key);if(storageFailure)throw Error('storage read failed');return {[key]:state[key]};},
     async set(values){if(storageFailure)throw Error('storage write failed');Object.assign(state,values);}
   }},runtime:{async sendMessage(request){messages.push(request);if(runtimeFailure)throw Error('runtime failed');return request.action==='stats'?{ok:true,stats:{messages:42,rooms:3,approxBytes:2048}}:{ok:true};}}};
-  w.chrome.tabs=tabs;w.eval(script);
+  w.chrome.tabs=tabs;Object.assign(w.chrome,embedAccess);
+  w.eval(fs.readFileSync(path.join(__dirname,'../extension/embed-player-hosts.js'),'utf8'));w.eval(script);
   return {w,state,messages,reads,paint(){for(const callback of frames.splice(0))callback();}};
 }
+
+test('the popup registers direct player access only on Enable and saves link scope separately',async t=>{
+  let granted=false,registered=[],requests=0;
+  const p=popup(t,{embedAccess:{permissions:{contains:async()=>granted,request:async()=>{requests++;return (granted=true);},remove:async()=>{granted=false;}},scripting:{
+    getRegisteredContentScripts:async()=>registered,registerContentScripts:async scripts=>{registered=scripts;},unregisterContentScripts:async()=>{registered=[];}
+  }}});
+  await settle();const {document}=p.w,button=document.querySelector('#direct-embed-controls');
+  assert.equal(requests,0);assert.equal(button.textContent,'Enable');
+  document.querySelector('#embed-block-links').click();document.querySelector('#embed-block-links-menu [data-value="both"]').click();await settle();
+  assert.equal(p.state['rt-settings-v1'].embedBlockLinks,'both');assert.equal(requests,0);
+  button.click();await settle();assert.equal(requests,1);assert.equal(button.textContent,'Disable');
+  assert.ok(registered[0].matches.includes('https://www.redgifs.com/ifr/*'));assert.equal(registered[0].allFrames,true);
+  button.click();await settle();assert.equal(granted,false);assert.equal(registered.length,0);assert.equal(p.state['rt-settings-v1'].embedBlockLinks,'both');
+});
 
 test('Reddit Tweaks popup loads defaults and persists individual changes while preserving other settings',async t=>{
   const p=popup(t);await settle();
