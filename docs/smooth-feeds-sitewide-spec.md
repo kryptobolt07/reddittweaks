@@ -38,3 +38,16 @@ A 45 s recording of the user flicking through the feed: the page's main thread w
 - Settings changes now reach every open Reddit tab (the worker had kept the tabs to notify in memory, lost whenever it slept), so switching this off in the popup applies at once; confirmed live: 224 marked posts → 0 without a reload.
 - The own-removal scan runs at most every 300 ms and keeps the signed-in name for 2 s per route; it clears badges only when it painted some.
 - The profile-feed sync returns at once outside profile pages.
+- Re-test with the caches below in place, skipping forced back on for touch (2 screens): 54 of 143 moving frames (37.8 %) at least half blank against 1 of 72 (1.4 %) without. Touch screens stay unskipped.
+
+## Reddit's own costs (read from its client code, phone feed 2026-11-19)
+
+- Analytics builds an event for every post that comes into view and for every UI impression (`faceplate-track`); each event reads `innerWidth`/`innerHeight` (a forced layout each) and re-parses the page's `shreddit-screenview-data` JSON.
+- The ad viewability tracker reads `--shreddit-header-height` with `getComputedStyle(shreddit-app)` for every ad post, including ones a type filter hides (2.8 s of 46 s).
+- "Read more" measures every text post's body height (a forced layout), including hidden ones (1.7 s).
+- Reddit's feed virtualizer moves top-level batches more than a screen plus 1,000 px above the viewport into a memory stack and back.
+- While smooth scrolling is on (`html[data-rt-smooth-site]`), the page bridge answers `innerWidth`/`innerHeight` from a value refreshed on resize, and that one header-height property from a value re-read at most once a second. The window-size cache alone took the phone feed from 2.1 to 3.2 frames per second, with Reddit's script time down about a third.
+- Type-filtered feeds let Reddit swap batches out only beyond about ten screens (keeping every card mounted grew the page to ~73,000 elements).
+- Not changed: analytics events themselves (a privacy choice left to the user), Sentry's error wrapper, the 98 document `pointermove` listeners (one cheap early-returning handler each).
+- YouTube's phone feed for comparison: about 4,600 elements against 73,000, no shadow roots, 24 scripts against 694, 23.7 fps; it does not shape scrolling (no snap, overscroll or touch-action rules, no blocking touch handlers).
+

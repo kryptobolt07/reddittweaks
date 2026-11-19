@@ -2,6 +2,41 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.RTPostModel)return;
+  // Window size reads. Reddit's analytics reads innerWidth/innerHeight for every post that comes into view, and each
+  // read forces a full layout of the page (measured on a phone feed 2026-11-19: 3–10 s of 45 s of scrolling). While
+  // smooth scrolling is on (html[data-rt-smooth-site], set by smooth-scroll.js) they answer from a value read once
+  // and refreshed on every resize; with a cache, Reddit's script time fell by about a third and frames rose 2.1 → 3.2/s.
+  const fastPage=()=>Boolean(document.documentElement?.hasAttribute('data-rt-smooth-site'));
+  (()=>{
+    const keys=['innerWidth','innerHeight'],real={};
+    for(const key of keys){const d=Object.getOwnPropertyDescriptor(window,key);if(!d?.get || !d.configurable)return;real[key]=d;}
+    const cache={};let stale=true;
+    const on=fastPage;
+    addEventListener('resize',()=>{stale=true;},true);window.visualViewport?.addEventListener?.('resize',()=>{stale=true;});
+    for(const key of keys)Object.defineProperty(window,key,{configurable:true,enumerable:real[key].enumerable,
+      get(){if(!on())return real[key].get.call(window);if(stale){for(const k of keys)cache[k]=real[k].get.call(window);stale=false;}return cache[key];},
+      set:real[key].set?function(value){real[key].set.call(window,value);}:undefined});
+  })();
+  // Reddit's ad viewability tracker reads --shreddit-header-height from shreddit-app's computed style for every ad post
+  // it sets up (also ads a type filter hides); each read forces a style recalculation of the whole page (2.8 s of 46 s,
+  // phone feed 2026-11-19). While smooth scrolling is on, that one property of that one element answers from a value
+  // re-read at most once a second; every other read goes to the real style.
+  (()=>{
+    const real=window.getComputedStyle;if(typeof real!=='function')return;
+    let header={value:null,at:-Infinity};
+    window.getComputedStyle=function(element,pseudo){
+      const style=real.call(window,element,pseudo);
+      if(pseudo || element?.localName!=='shreddit-app' || !fastPage())return style;
+      return new Proxy(style,{get(target,prop){
+        if(prop==='getPropertyValue')return name=>{
+          if(name!=='--shreddit-header-height')return target.getPropertyValue(name);
+          const now=performance.now();if(header.value===null || now-header.at>1000)header={value:target.getPropertyValue(name),at:now};
+          return header.value;
+        };
+        const value=Reflect.get(target,prop,target);return typeof value==='function'?value.bind(target):value;
+      }});
+    };
+  })();
   function publicBrowserRead(url,signal,refresh=false){
     if(!globalThis.RTPublicBrowser)throw Error('Reddit blocked logged-out search (HTTP 403).');
     return RTPublicBrowser.read(url,{signal,refresh});
@@ -367,8 +402,9 @@
   // Type-filtered community feeds (rt_type): Reddit swaps out a whole batch once it is a screen above the viewport,
   // and a batch that shows one or two cards comes and goes far more often. Each return makes Reddit rebuild its
   // embeds (shreddit-embed drops its content on disconnect: a new lite-youtube, thumbnail loaded again, a playing
-  // YouTube video lost). Keep those cards mounted; the hidden ones cost no layout.
-  const keptFeeds=new WeakSet(),typeFiltered=()=>new URLSearchParams(location.search).has('rt_type');
+  // YouTube video lost). Keeping every card mounted instead grew a phone feed to ~73,000 elements (2026-11-19), so
+  // Reddit still swaps cards out, but only beyond about ten screens.
+  const keptFeeds=new WeakSet(),typeFiltered=()=>new URLSearchParams(location.search).has('rt_type'),FILTERED_SCREENS=9;
   function keepFilteredFeeds(){
     for(const feed of document.querySelectorAll('shreddit-feed')){
       const controller=feed.virtualization;
@@ -376,7 +412,7 @@
       keptFeeds.add(controller);
       const native=controller._virtualizeTop;
       controller._virtualizeTop=function(distance){
-        if(typeFiltered() && !ownedFeed(this.host)){if(this.topStack.length)releaseFeed(this);return;}
+        if(typeFiltered() && !ownedFeed(this.host))return native.call(this,distance-FILTERED_SCREENS*(window.innerHeight || 800));
         return native.call(this,distance);
       };
     }
