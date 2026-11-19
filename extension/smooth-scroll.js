@@ -32,12 +32,11 @@
  class Smooth{
   constructor({doc=document,readSettings,observe=true}={}){
    this.doc=doc;this.settings=null;this.dead=false;this.observed=new Set();this.pending=new Set();this.frame=0;
-   // A touch flick travels several screens before the page's script gets a turn (measured on a phone-emulated feed
-   // 2026-11-19: up to 900 ms without a frame and whole screens of skipped posts), so phones keep 8 screens drawn
-   // either way; a mouse wheel keeps 2.
-   const touch=Boolean(globalThis.matchMedia?.('(hover: none), (pointer: coarse)')?.matches),margin=touch?'800%':'200%';
-   this.margin=margin;
-   this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onIntersect(entries),{rootMargin:margin+' 0px '+margin+' 0px'}):null;
+   // Touch screens do not skip anything. Measured on a phone-emulated Videos feed (2026-11-19, the user flicking, 45 s
+   // each way): skipping left 8.8 % of frames at least half blank against 1.0 % without it, and gained no frame rate
+   // (3.0 vs 2.1 fps, the main thread saturated by Reddit either way): a flick outruns the redraw.
+   this.touch=Boolean(globalThis.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);
+   this.io=typeof IntersectionObserver==='function' && !this.touch?new IntersectionObserver(entries=>this.onIntersect(entries),{rootMargin:'200% 0px 200% 0px'}):null;
    this.mo=observe?new MutationObserver(records=>{for(const r of records)for(const node of r.addedNodes)if(node.nodeType===1)this.pending.add(node);this.schedule();}):null;
    this.mo?.observe(doc.documentElement,{childList:true,subtree:true});
    this.onRoute=()=>this.rescan();addEventListener('popstate',this.onRoute);

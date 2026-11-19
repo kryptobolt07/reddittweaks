@@ -469,7 +469,8 @@
   /* Smooth long feeds (setting, default on): a post more than two screens away gets content-visibility:hidden at its
      measured height (CSS [data-rt-skip]), so the browser skips laying it out and painting it, and draws it again as it
      comes within two screens. Posts near the screen are never contained, so their menus and pop-ups work. */
-  const smoothFeed=()=>document.documentElement.hasAttribute('data-rt-smooth-feed');
+  // Touch screens never skip drawing (see smooth-scroll.js: it left blank screens during flicks without gaining speed).
+  const smoothFeed=()=>document.documentElement.hasAttribute('data-rt-smooth-feed') && !window.matchMedia?.('(hover: none), (pointer: coarse)')?.matches;
   const skipObserver=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{
     const on=smoothFeed();
     for(const entry of entries){const node=entry.target,height=Math.round(entry.boundingClientRect?.height || 0);

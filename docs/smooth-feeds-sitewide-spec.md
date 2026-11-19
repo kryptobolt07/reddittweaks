@@ -34,6 +34,7 @@ User request: extend "Smooth long feeds" (profiles only, `docs`/0.42.0) to the r
 
 A 45 s recording of the user flicking through the feed: the page's main thread was busy 45.7 s of 45.9 s; 101 of 273 frames were at least half blank, almost all of it posts this feature had skipped drawing; 132 frame gaps were over 120 ms (longest 904 ms). Our share: the own-removal scan ran on every frame (~5.8 s), the profile-feed sync check ran on every scroll event on every page (~1.3 s). Reddit's own code forced layout for ~7.8 s.
 
-- Phones (`(hover: none), (pointer: coarse)`) keep 8 screens drawn either way (desktop 2), because a flick travels several screens before the page's script gets a turn.
+- Phones (`(hover: none), (pointer: coarse)`) do not skip anything, on feeds or extension-owned profile feeds. A/B with the user flicking 45 s each way on the same feed: skipping on, 12 of 136 frames (8.8 %) at least half blank, 3.0 fps; off, 1 of 98 (1.0 %), 2.1 fps; the main thread was saturated by Reddit and native rendering either way (49.8 of 51.5 s and 47.0 of 49.0 s busy), so skipping bought no speed. A wider 8-screen margin was tried first and still left blank screens.
+- Settings changes now reach every open Reddit tab (the worker had kept the tabs to notify in memory, lost whenever it slept), so switching this off in the popup applies at once; confirmed live: 224 marked posts → 0 without a reload.
 - The own-removal scan runs at most every 300 ms and keeps the signed-in name for 2 s per route; it clears badges only when it painted some.
 - The profile-feed sync returns at once outside profile pages.

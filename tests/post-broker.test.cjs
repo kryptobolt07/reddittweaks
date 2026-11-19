@@ -5,7 +5,7 @@ const row=(extra={})=>({id:'abc12',author:'Example',created_utc:1700000000,selft
 function env({fetcher,settings={postDiscovery:true,archiveDiscovery:true},fastTimeout=false,session}={}){
  let listener,settingsListener,calls=[],stored=settings,notifications=[];
  const context=vm.createContext({URL,AbortController,Date,console,setTimeout:fastTimeout?(fn)=>setTimeout(fn,5):setTimeout,clearTimeout,
- chrome:{runtime:{id:'own',onMessage:{addListener(fn){listener=fn;}}},storage:{...(session?{session:{async get(key){return {[key]:session[key]};},async set(values){Object.assign(session,JSON.parse(JSON.stringify(values)));}}}:{}),onChanged:{addListener(fn){settingsListener=fn;}},local:{async get(){return {'rt-settings-v1':stored};}}},tabs:{async sendMessage(...args){notifications.push(args);}}},
+ chrome:{runtime:{id:'own',onMessage:{addListener(fn){listener=fn;}}},storage:{...(session?{session:{async get(key){return {[key]:session[key]};},async set(values){Object.assign(session,JSON.parse(JSON.stringify(values)));}}}:{}),onChanged:{addListener(fn){settingsListener=fn;}},local:{async get(){return {'rt-settings-v1':stored};}}},tabs:{async sendMessage(...args){notifications.push(args);},async query(){return (globalThis.__openRedditTabs || []).map(id=>({id}));}}},
  fetch:async(...args)=>{calls.push(args);return fetcher?fetcher(...args):response([row()]);}});
  for(const file of ['post-model.js','post-broker.js'])vm.runInContext(fs.readFileSync('extension/'+file,'utf8'),context);
  return {calls,notifications,changeSettings(value){stored=value;settingsListener({'rt-settings-v1':{newValue:value}},'local');},setSettings(value){stored=value;},send(message={},sender={}){return new Promise(resolve=>{const result=listener({scope:'rt-posts',action:'archive-profile',username:'Example',...message},{id:'own',frameId:0,url:'https://www.reddit.com/user/Example/',...sender},resolve);if(result!==true)resolve(undefined);});}};
@@ -88,6 +88,12 @@ test('settings changes reach registered Reddit tabs without exposing trusted cha
  assert.equal(e.notifications.length,1);assert.equal(e.notifications[0][0],5);const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoStart:'hover',videoStartTouch:'reddit',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'continue',videoScrollAway:'pause'}});
 });
 
+test('settings changes reach every open Reddit tab, even after the worker forgot who asked',async()=>{
+ const e=env();globalThis.__openRedditTabs=[7,8];
+ try{e.changeSettings({smoothFeeds:false});await new Promise(r=>setImmediate(r));await new Promise(r=>setImmediate(r));
+  assert.deepEqual(e.notifications.map(n=>n[0]).sort(),[7,8]);assert.equal(e.notifications[0][1].settings.smoothFeeds,false);}
+ finally{delete globalThis.__openRedditTabs;}
+});
 test('archive author requests allow same-profile SPA tabs while rejecting other profiles and unsupported pages',async()=>{
  const e=env();
  for(const suffix of ['submitted/','comments/','']){
