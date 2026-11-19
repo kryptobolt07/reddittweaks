@@ -28,7 +28,8 @@
  }
  function frameMessage(kind,method){
   if(kind==='playerjs')return JSON.stringify({context:'player.js',version:'0.0.11',method});
-  if(kind==='vimeo')return JSON.stringify(method==='mute'?{method:'setVolume',value:0}:method==='unmute'?{method:'setVolume',value:1}:{method});
+  // Vimeo keeps muted apart from volume: a player loaded with muted=1 stays silent at any volume until setMuted(false).
+  if(kind==='vimeo')return method==='mute'?[JSON.stringify({method:'setMuted',value:true})]:method==='unmute'?[JSON.stringify({method:'setMuted',value:false}),JSON.stringify({method:'setVolume',value:1})]:JSON.stringify({method});
   if(kind==='youtube')return JSON.stringify({event:'command',func:{play:'playVideo',pause:'pauseVideo',mute:'mute',unmute:'unMute'}[method],args:[]});
   return '';
  }
@@ -57,6 +58,10 @@
   }
   return frame;
  }
+ const youTubeLite=embed=>embed?.shadowRoot?.querySelector?.('lite-youtube') || null;
+ // A player reloaded to start by itself may play sound only if its frame is allowed to autoplay (Reddit's Embedly
+ // frames are; a RedGIFs one may not be). The permission applies from its next load.
+ function allowAutoplay(frame){const allow=frame.getAttribute('allow') || '';if(!/(^|;)\s*autoplay\b/.test(allow))frame.setAttribute('allow',(allow.trim()?allow.trim().replace(/;?$/,'; '):'')+'autoplay; fullscreen; picture-in-picture');}
  const posterOK=url=>typeof url==='string' && url.length<=2048 && /^https:\/\/[^\s"'()\\]+$/.test(url);
  async function readPosters(ids){
   const response=await fetch('/api/info.json?raw_json=1&id='+ids.map(encodeURIComponent).join(','),{credentials:'include',headers:{Accept:'application/json'}});
@@ -154,7 +159,7 @@
      if(frame.contentWindow!==event.source)continue;
      const kind=frameEvent(state.kind,event.data);
      if(kind==='ready'){if(!state.readySeen){state.readySeen=true;for(const data of state.queue.splice(0))this.post(frame,data);this.subscribe(frame,state);}}
-     if(kind==='play'){let embed=frame.getRootNode()?.host;if(embed && !embed.matches(ANY_EMBED))embed=embed.getRootNode()?.host;if(embed?.matches?.(ANY_EMBED) && this.ePreview?.embed!==embed){embed.dataset.rtEmbedUsed='1';this.exclusive(embed);}}
+     if(kind==='play'){state.played=true;let embed=frame.getRootNode()?.host;if(embed && !embed.matches(ANY_EMBED))embed=embed.getRootNode()?.host;if(embed?.matches?.(ANY_EMBED) && this.ePreview?.embed!==embed){embed.dataset.rtEmbedUsed='1';this.exclusive(embed);}}
      return;
     }
    };
@@ -344,8 +349,9 @@
   // Sends now and again once the player says it is ready (commands before that are dropped by these players).
   command(frame,method){
    const state=this.frameState(frame);if(state.kind==='flags')return false;
-   const data=frameMessage(state.kind,method);this.post(frame,data);
-   state.queue.push(data);if(state.queue.length>4)state.queue.shift();
+   if(method==='play')state.played=true;
+   for(const data of [].concat(frameMessage(state.kind,method))){this.post(frame,data);state.queue.push(data);}
+   while(state.queue.length>4)state.queue.shift();
    // Embedly relays player.js only for some providers: a player that never answers is driven by address flags instead.
    if(state.kind==='playerjs' && !state.readySeen && !state.probe){
     state.probe=true;
@@ -359,31 +365,63 @@
    }
    return true;
   }
-  // Players with no control protocol (RedGIFs plays itself, muted and looping, as soon as it loads) are unloaded while
-  // they are not the one chosen to play, behind a play button that loads them again.
-  // Like Reddit's own YouTube and Vimeo placeholders: the post's preview image with a play button stands in for the
-  // player until it is the one chosen to play (Autoplay, a preview, or a tap), so it never downloads or plays unseen.
+  // Like Reddit's own YouTube and Vimeo placeholders: the post's preview image with a play button stands in for a
+  // player that is not the one chosen to play. A player with no control protocol (RedGIFs plays itself, muted and
+  // looping, as soon as it loads) is also unloaded, so it never downloads or plays unseen; one with controls stays
+  // loaded and paused under the image (as YouTube's phone feed returns to the thumbnail), so it resumes where it was.
   park(embed,frame){
    if(frame.dataset.rtParked)return;
    frame.dataset.rtSrc=frame.getAttribute('src') || '';frame.dataset.rtParked='1';frame.setAttribute('src','about:blank');
-   const root=embed.shadowRoot;if(!root || root.querySelector('[data-rt-parked-cover]'))return;
+   this.cover(embed,false);
+  }
+  cover(embed,loaded){
+   const root=embed.shadowRoot;if(!root)return;
+   const old=root.querySelector('[data-rt-parked-cover]');if(old){if(!loaded)delete old.dataset.rtLoaded;return;}
    if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
    const cover=this.doc.createElement('div');cover.dataset.rtParkedCover='';cover.setAttribute('role','button');cover.setAttribute('aria-label','Play');cover.tabIndex=0;
-   Object.assign(cover.style,{position:'absolute',inset:'0',zIndex:'4',cursor:'pointer',background:'#000 center / cover no-repeat',display:'flex',alignItems:'center',justifyContent:'center'});
+   if(loaded)cover.dataset.rtLoaded='';
+   Object.assign(cover.style,{position:'absolute',inset:'0',zIndex:'4',cursor:'pointer',background:(loaded?'transparent':'#000')+' center / cover no-repeat',display:'flex',alignItems:'center',justifyContent:'center'});
    const play=this.doc.createElement('span');play.dataset.rtParkedPlay='';
    Object.assign(play.style,{width:'56px',height:'56px',borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center'});
    play.innerHTML='<svg viewBox="0 0 20 20" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M6 3.8v12.4a.8.8 0 0 0 1.2.7l10-6.2a.8.8 0 0 0 0-1.4l-10-6.2A.8.8 0 0 0 6 3.8Z"/></svg>';
    cover.append(play);
-   const start=event=>{event.preventDefault();event.stopPropagation();this.stopEmbed();embed.dataset.rtEmbedUsed='1';this.unpark(embed,frame);this.exclusive(embed);};
+   const start=event=>{event.preventDefault();event.stopPropagation();this.playCovered(embed);};
    cover.addEventListener('click',start);cover.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ')start(event);});
    root.append(cover);
    this.paintPoster(embed);
+  }
+  uncover(embed){embed.shadowRoot?.querySelector('[data-rt-parked-cover]')?.remove();}
+  // A tap on the image plays that player with sound, as its own play button would.
+  playCovered(embed){
+   if(this.ePreview?.embed!==embed)this.stopEmbed();
+   else{const preview=this.ePreview;this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);}
+   embed.dataset.rtEmbedUsed='1';
+   const frame=controlFrame(embed);
+   if(frame?.dataset.rtParked)this.unpark(embed,frame);
+   else{
+    this.uncover(embed);
+    if(embed.matches(EMBED)){const lite=youTubeLite(embed);if(lite && !lite.classList.contains('lyt-activated'))lite.click();else embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));}
+    else if(frame){this.command(frame,'unmute');this.command(frame,'play');}
+   }
+   this.exclusive(embed);
+  }
+  // A feed player that stops being the one playing goes back to its image: unloaded if it has no controls, paused
+  // underneath otherwise.
+  rest(embed){
+   if(!this.feedEmbed(embed) || this.ePreview?.embed===embed)return;
+   if(embed.matches(EMBED)){if(youTubeLite(embed)?.querySelector('iframe')){delete embed.dataset.rtEmbedUsed;this.cover(embed,true);}return;}
+   const frame=controlFrame(embed);if(!frame)return;
+   delete embed.dataset.rtEmbedUsed;
+   if(this.frameState(frame).kind==='flags')this.park(embed,frame);
+   else if(!frame.dataset.rtParked)this.cover(embed,true);
   }
   paintPoster(embed){
    const cover=embed.shadowRoot?.querySelector('[data-rt-parked-cover]'),id=embed.closest('shreddit-post')?.id;if(!cover || !id)return;
    const url=this.posters.get(id);
    if(url)cover.style.backgroundImage='url("'+url+'")';
-   else if(!this.posters.has(id)){this.posterWanted.add(id);this.win.clearTimeout(this.posterTimer);this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);}
+   // No image for a loaded player: its paused picture shows instead.
+   else if(this.posters.has(id)){if('rtLoaded' in cover.dataset)cover.remove();}
+   else{this.posterWanted.add(id);this.win.clearTimeout(this.posterTimer);this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);}
   }
   // The posts' preview images, from Reddit's own read-only post data (one request for up to 100 posts).
   async loadPosters(){
@@ -405,7 +443,7 @@
   unpark(embed,frame,src){
    if(!frame.dataset.rtParked)return false;
    const original=frame.dataset.rtSrc || '';delete frame.dataset.rtParked;delete frame.dataset.rtSrc;
-   embed.shadowRoot?.querySelector('[data-rt-parked-cover]')?.remove();
+   this.uncover(embed);allowAutoplay(frame);
    frame.setAttribute('src',src || original);return true;
   }
   // Which uncontrollable feed players may stay loaded: the one previewing and one you started.
@@ -443,6 +481,7 @@
    const {embed}=preview;
    if(this.ePreview!==preview || this.doc.hidden || !embed.isConnected)return;
    embed.dataset.rtEmbedPreview='on';
+   if(embed.shadowRoot?.querySelector('[data-rt-parked-cover][data-rt-loaded]'))this.uncover(embed);
    let host;
    if(embed.matches(EMBED)){
     if(embed.dispatchEvent(new this.win.Event('rt-embed-preview',{bubbles:true,cancelable:true}))){this.stopEmbed();return;}
@@ -452,7 +491,7 @@
     const kind=this.frameState(frame).kind;
     preview.frame={frame,src,kind,position:embed.style.position};
     // A player with a control protocol starts muted in place; others load with the provider's own flags.
-    if(kind==='flags'){if(!this.unpark(embed,frame,flagged(src,false)))frame.setAttribute('src',flagged(src,false));}
+    if(kind==='flags'){if(!this.unpark(embed,frame,flagged(src,false))){allowAutoplay(frame);frame.setAttribute('src',flagged(src,false));}}
     else{this.command(frame,'mute');this.command(frame,'play');}
     // The layer sits in the embed's shadow root over its iframe.
     if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
@@ -491,7 +530,7 @@
    if(preview.frame){this.restoreHost(preview);if(sound)this.frameSound(preview.frame);return;}
    if(sound)preview.embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
   }
-  frameSound({frame,src,kind}){if(kind==='flags')frame.src=flagged(src,true);else{this.command(frame,'unmute');this.command(frame,'play');}}
+  frameSound({frame,src,kind}){if(kind==='flags'){allowAutoplay(frame);frame.src=flagged(src,true);}else{this.command(frame,'unmute');this.command(frame,'play');}}
   restoreHost(preview){if(preview.frame)preview.embed.style.position=preview.frame.position || '';}
   stopEmbed(){
    const preview=this.ePreview;if(!preview)return;
@@ -502,13 +541,13 @@
     this.restoreHost(preview);
     const {frame,src,kind}=preview.frame;
     if(preview.active && frame.isConnected){
-     if(kind!=='flags'){this.command(frame,'pause');this.command(frame,'unmute');}
+     if(kind!=='flags'){this.command(frame,'pause');this.command(frame,'unmute');this.rest(preview.embed);}
      else if(this.feedEmbed(preview.embed)){frame.setAttribute('src',src);this.park(preview.embed,frame);}
      else frame.setAttribute('src',src);
     }
     return;
    }
-   if(preview.active)preview.embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
+   if(preview.active){preview.embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));this.rest(preview.embed);}
   }
   // Opening a post whose YouTube embed plays (or previews) continues it in the post's embed at the same second.
   rememberEmbed(embed,id){
@@ -517,7 +556,9 @@
    if(!embed.matches(EMBED)){
     if(!preview && embed.dataset.rtEmbedUsed!=='1')return false;
     if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);
-     if(this.unmutePreview)this.frameSound(preview.frame);}
+     // A player with controls gets its sound now, during the tap. One without (RedGIFs) could only get it by reloading,
+     // which starts it over: it carries on at the same moment instead, and its own sound button works in the post.
+     if(this.unmutePreview && preview.frame.kind!=='flags')this.frameSound(preview.frame);}
     this.clearEmbedHandoff();
     const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
     if(!held)return false;
@@ -749,7 +790,8 @@
    }
    if(this.ePreview && this.ePreview.embed!==source)this.stopEmbed();
    for(const [frame,state] of this.frames)if(state.kind!=='flags' && frame.isConnected && frame.getRootNode()?.host!==source && frame.getRootNode()?.host?.getRootNode?.()?.host!==source)this.command(frame,'pause');
-   for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(embed!==source && embed.dataset.rtEmbedUsed==='1' && this.feedEmbed(embed)){const frame=controlFrame(embed);if(frame && this.frameState(frame).kind==='flags'){delete embed.dataset.rtEmbedUsed;this.park(embed,frame);}}
+   // Feed players that have played go back to their image.
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(embed!==source && (embed.dataset.rtEmbedUsed==='1' || youTubeLite(embed)?.querySelector('iframe') || this.frames.get(controlFrame(embed))?.played))this.rest(embed);
    source.dispatchEvent(new this.win.Event('rt-media-exclusive',{bubbles:true,composed:true}));
   }
   block(player,video){

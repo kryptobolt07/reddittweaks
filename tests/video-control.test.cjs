@@ -614,14 +614,16 @@ test('another provider’s embed previews muted through its own autoplay flags a
  const twitch=page(t);const tw=frameEmbed(twitch,'https://clips.twitch.tv/embed?clip=x&parent=www.reddit.com');await hoverController(twitch);
  tw.over();await waitForHover();const tu=new URL(tw.frame.src);assert.equal(tu.searchParams.get('autoplay'),'true');assert.equal(tu.searchParams.get('muted'),'true');assert.equal(tu.searchParams.get('parent'),'www.reddit.com');
 });
-test('Play here reloads another provider’s preview with sound; opening its post carries the same iframe over',async t=>{
+test('Play here reloads another provider’s preview with sound; opening its post carries the same iframe over at the same moment',async t=>{
  const p=page(t);const e=frameEmbed(p);await hoverController(p,{videoPreviewClick:'here'});
  e.over();await waitForHover();e.layer().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
  const url=new URL(e.frame.src);assert.equal(url.searchParams.get('autoplay'),'1');assert.equal(url.searchParams.has('muted'),false);assert.equal(e.layer(),null);
  const q=page(t);const f=frameEmbed(q);await hoverController(q);
  let held=0;f.node.addEventListener('rt-hold-feed-embed',event=>{held++;event.preventDefault();});
- f.over();await waitForHover();f.layer().dispatchEvent(new q.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
- assert.equal(held,1,'opening the post holds the playing iframe');assert.equal(new URL(f.frame.src).searchParams.has('muted'),false,'with sound per the option');
+ f.over();await waitForHover();const playing=f.frame.getAttribute('src');f.layer().dispatchEvent(new q.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+ assert.equal(held,1,'opening the post holds the playing iframe');
+ assert.equal(f.frame.getAttribute('src'),playing,'not reloaded for sound, which would start it over: its own sound button works in the post');
+ assert.match(f.frame.getAttribute('allow') || '',/autoplay/,'reloaded players may autoplay');
 });
 test('clicking into an embed’s player marks it in use, pauses other videos and carries it into its post',async t=>{
  const p=page(t);const e=frameEmbed(p);await hoverController(p,{videoStart:'reddit'});
@@ -683,7 +685,7 @@ test('Reddit’s lite-vimeo is started muted through its own autoload and autopl
  const over=new p.W.MouseEvent('pointerover',{bubbles:true,composed:true});Object.defineProperty(over,'pointerType',{value:'mouse'});lite.dispatchEvent(over);await waitForHover();
  const frame=inner.querySelector('iframe');assert.ok(frame,'the player was made');
  const url=new URL(frame.getAttribute('src'));assert.equal(url.searchParams.get('autoplay'),'1');assert.equal(url.searchParams.get('muted'),'1');
- assert.deepEqual(sent.filter(m=>m.method!=='addEventListener').map(m=>m.method+(m.value!==undefined?':'+m.value:'')),['setVolume:0','play']);
+ assert.deepEqual(sent.filter(m=>m.method!=='addEventListener').map(m=>m.method+(m.value!==undefined?':'+m.value:'')),['setMuted:true','play'],'Vimeo’s own mute, which setVolume does not lift');
 });
 test('players with no controls stay unloaded unless chosen: Autoplay loads only the one in view; a play button starts one and unloads the rest',async t=>{
  const p=page(t);phone(p,true,-900);
@@ -728,4 +730,32 @@ test('with the default choices a playing video carries into its post again',asyn
  const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await c.ready;await flush();
  p.startFromControl();p.click(p.title);
  assert.ok(p.W.sessionStorage.getItem(continuationKey),'Keeps playing in the post is the default');
+});
+
+test('a player with controls that stops being the one playing goes back to the post’s image, paused underneath, and a tap plays it with sound',async t=>{
+ const p=page(t);const c=await controlled(p);c.controller.readPosters=async()=>({t3_test:'https://preview.redd.it/still.jpg?width=640'});
+ c.over();await waitForHover();
+ c.over('pointerout',c.frame,p.d.body);await new Promise(r=>setTimeout(r,260));
+ const cover=()=>c.node.shadowRoot.querySelector('[data-rt-parked-cover]');
+ assert.ok(cover(),'its image is back');assert.equal(c.frame.getAttribute('src'),embedly,'still loaded, so it resumes where it was');
+ await new Promise(r=>setTimeout(r,100));assert.match(cover().style.backgroundImage,/still\.jpg/);
+ c.sent.length=0;cover().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+ assert.equal(cover(),null);assert.deepEqual(c.commands(),['unmute','play']);assert.equal(c.node.dataset.rtEmbedUsed,'1');
+ const q=page(t);const none=await controlled(q);none.controller.readPosters=async()=>({});
+ none.over();await waitForHover();none.over('pointerout',none.frame,q.d.body);await new Promise(r=>setTimeout(r,360));
+ assert.equal(none.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'with no image its paused picture shows');
+});
+test('when a Reddit video starts, a feed player that was playing goes back to its image',async t=>{
+ const p=page(t);const c=await controlled(p,{videoStart:'reddit'});c.controller.readPosters=async()=>({t3_test:'https://preview.redd.it/still.jpg'});
+ p.W.dispatchEvent(new p.W.MessageEvent('message',{data:JSON.stringify({context:'player.js',event:'play'}),source:c.frame.contentWindow}));
+ assert.equal(c.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'the one playing is not covered');
+ p.startFromControl();
+ assert.ok(c.node.shadowRoot.querySelector('[data-rt-parked-cover]'),'covered once paused');assert.equal(c.node.dataset.rtEmbedUsed,undefined,'a paused player is not carried into its post');
+});
+test('opening the post of a Vimeo preview turns its sound on with Vimeo’s own unmute',async t=>{
+ const p=page(t);const c=await controlled(p,{},'https://player.vimeo.com/video/9?dnt=1');
+ c.node.addEventListener('rt-hold-feed-embed',event=>event.preventDefault());
+ c.over();await waitForHover();c.sent.length=0;
+ c.layer().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+ assert.deepEqual(c.sent.filter(m=>m.method!=='addEventListener').map(m=>m.method+(m.value!==undefined?':'+m.value:'')),['setMuted:false','setVolume:1','play']);
 });

@@ -876,3 +876,22 @@ test('another provider’s iframe is held at its card, then replaces the post’
  assert.equal(place.defaultPrevented,true);assert.equal(frame.parentNode,target.shadowRoot,'the playing iframe is in the post');assert.equal(own.isConnected,false);
  assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),false);
 });
+
+test('a Vimeo player made by Reddit’s lite-vimeo is held at its card and placed over the post’s lite-vimeo',async t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/videos/',before:W=>{W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};}});
+ const d=W.document;d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_vim"></shreddit-post></shreddit-feed>';
+ const embed=d.createElement('shreddit-embed');d.querySelector('shreddit-post').append(embed);
+ const lite=embed.attachShadow({mode:'open'}).appendChild(d.createElement('lite-vimeo'));
+ const frame=lite.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));frame.src='https://player.vimeo.com/video/1?autoplay=1&muted=1';
+ frame.getBoundingClientRect=()=>({left:10,top:100,width:360,height:203});
+ const hold=new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true});embed.dispatchEvent(hold);
+ assert.equal(hold.defaultPrevented,true,'held');assert.equal(frame.parentNode.style.position,'fixed');
+ W.history.pushState({},'','/r/videos/comments/vim/clip/');
+ const post=d.createElement('shreddit-post');post.id='t3_vim';d.body.append(post);
+ const target=d.createElement('shreddit-embed');post.append(target);const own=target.attachShadow({mode:'open'}).appendChild(d.createElement('lite-vimeo'));own.attachShadow({mode:'open'});
+ own.getBoundingClientRect=()=>({left:0,top:60,width:390,height:220});
+ const place=new W.Event('rt-place-held-embed',{bubbles:true,cancelable:true});target.dispatchEvent(place);
+ assert.equal(place.defaultPrevented,true);assert.equal(frame.parentNode,target.shadowRoot,'the playing player is in the post, not reloaded');
+ assert.equal(own.style.visibility,'hidden','Reddit’s thumbnail and play button stay under it');assert.equal(frame.style.position,'absolute');
+ assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),false);
+});
