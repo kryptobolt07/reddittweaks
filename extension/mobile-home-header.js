@@ -9,6 +9,12 @@
     constructor() {
       this.mobile = matchMedia('(max-width: 767.98px)');
       this.onRoute = () => this.sync();
+      this.onFocus = event => {
+        if (!this.header?.hasAttribute(state) || !event.composedPath()[0]?.matches?.(':focus-visible')) return;
+        this.shown = true;
+        this.edge = Math.max(scrollY,0);
+        this.header.setAttribute(state,'shown');
+      };
       this.onScroll = () => {
         if (this.frame) return;
         this.frame = requestAnimationFrame(() => {
@@ -43,6 +49,7 @@
       if (!row) return;
       this.header = header;
       this.row = row;
+      row.addEventListener('focusin',this.onFocus);
       this.height = 56;
       this.measure();
       this.edge = Math.max(scrollY,0);
@@ -99,6 +106,7 @@
       window.removeEventListener('scroll',this.onScroll);
       this.header?.removeAttribute(state);
       this.header?.style.removeProperty('--rt-home-nav-height');
+      this.row?.removeEventListener('focusin',this.onFocus);
       this.search?.remove();
       this.header = this.row = this.search = null;
     }
