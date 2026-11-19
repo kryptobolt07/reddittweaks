@@ -48,7 +48,7 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 - Post page: the post's own video plays on while any of it is visible, pauses once it is fully out of view, and resumes at the same time when half of it is back (reloading Reddit's source first if Reddit unloaded it). A video the user paused stays paused.
 
 ### Popup options (Videos card, 2026-11-19, revised)
-User decisions: options say only what the extension does, with no reference to Reddit's settings; the start choice replaces Reddit's own autoplay and its "Autoplay media" setting (no longer read, which also drops the ~400 KB settings-page fetch); the card adapts to phones. Defaults otherwise match Reddit: opening a post starts the post's own player, and a post's video keeps playing off screen.
+User decisions: options say only what the extension does, with no reference to Reddit's settings; the start choice replaces Reddit's own autoplay and its "Autoplay media" setting (no longer read, which also drops the ~400 KB settings-page fetch); the card adapts to phones. Keeping a playing video playing into its post is the default again (user report: the continuation looked lost once it became opt-in); a post's video keeps playing off screen, as on Reddit.
 
 | Field | Choices (default first) | Setting key |
 |---|---|---|
@@ -57,7 +57,7 @@ User decisions: options say only what the extension does, with no reference to R
 | Clicking a muted video (hidden with Only when I press Play) | **Opens the post** · Plays it here | `videoPreviewClick` |
 | Once you open it, it plays (same) | **From where it was** · From the beginning | `videoPreviewFrom` |
 | Sound when you open it (same; switch) | **On** | `videoUnmutePreview` |
-| Opening a post that is playing | **The post's player starts again** · Keeps playing in the post | `videoOpenPost` |
+| Opening a post that is playing | **Keeps playing in the post** · The post's player starts again | `videoOpenPost` |
 | A post's video when you scroll past it | **Keeps playing off screen** · Pauses, and resumes when back | `videoScrollAway` |
 
 - Each device shows only its own start row: the popup on a phone is a page on that phone (touch: `(hover: none), (pointer: coarse)`), and each device keeps its own extension storage.
@@ -83,7 +83,7 @@ Measured 2026-11-19 (r/india, desktop): Reddit renders a YouTube link post as `s
   - Players without a protocol (RedGIFs and unknown providers) fall back to reloading with autoplay and mute flags.
   - Clicking into one marks it in use; opening its post moves the same iframe into the post's embed.
 - **Vimeo** (Reddit's `lite-vimeo`, read from its module 2026-11-19: a click adds `player.vimeo.com/video/<id>?dnt=1`, with `autoplay=1` only when the element has `autoload` and `autoplay`): Autoplay and previews set both attributes, trigger its click and add `muted=1`, then drive it with Vimeo's messages (`play`, `pause`, `setVolume`); a Vimeo player you start by its own controls reports it, so the rest pause.
-- **Players with no controls** (RedGIFs: its embed is a `<video autoPlay loop muted playsInline>` with no message API, read from its embed scripts; unknown providers): they cannot be paused, so in the feed they are unloaded (`about:blank`, address kept) behind a play button whenever they are not the one chosen to play: Autoplay or a preview loads only the chosen one, the play button loads one you pick, and anything else starting unloads it again.
+- **Players with no controls** (RedGIFs: its embed is a `<video autoPlay loop muted playsInline>` with no message API, read from its embed scripts; unknown providers). Options judged: unloading behind a blank play button (crude, reloads), a poster placeholder that never loads until chosen (chosen), or keeping it loaded off screen for the browser to pause (only true pause, but browser-dependent and unverified). As Reddit does for YouTube and Vimeo, the player stands behind a placeholder: the post's own preview image (Reddit's read-only post data, `/api/info.json`, one request per 100 posts) with a play button. The iframe is caught as Reddit inserts it (a watcher on the embed's shadow root), so it never downloads or plays unseen. It loads when chosen: Autoplay or a stop-scrolling preview (phones), hover (computers), or a tap on the placeholder. Leaving or another video starting puts the placeholder back. Short loops restart from the beginning.
 - **Embedly players that never answer** `player.js` (a `getPaused` probe; 2.5 s): driven by flags instead, written into the provider's own address inside the wrapper (Twitch: `autoplay=true&muted=true`).
 - Twitch: Reddit's current layout shows Twitch clips as a link preview with an Open button, so there is no player in the feed to start.
 - Limits: not verified live; Embedly's player.js relay per provider is unknown until a player answers.

@@ -57,6 +57,18 @@
   }
   return frame;
  }
+ const posterOK=url=>typeof url==='string' && url.length<=2048 && /^https:\/\/[^\s"'()\\]+$/.test(url);
+ async function readPosters(ids){
+  const response=await fetch('/api/info.json?raw_json=1&id='+ids.map(encodeURIComponent).join(','),{credentials:'include',headers:{Accept:'application/json'}});
+  if(!response.ok)return {};
+  const out={};
+  for(const child of (await response.json())?.data?.children || []){
+   const d=child?.data;if(!d?.name)continue;
+   const image=d.preview?.images?.[0],sized=(image?.resolutions || []).find(r=>r.width>=480) || image?.source;
+   out[d.name]=sized?.url || d.secure_media?.oembed?.thumbnail_url || (/^https:/.test(d.thumbnail || '')?d.thumbnail:'');
+  }
+  return out;
+ }
  function flagged(src,sound){
   let url;try{url=new URL(src);}catch{return src;}
   // Embedly's wrapper: the flags belong on the provider's own address inside it.
@@ -71,7 +83,7 @@
  const postId=path=>/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase() || '';
   // Same choices and migration as RTPostModel.normalizeSettings (settings may arrive raw in tests and old builds).
  const choices=raw=>{const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;const start=raw?.videoStart==='reddit'?'autoplay':raw?.videoStart,touch=raw?.videoStartTouch==='reddit'?'autoplay':raw?.videoStartTouch;
-  return {start:['autoplay','hover','play'].includes(start)?start:'autoplay',touch:['autoplay','stop','play'].includes(touch)?touch:raw?.videoPreviewsInView===true?'stop':'autoplay',click:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),from:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),open:pick('videoOpenPost',['reddit','continue'],'reddit'),away:pick('videoScrollAway',['reddit','pause'],'reddit'),sound:raw?.videoUnmutePreview!==false};};
+  return {start:['autoplay','hover','play'].includes(start)?start:'autoplay',touch:['autoplay','stop','play'].includes(touch)?touch:raw?.videoPreviewsInView===true?'stop':'autoplay',click:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),from:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),open:pick('videoOpenPost',['continue','reddit'],'continue'),away:pick('videoScrollAway',['reddit','pause'],'reddit'),sound:raw?.videoUnmutePreview!==false};};
  const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
  // Reddit's preference, from its settings page (the prefs API needs a token the page does not expose).
  async function readAutoplayDisabled({doc=document,fetcher=globalThis.fetch,store=globalThis.sessionStorage}={}){
@@ -134,7 +146,8 @@
    },0);
    this.win.addEventListener('blur',this.onFrameFocus);
    // Provider players report starting (see frameEvent): that one plays, everything else pauses.
-   this.frames=new Map();
+   this.frames=new Map();this.posters=new Map();this.posterWanted=new Set();this.watchedEmbeds=new WeakMap();
+   this.readPosters=readPosters;
    this.onFrameMessage=event=>{
     for(const [frame,state] of this.frames){
      if(!frame.isConnected){this.frames.delete(frame);continue;}
@@ -203,7 +216,7 @@
     this.players.delete(player);this.previews.delete(player);this.io?.unobserve(player);
    }
    for(const player of this.doc.querySelectorAll(PLAYERS))this.attach(player);
-   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){const frame=controlFrame(embed);if(frame && !this.frames.has(frame))this.frameState(frame);}
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){this.watchEmbed(embed);const frame=controlFrame(embed);if(frame && !this.frames.has(frame))this.frameState(frame);}
    if(this.configured)this.parkIdle();
    this.handoff();
    this.embedHandoff();
@@ -348,22 +361,51 @@
   }
   // Players with no control protocol (RedGIFs plays itself, muted and looping, as soon as it loads) are unloaded while
   // they are not the one chosen to play, behind a play button that loads them again.
+  // Like Reddit's own YouTube and Vimeo placeholders: the post's preview image with a play button stands in for the
+  // player until it is the one chosen to play (Autoplay, a preview, or a tap), so it never downloads or plays unseen.
   park(embed,frame){
    if(frame.dataset.rtParked)return;
    frame.dataset.rtSrc=frame.getAttribute('src') || '';frame.dataset.rtParked='1';frame.setAttribute('src','about:blank');
-   const root=embed.shadowRoot;if(!root || root.querySelector('[data-rt-parked-play]'))return;
+   const root=embed.shadowRoot;if(!root || root.querySelector('[data-rt-parked-cover]'))return;
    if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
-   const play=this.doc.createElement('button');play.type='button';play.dataset.rtParkedPlay='';play.setAttribute('aria-label','Play');
-   Object.assign(play.style,{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',zIndex:'4',width:'56px',height:'56px',border:'0',
-    borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',padding:'0'});
+   const cover=this.doc.createElement('div');cover.dataset.rtParkedCover='';cover.setAttribute('role','button');cover.setAttribute('aria-label','Play');cover.tabIndex=0;
+   Object.assign(cover.style,{position:'absolute',inset:'0',zIndex:'4',cursor:'pointer',background:'#000 center / cover no-repeat',display:'flex',alignItems:'center',justifyContent:'center'});
+   const play=this.doc.createElement('span');play.dataset.rtParkedPlay='';
+   Object.assign(play.style,{width:'56px',height:'56px',borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center'});
    play.innerHTML='<svg viewBox="0 0 20 20" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M6 3.8v12.4a.8.8 0 0 0 1.2.7l10-6.2a.8.8 0 0 0 0-1.4l-10-6.2A.8.8 0 0 0 6 3.8Z"/></svg>';
-   play.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.stopEmbed();embed.dataset.rtEmbedUsed='1';this.unpark(embed,frame);this.exclusive(embed);});
-   root.append(play);
+   cover.append(play);
+   const start=event=>{event.preventDefault();event.stopPropagation();this.stopEmbed();embed.dataset.rtEmbedUsed='1';this.unpark(embed,frame);this.exclusive(embed);};
+   cover.addEventListener('click',start);cover.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ')start(event);});
+   root.append(cover);
+   this.paintPoster(embed);
+  }
+  paintPoster(embed){
+   const cover=embed.shadowRoot?.querySelector('[data-rt-parked-cover]'),id=embed.closest('shreddit-post')?.id;if(!cover || !id)return;
+   const url=this.posters.get(id);
+   if(url)cover.style.backgroundImage='url("'+url+'")';
+   else if(!this.posters.has(id)){this.posterWanted.add(id);this.win.clearTimeout(this.posterTimer);this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);}
+  }
+  // The posts' preview images, from Reddit's own read-only post data (one request for up to 100 posts).
+  async loadPosters(){
+   const ids=[...this.posterWanted].slice(0,100);this.posterWanted.clear();if(!ids.length)return;
+   for(const id of ids)this.posters.set(id,null);
+   let found={};try{found=await this.readPosters(ids);}catch{}
+   for(const [id,url] of Object.entries(found || {}))if(posterOK(url))this.posters.set(id,url);
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(ids.includes(embed.closest('shreddit-post')?.id))this.paintPoster(embed);
+  }
+  // Iframes Reddit adds inside an embed (when it comes near the screen) are caught before they load, unless chosen.
+  watchEmbed(embed){
+   if(!embed.shadowRoot || this.watchedEmbeds.has(embed))return;
+   const observer=new this.win.MutationObserver(()=>{
+    if(!this.configured || !this.feedEmbed(embed) || this.ePreview?.embed===embed || embed.dataset.rtEmbedUsed==='1')return;
+    const frame=controlFrame(embed);if(frame && !frame.dataset.rtParked && this.frameState(frame).kind==='flags')this.park(embed,frame);
+   });
+   observer.observe(embed.shadowRoot,{childList:true,subtree:true});this.watchedEmbeds.set(embed,observer);
   }
   unpark(embed,frame,src){
    if(!frame.dataset.rtParked)return false;
    const original=frame.dataset.rtSrc || '';delete frame.dataset.rtParked;delete frame.dataset.rtSrc;
-   embed.shadowRoot?.querySelector('[data-rt-parked-play]')?.remove();
+   embed.shadowRoot?.querySelector('[data-rt-parked-cover]')?.remove();
    frame.setAttribute('src',src || original);return true;
   }
   // Which uncontrollable feed players may stay loaded: the one previewing and one you started.

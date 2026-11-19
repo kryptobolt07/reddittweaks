@@ -84,13 +84,13 @@ async function loadHistoryLimit(){
 loadHistoryLimit();
 
 // Video choices (docs/video-control-spec.md). Same values and 0.46–0.47 migration as RTPostModel.normalizeSettings.
-const VIDEO_CHOICES={videoStart:['autoplay','hover','play'],videoStartTouch:['autoplay','stop','play'],videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['reddit','continue'],videoScrollAway:['reddit','pause']};
+const VIDEO_CHOICES={videoStart:['autoplay','hover','play'],videoStartTouch:['autoplay','stop','play'],videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['continue','reddit'],videoScrollAway:['reddit','pause']};
 function choiceValue(raw,key){
   if(['videoStart','videoStartTouch'].includes(key) && raw?.[key]==='reddit')return 'autoplay';
   if(VIDEO_CHOICES[key]?.includes(raw?.[key]))return raw[key];
   // Defaults are Reddit's behaviour; only the old opt-ins (phone previews, click plays here, restart) carry over.
   const old={videoStart:'autoplay',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'autoplay',videoPreviewClick:raw?.videoPreviewClickPlays===true?'here':'open',
-    videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:'reddit',videoScrollAway:'reddit'};
+    videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:'continue',videoScrollAway:'reddit'};
   return old[key];
 }
 function loadChoices(){

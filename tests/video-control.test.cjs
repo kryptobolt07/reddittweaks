@@ -47,8 +47,8 @@ test('the choices replace Reddit’s autoplay: Autoplay plays the video in view,
 test('video choices default to Autoplay and Reddit’s other behaviour, and only the old opt-ins carry over',()=>{
  const W=new JSDOM('',{runScripts:'outside-only'}).window;W.eval(fs.readFileSync('extension/post-model.js','utf8'));
  const n=raw=>{const all=W.RTPostModel.normalizeSettings(raw);return Object.fromEntries(Object.entries(all).filter(([k])=>k.startsWith('video')));};
- assert.deepEqual(JSON.parse(JSON.stringify(n({}))),{videoStart:'autoplay',videoStartTouch:'autoplay',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'reddit',videoScrollAway:'reddit'},'Autoplay and Reddit’s other behaviour by default');
- assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:true,videoContinueOnOpen:true,videoPauseOffscreen:true,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false}))),{videoStart:'autoplay',videoStartTouch:'stop',videoPreviewClick:'here',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'reddit',videoScrollAway:'reddit'},'only the old opt-ins carry over');
+ assert.deepEqual(JSON.parse(JSON.stringify(n({}))),{videoStart:'autoplay',videoStartTouch:'autoplay',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'continue',videoScrollAway:'reddit'},'Autoplay and Reddit’s other behaviour by default');
+ assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:true,videoContinueOnOpen:true,videoPauseOffscreen:true,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false}))),{videoStart:'autoplay',videoStartTouch:'stop',videoPreviewClick:'here',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'continue',videoScrollAway:'reddit'},'only the old opt-ins carry over');
  assert.equal(n({videoStart:'hover'}).videoStart,'hover');assert.equal(n({videoStart:'reddit',videoStartTouch:'reddit'}).videoStartTouch,'autoplay','0.48’s Reddit start is now Autoplay');
  W.close();
 });
@@ -695,7 +695,7 @@ test('players with no controls stay unloaded unless chosen: Autoplay loads only 
  assert.equal(f2.getAttribute('src'),'about:blank','off-screen: unloaded');
  scroll(p);await new Promise(r=>setTimeout(r,250));
  assert.match(a.frame.getAttribute('src'),/redgifs\.com\/ifr\/first/,'in view: loaded and playing');
- node2.shadowRoot.querySelector('[data-rt-parked-play]').dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+ node2.shadowRoot.querySelector('[data-rt-parked-cover]').dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
  assert.equal(f2.getAttribute('src'),'https://www.redgifs.com/ifr/second','the play button loads it');
  assert.equal(a.frame.getAttribute('src'),'about:blank','and the one that was playing is unloaded');
 });
@@ -706,4 +706,26 @@ test('an Embedly player that never answers player.js is started through flags on
  await new Promise(r=>setTimeout(r,2600));
  const inner=new URL(new URL(c.frame.getAttribute('src')).searchParams.get('src'));
  assert.equal(inner.searchParams.get('autoplay'),'true');assert.equal(inner.searchParams.get('muted'),'true');assert.equal(inner.searchParams.get('clip'),'x');
+});
+
+test('a player with no controls that Reddit adds later is caught before it loads and shows the post’s preview image',async t=>{
+ const p=page(t);phone(p,true,-900);
+ const node=p.d.createElement('shreddit-embed');node.setAttribute('providername','RedGIFs');node.attachShadow({mode:'open'});
+ node.getBoundingClientRect=()=>({top:2000,bottom:2300,height:300,left:0,width:390});
+ p.player.closest('shreddit-post').append(node);
+ const controller=await hoverController(p,{videoStartTouch:'play'});
+ const asked=[];controller.readPosters=async ids=>{asked.push(...ids);return {t3_test:'https://preview.redd.it/poster.jpg?width=640'};};
+ controller.scan();
+ const frame=p.d.createElement('iframe');frame.setAttribute('src','https://www.redgifs.com/ifr/late');node.shadowRoot.append(frame);
+ await Promise.resolve();await Promise.resolve();
+ assert.equal(frame.getAttribute('src'),'about:blank','unloaded as Reddit adds it');assert.equal(frame.dataset.rtSrc,'https://www.redgifs.com/ifr/late');
+ await new Promise(r=>setTimeout(r,100));
+ assert.deepEqual(asked,['t3_test'],'one batched lookup');
+ assert.match(node.shadowRoot.querySelector('[data-rt-parked-cover]').style.backgroundImage,/preview\.redd\.it\/poster\.jpg/);
+});
+test('with the default choices a playing video carries into its post again',async t=>{
+ const p=page(t);
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await c.ready;await flush();
+ p.startFromControl();p.click(p.title);
+ assert.ok(p.W.sessionStorage.getItem(continuationKey),'Keeps playing in the post is the default');
 });
