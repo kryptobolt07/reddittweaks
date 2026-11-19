@@ -66,6 +66,8 @@ User decisions: options say only what the extension does, with no reference to R
 - Migration: 0.48's `reddit` start becomes `autoplay`; only the 0.46–0.47 opt-ins carry over (phone previews → Preview the one I stop on; click plays here → Plays it here; restart → From the beginning). A choice is stored only once picked. The popup draws every switch and choice from its own synchronous copy of the settings on the first paint.
 
 ### One video at a time
+
+Feed startup has separate choices for Reddit videos, GIFs, and embedded players. Each device has Autoplay, a muted preview mode (hover or stop scrolling), and Only on Play. Embeds inherit the saved video choice until configured, and GIFs default to Autoplay. The shared preview settings appear if any kind can preview on the current device. Automatic GIF loops are silent and can run alongside the selected video or embed. On the sampled mobile Reddit feed, a GIF used an ordinary `shreddit-player[gif][post-type="gif"]` without `single-playback`.
 User report (phones): several videos played at once. Whatever starts (a Reddit video by any means, a preview, a continuation, or a YouTube player by its own controls) pauses every other playing video and stops any other preview; a video held for its post keeps playing. YouTube players report starting through the page bridge (`onStateChange` → `rt-embed-playing`) and are paused by it (`rt-media-exclusive`).
 
 ### Embedded YouTube videos

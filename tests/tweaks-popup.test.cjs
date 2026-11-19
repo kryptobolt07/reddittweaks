@@ -264,7 +264,17 @@ test('video choices show their saved value at once, keep the old opt-ins, save o
   menu.querySelector('[data-value="play"]').click();await settle();
   assert.equal(p.state['rt-settings-v1'].videoStart,'play');assert.equal(start.textContent.trim(),'On Play');assert.equal(menu.hidden,true);
   assert.equal(JSON.parse(p.w.localStorage.getItem('rt-settings-mirror-v1')).videoStart,'play');
-  const again=popup(t,{tabs:redditTab,mirror:{videoStart:'play'},settings:{'rt-settings-v1':{videoStart:'play'}}});
+  const again=popup(t,{tabs:redditTab,mirror:{videoStart:'play',gifStart:'play'},settings:{'rt-settings-v1':{videoStart:'play',gifStart:'play'}}});
   assert.equal(again.w.document.getElementById('video-start').textContent.trim(),'On Play','first paint from the copy');
-  assert.equal(again.w.document.querySelector('[data-preview-row]').hidden,true,'Only when I press Play: muted-video options hidden');
+  assert.equal(again.w.document.querySelector('[data-preview-row]').hidden,true,'all three kinds are Play only');
+});
+test('the popup shows three start modes and keeps preview options visible for any enabled kind',async t=>{
+ const config={videoStart:'play',videoStartTouch:'play',gifStart:'play',gifStartTouch:'stop',embedStart:'play'};
+ const p=popup(t,{storedTab:'settings',touch:true,settings:{'rt-settings-v1':config}});
+ await settle();
+ const d=p.w.document,choice=d.getElementById('gif-start-touch'),preview=d.querySelector('[data-preview-row]');
+ assert.match(choice.textContent,/When I stop/);assert.equal(preview.hidden,false);
+ assert.match(d.getElementById('embed-start-touch').textContent,/On Play/,'inherits the touch video choice');
+ choice.click();d.querySelector('#gif-start-touch-menu [data-value=play]').click();await settle();
+ assert.equal(preview.hidden,true);assert.equal(p.state['rt-settings-v1'].gifStartTouch,'play');
 });

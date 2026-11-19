@@ -84,10 +84,14 @@ async function loadHistoryLimit(){
 loadHistoryLimit();
 
 // Video choices (docs/video-control-spec.md). Same values and 0.46–0.47 migration as RTPostModel.normalizeSettings.
-const VIDEO_CHOICES={videoStart:['autoplay','hover','play'],videoStartTouch:['autoplay','stop','play'],videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['continue','reddit'],videoScrollAway:['reddit','pause']};
+const MOUSE_START=['autoplay','hover','play'],TOUCH_START=['autoplay','stop','play'];
+const VIDEO_CHOICES={videoStart:MOUSE_START,videoStartTouch:TOUCH_START,gifStart:MOUSE_START,gifStartTouch:TOUCH_START,embedStart:MOUSE_START,embedStartTouch:TOUCH_START,
+  videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['continue','reddit'],videoScrollAway:['reddit','pause']};
 function choiceValue(raw,key){
   if(['videoStart','videoStartTouch'].includes(key) && raw?.[key]==='reddit')return 'autoplay';
   if(VIDEO_CHOICES[key]?.includes(raw?.[key]))return raw[key];
+  if(key==='gifStart' || key==='gifStartTouch')return 'autoplay';
+  if(key==='embedStart' || key==='embedStartTouch')return choiceValue(raw,key.replace('embed','video'));
   // Defaults are Reddit's behaviour; only the old opt-ins (phone previews, click plays here, restart) carry over.
   const old={videoStart:'autoplay',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'autoplay',videoPreviewClick:raw?.videoPreviewClickPlays===true?'here':'open',
     videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:'continue',videoScrollAway:'reddit'};
@@ -117,9 +121,15 @@ function loadChoices(){
     document.addEventListener('scroll',event=>{if(!menu.hidden && !menu.contains(event.target))close();},true);
     for(const option of options)option.addEventListener('click',()=>{
       if(trigger.disabled)return;const next=option.dataset.value,previous=view.value;close(true);if(next===previous)return;
-      const status=document.querySelector('#settings-status');view.value=next;view.paint();trigger.disabled=true;status.classList.remove('error');status.textContent='Saving…';
-      settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{const latest=await storage.get(SETTINGS_KEY),merged={...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY] || {}),[key]:next};await storage.set({[SETTINGS_KEY]:merged});writeMirror(merged);})
-        .then(()=>{status.textContent='Settings saved automatically.';},()=>{view.value=previous;view.paint();status.textContent='Could not save this setting. Please retry.';status.classList.add('error');}).finally(()=>{trigger.disabled=false;});
+      const status=document.querySelector('#settings-status');view.value=next;view.paint();syncPreviewRows();trigger.disabled=true;status.classList.remove('error');status.textContent='Saving…';
+      settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{
+        const latest=await storage.get(SETTINGS_KEY),merged={...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY] || {}),[key]:next};
+        await storage.set({[SETTINGS_KEY]:merged});writeMirror(merged);
+        if(key==='videoStart' || key==='videoStartTouch'){
+          const linked=views.find(other=>other.key===key.replace('video','embed'));
+          if(linked && !linked.trigger.disabled){linked.value=choiceValue(merged,linked.key);linked.paint();syncPreviewRows();}
+        }
+      }).then(()=>{status.textContent='Settings saved automatically.';},()=>{view.value=previous;view.paint();syncPreviewRows();status.textContent='Could not save this setting. Please retry.';status.classList.add('error');}).finally(()=>{trigger.disabled=false;});
     });
     return view;
   }).filter(Boolean);
@@ -127,9 +137,10 @@ function loadChoices(){
   // options apply to whatever plays without sound by itself, so they hide only for "Only when I press Play".
   const touch=Boolean(globalThis.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);
   for(const row of document.querySelectorAll('[data-device]'))row.hidden=row.dataset.device!==(touch?'touch':'mouse');
-  const syncPreviewRows=()=>{const value=key=>views.find(view=>view.key===key)?.value;const on=value(touch?'videoStartTouch':'videoStart')!=='play';for(const row of document.querySelectorAll('[data-preview-row]'))row.hidden=!on;};
-  for(const view of views){const paint=view.paint;view.paint=()=>{paint();syncPreviewRows();};}
-  const show=(settings,enable)=>{for(const view of views){view.value=choiceValue(settings,view.key);view.paint();if(enable)view.trigger.disabled=false;}};
+  const startRows=views.filter(view=>view.trigger.closest('[data-device]')?.dataset.device===(touch?'touch':'mouse'));
+  const previewRows=[...document.querySelectorAll('[data-preview-row]')];
+  const syncPreviewRows=()=>{const on=startRows.some(view=>view.value!=='play');for(const row of previewRows)row.hidden=!on;};
+  const show=(settings,enable)=>{for(const view of views){view.value=choiceValue(settings,view.key);view.paint();if(enable)view.trigger.disabled=false;}syncPreviewRows();};
   // First paint from the popup's copy (see SETTINGS_MIRROR), then the real settings.
   show(initialSettings,Boolean(mirror));
   storedSettings.then(settings=>show(settings,true),()=>{for(const view of views)view.trigger.disabled=true;});

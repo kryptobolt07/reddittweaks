@@ -101,12 +101,12 @@
       </div>
       </section>
       <section class="card" aria-labelledby="videos-heading">
-        <div class="card-heading"><h2 id="videos-heading">Videos</h2><span class="category-hint">Feed videos and embeds</span></div>
+        <div class="card-heading"><h2 id="videos-heading">Videos</h2><span class="category-hint">Playback</span></div>
       <div class="setting-row" data-device="mouse">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3h11A2.5 2.5 0 0 1 18 5.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 14.5v-9Zm2.5-.7a.7.7 0 0 0-.7.7v9c0 .39.31.7.7.7h11a.7.7 0 0 0 .7-.7v-9a.7.7 0 0 0-.7-.7h-11ZM8.2 7.1v5.8a.6.6 0 0 0 .91.51l4.6-2.9a.6.6 0 0 0 0-1.02l-4.6-2.9a.6.6 0 0 0-.91.51Z"/></svg></span>
-        <div class="setting-copy"><label for="video-start">Feed videos start</label><p id="video-start-desc">Autoplay plays the video in view without sound, one at a time.</p></div>
+        <div class="setting-copy"><label for="video-start">Videos start</label><p id="video-start-desc">Autoplay plays the video in view without sound, one at a time.</p></div>
         <button id="video-start" class="setting-choice" type="button" data-choice="videoStart" aria-haspopup="menu" aria-expanded="false" aria-controls="video-start-menu" aria-describedby="video-start-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="video-start-menu" class="setting-menu" role="menu" aria-label="Feed videos start" hidden>
+        <div id="video-start-menu" class="setting-menu" role="menu" aria-label="Videos start" hidden>
           <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
           <button type="button" role="menuitemradio" data-value="hover" data-short="On hover" aria-checked="false">Preview on hover, muted</button>
           <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
@@ -114,9 +114,49 @@
       </div>
       <div class="setting-row" data-device="touch">
         <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M6.5 1.5h7A2.5 2.5 0 0 1 16 4v12a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 16V4a2.5 2.5 0 0 1 2.5-2.5Zm0 1.8a.7.7 0 0 0-.7.7v12c0 .39.31.7.7.7h7a.7.7 0 0 0 .7-.7V4a.7.7 0 0 0-.7-.7h-7ZM8.5 14.6h3v1.6h-3v-1.6Z"/></svg></span>
-        <div class="setting-copy"><label for="video-start-touch">Feed videos start</label><p id="video-start-touch-desc">Autoplay plays the video in view without sound, one at a time.</p></div>
+        <div class="setting-copy"><label for="video-start-touch">Videos start</label><p id="video-start-touch-desc">Autoplay plays the video in view without sound, one at a time.</p></div>
         <button id="video-start-touch" class="setting-choice" type="button" data-choice="videoStartTouch" aria-haspopup="menu" aria-expanded="false" aria-controls="video-start-touch-menu" aria-describedby="video-start-touch-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="video-start-touch-menu" class="setting-menu" role="menu" aria-label="Feed videos start" hidden>
+        <div id="video-start-touch-menu" class="setting-menu" role="menu" aria-label="Videos start" hidden>
+          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
+          <button type="button" role="menuitemradio" data-value="stop" data-short="When I stop" aria-checked="false">Preview the one I stop on, muted</button>
+          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
+        </div>
+      </div>
+      <div class="setting-row" data-device="mouse">
+        <span class="tile gif-tile" aria-hidden="true">GIF</span>
+        <div class="setting-copy"><label for="gif-start">GIFs start</label><p id="gif-start-desc">Loops silently alongside other media.</p></div>
+        <button id="gif-start" class="setting-choice" type="button" data-choice="gifStart" aria-haspopup="menu" aria-expanded="false" aria-controls="gif-start-menu" aria-describedby="gif-start-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="gif-start-menu" class="setting-menu" role="menu" aria-label="GIFs start" hidden>
+          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
+          <button type="button" role="menuitemradio" data-value="hover" data-short="On hover" aria-checked="false">Preview on hover, muted</button>
+          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
+        </div>
+      </div>
+      <div class="setting-row" data-device="touch">
+        <span class="tile gif-tile" aria-hidden="true">GIF</span>
+        <div class="setting-copy"><label for="gif-start-touch">GIFs start</label><p id="gif-start-touch-desc">Loops silently alongside other media.</p></div>
+        <button id="gif-start-touch" class="setting-choice" type="button" data-choice="gifStartTouch" aria-haspopup="menu" aria-expanded="false" aria-controls="gif-start-touch-menu" aria-describedby="gif-start-touch-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="gif-start-touch-menu" class="setting-menu" role="menu" aria-label="GIFs start" hidden>
+          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
+          <button type="button" role="menuitemradio" data-value="stop" data-short="When I stop" aria-checked="false">Preview the one I stop on, muted</button>
+          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
+        </div>
+      </div>
+      <div class="setting-row" data-device="mouse">
+        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M7.9 12.1a.9.9 0 0 1 0-1.27l4.93-4.93a.9.9 0 0 1 1.27 1.27L9.17 12.1a.9.9 0 0 1-1.27 0ZM5.28 10.36l2.12-2.12 1.27 1.27-2.12 2.12a1.9 1.9 0 0 0 2.69 2.69l2.12-2.12 1.27 1.27-2.12 2.12a3.7 3.7 0 0 1-5.23-5.23Zm4.09-3.83 2.12-2.12a3.7 3.7 0 1 1 5.23 5.23l-2.12 2.12-1.27-1.27 2.12-2.12a1.9 1.9 0 1 0-2.69-2.69l-2.12 2.12Z"/></svg></span>
+        <div class="setting-copy"><label for="embed-start">Embedded players start</label><p id="embed-start-desc">Videos from other sites such as YouTube.</p></div>
+        <button id="embed-start" class="setting-choice" type="button" data-choice="embedStart" aria-haspopup="menu" aria-expanded="false" aria-controls="embed-start-menu" aria-describedby="embed-start-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="embed-start-menu" class="setting-menu" role="menu" aria-label="Embedded players start" hidden>
+          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
+          <button type="button" role="menuitemradio" data-value="hover" data-short="On hover" aria-checked="false">Preview on hover, muted</button>
+          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
+        </div>
+      </div>
+      <div class="setting-row" data-device="touch">
+        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M7.9 12.1a.9.9 0 0 1 0-1.27l4.93-4.93a.9.9 0 0 1 1.27 1.27L9.17 12.1a.9.9 0 0 1-1.27 0ZM5.28 10.36l2.12-2.12 1.27 1.27-2.12 2.12a1.9 1.9 0 0 0 2.69 2.69l2.12-2.12 1.27 1.27-2.12 2.12a3.7 3.7 0 0 1-5.23-5.23Zm4.09-3.83 2.12-2.12a3.7 3.7 0 1 1 5.23 5.23l-2.12 2.12-1.27-1.27 2.12-2.12a1.9 1.9 0 1 0-2.69-2.69l-2.12 2.12Z"/></svg></span>
+        <div class="setting-copy"><label for="embed-start-touch">Embedded players start</label><p id="embed-start-touch-desc">Videos from other sites such as YouTube.</p></div>
+        <button id="embed-start-touch" class="setting-choice" type="button" data-choice="embedStartTouch" aria-haspopup="menu" aria-expanded="false" aria-controls="embed-start-touch-menu" aria-describedby="embed-start-touch-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="embed-start-touch-menu" class="setting-menu" role="menu" aria-label="Embedded players start" hidden>
           <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
           <button type="button" role="menuitemradio" data-value="stop" data-short="When I stop" aria-checked="false">Preview the one I stop on, muted</button>
           <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
