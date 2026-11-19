@@ -1,3 +1,9 @@
+# 0.51.4 preview
+
+- **Direct embed controls:** turning sound on or off presses the player's own sound button, so its sound state and icon follow, instead of changing the video underneath it. While embed links are blocked, the player also can't open its own site from script. If you enabled Direct embed controls before this version, the extension adds the new helper itself when it updates.
+- **Version:** patch increment for these fixes.
+- **Validation:** 2,046 tests passed in UTC. Firefox lint reported zero errors and warnings. All 79 Chromium and 80 Firefox assets match the source, unpacked folders and ZIPs. Not checked live on a player. Chromium SHA-256 `263aead96780aefaff7ef8b5788f6db602dde9a212d5e2b29df3083faf1f7c0e`. Firefox SHA-256 `b847862244c3033442206d237d50f3531923ed12a69a2d9a0fa19c666d847399`.
+
 # 0.51.3 preview
 
 - **Embed stills with the post:** a card's still is looked up as soon as Reddit delivers the post, nearest the screen first, two at a time, and each shows as soon as it's found. Until Reddit inserts and draws a card's player, the card shows its still instead of a black box.
