@@ -858,3 +858,21 @@ test('while smooth scrolling is on, the header height Reddit reads per ad post i
  W.getComputedStyle(W.document.getElementById('other')).getPropertyValue('--shreddit-header-height');assert.equal(reads,3,'other properties and elements are real reads');
  W.document.documentElement.removeAttribute('data-rt-smooth-site');W.getComputedStyle(app).getPropertyValue('--shreddit-header-height');assert.equal(reads,4,'off: real');
 });
+
+test('another provider’s iframe is held at its card, then replaces the post’s own iframe of the same video',async t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/soccer/',before:W=>{W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};}});
+ const d=W.document;d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_abc"></shreddit-post></shreddit-feed>';
+ const embed=d.createElement('shreddit-embed');d.querySelector('shreddit-post').append(embed);
+ const frame=embed.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));frame.src='https://streamable.com/e/abc?autoplay=1';
+ frame.getBoundingClientRect=()=>({left:10,top:100,width:360,height:203});
+ const hold=new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true});embed.dispatchEvent(hold);
+ assert.equal(hold.defaultPrevented,true);assert.notEqual(frame.parentNode,embed.shadowRoot);assert.equal(frame.parentNode.style.position,'fixed');
+ assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),true);
+ W.history.pushState({},'','/r/soccer/comments/abc/goal/');
+ const post=d.createElement('shreddit-post');post.id='t3_abc';d.body.append(post);
+ const target=d.createElement('shreddit-embed');post.append(target);const own=target.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));
+ own.getBoundingClientRect=()=>({left:0,top:60,width:390,height:220});
+ const place=new W.Event('rt-place-held-embed',{bubbles:true,cancelable:true});target.dispatchEvent(place);
+ assert.equal(place.defaultPrevented,true);assert.equal(frame.parentNode,target.shadowRoot,'the playing iframe is in the post');assert.equal(own.isConnected,false);
+ assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),false);
+});

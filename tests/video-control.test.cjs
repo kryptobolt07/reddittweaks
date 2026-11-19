@@ -593,3 +593,40 @@ test('one video plays at a time: starting one pauses the others, a preview inclu
  const e=embed(p);e.node.dispatchEvent(new p.W.Event('rt-embed-playing',{bubbles:true}));
  assert.equal(other.paused,true,'a YouTube player starting pauses Reddit videos');
 });
+
+// Other providers: Reddit renders their oEmbed iframe directly in the shreddit-embed shadow root.
+function frameEmbed(p,src='https://streamable.com/e/abc'){
+ const node=p.d.createElement('shreddit-embed');node.setAttribute('providername','Streamable');
+ const frame=node.attachShadow({mode:'open'}).appendChild(p.d.createElement('iframe'));frame.setAttribute('src',src);
+ p.player.closest('shreddit-post').append(node);
+ const over=(type='pointerover',target=frame,related=null)=>{const event=new p.W.MouseEvent(type,{bubbles:true,composed:true,relatedTarget:related});Object.defineProperty(event,'pointerType',{value:'mouse'});target.dispatchEvent(event);};
+ return {node,frame,over,layer:()=>node.shadowRoot.querySelector('[data-rt-embed-layer]')};
+}
+test('another provider’s embed previews muted through its own autoplay flags and goes back when the pointer leaves the card',async t=>{
+ const p=page(t);const e=frameEmbed(p);await hoverController(p);
+ e.over();await waitForHover();
+ const url=new URL(e.frame.src);assert.equal(url.searchParams.get('autoplay'),'1');assert.equal(url.searchParams.get('muted'),'1');assert.ok(e.layer());
+ e.over('pointerout',e.frame,p.d.body);await new Promise(r=>setTimeout(r,260));
+ assert.equal(e.frame.getAttribute('src'),'https://streamable.com/e/abc');assert.equal(e.layer(),null);
+ const twitch=page(t);const tw=frameEmbed(twitch,'https://clips.twitch.tv/embed?clip=x&parent=www.reddit.com');await hoverController(twitch);
+ tw.over();await waitForHover();const tu=new URL(tw.frame.src);assert.equal(tu.searchParams.get('autoplay'),'true');assert.equal(tu.searchParams.get('muted'),'true');assert.equal(tu.searchParams.get('parent'),'www.reddit.com');
+});
+test('Play here reloads another provider’s preview with sound; opening its post carries the same iframe over',async t=>{
+ const p=page(t);const e=frameEmbed(p);await hoverController(p,{videoPreviewClick:'here'});
+ e.over();await waitForHover();e.layer().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+ const url=new URL(e.frame.src);assert.equal(url.searchParams.get('autoplay'),'1');assert.equal(url.searchParams.has('muted'),false);assert.equal(e.layer(),null);
+ const q=page(t);const f=frameEmbed(q);await hoverController(q);
+ let held=0;f.node.addEventListener('rt-hold-feed-embed',event=>{held++;event.preventDefault();});
+ f.over();await waitForHover();f.layer().dispatchEvent(new q.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+ assert.equal(held,1,'opening the post holds the playing iframe');assert.equal(new URL(f.frame.src).searchParams.has('muted'),false,'with sound per the option');
+});
+test('clicking into an embed’s player marks it in use, pauses other videos and carries it into its post',async t=>{
+ const p=page(t);const e=frameEmbed(p);await hoverController(p,{videoStart:'reddit'});
+ p.startFromControl();assert.equal(p.video.paused,false);
+ e.frame.focus();p.W.dispatchEvent(new p.W.Event('blur'));await new Promise(r=>setTimeout(r,5));
+ assert.equal(e.node.dataset.rtEmbedUsed,'1');assert.equal(p.video.paused,true,'one video at a time');
+ let held=0;e.node.addEventListener('rt-hold-feed-embed',event=>{held++;event.preventDefault();});
+ p.click(p.title);assert.equal(held,1);
+ const q=page(t);const f=frameEmbed(q);await hoverController(q);let qheld=0;f.node.addEventListener('rt-hold-feed-embed',()=>qheld++);
+ q.click(q.title);assert.equal(qheld,0,'an embed nobody touched stays put');
+});

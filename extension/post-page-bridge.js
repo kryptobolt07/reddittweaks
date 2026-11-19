@@ -229,17 +229,19 @@
   }));
   // Shared-element move for a playing YouTube embed: its iframe (kept alive by moveBefore, no reload) stays at its
   // card above the visible feed, then takes the post's embed, so the post never shows its thumbnail or play button.
+  // Other providers (Streamable, Twitch, Dailymotion, …): Reddit renders their oEmbed iframe directly in the embed.
+  const rawFrame=embed=>{const frame=embed?.shadowRoot?.querySelector?.('iframe');return frame && !frame.closest('lite-youtube,lite-vimeo')?frame:null;};
   function releaseEmbed(){
     const held=heldEmbed;if(!held)return;
     heldEmbed=null;markMove();
-    if(held.lite.isConnected){movePlayer(held.lite,held.ifr);restoreStyle(held.ifr,held.style);}
-    restoreStyle(held.lite,held.liteStyle);
+    if(held.home?.isConnected){movePlayer(held.home,held.ifr,held.next?.parentNode===held.home?held.next:null);restoreStyle(held.ifr,held.style);}
+    if(held.lite)restoreStyle(held.lite,held.liteStyle);
     held.stage.remove();
   }
   const restoreStyle=(node,value)=>{if(value===null)node.removeAttribute('style');else node.setAttribute('style',value);};
   document.addEventListener('rt-hold-feed-embed',event=>{
-    const embed=event.target,lite=liteOf(embed),ifr=lite?.querySelector('iframe'),player=ytPlayers.get(embed);
-    if(heldEmbed || !ifr || !player || !document.body || typeof document.body.moveBefore!=='function')return;
+    const embed=event.target,lite=liteOf(embed),ifr=lite?lite.querySelector('iframe'):rawFrame(embed),player=ytPlayers.get(embed);
+    if(heldEmbed || !ifr || (lite && !player) || !document.body || typeof document.body.moveBefore!=='function')return;
     const {left,top,width,height}=ifr.getBoundingClientRect();
     if(!width || !height)return;
     const stage=document.createElement('div');
@@ -247,35 +249,43 @@
     Object.assign(stage.style,{position:'fixed',zIndex:'3',pointerEvents:'none',overflow:'hidden',
       left:left+'px',top:top+'px',width:width+'px',height:height+'px'});
     document.body.append(stage);
-    const style=ifr.getAttribute('style'),liteStyle=lite.getAttribute('style');
+    const style=ifr.getAttribute('style'),liteStyle=lite?.getAttribute('style') ?? null,home=ifr.parentNode,next=ifr.nextSibling;
     stage.moveBefore(ifr,null);
     // The emptied card would show Reddit's thumbnail and play button wherever the feed moves meanwhile.
-    lite.style.visibility='hidden';
+    if(lite)lite.style.visibility='hidden';
     Object.assign(ifr.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
-    heldEmbed={embed,lite,ifr,player,stage,style,liteStyle,rect:{left,top,width,height},id:embed.closest('shreddit-post')?.id};markMove();
+    heldEmbed={embed,lite,ifr,player,stage,style,liteStyle,home,next,rect:{left,top,width,height},id:embed.closest('shreddit-post')?.id};markMove();
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-embed',event=>{
-    const embed=event.target,lite=liteOf(embed),id=route()?.id,held=heldEmbed;
-    if(!held || !lite || !id || held.id!=='t3_'+id || embed.closest('shreddit-post')?.id!==held.id || embed.closest('shreddit-feed'))return;
-    const to=lite.getBoundingClientRect();if(!to.width || !to.height)return;
+    const embed=event.target,id=route()?.id,held=heldEmbed;
+    if(!held || !id || held.id!=='t3_'+id || embed.closest('shreddit-post')?.id!==held.id || embed.closest('shreddit-feed'))return;
+    const lite=held.lite?liteOf(embed):null,target=held.lite?null:rawFrame(embed);
+    if(held.lite?!lite:!target)return;
+    const to=(lite || target).getBoundingClientRect();if(!to.width || !to.height)return;
     heldEmbed=null;markMove();
-    lite.classList.add('lyt-activated');
-    embed.hasActivatedYouTubePlayer=true;
-    lite.playerPromise=Promise.resolve(held.player);
-    for(const old of lite.querySelectorAll('iframe'))old.remove();
-    movePlayer(lite,held.ifr);
-    restoreStyle(held.ifr,held.style);
-    followYouTube(embed,held.player);
+    if(lite){
+      lite.classList.add('lyt-activated');
+      embed.hasActivatedYouTubePlayer=true;
+      lite.playerPromise=Promise.resolve(held.player);
+      for(const old of lite.querySelectorAll('iframe'))old.remove();
+      movePlayer(lite,held.ifr);
+      restoreStyle(held.ifr,held.style);
+      followYouTube(embed,held.player);
+      // The cached feed card gets a fresh, unplayed embed for Back.
+      restoreStyle(held.lite,held.liteStyle);
+      held.lite.classList.remove('lyt-activated');delete held.lite.playerPromise;
+      held.embed.hasActivatedYouTubePlayer=false;ytPlayers.delete(held.embed);
+    }else{
+      // The post's own iframe of the same video gives way to the one already playing.
+      movePlayer(target.parentNode,held.ifr,target);target.remove();
+      restoreStyle(held.ifr,held.style);
+    }
     held.stage.remove();
-    // The cached feed card gets a fresh, unplayed embed for Back.
-    restoreStyle(held.lite,held.liteStyle);
-    held.lite.classList.remove('lyt-activated');delete held.lite.playerPromise;
-    held.embed.hasActivatedYouTubePlayer=false;ytPlayers.delete(held.embed);
-    const from=held.rect,box=held.ifr.getBoundingClientRect();
+    const from=held.rect,box=held.ifr.getBoundingClientRect(),aspect=lite?16/9:from.width/from.height;
     if(typeof held.ifr.animate==='function' && box.width && box.height && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){
       // One scale from YouTube's 16:9 picture to picture, clipped to the card's box at the start, as for videos.
-      const a=picture(from,16/9),b=picture(box,16/9),scale=a.width/b.width;
+      const a=picture(from,aspect),b=picture(box,aspect),scale=a.width/b.width;
       const x=from.left+from.width/2-box.left-box.width/2,y=from.top+from.height/2-box.top-box.height/2;
       if(Math.abs(x)>=1 || Math.abs(y)>=1 || Math.abs(scale-1)>=.01){
         const timing={duration:FLIGHT_MS,easing:'cubic-bezier(.2,.8,.2,1)'};

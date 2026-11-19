@@ -11,7 +11,20 @@
  const SOUND_CONTROL='.mute-button,.volume-slider';
  const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen';
  // YouTube embeds Reddit renders as lite-youtube with the YouTube player API (controlled by the page bridge).
- const EMBED='shreddit-embed[providername="YouTube"]',EMBED_KEY='rt-embed-continue-v1';
+ const EMBED='shreddit-embed[providername="YouTube"]',EMBED_KEY='rt-embed-continue-v1',ANY_EMBED='shreddit-embed';
+ // Other providers (Streamable, Twitch, Dailymotion, …): Reddit renders their oEmbed iframe directly in the embed. A
+ // preview reloads it with the provider's autoplay and mute flags; its own player API, if any, is not used.
+ const rawFrame=embed=>{const frame=embed?.shadowRoot?.querySelector?.('iframe');return frame && !frame.closest('lite-youtube,lite-vimeo')?frame:null;};
+ const FLAGS=[[/(^|\.)twitch\.tv$/i,{autoplay:'true',muted:'true'}],[/(^|\.)dailymotion\.com$/i,{autoplay:'1',mute:'1'}],[/./,{autoplay:'1',muted:'1',mute:'1'}]];
+ function flagged(src,sound){
+  let url;try{url=new URL(src);}catch{return src;}
+  const flags=FLAGS.find(([host])=>host.test(url.hostname))[1];
+  for(const [key,value] of Object.entries(flags)){
+   if(!sound || key==='autoplay')url.searchParams.set(key,value);
+   else if(value==='true')url.searchParams.set(key,'false');else url.searchParams.delete(key);
+  }
+  return url.href;
+ }
  const postId=path=>/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase() || '';
   // Same choices and migration as RTPostModel.normalizeSettings (settings may arrive raw in tests and old builds).
  const choices=raw=>{const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;return {start:pick('videoStart',['hover','reddit','play'],raw?.videoPreviews===false?'reddit':'hover'),touch:pick('videoStartTouch',['stop','reddit','play'],raw?.videoPreviewsInView===true?'stop':'reddit'),click:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),from:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),open:pick('videoOpenPost',['continue','reddit'],raw?.videoContinueOnOpen===false?'reddit':'continue'),away:pick('videoScrollAway',['pause','reddit'],raw?.videoPauseOffscreen===false?'reddit':'pause'),sound:raw?.videoUnmutePreview!==false};};
@@ -69,6 +82,13 @@
    // The page bridge reports a YouTube player that started (by its own controls, a preview or a continuation).
    this.onEmbedPlaying=event=>{if(event.target?.matches?.(EMBED))this.exclusive(event.target);};
    doc.addEventListener('rt-embed-playing',this.onEmbedPlaying);
+   // Clicking into an embed's player moves focus into its iframe (the page sees a blur): that embed is in use, so other
+   // videos pause, and opening its post carries it over.
+   this.onFrameFocus=()=>this.win.setTimeout(()=>{
+    const active=this.doc.activeElement;if(!active?.matches?.(ANY_EMBED))return;
+    active.dataset.rtEmbedUsed='1';this.exclusive(active);
+   },0);
+   this.win.addEventListener('blur',this.onFrameFocus);
    this.win.addEventListener('popstate',this.onBack);
    this.win.addEventListener('pagehide',this.onPageExit);
    this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onVisibility(entries),{threshold:[0,0.5,IN_VIEW,1]}):null;
@@ -239,11 +259,11 @@
   }
   feedEmbed(embed){
    const card=embed?.closest?.('shreddit-post');
-   return Boolean(card?.id && embed.matches(EMBED) && postId(this.win.location.pathname)!==card.id.replace(/^t3_/,''));
+   return Boolean(card?.id && embed.matches(ANY_EMBED) && (embed.matches(EMBED) || rawFrame(embed)) && postId(this.win.location.pathname)!==card.id.replace(/^t3_/,''));
   }
   // Desktop hover over a feed YouTube embed, with the same card grace as a video. Returns true when it handled the event.
   embedHover(event,path,to,within){
-   const current=this.ePreview,embed=path.find(node=>node.matches?.(EMBED));
+   const current=this.ePreview,embed=path.find(node=>node.matches?.(ANY_EMBED));
    if(event.type==='pointerout'){
     if(!current || current.view)return Boolean(embed);
     if(!current.active){if(path.includes(current.embed) && !within(to,current.embed))this.stopEmbed();return true;}
@@ -265,10 +285,20 @@
    const {embed}=preview;
    if(this.ePreview!==preview || this.doc.hidden || !embed.isConnected)return;
    embed.dataset.rtEmbedPreview='on';
-   if(embed.dispatchEvent(new this.win.Event('rt-embed-preview',{bubbles:true,cancelable:true}))){this.stopEmbed();return;}
+   let host;
+   if(embed.matches(EMBED)){
+    if(embed.dispatchEvent(new this.win.Event('rt-embed-preview',{bubbles:true,cancelable:true}))){this.stopEmbed();return;}
+    host=embed.shadowRoot?.querySelector('lite-youtube') || embed;
+   }else{
+    const frame=rawFrame(embed),src=frame?.getAttribute('src');if(!frame || !src){this.stopEmbed();return;}
+    preview.frame={frame,src,position:embed.style.position};
+    frame.src=flagged(src,false);
+    // The layer sits in the embed's shadow root over its iframe.
+    if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
+    host=embed.shadowRoot;
+   }
    preview.active=true;
-   // While it previews, a layer over the embed takes the click (YouTube's iframe would otherwise play it in place).
-   const host=embed.shadowRoot?.querySelector('lite-youtube') || embed;
+   // While it previews, a layer over the embed takes the click (the iframe would otherwise play it in place).
    const layer=preview.layer=this.doc.createElement('div');
    layer.dataset.rtEmbedLayer='';layer.setAttribute('role','link');layer.setAttribute('aria-label',this.clickPlays?'Play with sound':'Open post');
    Object.assign(layer.style,{position:'absolute',inset:'0',zIndex:'5',cursor:'pointer',background:'transparent'});
@@ -296,18 +326,36 @@
    this.ePreview=null;
    this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);
    preview.layer?.remove();delete preview.embed.dataset.rtEmbedPreview;
+   preview.embed.dataset.rtEmbedUsed='1';
+   if(preview.frame){this.restoreHost(preview);if(sound)preview.frame.frame.src=flagged(preview.frame.src,true);return;}
    if(sound)preview.embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
   }
+  restoreHost(preview){if(preview.frame)preview.embed.style.position=preview.frame.position || '';}
   stopEmbed(){
    const preview=this.ePreview;if(!preview)return;
    this.ePreview=null;
    this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);
    preview.layer?.remove();delete preview.embed.dataset.rtEmbedPreview;
+   if(preview.frame){this.restoreHost(preview);if(preview.active && preview.frame.frame.isConnected)preview.frame.frame.src=preview.frame.src;return;}
    if(preview.active)preview.embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
   }
   // Opening a post whose YouTube embed plays (or previews) continues it in the post's embed at the same second.
   rememberEmbed(embed,id){
    const preview=this.ePreview?.embed===embed && this.ePreview.active ? this.ePreview : null;
+   // Other providers: no position to read, but the same iframe (previewing, or one you clicked into) moves into the post.
+   if(!embed.matches(EMBED)){
+    if(!preview && embed.dataset.rtEmbedUsed!=='1')return false;
+    if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);
+     if(this.unmutePreview)preview.frame.frame.src=flagged(preview.frame.src,true);}
+    this.clearEmbedHandoff();
+    const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
+    if(!held)return false;
+    this.embedPending={id,from:this.win.location.pathname,held,generic:true};
+    const pending=this.embedPending,watch=()=>{if(this.embedPending!==pending || this.dead)return;this.embedHandoff();this.win.requestAnimationFrame(watch);};
+    this.win.requestAnimationFrame(watch);
+    this.embedExpiry=this.win.setTimeout(()=>this.clearEmbedHandoff(),CONTINUE_MS);
+    return true;
+   }
    embed.dispatchEvent(new this.win.Event('rt-embed-snapshot',{bubbles:true}));
    const time=Number(embed.dataset.rtEmbedTime);
    if(!preview && embed.dataset.rtEmbedState!=='playing' || !(time>=0))return false;
@@ -329,6 +377,18 @@
    return true;
   }
   embedHandoff(){
+   const generic=this.embedPending?.generic?this.embedPending:null;
+   if(generic){
+    const id=postId(this.win.location.pathname);
+    if(id!==generic.id){if(this.win.location.pathname!==generic.from)this.clearEmbedHandoff();return;}
+    const target=[...this.doc.querySelectorAll(ANY_EMBED)].find(node=>node.closest('shreddit-post')?.id==='t3_'+id && !node.closest('shreddit-feed'));
+    if(!target)return;
+    if(!('rtIncoming' in target.dataset)){target.dataset.rtIncoming=target.style.visibility;target.style.visibility='hidden';}
+    if(target.dispatchEvent(new this.win.Event('rt-place-held-embed',{bubbles:true,cancelable:true})))return;
+    target.style.visibility=target.dataset.rtIncoming;delete target.dataset.rtIncoming;
+    this.embedPending=null;this.clearEmbedHandoff();
+    return;
+   }
    let saved;
    try{saved=JSON.parse(this.win.sessionStorage.getItem(EMBED_KEY) || 'null');}catch{}
    if(!saved)return;
@@ -397,7 +457,7 @@
    if(!link || !card || link.hasAttribute('download') || link.target && link.target!=='_self')return;
    const url=new URL(link.href,this.win.location.href),id=postId(url.pathname);
    if(url.origin!==this.win.location.origin || !id || card.id!=='t3_'+id || postId(this.win.location.pathname)===id)return;
-   const embed=[...card.querySelectorAll(EMBED)].find(node=>this.feedEmbed(node));
+   const embed=[...card.querySelectorAll(ANY_EMBED)].find(node=>this.feedEmbed(node));
    if(embed && this.rememberEmbed(embed,id))return;
    const source=[...card.querySelectorAll(PLAYERS)].find(player=>player.getAttribute('player-type')===FEED_PLAYER);
    const sourceVideo=source && this.video(source);
@@ -581,7 +641,7 @@
   pickInView(){
    const height=this.win.innerHeight,middle=height/2;let best=null,distance=Infinity;
    const candidates=[...this.players].filter(player=>player.getAttribute('player-type')===FEED_PLAYER)
-    .concat([...this.doc.querySelectorAll(EMBED)].filter(embed=>this.feedEmbed(embed)));
+    .concat([...this.doc.querySelectorAll(ANY_EMBED)].filter(embed=>this.feedEmbed(embed)));
    for(const node of candidates){
     if(!node.isConnected)continue;
     const box=node.getBoundingClientRect();if(!(box.height>0))continue;
@@ -591,7 +651,7 @@
    if(best && (best===this.hovered || best===this.ePreview?.embed))return;
    this.stopHover();
    if(!best)return;
-   if(best.matches(EMBED)){
+   if(best.matches(ANY_EMBED)){
     const preview=this.ePreview={embed:best,card:best.closest('shreddit-post'),view:true};
     this.startEmbed(preview);
     return;
@@ -606,7 +666,7 @@
    for(const type of ['pointerover','pointerout'])this.doc.removeEventListener(type,this.onHover,true);
    this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
    this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);
-   this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);
+   this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);
    this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
    this.clearHandoff();
   }
