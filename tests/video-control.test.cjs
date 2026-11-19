@@ -704,7 +704,7 @@ test('On Play on a phone shows the provider thumbnail and requires a tap to load
  c.pickInView();
  const cover=e.node.shadowRoot.querySelector('[data-rt-parked-cover]');
  assert.equal(e.frame.src,'about:blank');assert.equal(e.layer(),null);
- assert.match(cover.style.backgroundImage,/cdn\.example\.test\/poster\.jpg/);
+ assert.match(cover.dataset.rtStill,/cdn\.example\.test\/poster\.jpg/);assert.equal(cover.querySelector('[data-rt-parked-still]').referrerPolicy,'no-referrer');
  cover.click();assert.equal(new URL(e.frame.src).origin,'https://cdn.embedly.com');
  assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null);
 });
@@ -868,7 +868,7 @@ test('a player with no controls that Reddit adds later is caught before it loads
  p.io.posters.cb([{target:node,isIntersecting:true}]);
  await new Promise(r=>setTimeout(r,100));
  assert.deepEqual(asked,['t3_test'],'one batched lookup');
- assert.match(node.shadowRoot.querySelector('[data-rt-parked-cover]').style.backgroundImage,/preview\.redd\.it\/poster\.jpg/);
+ assert.match(node.shadowRoot.querySelector('[data-rt-parked-cover]').dataset.rtStill,/preview\.redd\.it\/poster\.jpg/);
 });
 test('with the default choices a playing video carries into its post again',async t=>{
  const p=page(t);
@@ -883,7 +883,7 @@ test('a player with controls that stops being the one playing goes back to the p
  c.over('pointerout',c.frame,p.d.body);await new Promise(r=>setTimeout(r,260));
  const cover=()=>c.node.shadowRoot.querySelector('[data-rt-parked-cover]');
  assert.ok(cover(),'its image is back');assert.equal(c.frame.getAttribute('src'),embedly,'still loaded, so it resumes where it was');
- await new Promise(r=>setTimeout(r,100));assert.match(cover().style.backgroundImage,/still\.jpg/);
+ await new Promise(r=>setTimeout(r,100));assert.match(cover().dataset.rtStill,/still\.jpg/);
  c.sent.length=0;cover().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
  assert.equal(cover(),null);assert.deepEqual(c.commands(),['unmute','play']);assert.equal(c.node.dataset.rtEmbedUsed,'1');
  const q=page(t);const none=await controlled(q);none.controller.readPosters=async()=>({});
@@ -999,4 +999,17 @@ test('On Play: a still that turns out tiny gives way to the player loaded idle, 
  const loaded=new URL(e.frame.getAttribute('src'));
  assert.equal(loaded.origin,'https://cdn.embedly.com');assert.equal(loaded.searchParams.has('autoplay'),false,'idle, not started');
  assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'its own first frame or poster shows');
+});
+
+test('a RedGIFs card with no still in the markup gets one from its post’s own Reddit data, drawn without a referrer',async t=>{
+ const p=page(t);const asked=[];
+ p.W.fetch=async url=>{asked.push(String(url));return {ok:true,status:200,json:async()=>[{data:{children:[{data:{secure_media:{oembed:{thumbnail_url:'https://media.redgifs.com/CamelName-poster.jpg'}}}}]}}]};};
+ const e=frameEmbed(p,'https://www.redgifs.com/ifr/camelname');e.node.setAttribute('providername','RedGIFs');
+ const c=await hoverController(p,{embedStart:'play'});c.scan();
+ p.io.posters.cb([{target:e.node,isIntersecting:true}]);
+ await new Promise(resolve=>setTimeout(resolve,500));
+ assert.deepEqual(asked,['/comments/test.json?limit=1&depth=1&raw_json=1'],'one small read for the one post');
+ const cover=e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),still=cover.querySelector('[data-rt-parked-still]');
+ assert.equal(cover.dataset.rtStill,'https://media.redgifs.com/CamelName-poster.jpg');assert.equal(still.referrerPolicy,'no-referrer');
+ assert.equal(cover.hasAttribute('data-rt-placeholder'),false);
 });

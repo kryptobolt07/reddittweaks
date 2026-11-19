@@ -178,3 +178,10 @@ Order per idle feed embed:
 2. A player with controls (Embedly, YouTube iframe, Vimeo) with no usable still stays or becomes loaded idle, without `autoplay`, so its own first frame or poster shows. On Play still parks it behind Reddit's still when there is one, so nothing loads until tapped; if that still fails the check, the player loads idle instead.
 3. A player that starts by itself (RedGIFs), with Direct embed controls on: the page asks the worker once (`rt-embed-direct`: permission granted and frame script registered). The frame stays loaded, and the frame script holds its video on frame 0 from document start. On its `hello`, the page answers `pause` for an idle feed card and `play` for one chosen (preview, Autoplay pick, tap) or outside the feed. Viewer input inside the player is never held. With no answer in 3 s, or outside Reddit, the video plays as it would have.
 4. Otherwise it is unloaded behind a plain placeholder: black with the play button and the provider's name.
+
+User report (0.51.0): cards from one embed provider showed only the placeholder. Measured live 2026-11-20:
+- That provider's stills load only when no Referer is sent. With Reddit as referrer the request fails, so a CSS background never showed one.
+- The lowercase ID in its player address doesn't name a still: the capitals matter.
+- Reddit refuses its batched post lookups (`/api/info.json`, `/by_id`: HTTP 403). A single post's `/comments/<id>.json` answers.
+
+So stills are drawn as an `<img referrerpolicy="no-referrer">`, fitted with `object-fit: contain`. When neither the markup nor the provider page has one, the still comes from that post's own Reddit data: its preview image first, then the provider's still. Reads go one post at a time, at most four per batch, 300 ms apart, only for cards near the screen, and pause for 5 minutes after a 403 or 429.
