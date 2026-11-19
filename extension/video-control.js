@@ -84,10 +84,35 @@
   return [...thumbAttrs(embed),...thumbAttrs(lite),image?.currentSrc || image?.src,widgetImage,
    /url\(['"]?(https:\/\/[^'"()\s]+)['"]?\)/.exec(style)?.[1]].find(posterOK);
  }
- function readPosters(ids,sources){
+ // A still from Reddit's own data for one post: its preview image first, then the provider's (RedGIFs' poster is
+ // named there with the capitals its media host needs). Reddit refuses the batched lookups (/api/info.json, /by_id:
+ // HTTP 403, measured 2026-11-20); a single post's data still answers, so these go one at a time, spaced out, and stop
+ // for a while on a refusal.
+ let stillsPausedUntil=0;
+ const pickStill=d=>{
+  const image=d?.preview?.images?.[0],sized=(image?.resolutions || []).find(r=>r.width>=480) || image?.source;
+  return [sized?.url,d?.secure_media?.oembed?.thumbnail_url,d?.media?.oembed?.thumbnail_url].find(posterOK) || '';
+ };
+ async function readPostStills(ids,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))){
+  const out={};
+  for(const id of ids.slice(0,4)){
+   if(Date.now()<stillsPausedUntil)break;
+   try{
+    const response=await fetch('/comments/'+id.replace(/^t3_/,'')+'.json?limit=1&depth=1&raw_json=1',{credentials:'include',headers:{Accept:'application/json'}});
+    if(response.status===403 || response.status===429){stillsPausedUntil=Date.now()+300000;break;}
+    if(response.ok){const url=pickStill((await response.json())?.[0]?.data?.children?.[0]?.data);if(url)out[id]=url;}
+   }catch{}
+   await wait(300);
+  }
+  return out;
+ }
+ async function readPosters(ids,sources){
   const items=ids.flatMap(id=>sources.get(id)?[[id,sources.get(id)]]:[]);
   const api=globalThis.browser || globalThis.chrome;
-  return items.length?api?.runtime?.sendMessage?.({scope:'rt-embed-posters',items}):{};
+  let found={};
+  try{found=(items.length?await api?.runtime?.sendMessage?.({scope:'rt-embed-posters',items}):{}) || {};}catch{}
+  const missing=ids.filter(id=>!posterOK(found[id]));
+  return missing.length?{...found,...await readPostStills(missing)}:found;
  }
  // The player's address without a request to start by itself (also inside Embedly's wrapper).
  function idleSource(src){
@@ -573,13 +598,13 @@
    // Fitted on black like the player itself, not cropped.
    Object.assign(cover.style,{position:'absolute',inset:'0',zIndex:'4',cursor:'pointer',backgroundColor:loaded?'transparent':'#000',backgroundPosition:'center',backgroundSize:'contain',backgroundRepeat:'no-repeat',display:'flex',flexDirection:'column',gap:'8px',alignItems:'center',justifyContent:'center'});
    const play=this.doc.createElement('span');play.dataset.rtParkedPlay='';
-   Object.assign(play.style,{width:'56px',height:'56px',borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center'});
+   Object.assign(play.style,{position:'relative',width:'56px',height:'56px',borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center'});
    play.innerHTML='<svg viewBox="0 0 20 20" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M6 3.8v12.4a.8.8 0 0 0 1.2.7l10-6.2a.8.8 0 0 0 0-1.4l-10-6.2A.8.8 0 0 0 6 3.8Z"/></svg>';
    cover.append(play);
    // With no usable still: the provider's name under the play button (data-rt-placeholder).
    const name=embed.getAttribute('providername');
    if(name){const label=this.doc.createElement('span');label.dataset.rtParkedLabel='';label.textContent=name;
-    Object.assign(label.style,{color:'rgba(255,255,255,.75)',font:'600 13px/16px system-ui,sans-serif'});cover.append(label);}
+    Object.assign(label.style,{position:'relative',color:'rgba(255,255,255,.75)',font:'600 13px/16px system-ui,sans-serif'});cover.append(label);}
    const start=event=>{event.preventDefault();event.stopPropagation();this.playCovered(embed);};
    cover.addEventListener('click',start);cover.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ')start(event);});
    root.append(cover);
@@ -639,7 +664,7 @@
   warmPoster(url){
    if(this.warmedPosters.has(url))return;
    const image=new this.win.Image();
-   image.decoding='async';
+   image.decoding='async';image.referrerPolicy='no-referrer';
    // Once it loads, covers using it are painted again: a tiny or broken image gives way to the player or placeholder.
    const repaint=()=>{for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(embed.shadowRoot?.querySelector('[data-rt-parked-cover]'))this.paintPoster(embed);};
    image.addEventListener?.('load',repaint);image.addEventListener?.('error',repaint);
@@ -662,7 +687,15 @@
    const cover=embed.shadowRoot?.querySelector('[data-rt-parked-cover]'),id=embed.closest('shreddit-post')?.id;if(!cover || !id)return;
    const found=embedPoster(embed) || this.posters.get(id),url=found && this.posterUsable(found)?found:'';
    if(found)this.posters.set(id,found);
-   cover.style.backgroundImage=url?'url("'+url+'")':'';
+   // An <img> without a referrer: RedGIFs serves its stills only then (a CSS background sends Reddit as referrer).
+   let still=cover.querySelector('[data-rt-parked-still]');
+   if(url && !still){
+    still=this.doc.createElement('img');still.dataset.rtParkedStill='';still.alt='';still.referrerPolicy='no-referrer';still.decoding='async';
+    Object.assign(still.style,{position:'absolute',inset:'0',width:'100%',height:'100%',objectFit:'contain',pointerEvents:'none'});
+    cover.prepend(still);
+   }
+   if(url){if(still.getAttribute('src')!==url)still.src=url;}else still?.remove();
+   cover.dataset.rtStill=url || '';
    cover.toggleAttribute('data-rt-placeholder',!url && !('rtLoaded' in cover.dataset));
    const label=cover.querySelector('[data-rt-parked-label]');if(label)label.hidden=!cover.hasAttribute('data-rt-placeholder');
    // No usable image for an unloaded player with controls: load it idle, so its own first frame or poster shows.
