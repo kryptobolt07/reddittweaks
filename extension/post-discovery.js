@@ -150,9 +150,13 @@
     back:'M17.5 9.1H4.679l5.487-5.462a.898.898 0 00.003-1.272.898.898 0 00-1.272-.003l-7.032 7a.898.898 0 000 1.275l7.03 7a.896.896 0 001.273-.003.898.898 0 00-.002-1.272l-5.487-5.462h12.82a.9.9 0 000-1.8Z'
   };
   function redditIcon(name,size=16){
+    if(name==='nsfw'){
+      const icon=globalThis.RTFeedFilters?.svgIcon('nsfw-fill-12',size);
+      if(icon){icon.classList.add('block');return icon;}
+    }
     const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:String(size),width:String(size),viewBox:'0 0 20 20','aria-hidden':'true','icon-name':name}))svg.setAttribute(k,v);
     if(name==='nsfw'){svg.setAttribute('viewBox','0 0 12 12');svg.setAttribute('icon-name','nsfw-fill-12');svg.classList.add('block');}
-    const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',(name==='nsfw'?M.NSFW_ICON_PATH:REDDIT_ICONS[name]) || '');svg.append(path);return svg;
+    const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',REDDIT_ICONS[name] || '');svg.append(path);return svg;
   }
   // Reddit shows one of eight default avatars when a user has none; archives carry no avatar.
   function defaultAvatar(name,size){

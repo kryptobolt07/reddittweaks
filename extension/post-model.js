@@ -1,8 +1,6 @@
 /* Public post data only. Archive snapshots never establish current deletion status. */
 (() => {
   'use strict';
-  // Reddit’s nsfw-fill-12 glyph, shared by post tags and the Flair picker.
-  const NSFW_ICON_PATH='M6.506 5.119a.641.641 0 01.002-.723.74.74 0 01.31-.244 1.16 1.16 0 01.874 0 .695.695 0 01.306.244.647.647 0 01-.001.723.768.768 0 01-.303.259 1.008 1.008 0 01-.439.095 1.01 1.01 0 01-.44-.095.765.765 0 01-.309-.259Zm1.255 1.406a1.176 1.176 0 00-.507-.106c-.189 0-.36.036-.508.106a.854.854 0 00-.348.279.647.647 0 00-.127.386.6.6 0 00.13.382.87.87 0 00.353.266c.154.063.317.096.5.096s.352-.034.5-.1a.895.895 0 00.35-.27.625.625 0 00.123-.378.632.632 0 00-.124-.382.85.85 0 00-.342-.279Zm3.918.668c-.359.671-.958 1.57-1.937 2.55-.979.98-1.879 1.579-2.55 1.937-.749.4-1.637.4-2.386 0-.67-.358-1.57-.958-2.55-1.937-.98-.979-1.579-1.879-1.938-2.55-.4-.749-.4-1.637 0-2.387.36-.671.958-1.57 1.937-2.55.98-.98 1.88-1.579 2.55-1.937.75-.4 1.637-.4 2.386 0 .671.358 1.57.958 2.55 1.937.98.98 1.58 1.879 1.938 2.55.4.749.4 1.637 0 2.387ZM4 3.2H2.8v5.6H4V3.2Zm5.5 4.01a1.39 1.39 0 00-.246-.794 1.776 1.776 0 00-.6-.544c.168-.144.3-.312.395-.501.108-.21.163-.44.163-.682 0-.315-.089-.597-.266-.836a1.73 1.73 0 00-.712-.556A2.387 2.387 0 007.26 3.1c-.35 0-.677.065-.976.195-.298.13-.54.316-.72.555-.18.238-.27.521-.27.836 0 .243.054.472.163.684.096.189.228.357.394.501a1.788 1.788 0 00-.6.547 1.393 1.393 0 00.046 1.651c.192.255.465.46.806.608.341.148.727.223 1.151.223.416 0 .8-.074 1.14-.217.341-.145.613-.348.81-.605.197-.258.297-.549.297-.867l-.003-.001Z';
   const validateUsername=value=>typeof value==='string' && /^[A-Za-z0-9_-]{1,20}$/.test(value);
   const validateId=value=>typeof value==='string' && /^(?:t3_)?[a-z0-9]{1,10}$/i.test(value);
   const validateCommentId=value=>typeof value==='string' && /^(?:t1_)?[a-z0-9]{1,32}$/i.test(value);
@@ -270,5 +268,5 @@
       isSelf:item.isSelf ?? item.is_self ?? nativeSelf,nsfw:item.nsfw ?? item.over_18 ?? item.over18 ?? flag('nsfw','is-nsfw'),
       spoiler:item.spoiler ?? flag('spoiler','is-spoiler'),type:comment?undefined:type,created:item.created ?? item.created_utc ?? attr('created-timestamp')};
   }
-  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord,NSFW_ICON_PATH});
+  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord});
 })();
