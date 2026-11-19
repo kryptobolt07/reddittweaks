@@ -87,6 +87,7 @@
       "js": [
         "profile-notice.js",
         "share-links-settings.js",
+        "post-model.js",
         "feed-filters.js",
         "feed-sheet.js",
         "mobile-home-header.js",
@@ -107,7 +108,6 @@
       ],
       "run_at": "document_idle",
       "js": [
-        "post-model.js",
         "markdown-lite.js",
         "archive-view.js",
         "archive-query.js",

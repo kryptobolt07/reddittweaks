@@ -35,7 +35,7 @@ The sheet mirrors the options the desktop menu offers; options that only exist o
 
 ## Subreddit feeds on phones: short sheet with submenus (2026-11-19)
 
-User report: the subreddit sheet was one long page, with a heavy New icon. The first page now has one row per option with its current value and a chevron. **Sort by** shows the current sort and, for Top, its range (`Top · This Week`). **Post type** shows the chosen types, using that type's icon when only one is chosen. **Flair** shows the current flair. Each row opens its own page with Back. In Sort by, a selected Top opens one level further to its time ranges (Reddit renders those only while Top is selected).
+User report: the subreddit sheet was one long page, with a heavy New icon. The first page now has one row per option with its current value and a chevron. **Sort by** shows the current sort and, for Top, its range (`Top · This Week`). **Post type** shows the chosen types, using that type's icon when only one is chosen. **Flair** shows the current flair. Each row opens its own page with Back. In Sort by, Top opens one level further to its time ranges before applying the sort.
 
 Icons are Reddit's own, captured from the server HTML of `/user/reddit/submitted/?sort=hot|top` (`svg[icon-name]`). Reddit's subreddit sort menu has none of its own. As in Reddit's profile menu, the selected sort uses the filled variant (`hot-fill`, `new-fill`, `top-fill`; Best has no captured fill). A CSS rule stroked Reddit's New outline a second time, which drew a blob; it is gone. "All types" no longer carries an eye icon.
 

@@ -137,8 +137,6 @@
     close:'m11.273 10 5.363-5.363a.9.9 0 10-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 10-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 101.274 1.273L10 11.273l5.363 5.363a.897.897 0 001.274 0 .9.9 0 000-1.273L11.275 10h-.002Z',
     'radio-button':'M10 2.8c3.97 0 7.2 3.23 7.2 7.2s-3.23 7.2-7.2 7.2-7.2-3.23-7.2-7.2S6.03 2.8 10 2.8ZM10 1a9 9 0 10.001 18.001A9 9 0 0010 1Z',
     'radio-button-fill':'M10 2.8c3.97 0 7.2 3.23 7.2 7.2s-3.23 7.2-7.2 7.2-7.2-3.23-7.2-7.2S6.03 2.8 10 2.8ZM10 1a9 9 0 10.001 18.001A9 9 0 0010 1Z M10 14a4 4 0 100-8 4 4 0 000 8Z',
-    // 12x12 (viewBox 0 0 12 12), Reddit's nsfw-fill-12.
-    nsfw:'M6.506 5.119a.641.641 0 01.002-.723.74.74 0 01.31-.244 1.16 1.16 0 01.874 0 .695.695 0 01.306.244.647.647 0 01-.001.723.768.768 0 01-.303.259 1.008 1.008 0 01-.439.095 1.01 1.01 0 01-.44-.095.765.765 0 01-.309-.259Zm1.255 1.406a1.176 1.176 0 00-.507-.106c-.189 0-.36.036-.508.106a.854.854 0 00-.348.279.647.647 0 00-.127.386.6.6 0 00.13.382.87.87 0 00.353.266c.154.063.317.096.5.096s.352-.034.5-.1a.895.895 0 00.35-.27.625.625 0 00.123-.378.632.632 0 00-.124-.382.85.85 0 00-.342-.279Zm3.918.668c-.359.671-.958 1.57-1.937 2.55-.979.98-1.879 1.579-2.55 1.937-.749.4-1.637.4-2.386 0-.67-.358-1.57-.958-2.55-1.937-.98-.979-1.579-1.879-1.938-2.55-.4-.749-.4-1.637 0-2.387.36-.671.958-1.57 1.937-2.55.98-.98 1.88-1.579 2.55-1.937.75-.4 1.637-.4 2.386 0 .671.358 1.57.958 2.55 1.937.98.98 1.58 1.879 1.938 2.55.4.749.4 1.637 0 2.387ZM4 3.2H2.8v5.6H4V3.2Zm5.5 4.01a1.39 1.39 0 00-.246-.794 1.776 1.776 0 00-.6-.544c.168-.144.3-.312.395-.501.108-.21.163-.44.163-.682 0-.315-.089-.597-.266-.836a1.73 1.73 0 00-.712-.556A2.387 2.387 0 007.26 3.1c-.35 0-.677.065-.976.195-.298.13-.54.316-.72.555-.18.238-.27.521-.27.836 0 .243.054.472.163.684.096.189.228.357.394.501a1.788 1.788 0 00-.6.547 1.393 1.393 0 00.046 1.651c.192.255.465.46.806.608.341.148.727.223 1.151.223.416 0 .8-.074 1.14-.217.341-.145.613-.348.81-.605.197-.258.297-.549.297-.867l-.003-.001Z',
     upvote:'M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10ZM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179Z',
     downvote:'M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1Zm7.01 9.82h-4.85V5.09c0-1.13-.81-2.163-1.934-2.278a2.163 2.163 0 00-2.386 2.15v5.859H2.989l7.01 7.016 7.012-7.016Z',
     comment:'M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9Zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2Z',
@@ -154,7 +152,7 @@
   function redditIcon(name,size=16){
     const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [k,v] of Object.entries({fill:'currentColor',height:String(size),width:String(size),viewBox:'0 0 20 20','aria-hidden':'true','icon-name':name}))svg.setAttribute(k,v);
     if(name==='nsfw'){svg.setAttribute('viewBox','0 0 12 12');svg.setAttribute('icon-name','nsfw-fill-12');svg.classList.add('block');}
-    const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',REDDIT_ICONS[name] || '');svg.append(path);return svg;
+    const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',(name==='nsfw'?M.NSFW_ICON_PATH:REDDIT_ICONS[name]) || '');svg.append(path);return svg;
   }
   // Reddit shows one of eight default avatars when a user has none; archives carry no avatar.
   function defaultAvatar(name,size){
@@ -1591,8 +1589,8 @@
         for(const item of sorts){
           const name=label(item),selected=!oldSelected && picked(item);
           const glyph=selected?f?.svgIcon(name.toLowerCase()+'-fill',20) || icon(item):icon(item);
-          if(name==='Top' && selected && times.length){
-            page.row({label:name,subtitle:range,icon:glyph,chevron:true,keepOpen:true,
+          if(name==='Top' && times.length){
+            page.row({label:name,subtitle:selected?range:'',icon:glyph,chevron:true,keepOpen:true,
               onSelect:()=>page.push({title:'Time range',build:(_timeBody,timePage)=>options(timePage,times)})});
           }else page.row({label:name,icon:glyph,selected,...linkOrClick(item)});
         }

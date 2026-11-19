@@ -1962,6 +1962,10 @@ test('on phones profile Feed options opens short pages that run the menu’s own
   row('Sort').click();
   assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Sort');
   assert.ok(row('New').getAttribute('href'),'sort rows are Reddit’s own links');
+  row('Top').click();
+  assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Time range');
+  assert.match(row('Today').getAttribute('href'),/sort=top&t=day/);
+  sheet.querySelector('.rt-fsheet-back').click();
   sheet.querySelector('.rt-fsheet-back').click();
   row('Post type').click();
   assert.equal(row('All types').getAttribute('aria-pressed'),'true');

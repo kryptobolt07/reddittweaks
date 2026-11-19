@@ -37,9 +37,10 @@
     if(avatar){lead.classList.add('rt-fsheet-avatar');if(typeof avatar==='string'){const img=make('img');img.src=avatar;img.alt='';img.referrerPolicy='no-referrer';img.loading='lazy';lead.append(img);}else lead.append(avatar);}
     else if(icon)lead.append(icon);
     el.append(lead);
-    const copy=make('span','rt-fsheet-copy'),sub=make('span','rt-fsheet-sub',subtitle);copy.append(make('span','rt-fsheet-label',label),sub);sub.hidden=!subtitle;el.append(copy);
+    const copy=make('span','rt-fsheet-copy'),sub=make('span','rt-fsheet-sub');
+    const say=value=>{sub.replaceChildren(...(value?[value]:[]));sub.hidden=!value;};
+    say(subtitle);copy.append(make('span','rt-fsheet-label',label),sub);el.append(copy);
     const tail=make('span','rt-fsheet-tail');if(selected)tail.append(glyph('check'));else if(chevron)tail.append(glyph('next'));el.append(tail);
-    const say=text=>{sub.textContent=text;sub.hidden=!text;};
     const run=async(handler,{ask,working,stay})=>{
      if(el.getAttribute('aria-busy')==='true')return;
      if(ask && !el.dataset.armed){el.dataset.armed='true';say('Tap again to continue');clearTimeout(el.rtDisarm);el.rtDisarm=setTimeout(()=>{delete el.dataset.armed;say(subtitle);},4000);return;}
