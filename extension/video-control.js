@@ -166,7 +166,11 @@
      if(!frame.isConnected){this.frames.delete(frame);continue;}
      if(frame.contentWindow!==event.source)continue;
      const kind=frameEvent(state.kind,event.data);
-     if(kind==='ready'){if(!state.readySeen){state.readySeen=true;for(const data of state.queue.splice(0))this.post(frame,data);this.subscribe(frame,state);}}
+     if(kind && !state.readySeen){
+      state.readySeen=true;state.pendingSound='';
+      for(const data of state.queue.splice(0))this.post(frame,data);
+      this.subscribe(frame,state);
+     }
      if(kind==='pause')state.playing=false;
      if(kind==='play'){state.played=true;state.playing=true;let embed=frame.getRootNode()?.host;if(embed && !embed.matches(ANY_EMBED))embed=embed.getRootNode()?.host;if(embed?.matches?.(ANY_EMBED) && this.ePreview?.embed!==embed){embed.dataset.rtEmbedUsed='1';this.exclusive(embed);}}
      return;
@@ -423,7 +427,7 @@
   command(frame,method){
    const state=this.frameState(frame);if(state.kind==='flags')return false;
    if(method==='play'){state.played=true;state.playing=true;}
-   else if(method==='pause')state.playing=false;
+   else if(method==='pause'){state.playing=false;state.pendingSound='';}
    for(const data of [].concat(frameMessage(state.kind,method))){this.post(frame,data);state.queue.push(data);}
    while(state.queue.length>4)state.queue.shift();
    // Embedly relays player.js only for some providers: a player that never answers is driven by address flags instead.
@@ -435,6 +439,8 @@
      state.kind='flags';state.queue.length=0;
      const preview=this.ePreview;
      if(preview?.active && preview.frame?.frame===frame){preview.frame.kind='flags';frame.setAttribute('src',flagged(preview.frame.src,false));}
+     else if(state.pendingSound && !frame.dataset.rtParked){allowAutoplay(frame);frame.setAttribute('src',flagged(state.pendingSound,true));}
+     state.pendingSound='';
     },PROBE_MS);
    }
    return true;
@@ -604,7 +610,15 @@
    if(preview.frame){this.restoreHost(preview);if(sound)this.frameSound(preview.frame);return;}
    if(sound)preview.embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
   }
-  frameSound({frame,src,kind}){if(kind==='flags'){allowAutoplay(frame);frame.src=flagged(src,true);}else{this.command(frame,'unmute');this.command(frame,'play');}}
+  frameSound({frame,src},reload=true){
+   const state=this.frameState(frame);
+   if(state.kind==='flags'){
+    if(reload){allowAutoplay(frame);frame.setAttribute('src',flagged(src,true));}
+    return;
+   }
+   if(reload && state.kind==='playerjs' && !state.readySeen)state.pendingSound=src;
+   this.command(frame,'unmute');this.command(frame,'play');
+  }
   restoreHost(preview){if(preview.frame)preview.embed.style.position=preview.frame.position || '';}
   stopEmbed(){
    const preview=this.ePreview;if(!preview)return;
@@ -632,7 +646,7 @@
     if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);
      // A player with controls gets its sound now, during the tap. One without (RedGIFs) could only get it by reloading,
      // which starts it over: it carries on at the same moment instead, and its own sound button works in the post.
-     if(this.unmutePreview && preview.frame.kind!=='flags')this.frameSound(preview.frame);}
+     if(this.unmutePreview)this.frameSound(preview.frame,false);}
     this.clearEmbedHandoff();
     const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
     if(!held)return false;
