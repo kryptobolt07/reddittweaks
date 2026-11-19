@@ -68,6 +68,52 @@
     return label.length <= 100 && !/[\u0000-\u001f]/.test(label) ? label : '';
   }
 
+  const flairTones=['text-global-white','text-global-black','text-secondary'];
+  const flairImages=new Set(['emoji.redditmedia.com','styles.redditmedia.com','i.redd.it','preview.redd.it']);
+  function flairImage(value) {
+    try {
+      const url=new URL(value,location.href);
+      if(url.protocol==='https:' && flairImages.has(url.hostname) && !url.username && !url.password)return url.href;
+    } catch {}
+    return '';
+  }
+
+  function flairPaint(content) {
+    if(!content)return null;
+    const pill=content.matches('.flair-content')?content.parentElement:content;
+    const parts=[];
+    const read=node=>{
+      if(parts.length>=16)return;
+      if(node.nodeType===Node.TEXT_NODE && node.textContent)parts.push(node.textContent.slice(0,100));
+      else if(node.nodeName==='IMG'){
+        const image=flairImage(node.getAttribute('src'));
+        if(image)parts.push({image,alt:(node.getAttribute('alt') || '').slice(0,100)});
+      } else if(node.nodeType===Node.ELEMENT_NODE && !node.matches('script,style,template'))for(const child of node.childNodes)read(child);
+    };
+    read(content);
+    const {backgroundColor:background,color}=pill.style;
+    const tone=flairTones.find(name=>pill.classList.contains(name)) || '';
+    return background || color || tone || parts.some(part=>typeof part==='object')?{background,color,tone,parts}:null;
+  }
+
+  function flairPill(label,paint) {
+    const pill=make('span','rt-community-flair-pill bg-tone-4 inline-block max-w-full text-12 font-normal box-border px-[6px] rounded-5 leading-4');
+    pill.setAttribute('aria-hidden','true');
+    pill.classList.add(flairTones.includes(paint.tone)?paint.tone:'text-secondary');
+    pill.style.backgroundColor=paint.background || '';
+    pill.style.color=paint.color || '';
+    const content=make('span','flair-content');
+    content.dir='auto';
+    for(const part of Array.isArray(paint.parts)?paint.parts.slice(0,16):[]){
+      if(typeof part==='string'){content.append(part.slice(0,100));continue;}
+      const src=flairImage(part?.image);if(!src)continue;
+      const image=make('img','flair-image');image.src=src;image.alt=String(part.alt || '').slice(0,100);content.append(image);
+    }
+    if(!content.textContent.trim() && !content.childElementCount)content.textContent=label;
+    pill.append(content);
+    return pill;
+  }
+
   function feedFlair(url) {
     const text = url.searchParams.get('f') || '';
     const quoted = /^flair_name:("(?:[^"\\]|\\.)*")$/i.exec(text);
@@ -155,7 +201,8 @@
   function loadFlairs() {
     try {
       const values = JSON.parse(sessionStorage.getItem(flairKey) || '[]');
-      return new Map(values.filter(entry => Array.isArray(entry) && Array.isArray(entry[1])).slice(-8));
+      return new Map(values.filter(entry => Array.isArray(entry) && Array.isArray(entry[1])).slice(-8).map(([name,entries])=>
+        [name,new Map(entries.slice(0,40).map(entry=>Array.isArray(entry)?entry:[entry,null]).filter(([label])=>typeof label==='string' && flairName(label)))]));
     } catch { return new Map(); }
   }
 
@@ -564,20 +611,29 @@
 
     collectFlairs() {
       const key = fold(this.scope.name);
-      const labels = new Set(this.flairs.get(key) || []);
-      const remember = value => { if (value && labels.size < 40) labels.add(value); };
-      for (const link of document.querySelectorAll('a[href*="flair_name"]')) {
+      const labels = new Map(this.flairs.get(key)), seen=new Set();
+      const remember=(value,paint)=>{
+        if(!value || seen.has(value) || !labels.has(value) && labels.size>=40)return;
+        if(paint || !labels.has(value))labels.set(value,paint);
+        if(paint)seen.add(value);
+      };
+      const links=[...document.querySelectorAll('a[href*="flair_name"]')];
+      // Prefer the community's flair directory when it supplies a label also on individual posts.
+      links.sort((a,b)=>Boolean(a.closest('shreddit-post'))-Boolean(b.closest('shreddit-post')));
+      for (const link of links) {
         const url = new URL(link.href);
-        if (url.origin === location.origin && fold(route(url)?.name) === key) remember(feedFlair(url));
+        if (url.origin !== location.origin || fold(route(url)?.name) !== key)continue;
+        remember(feedFlair(url),flairPaint(link.querySelector('.flair-content,span[style]') || link));
       }
       if (this.feed) for (const node of this.feed.querySelectorAll('shreddit-post [slot="post-flair"]')) {
-        remember(flairName(node.textContent));
+        const content=node.querySelector('.flair-content');
+        remember(flairName((content || node).textContent),flairPaint(content));
       }
-      if (labels.size === (this.flairs.get(key)?.length || 0)) return;
+      if (JSON.stringify([...labels])===JSON.stringify([...(this.flairs.get(key) || [])])) return;
       this.flairs.delete(key);
       this.flairs.set(key,[...labels]);
       while (this.flairs.size > 8) this.flairs.delete(this.flairs.keys().next().value);
-      try { sessionStorage.setItem(flairKey,JSON.stringify([...this.flairs])); } catch {}
+      try { sessionStorage.setItem(flairKey,JSON.stringify([...this.flairs].map(([name,entries])=>[name,[...entries]]))); } catch {}
     }
 
     clearPager() {
@@ -743,7 +799,7 @@
       ));
       for (const type of types) chip('type-' + type,this.feed ? filters.typeLabels[type] : mediaTypes.get(type),filters.typeIcons[type],
         () => this.applyTypes(types.filter(value => value !== type)));
-      if (flair) chip('flair',flair,'filter',() => this.go(withFlair(this.url,'')));
+      if (flair) chip('flair',flair,'tag',() => this.go(withFlair(this.url,'')));
       if (period) chip('date',period[1],'calendar',() => this.go(setSearchOption(this.url,'t','all')));
       this.chips.hidden = !this.chips.childElementCount;
     }
@@ -968,7 +1024,7 @@
         const sorting = this.feedSorts?.sorting;
         if (sorting) entry(list,'Sort','sort',sorting.current);
         entry(list,'Post type','text-post',this.typeLabel() || 'All');
-        entry(list,'Flair','filter',this.activeFlair() || 'All');
+        entry(list,'Flair','tag',this.activeFlair() || 'All');
         menu?.place();
       };
       render();
@@ -1106,7 +1162,7 @@
         }}); return {stay:true}; },
       });
       const active = this.activeFlair();
-      ui.row({label:'Flair', icon:filters.svgIcon('filter',20), subtitle:active || 'All flairs', chevron:true, keepOpen:true, onSelect:() => {
+      ui.row({label:'Flair', icon:filters.svgIcon('tag',20), subtitle:active || 'All flairs', chevron:true, keepOpen:true, onSelect:() => {
         ui.push({title:'Flair',build:(body, page) => {
           const panel = this.flairPanel({
             active:this.activeFlair(),
@@ -1145,9 +1201,9 @@
       list.setAttribute('aria-label','Flairs');
       panel.append(head,list);
       const ctx = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitemradio'});
-      const labels = new Set(this.flairs.get(fold(this.scope.name)) || []);
-      if (active) labels.add(active);
-      const choices = [...labels].sort((a,b) => a.localeCompare(b));
+      const labels = new Map(this.flairs.get(fold(this.scope.name)));
+      if (active && !labels.has(active)) labels.set(active,null);
+      const choices = [...labels.keys()].sort((a,b) => a.localeCompare(b));
       const render = () => {
         const term = search.value.trim();
         const wanted = fold(term);
@@ -1163,7 +1219,9 @@
         add('All flairs',!active,'show','all',() => onChoose(''));
         for (const label of choices) {
           if (wanted && !fold(label).includes(wanted)) continue;
-          add(label,label === active,'filter',label,() => onChoose(label));
+          const paint=labels.get(label);
+          const row=add(label,label === active,paint?false:'tag',label,() => onChoose(label));
+          if(paint)row.querySelector('.rt-menu-caption').replaceChildren(flairPill(label,paint));
         }
         if (term && !choices.some(label => fold(label) === wanted)) {
           add('Use “' + term + '”',false,'search','custom',() => onChoose(term));

@@ -828,6 +828,9 @@ html[data-rt-community-sort-boot] main shreddit-sort-dropdown:is([sort-event="fe
 .rt-community-flair-menu{width:min(272px,calc(100vw - 32px));min-width:min(272px,calc(100vw - 32px))}
 .rt-community-flair-menu>.rt-sub-panel,.rt-community-flair-menu .rt-sub-list{display:flex;flex-direction:column;min-height:0}
 .rt-community-flair-menu .rt-sub-list{max-height:min(320px,calc(100dvh - 200px))}
+[data-rt-flair-row] .rt-menu-caption{flex:1;min-width:0}
+.rt-community-flair-pill .flair-content{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.rt-community-flair-pill .flair-image{display:inline-block;width:auto;height:1em;vertical-align:text-bottom}
 .rt-community-search-lead{display:flex;align-items:center;gap:8px;min-width:0}
 .rt-community-search-menu.rt-inline-sheet{inset-inline-end:auto;width:100dvw}
 .rt-community-search-menu.rt-inline-sheet .rt-sub-panel{padding:0 8px}
