@@ -8,32 +8,35 @@ const SETTINGS_MIRROR='rt-settings-mirror-v1';
 const readMirror=()=>{try{return JSON.parse(localStorage.getItem(SETTINGS_MIRROR) || 'null');}catch{return null;}};
 const writeMirror=settings=>{try{localStorage.setItem(SETTINGS_MIRROR,JSON.stringify(settings));}catch{}};
 const valueOf=(control,settings)=>control.dataset.setting==='restoreDeletedContent'?settings.restoreDeletedContent!==false:Boolean(settings[control.dataset.setting]);
-const settled=()=>{for(const panel of document.querySelectorAll('.panel:not([hidden])'))syncFade(panel);};
+const mirror=readMirror(),initialSettings={...SETTINGS_DEFAULTS,...mirror};
+const storage=globalThis.chrome?.storage?.local;
+const storedSettings=storage?.get && storage?.set
+  ? Promise.resolve().then(()=>storage.get(SETTINGS_KEY)).then(stored=>({...SETTINGS_DEFAULTS,...stored?.[SETTINGS_KEY]}))
+  : null;
+const frame=globalThis.requestAnimationFrame || (callback=>setTimeout(callback,16));
 async function loadSettings() {
   const controls=[...document.querySelectorAll('[data-setting]')],status=document.querySelector('#settings-status');
   if(!controls.length)return;
   // Controls that cannot be read are shown as unavailable (neutral thumb, not a real "off").
   const markUnavailable=()=>{for(const control of controls){control.disabled=true;control.indeterminate=true;control.classList.add('is-unavailable');control.setAttribute('aria-disabled','true');}};
-  if(!globalThis.chrome?.storage?.local?.get||!globalThis.chrome?.storage?.local?.set){
-    markUnavailable();status.textContent='Settings storage unavailable.';status.classList.add('error');return;
+  if(!storedSettings){
+    markUnavailable();status.textContent='Settings storage unavailable.';status.classList.add('error');syncSummary();return;
   }
-  // First paint: the last known settings (or the defaults), without switch animations. Later script declarations are
-  // ready by the microtask, which still runs before the first paint.
-  const mirror=readMirror();
+  // Paint from the shared snapshot while the authoritative extension storage is opening.
   document.documentElement.classList.add('rt-settling');
-  for(const control of controls)control.checked=valueOf(control,{...SETTINGS_DEFAULTS,...(mirror || {})});
+  for(const control of controls)control.checked=valueOf(control,initialSettings);
   if(!mirror)for(const control of controls)control.disabled=true;
-  queueMicrotask(()=>{syncDependencies();syncSummary();settled();});
-  const frame=globalThis.requestAnimationFrame || (callback=>setTimeout(callback,16));
+  syncDependencies();syncSummary();settled();
   frame(()=>frame(()=>document.documentElement.classList.remove('rt-settling')));
   for(const control of controls)control.addEventListener('change',()=>saveSetting(control));
   try {
-    const stored=await chrome.storage.local.get(SETTINGS_KEY),settings={...SETTINGS_DEFAULTS,...(stored?.[SETTINGS_KEY]||{})};
+    const settings=await storedSettings;
     for(const control of controls){const value=valueOf(control,settings);if(control.checked!==value)control.checked=value;control.disabled=false;}
     writeMirror(settings);status.textContent='Settings saved automatically.';
   } catch {
     markUnavailable();status.textContent='Could not load settings. Reopen the popup to retry.';status.classList.add('error');
   }
+  syncDependencies();syncSummary();settled();
 }
 
 let settingsWrite=Promise.resolve();
@@ -55,8 +58,8 @@ function saveSetting(control) {
 // History length (docs/viewed-history-spec.md): 20 is Reddit's own limit and records nothing; 0 is no limit.
 const HISTORY_LIMITS=[20,100,500,1000,5000,0];
 async function loadHistoryLimit(){
-  const trigger=document.getElementById('history-limit'),menu=document.getElementById('history-limit-menu'),storage=globalThis.chrome?.storage?.local;
-  if(!trigger || !menu || !storage?.get || !storage?.set)return;
+  const trigger=document.getElementById('history-limit'),menu=document.getElementById('history-limit-menu');
+  if(!trigger || !menu || !storedSettings)return;
   document.body.append(menu); // The settings panel's fade mask must not clip this viewport overlay.
   const options=[...menu.querySelectorAll('[role="menuitemradio"]')],labels=['20','100','500','1,000','5,000','No limit'];let saved=20;
   const paint=()=>{trigger.querySelector('[data-history-value]').textContent=labels[HISTORY_LIMITS.indexOf(saved)];trigger.setAttribute('aria-label','History length: '+labels[HISTORY_LIMITS.indexOf(saved)]);for(const option of options){option.setAttribute('aria-checked',String(Number(option.dataset.value)===saved));option.tabIndex=-1;}};
@@ -71,10 +74,11 @@ async function loadHistoryLimit(){
   for(const option of options)option.addEventListener('click',()=>{
     if(trigger.disabled)return;const next=Number(option.dataset.value);close(true);if(next===saved)return;
     const status=document.querySelector('#settings-status');trigger.disabled=true;status.classList.remove('error');status.textContent='Saving…';
-    settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{const latest=await storage.get(SETTINGS_KEY);await storage.set({[SETTINGS_KEY]:{...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY] || {}),historyLimit:next}});saved=next;paint();})
+    settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{const latest=await storage.get(SETTINGS_KEY),settings={...SETTINGS_DEFAULTS,...latest?.[SETTINGS_KEY],historyLimit:next};await storage.set({[SETTINGS_KEY]:settings});writeMirror(settings);saved=next;paint();})
       .then(()=>{status.textContent='Settings saved automatically.';},()=>{paint();status.textContent='Could not save this setting. Please retry.';status.classList.add('error');}).finally(()=>{trigger.disabled=false;});
   });
-  try{const stored=(await storage.get(SETTINGS_KEY))?.[SETTINGS_KEY] || {};saved=HISTORY_LIMITS.includes(stored.historyLimit)?stored.historyLimit:20;paint();trigger.disabled=false;}
+  saved=HISTORY_LIMITS.includes(initialSettings.historyLimit)?initialSettings.historyLimit:20;paint();
+  try{const settings=await storedSettings;saved=HISTORY_LIMITS.includes(settings.historyLimit)?settings.historyLimit:20;paint();trigger.disabled=false;}
   catch{trigger.disabled=true;}
 }
 loadHistoryLimit();
@@ -88,8 +92,8 @@ function choiceValue(raw,key){
   return old[key];
 }
 function loadChoices(){
-  const triggers=[...document.querySelectorAll('.setting-choice[data-choice]')],storage=globalThis.chrome?.storage?.local;
-  if(!triggers.length || !storage?.get || !storage?.set)return;
+  const triggers=[...document.querySelectorAll('.setting-choice[data-choice]')];
+  if(!triggers.length || !storedSettings)return;
   const views=triggers.map(trigger=>{
     const key=trigger.dataset.choice,menu=document.getElementById(trigger.getAttribute('aria-controls'));if(!menu)return null;
     document.body.append(menu); // The settings panel's fade mask must not clip this viewport overlay.
@@ -119,20 +123,24 @@ function loadChoices(){
   }).filter(Boolean);
   const show=(settings,enable)=>{for(const view of views){view.value=choiceValue(settings,view.key);view.paint();if(enable)view.trigger.disabled=false;}};
   // First paint from the popup's copy (see SETTINGS_MIRROR), then the real settings.
-  const mirror=readMirror();show({...SETTINGS_DEFAULTS,...(mirror || {})},Boolean(mirror));
-  storage.get(SETTINGS_KEY).then(stored=>show({...SETTINGS_DEFAULTS,...(stored?.[SETTINGS_KEY] || {})},true),()=>{for(const view of views)view.trigger.disabled=true;});
+  show(initialSettings,Boolean(mirror));
+  storedSettings.then(settings=>show(settings,true),()=>{for(const view of views)view.trigger.disabled=true;});
 }
 loadChoices();
 
+let messageStatsRead=0;
 async function updateMessageStats() {
+  const read=++messageStatsRead;
   const element=document.querySelector('#message-stats');
+  element.textContent='Checking saved messages…';
   try {
     const result=await chrome.runtime.sendMessage({scope:'rcs-messages',action:'stats'});
     if(!result?.ok)throw Error('Cache unavailable');
     const stats=result.stats || {},bytes=stats.approxBytes || 0;
     const size=bytes<1048576 ? `${Math.ceil(bytes/1024).toLocaleString()} KB` : `${(bytes/1048576).toFixed(1)} MB`;
-    element.textContent=`${(stats.messages || 0).toLocaleString()} saved messages · ${(stats.rooms || 0).toLocaleString()} chats · ${size} estimated data`;
-  } catch {element.textContent='Statistics unavailable. Reopen to retry.';}
+    if(read===messageStatsRead)element.textContent=`${(stats.messages || 0).toLocaleString()} saved messages · ${(stats.rooms || 0).toLocaleString()} chats · ${size} estimated data`;
+  } catch {if(read===messageStatsRead)element.textContent='Statistics unavailable. Reopen to retry.';}
+  if(read===messageStatsRead)settled();
 }
 // Both clear actions remove data for every Reddit account on this device, so the first click only arms a confirmation:
 // the button label and the reserved status line change (the popup never resizes), and a second click within a few seconds confirms.
@@ -190,10 +198,7 @@ function syncDependencies(){
     const control=row.querySelector('[data-setting]');if(control && !control.classList.contains('is-unavailable')){if(active)control.removeAttribute('aria-disabled');else control.setAttribute('aria-disabled','true');}
   }
 }
-document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]'))syncDependencies();});
 try{const manifest=globalThis.chrome?.runtime?.getManifest?.();const version=document.querySelector('#version');if(manifest && version)version.textContent='v'+(manifest.version_name || manifest.version).replace(/ preview$/,'');}catch{}
-loadSettings().then(()=>{syncDependencies();syncSummary();settled();});
-updateMessageStats();
 
 // Redaction runs on Reddit itself (docs/redaction-spec.md); the fragment opens its dialog there.
 document.getElementById('open-redaction')?.addEventListener('click',async event=>{
@@ -213,17 +218,28 @@ document.getElementById('open-redaction')?.addEventListener('click',async event=
 
 // --- Sections (docs: popup redesign 0.36): Home has things to run, Settings the switches, Data the saved history.
 const TAB_KEY='rt-popup-tab',tabs=[...document.querySelectorAll('[role="tab"]')];
+let selectedTab;
 function showTab(name,{focus=false}={}){
   const tab=tabs.find(t=>t.dataset.tab===name) || tabs[0];
+  if(selectedTab===tab){if(focus)tab.focus({preventScroll:true});return;}
+  selectedTab=tab;
   for(const t of tabs){const on=t===tab;t.setAttribute('aria-selected',String(on));t.tabIndex=on?0:-1;document.getElementById(t.getAttribute('aria-controls')).hidden=!on;}
   if(focus)tab.focus({preventScroll:true});
   try{localStorage.setItem(TAB_KEY,tab.dataset.tab);}catch{}
-  syncFade(document.getElementById(tab.getAttribute('aria-controls')));
+  if(tab.dataset.tab==='data' && !messageStatsRead)updateMessageStats();
+  if(tab.dataset.tab==='settings')loadRemovalAccount();
+  settled();
 }
 // No scrollbar: a panel with more content fades at the edge where it continues.
 function syncFade(panel){if(!panel)return;const room=panel.scrollHeight-panel.clientHeight,top=panel.scrollTop;panel.dataset.more=room<=1?'none':top<=1?'end':top>=room-1?'start':'both';}
-for(const panel of document.querySelectorAll('.panel'))panel.addEventListener('scroll',()=>syncFade(panel),{passive:true});
-document.addEventListener('change',()=>{for(const panel of document.querySelectorAll('.panel:not([hidden])'))syncFade(panel);});
+const pageScroll=globalThis.matchMedia?.('(hover:none) and (pointer:coarse)');
+let fadePending=false;
+function settled(){
+  if(pageScroll?.matches || fadePending)return;
+  fadePending=true;
+  frame(()=>{fadePending=false;syncFade(document.querySelector('.panel:not([hidden])'));});
+}
+for(const panel of document.querySelectorAll('.panel'))panel.addEventListener('scroll',settled,{passive:true});
 for(const tab of tabs){
   tab.addEventListener('click',()=>showTab(tab.dataset.tab));
   tab.addEventListener('keydown',event=>{
@@ -231,7 +247,6 @@ for(const tab of tabs){
     if(next==null)return;event.preventDefault();showTab(tabs[next].dataset.tab,{focus:true});
   });
 }
-{let saved='';try{saved=localStorage.getItem(TAB_KEY) || '';}catch{}showTab(saved || 'home');}
 document.getElementById('manage-features')?.addEventListener('click',()=>showTab('settings',{focus:true}));
 
 // A feature counts as on when its switch is on and everything it needs is on too.
@@ -246,26 +261,32 @@ function syncSummary(){
   const raffles=document.getElementById('raffles'),card=document.getElementById('raffles-home');
   if(raffles && card){card.querySelector('.state-pill').textContent=raffles.checked?'On':'Off';card.dataset.state=raffles.checked?'on':'off';document.getElementById('raffles-turn-on').hidden=raffles.checked;}
 }
-document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]'))syncSummary();});
+document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]')){syncDependencies();syncSummary();settled();}});
 document.getElementById('raffles-turn-on')?.addEventListener('click',()=>{const raffles=document.getElementById('raffles');if(!raffles || raffles.disabled || raffles.checked)return;raffles.checked=true;raffles.dispatchEvent(new Event('change',{bubbles:true}));});
 
 // The active Reddit tab supplies identity; clearing never touches another account's saved checks.
 // Removed and its recent changes live on your profile; the popup only offers clearing (with the removal settings).
-let removalTab=null,removalAccount=null,removalClearTimer=null;
-async function loadRemovalSummary(){
+let removalTab=null,removalAccount=null,removalClearTimer=null,removalRead=0,removalClearing=false;
+async function loadRemovalAccount(){
   const clear=document.getElementById('clear-removal-history');if(!clear)return;
+  const read=++removalRead;
+  removalAccount=null;removalTab=null;clear.disabled=true;
+  clearTimeout(removalClearTimer);removalClearTimer=null;clear.textContent='Clear this account’s checks';
   try{
     const [tab]=await chrome.tabs.query({active:true,currentWindow:true});if(!Number.isInteger(tab?.id) || !/^https:\/\/(?:www\.|new\.|sh\.)?reddit\.com\//.test(tab.url || ''))throw Error('Open a signed-in Reddit tab to manage your checks.');
-    const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'summary',tabId:tab.id});if(!result?.ok || !/^[\w-]{1,20}$/.test(result.value?.username || ''))throw Error(result?.error || 'Removal history is unavailable. Refresh Reddit to retry.');
-    removalTab=tab.id;removalAccount=result.value;clear.disabled=false;
-  }catch{removalAccount=null;removalTab=null;clear.disabled=true;}
+    const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'identity',tabId:tab.id});
+    if(read!==removalRead || !result?.ok || !/^[\w-]{1,20}$/.test(result.value?.username || ''))return;
+    removalTab=tab.id;removalAccount=result.value;clear.disabled=removalClearing;
+  }catch{}
 }
 document.getElementById('clear-removal-history')?.addEventListener('click',async event=>{
   const button=event.currentTarget;if(removalTab==null)return;
   if(!removalClearTimer){button.textContent='Confirm clear for u/'+removalAccount.username;removalClearTimer=setTimeout(()=>{removalClearTimer=null;button.textContent='Clear this account’s checks';},6000);return;}
-  clearTimeout(removalClearTimer);removalClearTimer=null;button.disabled=true;
-  try{const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'clear',tabId:removalTab,owner:removalAccount?.owner});if(!result?.ok)throw Error(result?.error);document.getElementById('removal-status').textContent='This account’s checks cleared. New observations start a fresh baseline.';await loadRemovalSummary();}
-  catch{document.getElementById('removal-status').textContent='Could not clear checks. Please retry.';}finally{button.disabled=removalTab==null;button.textContent='Clear this account’s checks';}
+  clearTimeout(removalClearTimer);removalClearTimer=null;removalClearing=true;button.disabled=true;
+  try{const result=await chrome.runtime.sendMessage({scope:'rt-removal',action:'clear',tabId:removalTab,owner:removalAccount?.owner});if(!result?.ok)throw Error(result?.error);document.getElementById('removal-status').textContent='This account’s checks cleared. New observations start a fresh baseline.';await loadRemovalAccount();}
+  catch{document.getElementById('removal-status').textContent='Could not clear checks. Please retry.';}finally{removalClearing=false;button.disabled=removalTab==null;button.textContent='Clear this account’s checks';}
 });
-loadRemovalSummary();
+
+loadSettings();
+{let saved='';try{saved=localStorage.getItem(TAB_KEY) || '';}catch{}showTab(saved || 'home');}
 

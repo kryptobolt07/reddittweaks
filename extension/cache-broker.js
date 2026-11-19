@@ -13,6 +13,8 @@ const scopedRecentPrefix='rt-recent-v1:';
 const maxCooldownMs=3600000;
 let queue=Promise.resolve();
 chrome.storage.local.setAccessLevel?.({accessLevel:'TRUSTED_CONTEXTS'});
+// The action opens as a tab in some phone browsers. Match the actual popup document in either host.
+const isPopup=sender=>(sender.frameId ?? 0)===0 && sender.url?.split(/[?#]/,1)[0]===chrome.runtime.getURL('popup.html');
 async function entryFor(owner) {
   const key=cachePrefix+owner;
   const stored=await chrome.storage.local.get([key,oldPrefix+owner]);
@@ -31,7 +33,7 @@ function mergeRecords(previous, additions) {
 async function handle(message,sender) {
   if(sender.id!==chrome.runtime.id || message?.scope!=='rcs-directory')return;
   if(message.action==='clear') {
-    if(sender.tab || !sender.url?.startsWith(chrome.runtime.getURL('')))throw Error('Open the extension popup to clear the cache.');
+    if(!isPopup(sender))throw Error('Open the extension popup to clear the cache.');
     const all=await chrome.storage.local.get(null);
     await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(cachePrefix)||key.startsWith(oldPrefix)||key.startsWith(cooldownPrefix)));
     const session=await chrome.storage.session.get(null);
@@ -159,7 +161,7 @@ async function notifyMessageTabs(owner,cleared=false,roomIds) {
 }
 async function handleMessages(message,sender) {
   if(sender.id!==chrome.runtime.id)throw Error('Invalid sender');
-  const popup=!sender.tab && sender.url?.startsWith(chrome.runtime.getURL(''));
+  const popup=isPopup(sender);
   if(!popup && !/^https:\/\/([a-z0-9-]+\.)*reddit\.com\//i.test(sender.url || sender.tab?.url || ''))throw Error('Invalid message origin');
   if(message.action==='clear') {
     if(!popup)throw Error('Open the extension popup to clear saved messages.');

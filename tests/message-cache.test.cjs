@@ -123,7 +123,7 @@ test('broker validates origins, restricts clearing to popup, aggregates stats an
   ctx.chrome={runtime:{id:'extension',getURL:path=>'chrome-extension://extension/'+path,onMessage:{addListener:fn=>listeners.push(fn)}},tabs:{query:async()=>[{id:1},{id:2}],sendMessage:async(id,value)=>broadcast.push({id,value})},storage:{local:{get:async()=>({}),set:async()=>{},remove:async()=>{},setAccessLevel:()=>{}},session:{get:async()=>({}),set:async()=>{},remove:async()=>{}}}};
   ctx.importScripts=(...files)=>files.forEach(file=>vm.runInContext(fs.readFileSync(`extension/${file}`,'utf8'),ctx));
   vm.runInContext(fs.readFileSync('extension/cache-broker.js','utf8'),ctx);
-  const send=(message,sender)=>new Promise(resolve=>listeners.find(listener=>listener({...message,scope:'rcs-messages'},sender,resolve)));
+  const send=(message,sender)=>new Promise(resolve=>listeners.find(listener=>listener({scope:'rcs-messages',...message},sender,resolve)));
   const tab={id:'extension',url:'https://chat.reddit.com/',tab:{id:1}},popup={id:'extension',url:'chrome-extension://extension/popup.html'};
   await send({...batch([event('$broker','hello')]),action:'ingest'},tab);
   const stats=await send({action:'stats'},popup);assert.equal(stats.ok,true);assert.equal(stats.accounts>=1,true);assert.equal(stats.stats.messages>=1,true);
@@ -132,6 +132,15 @@ test('broker validates origins, restricts clearing to popup, aggregates stats an
   assert.equal((await send({action:'stats',owner},{...tab,url:'https://evil.test/'})).ok,false);
   assert.equal((await send({action:'stats'},tab)).ok,false);
   assert.equal((await send({action:'clear'},popup)).cleared,true);
+  const popupTab={...popup,tab:{id:9},frameId:0};
+  assert.equal((await send({action:'stats'},popupTab)).ok,true);
+  assert.equal((await send({action:'clear'},popupTab)).cleared,true);
+  assert.equal((await send({scope:'rcs-directory',action:'clear'},popupTab)).cleared,true);
+  for(const from of [{...popupTab,frameId:1},{...popup,url:'chrome-extension://extension/offscreen.html'}]){
+    assert.equal((await send({action:'stats'},from)).ok,false);
+    assert.equal((await send({action:'clear'},from)).ok,false);
+    assert.equal((await send({scope:'rcs-directory',action:'clear'},from)).ok,false);
+  }
 });
 test('room reads use direct account-room key and deleted plaintext is removed from persistent ledger',async()=>{
   const {Store}=model(),name=crypto.randomUUID(),store=new Store({name});

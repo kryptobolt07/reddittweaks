@@ -8,15 +8,18 @@ const html=fs.readFileSync(path.join(__dirname,'../extension/popup.html'),'utf8'
 const script=fs.readFileSync(path.join(__dirname,'../extension/popup.js'),'utf8');
 const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
 
-function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,storedTab,mirror}={}){
+function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,storedTab,mirror,touch=false}={}){
   const dom=new JSDOM(html,{runScripts:'outside-only',url:'https://extension.test/popup.html'}),w=dom.window;t.after(w.close.bind(w));if(storedTab)w.localStorage.setItem('rt-popup-tab',storedTab);if(mirror)w.localStorage.setItem('rt-settings-mirror-v1',JSON.stringify(mirror));
-  const messages=[],state={...(settings||{})};
+  const frames=[];
+  w.requestAnimationFrame=callback=>frames.push(callback);
+  w.matchMedia=()=>({matches:touch});
+  const messages=[],reads=[],state={...(settings||{})};
   w.chrome={storage:{local:{
-    async get(key){if(storageFailure)throw Error('storage read failed');return {[key]:state[key]};},
+    async get(key){reads.push(key);if(storageFailure)throw Error('storage read failed');return {[key]:state[key]};},
     async set(values){if(storageFailure)throw Error('storage write failed');Object.assign(state,values);}
   }},runtime:{async sendMessage(request){messages.push(request);if(runtimeFailure)throw Error('runtime failed');return request.action==='stats'?{ok:true,stats:{messages:42,rooms:3,approxBytes:2048}}:{ok:true};}}};
   w.chrome.tabs=tabs;w.eval(script);
-  return {w,state,messages};
+  return {w,state,messages,reads,paint(){for(const callback of frames.splice(0))callback();}};
 }
 
 test('Reddit Tweaks popup loads defaults and persists individual changes while preserving other settings',async t=>{
@@ -50,13 +53,37 @@ test('Reddit Tweaks popup reports settings storage failures and restores the fai
 });
 
 test('popup keeps chat stats and both cache clear actions available',async t=>{
-  const p=popup(t);await settle();
+  const p=popup(t,{storedTab:'data'});await settle();
   assert.match(p.w.document.querySelector('#message-stats').textContent,/42 saved messages.*3 chats/);
   assert.match(p.w.document.querySelector('.cache-info').textContent,/every Reddit account on this device/);
   for(const id of ['#clear-messages','#clear-cache']){p.w.document.querySelector(id).click();p.w.document.querySelector(id).click();await settle();}
   assert.ok(p.messages.some(message=>message.scope==='rcs-messages'&&message.action==='clear'));
   assert.ok(p.messages.some(message=>message.scope==='rcs-directory'&&message.action==='clear'));
   assert.match(p.w.document.querySelector('#cache-status').textContent,/Saved usernames cleared/);
+  assert.equal(p.messages.filter(message=>message.action==='stats').length,2,'clearing saved messages refreshes the count');
+});
+
+test('Home opens with one settings read and leaves hidden panels idle',async t=>{
+  let tabQueries=0;
+  const p=popup(t,{tabs:{async query(){tabQueries++;return [];}}});
+  const doc=p.w.document;
+  await settle();
+  assert.deepEqual(p.reads,['rt-settings-v1']);
+  assert.equal(doc.querySelector('#history-limit').disabled,false);
+  assert.equal(doc.querySelector('#video-start').disabled,false);
+  assert.equal(tabQueries,0);
+  assert.equal(p.messages.length,0);
+  doc.getElementById('tab-settings').click();
+  await settle();
+  assert.equal(tabQueries,1);
+  assert.equal(p.messages.length,0);
+  doc.getElementById('tab-data').click();
+  await settle();
+  assert.match(doc.querySelector('#message-stats').textContent,/42 saved messages/);
+  doc.getElementById('tab-home').click();
+  doc.getElementById('tab-data').click();
+  await settle();
+  assert.deepEqual(p.messages.map(message=>message.action),['stats']);
 });
 
 test('a failed settings write restores the switch and leaves it retryable',async t=>{
@@ -193,10 +220,20 @@ test('popup styles: fluid width and larger targets on touch screens, tabs in bot
 test('a tab taller than the popup fades at the edge that has more, instead of showing a scrollbar',async t=>{
   const p=popup(t,{tabs:redditTab});await settle();const panel=p.w.document.getElementById('panel-settings');p.w.document.getElementById('tab-settings').click();
   Object.defineProperty(panel,'scrollHeight',{configurable:true,value:600});Object.defineProperty(panel,'clientHeight',{configurable:true,value:240});
-  panel.dispatchEvent(new p.w.Event('scroll'));assert.equal(panel.dataset.more,'end');
-  panel.scrollTop=100;panel.dispatchEvent(new p.w.Event('scroll'));assert.equal(panel.dataset.more,'both');
-  panel.scrollTop=360;panel.dispatchEvent(new p.w.Event('scroll'));assert.equal(panel.dataset.more,'start');
+  panel.dispatchEvent(new p.w.Event('scroll'));p.paint();assert.equal(panel.dataset.more,'end');
+  panel.scrollTop=100;panel.dispatchEvent(new p.w.Event('scroll'));p.paint();assert.equal(panel.dataset.more,'both');
+  panel.scrollTop=360;panel.dispatchEvent(new p.w.Event('scroll'));p.paint();assert.equal(panel.dataset.more,'start');
   assert.match(p.w.document.querySelector('#raffles-home').textContent,/⋯ menu/);
+});
+
+test('the touch popup scrolls the page without measuring a panel fade',async t=>{
+  const p=popup(t,{tabs:redditTab,storedTab:'settings',touch:true});
+  const panel=p.w.document.getElementById('panel-settings');
+  let reads=0;Object.defineProperty(panel,'scrollHeight',{get(){reads++;return 600;}});
+  await settle();
+  panel.dispatchEvent(new p.w.Event('scroll'));p.paint();p.paint();
+  assert.equal(reads,0);
+  assert.equal(panel.dataset.more,undefined);
 });
 
 test('on touch screens (phones open the popup as a page) tabs stay pinned and controls are at least 40px; desktop is unchanged',()=>{

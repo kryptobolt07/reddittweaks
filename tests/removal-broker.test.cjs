@@ -55,3 +55,11 @@ test('on phones the popup opens as a tab and is still trusted; a Reddit page cla
  const asTab={...b.popup,tab:{id:9}};assert.equal((await b.send({action:'summary',tabId:1},asTab)).value.unread,1);
  assert.equal((await b.send({action:'summary',tabId:1},{id:'extension',tab:{id:1},url:'https://www.reddit.com/'})).ok,false);
 });
+test('popup can identify the current account without reading its removal records',async()=>{
+ const b=setup();const asTab={...b.popup,tab:{id:9}};
+ const result=await b.send({action:'identity',tabId:1},asTab);
+ assert.equal(result.ok,true);assert.equal(result.value.owner,'t2_self');assert.equal(result.value.username,'Example');
+ assert.deepEqual(Object.keys(result.value).sort(),['owner','username']);
+ assert.equal((await b.send({action:'identity',tabId:1})).ok,false);
+ b.setMe(null);assert.equal((await b.send({action:'identity',tabId:1},asTab)).ok,false);
+});
