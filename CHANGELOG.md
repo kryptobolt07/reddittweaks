@@ -1,3 +1,17 @@
+# 0.51.0 preview
+
+- **Embed controls:** tapping a muted feed preview opens its Reddit post even when the card only links out. The sound button unmutes in place. A player that moves into its post keeps its position and gets its sound request again once placed.
+- **Block embed links:** new Videos option (Off, In feeds, In posts, Feeds and posts) stops taps on a provider's video surface from opening the provider's site. With the new **Direct embed controls** (optional access to RedGIFs, Vimeo, Streamable, Twitch and Embedly players, granted from the popup), those taps play or pause in place, and the player's own controls keep working.
+- **Idle embeds:** a thumbnail is no longer required.
+  - A still is used only once it loads at 160×90 or larger, and it's fitted like the player rather than cropped.
+  - Without one, a player with controls loads idle and shows its own first frame or poster.
+  - With Direct embed controls, a player that starts by itself (RedGIFs) waits on its own first frame until it's chosen. Otherwise it shows a plain placeholder with the provider's name.
+  - On Play keeps players unloaded behind Reddit's still when there is one, including on phones.
+  - Missing stills come from the provider's public page with that optional access, never from Reddit's post-data request.
+- **Mobile custom feeds:** filter controls and chips moved out of Reddit's Feed/About row. In Chrome phone emulation both tabs measured 40 px, down from 120 px with the Video filter applied.
+- **Version:** minor increment for the Block embed links and Direct embed controls options.
+- **Validation:** 2,041 tests passed in UTC. Firefox lint reported zero errors, notices and warnings. All 78 Chromium and 79 Firefox assets match the source, unpacked folders and ZIPs. Live checks: the RedGIFs player markup and thumbnail metadata were confirmed. The full playback flow, the first-frame hold, link blocking and sound on live Reddit were not verified on this build. Chromium SHA-256 `2633af4ecd950d7eff170ea45e955fefab7380eb09f88b1ba4b6b1b0d3a35566`. Firefox SHA-256 `5e304c632965f28b37ff059464935510e863f7acac94be88f2444c8974528a65`.
+
 # 0.50.0 preview
 
 - **Profile switching:** keep the current activity visible until the destination's initial batch is ready. Back restores the feed and reading position even if Reddit rebuilds the page.
