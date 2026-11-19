@@ -1,3 +1,11 @@
+# 0.51.3 preview
+
+- **Embed stills with the post:** a card's still is looked up as soon as Reddit delivers the post, nearest the screen first, two at a time, and each shows as soon as it's found. Until Reddit inserts and draws a card's player, the card shows its still instead of a black box.
+- **Paused players:** a player paused after scrolling past stays on its own frame where it stopped, with no image or black box over it.
+- **Firefox:** Reddit data reads for stills go through the page's own fetch.
+- **Version:** patch increment for these fixes.
+- **Validation:** 2,045 tests passed in UTC. Firefox lint reported zero errors and warnings. All 78 Chromium and 79 Firefox assets match the source, unpacked folders and ZIPs. Not checked on a phone with this build. Chromium SHA-256 `c0747057deb4da3f24a1f00ae890d0d9af69dc6b9380ca6f67885db57387c3de`. Firefox SHA-256 `3a84c6011824ab29cc06b3535e2db59972fd0375e1241dabd90f6a92a58264c4`.
+
 # 0.51.2 preview
 
 - **Embed stills ahead of scrolling:** idle embed cards already show their still when they scroll into view, instead of a black box that fills in. Stills for every provider are found and decoded up to 5 screens ahead, including cards whose player Reddit has not inserted yet. Every queued card is looked up; before, only the first 4 of each batch of 8 were.
