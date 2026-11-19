@@ -6,7 +6,7 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=160,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=160,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
  const PLAY_BUTTON='.poster-play-button,.play-pause-button';
  const SOUND_CONTROL='.mute-button,.volume-slider';
  const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen';
@@ -52,7 +52,8 @@
  }
  const postId=path=>/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase() || '';
   // Same choices and migration as RTPostModel.normalizeSettings (settings may arrive raw in tests and old builds).
- const choices=raw=>{const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;return {start:pick('videoStart',['reddit','hover','play'],'reddit'),touch:pick('videoStartTouch',['stop','reddit','play'],raw?.videoPreviewsInView===true?'stop':'reddit'),click:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),from:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),open:pick('videoOpenPost',['reddit','continue'],'reddit'),away:pick('videoScrollAway',['reddit','pause'],'reddit'),sound:raw?.videoUnmutePreview!==false};};
+ const choices=raw=>{const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;const start=raw?.videoStart==='reddit'?'autoplay':raw?.videoStart,touch=raw?.videoStartTouch==='reddit'?'autoplay':raw?.videoStartTouch;
+  return {start:['autoplay','hover','play'].includes(start)?start:'autoplay',touch:['autoplay','stop','play'].includes(touch)?touch:raw?.videoPreviewsInView===true?'stop':'autoplay',click:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),from:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),open:pick('videoOpenPost',['reddit','continue'],'reddit'),away:pick('videoScrollAway',['reddit','pause'],'reddit'),sound:raw?.videoUnmutePreview!==false};};
  const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
  // Reddit's preference, from its settings page (the prefs API needs a token the page does not expose).
  async function readAutoplayDisabled({doc=document,fetcher=globalThis.fetch,store=globalThis.sessionStorage}={}){
@@ -144,17 +145,15 @@
    // Visibility reports that arrived before the settings did still choose the in-view preview.
    if(this.inView)this.settle();
    else if(this.viewing || this.ePreview?.view)this.stopHover();
-   // "Like Reddit" reads Reddit's own "Autoplay media" preference (its phone layout ignores it, so it is applied here);
-   // the other choices start nothing by themselves. A video Reddit started before that was known is paused then.
-   const pauseStarted=()=>{if(!this.blocksAutoplay)return;for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.started.has(video) && !this.continued.has(video))this.block(player,video);}};
-   if(this.startMode==='reddit' && !this.preference)this.preference=Promise.resolve().then(()=>this.readPreference({doc:this.doc})).then(value=>{this.autoplayDisabled=value;pauseStarted();},()=>{});
-   pauseStarted();
+   // These choices replace Reddit's own autoplay (and its "Autoplay media" setting): a video Reddit starts by itself is
+   // paused at once; Autoplay then plays the one in view, muted, one at a time.
+   for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.started.has(video) && !this.continued.has(video))this.block(player,video);}
   }
   get touch(){return Boolean(this.win.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);}
-  // How feed videos start on this device: desktop On hover / Like Reddit / When I press Play; phones When I stop
-  // scrolling / Like Reddit / When I press Play.
+  // How feed videos start on this device: Autoplay (the video in view, muted) / Preview on hover (computers) or on the
+  // one you stop scrolling on (phones) / Only when you press Play.
   get startMode(){const c=this.choice || choices({});return this.touch?c.touch:c.start;}
-  get blocksAutoplay(){return this.startMode==='reddit'?this.autoplayDisabled===true:true;}
+  get blocksAutoplay(){return true;}
   get pauseAway(){return (this.choice || choices({})).away==='pause';}
   get previewsOn(){return (this.choice || choices({})).start==='hover';}
   get unmutePreview(){return (this.choice || choices({})).sound;}
@@ -162,7 +161,7 @@
   get clickPlays(){return (this.choice || choices({})).click==='here';}
   get restartPreview(){return (this.choice || choices({})).from==='start';}
   // Phones have no hover: the video you stop scrolling on previews instead, when chosen.
-  get inView(){return this.touch && (this.choice || choices({})).touch==='stop';}
+  get inView(){const mode=this.startMode;return mode==='autoplay' || this.touch && mode==='stop';}
   playback(video){return {time:video.currentTime,muted:video.muted,volume:this.fading.get(video) ?? video.volume,rate:video.playbackRate};}
   // Sound is turned on through Reddit's own volume state (the page bridge), so the post's player keeps it, then comes
   // in over 200 ms instead of at full volume.
@@ -704,7 +703,8 @@
   }
   settle(){
    this.win.clearTimeout(this.settleTimer);
-   this.settleTimer=this.win.setTimeout(()=>{if(this.inView && !this.dead)this.pickInView();},DWELL_MS);
+   // Autoplay picks the video in view almost at once; a stop-scrolling preview waits for the scroll to settle.
+   this.settleTimer=this.win.setTimeout(()=>{if(this.inView && !this.dead)this.pickInView();},this.startMode==='autoplay'?AUTOPLAY_MS:DWELL_MS);
   }
   // After scrolling stops, the feed video at least 60 % visible and nearest the middle of the screen previews, one at a
   // time; a playing preview keeps going while it stays at least half on screen.

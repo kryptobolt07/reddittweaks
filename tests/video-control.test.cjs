@@ -31,27 +31,26 @@ test('Reddit’s autoplay preference is read from its settings page once per ses
  d.querySelector('shreddit-app').setAttribute('logged-in-user-id','t2_bob');assert.equal(await W.RTVideoControl.readAutoplayDisabled({doc:d,fetcher:async()=>({text:async()=>settingsHtml(false)}),store:storage}),false,'another account reads its own');
  d.querySelector('shreddit-app').setAttribute('user-logged-in','false');assert.equal(await W.RTVideoControl.readAutoplayDisabled({doc:d,fetcher,store:storage}),null,'signed out: nothing is enforced');
 });
-test('Autoplay (the default) follows Reddit’s autoplay setting; On hover and When I press Play start nothing by themselves',async t=>{
- const {W,d,player,root,video,start}=page(t);const v=new W.RTVideoControl.Videos({readSettings:async()=>({videoStart:'reddit'}),readPreference:async()=>true,observe:false});await v.ready;await flush();
- start();assert.equal(video.paused,true,'Reddit’s autoplay is stopped when its setting is off');assert.equal(player.dataset.rtAutoplayBlocked,'true');
- root.getElementById('play').dispatchEvent(new W.Event('pointerdown',{bubbles:true,composed:true}));start();assert.equal(video.paused,false,'your tap plays');
- const on=page(t);const v3=new on.W.RTVideoControl.Videos({readSettings:async()=>({videoStart:'reddit'}),readPreference:async()=>false,observe:false});await v3.ready;await flush();on.start();assert.equal(on.video.paused,false,'autoplay on in Reddit: kept');
- for(const settings of [{},{videoStart:'play'}]){
-  const p=page(t);let asked=0;const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoStart:'hover',...settings}),readPreference:async()=>{asked++;return false;},observe:false});await c.ready;await flush();
-  p.start();assert.equal(p.video.paused,true,JSON.stringify(settings)+': Reddit’s autoplay is stopped');assert.equal(asked,0,'Reddit’s preference is not read');
- }
+test('the choices replace Reddit’s autoplay: Autoplay plays the video in view, muted; Only on Play starts nothing',async t=>{
+ const p=page(t);let asked=0;
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ Object.defineProperty(p.video,'readyState',{value:1,configurable:true});
+ p.player.getBoundingClientRect=()=>({top:100,bottom:400,height:300,left:0,width:390});
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({}),readPreference:async()=>{asked++;return false;},observe:false});await c.ready;await flush();c.scan();
+ p.start();assert.equal(p.video.paused,true,'Reddit’s own autoplay is paused whatever its setting');assert.equal(asked,0,'Reddit’s preference is never read');
+ p.W.dispatchEvent(new p.W.Event('scroll'));await new Promise(r=>setTimeout(r,250));
+ assert.equal(p.video.paused,false,'Autoplay (the default) plays the video in view');assert.equal(p.video.muted,true);
+ const q=page(t);const d=new q.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoStart:'play'}),readPreference:async()=>false,observe:false});await d.ready;await flush();
+ q.start();q.W.dispatchEvent(new q.W.Event('scroll'));await new Promise(r=>setTimeout(r,250));assert.equal(q.video.paused,true,'Only when I press Play');
+ q.startFromControl();assert.equal(q.video.paused,false,'your own Play still plays');
 });
-test('video choices default to Reddit’s behaviour and only the old opt-ins carry over',()=>{
+test('video choices default to Autoplay and Reddit’s other behaviour, and only the old opt-ins carry over',()=>{
  const W=new JSDOM('',{runScripts:'outside-only'}).window;W.eval(fs.readFileSync('extension/post-model.js','utf8'));
  const n=raw=>{const all=W.RTPostModel.normalizeSettings(raw);return Object.fromEntries(Object.entries(all).filter(([k])=>k.startsWith('video')));};
- assert.deepEqual(JSON.parse(JSON.stringify(n({}))),{videoStart:'reddit',videoStartTouch:'reddit',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'reddit',videoScrollAway:'reddit'},'Reddit’s own behaviour by default');
- assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:true,videoContinueOnOpen:true,videoPauseOffscreen:true,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false}))),{videoStart:'reddit',videoStartTouch:'stop',videoPreviewClick:'here',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'reddit',videoScrollAway:'reddit'},'only the old opt-ins carry over');
- assert.equal(n({videoStart:'hover'}).videoStart,'hover');
+ assert.deepEqual(JSON.parse(JSON.stringify(n({}))),{videoStart:'autoplay',videoStartTouch:'autoplay',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'reddit',videoScrollAway:'reddit'},'Autoplay and Reddit’s other behaviour by default');
+ assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:true,videoContinueOnOpen:true,videoPauseOffscreen:true,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false}))),{videoStart:'autoplay',videoStartTouch:'stop',videoPreviewClick:'here',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'reddit',videoScrollAway:'reddit'},'only the old opt-ins carry over');
+ assert.equal(n({videoStart:'hover'}).videoStart,'hover');assert.equal(n({videoStart:'reddit',videoStartTouch:'reddit'}).videoStartTouch,'autoplay','0.48’s Reddit start is now Autoplay');
  W.close();
-});
-test('a video Reddit started before the preference arrived is paused when it does',async t=>{
- const {W,video,start}=page(t);let resolve;const v=new W.RTVideoControl.Videos({readSettings:async()=>({videoStart:'reddit'}),readPreference:()=>new Promise(r=>resolve=r),observe:false});await v.ready;
- start();assert.equal(video.paused,false);resolve(true);await flush();assert.equal(video.paused,true);
 });
 test('a playing video pauses once less than half of it is on screen, and stays paused',async t=>{
  const {W,player,video,io}=page(t);const v=new W.RTVideoControl.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await v.ready;await flush();
@@ -454,11 +453,11 @@ test('a phone preview starts for a video that loads into view without a scroll',
  post.append(player);controller.scan();await settle();
  assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
 });
-test('in-view previews are off by default and never run with a mouse',async t=>{
- for(const [coarse,settings] of [[true,{}],[false,{videoPreviewsInView:true}],[true,{videoStartTouch:'play'}],[true,{videoStartTouch:'reddit'}]]){
+test('each device follows its own start choice: Play only starts nothing, hover previews never autoplay the one in view',async t=>{
+ for(const [coarse,settings,plays] of [[true,{videoStartTouch:'play'},false],[false,{videoStart:'hover'},false],[false,{videoStart:'autoplay'},true],[true,{videoStartTouch:'stop'},true]]){
   const p=page(t);phone(p,coarse);await hoverController(p,settings);
   scroll(p);await settle();
-  assert.equal(p.video.paused,true,JSON.stringify(settings));
+  assert.equal(p.video.paused,!plays,JSON.stringify(settings));
  }
 });
 test('a hover that ends during metadata loading cannot start playback later',async t=>{

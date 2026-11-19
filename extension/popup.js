@@ -84,11 +84,12 @@ async function loadHistoryLimit(){
 loadHistoryLimit();
 
 // Video choices (docs/video-control-spec.md). Same values and 0.46–0.47 migration as RTPostModel.normalizeSettings.
-const VIDEO_CHOICES={videoStart:['reddit','hover','play'],videoStartTouch:['reddit','stop','play'],videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['reddit','continue'],videoScrollAway:['reddit','pause']};
+const VIDEO_CHOICES={videoStart:['autoplay','hover','play'],videoStartTouch:['autoplay','stop','play'],videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['reddit','continue'],videoScrollAway:['reddit','pause']};
 function choiceValue(raw,key){
+  if(['videoStart','videoStartTouch'].includes(key) && raw?.[key]==='reddit')return 'autoplay';
   if(VIDEO_CHOICES[key]?.includes(raw?.[key]))return raw[key];
   // Defaults are Reddit's behaviour; only the old opt-ins (phone previews, click plays here, restart) carry over.
-  const old={videoStart:'reddit',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'reddit',videoPreviewClick:raw?.videoPreviewClickPlays===true?'here':'open',
+  const old={videoStart:'autoplay',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'autoplay',videoPreviewClick:raw?.videoPreviewClickPlays===true?'here':'open',
     videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:'reddit',videoScrollAway:'reddit'};
   return old[key];
 }
@@ -104,7 +105,7 @@ function loadChoices(){
     const close=(focus=false)=>{menu.hidden=true;trigger.setAttribute('aria-expanded','false');if(focus)trigger.focus({preventScroll:true});};
     const open=()=>{
       if(trigger.disabled)return;for(const other of views)if(other && other!==view)other.menu.hidden=true;
-      view.paint();const width=Math.max(0,Math.min(236,innerWidth-16)),maxHeight=Math.max(0,innerHeight-16);menu.style.width=width+'px';menu.style.maxHeight=maxHeight+'px';menu.hidden=false;
+      view.paint();const width=Math.max(0,Math.min(touch?320:236,innerWidth-16)),maxHeight=Math.max(0,innerHeight-16);menu.style.width=width+'px';menu.style.maxHeight=maxHeight+'px';menu.hidden=false;
       const rect=trigger.getBoundingClientRect(),height=Math.min(menu.getBoundingClientRect().height || 120,maxHeight);
       menu.style.left=Math.max(8,Math.min(rect.right-width,innerWidth-width-8))+'px';menu.style.top=Math.max(8,rect.bottom+4+height>innerHeight-8?rect.top-4-height:rect.bottom+4)+'px';
       trigger.setAttribute('aria-expanded','true');(options.find(o=>o.getAttribute('aria-checked')==='true') || options[0]).focus({preventScroll:true});
@@ -122,8 +123,11 @@ function loadChoices(){
     });
     return view;
   }).filter(Boolean);
-  // Preview options matter only while a preview start is chosen (on hover, or the one you stop on).
-  const syncPreviewRows=()=>{const value=key=>views.find(view=>view.key===key)?.value;const on=value('videoStart')==='hover' || value('videoStartTouch')==='stop';for(const row of document.querySelectorAll('[data-preview-row]'))row.hidden=!on;};
+  // This device's start choice is the only one shown (phones open the popup as a page on the phone); the preview
+  // options apply to whatever plays without sound by itself, so they hide only for "Only when I press Play".
+  const touch=Boolean(globalThis.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);
+  for(const row of document.querySelectorAll('[data-device]'))row.hidden=row.dataset.device!==(touch?'touch':'mouse');
+  const syncPreviewRows=()=>{const value=key=>views.find(view=>view.key===key)?.value;const on=value(touch?'videoStartTouch':'videoStart')!=='play';for(const row of document.querySelectorAll('[data-preview-row]'))row.hidden=!on;};
   for(const view of views){const paint=view.paint;view.paint=()=>{paint();syncPreviewRows();};}
   const show=(settings,enable)=>{for(const view of views){view.value=choiceValue(settings,view.key);view.paint();if(enable)view.trigger.disabled=false;}};
   // First paint from the popup's copy (see SETTINGS_MIRROR), then the real settings.
