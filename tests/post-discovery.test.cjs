@@ -1737,8 +1737,9 @@ for(const suffix of ['', 'submitted/', 'comments/'])for(const filled of [false,t
   assertIcon(panel.list.querySelector('[data-rt-sub-all]'),'show');
   for(const [key,name] of [['Example','community'],['u_example','author']]){const row=panel.list.querySelector('[data-rt-sub-row="'+key+'"]');assert.equal(row.querySelector('svg').getAttribute('icon-name'),name);assert.equal(row.querySelector('svg').getAttribute('width'),'16');}
   const style=W.document.createElement('style');style.textContent=menuCss;W.document.head.append(style);
+  // Reddit's New icon is drawn filled like its other outline glyphs (stroking it again made a heavy blob, 2026-11-19).
   const sparkle=d.menuGroups[0].sub.querySelector('[aria-label="New"] svg'),appearance=W.getComputedStyle(sparkle);
-  assert.equal(appearance.fill,'none');assert.equal(appearance.stroke,'currentColor');assert.equal(appearance.strokeWidth,'1.8');
+  assert.notEqual(appearance.fill,'none');assert.notEqual(appearance.stroke,'currentColor');
   const archive=d.menuGroups[0].sub.querySelector('[aria-label="Old"] svg');assert.equal(archive.firstElementChild.getAttribute('fill-rule'),'evenodd');assert.equal(archive.children.length,2,'hollow body and handle');
   originals[0].row.click();assert.equal(clicks,1);d.clearActivityMenu();
   for(const {row,html,icon,tab} of originals){assert.equal(row.parentElement,main);assert.equal(row.innerHTML,html,'native presentation restored exactly');assert.equal(row.querySelector('svg'),icon,'native SVG identity restored');assert.equal(row.getAttribute('tabindex'),tab);}

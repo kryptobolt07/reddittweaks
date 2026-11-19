@@ -24,6 +24,8 @@
   const sortBoot = 'data-rt-community-sort-boot';
   const sortNative = 'data-rt-community-sort-native';
   const feedSortIcons = {best:'best',hot:'hot',new:'new',top:'top',rising:'top',controversial:'sort'};
+  // Reddit shows the selected sort with the filled variant of its icon.
+  const sortGlyph = (choice, size) => (choice.selected && filters.svgIcon(choice.icon + '-fill',size)) || filters.svgIcon(choice.icon,size);
   const nativeSearchSort = 'search-sort-dropdown-menu:not([hidden]),shreddit-sort-dropdown:not([hidden]),filter-drawer[id*="sort"]:not([hidden]),[data-testid="search-sort"]';
   const nativeSearchTime = 'search-time-dropdown-menu:not([hidden]),shreddit-time-dropdown:not([hidden]),filter-drawer[id*="time"]:not([hidden]),[data-testid="search-time"]';
 
@@ -479,7 +481,7 @@
           const currentKey = isTime ? this.url.searchParams.get('t') :
             fold(this.url.pathname.split('/').filter(Boolean)[2]);
           const selected = currentKey ? key === currentKey : fold(label) === fold(current);
-          choices.set(key,{label,selected,url,icon:isTime ? 'calendar' : feedSortIcons[key] || 'sort'});
+          choices.set(key,{key,label,selected,url,icon:isTime ? 'calendar' : feedSortIcons[key] || 'sort'});
         }
         if (!choices.size) return null;
         return {node,current:[...choices.values()].find(choice => choice.selected)?.label || current,choices:[...choices.values()]};
@@ -892,7 +894,7 @@
           const radios = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitemradio'});
           for (const choice of (view === 'Sort' ? sorting : range)?.choices || []) {
             list.append(filters.menuOption(radios,{
-              label:choice.label,icon:filters.svgIcon(choice.icon,16),checked:choice.selected,slot:true,
+              label:choice.label,icon:sortGlyph(choice,16),checked:choice.selected,slot:true,
               onSelect:() => { this.chooseFeedSort(choice); menu.close(); },
             }));
           }
@@ -1033,36 +1035,50 @@
         flair?.search || closeButton)?.focus({preventScroll:true});
     }
 
+    // Phones: a short first page (Sort, Post type, Flair, each with its current value) and a page for each, as in
+    // Reddit's app; Top opens its time ranges one level further. Every choice runs through the desktop menu's handlers.
     buildPhoneFeed(ui) {
       const {sorting,range} = this.feedSorts || {};
-      const addSortRows = (page,choices) => {
-        for (const choice of choices) page.row({
-          label:choice.label,icon:filters.svgIcon(choice.icon,20),selected:choice.selected,
-          onSelect:() => this.chooseFeedSort(choice),
+      const top = sorting?.choices.find(choice => choice.key === 'top');
+      const ranges = () => ({title:'Time range',build:(_body,page) => {
+        for (const choice of range.choices) page.row({
+          label:choice.label,selected:choice.selected,onSelect:() => this.chooseFeedSort(choice),
         });
-      };
+      }});
+      const sorts = () => ({title:'Sort by',build:(_body,page) => {
+        for (const choice of sorting.choices) {
+          const timed = choice === top && choice.selected && range;
+          page.row({
+            label:choice.label,icon:sortGlyph(choice,20),selected:choice.selected && !timed,
+            subtitle:timed ? range.current : '',chevron:Boolean(timed),keepOpen:Boolean(timed),
+            onSelect:() => { if (!timed) return this.chooseFeedSort(choice); page.push(ranges()); return {stay:true}; },
+          });
+        }
+      }});
       if (sorting) {
-        ui.title('Sort');
-        addSortRows(ui,sorting.choices);
-        if (range) ui.row({
-          label:'Time range',subtitle:range.current,icon:filters.svgIcon('calendar',20),
-          chevron:true,keepOpen:true,onSelect:() => ui.push({
-            title:'Time range',build:(_body,page) => addSortRows(page,range.choices),
-          }),
+        const current = sorting.choices.find(choice => choice.selected);
+        ui.row({
+          label:'Sort by',icon:current ? sortGlyph(current,20) : filters.svgIcon('sort',20),
+          subtitle:[sorting.current,current === top && range?.current].filter(Boolean).join(' · '),
+          chevron:true,keepOpen:true,onSelect:() => { ui.push(sorts()); return {stay:true}; },
         });
-        ui.divider();
       }
-      const chosen = this.selectedTypes();
-      ui.chips('Post type',[
-        {label:'All types', icon:filters.svgIcon('show',16), selected:!chosen.length, keepOpen:true, onSelect:() => this.applyTypes([])},
-        ...filters.typeSections.flatMap(({label,types}) => [{heading:label},...types.map(type => ({
-          label:filters.typeLabels[type], icon:filters.svgIcon(type === 'gif' ? 'gif-post-outline' : filters.typeIcons[type],16),
-          selected:chosen.includes(type), keepOpen:true, onSelect:() => this.toggleType(type),
-        }))]),
-      ]);
-      ui.divider();
+      ui.row({
+        label:'Post type',icon:(() => { const [one,...more] = this.selectedTypes(); return filters.svgIcon(one && !more.length ? (one === 'gif' ? 'gif-post-outline' : filters.typeIcons[one]) : 'text-post',20); })(),
+        subtitle:this.typeLabel() || 'All types',
+        chevron:true,keepOpen:true,onSelect:() => { ui.push({title:'Post type',build:(_body,page) => {
+          const chosen = this.selectedTypes();
+          page.chips('',[
+            {label:'All types', selected:!chosen.length, keepOpen:true, onSelect:() => this.applyTypes([])},
+            ...filters.typeSections.flatMap(({label,types}) => [{heading:label},...types.map(type => ({
+              label:filters.typeLabels[type], icon:filters.svgIcon(type === 'gif' ? 'gif-post-outline' : filters.typeIcons[type],16),
+              selected:chosen.includes(type), keepOpen:true, onSelect:() => this.toggleType(type),
+            }))]),
+          ]);
+        }}); return {stay:true}; },
+      });
       const active = this.activeFlair();
-      ui.row({label:'Flair', icon:filters.svgIcon('filter',16), subtitle:active || 'All flairs', chevron:true, keepOpen:true, onSelect:() => {
+      ui.row({label:'Flair', icon:filters.svgIcon('filter',20), subtitle:active || 'All flairs', chevron:true, keepOpen:true, onSelect:() => {
         ui.push({title:'Flair',build:(body, page) => {
           const panel = this.flairPanel({
             active:this.activeFlair(),

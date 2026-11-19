@@ -214,11 +214,18 @@ test('desktop community feed options uses current-value rows and drill-ins, rath
  menu.querySelector('[data-rt-sub-back]').click();
  assert.equal(menu.querySelector('[aria-label="Post type"] [data-rt-menu-value]').textContent,'2 types');
 });
-test('phone community feed options keeps its separate chip sheet',t=>{
+test('phone community feed options opens a short sheet whose Post type page holds the type chips',t=>{
  const {D,W}=setup(t);
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
+ const rows=()=>[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')];
+ assert.deepEqual(rows().map(row=>row.querySelector('.rt-fsheet-label').textContent),['Post type','Flair'],'one row per option, values one level down');
+ assert.equal(rows()[0].querySelector('.rt-fsheet-sub').textContent,'All types');
+ assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-chip'),null);
+ rows()[0].click();
+ assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-title').textContent,'Post type');
  assert.ok(D.querySelector('.rt-community-sheet .rt-fsheet-chip [icon-name="image"]'));
+ assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-chip [icon-name="show"]'),null,'All types carries no unrelated icon');
  assert.equal(D.querySelector('[data-rt-feed-options]'),null);
 });
 test('Media types can be selected together without hiding the native pager or clearing other filters',t=>{
@@ -301,6 +308,16 @@ test('phone Feed options lists Reddit’s existing sort choices and links to the
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
  const root=D.querySelector('.rt-community-sheet');
+ const sortRow=root.querySelector('.rt-fsheet-row');
+ assert.equal(sortRow.querySelector('.rt-fsheet-sub').textContent,'Top · This Week','the current sort and its range');
+ assert.equal(sortRow.querySelector('svg').dataset.icon,'top-fill','Reddit marks the selected sort with its filled icon');
+ sortRow.click();
+ const top=[...root.querySelectorAll('.rt-fsheet-row')].find(row=>row.querySelector('.rt-fsheet-label').textContent==='Top');
+ assert.equal(top.querySelector('.rt-fsheet-sub').textContent,'This Week');assert.ok(top.querySelector('[data-rt-sheet-icon="next"]'),'Top opens its time ranges');
+ top.click();
+ assert.equal(root.querySelector('.rt-fsheet-title').textContent,'Time range');
+ assert.deepEqual([...root.querySelectorAll('.rt-fsheet-row')].map(row=>row.textContent.trim()),['Today','This Week']);
+ root.querySelector('.rt-fsheet-back').click();
  const newSort=[...root.querySelectorAll('.rt-fsheet-row')].find(row=>row.textContent.trim()==='New');
  newSort.click();
  const url=new W.URL(targets.at(-1));
