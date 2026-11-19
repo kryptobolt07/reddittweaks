@@ -95,14 +95,14 @@
  };
  async function readPostStills(ids,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))){
   const out={};
-  for(const id of ids.slice(0,4)){
+  for(const id of ids){
    if(Date.now()<stillsPausedUntil)break;
    try{
     const response=await fetch('/comments/'+id.replace(/^t3_/,'')+'.json?limit=1&depth=1&raw_json=1',{credentials:'include',headers:{Accept:'application/json'}});
     if(response.status===403 || response.status===429){stillsPausedUntil=Date.now()+300000;break;}
     if(response.ok){const url=pickStill((await response.json())?.[0]?.data?.children?.[0]?.data);if(url)out[id]=url;}
    }catch{}
-   await wait(300);
+   await wait(200);
   }
   return out;
  }
@@ -258,7 +258,8 @@
      this.posterIO.unobserve(target);this.posterNodes.delete(target);this.preparedPosters.add(target);
      if(target.isConnected)this.preparePoster(target);
     }
-   },{rootMargin:'700px 0px'}):null;
+   // Stills are prepared 5 screens ahead (1.5 behind), so a flick on a phone meets the still, not a black box.
+   },{rootMargin:'150% 0px 500% 0px'}):null;
    this.mo=observe?new MutationObserver(records=>{if(records.some(record=>record.attributeName==='collapsed' && record.target.matches(COMMENT)))this.syncCommentVisibility();this.handoff();this.schedule();}):null;
    this.mo?.observe(doc.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['collapsed']});
    this.readPreference=readPreference;this.preference=null;
@@ -332,7 +333,8 @@
    }
    for(const embed of this.doc.querySelectorAll(ANY_EMBED)){
     this.watchEmbed(embed);
-    if(this.configured && this.feedEmbed(embed))this.observePoster(embed);
+    // Watched for its still as soon as its card is in the page, before Reddit inserts the player near the screen.
+    if(this.configured && this.stillWanted(embed))this.observePoster(embed);
     const frame=controlFrame(embed),state=frame && this.frameState(frame);
     if(state)this.framePolicy(frame,this.blockEmbedLinks(!this.isDetailEmbed(embed)));
     if(!this.isDetailEmbed(embed))continue;
@@ -755,6 +757,11 @@
     if(embed===except || !this.feedEmbed(embed) || embed.dataset.rtEmbedUsed==='1' || this.ePreview?.embed===embed)continue;
     this.syncIdleEmbed(embed);
    }
+  }
+  // A feed card's embed whose player Reddit has not inserted yet still names it in its markup (embed-html, Embedly).
+  stillWanted(embed){
+   const card=embed?.closest?.('shreddit-post');
+   return Boolean(card?.id && postId(this.win.location.pathname)!==card.id.replace(/^t3_/,'') && (this.feedEmbed(embed) || embedAddress(embed)));
   }
   feedEmbed(embed){
    const card=embed?.closest?.('shreddit-post');

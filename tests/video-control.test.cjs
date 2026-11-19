@@ -937,7 +937,7 @@ test('as a feed card approaches, warm its native poster and batch a missing embe
  const c=await controlled(p),decoded=[],requests=[];
  p.W.Image=class{decode(){decoded.push(this.src);return Promise.resolve();}};
  c.controller.readPosters=async ids=>{requests.push(Array.from(ids));return {t3_test:'https://preview.redd.it/embed.jpg'};};
- assert.ok(p.io.posters.options.rootMargin.startsWith('700px'));
+ assert.equal(p.io.posters.options.rootMargin,'150% 0px 500% 0px','five screens ahead');
  assert.ok(p.io.posters.observed.includes(p.player));assert.ok(p.io.posters.observed.includes(c.node));
  p.io.posters.cb([p.player,c.node].map(target=>({target,isIntersecting:true})));
  await new Promise(resolve=>setTimeout(resolve,100));
@@ -1012,4 +1012,21 @@ test('a RedGIFs card with no still in the markup gets one from its post’s own 
  const cover=e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),still=cover.querySelector('[data-rt-parked-still]');
  assert.equal(cover.dataset.rtStill,'https://media.redgifs.com/CamelName-poster.jpg');assert.equal(still.referrerPolicy,'no-referrer');
  assert.equal(cover.hasAttribute('data-rt-placeholder'),false);
+});
+
+test('stills are found for cards whose player Reddit has not inserted yet, every queued card included',async t=>{
+ const p=page(t);const asked=[];
+ p.W.fetch=async url=>{asked.push(String(url));return {ok:true,status:200,json:async()=>[{data:{children:[{data:{secure_media:{oembed:{thumbnail_url:'https://media.example.test/'+asked.length+'.jpg'}}}}]}}]};};
+ const nodes=[];
+ for(let i=0;i<6;i++){
+  const post=p.d.createElement('shreddit-post');post.id='t3_late'+i;p.d.body.append(post);
+  const node=p.d.createElement('shreddit-embed');node.setAttribute('providername','Example');
+  node.setAttribute('embed-html','<iframe src="https://www.redgifs.com/ifr/late'+i+'"></iframe>');node.attachShadow({mode:'open'});post.append(node);nodes.push(node);
+ }
+ const c=await hoverController(p,{embedStart:'play'});c.scan();
+ for(const node of nodes)assert.ok(p.io.posters.observed.includes(node),'watched before Reddit inserts its player');
+ p.io.posters.cb(nodes.map(target=>({target,isIntersecting:true})));
+ await new Promise(resolve=>setTimeout(resolve,1600));
+ assert.equal(asked.length,6,'every queued card is read, not only the first four');
+ for(let i=0;i<6;i++)assert.ok(c.posters.get('t3_late'+i),'still known for card '+i+' before it is shown');
 });
