@@ -895,3 +895,24 @@ test('a Vimeo player made by Reddit’s lite-vimeo is held at its card and place
  assert.equal(own.style.visibility,'hidden','Reddit’s thumbnail and play button stay under it');assert.equal(frame.style.position,'absolute');
  assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),false);
 });
+
+test('a moving player keeps the rounded corners Reddit gives the media in the feed and lands with the post’s',async t=>{
+ const frames=[];
+ const {W}=setup(t,{url:'https://www.reddit.com/r/soccer/',before:W=>{W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};W.Element.prototype.animate=function(keys){frames.push(keys);return {finished:Promise.resolve()};};}});
+ const d=W.document;d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_abc"><div id="wrap" style="border-top-left-radius:16px;overflow:hidden"></div></shreddit-post></shreddit-feed>';
+ const embed=d.createElement('shreddit-embed');d.getElementById('wrap').append(embed);
+ const frame=embed.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));frame.src='https://streamable.com/e/abc';
+ const feedBox={left:10,top:100,width:360,height:203};frame.getBoundingClientRect=()=>feedBox;
+ embed.getBoundingClientRect=()=>feedBox;d.getElementById('wrap').getBoundingClientRect=()=>feedBox;
+ embed.dispatchEvent(new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
+ assert.equal(frame.parentNode.style.borderRadius,'16px','held at its card with the same corners');
+ W.history.pushState({},'','/r/soccer/comments/abc/goal/');
+ const post=d.createElement('shreddit-post');post.id='t3_abc';d.body.append(post);
+ const target=d.createElement('shreddit-embed');post.append(target);const own=target.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));
+ own.style.borderTopLeftRadius='8px';own.getBoundingClientRect=()=>({left:0,top:60,width:390,height:220});
+ frame.getBoundingClientRect=()=>({left:0,top:60,width:390,height:220});
+ target.dispatchEvent(new W.Event('rt-place-held-embed',{bubbles:true,cancelable:true}));
+ const clip=frames.find(keys=>keys[0].clipPath);assert.ok(clip,'clipped while it moves');
+ assert.match(clip[0].clipPath,/round [\d.]+px\)$/,'rounded from the start');assert.equal(clip[1].clipPath,'inset(0px 0px round 8px)','the post’s corners at the end');
+ const scale=360/390;assert.ok(Math.abs(parseFloat(/round ([\d.]+)px/.exec(clip[0].clipPath)[1])*scale-16)<0.01,'looks 16 px round at the feed’s size');
+});

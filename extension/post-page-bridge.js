@@ -76,6 +76,23 @@
     controller.endDomReparent();
     stage.remove();
   }
+  // Reddit rounds a media box's corners on the element that clips it: the player itself or a wrapper of the same size
+  // (read from its computed style, not assumed). The moving player keeps the feed's corners and lands with the post's.
+  function cornerOf(node){
+    const box=node.getBoundingClientRect();
+    for(let el=node,depth=0;el?.nodeType===1 && depth<8;depth++){
+      if(el.matches('shreddit-post'))break;
+      const style=getComputedStyle(el),radius=parseFloat(style.borderTopLeftRadius) || 0;
+      if(radius>0 && (el===node || /hidden|clip/.test(style.overflow+' '+style.overflowX))){
+        const b=el.getBoundingClientRect();
+        if(Math.abs(b.width-box.width)<=2 && Math.abs(b.height-box.height)<=2)return radius;
+      }
+      el=el.parentElement || el.getRootNode?.()?.host || null;
+    }
+    return 0;
+  }
+  // A clip in the moving element's own (unscaled) units: shown at `scale`, its corners look `radius` px round.
+  const roundClip=(insetY,insetX,radius,scale=1)=>`inset(${insetY}px ${insetX}px${radius>0?` round ${radius/scale}px`:''})`;
   // The picture inside a box (Reddit's video is object-fit: contain).
   function picture(box,aspect){
     if(!(aspect>0))return box;
@@ -88,7 +105,7 @@
   // start. No clamps; reduced motion skips it.
   // Reddit's reparent window stays open until the move ends: its autoplay observer otherwise pauses the player while
   // the moving picture is partly outside the viewport (measured 2026-11-19).
-  function moveIntoSlot(player,from,controller){
+  function moveIntoSlot(player,from,controller,corners={}){
     const video=player.shadowRoot?.querySelector('video'),to=player.getBoundingClientRect(),end=()=>controller.endDomReparent();
     if(!from || typeof player.animate!=='function' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ||
        !to.width || !to.height){end();return;}
@@ -101,7 +118,7 @@
     player.setAttribute('data-rt-video-flying','');
     const motion=player.animate([{transform:`translate(${x}px,${y}px) scale(${scale})`},{transform:'none'}],timing);
     motion.id='rt-video-placement';
-    player.animate([{clipPath:`inset(${insetY}px ${insetX}px)`},{clipPath:'inset(0px 0px)'}],timing);
+    player.animate([{clipPath:roundClip(insetY,insetX,corners.from,scale)},{clipPath:roundClip(0,0,corners.to)}],timing);
     const done=()=>{end();landed(player);};
     Promise.resolve(motion.finished).then(done,done);
   }
@@ -119,8 +136,9 @@
     stage.setAttribute('aria-hidden','true');
     slot.setAttribute('aria-hidden','true');
     slot.style.height=height+'px';
+    const corner=cornerOf(player);
     Object.assign(stage.style,{position:'fixed',zIndex:'3',pointerEvents:'none',overflow:'hidden',
-      left:left+'px',top:top+'px',width:width+'px',height:height+'px'});
+      left:left+'px',top:top+'px',width:width+'px',height:height+'px',borderRadius:corner+'px'});
     player.before(slot);
     document.body.append(stage);
     const pause=player.pause,ownPause=Object.hasOwn(player,'pause');
@@ -137,7 +155,7 @@
     };
     controller.beginDomReparent();
     movePlayer(stage,player);
-    heldVideo={player,id,slot,stage,controller,restorePause,rect:{left,top,width,height}};markMove();
+    heldVideo={player,id,slot,stage,controller,restorePause,rect:{left,top,width,height},corner};markMove();
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-video',event=>{
@@ -145,7 +163,7 @@
     if(!heldVideo || !id || heldVideo.id!=='t3_'+id || !detail.matches?.(videoPlayers) ||
        detail.getAttribute('player-type')!=='post_detail_screen' || detail.getAttribute('post-id')!==heldVideo.id ||
        detail.closest('shreddit-post')?.id!==heldVideo.id || detail.localName!==heldVideo.player.localName)return;
-    const {player,slot,stage,controller,restorePause,rect}=heldVideo;
+    const {player,slot,stage,controller,restorePause,rect,corner}=heldVideo,landing=cornerOf(detail);
     heldVideo=null;markMove();
     // A post player re-applies Reddit's session sound state when the move ends (and mutes autoplay without one); a
     // video playing with sound keeps it.
@@ -162,7 +180,7 @@
     detail.remove();
     restorePause();
     stage.remove();
-    moveIntoSlot(player,rect,controller);
+    moveIntoSlot(player,rect,controller,{from:corner,to:landing});
     event.preventDefault();
   });
   // Our plays go through Reddit's player, which keeps its controls, poster and session in step with the video.
@@ -247,17 +265,17 @@
     if(heldEmbed || !ifr || (lite && !player) || !document.body || typeof document.body.moveBefore!=='function')return;
     const {left,top,width,height}=ifr.getBoundingClientRect();
     if(!width || !height)return;
-    const stage=document.createElement('div');
+    const stage=document.createElement('div'),corner=cornerOf(ifr);
     stage.setAttribute('aria-hidden','true');
     Object.assign(stage.style,{position:'fixed',zIndex:'3',pointerEvents:'none',overflow:'hidden',
-      left:left+'px',top:top+'px',width:width+'px',height:height+'px'});
+      left:left+'px',top:top+'px',width:width+'px',height:height+'px',borderRadius:corner+'px'});
     document.body.append(stage);
     const style=ifr.getAttribute('style'),liteStyle=lite?.getAttribute('style') ?? null,home=ifr.parentNode,next=ifr.nextSibling;
     stage.moveBefore(ifr,null);
     // The emptied card would show Reddit's thumbnail and play button wherever the feed moves meanwhile.
     if(lite)lite.style.visibility='hidden';
     Object.assign(ifr.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
-    heldEmbed={embed,lite,ifr,player,stage,style,liteStyle,home,next,rect:{left,top,width,height},id:embed.closest('shreddit-post')?.id};markMove();
+    heldEmbed={embed,lite,ifr,player,stage,style,liteStyle,home,next,rect:{left,top,width,height},corner,id:embed.closest('shreddit-post')?.id};markMove();
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-embed',event=>{
@@ -268,6 +286,7 @@
     const cover=!held.lite && !target?vimeoLite(embed):null;
     if(held.lite?!lite:!(target || cover))return;
     const to=(lite || target || cover).getBoundingClientRect();if(!to.width || !to.height)return;
+    const landing=cornerOf(lite || target || cover);
     heldEmbed=null;markMove();
     if(lite){
       lite.classList.add('lyt-activated');
@@ -300,7 +319,7 @@
         const timing={duration:FLIGHT_MS,easing:'cubic-bezier(.2,.8,.2,1)'};
         const insetX=Math.max(0,(box.width-from.width/scale)/2),insetY=Math.max(0,(box.height-from.height/scale)/2);
         held.ifr.animate([{transform:`translate(${x}px,${y}px) scale(${scale})`},{transform:'none'}],timing);
-        held.ifr.animate([{clipPath:`inset(${insetY}px ${insetX}px)`},{clipPath:'inset(0px 0px)'}],timing);
+        held.ifr.animate([{clipPath:roundClip(insetY,insetX,held.corner,scale)},{clipPath:roundClip(0,0,landing)}],timing);
       }
     }
     event.preventDefault();
