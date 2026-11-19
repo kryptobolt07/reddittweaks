@@ -16,6 +16,31 @@
  // preview reloads it with the provider's autoplay and mute flags; its own player API, if any, is not used.
  const rawFrame=embed=>{const frame=embed?.shadowRoot?.querySelector?.('iframe');return frame && !frame.closest('lite-youtube,lite-vimeo')?frame:null;};
  const FLAGS=[[/(^|\.)twitch\.tv$/i,{autoplay:'true',muted:'true'}],[/(^|\.)dailymotion\.com$/i,{autoplay:'1',mute:'1'}],[/./,{autoplay:'1',muted:'1',mute:'1'}]];
+ // Control protocols of the players Reddit embeds as plain iframes (read from Reddit's stored embed code 2026-11-19):
+ // Embedly's wrapper (Streamable, Vimeo, Twitch, some YouTube) speaks player.js; YouTube's own player its iframe API
+ // (Reddit's embed code has enablejsapi=1); Vimeo's player its message API. RedGIFs and others take only address flags.
+ function frameKind(frame){
+  let url;try{url=new URL(frame.getAttribute('src') || '','https://www.reddit.com');}catch{return 'flags';}
+  if(/(^|\.)embedly\.com$/i.test(url.hostname))return 'playerjs';
+  if(/(^|\.)youtube(-nocookie)?\.com$/i.test(url.hostname) && url.searchParams.get('enablejsapi')==='1')return 'youtube';
+  if(/^player\.vimeo\.com$/i.test(url.hostname))return 'vimeo';
+  return 'flags';
+ }
+ function frameMessage(kind,method){
+  if(kind==='playerjs')return JSON.stringify({context:'player.js',version:'0.0.11',method});
+  if(kind==='vimeo')return JSON.stringify(method==='mute'?{method:'setVolume',value:0}:method==='unmute'?{method:'setVolume',value:1}:{method});
+  if(kind==='youtube')return JSON.stringify({event:'command',func:{play:'playVideo',pause:'pauseVideo',mute:'mute',unmute:'unMute'}[method],args:[]});
+  return '';
+ }
+ // Whether a player's message says it started playing, or is ready for commands.
+ function frameEvent(kind,raw){
+  let data=raw;if(typeof data==='string'){try{data=JSON.parse(data);}catch{return '';}}
+  if(!data || typeof data!=='object')return '';
+  if(kind==='playerjs')return data.context==='player.js' && ['play','ready'].includes(data.event)?data.event:'';
+  if(kind==='vimeo')return ['play','ready'].includes(data.event)?data.event:'';
+  if(kind==='youtube'){const state=data.event==='onStateChange'?data.info:data.event==='infoDelivery'?data.info?.playerState:null;return state===1?'play':data.event==='onReady'?'ready':'';}
+  return '';
+ }
  function flagged(src,sound){
   let url;try{url=new URL(src);}catch{return src;}
   const flags=FLAGS.find(([host])=>host.test(url.hostname))[1];
@@ -89,6 +114,19 @@
     active.dataset.rtEmbedUsed='1';this.exclusive(active);
    },0);
    this.win.addEventListener('blur',this.onFrameFocus);
+   // Provider players report starting (see frameEvent): that one plays, everything else pauses.
+   this.frames=new Map();
+   this.onFrameMessage=event=>{
+    for(const [frame,state] of this.frames){
+     if(!frame.isConnected){this.frames.delete(frame);continue;}
+     if(frame.contentWindow!==event.source)continue;
+     const kind=frameEvent(state.kind,event.data);
+     if(kind==='ready'){for(const data of state.queue.splice(0))this.post(frame,data);this.subscribe(frame,state);}
+     if(kind==='play'){const embed=frame.getRootNode()?.host;if(embed && this.ePreview?.embed!==embed){embed.dataset.rtEmbedUsed='1';this.exclusive(embed);}}
+     return;
+    }
+   };
+   this.win.addEventListener('message',this.onFrameMessage);
    this.win.addEventListener('popstate',this.onBack);
    this.win.addEventListener('pagehide',this.onPageExit);
    this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onVisibility(entries),{threshold:[0,0.5,IN_VIEW,1]}):null;
@@ -148,6 +186,7 @@
     this.players.delete(player);this.previews.delete(player);this.io?.unobserve(player);
    }
    for(const player of this.doc.querySelectorAll(PLAYERS))this.attach(player);
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){const frame=rawFrame(embed);if(frame && !this.frames.has(frame))this.frameState(frame);}
    this.handoff();
    this.embedHandoff();
   }
@@ -257,6 +296,27 @@
    event.stopImmediatePropagation();
    if(button || this.clickPlays || !this.openPost(player))this.promotePreview(player);
   }
+  post(frame,data){try{frame.contentWindow?.postMessage(data,new URL(frame.getAttribute('src') || '',this.win.location.href).origin);}catch{}}
+  frameState(frame){
+   let state=this.frames.get(frame);
+   if(!state){
+    state={kind:frameKind(frame),queue:[]};this.frames.set(frame,state);
+    if(state.kind!=='flags'){this.subscribe(frame,state);frame.addEventListener('load',()=>{this.subscribe(frame,state);this.win.setTimeout(()=>{for(const data of state.queue.splice(0))this.post(frame,data);},300);});}
+   }
+   return state;
+  }
+  subscribe(frame,state){
+   if(state.kind==='playerjs')for(const value of ['ready','play'])this.post(frame,JSON.stringify({context:'player.js',version:'0.0.11',method:'addEventListener',value,listener:'rt-'+value}));
+   else if(state.kind==='vimeo')for(const value of ['ready','play'])this.post(frame,JSON.stringify({method:'addEventListener',value}));
+   else if(state.kind==='youtube')this.post(frame,JSON.stringify({event:'listening',id:'rt'}));
+  }
+  // Sends now and again once the player says it is ready (commands before that are dropped by these players).
+  command(frame,method){
+   const state=this.frameState(frame);if(state.kind==='flags')return false;
+   const data=frameMessage(state.kind,method);this.post(frame,data);
+   state.queue.push(data);if(state.queue.length>4)state.queue.shift();
+   return true;
+  }
   feedEmbed(embed){
    const card=embed?.closest?.('shreddit-post');
    return Boolean(card?.id && embed.matches(ANY_EMBED) && (embed.matches(EMBED) || rawFrame(embed)) && postId(this.win.location.pathname)!==card.id.replace(/^t3_/,''));
@@ -291,8 +351,11 @@
     host=embed.shadowRoot?.querySelector('lite-youtube') || embed;
    }else{
     const frame=rawFrame(embed),src=frame?.getAttribute('src');if(!frame || !src){this.stopEmbed();return;}
-    preview.frame={frame,src,position:embed.style.position};
-    frame.src=flagged(src,false);
+    const kind=this.frameState(frame).kind;
+    preview.frame={frame,src,kind,position:embed.style.position};
+    // A player with a control protocol starts muted in place; others reload with the provider's own flags.
+    if(kind==='flags')frame.src=flagged(src,false);
+    else{this.command(frame,'mute');this.command(frame,'play');}
     // The layer sits in the embed's shadow root over its iframe.
     if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
     host=embed.shadowRoot;
@@ -327,16 +390,22 @@
    this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);
    preview.layer?.remove();delete preview.embed.dataset.rtEmbedPreview;
    preview.embed.dataset.rtEmbedUsed='1';
-   if(preview.frame){this.restoreHost(preview);if(sound)preview.frame.frame.src=flagged(preview.frame.src,true);return;}
+   if(preview.frame){this.restoreHost(preview);if(sound)this.frameSound(preview.frame);return;}
    if(sound)preview.embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
   }
+  frameSound({frame,src,kind}){if(kind==='flags')frame.src=flagged(src,true);else{this.command(frame,'unmute');this.command(frame,'play');}}
   restoreHost(preview){if(preview.frame)preview.embed.style.position=preview.frame.position || '';}
   stopEmbed(){
    const preview=this.ePreview;if(!preview)return;
    this.ePreview=null;
    this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);
    preview.layer?.remove();delete preview.embed.dataset.rtEmbedPreview;
-   if(preview.frame){this.restoreHost(preview);if(preview.active && preview.frame.frame.isConnected)preview.frame.frame.src=preview.frame.src;return;}
+   if(preview.frame){
+    this.restoreHost(preview);
+    const {frame,src,kind}=preview.frame;
+    if(preview.active && frame.isConnected){if(kind==='flags')frame.src=src;else{this.command(frame,'pause');this.command(frame,'unmute');}}
+    return;
+   }
    if(preview.active)preview.embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
   }
   // Opening a post whose YouTube embed plays (or previews) continues it in the post's embed at the same second.
@@ -346,7 +415,7 @@
    if(!embed.matches(EMBED)){
     if(!preview && embed.dataset.rtEmbedUsed!=='1')return false;
     if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);
-     if(this.unmutePreview)preview.frame.frame.src=flagged(preview.frame.src,true);}
+     if(this.unmutePreview)this.frameSound(preview.frame);}
     this.clearEmbedHandoff();
     const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
     if(!held)return false;
@@ -577,6 +646,7 @@
     video.pause();
    }
    if(this.ePreview && this.ePreview.embed!==source)this.stopEmbed();
+   for(const [frame,state] of this.frames)if(state.kind!=='flags' && frame.isConnected && frame.getRootNode()?.host!==source)this.command(frame,'pause');
    source.dispatchEvent(new this.win.Event('rt-media-exclusive',{bubbles:true,composed:true}));
   }
   block(player,video){
@@ -666,7 +736,7 @@
    for(const type of ['pointerover','pointerout'])this.doc.removeEventListener(type,this.onHover,true);
    this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
    this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);
-   this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);
+   this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);this.win.removeEventListener('message',this.onFrameMessage);
    this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
    this.clearHandoff();
   }

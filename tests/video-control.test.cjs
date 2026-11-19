@@ -630,3 +630,41 @@ test('clicking into an embed’s player marks it in use, pauses other videos and
  const q=page(t);const f=frameEmbed(q);await hoverController(q);let qheld=0;f.node.addEventListener('rt-hold-feed-embed',()=>qheld++);
  q.click(q.title);assert.equal(qheld,0,'an embed nobody touched stays put');
 });
+
+// Players with a control protocol: Embedly's player.js wrapper (Streamable, Vimeo, Twitch), YouTube's iframe API.
+const embedly='https://cdn.embedly.com/widgets/media.html?src=https%3A%2F%2Fstreamable.com%2Fo%2Fabc&display_name=Streamable';
+async function controlled(p,settings={},src=embedly){
+ const e=frameEmbed(p,src);const controller=await hoverController(p,settings);const sent=[];
+ controller.post=(frame,data)=>sent.push(JSON.parse(data));controller.frames.clear();controller.scan();
+ const commands=()=>sent.filter(m=>m.method && m.method!=='addEventListener' || m.func).map(m=>m.method || m.func);
+ return {...e,controller,sent,commands};
+}
+test('an Embedly-wrapped preview starts muted in place through player.js, then pauses and gets its sound back',async t=>{
+ const p=page(t);const c=await controlled(p);
+ assert.ok(c.sent.some(m=>m.context==='player.js' && m.method==='addEventListener' && m.value==='play'),'it listens for the player starting');
+ c.over();await waitForHover();
+ assert.equal(c.frame.getAttribute('src'),embedly,'no reload');assert.deepEqual(c.commands(),['mute','play']);
+ c.over('pointerout',c.frame,p.d.body);await new Promise(r=>setTimeout(r,260));
+ assert.deepEqual(c.commands(),['mute','play','pause','unmute']);
+});
+test('Play here unmutes an Embedly preview in place; YouTube’s own iframe gets its iframe-API commands',async t=>{
+ const p=page(t);const c=await controlled(p,{videoPreviewClick:'here'});
+ c.over();await waitForHover();c.layer().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+ assert.deepEqual(c.commands(),['mute','play','unmute','play']);assert.equal(c.frame.getAttribute('src'),embedly);
+ const q=page(t);const y=await controlled(q,{},'https://www.youtube.com/embed/abc?feature=oembed&enablejsapi=1');
+ y.over();await waitForHover();assert.deepEqual(y.commands(),['mute','playVideo']);
+});
+test('a provider player that starts by its own controls pauses Reddit videos; starting a Reddit video pauses it',async t=>{
+ const p=page(t);const c=await controlled(p,{videoStart:'reddit'});
+ p.startFromControl();assert.equal(p.video.paused,false);
+ p.W.dispatchEvent(new p.W.MessageEvent('message',{data:JSON.stringify({context:'player.js',event:'play'}),source:c.frame.contentWindow}));
+ assert.equal(p.video.paused,true,'one video at a time');assert.equal(c.node.dataset.rtEmbedUsed,'1');
+ c.sent.length=0;p.startFromControl();
+ assert.deepEqual(c.commands(),['pause'],'the provider player is paused');
+});
+test('commands sent before a player is ready are sent again when it says so',async t=>{
+ const p=page(t);const c=await controlled(p);
+ c.over();await waitForHover();const before=c.commands().length;
+ p.W.dispatchEvent(new p.W.MessageEvent('message',{data:JSON.stringify({context:'player.js',event:'ready'}),source:c.frame.contentWindow}));
+ assert.deepEqual(c.commands().slice(before),['mute','play']);
+});
