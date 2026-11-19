@@ -29,3 +29,11 @@ User request: extend "Smooth long feeds" (profiles only, `docs`/0.42.0) to the r
 ## Limits
 
 `content-visibility:hidden` units are not matched by the browser's find-in-page until scrolled near; search results and comments vary in height, so the reserved height is the last measured one. Very long pages still hold all their DOM; this skips layout and paint, not memory.
+
+## Phones (measured 2026-11-19, phone-emulated r/gamingindian Videos feed, user scrolling)
+
+A 45 s recording of the user flicking through the feed: the page's main thread was busy 45.7 s of 45.9 s; 101 of 273 frames were at least half blank, almost all of it posts this feature had skipped drawing; 132 frame gaps were over 120 ms (longest 904 ms). Our share: the own-removal scan ran on every frame (~5.8 s), the profile-feed sync check ran on every scroll event on every page (~1.3 s). Reddit's own code forced layout for ~7.8 s.
+
+- Phones (`(hover: none), (pointer: coarse)`) keep 8 screens drawn either way (desktop 2), because a flick travels several screens before the page's script gets a turn.
+- The own-removal scan runs at most every 300 ms and keeps the signed-in name for 2 s per route; it clears badges only when it painted some.
+- The profile-feed sync returns at once outside profile pages.

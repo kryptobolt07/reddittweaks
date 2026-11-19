@@ -50,3 +50,11 @@ test('lists the extension renders itself (profile search, archives) are smoothed
  fire(d.getElementById('i1'),{height:420});assert.equal(d.getElementById('i1').hasAttribute('data-rt-skip'),true);
  const off=page(t,{path:'/user/someone/search/',html});const s2=new off.W.RTSmoothScroll.Smooth({readSettings:async()=>({smoothSearch:false}),observe:false});await s2.ready;assert.equal(off.io.observed.size,0,'the page’s option still governs');
 });
+
+test('phones keep eight screens drawn either way; a mouse keeps two',async t=>{
+ for(const [coarse,margin] of [[true,'800%'],[false,'200%']]){
+  const {W,io}=page(t);W.matchMedia=q=>({matches:coarse && /hover: none|pointer: coarse/.test(q)});
+  const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>({}),observe:false});await s.ready;
+  assert.equal(io.options.rootMargin,margin+' 0px '+margin+' 0px');s.destroy();
+ }
+});

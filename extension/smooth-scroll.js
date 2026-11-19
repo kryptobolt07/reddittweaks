@@ -32,7 +32,12 @@
  class Smooth{
   constructor({doc=document,readSettings,observe=true}={}){
    this.doc=doc;this.settings=null;this.dead=false;this.observed=new Set();this.pending=new Set();this.frame=0;
-   this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onIntersect(entries),{rootMargin:'200% 0px 200% 0px'}):null;
+   // A touch flick travels several screens before the page's script gets a turn (measured on a phone-emulated feed
+   // 2026-11-19: up to 900 ms without a frame and whole screens of skipped posts), so phones keep 8 screens drawn
+   // either way; a mouse wheel keeps 2.
+   const touch=Boolean(globalThis.matchMedia?.('(hover: none), (pointer: coarse)')?.matches),margin=touch?'800%':'200%';
+   this.margin=margin;
+   this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onIntersect(entries),{rootMargin:margin+' 0px '+margin+' 0px'}):null;
    this.mo=observe?new MutationObserver(records=>{for(const r of records)for(const node of r.addedNodes)if(node.nodeType===1)this.pending.add(node);this.schedule();}):null;
    this.mo?.observe(doc.documentElement,{childList:true,subtree:true});
    this.onRoute=()=>this.rescan();addEventListener('popstate',this.onRoute);

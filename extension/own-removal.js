@@ -2,7 +2,7 @@
 (() => {
  'use strict';
  if(globalThis.RTOwnRemoval)return;
- const N=globalThis.RTNativeRemoval,R=globalThis.RTRemovalModel,TTL=600000;
+ const N=globalThis.RTNativeRemoval,R=globalThis.RTRemovalModel,TTL=600000,SCAN_GAP=300,IDENTITY_TTL=2000;
  const runtime=message=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Removal checks timed out. Refresh this tab.')),10000);try{Promise.resolve(chrome.runtime.sendMessage(message)).then(resolve,reject).finally(()=>clearTimeout(timer));}catch(e){clearTimeout(timer);reject(e);}});
  const author=p=>{const m=p.moderation;return {kind:p.kind,name:p.fullname,...(p.kind==='post'?{title:p.title,selftext:p.body}:{body:p.body}),created_utc:p.created,removed_by_category:m.category,locked:m.locked,subreddit_type:m.subredditType,quarantine:m.quarantined,visibilityKnown:m.visibilityKnown,nativeRemoved:m.nativeRemoved};};
  async function checkPublic(input,signal){
@@ -20,14 +20,28 @@
   constructor({doc=globalThis.document,readSettings=async()=>{const r=await runtime({scope:'rt-posts',action:'get-settings'});if(!r?.ok)throw Error('Settings unavailable.');return r.settings;},send=message=>runtime({scope:'rt-removal',...message}),archive=message=>runtime({scope:'rt-posts',...message,pageUrl:location.href}),check=checkPublic,now=()=>Date.now(),visible,observe=true}={}){
    Object.assign(this,{doc,readSettings,send,archive,check,now});this.entries=new Map();this.saved={};this.generation=0;this.me=null;this.settings={ownRemoval:false};this.dead=false;this.observe=observe;
    this.visible=visible || (node=>{if(doc.visibilityState==='hidden')return false;if(!node)return true;const r=node.getBoundingClientRect();return r.height>0 && r.bottom>=0 && r.top<=doc.defaultView.innerHeight+200;});
-   this.schedule=()=>{if(this.queued || this.dead)return;this.queued=doc.defaultView.requestAnimationFrame(()=>{this.queued=0;this.scan().catch(()=>{});});};
+   // At most one scan per 300 ms: Reddit mutates the page and the reader scrolls on every frame, and a scan reads every
+   // visible card (measured 2026-11-19: ~5.8 s of a 46 s phone scroll when it ran each frame).
+   this.schedule=()=>{
+    if(this.queued || this.dead)return;
+    const wait=Math.max(0,(this.lastScan || -Infinity)+SCAN_GAP-performance.now());
+    const run=()=>{this.queued=doc.defaultView.requestAnimationFrame(()=>{this.queued=0;this.lastScan=performance.now();this.scan().catch(()=>{});});};
+    if(wait>0){this.queued=-1;doc.defaultView.setTimeout(()=>{this.queued=0;run();},wait);}else run();
+   };
    this.message=(m,sender,respond)=>{if(m?.scope==='rt-removal' && m.action==='context'){respond(N.identity(doc));return false;}if(m?.scope==='rt-removal' && m.action==='cleared' && m.owner===this.me?.owner){this.entries.clear();this.saved={};this.loaded='';this.schedule();}if(m?.scope==='rt-posts' && m.action==='settings-changed')this.configure(m.settings).catch(()=>{});};
    globalThis.chrome?.runtime?.onMessage?.addListener(this.message);
    if(observe){this.observer=new MutationObserver(records=>{if(records.some(r=>!(r.target.nodeType===1?r.target:r.target.parentElement)?.closest?.('[data-rt-own-removal]') && (r.type==='attributes' || r.type==='characterData' || [...r.addedNodes,...r.removedNodes].some(n=>n.nodeType!==1 || !n.matches('[data-rt-own-removal]')))))this.schedule();});
    }
    this.ready=readSettings().then(cfg=>this.configure(cfg)).catch(()=>{this.error='Could not load removal settings. Refresh this tab.';});
   }
-  clearBadges(){for(const n of this.doc.querySelectorAll('[data-rt-own-removal]'))n.remove();}
+  clearBadges(){if(!this.badged)return;for(const n of this.doc.querySelectorAll('[data-rt-own-removal]'))n.remove();this.badged=false;}
+  // Who is signed in, as Reddit's page shows it. Finding the name reads page data and every card, so it is kept for the
+  // route and account and re-read at most every 2 s.
+  identity(){
+   const app=this.doc.querySelector('shreddit-app'),key=this.route()+'|'+(app?.getAttribute('logged-in-user-id') || '')+'|'+(app?.getAttribute('user-logged-in') || '');
+   if(this.idCache?.key===key && performance.now()-this.idCache.at<IDENTITY_TTL)return this.idCache.value;
+   const value=N.identity(this.doc);this.idCache={key,value,at:performance.now()};return value;
+  }
   watch(on){
    if(!this.observe || this.watching===on)return;this.watching=on;
    if(on)this.observer.observe(this.doc.documentElement,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['user-logged-in','logged-in-user-id','src','author','author-id','author-name','item-state','removed-by-category','locked','is-locked','hidden','collapsed']});
@@ -36,9 +50,9 @@
   }
   async configure(cfg){this.proofController?.abort();this.settings={...cfg};this.watch(cfg.ownRemoval===true);this.generation++;this.busy=null;this.entries.clear();this.saved={};this.loaded='';if(!cfg.ownRemoval){this.clearBadges();await this.send({action:'reset'}).catch(()=>{});return;}return this.scan();}
   route(){const url=new URL(this.doc.location.href);for(const key of [...url.searchParams.keys()])if(key.startsWith('rt_') && key!=='rt_list')url.searchParams.delete(key);return url.pathname+url.search;}
-  current(me,generation){const current=N.identity(this.doc);return !this.dead && this.settings.ownRemoval===true && this.generation===generation && this.routeKey===this.route() && current?.owner===me.owner && current?.username.toLowerCase()===me.username.toLowerCase();}
+  current(me,generation){const current=this.identity();return !this.dead && this.settings.ownRemoval===true && this.generation===generation && this.routeKey===this.route() && current?.owner===me.owner && current?.username.toLowerCase()===me.username.toLowerCase();}
   async scan(){
-   if(this.dead)return;const me=N.identity(this.doc),key=me?me.owner+':'+me.username.toLowerCase():'';
+   if(this.dead)return;const me=this.identity(),key=me?me.owner+':'+me.username.toLowerCase():'';
    const route=this.route();if(this.routeKey!==route){this.proofController?.abort();this.routeKey=route;this.generation++;this.busy=null;this.rescan=false;}
    if(key!==this.key){this.proofController?.abort();const previous=this.me;this.key=key;this.me=me;this.generation++;this.busy=null;this.entries.clear();this.saved={};this.loaded='';this.clearBadges();if(previous || this.visible())await this.send({action:'reset'}).catch(()=>{});}
    if(!me || !this.settings.ownRemoval){this.clearBadges();return;}if(!this.visible())return;if(this.busy){this.rescan=true;return this.busy;}
@@ -98,6 +112,7 @@
   paint(card,record){
    const existing=[...card.querySelectorAll('[data-rt-own-removal]')].filter(n=>n.closest('shreddit-post,shreddit-profile-comment,shreddit-comment')===card);
    if(record.state==='visible' || record.state==='unknown'){for(const n of existing)n.remove();return;}
+   this.badged=true;
    // One red ban icon after the time, as in the Removed view; the wording is in its tooltip (spec §27).
    let pill=existing.shift();for(const n of existing)n.remove();if(!pill){pill=this.doc.createElement('span');pill.dataset.rtOwnRemoval='';pill.className='rt-removal-pill rt-own-removal rt-post-indicator';pill.tabIndex=0;const ns='http://www.w3.org/2000/svg',svg=this.doc.createElementNS(ns,'svg'),path=this.doc.createElementNS(ns,'path');for(const [k,v] of Object.entries({viewBox:'0 0 24 24','aria-hidden':'true',width:'16',height:'16'}))svg.setAttribute(k,v);path.setAttribute('d','M5 5l14 14M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20');svg.append(path);pill.append(svg);}
    const label=(R.STATES[record.state]?.label || 'Couldn’t check')+(record.confidence==='likely' && record.state!=='removed-unknown'?' (likely)':'');
