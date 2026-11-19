@@ -94,6 +94,15 @@ Measured 2026-11-19 (r/india, desktop): Reddit renders a YouTube link post as `s
 - Twitch: Reddit's current layout shows Twitch clips as a link preview with an Open button, so there is no player in the feed to start.
 - Limits: not verified live; Embedly's player.js relay per provider is unknown until a player answers.
 
+For Vimeo and Embedly players with audio commands, the preview sound button unmutes the current iframe in the feed. Opening the post with preview sound enabled sends the same command on the tap and again after the held iframe lands. A late readiness signal replays the latest sound intent. Controls remain available on RedGIFs, Twitch Clips and other embeds that only support startup flags. Their overlay sound affordance hands control to the current player and keeps the same playback position.
+
+| Feed transition | Expected behavior |
+|---|---|
+| Tap sound while the preview is playing | Keep the current iframe and its position. For a player without an audio command, reveal its own controls. |
+| Scroll until that card leaves the viewport | Pause a controllable iframe and add the Play overlay back over the paused frame or ready poster. For players driven only by startup flags, unload offscreen to stop playback. |
+| Return and preview or press Play | Resume a retained player at its saved position. Hover previews are muted. Pressing Play asks the existing player for sound. A player unloaded offscreen starts a new loop. |
+| Scroll toward an upcoming media card | Warm images about one viewport ahead. Use the native poster when available and batch the existing embed-poster lookup for cards that lack one. |
+
 ## Transitions
 
 ### Comment media

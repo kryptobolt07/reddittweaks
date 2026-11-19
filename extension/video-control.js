@@ -57,7 +57,7 @@
   if(!frame && activate){
    lite.setAttribute('autoload','');lite.setAttribute('autoplay','autoplay');lite.click();
    frame=lite.shadowRoot?.querySelector('iframe') || null;
-   if(frame){try{const url=new URL(frame.getAttribute('src'));url.searchParams.set('autoplay','1');url.searchParams.set('muted','1');frame.setAttribute('src',url.href);}catch{}}
+   if(frame){try{const url=new URL(frame.getAttribute('src'));url.searchParams.set('autoplay','1');url.searchParams.set('muted','1');allowAutoplay(frame);frame.setAttribute('src',url.href);}catch{}}
   }
   return frame;
  }
@@ -109,7 +109,7 @@
   constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,observe=true}={}){
    this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new WeakMap();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;
    this.visibilityReady=new WeakMap();this.fading=new WeakMap();this.away=new WeakMap();this.loops=new Map();
-   this.detailEmbeds=new Set();this.embedAway=new Set();this.managedViewport=new Set();
+   this.detailEmbeds=new Set();this.embedAway=new Set();this.feedSoundEmbeds=new Set();this.managedViewport=new Set();
    this.choice=videoSettings({});
    this.onGesture=event=>{
     if(!event.isTrusted && !globalThis.__rtVideoControlTest)return;
@@ -160,6 +160,7 @@
    this.win.addEventListener('blur',this.onFrameFocus);
    // Provider players report starting (see frameEvent): that one plays, everything else pauses.
    this.frames=new Map();this.posters=new Map();this.posterWanted=new Set();this.watchedEmbeds=new WeakMap();
+   this.posterNodes=new Set();this.preparedPosters=new WeakSet();this.warmedPosters=new Map();
    this.readPosters=readPosters;
    this.onFrameMessage=event=>{
     for(const [frame,state] of this.frames){
@@ -168,7 +169,7 @@
      const kind=frameEvent(state.kind,event.data);
      if(kind && !state.readySeen){
       state.readySeen=true;state.pendingSound='';
-      for(const data of state.queue.splice(0))this.post(frame,data);
+      this.flushFrameCommands(frame,state);
       this.subscribe(frame,state);
      }
      if(kind==='pause')state.playing=false;
@@ -180,6 +181,12 @@
    this.win.addEventListener('popstate',this.onBack);
    this.win.addEventListener('pagehide',this.onPageExit);
    this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onVisibility(entries),{threshold:[0,0.5,IN_VIEW,1]}):null;
+   this.posterIO=this.io?new IntersectionObserver(entries=>{
+    for(const {target,isIntersecting} of entries)if(isIntersecting){
+     this.posterIO.unobserve(target);this.posterNodes.delete(target);this.preparedPosters.add(target);
+     if(target.isConnected)this.preparePoster(target);
+    }
+   },{rootMargin:'700px 0px'}):null;
    this.mo=observe?new MutationObserver(records=>{if(records.some(record=>record.attributeName==='collapsed' && record.target.matches(COMMENT)))this.syncCommentVisibility();this.handoff();this.schedule();}):null;
    this.mo?.observe(doc.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['collapsed']});
    this.readPreference=readPreference;this.preference=null;
@@ -231,6 +238,8 @@
   }
   schedule(){if(this.queued || this.dead)return;this.queued=true;setTimeout(()=>{this.queued=false;if(!this.dead)this.scan();},200);}
   scan(){
+   for(const node of this.posterNodes)if(!node.isConnected){this.posterIO.unobserve(node);this.posterNodes.delete(node);}
+   for(const embed of this.feedSoundEmbeds)if(!embed.isConnected || !this.feedEmbed(embed))this.stopWatchingFeedSound(embed);
    for(const player of this.players)if(!player.isConnected){
     if(this.hovered===player)this.stopHover();
     this.stopLoop(player);
@@ -239,6 +248,7 @@
    }
    for(const player of this.doc.querySelectorAll(MEDIA_NODES)){
     this.attach(player);
+    if(player.getAttribute('player-type')===FEED_PLAYER)this.observePoster(player);
     if(player.matches(PLAYERS))this.manageViewport(player,this.isDetailMedia(player));
    }
    for(const embed of this.detailEmbeds)if(!embed.isConnected || !this.isDetailEmbed(embed)){
@@ -246,6 +256,7 @@
    }
    for(const embed of this.doc.querySelectorAll(ANY_EMBED)){
     this.watchEmbed(embed);
+    if(this.configured && this.feedEmbed(embed))this.observePoster(embed);
     const frame=controlFrame(embed),state=frame && this.frameState(frame);
     if(!this.isDetailEmbed(embed))continue;
     if(!this.detailEmbeds.has(embed)){this.detailEmbeds.add(embed);this.io?.observe(embed);}
@@ -413,10 +424,14 @@
   frameState(frame){
    let state=this.frames.get(frame);
    if(!state){
-    state={kind:frameKind(frame),queue:[]};this.frames.set(frame,state);
-    if(state.kind!=='flags'){this.subscribe(frame,state);frame.addEventListener('load',()=>{this.subscribe(frame,state);this.win.setTimeout(()=>{for(const data of state.queue.splice(0))this.post(frame,data);},300);});}
+    state={kind:frameKind(frame),queue:new Map()};this.frames.set(frame,state);
+    if(state.kind!=='flags'){this.subscribe(frame,state);frame.addEventListener('load',()=>{this.subscribe(frame,state);this.win.setTimeout(()=>this.flushFrameCommands(frame,state),300);});}
    }
    return state;
+  }
+  flushFrameCommands(frame,state){
+   for(const messages of state.queue.values())for(const data of messages)this.post(frame,data);
+   state.queue.clear();
   }
   subscribe(frame,state){
    if(state.kind==='playerjs')for(const value of ['ready','play','pause','ended'])this.post(frame,JSON.stringify({context:'player.js',version:'0.0.11',method:'addEventListener',value,listener:'rt-'+value}));
@@ -428,17 +443,18 @@
    const state=this.frameState(frame);if(state.kind==='flags')return false;
    if(method==='play'){state.played=true;state.playing=true;}
    else if(method==='pause'){state.playing=false;state.pendingSound='';}
-   for(const data of [].concat(frameMessage(state.kind,method))){this.post(frame,data);state.queue.push(data);}
-   while(state.queue.length>4)state.queue.shift();
+   const messages=[].concat(frameMessage(state.kind,method)),channel=method==='mute' || method==='unmute'?'sound':'playback';
+   for(const data of messages)this.post(frame,data);
+   state.queue.delete(channel);state.queue.set(channel,messages);
    // Embedly relays player.js only for some providers: a player that never answers is driven by address flags instead.
    if(state.kind==='playerjs' && !state.readySeen && !state.probe){
     state.probe=true;
     this.post(frame,JSON.stringify({context:'player.js',version:'0.0.11',method:'getPaused',listener:'rt-probe'}));
     this.win.setTimeout(()=>{
      if(state.readySeen || !frame.isConnected)return;
-     state.kind='flags';state.queue.length=0;
+     state.kind='flags';state.queue.clear();
      const preview=this.ePreview;
-     if(preview?.active && preview.frame?.frame===frame){preview.frame.kind='flags';frame.setAttribute('src',flagged(preview.frame.src,false));}
+     if(preview?.active && preview.frame?.frame===frame){preview.frame.kind='flags';this.labelEmbedSound(preview);frame.setAttribute('src',flagged(preview.frame.src,false));}
      else if(state.pendingSound && !frame.dataset.rtParked){allowAutoplay(frame);frame.setAttribute('src',flagged(state.pendingSound,true));}
      state.pendingSound='';
     },PROBE_MS);
@@ -449,17 +465,18 @@
   // player that is not the one chosen to play. A player with no control protocol (RedGIFs plays itself, muted and
   // looping, as soon as it loads) is also unloaded, so it never downloads or plays unseen; one with controls stays
   // loaded and paused under the image (as YouTube's phone feed returns to the thumbnail), so it resumes where it was.
-  park(embed,frame){
+  park(embed,frame,keepCover=false){
    if(frame.dataset.rtParked)return;
    frame.dataset.rtSrc=frame.getAttribute('src') || '';frame.dataset.rtParked='1';frame.setAttribute('src','about:blank');
-   this.cover(embed,false);
+   this.cover(embed,false,keepCover);
   }
-  cover(embed,loaded){
+  cover(embed,loaded,keep=false){
    const root=embed.shadowRoot;if(!root)return;
-   const old=root.querySelector('[data-rt-parked-cover]');if(old){if(!loaded)delete old.dataset.rtLoaded;return;}
+   const old=root.querySelector('[data-rt-parked-cover]');if(old){if(!loaded)delete old.dataset.rtLoaded;if(keep)old.dataset.rtKeepCover='';return;}
    if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
    const cover=this.doc.createElement('div');cover.dataset.rtParkedCover='';cover.setAttribute('role','button');cover.setAttribute('aria-label','Play');cover.tabIndex=0;
    if(loaded)cover.dataset.rtLoaded='';
+   if(keep)cover.dataset.rtKeepCover='';
    Object.assign(cover.style,{position:'absolute',inset:'0',zIndex:'4',cursor:'pointer',background:(loaded?'transparent':'#000')+' center / cover no-repeat',display:'flex',alignItems:'center',justifyContent:'center'});
    const play=this.doc.createElement('span');play.dataset.rtParkedPlay='';
    Object.assign(play.style,{width:'56px',height:'56px',borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center'});
@@ -473,9 +490,11 @@
   uncover(embed){embed.shadowRoot?.querySelector('[data-rt-parked-cover]')?.remove();}
   // A tap on the image plays that player with sound, as its own play button would.
   playCovered(embed){
+   const keep=embed.shadowRoot?.querySelector('[data-rt-parked-cover][data-rt-keep-cover]');
    if(this.ePreview?.embed!==embed)this.stopEmbed();
    else{const preview=this.ePreview;this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);}
    embed.dataset.rtEmbedUsed='1';
+   if(keep)this.watchFeedSound(embed);
    const frame=controlFrame(embed);
    if(frame?.dataset.rtParked)this.unpark(embed,frame);
    else{
@@ -487,28 +506,65 @@
   }
   // A feed player that stops being the one playing goes back to its image: unloaded if it has no controls, paused
   // underneath otherwise.
-  rest(embed){
+  rest(embed,keepCover=false){
    if(!this.feedEmbed(embed) || this.ePreview?.embed===embed)return;
+   this.stopWatchingFeedSound(embed);
    if(embed.matches(EMBED)){if(youTubeLite(embed)?.querySelector('iframe')){delete embed.dataset.rtEmbedUsed;this.cover(embed,true);}return;}
    const frame=controlFrame(embed);if(!frame)return;
    delete embed.dataset.rtEmbedUsed;
-   if(this.frameState(frame).kind==='flags')this.park(embed,frame);
-   else if(!frame.dataset.rtParked)this.cover(embed,true);
+   if(this.frameState(frame).kind==='flags')this.park(embed,frame,keepCover);
+   else if(!frame.dataset.rtParked)this.cover(embed,true,keepCover);
+  }
+  watchFeedSound(embed){
+   if(!this.io || !this.feedEmbed(embed))return;
+   this.feedSoundEmbeds.add(embed);this.io.observe(embed);
+  }
+  stopWatchingFeedSound(embed){if(this.feedSoundEmbeds.delete(embed))this.io?.unobserve(embed);}
+  observePoster(node){
+   if(!this.posterIO || this.preparedPosters.has(node) || this.posterNodes.has(node))return;
+   this.posterNodes.add(node);this.posterIO.observe(node);
+  }
+  preparePoster(node){
+   const card=node.closest('shreddit-post');
+   const image=card?.querySelector('img[slot="thumbnail"],img[data-post-media-primary]');
+   const embed=node.matches(ANY_EMBED);
+   const url=[node.getAttribute('poster'),node.getAttribute('thumbnail-url'),embed?null:this.video(node)?.getAttribute('poster'),image?.currentSrc || image?.src].find(posterOK);
+   if(url){
+    this.warmPoster(url);
+    if(embed && card?.id){this.posters.set(card.id,url);this.paintPoster(node);}
+   }
+   else if(embed)this.queuePoster(card?.id);
+  }
+  warmPoster(url){
+   if(this.warmedPosters.has(url))return;
+   const image=new this.win.Image();
+   image.decoding='async';image.src=url;image.decode?.().catch(()=>{});
+   this.warmedPosters.set(url,image);
+   if(this.warmedPosters.size>48)this.warmedPosters.delete(this.warmedPosters.keys().next().value);
+  }
+  queuePoster(id){
+   if(!/^t3_[a-z0-9]+$/i.test(id || '') || this.posters.has(id))return;
+   this.posterWanted.add(id);
+   if(!this.posterTimer)this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);
   }
   paintPoster(embed){
    const cover=embed.shadowRoot?.querySelector('[data-rt-parked-cover]'),id=embed.closest('shreddit-post')?.id;if(!cover || !id)return;
    const url=this.posters.get(id);
    if(url)cover.style.backgroundImage='url("'+url+'")';
    // No image for a loaded player: its paused picture shows instead.
-   else if(this.posters.has(id)){if('rtLoaded' in cover.dataset)cover.remove();}
-   else{this.posterWanted.add(id);this.win.clearTimeout(this.posterTimer);this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);}
+   else if(this.posters.has(id)){if('rtLoaded' in cover.dataset && !('rtKeepCover' in cover.dataset))cover.remove();}
+   else this.queuePoster(id);
   }
   // The posts' preview images, from Reddit's own read-only post data (one request for up to 100 posts).
   async loadPosters(){
-   const ids=[...this.posterWanted].slice(0,100);this.posterWanted.clear();if(!ids.length)return;
+   this.posterTimer=null;
+   const ids=[...this.posterWanted].slice(0,100);if(!ids.length)return;
+   for(const id of ids)this.posterWanted.delete(id);
+   if(this.posterWanted.size)this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);
    for(const id of ids)this.posters.set(id,null);
    let found={};try{found=await this.readPosters(ids);}catch{}
-   for(const [id,url] of Object.entries(found || {}))if(posterOK(url))this.posters.set(id,url);
+   if(this.dead)return;
+   for(const [id,url] of Object.entries(found || {}))if(posterOK(url) && !this.posters.get(id)){this.posters.set(id,url);this.warmPoster(url);}
    for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(ids.includes(embed.closest('shreddit-post')?.id))this.paintPoster(embed);
   }
   // Iframes Reddit adds inside an embed (when it comes near the screen) are caught before they load, unless chosen.
@@ -572,7 +628,7 @@
     preview.frame={frame,src,kind,position:embed.style.position};
     // A player with a control protocol starts muted in place; others load with the provider's own flags.
     if(kind==='flags'){if(!this.unpark(embed,frame,flagged(src,false))){allowAutoplay(frame);frame.setAttribute('src',flagged(src,false));}}
-    else{this.command(frame,'mute');this.command(frame,'play');}
+    else{allowAutoplay(frame);this.command(frame,'mute');this.command(frame,'play');}
     // The layer sits in the embed's shadow root over its iframe.
     if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
     host=embed.shadowRoot;
@@ -582,8 +638,8 @@
    const layer=preview.layer=this.doc.createElement('div');
    layer.dataset.rtEmbedLayer='';layer.setAttribute('role','link');layer.setAttribute('aria-label',this.clickPlays?'Play with sound':'Open post');
    Object.assign(layer.style,{position:'absolute',inset:'0',zIndex:'5',cursor:'pointer',background:'transparent'});
-   const sound=this.doc.createElement('button');
-   sound.type='button';sound.setAttribute('aria-label','Turn sound on');
+   const sound=preview.sound=this.doc.createElement('button');
+   sound.type='button';this.labelEmbedSound(preview);
    Object.assign(sound.style,{position:'absolute',right:'12px',bottom:'12px',width:'32px',height:'32px',border:'0',borderRadius:'999px',
     background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',padding:'0'});
    sound.innerHTML='<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9.2 3.2 5.3 6.6H2.6a.9.9 0 0 0-.9.9v5a.9.9 0 0 0 .9.9h2.7l3.9 3.4a.9.9 0 0 0 1.5-.7V3.9a.9.9 0 0 0-1.5-.7Zm9 4.1-1.3-1.3-2.1 2.2-2.1-2.2-1.3 1.3 2.1 2.2-2.1 2.1 1.3 1.3 2.1-2.1 2.1 2.1 1.3-1.3-2.1-2.1 2.1-2.2Z"/></svg>';
@@ -594,20 +650,25 @@
    });
    host.append(layer);
   }
+  labelEmbedSound(preview){
+   if(!preview.sound)return;
+   const label=preview.frame?.kind==='flags'?'Use player’s sound control':'Turn sound on';
+   preview.sound.setAttribute('aria-label',label);preview.sound.title=label;
+  }
   useEmbed(preview,sound){
    if(this.ePreview!==preview)return;
    if(sound || this.clickPlays || !this.openPost(preview.embed)){
-    this.promoteEmbed(preview,sound || this.unmutePreview);
+    this.promoteEmbed(preview,sound || this.unmutePreview,!sound);
    }
   }
   // The preview becomes the user's: the layer goes, it keeps playing, with sound when chosen.
-  promoteEmbed(preview,sound){
+  promoteEmbed(preview,sound,reload){
    if(this.ePreview!==preview)return;
    this.ePreview=null;
    this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);
    preview.layer?.remove();delete preview.embed.dataset.rtEmbedPreview;
    preview.embed.dataset.rtEmbedUsed='1';
-   if(preview.frame){this.restoreHost(preview);if(sound)this.frameSound(preview.frame);return;}
+   if(preview.frame){this.restoreHost(preview);if(sound){if(!reload)this.watchFeedSound(preview.embed);this.frameSound(preview.frame,reload);}return;}
    if(sound)preview.embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
   }
   frameSound({frame,src},reload=true){
@@ -650,7 +711,8 @@
     this.clearEmbedHandoff();
     const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
     if(!held)return false;
-    this.embedPending={id,from:this.win.location.pathname,held,generic:true};
+    this.stopWatchingFeedSound(embed);
+    this.embedPending={id,from:this.win.location.pathname,held,generic:true,sound:this.unmutePreview?preview?.frame:null};
     const pending=this.embedPending,watch=()=>{if(this.embedPending!==pending || this.dead)return;this.embedHandoff();this.win.requestAnimationFrame(watch);};
     this.win.requestAnimationFrame(watch);
     this.embedExpiry=this.win.setTimeout(()=>this.clearEmbedHandoff(),CONTINUE_MS);
@@ -687,6 +749,7 @@
     if(!('rtIncoming' in target.dataset)){target.dataset.rtIncoming=target.style.visibility;target.style.visibility='hidden';}
     if(target.dispatchEvent(new this.win.Event('rt-place-held-embed',{bubbles:true,cancelable:true})))return;
     target.style.visibility=target.dataset.rtIncoming;delete target.dataset.rtIncoming;
+    if(generic.sound?.frame.isConnected)this.frameSound(generic.sound,false);
     this.embedPending=null;this.clearEmbedHandoff();
     return;
    }
@@ -912,6 +975,10 @@
    if(this.inView && !this.viewing)this.settle();
    for(const entry of entries){
     const player=entry.target,ready=this.visibilityReady.get(player);
+    if(this.feedSoundEmbeds.has(player)){
+     if(entry.intersectionRatio===0){const frame=controlFrame(player);if(frame)this.command(frame,'pause');this.rest(player,true);}
+     continue;
+    }
     if(this.detailEmbeds.has(player)){this.onEmbedVisibility(player,entry.intersectionRatio);continue;}
     if((ready!==undefined && !(entry.time>=ready)) || (player===pending?.source && (pending.held || pending.reached)))continue;
     // A post's own video pauses once it is fully out of view and resumes where it was when half of it is back;
@@ -1009,7 +1076,7 @@
    this.startPreview(best);
   }
   destroy(){
-   this.dead=true;this.mo?.disconnect();this.io?.disconnect();
+   this.dead=true;this.mo?.disconnect();this.io?.disconnect();this.posterIO?.disconnect();this.win.clearTimeout(this.posterTimer);
    this.stopHover();
    for(const player of this.loops.keys())this.stopLoop(player);
    for(const type of ['pointerdown','keydown','click'])this.doc.removeEventListener(type,this.onGesture,true);

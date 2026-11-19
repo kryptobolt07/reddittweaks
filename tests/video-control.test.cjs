@@ -11,7 +11,12 @@ function page(t,{owner='t2_alice',detail=false}={}){
  // jsdom has no media playback: a playing flag stands in for it.
  Object.defineProperty(W.HTMLMediaElement.prototype,'paused',{get(){return !this._playing;},configurable:true});W.HTMLMediaElement.prototype.pause=function(){this._playing=false;};
  const io={cb:null,observed:[],unobserved:[]};
- W.IntersectionObserver=class{constructor(cb,o){io.cb=cb;io.options=o;}observe(player){io.observed.push(player);}unobserve(player){io.unobserved.push(player);}disconnect(){}};
+ W.IntersectionObserver=class{
+  constructor(cb,o){this.probe=o.rootMargin?(io.posters={cb,options:o,observed:[],unobserved:[]}):io;this.probe.cb=cb;this.probe.options=o;}
+  observe(player){this.probe.observed.push(player);}
+  unobserve(player){this.probe.unobserved.push(player);}
+  disconnect(){}
+ };
  const player=W.document.getElementById('p1'),root=player.attachShadow({mode:'open'});root.innerHTML='<button id="play" class="play-pause-button">Play</button><button id="mute" class="mute-button">Mute</button><button id="cc">Captions</button><video></video>';
  W.__rtVideoControlTest=true;
  for(const file of ['post-model.js','video-control.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
@@ -762,6 +767,7 @@ test('Reddit’s lite-vimeo is started muted through its own autoload and autopl
  const over=new p.W.MouseEvent('pointerover',{bubbles:true,composed:true});Object.defineProperty(over,'pointerType',{value:'mouse'});lite.dispatchEvent(over);await waitForHover();
  const frame=inner.querySelector('iframe');assert.ok(frame,'the player was made');
  const url=new URL(frame.getAttribute('src'));assert.equal(url.searchParams.get('autoplay'),'1');assert.equal(url.searchParams.get('muted'),'1');
+ assert.match(frame.getAttribute('allow'),/autoplay/,'delegate playback before setting the Vimeo preview URL');
  assert.deepEqual(sent.filter(m=>m.method!=='addEventListener').map(m=>m.method+(m.value!==undefined?':'+m.value:'')),['setMuted:true','play'],'Vimeo’s own mute, which setVolume does not lift');
 });
 test('players with no controls stay unloaded unless chosen: Autoplay loads only the one in view; a play button starts one and unloads the rest',async t=>{
@@ -845,4 +851,65 @@ test('opening the post of a Vimeo preview turns its sound on with Vimeo’s own 
  c.over();await waitForHover();c.sent.length=0;
  c.layer().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
  assert.deepEqual(c.sent.filter(m=>m.method!=='addEventListener').map(m=>m.method+(m.value!==undefined?':'+m.value:'')),['setMuted:false','setVolume:1','play']);
+});
+test('Embedly sound is requested on the tap and after the same player lands in the post',async t=>{
+ const p=page(t);const c=await controlled(p);
+ const card=c.node.closest('shreddit-post'),feed=p.d.createElement('shreddit-feed');card.before(feed);feed.append(card);
+ c.node.addEventListener('rt-hold-feed-embed',event=>event.preventDefault());
+ c.over();await waitForHover();c.sent.length=0;
+ c.layer().click();assert.deepEqual(c.commands(),['unmute','play']);
+ p.W.history.pushState({},'',postPath);
+ const post=Object.assign(p.d.createElement('shreddit-post'),{id:'t3_test'}),target=p.d.createElement('shreddit-embed');p.d.body.append(post);post.append(target);
+ target.addEventListener('rt-place-held-embed',event=>{target.attachShadow({mode:'open'}).append(c.frame);event.preventDefault();},{once:true});
+ c.controller.scan();
+ assert.deepEqual(c.commands(),['unmute','play','unmute','play']);
+ assert.equal(target.shadowRoot.querySelector('iframe'),c.frame);assert.equal(c.frame.getAttribute('src'),embedly);
+});
+test('a late Vimeo readiness signal applies only the current sound and playback intent',async t=>{
+ const p=page(t);const c=await controlled(p,{},'https://player.vimeo.com/video/9?dnt=1');
+ c.over();await waitForHover();c.layer().querySelector('button').click();c.sent.length=0;
+ p.W.dispatchEvent(new p.W.MessageEvent('message',{data:JSON.stringify({event:'ready'}),source:c.frame.contentWindow}));
+ assert.deepEqual(c.sent.filter(m=>m.method!=='addEventListener').map(m=>[m.method,m.value]),[['setMuted',false],['setVolume',1],['play',undefined]]);
+});
+test('the sound overlay for a Twitch clip hands control to its current player without restarting',async t=>{
+ const p=page(t);const c=await controlled(p,{},'https://clips.twitch.tv/embed?clip=x&parent=www.reddit.com');
+ c.over();await waitForHover();
+ const src=c.frame.getAttribute('src'),button=c.layer().querySelector('button');
+ assert.equal(button.getAttribute('aria-label'),'Use player’s sound control');
+ button.click();
+ assert.equal(c.layer(),null);assert.equal(c.frame.getAttribute('src'),src);
+ assert.equal(c.node.dataset.rtEmbedUsed,'1');
+});
+test('as a feed card approaches, warm its native poster and batch a missing embed poster before either is needed',async t=>{
+ const p=page(t);p.player.setAttribute('poster','https://preview.redd.it/native.jpg');
+ const c=await controlled(p),decoded=[],requests=[];
+ p.W.Image=class{decode(){decoded.push(this.src);return Promise.resolve();}};
+ c.controller.readPosters=async ids=>{requests.push(Array.from(ids));return {t3_test:'https://preview.redd.it/embed.jpg'};};
+ assert.ok(p.io.posters.options.rootMargin.startsWith('700px'));
+ assert.ok(p.io.posters.observed.includes(p.player));assert.ok(p.io.posters.observed.includes(c.node));
+ p.io.posters.cb([p.player,c.node].map(target=>({target,isIntersecting:true})));
+ await new Promise(resolve=>setTimeout(resolve,100));
+ assert.deepEqual(requests,[['t3_test']]);
+ assert.deepEqual(decoded,['https://preview.redd.it/native.jpg','https://preview.redd.it/embed.jpg']);
+ assert.equal(c.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'preparing the image does not change playback or visible markup');
+});
+test('after a feed sound tap, leaving the viewport pauses and covers the same running player',async t=>{
+ const p=page(t);const c=await controlled(p);
+ c.controller.readPosters=async()=>({});c.over();await waitForHover();
+ c.layer().querySelector('button').click();assert.ok(p.io.observed.includes(c.node));
+ c.sent.length=0;
+ p.io.cb([{target:c.node,intersectionRatio:0.3}]);assert.deepEqual(c.commands(),[]);
+ p.io.cb([{target:c.node,intersectionRatio:0}]);assert.deepEqual(c.commands(),['pause']);
+ await new Promise(resolve=>setTimeout(resolve,80));
+ const cover=c.node.shadowRoot.querySelector('[data-rt-parked-cover]');
+ assert.ok(cover,'Play is available over the paused frame even with no other poster');
+ assert.equal(c.frame.getAttribute('src'),embedly);
+ cover.click();assert.deepEqual(c.commands(),['pause','unmute','play']);
+ assert.equal(c.frame.getAttribute('src'),embedly,'resume the same frame');
+});
+test('when a player cannot pause, leaving the viewport after the sound overlay stops its loop',async t=>{
+ const p=page(t);const c=await controlled(p,{},'https://www.redgifs.com/ifr/example');
+ c.over();await waitForHover();c.layer().querySelector('button').click();
+ p.io.cb([{target:c.node,intersectionRatio:0}]);
+ assert.equal(c.frame.getAttribute('src'),'about:blank');assert.ok(c.node.shadowRoot.querySelector('[data-rt-parked-cover]'));
 });
