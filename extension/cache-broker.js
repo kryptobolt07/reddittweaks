@@ -213,6 +213,14 @@ importScripts('embed-poster-broker.js');
 
 // The Reddit page asks once whether direct controls are on, so self-starting players can be held on their first
 // frame instead of being unloaded.
+// Direct controls enabled before the page-context helper existed get it on update.
+chrome.runtime.onInstalled?.addListener(async()=>{
+  try{
+    const ids=(await chrome.scripting.getRegisteredContentScripts({ids:['rt-embed-player','rt-embed-player-main']})).map(s=>s.id);
+    if(ids.includes('rt-embed-player') && !ids.includes('rt-embed-player-main'))
+      await chrome.scripting.registerContentScripts([{id:'rt-embed-player-main',matches:RTEmbedHosts.matches,js:['embed-player-main.js'],allFrames:true,runAt:'document_start',world:'MAIN',persistAcrossSessions:true}]);
+  }catch{}
+});
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(message?.scope!=='rt-embed-direct')return;
   let origin='';try{origin=new URL(sender.url).origin;}catch{}

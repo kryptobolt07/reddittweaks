@@ -98,6 +98,16 @@ function choiceValue(raw,key){
     videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:'continue',videoScrollAway:'reddit'};
   return old[key];
 }
+// The frame script, plus its page-context helper that keeps a blocked player from opening its own site.
+async function registerEmbedPlayer(api,hosts){
+  const scripts=[{id:'rt-embed-player',matches:hosts.matches,js:['embed-player-hosts.js','embed-player.js'],allFrames:true,runAt:'document_start',persistAcrossSessions:true},
+    {id:'rt-embed-player-main',matches:hosts.matches,js:['embed-player-main.js'],allFrames:true,runAt:'document_start',world:'MAIN',persistAcrossSessions:true}];
+  const registered=new Set((await api.scripting.getRegisteredContentScripts({ids:scripts.map(s=>s.id)})).map(s=>s.id));
+  for(const script of scripts){
+    try{if(registered.has(script.id))await api.scripting.updateContentScripts([script]);else await api.scripting.registerContentScripts([script]);}
+    catch(error){if(script.world!=='MAIN')throw error;}
+  }
+}
 async function loadDirectEmbedControls(){
   const api=globalThis.browser || globalThis.chrome,hosts=globalThis.RTEmbedHosts;
   const button=document.getElementById('direct-embed-controls'),status=document.getElementById('direct-embed-status');
@@ -116,14 +126,12 @@ async function loadDirectEmbedControls(){
     try{
       if(enabled){
         await api.scripting.unregisterContentScripts({ids:[id]});
+        try{await api.scripting.unregisterContentScripts({ids:['rt-embed-player-main']});}catch{}
         enabled=false;
         await api.permissions.remove(sites);
         status.textContent='Disabled. Refresh any open Reddit tabs.';
       }else if(await api.permissions.request(sites)){
-        const options={id,matches:hosts.matches,js:['embed-player-hosts.js','embed-player.js'],allFrames:true,runAt:'document_start',persistAcrossSessions:true};
-        const registered=await api.scripting.getRegisteredContentScripts({ids:[id]});
-        if(registered.length)await api.scripting.updateContentScripts([options]);
-        else await api.scripting.registerContentScripts([options]);
+        await registerEmbedPlayer(api,hosts);
         enabled=true;
         status.textContent='Enabled. Refresh any open Reddit tabs.';
       }else status.textContent='Allow access to supported players to enable direct controls.';
