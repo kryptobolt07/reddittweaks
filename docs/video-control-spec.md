@@ -185,3 +185,10 @@ User report (0.51.0): cards from one embed provider showed only the placeholder.
 - Reddit refuses its batched post lookups (`/api/info.json`, `/by_id`: HTTP 403). A single post's `/comments/<id>.json` answers.
 
 So stills are drawn as an `<img referrerpolicy="no-referrer">`, fitted with `object-fit: contain`. When neither the markup nor the provider page has one, the still comes from that post's own Reddit data: its preview image first, then the provider's still. Reads go one post at a time, at most four per batch, 300 ms apart, only for cards near the screen, and pause for 5 minutes after a 403 or 429.
+
+User report (0.51.1): on phones the still appeared only once the card was on screen, after a black box. Causes:
+- A card was watched for its still only after Reddit inserted its player, which Reddit does just before the card reaches the screen.
+- The lookahead was 700 px, less than one phone screen.
+- Each batch queued up to 8 cards but read only 4, so the rest were marked as having no still.
+
+Now every feed card's embed is watched as soon as the card is in the page, its player named by Reddit's markup (`embed-html`, Embedly). Stills are prepared and decoded 5 screens ahead and 1.5 behind (`rootMargin: 150% 0px 500% 0px`). Every queued card is read, 200 ms apart. This applies to every provider.
