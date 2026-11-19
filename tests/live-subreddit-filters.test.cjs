@@ -21,6 +21,50 @@ test('only scoped live feed and search routes qualify',t=>{
  assert.equal(api.route(new W.URL('/r/Example/search/',W.location)).kind,'search');
 });
 
+const customPath='/user/Curator/m/MyFeed/';
+const customFeed=()=>feed().replace('/svc/shreddit/community-more-posts/hot/?name=Example','/svc/shreddit/feeds/custom-feed?curator=Curator&amp;feedName=MyFeed&amp;sort=HOT')
+ .replace('<div><shreddit-sort-dropdown></shreddit-sort-dropdown></div>','<div class="flex items-center"><shreddit-sort-dropdown sort-event="feed-sort-change"><span slot="selected-item">Hot</span><a href="'+customPath+'hot/">Hot</a><a href="'+customPath+'top/">Top</a><a href="/user/Other/m/MyFeed/new/">From the wrong feed</a></shreddit-sort-dropdown></div>');
+test('a custom feed uses the same sort and post options scoped to the owner and feed name',t=>{
+ const {D,W,targets,api}=setup(t,customPath+'?rt_type=video',customFeed());
+ assert.equal(api.route(new W.URL('/user/Curator/m/',W.location)),null);
+ assert.equal(D.querySelectorAll('article['+stop+']').length,1);
+ D.querySelector('[data-rt-community-options]').click();
+ D.querySelector('[aria-label="Sort"]').click();
+ const menu=D.querySelector('.rt-community-feed-menu');
+ assert.equal(menu.querySelector('[aria-label="From the wrong feed"]'),null);
+ menu.querySelector('[aria-label="Top"]').click();assert.equal(targets.length,0);
+ menu.querySelector('[aria-label="Today"]').click();
+ const url=new URL(targets[0]);
+ assert.equal(url.pathname,customPath+'top/');assert.equal(url.searchParams.get('t'),'day');assert.equal(url.searchParams.get('rt_type'),'video');
+});
+test('empty Enter opens the native custom-feed search and carries its active filters',t=>{
+ const {D,W,targets}=setup(t,customPath+'?rt_nsfw=1',customFeed());
+ const host=D.createElement('reddit-search-large');host.setAttribute('scope',JSON.stringify({type:'custom_feed',path:customPath}));D.body.prepend(host);
+ const root=host.attachShadow({mode:'open'});root.innerHTML='<form><input name="q"><span class="scoped-search-pill"></span></form>';
+ const input=root.querySelector('input');
+ const enter=()=>input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true}));
+ input.value='ordinary query';assert.equal(enter(),true);assert.equal(targets.length,0);
+ input.value='';assert.equal(enter(),false);
+ const url=new URL(targets[0]);assert.equal(url.pathname,customPath+'search/');assert.equal(url.searchParams.get('q'),'nsfw:yes');
+});
+test('custom-feed Flair filters its native cards and stays applied when they are displayed in search',t=>{
+ const {D,W,targets}=setup(t,customPath,customFeed());
+ D.querySelector('[data-rt-community-options]').click();D.querySelector('[aria-label="Flair"]').click();
+ D.querySelector('[data-rt-flair-row="News"]').click();
+ assert.equal(targets.length,0,'custom feed flair applies to the existing native feed');
+ assert.equal(new URL(W.location).searchParams.get('f'),'flair_name:"News"');
+ assert.equal(D.querySelectorAll('article['+stop+']').length,1);
+});
+test('custom-feed search exposes the native result filters and clears only the selected flair',t=>{
+ const {D,targets}=setup(t,customPath+'search/?q=flair%3A%22News%22&type=posts&sort=new&t=week',searchPage);
+ assert.ok(D.querySelector('[data-rt-community-search="flair"]'));
+ assert.ok(D.querySelector('[data-rt-community-search="date"]'));
+ D.querySelector('[data-rt-chip-remove="flair"]').click();
+ const url=new URL(targets[0]);
+ assert.equal(url.pathname,customPath+'search/');assert.equal(url.searchParams.get('q'),'');
+ assert.equal(url.searchParams.get('type'),'posts');assert.equal(url.searchParams.get('t'),'week');
+});
+
 const filteredFeedPath='/r/Example/?rt_type=video';
 const filteredPostPath='/r/Example/comments/circus/circus_champion_tricks/';
 const outgoing='data-rt-community-outgoing';
