@@ -1,3 +1,13 @@
+# 0.48.0 preview
+
+- **Popup:** read settings once at startup and wait until a tab opens to load its account or cache data. Account verification for the removal-history button no longer loads the entire history. On phones, skip the desktop panel fade measurements and allow the actual popup tab to read chat totals and use the confirmed clear actions.
+- **Accounts:** wait for Reddit to report the signed-in account on slower pages. The popup can recover when that report arrives, and account actions on phones use the originating window's session.
+- **Videos:** choose when previews start, what clicking does and how videos behave when they leave the screen. The popup shows saved choices on first paint. YouTube follows the one-video-at-a-time rule. Plain provider embeds can preview muted, play with sound in the feed and carry their player into the post where the provider supports the standard iframe behavior. Vimeo and TikTok retain Reddit's handling.
+- **Scrolling and settings:** apply changes to open tabs after the background worker wakes, reduce repeated layout reads and profile checks while scrolling, and bound the size of filtered feeds. Chat search image and GIF thumbnails load when their result appears, with one retry.
+- **Version:** minor increment for the new video controls and embed support. Physical phone performance, chat thumbnails on a physical phone and the new provider embeds on live Reddit remain unverified.
+
+- **Validation:** 1,959 tests passed. Chrome CDP at 390 × 844 with 4× renderer CPU throttling confirmed that Home makes one settings read and Data alone loads chat totals, including with 100,000 synthetic messages. Firefox lint reported zero errors, notices and warnings. All 74 Chromium and 75 Firefox assets match source and their unpacked folders and ZIPs. Chromium SHA-256 `92921521200772dd8bee9afe45c26665e9fd6fadb48bd8ecec4713aa20660dbf`. Firefox SHA-256 `ec59ad3e06879262d2fa34869b8fd5367a0474517298f486156c49ce3230ae53`.
+
 # 0.47.0 preview
 
 - **Video previews, YouTube style:** a preview is muted and stays playing while the pointer moves within its post card (title, flair, votes); leaving the card pauses it after 250 ms. Clicking a preview opens its post and the video carries on there, instead of only turning its sound on; **Clicking a preview plays it here** keeps it in the feed. Reddit's sound button still acts in place. New options in a separate **Videos** section of the popup: preview while in view on phones (off by default, so Reddit's autoplay setting still holds), play here on click, play opened previews from the start, and sound when opening (fades in over 200 ms).
