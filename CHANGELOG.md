@@ -1,3 +1,9 @@
+# 0.51.1 preview
+
+- **Embed stills:** idle cards from an embed provider whose stills need a request without a referrer show their still again instead of only a placeholder. Stills are now drawn as images that send no referrer. Cards whose markup has no still read it from their own post's Reddit data, one post at a time, only near the screen, with a 5-minute pause after Reddit refuses. Reddit's batched post lookup returns 403.
+- **Version:** patch increment for this fix to 0.51.0's idle embeds.
+- **Validation:** 2,042 tests passed in UTC. Firefox lint reported zero errors, notices and warnings. All 78 Chromium and 79 Firefox assets match the source, unpacked folders and ZIPs. Live in Chrome: the provider's stills loaded only without a referrer, and a single post's Reddit data answered while the batched lookups returned 403. A full card on live Reddit with this build was not checked. Chromium SHA-256 `557801c3c0c1ab8c8b4d1faaf12b1eb9cd345d40a659dad1821c65aff0a79300`. Firefox SHA-256 `3ac0d9b90e1889138e22f148e6602af011512ab031ad42b7e8498b476327ea95`.
+
 # 0.51.0 preview
 
 - **Embed controls:** tapping a muted feed preview opens its Reddit post even when the card only links out. The sound button unmutes in place. A player that moves into its post keeps its position and gets its sound request again once placed.
