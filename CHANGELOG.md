@@ -1,3 +1,11 @@
+# 0.48.1 preview
+
+- **Videos card:** options say only what they do, without referring to Reddit's own setting: our choices replace Reddit's autoplay on every layout. Feed videos start with **Autoplay, muted** (default), a muted preview on hover (computers) or on the video you stop scrolling on (phones), or **Only when I press Play**. On touch screens the menus are wider, with 44 px rows.
+- **Playing into the post:** a playing video keeps playing when you open its post again by default, for Reddit's own videos and embeds alike; 0.48.0 had made this opt-in.
+- **Embedded players:** Vimeo inside Reddit's lite-vimeo now starts and pauses with the other players, and Embedly players that never answer its messages fall back to autoplay and mute flags. Players with no controls (RedGIFs) stand behind the post's own preview image with a play button, as Reddit does for YouTube and Vimeo, so they never load or play unseen; Autoplay, a preview or a tap loads them, and leaving or another video starting brings the image back. A RedGIF restarts from the beginning rather than resuming.
+- **Version:** patch increment for restoring play-into-post and the embedded-player reliability fixes. Phone behaviour of Vimeo, Twitch and RedGIFs embeds and the preview-image placeholder on live Reddit remain unverified.
+- **Validation:** 1,967 tests passed locally and in UTC. Firefox lint reported zero errors, notices and warnings. All 74 Chromium and 75 Firefox assets match source and their unpacked folders and ZIPs. Chromium SHA-256 `68fd59b9fa7ef915ef4f458f13dc7d5118b689914df807d4a99ff759b9dd0174`. Firefox SHA-256 `7ba7c7c1f191644ed4d76ba032c88dd39f90b1d4d9e49653216e300e09a92c81`.
+
 # 0.48.0 preview
 
 - **Popup:** read settings once at startup and wait until a tab opens to load its account or cache data. Account verification for the removal-history button no longer loads the entire history. On phones, skip the desktop panel fade measurements and allow the actual popup tab to read chat totals and use the confirmed clear actions.
