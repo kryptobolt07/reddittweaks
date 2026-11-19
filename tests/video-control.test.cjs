@@ -786,6 +786,16 @@ test('an Embedly player that never answers player.js is started through flags on
  const inner=new URL(new URL(c.frame.getAttribute('src')).searchParams.get('src'));
  assert.equal(inner.searchParams.get('autoplay'),'true');assert.equal(inner.searchParams.get('muted'),'true');assert.equal(inner.searchParams.get('clip'),'x');
 });
+test('a Play here tap survives an Embedly control probe that never answers',async t=>{
+ const p=page(t),timer=p.W.setTimeout.bind(p.W);
+ p.W.setTimeout=(fn,ms,...args)=>timer(fn,ms===2500?160:ms,...args);
+ const twitch='https://cdn.embedly.com/widgets/media.html?src='+encodeURIComponent('https://clips.twitch.tv/embed?clip=x&autoplay=false&muted=true');
+ const c=await controlled(p,{videoPreviewClick:'here'},twitch);
+ c.over();await waitForHover();p.click(c.layer());
+ await new Promise(resolve=>timer(resolve,180));
+ const inner=new URL(new URL(c.frame.getAttribute('src')).searchParams.get('src'));
+ assert.equal(inner.searchParams.get('autoplay'),'true');assert.equal(inner.searchParams.get('muted'),'false');
+});
 
 test('a player with no controls that Reddit adds later is caught before it loads and shows the post’s preview image',async t=>{
  const p=page(t);phone(p,true,-900);
