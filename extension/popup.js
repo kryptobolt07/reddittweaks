@@ -1,24 +1,39 @@
 const SETTINGS_KEY='rt-settings-v1';
-const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true,videoUnmutePreview:true,videoPreviewsInView:false,videoPreviewClickPlays:false,videoPreviewRestart:false};
+const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoUnmutePreview:true}
+// Video choices are stored only once picked: until then the 0.46–0.47 switches still decide them (choiceValue).;
 
+// The popup keeps a copy of the settings in its own (synchronous) storage, so switches show their real state on the
+// first paint instead of starting off and flipping on once the extension storage answers.
+const SETTINGS_MIRROR='rt-settings-mirror-v1';
+const readMirror=()=>{try{return JSON.parse(localStorage.getItem(SETTINGS_MIRROR) || 'null');}catch{return null;}};
+const writeMirror=settings=>{try{localStorage.setItem(SETTINGS_MIRROR,JSON.stringify(settings));}catch{}};
+const valueOf=(control,settings)=>control.dataset.setting==='restoreDeletedContent'?settings.restoreDeletedContent!==false:Boolean(settings[control.dataset.setting]);
+const settled=()=>{for(const panel of document.querySelectorAll('.panel:not([hidden])'))syncFade(panel);};
 async function loadSettings() {
   const controls=[...document.querySelectorAll('[data-setting]')],status=document.querySelector('#settings-status');
   if(!controls.length)return;
-  for(const control of controls)control.disabled=true;
   // Controls that cannot be read are shown as unavailable (neutral thumb, not a real "off").
-  const markUnavailable=()=>{for(const control of controls){control.indeterminate=true;control.classList.add('is-unavailable');control.setAttribute('aria-disabled','true');}};
+  const markUnavailable=()=>{for(const control of controls){control.disabled=true;control.indeterminate=true;control.classList.add('is-unavailable');control.setAttribute('aria-disabled','true');}};
   if(!globalThis.chrome?.storage?.local?.get||!globalThis.chrome?.storage?.local?.set){
     markUnavailable();status.textContent='Settings storage unavailable.';status.classList.add('error');return;
   }
-  let loaded=false;
+  // First paint: the last known settings (or the defaults), without switch animations. Later script declarations are
+  // ready by the microtask, which still runs before the first paint.
+  const mirror=readMirror();
+  document.documentElement.classList.add('rt-settling');
+  for(const control of controls)control.checked=valueOf(control,{...SETTINGS_DEFAULTS,...(mirror || {})});
+  if(!mirror)for(const control of controls)control.disabled=true;
+  queueMicrotask(()=>{syncDependencies();syncSummary();settled();});
+  const frame=globalThis.requestAnimationFrame || (callback=>setTimeout(callback,16));
+  frame(()=>frame(()=>document.documentElement.classList.remove('rt-settling')));
+  for(const control of controls)control.addEventListener('change',()=>saveSetting(control));
   try {
     const stored=await chrome.storage.local.get(SETTINGS_KEY),settings={...SETTINGS_DEFAULTS,...(stored?.[SETTINGS_KEY]||{})};
-    for(const control of controls)control.checked=control.dataset.setting==='restoreDeletedContent'?settings.restoreDeletedContent!==false:Boolean(settings[control.dataset.setting]);
-    loaded=true;status.textContent='Settings saved automatically.';
-    for(const control of controls)control.addEventListener('change',()=>saveSetting(control));
+    for(const control of controls){const value=valueOf(control,settings);if(control.checked!==value)control.checked=value;control.disabled=false;}
+    writeMirror(settings);status.textContent='Settings saved automatically.';
   } catch {
     markUnavailable();status.textContent='Could not load settings. Reopen the popup to retry.';status.classList.add('error');
-  } finally {for(const control of controls)control.disabled=!loaded;}
+  }
 }
 
 let settingsWrite=Promise.resolve();
@@ -30,6 +45,7 @@ function saveSetting(control) {
     if(!storage?.get||!storage?.set)throw Error('storage unavailable');
     const latest=await storage.get(SETTINGS_KEY),merged={...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY]||{}),[key]:next};
     await storage.set({[SETTINGS_KEY]:merged});
+    writeMirror(merged);
   }).then(()=>{status.textContent='Settings saved automatically.';},()=>{
     control.checked=!next;syncDependencies();syncSummary();status.textContent='Could not save this setting. Please retry.';status.classList.add('error');
   }).finally(()=>{control.disabled=false;});
@@ -62,6 +78,51 @@ async function loadHistoryLimit(){
   catch{trigger.disabled=true;}
 }
 loadHistoryLimit();
+
+// Video choices (docs/video-control-spec.md). Same values and 0.46–0.47 migration as RTPostModel.normalizeSettings.
+const VIDEO_CHOICES={videoStart:['hover','reddit','play'],videoStartTouch:['reddit','stop','play'],videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['continue','reddit'],videoScrollAway:['pause','reddit']};
+function choiceValue(raw,key){
+  if(VIDEO_CHOICES[key]?.includes(raw?.[key]))return raw[key];
+  const old={videoStart:raw?.videoPreviews===false?'reddit':'hover',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'reddit',videoPreviewClick:raw?.videoPreviewClickPlays===true?'here':'open',
+    videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:raw?.videoContinueOnOpen===false?'reddit':'continue',videoScrollAway:raw?.videoPauseOffscreen===false?'reddit':'pause'};
+  return old[key];
+}
+function loadChoices(){
+  const triggers=[...document.querySelectorAll('.setting-choice[data-choice]')],storage=globalThis.chrome?.storage?.local;
+  if(!triggers.length || !storage?.get || !storage?.set)return;
+  const views=triggers.map(trigger=>{
+    const key=trigger.dataset.choice,menu=document.getElementById(trigger.getAttribute('aria-controls'));if(!menu)return null;
+    document.body.append(menu); // The settings panel's fade mask must not clip this viewport overlay.
+    const options=[...menu.querySelectorAll('[role="menuitemradio"]')],label=document.querySelector('label[for="'+trigger.id+'"]')?.textContent || key;
+    const view={key,trigger,menu,options,value:''};
+    view.paint=()=>{const chosen=options.find(o=>o.dataset.value===view.value) || options[0];trigger.querySelector('[data-choice-value]').textContent=chosen.dataset.short || chosen.textContent;trigger.setAttribute('aria-label',label+': '+chosen.textContent);for(const option of options){option.setAttribute('aria-checked',String(option===chosen));option.tabIndex=-1;}};
+    const close=(focus=false)=>{menu.hidden=true;trigger.setAttribute('aria-expanded','false');if(focus)trigger.focus({preventScroll:true});};
+    const open=()=>{
+      if(trigger.disabled)return;for(const other of views)if(other && other!==view)other.menu.hidden=true;
+      view.paint();const width=Math.max(0,Math.min(236,innerWidth-16)),maxHeight=Math.max(0,innerHeight-16);menu.style.width=width+'px';menu.style.maxHeight=maxHeight+'px';menu.hidden=false;
+      const rect=trigger.getBoundingClientRect(),height=Math.min(menu.getBoundingClientRect().height || 120,maxHeight);
+      menu.style.left=Math.max(8,Math.min(rect.right-width,innerWidth-width-8))+'px';menu.style.top=Math.max(8,rect.bottom+4+height>innerHeight-8?rect.top-4-height:rect.bottom+4)+'px';
+      trigger.setAttribute('aria-expanded','true');(options.find(o=>o.getAttribute('aria-checked')==='true') || options[0]).focus({preventScroll:true});
+    };
+    trigger.addEventListener('click',()=>menu.hidden?open():close());
+    trigger.addEventListener('keydown',event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();open();}});
+    menu.addEventListener('keydown',event=>{const index=options.indexOf(document.activeElement);if(event.key==='Escape'){event.preventDefault();close(true);}else if(event.key==='Tab')close();else if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();options[event.key==='Home'?0:event.key==='End'?options.length-1:(index+(event.key==='ArrowDown'?1:-1)+options.length)%options.length].focus();}});
+    document.addEventListener('click',event=>{if(!menu.hidden && !menu.contains(event.target) && !trigger.contains(event.target))close();});
+    document.addEventListener('scroll',event=>{if(!menu.hidden && !menu.contains(event.target))close();},true);
+    for(const option of options)option.addEventListener('click',()=>{
+      if(trigger.disabled)return;const next=option.dataset.value,previous=view.value;close(true);if(next===previous)return;
+      const status=document.querySelector('#settings-status');view.value=next;view.paint();trigger.disabled=true;status.classList.remove('error');status.textContent='Saving…';
+      settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{const latest=await storage.get(SETTINGS_KEY),merged={...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY] || {}),[key]:next};await storage.set({[SETTINGS_KEY]:merged});writeMirror(merged);})
+        .then(()=>{status.textContent='Settings saved automatically.';},()=>{view.value=previous;view.paint();status.textContent='Could not save this setting. Please retry.';status.classList.add('error');}).finally(()=>{trigger.disabled=false;});
+    });
+    return view;
+  }).filter(Boolean);
+  const show=(settings,enable)=>{for(const view of views){view.value=choiceValue(settings,view.key);view.paint();if(enable)view.trigger.disabled=false;}};
+  // First paint from the popup's copy (see SETTINGS_MIRROR), then the real settings.
+  const mirror=readMirror();show({...SETTINGS_DEFAULTS,...(mirror || {})},Boolean(mirror));
+  storage.get(SETTINGS_KEY).then(stored=>show({...SETTINGS_DEFAULTS,...(stored?.[SETTINGS_KEY] || {})},true),()=>{for(const view of views)view.trigger.disabled=true;});
+}
+loadChoices();
 
 async function updateMessageStats() {
   const element=document.querySelector('#message-stats');
@@ -131,7 +192,7 @@ function syncDependencies(){
 }
 document.addEventListener('change',event=>{if(event.target.matches?.('[data-setting]'))syncDependencies();});
 try{const manifest=globalThis.chrome?.runtime?.getManifest?.();const version=document.querySelector('#version');if(manifest && version)version.textContent='v'+(manifest.version_name || manifest.version).replace(/ preview$/,'');}catch{}
-loadSettings().then(()=>{syncDependencies();syncSummary();for(const panel of document.querySelectorAll('.panel:not([hidden])'))syncFade(panel);});
+loadSettings().then(()=>{syncDependencies();syncSummary();settled();});
 updateMessageStats();
 
 // Redaction runs on Reddit itself (docs/redaction-spec.md); the fragment opens its dialog there.

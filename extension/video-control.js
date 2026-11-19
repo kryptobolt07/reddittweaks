@@ -13,7 +13,9 @@
  // YouTube embeds Reddit renders as lite-youtube with the YouTube player API (controlled by the page bridge).
  const EMBED='shreddit-embed[providername="YouTube"]',EMBED_KEY='rt-embed-continue-v1';
  const postId=path=>/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase() || '';
-  const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
+  // Same choices and migration as RTPostModel.normalizeSettings (settings may arrive raw in tests and old builds).
+ const choices=raw=>{const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;return {start:pick('videoStart',['hover','reddit','play'],raw?.videoPreviews===false?'reddit':'hover'),touch:pick('videoStartTouch',['stop','reddit','play'],raw?.videoPreviewsInView===true?'stop':'reddit'),click:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),from:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),open:pick('videoOpenPost',['continue','reddit'],raw?.videoContinueOnOpen===false?'reddit':'continue'),away:pick('videoScrollAway',['pause','reddit'],raw?.videoPauseOffscreen===false?'reddit':'pause'),sound:raw?.videoUnmutePreview!==false};};
+ const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
  // Reddit's preference, from its settings page (the prefs API needs a token the page does not expose).
  async function readAutoplayDisabled({doc=document,fetcher=globalThis.fetch,store=globalThis.sessionStorage}={}){
   const me=owner(doc);if(!me)return null;
@@ -73,7 +75,7 @@
    this.ready=Promise.resolve(readSettings?.()).then(s=>{this.configure(s || {});},()=>this.configure({}));
   }
   configure(settings){
-   this.settings=settings || {};
+   this.settings=settings || {};this.choice=choices(this.settings);
    if(!this.previewsOn){this.stopHover();this.previews=new WeakMap();}
    if(!this.continueOnOpen)this.clearHandoff();
    else if(!this.configured)this.restoreHandoff();
@@ -81,18 +83,25 @@
    // Visibility reports that arrived before the settings did still choose the in-view preview.
    if(this.inView)this.settle();
    else if(this.viewing || this.ePreview?.view)this.stopHover();
-   // Reddit's preference is read only while this option is on; a video Reddit started before it arrived is paused then.
-   if(this.respect && !this.preference)this.preference=Promise.resolve().then(()=>this.readPreference({doc:this.doc})).then(value=>{this.autoplayDisabled=value;if(value===true && this.respect)for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.started.has(video) && !this.continued.has(video))this.block(player,video);}},()=>{});
+   // "Like Reddit" reads Reddit's own "Autoplay media" preference (its phone layout ignores it, so it is applied here);
+   // the other choices start nothing by themselves. A video Reddit started before that was known is paused then.
+   const pauseStarted=()=>{if(!this.blocksAutoplay)return;for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.started.has(video) && !this.continued.has(video))this.block(player,video);}};
+   if(this.startMode==='reddit' && !this.preference)this.preference=Promise.resolve().then(()=>this.readPreference({doc:this.doc})).then(value=>{this.autoplayDisabled=value;pauseStarted();},()=>{});
+   pauseStarted();
   }
-  get respect(){return this.settings.videoRespectAutoplay!==false;}
-  get pauseAway(){return this.settings.videoPauseOffscreen!==false;}
-  get previewsOn(){return this.settings.videoPreviews!==false;}
-  get unmutePreview(){return this.settings.videoUnmutePreview!==false;}
-  get continueOnOpen(){return this.settings.videoContinueOnOpen!==false;}
-  get clickPlays(){return this.settings.videoPreviewClickPlays===true;}
-  get restartPreview(){return this.settings.videoPreviewRestart===true;}
-  // Phones have no hover: the video in view previews instead, when chosen.
-  get inView(){return this.previewsOn && this.settings.videoPreviewsInView===true && Boolean(this.win.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);}
+  get touch(){return Boolean(this.win.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);}
+  // How feed videos start on this device: desktop On hover / Like Reddit / When I press Play; phones When I stop
+  // scrolling / Like Reddit / When I press Play.
+  get startMode(){const c=this.choice || choices({});return this.touch?c.touch:c.start;}
+  get blocksAutoplay(){return this.startMode==='reddit'?this.autoplayDisabled===true:true;}
+  get pauseAway(){return (this.choice || choices({})).away==='pause';}
+  get previewsOn(){return (this.choice || choices({})).start==='hover';}
+  get unmutePreview(){return (this.choice || choices({})).sound;}
+  get continueOnOpen(){return (this.choice || choices({})).open==='continue';}
+  get clickPlays(){return (this.choice || choices({})).click==='here';}
+  get restartPreview(){return (this.choice || choices({})).from==='start';}
+  // Phones have no hover: the video you stop scrolling on previews instead, when chosen.
+  get inView(){return this.touch && (this.choice || choices({})).touch==='stop';}
   playback(video){return {time:video.currentTime,muted:video.muted,volume:this.fading.get(video) ?? video.volume,rate:video.playbackRate};}
   // Sound is turned on through Reddit's own volume state (the page bridge), so the post's player keeps it, then comes
   // in over 200 ms instead of at full volume.
@@ -491,7 +500,7 @@
    const userStarted=this.userStarted(player);
    if(userStarted){this.started.add(video);this.previews.delete(player);this.away.delete(player);}
    else this.started.delete(video);
-   if(this.respect && this.autoplayDisabled===true && !userStarted){this.block(player,video);return;}
+   if(this.blocksAutoplay && !userStarted){this.block(player,video);return;}
    delete player.dataset.rtAutoplayBlocked;
   }
   block(player,video){
@@ -556,7 +565,7 @@
   pickInView(){
    const height=this.win.innerHeight,middle=height/2;let best=null,distance=Infinity;
    const candidates=[...this.players].filter(player=>player.getAttribute('player-type')===FEED_PLAYER)
-    .concat(this.previewsOn?[...this.doc.querySelectorAll(EMBED)].filter(embed=>this.feedEmbed(embed)):[]);
+    .concat([...this.doc.querySelectorAll(EMBED)].filter(embed=>this.feedEmbed(embed)));
    for(const node of candidates){
     if(!node.isConnected)continue;
     const box=node.getBoundingClientRect();if(!(box.height>0))continue;
