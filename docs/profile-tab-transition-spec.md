@@ -51,6 +51,15 @@ Chrome CDP reproduced the issue with a floating-chat profile link and an outgoin
 
 With the changed guard temporarily applied only in the Chrome test tab, the same link kept all 15 cards visible and showed no loader in the outgoing feed from the URL change at 88 ms to the destination swap at 737 ms. The new profile then handled its own loading state.
 
+On the installed 0.49.0 build, the latest floating-chat message’s profile text link exposed a second interval. The original 23 cards stayed mounted until the main element changed at 1.49 s. The new profile showed a loader until its first card at 3.56 s.
+
+| Transition | Acceptance |
+|---|---|
+| Different user, destination mounts without cards | Keep the outgoing main visible in an inert layer at its previous viewport position. Mount discovery on the live destination and let it load behind the layer. |
+| Initial destination batch ready, confirmed empty, error, or timeout | Reveal the new profile together. Render the initial cards behind the outgoing profile and defer pagination until the swap. A slow or failed read can show its normal state after a bounded hold. |
+| Back or Forward | Reuse the outgoing feed and its discovery state even if Reddit creates a fresh feed. Restore the saved scroll position once the retained feed has its original height. |
+| Newer navigation, discovery opt-out or account change | Release the layer, destination styling and pending scroll restoration. |
+
 | Transition | Acceptance |
 |---|---|
 | T2 / T7: new profile URL, old feed mounted | Keep the same ready cards and their layout through any transient tab or loader change. Do not mount a new discovery view on that outgoing feed. |

@@ -256,7 +256,10 @@
       if(tipsCard){event.preventDefault();closeTips(true);return;}const target=tipsTarget(event);if(!target)return;event.preventDefault();event.stopPropagation();openTips(target);},true);}
   function link(text,url,cls){const a=make('a',cls,text);a.href=url;a.rel='noopener noreferrer';return a;}
   // Instance fields that belong to the extension, not to one profile view.
-  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError','onRemovedTab','tabPages','removedTabSelection','removedTabObserver','removedTabOwner','onOwnListLink','searchInlineBar','searchInlineButtons']),parkLimit=4;let generationSeq=0;
+  const sharedKeys=new Set(['settings','settingsPending','settingsError','settingsRevision','parked','searchParks','parkingVisible','listChips','searchReattachQueued','leaveHidden','leaveRestoreTimer','leaveRestoreMs','profileOwner','observer','onRoute','onUserScroll','onSettings','onWorkerSettings','onEmptyProfileSearch','avatarUnsubscribe','ready','reddit','archive','readSettings','nativeRenderer','autoDiscover','nativeWaitMs','retryUnitMs','sourceWaitMs','timer','profileNavigation','profileHandoff','profileReturnKey','profileScrollRestore','navigationLease','archiveForceUntil','flushingVirtualization','feedViewportUpdate','runtimeId','dead','scanFull','ownIdentityTask','ownIdentityController','ownIdentityChecked','ownHeader','ownHeaderObserver','ownHeaderDismissed','onOwnSubmit','onOwnFocus','ownIdentityError','onRemovedTab','tabPages','removedTabSelection','removedTabObserver','removedTabOwner','onOwnListLink','searchInlineBar','searchInlineButtons']),parkLimit=4;let generationSeq=0;
+  const publishedProfileCard=':scope > [data-rt-ui="activity-item"][data-rt-native-state="ready"]:not([hidden])';
+  const profileHandoffMs=12000;
+  const pageMain=()=>document.querySelector('main:not([data-rt-profile-handoff] main)');
   class Discovery {
     constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={},removalCache=message=>chrome.runtime.sendMessage({scope:'rt-removal',...message}),viewedHistory=message=>chrome.runtime.sendMessage({scope:'rt-viewed',...message})}={}){
       this.removalCache=removalCache;this.viewedHistory=viewedHistory;
@@ -265,7 +268,13 @@
       this.settingsPending=true;this.syncProfileNotice();
       // The signed-in account is checked again on every route, but the last confirmed one stays in use meanwhile
       // (every list request re-confirms it in the page world), so Back to a parked list doesn't wait or flash.
-      this.onRoute=()=>{globalThis.RTFeedSheet?.close();if(ownListCandidate())this.ownIdentityChecked=false;this.syncProfileNotice();if(this.hasSearchPark())this.scan();else this.schedule();};this.onSettings=(changes,area)=>{if(area==='local' && changes[key])this.applySettings(M.normalizeSettings(changes[key].newValue));};
+      this.onRoute=event=>{
+        globalThis.RTFeedSheet?.close();if(ownListCandidate())this.ownIdentityChecked=false;this.syncProfileNotice();
+        const route=pageRoute();
+        if(event?.type==='popstate')this.profileReturnKey=route?.kind==='profile' && route.view!=='search' && this.parkedFor(route,true)?route.key:null;
+        if(this.profileHandoff || this.profileReturnKey || this.hasSearchPark(route))this.scan();else this.schedule();
+      };this.onSettings=(changes,area)=>{if(area==='local' && changes[key])this.applySettings(M.normalizeSettings(changes[key].newValue));};
+      this.onUserScroll=()=>{this.lastScrollAt=performance.now();if(this.context?.kind==='profile' && this.profilePathname===location.pathname)this.profileScrollY=scrollY;};
       this.onOwnSubmit=event=>this.submitOwnList(event);document.addEventListener('submit',this.onOwnSubmit,true);
       this.onOwnFocus=()=>this.syncOwnListHeader();document.addEventListener('focusin',this.onOwnFocus,true);
       this.onEmptyProfileSearch=event=>{
@@ -285,13 +294,15 @@
       // Changes inside the observed feed are handled by its own observer; only
       // route/page-level changes need a scan.
       if(observe){this.observer=new MutationObserver(records=>{if(this.orphaned())return;this.syncProfileNotice();this.syncOwnListHeader();if(this.feed)this.trackVirtualization(records);
+        const handoff=this.profileHandoff;
+        if((handoff && !(handoff.incoming || handoff.main).isConnected) || (this.profileReturnKey && this.host && !this.host.isConnected)){this.scan();return;}
         // Reddit's start-up reconcile removes what we inserted into main (only our nodes change, so the
         // filter below would ignore it): put the search view back before the next paint.
         if((this.hasSearchPark() || this.context?.view==='search' && this.host && (!this.host.isConnected || this.isOwnList() && this.listTabsShell && !this.listTabsShell.isConnected)) && !this.searchReattachQueued){this.searchReattachQueued=true;queueMicrotask(()=>{this.searchReattachQueued=false;if(!this.dead)this.scan();});}
         // Late native empty/skeleton content must not paint over a retained result feed.
         if(this.context?.view==='search' && this.feed?.isConnected && pageRoute()?.key===this.context.key && records.some(record=>!this.ownsMutation(record) && !this.feed.contains(record.target)))this.suppressSearchPage();
         // Nothing mounted and not a page discovery acts on: unrelated page churn.
-        if(this.idleRoute())return;if(records.some(r=>!this.ownsMutation(r) && !(this.feedPresentationObserver && this.feed?.contains(r.target))))this.schedule(true);});this.observer.observe(document.documentElement,{childList:true,subtree:true});this.onUserScroll=()=>{this.lastScrollAt=performance.now();};window.addEventListener('scroll',this.onUserScroll,{passive:true});window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.addListener(this.onSettings);}
+        if(this.idleRoute())return;if(records.some(r=>!this.ownsMutation(r) && !(this.feedPresentationObserver && this.feed?.contains(r.target))))this.schedule(true);});this.observer.observe(document.documentElement,{childList:true,subtree:true});window.addEventListener('scroll',this.onUserScroll,{passive:true});window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);globalThis.chrome?.storage?.onChanged?.addListener(this.onSettings);}
       this.onWorkerSettings=(message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===globalThis.chrome?.runtime?.id)this.onSettings({[key]:{newValue:message.settings}},'local');};
       if(observe)globalThis.chrome?.runtime?.onMessage?.addListener(this.onWorkerSettings);
       this.avatarUnsubscribe=globalThis.RCSDirectory?.onChange?.(value=>{const owner=globalThis.RCSDirectory?.getOwner?.() || '';if(value?.owner && value.owner!==owner)return;// Learning the account at start-up (none → yours) isn't a switch; a different account or signing out is.
@@ -339,7 +350,7 @@
       if(globalThis.RTProfileNoticeGuard){if(this.settingsPending)RTProfileNoticeGuard.refresh();else RTProfileNoticeGuard.setEnabled(this.settings.postDiscovery && (pageRoute()?.view!=='search' || pageRoute()?.list || this.settings.archiveDiscovery));return;}
       document.documentElement.toggleAttribute('data-rt-profile-discovery',pageRoute()?.kind==='profile' && location.hostname!=='old.reddit.com' && (this.settingsPending || this.settings.postDiscovery && (pageRoute()?.view!=='search' || pageRoute()?.list || this.settings.archiveDiscovery)));
     }
-    ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item],[data-rt-ui=activity-slot]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
+    ownsMutation(record){if(this.host?.contains(record.target) || record.target.closest?.('[data-rt-ui=activity-item],[data-rt-ui=activity-slot],[data-rt-profile-handoff]'))return true;const nodes=[...record.addedNodes,...record.removedNodes];return nodes.length>0 && nodes.every(n=>n.nodeType===1 && Boolean(n.dataset?.rtUi));}
     // cheap: a page-level mutation, which only needs a full pass if the mounted page changed.
     schedule(cheap=false){if(this.dead)return;if(!cheap)this.scanFull=true;if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;const full=this.scanFull;this.scanFull=false;this.scan({cheap:!full});},60);}
     reset({retainNavigation=false,detach=false,keepCards=false,restoreImmediately=false}={}){this.flushVirtualization();this.clearHeaderFilters({keepElements:this.keepSearchControls()});this.listState=null;this.historyObserver?.disconnect();this.historyObserver=null;if(!detach){this.listEmpty?.remove();this.searchEmpty?.remove();}this.listEmpty=null;this.searchEmpty=null;const tabs=this.listTabs,tabShell=this.listTabsShell;
@@ -421,6 +432,7 @@
       if(!always && this.parkSearch({keepVisible:true}))return;
       if(!this.parkable()){if(always || this.host || this.context)this.reset({retainNavigation});return;}
       this.flushVirtualization();const feed=this.feed,state=this.viewState();
+      if(this.profileHandoff?.sourceKey===this.context.key)state.handoffScrollY=this.profileHandoff.scrollY;
       // Reattaching the feed would replay entrance animations; they already ran.
       for(const node of this.nodes.values())node.classList.remove('rt-native-enter','rt-native-inserted');
       this.parked.delete(feed);this.parked.set(feed,state);
@@ -428,7 +440,13 @@
       const host=this.host;this.reset({detach:true,retainNavigation:true});if(host?.isConnected && !host.contains(feed))host.remove();
       while(this.parked.size>parkLimit){const [old,parked]=this.parked.entries().next().value;this.parked.delete(old);this.discardParked(parked);}
     }
-    parkedFor(context){for(const [feed,state] of this.parked)if(feed.isConnected && state.context?.key===context.key && state.host)return [feed,state];return null;}
+    parkedFor(context,returning=false){
+      for(const [feed,state] of [...this.parked].reverse()){
+        if(state.context?.key!==context.key || !state.host)continue;
+        if(feed.isConnected || returning && !state.archiveOnly && state.handoffScrollY!==undefined && state.rtSearch===location.search)return [feed,state];
+      }
+      return null;
+    }
     adopt(feed,state){
       this.parked.delete(feed);for(const [key,value] of Object.entries(state))this[key]=value;
       if(!this.host.isConnected && !this.host.contains(feed))feed.before(this.host);
@@ -476,7 +494,7 @@
       try{this.reset({retainNavigation:true});}
       finally{for(const key of Object.keys(this))if(!sharedKeys.has(key) && !(key in current))delete this[key];Object.assign(this,current);this.profileNavigation=navigation;}
     }
-    discardAllParked(){const states=[...this.parked.values()];this.parked.clear();for(const state of states)this.discardParked(state);}
+    discardAllParked(){this.clearProfileHandoff();this.profileReturnKey=null;this.profileScrollRestore?.abort();const states=[...this.parked.values()];this.parked.clear();for(const state of states)this.discardParked(state);}
     observeBatchTail(){
       this.batchObserver?.disconnect();this.batchObserver=null;
       if(this.context?.kind!=='profile' || !this.loading || typeof IntersectionObserver!=='function')return;
@@ -523,21 +541,71 @@
       if(!other && this.context.view===context.view)return false;
       if(other && !this.nativeEntries().length){
         if(!this.host?.isConnected || !this.feed?.isConnected)return false;
-        const main=document.querySelector('main#main-content,main[role="main"],main');
+        const main=pageMain();
         if(main?.querySelector('shreddit-feed')!==this.feed)return false;
         const empty=main.querySelector('#empty-feed-content');
         if(empty && empty!==this.emptyFeed && !empty.hidden)return false;
         // A discovery-only profile still has a visible outgoing feed. Hold
         // its published cards until Reddit supplies the next profile's view.
-        return Boolean(this.feed.querySelector(':scope > [data-rt-ui="activity-item"][data-rt-native-state="ready"]:not([hidden])'));
+        return Boolean(this.feed.querySelector(publishedProfileCard));
       }
       const tabs=this.feed?.closest('main')?.querySelector('#profile-feed-tabgroup');
       return Boolean(tabs && !tabs.closest('[data-rt-ui]') && this.presentedProfileVisible());
     }
+    rememberProfileHandoff(context){
+      if(this.profileHandoff || context.username.toLowerCase()===this.context.username.toLowerCase() || !this.feed.querySelector(publishedProfileCard))return;
+      const main=this.feed.closest('main'),rect=main?.getBoundingClientRect(),previousY=this.profileScrollY ?? scrollY;
+      if(!rect?.width || !rect.height)return;
+      this.profileHandoff={key:context.key,sourceKey:this.context.key,main,rect:{left:rect.left,width:rect.width,top:rect.top+scrollY-previousY},scrollY:previousY};
+    }
+    showProfileHandoff(main){
+      const handoff=this.profileHandoff;
+      if(!handoff || handoff.main.isConnected && !handoff.stage)return;
+      if(!handoff.stage){
+        // Parking keeps the original cards. Use the detached main as an inert
+        // layer while the new feed hydrates at its usual size underneath it.
+        const stage=handoff.stage=make('div');
+        stage.dataset.rtUi='profile-handoff';stage.dataset.rtProfileHandoff='';
+        stage.setAttribute('inert','');stage.setAttribute('aria-hidden','true');
+        const {left,top,width}=handoff.rect,visibleTop=Math.max(0,top);
+        Object.assign(stage.style,{left:left+'px',top:visibleTop+'px',width:width+'px'});
+        stage.style.setProperty('--rt-profile-offset',(top-visibleTop)+'px');
+        stage.append(handoff.main);document.body.append(stage);
+        handoff.timer=setTimeout(()=>this.clearProfileHandoff(),profileHandoffMs);
+      }
+      if(handoff.incoming===main)return;
+      handoff.incoming?.removeAttribute('data-rt-profile-incoming');
+      handoff.incoming=main;main.setAttribute('data-rt-profile-incoming','');
+    }
+    clearProfileHandoff(){
+      const handoff=this.profileHandoff;if(!handoff)return;
+      this.profileHandoff=null;clearTimeout(handoff.timer);
+      handoff.incoming?.removeAttribute('data-rt-profile-incoming');handoff.stage?.remove();
+    }
+    updateProfileHandoff({settled=false,ready=false}={}){
+      const handoff=this.profileHandoff;
+      if(!handoff?.stage || this.context?.key!==handoff.key || pageRoute()?.key!==handoff.key)return;
+      const visible=node=>!node.closest('[hidden],[data-rt-order-pending],[data-rt-filter-hidden]');
+      if(settled || ready && ([...this.feed.querySelectorAll(publishedProfileCard)].some(visible) || this.nativeEntries().some(({node})=>visible(node))))this.clearProfileHandoff();
+    }
+    restoreProfileScroll(y){
+      if(y===undefined)return;
+      this.profileScrollRestore?.abort();
+      const controller=this.profileScrollRestore=new AbortController(),{signal}=controller;
+      const key=this.context.key,feed=this.feed;
+      const cancel=()=>controller.abort();
+      const restore=()=>{if(signal.aborted || !feed.isConnected || this.feed!==feed || pageRoute()?.key!==key)return cancel();if(Math.abs(scrollY-y)>1)scrollTo({top:y,behavior:'instant'});};
+      restore();
+      // Reddit may apply its own scroll after replacing main. Honour any user
+      // input during that short window and stop correcting on the next route.
+      for(const event of ['wheel','touchstart','pointerdown','keydown'])window.addEventListener(event,cancel,{signal,passive:true,capture:true});
+      setTimeout(restore,120);
+      setTimeout(()=>{restore();cancel();},400);
+    }
     // What the mounted profile hangs on. While none of it is replaced, page-level
     // churn needs no reconciliation.
     mountIdentity(){
-      const main=document.querySelector('main#main-content,main[role="main"],main'),profile=this.context?.kind==='profile';
+      const main=pageMain(),profile=this.context?.kind==='profile';
       return {main,feed:profile?main?.querySelector('shreddit-feed,[data-rt-archive-feed]') || null:null,dropdown:profile?this.findDropdown(main):null,tabs:main?.querySelector('#profile-feed-tabgroup') || null};
     }
     // Cheap check against the recorded identity: what was found must still be
@@ -558,6 +626,12 @@
       if(this.orphaned())return;this.syncProfileNotice();
       this.ensureOwnIdentity();this.syncOwnListHeader();
       const context=pageRoute(),nativeAccount=globalThis.RTNativeRemoval?.identity(document);
+      if(this.profileReturnKey!==context?.key)this.profileReturnKey=null;
+      if(this.profileHandoff && this.profileHandoff.key!==context?.key){
+        const handoff=this.profileHandoff;
+        if(handoff.stage && handoff.sourceKey===this.profileReturnKey && pageMain()===handoff.incoming)return;
+        this.clearProfileHandoff();
+      }
       if(this.context?.section && (nativeAccount && nativeAccount.username.toLowerCase()!==this.context.username.toLowerCase() || document.querySelector('shreddit-app[user-logged-in="false"]'))){this.discardAllParked();this.reset({restoreImmediately:true});}
       this.syncRemovedTab(this.settings.postDiscovery?nativeAccount?.owner:'',context);
       if(context?.view==='list-tab'){if(this.context)this.leaveProfile({always:true});return;}
@@ -569,9 +643,10 @@
         // Leaving a profile for a post, subreddit, home...: park it with its feed.
         this.leaveProfile();return;
       }
-      if(this.outgoingProfileVisible(context)){this.profileTransition=true;return;}
+      if(this.outgoingProfileVisible(context)){this.profileTransition=true;this.rememberProfileHandoff(context);return;}
+      if(this.profileReturnKey===context.key && this.context?.key!==context.key && this.host?.isConnected && this.parkedFor(context,true) && pageMain()?.querySelector('shreddit-feed')===this.feed)return;
       // Back (or Forward) to a parked profile whose feed Reddit put back.
-      if(context.kind==='profile' && (this.context?.key!==context.key || !this.host?.isConnected)){const parked=this.parkedFor(context);if(parked){if(this.context)this.leaveProfile();this.adopt(...parked);}}
+      if(context.kind==='profile' && (this.context?.key!==context.key || !this.host?.isConnected)){const parked=this.parkedFor(context);if(parked){if(this.context)this.leaveProfile();this.adopt(...parked);if(this.profileReturnKey===context.key){this.profileReturnKey=null;this.clearProfileHandoff();this.restoreProfileScroll(parked[1].handoffScrollY);}}}
       if(this.context?.key===context.key && this.host?.isConnected && (!this.feed || this.feed.isConnected) && (!this.archiveOnly || this.archiveNotice?.isConnected || this.archiveNoticeAnchor?.isConnected)){
         if(context.view==='search'){this.suppressSearchPage();if(context.list)this.syncOwnListTabs();if(context.section)this.syncRemovedChrome();}
         this.syncFiltersFromUrl();
@@ -583,7 +658,7 @@
       const retainNavigation=Boolean(this.profileNavigation && this.settings.postDiscovery && !this.settingsError);
       const carry=this.context?.key===context.key && this.settings.postDiscovery && !this.settingsError && this.context?.kind==='profile' && (this.loaded || this.archiveLoaded)?(this.restoreRecoveredBodies(),this.flushVirtualization(),this.viewState()):null;
       if(carry)this.reset({keepCards:true,retainNavigation:true});else if(!this.parkSearch({keepVisible:context.view!=='search'}))this.leaveProfile({retainNavigation,always:true});
-      let main=document.querySelector('main#main-content,main[role="main"],main');
+      let main=pageMain();
       if(!main && context.kind==='profile'){
         // Unavailable-account pages omit both main and shreddit-feed. Require an
         // explicit native account marker; generic 404/network pages stay native.
@@ -592,10 +667,17 @@
         if(retained)main=this.mountArchiveProfile(context,retained.notice,retained.anchor,retained.state);else if(marker && marker.parentElement.querySelector('h3'))main=this.mountArchiveProfile(context,marker.parentElement);else if(banned && /^This account (?:has been (?:banned|suspended)|is suspended)$/i.test(banned.querySelector('#shreddit-forbidden-title')?.textContent.trim()))main=this.mountArchiveProfile(context,banned,banned,'banned');
       }
       if(!main)return;
+      this.showProfileHandoff(main);
       if(context.view==='search' && this.restoreSearchPark(context,main)){this.scan();return;}
       let target=context.section?this.mountRemovedFeed(main):context.view==='search'?this.mountSearchFeed(main):context.kind==='profile'?main.querySelector('shreddit-feed,[data-rt-archive-feed]'):main.querySelector('shreddit-post');
       if(!target)return;
+      if(this.profileReturnKey===context.key && target.matches('shreddit-feed')){
+        this.profileReturnKey=null;
+        const parked=this.parkedFor(context,true);
+        if(parked){const [feed,state]=parked;target.replaceWith(feed);this.adopt(feed,state);this.restoreProfileScroll(state.handoffScrollY);this.clearProfileHandoff();this.scan();return;}
+      }
       this.context=context;this.feed=context.kind==='profile'?target:null;this.rtFilters=context.kind==='profile'?this.readFilters(context):null;this.rtPred=null;this.rtSearch=location.search;
+      this.profilePathname=location.pathname;this.profileScrollY=scrollY;
       this.searchParsed=context.view==='search'?parseProfileSearch(context):null;this.searchParkAt=this.searchParkKey(context);
       this.searchReddit=this.searchParsed?globalThis.RCSCore.splitQuery(this.searchParsed,PROFILE_REDDIT_SEARCH_CAPABILITIES):null;
       this.searchArchiveLocal=false;
@@ -2665,7 +2747,7 @@
     shownPublished(){let count=0;for(const key of this.publishedCards)if(this.nodes.get(key)?.hidden===false)count++;return count;}
     primaryFailure(){const archiveOnlyView=this.activityFilter==='deleted' && this.settings.archiveDiscovery;return Object.entries(this.sourceErrors || {}).some(([key,value])=>value && !/^(metadata-|recovery$)/.test(key) && !(archiveOnlyView && !key.startsWith('archive-')) && !(['post','comment','comment-public'].includes(key) && Object.values(this.redMore).some(Boolean)));}
     prefetchProfilePage(){
-      if(pageRoute()?.key!==this.context?.key || this.busy && this.archiveBusy || this.batchAutoPaused || this.primaryFailure() || this.nativeBatch.blocked || !this.batchObserver || !this.hasMoreProfile())return;
+      if(this.profileHandoff?.stage || pageRoute()?.key!==this.context?.key || this.busy && this.archiveBusy || this.batchAutoPaused || this.primaryFailure() || this.nativeBatch.blocked || !this.batchObserver || !this.hasMoreProfile())return;
       const initial=this.autoDiscover && (this.loaded || this.archiveLoaded) && !this.initialPrefetchDone;
       if(!initial && !this.profileTailVisible())return;
       // Prime one additional cursor page on initial automatic discovery. Later
@@ -2678,7 +2760,7 @@
       // A native continuation halo can remain mounted before its request starts.
       // It owns the visible loader, but must not block preparing our next page.
       // One provider's request in flight never blocks the other provider.
-      if(this.busy && this.archiveBusy)return;
+      if(this.profileHandoff?.stage || this.busy && this.archiveBusy)return;
       if(this.batchedProfile){this.prefetchProfilePage();return this.advanceProfileBatch(force);}
       if(this.hasMoreProfile() && !this.batchAutoPaused)this.loadMore();
     }
@@ -2718,6 +2800,10 @@
         }else current?.remove();
       });
       this.more.hidden=!continuation || Boolean(this.batchObserver && (!paused || this.isSearch()));this.more.disabled=Boolean(this.busy || this.archiveBusy || this.activeProfileBatch && !paused);
+      if(this.profileHandoff?.stage){
+        const initialReady=!work && (!pending || this.shownPublished()>=profileBatchSize) && (this.loaded || this.archiveLoaded) && !this.mergePendingNodes.size;
+        this.updateProfileHandoff({ready:initialReady,settled:this.nativeBatch.blocked || !work && (Boolean(message) || initialReady && !continuation && !nativeLoading)});
+      }
       if(pending && !this.activeProfileBatch && !paused && this.shownPublished()<profileBatchSize){this.advanceProfileBatch();return;}
       this.prefetchProfilePage();
       if(!this.activeProfileBatch && !(this.busy && this.archiveBusy) && !paused && this.batchObserver && !this.loading.hidden && !this.batchFrame){const generation=this.generation;this.batchFrame=requestAnimationFrame(()=>{this.batchFrame=null;if(generation===this.generation && this.host?.isConnected && this.profileTailVisible())this.continueProfile();});}
@@ -2729,7 +2815,7 @@
       if(this.activeProfileBatch || this.nativeBatch.blocked || this.batchAutoPaused && !this.pendingProfilePosts().length)return;
       if(!force && this.shownPublished()>=profileBatchSize && (!this.batchObserver || !this.profileTailVisible()))return;
       const posts=this.pendingProfilePosts().slice(0,profileBatchSize);
-      if(!posts.length){const visible=this.visibleIds(),floor=this.publicationFloor(),waitingBoundary=this.renderedPosts.some(p=>!visible.has(p.fullname) && !this.publishedCards.has(itemKey(p)) && this.nodes.get(itemKey(p))?.dataset.deferred!=='older' && this.eligibleProfilePost(p,this.nodes.get(itemKey(p))) && !this.canPublishProfilePost(p,floor));if(!waitingBoundary && !this.mergePendingNodes.size && this.renderedPosts.some(p=>this.nodes.get(itemKey(p))?.dataset.deferred==='older'))return;if(this.hasMoreProfile() && (force || this.batchObserver && this.profileTailVisible()))this.loadMore();return;}
+      if(!posts.length){if(this.profileHandoff?.stage)return;const visible=this.visibleIds(),floor=this.publicationFloor(),waitingBoundary=this.renderedPosts.some(p=>!visible.has(p.fullname) && !this.publishedCards.has(itemKey(p)) && this.nodes.get(itemKey(p))?.dataset.deferred!=='older' && this.eligibleProfilePost(p,this.nodes.get(itemKey(p))) && !this.canPublishProfilePost(p,floor));if(!waitingBoundary && !this.mergePendingNodes.size && this.renderedPosts.some(p=>this.nodes.get(itemKey(p))?.dataset.deferred==='older'))return;if(this.hasMoreProfile() && (force || this.batchObserver && this.profileTailVisible()))this.loadMore();return;}
       const group=this.activeProfileBatch={generation:this.generation,nodes:posts.map(p=>this.nodes.get(itemKey(p))),posts,enriching:false};this.loading.hidden=false;
       for(const node of group.nodes)if(!['ready','failed'].includes(node.dataset.rtNativeState))this.queueNative(node);
       this.settleProfileBatch();
@@ -2746,7 +2832,8 @@
       const shown=new Set(this.nativeEntries().filter(e=>!e.node.hidden && !e.node.hasAttribute('data-rt-order-pending') && !e.node.hasAttribute('data-rt-filter-hidden')).map(e=>e.node));
       const entering=group.nodes.splice(0,ready);for(const node of entering)this.publishedCards.add(node.dataset.key);
       if(!group.nodes.length){group.enriching=true;this.activeProfileBatch=null;const current=()=>group.generation===this.generation && pageRoute()?.key===this.context?.key && this.host?.isConnected;this.replyEnrichment=Promise.resolve(this.replyEnrichment).catch(()=>{}).then(()=>current()?this.enrichReplyContexts(group.posts,current):undefined);}
-      this.deduplicate();this.animateEntrance(entering,shown);this.updateProfileLoading();
+      const staging=this.profileHandoff?.stage;
+      this.deduplicate();if(!staging)this.animateEntrance(entering,shown);this.updateProfileLoading();
     }
     // Animate only cards that land between cards Reddit had already shown;
     // cards at the feed end or alongside a new native page just appear.
