@@ -609,7 +609,8 @@ test('another provider’s embed previews muted through its own autoplay flags a
  e.over();await waitForHover();
  const url=new URL(e.frame.src);assert.equal(url.searchParams.get('autoplay'),'1');assert.equal(url.searchParams.get('muted'),'1');assert.ok(e.layer());
  e.over('pointerout',e.frame,p.d.body);await new Promise(r=>setTimeout(r,260));
- assert.equal(e.frame.getAttribute('src'),'https://streamable.com/e/abc');assert.equal(e.layer(),null);
+ assert.equal(e.frame.getAttribute('src'),'about:blank','a player with no controls is unloaded, not left playing');assert.equal(e.frame.dataset.rtSrc,'https://streamable.com/e/abc');
+ assert.ok(e.node.shadowRoot.querySelector('[data-rt-parked-play]'),'behind a play button');assert.equal(e.layer(),null);
  const twitch=page(t);const tw=frameEmbed(twitch,'https://clips.twitch.tv/embed?clip=x&parent=www.reddit.com');await hoverController(twitch);
  tw.over();await waitForHover();const tu=new URL(tw.frame.src);assert.equal(tu.searchParams.get('autoplay'),'true');assert.equal(tu.searchParams.get('muted'),'true');assert.equal(tu.searchParams.get('parent'),'www.reddit.com');
 });
@@ -638,7 +639,7 @@ const embedly='https://cdn.embedly.com/widgets/media.html?src=https%3A%2F%2Fstre
 async function controlled(p,settings={},src=embedly){
  const e=frameEmbed(p,src);const controller=await hoverController(p,settings);const sent=[];
  controller.post=(frame,data)=>sent.push(JSON.parse(data));controller.frames.clear();controller.scan();
- const commands=()=>sent.filter(m=>m.method && m.method!=='addEventListener' || m.func).map(m=>m.method || m.func);
+ const commands=()=>sent.filter(m=>m.method && !['addEventListener','getPaused'].includes(m.method) || m.func).map(m=>m.method || m.func);
  return {...e,controller,sent,commands};
 }
 test('an Embedly-wrapped preview starts muted in place through player.js, then pauses and gets its sound back',async t=>{
@@ -669,4 +670,40 @@ test('commands sent before a player is ready are sent again when it says so',asy
  c.over();await waitForHover();const before=c.commands().length;
  p.W.dispatchEvent(new p.W.MessageEvent('message',{data:JSON.stringify({context:'player.js',event:'ready'}),source:c.frame.contentWindow}));
  assert.deepEqual(c.commands().slice(before),['mute','play']);
+});
+
+test('Reddit’s lite-vimeo is started muted through its own autoload and autoplay, then driven by Vimeo’s messages',async t=>{
+ const p=page(t);
+ const node=p.d.createElement('shreddit-embed');node.setAttribute('providername','Vimeo');
+ const lite=node.attachShadow({mode:'open'}).appendChild(p.d.createElement('lite-vimeo'));lite.setAttribute('videoid','123');
+ const inner=lite.attachShadow({mode:'open'});
+ lite.addEventListener('click',()=>{const url=new URL('https://player.vimeo.com/video/123');url.searchParams.set('dnt','1');if(lite.hasAttribute('autoload') && lite.hasAttribute('autoplay'))url.searchParams.set('autoplay','1');const f=p.d.createElement('iframe');f.setAttribute('src',url.href);inner.append(f);});
+ p.player.closest('shreddit-post').append(node);
+ const controller=await hoverController(p);const sent=[];controller.post=(frame,data)=>sent.push(JSON.parse(data));
+ const over=new p.W.MouseEvent('pointerover',{bubbles:true,composed:true});Object.defineProperty(over,'pointerType',{value:'mouse'});lite.dispatchEvent(over);await waitForHover();
+ const frame=inner.querySelector('iframe');assert.ok(frame,'the player was made');
+ const url=new URL(frame.getAttribute('src'));assert.equal(url.searchParams.get('autoplay'),'1');assert.equal(url.searchParams.get('muted'),'1');
+ assert.deepEqual(sent.filter(m=>m.method!=='addEventListener').map(m=>m.method+(m.value!==undefined?':'+m.value:'')),['setVolume:0','play']);
+});
+test('players with no controls stay unloaded unless chosen: Autoplay loads only the one in view; a play button starts one and unloads the rest',async t=>{
+ const p=page(t);phone(p,true,-900);
+ const a=frameEmbed(p,'https://www.redgifs.com/ifr/first');a.node.getBoundingClientRect=()=>({top:100,bottom:400,height:300,left:0,width:390});
+ const post2=p.d.createElement('shreddit-post');post2.id='t3_second';p.d.body.append(post2);
+ const node2=p.d.createElement('shreddit-embed');node2.setAttribute('providername','RedGIFs');const f2=node2.attachShadow({mode:'open'}).appendChild(p.d.createElement('iframe'));f2.setAttribute('src','https://www.redgifs.com/ifr/second');post2.append(node2);
+ node2.getBoundingClientRect=()=>({top:2000,bottom:2300,height:300,left:0,width:390});
+ const controller=await hoverController(p,{videoStartTouch:'autoplay'});controller.scan();
+ assert.equal(f2.getAttribute('src'),'about:blank','off-screen: unloaded');
+ scroll(p);await new Promise(r=>setTimeout(r,250));
+ assert.match(a.frame.getAttribute('src'),/redgifs\.com\/ifr\/first/,'in view: loaded and playing');
+ node2.shadowRoot.querySelector('[data-rt-parked-play]').dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
+ assert.equal(f2.getAttribute('src'),'https://www.redgifs.com/ifr/second','the play button loads it');
+ assert.equal(a.frame.getAttribute('src'),'about:blank','and the one that was playing is unloaded');
+});
+test('an Embedly player that never answers player.js is started through flags on the provider address inside it',async t=>{
+ const p=page(t);const twitch='https://cdn.embedly.com/widgets/media.html?src='+encodeURIComponent('https://clips.twitch.tv/embed?clip=x&parent=cdn.embedly.com&autoplay=false')+'&display_name=Twitch';
+ const c=await controlled(p,{},twitch);
+ c.over();await waitForHover();assert.equal(c.frame.getAttribute('src'),twitch,'first through player.js');
+ await new Promise(r=>setTimeout(r,2600));
+ const inner=new URL(new URL(c.frame.getAttribute('src')).searchParams.get('src'));
+ assert.equal(inner.searchParams.get('autoplay'),'true');assert.equal(inner.searchParams.get('muted'),'true');assert.equal(inner.searchParams.get('clip'),'x');
 });

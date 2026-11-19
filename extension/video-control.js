@@ -6,7 +6,7 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=160,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=160,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
  const PLAY_BUTTON='.poster-play-button,.play-pause-button';
  const SOUND_CONTROL='.mute-button,.volume-slider';
  const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen';
@@ -36,13 +36,31 @@
  function frameEvent(kind,raw){
   let data=raw;if(typeof data==='string'){try{data=JSON.parse(data);}catch{return '';}}
   if(!data || typeof data!=='object')return '';
-  if(kind==='playerjs')return data.context==='player.js' && ['play','ready'].includes(data.event)?data.event:'';
+  if(kind==='playerjs')return data.context!=='player.js'?'':data.event==='play'?'play':'ready';
   if(kind==='vimeo')return ['play','ready'].includes(data.event)?data.event:'';
   if(kind==='youtube'){const state=data.event==='onStateChange'?data.info:data.event==='infoDelivery'?data.info?.playerState:null;return state===1?'play':data.event==='onReady'?'ready':'';}
   return '';
  }
+ // Vimeo: Reddit renders its own lite-vimeo placeholder (read from Reddit's code 2026-11-19): a click adds
+ // player.vimeo.com/video/<id>?dnt=1 inside its shadow root, with autoplay=1 only when it has both autoload and autoplay.
+ const vimeoLite=embed=>embed?.shadowRoot?.querySelector?.('lite-vimeo') || null;
+ // The player frame that can be driven: a plain provider iframe, or Vimeo's once lite-vimeo made it (activate: make it
+ // now, muted and playing).
+ function controlFrame(embed,activate=false){
+  const raw=rawFrame(embed);if(raw)return raw;
+  const lite=vimeoLite(embed);if(!lite)return null;
+  let frame=lite.shadowRoot?.querySelector('iframe') || null;
+  if(!frame && activate){
+   lite.setAttribute('autoload','');lite.setAttribute('autoplay','autoplay');lite.click();
+   frame=lite.shadowRoot?.querySelector('iframe') || null;
+   if(frame){try{const url=new URL(frame.getAttribute('src'));url.searchParams.set('autoplay','1');url.searchParams.set('muted','1');frame.setAttribute('src',url.href);}catch{}}
+  }
+  return frame;
+ }
  function flagged(src,sound){
   let url;try{url=new URL(src);}catch{return src;}
+  // Embedly's wrapper: the flags belong on the provider's own address inside it.
+  if(/(^|\.)embedly\.com$/i.test(url.hostname) && url.searchParams.get('src')){url.searchParams.set('src',flagged(url.searchParams.get('src'),sound));return url.href;}
   const flags=FLAGS.find(([host])=>host.test(url.hostname))[1];
   for(const [key,value] of Object.entries(flags)){
    if(!sound || key==='autoplay')url.searchParams.set(key,value);
@@ -122,8 +140,8 @@
      if(!frame.isConnected){this.frames.delete(frame);continue;}
      if(frame.contentWindow!==event.source)continue;
      const kind=frameEvent(state.kind,event.data);
-     if(kind==='ready'){for(const data of state.queue.splice(0))this.post(frame,data);this.subscribe(frame,state);}
-     if(kind==='play'){const embed=frame.getRootNode()?.host;if(embed && this.ePreview?.embed!==embed){embed.dataset.rtEmbedUsed='1';this.exclusive(embed);}}
+     if(kind==='ready'){if(!state.readySeen){state.readySeen=true;for(const data of state.queue.splice(0))this.post(frame,data);this.subscribe(frame,state);}}
+     if(kind==='play'){let embed=frame.getRootNode()?.host;if(embed && !embed.matches(ANY_EMBED))embed=embed.getRootNode()?.host;if(embed?.matches?.(ANY_EMBED) && this.ePreview?.embed!==embed){embed.dataset.rtEmbedUsed='1';this.exclusive(embed);}}
      return;
     }
    };
@@ -185,7 +203,8 @@
     this.players.delete(player);this.previews.delete(player);this.io?.unobserve(player);
    }
    for(const player of this.doc.querySelectorAll(PLAYERS))this.attach(player);
-   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){const frame=rawFrame(embed);if(frame && !this.frames.has(frame))this.frameState(frame);}
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){const frame=controlFrame(embed);if(frame && !this.frames.has(frame))this.frameState(frame);}
+   if(this.configured)this.parkIdle();
    this.handoff();
    this.embedHandoff();
   }
@@ -314,11 +333,49 @@
    const state=this.frameState(frame);if(state.kind==='flags')return false;
    const data=frameMessage(state.kind,method);this.post(frame,data);
    state.queue.push(data);if(state.queue.length>4)state.queue.shift();
+   // Embedly relays player.js only for some providers: a player that never answers is driven by address flags instead.
+   if(state.kind==='playerjs' && !state.readySeen && !state.probe){
+    state.probe=true;
+    this.post(frame,JSON.stringify({context:'player.js',version:'0.0.11',method:'getPaused',listener:'rt-probe'}));
+    this.win.setTimeout(()=>{
+     if(state.readySeen || !frame.isConnected)return;
+     state.kind='flags';state.queue.length=0;
+     const preview=this.ePreview;
+     if(preview?.active && preview.frame?.frame===frame){preview.frame.kind='flags';frame.setAttribute('src',flagged(preview.frame.src,false));}
+    },PROBE_MS);
+   }
    return true;
+  }
+  // Players with no control protocol (RedGIFs plays itself, muted and looping, as soon as it loads) are unloaded while
+  // they are not the one chosen to play, behind a play button that loads them again.
+  park(embed,frame){
+   if(frame.dataset.rtParked)return;
+   frame.dataset.rtSrc=frame.getAttribute('src') || '';frame.dataset.rtParked='1';frame.setAttribute('src','about:blank');
+   const root=embed.shadowRoot;if(!root || root.querySelector('[data-rt-parked-play]'))return;
+   if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
+   const play=this.doc.createElement('button');play.type='button';play.dataset.rtParkedPlay='';play.setAttribute('aria-label','Play');
+   Object.assign(play.style,{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',zIndex:'4',width:'56px',height:'56px',border:'0',
+    borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',padding:'0'});
+   play.innerHTML='<svg viewBox="0 0 20 20" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M6 3.8v12.4a.8.8 0 0 0 1.2.7l10-6.2a.8.8 0 0 0 0-1.4l-10-6.2A.8.8 0 0 0 6 3.8Z"/></svg>';
+   play.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.stopEmbed();embed.dataset.rtEmbedUsed='1';this.unpark(embed,frame);this.exclusive(embed);});
+   root.append(play);
+  }
+  unpark(embed,frame,src){
+   if(!frame.dataset.rtParked)return false;
+   const original=frame.dataset.rtSrc || '';delete frame.dataset.rtParked;delete frame.dataset.rtSrc;
+   embed.shadowRoot?.querySelector('[data-rt-parked-play]')?.remove();
+   frame.setAttribute('src',src || original);return true;
+  }
+  // Which uncontrollable feed players may stay loaded: the one previewing and one you started.
+  parkIdle(except=null){
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){
+    if(embed===except || !this.feedEmbed(embed) || embed.dataset.rtEmbedUsed==='1' || this.ePreview?.embed===embed)continue;
+    const frame=controlFrame(embed);if(frame && this.frameState(frame).kind==='flags')this.park(embed,frame);
+   }
   }
   feedEmbed(embed){
    const card=embed?.closest?.('shreddit-post');
-   return Boolean(card?.id && embed.matches(ANY_EMBED) && (embed.matches(EMBED) || rawFrame(embed)) && postId(this.win.location.pathname)!==card.id.replace(/^t3_/,''));
+   return Boolean(card?.id && embed.matches(ANY_EMBED) && (embed.matches(EMBED) || rawFrame(embed) || vimeoLite(embed)) && postId(this.win.location.pathname)!==card.id.replace(/^t3_/,''));
   }
   // Desktop hover over a feed YouTube embed, with the same card grace as a video. Returns true when it handled the event.
   embedHover(event,path,to,within){
@@ -349,11 +406,11 @@
     if(embed.dispatchEvent(new this.win.Event('rt-embed-preview',{bubbles:true,cancelable:true}))){this.stopEmbed();return;}
     host=embed.shadowRoot?.querySelector('lite-youtube') || embed;
    }else{
-    const frame=rawFrame(embed),src=frame?.getAttribute('src');if(!frame || !src){this.stopEmbed();return;}
+    const frame=controlFrame(embed,true),src=frame?.dataset.rtParked?frame.dataset.rtSrc:frame?.getAttribute('src');if(!frame || !src){this.stopEmbed();return;}
     const kind=this.frameState(frame).kind;
     preview.frame={frame,src,kind,position:embed.style.position};
-    // A player with a control protocol starts muted in place; others reload with the provider's own flags.
-    if(kind==='flags')frame.src=flagged(src,false);
+    // A player with a control protocol starts muted in place; others load with the provider's own flags.
+    if(kind==='flags'){if(!this.unpark(embed,frame,flagged(src,false)))frame.setAttribute('src',flagged(src,false));}
     else{this.command(frame,'mute');this.command(frame,'play');}
     // The layer sits in the embed's shadow root over its iframe.
     if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
@@ -402,7 +459,11 @@
    if(preview.frame){
     this.restoreHost(preview);
     const {frame,src,kind}=preview.frame;
-    if(preview.active && frame.isConnected){if(kind==='flags')frame.src=src;else{this.command(frame,'pause');this.command(frame,'unmute');}}
+    if(preview.active && frame.isConnected){
+     if(kind!=='flags'){this.command(frame,'pause');this.command(frame,'unmute');}
+     else if(this.feedEmbed(preview.embed)){frame.setAttribute('src',src);this.park(preview.embed,frame);}
+     else frame.setAttribute('src',src);
+    }
     return;
    }
    if(preview.active)preview.embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
@@ -645,7 +706,8 @@
     video.pause();
    }
    if(this.ePreview && this.ePreview.embed!==source)this.stopEmbed();
-   for(const [frame,state] of this.frames)if(state.kind!=='flags' && frame.isConnected && frame.getRootNode()?.host!==source)this.command(frame,'pause');
+   for(const [frame,state] of this.frames)if(state.kind!=='flags' && frame.isConnected && frame.getRootNode()?.host!==source && frame.getRootNode()?.host?.getRootNode?.()?.host!==source)this.command(frame,'pause');
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(embed!==source && embed.dataset.rtEmbedUsed==='1' && this.feedEmbed(embed)){const frame=controlFrame(embed);if(frame && this.frameState(frame).kind==='flags'){delete embed.dataset.rtEmbedUsed;this.park(embed,frame);}}
    source.dispatchEvent(new this.win.Event('rt-media-exclusive',{bubbles:true,composed:true}));
   }
   block(player,video){

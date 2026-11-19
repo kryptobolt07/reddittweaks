@@ -82,7 +82,11 @@ Measured 2026-11-19 (r/india, desktop): Reddit renders a YouTube link post as `s
   - A provider player that starts by its own controls reports it, so Reddit videos and other players pause; anything else starting pauses these players.
   - Players without a protocol (RedGIFs and unknown providers) fall back to reloading with autoplay and mute flags.
   - Clicking into one marks it in use; opening its post moves the same iframe into the post's embed.
-  - Limits: Vimeo inside Reddit's `lite-vimeo` keeps Reddit's handling; not verified live.
+- **Vimeo** (Reddit's `lite-vimeo`, read from its module 2026-11-19: a click adds `player.vimeo.com/video/<id>?dnt=1`, with `autoplay=1` only when the element has `autoload` and `autoplay`): Autoplay and previews set both attributes, trigger its click and add `muted=1`, then drive it with Vimeo's messages (`play`, `pause`, `setVolume`); a Vimeo player you start by its own controls reports it, so the rest pause.
+- **Players with no controls** (RedGIFs: its embed is a `<video autoPlay loop muted playsInline>` with no message API, read from its embed scripts; unknown providers): they cannot be paused, so in the feed they are unloaded (`about:blank`, address kept) behind a play button whenever they are not the one chosen to play: Autoplay or a preview loads only the chosen one, the play button loads one you pick, and anything else starting unloads it again.
+- **Embedly players that never answer** `player.js` (a `getPaused` probe; 2.5 s): driven by flags instead, written into the provider's own address inside the wrapper (Twitch: `autoplay=true&muted=true`).
+- Twitch: Reddit's current layout shows Twitch clips as a link preview with an Open button, so there is no player in the feed to start.
+- Limits: not verified live; Embedly's player.js relay per provider is unknown until a player answers.
 
 ## Transitions
 
