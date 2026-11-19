@@ -84,6 +84,28 @@ test('embeds in Play only mode do not preview when video Autoplay is on',async t
  const control=await hoverController(p,{videoStart:'autoplay',embedStart:'play'});
  control.pickInView();assert.deepEqual(e.calls,[]);
 });
+test('a native comment GIF follows its mode and never loads or plays in a collapsed thread',async t=>{
+ const p=page(t,{detail:true}),thread=p.d.createElement('shreddit-comment');
+ thread.innerHTML='<details><figure class="rte-media"><shreddit-player gif></shreddit-player></figure></details>';
+ p.d.body.append(thread);
+ const details=thread.querySelector('details'),player=thread.querySelector('shreddit-player');
+ const media=player.attachShadow({mode:'open'}).appendChild(p.d.createElement('video'));
+ player.getBoundingClientRect=()=>({top:200,height:250});Object.defineProperty(media,'readyState',{value:1});
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ const control=new p.W.RTVideoControl.Videos({readSettings:async()=>({gifStart:'autoplay'}),observe:false});await control.ready;
+ control.pickInView();assert.equal(media.paused,true);
+ details.open=true;control.pickInView();assert.equal(media.paused,false);assert.equal(media.muted,true);
+ details.open=false;details.dispatchEvent(new p.W.Event('toggle'));assert.equal(media.paused,true);
+});
+test('a tapped direct comment video preview plays in place with sound',async t=>{
+ const p=page(t,{detail:true}),thread=p.d.createElement('shreddit-comment');
+ thread.innerHTML='<details open><figure class="rte-media"><video></video></figure></details>';p.d.body.append(thread);
+ const media=thread.querySelector('video');media.getBoundingClientRect=()=>({top:220,height:300});Object.defineProperty(media,'readyState',{value:1});
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ const control=new p.W.RTVideoControl.Videos({readSettings:async()=>({videoStart:'autoplay',videoUnmutePreview:true}),observe:false});await control.ready;
+ control.pickInView();assert.equal(media.paused,false);assert.equal(media.muted,true);
+ p.click(media);assert.equal(media.paused,false);assert.equal(media.muted,false);assert.equal(media.controls,true);
+});
 test('a playing video pauses once less than half of it is on screen, and stays paused',async t=>{
  const {W,player,video,io}=page(t);const v=new W.RTVideoControl.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await v.ready;await flush();
  assert.deepEqual([...io.options.threshold],[0,0.5,0.6,1]);video._playing=true;
