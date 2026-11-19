@@ -1,3 +1,15 @@
+# 0.49.0 preview
+
+- **Media settings:** separate start choices for Reddit videos, GIFs and embedded players on desktop and touch. Embeds inherit the existing video choice until configured. GIFs default to Autoplay, and their silent loops can run alongside other playback.
+- **Preview sound and continuation:** a YouTube tap can unmute the held player during the gesture. The sound request survives a late player connection or a fresh video in the post. Generic embeds continue to use their provider's controls where available. Players that can change sound only by reloading retain their position on a post handoff.
+- **Media in posts and comments:** use the same preview settings for native comment GIFs and videos. Closing a thread stops its media. Post playback can keep going off screen or pause and resume when it is visible again. Provider embeds without playback state may require manual resume.
+- **Filtered subreddit feeds:** explain when Reddit's native pager ends, and offer New or Top where available while retaining applied filters. Chrome CDP found 500 loaded cards and no pager at the end of the reported GeminiAI Videos feed.
+- **Profile switching:** keep discovery cards visible when a floating-chat link opens a different profile. Live Chrome CDP confirmed all 15 outgoing cards stayed visible until Reddit mounted the destination.
+- **Phone Feed options:** profile options open short drill-in pages with current values. Profile and subreddit sheets share grouped, multi-select Post type rows. Playing media retains its rounded corners during placement in a post.
+- **Version:** minor increment for per-media settings and comment media. Live Chrome CDP confirmed Reddit's native feed and comment markup, its detail visibility behavior and the reported feed ending. The packaged sheet was exercised with emulated touch in Chrome. Physical phone behavior, audible provider taps and the terminal network response remain unverified.
+
+- **Validation:** 1,988 tests passed in UTC. Firefox lint reported zero errors, notices and warnings. All 74 Chromium and 75 Firefox assets match the source, unpacked folders and ZIPs. Chromium SHA-256 `061277cac4dd9f53672f66e830d9c5fbf3737177bf099fcbfc940b6c0f9618cd`. Firefox SHA-256 `b78f819b843bb7b193883feecd6943752e1405cc704af5ebcd0e6f4aeb7e3af4`.
+
 # 0.48.1 preview
 
 - **Videos card:** options say only what they do, without referring to Reddit's own setting: our choices replace Reddit's autoplay on every layout. Feed videos start with **Autoplay, muted** (default), a muted preview on hover (computers) or on the video you stop scrolling on (phones), or **Only when I press Play**. On touch screens the menus are wider, with 44 px rows.
