@@ -22,7 +22,7 @@ function worker({jar=jarFor('alice'),privateJar=new Map(),focused={id:1,incognit
    async getAllCookieStores(){return [{id:'0',tabIds:[1,2]},{id:'1',tabIds:[3]}];},
    async remove({url,name,storeId}){pick(storeId).delete(name);return {url,name};},
    async set(details){assert.ok(details.url.startsWith('https://'),'cookie urls are https');const {url,storeId,...rest}=details;pick(storeId).set(details.name,{hostOnly:!details.domain,session:!details.expirationDate,...rest,domain:details.domain || new URL(url).hostname});return details;}},
-  tabs:{async query(){return tabs.map(t=>({...t}));},async reload(id){reloads.push(id);},async update(id,props){updates.push([id,props]);return {id,...props};},async create(props){created.push(props);return {id:9,...props};},onRemoved:{addListener(fn){hooks.removed=fn;}}}};
+  tabs:{async query(){return tabs.map(t=>({...t}));},async get(id){return {...(tabs.find(t=>t.id===id) || {id})};},async sendMessage(id,message){(hooks.reports||=[]).push([id,message.action]);},async reload(id){reloads.push(id);},async update(id,props){updates.push([id,props]);return {id,...props};},async create(props){created.push(props);return {id:9,...props};},onRemoved:{addListener(fn){hooks.removed=fn;}}}};
  const ctx=vm.createContext({chrome,URL,console,setTimeout,clearTimeout,structuredClone});
  for(const file of ['post-model.js','account-broker.js'])vm.runInContext(read(file),ctx);
  const reddit={id:'own',frameId:0,tab:{id:1},url:'https://www.reddit.com/user/alice/'},popup={id:'own',url:'chrome-extension://own/popup.html'};
@@ -110,6 +110,21 @@ test('signing in to a new account during Add account asks the page to save it, a
 test('any signed-in account Reddit reports is saved straight away, without opening the account menu',async()=>{
  const w=worker();const r=await w.send({action:'remember',owner:'t2_alice'});assert.equal(r.save,true,'the page is asked to read its name and save');
  await w.send({action:'save-current',...alice});assert.equal((await w.send({action:'remember',owner:'t2_alice'})).save,false,'saved accounts only refresh');
+});
+test('a popup that finds an unsaved session asks this window’s Reddit tabs to report it, and says it can retry',async()=>{
+ const w=worker({jar:jarFor('bob')});
+ w.values['rt-accounts-v1']={accounts:[{owner:'t2_alice',username:'alice',avatar:'',savedAt:1,expired:false,cookies:[...jarFor('alice').values()].filter(c=>SESSION.includes(c.name))}]};
+ const r=await w.send({action:'switch',owner:'t2_alice'},w.popup);await flush();
+ assert.equal(r.ok,false);assert.equal(r.unsaved,true);assert.deepEqual(w.hooks.reports,[[1,'report'],[2,'report']],'normal-window Reddit tabs only');
+ // The page reports Bob; the retry then switches.
+ await w.send({action:'remember',owner:'t2_bob'});await w.send({action:'save-current',...bob});
+ assert.equal((await w.send({action:'switch',owner:'t2_alice'},w.popup)).ok,true);assert.equal(w.jar.get('reddit_session').value,'reddit_session-alice');
+});
+test('on phones the popup tab acts on the cookie store of the tab it was opened from',async()=>{
+ const w=worker({privateJar:jarFor('carol')});
+ const fromPrivate={...w.popup,tab:{id:8,windowId:1,openerTabId:3}};
+ await w.send({action:'remember',owner:'t2_carol'},w.incognito);
+ const list=await w.send({action:'list'},fromPrivate);assert.equal(list.private,true,'the private tab’s store, not the popup tab’s');
 });
 test('on phones the popup opens as a tab and still manages accounts',async()=>{
  const w=worker();await w.send({action:'save-current',...alice});const asTab={...w.popup,tab:{id:7,windowId:1}};
@@ -222,6 +237,17 @@ test('an unsaved account is saved when the menu first shows; Reddit re-renders n
  d.querySelector('[data-rt-ui="accounts"]').remove();s.scan();await flush();s.scan();await flush();assert.equal(d.querySelectorAll('[data-rt-ui="accounts"]').length,1);
  await open(d);d.querySelector('[data-rt-ui="accounts-panel"]').remove();s.scan();await flush();assert.equal(d.querySelectorAll('[data-rt-ui="accounts-panel"]').length,1,'reopened after Reddit re-rendered');
  assert.equal(sent.filter(m=>m.action==='list').length,1,'a re-render reuses the list just read');
+});
+test('a page whose signed-in state arrives late still reports it, and reports again when it changes',async t=>{
+ const dom=new JSDOM('<div id="root"></div>',{url:'https://www.reddit.com/r/pics/',runScripts:'outside-only'});
+ const W=dom.window,sent=[];W.__rtAccountSwitcherTest=true;W.eval(read('account-switcher.js'));
+ const s=new W.RTAccountSwitcher.Switcher({send:async message=>{sent.push(message.action+':'+(message.owner ?? ''));return {ok:true};}});t.after(()=>{s.destroy();W.close();});
+ await s.ready;await flush();assert.deepEqual(sent,[],'nothing to report before Reddit’s app element exists');
+ W.document.body.insertAdjacentHTML('beforeend','<shreddit-app></shreddit-app>');s.scan();await flush();
+ assert.deepEqual(sent,['remember:'],'signed out so far');
+ const app=W.document.querySelector('shreddit-app');app.setAttribute('user-logged-in','true');app.setAttribute('logged-in-user-id','t2_alice');
+ s.scan();await flush();s.scan();await flush();
+ assert.deepEqual(sent,['remember:','remember:t2_alice'],'reported once Reddit says who is signed in');
 });
 test('a late SVG picture in Reddit’s account header reaches the saved account once',async t=>{
  const {d,s,sent}=await page(t);

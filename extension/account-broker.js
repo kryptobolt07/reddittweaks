@@ -17,6 +17,10 @@
 
  // ---- Cookie store of the asking tab or window: {id (undefined = the browser's default), private, windowId}. ----
  async function jarOf(sender){
+  // On phones the popup is a tab of its own: act on the store of the tab it was opened from.
+  if(sender?.tab && popupPage(sender) && Number.isInteger(sender.tab.openerTabId)){
+   try{const opener=await chrome.tabs.get(sender.tab.openerTabId);if(opener)return jarOf({tab:opener});}catch{}
+  }
   if(sender?.tab){
    const tab=sender.tab,priv=tab.incognito===true;
    if(typeof tab.cookieStoreId==='string')return {id:tab.cookieStoreId,private:priv,windowId:tab.windowId};
@@ -67,6 +71,10 @@
  // A signed-in session the switcher has not saved would be lost by clearing or replacing cookies.
  async function unsavedSession(s,owner){return await signedIn(s.jar) && !(ownerOK(owner) && known(s,owner));}
  const UNSAVED='Reddit hasn’t reported the account you’re signed in to yet. Reload a Reddit tab, then try again.';
+ // Asks the Reddit tabs of this cookie store to report who is signed in (they answer through 'remember' and
+ // 'save-current', queued after the current action), so the popup can retry instead of failing.
+ async function askToReport(jar){for(const tab of await redditTabs(jar))chrome.tabs.sendMessage?.(tab.id,{scope:'rt-accounts',action:'report'})?.catch?.(()=>{});}
+ const unsaved=jar=>{askToReport(jar).catch(()=>{});return {ok:false,error:UNSAVED,unsaved:true};};
  const view=(s,current)=>{
   const own=s.accounts.map(a=>({...a,private:Boolean(s.jar?.private)})),rest=s.shared.filter(a=>!s.accounts.some(b=>b.owner===a.owner)).map(a=>({...a,private:false}));
   return [...own,...rest].map(a=>({owner:a.owner,username:a.username,avatar:a.avatar || '',savedAt:a.savedAt,expired:a.expired===true,current:a.owner===current,private:a.private}));
@@ -116,7 +124,7 @@
   if(message.action==='anonymous'){
    const from=String(message.from || s.current || '').toLowerCase();
    if(ownerOK(from) && redditPage(sender))await store(s,{owner:from,username:message.username,avatar:message.avatar});
-   if(await unsavedSession(s,from))return {ok:false,error:UNSAVED};
+   if(await unsavedSession(s,from))return unsaved(jar);
    const before=await snapshot(jar);
    try{await clearSession(jar,AUTH);s.current='';s.pending='';s.adding=null;s.anonymous=true;await save(s);}catch(error){try{await apply(jar,before);}catch{}throw error;}
    await reloadAll(jar);
@@ -124,7 +132,7 @@
   }
   if(message.action==='switch'){
    const target=known(s,owner);if(!target)throw Error('That account is not saved.');if(target.expired)return {ok:false,expired:true,error:'Sign in to this account again.'};
-   const from=String(message.from || s.current || '').toLowerCase();if(from!==owner && await unsavedSession(s,from))return {ok:false,error:UNSAVED};
+   const from=String(message.from || s.current || '').toLowerCase();if(from!==owner && await unsavedSession(s,from))return unsaved(jar);
    if(ownerOK(from) && from!==owner && s.accounts.some(a=>a.owner===from))await store(s,{owner:from});
    await apply(jar,target.cookies);s.pending=owner;s.current=owner;s.anonymous=false;s.adding=null;await save(s);
    await reloadAll(jar);
@@ -134,7 +142,7 @@
    const here=ownerOK(owner) && redditPage(sender)?owner:s.current;
    if(ownerOK(owner) && redditPage(sender))await store(s,{owner,username:message.username,avatar:message.avatar});
    else if(ownerOK(s.current) && s.accounts.some(a=>a.owner===s.current))await store(s,{owner:s.current});
-   if(await unsavedSession(s,here))return {ok:false,error:UNSAVED};
+   if(await unsavedSession(s,here))return unsaved(jar);
    const from=s.anonymous?'':here;
    await clearSession(jar,AUTH);s.current='';s.pending='';
    // Other tabs are not reloaded: simultaneous reloads raced the sign-in page for fresh cookies.

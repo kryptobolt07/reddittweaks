@@ -4,7 +4,17 @@
  'use strict';
  const card=document.getElementById('accounts-home');if(!card)return;
  const list=card.querySelector('#account-list'),add=card.querySelector('#add-account'),anonymous=card.querySelector('#browse-signed-out'),status=card.querySelector('#accounts-status');let signedOut=false;
- const send=message=>Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-accounts',...message})).then(r=>r || {ok:false,error:'Accounts are unavailable.'},error=>({ok:false,error:error?.message || 'Accounts are unavailable.'}));
+ const ask=message=>Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-accounts',...message})).then(r=>r || {ok:false,error:'Accounts are unavailable.'},error=>({ok:false,error:error?.message || 'Accounts are unavailable.'}));
+ // A signed-in session the worker has not saved yet: it asks the open Reddit tabs to report it; try again shortly.
+ const send=async message=>{
+  let result=await ask(message);
+  for(let attempt=0;attempt<3 && result?.unsaved;attempt++){
+   say('Checking which account Reddit is signed in to…');
+   await new Promise(resolve=>setTimeout(resolve,700*(attempt+1)));
+   result=await ask(message);
+  }
+  return result;
+ };
  const say=(text,error=false)=>{status.textContent=text;status.classList.toggle('error',error);};
  const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
  const busy=on=>{for(const b of card.querySelectorAll('button'))b.disabled=on;};

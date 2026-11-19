@@ -49,13 +49,21 @@
    this.onPress=event=>{if(event.target?.closest?.('#expand-user-drawer-button'))for(const menu of document.querySelectorAll(MENUS))this.closePanel(menu);};
    this.onKey=event=>{if(event.key!=='Escape')return;const menu=[...document.querySelectorAll(MENUS)].find(m=>this.panels.get(m)?.open);if(!menu)return;event.preventDefault();event.stopPropagation();this.closePanel(menu,true);};
    document.addEventListener('pointerdown',this.onPress,true);document.addEventListener('keydown',this.onKey,true);
-   this.ready=this.remember().then(()=>{this.remembered=true;this.scan();});
+   this.ready=this.remember().then(()=>this.scan());
   }
+  // Every signed-in page refreshes a saved account's session (rotating tokens) and settles a pending switch; an
+  // account not saved yet is saved now, so switching works straight away. Reddit's app element (and its signed-in
+  // attributes) can arrive after this script on slower phones: until it has reported, each scan tries again, and a
+  // change of account or sign-in state reports again.
   remember(){
-   const owner=signedIn();if(owner===null)return Promise.resolve();
-   // Every signed-in page refreshes a saved account's session (rotating tokens) and settles a pending switch; an
-   // account not saved yet is saved now, so switching works straight away.
-   return this.send({action:'remember',owner}).then(result=>{this.anonymous=result?.anonymous===true;return result?.save?this.saveNew(owner):result;});
+   const owner=signedIn();if(owner===null || this.remembering)return this.remembering || Promise.resolve(false);
+   this.remembering=this.send({action:'remember',owner}).then(async result=>{
+    this.anonymous=result?.anonymous===true;
+    if(result?.save)await this.saveNew(owner);
+    if(result?.ok!==false){this.remembered=true;this.reported=owner;}
+    return true;
+   }).finally(()=>{this.remembering=null;});
+   return this.remembering;
   }
   // Read this account's own name from Reddit once and save it.
   async saveNew(owner){
@@ -67,6 +75,7 @@
   }
   schedule(){if(this.queued || this.dead)return;this.queued=true;queueMicrotask(()=>{this.queued=false;if(!this.dead)this.scan();});}
   scan(){
+   if(!this.remembering && (!this.remembered || this.reported!==signedIn()) && signedIn()!==null)this.remember().then(reported=>{if(reported && !this.dead)this.schedule();});
    const owner=signedIn(),menus=[...document.querySelectorAll(MENUS)];
    if(owner && this.remembered){
     const avatar=avatarOf(document.getElementById('expand-user-drawer-button')) ||
@@ -229,5 +238,13 @@
   }
  }
  globalThis.RTAccountSwitcher=Object.freeze({Switcher,profileRow});
- if(globalThis.chrome?.runtime?.id && !globalThis.__rtAccountSwitcherTest)new Switcher();
+ if(globalThis.chrome?.runtime?.id && !globalThis.__rtAccountSwitcherTest){
+  const switcher=new Switcher();
+  // The worker asks open Reddit tabs to report who is signed in when the popup finds a session it has not saved.
+  chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+   if(message?.scope!=='rt-accounts' || message.action!=='report' || sender?.id!==chrome.runtime.id)return;
+   switcher.remembered=false;
+   switcher.remember().then(()=>respond({ok:true}),()=>respond({ok:false}));return true;
+  });
+ }
 })();
