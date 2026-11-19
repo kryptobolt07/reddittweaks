@@ -265,9 +265,10 @@ test('the phone sheet gets the same row; signed out it follows Log In when accou
  const empty=new none.RTAccountSwitcher.Switcher({send:async m=>m.action==='list'?{ok:true,anonymous:false,accounts:[]}:{ok:true}});await empty.ready;await flush();assert.equal(none.document.querySelector('[data-rt-ui="accounts"]'),null,'nothing saved: only Reddit’s Log In');empty.destroy();
  const failed=await page(t,{list:()=>({ok:false,error:'Worker unavailable'})});assert.equal(entry(failed.d).querySelector('.text-caption-1').textContent,'Worker unavailable');
 });
-async function popupPage(t,{accounts=[{owner:'t2_alice',username:'alice',avatar:'',expired:false,current:true},{owner:'t2_bob',username:'bob',avatar:'https://styles.redditmedia.com/b.png',expired:false,current:false},{owner:'t2_carol',username:'carol',avatar:'',expired:true,current:false}],fail=''}={}){
+async function popupPage(t,{accounts=[{owner:'t2_alice',username:'alice',avatar:'',expired:false,current:true},{owner:'t2_bob',username:'bob',avatar:'https://styles.redditmedia.com/b.png',expired:false,current:false},{owner:'t2_carol',username:'carol',avatar:'',expired:true,current:false}],fail='',hideHome=false}={}){
  const dom=new JSDOM(fs.readFileSync('extension/popup.html','utf8'),{url:'https://extension.test/popup.html',runScripts:'outside-only'}),W=dom.window,sent=[];t.after(()=>W.close());
  W.chrome={runtime:{async sendMessage(m){sent.push(JSON.parse(JSON.stringify(m)));if(m.scope!=='rt-accounts')return {ok:true};if(m.action==='list')return fail?{ok:false,error:fail}:{ok:true,accounts};if(m.action==='remove'){accounts=accounts.filter(a=>a.owner!==m.owner);return {ok:true,accounts};}return {ok:true};}}};
+ W.document.getElementById('panel-home').hidden=hideHome;
  W.eval(read('popup-accounts.js'));await flush();return {W,d:W.document,sent};
 }
 const popupRows=d=>[...d.querySelectorAll('#account-list > li')].map(li=>li.querySelector('.account-name').textContent+'|'+li.querySelector('.account-caption').textContent+'|'+[...li.querySelectorAll('button')].map(b=>b.textContent).join(','));
@@ -278,6 +279,15 @@ test('the popup Accounts card lists saved accounts with Switch, Sign in again an
  d.querySelector('#account-list > li:nth-child(2) .account-switch').click();await flush();assert.deepEqual(sent.find(m=>m.action==='switch'),{scope:'rt-accounts',action:'switch',owner:'t2_bob'});assert.match(d.querySelector('#accounts-status').textContent,/Reddit tabs reload/);
  d.querySelector('#account-list > li:nth-child(3) .account-switch').click();await flush();assert.equal(sent.at(-1).action,'add');
  d.querySelector('#add-account').click();await flush();assert.equal(sent.at(-1).action,'add');
+});
+test('the popup waits to look up accounts until Home first opens',async t=>{
+ const {d,sent}=await popupPage(t,{hideHome:true}),home=d.getElementById('panel-home');
+ assert.deepEqual(sent,[]);
+ home.hidden=false;await flush();
+ assert.equal(sent.filter(m=>m.action==='list').length,1);
+ assert.match(d.getElementById('account-list').textContent,/u\/alice/);
+ home.hidden=true;await flush();home.hidden=false;await flush();
+ assert.equal(sent.filter(m=>m.action==='list').length,1);
 });
 test('the popup offers Browse signed out (asks twice) and labels private-window accounts',async t=>{
  const {d,sent}=await popupPage(t,{accounts:[{owner:'t2_alice',username:'alice',avatar:'',expired:false,current:true},{owner:'t2_carol',username:'carol',avatar:'',expired:false,current:false,private:true}]});

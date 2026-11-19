@@ -13,7 +13,14 @@ test('without an active Reddit identity the clear button stays disabled',async t
  const s=await setup(t,{active:false}),d=s.W.document;assert.equal(d.querySelector('#clear-removal-history').disabled,true);
 });
 test('clearing removal history stays in the Your removed content settings, needs a second click and identifies the current account scope',async t=>{
- const s=await setup(t),d=s.W.document,b=d.querySelector('#clear-removal-history');assert.ok(b.closest('[aria-labelledby="removal-settings-heading"]'),'kept with the removal settings');assert.equal(b.disabled,false);b.click();assert.equal(s.calls.some(m=>m.scope==='rt-removal'&&m.action==='clear'),false);assert.match(b.textContent,/Confirm/);b.click();await settle();assert.ok(s.calls.some(m=>m.scope==='rt-removal'&&m.action==='clear'&&m.tabId===1&&m.owner==='t2_self'));
+ const s=await setup(t),d=s.W.document,b=d.querySelector('#clear-removal-history');assert.ok(b.closest('[aria-labelledby="removal-settings-heading"]'),'kept with the removal settings');
+ assert.equal(b.disabled,true);
+ d.querySelector('#tab-settings').click();await settle();
+ assert.deepEqual(s.calls.filter(m=>m.scope==='rt-removal').map(m=>m.action),['identity']);assert.equal(b.disabled,false);
+ b.click();assert.equal(s.calls.some(m=>m.action==='clear'),false);assert.match(b.textContent,/Confirm/);
+ d.querySelector('#tab-home').click();d.querySelector('#tab-settings').click();await settle();
+ assert.match(b.textContent,/Clear this account/,'reopening Settings requires a new confirmation');
+ b.click();b.click();await settle();assert.ok(s.calls.some(m=>m.scope==='rt-removal'&&m.action==='clear'&&m.tabId===1&&m.owner==='t2_self'));
 });
 test('History length uses a themed radio menu and saves choices while preserving other settings',async t=>{
  const s=await setup(t),d=s.W.document,b=d.querySelector('#history-limit');assert.equal(b.tagName,'BUTTON');assert.equal(b.getAttribute('aria-haspopup'),'menu');assert.equal(b.closest('.setting-row').dataset.requires,'post-discovery');assert.equal(d.querySelector('select#history-limit'),null);b.click();const menu=d.getElementById(b.getAttribute('aria-controls')),options=[...menu.querySelectorAll('[role="menuitemradio"]')];assert.equal(menu.hidden,false);assert.deepEqual(options.map(o=>o.dataset.value),['20','100','500','1000','5000','0']);assert.equal(options[0].getAttribute('aria-checked'),'true');options[5].click();await settle();assert.equal(s.storage['rt-settings-v1'].historyLimit,0);assert.match(b.textContent,/No limit/);assert.equal(menu.hidden,true);b.click();options[3].click();await settle();assert.equal(s.storage['rt-settings-v1'].historyLimit,1000);assert.equal(s.storage['rt-settings-v1'].postDiscovery,true);

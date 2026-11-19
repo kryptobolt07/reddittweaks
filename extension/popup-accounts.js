@@ -64,5 +64,12 @@
   clearTimeout(armed);anonymous.classList.remove('confirming');busy(true);say('Signing Reddit out here…');const r=await send({action:'anonymous'});busy(false);
   if(r?.ok){say('Browsing Reddit signed out. Your accounts stay saved; switch back any time.');refresh();}else{anonymous.textContent='Anonymous browsing';say(r?.error || 'Could not sign out here.',true);}
  });
- refresh();
+ const home=card.closest('#panel-home');
+ if(home?.hidden){
+  const observer=new MutationObserver(()=>{
+   if(home.hidden)return;
+   observer.disconnect();refresh();
+  });
+  observer.observe(home,{attributes:true,attributeFilter:['hidden']});
+ }else refresh();
 })();

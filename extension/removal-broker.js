@@ -22,9 +22,11 @@
   if(sender.id!==chrome.runtime.id)throw Error('Invalid extension sender.');
   // The popup is a panel on desktop and a tab on phones; its extension URL identifies it either way.
   const popup=(()=>{try{const u=new URL(sender.url),own=new URL(chrome.runtime.getURL('popup.html'));return u.origin===own.origin && u.pathname===own.pathname;}catch{return false;}})();
-  if(['summary','seen','clear'].includes(message.action)){
+  if(['identity','summary','seen','clear'].includes(message.action)){
    if(!popup || !Number.isInteger(message.tabId))throw Error('Open Reddit Tweaks to manage removal history.');
-   const me=await context(message.tabId);if(message.action!=='summary' && message.owner!==me.owner)throw Error('The signed-in account changed. Reopen Reddit Tweaks.');let value;
+   const me=await context(message.tabId);
+   if(message.action==='identity')return {ok:true,value:{owner:me.owner,username:me.username}};
+   if(message.action!=='summary' && message.owner!==me.owner)throw Error('The signed-in account changed. Reopen Reddit Tweaks.');let value;
    if(message.action==='clear'){await store.clear(me.owner);value=await store.read(me.owner,me.username);for(const [id,bound] of bindings)if(bound.owner===me.owner)await chrome.tabs.sendMessage(id,{scope:'rt-removal',action:'cleared',owner:me.owner},{frameId:0}).catch(()=>{});}
    else value=message.action==='seen'?await store.seen(me.owner,me.username):await store.read(me.owner,me.username);
    await update(me.owner,value);if((await context(message.tabId)).owner!==me.owner)throw Error('The signed-in account changed. Reopen Reddit Tweaks.');return {ok:true,value};
