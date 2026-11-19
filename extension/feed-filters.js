@@ -63,8 +63,8 @@
   // An SVG glyph for a known icon name (20x20 viewBox), or the GIF tag. Null for unknown names.
   function svgIcon(name,size=20){
     if(name==='gif'){const tag=document.createElement('span');tag.className='rt-gif-tag';tag.dataset.icon='gif';tag.setAttribute('aria-hidden','true');tag.textContent='GIF';return tag;}
-    const paths=iconPaths[name];if(!paths)return null;
-    const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('fill','currentColor');s.setAttribute('width',String(size));s.setAttribute('height',String(size));
+    const nsfw=name==='nsfw-fill-12',paths=nsfw?globalThis.RTPostModel?.NSFW_ICON_PATH:iconPaths[name];if(!paths)return null;
+    const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox',nsfw?'0 0 12 12':'0 0 20 20');s.setAttribute('fill','currentColor');s.setAttribute('width',String(size));s.setAttribute('height',String(size));
     if(name==='sort'){s.setAttribute('fill','none');s.setAttribute('stroke','currentColor');s.setAttribute('stroke-width','1.8');s.setAttribute('stroke-linejoin','round');s.setAttribute('stroke-linecap','round');}
     s.setAttribute('icon-name',name);s.setAttribute('aria-hidden','true');s.dataset.icon=name;s.dataset.nativeIcon='true';s.classList.add('rt-activity-icon');
     for(const d of [].concat(paths)){const path=document.createElementNS(SVG,'path');path.setAttribute('d',d);if(name==='calendar' || name==='archive')path.setAttribute('fill-rule','evenodd');s.append(path);}

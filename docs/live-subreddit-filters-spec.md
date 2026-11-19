@@ -18,6 +18,10 @@ Flair choices come from native links and loaded cards, with a short bounded list
 
 On r/AskIndia, Reddit uses a `shreddit-post-flair` link with a `.flair-content` label inside a colored pill. Reuse that pill's foreground, background and Reddit-hosted flair emoji in the picker. A community's own flair navigation takes priority over a pill on an individual post. Both desktop menus and the phone sheet keep their existing controls and use a tag icon for Flair. Cache the observed styles per community for search. Labels with no observed style remain available as plain choices.
 
+The Flair panel also shows Reddit's NSFW content tag as an independent toggle. A subreddit feed uses the native post labels on loaded cards. Scoped search uses Reddit's `nsfw:yes` operator and keeps the current Safe Search setting. The NSFW chip can be removed without changing the community flair or other filters.
+
+The applied chip and the current-value summaries reuse the same styled flair as the picker. Live r/GTA6 has a transparent bordered flair whose displayed content is three images. Its encoded label stays in the URL and accessible name while the chip shows the images.
+
 Chrome CDP on the existing mobile Videos feed for r/GeminiAI found 500 cards, 477 hidden by the filter, and no native continuation or virtualizer placeholders at the bottom. A separate capture recorded five HTTP 200 continuation responses with another pager in each response. The terminal response and an extension-disabled scroll to the same depth were not captured.
 
 Live Brave verification used the feature source temporarily in one owned Reddit tab. At desktop width the dropdown was 360px wide, 8px below its trigger, with an 8px radius and the shared icons. At 390px emulated width the sheet filled the viewport width and met its bottom edge. A live feed appended posts in `faceplate-batch` wrappers. The Videos and Polls filters reached those cards. The no-match pager paused after two pages, and pressing Load more advanced from 102 to 152 loaded posts before pausing again. Empty Enter opened native search with seven cards and a blank keyword field. The Past hour check rejected four older cards in a live New search. Firefox and physical touch behavior were not measured live.
@@ -27,6 +31,8 @@ On Media search, the Media type submenu lets users combine Photos, Videos, GIFs 
 ## Sort in subreddit feed options
 
 Live Reddit renders native sorts and Top time ranges as separate `shreddit-sort-dropdown` controls with `feed-sort-change` and `feed-time-sort-change`. The main sort's links arrive in Reddit's initial markup. Use those links inside desktop Sort and the phone sheet. The active sort and time range use Reddit's selected labels. Preserve flair, the local type filter and feed layout on sort navigation. Hide those identified controls from the first paint on managed feed routes. Return a control to Reddit if its menu cannot be populated. Search keeps its own native Sort control. The independent feed View control stays available.
+
+Top opens the time-range page before committing a sort on desktop and phone. Reuse the native range links when rendered. From a different sort, use the six choices measured on Reddit's subreddit Top menu (Now, Today, This Week, This Month, This Year, All Time) with the current community's native Top link. Choosing a range navigates exactly once. Back returns to Sort and preserves the current feed URL.
 
 | Transition | Acceptance |
 |---|---|

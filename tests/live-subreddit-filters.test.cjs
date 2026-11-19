@@ -9,7 +9,7 @@ const card=(type,flair='')=>'<article><shreddit-post post-type="'+type+'"><span 
 const feed=()=>'<main><div><shreddit-sort-dropdown></shreddit-sort-dropdown></div><shreddit-feed reload-url="/svc/shreddit/community-more-posts/hot/?name=Example">'+card('video','News')+card('text','Q&A')+'<faceplate-partial slot="load-after"></faceplate-partial></shreddit-feed></main>';
 function setup(t,path='/r/Example/',markup=feed()){
  const {window:W}=new JSDOM('<body>'+markup+'</body>',{url:'https://www.reddit.com'+path,runScripts:'outside-only'});
- for(const name of ['feed-filters.js','feed-sheet.js','live-subreddit-filters.js'])W.eval(read(name));
+ for(const name of ['post-model.js','feed-filters.js','feed-sheet.js','live-subreddit-filters.js'])W.eval(read(name));
  const targets=[],api=W.RTLiveSubredditFilters;
  const controller=new api.Controller({navigate:url=>targets.push(String(url))});t.after(()=>{controller.destroy();W.close();});
  return {W,D:W.document,api,controller,targets};
@@ -261,6 +261,46 @@ test('the phone Flair page and search reuse observed community styling across na
   assert.equal(D.querySelector('[data-rt-flair-row="Q&A"] .flair-content'),null,'plain cached labels remain usable');
  } finally {search.destroy();}
 });
+test('Flair can narrow the feed to Reddit’s NSFW tag without removing the community flair or type',t=>{
+ const markup=feed().replace('post-type="video"','post-type="video" nsfw').replace('</shreddit-feed>',card('video','SFW')+card('image','NSFW').replace('post-type="image"','post-type="image" nsfw')+'</shreddit-feed>');
+ const {D,W}=setup(t,'/r/Example/?f=flair_name%3A%22News%22&rt_type=video',markup);
+ D.querySelector('[data-rt-community-options]').click();
+ D.querySelector('[aria-label="Flair"]').click();
+ const row=D.querySelector('[aria-label="NSFW"]');
+ assert.ok(row.querySelector('[icon-name="nsfw-fill-12"]'));
+ assert.equal(row.getAttribute('role'),'menuitemcheckbox');
+ row.click();
+ const filtered=()=>[...D.querySelectorAll('article:not([data-rt-community-filtered]) shreddit-post')].map(p=>p.getAttribute('post-type')+p.hasAttribute('nsfw'));
+ assert.deepEqual(filtered(),['videotrue']);
+ let url=new URL(W.location);assert.equal(url.searchParams.get('rt_nsfw'),'1');
+ D.querySelector('[data-rt-chip-remove="nsfw"]').click();
+ url=new URL(W.location);assert.equal(url.searchParams.has('rt_nsfw'),false);
+ assert.equal(url.searchParams.get('f'),'flair_name:"News"');assert.equal(url.searchParams.get('rt_type'),'video');
+ assert.deepEqual(filtered(),['videotrue','videofalse']);
+});
+test('scoped search NSFW uses Reddit’s query operator without changing Safe Search',t=>{
+ const {D,targets}=setup(t,'/r/Example/search/?q=words+flair%3A%22News%22&type=posts&sort=top&t=week&include_over_18=off',searchPage);
+ D.querySelector('[data-rt-community-search="flair"]').click();
+ D.querySelector('[aria-label="NSFW"]').click();
+ const url=new URL(targets.at(-1));
+ assert.equal(url.searchParams.get('q'),'words nsfw:yes flair:"News"');
+ assert.equal(url.searchParams.get('include_over_18'),'off');assert.equal(url.searchParams.get('t'),'week');
+});
+test('applied emoji-only flair keeps its native pill in the chip and menu summaries',t=>{
+ const name=':ME1::ME2::ME3:',path='/r/Example/?f='+encodeURIComponent('flair_name:'+JSON.stringify(name));
+ const images=['ME1','ME2','ME3'].map(value=>'<img class="flair-image" alt=":'+value+':" src="https://emoji.redditmedia.com/example/'+value+'">').join('');
+ const native='<aside><a href="'+path+'"><span class="text-global-white" style="background-color:#882266"><span class="flair-content">'+images+'</span></span></a></aside>';
+ const {D,W}=setup(t,path,feed()+native);
+ const chip=D.querySelector('[data-rt-chip="flair"]');
+ assert.equal(chip.querySelectorAll('.flair-content img').length,3);assert.doesNotMatch(chip.textContent,/ME1/);
+ D.querySelector('[data-rt-community-options]').click();
+ assert.equal(D.querySelector('[aria-label="Flair"] [data-rt-menu-value]').querySelectorAll('img').length,3);
+ D.querySelector('[data-rt-community-options]').click();
+ W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ D.querySelector('[data-rt-community-options]').click();
+ const mobile=[...D.querySelectorAll('.rt-fsheet-row')].find(row=>row.querySelector('.rt-fsheet-label')?.textContent==='Flair');
+ assert.equal(mobile.querySelectorAll('.rt-fsheet-sub img').length,3);assert.doesNotMatch(mobile.textContent,/ME1/);
+});
 test('Media types can be selected together without hiding the native pager or clearing other filters',t=>{
  const tile=(id,html)=>'<search-telemetry-tracker view-events="search/view/post" id="'+id+'"><div data-id="search-media-post-unit">'+html+'</div></search-telemetry-tracker>';
  const markup=searchPage.replace('</main>','<search-media-feed>'+tile('photo','<img data-post-media-primary src="https://i.redd.it/photo.png">')+tile('video','<button data-testid="videoIcon"></button>')+tile('gif','<img data-post-media-primary src="https://i.redd.it/clip.gif">')+tile('gallery','<a href="/gallery/abc"></a>')+'</search-media-feed><faceplate-partial loading="lazy" src="/svc/shreddit/r/Example/search/?after=a"></faceplate-partial></main>');
@@ -338,7 +378,8 @@ test('desktop Feed options moves native sorting and Top time ranges into Sort, p
  root.querySelector('[aria-label="Sort"]').click();
  assert.equal(root.querySelector('[aria-label="Top"]').getAttribute('aria-checked'),'true');
  assert.equal(root.querySelector('[aria-label="Other"]'),null);
- root.querySelector('[aria-label="Time range"]').click();
+ root.querySelector('[aria-label="Top"]').click();
+ assert.equal(targets.length,0);
  assert.equal(root.querySelector('[aria-label="This Week"]').getAttribute('aria-checked'),'true');
  root.querySelector('[aria-label="Today"]').click();
  const url=new W.URL(targets.at(-1));
@@ -349,6 +390,25 @@ test('desktop Feed options moves native sorting and Top time ranges into Sort, p
  assert.equal(url.searchParams.get('feedViewType'),'compactView');
  controller.setEnabled(false);
  assert.equal(D.querySelectorAll('['+replaced+']').length,0);
+});
+
+for(const phone of [false,true])test((phone?'phone':'desktop')+' Top opens all native ranges before the sort changes',t=>{
+ const markup=sortedFeed().replace('>Top</span>','>New</span>').replace(/<shreddit-sort-dropdown sort-event="feed-time-sort-change">.*?<\/shreddit-sort-dropdown>/,'');
+ const {D,W,targets}=setup(t,'/r/Example/new/?rt_type=video&f=flair_name%3A%22News%22&feedViewType=compactView',markup);
+ if(phone)W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ D.querySelector('[data-rt-community-options]').click();
+ const root=D.querySelector(phone?'.rt-community-sheet':'.rt-community-feed-menu');
+ const row=name=>phone?[...root.querySelectorAll('.rt-fsheet-row')].find(r=>r.querySelector('.rt-fsheet-label').textContent===name):root.querySelector('[aria-label="'+name+'"]');
+ row(phone?'Sort by':'Sort').click();row('Top').click();
+ assert.equal(targets.length,0,'no navigation before choosing the period');
+ for(const choice of ['Now','Today','This Week','This Month','This Year','All Time'])assert.ok(row(choice),choice);
+ root.querySelector(phone?'.rt-fsheet-back':'[data-rt-sub-back]').click();
+ assert.ok(row('New'));assert.equal(targets.length,0);
+ row('Top').click();row('This Month').click();
+ assert.equal(targets.length,1);
+ const url=new W.URL(targets[0]);
+ assert.equal(url.pathname,'/r/Example/top/');assert.equal(url.searchParams.get('t'),'month');
+ assert.equal(url.searchParams.get('rt_type'),'video');assert.equal(url.searchParams.get('f'),'flair_name:"News"');assert.equal(url.searchParams.get('feedViewType'),'compactView');
 });
 
 test('phone Feed options lists Reddit’s existing sort choices and links to the new sort without losing filters',t=>{
