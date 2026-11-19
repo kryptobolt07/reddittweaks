@@ -1,3 +1,14 @@
+# 0.50.0 preview
+
+- **Profile switching:** keep the current activity visible until the destination's initial batch is ready. Back restores the feed and reading position even if Reddit rebuilds the page.
+- **Community filters:** Top opens Reddit's time ranges before changing the sort. Flair uses the community's colors and emoji in the picker, applied chip and menu summary. NSFW is an independent filter and preserves the current Safe Search setting.
+- **Custom feeds:** use the subreddit filter controls on custom feeds and their results. Pressing Enter in an empty scoped search opens Reddit's native custom-feed results.
+- **Mobile:** scrolling up on Home reveals a compact navigation row with Reddit's existing Search and account actions. The Accounts sheet stays within the viewport and returns focus to the drawer when dismissed.
+- **Embedded media:** send the audio request on the tap and after a controllable player arrives in the post. Scrolling past a preview unmuted in the feed restores its Play overlay. Controllable players pause in place. RedGIFs and non-interactive Twitch clips use their own audio controls and start a new loop after being stopped offscreen. Feed preview images warm ahead of scrolling.
+- **Deleted authors:** retain exact Arctic Shift author matches through Reddit's credit-line updates and recover them on native cards in a filtered subreddit feed. Following a restored name shows Reddit's deletion label on the outgoing view.
+- **Version:** minor increment for mobile Home navigation and the NSFW filter.
+- **Validation:** 2,027 tests passed in UTC. Firefox lint reported zero errors, notices and warnings. All 75 Chromium and 76 Firefox assets match the source, unpacked folders and ZIPs. Live Chrome verified the linked custom feed and empty scoped search. Audio on live provider embeds and the full profile Back replay on this build remain unverified. Chromium SHA-256 `54e28bf3585da126a219f942bd991aef981e24c9d316d15b0c76671bcd81421d`. Firefox SHA-256 `8e8ee927b9d251f1c1d49e1c4b9f7aa1b31a5355b7427e05ab228a4e4d824689`.
+
 # 0.49.0 preview
 
 - **Media settings:** separate start choices for Reddit videos, GIFs and embedded players on desktop and touch. Embeds inherit the existing video choice until configured. GIFs default to Autoplay, and their silent loops can run alongside other playback.
