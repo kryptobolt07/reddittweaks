@@ -231,6 +231,9 @@
   // card above the visible feed, then takes the post's embed, so the post never shows its thumbnail or play button.
   // Other providers (Streamable, Twitch, Dailymotion, …): Reddit renders their oEmbed iframe directly in the embed.
   const rawFrame=embed=>{const frame=embed?.shadowRoot?.querySelector?.('iframe');return frame && !frame.closest('lite-youtube,lite-vimeo')?frame:null;};
+  // Vimeo: Reddit's lite-vimeo makes its player inside its own shadow root once started.
+  const vimeoLite=embed=>embed?.shadowRoot?.querySelector?.('lite-vimeo') || null;
+  const playerFrame=embed=>rawFrame(embed) || vimeoLite(embed)?.shadowRoot?.querySelector?.('iframe') || null;
   function releaseEmbed(){
     const held=heldEmbed;if(!held)return;
     heldEmbed=null;markMove();
@@ -240,7 +243,7 @@
   }
   const restoreStyle=(node,value)=>{if(value===null)node.removeAttribute('style');else node.setAttribute('style',value);};
   document.addEventListener('rt-hold-feed-embed',event=>{
-    const embed=event.target,lite=liteOf(embed),ifr=lite?lite.querySelector('iframe'):rawFrame(embed),player=ytPlayers.get(embed);
+    const embed=event.target,lite=liteOf(embed),ifr=lite?lite.querySelector('iframe'):playerFrame(embed),player=ytPlayers.get(embed);
     if(heldEmbed || !ifr || (lite && !player) || !document.body || typeof document.body.moveBefore!=='function')return;
     const {left,top,width,height}=ifr.getBoundingClientRect();
     if(!width || !height)return;
@@ -260,9 +263,11 @@
   document.addEventListener('rt-place-held-embed',event=>{
     const embed=event.target,id=route()?.id,held=heldEmbed;
     if(!held || !id || held.id!=='t3_'+id || embed.closest('shreddit-post')?.id!==held.id || embed.closest('shreddit-feed'))return;
-    const lite=held.lite?liteOf(embed):null,target=held.lite?null:rawFrame(embed);
-    if(held.lite?!lite:!target)return;
-    const to=(lite || target).getBoundingClientRect();if(!to.width || !to.height)return;
+    const lite=held.lite?liteOf(embed):null,target=held.lite?null:playerFrame(embed);
+    // A post whose lite-vimeo has not made its player yet: the moving player covers it.
+    const cover=!held.lite && !target?vimeoLite(embed):null;
+    if(held.lite?!lite:!(target || cover))return;
+    const to=(lite || target || cover).getBoundingClientRect();if(!to.width || !to.height)return;
     heldEmbed=null;markMove();
     if(lite){
       lite.classList.add('lyt-activated');
@@ -276,10 +281,14 @@
       restoreStyle(held.lite,held.liteStyle);
       held.lite.classList.remove('lyt-activated');delete held.lite.playerPromise;
       held.embed.hasActivatedYouTubePlayer=false;ytPlayers.delete(held.embed);
-    }else{
+    }else if(target){
       // The post's own iframe of the same video gives way to the one already playing.
       movePlayer(target.parentNode,held.ifr,target);target.remove();
       restoreStyle(held.ifr,held.style);
+    }else{
+      if(getComputedStyle(embed).position==='static')embed.style.position='relative';
+      cover.style.visibility='hidden';
+      movePlayer(embed.shadowRoot,held.ifr);
     }
     held.stage.remove();
     const from=held.rect,box=held.ifr.getBoundingClientRect(),aspect=lite?16/9:from.width/from.height;
