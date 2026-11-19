@@ -63,7 +63,20 @@
   // Videos (docs/video-control-spec.md): the extension's own choices (they replace Reddit's autoplay and its setting);
   // 0.48's 'reddit' start is now 'autoplay'. Of the 0.46–0.47 switches only the opt-ins migrate (phone previews, click
   // plays here, restart): the popup wrote its on-by-default switches whether or not anyone chose them.
-  function videoSettings(raw){const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;const legacy=key=>raw?.[key]==='reddit'?'autoplay':raw?.[key];return {videoStart:['autoplay','hover','play'].includes(legacy('videoStart'))?legacy('videoStart'):'autoplay',videoStartTouch:['autoplay','stop','play'].includes(legacy('videoStartTouch'))?legacy('videoStartTouch'):raw?.videoPreviewsInView===true?'stop':'autoplay',videoPreviewClick:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),videoPreviewFrom:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),videoUnmutePreview:raw?.videoUnmutePreview!==false,videoOpenPost:pick('videoOpenPost',['continue','reddit'],'continue'),videoScrollAway:pick('videoScrollAway',['reddit','pause'],'reddit')};}
+  function videoSettings(raw){
+    const mouse=['autoplay','hover','play'],touch=['autoplay','stop','play'];
+    const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;
+    const videoStart=pick('videoStart',mouse,'autoplay');
+    const videoStartTouch=raw?.videoStartTouch==='reddit'?'autoplay':pick('videoStartTouch',touch,raw?.videoPreviewsInView===true?'stop':'autoplay');
+    return {
+      videoStart,videoStartTouch,gifStart:pick('gifStart',mouse,'autoplay'),gifStartTouch:pick('gifStartTouch',touch,'autoplay'),
+      embedStart:pick('embedStart',mouse,videoStart),embedStartTouch:pick('embedStartTouch',touch,videoStartTouch),
+      videoPreviewClick:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),
+      videoPreviewFrom:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),
+      videoUnmutePreview:raw?.videoUnmutePreview!==false,
+      videoOpenPost:pick('videoOpenPost',['continue','reddit'],'continue'),videoScrollAway:pick('videoScrollAway',['reddit','pause'],'reddit')
+    };
+  }
   // Strip share tracking without resolving URLs or touching message/clipboard contents that are not a single URL.
   function cleanShareUrl(value,canonical=''){
     if(typeof value!=='string' || value!==value.trim())return value;
@@ -255,5 +268,5 @@
       isSelf:item.isSelf ?? item.is_self ?? nativeSelf,nsfw:item.nsfw ?? item.over_18 ?? item.over18 ?? flag('nsfw','is-nsfw'),
       spoiler:item.spoiler ?? flag('spoiler','is-spoiler'),type:comment?undefined:type,created:item.created ?? item.created_utc ?? attr('created-timestamp')};
   }
-  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,cleanShareUrl,searchRecord});
+  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord});
 })();

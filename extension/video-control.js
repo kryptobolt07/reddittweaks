@@ -86,9 +86,10 @@
   return url.href;
  }
  const postId=path=>/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase() || '';
-  // Same choices and migration as RTPostModel.normalizeSettings (settings may arrive raw in tests and old builds).
- const choices=raw=>{const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;const start=raw?.videoStart==='reddit'?'autoplay':raw?.videoStart,touch=raw?.videoStartTouch==='reddit'?'autoplay':raw?.videoStartTouch;
-  return {start:['autoplay','hover','play'].includes(start)?start:'autoplay',touch:['autoplay','stop','play'].includes(touch)?touch:raw?.videoPreviewsInView===true?'stop':'autoplay',click:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),from:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),open:pick('videoOpenPost',['continue','reddit'],'continue'),away:pick('videoScrollAway',['reddit','pause'],'reddit'),sound:raw?.videoUnmutePreview!==false};};
+ const {videoSettings}=globalThis.RTPostModel;
+ const kinds=['video','gif','embed'];
+ const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':node?.matches?.('[gif],[post-type="gif"]') || node?.closest?.('shreddit-post[post-type="gif"]')?'gif':'video';
+ const viewMode=mode=>mode==='autoplay' || mode==='stop';
  const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
  // Reddit's preference, from its settings page (the prefs API needs a token the page does not expose).
  async function readAutoplayDisabled({doc=document,fetcher=globalThis.fetch,store=globalThis.sessionStorage}={}){
@@ -104,7 +105,8 @@
  class Videos{
   constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,observe=true}={}){
    this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new WeakMap();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;
-   this.visibilityReady=new WeakMap();this.fading=new WeakMap();this.away=new WeakMap();
+   this.visibilityReady=new WeakMap();this.fading=new WeakMap();this.away=new WeakMap();this.loops=new Map();
+   this.choice=videoSettings({});
    this.onGesture=event=>{
     if(!event.isTrusted && !globalThis.__rtVideoControlTest)return;
     const path=event.composedPath();
@@ -118,7 +120,7 @@
     }else if(video && !video.paused)this.started.add(video);
    };
    this.onHover=event=>this.hover(event);
-   this.onTabVisibility=()=>{if(this.doc.hidden)this.stopHover();};
+   this.onTabVisibility=()=>{if(this.doc.hidden){this.stopHover();for(const player of this.loops.keys())this.stopLoop(player);}else if(this.inView)this.settle();};
    // Phones, like YouTube's feed: a preview starts once scrolling has stopped for a moment.
    this.onScroll=()=>{if(this.inView)this.settle();};
    this.onRemember=event=>this.remember(event);
@@ -173,8 +175,11 @@
    this.ready=Promise.resolve(readSettings?.()).then(s=>{this.configure(s || {});},()=>this.configure({}));
   }
   configure(settings){
-   this.settings=settings || {};this.choice=choices(this.settings);
-   if(!this.previewsOn){this.stopHover();this.previews=new WeakMap();}
+   const before=this.choice;
+   this.settings=settings || {};this.choice=videoSettings(this.settings);
+   const active=this.hovered || this.ePreview?.embed,kind=mediaKind(active);
+   if(active && this.startMode(kind,before)!==this.startMode(kind))this.stopHover();
+   if(this.startMode('gif',before)!==this.startMode('gif'))for(const player of this.loops.keys())this.stopLoop(player);
    if(!this.continueOnOpen)this.clearHandoff();
    else if(!this.configured)this.restoreHandoff();
    this.configured=true;this.scan();
@@ -183,21 +188,19 @@
    else if(this.viewing || this.ePreview?.view)this.stopHover();
    // These choices replace Reddit's own autoplay (and its "Autoplay media" setting): a video Reddit starts by itself is
    // paused at once; Autoplay then plays the one in view, muted, one at a time.
-   for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.started.has(video) && !this.continued.has(video))this.block(player,video);}
+   for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.started.has(video) && !this.continued.has(video) && !this.loops.has(player))this.block(player,video);}
   }
   get touch(){return Boolean(this.win.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);}
   // How feed videos start on this device: Autoplay (the video in view, muted) / Preview on hover (computers) or on the
   // one you stop scrolling on (phones) / Only when you press Play.
-  get startMode(){const c=this.choice || choices({});return this.touch?c.touch:c.start;}
-  get blocksAutoplay(){return true;}
-  get pauseAway(){return (this.choice || choices({})).away==='pause';}
-  get previewsOn(){return (this.choice || choices({})).start==='hover';}
-  get unmutePreview(){return (this.choice || choices({})).sound;}
-  get continueOnOpen(){return (this.choice || choices({})).open==='continue';}
-  get clickPlays(){return (this.choice || choices({})).click==='here';}
-  get restartPreview(){return (this.choice || choices({})).from==='start';}
+  startMode(kind,settings=this.choice){return settings[kind+(this.touch?'StartTouch':'Start')];}
+  get pauseAway(){return this.choice.videoScrollAway==='pause';}
+  get unmutePreview(){return this.choice.videoUnmutePreview;}
+  get continueOnOpen(){return this.choice.videoOpenPost==='continue';}
+  get clickPlays(){return this.choice.videoPreviewClick==='here';}
+  get restartPreview(){return this.choice.videoPreviewFrom==='start';}
   // Phones have no hover: the video you stop scrolling on previews instead, when chosen.
-  get inView(){const mode=this.startMode;return mode==='autoplay' || this.touch && mode==='stop';}
+  get inView(){return kinds.some(kind=>viewMode(this.startMode(kind)));}
   playback(video){return {time:video.currentTime,muted:video.muted,volume:this.fading.get(video) ?? video.volume,rate:video.playbackRate};}
   // Sound is turned on through Reddit's own volume state (the page bridge), so the post's player keeps it, then comes
   // in over 200 ms instead of at full volume.
@@ -218,6 +221,7 @@
   scan(){
    for(const player of this.players)if(!player.isConnected){
     if(this.hovered===player)this.stopHover();
+    this.stopLoop(player);
     this.players.delete(player);this.previews.delete(player);this.io?.unobserve(player);
    }
    for(const player of this.doc.querySelectorAll(PLAYERS))this.attach(player);
@@ -245,6 +249,7 @@
    player.shadowRoot.addEventListener('loadedmetadata',event=>{
     const preview=this.previews.get(player);
     if(preview?.active && preview.video===event.target)this.playPreview(player,preview);
+    if(this.loops.get(player)===event.target)this.playLoop(player,event.target);
     if(this.away.get(player)?.loading)this.resumeAway(player);
     this.handoff();
    },true);
@@ -254,7 +259,7 @@
   // A preview belongs to its post card: moving to the title, flair or votes keeps it; leaving the card pauses it.
   cardOf(player){return player.closest('shreddit-post') || player.parentElement || player;}
   hover(event){
-   if(!this.configured || !this.previewsOn || event.pointerType!=='mouse' ||
+   if(!this.configured || this.touch || event.pointerType!=='mouse' ||
       (!event.isTrusted && !globalThis.__rtVideoControlTest))return;
    const path=event.composedPath(),to=event.relatedTarget,within=(node,root)=>Boolean(node?.nodeType && (node===root || root.contains(node)));
    if(this.embedHover(event,path,to,within))return;
@@ -271,7 +276,7 @@
    }
    if(current && path.includes(card))this.win.clearTimeout(this.leaveTimer);
    const player=path.find(node=>node.matches?.(PLAYERS));
-   if(!player || player.getAttribute('player-type')!==FEED_PLAYER || event.buttons || current===player)return;
+   if(!player || this.startMode(mediaKind(player))!=='hover' || player.getAttribute('player-type')!==FEED_PLAYER || event.buttons || current===player)return;
    if(within(to,player))return;
    this.stopHover();
    this.hovered=player;
@@ -281,9 +286,9 @@
    const video=this.video(player);
    if(this.doc.hidden || this.hovered!==player || !player.isConnected || !video?.paused ||
       video.ended || this.started.has(video))return;
-   for(const other of this.players){
+   if(mediaKind(player)!=='gif')for(const other of this.players){
     const media=this.video(other);
-    if(media && !media.paused && this.started.has(media))return;
+    if(mediaKind(other)!=='gif' && media && !media.paused && this.started.has(media))return;
    }
    this.attach(player);
    const previous=this.previews.get(player);
@@ -292,6 +297,22 @@
    video.muted=true;
    player.dispatchEvent(new this.win.Event('rt-prepare-feed-preview',{bubbles:true}));
    if(video.readyState>=1)this.playPreview(player,preview);
+  }
+  startLoop(player){
+   const video=this.video(player);
+   if(!video || this.started.has(video) || this.loops.get(player)===video)return;
+   this.loops.set(player,video);
+   video.muted=true;video.loop=true;
+   player.dispatchEvent(new this.win.Event('rt-prepare-feed-preview',{bubbles:true}));
+   if(video.readyState>=1)this.playLoop(player,video);
+  }
+  playLoop(player,video){
+   if(video.paused)this.play(player,video)?.catch?.(()=>{if(this.loops.get(player)===video)this.stopLoop(player);});
+  }
+  stopLoop(player){
+   const video=this.loops.get(player);
+   this.loops.delete(player);
+   if(video && !video.paused)video.pause();
   }
   // Playback goes through Reddit's own player (page bridge) so its controls show the playing state; a direct
   // <video>.play() left Reddit's play icon and poster up (measured 2026-11-19).
@@ -471,7 +492,7 @@
    }
    if(current && path.includes(current.card))this.win.clearTimeout(current.leave);
    if(!embed)return false;
-   if(!this.feedEmbed(embed) || event.buttons || current?.embed===embed)return true;
+   if(!this.feedEmbed(embed) || this.startMode('embed')!=='hover' || event.buttons || current?.embed===embed)return true;
    this.stopHover();
    const preview=this.ePreview={embed,card:embed.closest('shreddit-post')};
    preview.timer=this.win.setTimeout(()=>this.startEmbed(preview),HOVER_MS);
@@ -769,22 +790,25 @@
   }
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
+   if(this.loops.get(player)===video)return;
    if(this.continued.has(video)){this.exclusive(video);return;}
    const preview=this.previews.get(player);
    if(preview?.active && preview.video===video){preview.played=true;this.exclusive(video);return;}
    const userStarted=this.userStarted(player);
    if(userStarted){this.started.add(video);this.previews.delete(player);this.away.delete(player);}
    else this.started.delete(video);
-   if(this.blocksAutoplay && !userStarted){this.block(player,video);return;}
+   if(!userStarted){this.block(player,video);return;}
    delete player.dataset.rtAutoplayBlocked;
    this.exclusive(video);
   }
   // One video plays at a time, as on YouTube: whatever starts (a video, a preview, a YouTube player) pauses the rest.
   // A video held for its post keeps playing; YouTube players are paused by the page bridge.
   exclusive(source){
+   const origin=source.getRootNode?.()?.host;
+   if(origin?.matches?.(PLAYERS) && mediaKind(origin)==='gif')return;
    for(const player of this.players){
     const video=this.video(player);
-    if(!video || video===source || video.paused || this.pending?.sourceVideo===video)continue;
+    if(!video || video===source || video.paused || mediaKind(player)==='gif' || this.pending?.sourceVideo===video)continue;
     if(this.previews.get(player)?.active && this.hovered===player){this.stopHover();continue;}
     video.pause();
    }
@@ -822,6 +846,7 @@
     // A post's own video pauses once it is fully out of view and resumes where it was when half of it is back;
     // a feed video pauses when less than half of it is on screen and stays paused.
     const detail=player.getAttribute('player-type')===DETAIL_PLAYER,ratio=entry.intersectionRatio;
+    if(ratio<0.5 && this.loops.has(player))this.stopLoop(player);
     if(ratio>=0.5){if(detail)this.resumeAway(player);continue;}
     if(detail && ratio>0)continue;
     if(player===this.hovered)this.stopHover();
@@ -848,23 +873,33 @@
    this.play(player,video)?.catch?.(()=>this.continued.delete(video));
   }
   settle(){
-   this.win.clearTimeout(this.settleTimer);
-   // Autoplay picks the video in view almost at once; a stop-scrolling preview waits for the scroll to settle.
-   this.settleTimer=this.win.setTimeout(()=>{if(this.inView && !this.dead)this.pickInView();},this.startMode==='autoplay'?AUTOPLAY_MS:DWELL_MS);
+   this.win.clearTimeout(this.settleTimer);this.win.clearTimeout(this.dwellTimer);
+   const modes=kinds.map(kind=>this.startMode(kind));
+   if(modes.includes('autoplay'))this.settleTimer=this.win.setTimeout(()=>this.pickInView(false),AUTOPLAY_MS);
+   if(modes.includes('stop'))this.dwellTimer=this.win.setTimeout(()=>this.pickInView(),DWELL_MS);
   }
   // After scrolling stops, the feed video at least 60 % visible and nearest the middle of the screen previews, one at a
   // time; a playing preview keeps going while it stays at least half on screen.
-  pickInView(){
+  pickInView(settled=true){
+   if(this.dead || this.doc.hidden)return;
    const height=this.win.innerHeight,middle=height/2;let best=null,distance=Infinity;
    const candidates=[...this.players].filter(player=>player.getAttribute('player-type')===FEED_PLAYER)
     .concat([...this.doc.querySelectorAll(ANY_EMBED)].filter(embed=>this.feedEmbed(embed)));
    for(const node of candidates){
-    if(!node.isConnected)continue;
+    const kind=mediaKind(node),mode=this.startMode(kind);
+    if(!node.isConnected || !viewMode(mode) || mode==='stop' && !settled)continue;
+    if(kind==='embed' && node.dataset.rtEmbedUsed==='1')continue;
     const box=node.getBoundingClientRect();if(!(box.height>0))continue;
     const shown=(Math.min(box.top+box.height,height)-Math.max(box.top,0))/box.height,gap=Math.abs(box.top+box.height/2-middle);
+    if(kind==='gif'){
+     if(shown>=IN_VIEW)this.startLoop(node);else if(shown<0.5)this.stopLoop(node);
+     continue;
+    }
     if(shown>=IN_VIEW && gap<distance){best=node;distance=gap;}
    }
    if(best && (best===this.hovered || best===this.ePreview?.embed))return;
+   if(this.hovered && !this.viewing || this.ePreview && !this.ePreview.view)return;
+   if(!settled && this.startMode(mediaKind(this.hovered || this.ePreview?.embed))==='stop' && (this.viewing || this.ePreview?.view))return;
    this.stopHover();
    if(!best)return;
    if(best.matches(ANY_EMBED)){
@@ -878,10 +913,11 @@
   destroy(){
    this.dead=true;this.mo?.disconnect();this.io?.disconnect();
    this.stopHover();
+   for(const player of this.loops.keys())this.stopLoop(player);
    for(const type of ['pointerdown','keydown','click'])this.doc.removeEventListener(type,this.onGesture,true);
    for(const type of ['pointerover','pointerout'])this.doc.removeEventListener(type,this.onHover,true);
    this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
-   this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);
+   this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);this.win.clearTimeout(this.dwellTimer);
    this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);this.win.removeEventListener('message',this.onFrameMessage);
    this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
    this.clearHandoff();

@@ -13,7 +13,8 @@ function page(t,{owner='t2_alice',detail=false}={}){
  const io={cb:null,observed:[],unobserved:[]};
  W.IntersectionObserver=class{constructor(cb,o){io.cb=cb;io.options=o;}observe(player){io.observed.push(player);}unobserve(player){io.unobserved.push(player);}disconnect(){}};
  const player=W.document.getElementById('p1'),root=player.attachShadow({mode:'open'});root.innerHTML='<button id="play" class="play-pause-button">Play</button><button id="mute" class="mute-button">Mute</button><button id="cc">Captions</button><video></video>';
- W.__rtVideoControlTest=true;W.eval(fs.readFileSync('extension/video-control.js','utf8'));
+ W.__rtVideoControlTest=true;
+ for(const file of ['post-model.js','video-control.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
  // Defaults are Reddit's behaviour; behaviour tests opt into the features they exercise unless they say otherwise.
  const Raw=W.RTVideoControl;W.RTVideoControlRaw=Raw;
  W.RTVideoControl={...Raw,Videos:class extends Raw.Videos{constructor(options={}){const read=options.readSettings;super({...options,readSettings:async()=>({videoStart:'hover',videoOpenPost:'continue',videoScrollAway:'pause',...(read?await read():{})})});}}};
@@ -51,6 +52,37 @@ test('video choices default to Autoplay and Reddit’s other behaviour, and only
  assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:true,videoContinueOnOpen:true,videoPauseOffscreen:true,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false}))),{videoStart:'autoplay',videoStartTouch:'stop',videoPreviewClick:'here',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'continue',videoScrollAway:'reddit'},'only the old opt-ins carry over');
  assert.equal(n({videoStart:'hover'}).videoStart,'hover');assert.equal(n({videoStart:'reddit',videoStartTouch:'reddit'}).videoStartTouch,'autoplay','0.48’s Reddit start is now Autoplay');
  W.close();
+});
+test('GIFs default to Autoplay and embeds inherit the matching device’s video choice until chosen',()=>{
+ const W=new JSDOM('',{runScripts:'outside-only'}).window;
+ try{
+  W.eval(fs.readFileSync('extension/post-model.js','utf8'));
+  const normalize=W.RTPostModel.normalizeSettings;
+  const legacy=normalize({videoStart:'hover',videoStartTouch:'play'});
+  assert.equal(legacy.embedStart,'hover');assert.equal(legacy.embedStartTouch,'play');
+  assert.equal(legacy.gifStart,'autoplay');assert.equal(legacy.gifStartTouch,'autoplay');
+  const chosen=normalize({...legacy,embedStart:'play',gifStartTouch:'stop'});
+  assert.equal(chosen.videoStart,'hover');assert.equal(chosen.embedStart,'play');assert.equal(chosen.gifStartTouch,'stop');
+ }finally{W.close();}
+});
+test('automatic GIF loops keep playing alongside one video and stop out of view',async t=>{
+ const p=page(t),gif=p.player.cloneNode();
+ gif.id='p2';gif.setAttribute('post-type','gif');gif.attachShadow({mode:'open'}).append(p.d.createElement('video'));p.player.after(gif);
+ const media=gif.shadowRoot.querySelector('video');
+ for(const node of [gif,p.player])node.getBoundingClientRect=()=>({top:160,height:300});
+ for(const video of [media,p.video])Object.defineProperty(video,'readyState',{value:1});
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ const control=new p.W.RTVideoControl.Videos({readSettings:async()=>({videoStart:'play',embedStart:'play'}),observe:false});await control.ready;
+ control.pickInView();
+ assert.equal(media.paused,false);assert.equal(media.muted,true);assert.equal(media.loop,true);assert.equal(p.video.paused,true);
+ p.startFromControl();assert.equal(p.video.paused,false);assert.equal(media.paused,false);
+ p.io.cb([{target:gif,intersectionRatio:0.2}]);assert.equal(media.paused,true);
+});
+test('embeds in Play only mode do not preview when video Autoplay is on',async t=>{
+ const p=page(t),e=embed(p);
+ e.node.getBoundingClientRect=()=>({top:180,height:330});
+ const control=await hoverController(p,{videoStart:'autoplay',embedStart:'play'});
+ control.pickInView();assert.deepEqual(e.calls,[]);
 });
 test('a playing video pauses once less than half of it is on screen, and stays paused',async t=>{
  const {W,player,video,io}=page(t);const v=new W.RTVideoControl.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await v.ready;await flush();
