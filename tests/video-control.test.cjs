@@ -579,3 +579,17 @@ test('Back before the post embed is ready returns the held YouTube player to its
  p.click(p.title);p.W.dispatchEvent(new p.W.PopStateEvent('popstate'));
  assert.equal(released,1);assert.equal(p.W.sessionStorage.getItem(embedKey),null);
 });
+
+test('one video plays at a time: starting one pauses the others, a preview included, and YouTube players are told',async t=>{
+ const p=page(t);const second=p.player.cloneNode();second.id='p2';const root2=second.attachShadow({mode:'open'});root2.innerHTML='<button class="play-pause-button">Play</button><video></video>';
+ p.player.closest('shreddit-post').after(Object.assign(p.d.createElement('shreddit-post'),{id:'t3_two'}));p.d.getElementById('t3_two').append(second);
+ const controller=await hoverController(p,{videoStart:'reddit'});controller.scan();
+ const other=root2.querySelector('video');
+ let told=0;p.d.addEventListener('rt-media-exclusive',()=>told++);
+ p.startFromControl();assert.equal(p.video.paused,false);
+ root2.querySelector('button').dispatchEvent(new p.W.Event('pointerdown',{bubbles:true,composed:true}));
+ other._playing=true;other.dispatchEvent(new p.W.Event('play'));
+ assert.equal(p.video.paused,true,'the first video pauses');assert.equal(other.paused,false);assert.ok(told>=2,'the page bridge pauses YouTube players too');
+ const e=embed(p);e.node.dispatchEvent(new p.W.Event('rt-embed-playing',{bubbles:true}));
+ assert.equal(other.paused,true,'a YouTube player starting pauses Reddit videos');
+});

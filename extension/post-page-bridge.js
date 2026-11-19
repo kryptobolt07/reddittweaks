@@ -153,14 +153,31 @@
       await lite.activate();
     }
     const player=await lite.getYTPlayer?.();
-    if(player)ytPlayers.set(embed,player);
+    if(player)followYouTube(embed,player);
     return player || null;
   }
+  // Each followed YouTube player reports when it starts playing, so the content script keeps one video playing; and
+  // pauses when something else starts.
+  const playingEmbeds=new Set(),watched=new WeakSet();
+  function followYouTube(embed,player){
+    ytPlayers.set(embed,player);playingEmbeds.add(embed);
+    if(watched.has(player) || typeof player.addEventListener!=='function')return;
+    watched.add(player);
+    player.addEventListener('onStateChange',change=>{if(change?.data===1 && ytPlayers.get(embed)===player)embed.dispatchEvent(new Event('rt-embed-playing',{bubbles:true}));});
+  }
+  document.addEventListener('rt-media-exclusive',event=>{
+    const path=event.composedPath();
+    for(const embed of playingEmbeds){
+      if(!embed.isConnected){playingEmbeds.delete(embed);continue;}
+      if(path.includes(embed))continue;
+      try{const player=ytPlayers.get(embed),state=player?.getPlayerState?.();if(state===1 || state===3)player.pauseVideo();}catch{}
+    }
+  });
   const youTubeCall=(embed,run)=>Promise.resolve(ytPlayers.get(embed) || null).then(player=>player && run(player)).catch(()=>{});
   // A YouTube video the user starts with its own play button is followed too, so opening its post continues it.
   document.addEventListener('click',event=>{
     const embed=event.composedPath().find(node=>node.matches?.(youTubeEmbed)),lite=liteOf(embed);
-    if(lite)setTimeout(()=>{if(lite.classList.contains('lyt-activated'))Promise.resolve(lite.getYTPlayer()).then(player=>{if(player)ytPlayers.set(embed,player);},()=>{});},0);
+    if(lite)setTimeout(()=>{if(lite.classList.contains('lyt-activated'))Promise.resolve(lite.getYTPlayer()).then(player=>{if(player){followYouTube(embed,player);if(player.getPlayerState?.()===1)embed.dispatchEvent(new Event('rt-embed-playing',{bubbles:true}));}},()=>{});},0);
   },true);
   document.addEventListener('rt-embed-preview',event=>{
     const embed=event.target;if(!liteOf(embed))return;
@@ -214,7 +231,7 @@
     for(const old of lite.querySelectorAll('iframe'))old.remove();
     movePlayer(lite,held.ifr);
     restoreStyle(held.ifr,held.style);
-    ytPlayers.set(embed,held.player);
+    followYouTube(embed,held.player);
     held.stage.remove();
     // The cached feed card gets a fresh, unplayed embed for Back.
     restoreStyle(held.lite,held.liteStyle);
