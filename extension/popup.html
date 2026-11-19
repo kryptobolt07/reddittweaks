@@ -101,39 +101,66 @@
       </div>
       </section>
       <section class="card" aria-labelledby="videos-heading">
-        <div class="card-heading"><h2 id="videos-heading">Videos</h2><span class="group-count"></span></div>
+        <div class="card-heading"><h2 id="videos-heading">Videos</h2><span class="category-hint">Feed videos and YouTube embeds</span></div>
       <div class="setting-row">
-        <div class="setting-copy"><label for="video-previews">Muted previews</label><p id="video-previews-desc">Rest the pointer on a feed video to preview it without sound. Leaving its post pauses it.</p></div>
-        <input class="switch" type="checkbox" id="video-previews" data-setting="videoPreviews" aria-describedby="video-previews-desc">
+        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3h11A2.5 2.5 0 0 1 18 5.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 14.5v-9Zm2.5-.7a.7.7 0 0 0-.7.7v9c0 .39.31.7.7.7h11a.7.7 0 0 0 .7-.7v-9a.7.7 0 0 0-.7-.7h-11ZM8.2 7.1v5.8a.6.6 0 0 0 .91.51l4.6-2.9a.6.6 0 0 0 0-1.02l-4.6-2.9a.6.6 0 0 0-.91.51Z"/></svg></span>
+        <div class="setting-copy"><label for="video-start">Start feed videos</label><p id="video-start-desc">On hover previews a video without sound while you point at it, as on YouTube.</p></div>
+        <button id="video-start" class="setting-choice" type="button" data-choice="videoStart" aria-haspopup="menu" aria-expanded="false" aria-controls="video-start-menu" aria-describedby="video-start-desc" disabled><span data-choice-value>On hover</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="video-start-menu" class="setting-menu" role="menu" aria-label="Start feed videos" hidden>
+          <button type="button" role="menuitemradio" data-value="hover" data-short="On hover" aria-checked="false">On hover (muted preview)</button>
+          <button type="button" role="menuitemradio" data-value="reddit" data-short="Like Reddit" aria-checked="false">Like Reddit (its autoplay setting)</button>
+          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
+        </div>
       </div>
-      <div class="setting-row" data-requires="video-previews" data-detail>
-        <div class="setting-copy"><label for="video-previews-in-view">Preview while in view on phones</label><p id="video-previews-in-view-desc">On touch screens, the video you stop scrolling on previews without sound, as on YouTube. Off by default, so Reddit’s autoplay setting still holds.</p></div>
-        <input class="switch" type="checkbox" id="video-previews-in-view" data-setting="videoPreviewsInView" aria-describedby="video-previews-in-view-desc">
+      <div class="setting-row">
+        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M6.5 1.5h7A2.5 2.5 0 0 1 16 4v12a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 16V4a2.5 2.5 0 0 1 2.5-2.5Zm0 1.8a.7.7 0 0 0-.7.7v12c0 .39.31.7.7.7h7a.7.7 0 0 0 .7-.7V4a.7.7 0 0 0-.7-.7h-7ZM8.5 14.6h3v1.6h-3v-1.6Z"/></svg></span>
+        <div class="setting-copy"><label for="video-start-touch">On phones</label><p id="video-start-touch-desc">Stop scrolling previews the video you stop on, without sound.</p></div>
+        <button id="video-start-touch" class="setting-choice" type="button" data-choice="videoStartTouch" aria-haspopup="menu" aria-expanded="false" aria-controls="video-start-touch-menu" aria-describedby="video-start-touch-desc" disabled><span data-choice-value>Like Reddit</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="video-start-touch-menu" class="setting-menu" role="menu" aria-label="On phones" hidden>
+          <button type="button" role="menuitemradio" data-value="reddit" data-short="Like Reddit" aria-checked="false">Like Reddit (its autoplay setting)</button>
+          <button type="button" role="menuitemradio" data-value="stop" data-short="Stop scrolling" aria-checked="false">When I stop scrolling (muted preview)</button>
+          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
+        </div>
       </div>
-      <div class="setting-row" data-requires="video-previews" data-detail>
-        <div class="setting-copy"><label for="video-preview-click-plays">Clicking a preview plays it here</label><p id="video-preview-click-plays-desc">Off: clicking opens the post and the video carries on there. The sound button always works in place.</p></div>
-        <input class="switch" type="checkbox" id="video-preview-click-plays" data-setting="videoPreviewClickPlays" aria-describedby="video-preview-click-plays-desc">
+      <div class="setting-row" data-detail>
+        <div class="setting-copy"><label for="video-preview-click">Clicking a preview</label><p id="video-preview-click-desc">Its sound button always works in place.</p></div>
+        <button id="video-preview-click" class="setting-choice" type="button" data-choice="videoPreviewClick" aria-haspopup="menu" aria-expanded="false" aria-controls="video-preview-click-menu" aria-describedby="video-preview-click-desc" disabled><span data-choice-value>Opens post</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="video-preview-click-menu" class="setting-menu" role="menu" aria-label="Clicking a preview" hidden>
+          <button type="button" role="menuitemradio" data-value="open" data-short="Opens post" aria-checked="false">Opens the post</button>
+          <button type="button" role="menuitemradio" data-value="here" data-short="Plays here" aria-checked="false">Plays it here with sound</button>
+        </div>
       </div>
-      <div class="setting-row" data-requires="video-previews" data-detail>
-        <div class="setting-copy"><label for="video-preview-restart">Play opened previews from the start</label><p id="video-preview-restart-desc">Off: playback continues from where the preview is.</p></div>
-        <input class="switch" type="checkbox" id="video-preview-restart" data-setting="videoPreviewRestart" aria-describedby="video-preview-restart-desc">
+      <div class="setting-row" data-detail>
+        <div class="setting-copy"><label for="video-preview-from">An opened preview plays</label><p id="video-preview-from-desc">From where the preview reached, or the beginning.</p></div>
+        <button id="video-preview-from" class="setting-choice" type="button" data-choice="videoPreviewFrom" aria-haspopup="menu" aria-expanded="false" aria-controls="video-preview-from-menu" aria-describedby="video-preview-from-desc" disabled><span data-choice-value>From preview</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="video-preview-from-menu" class="setting-menu" role="menu" aria-label="An opened preview plays" hidden>
+          <button type="button" role="menuitemradio" data-value="position" data-short="From preview" aria-checked="false">From where the preview is</button>
+          <button type="button" role="menuitemradio" data-value="start" data-short="From start" aria-checked="false">From the beginning</button>
+        </div>
       </div>
-      <div class="setting-row" data-requires="video-previews" data-detail>
-        <div class="setting-copy"><label for="video-unmute-preview">Sound when opening a preview</label><p id="video-unmute-preview-desc">When a preview plays for real, its sound fades in.</p></div>
+      <div class="setting-row" data-detail>
+        <div class="setting-copy"><label for="video-unmute-preview">Sound when a preview plays for real</label><p id="video-unmute-preview-desc">Fades in over a moment.</p></div>
         <input class="switch" type="checkbox" id="video-unmute-preview" data-setting="videoUnmutePreview" aria-describedby="video-unmute-preview-desc">
       </div>
       <div class="setting-row">
-        <div class="setting-copy"><label for="video-continue-on-open">Keep playing when opening a post</label><p id="video-continue-on-open-desc">A playing video carries on from the same position on its post page instead of stopping.</p></div>
-        <input class="switch" type="checkbox" id="video-continue-on-open" data-setting="videoContinueOnOpen" aria-describedby="video-continue-on-open-desc">
+        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M11 3h6v6h-1.8V6.07l-6.06 6.06-1.27-1.27L13.93 4.8H11V3ZM4.5 5H8v1.8H4.8v8.4h8.4V12H15v3.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 15.5v-9A1.5 1.5 0 0 1 4.5 5Z"/></svg></span>
+        <div class="setting-copy"><label for="video-open-post">Opening a post that is playing</label><p id="video-open-post-desc">Keep playing moves the same video into the post.</p></div>
+        <button id="video-open-post" class="setting-choice" type="button" data-choice="videoOpenPost" aria-haspopup="menu" aria-expanded="false" aria-controls="video-open-post-menu" aria-describedby="video-open-post-desc" disabled><span data-choice-value>Keep playing</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="video-open-post-menu" class="setting-menu" role="menu" aria-label="Opening a post that is playing" hidden>
+          <button type="button" role="menuitemradio" data-value="continue" data-short="Keep playing" aria-checked="false">Keep playing</button>
+          <button type="button" role="menuitemradio" data-value="reddit" data-short="Like Reddit" aria-checked="false">Like Reddit</button>
+        </div>
       </div>
       <div class="setting-row">
-        <div class="setting-copy"><label for="video-pause-offscreen">Pause videos that scroll away</label><p id="video-pause-offscreen-desc">Feed videos pause when less than half is on screen. A post’s video pauses once it is out of view and resumes where it was when you scroll back.</p></div>
-        <input class="switch" type="checkbox" id="video-pause-offscreen" data-setting="videoPauseOffscreen" aria-describedby="video-pause-offscreen-desc">
+        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M6 4h2.6v12H6V4Zm5.4 0H14v12h-2.6V4Z"/></svg></span>
+        <div class="setting-copy"><label for="video-scroll-away">Scrolling a playing video away</label><p id="video-scroll-away-desc">Feed videos pause half off screen; a post’s video resumes when back.</p></div>
+        <button id="video-scroll-away" class="setting-choice" type="button" data-choice="videoScrollAway" aria-haspopup="menu" aria-expanded="false" aria-controls="video-scroll-away-menu" aria-describedby="video-scroll-away-desc" disabled><span data-choice-value>Pause</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="video-scroll-away-menu" class="setting-menu" role="menu" aria-label="Scrolling a playing video away" hidden>
+          <button type="button" role="menuitemradio" data-value="pause" data-short="Pause" aria-checked="false">Pause</button>
+          <button type="button" role="menuitemradio" data-value="reddit" data-short="Like Reddit" aria-checked="false">Like Reddit</button>
+        </div>
       </div>
-      <div class="setting-row">
-        <div class="setting-copy"><label for="video-respect-autoplay">Respect Reddit’s autoplay setting</label><p id="video-respect-autoplay-desc">When “Autoplay media” is off, stop Reddit from starting videos as you scroll.</p></div>
-        <input class="switch" type="checkbox" id="video-respect-autoplay" data-setting="videoRespectAutoplay" aria-describedby="video-respect-autoplay-desc">
-      </div>
+        <p class="card-note">Like Reddit means Reddit’s own behaviour, with its “Autoplay media” setting applied even on phones. One video plays at a time.</p>
       </section>
       <section class="card" aria-labelledby="tools-heading">
         <div class="card-heading"><h2 id="tools-heading">Tools</h2><span class="group-count"></span></div>

@@ -47,26 +47,20 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 - Feed: a playing video pauses when less than half of it is on screen and stays paused.
 - Post page: the post's own video plays on while any of it is visible, pauses once it is fully out of view, and resumes at the same time when half of it is back (reloading Reddit's source first if Reddit unloaded it). A video the user paused stays paused.
 
-### Popup options (Videos)
-| Option | Setting key | Default |
+### Popup options (Videos card, 2026-11-19)
+User request: hover previews differ from Reddit, so each behaviour that differs from Reddit gets a field with Reddit's own way as a choice. "Like Reddit" means Reddit's own behaviour with its "Autoplay media" setting applied, also on its phone layout, which ignores it; this replaces the "Respect Reddit's autoplay setting" switch.
+
+| Field | Choices (default first) | Setting key |
 |---|---|---|
-| Respect Reddit's autoplay setting | `videoRespectAutoplay` | On |
-| Muted previews | `videoPreviews` | On |
-| &nbsp;&nbsp;Preview while in view on phones | `videoPreviewsInView` | Off |
-| &nbsp;&nbsp;Clicking a preview plays it here (off: opens the post) | `videoPreviewClickPlays` | Off |
-| &nbsp;&nbsp;Play opened previews from the start (off: where the preview is) | `videoPreviewRestart` | Off |
-| &nbsp;&nbsp;Sound when opening a preview | `videoUnmutePreview` | On |
-| Keep playing when opening a post | `videoContinueOnOpen` | On |
-| Pause videos that scroll away | `videoPauseOffscreen` | On |
+| Start feed videos (mouse) | On hover (muted preview; nothing else starts by itself) · Like Reddit · Only when I press Play | `videoStart` |
+| On phones | Like Reddit · When I stop scrolling (muted preview, one at a time) · Only when I press Play | `videoStartTouch` |
+| Clicking a preview | Opens the post · Plays it here with sound | `videoPreviewClick` |
+| An opened preview plays | From where the preview is · From the beginning | `videoPreviewFrom` |
+| Sound when a preview plays for real (switch) | On | `videoUnmutePreview` |
+| Opening a post that is playing | Keep playing · Like Reddit | `videoOpenPost` |
+| Scrolling a playing video away | Pause · Like Reddit | `videoScrollAway` |
 
-### Embedded YouTube videos
-Measured 2026-11-19 (r/india, desktop): Reddit renders a YouTube link post as `shreddit-embed[providername="YouTube"]` holding `lite-youtube` with the YouTube player API enabled (`js-api`). Clicking it activates YouTube's player with sound. Reddit pauses embeds that scroll away (its own playback observer, also for Vimeo and TikTok). On the post page Reddit keeps the outgoing feed, with the same post's card and embed, in the page.
-
-- **Previews** follow the video rules: desktop hover (160 ms, same card grace), phone in-view after scrolling stops. The player is activated muted (`mute=1`) through Reddit's own lite-youtube, so YouTube's pre-roll ad may play first.
-- While it previews, a transparent layer over the embed takes the click (YouTube's iframe would otherwise take it): **Open the post** or **Play here** per *Clicking a preview*. A round sound button on the layer unmutes in place. Ending a preview pauses it and turns its sound back on for YouTube's own play button.
-- **Opening the post** of a playing YouTube embed (preview, Play here, or the user's own play) keeps the same YouTube player: its iframe moves (with `moveBefore`, which keeps an iframe loaded; moving Reddit's `shreddit-embed` itself makes Reddit rebuild it) into a fixed stage at its card while the feed stays on screen, then into the post's own embed once Reddit has laid it out, with the 220 ms compositor move. The post's own embed stays hidden until the moved player lands (placement is tried every frame), and the emptied feed card is hidden during the hold, then reset to an unplayed embed for Back. The move scales YouTube's 16:9 picture uniformly with the same clip as videos. Sound follows the option; *Play opened previews from the start* seeks to 0. Back before the post is ready returns the iframe to its card. Where moving is unavailable, the post's embed starts at the same second instead (from 0 during an ad). The cached feed copy is never restarted.
-- **Thumbnails on type-filtered feeds** (read from Reddit's client code, 2026-11-19): Reddit's feed virtualizer swaps a top-level batch for a placeholder once it is a screen plus 1000 px above the viewport and puts it back on the way up. `shreddit-embed` drops its content on disconnect (and removes a YouTube iframe); back in view it renders a new `lite-youtube`, which loads `hqdefault.jpg` and 100 ms later swaps to `sddefault.webp`. With a type filter a 48-post batch shows one or two cards, so batches come and go far more often and thumbnails kept reloading. On feeds with `rt_type`, the page bridge skips that virtualization and restores anything already swapped out; hidden cards cost no layout. Unfiltered feeds keep Reddit's behaviour.
-- Other providers (Vimeo, TikTok, Streamable, …) have no preview or continuation: their players live in other origins without an API this page loads. Reddit's own scroll-away pause still applies to Vimeo and TikTok.
+Migration from 0.46–0.47 switches (`RTPostModel.normalizeSettings`, mirrored in the popup and video-control): previews off → Like Reddit; in-view previews on → When I stop scrolling; click plays here → Plays it here; restart → From the beginning; keep playing off → Like Reddit; pause away off → Like Reddit. The popup stores a choice only once it is picked, so an untouched old switch keeps deciding it. The popup draws every switch and choice from its own synchronous copy of the settings on the first paint (no off-then-on flip), then reconciles with extension storage.
 
 ## Transitions
 

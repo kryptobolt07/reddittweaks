@@ -8,8 +8,8 @@ const html=fs.readFileSync(path.join(__dirname,'../extension/popup.html'),'utf8'
 const script=fs.readFileSync(path.join(__dirname,'../extension/popup.js'),'utf8');
 const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
 
-function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,storedTab}={}){
-  const dom=new JSDOM(html,{runScripts:'outside-only',url:'https://extension.test/popup.html'}),w=dom.window;t.after(w.close.bind(w));if(storedTab)w.localStorage.setItem('rt-popup-tab',storedTab);
+function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,storedTab,mirror}={}){
+  const dom=new JSDOM(html,{runScripts:'outside-only',url:'https://extension.test/popup.html'}),w=dom.window;t.after(w.close.bind(w));if(storedTab)w.localStorage.setItem('rt-popup-tab',storedTab);if(mirror)w.localStorage.setItem('rt-settings-mirror-v1',JSON.stringify(mirror));
   const messages=[],state={...(settings||{})};
   w.chrome={storage:{local:{
     async get(key){if(storageFailure)throw Error('storage read failed');return {[key]:state[key]};},
@@ -25,10 +25,10 @@ test('Reddit Tweaks popup loads defaults and persists individual changes while p
   assert.equal(post.checked,true);assert.equal(archive.checked,false);assert.equal(restore.checked,true);
   archive.checked=true;archive.dispatchEvent(new p.w.Event('change'));
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true,videoUnmutePreview:true,videoPreviewsInView:false,videoPreviewClickPlays:false,videoPreviewRestart:false});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoUnmutePreview:true});
   post.checked=false;post.dispatchEvent(new p.w.Event('change'));
   await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true,videoUnmutePreview:true,videoPreviewsInView:false,videoPreviewClickPlays:false,videoPreviewRestart:false});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:true,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoUnmutePreview:true});
   assert.equal(p.w.document.querySelector('#settings-status').textContent,'Settings saved automatically.');
 });
 
@@ -37,7 +37,7 @@ test('automatic restoration stays independent of archive opt-in and serialized w
   const restore=p.w.document.querySelector('#restore-deleted-content'),post=p.w.document.querySelector('#post-discovery');
   assert.equal(restore.checked,false);assert.equal(restore.closest('.setting-row').hidden,true,'folds away until the archive is on');
   restore.checked=true;restore.dispatchEvent(new p.w.Event('change'));post.checked=false;post.dispatchEvent(new p.w.Event('change'));await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoRespectAutoplay:true,videoPauseOffscreen:true,videoPreviews:true,videoContinueOnOpen:true,videoUnmutePreview:true,videoPreviewsInView:false,videoPreviewClickPlays:false,videoPreviewRestart:false,futureOption:'preserve'});
+  assert.deepEqual(JSON.parse(JSON.stringify(p.state['rt-settings-v1'])),{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoUnmutePreview:true,futureOption:'preserve'});
   const reopened=popup(t,{settings:p.state});await settle();assert.equal(reopened.w.document.querySelector('#restore-deleted-content').checked,true);assert.equal(reopened.w.document.querySelector('#archive-discovery').checked,false);
 });
 
@@ -174,12 +174,12 @@ test('Home: Raffles explains where to find them and can be turned on in place',a
 });
 test('Home summarises active features and Manage opens Settings; each settings group counts what is on',async t=>{
   const p=popup(t,{tabs:redditTab});await settle();const doc=p.w.document;
-  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 15 features on','dependent options whose parent is off do not count; Smooth scrolling and the video options are on by default');
+  assert.equal(doc.getElementById('feature-summary').textContent,'4 of 11 features on','dependent options whose parent is off do not count; video behaviour is chosen in its own card, not counted');
   doc.getElementById('manage-features').click();assert.equal(doc.getElementById('panel-settings').hidden,false);
   const count=id=>doc.querySelector('[aria-labelledby="'+id+'"] .group-count').textContent;
-  assert.equal(count('reddit-heading'),'3 of 4 on');assert.equal(count('videos-heading'),'4 of 4 on','previews, keep playing, pause away and autoplay in their own card');assert.equal(count('tools-heading'),'1 of 1 on');assert.equal(count('archive-heading'),'0 of 4 on');
+  assert.equal(count('reddit-heading'),'3 of 4 on');assert.equal(count('tools-heading'),'1 of 1 on');assert.equal(count('archive-heading'),'0 of 4 on');
   const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));
-  assert.equal(count('archive-heading'),'2 of 4 on','the archive and its already-on restore option');assert.equal(doc.getElementById('feature-summary').textContent,'10 of 15 features on');
+  assert.equal(count('archive-heading'),'2 of 4 on','the archive and its already-on restore option');assert.equal(doc.getElementById('feature-summary').textContent,'6 of 11 features on');
 });
 test('popup styles: fluid width and larger targets on touch screens, tabs in both themes',()=>{
   const css=fs.readFileSync(path.join(__dirname,'../extension/popup.css'),'utf8');
@@ -203,4 +203,29 @@ test('on touch screens (phones open the popup as a page) tabs stay pinned and co
   const css=fs.readFileSync('extension/popup.css','utf8'),touch=css.slice(css.indexOf('@media(hover:none) and (pointer:coarse){'));const block=touch.slice(0,touch.indexOf('\n}')+2);
   for(const rule of ['.tabs{position:sticky;top:0','.switch{width:52px;height:32px}','.setting-row .setting-choice{min-height:40px','.info-trigger{width:40px;height:40px','.link-action,.chat-link{min-height:40px','.account-switch,.account-remove{min-height:40px}'])assert.ok(block.includes(rule),rule);
   assert.match(css,/\.account-actions\{display:flex;flex-wrap:wrap;gap:8px\}\.account-actions \.secondary-action\{flex:1 1 auto;width:auto;white-space:nowrap\}/,'account buttons keep one-line labels and wrap as a row');
+});
+
+test('switches show the last known settings on the first paint, then follow storage and keep the copy current',async t=>{
+  const p=popup(t,{tabs:redditTab,mirror:{raffles:false,cleanShareLinks:true},settings:{'rt-settings-v1':{raffles:false,cleanShareLinks:false}}});
+  const doc=p.w.document,raffles=doc.getElementById('raffles'),links=doc.getElementById('clean-share-links');
+  assert.equal(raffles.checked,false,'no off-then-on flip before storage answers');assert.equal(links.checked,true);assert.equal(raffles.disabled,false);
+  assert.equal(doc.documentElement.classList.contains('rt-settling'),true,'no switch animation on the first paint');
+  await settle();
+  assert.equal(links.checked,false,'storage wins once read');
+  assert.equal(JSON.parse(p.w.localStorage.getItem('rt-settings-mirror-v1')).cleanShareLinks,false);
+  links.checked=true;links.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
+  assert.equal(JSON.parse(p.w.localStorage.getItem('rt-settings-mirror-v1')).cleanShareLinks,true,'saving updates the copy');
+  const fresh=popup(t,{tabs:redditTab});assert.equal(fresh.w.document.getElementById('raffles').disabled,true,'without a copy, controls wait for storage');
+});
+
+test('video choices show their saved value at once, migrate the old switches and save one key',async t=>{
+  const p=popup(t,{tabs:redditTab,settings:{'rt-settings-v1':{videoPreviews:false,videoPreviewsInView:true}}});await settle();
+  const doc=p.w.document,start=doc.getElementById('video-start'),touch=doc.getElementById('video-start-touch');
+  assert.equal(start.textContent.trim(),'Like Reddit','the old “previews off” becomes Like Reddit');assert.equal(touch.textContent.trim(),'Stop scrolling');assert.equal(start.disabled,false);
+  start.click();const menu=doc.getElementById('video-start-menu');assert.equal(menu.hidden,false);
+  menu.querySelector('[data-value="play"]').click();await settle();
+  assert.equal(p.state['rt-settings-v1'].videoStart,'play');assert.equal(start.textContent.trim(),'On Play');assert.equal(menu.hidden,true);
+  assert.equal(JSON.parse(p.w.localStorage.getItem('rt-settings-mirror-v1')).videoStart,'play');
+  const again=popup(t,{tabs:redditTab,mirror:{videoStart:'play'},settings:{'rt-settings-v1':{videoStart:'play'}}});
+  assert.equal(again.w.document.getElementById('video-start').textContent.trim(),'On Play','first paint from the copy');
 });
