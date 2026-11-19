@@ -15,7 +15,7 @@ import shutil
 import sys
 import zipfile
 
-EXTRA_FILES = {'embed-player.js'}  # Registered after optional provider host access is granted.
+EXTRA_FILES = {'embed-player.js', 'embed-player-main.js'}  # Registered after optional provider host access is granted.
 REQUIRED_FILES = {'popup.js', 'popup.css', 'icons/96.png'}
 ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 

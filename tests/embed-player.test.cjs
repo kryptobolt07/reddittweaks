@@ -34,7 +34,7 @@ test('a Reddit-embedded player unmutes in place and can block its source link wi
  const {W,video,messages,send,click}=await player(t);
  await send('policy',{block:true});
  assert.ok(messages.some(({data,origin})=>data.rtMedia==='hello' && origin===reddit));
- await send('unmute');assert.equal(video.muted,false);assert.equal(video.currentTime,9);
+ await send('unmute');await new Promise(resolve=>setTimeout(resolve,150));assert.equal(video.muted,false,'unmuted, by the player’s own button or directly');assert.equal(video.currentTime,9);
  assert.equal(click(video),false);assert.equal(video.paused,true);
  assert.equal(click(video),false);assert.equal(video.paused,false);
  assert.equal(click(W.document.querySelector('button')),true);
@@ -65,4 +65,15 @@ test('a player outside Reddit is let go at once',async t=>{
  const {W,video}=await player(t,{authorized:false});
  video.dispatchEvent(new W.Event('play'));
  assert.equal(video.paused,false);
+});
+
+test('a blocked player cannot open its own site from script',async()=>{
+ const {JSDOM}=require('jsdom');
+ const dom=new JSDOM('<iframe></iframe>',{runScripts:'outside-only'});const W=dom.window.frames[0];
+ let opened=0;W.open=()=>{opened++;return {};};
+ W.eval(fs.readFileSync('extension/embed-player-main.js','utf8'));
+ W.open('https://example.test/watch');assert.equal(opened,1,'allowed by default');
+ W.document.documentElement.setAttribute('data-rt-block-links','');
+ assert.equal(W.open('https://example.test/watch'),null);assert.equal(opened,1,'blocked while the page asks');
+ dom.window.close();
 });

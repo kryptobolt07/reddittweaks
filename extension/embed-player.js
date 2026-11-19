@@ -31,14 +31,17 @@
   };
   const down=(rtMedia,fields)=>child?.postMessage({rtMedia,...fields},childOrigin);
   const hello=()=>{if(allowed && (media() || child)){announced=true;up('hello');}};
+  // The player's own sound button, so its icon and its own sound state follow (it re-mutes a video changed behind it).
+  const soundButton=()=>[...document.querySelectorAll('button,[role="button"]')].find(node=>/\b(mute|unmute|sound|volume|audio)\b/i.test([node.getAttribute('aria-label'),node.getAttribute('title'),node.getAttribute('data-testid'),typeof node.className==='string'?node.className:''].join(' ')));
+  function setSound(video,muted){
+    if(video.muted!==muted)soundButton()?.click();
+    const force=()=>{if(video.muted!==muted){video.muted=muted;if(!muted){video.defaultMuted=false;if(video.volume===0)video.volume=1;}}};
+    setTimeout(force,120);setTimeout(force,600);
+  }
   function apply(method,video=media()){
     if(!video)return;
-    if(method==='mute')video.muted=true;
-    if(method==='unmute'){
-      video.muted=false;
-      video.defaultMuted=false;
-      if(video.volume===0)video.volume=1;
-    }
+    if(method==='mute')setSound(video,true);
+    if(method==='unmute')setSound(video,false);
     if(method==='play')video.play()?.catch(()=>{});
     if(method==='pause')video.pause();
   }
@@ -47,7 +50,7 @@
     if(!['hello','play','pause','mute','unmute','policy'].includes(method) || !await ready)return;
     if(event.source===window.parent && parents.includes(event.origin) && method!=='hello'){
       parentOrigin=event.origin;
-      if(method==='policy')block=event.data.block===true;
+      if(method==='policy'){block=event.data.block===true;document.documentElement.toggleAttribute('data-rt-block-links',block);}
       else{
         if(method==='mute' || method==='unmute')sound=method;
         else{playback=method;instructed=true;}
