@@ -608,6 +608,22 @@ test('the post page starts its YouTube embed at the saved second once it appears
  const c2=await hoverController(q);const e2=embed(q);c2.scan();
  assert.deepEqual(e2.calls,[],'another account’s handoff is dropped');
 });
+test('detail embeds pause only after leaving view and resume only when they were playing',async t=>{
+ for(const state of ['playing','paused']){
+  const p=page(t,{detail:true}),e=embed(p,{state}),control=await hoverController(p);
+  const commands=[];
+  for(const type of ['rt-embed-offscreen','rt-embed-return'])e.node.addEventListener(type,()=>commands.push(type));
+  assert.ok(p.io.observed.includes(e.node));
+  p.io.cb([{target:e.node,intersectionRatio:0.25}]);assert.deepEqual(commands,[]);
+  p.io.cb([{target:e.node,intersectionRatio:0}]);
+  p.io.cb([{target:e.node,intersectionRatio:0.4}]);
+  p.io.cb([{target:e.node,intersectionRatio:0.5}]);
+  assert.deepEqual(commands,state==='playing'?['rt-embed-offscreen','rt-embed-return']:[]);
+  control.configure({videoScrollAway:'reddit'});commands.length=0;
+  p.io.cb([{target:e.node,intersectionRatio:0},{target:e.node,intersectionRatio:0.8}]);
+  assert.deepEqual(commands,[]);
+ }
+});
 test('on phones a YouTube embed in view previews once scrolling stops',async t=>{
  const p=page(t);phone(p,true,-900);const e=embed(p);
  e.node.getBoundingClientRect=()=>({top:200,bottom:500,height:300,left:0,width:390});

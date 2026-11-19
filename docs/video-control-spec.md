@@ -112,11 +112,13 @@ Measured 2026-11-19 (r/india, desktop): Reddit renders a YouTube link post as `s
 | V6 | Open a playing/previewing video's post | Feed stays; video stays in its card, then moves into the post slot in 220 ms; position kept; sound per option, faded in | Same, full width slot |
 | V7 | Reddit starts a video by itself | Paused at once; with Autoplay, the video in view then plays muted | Same |
 | V8 | Scroll a playing feed video half off screen | Paused, no auto-resume | Same |
-| V8b | Scroll a post's playing video fully away, then back | Plays while visible; paused once gone; resumes at the same time when half back | Same |
+| V8b | Scroll a post's playing video fully away, then back | Keeps playing leaves it running. Pause & resume pauses the playing video once gone and resumes at the same position when half back. A manually paused player stays paused. | Same |
 | V9 | Back / other page / control before the slot is laid out | Video returns to its card, still playing | Same |
 | V10 | Back after the move | Feed card has a fresh player; the post player stops | Same |
 
 ## Limits
+
+Chrome CDP captured Reddit's detail visibility controller pausing native media on scroll. Its `playOutOfViewport` flag suppresses that pause. For supported post embeds, the extension owns the same viewport transition as native detail video. Resume uses YouTube's current player state or the provider's play and pause messages. An embed without usable playback state, such as some TikTok or flag-only players, can retain native pause behavior in Pause & resume mode and may need to be started manually.
 
 The preference read is a one-off request for Reddit's settings page (about 400 KB) per browser session per account. A video Reddit starts may play for a fraction of a second before it is paused.
 Native buffering can still interrupt a video. A full document navigation cannot carry the original media element across documents. If the browser blocks playback after such a navigation, the video is positioned for the user's next Play press.
