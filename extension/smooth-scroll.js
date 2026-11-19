@@ -35,6 +35,8 @@
    // Touch screens do not skip anything. Measured on a phone-emulated Videos feed (2026-11-19, the user flicking, 45 s
    // each way): skipping left 8.8 % of frames at least half blank against 1.0 % without it, and gained no frame rate
    // (3.0 vs 2.1 fps, the main thread saturated by Reddit either way): a flick outruns the redraw.
+   // Re-tested with the other optimisations in place (2026-11-19, the user flicking): skipping on touch left 37.8 % of
+   // moving frames at least half blank against 1.4 % without it.
    this.touch=Boolean(globalThis.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);
    this.io=typeof IntersectionObserver==='function' && !this.touch?new IntersectionObserver(entries=>this.onIntersect(entries),{rootMargin:'200% 0px 200% 0px'}):null;
    this.mo=observe?new MutationObserver(records=>{for(const r of records)for(const node of r.addedNodes)if(node.nodeType===1)this.pending.add(node);this.schedule();}):null;
@@ -44,6 +46,8 @@
   }
   configure(settings){
    this.settings=settings || {};if(this.dead)return;
+   // The page bridge answers window size reads from a cache while this is set (see post-page-bridge.js).
+   this.doc.documentElement.toggleAttribute('data-rt-smooth-site',this.settings.smoothFeeds!==false);
    if(!enabled(this.settings,area()))this.clear();this.rescan();
   }
   schedule(){if(this.frame || this.dead)return;this.frame=(globalThis.requestAnimationFrame || (fn=>setTimeout(fn,16)))(()=>{this.frame=0;this.flush();});}
@@ -71,7 +75,7 @@
    }
   }
   clear(){for(const unit of this.observed){this.io?.unobserve(unit);unit.removeAttribute('data-rt-skip');unit.removeAttribute('data-rt-smooth');unit.style.removeProperty('contain-intrinsic-size');}this.observed.clear();}
-  destroy(){this.dead=true;this.mo?.disconnect();this.clear();this.io?.disconnect();removeEventListener('popstate',this.onRoute);}
+  destroy(){this.dead=true;this.doc.documentElement.removeAttribute('data-rt-smooth-site');this.mo?.disconnect();this.clear();this.io?.disconnect();removeEventListener('popstate',this.onRoute);}
  }
  globalThis.RTSmoothScroll=Object.freeze({Smooth,area,enabled});
  if(globalThis.chrome?.runtime?.id && !globalThis.__rtSmoothScrollTest){

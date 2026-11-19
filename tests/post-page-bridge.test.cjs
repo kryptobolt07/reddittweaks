@@ -2,8 +2,8 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
-function setup(t,{url='https://www.reddit.com/user/Example/',fetcher,intersection=false}={}){
-  const dom=new JSDOM('<body></body>',{url,runScripts:'outside-only'}),W=dom.window,calls=[];t.after(()=>W.close());W.AbortController=AbortController;
+function setup(t,{url='https://www.reddit.com/user/Example/',fetcher,intersection=false,before}={}){
+  const dom=new JSDOM('<body></body>',{url,runScripts:'outside-only'}),W=dom.window,calls=[];t.after(()=>W.close());W.AbortController=AbortController;before?.(W);
   // jsdom has no IntersectionObserver; feed tests install a controllable one before the bridge loads.
   if(intersection){W.__observers=[];W.IntersectionObserver=class{constructor(callback,options){this.callback=callback;this.options=options;this.targets=new Set();W.__observers.push(this);}observe(target){this.targets.add(target);}unobserve(target){this.targets.delete(target);}disconnect(){this.targets.clear();}};}
   W.fetch=async(...args)=>{calls.push(args);return fetcher?fetcher(...args):{ok:true,status:200,headers:new Headers(),text:async()=>new URL(args[0]).pathname==='/svc/shreddit/search/'?nativePostHtml():JSON.stringify({data:{children:[{kind:'t3',data:{id:'abc12',author:'Example',title:'Public',created_utc:1700000000}}],after:'t3_abc12'}})};};
@@ -821,17 +821,40 @@ test('profile navigation seeding leaves invalid preference and disabled discover
  W.document.documentElement.removeAttribute('data-rt-profile-discovery');W.document.cookie='hui_flex_nav_expanded_state=0; path=/';const other=grid.cloneNode(true);W.document.body.append(other);await Promise.resolve();assert.equal(other.querySelector('flex-left-nav-container').getAttribute('expanded'),'1');assert.equal(other.className,'grid-container flex-nav-expanded');
 });
 
-test('a type-filtered community feed keeps its cards mounted so Reddit does not rebuild their embeds',async t=>{
+test('a type-filtered community feed swaps cards out only far above, so Reddit rebuilds their embeds rarely',async t=>{
  const {W}=setup(t,{url:'https://www.reddit.com/r/india/?rt_type=video'});
+ Object.defineProperty(W,'innerHeight',{value:800,configurable:true});
  W.document.body.innerHTML='<main><shreddit-feed></shreddit-feed></main>';
- const feed=W.document.querySelector('shreddit-feed'),batch=W.document.createElement('faceplate-batch'),placeholder=W.document.createElement('div');
- placeholder.className='virtualized-placeholder';feed.append(placeholder);
- const nativeCalls=[];const controller={host:feed,topStack:[{node:batch,placeholder,height:400}],topPadding:400,_virtualizeTop(distance){nativeCalls.push(distance);}};feed.virtualization=controller;
+ const feed=W.document.querySelector('shreddit-feed'),nativeCalls=[];
+ const controller={host:feed,topStack:[],topPadding:0,_virtualizeTop(distance){nativeCalls.push(distance);}};feed.virtualization=controller;
  W.dispatchEvent(new W.Event('scroll'));await new Promise(r=>setTimeout(r,5));
  controller._virtualizeTop(5000);
- assert.deepEqual(nativeCalls,[],'Reddit does not swap cards out');
- assert.equal(batch.parentElement,feed,'a card swapped out before the filter applied is restored');
- assert.equal(controller.topStack.length,0);assert.equal(controller.topPadding,0);
+ assert.deepEqual(nativeCalls,[5000-9*800],'Reddit swaps out only beyond about ten screens');
  W.history.replaceState({},'','/r/india/');controller._virtualizeTop(5000);
- assert.deepEqual(nativeCalls,[5000],'without a type filter Reddit virtualizes as usual');
+ assert.deepEqual(nativeCalls,[5000-9*800,5000],'without a type filter Reddit virtualizes as usual');
+});
+
+test('while smooth scrolling is on, window size reads answer from a value refreshed on resize',async t=>{
+ let reads=0,width=400;
+ const {W}=setup(t,{url:'https://www.reddit.com/r/pics/',before:W=>{for(const key of ['innerWidth','innerHeight'])Object.defineProperty(W,key,{configurable:true,enumerable:true,get(){reads++;return key==='innerWidth'?width:900;}});}});
+ const d=W.document.documentElement;
+ assert.equal(W.innerWidth,400);assert.equal(W.innerWidth,400);assert.equal(reads,2,'off: every read is real');
+ d.setAttribute('data-rt-smooth-site','');reads=0;
+ assert.equal(W.innerWidth,400);assert.equal(W.innerHeight,900);assert.equal(W.innerWidth,400);
+ assert.equal(reads,2,'on: one real read per size until the window resizes');
+ width=500;W.dispatchEvent(new W.Event('resize'));
+ assert.equal(W.innerWidth,500,'a resize refreshes it');
+ d.removeAttribute('data-rt-smooth-site');width=600;assert.equal(W.innerWidth,600,'off again: real');
+});
+
+test('while smooth scrolling is on, the header height Reddit reads per ad post is re-read at most once a second',async t=>{
+ let reads=0;
+ const {W}=setup(t,{url:'https://www.reddit.com/r/pics/',before:W=>{W.getComputedStyle=()=>({getPropertyValue(name){reads++;return name==='--shreddit-header-height'?'56px':'block';},display:'block'});}});
+ W.document.body.innerHTML='<shreddit-app></shreddit-app><div id="other"></div>';const app=W.document.querySelector('shreddit-app');
+ W.document.documentElement.setAttribute('data-rt-smooth-site','');
+ for(let i=0;i<5;i++)assert.equal(W.getComputedStyle(app).getPropertyValue('--shreddit-header-height'),'56px');
+ assert.equal(reads,1,'one real read for five');
+ assert.equal(W.getComputedStyle(app).getPropertyValue('display'),'block');assert.equal(W.getComputedStyle(app).display,'block');
+ W.getComputedStyle(W.document.getElementById('other')).getPropertyValue('--shreddit-header-height');assert.equal(reads,3,'other properties and elements are real reads');
+ W.document.documentElement.removeAttribute('data-rt-smooth-site');W.getComputedStyle(app).getPropertyValue('--shreddit-header-height');assert.equal(reads,4,'off: real');
 });
