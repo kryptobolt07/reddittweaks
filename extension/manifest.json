@@ -89,6 +89,7 @@
         "share-links-settings.js",
         "feed-filters.js",
         "feed-sheet.js",
+        "mobile-home-header.js",
         "live-subreddit-filters.js"
       ],
       "css": [
