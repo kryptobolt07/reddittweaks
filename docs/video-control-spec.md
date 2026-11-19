@@ -47,20 +47,23 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 - Feed: a playing video pauses when less than half of it is on screen and stays paused.
 - Post page: the post's own video plays on while any of it is visible, pauses once it is fully out of view, and resumes at the same time when half of it is back (reloading Reddit's source first if Reddit unloaded it). A video the user paused stays paused.
 
-### Popup options (Videos card, 2026-11-19)
-User decision: options describe what they do (no "Like Reddit"), and every default is Reddit's own behaviour; the extension's ways are opt-ins. Reddit's code: feed videos pause when scrolled away; a post's own video keeps playing off screen; opening a post starts the post's own player.
+### Popup options (Videos card, 2026-11-19, revised)
+User decisions: options say only what the extension does, with no reference to Reddit's settings; the start choice replaces Reddit's own autoplay and its "Autoplay media" setting (no longer read, which also drops the ~400 KB settings-page fetch); the card adapts to phones. Defaults otherwise match Reddit: opening a post starts the post's own player, and a post's video keeps playing off screen.
 
 | Field | Choices (default first) | Setting key |
 |---|---|---|
-| Feed videos start (mouse) | **Autoplay** (your "Autoplay media" setting) · Preview on hover, muted · Only when I press Play | `videoStart` |
-| On phones | **Autoplay** (your "Autoplay media" setting, applied even though Reddit's phone layout ignores it) · Preview the one I stop on, muted · Only when I press Play | `videoStartTouch` |
-| Clicking a preview (shown only while a preview start is chosen) | **Opens the post** · Plays it here with sound | `videoPreviewClick` |
-| An opened preview (same) | **Continues from the preview** · Starts from the beginning | `videoPreviewFrom` |
-| Sound when a preview plays for real (same; switch) | **On** | `videoUnmutePreview` |
+| Feed videos start (computers only) | **Autoplay, muted** (the video in view, one at a time, about 150 ms after scrolling) · Preview on hover, muted · Only when I press Play | `videoStart` |
+| Feed videos start (phones only) | **Autoplay, muted** · Preview the one I stop on, muted (after 600 ms) · Only when I press Play | `videoStartTouch` |
+| Clicking a muted video (hidden with Only when I press Play) | **Opens the post** · Plays it here | `videoPreviewClick` |
+| Once you open it, it plays (same) | **From where it was** · From the beginning | `videoPreviewFrom` |
+| Sound when you open it (same; switch) | **On** | `videoUnmutePreview` |
 | Opening a post that is playing | **The post's player starts again** · Keeps playing in the post | `videoOpenPost` |
 | A post's video when you scroll past it | **Keeps playing off screen** · Pauses, and resumes when back | `videoScrollAway` |
 
-Migration (`RTPostModel.normalizeSettings`, mirrored in the popup and video-control): only the 0.46–0.47 opt-ins carry over (phone previews → Preview the one I stop on; click plays here → Plays it here; restart → From the beginning). Their on-by-default switches were written by the popup whether or not anyone chose them, so they do not keep previews, keep playing or pausing on. A choice is stored only once picked. The popup draws every switch and choice from its own synchronous copy of the settings on the first paint, then reconciles with extension storage. One video at a time and applying "Autoplay media" on the phone layout hold whatever the choices.
+- Each device shows only its own start row: the popup on a phone is a page on that phone (touch: `(hover: none), (pointer: coarse)`), and each device keeps its own extension storage.
+- On touch screens the choice menus are up to 320 px wide with 44 px rows and 14 px text; the trigger keeps its 40 px height.
+- Any video Reddit starts by itself is paused at once; Autoplay then plays the one in view through the same muted-preview path, so a click follows *Clicking a muted video* and its sound button unmutes in place.
+- Migration: 0.48's `reddit` start becomes `autoplay`; only the 0.46–0.47 opt-ins carry over (phone previews → Preview the one I stop on; click plays here → Plays it here; restart → From the beginning). A choice is stored only once picked. The popup draws every switch and choice from its own synchronous copy of the settings on the first paint.
 
 ### One video at a time
 User report (phones): several videos played at once. Whatever starts (a Reddit video by any means, a preview, a continuation, or a YouTube player by its own controls) pauses every other playing video and stops any other preview; a video held for its post keeps playing. YouTube players report starting through the page bridge (`onStateChange` → `rt-embed-playing`) and are paused by it (`rt-media-exclusive`).
@@ -91,7 +94,7 @@ Measured 2026-11-19 (r/india, desktop): Reddit renders a YouTube link post as `s
 | V4 | Click/tap a preview's surface | Opens the post (default) or plays here with sound | Same |
 | V5 | Reddit's mute button on a preview | Unmutes in place, keeps playing | Same |
 | V6 | Open a playing/previewing video's post | Feed stays; video stays in its card, then moves into the post slot in 220 ms; position kept; sound per option, faded in | Same, full width slot |
-| V7 | Reddit's autoplay (autoplay off) | Paused; poster stays | Same |
+| V7 | Reddit starts a video by itself | Paused at once; with Autoplay, the video in view then plays muted | Same |
 | V8 | Scroll a playing feed video half off screen | Paused, no auto-resume | Same |
 | V8b | Scroll a post's playing video fully away, then back | Plays while visible; paused once gone; resumes at the same time when half back | Same |
 | V9 | Back / other page / control before the slot is laid out | Video returns to its card, still playing | Same |
