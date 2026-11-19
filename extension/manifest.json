@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "111",
   "name": "Reddit Tweaks",
-  "version": "0.51.1",
+  "version": "0.51.2",
   "description": "Native Reddit tweaks: chat search, public profile activity discovery and optional Arctic Shift snapshots.",
   "content_scripts": [
     {
@@ -158,7 +158,7 @@
   "background": {
     "service_worker": "cache-broker.js"
   },
-  "version_name": "0.51.1 preview",
+  "version_name": "0.51.2 preview",
   "optional_host_permissions": [
     "https://www.redgifs.com/*",
     "https://player.vimeo.com/*",

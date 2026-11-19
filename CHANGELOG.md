@@ -1,3 +1,9 @@
+# 0.51.2 preview
+
+- **Embed stills ahead of scrolling:** idle embed cards already show their still when they scroll into view, instead of a black box that fills in. Stills for every provider are found and decoded up to 5 screens ahead, including cards whose player Reddit has not inserted yet. Every queued card is looked up; before, only the first 4 of each batch of 8 were.
+- **Version:** patch increment for this fix.
+- **Validation:** 2,043 tests passed in UTC. Firefox lint reported zero errors, notices and warnings. All 78 Chromium and 79 Firefox assets match the source, unpacked folders and ZIPs. Not checked by scrolling on a phone with this build. Chromium SHA-256 `49fa5fac11fd70161ae3a27d4630ad720852d3595b0569db9ff77571fe98800e`. Firefox SHA-256 `be3d2429b8542111f24c9e3c67657281799b859fb0caa1a371591a6649fc17e5`.
+
 # 0.51.1 preview
 
 - **Embed stills:** idle cards from an embed provider whose stills need a request without a referrer show their still again instead of only a placeholder. Stills are now drawn as images that send no referrer. Cards whose markup has no still read it from their own post's Reddit data, one post at a time, only near the screen, with a 5-minute pause after Reddit refuses. Reddit's batched post lookup returns 403.
