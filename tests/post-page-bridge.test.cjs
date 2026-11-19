@@ -68,6 +68,20 @@ test('comment preview asks Reddit to prepare only media in open threads of the c
  }
  assert.deepEqual(loads,['metadata']);
 });
+test('the current detail media can take over native viewport pause and restores the instance on cleanup',t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'});
+ const d=W.document,post=d.createElement('shreddit-post');post.id='t3_abc12';d.body.append(post);
+ const video=post.appendChild(d.createElement('shreddit-player')),embed=post.appendChild(d.createElement('shreddit-embed'));
+ video.setAttribute('post-id','t3_abc12');video.setAttribute('player-type','post_detail_screen');video.playOutOfViewport=false;
+ let pauses=0;embed.pausePlayback=()=>pauses++;
+ const action=(node,type)=>node.dispatchEvent(new W.Event(type,{bubbles:true,cancelable:true}));
+ for(const node of [video,embed])assert.equal(action(node,'rt-manage-media-viewport'),false);
+ assert.equal(video.playOutOfViewport,true);embed.pausePlayback();assert.equal(pauses,0);
+ for(const node of [video,embed])action(node,'rt-restore-media-viewport');
+ assert.equal(video.playOutOfViewport,false);embed.pausePlayback();assert.equal(pauses,1);
+ video.setAttribute('player-type','in_feed_player');
+ assert.equal(action(video,'rt-manage-media-viewport'),true);assert.equal(video.playOutOfViewport,false);
+});
 test('archive comment bootstrap uses only current shell descriptors and rejects late route changes',async t=>{
  const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'}),w=e.W;
  w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"></div><faceplate-loader name="PdpStandardClientAssets_fixture" src="concat:chunkA,chunkB" data-prefix="en-US/"></faceplate-loader>';

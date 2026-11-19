@@ -40,9 +40,9 @@
  function frameEvent(kind,raw){
   let data=raw;if(typeof data==='string'){try{data=JSON.parse(data);}catch{return '';}}
   if(!data || typeof data!=='object')return '';
-  if(kind==='playerjs')return data.context!=='player.js'?'':data.event==='play'?'play':'ready';
-  if(kind==='vimeo')return ['play','ready'].includes(data.event)?data.event:'';
-  if(kind==='youtube'){const state=data.event==='onStateChange'?data.info:data.event==='infoDelivery'?data.info?.playerState:null;return state===1?'play':data.event==='onReady'?'ready':'';}
+  if(kind==='playerjs')return data.context!=='player.js'?'':data.event==='play'?'play':['pause','ended'].includes(data.event)?'pause':'ready';
+  if(kind==='vimeo')return ['pause','ended'].includes(data.event)?'pause':['play','ready'].includes(data.event)?data.event:'';
+  if(kind==='youtube'){const state=data.event==='onStateChange'?data.info:data.event==='infoDelivery'?data.info?.playerState:null;return state===1?'play':state===0 || state===2?'pause':data.event==='onReady'?'ready':'';}
   return '';
  }
  // Vimeo: Reddit renders its own lite-vimeo placeholder (read from Reddit's code 2026-11-19): a click adds
@@ -109,6 +109,7 @@
   constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,observe=true}={}){
    this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new WeakMap();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;
    this.visibilityReady=new WeakMap();this.fading=new WeakMap();this.away=new WeakMap();this.loops=new Map();
+   this.detailEmbeds=new Set();this.embedAway=new Set();this.managedViewport=new Set();
    this.choice=videoSettings({});
    this.onGesture=event=>{
     if(!event.isTrusted && !globalThis.__rtVideoControlTest)return;
@@ -166,7 +167,8 @@
      if(frame.contentWindow!==event.source)continue;
      const kind=frameEvent(state.kind,event.data);
      if(kind==='ready'){if(!state.readySeen){state.readySeen=true;for(const data of state.queue.splice(0))this.post(frame,data);this.subscribe(frame,state);}}
-     if(kind==='play'){state.played=true;let embed=frame.getRootNode()?.host;if(embed && !embed.matches(ANY_EMBED))embed=embed.getRootNode()?.host;if(embed?.matches?.(ANY_EMBED) && this.ePreview?.embed!==embed){embed.dataset.rtEmbedUsed='1';this.exclusive(embed);}}
+     if(kind==='pause')state.playing=false;
+     if(kind==='play'){state.played=true;state.playing=true;let embed=frame.getRootNode()?.host;if(embed && !embed.matches(ANY_EMBED))embed=embed.getRootNode()?.host;if(embed?.matches?.(ANY_EMBED) && this.ePreview?.embed!==embed){embed.dataset.rtEmbedUsed='1';this.exclusive(embed);}}
      return;
     }
    };
@@ -185,6 +187,7 @@
    const active=this.hovered || this.ePreview?.embed,kind=mediaKind(active);
    if(active && this.startMode(kind,before)!==this.startMode(kind))this.stopHover();
    if(this.startMode('gif',before)!==this.startMode('gif'))for(const player of this.loops.keys())this.stopLoop(player);
+   if(!this.pauseAway){this.embedAway.clear();this.away=new WeakMap();}
    if(!this.continueOnOpen)this.clearHandoff();
    else if(!this.configured)this.restoreHandoff();
    this.configured=true;this.scan();
@@ -227,10 +230,23 @@
    for(const player of this.players)if(!player.isConnected){
     if(this.hovered===player)this.stopHover();
     this.stopLoop(player);
+    this.manageViewport(player,false);
     this.players.delete(player);this.previews.delete(player);this.io?.unobserve(player);
    }
-   for(const player of this.doc.querySelectorAll(MEDIA_NODES))this.attach(player);
-   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){this.watchEmbed(embed);const frame=controlFrame(embed);if(frame && !this.frames.has(frame))this.frameState(frame);}
+   for(const player of this.doc.querySelectorAll(MEDIA_NODES)){
+    this.attach(player);
+    if(player.matches(PLAYERS))this.manageViewport(player,this.isDetailMedia(player));
+   }
+   for(const embed of this.detailEmbeds)if(!embed.isConnected || !this.isDetailEmbed(embed)){
+    this.detailEmbeds.delete(embed);this.embedAway.delete(embed);this.io?.unobserve(embed);this.manageViewport(embed,false);
+   }
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){
+    this.watchEmbed(embed);
+    const frame=controlFrame(embed),state=frame && this.frameState(frame);
+    if(!this.isDetailEmbed(embed))continue;
+    if(!this.detailEmbeds.has(embed)){this.detailEmbeds.add(embed);this.io?.observe(embed);}
+    this.manageViewport(embed,!this.pauseAway || embed.matches(EMBED) || Boolean(state && state.kind!=='flags'));
+   }
    if(this.configured)this.parkIdle();
    this.handoff();
    this.embedHandoff();
@@ -264,6 +280,22 @@
    if(commentOf(player) && video && !video.paused)this.block(player,video);
   }
   video(player){return player.matches('video')?player:player.shadowRoot?.querySelector('video') || null;}
+  isDetailMedia(player){
+   const id=postId(this.win.location.pathname),comment=commentOf(player);
+   return Boolean(id && (comment?comment.getAttribute('postid')==='t3_'+id:player.getAttribute('player-type')===DETAIL_PLAYER && player.getAttribute('post-id')==='t3_'+id));
+  }
+  isDetailEmbed(embed){
+   const id=postId(this.win.location.pathname);
+   return Boolean(id && embed.closest('shreddit-post')?.id==='t3_'+id && !embed.closest('shreddit-feed,shreddit-comment'));
+  }
+  manageViewport(node,enabled){
+   if(enabled){
+    if(this.managedViewport.has(node))return;
+    if(!node.dispatchEvent(new this.win.Event('rt-manage-media-viewport',{bubbles:true,cancelable:true})))this.managedViewport.add(node);
+   }else if(this.managedViewport.delete(node)){
+    node.dispatchEvent(new this.win.Event('rt-restore-media-viewport',{bubbles:true}));
+   }
+  }
   userStarted(player){return performance.now()-this.gesture.at<GESTURE_MS && this.gesture.path.includes(player);}
   previewable(player){return player.getAttribute('player-type')===FEED_PLAYER || Boolean(commentOf(player) && !closedThread(player));}
   syncCommentVisibility(){
@@ -383,14 +415,15 @@
    return state;
   }
   subscribe(frame,state){
-   if(state.kind==='playerjs')for(const value of ['ready','play'])this.post(frame,JSON.stringify({context:'player.js',version:'0.0.11',method:'addEventListener',value,listener:'rt-'+value}));
-   else if(state.kind==='vimeo')for(const value of ['ready','play'])this.post(frame,JSON.stringify({method:'addEventListener',value}));
+   if(state.kind==='playerjs')for(const value of ['ready','play','pause','ended'])this.post(frame,JSON.stringify({context:'player.js',version:'0.0.11',method:'addEventListener',value,listener:'rt-'+value}));
+   else if(state.kind==='vimeo')for(const value of ['ready','play','pause','ended'])this.post(frame,JSON.stringify({method:'addEventListener',value}));
    else if(state.kind==='youtube')this.post(frame,JSON.stringify({event:'listening',id:'rt'}));
   }
   // Sends now and again once the player says it is ready (commands before that are dropped by these players).
   command(frame,method){
    const state=this.frameState(frame);if(state.kind==='flags')return false;
-   if(method==='play')state.played=true;
+   if(method==='play'){state.played=true;state.playing=true;}
+   else if(method==='pause')state.playing=false;
    for(const data of [].concat(frameMessage(state.kind,method))){this.post(frame,data);state.queue.push(data);}
    while(state.queue.length>4)state.queue.shift();
    // Embedly relays player.js only for some providers: a player that never answers is driven by address flags instead.
@@ -827,6 +860,7 @@
   exclusive(source){
    const origin=source.matches?.('video') && commentOf(source)?source:source.getRootNode?.()?.host;
    if(origin?.matches?.(MEDIA_NODES) && mediaKind(origin)==='gif')return;
+   for(const embed of this.embedAway)if(embed!==source)this.embedAway.delete(embed);
    for(const player of this.players){
     const video=this.video(player);
     if(!video || video===source || video.paused || mediaKind(player)==='gif' || this.pending?.sourceVideo===video)continue;
@@ -845,6 +879,7 @@
   }
   onTime(event){if(this.pending?.sourceVideo===event.target)this.updatePlayback(this.pending);}
   observeAfterMove(player){
+   this.manageViewport(player,this.isDetailMedia(player));
    if(!this.io)return;
    this.visibilityReady.set(player,Infinity);
    this.io.unobserve(player);
@@ -863,11 +898,14 @@
    if(this.inView && !this.viewing)this.settle();
    for(const entry of entries){
     const player=entry.target,ready=this.visibilityReady.get(player);
+    if(this.detailEmbeds.has(player)){this.onEmbedVisibility(player,entry.intersectionRatio);continue;}
     if((ready!==undefined && !(entry.time>=ready)) || (player===pending?.source && (pending.held || pending.reached)))continue;
     // A post's own video pauses once it is fully out of view and resumes where it was when half of it is back;
     // a feed video pauses when less than half of it is on screen and stays paused.
     const detail=player.getAttribute('player-type')===DETAIL_PLAYER || Boolean(commentOf(player)),ratio=entry.intersectionRatio;
     if(ratio<0.5 && this.loops.has(player))this.stopLoop(player);
+    const away=this.away.get(player);
+    if(away)away.visible=ratio>=0.5;
     if(ratio>=0.5){if(detail)this.resumeAway(player);continue;}
     if(detail && ratio>0)continue;
     if(player===this.hovered)this.stopHover();
@@ -875,13 +913,14 @@
     const video=this.video(player);
     if(video && !video.paused && !video.ended){
      video.pause();player.dataset.rtPausedAway='true';
-     if(detail)this.away.set(player,{video,time:video.currentTime});
+     if(detail)this.away.set(player,{video,time:video.currentTime,visible:false});
     }
    }
   }
   resumeAway(player){
    const away=this.away.get(player),video=this.video(player);
    if(!away || !this.pauseAway || this.doc.hidden || closedThread(player)){this.away.delete(player);return;}
+   if(!away.visible)return;
    if(video!==away.video || !video.paused || video.ended){this.away.delete(player);return;}
    // Reddit may have unloaded the source while it was far away: reload it, then resume at the same time.
    if(video.readyState<1){
@@ -896,6 +935,25 @@
    if(Math.abs(video.currentTime-away.time)>0.25)video.currentTime=away.time;
    this.continued.add(video);
    this.play(player,video)?.catch?.(()=>this.continued.delete(video));
+  }
+  onEmbedVisibility(embed,ratio){
+   if(!this.pauseAway || !this.isDetailEmbed(embed) || this.doc.hidden)return;
+   const youtube=embed.matches(EMBED),frame=youtube?null:controlFrame(embed);
+   if(ratio>=0.5){
+    if(!this.embedAway.delete(embed))return;
+    if(youtube)embed.dispatchEvent(new this.win.Event('rt-embed-return',{bubbles:true}));
+    else if(frame)this.command(frame,'play');
+    return;
+   }
+   if(ratio>0 || this.embedAway.has(embed))return;
+   if(youtube){
+    embed.dispatchEvent(new this.win.Event('rt-embed-snapshot',{bubbles:true}));
+    const state=embed.dataset.rtEmbedState;
+    if(state==='playing')this.embedAway.add(embed);
+    if(state!=='paused')embed.dispatchEvent(new this.win.Event('rt-embed-offscreen',{bubbles:true}));
+   }else if(frame && this.frames.get(frame)?.playing){
+    if(this.command(frame,'pause'))this.embedAway.add(embed);
+   }
   }
   settle(){
    this.win.clearTimeout(this.settleTimer);this.win.clearTimeout(this.dwellTimer);
@@ -926,6 +984,7 @@
    if(this.hovered && !this.viewing || this.ePreview && !this.ePreview.view)return;
    if(!settled && this.startMode(mediaKind(this.hovered || this.ePreview?.embed))==='stop' && (this.viewing || this.ePreview?.view))return;
    this.stopHover();
+   for(const node of this.managedViewport)this.manageViewport(node,false);
    if(!best)return;
    if(best.matches(ANY_EMBED)){
     const preview=this.ePreview={embed:best,card:best.closest('shreddit-post'),view:true};

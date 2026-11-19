@@ -192,6 +192,33 @@
     event.preventDefault();
     Promise.resolve(player.play()).catch(()=>{});
   });
+  const viewportOverrides=new WeakMap();
+  const detailEmbed=node=>{
+    const id=route()?.id;
+    return id && node.matches?.('shreddit-embed') && node.closest('shreddit-post')?.id==='t3_'+id && !node.closest('shreddit-feed,shreddit-comment');
+  };
+  // Let the content script apply the reader's full-offscreen policy before native visibility pauses the same player.
+  document.addEventListener('rt-manage-media-viewport',event=>{
+    const node=event.target;
+    if(viewportOverrides.has(node)){event.preventDefault();return;}
+    if(detailEmbed(node) && typeof node.pausePlayback==='function'){
+      const old=node.pausePlayback,own=Object.hasOwn(node,'pausePlayback'),ignore=()=>{};
+      node.pausePlayback=ignore;
+      viewportOverrides.set(node,()=>{if(node.pausePlayback!==ignore)return;if(own)node.pausePlayback=old;else delete node.pausePlayback;});
+    }else{
+      const id=route()?.id,comment=node.closest?.('shreddit-comment');
+      if(!id || !node.matches?.(videoPlayers) || typeof node.playOutOfViewport!=='boolean' ||
+         (comment?comment.getAttribute('postid')!=='t3_'+id:node.getAttribute('player-type')!=='post_detail_screen' || node.getAttribute('post-id')!=='t3_'+id))return;
+      const old=node.playOutOfViewport;
+      node.playOutOfViewport=true;
+      viewportOverrides.set(node,()=>{node.playOutOfViewport=old;});
+    }
+    event.preventDefault();
+  });
+  document.addEventListener('rt-restore-media-viewport',event=>{
+    const node=event.target,restore=viewportOverrides.get(node);
+    restore?.();viewportOverrides.delete(node);
+  });
   // YouTube embeds: Reddit renders lite-youtube with its YouTube player API (js-api) inside shreddit-embed. Previews,
   // sound and continuation use that player; nothing is fetched beyond what Reddit's own activation loads.
   const ytPlayers=new WeakMap(),youTubeEmbed='shreddit-embed[providername="YouTube"]';
@@ -247,6 +274,15 @@
   });
   // End of a preview: pause where it is and restore sound for the user's own play button.
   document.addEventListener('rt-embed-stop',event=>youTubeCall(event.target,player=>{player.pauseVideo();player.unMute();}));
+  document.addEventListener('rt-embed-offscreen',event=>{
+    const embed=event.target;
+    if(!detailEmbed(embed) || !embed.matches(youTubeEmbed))return;
+    const player=ytPlayers.get(embed);
+    if(player)player.pauseVideo();else embed.pauseYouTubePlayback?.();
+  });
+  document.addEventListener('rt-embed-return',event=>{
+    if(detailEmbed(event.target))youTubeCall(event.target,player=>player.playVideo());
+  });
   const soundFades=new WeakMap();
   function playYouTubeWithSound(player){
     if(!player)return;
