@@ -743,6 +743,20 @@ html[data-rt-smooth-feed] shreddit-feed[data-rt-loading-owner]>[data-rt-skip]{co
 /* Before Reddit's script defines the post menu (slow connections), its light-DOM children render in place: keep the
    raffle item hidden until the menu can slot it into its closed popup. */
 shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{display:none!important}
+/* Compact native header on upward scrolling from mobile Home. */
+reddit-header-small [data-rt-home-search]{display:none}
+@media (max-width:767.98px){
+  reddit-header-small[data-rt-home-nav]{padding-block-start:var(--rt-home-nav-height,56px)}
+  reddit-header-small[data-rt-home-nav]>header{
+    position:fixed;inset-block-start:0;inset-inline:0;
+    background:var(--color-neutral-background,#fff);
+    transform:translateY(-100%);transition:transform .16s ease-out;pointer-events:none
+  }
+  reddit-header-small[data-rt-home-nav="shown"]>header,
+  reddit-header-small[data-rt-home-nav]>header:focus-within{transform:none;pointer-events:auto}
+  reddit-header-small[data-rt-home-nav] [data-rt-home-search]{display:inline-flex;width:40px;flex:none}
+}
+@media (prefers-reduced-motion:reduce){reddit-header-small[data-rt-home-nav]>header{transition:none}}
 /* Phones: Feed options sheet shaped like Reddit's app (docs/feed-options-sheet-spec.md). */
 .rt-fsheet-root{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:flex-end;font-family:var(--font-sans,inherit);color:var(--color-neutral-content-strong,#0f1a1c)}
 dialog.rt-fsheet-root{box-sizing:border-box;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;overflow:hidden;background:transparent}
