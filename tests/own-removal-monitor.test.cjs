@@ -57,7 +57,7 @@ test('navigation cancels an old public check and cannot cache its late result fo
  const first=s.m.configure({ownRemoval:true});await new Promise(r=>setImmediate(r));s.W.history.pushState({},'','/r/Alpha/comments/post1/new-route/');const next=s.m.scan();assert.equal(signal.aborted,true);release();await Promise.all([first,next]);assert.equal(s.calls.filter(m=>m.action==='record').at(-1).records[0].state,'visible');assert.equal(n,2);
 });
 test('new native cards arriving during a public check are processed after that check settles',async t=>{
- const s=await setup(t,{html:card(),observe:true});let release,n=0;const gate=new Promise(r=>release=r);s.m.check=async msg=>{if(++n===1)await gate;return {fullname:msg.fullname,status:'visible',verified:true};};const job=s.m.configure({ownRemoval:true});await new Promise(r=>setImmediate(r));s.W.document.querySelector('main').insertAdjacentHTML('beforeend',card('post2'));await new Promise(r=>setTimeout(r,35));release();await job;await new Promise(r=>setTimeout(r,45));assert.equal(n,2);
+ const s=await setup(t,{html:card(),observe:true});let release,n=0;const gate=new Promise(r=>release=r);s.m.check=async msg=>{if(++n===1)await gate;return {fullname:msg.fullname,status:'visible',verified:true};};const job=s.m.configure({ownRemoval:true});await new Promise(r=>setImmediate(r));s.W.document.querySelector('main').insertAdjacentHTML('beforeend',card('post2'));await new Promise(r=>setTimeout(r,35));release();await job;await new Promise(r=>setTimeout(r,360));assert.equal(n,2,'the follow-up scan runs within the 300 ms scan gap');
 });
 test('a removal is a red ban icon after the time, with its wording in the tooltip only',async t=>{
  const s=await setup(t,{html:card('post1','Example','AUTOMOD_FILTERED')});await s.m.scan?.();await new Promise(r=>setTimeout(r,20));const pill=s.W.document.querySelector('[data-rt-own-removal]');
@@ -70,4 +70,12 @@ test('cards inside the Removed views are left to those views',async t=>{
 test('a thread with many of your items asks the archive once per 100 items, not per 25',async t=>{
  const s=await setup(t,{settings:{ownRemoval:true,archiveDiscovery:true},html:Array.from({length:30},(_,i)=>card('own'+i)).join('')});
  assert.deepEqual(s.archives.map(a=>a.ids.length),[30]);
+});
+
+test('scrolling and page churn scan at most every 300 ms, and the signed-in name is not re-read on every scan',async t=>{
+ const s=await setup(t,{html:card(),observe:true});await s.m.configure({ownRemoval:true});await new Promise(r=>setTimeout(r,20));
+ let scans=0;const scan=s.m.scan.bind(s.m);s.m.scan=()=>{scans++;return scan();};
+ for(let i=0;i<20;i++){s.W.dispatchEvent(new s.W.Event('scroll'));s.m.schedule();await new Promise(r=>setTimeout(r,15));}
+ await new Promise(r=>setTimeout(r,350));
+ assert.ok(scans>=1 && scans<=3,'about 300 ms worth of scrolling scans '+scans+' times, not every frame');
 });

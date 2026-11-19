@@ -484,6 +484,9 @@
     skipObserved.add(child);skipObserver.observe(child);
   }
   function scheduleFeedSync(){
+    // Only profile feeds are managed: elsewhere (subreddits, home) every scroll event returned here after a document
+    // search (measured 2026-11-19: ~1.3 s of a 46 s phone scroll). A feed managed earlier still gets its release pass.
+    if(!observedFeed && !route()?.username)return;
     const quiet=performance.now()-lastScroll;
     if(restoreObserver && quiet<idleMs()){
       observePlaceholders(currentFeed());
