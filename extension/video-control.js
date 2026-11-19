@@ -93,26 +93,33 @@
   const image=d?.preview?.images?.[0],sized=(image?.resolutions || []).find(r=>r.width>=480) || image?.source;
   return [sized?.url,d?.secure_media?.oembed?.thumbnail_url,d?.media?.oembed?.thumbnail_url].find(posterOK) || '';
  };
- async function readPostStills(ids,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))){
-  const out={};
-  for(const id of ids){
-   if(Date.now()<stillsPausedUntil)break;
-   try{
-    const response=await fetch('/comments/'+id.replace(/^t3_/,'')+'.json?limit=1&depth=1&raw_json=1',{credentials:'include',headers:{Accept:'application/json'}});
-    if(response.status===403 || response.status===429){stillsPausedUntil=Date.now()+300000;break;}
-    if(response.ok){const url=pickStill((await response.json())?.[0]?.data?.children?.[0]?.data);if(url)out[id]=url;}
-   }catch{}
-   await wait(200);
-  }
+ // Two reads at a time, in the order given (nearest the screen first); each still is reported as soon as it's read.
+ async function readPostStills(ids,onFound,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))){
+  const out={},queue=[...ids];
+  const worker=async()=>{
+   while(queue.length && Date.now()>=stillsPausedUntil){
+    const id=queue.shift();
+    try{
+     // Firefox content scripts fetch as the extension; content.fetch reads as the page, like Chrome's.
+     const read=globalThis.content?.fetch?globalThis.content.fetch.bind(globalThis.content):fetch;
+     const response=await read(new URL('/comments/'+id.replace(/^t3_/,'')+'.json?limit=1&depth=1&raw_json=1',location.origin).href,{credentials:'include',headers:{Accept:'application/json'}});
+     if(response.status===403 || response.status===429){stillsPausedUntil=Date.now()+300000;break;}
+     if(response.ok){const url=pickStill((await response.json())?.[0]?.data?.children?.[0]?.data);if(url){out[id]=url;onFound?.(id,url);}}
+    }catch{}
+    if(queue.length)await wait(150);
+   }
+  };
+  await Promise.all([worker(),worker()]);
   return out;
  }
- async function readPosters(ids,sources){
+ async function readPosters(ids,sources,onFound){
   const items=ids.flatMap(id=>sources.get(id)?[[id,sources.get(id)]]:[]);
   const api=globalThis.browser || globalThis.chrome;
   let found={};
   try{found=(items.length?await api?.runtime?.sendMessage?.({scope:'rt-embed-posters',items}):{}) || {};}catch{}
+  for(const [id,url] of Object.entries(found))if(posterOK(url))onFound?.(id,url);
   const missing=ids.filter(id=>!posterOK(found[id]));
-  return missing.length?{...found,...await readPostStills(missing)}:found;
+  return missing.length?{...found,...await readPostStills(missing,onFound)}:found;
  }
  // The player's address without a request to start by itself (also inside Embedly's wrapper).
  function idleSource(src){
@@ -253,13 +260,8 @@
    this.win.addEventListener('popstate',this.onBack);
    this.win.addEventListener('pagehide',this.onPageExit);
    this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onVisibility(entries),{threshold:[0,0.5,IN_VIEW,1]}):null;
-   this.posterIO=this.io?new IntersectionObserver(entries=>{
-    for(const {target,isIntersecting} of entries)if(isIntersecting){
-     this.posterIO.unobserve(target);this.posterNodes.delete(target);this.preparedPosters.add(target);
-     if(target.isConnected)this.preparePoster(target);
-    }
-   // Stills are prepared 5 screens ahead (1.5 behind), so a flick on a phone meets the still, not a black box.
-   },{rootMargin:'150% 0px 500% 0px'}):null;
+   // Stills are prepared as soon as Reddit delivers a post (its card enters the page), not when it nears the screen.
+   this.posterIO=null;
    this.mo=observe?new MutationObserver(records=>{if(records.some(record=>record.attributeName==='collapsed' && record.target.matches(COMMENT)))this.syncCommentVisibility();this.handoff();this.schedule();}):null;
    this.mo?.observe(doc.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['collapsed']});
    this.readPreference=readPreference;this.preference=null;
@@ -315,7 +317,7 @@
   }
   schedule(){if(this.queued || this.dead)return;this.queued=true;setTimeout(()=>{this.queued=false;if(!this.dead)this.scan();},200);}
   scan(){
-   for(const node of this.posterNodes)if(!node.isConnected){this.posterIO.unobserve(node);this.posterNodes.delete(node);}
+   for(const node of this.posterNodes)if(!node.isConnected)this.posterNodes.delete(node);
    for(const embed of this.feedSoundEmbeds)if(!embed.isConnected || !this.feedEmbed(embed))this.stopWatchingFeedSound(embed);
    for(const player of this.players)if(!player.isConnected){
     if(this.hovered===player)this.stopHover();
@@ -592,6 +594,7 @@
   }
   cover(embed,loaded,keep=false){
    const root=embed.shadowRoot;if(!root)return;
+   root.querySelector('[data-rt-pre-still]')?.remove();
    const old=root.querySelector('[data-rt-parked-cover]');if(old){if(!loaded)delete old.dataset.rtLoaded;if(keep)old.dataset.rtKeepCover='';return;}
    if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
    const cover=this.doc.createElement('div');cover.dataset.rtParkedCover='';cover.setAttribute('role','button');cover.setAttribute('aria-label','Play');cover.tabIndex=0;
@@ -612,7 +615,7 @@
    root.append(cover);
    this.paintPoster(embed);
   }
-  uncover(embed){embed.shadowRoot?.querySelector('[data-rt-parked-cover]')?.remove();}
+  uncover(embed){embed.shadowRoot?.querySelector('[data-rt-parked-cover]')?.remove();embed.shadowRoot?.querySelector('[data-rt-pre-still]')?.remove();}
   // A tap on the image plays that player with sound, as its own play button would.
   playCovered(embed){
    if(this.ePreview?.embed!==embed)this.stopEmbed();
@@ -648,9 +651,18 @@
    this.feedSoundEmbeds.add(embed);this.io.observe(embed);
   }
   stopWatchingFeedSound(embed){if(this.feedSoundEmbeds.delete(embed))this.io?.unobserve(embed);}
+  // Queued as its post arrives; prepared at the end of the scan, nearest the screen first.
   observePoster(node){
-   if(!this.posterIO || this.preparedPosters.has(node) || this.posterNodes.has(node))return;
-   this.posterNodes.add(node);this.posterIO.observe(node);
+   if(this.preparedPosters.has(node) || this.posterNodes.has(node))return;
+   this.posterNodes.add(node);
+   if(!this.posterFlush)this.posterFlush=Promise.resolve().then(()=>this.preparePosters());
+  }
+  preparePosters(){
+   this.posterFlush=null;if(this.dead)return;
+   const middle=(this.win.innerHeight || 800)/2,distance=node=>{const box=node.getBoundingClientRect();return Math.abs(box.top+box.height/2-middle);};
+   const nodes=[...this.posterNodes].filter(node=>node.isConnected).map(node=>[node,distance(node)]).sort((a,b)=>a[1]-b[1]);
+   this.posterNodes.clear();
+   for(const [node] of nodes){this.preparedPosters.add(node);this.preparePoster(node);}
   }
   preparePoster(node){
    const card=node.closest('shreddit-post');
@@ -660,6 +672,7 @@
    if(url){
     this.warmPoster(url);
     if(embed && card?.id){this.posters.set(card.id,url);this.paintPoster(node);}
+    else if(embed)this.preStill(node);
    }
    else if(embed)this.queuePoster(card?.id,sourceAddress(embedAddress(node)));
   }
@@ -685,9 +698,33 @@
    const seen=this.warmedPosters.get(url);if(!seen?.complete)return true;
    return seen.naturalWidth>=160 && seen.naturalHeight>=90;
   }
+  // Until Reddit's player for a card has drawn (Reddit inserts it only near the screen), the card shows its still, so
+  // it never scrolls in as a black box. Players with Reddit's own placeholder (YouTube, Vimeo) already show one.
+  preStill(embed){
+   const root=embed.shadowRoot,id=embed.closest('shreddit-post')?.id;if(!root || !id)return;
+   const found=this.posters.get(id) || embedPoster(embed),frame=controlFrame(embed);
+   const wanted=found && this.posterUsable(found) && !youTubeLite(embed) && !vimeoLite(embed) && !root.querySelector('[data-rt-parked-cover]') &&
+    (!frame || frame.dataset.rtWaiting==='1') && this.stillWanted(embed);
+   let still=root.querySelector('[data-rt-pre-still]');
+   if(!wanted){still?.remove();return;}
+   if(!still){
+    if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
+    still=this.doc.createElement('img');still.dataset.rtPreStill='';still.alt='';still.referrerPolicy='no-referrer';still.decoding='async';
+    Object.assign(still.style,{position:'absolute',inset:'0',width:'100%',height:'100%',objectFit:'contain',backgroundColor:'#000',zIndex:'3',pointerEvents:'none'});
+    root.append(still);
+   }
+   if(still.getAttribute('src')!==found)still.src=found;
+  }
+  // A player Reddit inserts keeps the still over it until it has loaded and had a moment to draw.
+  awaitDraw(embed,frame){
+   if(frame.dataset.rtWaiting)return;
+   frame.dataset.rtWaiting='1';
+   frame.addEventListener('load',()=>this.win.setTimeout(()=>{frame.dataset.rtWaiting='0';this.preStill(embed);},400),{once:true});
+  }
   paintPoster(embed){
+   this.preStill(embed);
    const cover=embed.shadowRoot?.querySelector('[data-rt-parked-cover]'),id=embed.closest('shreddit-post')?.id;if(!cover || !id)return;
-   const found=embedPoster(embed) || this.posters.get(id),url=found && this.posterUsable(found)?found:'';
+   const found=embedPoster(embed) || this.posters.get(id),url=found && this.posterUsable(found) && !('rtLoaded' in cover.dataset)?found:'';
    if(found)this.posters.set(id,found);
    // An <img> without a referrer: RedGIFs serves its stills only then (a CSS background sends Reddit as referrer).
    let still=cover.querySelector('[data-rt-parked-still]');
@@ -706,7 +743,7 @@
     this.unpark(embed,frame,idleSource(frame.dataset.rtSrc));return;
    }
    // No usable image for a loaded player: its own paused first frame or poster shows instead.
-   if(!url && (found || this.posters.has(id)) && 'rtLoaded' in cover.dataset && !('rtKeepCover' in cover.dataset))cover.remove();
+   if('rtLoaded' in cover.dataset && !('rtKeepCover' in cover.dataset)){cover.remove();return;}
    if(url || found || this.posters.has(id))return;
    else if(!this.posterIO || this.preparedPosters.has(embed))this.queuePoster(id,sourceAddress(embedAddress(embed)));
   }
@@ -717,7 +754,13 @@
    for(const id of ids)this.posterWanted.delete(id);
    for(const id of ids)this.posters.set(id,null);
    this.loadingPosters=true;
-   let found={};try{found=await this.readPosters(ids,sources);}catch{}
+   // Each still is painted the moment it's found, not when the whole batch is done.
+   const paint=(id,url)=>{
+    if(this.dead || !posterOK(url) || this.posters.get(id))return;
+    this.posters.set(id,url);this.warmPoster(url);
+    for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(embed.closest('shreddit-post')?.id===id)this.paintPoster(embed);
+   };
+   let found={};try{found=await this.readPosters(ids,sources,paint);}catch{}
    this.loadingPosters=false;
    if(this.dead)return;
    if(this.posterWanted.size && !this.posterTimer)this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);
@@ -727,9 +770,11 @@
   // Iframes Reddit adds inside an embed (when it comes near the screen) are caught before they load, unless chosen.
   watchEmbed(embed){
    if(!embed.shadowRoot || this.watchedEmbeds.has(embed))return;
+   const root=embed.shadowRoot;
    const observer=new this.win.MutationObserver(()=>{
     if(!this.configured || !this.feedEmbed(embed) || this.ePreview?.embed===embed || embed.dataset.rtEmbedUsed==='1')return;
-    this.observePoster(embed);this.syncIdleEmbed(embed);
+    const frame=controlFrame(embed);if(frame && !frame.dataset.rtParked && root.querySelector('[data-rt-pre-still]'))this.awaitDraw(embed,frame);
+    this.observePoster(embed);this.syncIdleEmbed(embed);this.preStill(embed);
    });
    observer.observe(embed.shadowRoot,{childList:true,subtree:true});this.watchedEmbeds.set(embed,observer);
   }

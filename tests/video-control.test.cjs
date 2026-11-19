@@ -712,7 +712,7 @@ test('a parked hover preview warms the thumbnail from its Embedly URL without st
  const p=page(t),image='https://cdn.example.test/ready.jpg';
  const e=frameEmbed(p,embedly+'&image='+encodeURIComponent(image)),c=await hoverController(p);
  const warmed=[];c.warmPoster=url=>warmed.push(url);
- p.io.posters.cb([{target:e.node,isIntersecting:true}]);
+ c.preparedPosters=new WeakSet();c.posters.clear();c.scan();await flush();
  assert.ok(warmed.includes(image));assert.equal(e.layer(),null);
 });
 test('direct provider sound stays on the same frame for a feed tap and a post handoff',async t=>{
@@ -865,7 +865,7 @@ test('a player with no controls that Reddit adds later is caught before it loads
  const frame=p.d.createElement('iframe');frame.setAttribute('src','https://www.redgifs.com/ifr/late');node.shadowRoot.append(frame);
  await Promise.resolve();await Promise.resolve();
  assert.equal(frame.getAttribute('src'),'about:blank','unloaded as Reddit adds it');assert.equal(frame.dataset.rtSrc,'https://www.redgifs.com/ifr/late');
- p.io.posters.cb([{target:node,isIntersecting:true}]);
+ await flush();
  await new Promise(r=>setTimeout(r,100));
  assert.deepEqual(asked,['t3_test'],'one batched lookup');
  assert.match(node.shadowRoot.querySelector('[data-rt-parked-cover]').dataset.rtStill,/preview\.redd\.it\/poster\.jpg/);
@@ -877,25 +877,23 @@ test('with the default choices a playing video carries into its post again',asyn
  assert.ok(p.W.sessionStorage.getItem(continuationKey),'Keeps playing in the post is the default');
 });
 
-test('a player with controls that stops being the one playing goes back to the post’s image, paused underneath, and a tap plays it with sound',async t=>{
+test('a player with controls that stops being the one playing stays paused on its own frame, with nothing over it',async t=>{
  const p=page(t);const c=await controlled(p);c.controller.readPosters=async()=>({t3_test:'https://preview.redd.it/still.jpg?width=640'});
  c.over();await waitForHover();
  c.over('pointerout',c.frame,p.d.body);await new Promise(r=>setTimeout(r,260));
- const cover=()=>c.node.shadowRoot.querySelector('[data-rt-parked-cover]');
- assert.ok(cover(),'its image is back');assert.equal(c.frame.getAttribute('src'),embedly,'still loaded, so it resumes where it was');
- await new Promise(r=>setTimeout(r,100));assert.match(cover().dataset.rtStill,/still\.jpg/);
- c.sent.length=0;cover().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
- assert.equal(cover(),null);assert.deepEqual(c.commands(),['unmute','play']);assert.equal(c.node.dataset.rtEmbedUsed,'1');
+ await new Promise(r=>setTimeout(r,100));
+ assert.equal(c.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'no image or black box over the paused frame');
+ assert.equal(c.frame.getAttribute('src'),embedly,'still loaded, so it resumes where it was');assert.ok(c.commands().includes('pause'));
  const q=page(t);const none=await controlled(q);none.controller.readPosters=async()=>({});
  none.over();await waitForHover();none.over('pointerout',none.frame,q.d.body);await new Promise(r=>setTimeout(r,360));
  assert.equal(none.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'with no image its paused picture shows');
 });
-test('when a Reddit video starts, a feed player that was playing goes back to its image',async t=>{
+test('when a Reddit video starts, a feed player that was playing pauses on its own frame',async t=>{
  const p=page(t);const c=await controlled(p,{videoStart:'reddit'});c.controller.readPosters=async()=>({t3_test:'https://preview.redd.it/still.jpg'});
  p.W.dispatchEvent(new p.W.MessageEvent('message',{data:JSON.stringify({context:'player.js',event:'play'}),source:c.frame.contentWindow}));
  assert.equal(c.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'the one playing is not covered');
  p.startFromControl();
- assert.ok(c.node.shadowRoot.querySelector('[data-rt-parked-cover]'),'covered once paused');assert.equal(c.node.dataset.rtEmbedUsed,undefined,'a paused player is not carried into its post');
+ assert.equal(c.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'its paused frame stays visible');assert.equal(c.node.dataset.rtEmbedUsed,undefined,'a paused player is not carried into its post');
 });
 test('opening the post of a Vimeo preview turns its sound on with Vimeo’s own unmute',async t=>{
  const p=page(t);const c=await controlled(p,{},'https://player.vimeo.com/video/9?dnt=1');
@@ -937,9 +935,7 @@ test('as a feed card approaches, warm its native poster and batch a missing embe
  const c=await controlled(p),decoded=[],requests=[];
  p.W.Image=class{decode(){decoded.push(this.src);return Promise.resolve();}};
  c.controller.readPosters=async ids=>{requests.push(Array.from(ids));return {t3_test:'https://preview.redd.it/embed.jpg'};};
- assert.equal(p.io.posters.options.rootMargin,'150% 0px 500% 0px','five screens ahead');
- assert.ok(p.io.posters.observed.includes(p.player));assert.ok(p.io.posters.observed.includes(c.node));
- p.io.posters.cb([p.player,c.node].map(target=>({target,isIntersecting:true})));
+ c.controller.preparedPosters=new WeakSet();c.controller.warmedPosters.clear();c.controller.posters.clear();c.controller.scan();await flush();
  await new Promise(resolve=>setTimeout(resolve,100));
  assert.deepEqual(requests,[['t3_test']]);
  assert.deepEqual(decoded,['https://preview.redd.it/native.jpg','https://preview.redd.it/embed.jpg']);
@@ -1006,9 +1002,9 @@ test('a RedGIFs card with no still in the markup gets one from its post’s own 
  p.W.fetch=async url=>{asked.push(String(url));return {ok:true,status:200,json:async()=>[{data:{children:[{data:{secure_media:{oembed:{thumbnail_url:'https://media.redgifs.com/CamelName-poster.jpg'}}}}]}}]};};
  const e=frameEmbed(p,'https://www.redgifs.com/ifr/camelname');e.node.setAttribute('providername','RedGIFs');
  const c=await hoverController(p,{embedStart:'play'});c.scan();
- p.io.posters.cb([{target:e.node,isIntersecting:true}]);
+ await flush();
  await new Promise(resolve=>setTimeout(resolve,500));
- assert.deepEqual(asked,['/comments/test.json?limit=1&depth=1&raw_json=1'],'one small read for the one post');
+ assert.deepEqual(asked,['https://www.reddit.com/comments/test.json?limit=1&depth=1&raw_json=1'],'one small read for the one post');
  const cover=e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),still=cover.querySelector('[data-rt-parked-still]');
  assert.equal(cover.dataset.rtStill,'https://media.redgifs.com/CamelName-poster.jpg');assert.equal(still.referrerPolicy,'no-referrer');
  assert.equal(cover.hasAttribute('data-rt-placeholder'),false);
@@ -1024,9 +1020,37 @@ test('stills are found for cards whose player Reddit has not inserted yet, every
   node.setAttribute('embed-html','<iframe src="https://www.redgifs.com/ifr/late'+i+'"></iframe>');node.attachShadow({mode:'open'});post.append(node);nodes.push(node);
  }
  const c=await hoverController(p,{embedStart:'play'});c.scan();
- for(const node of nodes)assert.ok(p.io.posters.observed.includes(node),'watched before Reddit inserts its player');
- p.io.posters.cb(nodes.map(target=>({target,isIntersecting:true})));
+ await flush();
  await new Promise(resolve=>setTimeout(resolve,1600));
  assert.equal(asked.length,6,'every queued card is read, not only the first four');
  for(let i=0;i<6;i++)assert.ok(c.posters.get('t3_late'+i),'still known for card '+i+' before it is shown');
+});
+
+test('on a fresh page the stills nearest the screen are looked up first and each shows as soon as it is read',async t=>{
+ const p=page(t);const asked=[];let release;const slow=new Promise(resolve=>{release=resolve;});
+ p.W.fetch=async url=>{const id=/comments\/(\w+)\.json/.exec(String(url))[1];asked.push(id);if(id==='far')await slow;
+  return {ok:true,status:200,json:async()=>[{data:{children:[{data:{secure_media:{oembed:{thumbnail_url:'https://media.example.test/'+id+'.jpg'}}}}]}}]};};
+ const make=id=>{const post=p.d.createElement('shreddit-post');post.id='t3_'+id;p.d.body.append(post);
+  const node=p.d.createElement('shreddit-embed');node.setAttribute('embed-html','<iframe src="https://www.redgifs.com/ifr/'+id+'"></iframe>');node.attachShadow({mode:'open'});post.append(node);return node;};
+ const far=make('far'),mid=make('mid'),near=make('near');
+ far.getBoundingClientRect=()=>({top:4000,height:300});mid.getBoundingClientRect=()=>({top:1500,height:300});near.getBoundingClientRect=()=>({top:200,height:300});
+ const c=await hoverController(p,{embedStart:'play'});c.scan();
+ await new Promise(resolve=>setTimeout(resolve,500));
+ assert.deepEqual(asked.slice(0,2),['near','mid'],'nearest first, two at a time');
+ assert.equal(c.posters.get('t3_near'),'https://media.example.test/near.jpg','shown before the slow one finishes');
+ release();await new Promise(resolve=>setTimeout(resolve,50));
+ assert.equal(c.posters.get('t3_far'),'https://media.example.test/far.jpg');
+});
+
+test('a card shows its still while Reddit has not inserted its player, and until that player has drawn',async t=>{
+ const p=page(t),image='https://cdn.example.test/still.jpg';
+ const node=p.d.createElement('shreddit-embed');node.setAttribute('embedly-iframe','<iframe src="'+embedly+'&image='+encodeURIComponent(image)+'"></iframe>');node.attachShadow({mode:'open'});
+ p.player.closest('shreddit-post').append(node);
+ const c=await hoverController(p,{embedStart:'autoplay'});c.scan();await flush();
+ const pre=()=>node.shadowRoot.querySelector('[data-rt-pre-still]');
+ assert.equal(pre()?.getAttribute('src'),image,'the still, not a black box');assert.equal(pre().referrerPolicy,'no-referrer');
+ const frame=p.d.createElement('iframe');frame.setAttribute('src',embedly);node.shadowRoot.append(frame);await flush();
+ assert.ok(pre(),'kept while the player loads');
+ frame.dispatchEvent(new p.W.Event('load'));await new Promise(resolve=>setTimeout(resolve,450));
+ assert.equal(pre(),null,'gone once the player has drawn');
 });

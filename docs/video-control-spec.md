@@ -192,3 +192,10 @@ User report (0.51.1): on phones the still appeared only once the card was on scr
 - Each batch queued up to 8 cards but read only 4, so the rest were marked as having no still.
 
 Now every feed card's embed is watched as soon as the card is in the page, its player named by Reddit's markup (`embed-html`, Embedly). Stills are prepared and decoded 5 screens ahead and 1.5 behind (`rootMargin: 150% 0px 500% 0px`). Every queued card is read, 200 ms apart. This applies to every provider.
+
+User report (0.51.2): on a fresh page the first stills arrived late, though stills further down were ready in time. Each batch of 8 was read one card at a time, 200 ms apart, and painted only once the whole batch finished, so the first screen waited about 3 s. Now cards nearest the screen are prepared first, reads run two at a time, 150 ms apart, and each still is painted the moment it's read.
+
+User report (0.51.2): stills still arrived late or not at all, and paused players were covered. Now:
+- stills are prepared when the post arrives in the page, nearest the screen first;
+- a card shows its still until Reddit's player is inserted and has loaded (plus 400 ms);
+- a paused player keeps no cover, so its own frame shows where it stopped.
