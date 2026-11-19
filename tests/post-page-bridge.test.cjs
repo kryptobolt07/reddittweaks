@@ -55,6 +55,19 @@ test('video preload only asks the current post detail player to load metadata',t
  assert.deepEqual(players,[['post_detail_screen','abc12','metadata']]);
  assert.equal(calls.length,0);
 });
+test('comment preview asks Reddit to prepare only media in open threads of the current post',t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'});
+ const loads=[];
+ for(const [postid,open] of [['t3_abc12',false],['t3_other',true],['t3_abc12',true]]){
+  const comment=W.document.createElement('shreddit-comment');comment.setAttribute('postid',postid);
+  const details=comment.appendChild(W.document.createElement('details'));details.open=open;
+  const player=details.appendChild(W.document.createElement('shreddit-player'));W.document.body.append(comment);
+  player.attachShadow({mode:'open'}).append(W.document.createElement('video'));
+  player.load=async mode=>loads.push(mode);
+  player.dispatchEvent(new W.Event('rt-prepare-feed-preview',{bubbles:true}));
+ }
+ assert.deepEqual(loads,['metadata']);
+});
 test('archive comment bootstrap uses only current shell descriptors and rejects late route changes',async t=>{
  const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'}),w=e.W;
  w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"></div><faceplate-loader name="PdpStandardClientAssets_fixture" src="concat:chunkA,chunkB" data-prefix="en-US/"></faceplate-loader>';

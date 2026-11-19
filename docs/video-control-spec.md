@@ -96,6 +96,12 @@ Measured 2026-11-19 (r/india, desktop): Reddit renders a YouTube link post as `s
 
 ## Transitions
 
+### Comment media
+
+- Chrome's mobile Reddit page rendered Giphy comment GIFs as `figure.rte-media → shreddit-async-loader → shreddit-player[gif]` with a muted, lazily prepared native video. The player had no `player-type` attribute. The comment body was inside an open `details` and Reddit's comment host also observes `collapsed`.
+- Native players and direct HTML video in visible comments use the same start preferences as feeds. A tapped preview plays in place, with sound for audible video if enabled. Closing a thread stops its media and cancels automatic or visibility-based resumption until the thread is open again.
+- For controllable comment media, the scroll-away choice applies as on the post's video. Silent automatic GIF loops run only while visible. Static images and animated images rendered as plain `img` keep their native behavior.
+
 | | Transition | Desktop | Phone |
 |---|---|---|---|
 | V1 | Rest on / leave a paused feed video | Muted preview after 160 ms; leaving the card for 250 ms pauses at its position | — (no hover) |

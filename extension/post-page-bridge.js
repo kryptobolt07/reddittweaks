@@ -379,8 +379,11 @@
   document.addEventListener('rt-release-feed-video',releaseVideo);
   document.addEventListener('rt-prepare-feed-preview',event=>{
     const player=event.target;
-    if(!player.matches?.(videoPlayers) || player.getAttribute('player-type')!=='in_feed_player' ||
-       player.closest('shreddit-post')?.id!==player.getAttribute('post-id'))return;
+    if(!player.matches?.(videoPlayers))return;
+    const comment=player.closest('shreddit-comment'),id=route()?.id;
+    const allowed=comment?id && comment.getAttribute('postid')==='t3_'+id && !player.closest('shreddit-comment[collapsed],details:not([open]),[hidden],[inert]'):
+      player.getAttribute('player-type')==='in_feed_player' && player.closest('shreddit-post')?.id===player.getAttribute('post-id');
+    if(!allowed)return;
     player.mediaSyncController?.muteForAutoplayRetry?.();
     if(player.shadowRoot?.querySelector('video')?.readyState===0)player.load?.('metadata')?.catch?.(()=>{});
   });

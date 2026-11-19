@@ -7,6 +7,9 @@
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
  const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=160,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
+ const COMMENT='shreddit-comment',MEDIA_NODES=PLAYERS+', '+COMMENT+' video';
+ const commentOf=node=>node?.closest?.(COMMENT);
+ const closedThread=node=>Boolean(commentOf(node) && node.closest('shreddit-comment[collapsed],details:not([open]),[hidden], [inert]'));
  const PLAY_BUTTON='.poster-play-button,.play-pause-button';
  const SOUND_CONTROL='.mute-button,.volume-slider';
  const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen';
@@ -88,7 +91,7 @@
  const postId=path=>/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase() || '';
  const {videoSettings}=globalThis.RTPostModel;
  const kinds=['video','gif','embed'];
- const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':node?.matches?.('[gif],[post-type="gif"]') || node?.closest?.('shreddit-post[post-type="gif"]')?'gif':'video';
+ const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':node?.matches?.('[gif],[post-type="gif"],[data-media-type="gif"]') || node?.closest?.('shreddit-post[post-type="gif"]')?'gif':'video';
  const viewMode=mode=>mode==='autoplay' || mode==='stop';
  const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
  // Reddit's preference, from its settings page (the prefs API needs a token the page does not expose).
@@ -111,8 +114,8 @@
     if(!event.isTrusted && !globalThis.__rtVideoControlTest)return;
     const path=event.composedPath();
     this.gesture={at:performance.now(),path};
-    const player=path.find(node=>node.matches?.(PLAYERS));
-    if(!player)return;
+    const player=path.find(node=>node.matches?.(MEDIA_NODES));
+    if(!player || closedThread(player))return;
     this.attach(player);
     const video=this.video(player);
     if(this.previews.get(player)?.video===video){
@@ -121,6 +124,7 @@
    };
    this.onHover=event=>this.hover(event);
    this.onTabVisibility=()=>{if(this.doc.hidden){this.stopHover();for(const player of this.loops.keys())this.stopLoop(player);}else if(this.inView)this.settle();};
+   this.onCommentToggle=event=>{if(commentOf(event.target))this.syncCommentVisibility();};
    // Phones, like YouTube's feed: a preview starts once scrolling has stopped for a moment.
    this.onScroll=()=>{if(this.inView)this.settle();};
    this.onRemember=event=>this.remember(event);
@@ -139,6 +143,7 @@
    for(const type of ['pointerdown','keydown','click'])doc.addEventListener(type,this.onGesture,true);
    for(const type of ['pointerover','pointerout'])doc.addEventListener(type,this.onHover,true);
    doc.addEventListener('visibilitychange',this.onTabVisibility);
+   doc.addEventListener('toggle',this.onCommentToggle,true);
    this.win.addEventListener('scroll',this.onScroll,{passive:true,capture:true});
    doc.addEventListener('click',this.onRemember,true);
    doc.addEventListener('reddit:route',this.onRoute);
@@ -169,8 +174,8 @@
    this.win.addEventListener('popstate',this.onBack);
    this.win.addEventListener('pagehide',this.onPageExit);
    this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onVisibility(entries),{threshold:[0,0.5,IN_VIEW,1]}):null;
-   this.mo=observe?new MutationObserver(()=>{this.handoff();this.schedule();}):null;
-   this.mo?.observe(doc.documentElement,{childList:true,subtree:true});
+   this.mo=observe?new MutationObserver(records=>{if(records.some(record=>record.attributeName==='collapsed' && record.target.matches(COMMENT)))this.syncCommentVisibility();this.handoff();this.schedule();}):null;
+   this.mo?.observe(doc.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['collapsed']});
    this.readPreference=readPreference;this.preference=null;
    this.ready=Promise.resolve(readSettings?.()).then(s=>{this.configure(s || {});},()=>this.configure({}));
   }
@@ -224,40 +229,55 @@
     this.stopLoop(player);
     this.players.delete(player);this.previews.delete(player);this.io?.unobserve(player);
    }
-   for(const player of this.doc.querySelectorAll(PLAYERS))this.attach(player);
+   for(const player of this.doc.querySelectorAll(MEDIA_NODES))this.attach(player);
    for(const embed of this.doc.querySelectorAll(ANY_EMBED)){this.watchEmbed(embed);const frame=controlFrame(embed);if(frame && !this.frames.has(frame))this.frameState(frame);}
    if(this.configured)this.parkIdle();
    this.handoff();
    this.embedHandoff();
   }
   attach(player){
-   if(this.players.has(player) || !player.shadowRoot)return;
+   const direct=player.matches('video'),root=direct?player:player.shadowRoot;
+   if(this.players.has(player) || !root)return;
    this.players.add(player);this.io?.observe(player);
    if(this.inView && !this.viewing)this.settle();
    if(this.attached.has(player))return;
    this.attached.add(player);
-   player.shadowRoot.addEventListener('play',event=>this.onPlay(player,event),true);
-   player.shadowRoot.addEventListener('timeupdate',event=>this.onTime(event),true);
-   player.shadowRoot.addEventListener('pause',event=>{
+   if(direct)player.controls=true;
+   root.addEventListener('play',event=>this.onPlay(player,event),true);
+   root.addEventListener('timeupdate',event=>this.onTime(event),true);
+   root.addEventListener('pause',event=>{
     if(event.target.paused)this.continued.delete(event.target);
    },true);
    // Reddit re-applies its saved volume when a video starts; a preview stays muted until it plays for real.
-   player.shadowRoot.addEventListener('volumechange',event=>{
+   root.addEventListener('volumechange',event=>{
     const preview=this.previews.get(player);
     if(preview?.active && preview.video===event.target && !event.target.muted)event.target.muted=true;
    },true);
-   player.shadowRoot.addEventListener('loadedmetadata',event=>{
+   root.addEventListener('loadedmetadata',event=>{
     const preview=this.previews.get(player);
     if(preview?.active && preview.video===event.target)this.playPreview(player,preview);
     if(this.loops.get(player)===event.target)this.playLoop(player,event.target);
     if(this.away.get(player)?.loading)this.resumeAway(player);
     this.handoff();
    },true);
+   const video=this.video(player);
+   if(commentOf(player) && video && !video.paused)this.block(player,video);
   }
-  video(player){return player.shadowRoot?.querySelector('video') || null;}
+  video(player){return player.matches('video')?player:player.shadowRoot?.querySelector('video') || null;}
   userStarted(player){return performance.now()-this.gesture.at<GESTURE_MS && this.gesture.path.includes(player);}
+  previewable(player){return player.getAttribute('player-type')===FEED_PLAYER || Boolean(commentOf(player) && !closedThread(player));}
+  syncCommentVisibility(){
+   for(const player of this.players){
+    if(!closedThread(player))continue;
+    if(this.hovered===player)this.stopHover();
+    this.stopLoop(player);this.away.delete(player);delete player.dataset.rtPausedAway;
+    const video=this.video(player);
+    if(video && !video.paused)video.pause();
+   }
+   if(this.inView)this.settle();
+  }
   // A preview belongs to its post card: moving to the title, flair or votes keeps it; leaving the card pauses it.
-  cardOf(player){return player.closest('shreddit-post') || player.parentElement || player;}
+  cardOf(player){return (commentOf(player)?player.closest('figure') : player.closest('shreddit-post')) || player.parentElement || player;}
   hover(event){
    if(!this.configured || this.touch || event.pointerType!=='mouse' ||
       (!event.isTrusted && !globalThis.__rtVideoControlTest))return;
@@ -275,8 +295,8 @@
     return;
    }
    if(current && path.includes(card))this.win.clearTimeout(this.leaveTimer);
-   const player=path.find(node=>node.matches?.(PLAYERS));
-   if(!player || this.startMode(mediaKind(player))!=='hover' || player.getAttribute('player-type')!==FEED_PLAYER || event.buttons || current===player)return;
+   const player=path.find(node=>node.matches?.(MEDIA_NODES));
+   if(!player || this.startMode(mediaKind(player))!=='hover' || !this.previewable(player) || event.buttons || current===player)return;
    if(within(to,player))return;
    this.stopHover();
    this.hovered=player;
@@ -284,7 +304,7 @@
   }
   startPreview(player){
    const video=this.video(player);
-   if(this.doc.hidden || this.hovered!==player || !player.isConnected || !video?.paused ||
+   if(this.doc.hidden || this.hovered!==player || !player.isConnected || closedThread(player) || !video?.paused ||
       video.ended || this.started.has(video))return;
    if(mediaKind(player)!=='gif')for(const other of this.players){
     const media=this.video(other);
@@ -307,7 +327,7 @@
    if(video.readyState>=1)this.playLoop(player,video);
   }
   playLoop(player,video){
-   if(video.paused)this.play(player,video)?.catch?.(()=>{if(this.loops.get(player)===video)this.stopLoop(player);});
+   if(!closedThread(player) && video.paused)this.play(player,video)?.catch?.(()=>{if(this.loops.get(player)===video)this.stopLoop(player);});
   }
   stopLoop(player){
    const video=this.loops.get(player);
@@ -351,7 +371,7 @@
    if(!preview.played){this.stopHover();return;}
    event.preventDefault();
    event.stopImmediatePropagation();
-   if(button || this.clickPlays || !this.openPost(player))this.promotePreview(player);
+   if(button || commentOf(player) || this.clickPlays || !this.openPost(player))this.promotePreview(player);
   }
   post(frame,data){try{frame.contentWindow?.postMessage(data,new URL(frame.getAttribute('src') || '',this.win.location.href).origin);}catch{}}
   frameState(frame){
@@ -790,6 +810,7 @@
   }
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
+   if(closedThread(player)){video.pause();return;}
    if(this.loops.get(player)===video)return;
    if(this.continued.has(video)){this.exclusive(video);return;}
    const preview=this.previews.get(player);
@@ -804,8 +825,8 @@
   // One video plays at a time, as on YouTube: whatever starts (a video, a preview, a YouTube player) pauses the rest.
   // A video held for its post keeps playing; YouTube players are paused by the page bridge.
   exclusive(source){
-   const origin=source.getRootNode?.()?.host;
-   if(origin?.matches?.(PLAYERS) && mediaKind(origin)==='gif')return;
+   const origin=source.matches?.('video') && commentOf(source)?source:source.getRootNode?.()?.host;
+   if(origin?.matches?.(MEDIA_NODES) && mediaKind(origin)==='gif')return;
    for(const player of this.players){
     const video=this.video(player);
     if(!video || video===source || video.paused || mediaKind(player)==='gif' || this.pending?.sourceVideo===video)continue;
@@ -845,7 +866,7 @@
     if((ready!==undefined && !(entry.time>=ready)) || (player===pending?.source && (pending.held || pending.reached)))continue;
     // A post's own video pauses once it is fully out of view and resumes where it was when half of it is back;
     // a feed video pauses when less than half of it is on screen and stays paused.
-    const detail=player.getAttribute('player-type')===DETAIL_PLAYER,ratio=entry.intersectionRatio;
+    const detail=player.getAttribute('player-type')===DETAIL_PLAYER || Boolean(commentOf(player)),ratio=entry.intersectionRatio;
     if(ratio<0.5 && this.loops.has(player))this.stopLoop(player);
     if(ratio>=0.5){if(detail)this.resumeAway(player);continue;}
     if(detail && ratio>0)continue;
@@ -860,11 +881,15 @@
   }
   resumeAway(player){
    const away=this.away.get(player),video=this.video(player);
-   if(!away || !this.pauseAway || this.doc.hidden){this.away.delete(player);return;}
+   if(!away || !this.pauseAway || this.doc.hidden || closedThread(player)){this.away.delete(player);return;}
    if(video!==away.video || !video.paused || video.ended){this.away.delete(player);return;}
    // Reddit may have unloaded the source while it was far away: reload it, then resume at the same time.
    if(video.readyState<1){
-    if(!away.loading){away.loading=true;player.dispatchEvent(new this.win.Event('rt-prepare-detail-video',{bubbles:true}));}
+    if(!away.loading){
+     away.loading=true;
+     if(player===video)video.load();
+     else player.dispatchEvent(new this.win.Event(commentOf(player)?'rt-prepare-feed-preview':'rt-prepare-detail-video',{bubbles:true}));
+    }
     return;
    }
    this.away.delete(player);delete player.dataset.rtPausedAway;
@@ -883,7 +908,7 @@
   pickInView(settled=true){
    if(this.dead || this.doc.hidden)return;
    const height=this.win.innerHeight,middle=height/2;let best=null,distance=Infinity;
-   const candidates=[...this.players].filter(player=>player.getAttribute('player-type')===FEED_PLAYER)
+   const candidates=[...this.players].filter(player=>this.previewable(player))
     .concat([...this.doc.querySelectorAll(ANY_EMBED)].filter(embed=>this.feedEmbed(embed)));
    for(const node of candidates){
     const kind=mediaKind(node),mode=this.startMode(kind);
@@ -917,6 +942,7 @@
    for(const type of ['pointerdown','keydown','click'])this.doc.removeEventListener(type,this.onGesture,true);
    for(const type of ['pointerover','pointerout'])this.doc.removeEventListener(type,this.onHover,true);
    this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
+   this.doc.removeEventListener('toggle',this.onCommentToggle,true);
    this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);this.win.clearTimeout(this.dwellTimer);
    this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);this.win.removeEventListener('message',this.onFrameMessage);
    this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
