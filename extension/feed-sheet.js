@@ -16,10 +16,11 @@
  const glyph=(name,size=20)=>{const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','currentColor');s.setAttribute('aria-hidden','true');s.dataset.rtSheetIcon=name;const p=document.createElementNS(SVG,'path');p.setAttribute('d',PATHS[name]);s.append(p);return s;};
  let active=null,seq=0;
 
- function open({title,build,returnFocus=null,onClose=null}){
+ function open({title,build,returnFocus=null,onClose=null,modal=false}){
   close();
-  const id='rt-fsheet-title-'+(++seq),root=make('div','rt-fsheet-root'),scrim=make('div','rt-fsheet-scrim'),sheet=make('section','rt-fsheet');
-  root.dataset.rtUi='feed-sheet';scrim.setAttribute('aria-hidden','true');sheet.setAttribute('role','dialog');sheet.setAttribute('aria-modal','true');sheet.setAttribute('aria-labelledby',id);
+  const id='rt-fsheet-title-'+(++seq),root=make(modal?'dialog':'div','rt-fsheet-root'),scrim=make('div','rt-fsheet-scrim'),sheet=make('section','rt-fsheet');
+  root.dataset.rtUi='feed-sheet';scrim.setAttribute('aria-hidden','true');
+  const dialog=modal?root:sheet;dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-labelledby',id);
   const head=make('div','rt-fsheet-head'),back=make('button','rt-fsheet-back'),heading=make('h2','rt-fsheet-title'),closer=make('button','rt-fsheet-close'),body=make('div','rt-fsheet-body');
   heading.id=id;back.type='button';back.setAttribute('aria-label','Back');back.append(glyph('back'));closer.type='button';closer.setAttribute('aria-label','Close');closer.append(glyph('close'));
   head.append(back,heading,closer);sheet.append(head,body);root.append(scrim,sheet);
@@ -96,12 +97,15 @@
   back.addEventListener('click',event=>{event.preventDefault();ui.pop();});
   closer.addEventListener('click',event=>{event.preventDefault();close();});
   scrim.addEventListener('click',event=>{event.preventDefault();close();});
+  if(modal)root.addEventListener('cancel',event=>{event.preventDefault();close();});
   const onKey=event=>{if(event.key!=='Escape')return;event.preventDefault();event.stopPropagation();if(pages.length>1)ui.pop();else close();};
   const onMedia=()=>{if(!globalThis.matchMedia?.('(max-width: 767.98px)')?.matches)close();};
   const media=globalThis.matchMedia?.('(max-width: 767.98px)');media?.addEventListener?.('change',onMedia);
   document.addEventListener('keydown',onKey,true);
-  state.closeFn=()=>{giveBack();document.removeEventListener('keydown',onKey,true);media?.removeEventListener?.('change',onMedia);root.remove();};
-  active=state;document.body.append(root);render();
+  state.closeFn=()=>{giveBack();document.removeEventListener('keydown',onKey,true);media?.removeEventListener?.('change',onMedia);if(modal)root.close?.();root.remove();};
+  active=state;document.body.append(root);
+  if(modal){if(root.showModal)root.showModal();else root.setAttribute('open','');}
+  render();
   if(active===state){root.dataset.open='true';closer.focus({preventScroll:true});}
   return {close,refresh:ui.refresh,root};
  }
