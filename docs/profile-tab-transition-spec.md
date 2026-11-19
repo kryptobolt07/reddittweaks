@@ -43,4 +43,18 @@ Reserve the document scrollbar gutter while the existing early profile-discovery
 
 The regression test checks computed gutter behavior with the actual early profile marker through empty/loading and populated feeds, then opt-out and an unsupported native profile section. Live verification must use Brave with extension-sourced results and classic scrollbars; the earlier Chrome native-feed checks did not establish this behavior.
 
+## Open a different profile with an extension-populated feed
+
+The route can change before Reddit replaces the current profile feed, including when a profile link is opened from floating chat. The outgoing feed may have ready discovery cards and zero native cards. Its visible cards are still evidence that Reddit is displaying the outgoing view.
+
+Chrome CDP reproduced the issue with a floating-chat profile link and an outgoing feed with 15 ready discovery cards and zero native cards. At 222 ms all 15 were removed and a loader appeared while Reddit was still using the old feed and main element. The destination main replaced it at 619 ms.
+
+With the changed guard temporarily applied only in the Chrome test tab, the same link kept all 15 cards visible and showed no loader in the outgoing feed from the URL change at 88 ms to the destination swap at 737 ms. The new profile then handled its own loading state.
+
+| Transition | Acceptance |
+|---|---|
+| T2 / T7: new profile URL, old feed mounted | Keep the same ready cards and their layout through any transient tab or loader change. Do not mount a new discovery view on that outgoing feed. |
+| T7: destination feed or explicit native empty state arrives | Switch discovery to the destination. In-place replacement must never adopt the previous profile's cards as results for the new account. |
+| T3 / T10 / T11: cancelled navigation, disabled discovery or account change | Cancelled navigation retains the existing card nodes and filter state. Opt-out and signed-in account changes can tear the old view down immediately. |
+
 With the exact scoped CSS applied temporarily in the affected Brave tab, Comments → Posts kept main/feed/card x at 112.5px throughout the empty/loading interval and while 1–12 extension posts attached. The DOM clientWidth still reflects physical scrollbar presence (1280/1265px), but the reserved gutter keeps the rendered columns stable. The temporary verification style is removed after inspection; the packaged stylesheet supplies the permanent rule after extension reload and page refresh.
