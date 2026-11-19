@@ -24,19 +24,25 @@
     }finally{clearTimeout(timer);}
   }
   const authorGone=node=>node.getAttribute('author')==='[deleted]' || node.hasAttribute('is-author-deleted');
+  const deletedLabel=/^(?:u\/)?\[deleted\]$/i;
+  const postAuthorLabel=post=>{
+    const credit=post.querySelector('[slot="credit-bar"]');
+    return [...(credit?credit.querySelectorAll('a,span'):post.querySelectorAll('[slot="authorName"],.author'))].find(el=>el.childElementCount===0 && deletedLabel.test(el.textContent.trim()) && !el.closest('[data-rt-source],[data-rt-archived-author]'));
+  };
   async function readSettings(){return (await send({action:'get-settings'})).settings;}
   class ThreadRestore {
     constructor({archive=send,reddit=(...args)=>globalThis.RTPostDiscovery?.redditRead?.(...args),settings=readSettings,observe=true,retryMs=15000,pendingMs=5000}={}){
-      this.reddit=reddit;this.avatars=new Map();this.sharePatches=new Map();this.shareComments=new WeakSet();this.retryAt=0;this.archive=archive;this.retryMs=retryMs;this.settings=null;this.postId='';this.patches=new Map();this.requested=new Set();this.queue=new Set();this.attempts=new Map();this.timer=null;this.pendingMs=pendingMs;this.records=new Map();this.done=new Set();this.shown=new Set();this.holdTimers=new Set();this.timed=new WeakSet();this.checked=new WeakSet();
+      this.reddit=reddit;this.avatars=new Map();this.sharePatches=new Map();this.shareComments=new WeakSet();this.retryAt=0;this.archive=archive;this.retryMs=retryMs;this.settings=null;this.postId='';this.patches=new Map();this.requested=new Set();this.queue=new Set();this.attempts=new Map();this.timer=null;this.pendingMs=pendingMs;this.records=new Map();this.done=new Set();this.shown=new Set();this.holdTimers=new Set();this.timed=new WeakSet();this.checked=new WeakSet();this.postAuthors=new Map();
       if(observe){
         // Only added elements can bring new comments or a new post.
-        this.observer=new MutationObserver(records=>{if(records.some(r=>!this.ownsMutation(r) && [...r.addedNodes].some(node=>node.nodeType===1)))this.schedule();});this.observer.observe(document.documentElement,{childList:true,subtree:true});
+        this.observer=new MutationObserver(records=>{if(records.some(r=>r.type==='attributes'?(r.target.matches('shreddit-post') || r.attributeName==='data-rt-community-filtered'):!this.ownsMutation(r) && [...r.addedNodes].some(node=>node.nodeType===1)))this.schedule();});
+        this.observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['author','is-author-deleted','data-rt-community-filtered']});
         this.onRoute=()=>this.schedule();window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);
         this.onMessage=(message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===chrome.runtime.id)this.setSettings(message.settings);};chrome.runtime.onMessage?.addListener(this.onMessage);
       }
       this.ready=Promise.resolve().then(settings).then(value=>this.setSettings(value),()=>this.setSettings(null));
     }
-    setSettings(value){this.settings=value?M.normalizeSettings(value):null;if(!this.enabled()){this.restoreAll();this.requested.clear();this.queue.clear();}this.syncRootFlag();this.scan();}
+    setSettings(value){this.settings=value?M.normalizeSettings(value):null;if(!this.enabled()){this.restoreAll();this.requested.clear();this.queue.clear();this.postAuthors.clear();}this.syncRootFlag();this.scan();}
     // Lets CSS show a skeleton (instead of Reddit's removal title) before scripts finish.
     syncRootFlag(){if(globalThis.RTProfileNoticeGuard?.setRestoreEnabled)RTProfileNoticeGuard.setRestoreEnabled(this.enabled());else document.documentElement.toggleAttribute('data-rt-restore',this.enabled() && Boolean(postIdOf()));}
     enabled(){const s=this.settings;return Boolean(s?.postDiscovery && s.archiveDiscovery && s.restoreDeletedContent);}
@@ -45,7 +51,8 @@
     scan(){
       const postId=postIdOf();
       if(postId!==this.postId){clearTimeout(this.retryTimer);this.retryAt=0;this.restoreAll();this.requested.clear();this.queue.clear();this.attempts.clear();this.postId=postId;this.postState=null;this.syncRootFlag();}
-      if(!postId || !this.enabled())return;
+      if(!this.enabled())return;
+      if(!postId)return this.scanFeedAuthors();
       this.restorePost();
       for(const comment of document.querySelectorAll('main shreddit-comment[thingid]')){
         // Archived reader text is a snapshot, not current Reddit deletion evidence.
@@ -232,25 +239,32 @@
     // The open post itself: deleted/removed posts get their archived title,
     // formatted body and (image posts) image inside Reddit's own post element.
     restorePost(){
-      const postId=this.postId,native=[...document.querySelectorAll('main shreddit-post[id="t3_'+postId+'"]')].find(node=>!node.closest('[data-rt-ui]'));
-      if(!native || this.postState?.native===native || document.documentElement.hasAttribute('data-rt-subreddit-archive'))return;
-      const status=M.domStatus(native);this.postState={native,status};
+      const postId=this.postId,native=[...document.querySelectorAll('main shreddit-post[id="t3_'+postId+'"]')].find(node=>!node.closest('[data-rt-ui],shreddit-feed'));
+      if(!native || document.documentElement.hasAttribute('data-rt-subreddit-archive'))return;
+      const state=this.postState?.native===native?this.postState:(this.postState={native,status:M.domStatus(native)});
+      const {status}=state;
+      if(state.started){this.applyPostAuthor(state);return;}
       if(!status){
         // A deleted account's post keeps its content; only its [deleted] author is looked up, with no deletion cues.
-        if(!authorGone(native)){native.setAttribute('data-rt-settled','');return;}
-        const state=this.postState;
+        if(!authorGone(native) && !postAuthorLabel(native)){native.setAttribute('data-rt-settled','');return;}
+        state.started=true;
+        if(this.postAuthors.has(postId)){
+          state.archivedAuthor=this.postAuthors.get(postId);this.applyPostAuthor(state);native.setAttribute('data-rt-settled','');return;
+        }
         return this.lookupPost(postId,state).then(result=>{
           if(this.postState!==state || !this.enabled())return;
           const found=(result?.posts || []).map(raw=>M.normalizePost(raw,{source:'arctic-shift'})).find(post=>post?.id===postId);
-          if(found && M.validateUsername(found.author))state.patch={native,added:[],title:null,author:this.restorePostAuthor(native,found.author)};
+          state.archivedAuthor=M.validateUsername(found?.author)?found.author:null;
+          this.cachePostAuthor(postId,state.archivedAuthor);this.applyPostAuthor(state);
         }).catch(()=>{}).finally(()=>{if(this.postState===state)native.setAttribute('data-rt-settled','');});
       }
+      state.started=true;
       native.setAttribute('data-rt-pending','');
       // What Reddit's own notice says decides whether the cue may name the author.
       const reason=[native.getAttribute('post-title'),native.querySelector('[slot="title"]')?.textContent,...[...native.querySelectorAll('[slot="post-removed-banner"],[slot="text-body"] p')].map(node=>node.textContent)].join(' ');
       // Skeleton lines where the body goes while the archive is asked.
       const skeleton=globalThis.RTArchiveView?.skeleton({lines:3});if(skeleton){native.append(skeleton);for(const slot of ['text-body','post-recovery-section','post-removed-banner']){skeleton.slot=slot;if(!native.shadowRoot || skeleton.assignedSlot)break;}}
-      const state=this.postState;state.skeleton=skeleton;
+      state.skeleton=skeleton;
       // The cue's space is reserved now (invisible) so the credit bar does not shift when it appears.
       const badge=state.reserved=this.makeBadge(status,'rt-post-indicator');badge.dataset.rtReserved='true';badge.setAttribute('aria-hidden','true');
       const credit=native.querySelector('[slot="credit-bar"]') || native;let actions=credit.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==credit)actions=actions.parentElement;
@@ -280,7 +294,7 @@
           if(figure)place(figure,['post-media-container','text-body','post-recovery-section']);
         }
         // Deleted posts show [deleted] as their author; the snapshot still names them.
-        if(archived && M.validateUsername(archived.author))patch.author=this.restorePostAuthor(native,archived.author);
+        if(archived && M.validateUsername(archived.author)){state.archivedAuthor=archived.author;this.cachePostAuthor(postId,archived.author);this.applyPostAuthor(state);}
         // The status cue always shows, even when the snapshot adds nothing else.
         const when=archived?.retrieved?' from '+new Date(archived.retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}):'';
         const restored=Boolean(patch.title || patch.added.length);
@@ -301,15 +315,100 @@
         }
       }
     }
+    cachePostAuthor(id,author){
+      if(this.postAuthors.size>=200 && !this.postAuthors.has(id))this.postAuthors.delete(this.postAuthors.keys().next().value);
+      this.postAuthors.set(id,author);
+    }
+    applyPostAuthor(state){
+      if(!state.archivedAuthor || state.patch?.author?.link.isConnected)return;
+      const patch=state.patch ||= {native:state.native,added:[],title:null,author:null};
+      patch.author=this.restorePostAuthor(state.native,state.archivedAuthor);
+    }
     // Replace the post header's [deleted] author with the archived username,
     // keeping Reddit's element classes; the dotted underline marks it archived.
     restorePostAuthor(native,author){
-      const credit=native.querySelector('[slot="credit-bar"]') || native;
-      const label=[...credit.querySelectorAll('a,span')].find(el=>el.childElementCount===0 && el.textContent.trim()==='[deleted]' && !el.closest('[data-rt-source]'));if(!label)return null;
-      const link=make('a',(label.className || '')+' rt-archived-author');link.href='https://www.reddit.com/user/'+author+'/';link.textContent=(label.textContent.trim().startsWith('u/')?'u/':'')+author;link.dataset.rtArchivedAuthor='true';link.title='Original author from an Arctic Shift snapshot';link.setAttribute('aria-label','u/'+author+' (from archive)');
+      const label=postAuthorLabel(native);if(!label)return null;
+      const original=label.textContent,name=(original.trim().startsWith('u/')?'u/':'')+author;
+      const accessible='u/'+author+' (from archive)',link=make('a',(label.className || '')+' rt-archived-author',name);
+      link.href='https://www.reddit.com/user/'+author+'/';link.dataset.rtArchivedAuthor='true';link.title='Original author from an Arctic Shift snapshot';link.setAttribute('aria-label',accessible);
+      link.addEventListener('click',event=>{
+        if(event.button!==0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)return;
+        const from=location.href;
+        link.textContent=original;link.setAttribute('aria-label',original.trim());link.classList.remove('rt-archived-author');
+        this.later(()=>{if(location.href===from && link.isConnected){link.textContent=name;link.setAttribute('aria-label',accessible);link.classList.add('rt-archived-author');}});
+      });
       label.replaceWith(link);return {label,link};
     }
+    scanFeedAuthors(){
+      const subreddit=M.filteredCommunity(new URL(location.href));
+      if(this.feedAuthors?.subreddit!==subreddit)this.clearFeedAuthors();
+      if(!subreddit || document.documentElement.hasAttribute('data-rt-subreddit-archive'))return;
+      const feed=document.querySelector('main shreddit-feed');
+      if(!feed)return;
+      const reload=feed.getAttribute('reload-url');
+      if(reload){
+        const name=new URL(reload,location.href).searchParams.get('name');
+        if(name && name.toLowerCase()!==subreddit)return;
+      }
+      if(!this.feedAuthors){
+        const state=this.feedAuthors={subreddit,patches:new Map(),watching:new Set(),wanted:new Map(),timer:null,busy:false,pausedUntil:0};
+        if(typeof IntersectionObserver==='function')state.observer=new IntersectionObserver(entries=>{
+          for(const {target,isIntersecting} of entries)if(isIntersecting && this.feedPostVisible(target)){
+            state.observer.unobserve(target);state.watching.delete(target);state.wanted.set(target.id.slice(3).toLowerCase(),target);
+          }
+          this.scheduleFeedAuthors(state);
+        },{rootMargin:'400px 0px'});
+      }
+      const state=this.feedAuthors;
+      for(const post of state.watching)if(!post.isConnected){state.observer.unobserve(post);state.watching.delete(post);}
+      for(const [post,patch] of state.patches)if(!post.isConnected || !patch.link.isConnected){
+        if(patch.link.parentNode)patch.link.replaceWith(patch.label);
+        state.patches.delete(post);
+      }
+      for(const post of feed.querySelectorAll('shreddit-post[id^="t3_"]')){
+        if(!this.feedPostVisible(post) || state.patches.has(post) || !postAuthorLabel(post))continue;
+        const name=post.getAttribute('subreddit-name') || post.getAttribute('subreddit-prefixed-name');
+        if(name && name.replace(/^r\//i,'').toLowerCase()!==subreddit)continue;
+        const id=post.id.slice(3).toLowerCase();if(!M.validateId(id))continue;
+        if(this.postAuthors.has(id)){
+          const author=this.postAuthors.get(id),patch=author && this.restorePostAuthor(post,author);if(patch)state.patches.set(post,patch);
+        }else if(state.watching.has(post) || state.wanted.has(id))continue;
+        else if(state.observer){state.watching.add(post);state.observer.observe(post);}
+        else state.wanted.set(id,post);
+      }
+      if(!state.observer)return this.flushFeedAuthors(state);
+    }
+    feedPostVisible(post){return post.isConnected && !post.closest('[hidden],[inert],[data-rt-community-filtered],[data-rt-ui]');}
+    scheduleFeedAuthors(state){
+      if(this.feedAuthors!==state || !state.wanted.size || state.timer || state.busy)return;
+      state.timer=setTimeout(()=>{state.timer=null;this.flushFeedAuthors(state);},Math.max(120,state.pausedUntil-Date.now()));
+    }
+    async flushFeedAuthors(state){
+      if(this.feedAuthors!==state || !this.enabled() || state.busy || state.pausedUntil>Date.now() || M.filteredCommunity(new URL(location.href))!==state.subreddit)return;
+      const ids=[];
+      for(const [id,post] of state.wanted){
+        state.wanted.delete(id);
+        if(this.feedPostVisible(post) && postAuthorLabel(post) && !this.postAuthors.has(id))ids.push(id);
+        if(ids.length===25)break;
+      }
+      if(!ids.length)return;
+      state.busy=true;
+      try{
+        const result=await this.archive({action:'archive-feed-authors',subreddit:state.subreddit,ids});
+        if(this.feedAuthors!==state || !this.enabled() || M.filteredCommunity(new URL(location.href))!==state.subreddit)return;
+        if(result?.ok===false)throw result;
+        for(const id of ids){const row=result.posts?.find(post=>post.id===id && post.subreddit?.toLowerCase()===state.subreddit && M.validateUsername(post.author));this.cachePostAuthor(id,row?.author || null);}
+        this.scanFeedAuthors();
+      }catch(error){state.pausedUntil=error?.retryAt || Date.now()+this.retryMs;}
+      finally{state.busy=false;this.scheduleFeedAuthors(state);}
+    }
+    clearFeedAuthors(){
+      const state=this.feedAuthors;if(!state)return;
+      this.feedAuthors=null;state.observer?.disconnect();clearTimeout(state.timer);
+      for(const {link,label} of state.patches.values())if(link.parentNode)link.replaceWith(label);
+    }
     restoreAll(){
+      this.clearFeedAuthors();
       clearTimeout(this.retryTimer);this.retryAt=0;for(const timer of this.holdTimers)clearTimeout(timer);this.holdTimers.clear();this.timed=new WeakSet();this.checked=new WeakSet();this.records.clear();this.done.clear();this.shown.clear();for(const [node,attrs] of this.sharePatches){for(const [name,value] of attrs)if(value===null)node.removeAttribute(name);else node.setAttribute(name,value);}this.sharePatches.clear();this.shareComments=new WeakSet();
       this.postState?.reserved?.remove();const post=this.postState?.patch;if(post){for(const node of post.added)node.remove();if(post.title)post.title.node.replaceChildren(...post.title.original);if(post.author?.link.isConnected)post.author.link.replaceWith(post.author.label);}
       if(this.postState?.native){this.postState.native.removeAttribute('data-rt-pending');this.postState.native.removeAttribute('data-rt-settled');}this.postState=null;

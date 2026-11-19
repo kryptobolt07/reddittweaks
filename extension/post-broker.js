@@ -309,10 +309,10 @@
   // A second source (e.g. a PullPush adapter) would plug in here by returning the same shapes; none is configured.
   const searchSubreddit=/^[A-Za-z0-9_]{2,21}$/,searchTtl=30000;
   const validTime=value=>typeof value==='number' && Number.isSafeInteger(value) && value>0 && value<=32503680000;
-  async function archiveFetch(path,params,onJson){
+  async function archiveFetch(path,params,onJson,{restore=false}={}){
     const release=await slot();
     try{
-      if(!await enabled())return disabled();
+      if(!await enabled(restore))return disabled();
       await backoffLoaded;await loadBackoff();
       if(cooldownUntil>Date.now())return fail('Archive requests are cooling down.','rate-limited',{retryAt:cooldownUntil});
       if(unavailableUntil>Date.now())return unavailable();
@@ -434,6 +434,28 @@
       return {ok:true,subreddit,source:'arctic-shift'};
     }));
   }
+  async function archiveFeedAuthors(message,sender){
+    if(!redditSender(sender))return fail('Archive recovery requires a Reddit page.','forbidden');
+    let page;
+    try{
+      const source=new URL(sender.url);page=new URL(sender.page || sender.tab.url || sender.url);
+      if(page.origin!==source.origin)return fail('Archive recovery requires a Reddit page.','forbidden');
+    }catch{return fail('Archive recovery requires a Reddit page.','forbidden');}
+    const subreddit=Model.filteredCommunity(page);
+    if(!subreddit || subreddit!==String(message.subreddit || '').toLowerCase())return fail('Archive recovery requires the matching filtered subreddit.','forbidden');
+    if(!Array.isArray(message.ids) || !message.ids.length || message.ids.length>25 || !message.ids.every(Model.validateId))return fail('Invalid post IDs.','invalid-request');
+    if(!await enabled(true))return disabled();
+    const ids=[...new Set(message.ids.map(id=>id.toLowerCase().replace(/^t3_/,'')))].sort();
+    const result=await cachedSearch('feed-authors:'+subreddit+':'+ids.join(','),()=>archiveFetch('posts/ids',{ids:ids.join(','),fields:'id,author,subreddit'},data=>{
+      const posts=new Map();
+      for(const item of data){
+        const id=String(item?.id || '').toLowerCase().replace(/^t3_/,'');
+        if(ids.includes(id) && String(item?.subreddit || '').toLowerCase()===subreddit && Model.validateUsername(item.author))posts.set(id,{id,author:item.author,subreddit});
+      }
+      return {ok:true,posts:[...posts.values()],source:'arctic-shift'};
+    },{restore:true}));
+    return await enabled(true)?result:disabled();
+  }
   async function handle(message,sender){
     if(message?.scope!=='rt-posts')return;
     if(message.action==='get-settings'){
@@ -447,6 +469,7 @@
     if(message.action==='archive-removal')return archiveRemoval(message,sender);
     if(message.action==='archive-comments')return archiveComments(message,sender);
     if(message.action==='archive-thread-comments')return archiveThreadComments(message,sender);
+    if(message.action==='archive-feed-authors')return archiveFeedAuthors(message,sender);
     if(message.action==='archive-search')return archiveSearch(message,sender);
     if(message.action==='archive-aggregate')return archiveAggregate(message,sender);
     if(message.action==='archive-subreddit')return archiveSubreddit(message,sender);

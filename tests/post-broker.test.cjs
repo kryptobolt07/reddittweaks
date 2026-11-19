@@ -39,6 +39,17 @@ test('archive ID recovery accepts only one post matching the current detail URL'
  const e=env(),message={action:'archive-ids',ids:['t3_abc12']};const result=await e.send(message,{url:'https://www.reddit.com/r/example/comments/abc12/title/'});assert.equal(result.ok,true);assert.equal(new URL(e.calls[0][0]).pathname,'/api/posts/ids');assert.equal(result.hasMore,false);
  assert.equal((await e.send(message)).code,'forbidden');assert.equal((await e.send({...message,ids:['other']},{url:'https://www.reddit.com/comments/abc12'})).code,'forbidden');
 });
+test('filtered feed author recovery is scoped to its current community and returns only requested names',async()=>{
+ const e=env({fetcher:async()=>response([row({subreddit:'Example'}),row({id:'second',subreddit:'Other'}),row({id:'foreign',subreddit:'Example'})])});
+ const url='https://www.reddit.com/r/example/?rt_type=video',sender={url,tab:{id:8,url}},message={action:'archive-feed-authors',subreddit:'example',ids:['t3_abc12','second']};
+ const result=await e.send(message,sender);
+ assert.deepEqual(JSON.parse(JSON.stringify(result.posts)),[{id:'abc12',author:'Example',subreddit:'example'}]);
+ assert.equal(new URL(e.calls[0][0]).searchParams.get('fields'),'id,author,subreddit');
+ assert.equal((await e.send({...message,subreddit:'Other'},sender)).code,'forbidden');
+ assert.equal((await e.send(message,{url:url.split('?')[0],tab:{id:8,url:url.split('?')[0]}})).code,'forbidden');
+ e.setSettings({postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:false});
+ assert.equal((await e.send(message,sender)).code,'disabled');assert.equal(e.calls.length,1);
+});
 test('different pages serialize per profile and global fetch concurrency stays at two',async()=>{
  const gates=[],e=env({fetcher:()=>new Promise(resolve=>gates.push(()=>resolve(response([]))))});
  const first=e.send(),second=e.send({before:1699999999}),other=e.send({username:'Other'},{url:'https://www.reddit.com/user/Other'}),third=e.send({username:'Third'},{url:'https://www.reddit.com/user/Third'});
