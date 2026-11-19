@@ -6,8 +6,8 @@ const {JSDOM}=require('jsdom');
 const row=(id,text,extra='')=>`<shreddit-comment thingid="${id}" postid="t3_abc12" author="[deleted]" ${extra}><details><summary><div slot="commentAvatar"><span avatar><svg class="default"></svg></span></div><div slot="commentMeta"><div class="author-name-meta"><span dir="auto">[deleted]</span></div><div class="row"></div></div></summary><div class="notice">${text}</div></details></shreddit-comment>`;
 const page=(...rows)=>`<main><shreddit-comment-tree>${rows.join('')}</shreddit-comment-tree></main>`;
 const archived=(id,body,extra={})=>({id,author:'Original'+id,body,created_utc:1700000000,link_id:'t3_abc12',parent_id:'t3_abc12',retrieved_on:1700086400,...extra});
-function setup({html=page(row('t1_a1','<p>Comment deleted by user</p>'),row('t1_b2','<p>Comment removed by moderator</p>')),settings={postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},archive,reddit,glyph=true,css=false,pendingMs=60000,retryMs=5,files=[]}={}){
- const dom=new JSDOM(html,{url:'https://www.reddit.com/r/example/comments/abc12/title/',runScripts:'outside-only'}),W=dom.window,calls=[];
+function setup({html=page(row('t1_a1','<p>Comment deleted by user</p>'),row('t1_b2','<p>Comment removed by moderator</p>')),settings={postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:true},archive,reddit,glyph=true,css=false,pendingMs=60000,retryMs=5,files=[],url='https://www.reddit.com/r/example/comments/abc12/title/'}={}){
+ const dom=new JSDOM(html,{url,runScripts:'outside-only'}),W=dom.window,calls=[];
  W.chrome={runtime:{id:'own',onMessage:{addListener(){},removeListener(){}},sendMessage:async()=>({ok:true})}};W.RTThreadRestoreDisabled=true;
  for(const file of ['post-model.js','markdown-lite.js','archive-view.js',...(glyph?['post-discovery.js']:[]),...files,'thread-restore.js']){W.chrome.runtime.id=file==='post-discovery.js'?'':'own';W.eval(fs.readFileSync('extension/'+file,'utf8'));}W.chrome.runtime.id='own';
  if(css){const style=W.document.createElement('style');style.textContent=fs.readFileSync('extension/post-discovery.css','utf8');W.document.head.append(style);}
@@ -196,4 +196,62 @@ test('a post whose account was deleted gets its archived author back, without de
  assert.equal(post.querySelector('[slot="text-body"] p').textContent,'Real text');assert.equal(post.querySelector('[data-rt-skeleton]'),null);
  e.r.restoreAll();assert.equal(post.querySelector('[data-rt-archived-author]'),null);assert.equal(post.querySelector('[slot="credit-bar"] .author').textContent,'[deleted]');
  e.r.destroy();e.W.close();
+});
+const missingAuthor='<shreddit-post id="t3_abc12" author="[deleted]"><div slot="credit-bar"><span class="author">[deleted]</span></div><div slot="text-body">Original text</div></shreddit-post>';
+const archivedPost={id:'abc12',author:'BeforeDeletion',subreddit:'example',created_utc:1700000000};
+test('the archived post author survives late and replaced native credit lines without another lookup',async t=>{
+ const e=setup({html:'<main>'+missingAuthor.replace('<span class="author">[deleted]</span>','')+'</main>',archive:()=>({ok:true,posts:[archivedPost]})});
+ t.after(()=>{e.r.destroy();e.W.close();});await e.r.ready;
+ const post=e.doc.querySelector('shreddit-post'),credit=post.querySelector('[slot="credit-bar"]');
+ for(const label of ['[deleted]','u/[deleted]']){
+  credit.innerHTML='<span class="author">'+label+'</span>';await e.r.scan();
+  assert.ok(credit.querySelector('[data-rt-archived-author]'));assert.match(credit.textContent,/BeforeDeletion/);
+ }
+ assert.equal(e.calls.length,1);assert.equal(post.querySelector('[slot="text-body"]').textContent,'Original text');
+});
+test('following the recovered author shows the original label during navigation and restores it on return',async t=>{
+ const e=setup({html:'<main>'+missingAuthor+'</main>',pendingMs:25,archive:()=>({ok:true,posts:[archivedPost]})});
+ t.after(()=>{e.r.destroy();e.W.close();});await e.r.ready;await settle(1);
+ const read=()=>e.doc.querySelector('[data-rt-archived-author]');
+ const prevent=event=>event.preventDefault();
+ e.doc.addEventListener('click',prevent);
+ read().dispatchEvent(new e.W.MouseEvent('click',{button:0,ctrlKey:true,bubbles:true,cancelable:true}));
+ assert.equal(read().textContent,'BeforeDeletion','opening in a new tab stays on this post');
+ read().click();assert.equal(read().textContent,'[deleted]');
+ assert.match(read().href,/\/user\/BeforeDeletion\/$/);
+ await settle(40);assert.equal(read().textContent,'BeforeDeletion');
+ read().click();
+ e.W.history.pushState({},'','/user/BeforeDeletion/');await e.r.scan();
+ assert.equal(e.doc.querySelector('.author').textContent,'[deleted]');
+ e.W.history.replaceState({},'','/r/example/comments/abc12/title/');await e.r.scan();
+ assert.equal(read().textContent,'BeforeDeletion');assert.equal(e.calls.length,1);
+});
+test('author-only recovery applies to the detail post when Reddit keeps its matching feed card',async t=>{
+ const e=setup({html:'<main><shreddit-feed>'+missingAuthor+'</shreddit-feed>'+missingAuthor+'</main>',archive:()=>({ok:true,posts:[archivedPost]})});
+ t.after(()=>{e.r.destroy();e.W.close();});await e.r.ready;await settle(1);
+ assert.ok(e.doc.querySelector('main > shreddit-post [data-rt-archived-author]'));
+ assert.equal(e.doc.querySelector('shreddit-feed [data-rt-archived-author]'),null);
+});
+test('filtered feed recovery batches visible native deleted author cards and ignores filtered rows',async t=>{
+ const second=missingAuthor.replace('abc12','second'),hidden='<article data-rt-community-filtered>'+missingAuthor.replace('abc12','hidden')+'</article>';
+ const e=setup({url:'https://www.reddit.com/r/example/?rt_type=video',html:'<main><shreddit-feed>'+missingAuthor+second+hidden+'</shreddit-feed></main>',archive:message=>({ok:true,posts:message.ids.map(id=>({...archivedPost,id}))})});
+ t.after(()=>{e.r.destroy();e.W.close();});await e.r.ready;await settle();
+ assert.equal(e.calls.length,1);assert.equal(e.calls[0].action,'archive-feed-authors');
+ assert.deepEqual(Array.from(e.calls[0].ids),['abc12','second']);
+ assert.equal(e.doc.querySelectorAll('[data-rt-archived-author]').length,2);
+ const card=e.doc.querySelector('#t3_abc12');card.replaceWith(e.doc.createRange().createContextualFragment(missingAuthor));await e.r.scan();
+ assert.ok(e.doc.querySelector('#t3_abc12 [data-rt-archived-author]'));assert.equal(e.calls.length,1);
+ e.r.setSettings({postDiscovery:true,archiveDiscovery:true,restoreDeletedContent:false});
+ assert.equal(e.doc.querySelectorAll('[data-rt-archived-author]').length,0);
+});
+test('a pending author lookup cannot patch the outgoing feed after changing communities',async t=>{
+ let finish;
+ const html='<main><shreddit-feed reload-url="/svc/shreddit/community-more-posts/new/?name=Example">'+missingAuthor+'</shreddit-feed></main>';
+ const e=setup({url:'https://www.reddit.com/r/example/?rt_type=video',html,archive:()=>new Promise(resolve=>{finish=resolve;})});
+ t.after(()=>{e.r.destroy();e.W.close();});await e.r.ready;
+ assert.equal(e.calls.length,1);
+ e.W.history.pushState({},'','/r/newexample/?rt_type=video');void e.r.scan();
+ assert.equal(e.calls.length,1,'the old native feed is still mounted and cannot seed the new community');
+ finish({ok:true,posts:[archivedPost]});await settle();
+ assert.equal(e.doc.querySelector('[data-rt-archived-author]'),null);
 });

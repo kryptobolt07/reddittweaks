@@ -268,5 +268,10 @@
       isSelf:item.isSelf ?? item.is_self ?? nativeSelf,nsfw:item.nsfw ?? item.over_18 ?? item.over18 ?? flag('nsfw','is-nsfw'),
       spoiler:item.spoiler ?? flag('spoiler','is-spoiler'),type:comment?undefined:type,created:item.created ?? item.created_utc ?? attr('created-timestamp')};
   }
-  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord});
+  function filteredCommunity(url){
+    const match=/^\/r\/([a-z0-9_]{2,21})(?:\/(?:best|hot|new|top|rising|controversial))?\/?$/i.exec(url.pathname);
+    const name=match?.[1].toLowerCase();
+    return name && !['all','popular'].includes(name) && (url.searchParams.get('rt_type') || url.searchParams.get('rt_nsfw')==='1' || /^flair_name:/.test(url.searchParams.get('f') || ''))?name:'';
+  }
+  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord,filteredCommunity});
 })();
