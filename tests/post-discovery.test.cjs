@@ -1829,16 +1829,26 @@ test('on phones the profile Feed options opens as a bottom sheet with a backdrop
   scrim.click();await new Promise(r=>setImmediate(r));assert.equal(dropdown.hasAttribute('open'),false,'tapping it closes the sheet');assert.equal(find(),null);
   phone=false;dropdown.setAttribute('open','');await new Promise(r=>setImmediate(r));assert.equal(find(),null,'desktop keeps the popover');
 });
-test('on phones Feed options opens the flat sheet: sort rows, View chips, Filter chips that run the menu’s own options',async t=>{
+test('on phones profile Feed options opens short pages that run the menu’s own options',async t=>{
   const {W,d}=setup(t,{pre:['feed-filters.js','feed-sheet.js']});let phone=true;W.matchMedia=query=>({matches:/max-width/.test(query)?phone:false,media:query,addEventListener(){},removeEventListener(){}});
   await d.ready;d.ensureActivityMenu();const dropdown=d.activityDropdown,button=dropdown.querySelector('button[aria-label="Feed options"]');
-  button.click();const sheet=W.document.querySelector('[data-rt-ui="feed-sheet"]');assert.ok(sheet,'the flat sheet opens');assert.equal(dropdown.hasAttribute('open'),false,'Reddit’s popup stays closed');
+  button.click();const sheet=W.document.querySelector('[data-rt-ui="feed-sheet"]');assert.ok(sheet,'the Feed options sheet opens');assert.equal(dropdown.hasAttribute('open'),false,'Reddit’s popup stays closed');
   assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Feed options');
-  const rows=[...sheet.querySelectorAll('.rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent);assert.ok(rows.includes('New') && rows.includes('Top'),'Reddit’s sorts listed directly: '+rows);
-  assert.equal([...sheet.querySelectorAll('.rt-fsheet-row')].find(r=>r.textContent.startsWith('New')).getAttribute('href') !== null,true,'sort rows are Reddit’s own links');
-  const groups=[...sheet.querySelectorAll('.rt-fsheet-group-title')].map(g=>g.textContent);assert.deepEqual(groups.filter(g=>['Activity','Date','Post type'].includes(g)),['Activity','Date','Post type']);
-  assert.equal(sheet.querySelector('.rt-fsheet-section').textContent,'Filter');assert.ok(rows.includes('Community'),'community picker row');
-  const hidden=[...sheet.querySelectorAll('.rt-fsheet-chip')].find(c=>c.textContent==='Hidden');hidden.click();await new Promise(r=>setImmediate(r));
+  const rows=()=>[...sheet.querySelectorAll('.rt-fsheet-row')];
+  const label=row=>row.querySelector('.rt-fsheet-label').textContent;
+  const row=name=>rows().find(r=>label(r)===name);
+  assert.deepEqual(rows().map(label),['Sort','View','Activity','Date','Post type','Community','Refresh activity']);
+  row('Sort').click();
+  assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Sort');
+  assert.ok(row('New').getAttribute('href'),'sort rows are Reddit’s own links');
+  sheet.querySelector('.rt-fsheet-back').click();
+  row('Post type').click();
+  assert.equal(row('All types').getAttribute('aria-pressed'),'true');
+  row('Videos').click();await new Promise(r=>W.setTimeout(r,20));
+  assert.equal(row('Videos').getAttribute('aria-pressed'),'true');
+  sheet.querySelector('.rt-fsheet-back').click();
+  assert.match(row('Post type').textContent,/Videos/);
+  row('Activity').click();row('Hidden').click();await new Promise(r=>setImmediate(r));
   assert.equal(d.activityFilter,'hidden','the menu’s own Activity option ran');assert.equal(W.document.querySelector('[data-rt-ui="feed-sheet"]'),null,'a single choice closes the sheet');
   phone=false;button.click();assert.equal(W.document.querySelector('[data-rt-ui="feed-sheet"]'),null,'desktop keeps Reddit’s menu');
 });

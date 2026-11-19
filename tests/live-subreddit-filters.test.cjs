@@ -214,18 +214,18 @@ test('desktop community feed options uses current-value rows and drill-ins, rath
  menu.querySelector('[data-rt-sub-back]').click();
  assert.equal(menu.querySelector('[aria-label="Post type"] [data-rt-menu-value]').textContent,'2 types');
 });
-test('phone community feed options opens a short sheet whose Post type page holds the type chips',t=>{
+test('phone community feed options keeps the type choices on the Post type page',t=>{
  const {D,W}=setup(t);
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
  const rows=()=>[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')];
  assert.deepEqual(rows().map(row=>row.querySelector('.rt-fsheet-label').textContent),['Post type','Flair'],'one row per option, values one level down');
  assert.equal(rows()[0].querySelector('.rt-fsheet-sub').textContent,'All types');
- assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-chip'),null);
+ assert.equal(D.querySelector('.rt-community-sheet [aria-pressed]'),null);
  rows()[0].click();
  assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-title').textContent,'Post type');
- assert.ok(D.querySelector('.rt-community-sheet .rt-fsheet-chip [icon-name="image"]'));
- assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-chip [icon-name="show"]'),null,'All types carries no unrelated icon');
+ assert.ok(D.querySelector('.rt-community-sheet .rt-fsheet-row [icon-name="image"]'));
+ assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-row [icon-name="show"]'),null,'All types carries no unrelated icon');
  assert.equal(D.querySelector('[data-rt-feed-options]'),null);
 });
 test('Media types can be selected together without hiding the native pager or clearing other filters',t=>{
@@ -339,6 +339,21 @@ test('phone Feed options lists Reddit’s existing sort choices and links to the
  assert.equal(url.pathname,'/r/Example/new/');
  assert.equal(url.searchParams.get('rt_type'),'video');
  assert.equal(url.searchParams.get('f'),'flair_name:"News"');
+});
+test('phone subreddit Post type uses checked rows and supports multiple choices on the same page',async t=>{
+ const {D,W}=setup(t,sortedPath,sortedFeed());
+ W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ D.querySelector('[data-rt-community-options]').click();
+ const root=D.querySelector('.rt-community-sheet');
+ const row=name=>[...root.querySelectorAll('.rt-fsheet-row')].find(r=>r.querySelector('.rt-fsheet-label').textContent===name);
+ row('Post type').click();
+ assert.equal(row('Videos').getAttribute('aria-pressed'),'true');
+ row('GIFs').click();await new Promise(resolve=>W.setTimeout(resolve,15));
+ assert.equal(row('Videos').getAttribute('aria-pressed'),'true');
+ assert.equal(row('GIFs').getAttribute('aria-pressed'),'true');
+ assert.match(new URL(W.location.href).searchParams.get('rt_type'),/gif/);
+ root.querySelector('.rt-fsheet-back').click();
+ assert.match(row('Post type').textContent,/2 types/);
 });
 
 test('native sort stays visible until links arrive and a replaced control is integrated once',async t=>{

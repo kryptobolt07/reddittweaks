@@ -29,9 +29,9 @@
    // A list row: real link when href is given (Reddit's own navigation), else a button. Optional: an avatar (URL or
    // node) in the lead, a trailing action button (for example sign out), ask-twice (confirm), and an async onSelect
    // whose {ok:false,error} result stays on screen.
-   row({label,subtitle='',icon=null,avatar=null,selected=false,chevron=false,href='',onSelect=null,keepOpen=false,role='',confirm=false,busy='',action=null}){
+   row({label,subtitle='',icon=null,avatar=null,selected=false,chevron=false,href='',onSelect=null,keepOpen=false,toggle=false,role='',confirm=false,busy='',action=null}){
     const el=make(href?'a':'button','rt-fsheet-row');if(href)el.href=href;else el.type='button';if(role)el.setAttribute('role',role);
-    if(selected)el.setAttribute('aria-current','true');
+    if(toggle)el.setAttribute('aria-pressed',String(selected));else if(selected)el.setAttribute('aria-current','true');
     const lead=make('span','rt-fsheet-lead');
     if(avatar){lead.classList.add('rt-fsheet-avatar');if(typeof avatar==='string'){const img=make('img');img.src=avatar;img.alt='';img.referrerPolicy='no-referrer';img.loading='lazy';lead.append(img);}else lead.append(avatar);}
     else if(icon)lead.append(icon);
@@ -43,12 +43,14 @@
      if(el.getAttribute('aria-busy')==='true')return;
      if(ask && !el.dataset.armed){el.dataset.armed='true';say('Tap again to continue');clearTimeout(el.rtDisarm);el.rtDisarm=setTimeout(()=>{delete el.dataset.armed;say(subtitle);},4000);return;}
      clearTimeout(el.rtDisarm);delete el.dataset.armed;
+     const previous=pages.at(-1),focus=document.activeElement===el?label:'';
+     const refresh=()=>{if(pages.at(-1)===previous)ui.refresh(focus);};
      const result=handler();
-     if(!result || typeof result.then!=='function'){if(!stay)close();else ui.refresh();return;}
+     if(!result || typeof result.then!=='function'){if(!stay)close();else refresh();return;}
      el.setAttribute('aria-busy','true');if(working)say(working);
      const value=await result.catch(error=>({ok:false,error:error?.message}));el.removeAttribute('aria-busy');
      if(value?.ok===false){say(value.error || 'Something went wrong. Try again.');return;}
-     if(!stay && !value?.stay)close();else ui.refresh();
+     if(!stay && !value?.stay)close();else refresh();
     };
     el.addEventListener('click',event=>{if(!onSelect){if(href)close();return;}event.preventDefault();run(()=>onSelect(event),{ask:confirm,working:busy,stay:keepOpen});});
     if(!action){body.append(el);return el;}
@@ -75,7 +77,11 @@
    push(page){pages.push(page);render();},
    pop(){if(pages.length>1){pages.pop();render();}},
    // Some choices (Post type, Community) stay open: rebuild after the menu has applied them.
-   refresh(){setTimeout(()=>{if(active===state)render(true);},0);},
+   refresh(focus=''){setTimeout(()=>{
+    if(active!==state)return;
+    render(true);
+    if(focus)[...body.querySelectorAll('.rt-fsheet-row')].find(row=>row.querySelector('.rt-fsheet-label')?.textContent===focus)?.focus({preventScroll:true});
+   },0);},
    close,
    // A node lent to a page (the community picker) is handed back when the page or sheet goes away.
    lend(node,restore){state.leaving.push(restore);body.append(node);}
@@ -104,5 +110,15 @@
   try{state.onClose?.();}catch{}
   if(state.returnFocus?.isConnected)state.returnFocus.focus?.({preventScroll:true});
  }
- globalThis.RTFeedSheet=Object.freeze({open,close,isOpen:()=>Boolean(active)});
+ function postTypeRows(ui,{selected,onClear,onToggle}){
+  const filters=globalThis.RTFeedFilters;
+  ui.row({label:'All types',selected:!selected.length,toggle:true,keepOpen:true,onSelect:onClear});
+  for(const section of filters.typeSections){
+   ui.title(section.label);
+   for(const type of section.types)ui.row({label:filters.typeLabels[type],
+    icon:filters.svgIcon(type==='gif'?'gif-post-outline':filters.typeIcons[type],20),
+    selected:selected.includes(type),toggle:true,keepOpen:true,onSelect:()=>onToggle(type)});
+  }
+ }
+ globalThis.RTFeedSheet=Object.freeze({open,close,postTypeRows,isOpen:()=>Boolean(active)});
 })();
