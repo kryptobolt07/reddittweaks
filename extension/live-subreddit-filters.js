@@ -1102,14 +1102,7 @@
         label:'Post type',icon:(() => { const [one,...more] = this.selectedTypes(); return filters.svgIcon(one && !more.length ? (one === 'gif' ? 'gif-post-outline' : filters.typeIcons[one]) : 'text-post',20); })(),
         subtitle:this.typeLabel() || 'All types',
         chevron:true,keepOpen:true,onSelect:() => { ui.push({title:'Post type',build:(_body,page) => {
-          const chosen = this.selectedTypes();
-          page.chips('',[
-            {label:'All types', selected:!chosen.length, keepOpen:true, onSelect:() => this.applyTypes([])},
-            ...filters.typeSections.flatMap(({label,types}) => [{heading:label},...types.map(type => ({
-              label:filters.typeLabels[type], icon:filters.svgIcon(type === 'gif' ? 'gif-post-outline' : filters.typeIcons[type],16),
-              selected:chosen.includes(type), keepOpen:true, onSelect:() => this.toggleType(type),
-            }))]),
-          ]);
+          sheet.postTypeRows(page,{selected:this.selectedTypes(),onClear:() => this.applyTypes([]),onToggle:type => this.toggleType(type)});
         }}); return {stay:true}; },
       });
       const active = this.activeFlair();

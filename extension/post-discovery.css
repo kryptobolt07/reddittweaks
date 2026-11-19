@@ -760,7 +760,7 @@ shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{displa
 .rt-fsheet-action:hover,.rt-fsheet-action:focus-visible{background:var(--color-neutral-background-hover,#f2f4f5);outline:none}
 .rt-fsheet-avatar{width:32px;height:32px;border-radius:999px;overflow:hidden}.rt-fsheet-avatar img{width:100%;height:100%;object-fit:cover}
 .rt-fsheet-lead.rt-fsheet-avatar svg{width:32px;height:32px}
-.rt-fsheet-row[aria-current] .rt-fsheet-tail{color:var(--color-primary,#0045ac)}
+.rt-fsheet-row:is([aria-current],[aria-pressed="true"]) .rt-fsheet-tail{color:var(--color-primary,#0045ac)}
 .rt-fsheet-row[aria-busy="true"]{opacity:.7;cursor:progress}
 .rt-fsheet-row[data-armed] .rt-fsheet-sub,.rt-fsheet-error{color:var(--color-danger-content,#b32424)}
 .rt-fsheet-lead.rt-fsheet-avatar .rt-account-glyph svg{width:20px;height:20px}

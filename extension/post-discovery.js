@@ -1461,66 +1461,74 @@
       scrim.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if('open' in dropdown)dropdown.open=false;dropdown.removeAttribute('open');});
       (dropdown.shadowRoot || document.body).append(scrim);
     }
-    /* Phones (docs/feed-options-sheet-spec.md): Feed options on a profile feed opens one flat sheet shaped like Reddit's
-       app instead of Reddit's popup with nested submenus. It is built from the live menu, and each choice runs the
-       menu's own option (or follows Reddit's own sort and view links), so desktop and phone share one behaviour. */
-    flatSheetOn(){return this.phoneLayout() && !this.isSearch() && this.context?.kind==='profile' && !this.context.section && Boolean(this.activityMain?.isConnected && globalThis.RTFeedSheet);}
-    hookFlatSheet(dropdown){
-      if(!dropdown || dropdown.rtFlatSheetHook)return;
+    // The phone sheet follows the same live menus as the desktop control. Navigation stays inside the sheet.
+    phoneSheetOn(){return this.phoneLayout() && !this.isSearch() && this.context?.kind==='profile' && !this.context.section && Boolean(this.activityMain?.isConnected && globalThis.RTFeedSheet);}
+    hookPhoneSheet(dropdown){
+      if(!dropdown || dropdown.rtPhoneSheetHook)return;
       const handler=event=>{
-        const button=event.target?.closest?.('button[aria-label="Feed options"]');if(!button || !this.flatSheetOn() || this.activityDropdown!==dropdown)return;
+        const button=event.target?.closest?.('button[aria-label="Feed options"]');if(!button || !this.phoneSheetOn() || this.activityDropdown!==dropdown)return;
         if(event.type==='keydown' && !['Enter',' '].includes(event.key))return;
         event.preventDefault();event.stopImmediatePropagation();if(event.type==='pointerdown')return;
-        this.openFlatSheet(dropdown,button);
+        this.openPhoneSheet(dropdown,button);
       };
-      dropdown.rtFlatSheetHook=handler;for(const type of ['pointerdown','click','keydown'])dropdown.addEventListener(type,handler,true);
+      dropdown.rtPhoneSheetHook=handler;for(const type of ['pointerdown','click','keydown'])dropdown.addEventListener(type,handler,true);
     }
-    openFlatSheet(dropdown,button){
+    openPhoneSheet(dropdown,button){
       if('open' in dropdown)dropdown.open=false;dropdown.removeAttribute('open');
-      globalThis.RTFeedSheet.open({title:'Feed options',returnFocus:button,build:(body,ui)=>this.buildFlatSheet(ui,dropdown)});
+      globalThis.RTFeedSheet.open({title:'Feed options',returnFocus:button,build:(body,ui)=>this.buildPhoneSheet(ui)});
     }
-    buildFlatSheet(ui,dropdown){
+    buildPhoneSheet(ui){
       if(!this.activityMain?.isConnected){ui.close();return;}
-      const content=this.activityMain.parentElement,text=el=>(el.getAttribute('aria-label') || el.querySelector('.rt-menu-caption')?.textContent || el.textContent || '').replace(/\s+/g,' ').trim();
-      const label=el=>{const own=el.querySelector('[data-rt-option-subtitle]');return own?text(el).replace(own.textContent,'').trim():text(el);};
-      const picked=el=>el.getAttribute('aria-checked')==='true' || el.getAttribute('aria-current')==='true' || Boolean(el.querySelector('svg[icon-name="checkmark"],[data-rt-check]'));
-      const icon=el=>{const svg=el.querySelector('.rt-menu-lead,svg[icon-name]:not([icon-name="checkmark"])');return svg?svg.cloneNode(true):null;};
-      const visible=el=>el && !el.hidden && el.dataset.rtSearchSortHidden===undefined;
-      // A choice that is a link follows Reddit's own URL; anything else clicks the menu's existing option.
-      const act=el=>()=>el.click();
-      // Sort: Reddit's rows (Top opens its own time list) and the archive's Old.
-      const sort=this.menuGroups?.[0],old=this.rtMenu?.old,timeList=content.querySelector('.submenu-container');
-      const times=[...(timeList?.querySelectorAll('rpl-menu-item[href]') || [])];
-      for(const item of (sort?.items || []).filter(visible)){
-        const name=label(item);
-        if(name==='Top' && times.length){
-          const current=times.find(picked),on=picked(item) || Boolean(current) || /[?&]sort=top\b/.test(location.search);
-          const range=current?label(current):times.find(t=>new URL(t.getAttribute('href'),location.href).searchParams.get('t')===new URLSearchParams(location.search).get('t'))?.getAttribute('aria-label') || '';
-          ui.row({label:'Top',subtitle:on?range:'',icon:icon(item),chevron:true,onSelect:()=>ui.push({title:'Top',build:(body,page)=>{for(const t of times)page.row({label:label(t),selected:on && label(t)===range,href:t.getAttribute('href')});}}),keepOpen:true});
-          continue;
+      const f=globalThis.RTFeedFilters,m=this.rtMenu,content=this.activityMain.parentElement;
+      const label=el=>(el?.getAttribute('aria-label') || el?.querySelector('.rt-menu-caption')?.textContent || el?.textContent || '').replace(/\s+/g,' ').trim();
+      const picked=el=>el.matches('[aria-checked="true"],[aria-current="true"],[aria-current="page"]') ||
+        Boolean(el.querySelector('[icon-name="checkmark"],[data-rt-check]'));
+      const icon=el=>el?.querySelector('.rt-menu-lead,svg[icon-name]:not([icon-name="checkmark"])')?.cloneNode(true);
+      const current=el=>el?.querySelector('[data-rt-menu-value]')?.textContent?.trim();
+      const visible=el=>!el.hidden && el.dataset.rtSearchSortHidden===undefined;
+      const linkOrClick=el=>el.hasAttribute('href')?{href:el.getAttribute('href')}:{onSelect:()=>el.click()};
+      const group=(title,source,subtitle,build)=>{
+        ui.row({label:title,icon:icon(source),subtitle,chevron:true,keepOpen:true,onSelect:()=>ui.push({title,build})});
+      };
+      const options=(page,items)=>{
+        for(const item of items.filter(visible))page.row({label:label(item),icon:icon(item),selected:picked(item),...linkOrClick(item)});
+      };
+
+      const [sort,view]=this.menuGroups || [];
+      const sorts=(sort?.items || []).filter(visible);
+      const old=m?.old,oldSelected=Boolean(old && picked(old));
+      const times=[...(content.querySelector('.submenu-container')?.querySelectorAll('rpl-menu-item[href]') || [])];
+      const selectedRange=times.find(picked);
+      const range=label(selectedRange),sortValue=oldSelected?'Old':label(sorts.find(picked)) || current(sort?.row) || 'Sort';
+      if(sorts.length || old)group('Sort',sort?.row,[sortValue,sortValue==='Top'&&range].filter(Boolean).join(' · '),(_body,page)=>{
+        for(const item of sorts){
+          const name=label(item),selected=!oldSelected && picked(item);
+          const glyph=selected?f?.svgIcon(name.toLowerCase()+'-fill',20) || icon(item):icon(item);
+          if(name==='Top' && selected && times.length){
+            page.row({label:name,subtitle:range,icon:glyph,chevron:true,keepOpen:true,
+              onSelect:()=>page.push({title:'Time range',build:(_timeBody,timePage)=>options(timePage,times)})});
+          }else page.row({label:name,icon:glyph,selected,...linkOrClick(item)});
         }
-        const href=item.getAttribute('href'),on=picked(item) && !(old && picked(old));
-        ui.row({label:name,icon:icon(item),selected:on,...(href?{href}:{onSelect:act(item)})});
-      }
-      if(old)ui.row({label:'Old',subtitle:'From the archive',icon:icon(old),selected:picked(old),onSelect:act(old)});
-      // View: Reddit's Card / Compact links.
-      const view=this.menuGroups?.[1];
-      if(view?.items?.length){ui.divider();ui.chips('View',view.items.filter(visible).map(item=>({label:label(item),selected:picked(item),onSelect:()=>{const href=item.getAttribute('href');if(href)location.assign(new URL(href,location.href).href);else item.click();}})));}
-      ui.divider();ui.title('Filter');
+        if(old)page.row({label:'Old',subtitle:'From the archive',icon:icon(old),selected:oldSelected,onSelect:()=>old.click()});
+      });
+      if(view?.items?.length)group('View',view.row,label(view.items.find(picked)) || current(view.row) || 'Card',(_body,page)=>options(page,view.items));
+
       const activity=[...(this.activityMenu?.querySelectorAll('[data-rt-activity-filter]') || [])];
-      if(activity.length)ui.chips('Activity',activity.map(el=>({label:label(el),selected:picked(el),onSelect:act(el)})));
-      const m=this.rtMenu;
-      if(m?.date?.size)ui.chips('Date',[...m.date.values()].map(el=>({label:label(el),selected:picked(el),onSelect:act(el)})));
-      if(m?.typeList){const items=[];for(const el of m.typeList.elements){if(el.dataset.rtSection){items.push({heading:el.dataset.rtSection});continue;}items.push({label:label(el),selected:picked(el),onSelect:act(el),keepOpen:true});}ui.chips('Post type',items);}
-      if(m?.sub?.panel){
-        const value=m.groups?.sub?.el?.querySelector('[data-rt-menu-value]')?.textContent || 'All';
-        ui.row({label:'Community',subtitle:value,icon:icon(m.groups.sub.el),chevron:true,keepOpen:true,onSelect:()=>ui.push({title:'Community',build:(body,page)=>{
-          const panel=m.sub.panel,home=panel.el.parentElement,next=panel.el.nextSibling;panel.reset?.();this.loadSubredditCounts?.();
-          page.lend(panel.el,()=>{if(home?.isConnected)home.insertBefore(panel.el,next?.parentNode===home?next:null);});
-        }})});
-      }
+      const activityRow=this.activityMain.querySelector('[data-rt-activity-value]')?.closest('rpl-menu-item');
+      if(activity.length)group('Activity',activityRow,label(activity.find(picked)) || current(activityRow) || 'All activity',(_body,page)=>options(page,activity));
+      if(m?.date?.size)group('Date',m.groups.date.el,current(m.groups.date.el) || 'Any time',(_body,page)=>options(page,[...m.date.values()]));
+      if(m?.typeList)group('Post type',m.groups.type.el,current(m.groups.type.el) || 'All types',(_body,page)=>{
+        globalThis.RTFeedSheet.postTypeRows(page,{selected:this.rtFilters?.types || [],
+          onClear:()=>this.rtMenu?.all?.click(),onToggle:type=>this.rtMenu?.types.get(type)?.click()});
+      });
+      if(m?.sub?.panel)group('Community',m.groups.sub.el,current(m.groups.sub.el) || 'All',(_body,page)=>{
+        const panel=this.rtMenu?.sub?.panel;if(!panel)return;
+        const home=panel.el.parentElement,next=panel.el.nextSibling;
+        panel.reset?.();this.loadSubredditCounts?.();
+        page.lend(panel.el,()=>{if(home?.isConnected)home.insertBefore(panel.el,next?.parentNode===home?next:null);});
+      });
       const refresh=this.activityMenu?.querySelector('[data-rt-ui="activity-refresh"]');
-      if(refresh){ui.divider();ui.row({label:text(refresh),icon:icon(refresh),onSelect:act(refresh)});}
+      if(refresh){ui.divider();ui.row({label:label(refresh),icon:icon(refresh),onSelect:()=>refresh.click()});}
     }
     ensureActivityMenu(){
       if(this.context?.kind!=='profile' || !this.toolbar)return;
@@ -1543,7 +1551,7 @@
       // Reddit's dropdown popup sits at z-index 1, so card buttons (z-10) and our chips painted over the open menu. Lift it.
       const popper=dropdown.shadowRoot?.querySelector('rpl-popper')?.shadowRoot;if(popper && ![...this.nativeLoadingStyles].some(style=>style.parentNode===popper)){const style=make('style');style.dataset.rtUi='popup-style';style.textContent='.popup{z-index:1000!important}@media (max-width:767.98px){:host([data-rt-sheet]) .popup{position:fixed!important;left:0!important;right:0!important;top:auto!important;bottom:0!important;transform:none!important;width:auto!important;max-height:85vh;overflow-y:auto;z-index:1001!important}:host([data-rt-sheet]) .popup-safe-area{display:none!important}}';popper.append(style);this.nativeLoadingStyles.add(style);}
       // Phones: Feed options on the profile feed opens as Reddit's bottom sheet (search builds its own sheets).
-      if(popper)popper.host.toggleAttribute('data-rt-sheet',!this.isSearch());this.syncFeedSheet(dropdown);this.hookFlatSheet(dropdown);
+      if(popper)popper.host.toggleAttribute('data-rt-sheet',!this.isSearch());this.syncFeedSheet(dropdown);this.hookPhoneSheet(dropdown);
       const nativeOwner=!this.archiveOnly && ['overview','posts','comments'].includes(this.context.view)?globalThis.RTNativeRemoval?.identity(document):null;
       const removalOwner=nativeOwner?.username.toLowerCase()===this.context.username.toLowerCase()?nativeOwner.owner:'';
       this.syncRemovedTab(globalThis.RTNativeRemoval?.identity(document)?.owner,this.context);
