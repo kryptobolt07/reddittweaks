@@ -796,8 +796,28 @@ test('opening another user waits for Reddit to swap feeds, then parks the outgoi
  W.history.back();await new Promise(r=>setTimeout(r,0));W.history.replaceState({},'','/user/Example/submitted/');W.document.body.replaceChildren(profile);d.scan();
  assert.equal(d.feed,feed);assert.equal(d.host,host);assert.equal(d.nodes.get('abc12'),card);assert.equal(W.document.querySelectorAll('[data-rt-ui=posts]').length,1);
 });
-test('an empty native profile retains extension results during tab loading but other accounts are not held',async t=>{
- const {W,d}=setup(t);await d.ready;nativeProfileTabs(W);d.feed.querySelector('shreddit-post').remove();await d.loadReddit();await new Promise(r=>setImmediate(r));const feed=d.feed,card=d.nodes.get('abc12');W.history.pushState({},'','/user/Example/comments/');d.scan();assert.equal(d.feed,feed);assert.equal(d.context.view,'posts');assert.equal(card.parentElement,feed);W.history.pushState({},'','/user/Other/comments/');d.scan();assert.equal(d.context.username,'Other');assert.notEqual(d.nodes.get('abc12'),card);
+test('profiles populated by discovery stay visible while Reddit switches to a different profile',async t=>{
+ const {W,d,calls}=setup(t);await d.ready;const tabs=nativeProfileTabs(W);
+ d.feed.querySelector('shreddit-post').remove();await d.loadReddit();await new Promise(r=>setImmediate(r));
+ const feed=d.feed,card=d.nodes.get('abc12'),body=card.firstElementChild,requests=calls.length;
+ W.history.pushState({},'','/user/Other/comments/');tabs.remove();
+ const loader=W.document.createElement('shreddit-feed-page-loading');feed.append(loader);
+ d.scan();d.scan();
+ assert.equal(d.context.username,'Example');assert.equal(d.feed,feed);assert.equal(card.parentElement,feed);
+ assert.equal(card.firstElementChild,body);assert.equal(card.hidden,false);assert.equal(calls.length,requests);
+ loader.remove();
+ const empty=W.document.createElement('div');empty.id='empty-feed-content';feed.append(empty);
+ d.scan();assert.equal(d.context.username,'Other');assert.equal(d.feed,feed);
+ assert.equal(feed.contains(card),false,'an explicit empty destination releases the outgoing cards');
+});
+test('cancelling a cross-profile transition keeps the same discovery card and feed',async t=>{
+ const {W,d}=setup(t);await d.ready;nativeProfileTabs(W);
+ d.feed.querySelector('shreddit-post').remove();await d.loadReddit();await new Promise(r=>setImmediate(r));
+ const feed=d.feed,card=d.nodes.get('abc12'),generation=d.generation;
+ W.history.pushState({},'','/user/Other/');d.scan();assert.equal(d.profileTransition,true);
+ W.history.replaceState({},'','/user/Example/submitted/');d.scan();
+ assert.equal(d.profileTransition,false);assert.equal(d.feed,feed);assert.equal(d.nodes.get('abc12'),card);
+ assert.equal(d.generation,generation);
 });
 
 test('an outgoing transition does not delay opt-out and never leaks late Posts reads into Comments',async t=>{

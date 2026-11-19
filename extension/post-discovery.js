@@ -519,13 +519,18 @@
     }
     outgoingProfileVisible(context){
       if(this.context?.view==='search' || context?.view==='search' || this.archiveOnly || context?.kind!=='profile' || this.context?.kind!=='profile' || this.context.key===context.key)return false;
-      // Another user's profile: wait until Reddit has swapped the outgoing feed
-      // out, so the incoming view never mounts on (or parks) the wrong feed.
       const other=this.context.username.toLowerCase()!==context.username.toLowerCase();
       if(!other && this.context.view===context.view)return false;
-      // An outgoing feed with no native cards gives no signal that Reddit has
-      // replaced it; never hold another user's view on that.
-      if(other && !this.nativeEntries().length)return false;
+      if(other && !this.nativeEntries().length){
+        if(!this.host?.isConnected || !this.feed?.isConnected)return false;
+        const main=document.querySelector('main#main-content,main[role="main"],main');
+        if(main?.querySelector('shreddit-feed')!==this.feed)return false;
+        const empty=main.querySelector('#empty-feed-content');
+        if(empty && empty!==this.emptyFeed && !empty.hidden)return false;
+        // A discovery-only profile still has a visible outgoing feed. Hold
+        // its published cards until Reddit supplies the next profile's view.
+        return Boolean(this.feed.querySelector(':scope > [data-rt-ui="activity-item"][data-rt-native-state="ready"]:not([hidden])'));
+      }
       const tabs=this.feed?.closest('main')?.querySelector('#profile-feed-tabgroup');
       return Boolean(tabs && !tabs.closest('[data-rt-ui]') && this.presentedProfileVisible());
     }
