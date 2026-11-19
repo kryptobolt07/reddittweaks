@@ -248,6 +248,21 @@ test('Media types can be selected together without hiding the native pager or cl
 const nativeFeedOptions=()=>'<div class="flex items-center"><shreddit-sort-dropdown sort-event="feed-sort-change"><span slot="selected-item">Top</span><a href="/r/Example/best/">Best</a><a href="/r/Example/new/">New</a><a href="/r/Example/top/">Top</a><a href="/r/Other/new/">Other</a></shreddit-sort-dropdown><shreddit-sort-dropdown sort-event="feed-time-sort-change"><span slot="selected-item">This Week</span><a href="/r/Example/top/?t=day">Today</a><a href="/r/Example/top/?t=week">This Week</a></shreddit-sort-dropdown><shreddit-layout-switcher><a href="?feedViewType=cardView">Card</a></shreddit-layout-switcher></div>';
 const sortedFeed=()=>feed().replace('<div><shreddit-sort-dropdown></shreddit-sort-dropdown></div>',nativeFeedOptions());
 const sortedPath='/r/Example/top/?t=week&rt_type=video&f=flair_name%3A%22News%22&feedViewType=compactView';
+test('a filtered feed with no remaining native pager explains the end and keeps filters when changing sort',async t=>{
+ const {D,W,controller,targets}=setup(t,sortedPath,sortedFeed());
+ const footer=()=>D.querySelector('[data-rt-ui=community-filter-end]');
+ assert.equal(footer(),null);
+ D.querySelector('[slot=load-after]').outerHTML='<faceplate-batch>'+card('video')+'</faceplate-batch>';
+ await flush();
+ assert.match(footer()?.textContent,/end of this Reddit feed/);
+ assert.equal(footer()?.previousElementSibling,D.querySelector('shreddit-feed'));
+ [...footer().querySelectorAll('button')].find(button=>button.textContent==='New').click();
+ const target=new W.URL(targets.at(-1));
+ assert.equal(target.pathname,'/r/Example/new/');
+ assert.equal(target.searchParams.get('rt_type'),'video');
+ assert.equal(target.searchParams.get('f'),'flair_name:"News"');
+ controller.applyTypes([]);assert.equal(footer(),null);
+});
 const replaced='data-rt-community-sort-replaced';
 const heldSorts='data-rt-community-sort-boot';
 

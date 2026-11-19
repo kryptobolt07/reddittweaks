@@ -342,6 +342,8 @@
       this.panel?.close();
       this.toolbar?.remove();
       this.note?.remove();
+      this.endNote?.remove();
+      this.feedPagination = null;
       this.toolbar = this.note = this.feed = this.main = this.scope = null;
       this.clearHidden();
       this.setReplacedSorts([]);
@@ -643,8 +645,10 @@
       for (const node of next) if (!this.hidden.has(node)) node.setAttribute(hidden,'');
       this.hidden = next;
 
+      const feedPager = this.feed ? [...this.feed.querySelectorAll('faceplate-partial[slot="load-after"]')].at(-1) : null;
+      const reachedEnd = this.syncFeedEnd(feedPager,types.length,matching,next.size);
       const needsMore = (types.length || date) && next.size && !matching;
-      if (!needsMore) {
+      if (!needsMore || reachedEnd) {
         this.clearPager();
         this.note?.remove();
         return;
@@ -652,7 +656,7 @@
       // When all cards collapse, the next native loader can stay in view and
       // request many pages without a scroll. Pause after two empty continuations.
       const pager = this.feed
-        ? [...this.feed.querySelectorAll('faceplate-partial[slot="load-after"]')].at(-1)
+        ? feedPager
         : [...this.main.querySelectorAll('faceplate-partial[loading="lazy"][src*="/search/"]')].at(-1);
       const key = this.url.href;
       const previous = this.paging;
@@ -667,6 +671,37 @@
       if (!waiting) this.pausedAt = 0;
       pager?.toggleAttribute(paused,waiting);
       this.updateNote(date && !this.isMedia() ? 'No loaded results match this date range.' : 'No loaded posts match these types.',waiting);
+    }
+
+    syncFeedEnd(pager,filterCount,matching,hiddenCount) {
+      if (!this.feed) return false;
+      const source = this.url.pathname + '\n' + (this.feed.getAttribute('reload-url') || '');
+      if (this.feedPagination?.source !== source) this.feedPagination = {source,pager:null};
+      if (pager) this.feedPagination.pager = pager;
+      const ended = filterCount && (matching || hiddenCount) && !pager &&
+        this.feedPagination.pager && !this.feedPagination.pager.isConnected;
+      if (!ended) { this.endNote?.remove(); return false; }
+
+      const alternatives = (this.feedSorts?.sorting?.choices || []).filter(choice =>
+        !choice.selected && ['new','top'].includes(choice.key));
+      const message = matching ? 'You’ve reached the end of this Reddit feed.' : 'No posts in this Reddit feed match your filters.';
+      const state = JSON.stringify([message,...alternatives.map(choice => choice.url)]);
+      if (this.endNote?.isConnected && this.endNote.dataset.state === state) return true;
+      this.endNote?.remove();
+      const note = this.endNote = make('div','rt-community-note');
+      note.dataset.rtUi = 'community-filter-end';
+      note.dataset.state = state;
+      const label = make('span','',message);
+      label.setAttribute('role','status');
+      note.append(label);
+      for (const choice of alternatives) {
+        const link = make('button','rt-community-button',choice.label);
+        link.type = 'button';
+        link.addEventListener('click',() => this.chooseFeedSort(choice));
+        note.append(link);
+      }
+      this.feed.after(note);
+      return true;
     }
 
     updateNote(message, waiting) {
