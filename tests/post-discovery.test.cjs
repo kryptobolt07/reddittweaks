@@ -819,6 +819,107 @@ test('cancelling a cross-profile transition keeps the same discovery card and fe
  assert.equal(d.profileTransition,false);assert.equal(d.feed,feed);assert.equal(d.nodes.get('abc12'),card);
  assert.equal(d.generation,generation);
 });
+async function profileWithoutNativeCards(t,options){
+ const result=setup(t,options),{W,d}=result;await d.ready;nativeProfileTabs(W);
+ const main=W.document.querySelector('main'),feed=d.feed;feed.querySelector('shreddit-post').remove();
+ main.getBoundingClientRect=()=>({left:120,top:-42,width:620,height:2000});
+ Object.defineProperty(W,'scrollY',{value:420,writable:true});W.scrollTo=({top})=>{W.scrollY=top;};
+ await d.loadReddit();await new Promise(resolve=>setImmediate(resolve));
+ const card=d.nodes.get('abc12');
+ d.onUserScroll();d.lastScrollAt=-Infinity;
+ W.history.pushState({},'','/user/Other/');d.scan();
+ const next=W.document.createElement('main');next.id='main-content';
+ next.append(W.document.createElement('shreddit-feed'));main.replaceWith(next);d.scan();
+ return {...result,main,feed,card,next};
+}
+test('the destination stays behind the outgoing profile until its initial card batch is ready',async t=>{
+ let finishLast;
+ const {W,d,main,feed,card,next}=await profileWithoutNativeCards(t,{nativeRender:async(post,node)=>{
+  if(post.fullname==='t3_second')await new Promise(resolve=>{finishLast=resolve;});
+  const native=node.ownerDocument.createElement('shreddit-post');native.id=post.fullname;node.append(native);
+ }});
+ const stage=W.document.querySelector('[data-rt-profile-handoff]');
+ assert.equal(d.context.username,'Other');assert.equal(d.feed,next.querySelector('shreddit-feed'));
+ assert.ok(stage?.hasAttribute('inert'));assert.equal(stage.getAttribute('aria-hidden'),'true');
+ assert.equal(stage.firstElementChild,main);assert.equal(card.parentElement,feed);
+ assert.equal(stage.style.left,'120px');assert.equal(stage.style.getPropertyValue('--rt-profile-offset'),'-42px');
+ assert.equal(next.hasAttribute('data-rt-profile-incoming'),true);
+ assert.ok(parkedState(d,'profile:example:posts:new:all:'));
+ d.reddit=async()=>({posts:['first','second'].map(id=>raw(id,{author:'Other'})),hasMore:false});
+ await d.loadReddit();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(d.feed.querySelectorAll('[data-rt-ui="activity-item"]:not([hidden])').length,1);
+ assert.equal(stage.isConnected,true);assert.equal(next.hasAttribute('data-rt-profile-incoming'),true);
+ finishLast();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(stage.isConnected,false);assert.equal(next.hasAttribute('data-rt-profile-incoming'),false);
+ assert.equal(d.feed.querySelectorAll('[data-rt-ui="activity-item"]:not([hidden])').length,2);
+ assert.equal(main.contains(card),true);assert.equal(d.feed.contains(card),false);
+});
+test('Back during destination loading releases the layer before reusing the original profile',async t=>{
+ const {W,d,main,feed,card,next}=await profileWithoutNativeCards(t);
+ assert.ok(W.document.querySelector('[data-rt-profile-handoff]'));
+ W.history.replaceState({},'','/user/Example/submitted/');d.onRoute(new W.PopStateEvent('popstate'));
+ assert.ok(W.document.querySelector('[data-rt-profile-handoff]'),'the original cards stay visible until the browser swaps the view back');
+ next.replaceWith(main);d.scan();
+ assert.equal(W.document.querySelector('[data-rt-profile-handoff]'),null);
+ assert.equal(d.context.username,'Example');assert.equal(d.feed,feed);assert.equal(d.nodes.get('abc12'),card);
+ assert.equal(next.hasAttribute('data-rt-profile-incoming'),false);
+});
+test('a completed empty destination replaces the outgoing profile with its own empty state',async t=>{
+ const {W,d,next}=await profileWithoutNativeCards(t);
+ assert.ok(W.document.querySelector('[data-rt-profile-handoff]'));
+ d.reddit=async()=>({posts:[],hasMore:false});await d.loadReddit();
+ assert.equal(W.document.querySelector('[data-rt-profile-handoff]'),null);
+ assert.equal(next.hasAttribute('data-rt-profile-incoming'),false);
+ assert.equal(d.feed.querySelector('[data-rt-ui="activity-item"]'),null);
+});
+test('Back restores the same profile feed and scroll even if Reddit builds a fresh main',async t=>{
+ const {W,d,feed,card,next,calls}=await profileWithoutNativeCards(t);
+ d.reddit=async()=>({posts:[],hasMore:false});await d.loadReddit();
+ const requests=calls.length;W.scrollY=0;
+ W.history.replaceState({},'','/user/Example/submitted/');d.onRoute(new W.PopStateEvent('popstate'));
+ assert.equal(d.context.username,'Other','wait for Reddit to mount the returning profile');
+ const returned=W.document.createElement('main');returned.append(W.document.createElement('shreddit-feed'));
+ next.replaceWith(returned);d.scan();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(d.feed,feed);assert.equal(returned.querySelector('shreddit-feed'),feed);
+ assert.equal(d.nodes.get('abc12'),card);assert.equal(W.scrollY,420);
+ assert.equal(calls.length,requests);assert.equal(W.document.querySelector('[data-rt-profile-handoff]'),null);
+});
+test('initial profile pagination waits for the atomic swap, then resumes normally',async t=>{
+ let finishCard;const requests=[];
+ const {d}=await profileWithoutNativeCards(t,{nativeRender:async(post,node)=>{
+  if(post.fullname==='t3_delayed')await new Promise(resolve=>{finishCard=resolve;});
+  const native=node.ownerDocument.createElement('shreddit-post');native.id=post.fullname;node.append(native);
+ }});
+ d.reddit=async input=>{requests.push(input);return input.after?{posts:[],hasMore:false}:{posts:[raw('delayed',{author:'Other'})],hasMore:true,after:'next'};};
+ await d.loadReddit();await new Promise(resolve=>setImmediate(resolve));
+ d.batchObserver={disconnect(){}};d.batchInView=true;d.loading.getBoundingClientRect=()=>({top:100,bottom:200,height:100});
+ d.continueProfile();assert.ok(requests.every(input=>!input.after),'no continuation cursor is requested while staging');
+ finishCard();await new Promise(resolve=>setImmediate(resolve));
+ d.continueProfile();assert.ok(requests.some(input=>input.after==='next'));
+});
+test('the first full destination batch swaps in even when more candidates are buffered',async t=>{
+ const {d,next}=await profileWithoutNativeCards(t);
+ d.reddit=async input=>({posts:input.kind==='post'?Array.from({length:31},(_,i)=>raw('item'+i,{author:'Other',created_utc:1700000000-i})):[],hasMore:false});
+ await d.loadReddit();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(d.shownPublished(),25);
+ assert.equal(next.hasAttribute('data-rt-profile-incoming'),false);
+ assert.equal(d.pendingProfilePosts().length,6);
+});
+test('disabling discovery during a profile handoff reveals Reddit and discards the retained feed',async t=>{
+ const {W,d,next}=await profileWithoutNativeCards(t);
+ assert.ok(W.document.querySelector('[data-rt-profile-handoff]'));
+ d.applySettings({postDiscovery:false,archiveDiscovery:false});
+ assert.equal(next.hasAttribute('data-rt-profile-incoming'),false);
+ assert.equal(W.document.querySelector('[data-rt-profile-handoff]'),null);
+ assert.equal(d.parked.size,0);assert.equal(d.host,null);
+});
+test('a new visit to the same profile starts from the new feed without restoring a previous scroll position',async t=>{
+ const {W,d,feed,next}=await profileWithoutNativeCards(t);
+ d.reddit=async()=>({posts:[],hasMore:false});await d.loadReddit();W.scrollY=0;
+ W.history.pushState({},'','/user/Example/submitted/');
+ const main=W.document.createElement('main'),fresh=W.document.createElement('shreddit-feed');main.append(fresh);next.replaceWith(main);d.scan();
+ assert.equal(d.feed,fresh);assert.notEqual(d.feed,feed);assert.equal(W.scrollY,0);
+});
 
 test('an outgoing transition does not delay opt-out and never leaks late Posts reads into Comments',async t=>{
  let finish;const {W,d}=setup(t,{reddit:()=>new Promise(r=>finish=r)});await d.ready;nativeProfileTabs(W);const pending=d.loadReddit();const outgoing=d.feed;W.history.pushState({},'','/user/Example/comments/');d.scan();assert.equal(d.context.view,'posts');const incoming=W.document.createElement('shreddit-feed');outgoing.replaceWith(incoming);d.scan();finish({posts:[raw('late')],hasMore:false});await pending;assert.equal(d.context.view,'comments');assert.equal(d.nodes.size,0);assert.equal(incoming.querySelector('shreddit-post'),null);

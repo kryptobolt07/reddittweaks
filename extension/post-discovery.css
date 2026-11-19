@@ -24,6 +24,28 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-posts-notice{font-size:12px;line-height:1.5;margin:0 auto 0 0;cursor:default}.rt-posts-notice[hidden]{display:none}
 .rt-posts-status[data-error=true]+.rt-posts-notice{margin-inline-start:12px}.rt-posts-status:empty{display:none}
 .rt-post-loading{display:block;padding:0;overflow-anchor:none}.rt-post-loading[hidden]{display:none!important}
+[data-rt-profile-handoff] {
+  position: fixed;
+  bottom: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--color-neutral-background, Canvas);
+}
+[data-rt-profile-handoff] > main {
+  position: relative;
+  top: var(--rt-profile-offset);
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+}
+[data-rt-profile-handoff] :is(.rt-post-loading,shreddit-feed-page-loading,faceplate-partial[slot="load-after"]) {
+  display: none !important;
+}
+[data-rt-profile-incoming] {
+  opacity: 0;
+  pointer-events: none;
+}
 .rt-native-card{min-width:0;overflow-anchor:auto}.rt-native-placeholder{display:flex;gap:12px;align-items:flex-start;min-height:112px;padding:16px}
 .rt-native-card{position:relative}.rt-native-enter{animation:rt-native-appear .26s cubic-bezier(.2,0,0,1) both}
 .rt-native-card:focus-within{animation:none}
