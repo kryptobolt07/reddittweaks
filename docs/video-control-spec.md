@@ -69,6 +69,9 @@ User decisions: options say only what the extension does, with no reference to R
 User report (phones): several videos played at once. Whatever starts (a Reddit video by any means, a preview, a continuation, or a YouTube player by its own controls) pauses every other playing video and stops any other preview; a video held for its post keeps playing. YouTube players report starting through the page bridge (`onStateChange` → `rt-embed-playing`) and are paused by it (`rt-media-exclusive`).
 
 ### Embedded YouTube videos
+
+- A tap on a muted preview requests sound during the gesture if the current iframe can be moved. The placed player keeps that sound state. With a fresh player, the saved sound choice is applied as it starts. A tap before the player API reports its position still opens the post and starts there from the beginning if no position is known.
+- A Play here or sound-control tap that arrives while YouTube is still connecting to its player is applied as soon as that same player is ready. An already-connected player receives the command during the tap. A provider that cannot change volume without reloading keeps its current position when handed off.
 Measured 2026-11-19 (r/india, desktop): Reddit renders a YouTube link post as `shreddit-embed[providername="YouTube"]` holding `lite-youtube` with the YouTube player API enabled (`js-api`). Clicking it activates YouTube's player with sound. Reddit pauses embeds that scroll away (its own playback observer, also for Vimeo and TikTok). On the post page Reddit keeps the outgoing feed, with the same post's card and embed, in the page.
 
 - **Previews** follow the video rules: desktop hover (160 ms, same card grace), phone in-view after scrolling stops. The player is activated muted (`mute=1`) through Reddit's own lite-youtube, so YouTube's pre-roll ad may play first.

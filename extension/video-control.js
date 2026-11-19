@@ -570,15 +570,16 @@
    }
    embed.dispatchEvent(new this.win.Event('rt-embed-snapshot',{bubbles:true}));
    const time=Number(embed.dataset.rtEmbedTime);
-   if(!preview && embed.dataset.rtEmbedState!=='playing' || !(time>=0))return false;
+   if(!preview && (embed.dataset.rtEmbedState!=='playing' || !Number.isFinite(time) || time<0))return false;
    const muted=preview?!this.unmutePreview:embed.dataset.rtEmbedMuted==='true';
    const restart=Boolean(preview && this.restartPreview);
    this.clearEmbedHandoff();
-   try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify({id,owner:owner(this.doc),at:Date.now(),time:restart?0:time,muted}));}catch{}
+   try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify({id,owner:owner(this.doc),at:Date.now(),time:restart || !Number.isFinite(time) || time<0?0:time,muted}));}catch{}
    if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;}
    // The same YouTube player moves into the post (page bridge); without it, the post's embed starts at this second.
    const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
    this.embedPending={id,from:this.win.location.pathname,held,restart,muted};
+   if(held && preview && !muted)embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
    // A held player is placed on the first frame the post's embed is ready, not on the next 200 ms scan.
    if(held){
     const pending=this.embedPending,watch=()=>{if(this.embedPending!==pending || this.dead)return;this.embedHandoff();this.win.requestAnimationFrame(watch);};
@@ -618,7 +619,6 @@
     embed.style.visibility=embed.dataset.rtIncoming;delete embed.dataset.rtIncoming;
     this.embedPending=null;this.clearEmbedHandoff();
     if(pending.restart){embed.dataset.rtStart='0';embed.dataset.rtMuted=String(saved.muted===true);embed.dispatchEvent(new this.win.Event('rt-embed-continue',{bubbles:true,cancelable:true}));}
-    else if(!saved.muted)embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
     return;
    }
    embed.dataset.rtStart=String(saved.time);embed.dataset.rtMuted=String(saved.muted===true);
