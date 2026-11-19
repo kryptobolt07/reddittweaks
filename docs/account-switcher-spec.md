@@ -52,3 +52,13 @@ User request: switch between Reddit accounts easily, built into Reddit's own int
 ## Limits
 
 Sessions are stored unencrypted in extension storage on this device (any extension-level compromise could read them); removing an account deletes its snapshot. Reddit can revoke a session at any time (password change, Log Out elsewhere), which shows as "Sign in again". Switching reloads open Reddit tabs, so unsent drafts in them can be lost.
+
+## Reporting the signed-in account (2026-11-19)
+
+User report (phones and private windows): switching or restoring an account always failed with "Reddit hasn’t reported the account you’re signed in to yet."
+
+- Cause found in code: the page reported its account once, at startup. When Reddit's `shreddit-app` (or its `user-logged-in` / `logged-in-user-id` attributes) arrived after the script, nothing was reported, yet the switcher marked itself as done, so a signed-in session was never saved and every popup switch refused.
+- The page now reports on each scan until it has reported, and again whenever Reddit's signed-in account or state changes.
+- When the popup finds a signed-in session the worker has not saved, the worker asks that cookie store's Reddit tabs to report (`report` message) and answers `unsaved`; the popup says it is checking and retries up to three times (0.7 s, 1.4 s, 2.1 s) before showing the message.
+- On phones the popup opens as a tab: it now acts on the cookie store of the tab it was opened from (`openerTabId`), so a popup opened from a private tab manages that private window.
+- Limits: a browser that gives the popup tab no opener falls back to the popup tab's own store. Not verified on a physical phone.
