@@ -86,17 +86,52 @@ loadHistoryLimit();
 // Video choices (docs/video-control-spec.md). Same values and 0.46–0.47 migration as RTPostModel.normalizeSettings.
 const MOUSE_START=['autoplay','hover','play'],TOUCH_START=['autoplay','stop','play'];
 const VIDEO_CHOICES={videoStart:MOUSE_START,videoStartTouch:TOUCH_START,gifStart:MOUSE_START,gifStartTouch:TOUCH_START,embedStart:MOUSE_START,embedStartTouch:TOUCH_START,
-  videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['continue','reddit'],videoScrollAway:['reddit','pause']};
+  videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['continue','reddit'],videoScrollAway:['reddit','pause'],embedBlockLinks:['off','feed','posts','both']};
 function choiceValue(raw,key){
   if(['videoStart','videoStartTouch'].includes(key) && raw?.[key]==='reddit')return 'autoplay';
   if(VIDEO_CHOICES[key]?.includes(raw?.[key]))return raw[key];
   if(key==='gifStart' || key==='gifStartTouch')return 'autoplay';
   if(key==='embedStart' || key==='embedStartTouch')return choiceValue(raw,key.replace('embed','video'));
+  if(key==='embedBlockLinks')return 'off';
   // Defaults are Reddit's behaviour; only the old opt-ins (phone previews, click plays here, restart) carry over.
   const old={videoStart:'autoplay',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'autoplay',videoPreviewClick:raw?.videoPreviewClickPlays===true?'here':'open',
     videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:'continue',videoScrollAway:'reddit'};
   return old[key];
 }
+async function loadDirectEmbedControls(){
+  const api=globalThis.browser || globalThis.chrome,hosts=globalThis.RTEmbedHosts;
+  const button=document.getElementById('direct-embed-controls'),status=document.getElementById('direct-embed-status');
+  if(!button || !hosts || !api?.permissions?.request || !api.scripting?.registerContentScripts)return;
+  const id='rt-embed-player',sites={origins:hosts.origins};
+  button.closest('.setting-row').hidden=false;
+  button.disabled=true;
+  let enabled=false;
+  const paint=()=>{button.textContent=enabled?'Disable':'Enable';button.disabled=false;};
+  try{
+    enabled=await api.permissions.contains(sites) && Boolean((await api.scripting.getRegisteredContentScripts({ids:[id]})).length);
+  }catch{}
+  paint();
+  button.addEventListener('click',async()=>{
+    button.disabled=true;
+    try{
+      if(enabled){
+        await api.scripting.unregisterContentScripts({ids:[id]});
+        enabled=false;
+        await api.permissions.remove(sites);
+        status.textContent='Disabled. Refresh any open Reddit tabs.';
+      }else if(await api.permissions.request(sites)){
+        const options={id,matches:hosts.matches,js:['embed-player-hosts.js','embed-player.js'],allFrames:true,runAt:'document_start',persistAcrossSessions:true};
+        const registered=await api.scripting.getRegisteredContentScripts({ids:[id]});
+        if(registered.length)await api.scripting.updateContentScripts([options]);
+        else await api.scripting.registerContentScripts([options]);
+        enabled=true;
+        status.textContent='Enabled. Refresh any open Reddit tabs.';
+      }else status.textContent='Allow access to supported players to enable direct controls.';
+    }catch{status.textContent='Could not update direct embed controls. Please retry.';}
+    paint();
+  });
+}
+loadDirectEmbedControls();
 function loadChoices(){
   const triggers=[...document.querySelectorAll('.setting-choice[data-choice]')];
   if(!triggers.length || !storedSettings)return;

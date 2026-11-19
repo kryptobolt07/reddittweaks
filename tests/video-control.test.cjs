@@ -19,7 +19,7 @@ function page(t,{owner='t2_alice',detail=false}={}){
  };
  const player=W.document.getElementById('p1'),root=player.attachShadow({mode:'open'});root.innerHTML='<button id="play" class="play-pause-button">Play</button><button id="mute" class="mute-button">Mute</button><button id="cc">Captions</button><video></video>';
  W.__rtVideoControlTest=true;
- for(const file of ['post-model.js','video-control.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
+ for(const file of ['post-model.js','embed-player-hosts.js','video-control.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
  // Defaults are Reddit's behaviour; behaviour tests opt into the features they exercise unless they say otherwise.
  const Raw=W.RTVideoControl;W.RTVideoControlRaw=Raw;
  W.RTVideoControl={...Raw,Videos:class extends Raw.Videos{constructor(options={}){const read=options.readSettings;super({...options,readSettings:async()=>({videoStart:'hover',videoOpenPost:'continue',videoScrollAway:'pause',...(read?await read():{})})});}}};
@@ -683,9 +683,60 @@ function frameEmbed(p,src='https://streamable.com/e/abc'){
  const node=p.d.createElement('shreddit-embed');node.setAttribute('providername','Streamable');
  const frame=node.attachShadow({mode:'open'}).appendChild(p.d.createElement('iframe'));frame.setAttribute('src',src);
  p.player.closest('shreddit-post').append(node);
+ const frameWindow=p.d.body.appendChild(p.d.createElement('iframe')).contentWindow;
+ Object.defineProperty(frame,'contentWindow',{value:frameWindow});
  const over=(type='pointerover',target=frame,related=null)=>{const event=new p.W.MouseEvent(type,{bubbles:true,composed:true,relatedTarget:related});Object.defineProperty(event,'pointerType',{value:'mouse'});target.dispatchEvent(event);};
  return {node,frame,over,layer:()=>node.shadowRoot.querySelector('[data-rt-embed-layer]')};
 }
+test('a preview surface opens a same-origin post even if the card has only an external content link',async t=>{
+ const p=page(t),e=frameEmbed(p),card=e.node.closest('shreddit-post');
+ card.setAttribute('permalink',postPath);p.title.href='https://streamable.com/comments/test/external';
+ await hoverController(p);e.over();await waitForHover();
+ let opened;p.d.addEventListener('click',event=>{if(event.target.matches('a')){opened=event.target.href;event.preventDefault();}});
+ e.layer().click();assert.equal(opened,'https://www.reddit.com'+postPath);
+});
+test('On Play on a phone shows the provider thumbnail and requires a tap to load an Embedly player',async t=>{
+ const p=page(t);phone(p,true,-900);
+ const thumbnail='https://cdn.example.test/poster.jpg';
+ const address=embedly+'&autoplay=1&image='+encodeURIComponent(thumbnail);
+ const e=frameEmbed(p,address);e.node.getBoundingClientRect=()=>({top:205,height:280});
+ const c=await hoverController(p,{videoStartTouch:'autoplay',embedStartTouch:'play'});
+ c.pickInView();
+ const cover=e.node.shadowRoot.querySelector('[data-rt-parked-cover]');
+ assert.equal(e.frame.src,'about:blank');assert.equal(e.layer(),null);
+ assert.match(cover.style.backgroundImage,/cdn\.example\.test\/poster\.jpg/);
+ cover.click();assert.equal(new URL(e.frame.src).origin,'https://cdn.embedly.com');
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null);
+});
+test('a parked hover preview warms the thumbnail from its Embedly URL without starting the player',async t=>{
+ const p=page(t),image='https://cdn.example.test/ready.jpg';
+ const e=frameEmbed(p,embedly+'&image='+encodeURIComponent(image)),c=await hoverController(p);
+ const warmed=[];c.warmPoster=url=>warmed.push(url);
+ p.io.posters.cb([{target:e.node,isIntersecting:true}]);
+ assert.ok(warmed.includes(image));assert.equal(e.layer(),null);
+});
+test('direct provider sound stays on the same frame for a feed tap and a post handoff',async t=>{
+ for(const open of [false,true]){
+  const p=page(t),e=frameEmbed(p,'https://www.redgifs.com/ifr/example'),c=await hoverController(p,{embedBlockLinks:'feed'});
+  e.node.addEventListener('rt-hold-feed-embed',event=>event.preventDefault());
+  e.over();await waitForHover();
+  const messages=[],src=e.frame.src,frame=e.frame.contentWindow;
+  frame.postMessage=(data,origin)=>messages.push({data,origin});
+  p.W.dispatchEvent(new p.W.MessageEvent('message',{source:frame,origin:new URL(src).origin,data:{rtMedia:'hello'}}));
+  (open?e.layer():e.layer().querySelector('button')).click();
+  assert.equal(e.frame.src,src);
+  assert.ok(messages.some(({data,origin})=>data.rtMedia==='unmute' && origin==='https://www.redgifs.com'));
+  if(open){
+   p.W.history.pushState({},'',postPath);
+   const detail=p.d.createElement('shreddit-post');detail.id='t3_test';p.d.body.append(detail);
+   const target=detail.appendChild(p.d.createElement('shreddit-embed'));
+   e.node.parentElement.removeAttribute('id');
+   target.addEventListener('rt-place-held-embed',event=>event.preventDefault());
+   c.embedHandoff();
+   assert.equal(messages.filter(({data})=>data.rtMedia==='policy').at(-1).data.block,false);
+  }else assert.equal(p.W.location.pathname,'/r/videos/');
+ }
+});
 test('another provider’s embed previews muted through its own autoplay flags and goes back when the pointer leaves the card',async t=>{
  const p=page(t);const e=frameEmbed(p);await hoverController(p);
  e.over();await waitForHover();
@@ -781,7 +832,7 @@ test('players with no controls stay unloaded unless chosen: Autoplay loads only 
  scroll(p);await new Promise(r=>setTimeout(r,250));
  assert.match(a.frame.getAttribute('src'),/redgifs\.com\/ifr\/first/,'in view: loaded and playing');
  node2.shadowRoot.querySelector('[data-rt-parked-cover]').dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
- assert.equal(f2.getAttribute('src'),'https://www.redgifs.com/ifr/second','the play button loads it');
+ assert.equal(new URL(f2.src).pathname,'/ifr/second','the play button loads it');
  assert.equal(a.frame.getAttribute('src'),'about:blank','and the one that was playing is unloaded');
 });
 test('an Embedly player that never answers player.js is started through flags on the provider address inside it',async t=>{
@@ -814,6 +865,7 @@ test('a player with no controls that Reddit adds later is caught before it loads
  const frame=p.d.createElement('iframe');frame.setAttribute('src','https://www.redgifs.com/ifr/late');node.shadowRoot.append(frame);
  await Promise.resolve();await Promise.resolve();
  assert.equal(frame.getAttribute('src'),'about:blank','unloaded as Reddit adds it');assert.equal(frame.dataset.rtSrc,'https://www.redgifs.com/ifr/late');
+ p.io.posters.cb([{target:node,isIntersecting:true}]);
  await new Promise(r=>setTimeout(r,100));
  assert.deepEqual(asked,['t3_test'],'one batched lookup');
  assert.match(node.shadowRoot.querySelector('[data-rt-parked-cover]').style.backgroundImage,/preview\.redd\.it\/poster\.jpg/);
@@ -912,4 +964,39 @@ test('when a player cannot pause, leaving the viewport after the sound overlay s
  c.over();await waitForHover();c.layer().querySelector('button').click();
  p.io.cb([{target:c.node,intersectionRatio:0}]);
  assert.equal(c.frame.getAttribute('src'),'about:blank');assert.ok(c.node.shadowRoot.querySelector('[data-rt-parked-cover]'));
+});
+
+test('with direct controls on, a player that starts by itself stays loaded and is told to wait on its first frame unless chosen',async t=>{
+ const p=page(t);const e=frameEmbed(p,'https://www.redgifs.com/ifr/example');
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ const c=new p.W.RTVideoControl.Videos({readSettings:async()=>({embedStart:'play'}),readPreference:async()=>true,readDirect:async()=>true,observe:false});
+ await c.ready;await flush();c.scan();
+ assert.equal(e.frame.getAttribute('src'),'https://www.redgifs.com/ifr/example','not unloaded');
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'no image over its own first frame');
+ const told=[];e.frame.contentWindow.postMessage=data=>told.push(data.rtMedia);
+ p.W.dispatchEvent(new p.W.MessageEvent('message',{data:{rtMedia:'hello'},origin:'https://www.redgifs.com',source:e.frame.contentWindow}));
+ assert.ok(told.includes('pause'),'an idle feed card waits');assert.equal(told.includes('play'),false);
+ told.length=0;e.node.dataset.rtEmbedUsed='1';
+ p.W.dispatchEvent(new p.W.MessageEvent('message',{data:{rtMedia:'hello'},origin:'https://www.redgifs.com',source:e.frame.contentWindow}));
+ assert.ok(told.includes('play'),'one you chose plays');
+});
+test('without a usable still a parked player shows a plain placeholder with the provider’s name',async t=>{
+ const p=page(t);const e=frameEmbed(p,'https://www.redgifs.com/ifr/example');e.node.setAttribute('providername','RedGIFs');
+ const c=await hoverController(p,{embedStart:'play'});c.readPosters=async()=>({});c.scan();
+ await new Promise(resolve=>setTimeout(resolve,100));
+ const cover=e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),label=cover.querySelector('[data-rt-parked-label]');
+ assert.equal(cover.hasAttribute('data-rt-placeholder'),true);assert.equal(label.textContent,'RedGIFs');assert.equal(label.hidden,false);
+ assert.equal(cover.style.backgroundSize,'contain','a still is fitted like the player, not cropped');
+});
+test('On Play: a still that turns out tiny gives way to the player loaded idle, without autoplay',async t=>{
+ const p=page(t);phone(p,true,-900);
+ const tiny='https://cdn.example.test/tiny.jpg',address=embedly+'&autoplay=1&image='+encodeURIComponent(tiny);
+ p.W.Image=class{constructor(){this.listeners={};}addEventListener(type,fn){this.listeners[type]=fn;}decode(){return Promise.resolve();}};
+ const e=frameEmbed(p,address);e.node.getBoundingClientRect=()=>({top:205,height:280});
+ const c=await hoverController(p,{embedStartTouch:'play'});c.scan();
+ assert.equal(e.frame.getAttribute('src'),'about:blank','parked behind Reddit’s still');
+ const image=c.warmedPosters.get(tiny);Object.assign(image,{complete:true,naturalWidth:40,naturalHeight:30});image.listeners.load();
+ const loaded=new URL(e.frame.getAttribute('src'));
+ assert.equal(loaded.origin,'https://cdn.embedly.com');assert.equal(loaded.searchParams.has('autoplay'),false,'idle, not started');
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'its own first frame or poster shows');
 });

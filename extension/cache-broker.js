@@ -208,3 +208,21 @@ importScripts('viewed-store.js','viewed-broker.js');
 importScripts('raffler-broker.js');
 // Saved Reddit accounts and session swaps (docs/account-switcher-spec.md); needs post-model from post-broker.
 importScripts('account-broker.js');
+importScripts('embed-player-hosts.js');
+importScripts('embed-poster-broker.js');
+
+// The Reddit page asks once whether direct controls are on, so self-starting players can be held on their first
+// frame instead of being unloaded.
+chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+  if(message?.scope!=='rt-embed-direct')return;
+  let origin='';try{origin=new URL(sender.url).origin;}catch{}
+  if(sender.id!==chrome.runtime.id || sender.frameId!==0 || !RTEmbedHosts.redditOrigins.includes(origin)){respond(false);return;}
+  Promise.all([chrome.permissions.contains({origins:RTEmbedHosts.origins}),chrome.scripting?.getRegisteredContentScripts?.({ids:['rt-embed-player']})])
+    .then(([granted,scripts])=>respond(Boolean(granted && scripts?.length)),()=>respond(false));
+  return true;
+});
+chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+  if(message?.scope!=='rt-embed-player')return;
+  let origin='';try{origin=new URL(sender.tab?.url).origin;}catch{}
+  respond(sender.id===chrome.runtime.id && sender.frameId>0 && Boolean(RTEmbedHosts.playerOrigin(sender.url)) && RTEmbedHosts.redditOrigins.includes(origin));
+});

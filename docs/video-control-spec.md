@@ -103,6 +103,20 @@ For Vimeo and Embedly players with audio commands, the preview sound button unmu
 | Return and preview or press Play | Resume a retained player at its saved position. Hover previews are muted. Pressing Play asks the existing player for sound. A player unloaded offscreen starts a new loop. |
 | Scroll toward an upcoming media card | Warm images about one viewport ahead. Use the native poster when available and batch the existing embed-poster lookup for cards that lack one. |
 
+### Direct embed interaction
+
+| Transition | Expected behavior |
+|---|---|
+| Tap a muted preview on its picture | Open the card's Reddit permalink by default. Keep the playing frame when possible and apply the open-with-sound preference. |
+| Tap the preview's sound button | Unmute and keep playing in the feed at the same position. |
+| Tap a provider's video surface after sound is on | With link blocking enabled for this surface, toggle playback and keep the Reddit page open. The player's own controls remain usable. |
+| Move an embed from the feed to a post | Apply the destination's link-blocking preference to the same player. |
+| Scroll a promoted preview off screen | Pause it and put the preview cover back. A controllable player keeps its position. |
+| Approach a feed embed, in any start mode | Warm the native poster or Embedly thumbnail ahead of the viewport. With optional access, fill missing artwork from supported providers' public player metadata. Never start playback to produce a thumbnail. |
+| Show an idle embed in On Play mode | Keep the image and Play button visible on phones and computers. A raw iframe stays parked until a tap. When a provider exposes no image, use its native poster if available. |
+
+The optional **Direct embed controls** permission lets the extension control the actual media element when a provider command is unavailable. It applies to the supported player URLs on Reddit, including Vimeo, RedGIFs, Streamable and Twitch, plus the Embedly wrapper. **Block embed links** defaults to Off and can apply to the feed, posts, or both. Standard outbound links on the Reddit page are outside this setting. A provider that exposes neither a command nor an accessible media element keeps its own sound control. A full document navigation cannot preserve the same iframe. Browsers may require a tap inside a cross-origin player to allow sound.
+
 ## Transitions
 
 ### Comment media
@@ -148,3 +162,19 @@ A clean Chromium profile running only this extension loaded a real Reddit feed, 
 On live Reddit in Brave, the outgoing feed and its main column were hidden through the move. The same video advanced from 0.77 s on the feed to 2.03 s at placement and 4.38 s after the post settled, with no pause event. Synthetic checks inject an outdated intersection report and then a fresh scroll-away report to exercise both paths.
 
 On live Reddit in Brave, hovering started a muted video. Clicking its surface turned on sound and advanced from 0.44 to 0.66 s without seeking. In a separate pass, moving to the title paused the preview at 0.88 s, then opening the post resumed it with sound. The same media element ran through the 180 ms placement animation and was still playing at 2.33 s. The incoming slot was initially zero-sized, so the held player waited for Reddit to lay it out before moving.
+
+## Idle embeds: still, own first frame, or placeholder (2026-11-20)
+
+User direction: a thumbnail is not required. When there is no good one, the player's own first frame, paused, is better. Options judged:
+- the provider's idle player (free, shows its own first frame or poster, but its interface shows);
+- holding the provider's video on frame 0 from inside its frame (real first frame, plays in place; needs Direct embed controls);
+- drawing the first frame from the provider's video file in our cover (double download, depends on the provider allowing their files to load elsewhere);
+- Reddit's muted preview copy (needs Reddit's post-data request, removed on purpose);
+- checking still quality;
+- a plain placeholder.
+
+Order per idle feed embed:
+1. A still from Reddit's markup (lite-youtube, lite-vimeo, Embedly `image`) or the provider page, used only once it loads at 160×90 or larger. It is fitted on black (`contain`), like the player, not cropped.
+2. A player with controls (Embedly, YouTube iframe, Vimeo) with no usable still stays or becomes loaded idle, without `autoplay`, so its own first frame or poster shows. On Play still parks it behind Reddit's still when there is one, so nothing loads until tapped; if that still fails the check, the player loads idle instead.
+3. A player that starts by itself (RedGIFs), with Direct embed controls on: the page asks the worker once (`rt-embed-direct`: permission granted and frame script registered). The frame stays loaded, and the frame script holds its video on frame 0 from document start. On its `hello`, the page answers `pause` for an idle feed card and `play` for one chosen (preview, Autoplay pick, tap) or outside the feed. Viewer input inside the player is never held. With no answer in 3 s, or outside Reddit, the video plays as it would have.
+4. Otherwise it is unloaded behind a plain placeholder: black with the play button and the provider's name.
