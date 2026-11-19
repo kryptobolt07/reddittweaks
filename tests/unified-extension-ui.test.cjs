@@ -260,6 +260,8 @@ test('people previews omit missing or older messages and update from existing sa
   const dom=new JSDOM(fs.readFileSync(path.join(__dirname,'../extension/popup.html'),'utf8'),{runScripts:'outside-only'}),w=dom.window;t.after(()=>dom.window.close());
   const calls=[];w.chrome={runtime:{sendMessage:async request=>{calls.push(request);return {ok:true,stats:{messages:42,rooms:3,approxBytes:2048}};}}};
   w.eval(fs.readFileSync(path.join(__dirname,'../extension/popup.js'),'utf8'));await settle();
+  assert.equal(calls.length,0);
+  w.document.getElementById('tab-data').click();await settle();
   assert.match(w.document.querySelector('.cache-info').textContent,/Saved messages only.*History may be incomplete.*every Reddit account on this device/s);
   assert.match(w.document.querySelector('#message-stats').textContent,/42 saved messages.*3 chats/);assert.equal(calls.length,1);assert.equal(calls[0].action,'stats');
 });
