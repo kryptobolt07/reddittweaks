@@ -228,6 +228,39 @@ test('phone community feed options keeps the type choices on the Post type page'
  assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-row [icon-name="show"]'),null,'All types carries no unrelated icon');
  assert.equal(D.querySelector('[data-rt-feed-options]'),null);
 });
+const flairDirectory='<aside><a href="/r/Example/?f=flair_name%3A%22News%22"><span class="bg-tone-4 text-global-white" style="background-color:#23507f"><span class="flair-content" aria-label="Flair: News"><img class="flair-image" alt="" src="https://emoji.redditmedia.com/sample/Example/sparkle">News</span></span></a><a href="/r/Other/?f=flair_name%3A%22Other%22"><span class="flair-content">Other</span></a></aside>';
+test('desktop Flair uses the native community pill and a distinct tag icon',t=>{
+ const markup=feed().replace('>News</span>','><span style="background-color:#d05020"><span class="flair-content">News</span></span></span>')+flairDirectory;
+ const {D,targets}=setup(t,'/r/Example/?rt_type=video',markup);
+ D.querySelector('[data-rt-community-options]').click();
+ const row=D.querySelector('[aria-label="Flair"]');
+ assert.ok(row.querySelector('[icon-name="tag"]'));row.click();
+ const option=D.querySelector('[data-rt-flair-row="News"]'),badge=option.querySelector('.flair-content');
+ assert.equal(badge.parentElement.style.backgroundColor,'rgb(35, 80, 127)');
+ assert.ok(badge.parentElement.classList.contains('text-global-white'));
+ assert.equal(badge.querySelector('img').src,'https://emoji.redditmedia.com/sample/Example/sparkle');
+ assert.equal(option.textContent.trim(),'News');assert.equal(option.querySelector('a'),null);
+ assert.equal(D.querySelector('[data-rt-flair-row="Other"]'),null);
+ option.click();const url=new URL(targets.at(-1));assert.equal(url.searchParams.get('f'),'flair_name:"News"');assert.equal(url.searchParams.get('rt_type'),'video');
+});
+test('the phone Flair page and search reuse observed community styling across navigation',t=>{
+ const {D,W,controller}=setup(t,'/r/Example/',feed()+flairDirectory);
+ W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ D.querySelector('[data-rt-community-options]').click();
+ const row=[...D.querySelectorAll('.rt-fsheet-row')].find(element=>element.querySelector('.rt-fsheet-label')?.textContent==='Flair');
+ assert.ok(row.querySelector('[icon-name="tag"]'));row.click();
+ assert.ok(D.querySelector('.rt-community-sheet [data-rt-flair-row="News"] .flair-content'));
+ controller.destroy();
+ D.querySelector('aside').remove();
+ D.querySelector('main').outerHTML=searchPage;
+ W.history.pushState({},'','/r/Example/search/?q=subreddit%3AExample');
+ const search=new W.RTLiveSubredditFilters.Controller();
+ try {
+  D.querySelector('[data-rt-community-search="flair"]').click();
+  assert.equal(D.querySelector('[data-rt-flair-row="News"] .flair-content').parentElement.style.backgroundColor,'rgb(35, 80, 127)');
+  assert.equal(D.querySelector('[data-rt-flair-row="Q&A"] .flair-content'),null,'plain cached labels remain usable');
+ } finally {search.destroy();}
+});
 test('Media types can be selected together without hiding the native pager or clearing other filters',t=>{
  const tile=(id,html)=>'<search-telemetry-tracker view-events="search/view/post" id="'+id+'"><div data-id="search-media-post-unit">'+html+'</div></search-telemetry-tracker>';
  const markup=searchPage.replace('</main>','<search-media-feed>'+tile('photo','<img data-post-media-primary src="https://i.redd.it/photo.png">')+tile('video','<button data-testid="videoIcon"></button>')+tile('gif','<img data-post-media-primary src="https://i.redd.it/clip.gif">')+tile('gallery','<a href="/gallery/abc"></a>')+'</search-media-feed><faceplate-partial loading="lazy" src="/svc/shreddit/r/Example/search/?after=a"></faceplate-partial></main>');
