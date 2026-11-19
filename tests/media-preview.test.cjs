@@ -23,7 +23,7 @@ test('message image sender labels stack above previews while People summaries re
   const message=view.render(record,{prefix:'You: '});w.document.body.append(message);
   assert.equal(message.firstElementChild.textContent,'You: ');assert.ok(message.lastElementChild.matches('.media-thumb'));
   assert.equal(w.getComputedStyle(message).flexDirection,'column');assert.equal(w.getComputedStyle(message).alignItems,'flex-start');
-  assert.equal(message.querySelector('img').width,96);assert.equal(message.querySelector('img').height,64);assert.equal(message.querySelector('img').getAttribute('loading'),'lazy');
+  assert.equal(message.querySelector('img').width,96);assert.equal(message.querySelector('img').height,64);assert.equal(message.querySelector('img').getAttribute('loading'),'eager','rows exist only while shown; lazy loading did not start on phones');
   const compact=view.render(record,{prefix:'You: ',compact:true});w.document.body.append(compact);assert.equal(w.getComputedStyle(compact).flexDirection,'row');assert.equal(w.getComputedStyle(compact).height,'20px');
   const image=message.querySelector('img');assert.equal(view.render(record,{prefix:'Another sender: '}).querySelector('img'),image,'prefix updates reuse the source node');
 });
@@ -60,7 +60,7 @@ test('missing hints learn once and shimmer loading, errors and reduced motion re
   const root=view.render(record,{owner:'@me:reddit.com'});w.document.body.append(root);assert.ok(root.querySelector('.fallback-shimmer'));assert.equal(root.querySelector('faceplate-shimmer'),null);
   const image=root.querySelector('img');Object.defineProperties(image,{naturalWidth:{value:400},naturalHeight:{value:800}});image.dispatchEvent(new w.Event('load'));view.render(record,{owner:'@me:reddit.com'});image.dispatchEvent(new w.Event('load'));
   assert.equal(saved.length,1);assert.equal(saved[0].width,400);assert.equal(saved[0].height,800);assert.equal(saved[0].owner,'@me:reddit.com');
-  const failure=view.render({...record,id:'failure'});failure.querySelector('img').dispatchEvent(new w.Event('error'));assert.equal(failure.querySelector('.media-thumb').dataset.state,'error');assert.equal(failure.querySelector('.media-shimmer').hidden,true);assert.equal(failure.querySelector('.media-error').hidden,false);assert.equal(failure.querySelector('.media-thumb').getAttribute('aria-busy'),'false');
+  const failure=view.render({...record,id:'failure'});for(let i=0;i<2;i++)failure.querySelector('img').dispatchEvent(new w.Event('error'));assert.equal(failure.querySelector('.media-thumb').dataset.state,'error');assert.equal(failure.querySelector('.media-shimmer').hidden,true);assert.equal(failure.querySelector('.media-error').hidden,false);assert.equal(failure.querySelector('.media-thumb').getAttribute('aria-busy'),'false');
 });
 
 test('image resize captures the old placeholder before changing geometry or revealing decoded content',t=>{
@@ -68,4 +68,15 @@ test('image resize captures the old placeholder before changing geometry or reve
   const view=new w.RCSMediaPreview.View({onBeforeResize:node=>{steps.push('before');assert.equal(node.dataset.state,'loading');assert.equal(node.style.aspectRatio,'96 / 64');assert.equal(node.querySelector('.media-image').height,64);},onResize:record=>{steps.push('after');assert.equal(thumb.dataset.state,'loaded');assert.equal(thumb.querySelector('.media-image').height,128);assert.equal(record.id,'resize-order');}});
   const root=view.render({roomId:'room',id:'resize-order',attachmentPreview:'https://example.invalid/resize-order'});w.document.body.append(root);thumb=root.querySelector('.media-thumb');const img=root.querySelector('img');
   Object.defineProperties(img,{naturalWidth:{value:400},naturalHeight:{value:800}});img.dispatchEvent(new w.Event('load'));assert.deepEqual(steps,['before','after']);
+});
+
+test('a thumbnail that fails once is tried again before it shows as unavailable',async()=>{
+  const {JSDOM}=require('jsdom');const W=new JSDOM('<body></body>',{runScripts:'outside-only'}).window;
+  W.RCSMessageStore={previewURL:value=>value};W.eval(fs.readFileSync(path.join(__dirname,'../extension/media-preview.js'),'utf8'));
+  const view=new W.RCSMediaPreview.View({onDimensions:()=>{}});
+  const node=view.render({roomId:'!r',id:'$e',attachmentType:'image',attachmentPreview:'https://example.com/a.png',attachmentWidth:10,attachmentHeight:10});
+  const img=node.querySelector('img'),thumb=node.querySelector('.media-thumb');
+  img.dispatchEvent(new W.Event('error'));assert.equal(thumb.dataset.state,'loading','first failure: retry');
+  img.dispatchEvent(new W.Event('error'));assert.equal(thumb.dataset.state,'error');
+  W.close();
 });

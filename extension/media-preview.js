@@ -45,9 +45,16 @@
         const native=Boolean(globalThis.customElements?.get('faceplate-shimmer')) && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
         const shimmer=make(native?'faceplate-shimmer':'span','media-shimmer '+(native?'native-shimmer':'fallback-shimmer'));if(native)shimmer.setAttribute('shape','pill');
         const error=make('span','media-error','▧');error.hidden=Boolean(source);shimmer.hidden=!source;fallback.append(shimmer,error);thumb.append(fallback);
-        if(source){const img=make('img','media-image');img.alt=caption+' preview';img.setAttribute('loading','lazy');img.setAttribute('decoding','async');img.setAttribute('referrerpolicy','no-referrer');
+        if(source){const img=make('img','media-image');img.alt=caption+' preview';
+          // Loaded at once: rows exist only while shown (the lists render a bounded window), and native lazy loading inside
+          // this shadow-root scroller did not start on phones (user report 2026-11-19), leaving the shimmer forever.
+          img.setAttribute('loading','eager');img.setAttribute('decoding','async');img.setAttribute('referrerpolicy','no-referrer');
           img.addEventListener('load',()=>{const context=this.contexts.get(thumb);if(!context)return;const active=this.images.get(key)===thumb || thumb.isConnected,changed=this.size(thumb,context.record,context.compact,active);thumb.dataset.state='loaded';thumb.setAttribute('aria-busy','false');fallback.hidden=true;if(changed && active)this.onResize?.(context.record);this.remember(thumb);});
-          img.addEventListener('error',()=>{thumb.dataset.state='error';thumb.setAttribute('aria-busy','false');img.hidden=true;shimmer.hidden=true;error.hidden=false;fallback.hidden=false;thumb.title='Preview unavailable; open the message to view it.';});
+          let retried=false;
+          img.addEventListener('error',()=>{
+            // Phone connections drop requests: try once more before showing the unavailable state.
+            if(!retried){retried=true;setTimeout(()=>{if(thumb.dataset.state!=='loaded')img.src=source;},1500);return;}
+            thumb.dataset.state='error';thumb.setAttribute('aria-busy','false');img.hidden=true;shimmer.hidden=true;error.hidden=false;fallback.hidden=false;thumb.title='Preview unavailable; open the message to view it.';});
           thumb.append(img);this.contexts.set(thumb,{record,compact,owner});this.size(thumb,record,compact);img.src=source;
         }else thumb.title='Preview unavailable; open the message to view it.';
         this.images.set(key,thumb);

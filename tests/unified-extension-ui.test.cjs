@@ -430,14 +430,14 @@ test('renamed and identically named conversations retain distinct room/event key
   const row=p.find('[data-key="message:alex:'+target.id+'"]');row.querySelector('button').click();await settle();assert.equal(p.requests.at(-1).roomId,'alex');assert.equal(p.requests.at(-1).eventId,target.id);
 });
 
-test('image matches and People summaries show stable lazy thumbnails instead of filenames, with safe fallback and compact text rows',async t=>{
+test('image matches and People summaries show stable thumbnails instead of filenames, with safe fallback and compact text rows',async t=>{
   const p=await setup(t,{scope:'messages'}),c=p.control;
   await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'photo-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:1791433000000,content:{body:'my-upload.jpeg',msgtype:'m.image',url:'https://example.invalid/thumb.jpg'}}]});await p.search('has:image');
-  const row=p.find('[data-key="message:alex:photo-preview"]'),img=row.querySelector('.media-image');assert.ok(img);assert.equal(img.getAttribute('loading'),'lazy');assert.equal(img.src,'https://example.invalid/thumb.jpg');assert.doesNotMatch(row.textContent,/my-upload|jpeg/);assert.match(row.textContent,/You:/);assert.doesNotMatch(row.textContent,/Image|GIF/);assert.equal(img.width,96);assert.equal(img.height,64);assert.match(row.querySelector('button').getAttribute('aria-label'),/You sent: Image/);
+  const row=p.find('[data-key="message:alex:photo-preview"]'),img=row.querySelector('.media-image');assert.ok(img);assert.equal(img.getAttribute('loading'),'eager');assert.equal(img.src,'https://example.invalid/thumb.jpg');assert.doesNotMatch(row.textContent,/my-upload|jpeg/);assert.match(row.textContent,/You:/);assert.doesNotMatch(row.textContent,/Image|GIF/);assert.equal(img.width,96);assert.equal(img.height,64);assert.match(row.querySelector('button').getAttribute('aria-label'),/You sent: Image/);
   const media=row.querySelector('.media-snippet');assert.equal(media.firstElementChild.textContent.trim(),'You:');assert.ok(media.lastElementChild.matches('.media-thumb'));
   assert.ok(c.messageRowHeight(p.cache.get('alex'),{attachmentType:'image',authorSelf:true})>c.messageRowHeight(p.cache.get('alex'),{attachmentType:'image'}),'reserve the sender line above the image');
   for(let i=0;i<10;i++){c.sync();c.render();}assert.equal(p.find('.media-image'),img,'native updates reuse the image node/source');
-  img.dispatchEvent(new p.w.Event('error'));assert.equal(img.hidden,true);assert.equal(row.querySelector('.media-placeholder').hidden,false);c.render();assert.equal(p.find('.media-image'),img,'failed previews are not repeatedly requested');
+  img.dispatchEvent(new p.w.Event('error'));assert.equal(img.hidden,false,'one retry first');img.dispatchEvent(new p.w.Event('error'));assert.equal(img.hidden,true);assert.equal(row.querySelector('.media-placeholder').hidden,false);c.render();assert.equal(p.find('.media-image'),img,'failed previews are not repeatedly requested');
   await c.loadSummaries();await p.search('alex');await p.click('[data-scope="people"]');const compact=p.find('[data-key="chat:alex"] .row-image-preview');assert.ok(compact.querySelector('.media-image'));assert.doesNotMatch(compact.textContent,/jpeg/);
   assert.ok(c.messageRowHeight(p.cache.get('alex'),{text:'Hello'})<c.messageRowHeight(p.cache.get('alex'),{text:'A longer message that takes two lines in the search preview.'}));
   c.resetSaved();assert.equal(c.mediaView.images.size,0);
