@@ -84,11 +84,12 @@ async function loadHistoryLimit(){
 loadHistoryLimit();
 
 // Video choices (docs/video-control-spec.md). Same values and 0.46–0.47 migration as RTPostModel.normalizeSettings.
-const VIDEO_CHOICES={videoStart:['hover','reddit','play'],videoStartTouch:['reddit','stop','play'],videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['continue','reddit'],videoScrollAway:['pause','reddit']};
+const VIDEO_CHOICES={videoStart:['reddit','hover','play'],videoStartTouch:['reddit','stop','play'],videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['reddit','continue'],videoScrollAway:['reddit','pause']};
 function choiceValue(raw,key){
   if(VIDEO_CHOICES[key]?.includes(raw?.[key]))return raw[key];
-  const old={videoStart:raw?.videoPreviews===false?'reddit':'hover',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'reddit',videoPreviewClick:raw?.videoPreviewClickPlays===true?'here':'open',
-    videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:raw?.videoContinueOnOpen===false?'reddit':'continue',videoScrollAway:raw?.videoPauseOffscreen===false?'reddit':'pause'};
+  // Defaults are Reddit's behaviour; only the old opt-ins (phone previews, click plays here, restart) carry over.
+  const old={videoStart:'reddit',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'reddit',videoPreviewClick:raw?.videoPreviewClickPlays===true?'here':'open',
+    videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:'reddit',videoScrollAway:'reddit'};
   return old[key];
 }
 function loadChoices(){
@@ -121,6 +122,9 @@ function loadChoices(){
     });
     return view;
   }).filter(Boolean);
+  // Preview options matter only while a preview start is chosen (on hover, or the one you stop on).
+  const syncPreviewRows=()=>{const value=key=>views.find(view=>view.key===key)?.value;const on=value('videoStart')==='hover' || value('videoStartTouch')==='stop';for(const row of document.querySelectorAll('[data-preview-row]'))row.hidden=!on;};
+  for(const view of views){const paint=view.paint;view.paint=()=>{paint();syncPreviewRows();};}
   const show=(settings,enable)=>{for(const view of views){view.value=choiceValue(settings,view.key);view.paint();if(enable)view.trigger.disabled=false;}};
   // First paint from the popup's copy (see SETTINGS_MIRROR), then the real settings.
   show(initialSettings,Boolean(mirror));

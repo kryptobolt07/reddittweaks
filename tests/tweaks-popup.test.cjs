@@ -255,14 +255,16 @@ test('switches show the last known settings on the first paint, then follow stor
   const fresh=popup(t,{tabs:redditTab});assert.equal(fresh.w.document.getElementById('raffles').disabled,true,'without a copy, controls wait for storage');
 });
 
-test('video choices show their saved value at once, migrate the old switches and save one key',async t=>{
+test('video choices show their saved value at once, keep the old opt-ins, save one key and show preview options only when used',async t=>{
   const p=popup(t,{tabs:redditTab,settings:{'rt-settings-v1':{videoPreviews:false,videoPreviewsInView:true}}});await settle();
   const doc=p.w.document,start=doc.getElementById('video-start'),touch=doc.getElementById('video-start-touch');
-  assert.equal(start.textContent.trim(),'Like Reddit','the old “previews off” becomes Like Reddit');assert.equal(touch.textContent.trim(),'Stop scrolling');assert.equal(start.disabled,false);
+  assert.equal(start.textContent.trim(),'Autoplay','Reddit’s behaviour by default');assert.equal(touch.textContent.trim(),'When I stop','the old phone previews opt-in carries over');assert.equal(start.disabled,false);
+  assert.equal(doc.querySelector('[data-preview-row]').hidden,false,'preview options show while a preview start is chosen');
   start.click();const menu=doc.getElementById('video-start-menu');assert.equal(menu.hidden,false);
   menu.querySelector('[data-value="play"]').click();await settle();
   assert.equal(p.state['rt-settings-v1'].videoStart,'play');assert.equal(start.textContent.trim(),'On Play');assert.equal(menu.hidden,true);
   assert.equal(JSON.parse(p.w.localStorage.getItem('rt-settings-mirror-v1')).videoStart,'play');
   const again=popup(t,{tabs:redditTab,mirror:{videoStart:'play'},settings:{'rt-settings-v1':{videoStart:'play'}}});
   assert.equal(again.w.document.getElementById('video-start').textContent.trim(),'On Play','first paint from the copy');
+  assert.equal(again.w.document.querySelector('[data-preview-row]').hidden,true,'no preview start chosen: preview options hidden');
 });

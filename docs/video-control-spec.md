@@ -48,19 +48,19 @@ User report (phones): turning off autoplay in Reddit's settings has no effect, a
 - Post page: the post's own video plays on while any of it is visible, pauses once it is fully out of view, and resumes at the same time when half of it is back (reloading Reddit's source first if Reddit unloaded it). A video the user paused stays paused.
 
 ### Popup options (Videos card, 2026-11-19)
-User request: hover previews differ from Reddit, so each behaviour that differs from Reddit gets a field with Reddit's own way as a choice. "Like Reddit" means Reddit's own behaviour with its "Autoplay media" setting applied, also on its phone layout, which ignores it; this replaces the "Respect Reddit's autoplay setting" switch.
+User decision: options describe what they do (no "Like Reddit"), and every default is Reddit's own behaviour; the extension's ways are opt-ins. Reddit's code: feed videos pause when scrolled away; a post's own video keeps playing off screen; opening a post starts the post's own player.
 
 | Field | Choices (default first) | Setting key |
 |---|---|---|
-| Start feed videos (mouse) | On hover (muted preview; nothing else starts by itself) · Like Reddit · Only when I press Play | `videoStart` |
-| On phones | Like Reddit · When I stop scrolling (muted preview, one at a time) · Only when I press Play | `videoStartTouch` |
-| Clicking a preview | Opens the post · Plays it here with sound | `videoPreviewClick` |
-| An opened preview plays | From where the preview is · From the beginning | `videoPreviewFrom` |
-| Sound when a preview plays for real (switch) | On | `videoUnmutePreview` |
-| Opening a post that is playing | Keep playing · Like Reddit | `videoOpenPost` |
-| Scrolling a playing video away | Pause · Like Reddit | `videoScrollAway` |
+| Feed videos start (mouse) | **Autoplay** (your "Autoplay media" setting) · Preview on hover, muted · Only when I press Play | `videoStart` |
+| On phones | **Autoplay** (your "Autoplay media" setting, applied even though Reddit's phone layout ignores it) · Preview the one I stop on, muted · Only when I press Play | `videoStartTouch` |
+| Clicking a preview (shown only while a preview start is chosen) | **Opens the post** · Plays it here with sound | `videoPreviewClick` |
+| An opened preview (same) | **Continues from the preview** · Starts from the beginning | `videoPreviewFrom` |
+| Sound when a preview plays for real (same; switch) | **On** | `videoUnmutePreview` |
+| Opening a post that is playing | **The post's player starts again** · Keeps playing in the post | `videoOpenPost` |
+| A post's video when you scroll past it | **Keeps playing off screen** · Pauses, and resumes when back | `videoScrollAway` |
 
-Migration from 0.46–0.47 switches (`RTPostModel.normalizeSettings`, mirrored in the popup and video-control): previews off → Like Reddit; in-view previews on → When I stop scrolling; click plays here → Plays it here; restart → From the beginning; keep playing off → Like Reddit; pause away off → Like Reddit. The popup stores a choice only once it is picked, so an untouched old switch keeps deciding it. The popup draws every switch and choice from its own synchronous copy of the settings on the first paint (no off-then-on flip), then reconciles with extension storage.
+Migration (`RTPostModel.normalizeSettings`, mirrored in the popup and video-control): only the 0.46–0.47 opt-ins carry over (phone previews → Preview the one I stop on; click plays here → Plays it here; restart → From the beginning). Their on-by-default switches were written by the popup whether or not anyone chose them, so they do not keep previews, keep playing or pausing on. A choice is stored only once picked. The popup draws every switch and choice from its own synchronous copy of the settings on the first paint, then reconciles with extension storage. One video at a time and applying "Autoplay media" on the phone layout hold whatever the choices.
 
 ### One video at a time
 User report (phones): several videos played at once. Whatever starts (a Reddit video by any means, a preview, a continuation, or a YouTube player by its own controls) pauses every other playing video and stops any other preview; a video held for its post keeps playing. YouTube players report starting through the page bridge (`onStateChange` → `rt-embed-playing`) and are paused by it (`rt-media-exclusive`).
