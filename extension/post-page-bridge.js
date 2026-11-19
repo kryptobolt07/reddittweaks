@@ -196,18 +196,26 @@
   // sound and continuation use that player; nothing is fetched beyond what Reddit's own activation loads.
   const ytPlayers=new WeakMap(),youTubeEmbed='shreddit-embed[providername="YouTube"]';
   const liteOf=embed=>embed?.matches?.(youTubeEmbed) && typeof embed.liteYoutubeElement?.activate==='function' ? embed.liteYoutubeElement : null;
-  async function youTubePlayer(embed,params={}){
-    const lite=liteOf(embed);if(!lite)return null;
-    if(!lite.classList.contains('lyt-activated')){
-      const own=new URLSearchParams(lite.getAttribute('params') || '');
-      for(const [key,value] of Object.entries(params))own.set(key,value);
-      lite.setAttribute('params',own.toString());
-      embed.hasActivatedYouTubePlayer=true;
-      await lite.activate();
-    }
-    const player=await lite.getYTPlayer?.();
-    if(player)followYouTube(embed,player);
-    return player || null;
+  const pendingYouTube=new WeakMap();
+  function youTubePlayer(embed,params={}){
+    if(pendingYouTube.has(embed))return pendingYouTube.get(embed);
+    const request=(async()=>{
+      const lite=liteOf(embed);if(!lite)return null;
+      if(!lite.classList.contains('lyt-activated')){
+        const own=new URLSearchParams(lite.getAttribute('params') || '');
+        for(const [key,value] of Object.entries(params))own.set(key,value);
+        lite.setAttribute('params',own.toString());
+        embed.hasActivatedYouTubePlayer=true;
+        await lite.activate();
+      }
+      const player=await lite.getYTPlayer?.();
+      if(player)followYouTube(embed,player);
+      return player || null;
+    })();
+    pendingYouTube.set(embed,request);
+    const cleanup=()=>pendingYouTube.delete(embed);
+    request.then(cleanup,cleanup);
+    return request;
   }
   // Each followed YouTube player reports when it starts playing, so the content script keeps one video playing; and
   // pauses when something else starts.
@@ -239,12 +247,22 @@
   });
   // End of a preview: pause where it is and restore sound for the user's own play button.
   document.addEventListener('rt-embed-stop',event=>youTubeCall(event.target,player=>{player.pauseVideo();player.unMute();}));
-  document.addEventListener('rt-embed-sound',event=>youTubeCall(event.target,player=>{
+  const soundFades=new WeakMap();
+  function playYouTubeWithSound(player){
+    if(!player)return;
+    const previous=soundFades.get(player);
+    if(previous){player.unMute();player.playVideo();return;}
     const target=player.getVolume?.() || 50,begin=performance.now();
+    soundFades.set(player,true);
     player.setVolume(0);player.unMute();player.playVideo();
-    const step=()=>{const t=Math.min(1,(performance.now()-begin)/200);player.setVolume(Math.round(target*t));if(t<1)setTimeout(step,16);};
+    const step=()=>{const t=Math.min(1,(performance.now()-begin)/200);player.setVolume(Math.round(target*t));if(t<1)setTimeout(step,16);else soundFades.delete(player);};
     step();
-  }));
+  }
+  document.addEventListener('rt-embed-sound',event=>{
+    const embed=event.target,player=ytPlayers.get(embed);
+    if(player){try{playYouTubeWithSound(player);}catch{}return;}
+    pendingYouTube.get(embed)?.then(ready=>{if(embed.isConnected)playYouTubeWithSound(ready);}).catch(()=>{});
+  });
   // Shared-element move for a playing YouTube embed: its iframe (kept alive by moveBefore, no reload) stays at its
   // card above the visible feed, then takes the post's embed, so the post never shows its thumbnail or play button.
   // Other providers (Streamable, Twitch, Dailymotion, …): Reddit renders their oEmbed iframe directly in the embed.
@@ -348,7 +366,7 @@
       if(!player)return;
       player.seekTo(start,true);
       if(muted)player.mute();
-      else{embed.dispatchEvent(new Event('rt-embed-sound'));return;}
+      else{playYouTubeWithSound(player);return;}
       player.playVideo();
     },()=>{});
   });

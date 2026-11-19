@@ -11,6 +11,37 @@ function setup(t,{url='https://www.reddit.com/user/Example/',fetcher,intersectio
   function send(input){return new Promise(resolve=>{const id=crypto.randomUUID(),channel='test';const listener=e=>{const r=JSON.parse(e.detail);if(r.id!==id)return;W.document.removeEventListener('rt-post-response',listener);resolve(r);};W.document.addEventListener('rt-post-response',listener);W.document.dispatchEvent(new W.CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,...input})}));});}
   return {W,calls,send};
 }
+test('YouTube sound requested before API readiness is applied to the same player',async t=>{
+ const {W}=setup(t),embed=W.document.createElement('shreddit-embed');
+ embed.setAttribute('providername','YouTube');
+ const lite=W.document.createElement('lite-youtube');
+ embed.liteYoutubeElement=lite;W.document.body.append(embed);
+ let ready,activations=0,unmutes=0,plays=0;
+ const player={getVolume:()=>50,setVolume(){},unMute(){unmutes++;},playVideo(){plays++;}};
+ const pending=new Promise(resolve=>ready=resolve);
+ lite.activate=()=>{activations++;lite.classList.add('lyt-activated');};
+ lite.getYTPlayer=()=>pending;
+ embed.dataset.rtEmbedPreview='on';
+ embed.dispatchEvent(new W.Event('rt-embed-preview',{bubbles:true,cancelable:true}));
+ delete embed.dataset.rtEmbedPreview;
+ embed.dispatchEvent(new W.Event('rt-embed-sound',{bubbles:true}));
+ ready(player);await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual({activations,unmutes,plays},{activations:1,unmutes:1,plays:1});
+ embed.dispatchEvent(new W.Event('rt-embed-sound',{bubbles:true}));
+ assert.equal(unmutes,2,'ready players get the command in the gesture handler');
+});
+test('the detail YouTube player starts a saved continuation with sound',async t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'});
+ const card=W.document.createElement('shreddit-post');card.id='t3_abc12';W.document.body.append(card);
+ const embed=W.document.createElement('shreddit-embed');embed.setAttribute('providername','YouTube');card.append(embed);
+ const lite=W.document.createElement('lite-youtube');embed.liteYoutubeElement=lite;
+ const calls=[],player={seekTo(time){calls.push(time);},getVolume:()=>50,setVolume(){},unMute(){calls.push('sound');},playVideo(){calls.push('play');}};
+ lite.activate=()=>lite.classList.add('lyt-activated');lite.getYTPlayer=async()=>player;
+ embed.dataset.rtStart='12';embed.dataset.rtMuted='false';
+ assert.equal(embed.dispatchEvent(new W.Event('rt-embed-continue',{bubbles:true,cancelable:true})),false);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(calls,[12,'sound','play']);
+});
 test('video preload only asks the current post detail player to load metadata',t=>{
  const {W,calls}=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'});
  const players=[];

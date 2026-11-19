@@ -511,6 +511,13 @@ test('clicking a YouTube preview opens its post and continues there at the same 
  assert.equal(saved.id,'test');assert.equal(saved.time,12.5);assert.equal(saved.muted,false,'Sound when opening a preview');
  assert.deepEqual(e.calls,['rt-embed-preview','rt-embed-stop']);assert.equal(e.layer(),null);
 });
+test('tapping a YouTube preview before its first position report saves sound and a zero-position fallback',async t=>{
+ const p=page(t);const e=embed(p,{state:'',time:undefined});await hoverController(p);
+ e.node.addEventListener('rt-embed-snapshot',()=>{delete e.node.dataset.rtEmbedTime;});
+ e.over();await waitForHover();p.click(e.layer());
+ const saved=JSON.parse(p.W.sessionStorage.getItem(embedKey));
+ assert.equal(saved?.time,0);assert.equal(saved?.muted,false);
+});
 test('the sound button unmutes a YouTube preview in place, and Play here does the same for a click',async t=>{
  for(const settings of [{},{videoPreviewClickPlays:true}]){
   const p=page(t);const e=embed(p);await hoverController(p,settings);
@@ -560,7 +567,7 @@ test('a playing YouTube embed keeps its player: held at its card, then placed in
  e.node.addEventListener('rt-hold-feed-embed',event=>{e.calls.push('hold');event.preventDefault();});
  e.over();await waitForHover();
  p.click(p.title);
- assert.deepEqual(e.calls,['rt-embed-preview','hold'],'held, not stopped');
+ assert.deepEqual(e.calls,['rt-embed-preview','hold','rt-embed-sound'],'held and unmuted during the click');
  p.W.history.pushState({},'',postPath);
  const post=p.d.createElement('shreddit-post');post.id='t3_test';p.d.body.append(post);
  const target=p.d.createElement('shreddit-embed');target.setAttribute('providername','YouTube');post.append(target);
@@ -571,7 +578,7 @@ test('a playing YouTube embed keeps its player: held at its card, then placed in
  assert.equal(target.style.visibility,'hidden','Reddit’s own embed UI stays hidden meanwhile');
  ready=true;controller.scan();
  assert.equal(target.style.visibility,'');assert.equal(target.dataset.rtIncoming,undefined);
- assert.deepEqual(placed,['place','place','sound']);
+ assert.deepEqual(placed,['place','place'],'placement does not repeat the sound change');
  assert.equal(p.W.sessionStorage.getItem(embedKey),null);
 });
 test('Back before the post embed is ready returns the held YouTube player to its card',async t=>{
