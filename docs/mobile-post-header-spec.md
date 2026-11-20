@@ -15,3 +15,5 @@ On mobile post and comment-permalink pages, small changes in scroll direction ca
 The existing navigation controls, row height, and page scroll position are retained. Home keeps its existing behavior. Subreddit feeds, search pages, and profile tabs use Reddit's existing headers.
 
 The mobile header controller marks the existing post header after it appears. It removes the marker when Reddit replaces the header, navigation changes the route, the viewport widens, or the controller shuts down. The new row inherits the visibility state only on the same post.
+
+A Chrome Dev check at 440 by 956 CSS px found Reddit's original 48 px header directly beneath the fixed `reddit-header-small`. After scrolling down by 24 px from the last upward turning point, the extension moved that same row to −48 px. The next sustained upward move returned it to 0 px. Small changes in direction while it was open left it at 0 px.

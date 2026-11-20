@@ -4,7 +4,7 @@ User request: extend "Smooth long feeds" (profiles only, `docs`/0.42.0) to the r
 
 ## Measured (live, read-only)
 
-- Reddit applies no `content-visibility` anywhere (home, Popular, subreddit, search, post pages), so every loaded post or comment stays laid out and painted however far away it is.
+- The original sample had no `content-visibility` on its cards. A later Chrome Dev trace confirmed that native `shreddit-feed` can replace older cards or batches above the viewport with height-preserving placeholders. Mounted cards outside that native cleanup are candidates for our desktop rendering skip.
 - Home `/`, Popular `/r/popular/` and subreddits `/r/<name>/`: `shreddit-feed` holds `article` posts (each wrapping `shreddit-post`), `shreddit-ad-post` units and `hr` separators; later pages arrive as `faceplate-batch` groups of 24 `article`s inside the same feed (`/svc/shreddit/community-more-posts/…`).
 - Search `/search/?type=posts`: post results are `div[data-testid="sdui-post-unit"]` inside `search-telemetry-tracker` wrappers (84 units on one page, about 1,460 px for the first block).
 - Post pages: `shreddit-comment-tree` holds one section with every comment (100 `shreddit-comment` elements, 22,358 px tall on a busy AskReddit thread); top-level comments carry `depth="0"`.
@@ -41,6 +41,7 @@ A 45 s recording of the user flicking through the feed: the page's main thread w
 - The profile-feed sync returns at once outside profile pages.
 - Re-test with the caches below in place, skipping forced back on for touch (2 screens): 54 of 143 moving frames (37.8 %) at least half blank against 1 of 72 (1.4 %) without. Touch screens stay unskipped.
 - On touch, the Smooth scrolling module performs zero card-subtree observations or scans while Reddit adds cards. The phone path retains the measurement caches in enabled areas. Synthetic regressions cover startup, an appended batch, popup changes, and navigation using both `reddit:route` and `popstate`. Those tests cover extension work, while a live comparison is needed to characterize when visible card parts are drawn.
+- Four short passes in the existing Chrome Dev mobile tab on November 20 alternated the measurement cache off, on, on, and off on an already-loaded feed. Each pass recorded 28 scroll events, a 16.7 ms median animation frame interval, zero frame gaps over 50 ms, and zero skipped cards. This run showed similar scrolling with either setting. Newly arriving cards and the reported staged drawing need a separate cold-load trace.
 
 ## Reddit's own costs (read from its client code, phone feed 2026-11-19)
 
