@@ -1,3 +1,9 @@
+# 0.53.6 preview
+
+- **Embed sizing:** stop forcing the provider iframe to fill Reddit’s slot and remove the emulated-viewport scaling and clipping. The iframe keeps Reddit’s and the provider’s own size in the feed and the post, so the real post picture is no longer enlarged. The preview sound button returns to the provider’s own bottom-right corner.
+- **Version:** patch increment for the post-page embed sizing regression.
+- **Validation:** 2,097 tests passed. Coverage now checks that previews leave the iframe’s width, height and sizing attributes unchanged. Both packages passed ZIP integrity and byte-equality checks. Firefox lint reported zero errors, warnings and notices. Not yet checked on a phone with this build. Chromium SHA-256 `06f1a7dd2901aef453f35b977f88379c014faed941a4cd630aca49495b499205`. Firefox SHA-256 `dc9f74d158c04a4152c90405d90686d1d1adf562ca52d55a2afaa4c042ae2f7a`.
+
 # 0.53.5 preview
 
 - **Mobile embed fit:** re-measure the provider viewport after its first frame and again after its controls settle, so a player covers the Reddit slot instead of leaving an L-shaped strip on the right and bottom. The preview sound control follows the painted video (including object-fit and object-position) instead of the empty part of the slot or the provider's control rail.
