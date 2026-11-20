@@ -123,11 +123,29 @@
         if(!slot){slot=make('div');slot.setAttribute('slot','devvit-context-actions');menu.append(slot);}
         slot.append(this.menuItem(menu));
       }
+      this.dedupe();
       if(!this.enabled)this.close(true);
+    }
+    dedupe(){
+      const portal=document.getElementById('post-overflow-menu-bottom-sheet');if(!portal)return;
+      if(!this.enabled){for(const item of portal.querySelectorAll('[data-rt-raffle="item"]'))item.remove();return;}
+      const slots=[...portal.querySelectorAll('[slot="devvit-context-actions"]')];
+      const keep=slots.find(slot=>slot.querySelector('shreddit-async-loader,hr,li:not([data-rt-raffle="item"])')) || slots[0];
+      for(const slot of slots){
+        const items=[...slot.querySelectorAll('[data-rt-raffle="item"]')];
+        for(const item of items)if(slot!==keep || item!==items[0])item.remove();
+      }
+    }
+    statusItems(menu){
+      const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();
+      const items=[...menu.querySelectorAll('[data-rt-raffle="item"]')];
+      const portal=document.getElementById('post-overflow-menu-bottom-sheet');
+      if(portal)items.push(...[...portal.querySelectorAll('[data-rt-raffle="item"]')].filter(item=>item.dataset.rtPostId===id));
+      return items;
     }
     menuItem(menu){
       // Reddit's own menu-item markup (FINDINGS.md): li[role=presentation] > div[role=menuitem].
-      const li=make('li','relative list-none mt-0');li.setAttribute('role','presentation');li.dataset.rtRaffle='item';li.dataset.rtUi='raffle-menu-item';
+      const li=make('li','relative list-none mt-0');li.setAttribute('role','presentation');li.dataset.rtRaffle='item';li.dataset.rtUi='raffle-menu-item';li.dataset.rtPostId=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();
       const row=make('div','flex justify-between relative px-md gap-xs text-secondary-plain hover:text-secondary-plain-hover active:bg-interactive-pressed hover:bg-neutral-background-hover hover:no-underline cursor-pointer py-2xs -outline-offset-1');
       row.setAttribute('role','menuitem');row.tabIndex=-1;row.style.paddingInlineEnd='16px';
       const lead=make('span','flex items-center gap-xs min-w-0 shrink'),box=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4');box.append(icon(TICKET));
@@ -153,8 +171,8 @@
         if(this.raffleStatus.size>=200)this.raffleStatus.delete(this.raffleStatus.keys().next().value);this.raffleStatus.set(id,entry);
       }
       const entry=this.raffleStatus.get(id),status=await entry?.pending;
-      if(!status){if(this.raffleStatus.get(id)===entry)this.raffleStatus.delete(id);this.applyStatus(menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]'),{exists:false});return;}
-      this.applyStatus(menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]'),status);
+      if(!status){if(this.raffleStatus.get(id)===entry)this.raffleStatus.delete(id);for(const item of this.statusItems(menu))this.applyStatus(item,{exists:false});return;}
+      for(const item of this.statusItems(menu))this.applyStatus(item,status);
     }
     applyStatus(item,status){
       if(!item || !status)return;const drawn=Boolean(status.exists);
