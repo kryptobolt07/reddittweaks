@@ -3011,7 +3011,17 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       votes.append(vote('upvote','Upvote'),make('span','rt-sra-pill-count',post.factsUnknown?'':compactCount(post.score)),vote('downvote','Downvote'));
       const comments=make('span','rt-sra-pill');comments.title='Comment count when archived';comments.append(redditIcon('comment',16),make('span','rt-sra-pill-count',post.factsUnknown?'':compactCount(post.comments)));
       const share=make('button','rt-sra-pill rt-sra-share');share.type='button';share.append(redditIcon('share',16),make('span','','Share'));
-      share.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const url=new URL(post.permalink,location.origin).href;navigator.clipboard?.writeText(url).then(()=>{share.lastChild.textContent='Link copied';setTimeout(()=>{share.lastChild.textContent='Share';},2000);},()=>{});});
+      const label=share.lastElementChild;label.className='rt-sra-share-label';label.setAttribute('aria-live','polite');
+      let feedback;
+      share.addEventListener('click',event=>{
+        event.preventDefault();event.stopPropagation();
+        const url=new URL(post.permalink,location.origin).href;
+        navigator.clipboard?.writeText(url).then(()=>{
+          label.textContent='Link copied';share.dataset.rtLinkCopied='';
+          clearTimeout(feedback);
+          feedback=setTimeout(()=>{label.textContent='Share';delete share.dataset.rtLinkCopied;},2000);
+        },()=>{});
+      });
       row.append(votes,comments,share);
       // If Reddit's own post component upgrades this post later, its action bar takes over.
       let checks=0;const yield_=()=>{if(!row.isConnected && checks>0)return;if(native?.shadowRoot?.querySelector('rpl-action-bar')){row.remove();return;}if(++checks<120)setTimeout(yield_,250);};setTimeout(yield_,0);
