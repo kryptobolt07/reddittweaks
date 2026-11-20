@@ -96,7 +96,8 @@
       "css": [
         "post-discovery.css",
         "profile-search.css",
-        "subreddit-archive.css"
+        "subreddit-archive.css",
+        "download-media.css"
       ]
     },
     {
@@ -109,6 +110,7 @@
       "run_at": "document_idle",
       "js": [
         "post-model.js",
+        "download-model.js",
         "markdown-lite.js",
         "archive-view.js",
         "archive-query.js",
@@ -117,6 +119,7 @@
         "removal-model.js",
         "native-removal.js",
         "post-discovery.js",
+        "download-ui.js",
         "profile-search.js",
         "subreddit-archive.js",
         "unapproved-filter.js",
@@ -154,7 +157,8 @@
     "unlimitedStorage",
     "cookies",
     "scripting",
-    "declarativeNetRequestWithHostAccess"
+    "declarativeNetRequestWithHostAccess",
+    "downloads"
   ],
   "background": {
     "service_worker": "cache-broker.js"
