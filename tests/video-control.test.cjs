@@ -1123,6 +1123,30 @@ test('playing raw provider previews fit Reddit’s reserved slot without changin
  assert.ok(e.frame.hasAttribute('data-rt-fit-preview'),'revealing the same provider controls preserves the fit');
 });
 
+test('a desktop mobile emulation scales a verified smaller provider viewport and clips it to the feed slot',async t=>{
+ const p=page(t);phone(p,true,-900);
+ Object.defineProperties(p.W.navigator,{platform:{value:'Linux x86_64'},userAgentData:{value:{platform:'iOS'}}});
+ const e=frameEmbed(p,'https://www.redgifs.com/ifr/layout'),c=await hoverController(p);
+ const sent=[];
+ c.postDirect=(frame,method,fields)=>{if(frame===e.frame && method==='viewport')sent.push(fields);};
+ Object.defineProperties(e.frame,{clientWidth:{value:408},clientHeight:{value:329}});
+ e.frame.src='https://www.redgifs.com/ifr/layout';
+ const message=(data,origin='https://www.redgifs.com')=>c.onFrameMessage({source:e.frame.contentWindow,origin,data});
+ c.frameState(e.frame);message({rtMedia:'hello'});
+ c.fitEmbedPreview(e.frame);
+ const {request}=sent.at(-1);
+ message({rtMedia:'viewport',request,width:272,height:219},'https://unrelated.example');
+ message({rtMedia:'viewport',request:request+1,width:272,height:219});
+ assert.equal(e.frame.hasAttribute('data-rt-fit-adjusted'),false);
+ message({rtMedia:'viewport',request,width:272,height:219});
+ assert.equal(e.frame.style.getPropertyValue('--rt-fit-extent'),'150%');
+ assert.equal(e.frame.hasAttribute('data-rt-fit-adjusted'),true);
+ assert.match(e.node.shadowRoot.querySelector('[data-rt-preview-sizing]').textContent,/clip-path:\s*inset/);
+ c.clearEmbedPreviewFit(e.frame);
+ assert.equal(e.frame.style.getPropertyValue('--rt-fit-extent'),'');
+ assert.equal(e.frame.hasAttribute('data-rt-fit-preview'),false);
+});
+
 test('a provider metadata still that fails lets Reddit supply the replacement',async t=>{
  const p=page(t),bad='https://media.redgifs.com/broken.jpg',poster='https://preview.redd.it/replacement.jpg',reads=[];
  p.W.Image=class{constructor(){this.listeners={};}addEventListener(type,fn){this.listeners[type]=fn;}};

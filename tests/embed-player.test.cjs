@@ -50,6 +50,17 @@ test('an unauthorized frame or a message from another origin cannot change the p
  await allowed.send('unmute',{},'https://unrelated.example');assert.equal(allowed.video.muted,true);
 });
 
+test('viewport measurements go only to the authorized Reddit parent',async t=>{
+ const {W,messages,send}=await player(t);
+ Object.defineProperties(W,{innerWidth:{value:272},innerHeight:{value:219}});
+ await send('viewport',{request:2},'https://unrelated.example');
+ assert.equal(messages.some(({data})=>data.rtMedia==='viewport'),false);
+ await send('viewport',{request:3});
+ const reply=messages.find(({data})=>data.rtMedia==='viewport');
+ assert.equal(reply?.origin,reddit);
+ assert.deepEqual({...reply?.data},{rtMedia:'viewport',request:3,width:272,height:219});
+});
+
 test('a player that starts by itself waits on its first frame until the Reddit page says play, and never holds the viewer back',async t=>{
  const {W,video,send}=await player(t);
  const started=()=>video.dispatchEvent(new W.Event('play'));

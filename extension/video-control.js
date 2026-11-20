@@ -243,6 +243,14 @@
    this.posterNodes=new Set();this.preparedPosters=new WeakSet();this.warmedPosters=new Map();
    this.posterConsumers=new Map();this.posterQuality=new Map();this.posterDeferred=new Set();
    this.readPosters=readPosters;
+   this.viewportRequest=0;
+   this.onEmbedResize=()=>{
+    this.win.clearTimeout(this.embedResizeTimer);
+    this.embedResizeTimer=this.win.setTimeout(()=>{
+     for(const [frame,state] of this.frames)if(frame.isConnected && frame.hasAttribute('data-rt-fit-preview'))this.measureEmbedViewport(frame,state);
+    },100);
+   };
+   this.win.addEventListener('resize',this.onEmbedResize,{passive:true});
    this.onFrameMessage=event=>{
     for(const [frame,state] of this.frames){
      if(!frame.isConnected){this.frames.delete(frame);continue;}
@@ -256,7 +264,9 @@
        if(state.directSound){this.postDirect(frame,state.directSound);state.directSound='';}
        if(state.directPlayback){this.postDirect(frame,state.directPlayback);state.directPlayback='';}
        else this.postDirect(frame,this.idleChoice(frame));
-      }else if(state.direct && ['play','pause'].includes(method))this.framePlayback(frame,state,method);
+       this.measureEmbedViewport(frame,state);
+      }else if(state.direct && method==='viewport')this.adjustEmbedViewport(frame,state,event.data);
+      else if(state.direct && ['play','pause'].includes(method))this.framePlayback(frame,state,method);
       return;
      }
      if(state.direct)return;
@@ -559,6 +569,7 @@
     if(state.kind!=='flags')this.subscribe(frame,state);
     frame.addEventListener('load',()=>{
      this.framePolicy(frame,state.block,true);
+     this.measureEmbedViewport(frame,state);
      if(state.direct || state.kind==='flags')return;
      this.subscribe(frame,state);this.win.setTimeout(()=>this.flushFrameCommands(frame,state),300);
     });
@@ -667,7 +678,7 @@
    if(embed.matches(EMBED)){if(youTubeLite(embed)?.querySelector('iframe')){delete embed.dataset.rtEmbedUsed;this.cover(embed,true);}return;}
    const frame=controlFrame(embed);if(!frame)return;
    delete embed.dataset.rtEmbedUsed;
-   delete frame.dataset.rtFitPreview;
+   this.clearEmbedPreviewFit(frame);
    const state=this.frameState(frame);
    if(state.kind==='flags' && !this.held(state))this.park(embed,frame,keepCover);
    else if(!frame.dataset.rtParked)this.cover(embed,true,keepCover);
@@ -954,10 +965,48 @@
    const root=frame.getRootNode();
    if(!root.querySelector('style[data-rt-preview-sizing]')){
     const style=this.doc.createElement('style');style.dataset.rtPreviewSizing='';
-    style.textContent='iframe[data-rt-fit-preview] { display: block; box-sizing: border-box; width: 100% !important; height: 100% !important; max-width: 100%; max-height: 100%; border: 0; }';
+    style.textContent=`iframe[data-rt-fit-preview]:not(:fullscreen) { display: block; box-sizing: border-box; width: 100% !important; height: 100% !important; max-width: 100%; max-height: 100%; border: 0; }
+iframe[data-rt-fit-preview][data-rt-fit-adjusted]:not(:fullscreen) { position: absolute !important; inset: 0 auto auto 0 !important; width: var(--rt-fit-extent) !important; height: var(--rt-fit-extent) !important; max-width: none !important; max-height: none !important; clip-path: inset(0 var(--rt-fit-inset) var(--rt-fit-inset) 0); }`;
     root.append(style);
    }
    frame.dataset.rtFitPreview='';
+   this.measureEmbedViewport(frame,this.frameState(frame));
+  }
+  measureEmbedViewport(frame,state){
+   // Desktop device emulation can give an out-of-process frame a smaller surface than its CSS box.
+   const nav=this.win.navigator,mobile=/\b(?:Android|iOS|iPhone|iPad|iPod)\b/i;
+   if(!state.direct || !frame.hasAttribute('data-rt-fit-preview') || this.doc.fullscreenElement)return;
+   if(!this.touch || !/^(?:Win32|MacIntel|Linux (?:x86_64|i686))$/.test(nav.platform) ||
+     !(mobile.test(nav.userAgentData?.platform) || mobile.test(nav.userAgent))){
+    state.viewport=null;this.clearEmbedViewportAdjustment(frame);return;
+   }
+   const width=frame.clientWidth,height=frame.clientHeight;if(width<100 || height<100)return;
+   const request=++this.viewportRequest;
+   state.viewport={request,width,height};this.postDirect(frame,'viewport',{request});
+  }
+  adjustEmbedViewport(frame,state,{request,width,height}){
+   const viewport=state.viewport;
+   if(!viewport || request!==viewport.request || !frame.hasAttribute('data-rt-fit-preview'))return;
+   state.viewport=null;
+   if(!Number.isFinite(width) || !Number.isFinite(height) || width<50 || height<50)return;
+   const horizontal=viewport.width/width,vertical=viewport.height/height;
+   // Correct only a uniform discrepancy. A provider's own letterboxing and crops remain its responsibility.
+   const factor=Math.round((horizontal+vertical)*50)/100;
+   if(Math.abs(horizontal-vertical)>.025 || factor<1.05 || factor>2){this.clearEmbedViewportAdjustment(frame);return;}
+   frame.style.setProperty('--rt-fit-extent',`${factor*100}%`);
+   frame.style.setProperty('--rt-fit-inset',`${100-100/factor}%`);
+   frame.dataset.rtFitAdjusted='';
+  }
+  clearEmbedViewportAdjustment(frame){
+   if(!frame.hasAttribute('data-rt-fit-adjusted'))return;
+   delete frame.dataset.rtFitAdjusted;
+   frame.style.removeProperty('--rt-fit-extent');frame.style.removeProperty('--rt-fit-inset');
+  }
+  clearEmbedPreviewFit(frame){
+   if(!frame)return;
+   delete frame.dataset.rtFitPreview;
+   this.clearEmbedViewportAdjustment(frame);
+   const state=this.frames.get(frame);if(state)state.viewport=null;
   }
   labelEmbedSound(preview){
    if(!preview.sound)return;
@@ -1002,7 +1051,7 @@
    if(preview.frame){
     this.restoreHost(preview);
     const {frame,src,kind}=preview.frame;
-    delete frame.dataset.rtFitPreview;
+    this.clearEmbedPreviewFit(frame);
     if(preview.active && frame.isConnected){
      if(kind!=='flags' || this.held(this.frameState(frame))){this.command(frame,'pause');this.command(frame,'unmute');this.rest(preview.embed);}
      else if(this.feedEmbed(preview.embed)){frame.setAttribute('src',src);this.park(preview.embed,frame);}
@@ -1021,11 +1070,13 @@
     if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);
      if(this.unmutePreview)this.frameSound(preview.frame,false);}
     this.clearEmbedHandoff();
+    const frame=controlFrame(embed);
+    this.clearEmbedPreviewFit(frame);
     const held=this.continueOnOpen && !embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
     const sound=this.unmutePreview?preview?.frame:null;
     if(!held && !sound)return false;
     this.stopWatchingFeedSound(embed);
-    this.embedPending={id,from:this.win.location.pathname,held,generic:true,sound,frame:controlFrame(embed)};
+    this.embedPending={id,from:this.win.location.pathname,held,generic:true,sound,frame};
     const pending=this.embedPending,watch=()=>{if(this.embedPending!==pending || this.dead)return;this.embedHandoff();this.win.requestAnimationFrame(watch);};
     this.win.requestAnimationFrame(watch);
     this.embedExpiry=this.win.setTimeout(()=>this.clearEmbedHandoff(),CONTINUE_MS);
@@ -1417,6 +1468,8 @@
    this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
    this.doc.removeEventListener('toggle',this.onCommentToggle,true);
    this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);this.win.clearTimeout(this.dwellTimer);
+   this.win.removeEventListener('resize',this.onEmbedResize);this.win.clearTimeout(this.embedResizeTimer);
+   for(const frame of this.frames.keys())this.clearEmbedPreviewFit(frame);
    this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);this.win.removeEventListener('message',this.onFrameMessage);
    for(const type of ['click','auxclick'])this.doc.removeEventListener(type,this.onEmbedLink,true);
    this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
