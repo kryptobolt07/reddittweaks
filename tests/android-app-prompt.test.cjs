@@ -11,17 +11,20 @@ const prompt = (title = 'Open in the Reddit app', browser = '<button>Continue in
     ${browser}
   </dialog>`;
 
-function setup(t, markup = '', android = true) {
+function setup(t, markup = '', android = true, settings = {}, readSettings = Promise.resolve(settings)) {
   const {window} = new JSDOM(markup, {url: 'https://www.reddit.com/r/example/', runScripts: 'outside-only'});
   if (android) Object.defineProperty(window.navigator, 'userAgentData', {value: {platform: android === true ? 'Android' : android}});
   const trace = [];
+  let changed;
+  window.chrome = {storage: {local: {get: async key => ({[key]: await readSettings})}, onChanged: {addListener(listener) { changed = listener; }}}};
+  const setOverlay = value => changed?.({'rt-settings-v1': {newValue: {hideMatureOverlay: value}}}, 'local');
   window.document.addEventListener('click', event => {
     trace.push(event.composedPath()[0].textContent.trim());
     event.preventDefault();
   });
   window.eval(source());
   t.after(() => window.close());
-  return {window, document: window.document, trace};
+  return {window, document: window.document, trace, setOverlay};
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -96,6 +99,31 @@ test('the blocking app promotion is removed when Reddit adds it in a mobile emul
   assert.equal(mobile.document.querySelector('configured-xpromo-modal'), null);
   assert.ok(desktop.document.querySelector('configured-xpromo-modal'));
   assert.deepEqual(mobile.trace, []);
+});
+
+test('the mobile overlay follows its saved preference and changes to that preference', async t => {
+  const {document, setOverlay} = setup(t, appOnly, true, {hideMatureOverlay:false});
+  await settle();
+  assert.ok(document.querySelector('configured-xpromo-modal'));
+  setOverlay(true);
+  await settle();
+  assert.equal(document.querySelector('configured-xpromo-modal'), null);
+  setOverlay(false);
+  document.body.insertAdjacentHTML('beforeend', appOnly);
+  await settle();
+  assert.ok(document.querySelector('configured-xpromo-modal'));
+});
+
+test('the blocking promotion waits for settings and a newer toggle wins over the first read', async t => {
+  let resolveSettings;
+  const pending = new Promise(resolve => { resolveSettings = resolve; });
+  const {document, setOverlay} = setup(t, appOnly, true, {}, pending);
+  await settle();
+  assert.ok(document.querySelector('configured-xpromo-modal'));
+  setOverlay(false);
+  resolveSettings({hideMatureOverlay:true});
+  await settle();
+  assert.ok(document.querySelector('configured-xpromo-modal'));
 });
 
 test('a configured Reddit promotional dialog with an explicit browser action can continue', async t => {

@@ -16,6 +16,7 @@
   const BUTTON = 'button, [role="button"], a[href]';
   const handled = new WeakSet();
   const observed = new WeakSet();
+  let hideMatureOverlay;
 
   function normalized(value) {
     return (value || '').replace(/[\s\u00a0]+/g, ' ').trim().replace(/[.!?]+$/, '');
@@ -51,7 +52,7 @@
     if (handled.has(dialog) || !dialog.isConnected) return;
     if (dialog.matches(APP_ONLY)) {
       // Disconnect the promotion owner before its asynchronous showModal can mount the blocking dialog.
-      dialog.parentElement.remove();
+      if (hideMatureOverlay === true) dialog.parentElement.remove();
       return;
     }
     if (dialog.shadowRoot) observe(dialog.shadowRoot);
@@ -93,4 +94,19 @@
 
   observe(document);
   window.addEventListener('pageshow', () => scan(document));
+
+  const storage = (globalThis.browser || globalThis.chrome)?.storage;
+  const settingsKey = 'rt-settings-v1';
+  function applyOverlayPreference(settings) {
+    const enabled = settings?.hideMatureOverlay !== false;
+    if (hideMatureOverlay === enabled) return;
+    hideMatureOverlay = enabled;
+    if (enabled) for (const dialog of document.querySelectorAll(APP_ONLY)) inspect(dialog);
+  }
+  storage?.onChanged?.addListener((changes, area) => {
+    if (area === 'local' && changes[settingsKey]) applyOverlayPreference(changes[settingsKey].newValue);
+  });
+  if (storage?.local) Promise.resolve().then(() => storage.local.get(settingsKey)).then(stored => {
+    if (hideMatureOverlay === undefined) applyOverlayPreference(stored[settingsKey]);
+  }).catch(() => {});
 })();
