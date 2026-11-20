@@ -1,3 +1,9 @@
+# 0.53.5 preview
+
+- **Mobile embed fit:** re-measure the provider viewport after its first frame and again after its controls settle, so a player covers the Reddit slot instead of leaving an L-shaped strip on the right and bottom. The preview sound control follows the painted video (including object-fit and object-position) instead of the empty part of the slot or the provider's control rail.
+- **Version:** patch increment for the mobile embed sizing and control-placement correction.
+- **Validation:** 2,100 tests passed. Unit tests cover the visible video rect for a portrait clip inside a landscape player and the sound control placement over a letterboxed video. In Chrome Dev, the compensated RedGIFs player measured 426 × 231 px inside a 427 × 231 px slot; the provider's own right-hand control rail remains its UI. The final re-measure was not rechecked on the live post after the extension reload, and this build has not yet been checked on a phone. Both packages passed ZIP integrity and byte-equality checks. Firefox lint reported zero errors, warnings and notices. Chromium SHA-256 `6cec6f72e414a1b01a1c19cd87c78aa2075f2ee10d437d10ffcae4cb7432c56f`. Firefox SHA-256 `4a9e1c786ead42929708382c894cf0574fc54849ed14ea4dbcc32dae0ed9da6d`.
+
 # 0.53.4 preview
 
 - **Embed previews:** load raw feed players when they enter view and keep the thumbnail filling the slot until the player is ready. Apply the emulated-viewport sizing correction before playback and keep it during a post handoff.
