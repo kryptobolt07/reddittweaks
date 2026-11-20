@@ -58,7 +58,7 @@ test('viewport measurements go only to the authorized Reddit parent',async t=>{
  await send('viewport',{request:3});
  const reply=messages.find(({data})=>data.rtMedia==='viewport');
  assert.equal(reply?.origin,reddit);
- assert.deepEqual({...reply?.data},{rtMedia:'viewport',request:3,width:272,height:219});
+ assert.deepEqual({...reply?.data},{rtMedia:'viewport',request:3,width:272,height:219,media:null});
 });
 
 test('a player that starts by itself waits on its first frame until the Reddit page says play, and never holds the viewer back',async t=>{

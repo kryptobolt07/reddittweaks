@@ -831,6 +831,11 @@
   embedRendered(frame,state){
    state.rendered=true;
    if(!state.viewport)this.finishEmbedDraw(frame);
+   // The provider's own controls can add a scrollbar or resize its viewport after the first frame. Re-measure the
+   // settled player so the slot is covered instead of leaving an L-shaped strip on the right and bottom.
+   for(const delay of [250,900])this.win.setTimeout(()=>{
+    if(frame.isConnected && frame.hasAttribute('data-rt-fit-preview') && !this.doc.fullscreenElement)this.measureEmbedViewport(frame,state);
+   },delay);
   }
   finishEmbedDraw(frame){
    if(frame.dataset.rtWaiting!=='1' || frame.dataset.rtParked)return;
@@ -1016,6 +1021,22 @@
     if(event.target===layer && (event.key==='Enter' || event.key===' ')){event.preventDefault();this.useEmbed(preview,false);}
    });
    host.append(layer);
+   this.positionEmbedSound(preview);
+  }
+  positionEmbedSound(preview=this.ePreview){
+   const sound=preview?.sound;if(!sound)return;
+   const provider=preview.provider,slot=preview.embed?.getBoundingClientRect?.();
+   if(!provider?.media || !(provider.width>0) || !(provider.height>0) || !(slot?.width>0) || !(slot?.height>0)){
+    sound.style.left='auto';sound.style.top='auto';sound.style.right='12px';sound.style.bottom='12px';return;
+   }
+   const scaleX=slot.width/provider.width,scaleY=slot.height/provider.height;
+   const x=(Number(provider.media.x)||0)*scaleX,y=(Number(provider.media.y)||0)*scaleY;
+   const width=(Number(provider.media.width)||0)*scaleX,height=(Number(provider.media.height)||0)*scaleY;
+   if(!(width>0&&height>0))return;
+   const size=32,inset=12;
+   const left=Math.max(inset,Math.min(slot.width-inset-size,x+width-size-inset));
+   const top=Math.max(inset,Math.min(slot.height-inset-size,y+height-size-inset));
+   sound.style.left=`${left}px`;sound.style.top=`${top}px`;sound.style.right='auto';sound.style.bottom='auto';
   }
   fitEmbedPreview(frame){
    // Reddit supplies the media box, including its per-post aspect ratio. Size the iframe within that box instead
@@ -1042,7 +1063,7 @@ iframe[data-rt-fit-preview][data-rt-fit-adjusted]:not(:fullscreen) { position: a
    const request=++this.viewportRequest;
    state.viewport={request,width,height};this.postDirect(frame,'viewport',{request});
   }
-  adjustEmbedViewport(frame,state,{request,width,height}){
+  adjustEmbedViewport(frame,state,{request,width,height,media}){
    const viewport=state.viewport;
    if(!viewport || request!==viewport.request || !frame.hasAttribute('data-rt-fit-preview'))return;
    state.viewport=null;
@@ -1059,6 +1080,8 @@ iframe[data-rt-fit-preview][data-rt-fit-adjusted]:not(:fullscreen) { position: a
     frame.style.setProperty('--rt-fit-inset',`${100-100/factor}%`);
     frame.dataset.rtFitAdjusted='';
    }
+   const preview=this.ePreview;
+   if(preview?.frame?.frame===frame){preview.provider={width,height,media};this.positionEmbedSound(preview);}
    if(state.rendered)this.finishEmbedDraw(frame);
   }
   clearEmbedViewportAdjustment(frame){

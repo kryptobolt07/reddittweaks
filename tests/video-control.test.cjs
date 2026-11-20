@@ -1147,6 +1147,39 @@ test('a desktop mobile emulation scales a verified smaller provider viewport and
  assert.equal(e.frame.hasAttribute('data-rt-fit-preview'),false);
 });
 
+test('the preview sound control sits over the painted video, not the empty part of a mismatched slot',async t=>{
+ const p=page(t);phone(p,true,-900);
+ Object.defineProperties(p.W.navigator,{platform:{value:'Linux x86_64'},userAgentData:{value:{platform:'iOS'}}});
+ const e=frameEmbed(p,'https://www.redgifs.com/ifr/layout'),c=await hoverController(p);
+ e.node.getBoundingClientRect=()=>({left:0,top:100,width:400,height:300});
+ const sent=[];c.postDirect=(frame,method,fields)=>{if(frame===e.frame && method==='viewport')sent.push(fields);};
+ Object.defineProperties(e.frame,{clientWidth:{value:540},clientHeight:{value:405}});
+ e.frame.src='https://www.redgifs.com/ifr/layout';
+ const message=(data,origin='https://www.redgifs.com')=>c.onFrameMessage({source:e.frame.contentWindow,origin,data});
+ c.frameState(e.frame);message({rtMedia:'hello'});
+ e.over();await waitForHover();
+ const {request}=sent.at(-1);
+ message({rtMedia:'viewport',request,width:400,height:300,media:{x:100,y:50,width:200,height:200}});
+ const button=e.layer().querySelector('button');
+ assert.equal(button.style.left,'256px');
+ assert.equal(button.style.top,'206px');
+ assert.equal(button.style.right,'auto');
+ assert.equal(button.style.bottom,'auto');
+});
+
+test('the provider reports the visible picture inside a letterboxed video element',()=>{
+ const W=new JSDOM('',{runScripts:'outside-only'}).window;
+ W.RTEmbedHosts={redditOrigins:['https://www.reddit.com'],wrapperOrigin:'',playerOrigin:()=>false};
+ W.eval(fs.readFileSync('extension/embed-player.js','utf8'));
+ const video=W.document.createElement('video');
+ Object.defineProperties(video,{videoWidth:{value:303},videoHeight:{value:620}});
+ video.getBoundingClientRect=()=>({x:10,y:20,width:400,height:300});
+ video.style.objectFit='contain';video.style.objectPosition='50% 50%';
+ const rect=W.RTEmbedPlayerMediaRect(video);
+ assert.deepEqual([Math.round(rect.x),Math.round(rect.y),Math.round(rect.width),Math.round(rect.height)],[137,20,147,300]);
+ W.close();
+});
+
 test('a provider metadata still that fails lets Reddit supply the replacement',async t=>{
  const p=page(t),bad='https://media.redgifs.com/broken.jpg',poster='https://preview.redd.it/replacement.jpg',reads=[];
  p.W.Image=class{constructor(){this.listeners={};}addEventListener(type,fn){this.listeners[type]=fn;}};
