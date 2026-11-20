@@ -29,3 +29,7 @@ The browser connection installs its own clipboard wrappers. Sharing was therefor
 ## Limits
 
 Private communities and exhaustive startup failure scenarios have automated synthetic coverage; live browser checks used banned communities. No frame-by-frame proof of zero flashes or every possible rapid-scroll sequence is claimed. Archive coverage and ranking remain partial. Retaining revealed feed cards trades additional page memory for rendering continuity. No private captures, chat content or generated package artifacts are committed.
+
+## Mobile archive post detail spacing
+
+Measured in regular Chrome at 393 CSS px. The native post header was 48 px tall, its credit row was 44 px tall, its title and flair used 16 px gutters, and its comment started at x=16 with a width of 361 px. The archive post detail uses the same header height and gutters while leaving the media slot full width. The archive feed keeps its existing masthead and divider. The scoped archive page class goes away when the archive unmounts on navigation or Back.

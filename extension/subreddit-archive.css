@@ -125,6 +125,14 @@
 
 /* Native comment components own the thread layout. */
 .rt-sra-thread-comments{margin:28px 0 16px}
+/* A mobile post detail has a compact header and text gutters. Its media still spans the full post width. */
+@media (max-width:639px){
+  shreddit-app:has(.rt-sra-post-page){--shreddit-header-height:48px!important;--page-y-padding:48px!important}
+  .rt-sra-post-page .rt-sra-thread-post{padding-block-start:0}
+  .rt-sra-post-page .rt-sra-thread-post>:is([slot="credit-bar"],[slot="ssr-post-content-header"],[slot="title"],[slot="post-flair"],[slot="text-body"],.rt-sra-action-row),
+  .rt-sra-post-page .rt-sra-thread-comments,.rt-sra-post-page>.rt-sra-foot{padding-inline:16px}
+  .rt-sra-post-page .rt-sra-thread-post>[slot="credit-bar"]{align-items:center;min-height:44px;padding-block:0}
+}
 .rt-sra-thread-comment{display:block;min-width:0;color:var(--color-neutral-content-strong,#0f1a1c)}
 /* Reddit's comment summary row is 36px: avatar centred in it, author line filling the rest. */
 .rt-sra-thread-comment>.rt-sra-comment-avatar{display:flex;align-items:center;height:36px}
