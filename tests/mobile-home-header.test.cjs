@@ -4,8 +4,10 @@ const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
 const native='<reddit-header-small><header class="v2 hui h-header-small flex"><nav><button id="navbar-menu-button">Menu</button><a id="reddit-logo" href="/">Home</a><div><create-post-entry-point-wrapper><a id="create-post" href="/submit/">Create</a></create-post-entry-point-wrapper><button id="expand-user-drawer-button">Account</button></div></nav></header><prominent-search><button id="expand-search-button">Search Reddit</button></prominent-search></reddit-header-small>';
 const attr='data-rt-home-nav';
-function fixture(t,path='/'){
- const {window:W}=new JSDOM(native+'<main></main>',{url:'https://www.reddit.com'+path,runScripts:'outside-only'});
+const postNative=native.replace(/<prominent-search>.*?<\/prominent-search>/,'');
+const postAttr='data-rt-post-nav';
+function fixture(t,path='/',markup=native){
+ const {window:W}=new JSDOM(markup+'<main></main>',{url:'https://www.reddit.com'+path,runScripts:'outside-only'});
  const D=W.document,frames=[],media=new W.EventTarget();
  media.matches=true;W.matchMedia=()=>media;
  let y=0;
@@ -76,4 +78,50 @@ test('focus returning from the sidebar cannot pin the Home header during a downw
  assert.equal(D.activeElement,menu,'keep Reddit’s return focus');
  const css=fs.readFileSync('extension/post-discovery.css','utf8');
  assert.doesNotMatch(css,/reddit-header-small\[data-rt-home-nav\]>header:focus-within/);
+});
+test('small downward reversals cannot interrupt the opening mobile post navbar',t=>{
+ const {header,scroll}=fixture(t,'/r/Example/comments/abc123/topic/',postNative);
+ const row=header().querySelector('header');
+ const state=()=>header().getAttribute(postAttr);
+ assert.equal(state(),'shown');
+ scroll(23);assert.equal(state(),'shown');
+ scroll(24);assert.equal(state(),'hidden');
+ scroll(200);assert.equal(state(),'hidden');
+ scroll(192);assert.equal(state(),'hidden');
+ scroll(200);assert.equal(state(),'hidden');
+ scroll(194);scroll(188);assert.equal(state(),'shown');
+ for(const y of [196,187,198,181,195,184]){
+  scroll(y);assert.equal(state(),'shown');
+ }
+ scroll(204);assert.equal(state(),'shown');
+ scroll(205);assert.equal(state(),'hidden');
+ scroll(0);assert.equal(state(),'shown');
+ assert.equal(header().querySelector('header'),row);
+ assert.equal(header().querySelector('[data-rt-home-search]'),null);
+});
+test('post navbar state follows Reddit navigation, header replacement, and the mobile breakpoint',async t=>{
+ const {D,W,header,scroll,media}=fixture(t,'/comments/abc123/comment/def456/',postNative);
+ scroll(200);assert.equal(header().getAttribute(postAttr),'hidden');
+ const old=header();
+ old.outerHTML=postNative;await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(old.hasAttribute(postAttr),false);
+ assert.equal(header().getAttribute(postAttr),'hidden');
+ W.history.pushState({},'','/user/Example/comments/');D.dispatchEvent(new W.Event('reddit:route'));
+ assert.equal(header().hasAttribute(postAttr),false);
+ W.history.pushState({},'','/r/Example/comments/def456/topic/');W.dispatchEvent(new W.PopStateEvent('popstate'));
+ assert.ok(header().hasAttribute(postAttr));
+ media.matches=false;media.dispatchEvent(new W.Event('change'));
+ assert.equal(header().hasAttribute(postAttr),false);
+});
+test('the post navbar initializes at the new post after delayed header hydration',async t=>{
+ const {D,W,header,scroll}=fixture(t,'/r/Example/comments/abc123/topic/',postNative);
+ scroll(200);assert.equal(header().getAttribute(postAttr),'hidden');
+ header().remove();
+ W.history.pushState({},'','/r/Example/comments/def456/topic/');D.dispatchEvent(new W.Event('reddit:route'));
+ scroll(180);
+ D.querySelector('main').insertAdjacentHTML('beforebegin',postNative);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(header().getAttribute(postAttr),'shown');
+ scroll(192);assert.equal(header().getAttribute(postAttr),'shown');
+ scroll(204);assert.equal(header().getAttribute(postAttr),'hidden');
 });

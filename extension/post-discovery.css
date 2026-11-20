@@ -756,6 +756,16 @@ reddit-header-small [data-rt-home-search]{display:none}
   reddit-header-small[data-rt-home-nav] [data-rt-home-search]{display:inline-flex;width:40px;flex:none}
 }
 @media (prefers-reduced-motion:reduce){reddit-header-small[data-rt-home-nav]>header{transition:none}}
+/* Stabilize the existing mobile post navbar without changing its page layout. */
+@media (max-width:767.98px){
+  reddit-header-small[data-rt-post-nav]{transform:none!important;translate:none!important}
+  reddit-header-small[data-rt-post-nav]>header{
+    translate:none!important;transform:translateY(-100%)!important;
+    transition:transform .16s ease-out;pointer-events:none
+  }
+  reddit-header-small[data-rt-post-nav="shown"]>header{transform:none!important;pointer-events:auto}
+}
+@media (prefers-reduced-motion:reduce){reddit-header-small[data-rt-post-nav]>header{transition:none}}
 /* Phones: Feed options sheet shaped like Reddit's app (docs/feed-options-sheet-spec.md). */
 .rt-fsheet-root{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:flex-end;font-family:var(--font-sans,inherit);color:var(--color-neutral-content-strong,#0f1a1c)}
 dialog.rt-fsheet-root{box-sizing:border-box;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;overflow:hidden;background:transparent}

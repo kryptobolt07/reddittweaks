@@ -1,19 +1,20 @@
-/* Restore the compact native navigation row when scrolling up on mobile Home. */
+/* Reveal Reddit's mobile navigation row when scrolling up on Home or a post. */
 (() => {
   'use strict';
   if (window.top !== window || globalThis.RTMobileHomeHeader) return;
-  const state = 'data-rt-home-nav';
-  const directionThreshold = 8;
+  const homeState = 'data-rt-home-nav';
+  const postState = 'data-rt-post-nav';
+  const postPath = /^(?:(?:\/r\/|\/u(?:ser)?\/)[^/]+)?\/comments\/[a-z0-9]+(?:\/|$)/i;
 
   class HomeHeader {
     constructor() {
       this.mobile = matchMedia('(max-width: 767.98px)');
       this.onRoute = () => this.sync();
       this.onFocus = event => {
-        if (!this.header?.hasAttribute(state) || !event.composedPath()[0]?.matches?.(':focus-visible')) return;
+        if (!this.header?.hasAttribute(this.state) || !event.composedPath()[0]?.matches?.(':focus-visible')) return;
         this.shown = true;
         this.edge = Math.max(scrollY,0);
-        this.header.setAttribute(state,'shown');
+        this.header.setAttribute(this.state,'shown');
       };
       this.onScroll = () => {
         if (this.frame) return;
@@ -23,11 +24,12 @@
         });
       };
       this.observer = new MutationObserver(() => {
-        if (this.header?.isConnected && this.row?.parentElement === this.header && this.activeRoute()) {
-          if (!this.search?.isConnected) this.addSearch();
+        const route = this.activeRoute();
+        if (this.header?.isConnected && this.row?.parentElement === this.header && route === this.route) {
+          if (this.state === homeState && !this.search?.isConnected) this.addSearch();
           return;
         }
-        if (this.header || this.activeRoute()) this.sync();
+        if (this.header || route) this.sync();
       });
       this.observer.observe(document, {childList:true,subtree:true});
       this.mobile.addEventListener('change',this.onRoute);
@@ -37,27 +39,40 @@
       window.navigation?.addEventListener('currententrychange',this.onRoute);
       this.sync();
     }
-    activeRoute() { return this.mobile.matches && location.pathname === '/'; }
+    activeRoute() {
+      if (!this.mobile.matches) return null;
+      const path = location.pathname;
+      return path === '/' || postPath.test(path) ? path : null;
+    }
     sync() {
-      const header = this.activeRoute() ? document.querySelector('reddit-header-small:has(> prominent-search)') : null;
-      const row = header?.querySelector(':scope > header');
-      if (header === this.header && row === this.row) {
-        if (row && !this.search?.isConnected) this.addSearch();
+      const route = this.activeRoute();
+      const home = route === '/';
+      const header = route ? document.querySelector(home ? 'reddit-header-small:has(> prominent-search)' : 'reddit-header-small') : null;
+      const row = header?.querySelector(':scope > header') ?? null;
+      const sameRoute = route === this.route;
+      if (header === this.header && row === this.row && sameRoute) {
+        if (home && row && !this.search?.isConnected) this.addSearch();
         return;
       }
       this.detach();
+      this.route = route;
+      if (!sameRoute) this.edge = undefined;
       if (!row) return;
       this.header = header;
       this.row = row;
+      this.state = home ? homeState : postState;
       row.addEventListener('focusin',this.onFocus);
-      this.height = 56;
-      this.measure();
-      this.edge = Math.max(scrollY,0);
-      this.shown = false;
-      this.addSearch();
-      if (typeof ResizeObserver === 'function') {
-        this.resize = new ResizeObserver(() => this.measure());
-        this.resize.observe(row);
+      if (home || this.edge === undefined) {
+        this.edge = Math.max(scrollY,0);
+        this.shown = !home;
+      }
+      if (home) {
+        this.measure();
+        this.addSearch();
+        if (typeof ResizeObserver === 'function') {
+          this.resize = new ResizeObserver(() => this.measure());
+          this.resize.observe(row);
+        }
       }
       window.addEventListener('scroll',this.onScroll,{passive:true});
       this.update();
@@ -83,29 +98,37 @@
       this.header?.style.setProperty('--rt-home-nav-height',height+'px');
     }
     update() {
-      if (!this.activeRoute() || !this.header?.isConnected) {this.sync();return;}
+      if (this.activeRoute() !== this.route || !this.header?.isConnected) {this.sync();return;}
       const y = Math.max(scrollY,0);
-      if (y < this.height) {
+      const home = this.state === homeState;
+      if (home && y < this.height) {
         this.shown = false;
         this.edge = y;
-        this.header.removeAttribute(state);
+        this.header.removeAttribute(this.state);
         return;
       }
-      this.edge = this.shown ? Math.min(this.edge,y) : Math.max(this.edge,y);
-      if ((this.shown ? y-this.edge : this.edge-y) >= directionThreshold) {
-        this.shown = !this.shown;
-        this.edge = y;
+      if (y === 0) {
+        this.shown = true;
+        this.edge = 0;
+      } else {
+        this.edge = this.shown ? Math.min(this.edge,y) : Math.max(this.edge,y);
+        // A slightly larger reversal is needed to dismiss an already revealing post navbar.
+        const directionThreshold = home ? 8 : this.shown ? 24 : 12;
+        if (Math.abs(y-this.edge) >= directionThreshold) {
+          this.shown = !this.shown;
+          this.edge = y;
+        }
       }
       const next = this.shown ? 'shown' : 'hidden';
-      if (this.header.getAttribute(state) !== next) this.header.setAttribute(state,next);
+      if (this.header.getAttribute(this.state) !== next) this.header.setAttribute(this.state,next);
     }
     detach() {
       if (this.frame) cancelAnimationFrame(this.frame);
       this.frame = 0;
       this.resize?.disconnect();
       window.removeEventListener('scroll',this.onScroll);
-      this.header?.removeAttribute(state);
-      this.header?.style.removeProperty('--rt-home-nav-height');
+      this.header?.removeAttribute(this.state);
+      if (this.state === homeState) this.header?.style.removeProperty('--rt-home-nav-height');
       this.row?.removeEventListener('focusin',this.onFocus);
       this.search?.remove();
       this.header = this.row = this.search = null;
