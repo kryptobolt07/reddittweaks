@@ -32,7 +32,17 @@ test('drill-in pages have Back; Escape goes back first; choices that stay open r
  [...d.querySelectorAll('.rt-fsheet-row')].find(r=>r.textContent.startsWith('Top')).click();await flush();
  assert.equal(d.querySelector('.rt-fsheet-title').textContent,'Top');assert.equal(d.querySelector('.rt-fsheet-back').hidden,false);assert.equal(d.querySelector('.rt-fsheet-row').getAttribute('href'),'/?sort=top&t=hour');
  d.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(d.querySelector('.rt-fsheet-title').textContent,'Feed options','Escape goes back');
+ await new Promise(resolve=>setTimeout(resolve,400));
  d.querySelector('.rt-fsheet-scrim').click();assert.equal(W.RTFeedSheet.isOpen(),false);
+});
+test('the tap that opens the sheet cannot immediately close it through the backdrop',async t=>{
+ const {W,d}=page(t);
+ W.RTFeedSheet.open({title:'Feed options',build:(body,ui)=>ui.row({label:'Hot'})});
+ d.querySelector('.rt-fsheet-scrim').click();
+ assert.equal(W.RTFeedSheet.isOpen(),true,'the opening tap is ignored');
+ await new Promise(resolve=>setTimeout(resolve,400));
+ d.querySelector('.rt-fsheet-scrim').click();
+ assert.equal(W.RTFeedSheet.isOpen(),false,'a later backdrop tap still closes');
 });
 test('a lent node (the community picker) goes back home when its page closes',async t=>{
  const {W,d}=page(t);const home=d.createElement('div'),picker=d.createElement('div');picker.id='picker';home.append(picker);d.body.append(home);
@@ -40,7 +50,10 @@ test('a lent node (the community picker) goes back home when its page closes',as
  assert.ok(d.querySelector('.rt-fsheet #picker'));W.RTFeedSheet.close();assert.equal(picker.parentElement,home);
 });
 test('the sheet resets page margins so it sits flush on the bottom edge (Reddit gives section a 16px bottom margin)',()=>{
- assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/\.rt-fsheet\{position:relative;box-sizing:border-box;width:100%;margin:0;/);
+ const css=fs.readFileSync('extension/post-discovery.css','utf8');
+ assert.match(css,/\.rt-fsheet\{position:relative;box-sizing:border-box;width:100%;margin:0;/);
+ assert.match(css,/\.rt-fsheet-avatar img\{[^}]*margin:0/,'Reddit’s img margin must not lift the avatar out of its circle');
+ assert.match(css,/\.rt-account-row>a \*\{pointer-events:none\}/,'the icon and chevron cannot swallow the row tap');
 });
 test('New uses Reddit’s own icon (icon-name="new", a filled clock with an up arrow), not a stroked sparkle',()=>{
  const dom=new JSDOM('<body></body>',{runScripts:'outside-only'}),W=dom.window;W.eval(fs.readFileSync('extension/feed-filters.js','utf8'));
