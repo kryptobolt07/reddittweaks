@@ -207,3 +207,12 @@ User report (0.51.2): stills still arrived late or not at all, and paused player
 - stills are prepared when the post arrives in the page, nearest the screen first;
 - a card shows its still until Reddit's player is inserted and has loaded (plus 400 ms);
 - a paused player keeps no cover, so its own frame shows where it stopped.
+
+## Feed and post playback regressions
+
+- Feed artwork may load ahead of the viewport. It covers the whole media slot without stretching. A raw iframe starts in view. The already prepared still stays in front while the iframe loads and fits the reserved slot. An authorized player reports its first available frame and its viewport without waiting for playback. A provider without a readiness signal falls back to the frame's load event.
+- **Plays here with sound** and the preview sound control keep the current frame and time. Capable players unmute and keep playing. When a provider cannot take an unmute command in place, show its controls and keep the current playback. Do not reset an already-started frame to change sound.
+- Once the viewer takes control of an embed, another automatic preview waits until that embed leaves view. Site link blocking applies to the provider's picture or outbound link and leaves playback buttons and sliders usable.
+- A feed-to-post handoff moves the existing iframe and excludes it from competing-player pauses until it lands. A successful move retains its media size and resumes viewport tracking in the destination. When a full navigation replaces the iframe, YouTube and authorized direct players resume from the last known position and sound state.
+- **Pause and resume** applies to the opened post's playing native video and controllable embed. A feed preview timer cannot release ownership of detail-page scrolling. Pause once the player has left the screen and resume the same media when half is back. A manually paused player stays paused.
+- Chrome can drop dynamically registered player scripts when the unpacked extension reloads. Restore missing registrations from the already granted provider permissions. An installation without that grant registers nothing.

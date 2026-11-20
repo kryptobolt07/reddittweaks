@@ -82,6 +82,26 @@ test('the current detail media can take over native viewport pause and restores 
  video.setAttribute('player-type','in_feed_player');
  assert.equal(action(video,'rt-manage-media-viewport'),true);assert.equal(video.playOutOfViewport,false);
 });
+test('raw feed embeds are inserted at the viewport edge while native thumbnails and detail keep the existing observer',t=>{
+ const {W}=setup(t,{intersection:true,url:'https://www.reddit.com/r/videos/',before:win=>{
+  win.customElements.define('shreddit-embed',class extends win.HTMLElement{
+   loadObserverIntersectionCallback=()=>{};
+   setupLoadObserver(){
+    this.loadObserver=new win.IntersectionObserver(this.loadObserverIntersectionCallback,{rootMargin:'200px'});
+    this.loadObserver.observe(this);
+   }
+  });
+ }});
+ const post=W.document.createElement('shreddit-post');post.id='t3_abc12';W.document.body.append(post);
+ const add=provider=>{
+  const embed=post.appendChild(W.document.createElement('shreddit-embed'));
+  embed.setAttribute('providername',provider);embed.setupLoadObserver();return embed;
+ };
+ assert.equal(add('RedGIFs').loadObserver.options.rootMargin,'0px');
+ assert.equal(add('YouTube').loadObserver.options.rootMargin,'200px');
+ W.history.pushState(null,'','/r/videos/comments/abc12/title/');
+ assert.equal(add('RedGIFs').loadObserver.options.rootMargin,'200px');
+});
 test('archive comment bootstrap uses only current shell descriptors and rejects late route changes',async t=>{
  const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'}),w=e.W;
  w.document.body.innerHTML='<div data-rt-ui="archive-subreddit" data-rt-subreddit="example"></div><faceplate-loader name="PdpStandardClientAssets_fixture" src="concat:chunkA,chunkB" data-prefix="en-US/"></faceplate-loader>';

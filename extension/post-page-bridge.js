@@ -197,14 +197,33 @@
     const id=route()?.id;
     return id && node.matches?.('shreddit-embed') && node.closest('shreddit-post')?.id==='t3_'+id && !node.closest('shreddit-feed,shreddit-comment');
   };
+  // Raw feed embeds use Reddit's loader at the viewport edge. Native lite players only load their thumbnails here.
+  function limitFeedEmbedLoad(){
+    const proto=customElements.get('shreddit-embed')?.prototype,setup=proto?.setupLoadObserver;
+    if(typeof setup!=='function' || typeof IntersectionObserver!=='function')return;
+    proto.setupLoadObserver=function(...args){
+      const provider=this.getAttribute('providername') || '';
+      if(detailEmbed(this) || !this.closest('shreddit-post[id]') || /^(?:YouTube|Vimeo|TikTok)$/i.test(provider) ||
+         typeof this.loadObserverIntersectionCallback!=='function')return setup.apply(this,args);
+      this.loadObserver=new IntersectionObserver(this.loadObserverIntersectionCallback,{rootMargin:'0px'});
+      this.loadObserver.observe(this);
+    };
+  }
+  if(customElements.get('shreddit-embed'))limitFeedEmbedLoad();
+  else customElements.whenDefined('shreddit-embed').then(limitFeedEmbedLoad);
+  function preserveEmbedPlayback(node,allowBackgroundPause=false){
+    if(typeof node.pausePlayback!=='function')return ()=>{};
+    const previous=node.pausePlayback,own=Object.hasOwn(node,'pausePlayback');
+    const skip=function(...args){if(allowBackgroundPause && document.hidden)return previous.apply(this,args);};
+    node.pausePlayback=skip;
+    return ()=>{if(node.pausePlayback===skip){if(own)node.pausePlayback=previous;else delete node.pausePlayback;}};
+  }
   // Let the content script apply the reader's full-offscreen policy before native visibility pauses the same player.
   document.addEventListener('rt-manage-media-viewport',event=>{
     const node=event.target;
     if(viewportOverrides.has(node)){event.preventDefault();return;}
     if(detailEmbed(node) && typeof node.pausePlayback==='function'){
-      const old=node.pausePlayback,own=Object.hasOwn(node,'pausePlayback'),ignore=()=>{};
-      node.pausePlayback=ignore;
-      viewportOverrides.set(node,()=>{if(node.pausePlayback!==ignore)return;if(own)node.pausePlayback=old;else delete node.pausePlayback;});
+      viewportOverrides.set(node,preserveEmbedPlayback(node));
     }else{
       const id=route()?.id,comment=node.closest?.('shreddit-comment');
       if(!id || !node.matches?.(videoPlayers) || typeof node.playOutOfViewport!=='boolean' ||
@@ -246,18 +265,21 @@
   }
   // Each followed YouTube player reports when it starts playing, so the content script keeps one video playing; and
   // pauses when something else starts.
-  const playingEmbeds=new Set(),watched=new WeakSet();
+  const playingEmbeds=new Set(),playerEmbeds=new WeakMap();
   function followYouTube(embed,player){
     ytPlayers.set(embed,player);playingEmbeds.add(embed);
-    if(watched.has(player) || typeof player.addEventListener!=='function')return;
-    watched.add(player);
-    player.addEventListener('onStateChange',change=>{if(change?.data===1 && ytPlayers.get(embed)===player)embed.dispatchEvent(new Event('rt-embed-playing',{bubbles:true}));});
+    const watched=playerEmbeds.has(player);playerEmbeds.set(player,embed);
+    if(watched || typeof player.addEventListener!=='function')return;
+    player.addEventListener('onStateChange',change=>{
+      const active=playerEmbeds.get(player);
+      if(change?.data===1 && ytPlayers.get(active)===player)active.dispatchEvent(new Event('rt-embed-playing',{bubbles:true}));
+    });
   }
   document.addEventListener('rt-media-exclusive',event=>{
     const path=event.composedPath();
     for(const embed of playingEmbeds){
       if(!embed.isConnected){playingEmbeds.delete(embed);continue;}
-      if(path.includes(embed))continue;
+      if(path.includes(embed) || heldEmbed?.embed===embed)continue;
       try{const player=ytPlayers.get(embed),state=player?.getPlayerState?.();if(state===1 || state===3)player.pauseVideo();}catch{}
     }
   });
@@ -313,9 +335,10 @@
   // Vimeo: Reddit's lite-vimeo makes its player inside its own shadow root once started.
   const vimeoLite=embed=>embed?.shadowRoot?.querySelector?.('lite-vimeo') || null;
   const playerFrame=embed=>rawFrame(embed) || vimeoLite(embed)?.shadowRoot?.querySelector?.('iframe') || null;
+  const visibleFrameBox=(frame,embed)=>frame?.hasAttribute('data-rt-fit-adjusted')?frame.parentElement || embed:frame;
   function releaseEmbed(){
     const held=heldEmbed;if(!held)return;
-    heldEmbed=null;markMove();
+    heldEmbed=null;markMove();held.restorePause();
     if(held.home?.isConnected){movePlayer(held.home,held.ifr,held.next?.parentNode===held.home?held.next:null);restoreStyle(held.ifr,held.style);}
     if(held.lite)restoreStyle(held.lite,held.liteStyle);
     held.stage.remove();
@@ -324,9 +347,9 @@
   document.addEventListener('rt-hold-feed-embed',event=>{
     const embed=event.target,lite=liteOf(embed),ifr=lite?lite.querySelector('iframe'):playerFrame(embed),player=ytPlayers.get(embed);
     if(heldEmbed || !ifr || (lite && !player) || !document.body || typeof document.body.moveBefore!=='function')return;
-    const {left,top,width,height}=ifr.getBoundingClientRect();
+    const slot=visibleFrameBox(ifr,embed),{left,top,width,height}=slot.getBoundingClientRect();
     if(!width || !height)return;
-    const stage=document.createElement('div'),corner=cornerOf(ifr);
+    const stage=document.createElement('div'),corner=cornerOf(slot);
     stage.setAttribute('aria-hidden','true');
     Object.assign(stage.style,{position:'fixed',zIndex:'3',pointerEvents:'none',overflow:'hidden',
       left:left+'px',top:top+'px',width:width+'px',height:height+'px',borderRadius:corner+'px'});
@@ -335,8 +358,9 @@
     stage.moveBefore(ifr,null);
     // The emptied card would show Reddit's thumbnail and play button wherever the feed moves meanwhile.
     if(lite)lite.style.visibility='hidden';
-    Object.assign(ifr.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
-    heldEmbed={embed,lite,ifr,player,stage,style,liteStyle,home,next,rect:{left,top,width,height},corner,id:embed.closest('shreddit-post')?.id};markMove();
+    const extent=ifr.style.getPropertyValue('--rt-fit-extent') || '100%';
+    Object.assign(ifr.style,{position:'absolute',inset:'0',width:extent,height:extent,maxWidth:'none',maxHeight:'none'});
+    heldEmbed={embed,lite,ifr,player,stage,style,liteStyle,home,next,restorePause:preserveEmbedPlayback(embed,true),rect:{left,top,width,height},corner,id:embed.closest('shreddit-post')?.id};markMove();
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-embed',event=>{
@@ -346,9 +370,10 @@
     // A post whose lite-vimeo has not made its player yet: the moving player covers it.
     const cover=!held.lite && !target?vimeoLite(embed):null;
     if(held.lite?!lite:!(target || cover))return;
-    const to=(lite || target || cover).getBoundingClientRect();if(!to.width || !to.height)return;
-    const landing=cornerOf(lite || target || cover);
-    heldEmbed=null;markMove();
+    const slot=lite || visibleFrameBox(target,embed) || cover;
+    const to=slot.getBoundingClientRect();if(!to.width || !to.height)return;
+    const landing=cornerOf(slot);
+    heldEmbed=null;markMove();held.restorePause();
     if(lite){
       lite.classList.add('lyt-activated');
       embed.hasActivatedYouTubePlayer=true;
@@ -371,7 +396,7 @@
       movePlayer(embed.shadowRoot,held.ifr);
     }
     held.stage.remove();
-    const from=held.rect,box=held.ifr.getBoundingClientRect(),aspect=lite?16/9:from.width/from.height;
+    const from=held.rect,box=held.ifr.hasAttribute('data-rt-fit-adjusted')?to:held.ifr.getBoundingClientRect(),aspect=lite?16/9:from.width/from.height;
     if(typeof held.ifr.animate==='function' && box.width && box.height && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){
       // One scale from YouTube's 16:9 picture to picture, clipped to the card's box at the start, as for videos.
       const a=picture(from,aspect),b=picture(box,aspect),scale=a.width/b.width;
