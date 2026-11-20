@@ -1,14 +1,14 @@
-# Android app prompt
+# Mobile app prompt
 
-When the modern Reddit site presents its Android app-promotion dialog, use the dialog's own browser continuation. The page stays open and Reddit manages dismissal and focus. The extension runs in the top-level Android document and recognizes the prompt by its title, app action, and separate browser action. It leaves other dialogs and prompts without a safe browser action in place.
+When the modern Reddit site presents an app-promotion dialog on Android or iOS, keep the current web page open. For the app-only blocking promotion, remove its owning element before Reddit mounts the overlay. For a promotion with an explicit browser action, use that action. The extension runs in the top-level mobile document and leaves unrelated dialogs in place.
 
 | Transition | Expected behavior |
 |---|---|
-| A visible prompt is present on initial load (T1) | Invoke the web action once. |
-| Reddit adds or hydrates the prompt (T7) | Wait until the prompt exposes a visible and enabled browser action. A dialog within an app-promotion sheet receives one click. |
+| A promotion is present on initial load (T1) | Remove its app-only owner or invoke the web action once. |
+| Reddit adds or hydrates the prompt (T7) | Recognize the app-only promotion before it opens. An ordinary app-promotion sheet receives one click after its browser action becomes available. |
 | Back or Forward restores the page (T3, T4) | Preserve the existing dismissal. A new prompt receives its own browser continuation. |
-| Non-Android viewport or another dialog (T15) | Preserve Reddit's normal handling. A community age or access prompt cannot qualify as an app promotion. |
+| Desktop or another dialog (T15) | Preserve Reddit's normal handling. The app-only match requires the exact promotion owner and dialog ID. |
 
 The extension adds no markup. A document observer discovers native HTML and recognized open shadow roots. Weak references prevent duplicate actions without retaining discarded dialogs. The unit fixtures cover English controls, including the Chrome row's short Continue label. Other languages and variants without a recognized action retain the native dialog.
 
-The existing `/r/totalkalesh/` tab in regular Chrome supplied the native `configured-xpromo-modal > rpl-dialog` structure. The Android-emulated response used the **Mature Content** variant. Its template contained **View In App** and **Go Home** and offered no browser continuation. This variant retains Reddit's behavior, and a synthetic fixture covers the same component with an explicit browser action.
+The existing `/r/totalkalesh/` tab in regular Chrome supplied the native `configured-xpromo-modal > rpl-dialog` structure. The **Mature Content** promotion's template contains **View In App** and **Go Home**. The feed already contains its rendered posts beneath the promotion. The extension removes only that promotion and leaves the existing feed and URL in place.

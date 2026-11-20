@@ -13,7 +13,7 @@ const prompt = (title = 'Open in the Reddit app', browser = '<button>Continue in
 
 function setup(t, markup = '', android = true) {
   const {window} = new JSDOM(markup, {url: 'https://www.reddit.com/r/example/', runScripts: 'outside-only'});
-  if (android) Object.defineProperty(window.navigator, 'userAgentData', {value: {platform: 'Android'}});
+  if (android) Object.defineProperty(window.navigator, 'userAgentData', {value: {platform: android === true ? 'Android' : android}});
   const trace = [];
   window.document.addEventListener('click', event => {
     trace.push(event.composedPath()[0].textContent.trim());
@@ -68,14 +68,38 @@ test('desktop and non-Android mobile browsers keep the native app prompt', async
   assert.deepEqual(trace, []);
 });
 
-test('a configured Reddit dialog with a browser action continues, while the Mature Content variant stays intact', async t => {
+const appOnly = `<configured-xpromo-modal data-xpromo-view-san="xpromo|view|blocking_xpromo_nsfw_blocking">
+  <rpl-dialog open blocking dialog-id="configured-xpromo-blocking_xpromo_nsfw_blocking">
+    <template><rpl-modal-card><h3 slot="title">Mature Content</h3>
+      <a slot="primary-button" href="https://app.example/">View In App</a><button slot="tertiary-button">Go Home</button>
+    </rpl-modal-card></template>
+  </rpl-dialog>
+</configured-xpromo-modal>`;
+
+test('the installed Android script removes Reddit’s app-only promotion while leaving the feed and other dialogs in place', async t => {
+  const {window, document, trace} = setup(t, `
+    <main><article>Existing web content</article></main>${appOnly}
+    <rpl-dialog open blocking dialog-id="confirm-account"><button>Sign in</button></rpl-dialog>`);
+  await settle();
+  assert.equal(document.querySelector('configured-xpromo-modal'), null);
+  assert.equal(document.querySelector('main article').textContent, 'Existing web content');
+  assert.ok(document.querySelector('[dialog-id="confirm-account"][open]'));
+  assert.equal(window.location.pathname, '/r/example/');
+  assert.deepEqual(trace, []);
+});
+
+test('the blocking app promotion is removed when Reddit adds it in a mobile emulation and stays on desktop', async t => {
+  const mobile = setup(t, '<main></main>', 'iOS');
+  const desktop = setup(t, appOnly, false);
+  mobile.document.body.insertAdjacentHTML('beforeend', appOnly);
+  await settle();
+  assert.equal(mobile.document.querySelector('configured-xpromo-modal'), null);
+  assert.ok(desktop.document.querySelector('configured-xpromo-modal'));
+  assert.deepEqual(mobile.trace, []);
+});
+
+test('a configured Reddit promotional dialog with an explicit browser action can continue', async t => {
   const {trace} = setup(t, `
-    <configured-xpromo-modal>
-      <rpl-dialog open dialog-id="configured-xpromo-blocking_xpromo_nsfw_blocking">
-        <h3 slot="title">Mature Content</h3><a slot="primary-button" href="https://app.example/">View In App</a>
-        <button slot="tertiary-button">Go Home</button>
-      </rpl-dialog>
-    </configured-xpromo-modal>
     <configured-xpromo-modal>
       <rpl-dialog open dialog-id="configured-xpromo-app_prompt">
         <h3 slot="title">See Reddit in the app</h3><a slot="primary-button" href="https://app.example/">View In App</a>

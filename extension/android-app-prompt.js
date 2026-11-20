@@ -1,12 +1,13 @@
-/* Use Reddit's web continuation for its Android app-promotion dialog. */
+/* Keep mobile visitors on the web when Reddit presents an app promotion. */
 (() => {
   'use strict';
-  const android = /\bAndroid\b/i;
-  if (window.top !== window || !(android.test(navigator.userAgentData?.platform) || android.test(navigator.userAgent))) return;
+  const mobile = /\b(?:Android|iOS|iPhone|iPad|iPod)\b/i;
+  if (window.top !== window || !(mobile.test(navigator.userAgentData?.platform) || mobile.test(navigator.userAgent))) return;
 
+  const APP_ONLY = 'configured-xpromo-modal > rpl-dialog[dialog-id="configured-xpromo-blocking_xpromo_nsfw_blocking"][blocking]';
   const SHEET = 'configured-xpromo-modal rpl-dialog[open], xpromo-bottom-sheet, shreddit-xpromo-bottom-sheet, shreddit-async-loader[bundlename*="xpromo" i], [data-testid*="xpromo" i]';
   const DIALOG = 'dialog[open], [role="dialog"], [aria-modal="true"]';
-  const CANDIDATE = SHEET + ', ' + DIALOG;
+  const CANDIDATE = APP_ONLY + ', ' + SHEET + ', ' + DIALOG;
   const HEADING = 'h1, h2, h3, h4, [role="heading"], [slot="title"], [slot="heading"]';
   const TITLE = /^(?:open in (?:the )?(?:reddit )?app|see (?:this post|this community|reddit) in (?:the )?(?:reddit )?app|(?:the )?reddit app|reddit is better in the app)$/i;
   const APP = /^(?:open|use|view)(?: (?:in|the))?(?: (?:the )?(?:reddit )?app| reddit)?$/i;
@@ -48,6 +49,11 @@
 
   function inspect(dialog) {
     if (handled.has(dialog) || !dialog.isConnected) return;
+    if (dialog.matches(APP_ONLY)) {
+      // Disconnect the promotion owner before its asynchronous showModal can mount the blocking dialog.
+      dialog.parentElement.remove();
+      return;
+    }
     if (dialog.shadowRoot) observe(dialog.shadowRoot);
     const roots = dialog.shadowRoot ? [dialog, dialog.shadowRoot] : [dialog];
     const title = normalized(dialog.getAttribute('aria-label'));
@@ -81,7 +87,7 @@
     if (observed.has(root)) return;
     observed.add(root);
     observer.observe(root, {subtree:true, childList:true, characterData:true, attributes:true,
-      attributeFilter:['open', 'role', 'aria-modal', 'aria-label', 'aria-hidden', 'hidden', 'disabled', 'aria-disabled', 'data-testid', 'bundlename']});
+      attributeFilter:['open', 'blocking', 'dialog-id', 'role', 'aria-modal', 'aria-label', 'aria-hidden', 'hidden', 'disabled', 'aria-disabled', 'data-testid', 'bundlename']});
     scan(root);
   }
 
