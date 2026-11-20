@@ -743,6 +743,7 @@ html[data-rt-smooth-feed] shreddit-feed[data-rt-loading-owner]>[data-rt-skip]{co
 /* Before Reddit's script defines the post menu (slow connections), its light-DOM children render in place: keep the
    raffle item hidden until the menu can slot it into its closed popup. */
 shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{display:none!important}
+@media (max-width:767.98px){#post-overflow-menu-bottom-sheet .max-h-\[19rem\]{max-height:none!important;overflow:visible!important}}
 /* Compact native header on upward scrolling from mobile Home. */
 reddit-header-small [data-rt-home-search]{display:none}
 @media (max-width:767.98px){

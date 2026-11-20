@@ -78,6 +78,16 @@ test('every post menu gets one “Run a raffle” item in its action slot, with 
  s.r.sync();s.r.sync();assert.equal(s.D.querySelectorAll('[data-rt-raffle="item"]').length,1);
  await s.setSettings({raffles:false});assert.equal(s.item(),null);
 });
+test('the phone bottom sheet keeps one raffle item and updates it with the menu item’s status',async t=>{
+ const s=await ui(t,{raffler:m=>m.action==='status'?{ok:true,exists:true}:{ok:true,signedIn:''}}),D=s.D,item=s.item();
+ const portal=D.createElement('div');portal.id='post-overflow-menu-bottom-sheet';portal.className='post-overflow-menu-bottom-sheet';
+ const slot=(native=false)=>{const el=D.createElement('div');el.setAttribute('slot','devvit-context-actions');el.setAttribute('role','menuitem');if(native)el.innerHTML='<hr><shreddit-async-loader></shreddit-async-loader>';el.append(item.cloneNode(true));return el;};
+ const native=slot(true),empty=slot();portal.append(native,empty,D.createElement('div'));D.body.append(portal);
+ s.r.sync();assert.equal(portal.querySelectorAll('[data-rt-raffle="item"]').length,1,'one visible row in the copied sheet');
+ assert.equal(portal.querySelector('[data-rt-raffle="item"]').closest('[slot]'),native,'the native action slot keeps the item');
+ s.D.querySelector('button[aria-haspopup]').dispatchEvent(new s.W.Event('pointerdown',{bubbles:true,composed:true}));await flush();
+ assert.equal(portal.querySelector('[data-rt-raffle="item"]').querySelector('.text-body-2').textContent,'View raffle results','the copied row gets the status too');
+});
 test('a failed settings read keeps raffles on and retries; the item is ensured as ⋯ is pressed; a created slot has no role',async t=>{
  let reads=0;const dom=new JSDOM(page().replace('<div slot="devvit-context-actions" role="menuitem"></div>',''),{url:'https://www.reddit.com/r/Alpha/',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;let r;t.after(()=>{r?.destroy();W.close();});
  for(const file of ['post-model.js','feed-filters.js','raffle-model.js','raffle-ui.js'])W.eval(read(file));
