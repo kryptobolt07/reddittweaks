@@ -16,3 +16,7 @@ Run targeted settings, early startup, feed pagination, comment-tree, sharing and
 ## Compact community state (2026-11-17)
 
 Replace the large Banned · Archived posts masthead pill with the existing removed/banner glyph immediately beside r/name. Private archives use their existing hidden glyph in the same position. Reuse the exact glyph helper; no new artwork. Keep an accessible state/source label and native tooltip, while visible title text remains r/name. No Join-area pill, border, padding or extra header row; desktop/mobile native masthead geometry stays intact. Tests first for location, no visible pill text, accessible attribution, shared SVG and unchanged heading/spacing. Existing mount/filter/navigation/opt-out transitions retain a single icon and current state. No live writes or new requests.
+
+## Mobile archive post header
+
+Fit the credit line in a 44 px row with 16 px gutters, using the native post detail as the reference. At phone widths, give the existing 32 px Back control the same secondary button treatment as Reddit's post Back control. Keep the author and community lines between the Back control and the overflow, truncating within that space. An archive post opened from a Reddit page returns to the preceding entry, including its filter parameters (T3). A direct visit with no same-origin history returns to the archived community. Wider layouts and archive feed cards keep their existing styling.
