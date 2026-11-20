@@ -20,5 +20,23 @@
     }catch{}
     return '';
   }
-  globalThis.RTEmbedHosts={redditOrigins,wrapperOrigin,origins,matches,playerOrigin};
+  async function ensureScripts(api){
+    if(!api.scripting?.getRegisteredContentScripts || !await api.permissions.contains({origins}))return false;
+    const scripts=[
+      {id:'rt-embed-player',matches,js:['embed-player-hosts.js','embed-player.js'],allFrames:true,runAt:'document_start',persistAcrossSessions:true},
+      {id:'rt-embed-player-main',matches,js:['embed-player-main.js'],allFrames:true,runAt:'document_start',world:'MAIN',persistAcrossSessions:true}
+    ];
+    const registered=new Set((await api.scripting.getRegisteredContentScripts({ids:scripts.map(script=>script.id)})).map(script=>script.id));
+    for(const script of scripts){
+      if(registered.has(script.id))continue;
+      try{await api.scripting.registerContentScripts([script]);}
+      catch(error){
+        if(script.world==='MAIN')continue;
+        const concurrent=await api.scripting.getRegisteredContentScripts({ids:[script.id]});
+        if(!concurrent.some(item=>item.id===script.id))throw error;
+      }
+    }
+    return true;
+  }
+  globalThis.RTEmbedHosts={redditOrigins,wrapperOrigin,origins,matches,playerOrigin,ensureScripts};
 })();

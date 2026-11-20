@@ -749,10 +749,10 @@ test('another provider’s embed previews muted through its own autoplay flags a
  const twitch=page(t);const tw=frameEmbed(twitch,'https://clips.twitch.tv/embed?clip=x&parent=www.reddit.com');await hoverController(twitch);
  tw.over();await waitForHover();const tu=new URL(tw.frame.src);assert.equal(tu.searchParams.get('autoplay'),'true');assert.equal(tu.searchParams.get('muted'),'true');assert.equal(tu.searchParams.get('parent'),'www.reddit.com');
 });
-test('Play here reloads another provider’s preview with sound; opening its post carries the same iframe over at the same moment',async t=>{
+test('Play here keeps a flag-only preview loaded; opening its post carries the same iframe over at the same moment',async t=>{
  const p=page(t);const e=frameEmbed(p);await hoverController(p,{videoPreviewClick:'here'});
  e.over();await waitForHover();e.layer().dispatchEvent(new p.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
- const url=new URL(e.frame.src);assert.equal(url.searchParams.get('autoplay'),'1');assert.equal(url.searchParams.has('muted'),false);assert.equal(e.layer(),null);
+ const url=new URL(e.frame.src);assert.equal(url.searchParams.get('autoplay'),'1');assert.equal(url.searchParams.get('muted'),'1','a flag-only preview keeps its position and reveals the player controls');assert.equal(e.layer(),null);
  const q=page(t);const f=frameEmbed(q);await hoverController(q);
  let held=0;f.node.addEventListener('rt-hold-feed-embed',event=>{held++;event.preventDefault();});
  f.over();await waitForHover();const playing=f.frame.getAttribute('src');f.layer().dispatchEvent(new q.W.MouseEvent('click',{bubbles:true,composed:true,cancelable:true}));
@@ -984,7 +984,7 @@ test('without a usable still a parked player shows a plain placeholder with the 
  await new Promise(resolve=>setTimeout(resolve,100));
  const cover=e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),label=cover.querySelector('[data-rt-parked-label]');
  assert.equal(cover.hasAttribute('data-rt-placeholder'),true);assert.equal(label.textContent,'RedGIFs');assert.equal(label.hidden,false);
- assert.equal(cover.style.backgroundSize,'contain','a still is fitted like the player, not cropped');
+ assert.match(cover.style.backgroundColor,/color-neutral-background-weak/,'missing artwork leaves a themed placeholder');
 });
 test('On Play: a still that turns out tiny gives way to the player loaded idle, without autoplay',async t=>{
  const p=page(t);phone(p,true,-900);
@@ -1189,4 +1189,103 @@ test('fallback poster lookups wait until a distant card approaches the viewport'
  assert.deepEqual(requests,[]);
  top=1300;p.io.posters.cb([{target:e.node,isIntersecting:true}]);await new Promise(resolve=>setTimeout(resolve,100));
  assert.deepEqual(requests,['t3_test']);
+});
+
+test('feed preview selection preserves detail viewport ownership and teardown restores it',async t=>{
+ const p=page(t,{detail:true});
+ let managed=0,released=0;
+ p.player.addEventListener('rt-manage-media-viewport',event=>{managed++;event.preventDefault();});
+ p.player.addEventListener('rt-restore-media-viewport',()=>released++);
+ const c=await hoverController(p);
+ assert.equal(managed,1);
+ c.pickInView();c.pickInView();
+ assert.equal(released,0);
+ c.destroy();
+ assert.equal(released,1);
+});
+
+test('a direct embed that was already playing when it announced can pause and resume on its detail page',async t=>{
+ const p=page(t,{detail:true});
+ const e=frameEmbed(p,'https://www.redgifs.com/ifr/detail'),c=await hoverController(p),sent=[];
+ e.frame.contentWindow.postMessage=message=>sent.push(message.rtMedia);
+ c.onFrameMessage({source:e.frame.contentWindow,origin:'https://www.redgifs.com',data:{rtMedia:'hello',playing:true,rendered:true}});
+ sent.length=0;
+ p.io.cb([{target:e.node,intersectionRatio:0}]);
+ p.io.cb([{target:e.node,intersectionRatio:0.65}]);
+ assert.deepEqual(sent,['pause','play']);
+ c.onFrameMessage({source:e.frame.contentWindow,origin:'https://www.redgifs.com',data:{rtMedia:'pause'}});
+ sent.length=0;
+ p.io.cb([{target:e.node,intersectionRatio:0}]);p.io.cb([{target:e.node,intersectionRatio:1}]);
+ assert.deepEqual(sent,[],'manual pause remains paused');
+});
+
+test('an offscreen feed iframe stays parked before a poster arrives and its first fitted picture replaces the still',async t=>{
+ const p=page(t);
+ const e=frameEmbed(p,'https://player.vimeo.com/video/9'),still='https://preview.redd.it/embed.jpg';
+ let top=950;
+ e.node.getBoundingClientRect=()=>({top,bottom:top+280,height:280,width:390});
+ e.node.setAttribute('poster',still);
+ const c=await hoverController(p);
+ c.scan();
+ assert.equal(e.frame.getAttribute('src'),'about:blank');
+ top=150;
+ e.over();await waitForHover();
+ assert.equal(e.frame.hasAttribute('data-rt-fit-preview'),true);
+ const image=()=>e.node.shadowRoot.querySelector('[data-rt-pre-still]');
+ assert.equal(image()?.src,still);
+ assert.equal(image().style.objectFit,'cover','the still fills the reserved container while the frame connects');
+ c.onFrameMessage({source:e.frame.contentWindow,origin:'https://player.vimeo.com',data:{rtMedia:'hello',playing:false,rendered:false}});
+ assert.ok(image(),'a handshake alone is too early');
+ c.onFrameMessage({source:e.frame.contentWindow,origin:'https://player.vimeo.com',data:{rtMedia:'rendered'}});
+ assert.equal(image(),null,'the first frame replaces the still');
+});
+
+test('the sound tap does not reload a playing flag-only frame',async t=>{
+ const p=page(t),c=await controlled(p,{videoPreviewClick:'sound'},'https://www.redgifs.com/ifr/example');
+ c.over();await waitForHover();const original=c.frame.getAttribute('src');
+ c.layer().click();
+ assert.equal(c.frame.getAttribute('src'),original);
+ assert.equal(c.layer(),null);
+});
+
+test('another player cannot pause an iframe held on its way into a detail post',async t=>{
+ const p=page(t),c=await controlled(p);
+ c.node.addEventListener('rt-hold-feed-embed',event=>event.preventDefault(),{once:true});
+ c.over();await waitForHover();p.click(p.title);c.sent.length=0;
+ const other=p.d.createElement('video');p.d.body.append(other);
+ c.controller.exclusive(other);
+ assert.deepEqual(c.commands(),[]);
+ assert.equal(c.frame.hasAttribute('data-rt-fit-preview'),true,'hold keeps the provider fit');
+});
+
+test('autoplay does not replace a promoted visible embed while its controls are in use',async t=>{
+ const p=page(t);phone(p,true);
+ const first=frameEmbed(p,'https://player.vimeo.com/video/1');
+ first.node.getBoundingClientRect=()=>({top:150,bottom:360,height:210,width:390});
+ const c=await hoverController(p,{embedStartTouch:'autoplay',videoPreviewClick:'sound',videoStartTouch:'play'});
+ c.pickInView();
+ first.layer().click();
+ const card=p.d.createElement('shreddit-post');card.id='t3_second';
+ const second=frameEmbed(p,'https://player.vimeo.com/video/2');
+ card.append(second.node);p.d.body.append(card);
+ second.node.getBoundingClientRect=()=>({top:370,bottom:710,height:340,width:390});
+ c.scan();c.pickInView();
+ assert.equal(second.layer(),null);
+});
+
+test('a direct embed remembers its time across a full navigation when the iframe cannot move',async t=>{
+ const p=page(t),c=await controlled(p,{},'https://www.redgifs.com/ifr/example'),origin='https://www.redgifs.com';
+ const tell=(controller,frame,data)=>controller.onFrameMessage({source:frame.contentWindow,origin,data});
+ c.over();await waitForHover();
+ tell(c.controller,c.frame,{rtMedia:'hello',playing:true,rendered:true});
+ tell(c.controller,c.frame,{rtMedia:'progress',time:7.25,muted:true});
+ p.click(p.title);
+ const saved=p.W.sessionStorage.getItem(embedKey);assert.ok(saved);
+ const detail=page(t,{detail:true}),e=frameEmbed(detail,'https://www.redgifs.com/ifr/example'),sent=[];
+ detail.W.sessionStorage.setItem(embedKey,saved);
+ const d=await hoverController(detail);
+ e.frame.contentWindow.postMessage=data=>sent.push(data);
+ tell(d,e.frame,{rtMedia:'hello',playing:false,rendered:true});
+ assert.deepEqual(JSON.parse(JSON.stringify(sent.find(data=>data.rtMedia==='resume'))),{rtMedia:'resume',time:7.25,muted:false});
+ assert.equal(detail.W.sessionStorage.getItem(embedKey),null);
 });

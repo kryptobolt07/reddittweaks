@@ -211,22 +211,15 @@ importScripts('account-broker.js');
 importScripts('embed-player-hosts.js');
 importScripts('embed-poster-broker.js');
 
-// The Reddit page asks once whether direct controls are on, so self-starting players can be held on their first
-// frame instead of being unloaded.
-// Direct controls enabled before the page-context helper existed get it on update.
-chrome.runtime.onInstalled?.addListener(async()=>{
-  try{
-    const ids=(await chrome.scripting.getRegisteredContentScripts({ids:['rt-embed-player','rt-embed-player-main']})).map(s=>s.id);
-    if(ids.includes('rt-embed-player') && !ids.includes('rt-embed-player-main'))
-      await chrome.scripting.registerContentScripts([{id:'rt-embed-player-main',matches:RTEmbedHosts.matches,js:['embed-player-main.js'],allFrames:true,runAt:'document_start',world:'MAIN',persistAcrossSessions:true}]);
-  }catch{}
-});
+// Chrome drops dynamic scripts on unpacked extension reload. The existing host grant is the opt-in to restore them.
+let embedRegistration;
+const ensureEmbedScripts=()=>embedRegistration ||= RTEmbedHosts.ensureScripts(chrome).catch(()=>false).finally(()=>{embedRegistration=null;});
+chrome.runtime.onInstalled?.addListener(ensureEmbedScripts);
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(message?.scope!=='rt-embed-direct')return;
   let origin='';try{origin=new URL(sender.url).origin;}catch{}
   if(sender.id!==chrome.runtime.id || sender.frameId!==0 || !RTEmbedHosts.redditOrigins.includes(origin)){respond(false);return;}
-  Promise.all([chrome.permissions.contains({origins:RTEmbedHosts.origins}),chrome.scripting?.getRegisteredContentScripts?.({ids:['rt-embed-player']})])
-    .then(([granted,scripts])=>respond(Boolean(granted && scripts?.length)),()=>respond(false));
+  ensureEmbedScripts().then(respond);
   return true;
 });
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{

@@ -78,6 +78,64 @@ test('a player outside Reddit is let go at once',async t=>{
  assert.equal(video.paused,false);
 });
 
+test('a provider sound button that pauses its current video keeps it playing at the same time',async t=>{
+ const {W,video,send}=await player(t),button=W.document.querySelector('button');
+ button.setAttribute('aria-label','Turn sound on');
+ button.addEventListener('click',()=>{video.pause();video.muted=false;});
+ await send('unmute');
+ await new Promise(resolve=>setTimeout(resolve,150));
+ assert.equal(video.muted,false);assert.equal(video.paused,false);assert.equal(video.currentTime,9);
+});
+
+test('link blocking leaves provider buttons inside a linked player usable',async t=>{
+ const {W,send,click}=await player(t);
+ const control=W.document.querySelector('button');
+ W.document.querySelector('a').append(control);
+ await send('policy',{block:true});
+ let used=0;control.addEventListener('click',()=>used++);
+ assert.equal(click(control),true);
+ assert.equal(used,1);
+});
+
+test('the frame announces its available picture before it starts playing',async t=>{
+ const {W,video,messages,send}=await player(t);
+ await send('policy',{block:false});
+ video.pause();
+ Object.defineProperty(video,'readyState',{value:2});
+ video.dispatchEvent(new W.Event('loadeddata'));
+ assert.ok(messages.some(({data})=>data.rtMedia==='rendered'));
+ assert.equal(video.paused,true);
+});
+
+test('a continuation waits for metadata and applies its time before playing',async t=>{
+ const {W,video,send}=await player(t);
+ let readiness=0;
+ Object.defineProperty(video,'readyState',{get:()=>readiness});
+ video.pause();
+ await send('resume',{time:14,muted:true});
+ assert.equal(video.currentTime,9);assert.equal(video.paused,true);
+ readiness=1;video.dispatchEvent(new W.Event('loadedmetadata'));
+ assert.equal(video.currentTime,14);assert.equal(video.muted,true);assert.equal(video.paused,false);
+});
+
+test('missing player scripts are restored only for already approved provider access',async t=>{
+ const {W}=await player(t),registered=new Map();
+ let permitted=false;
+ const api={permissions:{contains:async()=>permitted},scripting:{
+  getRegisteredContentScripts:async()=>[...registered.values()],
+  registerContentScripts:async scripts=>{for(const script of scripts)registered.set(script.id,script);}
+ }};
+ assert.equal(await W.RTEmbedHosts.ensureScripts(api),false);
+ assert.equal(registered.size,0);
+ permitted=true;
+ assert.equal(await W.RTEmbedHosts.ensureScripts(api),true);
+ assert.deepEqual([...registered.keys()],['rt-embed-player','rt-embed-player-main']);
+ assert.equal(registered.get('rt-embed-player').runAt,'document_start');
+ assert.equal(registered.get('rt-embed-player-main').world,'MAIN');
+ assert.equal(await W.RTEmbedHosts.ensureScripts(api),true);
+ assert.equal(registered.size,2);
+});
+
 test('a blocked player cannot open its own site from script',async()=>{
  const {JSDOM}=require('jsdom');
  const dom=new JSDOM('<iframe></iframe>',{runScripts:'outside-only'});const W=dom.window.frames[0];
