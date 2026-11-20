@@ -46,7 +46,9 @@ function saveSetting(control) {
   settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{
     const storage=globalThis.chrome?.storage?.local;
     if(!storage?.get||!storage?.set)throw Error('storage unavailable');
-    const latest=await storage.get(SETTINGS_KEY),merged={...SETTINGS_DEFAULTS,...(latest?.[SETTINGS_KEY]||{}),[key]:next};
+    const latest=await storage.get(SETTINGS_KEY),previous={...SETTINGS_DEFAULTS,...latest?.[SETTINGS_KEY]};
+    const merged={...previous,[key]:next};
+    if(key==='videoUnmutePreview')merged.videoPreviewClick=choiceValue(previous,'videoPreviewClick');
     await storage.set({[SETTINGS_KEY]:merged});
     writeMirror(merged);
   }).then(()=>{status.textContent='Settings saved automatically.';},()=>{
@@ -86,15 +88,16 @@ loadHistoryLimit();
 // Video choices (docs/video-control-spec.md). Same values and 0.46–0.47 migration as RTPostModel.normalizeSettings.
 const MOUSE_START=['autoplay','hover','play'],TOUCH_START=['autoplay','stop','play'];
 const VIDEO_CHOICES={videoStart:MOUSE_START,videoStartTouch:TOUCH_START,gifStart:MOUSE_START,gifStartTouch:TOUCH_START,embedStart:MOUSE_START,embedStartTouch:TOUCH_START,
-  videoPreviewClick:['open','here'],videoPreviewFrom:['position','start'],videoOpenPost:['continue','reddit'],videoScrollAway:['reddit','pause'],embedBlockLinks:['off','feed','posts','both']};
+  videoPreviewClick:['open','muted','sound'],videoPreviewFrom:['position','start'],videoOpenPost:['continue','reddit'],videoScrollAway:['reddit','pause'],embedBlockLinks:['off','feed','posts','both']};
 function choiceValue(raw,key){
   if(['videoStart','videoStartTouch'].includes(key) && raw?.[key]==='reddit')return 'autoplay';
   if(VIDEO_CHOICES[key]?.includes(raw?.[key]))return raw[key];
   if(key==='gifStart' || key==='gifStartTouch')return 'autoplay';
   if(key==='embedStart' || key==='embedStartTouch')return choiceValue(raw,key.replace('embed','video'));
   if(key==='embedBlockLinks')return 'off';
+  if(key==='videoPreviewClick' && (raw?.videoPreviewClick==='here' || raw?.videoPreviewClickPlays===true))return raw?.videoUnmutePreview===false?'muted':'sound';
   // Defaults are Reddit's behaviour; only the old opt-ins (phone previews, click plays here, restart) carry over.
-  const old={videoStart:'autoplay',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'autoplay',videoPreviewClick:raw?.videoPreviewClickPlays===true?'here':'open',
+  const old={videoStart:'autoplay',videoStartTouch:raw?.videoPreviewsInView===true?'stop':'autoplay',videoPreviewClick:'open',
     videoPreviewFrom:raw?.videoPreviewRestart===true?'start':'position',videoOpenPost:'continue',videoScrollAway:'reddit'};
   return old[key];
 }

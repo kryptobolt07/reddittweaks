@@ -54,9 +54,9 @@ User decisions: options say only what the extension does, with no reference to R
 |---|---|---|
 | Feed videos start (computers only) | **Autoplay, muted** (the video in view, one at a time, about 150 ms after scrolling) · Preview on hover, muted · Only when I press Play | `videoStart` |
 | Feed videos start (phones only) | **Autoplay, muted** · Preview the one I stop on, muted (after 600 ms) · Only when I press Play | `videoStartTouch` |
-| Clicking a muted video (hidden with Only when I press Play) | **Opens the post** · Plays it here | `videoPreviewClick` |
+| Clicking a muted video (hidden with Only when I press Play) | **Opens the post** · Shows controls, stays muted · Plays here with sound | `videoPreviewClick` |
 | Once you open it, it plays (same) | **From where it was** · From the beginning | `videoPreviewFrom` |
-| Sound when you open it (same; switch) | **On** | `videoUnmutePreview` |
+| Sound when opening a preview (same; switch) | **On** | `videoUnmutePreview` |
 | Opening a post that is playing | **Keeps playing in the post** · The post's player starts again | `videoOpenPost` |
 | A post's video when you scroll past it | **Keeps playing off screen** · Pauses, and resumes when back | `videoScrollAway` |
 
@@ -116,6 +116,12 @@ For Vimeo and Embedly players with audio commands, the preview sound button unmu
 | Show an idle embed in On Play mode | Keep the image and Play button visible on phones and computers. A raw iframe stays parked until a tap. When a provider exposes no image, use its native poster if available. |
 
 The optional **Direct embed controls** permission lets the extension control the actual media element when a provider command is unavailable. It applies to the supported player URLs on Reddit, including Vimeo, RedGIFs, Streamable and Twitch, plus the Embedly wrapper. **Block embed links** defaults to Off and can apply to the feed, posts, or both. Standard outbound links on the Reddit page are outside this setting. A provider that exposes neither a command nor an accessible media element keeps its own sound control. A full document navigation cannot preserve the same iframe. Browsers may require a tap inside a cross-origin player to allow sound.
+
+### Preview clicks and missing stills
+
+- **Clicking a muted video** has three choices. **Opens the post** follows the Reddit permalink. **Shows controls, stays muted** hands the existing player over in place at its current position and volume. **Plays here with sound** also hands it over in place and asks the player for sound. The preview's sound button still works directly. The **Sound when opening a preview** switch applies only when an active preview opens its post, including via the card's title.
+- An external preview and its controls fill the space reserved by Reddit for the player on desktop and mobile. The provider keeps ownership of the video, its aspect ratio and its controls.
+- Use artwork supplied by Reddit or by the provider's public metadata. Read native Vimeo's Embedly image from Reddit's `html` attribute as soon as its card arrives. Missing-image lookups start within five viewports ahead and one and a half behind. If a still fails to load or is too small, try the other available images. An idle Vimeo card can show the fallback still and gives the slot back to the provider as it starts. RedGIFs artwork retains the supplied case and is loaded without a referrer. If all candidates are missing, use a native idle frame where possible, with the existing optional Direct embed controls for providers that play immediately. Capturing a frame from the video URL would require a second media load and cross-origin access, so the existing provider player remains the fallback.
 
 ## Transitions
 

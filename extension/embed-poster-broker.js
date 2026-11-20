@@ -14,22 +14,26 @@
     }
     return null;
   }
-  function metaImage(html){
+  function metaImages(html){
+    const images=[];
     for(const tag of html.match(/<meta\b[^<>]*>/gi) || []){
-      if(!/\b(?:property|name)\s*=\s*(['"])(?:og:image|twitter:image)\1/i.test(tag))continue;
-      const image=/\bcontent\s*=\s*(['"])(.*?)\1/i.exec(tag)?.[2];
-      if(image)return image.replaceAll('&amp;','&');
+      if(!/\s(?:property|name)\s*=\s*(['"])(?:og:image(?::(?:url|secure_url))?|twitter:image(?::src)?)\1/i.test(tag))continue;
+      const image=/\scontent\s*=\s*(['"])(.*?)\1/i.exec(tag)?.[2];
+      if(image)images.push(image.replaceAll('&amp;','&'));
     }
-    return '';
+    return images;
   }
   async function read(item){
     try{
       if(!await chrome.permissions.contains({origins:[item.host]}))return '';
       const response=await fetch(item.url,{credentials:'omit',redirect:'error',signal:AbortSignal.timeout(4000)});
       if(!response.ok)return '';
-      const value=item.json?(await response.json())?.thumbnail_url:metaImage(await response.text());
-      const image=new URL(value);
-      return image.protocol==='https:' && !image.username && !image.password && !image.port && item.imageHost.test(image.hostname)?image.href:'';
+      const images=item.json?[(await response.json())?.thumbnail_url]:metaImages(await response.text());
+      for(const value of images){
+        let image;try{image=new URL(value);}catch{continue;}
+        if(image.protocol==='https:' && !image.username && !image.password && !image.port && item.imageHost.test(image.hostname))return image.href;
+      }
+      return '';
     }catch{return '';}
   }
   function poster(item){
