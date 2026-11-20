@@ -1,3 +1,9 @@
+# 0.53.1 preview
+
+- **Mobile overlays:** read both switches through the extension worker and keep processing Reddit’s overlays when links update during startup. When Reddit reapplies the NSFW blur while loading a post, use the replacement reveal button.
+- **Version:** patch increment for the installed mobile overlay fix.
+- **Validation:** 2,080 tests passed. With both switches enabled in the installed extension, regular Chrome’s mobile emulation loaded the linked r/IdiotsNearTrain post with its media revealed and r/totalkalesh without the blocking app promotion. Both browser packages passed archive and byte-equality checks. Firefox lint reported zero errors, warnings and notices. Chromium SHA-256 `aa15cae95e201c198d4fd6cfa58a2f4e93d5e767980de7c8b11ac1990d8a4dc5`. Firefox SHA-256 `99234fe91767bf65dbf0c33f12923268f6d36c63c7cfde1b88e3769e13f8fa48`.
+
 # 0.53.0 preview
 
 - **Mobile Mature Content overlay:** Settings → Browsing now has a switch for removing the app-only overlay. It starts on to preserve the existing behavior. Refresh Reddit after turning it off.
