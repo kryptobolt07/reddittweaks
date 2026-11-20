@@ -11,20 +11,20 @@ const prompt = (title = 'Open in the Reddit app', browser = '<button>Continue in
     ${browser}
   </dialog>`;
 
-function setup(t, markup = '', android = true, settings = {}, readSettings = Promise.resolve(settings)) {
-  const {window} = new JSDOM(markup, {url: 'https://www.reddit.com/r/example/', runScripts: 'outside-only'});
+function setup(t, markup = '', android = true, settings = {}, readSettings = Promise.resolve(settings), url = 'https://www.reddit.com/r/example/') {
+  const {window} = new JSDOM(markup, {url, runScripts: 'outside-only'});
   if (android) Object.defineProperty(window.navigator, 'userAgentData', {value: {platform: android === true ? 'Android' : android}});
   const trace = [];
   let changed;
   window.chrome = {storage: {local: {get: async key => ({[key]: await readSettings})}, onChanged: {addListener(listener) { changed = listener; }}}};
-  const setOverlay = value => changed?.({'rt-settings-v1': {newValue: {hideMatureOverlay: value}}}, 'local');
+  const setSettings = settings => changed?.({'rt-settings-v1': {newValue: settings}}, 'local');
   window.document.addEventListener('click', event => {
     trace.push(event.composedPath()[0].textContent.trim());
     event.preventDefault();
   });
   window.eval(source());
   t.after(() => window.close());
-  return {window, document: window.document, trace, setOverlay};
+  return {window, document: window.document, trace, setSettings, setOverlay: value => setSettings({hideMatureOverlay:value})};
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -136,4 +136,21 @@ test('a configured Reddit promotional dialog with an explicit browser action can
     </configured-xpromo-modal>`);
   await settle();
   assert.deepEqual(trace, ['Continue in browser']);
+});
+
+test('revealing NSFW media is opt-in and only uses the native control on the opened mobile post', async t => {
+  const mediaGate = reason => `<shreddit-blurred-container reason="${reason}" blurred></shreddit-blurred-container>`;
+  const {document, trace, setSettings} = setup(t, `<main><shreddit-post id="t3_abc123">
+    <div slot="post-media-container">${mediaGate('nsfw')}${mediaGate('spoiler')}</div>
+  </shreddit-post><shreddit-post id="t3_other"><div slot="post-media-container">${mediaGate('nsfw')}</div></shreddit-post></main>`,
+  'iOS', {}, undefined, 'https://www.reddit.com/r/example/comments/abc123/example/');
+  for (const gate of document.querySelectorAll('shreddit-blurred-container')) {
+    const root = gate.attachShadow({mode:'open'});
+    root.innerHTML = `<button>${gate.getAttribute('reason')}</button>`;
+  }
+  await settle();
+  assert.deepEqual(trace, []);
+  setSettings({revealNsfwPostMedia:true});
+  await settle();
+  assert.deepEqual(trace, ['nsfw']);
 });

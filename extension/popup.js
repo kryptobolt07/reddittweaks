@@ -1,5 +1,5 @@
 const SETTINGS_KEY='rt-settings-v1';
-const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,hideMatureOverlay:true,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoUnmutePreview:true}
+const SETTINGS_DEFAULTS={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,hideMatureOverlay:true,revealNsfwPostMedia:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,videoUnmutePreview:true}
 // Video choices are stored only once picked: until then the 0.46–0.47 switches still decide them (choiceValue).;
 
 // The popup keeps a copy of the settings in its own (synchronous) storage, so switches show their real state on the
