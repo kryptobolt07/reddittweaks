@@ -87,6 +87,7 @@
       "js": [
         "profile-notice.js",
         "share-links-settings.js",
+        "android-app-prompt.js",
         "feed-filters.js",
         "feed-sheet.js",
         "mobile-home-header.js",
