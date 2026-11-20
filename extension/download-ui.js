@@ -25,11 +25,6 @@
     if(text!=null)element.textContent=text;
     return element;
   }
-  function parse(html) {
-    const template=document.createElement('template');
-    template.innerHTML=html.trim();
-    return template.content.firstElementChild;
-  }
   function defaultRead(message) {
     return new Promise((resolve,reject)=>{
       if(!globalThis.chrome?.runtime?.sendMessage)return reject(Error('Downloads are unavailable.'));
@@ -111,8 +106,15 @@
       }
     }
     action(post) {
-      const wrapper=parse('<rpl-dropdown placement="bottom-start" trigger="manual" hoist class="relative rt-download-action" data-rt-download="action"><button type="button" class="button rpl-cab border-sm flex flex-row justify-center items-center h-xl font-semibold relative text-label-2 button-secondary inline-flex items-center px-sm py-xs" style="height:var(--size-button-sm-h)" aria-haspopup="menu" aria-expanded="false" aria-label="Download media" title="Download media"></button><faceplate-menu slot="content" class="rt-download-menu" data-rt-download="panel" role="menu" aria-label="Download media"></faceplate-menu></rpl-dropdown>');
-      const button=wrapper.querySelector('button'),menu=wrapper.querySelector('faceplate-menu'),icon=make('span','rpl-cab--leading-icon flex items-center'),box=make('span','flex text-body-1');
+      const wrapper=make('rpl-dropdown','relative rt-download-action');
+      for(const [key,value] of Object.entries({placement:'bottom-start',trigger:'manual',hoist:'','data-rt-download':'action'}))wrapper.setAttribute(key,value);
+      const button=make('button','button rpl-cab border-sm flex flex-row justify-center items-center h-xl font-semibold relative text-label-2 button-secondary inline-flex items-center px-sm py-xs');
+      for(const [key,value] of Object.entries({type:'button','aria-haspopup':'menu','aria-expanded':'false','aria-label':'Download media',title:'Download media'}))button.setAttribute(key,value);
+      button.style.height='var(--size-button-sm-h)';
+      const menu=make('faceplate-menu','rt-download-menu');
+      for(const [key,value] of Object.entries({slot:'content','data-rt-download':'panel',role:'menu','aria-label':'Download media'}))menu.setAttribute(key,value);
+      wrapper.append(button,menu);
+      const icon=make('span','rpl-cab--leading-icon flex items-center'),box=make('span','flex text-body-1');
       box.append(glyph('download',16));icon.append(box);button.append(icon);
       button.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();this.toggle(post,wrapper,button,menu);},true);
       menu.addEventListener('keydown',event=>this.onPanelKey(event),true);
