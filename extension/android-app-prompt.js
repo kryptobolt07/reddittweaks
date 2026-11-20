@@ -7,7 +7,8 @@
   const APP_ONLY = 'configured-xpromo-modal > rpl-dialog[dialog-id="configured-xpromo-blocking_xpromo_nsfw_blocking"][blocking]';
   const SHEET = 'configured-xpromo-modal rpl-dialog[open], xpromo-bottom-sheet, shreddit-xpromo-bottom-sheet, shreddit-async-loader[bundlename*="xpromo" i], [data-testid*="xpromo" i]';
   const DIALOG = 'dialog[open], [role="dialog"], [aria-modal="true"]';
-  const CANDIDATE = APP_ONLY + ', ' + SHEET + ', ' + DIALOG;
+  const MEDIA = 'shreddit-blurred-container[reason="nsfw"][blurred], [data-rt-nsfw-media]';
+  const CANDIDATE = [APP_ONLY, SHEET, DIALOG, MEDIA].join(', ');
   const HEADING = 'h1, h2, h3, h4, [role="heading"], [slot="title"], [slot="heading"]';
   const TITLE = /^(?:open in (?:the )?(?:reddit )?app|see (?:this post|this community|reddit) in (?:the )?(?:reddit )?app|(?:the )?reddit app|reddit is better in the app)$/i;
   const APP = /^(?:open|use|view)(?: (?:in|the))?(?: (?:the )?(?:reddit )?app| reddit)?$/i;
@@ -17,6 +18,7 @@
   const handled = new WeakSet();
   const observed = new WeakSet();
   let hideMatureOverlay;
+  let revealNsfwPostMedia = false;
 
   function normalized(value) {
     return (value || '').replace(/[\s\u00a0]+/g, ' ').trim().replace(/[.!?]+$/, '');
@@ -48,11 +50,26 @@
     return action.href === location.href && (!action.target || action.target === '_self') && !action.hasAttribute('download');
   }
 
+  function revealPostMedia(gate) {
+    if (!revealNsfwPostMedia) return;
+    const id = /^\/(?:(?:r|user|u)\/[^/]+\/)?comments\/([a-z0-9]+)(?:\/|$)/i.exec(location.pathname)?.[1];
+    if (!id || gate.closest('main shreddit-post')?.id !== 't3_' + id || !gate.closest('[slot="post-media-container"], [slot="text-body"]')) return;
+    if (gate.shadowRoot) observe(gate.shadowRoot);
+    const button = gate.matches('shreddit-blurred-container') ? gate.shadowRoot?.querySelector('button') : gate.querySelector('.rt-sensitive-reveal');
+    if (!button || button.form || !safeAction(button)) return;
+    handled.add(gate);
+    button.click();
+  }
+
   function inspect(dialog) {
     if (handled.has(dialog) || !dialog.isConnected) return;
     if (dialog.matches(APP_ONLY)) {
       // Disconnect the promotion owner before its asynchronous showModal can mount the blocking dialog.
       if (hideMatureOverlay === true) dialog.parentElement.remove();
+      return;
+    }
+    if (dialog.matches(MEDIA)) {
+      revealPostMedia(dialog);
       return;
     }
     if (dialog.shadowRoot) observe(dialog.shadowRoot);
@@ -78,7 +95,8 @@
   const observer = new MutationObserver(records => {
     for (const record of records) {
       const target = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement;
-      const dialog = target?.closest(CANDIDATE) || target?.getRootNode().host?.closest(CANDIDATE);
+      const shadowHost = target?.getRootNode().host || record.target.host;
+      const dialog = target?.closest(CANDIDATE) || shadowHost?.closest(CANDIDATE);
       if (dialog) inspect(dialog);
       for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) scan(node);
     }
@@ -88,25 +106,34 @@
     if (observed.has(root)) return;
     observed.add(root);
     observer.observe(root, {subtree:true, childList:true, characterData:true, attributes:true,
-      attributeFilter:['open', 'blocking', 'dialog-id', 'role', 'aria-modal', 'aria-label', 'aria-hidden', 'hidden', 'disabled', 'aria-disabled', 'data-testid', 'bundlename']});
+      attributeFilter:['open', 'blocking', 'dialog-id', 'blurred', 'reason', 'role', 'aria-modal', 'aria-label', 'aria-hidden', 'hidden', 'disabled', 'aria-disabled', 'data-testid', 'bundlename']});
     scan(root);
   }
 
   observe(document);
   window.addEventListener('pageshow', () => scan(document));
+  const revealCurrentPost = () => {
+    if (revealNsfwPostMedia) for (const gate of document.querySelectorAll(MEDIA)) inspect(gate);
+  };
+  document.addEventListener('reddit:route', revealCurrentPost);
+  window.addEventListener('popstate', revealCurrentPost);
 
   const storage = (globalThis.browser || globalThis.chrome)?.storage;
   const settingsKey = 'rt-settings-v1';
-  function applyOverlayPreference(settings) {
+  function applyPreferences(settings) {
     const enabled = settings?.hideMatureOverlay !== false;
-    if (hideMatureOverlay === enabled) return;
+    const changed = hideMatureOverlay !== enabled;
     hideMatureOverlay = enabled;
-    if (enabled) for (const dialog of document.querySelectorAll(APP_ONLY)) inspect(dialog);
+    if (changed && enabled) for (const dialog of document.querySelectorAll(APP_ONLY)) inspect(dialog);
+    const reveal = settings?.revealNsfwPostMedia === true;
+    if (revealNsfwPostMedia === reveal) return;
+    revealNsfwPostMedia = reveal;
+    revealCurrentPost();
   }
   storage?.onChanged?.addListener((changes, area) => {
-    if (area === 'local' && changes[settingsKey]) applyOverlayPreference(changes[settingsKey].newValue);
+    if (area === 'local' && changes[settingsKey]) applyPreferences(changes[settingsKey].newValue);
   });
   if (storage?.local) Promise.resolve().then(() => storage.local.get(settingsKey)).then(stored => {
-    if (hideMatureOverlay === undefined) applyOverlayPreference(stored[settingsKey]);
+    if (hideMatureOverlay === undefined) applyPreferences(stored[settingsKey]);
   }).catch(() => {});
 })();

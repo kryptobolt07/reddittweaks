@@ -4,6 +4,8 @@ When the modern Reddit site presents an app-promotion dialog on Android or iOS, 
 
 **Settings → Browsing → Hide Mature Content overlay on mobile** controls removal of the app-only promotion. The default is on for existing and fresh installs. Read the preference before handling a blocking promotion. On T10, turning the setting on removes an existing matching promotion. Turning it off leaves subsequent promotions in place. Refresh the Reddit page to restore a promotion already removed.
 
+**Reveal NSFW media on mobile posts** is a separate setting and defaults off. The native mobile post showed `shreddit-blurred-container[reason="nsfw"][blurred]` inside its media slot. Use the existing reveal button for that component, or the archive renderer's equivalent button, only for the post ID in the current URL. A spoiler-only overlay, a recommendation and a feed card remain outside this setting. A new toggle or route change can reveal the current post after its media controls hydrate.
+
 | Transition | Expected behavior |
 |---|---|
 | A promotion is present on initial load (T1) | Remove its app-only owner or invoke the web action once. |

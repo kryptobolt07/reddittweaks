@@ -183,6 +183,7 @@
   function clipFade(content,fade){const check=()=>{fade.hidden=!(content.scrollHeight>content.clientHeight+1);};check();if(typeof ResizeObserver==='function' && !fade.rtWatched){fade.rtWatched=true;new ResizeObserver(check).observe(content);}return fade;}
   function sensitive(content,label,{media=true}={}){
     const box=make('div','relative overflow-hidden rt-sensitive'+(media?' rt-sensitive-media':''));content.classList.add('rt-sensitive-content');box.append(content);
+    if(media && label==='View NSFW content')box.dataset.rtNsfwMedia='';
     const reveal=make('button','rt-sensitive-reveal',label);reveal.type='button';
     // Like Reddit, a click anywhere on the blur reveals it (and never opens the post); afterwards clicks behave normally.
     box.addEventListener('click',event=>{if(box.classList.contains('rt-revealed'))return;event.preventDefault();event.stopPropagation();box.classList.add('rt-revealed');reveal.remove();},true);
