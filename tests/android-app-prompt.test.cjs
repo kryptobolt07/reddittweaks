@@ -15,16 +15,24 @@ function setup(t, markup = '', android = true, settings = {}, readSettings = Pro
   const {window} = new JSDOM(markup, {url, runScripts: 'outside-only'});
   if (android) Object.defineProperty(window.navigator, 'userAgentData', {value: {platform: android === true ? 'Android' : android}});
   const trace = [];
+  const requests = [];
   let changed;
-  window.chrome = {storage: {local: {get: async key => ({[key]: await readSettings})}, onChanged: {addListener(listener) { changed = listener; }}}};
-  const setSettings = settings => changed?.({'rt-settings-v1': {newValue: settings}}, 'local');
+  window.chrome = {
+    storage: {local: {get: async () => { throw new Error('Access to storage is not allowed from this context.'); }}},
+    runtime: {
+      id: 'extension',
+      async sendMessage(request) { requests.push(request); return {ok:true, settings:await readSettings}; },
+      onMessage: {addListener(listener) { changed = listener; }}
+    }
+  };
+  const setSettings = (settings, id = 'extension') => changed?.({scope:'rt-posts', action:'settings-changed', settings}, {id});
   window.document.addEventListener('click', event => {
     trace.push(event.composedPath()[0].textContent.trim());
     event.preventDefault();
   });
   window.eval(source());
   t.after(() => window.close());
-  return {window, document: window.document, trace, setSettings, setOverlay: value => setSettings({hideMatureOverlay:value})};
+  return {window, document: window.document, requests, trace, setSettings, setOverlay: value => setSettings({hideMatureOverlay:value})};
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -80,10 +88,11 @@ const appOnly = `<configured-xpromo-modal data-xpromo-view-san="xpromo|view|bloc
 </configured-xpromo-modal>`;
 
 test('the installed Android script removes Reddit’s app-only promotion while leaving the feed and other dialogs in place', async t => {
-  const {window, document, trace} = setup(t, `
+  const {window, document, requests, trace} = setup(t, `
     <main><article>Existing web content</article></main>${appOnly}
     <rpl-dialog open blocking dialog-id="confirm-account"><button>Sign in</button></rpl-dialog>`);
   await settle();
+  assert.deepEqual(requests.map(({scope, action}) => [scope, action]), [['rt-posts', 'get-settings']]);
   assert.equal(document.querySelector('configured-xpromo-modal'), null);
   assert.equal(document.querySelector('main article').textContent, 'Existing web content');
   assert.ok(document.querySelector('[dialog-id="confirm-account"][open]'));
@@ -101,9 +110,20 @@ test('the blocking app promotion is removed when Reddit adds it in a mobile emul
   assert.deepEqual(mobile.trace, []);
 });
 
-test('the mobile overlay follows its saved preference and changes to that preference', async t => {
-  const {document, setOverlay} = setup(t, appOnly, true, {hideMatureOverlay:false});
+test('a normal link mutation cannot interrupt discovery of the blocking app promotion', async t => {
+  const {document} = setup(t, '<main><a href="https://www.reddit.com/r/example/">Community</a></main>', 'iOS');
   await settle();
+  document.querySelector('a').append(document.createElement('span'));
+  document.body.insertAdjacentHTML('beforeend', appOnly);
+  await settle();
+  assert.equal(document.querySelector('configured-xpromo-modal'), null);
+});
+
+test('the mobile overlay follows its saved preference and changes to that preference', async t => {
+  const {document, setOverlay, setSettings} = setup(t, appOnly, true, {hideMatureOverlay:false});
+  await settle();
+  assert.ok(document.querySelector('configured-xpromo-modal'));
+  setSettings({hideMatureOverlay:true}, 'foreign');
   assert.ok(document.querySelector('configured-xpromo-modal'));
   setOverlay(true);
   await settle();
@@ -153,4 +173,35 @@ test('revealing NSFW media is opt-in and only uses the native control on the ope
   setSettings({revealNsfwPostMedia:true});
   await settle();
   assert.deepEqual(trace, ['nsfw']);
+});
+
+test('a saved media preference reveals the opened post on load through the trusted worker', async t => {
+  const {document, trace} = setup(t, `<main><shreddit-post id="t3_abc123"><div slot="post-media-container">
+    <shreddit-blurred-container reason="nsfw" blurred></shreddit-blurred-container>
+  </div></shreddit-post></main>`, 'iOS', {revealNsfwPostMedia:true}, undefined,
+  'https://www.reddit.com/r/example/comments/abc123/example/');
+  document.querySelector('shreddit-blurred-container').attachShadow({mode:'open'}).innerHTML = '<button>Reveal NSFW media</button>';
+  await settle();
+  assert.deepEqual(trace, ['Reveal NSFW media']);
+});
+
+test('Reddit can replace its reveal button when hydration reapplies the post blur', async t => {
+  const {document, trace} = setup(t, `<main><shreddit-post id="t3_abc123"><div slot="post-media-container">
+    <shreddit-blurred-container reason="nsfw" blurred></shreddit-blurred-container>
+  </div></shreddit-post></main>`, 'iOS', {revealNsfwPostMedia:true}, undefined,
+  'https://www.reddit.com/r/example/comments/abc123/example/');
+  const gate = document.querySelector('shreddit-blurred-container');
+  const shadow = gate.attachShadow({mode:'open'});
+  shadow.addEventListener('click', () => {
+    gate.removeAttribute('blurred');
+    shadow.replaceChildren();
+  });
+  shadow.innerHTML = '<button>Reveal NSFW media</button>';
+  await settle();
+  assert.equal(gate.hasAttribute('blurred'), false);
+  gate.setAttribute('blurred', '');
+  shadow.innerHTML = '<button>Reveal NSFW media</button>';
+  await settle();
+  assert.equal(gate.hasAttribute('blurred'), false);
+  assert.deepEqual(trace, ['Reveal NSFW media', 'Reveal NSFW media']);
 });

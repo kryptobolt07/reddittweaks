@@ -56,8 +56,9 @@
     if (!id || gate.closest('main shreddit-post')?.id !== 't3_' + id || !gate.closest('[slot="post-media-container"], [slot="text-body"]')) return;
     if (gate.shadowRoot) observe(gate.shadowRoot);
     const button = gate.matches('shreddit-blurred-container') ? gate.shadowRoot?.querySelector('button') : gate.querySelector('.rt-sensitive-reveal');
-    if (!button || button.form || !safeAction(button)) return;
-    handled.add(gate);
+    if (!button || handled.has(button) || button.form || !safeAction(button)) return;
+    // Reddit can reapply the blur during hydration and render a fresh control.
+    handled.add(button);
     button.click();
   }
 
@@ -95,8 +96,8 @@
   const observer = new MutationObserver(records => {
     for (const record of records) {
       const target = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement;
-      const shadowHost = target?.getRootNode().host || record.target.host;
-      const dialog = target?.closest(CANDIDATE) || shadowHost?.closest(CANDIDATE);
+      const root = record.target.getRootNode();
+      const dialog = target?.closest(CANDIDATE) || root.host?.closest?.(CANDIDATE);
       if (dialog) inspect(dialog);
       for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) scan(node);
     }
@@ -118,8 +119,6 @@
   document.addEventListener('reddit:route', revealCurrentPost);
   window.addEventListener('popstate', revealCurrentPost);
 
-  const storage = (globalThis.browser || globalThis.chrome)?.storage;
-  const settingsKey = 'rt-settings-v1';
   function applyPreferences(settings) {
     const enabled = settings?.hideMatureOverlay !== false;
     const changed = hideMatureOverlay !== enabled;
@@ -130,10 +129,16 @@
     revealNsfwPostMedia = reveal;
     revealCurrentPost();
   }
-  storage?.onChanged?.addListener((changes, area) => {
-    if (area === 'local' && changes[settingsKey]) applyPreferences(changes[settingsKey].newValue);
+  const runtime = (globalThis.browser || globalThis.chrome)?.runtime;
+  if (!runtime?.id) return;
+  runtime.onMessage.addListener((message, sender) => {
+    if (sender?.id === runtime.id && message?.scope === 'rt-posts' && message.action === 'settings-changed') {
+      applyPreferences(message.settings);
+    }
   });
-  if (storage?.local) Promise.resolve().then(() => storage.local.get(settingsKey)).then(stored => {
-    if (hideMatureOverlay === undefined) applyPreferences(stored[settingsKey]);
-  }).catch(() => {});
+  // The worker owns local storage. Reuse the document-start settings request when present.
+  Promise.resolve().then(() => globalThis.RTProfileNoticeGuard?.settings ||
+    runtime.sendMessage({scope:'rt-posts', action:'get-settings'})).then(response => {
+    if (hideMatureOverlay === undefined && response?.ok) applyPreferences(response.settings);
+  }, () => {});
 })();
