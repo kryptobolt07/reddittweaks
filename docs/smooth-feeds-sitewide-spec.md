@@ -12,9 +12,9 @@ User request: extend "Smooth long feeds" (profiles only, `docs`/0.42.0) to the r
 ## Behaviour
 
 - One master switch, **Smooth scrolling** (setting `smoothFeeds`, default on; no longer requires profile discovery), with sub-options: **Home, Popular & All** (`smoothHome`, on), **Subreddits** (`smoothSubreddits`, on), **Profiles** (`smoothProfiles`, on), **Search results** (`smoothSearch`, on), **Long comment threads** (`smoothComments`, off by default: comment permalinks and Reddit's "more replies" loading are the riskiest).
-- A unit (post, ad, search result, top-level comment) more than two screens away (IntersectionObserver, 200 % margin) gets `content-visibility:hidden` at its measured height (`contain-intrinsic-size:auto <h>px`), so the page keeps its height and scroll position; it is drawn again as it comes within two screens. Units holding focus are never skipped.
+- With a mouse, a unit (post, ad, search result, top-level comment) more than two screens away (IntersectionObserver, 200 % margin) gets `content-visibility:hidden` at its measured height (`contain-intrinsic-size:auto <h>px`), so the page keeps its height and scroll position. The browser draws it again as it comes within two screens. Units holding focus keep drawing.
 - Profile feeds the extension manages keep the existing page-world bridge (which also virtualizes very distant cards); the new module handles every other feed, including native profile feeds when profile discovery is off.
-- Turning a switch off removes every skip at once; SPA route changes use the area of the new page.
+- The current area's switch controls both the page bridge's measurement caches and desktop drawing skips. Turning a switch off clears active skips and stops watching for new cards. Reddit's `reddit:route` events and browser Back/Forward apply the new area's setting.
 
 ## Transitions
 
@@ -25,6 +25,7 @@ User request: extend "Smooth long feeds" (profiles only, `docs`/0.42.0) to the r
 | T3 | Open a post from a skipped feed and come Back | Reddit's own restoration; units re-observed |
 | T4 | Switch an area off in the popup | Its skips removed immediately |
 | T5 | Focus inside a far unit (keyboard) | That unit is not skipped |
+| T6 | Navigate from an enabled area to a disabled area, then Back | Clear previous skips and disable caches on navigation, then restore both settings as applicable on Back |
 
 ## Limits
 
@@ -39,6 +40,7 @@ A 45 s recording of the user flicking through the feed: the page's main thread w
 - The own-removal scan runs at most every 300 ms and keeps the signed-in name for 2 s per route; it clears badges only when it painted some.
 - The profile-feed sync returns at once outside profile pages.
 - Re-test with the caches below in place, skipping forced back on for touch (2 screens): 54 of 143 moving frames (37.8 %) at least half blank against 1 of 72 (1.4 %) without. Touch screens stay unskipped.
+- On touch, the Smooth scrolling module performs zero card-subtree observations or scans while Reddit adds cards. The phone path retains the measurement caches in enabled areas. Synthetic regressions cover startup, an appended batch, popup changes, and navigation using both `reddit:route` and `popstate`. Those tests cover extension work, while a live comparison is needed to characterize when visible card parts are drawn.
 
 ## Reddit's own costs (read from its client code, phone feed 2026-11-19)
 

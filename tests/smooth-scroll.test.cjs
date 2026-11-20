@@ -59,3 +59,59 @@ test('touch screens never skip drawing; a mouse keeps two screens drawn either w
   assert.equal(d.querySelectorAll('[data-rt-smooth]').length>0,observing,coarse?'phones leave Reddit’s posts alone':'desktop marks feed posts');s.destroy();
  }
 });
+
+test('touch feeds use the measurement cache without observing or scanning native cards',async t=>{
+ const {W,d,io}=page(t);
+ W.matchMedia=()=>({matches:true});
+ const observe=W.MutationObserver.prototype.observe;
+ const query=d.querySelectorAll.bind(d);
+ let observations=0,documentScans=0;
+ W.MutationObserver.prototype.observe=function(...args){observations++;return observe.apply(this,args);};
+ d.querySelectorAll=(...args)=>{documentScans++;return query(...args);};
+ const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>({})});await s.ready;
+ assert.equal(d.documentElement.hasAttribute('data-rt-smooth-site'),true);
+ assert.equal(io.observed.size,0);
+ const batch=d.createElement('faceplate-batch');
+ batch.innerHTML='<article><shreddit-post></shreddit-post></article>';
+ let batchScans=0;
+ batch.querySelectorAll=()=>{batchScans++;return [];};
+ d.querySelector('shreddit-feed').append(batch);
+ await new Promise(resolve=>W.requestAnimationFrame(()=>W.requestAnimationFrame(resolve)));
+ assert.equal(observations,0);
+ assert.equal(documentScans,0);
+ assert.equal(batchScans,0);
+ assert.equal(batch.firstElementChild.hasAttribute('data-rt-smooth'),false);
+ s.destroy();
+});
+
+test('cache activation follows the current area and master switch on touch and desktop',async t=>{
+ for(const coarse of [true,false]){
+  const {W,d,io,fire}=page(t,{path:'/r/pics/'});
+  W.matchMedia=()=>({matches:coarse});
+  const settings={smoothHome:false};
+  const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>settings,observe:false});await s.ready;
+  const active=()=>d.documentElement.hasAttribute('data-rt-smooth-site');
+  const card=d.getElementById('a2');
+  const skipped=()=>card.hasAttribute('data-rt-skip');
+  const navigate=(path,back=false)=>{
+   W.history.replaceState({},'',path);
+   (back?W:d).dispatchEvent(new W.Event(back?'popstate':'reddit:route'));
+  };
+  assert.equal(active(),true,'subreddits are enabled by default');
+  if(!coarse){fire(card);assert.equal(skipped(),true);}
+  navigate('/');
+  assert.equal(active(),false,'home is disabled in the popup');
+  assert.equal(skipped(),false);
+  assert.equal(io.observed.size,0);
+  navigate('/r/pics/',true);
+  assert.equal(active(),true);
+  assert.equal(io.observed.size,coarse?0:3);
+  navigate('/r/pics/comments/abc/title/');
+  assert.equal(active(),false,'comments are off by default');
+  s.configure({...settings,smoothComments:true});
+  assert.equal(active(),true);
+  s.configure({...settings,smoothComments:true,smoothFeeds:false});
+  assert.equal(active(),false);
+  s.destroy();
+ }
+});
