@@ -87,6 +87,13 @@ const appOnly = `<configured-xpromo-modal data-xpromo-view-san="xpromo|view|bloc
   </rpl-dialog>
 </configured-xpromo-modal>`;
 
+
+const pageFade = `<div class="rpl-bottom-sheet configured-xpromo configured-xpromo-bottom-sheet">
+  <rpl-modal-card><h1>Get the best of Reddit in the app</h1>
+    <a class="app-link" href="https://reddit.onelink.me/example">Get the Reddit App</a>
+  </rpl-modal-card>
+</div>`;
+
 test('the installed Android script removes Reddit’s app-only promotion while leaving the feed and other dialogs in place', async t => {
   const {window, document, requests, trace} = setup(t, `
     <main><article>Existing web content</article></main>${appOnly}
@@ -108,6 +115,36 @@ test('the blocking app promotion is removed when Reddit adds it in a mobile emul
   assert.equal(mobile.document.querySelector('configured-xpromo-modal'), null);
   assert.ok(desktop.document.querySelector('configured-xpromo-modal'));
   assert.deepEqual(mobile.trace, []);
+});
+
+
+test('the mobile page-fade app promotion is removed and unlocks the page when no other sheet is open', async t => {
+  const {document, setOverlay} = setup(t, `<main>Feed</main>${pageFade}`, 'iOS', {hideMatureOverlay:false});
+  document.body.className = 'rpl-scroll-lock';
+  await settle();
+  assert.ok(document.querySelector('.configured-xpromo-bottom-sheet'));
+  setOverlay(true);
+  await settle();
+  assert.equal(document.querySelector('.configured-xpromo-bottom-sheet'), null);
+  assert.equal(document.body.classList.contains('rpl-scroll-lock'), false);
+});
+
+test('the page-fade promotion keeps the page locked while another sheet is open and stays on desktop', async t => {
+  const mobile = setup(t, `<main>Feed</main>${pageFade}<rpl-bottom-sheet open></rpl-bottom-sheet>`, 'iOS', {hideMatureOverlay:true});
+  mobile.document.body.className = 'rpl-scroll-lock';
+  await settle();
+  assert.equal(mobile.document.querySelector('.configured-xpromo-bottom-sheet'), null);
+  assert.equal(mobile.document.body.classList.contains('rpl-scroll-lock'), true);
+  const desktop = setup(t, pageFade, false, {hideMatureOverlay:true});
+  await settle();
+  assert.ok(desktop.document.querySelector('.configured-xpromo-bottom-sheet'));
+});
+
+test('a configured promotion without an app-store link is left in place', async t => {
+  const other = pageFade.replace('class="app-link"', 'class="promo-link"').replace('https://reddit.onelink.me/example', 'https://example.com/');
+  const {document} = setup(t, other, 'iOS', {hideMatureOverlay:true});
+  await settle();
+  assert.ok(document.querySelector('.configured-xpromo-bottom-sheet'));
 });
 
 test('a normal link mutation cannot interrupt discovery of the blocking app promotion', async t => {

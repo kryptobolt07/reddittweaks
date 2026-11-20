@@ -5,13 +5,15 @@
   if (window.top !== window || !(mobile.test(navigator.userAgentData?.platform) || mobile.test(navigator.userAgent))) return;
 
   const APP_ONLY = 'configured-xpromo-modal > rpl-dialog[dialog-id="configured-xpromo-blocking_xpromo_nsfw_blocking"][blocking]';
+  const PAGE_FADE = '.configured-xpromo-bottom-sheet';
+  const APP_LINK = 'a.app-link[href], a[href*="reddit.onelink.me"]';
   const POST_PROMO = 'xpromo-nsfw-blocking-container';
   const POST_MEDIA = '[slot="post-media-container"]';
   const HIDE_POST_PROMO = 'data-rt-hide-post-app-prompt';
   const SHEET = 'configured-xpromo-modal rpl-dialog[open], xpromo-bottom-sheet, shreddit-xpromo-bottom-sheet, shreddit-async-loader[bundlename*="xpromo" i], [data-testid*="xpromo" i]';
   const DIALOG = 'dialog[open], [role="dialog"], [aria-modal="true"]';
   const MEDIA = 'shreddit-blurred-container[reason="nsfw"][blurred], [data-rt-nsfw-media]';
-  const CANDIDATE = [APP_ONLY, POST_PROMO, SHEET, DIALOG, MEDIA].join(', ');
+  const CANDIDATE = [APP_ONLY, PAGE_FADE, POST_PROMO, SHEET, DIALOG, MEDIA].join(', ');
   const HEADING = 'h1, h2, h3, h4, [role="heading"], [slot="title"], [slot="heading"]';
   const TITLE = /^(?:open in (?:the )?(?:reddit )?app|see (?:this post|this community|reddit) in (?:the )?(?:reddit )?app|(?:the )?reddit app|reddit is better in the app)$/i;
   const APP = /^(?:open|use|view)(?: (?:in|the))?(?: (?:the )?(?:reddit )?app| reddit)?$/i;
@@ -88,6 +90,19 @@
     root.append(style);
   }
 
+  function visibleSheet() {
+    return [...document.querySelectorAll('rpl-dialog[open], dialog[open], rpl-bottom-sheet[open], [aria-modal="true"]')]
+      .some(node => {
+        const style = getComputedStyle(node);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+      });
+  }
+
+  function removePromo(node) {
+    node.remove();
+    if (document.body.classList.contains('rpl-scroll-lock') && !visibleSheet()) document.body.classList.remove('rpl-scroll-lock');
+  }
+
   function revealPostMedia(gate) {
     const promo = gate.parentElement;
     if (promo?.matches(POST_PROMO)) updatePostPromotion(promo);
@@ -105,6 +120,10 @@
     if (dialog.matches(APP_ONLY)) {
       // Disconnect the promotion owner before its asynchronous showModal can mount the blocking dialog.
       if (hideMatureOverlay === true) dialog.parentElement.remove();
+      return;
+    }
+    if (dialog.matches(PAGE_FADE)) {
+      if (hideMatureOverlay === true && dialog.querySelector(APP_LINK)) removePromo(dialog);
       return;
     }
     if (dialog.matches(POST_PROMO)) {
@@ -173,7 +192,7 @@
     const changed = hideMatureOverlay !== enabled;
     hideMatureOverlay = enabled;
     if (changed) {
-      if (enabled) for (const dialog of document.querySelectorAll(APP_ONLY)) inspect(dialog);
+      if (enabled) for (const dialog of document.querySelectorAll(APP_ONLY + ', ' + PAGE_FADE)) inspect(dialog);
       refreshPostPromotions();
     }
     const reveal = settings?.revealNsfwPostMedia === true;
