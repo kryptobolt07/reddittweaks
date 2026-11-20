@@ -624,6 +624,8 @@ test('archived threads offer Reddit\'s comment Sort by (Best/Top/New/Old) and Se
   assert.deepEqual(order(),['t1_c2','t1_c1','t1_c3'],'Best: by score');
   const bar=ctx.doc.querySelector('[data-rt-ui="archive-comment-toolbar"]');assert.match(bar.textContent,/Sort by:\s*Best/);
   const kids=[...bar.parentNode.children],postAt=kids.findIndex(n=>n.querySelector?.('.rt-sra-thread-post'));assert.ok(postAt>=0 && postAt<kids.indexOf(bar) && kids.indexOf(bar)<kids.indexOf(ctx.doc.querySelector('.rt-sra-thread-comments')),'post, then toolbar, then comments');
+  const main=bar.closest('main');assert.ok(main.classList.contains('rt-sra-post-page'));
+  assert.equal(main.querySelector(':scope > hr'),null,'Reddit post detail starts with the credit row');
   bar.querySelector('.rt-sra-dropdown-button').click();[...bar.querySelectorAll('[data-rt-ui="filter-option"]')].find(o=>/New/.test(o.textContent)).click();await tick();
   assert.deepEqual(order(),['t1_c3','t1_c2','t1_c1'],'New: newest first');assert.match(bar.textContent,/Sort by:\s*New/);
   // Reddit's flow: an outlined button opens Reddit's own search box (Sort by hidden, Cancel shown); Enter searches; All Comments goes back.
