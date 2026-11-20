@@ -2,6 +2,8 @@
 
 When the modern Reddit site presents an app-promotion dialog on Android or iOS, keep the current web page open. For the app-only blocking promotion, remove its owning element before Reddit mounts the overlay. For a promotion with an explicit browser action, use that action. The extension runs in the top-level mobile document and leaves unrelated dialogs in place.
 
+**Settings → Browsing → Hide Mature Content overlay on mobile** controls removal of the app-only promotion. The default is on for existing and fresh installs. Read the preference before handling a blocking promotion. On T10, turning the setting on removes an existing matching promotion. Turning it off leaves subsequent promotions in place. Refresh the Reddit page to restore a promotion already removed.
+
 | Transition | Expected behavior |
 |---|---|
 | A promotion is present on initial load (T1) | Remove its app-only owner or invoke the web action once. |
