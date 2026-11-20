@@ -1,3 +1,9 @@
+# 0.53.3 preview
+
+- **Mobile archived posts:** hide the Back arrow and start the credit row with the avatar, as on the native mobile post. Fit tall media to the full-width frame, match the native action and comment spacing, and use Reddit’s mobile comment controls.
+- **Version:** patch increment for the mobile archive layout correction.
+- **Validation:** 2,085 tests passed. Compared the archived TotalKalesh and native IdiotsNearTrain tabs in regular Chrome at 393 CSS px. The archive rendered a 393 × 393 px image frame, 48 px action row, 42 px Share buttons, 24 px comment avatars, and 16 px comment spacing. A separate Chrome breakpoint check of the final package confirmed Back is hidden at 393 px and visible at 900 px. The final Back change was not reloaded in the live tabs. Both ZIPs passed integrity and byte-equality checks. Firefox lint reported zero errors, warnings and notices. Chromium SHA-256 `1bb070c4f829f9e669f2bf6ebebaae67a01d028f55850c454545e9cb07e9df21`. Firefox SHA-256 `9e95d26ed688214398ca6958c32c5e974d5bf2037471405532886721a43b8f4f`.
+
 # 0.53.2 preview
 
 - **Mobile post overlay:** hide Reddit’s separate inline app promotion over media already present on the opened post. The NSFW reveal setting still controls the media blur.
