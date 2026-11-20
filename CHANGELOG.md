@@ -1,3 +1,10 @@
+# 0.52.1 preview
+
+- **Mobile app promotion:** remove Reddit's app-only **Mature Content** promotion from the existing mobile feed. Ordinary app prompts continue through Reddit's browser action when available.
+- **Embed previews in Chrome device emulation:** when a player reports a viewport smaller than its iframe, the preview corrects the scale and clips the player to the original Reddit slot. This uses the existing optional Direct embed controls access.
+- **Version:** patch increment for corrections to the 0.52.0 preview.
+- **Validation:** 2,073 tests passed. In Chrome Dev, a playing RedGIFs frame measured 408 × 229 px inside a 408 × 229 px card after correction. Playback was explicitly started for that measurement. The comparison with the extension disabled reproduced the smaller viewport under the same emulation. Mobile app promotion removal passed tests based on the regular Chrome markup. A fresh regular Chrome connection did not complete for the live removal check. Chromium SHA-256 `5f40eeac12a69f2b729f91e7e0869682a2a4ae2f45eaee223873be690cbaf754`. Firefox SHA-256 `6bffa3fdb88b18b6c85d41dd19b691b3c04e41bf78242f7885adb442b3a19f88`.
+
 # 0.52.0 preview
 
 - **Mobile post navigation:** short changes in scroll direction keep the navbar in its current state. A deliberate upward scroll shows it, and a larger downward reversal hides it.
