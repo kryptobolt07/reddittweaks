@@ -1109,75 +1109,17 @@ test('a broken native poster tries the post alternatives and keeps the case of t
  assert.equal(reads,1);assert.equal(still?.src,poster);assert.equal(still.referrerPolicy,'no-referrer');
 });
 
-test('playing raw provider previews fit Reddit’s reserved slot without changing the iframe’s original dimensions',async t=>{
+test('playing raw provider previews leave the iframe at Reddit’s own size',async t=>{
  const p=page(t),e=frameEmbed(p,'https://www.redgifs.com/ifr/layout');
  e.node.getBoundingClientRect=()=>({width:408,height:312,top:120,bottom:432});
  e.frame.width='600';e.frame.height='338';
  await hoverController(p,{videoPreviewClick:'muted'});
  e.over();await waitForHover();
- assert.ok(e.frame.hasAttribute('data-rt-fit-preview'));
- const css=e.node.shadowRoot.querySelector('style[data-rt-preview-sizing]')?.textContent;
- assert.match(css,/iframe\[data-rt-fit-preview\][^{]*\{[^}]*width:\s*100%[^}]*height:\s*100%/);
+ assert.equal(e.frame.hasAttribute('data-rt-fit-preview'),false);
+ assert.equal(e.node.shadowRoot.querySelector('style[data-rt-preview-sizing]'),null);
  assert.equal(e.frame.width,'600');assert.equal(e.frame.height,'338');
  e.layer().click();
- assert.ok(e.frame.hasAttribute('data-rt-fit-preview'),'revealing the same provider controls preserves the fit');
-});
-
-test('a desktop mobile emulation scales a verified smaller provider viewport and clips it to the feed slot',async t=>{
- const p=page(t);phone(p,true,-900);
- Object.defineProperties(p.W.navigator,{platform:{value:'Linux x86_64'},userAgentData:{value:{platform:'iOS'}}});
- const e=frameEmbed(p,'https://www.redgifs.com/ifr/layout'),c=await hoverController(p);
- const sent=[];
- c.postDirect=(frame,method,fields)=>{if(frame===e.frame && method==='viewport')sent.push(fields);};
- Object.defineProperties(e.frame,{clientWidth:{value:408},clientHeight:{value:329}});
- e.frame.src='https://www.redgifs.com/ifr/layout';
- const message=(data,origin='https://www.redgifs.com')=>c.onFrameMessage({source:e.frame.contentWindow,origin,data});
- c.frameState(e.frame);message({rtMedia:'hello'});
- c.fitEmbedPreview(e.frame);
- const {request}=sent.at(-1);
- message({rtMedia:'viewport',request,width:272,height:219},'https://unrelated.example');
- message({rtMedia:'viewport',request:request+1,width:272,height:219});
- assert.equal(e.frame.hasAttribute('data-rt-fit-adjusted'),false);
- message({rtMedia:'viewport',request,width:272,height:219});
- assert.equal(e.frame.style.getPropertyValue('--rt-fit-extent'),'150%');
- assert.equal(e.frame.hasAttribute('data-rt-fit-adjusted'),true);
- assert.match(e.node.shadowRoot.querySelector('[data-rt-preview-sizing]').textContent,/clip-path:\s*inset/);
- c.clearEmbedPreviewFit(e.frame);
- assert.equal(e.frame.style.getPropertyValue('--rt-fit-extent'),'');
- assert.equal(e.frame.hasAttribute('data-rt-fit-preview'),false);
-});
-
-test('the preview sound control sits over the painted video, not the empty part of a mismatched slot',async t=>{
- const p=page(t);phone(p,true,-900);
- Object.defineProperties(p.W.navigator,{platform:{value:'Linux x86_64'},userAgentData:{value:{platform:'iOS'}}});
- const e=frameEmbed(p,'https://www.redgifs.com/ifr/layout'),c=await hoverController(p);
- e.node.getBoundingClientRect=()=>({left:0,top:100,width:400,height:300});
- const sent=[];c.postDirect=(frame,method,fields)=>{if(frame===e.frame && method==='viewport')sent.push(fields);};
- Object.defineProperties(e.frame,{clientWidth:{value:540},clientHeight:{value:405}});
- e.frame.src='https://www.redgifs.com/ifr/layout';
- const message=(data,origin='https://www.redgifs.com')=>c.onFrameMessage({source:e.frame.contentWindow,origin,data});
- c.frameState(e.frame);message({rtMedia:'hello'});
- e.over();await waitForHover();
- const {request}=sent.at(-1);
- message({rtMedia:'viewport',request,width:400,height:300,media:{x:100,y:50,width:200,height:200}});
- const button=e.layer().querySelector('button');
- assert.equal(button.style.left,'256px');
- assert.equal(button.style.top,'206px');
- assert.equal(button.style.right,'auto');
- assert.equal(button.style.bottom,'auto');
-});
-
-test('the provider reports the visible picture inside a letterboxed video element',()=>{
- const W=new JSDOM('',{runScripts:'outside-only'}).window;
- W.RTEmbedHosts={redditOrigins:['https://www.reddit.com'],wrapperOrigin:'',playerOrigin:()=>false};
- W.eval(fs.readFileSync('extension/embed-player.js','utf8'));
- const video=W.document.createElement('video');
- Object.defineProperties(video,{videoWidth:{value:303},videoHeight:{value:620}});
- video.getBoundingClientRect=()=>({x:10,y:20,width:400,height:300});
- video.style.objectFit='contain';video.style.objectPosition='50% 50%';
- const rect=W.RTEmbedPlayerMediaRect(video);
- assert.deepEqual([Math.round(rect.x),Math.round(rect.y),Math.round(rect.width),Math.round(rect.height)],[137,20,147,300]);
- W.close();
+ assert.equal(e.frame.hasAttribute('data-rt-fit-preview'),false,'revealing the same provider controls does not resize it');
 });
 
 test('a provider metadata still that fails lets Reddit supply the replacement',async t=>{
@@ -1252,7 +1194,7 @@ test('a direct embed that was already playing when it announced can pause and re
  assert.deepEqual(sent,[],'manual pause remains paused');
 });
 
-test('an offscreen feed iframe stays parked before a poster arrives and its first fitted picture replaces the still',async t=>{
+test('an offscreen feed iframe stays parked before a poster arrives and its first picture replaces the still',async t=>{
  const p=page(t);
  const e=frameEmbed(p,'https://player.vimeo.com/video/9'),still='https://preview.redd.it/embed.jpg';
  let top=950;
@@ -1263,7 +1205,7 @@ test('an offscreen feed iframe stays parked before a poster arrives and its firs
  assert.equal(e.frame.getAttribute('src'),'about:blank');
  top=150;
  e.over();await waitForHover();
- assert.equal(e.frame.hasAttribute('data-rt-fit-preview'),true);
+ assert.equal(e.frame.hasAttribute('data-rt-fit-preview'),false,'no sizing style is applied');
  const image=()=>e.node.shadowRoot.querySelector('[data-rt-pre-still]');
  assert.equal(image()?.src,still);
  assert.equal(image().style.objectFit,'cover','the still fills the reserved container while the frame connects');
@@ -1288,7 +1230,6 @@ test('another player cannot pause an iframe held on its way into a detail post',
  const other=p.d.createElement('video');p.d.body.append(other);
  c.controller.exclusive(other);
  assert.deepEqual(c.commands(),[]);
- assert.equal(c.frame.hasAttribute('data-rt-fit-preview'),true,'hold keeps the provider fit');
 });
 
 test('autoplay does not replace a promoted visible embed while its controls are in use',async t=>{
