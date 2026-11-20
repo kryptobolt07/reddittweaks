@@ -1,3 +1,11 @@
+# 0.53.0 preview
+
+- **Mobile Mature Content overlay:** Settings → Browsing now has a switch for removing the app-only overlay. It starts on to preserve the existing behavior. Refresh Reddit after turning it off.
+- **NSFW media on mobile posts:** a separate opt-in switch automatically uses the reveal button on the opened post.
+- **Archived posts on mobile:** the header, credit row, title, flair, and comments follow the measured mobile post spacing. Media retains the full post width.
+- **Version:** minor increment for the new post media preference.
+- **Validation:** 2,077 tests passed. The two overlay actions were verified on the linked mobile post in regular Chrome using temporary settings. Archive spacing was measured against the native post. In Chrome Dev with Reddit Tweaks disabled, a 408 × 408 RedGIFs slot contained a playing 302 × 302 video. The enabled preview did not start on the follow-up reload, so the previously verified sizing correction could not be rechecked end to end on that card. Firefox lint reported zero errors, warnings, and notices. Chromium SHA-256 `3cf3c396c12d9793f82bb7a58a8b35013530ee7ef339fe913138768271e71ae0`. Firefox SHA-256 `c836783da19a60a18c3f9ed9af0f1ac65827abc3d832ee4ea8d3216890230a08`.
+
 # 0.52.1 preview
 
 - **Mobile app promotion:** remove Reddit's app-only **Mature Content** promotion from the existing mobile feed. Ordinary app prompts continue through Reddit's browser action when available.
