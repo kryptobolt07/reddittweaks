@@ -1,3 +1,11 @@
+# 0.53.4 preview
+
+- **Embed previews:** load raw feed players when they enter view and keep the thumbnail filling the slot until the player is ready. Apply the emulated-viewport sizing correction before playback and keep it during a post handoff.
+- **Playback and controls:** a sound tap keeps the current frame playing. A player that requires a reload for sound keeps its own sound control. Link blocking leaves playback buttons usable. Move the playing iframe into the post, or resume at the last known position for supported players when the browser replaces it. Keep detail pause and resume active while feed preview timers run.
+- **Direct embed controls:** restore the registered scripts after an extension reload when supported-host access was already granted.
+- **Version:** patch increment for the media regressions.
+- **Validation:** 2,098 tests passed. Chrome Dev measured the RedGIFs feed preview filling a 408 × 408 px slot while its still was still present. On the live detail post, the video filled 440 × 238 px, its own sound button responded with link blocking enabled, and scrolling away and back paused and resumed it in place. The native Reddit detail player changed pause state in both directions during a scripted check, but remained at time zero while buffering. Feed sound promotion and navigation handoff have regression coverage. Both packages passed ZIP integrity and byte-equality checks. Firefox lint reported zero errors, warnings and notices. Chromium SHA-256 `0da949397953cb1154d9ab4bc61398c836cafa631d82c83b0300b75ed72327e2`. Firefox SHA-256 `0d6002cbaa18fcf59af16e21ad7664eafa14a8742c52725c2355319e61c78d35`.
+
 # 0.53.3 preview
 
 - **Mobile archived posts:** hide the Back arrow and start the credit row with the avatar, as on the native mobile post. Fit tall media to the full-width frame, match the native action and comment spacing, and use Reddit’s mobile comment controls.
