@@ -1,35 +1,6 @@
 /* Runs in allowlisted player frames after the user grants optional host access. */
 (() => {
   'use strict';
-  // The picture a viewer actually sees inside the video element: object-fit and object-position can letterbox a
-  // portrait clip inside a landscape player, and the overlay sound control belongs over the picture, not the box.
-  const mediaRect=video=>{
-    if(!video)return null;
-    const box=video.getBoundingClientRect();
-    const width=Number(box.width),height=Number(box.height);
-    if(!(width>0&&height>0))return null;
-    const intrinsicWidth=Number(video.videoWidth)||0,intrinsicHeight=Number(video.videoHeight)||0;
-    if(!(intrinsicWidth>0&&intrinsicHeight>0))return {x:box.x,y:box.y,width,height};
-    const style=(video.ownerDocument?.defaultView||globalThis).getComputedStyle(video);
-    const fit=style.objectFit || 'fill',position=style.objectPosition || '50% 50%';
-    const contain=Math.min(width/intrinsicWidth,height/intrinsicHeight),cover=Math.max(width/intrinsicWidth,height/intrinsicHeight);
-    const scale=fit==='cover'?cover:fit==='none'?1:fit==='scale-down'?Math.min(1,contain):fit==='fill'?0:contain;
-    const paintedWidth=scale?intrinsicWidth*scale:width,paintedHeight=scale?intrinsicHeight*scale:height;
-    const parts=position.trim().split(/\s+/),xPart=parts[0],yPart=parts[1] ?? '50%';
-    const offset=(free,part)=>{
-      if(part==='left' || part==='top')return 0;
-      if(part==='right' || part==='bottom')return free;
-      if(part==='center' || part===undefined)return free/2;
-      const value=parseFloat(part);
-      if(!Number.isFinite(value))return free/2;
-      return part.endsWith('%')?free*value/100:value;
-    };
-    const left=Math.max(box.x,box.x+offset(width-paintedWidth,xPart)),top=Math.max(box.y,box.y+offset(height-paintedHeight,yPart));
-    const right=Math.min(box.x+width,box.x+offset(width-paintedWidth,xPart)+paintedWidth);
-    const bottom=Math.min(box.y+height,box.y+offset(height-paintedHeight,yPart)+paintedHeight);
-    return {x:left,y:top,width:Math.max(0,right-left),height:Math.max(0,bottom-top)};
-  };
-  globalThis.RTEmbedPlayerMediaRect=mediaRect;
   const {redditOrigins,wrapperOrigin,playerOrigin}=globalThis.RTEmbedHosts;
   if(window.parent===window || !playerOrigin(location.href))return;
   const wrapper=location.origin===wrapperOrigin;
@@ -98,14 +69,9 @@
   }
   window.addEventListener('message',async event=>{
     const method=event.data?.rtMedia;
-    if(!['hello','play','pause','mute','unmute','policy','viewport','rendered','release','progress','resume'].includes(method) || !await ready)return;
+    if(!['hello','play','pause','mute','unmute','policy','rendered','release','progress','resume'].includes(method) || !await ready)return;
     if(event.source===window.parent && parents.includes(event.origin) && !['hello','rendered','progress'].includes(method)){
       parentOrigin=event.origin;
-      if(method==='viewport'){
-        const request=event.data.request;
-        if(Number.isSafeInteger(request))up('viewport',{request,width:window.innerWidth,height:window.innerHeight,media:mediaRect(media())});
-        return;
-      }
       if(method==='policy'){block=event.data.block===true;document.documentElement.toggleAttribute('data-rt-block-links',block);}
       else if(method==='release'){
         if(!instructed && heldOnce && !acted)apply('play');

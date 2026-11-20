@@ -117,7 +117,7 @@ For Vimeo and Embedly players with audio commands, the preview sound button unmu
 
 The optional **Direct embed controls** permission lets the extension control the actual media element when a provider command is unavailable. It applies to the supported player URLs on Reddit, including Vimeo, RedGIFs, Streamable and Twitch, plus the Embedly wrapper. **Block embed links** defaults to Off and can apply to the feed, posts, or both. Standard outbound links on the Reddit page are outside this setting. A provider that exposes neither a command nor an accessible media element keeps its own sound control. A full document navigation cannot preserve the same iframe. Browsers may require a tap inside a cross-origin player to allow sound.
 
-In Chrome Dev's desktop device emulation, the same RedGIFs feed card allocated 408 × 329 CSS px while its iframe painted a 272 × 219 px player. The same crop appeared with the extension disabled. During a feed preview on an emulated device, Direct embed controls can report the viewport of that iframe. The extension compensates only for a uniform size difference, clips to the original slot, and drops the temporary sizing when the preview stops or moves into a post. A second live card measured 408 × 229 px both inside the frame and in Reddit's slot with the correction in place.
+Chrome Dev's desktop device emulation can paint a cross-origin iframe smaller than its CSS box. The same crop appeared with the extension disabled. This is an emulation artifact; the extension does not resize or clip the iframe to compensate. Reddit and the provider keep ownership of the player's size in the feed and the post.
 
 ### Preview clicks and missing stills
 
@@ -210,7 +210,7 @@ User report (0.51.2): stills still arrived late or not at all, and paused player
 
 ## Feed and post playback regressions
 
-- Feed artwork may load ahead of the viewport. It covers the whole media slot without stretching. A raw iframe starts in view. The already prepared still stays in front while the iframe loads and fits the reserved slot. An authorized player reports its first available frame and its viewport without waiting for playback. A provider without a readiness signal falls back to the frame's load event.
+- Feed artwork may load ahead of the viewport. It covers the whole media slot without stretching. A raw iframe starts in view. The already prepared still stays in front while the iframe loads in Reddit's reserved slot. An authorized player reports its first available frame without waiting for playback. A provider without a readiness signal falls back to the frame's load event.
 - **Plays here with sound** and the preview sound control keep the current frame and time. Capable players unmute and keep playing. When a provider cannot take an unmute command in place, show its controls and keep the current playback. Do not reset an already-started frame to change sound.
 - Once the viewer takes control of an embed, another automatic preview waits until that embed leaves view. Site link blocking applies to the provider's picture or outbound link and leaves playback buttons and sliders usable.
 - A feed-to-post handoff moves the existing iframe and excludes it from competing-player pauses until it lands. A successful move retains its media size and resumes viewport tracking in the destination. When a full navigation replaces the iframe, YouTube and authorized direct players resume from the last known position and sound state.

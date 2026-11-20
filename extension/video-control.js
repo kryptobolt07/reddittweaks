@@ -247,14 +247,6 @@
    this.posterNodes=new Set();this.preparedPosters=new WeakSet();this.warmedPosters=new Map();
    this.posterConsumers=new Map();this.posterQuality=new Map();this.posterDeferred=new Set();
    this.readPosters=readPosters;
-   this.viewportRequest=0;
-   this.onEmbedResize=()=>{
-    this.win.clearTimeout(this.embedResizeTimer);
-    this.embedResizeTimer=this.win.setTimeout(()=>{
-     for(const [frame,state] of this.frames)if(frame.isConnected && frame.hasAttribute('data-rt-fit-preview'))this.measureEmbedViewport(frame,state);
-    },100);
-   };
-   this.win.addEventListener('resize',this.onEmbedResize,{passive:true});
    this.onFrameMessage=event=>{
     for(const [frame,state] of this.frames){
      if(!frame.isConnected){this.frames.delete(frame);continue;}
@@ -275,11 +267,9 @@
         else if(first)this.postDirect(frame,'release');
        }
        if(this.isDetailEmbed(embed))this.manageViewport(embed,true);
-       this.measureEmbedViewport(frame,state);
        if(event.data.rendered===true)this.embedRendered(frame,state);
        this.embedHandoff();
-      }else if(method==='viewport')this.adjustEmbedViewport(frame,state,event.data);
-      else if(state.direct && method==='rendered')this.embedRendered(frame,state);
+      }else if(state.direct && method==='rendered')this.embedRendered(frame,state);
       else if(state.direct && method==='progress'){
        const {time,muted}=event.data;
        if(Number.isFinite(time) && time>=0 && time<=86400 && typeof muted==='boolean')state.progress={time,muted};
@@ -388,10 +378,7 @@
     // Watched for its still as soon as its card is in the page, before Reddit inserts the player near the screen.
     if(this.configured && this.stillWanted(embed))this.observePoster(embed);
     const frame=controlFrame(embed),state=frame && this.frameState(frame);
-    if(state){
-     this.framePolicy(frame,this.blockEmbedLinks(!this.isDetailEmbed(embed)));
-     if(!frame.hasAttribute('data-rt-fit-preview'))this.fitEmbedPreview(frame);
-    }
+    if(state)this.framePolicy(frame,this.blockEmbedLinks(!this.isDetailEmbed(embed)));
     if(!this.isDetailEmbed(embed)){
      if(!this.feedEmbeds.has(embed) && (this.feedEmbed(embed) || this.stillWanted(embed))){
       this.feedEmbeds.add(embed);this.io?.observe(embed);
@@ -598,7 +585,6 @@
     frame.addEventListener('load',()=>{
      if(frame.dataset.rtParked)return;
      this.framePolicy(frame,state.block,true);
-     this.measureEmbedViewport(frame,state);
      if(frame.dataset.rtWaiting==='1'){
       this.win.clearTimeout(state.drawTimer);
       state.drawTimer=this.win.setTimeout(()=>this.finishEmbedDraw(frame),this.held(state)?1800:400);
@@ -657,7 +643,7 @@
    if(frame.dataset.rtParked)return;
    delete frame.dataset.rtWaiting;
    const state=this.frameState(frame);
-   Object.assign(state,{rendered:false,viewport:null,direct:false,readySeen:false});
+   Object.assign(state,{rendered:false,direct:false,readySeen:false});
    this.win.clearTimeout(state.drawTimer);
    frame.dataset.rtSrc=frame.getAttribute('src') || '';frame.dataset.rtParked='1';frame.setAttribute('src','about:blank');
    this.cover(embed,false,keepCover);
@@ -830,12 +816,7 @@
   }
   embedRendered(frame,state){
    state.rendered=true;
-   if(!state.viewport)this.finishEmbedDraw(frame);
-   // The provider's own controls can add a scrollbar or resize its viewport after the first frame. Re-measure the
-   // settled player so the slot is covered instead of leaving an L-shaped strip on the right and bottom.
-   for(const delay of [250,900])this.win.setTimeout(()=>{
-    if(frame.isConnected && frame.hasAttribute('data-rt-fit-preview') && !this.doc.fullscreenElement)this.measureEmbedViewport(frame,state);
-   },delay);
+   this.finishEmbedDraw(frame);
   }
   finishEmbedDraw(frame){
    if(frame.dataset.rtWaiting!=='1' || frame.dataset.rtParked)return;
@@ -906,10 +887,7 @@
    const observer=new this.win.MutationObserver(()=>{
     if(this.dead || !this.configured || !this.feedEmbed(embed) || this.ePreview?.embed===embed || embed.dataset.rtEmbedUsed==='1')return;
     const frame=controlFrame(embed);
-    if(frame && !frame.hasAttribute('data-rt-fit-preview')){
-     if(root.querySelector('[data-rt-pre-still]'))this.awaitDraw(frame);
-     this.fitEmbedPreview(frame);
-    }
+    if(frame && root.querySelector('[data-rt-pre-still]'))this.awaitDraw(frame);
     this.observePoster(embed);this.syncIdleEmbed(embed);this.paintPoster(embed);
    });
    observer.observe(embed.shadowRoot,{childList:true,subtree:true});this.watchedEmbeds.set(embed,observer);
@@ -990,7 +968,6 @@
     if(kind==='playerjs' && !state.readySeen)state.pendingStart={src,sound:false};
     this.framePolicy(frame,this.blockEmbedLinks(this.feedEmbed(embed)));
     preview.frame={frame,src,kind,position:embed.style.position};
-    this.fitEmbedPreview(frame);
     // A player with a control protocol starts muted in place; others load with the provider's own flags.
     if(kind==='flags'){if(!this.unpark(embed,frame,flagged(src,false))){allowAutoplay(frame);frame.setAttribute('src',flagged(src,false));}}
     else{this.unpark(embed,frame,flagged(src,false));allowAutoplay(frame);this.command(frame,'mute');this.command(frame,'play');}
@@ -1021,79 +998,6 @@
     if(event.target===layer && (event.key==='Enter' || event.key===' ')){event.preventDefault();this.useEmbed(preview,false);}
    });
    host.append(layer);
-   this.positionEmbedSound(preview);
-  }
-  positionEmbedSound(preview=this.ePreview){
-   const sound=preview?.sound;if(!sound)return;
-   const provider=preview.provider,slot=preview.embed?.getBoundingClientRect?.();
-   if(!provider?.media || !(provider.width>0) || !(provider.height>0) || !(slot?.width>0) || !(slot?.height>0)){
-    sound.style.left='auto';sound.style.top='auto';sound.style.right='12px';sound.style.bottom='12px';return;
-   }
-   const scaleX=slot.width/provider.width,scaleY=slot.height/provider.height;
-   const x=(Number(provider.media.x)||0)*scaleX,y=(Number(provider.media.y)||0)*scaleY;
-   const width=(Number(provider.media.width)||0)*scaleX,height=(Number(provider.media.height)||0)*scaleY;
-   if(!(width>0&&height>0))return;
-   const size=32,inset=12;
-   const left=Math.max(inset,Math.min(slot.width-inset-size,x+width-size-inset));
-   const top=Math.max(inset,Math.min(slot.height-inset-size,y+height-size-inset));
-   sound.style.left=`${left}px`;sound.style.top=`${top}px`;sound.style.right='auto';sound.style.bottom='auto';
-  }
-  fitEmbedPreview(frame){
-   // Reddit supplies the media box, including its per-post aspect ratio. Size the iframe within that box instead
-   // of using the provider's intrinsic width and height. Keep this CSS local so a held frame can adopt the post layout.
-   const root=frame.getRootNode();
-   if(!root.querySelector('style[data-rt-preview-sizing]')){
-    const style=this.doc.createElement('style');style.dataset.rtPreviewSizing='';
-    style.textContent=`iframe[data-rt-fit-preview]:not(:fullscreen) { display: block; box-sizing: border-box; width: 100% !important; height: 100% !important; max-width: 100%; max-height: 100%; border: 0; }
-iframe[data-rt-fit-preview][data-rt-fit-adjusted]:not(:fullscreen) { position: absolute !important; inset: 0 auto auto 0 !important; width: var(--rt-fit-extent) !important; height: var(--rt-fit-extent) !important; max-width: none !important; max-height: none !important; clip-path: inset(0 var(--rt-fit-inset) var(--rt-fit-inset) 0); }`;
-    root.append(style);
-   }
-   frame.dataset.rtFitPreview='';
-   this.measureEmbedViewport(frame,this.frameState(frame));
-  }
-  measureEmbedViewport(frame,state){
-   // Desktop device emulation can give an out-of-process frame a smaller surface than its CSS box.
-   const nav=this.win.navigator,mobile=/\b(?:Android|iOS|iPhone|iPad|iPod)\b/i;
-   if(!(state.direct || this.directReady && this.embedOrigin(frame)) || !frame.hasAttribute('data-rt-fit-preview') || this.doc.fullscreenElement)return;
-   if(!this.touch || !/^(?:Win32|MacIntel|Linux (?:x86_64|i686))$/.test(nav.platform) ||
-     !(mobile.test(nav.userAgentData?.platform) || mobile.test(nav.userAgent))){
-    state.viewport=null;this.clearEmbedViewportAdjustment(frame);return;
-   }
-   const width=frame.clientWidth,height=frame.clientHeight;if(width<100 || height<100)return;
-   const request=++this.viewportRequest;
-   state.viewport={request,width,height};this.postDirect(frame,'viewport',{request});
-  }
-  adjustEmbedViewport(frame,state,{request,width,height,media}){
-   const viewport=state.viewport;
-   if(!viewport || request!==viewport.request || !frame.hasAttribute('data-rt-fit-preview'))return;
-   state.viewport=null;
-   if(!Number.isFinite(width) || !Number.isFinite(height) || width<50 || height<50){
-    if(state.rendered)this.finishEmbedDraw(frame);
-    return;
-   }
-   const horizontal=viewport.width/width,vertical=viewport.height/height;
-   // Correct only a uniform discrepancy. A provider's own letterboxing and crops remain its responsibility.
-   const factor=Math.round((horizontal+vertical)*50)/100;
-   if(Math.abs(horizontal-vertical)>.025 || factor<1.05 || factor>2)this.clearEmbedViewportAdjustment(frame);
-   else{
-    frame.style.setProperty('--rt-fit-extent',`${factor*100}%`);
-    frame.style.setProperty('--rt-fit-inset',`${100-100/factor}%`);
-    frame.dataset.rtFitAdjusted='';
-   }
-   const preview=this.ePreview;
-   if(preview?.frame?.frame===frame){preview.provider={width,height,media};this.positionEmbedSound(preview);}
-   if(state.rendered)this.finishEmbedDraw(frame);
-  }
-  clearEmbedViewportAdjustment(frame){
-   if(!frame.hasAttribute('data-rt-fit-adjusted'))return;
-   delete frame.dataset.rtFitAdjusted;
-   frame.style.removeProperty('--rt-fit-extent');frame.style.removeProperty('--rt-fit-inset');
-  }
-  clearEmbedPreviewFit(frame){
-   if(!frame)return;
-   delete frame.dataset.rtFitPreview;
-   this.clearEmbedViewportAdjustment(frame);
-   const state=this.frames.get(frame);if(state)state.viewport=null;
   }
   labelEmbedSound(preview){
    if(!preview.sound)return;
@@ -1200,10 +1104,7 @@ iframe[data-rt-fit-preview][data-rt-fit-adjusted]:not(:fullscreen) { position: a
      if(!('rtIncoming' in target.dataset)){target.dataset.rtIncoming=target.style.visibility;target.style.visibility='hidden';}
      if(target.dispatchEvent(new this.win.Event('rt-place-held-embed',{bubbles:true,cancelable:true})))return;
      target.style.visibility=target.dataset.rtIncoming;delete target.dataset.rtIncoming;
-     if(generic.frame?.isConnected){
-      this.fitEmbedPreview(generic.frame);
-      this.framePolicy(generic.frame,this.blockEmbedLinks(false));
-     }
+     if(generic.frame?.isConnected)this.framePolicy(generic.frame,this.blockEmbedLinks(false));
      if(generic.sound?.frame.isConnected)this.frameSound(generic.sound,false);
     }else if(generic.resume){
      if(!this.restoreEmbedPosition(target,generic.resume))return;
@@ -1572,8 +1473,6 @@ iframe[data-rt-fit-preview][data-rt-fit-adjusted]:not(:fullscreen) { position: a
    this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
    this.doc.removeEventListener('toggle',this.onCommentToggle,true);
    this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);this.win.clearTimeout(this.dwellTimer);
-   this.win.removeEventListener('resize',this.onEmbedResize);this.win.clearTimeout(this.embedResizeTimer);
-   for(const frame of this.frames.keys())this.clearEmbedPreviewFit(frame);
    for(const node of this.managedViewport)this.manageViewport(node,false);
    this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);this.win.removeEventListener('message',this.onFrameMessage);
    for(const type of ['click','auxclick'])this.doc.removeEventListener(type,this.onEmbedLink,true);
