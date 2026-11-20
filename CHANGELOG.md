@@ -1,3 +1,10 @@
+# 0.53.2 preview
+
+- **Mobile post overlay:** hide Reddit’s separate inline app promotion over media already present on the opened post. The NSFW reveal setting still controls the media blur.
+- **Mobile archived posts:** show a circular Back button in the 44 px credit row. Keep the name and avatar on one line and match the native post’s title and flair spacing. Back returns to the preceding Reddit entry when available.
+- **Version:** patch increment for the mobile post fixes.
+- **Validation:** 2,083 tests passed. Regular Chrome’s installed extension hid the inline app promotion while retaining the player on r/IdiotsNearTrain. At 393 px, the archived r/TotalKalesh post matched the reference credit row, title and flair positions, and the 32 px Back button was visible and received pointer input. Both packages passed ZIP and byte-equality checks. Firefox lint reported zero errors, warnings and notices. Chromium SHA-256 `1c77db0d92cd519e4748d673050ad1a9a91174c8d532fc30c9e66e269a0f6837`. Firefox SHA-256 `aeee8ad3ead0c13263e2d2bb7176d72da7ecc661c3fcc4743032d2e7b51aeb0d`.
+
 # 0.53.1 preview
 
 - **Mobile overlays:** read both switches through the extension worker and keep processing Reddit’s overlays when links update during startup. When Reddit reapplies the NSFW blur while loading a post, use the replacement reveal button.
