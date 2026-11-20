@@ -19,4 +19,8 @@ Replace the large Banned · Archived posts masthead pill with the existing remov
 
 ## Mobile archive post header
 
-Fit the credit line in a 44 px row with 16 px gutters, using the native post detail as the reference. At phone widths, give the existing 32 px Back control the same secondary button treatment as Reddit's post Back control. Keep the author and community lines between the Back control and the overflow, truncating within that space. An archive post opened from a Reddit page returns to the preceding entry, including its filter parameters (T3). A direct visit with no same-origin history returns to the archived community. Wider layouts and archive feed cards keep their existing styling.
+Fit the credit line in a 44 px row with 16 px gutters, using the native post detail as the reference. At phone widths, hide the Back control so the avatar starts the row. Keep the author and community lines between the avatar and the overflow, truncating within that space. On desktop, Back returns to the preceding Reddit entry, including its filter parameters (T3). A direct visit with no same-origin history returns to the archived community.
+
+## Mobile archive post media and comments
+
+At phone widths, cap the full-width media frame and its image or player together. A portrait image must stay contained with no empty panel below it. Match the native post's single 8 px space above the frame, square outer corners, and compact action bar. Use Reddit's 24 px mobile comment avatars, 28 px identity row, mobile Share controls, and 16 px spacing between top-level comments. Keep voting and posting unavailable in the archive. When viewport width changes, update the existing controls in place (T11). Comment search continues to hide the thread until the reader returns to all comments (T7).

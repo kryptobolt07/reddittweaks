@@ -27,10 +27,20 @@ test('a video the archive can\'t play shows its preview labelled, no player and 
 test('archived images use Reddit’s image-post media structure',()=>{
  const W=setup(),root=W.RTArchiveView.image('https://i.redd.it/abc.png',{alt:'r/sub - Title',doc:W.document});
  assert.match(root.className,/xs:rounded-4/);assert.equal(root.dataset.rtRecoveredText,'true');assert.ok(root.querySelector('.border-neutral-border-weak'),'hairline frame');
- const ratio=root.querySelector('[data-aspect-ratio-container]');assert.match(ratio.style.cssText,/min-height: 220px/);
+ const ratio=root.querySelector('[data-aspect-ratio-container]');assert.equal(ratio.style.minHeight,'min(220px, var(--rt-archive-media-max-height, 220px))');
  const [backdrop,main]=root.querySelectorAll('img');assert.match(backdrop.className,/opacity-30 object-cover/);assert.equal(backdrop.getAttribute('role'),'presentation');assert.match(main.className,/object-contain/);assert.equal(main.alt,'r/sub - Title');
  for(const img of [backdrop,main]){assert.equal(img.src,'https://i.redd.it/abc.png');assert.equal(img.referrerPolicy,'no-referrer');}
  Object.defineProperty(main,'naturalWidth',{value:640});Object.defineProperty(main,'naturalHeight',{value:755});main.dispatchEvent(new W.Event('load'));assert.equal(ratio.style.aspectRatio,'640 / 755','the image’s own proportions');
+});
+
+test('the outer image and video frames share the mobile post height limit without changing the default',()=>{
+ const W=setup(),view=W.RTArchiveView;
+ const image=view.image('https://i.redd.it/abc.png',{width:1080,height:1920});
+ const videoFrame=view.media([video]).querySelector('shreddit-async-loader');
+ for(const frame of [image.querySelector('[data-aspect-ratio-container]'),videoFrame]){
+   assert.match(frame.style.maxHeight,/^var\(--rt-archive-media-max-height, max\(300px, /);
+ }
+ W.close();
 });
 test('only Reddit-hosted https images are accepted, and skeletons use Reddit’s shimmer element',()=>{
 
@@ -44,7 +54,7 @@ test('image dimensions are accepted only as positive integers up to 20000; unkno
  const W=setup(),ratio=(opts)=>W.RTArchiveView.image('https://i.redd.it/abc.png',{doc:W.document,...opts}).querySelector('[data-aspect-ratio-container]');
  assert.equal(ratio({width:640,height:480}).style.aspectRatio,'640 / 480');assert.equal(ratio({width:20000,height:1}).style.aspectRatio,'20000 / 1');
  for(const [width,height] of [[0,0],[-5,10],[1.5,2],[20001,10],['640; background:url(//evil)','480'],['640','480} body{display:none'],[NaN,5],[undefined,undefined]])assert.equal(ratio({width,height}).style.aspectRatio,'16 / 9',JSON.stringify([width,height]));
- const r=ratio({width:'x',height:'y'});assert.equal(r.getAttribute('style').includes('evil'),false);assert.equal(r.style.minHeight,'220px');
+ const r=ratio({width:'x',height:'y'});assert.equal(r.getAttribute('style').includes('evil'),false);assert.match(r.style.minHeight,/^min\(220px, /);
  const root=W.RTArchiveView.image('https://i.redd.it/abc.png',{doc:W.document}),main=root.querySelectorAll('img')[1],box=root.querySelector('[data-aspect-ratio-container]');
  Object.defineProperty(main,'naturalWidth',{value:99999});Object.defineProperty(main,'naturalHeight',{value:10});main.dispatchEvent(new W.Event('load'));assert.equal(box.style.aspectRatio,'16 / 9','an implausible natural size is ignored');
 });

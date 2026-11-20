@@ -5,6 +5,7 @@
   'use strict';
   if(globalThis.RTArchiveView)return;
   const imageUrl=value=>globalThis.RTPostModel?.mediaUrl(value) || '';
+  const mediaMaxHeight='var(--rt-archive-media-max-height, max(300px, calc(100vh - (var(--shreddit-header-height, 56px) + 250px))))';
   // Deleted i.redd.it images 404 or come back as Reddit's 130x60 "image was probably deleted"
   // placeholder. Replace either with an honest, fixed-size notice instead of stretching it.
   const isRemovedPlaceholder=img=>img.naturalWidth===130 && img.naturalHeight===60;
@@ -24,8 +25,9 @@
     // Dimensions come from archive metadata: only positive integers up to 20000 are used.
     // Unknown proportions reserve 16:9 so the frame does not jump from a square.
     const valid=value=>Number.isInteger(value) && value>0 && value<=20000,w=Number(width),h=Number(height);
-    ratio.style.aspectRatio=valid(w) && valid(h)?w+' / '+h:'16 / 9';ratio.style.minHeight='220px';
-    ratio.style.maxHeight='max(300px, calc(100vh - calc(var(--shreddit-header-height, 56px) + 250px)))';
+    ratio.style.aspectRatio=valid(w) && valid(h)?w+' / '+h:'16 / 9';
+    ratio.style.minHeight='min(220px, var(--rt-archive-media-max-height, 220px))';
+    ratio.style.maxHeight=mediaMaxHeight;
     const fill=make('div','absolute inset-0 h-full w-full'),stage=make('div','media-lightbox-img max-h-[100vw] h-full w-full object-contain overflow-hidden relative bg-black');
     const backdrop=make('img','absolute top-1/2 -translate-y-1/2 start-0 w-full h-full opacity-30 object-cover scale-[1.2] post-background-image-filter rt-media-backdrop');backdrop.alt='';backdrop.setAttribute('role','presentation');
     const main=make('img','i18n-post-media-img preview-img media-lightbox-img max-h-[100vw] h-full w-full object-contain relative');main.alt=alt;
@@ -72,7 +74,8 @@
         // never over the post's header, and cap the height like Reddit's media frames.
         const loader=doc.createElement('shreddit-async-loader');loader.setAttribute('bundlename','shreddit_player_loader');
         const sized=Number.isInteger(width) && width>0 && width<=20000 && Number.isInteger(height) && height>0 && height<=20000;
-        loader.style.cssText='display: block; position: relative; overflow: hidden; width: 100%; aspect-ratio: '+(sized?width+' / '+height:'16 / 9')+'; max-height: max(300px, calc(100vh - calc(var(--shreddit-header-height, 56px) + 250px)));';
+        loader.style.cssText='display: block; position: relative; overflow: hidden; width: 100%; aspect-ratio: '+(sized?width+' / '+height:'16 / 9')+';';
+        loader.style.maxHeight=mediaMaxHeight;
         // Archived video files are often gone: check the playlist and swap in the unavailable view if so.
         const fetcher=doc.defaultView?.fetch || globalThis.fetch;
         if(typeof fetcher==='function')Promise.resolve().then(()=>fetcher.call(doc.defaultView || globalThis,hls,{cache:'force-cache',credentials:'omit'})).then(response=>{if(!response?.ok && loader.isConnected)loader.replaceWith(videoUnavailable(poster,{alt,width,height,doc}));},()=>{if(loader.isConnected)loader.replaceWith(videoUnavailable(poster,{alt,width,height,doc}));});

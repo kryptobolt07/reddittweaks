@@ -14,6 +14,7 @@ async function boot(opts){
   // The script under test defines the class; construct after it loads.
   const dom=new JSDOM('<!doctype html><body><shreddit-app>'+(opts?.html??modalHtml('r/gone is banned'))+'</shreddit-app></body>',{url:opts?.url||'https://www.reddit.com/r/gone/',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;
   const o={enabled:true,pages:null,owner:'me',meta:null,recents:null,...opts};
+  if(o.matchMedia)W.matchMedia=o.matchMedia;
   for(const f of ['search-core.js','post-model.js','markdown-lite.js','archive-view.js','post-discovery.js','feed-filters.js','subreddit-archive.js'])W.eval(fs.readFileSync('extension/'+f,'utf8'));
   const calls=[],store=o.recents || new Map();
   W.RTArchiveQuery={
@@ -393,7 +394,7 @@ test('archive post page card has a back button, community line, native title and
   assert.match(row.textContent,/1\.2K[\s\S]*120[\s\S]*Share/);assert.equal(row.querySelectorAll('button[disabled]').length,2,'votes are disabled');
 });
 
-test('the mobile archive credit row keeps its circular Back before the avatar and returns to the previous Reddit entry',async t=>{
+test('the archive hides Back at phone widths and desktop Back still returns to the previous Reddit entry',async t=>{
   const {W,sa}=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive&rt_type=video'});
   t.after(()=>{sa.destroy();W.close();});
   const from=W.location.href;
@@ -412,7 +413,7 @@ test('the mobile archive credit row keeps its circular Back before the avatar an
   const css=fs.readFileSync('extension/subreddit-archive.css','utf8');
   const mobile=css.slice(css.indexOf('/* A mobile post detail'),css.indexOf('.rt-sra-thread-comment{'));
   assert.match(mobile,/\.rt-sra-thread-credit-start\{[^}]*flex-wrap:nowrap/);
-  assert.match(mobile,/\.rt-sra-back\{[^}]*--color-secondary-background/);
+  assert.match(mobile,/\.rt-sra-thread-credit-start \.rt-sra-back\{display:none\}/);
   back.click();
   assert.equal(backs,1);
 });
@@ -422,6 +423,39 @@ test('archived comments carry a default avatar in the native avatar slot',async(
   await tick();await tick();
   const node=ctx.doc.querySelector('shreddit-comment[data-rt-ui="archive-thread-comment"]');
   if(node){const avatar=node.querySelector('[slot="commentAvatar"] img');assert.ok(avatar,'avatar slot filled');assert.match(avatar.src,/avatar_default_\d\.png$/);}
+});
+
+test('archived mobile posts and comments use phone controls and resize without replacing the thread',async t=>{
+  const viewport=Object.assign(new EventTarget(),{matches:true});
+  const ctx=await boot({
+    url:'https://www.reddit.com/r/gone/comments/abc12/title/',
+    matchMedia:()=>viewport,
+    archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:
+      {ok:true,posts:[comment('c1',1500000001,{linkId:'abc12'}),comment('c2',1500000000,{linkId:'abc12'})],hasMore:false}
+  });
+  t.after(()=>{ctx.sa.destroy();ctx.W.close();});
+  await tick();
+  const thread=ctx.doc.querySelector('.rt-sra-thread-comments');
+  const postEl=ctx.doc.querySelector('.rt-sra-thread-post');
+  assert.ok(postEl.hasAttribute('compact-ui'));
+  assert.equal(postEl.querySelector('.rt-sra-share-label').textContent,'Share');
+  const controls=[...thread.querySelectorAll('shreddit-comment-action-row,shreddit-comment-share-button')];
+  assert.equal(controls.length,4);
+  assert.ok(controls.every(control=>!control.hasAttribute('is-desktop-viewport')));
+  viewport.matches=false;viewport.dispatchEvent(new Event('change'));
+  assert.ok(!postEl.hasAttribute('compact-ui'));
+  assert.ok(controls.every(control=>control.hasAttribute('is-desktop-viewport')));
+  assert.equal(ctx.doc.querySelector('.rt-sra-thread-comments'),thread);
+  assert.ok(controls.every(control=>control.isConnected));
+  viewport.matches=true;viewport.dispatchEvent(new Event('change'));
+  assert.ok(postEl.hasAttribute('compact-ui'));
+  assert.ok(controls.every(control=>!control.hasAttribute('is-desktop-viewport')));
+  const css=fs.readFileSync('extension/subreddit-archive.css','utf8');
+  const mobile=css.slice(css.indexOf('/* A mobile post detail'),css.indexOf('.rt-sra-thread-comment{'));
+  assert.match(mobile,/\[slot="post-media-container"\]\{[^}]*--rt-archive-media-max-height:min\(100vw/);
+  assert.match(mobile,/\.rt-sra-thread-comments:not\(\[hidden\]\)\{[^}]*gap:16px/);
+  assert.match(mobile,/\.rt-sra-comment-avatar\{[^}]*height:28px/);
+  assert.match(mobile,/shreddit-comment-share-button::part\(share-button-content\)\{[^}]*clip-path:inset\(50%\)/);
 });
 
 test('archived images that are gone become a fixed-size notice instead of a stretched placeholder',async()=>{

@@ -134,12 +134,21 @@
   .rt-sra-post-page .rt-sra-thread-post>[slot="credit-bar"]{align-items:center;min-height:44px;padding-block:0}
   .rt-sra-post-page .rt-sra-thread-credit-start{flex-wrap:nowrap;min-height:36px;padding-inline-end:8px}
   .rt-sra-post-page [data-rt-credit-right]{flex:none}
-  .rt-sra-post-page .rt-sra-thread-credit-start .rt-sra-back{background-color:var(--color-secondary-background,#e5ebee)}
-  .rt-sra-post-page .rt-sra-thread-credit-start .rt-sra-back:hover{background-color:var(--color-secondary-background-hover,#d5dde1)}
+  .rt-sra-post-page .rt-sra-thread-credit-start .rt-sra-back{display:none}
   .rt-sra-post-page .rt-sra-thread-title{margin-block-end:0}
   .rt-sra-post-page .rt-sra-thread-post>.rt-archive-flair{margin-block:4px 0;line-height:1}
   .rt-sra-post-page .rt-sra-thread-post .rt-archive-flair-pill{margin-block:0;top:auto;vertical-align:top}
-  .rt-sra-post-page .rt-sra-thread-post>[slot="post-media-container"]{margin-block-start:8px}
+  .rt-sra-post-page .rt-sra-thread-post>[slot="post-media-container"]{--rt-archive-media-max-height:min(100vw,max(300px,calc(100vh - (var(--shreddit-header-height,48px) + 250px))));margin-block-start:8px;border-radius:0}
+  .rt-sra-post-page [slot="post-media-container"] .rt-archived-media{margin-block:0;border-radius:0}
+  .rt-sra-post-page [slot="post-media-container"] .rt-archive-media-group>*+*{margin-block-start:8px}
+  .rt-sra-post-page .rt-sra-action-row{box-sizing:border-box;min-height:48px;padding-block:8px;gap:12px}
+  .rt-sra-post-page .rt-sra-share{min-width:42px;justify-content:center}
+  .rt-sra-post-page .rt-sra-share:not([data-rt-link-copied]) .rt-sra-share-label,
+  .rt-sra-post-page shreddit-comment-share-button::part(share-button-content){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .rt-sra-post-page shreddit-comment-share-button::part(share-button-leading-icon){margin-inline-end:0}
+  .rt-sra-post-page .rt-sra-thread-comments:not([hidden]){display:flex;flex-direction:column;gap:16px}
+  .rt-sra-post-page .rt-sra-thread-comment>.rt-sra-comment-avatar{height:28px}
+  .rt-sra-post-page .rt-sra-comment-avatar img.rt-avatar-img{max-width:24px;max-height:24px;margin:0}
 }
 .rt-sra-thread-comment{display:block;min-width:0;color:var(--color-neutral-content-strong,#0f1a1c)}
 /* Reddit's comment summary row is 36px: avatar centred in it, author line filling the rest. */

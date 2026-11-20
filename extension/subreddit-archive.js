@@ -127,6 +127,12 @@
       this.getOwner=getOwner || (()=>globalThis.RCSDirectory?.getOwner?.() || globalThis.RCSMessages?.getSelfIdentity?.()?.id || '');
       this.enabled=null;this.mounted=null;this.search=null;this.states=new Map();this.top=false;this.openMenuEl=null;this.dead=false;this.meta=null;this.metaName='';
       this.onRoute=()=>this.scan();this.initialHref=location.href;
+      this.onThreadViewport=()=>{
+        const mobile=this.threadViewport?.matches===true;
+        this.threadState?.postEl?.querySelector('shreddit-post')?.toggleAttribute('compact-ui',mobile);
+        const controls=this.threadState?.commentsEl?.querySelectorAll('shreddit-comment-action-row, shreddit-comment-share-button') || [];
+        for(const control of controls)control.toggleAttribute('is-desktop-viewport',!mobile);
+      };
       // Record the feed position only while this community's feed path is showing (with or without rt_view:
       // the automatic preference opens the archive without it), never during navigation to a post.
       this.onScroll=()=>{const m=this.mounted;if(m && !m.thread && !threadRoute() && location.pathname.replace(/\/+$/,'').toLowerCase()==='/r/'+m.name.toLowerCase()){this.feedScrollY=scrollY;if(!this.anchorQueued){this.anchorQueued=true;requestAnimationFrame(()=>{this.anchorQueued=false;this.saveFeedAnchor();});}}};
@@ -237,10 +243,18 @@
       if(typeof IntersectionObserver==='function'){
         this.io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){if(this.mounted?.thread)this.loadMoreThread({auto:true});else this.loadMore({auto:true});}},{rootMargin:'800px 0px'});this.io.observe(this.sentinel);
       }
-      this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});if(thread){const seen=this.recentPosts?.get('t3_'+thread.postId);this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};this.loadThread();}else{this.syncAll();this.refresh();if(!reuse)this.restoreFeedAnchor();this.mountedBefore=true;}
+      this.loadMeta(name,()=>{if(this.mounted?.name===name){this.renderHeader();this.renderSidebar();}});
+      if(thread){
+        this.threadViewport=globalThis.matchMedia?.('(max-width:639px)');
+        this.threadViewport?.addEventListener('change',this.onThreadViewport);
+        const seen=this.recentPosts?.get('t3_'+thread.postId);
+        this.threadState={route:thread,post:seen && seen.subreddit?.toLowerCase()===name.toLowerCase()?seen:null,items:[],seen:new Set(),hasMore:true,loading:false,cursor:null};
+        this.loadThread();
+      }else{this.syncAll();this.refresh();if(!reuse)this.restoreFeedAnchor();this.mountedBefore=true;}
     }
     unmount(){
       const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.scrollKeeper?.stop();this.scrollKeeper=null;this.threadState=null;
+      this.threadViewport?.removeEventListener('change',this.onThreadViewport);this.threadViewport=null;
       this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
       if(!m.thread)this.feedStash={name:m.name.toLowerCase(),states:this.states,scrollY:this.feedScrollY ?? scrollY,at:Date.now()};
       for(const state of this.states.values())this.retireFeedState(state);
@@ -289,8 +303,10 @@
       const timeLink=make('a','text-neutral-content-weak text-12 hover:no-underline');timeLink.href=path;timeLink.append(this.time(comment.created));name.append(make('span','inline-block my-0 mx-2xs text-12 text-neutral-content-weak','•'),timeLink);identity.append(name);author.append(identity);
       const body=make('div','md text-14-scalable rounded-2 pb-2xs overflow-hidden pt-2xs');body.slot='comment';const text=make('div','py-0 xs:mx-xs mx-2xs max-w-full scalable-text');text.dir='auto';
       {const rendered=globalThis.RTMarkdown?.fromHtml?.(comment.bodyHtml) || globalThis.RTMarkdown?.render?.(comment.body || '');if(rendered)text.append(rendered);else text.append(make('p','',comment.body || 'The archive has no original text for this comment.'));}body.append(text);
-      const actions=make('shreddit-comment-action-row','block min-h-xl');actions.slot='actionRow';for(const [key,value] of Object.entries({'comment-id':comment.fullname,score:comment.score,'vote-state':'NONE','view-only':'','comment-archived':'','is-desktop-viewport':'',permalink:path}))actions.setAttribute(key,String(value));
-      const share=make('shreddit-comment-share-button');share.slot='comment-share';share.setAttribute('permalink',path);share.setAttribute('source-id',comment.fullname);share.setAttribute('is-desktop-viewport','');actions.append(share);const avatar=make('div','flex flex-row items-center rt-sra-comment-avatar');avatar.slot='commentAvatar';avatar.append(defaultAvatar(comment.author,comment.depth?24:32,globalThis.RTPostModel.validateUsername(comment.author)?'/user/'+encodeURIComponent(comment.author)+'/':''));node.append(avatar,author,body,actions);
+      const actions=make('shreddit-comment-action-row','block min-h-xl');actions.slot='actionRow';for(const [key,value] of Object.entries({'comment-id':comment.fullname,score:comment.score,'vote-state':'NONE','view-only':'','comment-archived':'',permalink:path}))actions.setAttribute(key,String(value));
+      const share=make('shreddit-comment-share-button');share.slot='comment-share';share.setAttribute('permalink',path);share.setAttribute('source-id',comment.fullname);
+      for(const control of [actions,share])control.toggleAttribute('is-desktop-viewport',!this.threadViewport?.matches);
+      actions.append(share);const avatar=make('div','flex flex-row items-center rt-sra-comment-avatar');avatar.slot='commentAvatar';avatar.append(defaultAvatar(comment.author,comment.depth?24:32,globalThis.RTPostModel.validateUsername(comment.author)?'/user/'+encodeURIComponent(comment.author)+'/':''));node.append(avatar,author,body,actions);
       // Reddit can render snapshot scores but no action may mutate a snapshot.
       for(const type of ['click','keydown'])actions.addEventListener(type,event=>{if(event.type==='keydown' && !['Enter',' '].includes(event.key))return;if(!event.composedPath().some(part=>part.matches?.('shreddit-comment-share-button'))){event.preventDefault();event.stopImmediatePropagation();}},true);
       return node;
@@ -303,7 +319,7 @@
       }
       if(state.post && !state.postEl){
         const card=state.postEl=globalThis.RTPostDiscovery.archiveCard(state.post,{thread:true}),native=card.querySelector('shreddit-post');
-        if(native){native.classList.add('rt-sra-thread-post');native.querySelector('[data-rt-source]')?.remove();
+        if(native){native.classList.add('rt-sra-thread-post');native.toggleAttribute('compact-ui',this.threadViewport?.matches===true);native.querySelector('[data-rt-source]')?.remove();
         }this.listEl.insertBefore(card,state.commentsEl);
       }
       // Reddit renders the comment toolbar with the post, never before it: it arrives in the same frame as the post
