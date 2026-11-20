@@ -54,7 +54,9 @@ test('video choices default to Autoplay and Reddit’s other behaviour, and only
  const W=new JSDOM('',{runScripts:'outside-only'}).window;W.eval(fs.readFileSync('extension/post-model.js','utf8'));
  const n=raw=>{const all=W.RTPostModel.normalizeSettings(raw);return Object.fromEntries(Object.entries(all).filter(([k])=>k.startsWith('video')));};
  assert.deepEqual(JSON.parse(JSON.stringify(n({}))),{videoStart:'autoplay',videoStartTouch:'autoplay',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'continue',videoScrollAway:'reddit'},'Autoplay and Reddit’s other behaviour by default');
- assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:true,videoContinueOnOpen:true,videoPauseOffscreen:true,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false}))),{videoStart:'autoplay',videoStartTouch:'stop',videoPreviewClick:'here',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'continue',videoScrollAway:'reddit'},'only the old opt-ins carry over');
+ assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:true,videoContinueOnOpen:true,videoPauseOffscreen:true,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false}))),{videoStart:'autoplay',videoStartTouch:'stop',videoPreviewClick:'muted',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'continue',videoScrollAway:'reddit'},'only the old opt-ins carry over');
+ assert.equal(n({videoPreviewClick:'here',videoUnmutePreview:false}).videoPreviewClick,'muted');
+ assert.equal(n({videoPreviewClick:'here',videoUnmutePreview:true}).videoPreviewClick,'sound');
  assert.equal(n({videoStart:'hover'}).videoStart,'hover');assert.equal(n({videoStart:'reddit',videoStartTouch:'reddit'}).videoStartTouch,'autoplay','0.48’s Reddit start is now Autoplay');
  W.close();
 });
@@ -712,7 +714,7 @@ test('a parked hover preview warms the thumbnail from its Embedly URL without st
  const p=page(t),image='https://cdn.example.test/ready.jpg';
  const e=frameEmbed(p,embedly+'&image='+encodeURIComponent(image)),c=await hoverController(p);
  const warmed=[];c.warmPoster=url=>warmed.push(url);
- c.preparedPosters=new WeakSet();c.posters.clear();c.scan();await flush();
+ c.preparedPosters=new WeakSet();c.posters.clear();c.warmedPosters.clear();c.scan();await flush();
  assert.ok(warmed.includes(image));assert.equal(e.layer(),null);
 });
 test('direct provider sound stays on the same frame for a feed tap and a post handoff',async t=>{
@@ -1037,9 +1039,9 @@ test('on a fresh page the stills nearest the screen are looked up first and each
  const c=await hoverController(p,{embedStart:'play'});c.scan();
  await new Promise(resolve=>setTimeout(resolve,500));
  assert.deepEqual(asked.slice(0,2),['near','mid'],'nearest first, two at a time');
- assert.equal(c.posters.get('t3_near'),'https://media.example.test/near.jpg','shown before the slow one finishes');
+ assert.equal(c.posters.get('t3_near')?.[0],'https://media.example.test/near.jpg','shown before the slow one finishes');
  release();await new Promise(resolve=>setTimeout(resolve,50));
- assert.equal(c.posters.get('t3_far'),'https://media.example.test/far.jpg');
+ assert.equal(c.posters.get('t3_far')?.[0],'https://media.example.test/far.jpg');
 });
 
 test('a card shows its still while Reddit has not inserted its player, and until that player has drawn',async t=>{
@@ -1053,4 +1055,114 @@ test('a card shows its still while Reddit has not inserted its player, and until
  assert.ok(pre(),'kept while the player loads');
  frame.dispatchEvent(new p.W.Event('load'));await new Promise(resolve=>setTimeout(resolve,450));
  assert.equal(pre(),null,'gone once the player has drawn');
+});
+
+test('an in-place muted click unlocks Reddit’s controls and keeps the preview position with opening sound on',async t=>{
+ const p=page(t);await hoverController(p,{videoPreviewClick:'muted',videoUnmutePreview:true,videoPreviewFrom:'start'});
+ const clicks=surfaceClick(p);pointer(p);await waitForHover();p.video.currentTime=4;
+ p.click(p.video);pointer(p,'pointerout');await new Promise(resolve=>setTimeout(resolve,260));
+ assert.deepEqual(clicks.count(),{toggled:0,opened:0});
+ assert.equal(p.video.muted,true);assert.equal(p.video.paused,false);assert.equal(p.video.currentTime,4);
+ p.click(p.video);assert.equal(clicks.count().toggled,1,'the next tap reaches the native player');
+});
+
+test('an embed preview can reveal the same controls at the same position while keeping muted',async t=>{
+ const p=page(t);const c=await controlled(p,{videoPreviewClick:'muted',videoUnmutePreview:true});
+ let opened=0;p.title.addEventListener('click',()=>opened++);
+ c.over();await waitForHover();c.layer().click();
+ assert.equal(opened,0);assert.equal(c.layer(),null);assert.equal(c.node.dataset.rtEmbedUsed,'1');
+ assert.equal(c.frame.src,embedly);assert.deepEqual(c.commands(),['mute','play']);
+ assert.ok(p.io.observed.includes(c.node),'a user-owned muted player is observed offscreen like a sound player');
+});
+
+test('opening sound is independent of what a click in the feed would do',async t=>{
+ const p=page(t);const e=embed(p,{muted:true});await hoverController(p,{videoPreviewClick:'muted',videoUnmutePreview:true});
+ e.over();await waitForHover();p.click(p.title);
+ assert.equal(JSON.parse(p.W.sessionStorage.getItem(embedKey)).muted,false);
+ const q=page(t);const f=await controlled(q,{videoPreviewClick:'sound',videoUnmutePreview:false});
+ f.over();await waitForHover();f.layer().click();
+ assert.deepEqual(f.commands(),['mute','play','unmute','play']);
+});
+
+test('Vimeo can show Reddit’s fallback still until the provider begins playback',async t=>{
+ const p=page(t),node=p.d.createElement('shreddit-embed');node.setAttribute('providerName','Vimeo');
+ const lite=node.attachShadow({mode:'open'}).appendChild(p.d.createElement('lite-vimeo'));
+ lite.setAttribute('videoid','123');lite.attachShadow({mode:'open'});p.player.closest('shreddit-post').append(node);
+ lite.addEventListener('click',()=>{if(lite.shadowRoot.querySelector('iframe'))return;const frame=lite.shadowRoot.appendChild(p.d.createElement('iframe'));frame.src='https://player.vimeo.com/video/123';});
+ const c=await hoverController(p);c.readPosters=async()=>({t3_test:'https://preview.redd.it/vimeo.jpg'});c.scan();
+ await new Promise(resolve=>setTimeout(resolve,100));
+ assert.equal(node.shadowRoot.querySelector('[data-rt-parked-still]')?.getAttribute('src'),'https://preview.redd.it/vimeo.jpg');
+ const over=new p.W.MouseEvent('pointerover',{bubbles:true,composed:true});Object.defineProperty(over,'pointerType',{value:'mouse'});lite.dispatchEvent(over);await waitForHover();
+ assert.equal(node.shadowRoot.querySelector('[data-rt-parked-cover]'),null);
+ assert.ok(lite.shadowRoot.querySelector('iframe'));
+});
+
+test('a broken native poster tries the post alternatives and keeps the case of the RedGIFs still',async t=>{
+ const p=page(t),native='https://preview.redd.it/invalid-native.jpg',reddit='https://preview.redd.it/invalid-post.jpg',poster='https://media.redgifs.com/SampleCamel-poster.jpg';
+ p.W.Image=class{constructor(){this.listeners={};}addEventListener(type,fn){this.listeners[type]=fn;}};
+ let reads=0;p.W.fetch=async()=>{reads++;return {ok:true,status:200,json:async()=>[{data:{children:[{data:{preview:{images:[{source:{url:reddit}}]},secure_media:{oembed:{thumbnail_url:poster}}}}]}}]};};
+ const e=frameEmbed(p,'https://www.redgifs.com/ifr/samplecamel');e.node.setAttribute('poster',native);
+ const c=await hoverController(p,{embedStart:'play'});c.scan();
+ const fail=url=>{const image=c.warmedPosters.get(url);image.complete=true;image.listeners.error();};
+ fail(native);await new Promise(resolve=>setTimeout(resolve,120));fail(reddit);
+ const still=e.node.shadowRoot.querySelector('[data-rt-parked-still]');
+ assert.equal(reads,1);assert.equal(still?.src,poster);assert.equal(still.referrerPolicy,'no-referrer');
+});
+
+test('playing raw provider previews fit Reddit’s reserved slot without changing the iframe’s original dimensions',async t=>{
+ const p=page(t),e=frameEmbed(p,'https://www.redgifs.com/ifr/layout');
+ e.node.getBoundingClientRect=()=>({width:408,height:312,top:120,bottom:432});
+ e.frame.width='600';e.frame.height='338';
+ await hoverController(p,{videoPreviewClick:'muted'});
+ e.over();await waitForHover();
+ assert.ok(e.frame.hasAttribute('data-rt-fit-preview'));
+ const css=e.node.shadowRoot.querySelector('style[data-rt-preview-sizing]')?.textContent;
+ assert.match(css,/iframe\[data-rt-fit-preview\][^{]*\{[^}]*width:\s*100%[^}]*height:\s*100%/);
+ assert.equal(e.frame.width,'600');assert.equal(e.frame.height,'338');
+ e.layer().click();
+ assert.ok(e.frame.hasAttribute('data-rt-fit-preview'),'revealing the same provider controls preserves the fit');
+});
+
+test('a provider metadata still that fails lets Reddit supply the replacement',async t=>{
+ const p=page(t),bad='https://media.redgifs.com/broken.jpg',poster='https://preview.redd.it/replacement.jpg',reads=[];
+ p.W.Image=class{constructor(){this.listeners={};}addEventListener(type,fn){this.listeners[type]=fn;}};
+ p.W.chrome={runtime:{sendMessage:async message=>{reads.push(message.scope);return {t3_test:bad};}}};
+ p.W.fetch=async()=>{reads.push('reddit');return {ok:true,status:200,json:async()=>[{data:{children:[{data:{preview:{images:[{source:{url:poster}}]}}}]}}]};};
+ const e=frameEmbed(p,'https://www.redgifs.com/ifr/example');
+ const c=await hoverController(p,{embedStart:'play'});c.scan();await new Promise(resolve=>setTimeout(resolve,100));
+ const img=c.warmedPosters.get(bad);img.complete=true;img.listeners.error();await new Promise(resolve=>setTimeout(resolve,100));
+ assert.deepEqual(reads,['rt-embed-posters','reddit']);
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-still]')?.src,poster);
+});
+
+test('muted controls stay muted if the Embedly preview needs startup flags',async t=>{
+ const p=page(t),timer=p.W.setTimeout.bind(p.W);
+ p.W.setTimeout=(fn,ms,...args)=>timer(fn,ms===2500?350:ms,...args);
+ const wrapped='https://cdn.embedly.com/widgets/media.html?src='+encodeURIComponent('https://clips.twitch.tv/embed?clip=x&autoplay=false');
+ const c=await controlled(p,{videoPreviewClick:'muted'},wrapped);
+ c.over();await waitForHover();c.layer().click();
+ await new Promise(resolve=>timer(resolve,380));
+ const provider=new URL(new URL(c.frame.src).searchParams.get('src'));
+ assert.equal(provider.searchParams.get('autoplay'),'true');assert.equal(provider.searchParams.get('muted'),'true');
+ assert.equal(c.layer(),null);
+});
+
+test('Vimeo uses an Embedly image baked into Reddit’s html attribute before the player exists',async t=>{
+ const p=page(t),image='https://i.vimeocdn.com/video/123_640.jpg',node=p.d.createElement('shreddit-embed');
+ node.setAttribute('providername','Vimeo');node.setAttribute('html','<iframe src="'+embedly+'&amp;image='+encodeURIComponent(image)+'"></iframe>');
+ node.attachShadow({mode:'open'});p.player.closest('shreddit-post').append(node);
+ const c=await hoverController(p,{embedStart:'play'});c.readPosters=async()=>{throw Error('markup already supplies poster');};
+ c.scan();await flush();
+ assert.equal(node.shadowRoot.querySelector('[data-rt-pre-still]')?.src,image);
+});
+
+test('fallback poster lookups wait until a distant card approaches the viewport',async t=>{
+ const p=page(t),requests=[];
+ const e=frameEmbed(p,'https://www.redgifs.com/ifr/distant');
+ let top=12000;e.node.getBoundingClientRect=()=>({width:408,height:300,top,bottom:top+300});
+ const c=await hoverController(p,{embedStart:'play'});c.readPosters=async ids=>{requests.push(...ids);return {};};
+ c.scan();await new Promise(resolve=>setTimeout(resolve,100));
+ assert.deepEqual(requests,[]);
+ top=1300;p.io.posters.cb([{target:e.node,isIntersecting:true}]);await new Promise(resolve=>setTimeout(resolve,100));
+ assert.deepEqual(requests,['t3_test']);
 });

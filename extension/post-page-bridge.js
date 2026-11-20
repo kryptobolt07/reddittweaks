@@ -272,6 +272,13 @@
     event.preventDefault();
     youTubePlayer(embed,{mute:'1'}).then(player=>{if(embed.dataset.rtEmbedPreview!=='on')return;player?.mute();player?.playVideo();},()=>{});
   });
+  document.addEventListener('rt-embed-use-muted',event=>{
+    const embed=event.target;
+    if(ytPlayers.has(embed))return;
+    pendingYouTube.get(embed)?.then(player=>{
+      if(embed.isConnected && embed.dataset.rtEmbedUsed==='1'){player?.mute();player?.playVideo();}
+    }).catch(()=>{});
+  });
   // End of a preview: pause where it is and restore sound for the user's own play button.
   document.addEventListener('rt-embed-stop',event=>youTubeCall(event.target,player=>{player.pauseVideo();player.unMute();}));
   document.addEventListener('rt-embed-offscreen',event=>{

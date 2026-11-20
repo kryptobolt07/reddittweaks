@@ -293,3 +293,22 @@ test('the popup shows three start modes and keeps preview options visible for an
  choice.click();d.querySelector('#gif-start-touch-menu [data-value=play]').click();await settle();
  assert.equal(preview.hidden,true);assert.equal(p.state['rt-settings-v1'].gifStartTouch,'play');
 });
+
+test('the popup persists the muted-controls click choice independently of opening sound',async t=>{
+ const p=popup(t,{storedTab:'settings',settings:{'rt-settings-v1':{videoUnmutePreview:false}}});await settle();
+ const d=p.w.document,click=d.getElementById('video-preview-click'),sound=d.getElementById('video-unmute-preview');
+ click.click();d.querySelector('#video-preview-click-menu [data-value="muted"]').click();await settle();
+ assert.match(click.textContent,/Stays muted/);assert.equal(p.state['rt-settings-v1'].videoPreviewClick,'muted');
+ assert.equal(sound.checked,false);assert.equal(p.state['rt-settings-v1'].videoUnmutePreview,false);
+});
+
+test('a previously saved silent Play here choice stays silent after the update',async t=>{
+ const p=popup(t,{storedTab:'settings',settings:{'rt-settings-v1':{videoPreviewClick:'here',videoUnmutePreview:false}}});await settle();
+ const d=p.w.document,click=d.getElementById('video-preview-click'),sound=d.getElementById('video-unmute-preview');
+ assert.match(click.textContent,/Stays muted/);
+ sound.click();await settle();
+ assert.equal(p.state['rt-settings-v1'].videoPreviewClick,'muted');
+ click.click();d.querySelector('#video-preview-click-menu [data-value="sound"]').click();await settle();
+ assert.equal(p.state['rt-settings-v1'].videoPreviewClick,'sound');
+ assert.equal(sound.checked,true);
+});

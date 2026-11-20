@@ -72,7 +72,8 @@
       videoStart,videoStartTouch,gifStart:pick('gifStart',mouse,'autoplay'),gifStartTouch:pick('gifStartTouch',touch,'autoplay'),
       embedStart:pick('embedStart',mouse,videoStart),embedStartTouch:pick('embedStartTouch',touch,videoStartTouch),
       embedBlockLinks:pick('embedBlockLinks',['off','feed','posts','both'],'off'),
-      videoPreviewClick:pick('videoPreviewClick',['open','here'],raw?.videoPreviewClickPlays===true?'here':'open'),
+      videoPreviewClick:pick('videoPreviewClick',['open','muted','sound'],
+        raw?.videoPreviewClick==='here' || raw?.videoPreviewClickPlays===true ? (raw?.videoUnmutePreview===false?'muted':'sound') : 'open'),
       videoPreviewFrom:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),
       videoUnmutePreview:raw?.videoUnmutePreview!==false,
       videoOpenPost:pick('videoOpenPost',['continue','reddit'],'continue'),videoScrollAway:pick('videoScrollAway',['reddit','pause'],'reddit')
