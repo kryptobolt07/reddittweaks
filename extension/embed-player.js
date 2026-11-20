@@ -25,9 +25,9 @@
   document.addEventListener('play',event=>{if(event.target.matches?.('video'))hold(event.target);},true);
   document.addEventListener('loadeddata',event=>{const video=event.target;if(video.matches?.('video') && holding()){video.preload='auto';if(!video.paused)hold(video);}},true);
   setTimeout(()=>{if(!instructed && heldOnce && eligible && !acted)media()?.play()?.catch(()=>{});},3050);
-  const up=(rtMedia)=>{
-    if(parentOrigin)window.parent.postMessage({rtMedia},parentOrigin);
-    else for(const origin of parents)window.parent.postMessage({rtMedia},origin);
+  const up=(rtMedia,fields)=>{
+    if(parentOrigin)window.parent.postMessage({rtMedia,...fields},parentOrigin);
+    else for(const origin of parents)window.parent.postMessage({rtMedia,...fields},origin);
   };
   const down=(rtMedia,fields)=>child?.postMessage({rtMedia,...fields},childOrigin);
   const hello=()=>{if(allowed && (media() || child)){announced=true;up('hello');}};
@@ -47,9 +47,14 @@
   }
   window.addEventListener('message',async event=>{
     const method=event.data?.rtMedia;
-    if(!['hello','play','pause','mute','unmute','policy'].includes(method) || !await ready)return;
+    if(!['hello','play','pause','mute','unmute','policy','viewport'].includes(method) || !await ready)return;
     if(event.source===window.parent && parents.includes(event.origin) && method!=='hello'){
       parentOrigin=event.origin;
+      if(method==='viewport'){
+        const request=event.data.request;
+        if(Number.isSafeInteger(request))up('viewport',{request,width:window.innerWidth,height:window.innerHeight});
+        return;
+      }
       if(method==='policy'){block=event.data.block===true;document.documentElement.toggleAttribute('data-rt-block-links',block);}
       else{
         if(method==='mute' || method==='unmute')sound=method;
