@@ -208,6 +208,10 @@
    };
    this.onRoute=()=>{this.stopHover();this.handoff();};
    this.onBack=()=>{this.stopHover();this.clearHandoff();this.clearEmbedHandoff();};
+   this.onHoldCancelled=event=>{
+    if(event.type==='rt-video-hold-cancelled')this.clearHandoff();
+    else this.clearEmbedHandoff();
+   };
    this.onPageExit=()=>{
     const pending=this.activeHandoff();
     if(pending?.sourceVideo){
@@ -226,6 +230,8 @@
    doc.addEventListener('click',this.onRemember,true);
    for(const type of ['click','auxclick'])doc.addEventListener(type,this.onEmbedLink,true);
    doc.addEventListener('reddit:route',this.onRoute);
+   doc.addEventListener('rt-video-hold-cancelled',this.onHoldCancelled);
+   doc.addEventListener('rt-embed-hold-cancelled',this.onHoldCancelled);
    // The page bridge reports a YouTube player that started (by its own controls, a preview or a continuation).
    this.onEmbedPlaying=event=>{
     const embed=event.target;if(!embed?.matches?.(EMBED))return;
@@ -1474,7 +1480,7 @@
    this.doc.removeEventListener('toggle',this.onCommentToggle,true);
    this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);this.win.clearTimeout(this.dwellTimer);
    for(const node of this.managedViewport)this.manageViewport(node,false);
-   this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);this.win.removeEventListener('message',this.onFrameMessage);
+   this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-video-hold-cancelled',this.onHoldCancelled);this.doc.removeEventListener('rt-embed-hold-cancelled',this.onHoldCancelled);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);this.win.removeEventListener('message',this.onFrameMessage);
    for(const type of ['click','auxclick'])this.doc.removeEventListener(type,this.onEmbedLink,true);
    this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
    this.clearHandoff();
