@@ -76,6 +76,37 @@
     controller.endDomReparent();
     stage.remove();
   }
+  // A user scroll means the move is no longer what they are looking at: put the media back and let the post's own
+  // player load normally. Layout/route scroll is not a gesture and must not cancel (Reddit moves the feed itself).
+  const SCROLL_CANCEL=8;
+  let touchOrigin=null;
+  function cancelHeldMedia(){
+    if(heldVideo){releaseVideo();document.dispatchEvent(new Event('rt-video-hold-cancelled'));}
+    if(heldEmbed){releaseEmbed();document.dispatchEvent(new Event('rt-embed-hold-cancelled'));}
+  }
+  addEventListener('wheel',event=>{
+    if((!heldVideo && !heldEmbed) || !(event.deltaX || event.deltaY))return;
+    cancelHeldMedia();
+  },{passive:true,capture:true});
+  addEventListener('touchstart',event=>{
+    const touch=(heldVideo || heldEmbed) && event.touches?.[0];
+    touchOrigin=touch?{x:touch.clientX,y:touch.clientY}:null;
+  },{passive:true,capture:true});
+  addEventListener('touchmove',event=>{
+    if((!heldVideo && !heldEmbed) || !touchOrigin)return;
+    const touch=event.touches?.[0];
+    if(touch && Math.hypot(touch.clientX-touchOrigin.x,touch.clientY-touchOrigin.y)>=SCROLL_CANCEL)cancelHeldMedia();
+  },{passive:true,capture:true});
+  const endTouch=()=>{touchOrigin=null;};
+  addEventListener('touchend',endTouch,{passive:true,capture:true});
+  addEventListener('touchcancel',endTouch,{passive:true,capture:true});
+  addEventListener('keydown',event=>{
+    if((!heldVideo && !heldEmbed) || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey)return;
+    if(![' ','PageDown','PageUp','Home','End','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key))return;
+    const path=event.composedPath?.() || [];
+    if(path.some(node=>node.matches?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),shreddit-player,shreddit-player-2')))return;
+    cancelHeldMedia();
+  },true);
   // Reddit rounds a media box's corners on the element that clips it: the player itself or a wrapper of the same size
   // (read from its computed style, not assumed). The moving player keeps the feed's corners and lands with the post's.
   function cornerOf(node){

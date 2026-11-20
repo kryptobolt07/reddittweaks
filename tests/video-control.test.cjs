@@ -274,6 +274,22 @@ test('cancelling before the detail slot mounts restores the playing player to it
  assert.equal(p.video.paused,false);
  assert.deepEqual(calls,['begin','end']);
 });
+
+test('a wheel scroll during the move returns the held video to its card and drops the handoff',async t=>{
+ const p=page(t),calls=nativeMove(p);
+ const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
+ p.startFromControl();p.video.currentTime=8;
+ const feed=p.player.parentElement;p.click(p.title);
+ assert.notEqual(p.player.parentElement,feed);
+ let cancelled=0;p.d.addEventListener('rt-video-hold-cancelled',()=>cancelled++);
+ p.W.dispatchEvent(new p.W.WheelEvent('wheel',{deltaY:20,bubbles:true}));
+ assert.equal(cancelled,1);
+ assert.equal(p.player.parentElement,feed,'the player is back in its feed card');
+ assert.equal(p.video.paused,false);
+ assert.deepEqual(calls,['begin','end']);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-media-moving'),false);
+ assert.equal(p.W.sessionStorage.getItem(continuationKey),null,'the post will not continue it');
+});
 test('placement ignores old visibility readings and observes the painted post for scroll-away pauses',async t=>{
  const p=page(t);nativeMove(p);
  const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
@@ -663,6 +679,14 @@ test('Back before the post embed is ready returns the held YouTube player to its
  e.node.addEventListener('rt-hold-feed-embed',event=>event.preventDefault());
  let released=0;p.d.addEventListener('rt-release-feed-embed',()=>released++);
  p.click(p.title);p.W.dispatchEvent(new p.W.PopStateEvent('popstate'));
+ assert.equal(released,1);assert.equal(p.W.sessionStorage.getItem(embedKey),null);
+});
+test('a scroll cancels a held YouTube handoff before the post embed is ready',async t=>{
+ const p=page(t);const e=embed(p);await hoverController(p);
+ e.node.addEventListener('rt-hold-feed-embed',event=>event.preventDefault());
+ let released=0;p.d.addEventListener('rt-release-feed-embed',()=>released++);
+ p.click(p.title);assert.ok(p.W.sessionStorage.getItem(embedKey));
+ p.d.dispatchEvent(new p.W.Event('rt-embed-hold-cancelled'));
  assert.equal(released,1);assert.equal(p.W.sessionStorage.getItem(embedKey),null);
 });
 

@@ -955,6 +955,52 @@ test('another provider’s iframe is held at its card, then replaces the post’
  assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),false);
 });
 
+test('a wheel scroll while an embed is held puts it back at its card and cancels the handoff',async t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/soccer/',before:W=>{W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};}});
+ const d=W.document;d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_abc"></shreddit-post></shreddit-feed>';
+ const embed=d.createElement('shreddit-embed');d.querySelector('shreddit-post').append(embed);
+ const frame=embed.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));frame.src='https://streamable.com/e/abc';
+ frame.getBoundingClientRect=()=>({left:10,top:100,width:360,height:203});
+ let cancelled=0;d.addEventListener('rt-embed-hold-cancelled',()=>cancelled++);
+ embed.dispatchEvent(new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
+ const stage=frame.parentElement;
+ d.dispatchEvent(new W.WheelEvent('wheel',{deltaY:0,bubbles:true}));
+ assert.equal(cancelled,0,'no movement does not cancel');
+ d.dispatchEvent(new W.WheelEvent('wheel',{deltaY:12,bubbles:true}));
+ assert.equal(cancelled,1);assert.equal(frame.parentNode,embed.shadowRoot,'the player is back in its card');
+ assert.equal(stage.isConnected,false);assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),false);
+});
+
+test('a touch drag while an embed is held cancels it only after eight pixels',async t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/soccer/',before:W=>{W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};}});
+ const d=W.document;d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_abc"></shreddit-post></shreddit-feed>';
+ const embed=d.createElement('shreddit-embed');d.querySelector('shreddit-post').append(embed);
+ const frame=embed.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));frame.src='https://streamable.com/e/abc';
+ frame.getBoundingClientRect=()=>({left:10,top:100,width:360,height:203});
+ let cancelled=0;d.addEventListener('rt-embed-hold-cancelled',()=>cancelled++);
+ const touch=(type,x,y)=>{const event=new W.Event(type,{bubbles:true,cancelable:true});Object.defineProperty(event,'touches',{value:type==='touchend'?[]:[{clientX:x,clientY:y}]});return event;};
+ embed.dispatchEvent(new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
+ d.dispatchEvent(touch('touchstart',10,10));d.dispatchEvent(touch('touchmove',10,14));
+ assert.equal(cancelled,0,'a short drag does not cancel');
+ d.dispatchEvent(touch('touchmove',10,30));
+ assert.equal(cancelled,1);assert.equal(frame.parentNode,embed.shadowRoot);
+});
+
+test('a scroll key while an embed is held cancels it, but typing in a field does not',async t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/soccer/',before:W=>{W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};}});
+ const d=W.document;d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_abc"></shreddit-post></shreddit-feed>';
+ const embed=d.createElement('shreddit-embed');d.querySelector('shreddit-post').append(embed);
+ const frame=embed.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));frame.src='https://streamable.com/e/abc';
+ frame.getBoundingClientRect=()=>({left:10,top:100,width:360,height:203});
+ let cancelled=0;d.addEventListener('rt-embed-hold-cancelled',()=>cancelled++);
+ embed.dispatchEvent(new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
+ const field=d.createElement('input');d.body.append(field);
+ field.dispatchEvent(new W.KeyboardEvent('keydown',{key:'PageDown',bubbles:true}));
+ assert.equal(cancelled,0,'a field keeps its own key');
+ d.body.dispatchEvent(new W.KeyboardEvent('keydown',{key:'PageDown',bubbles:true}));
+ assert.equal(cancelled,1);assert.equal(frame.parentNode,embed.shadowRoot);
+});
+
 test('a Vimeo player made by Reddit’s lite-vimeo is held at its card and placed over the post’s lite-vimeo',async t=>{
  const {W}=setup(t,{url:'https://www.reddit.com/r/videos/',before:W=>{W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};}});
  const d=W.document;d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_vim"></shreddit-post></shreddit-feed>';
