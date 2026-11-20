@@ -67,3 +67,21 @@ test('desktop and non-Android mobile browsers keep the native app prompt', async
   await settle();
   assert.deepEqual(trace, []);
 });
+
+test('a configured Reddit dialog with a browser action continues, while the Mature Content variant stays intact', async t => {
+  const {trace} = setup(t, `
+    <configured-xpromo-modal>
+      <rpl-dialog open dialog-id="configured-xpromo-blocking_xpromo_nsfw_blocking">
+        <h3 slot="title">Mature Content</h3><a slot="primary-button" href="https://app.example/">View In App</a>
+        <button slot="tertiary-button">Go Home</button>
+      </rpl-dialog>
+    </configured-xpromo-modal>
+    <configured-xpromo-modal>
+      <rpl-dialog open dialog-id="configured-xpromo-app_prompt">
+        <h3 slot="title">See Reddit in the app</h3><a slot="primary-button" href="https://app.example/">View In App</a>
+        <button slot="secondary-button">Continue in browser</button>
+      </rpl-dialog>
+    </configured-xpromo-modal>`);
+  await settle();
+  assert.deepEqual(trace, ['Continue in browser']);
+});
