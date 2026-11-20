@@ -24,7 +24,7 @@
   const head=make('div','rt-fsheet-head'),back=make('button','rt-fsheet-back'),heading=make('h2','rt-fsheet-title'),closer=make('button','rt-fsheet-close'),body=make('div','rt-fsheet-body');
   heading.id=id;back.type='button';back.setAttribute('aria-label','Back');back.append(glyph('back'));closer.type='button';closer.setAttribute('aria-label','Close');closer.append(glyph('close'));
   head.append(back,heading,closer);sheet.append(head,body);root.append(scrim,sheet);
-  const pages=[{title,build}];
+  const pages=[{title,build}],openedAt=performance.now();
   const state={root,body,closeFn:null,returnFocus,onClose,pages,leaving:[]};
   const ui={
    // A list row: real link when href is given (Reddit's own navigation), else a button. Optional: an avatar (URL or
@@ -97,7 +97,7 @@
   }
   back.addEventListener('click',event=>{event.preventDefault();ui.pop();});
   closer.addEventListener('click',event=>{event.preventDefault();close();});
-  scrim.addEventListener('click',event=>{event.preventDefault();close();});
+  scrim.addEventListener('click',event=>{event.preventDefault();if(performance.now()-openedAt<350)return;close();});
   if(modal)root.addEventListener('cancel',event=>{event.preventDefault();close();});
   const onKey=event=>{if(event.key!=='Escape')return;event.preventDefault();event.stopPropagation();if(pages.length>1)ui.pop();else close();};
   const onMedia=()=>{if(!globalThis.matchMedia?.('(max-width: 767.98px)')?.matches)close();};
@@ -105,9 +105,9 @@
   document.addEventListener('keydown',onKey,true);
   state.closeFn=()=>{giveBack();document.removeEventListener('keydown',onKey,true);media?.removeEventListener?.('change',onMedia);if(modal)root.close?.();root.remove();};
   active=state;document.body.append(root);
-  if(modal){if(root.showModal)root.showModal();else root.setAttribute('open','');}
+  if(modal){if(root.showModal)root.showModal();else root.setAttribute('open','');root.scrollTop=0;}
   render();
-  if(active===state){root.dataset.open='true';closer.focus({preventScroll:true});}
+  if(active===state){void root.offsetHeight;root.dataset.open='true';closer.focus({preventScroll:true});}
   return {close,refresh:ui.refresh,root};
  }
  function close(){

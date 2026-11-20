@@ -190,7 +190,7 @@
    if(focus)menu.querySelector('[data-rt-ui="accounts"] a,[data-rt-ui="accounts"]')?.focus?.({preventScroll:true});
   }
   row(source,{label,caption,avatar='',keepAvatar=false,check=false,lead='',tail='',disabled=false,owner='',confirm=false,run=null}){
-   const li=source.cloneNode(true);let a=li.querySelector(':scope > a, :scope > button');
+   const li=source.cloneNode(true);li.classList.add('rt-account-row');let a=li.querySelector(':scope > a, :scope > button');
    if(a?.tagName==='BUTTON'){const link=document.createElement('a');link.className=a.className;link.append(...a.childNodes);a.replaceWith(link);a=link;}
    if(!a){a=document.createElement('a');a.className='flex justify-between relative px-md gap-xs text-secondary-plain hover:bg-neutral-background-hover cursor-pointer py-xs no-underline';li.replaceChildren(a);}
    li.dataset.rtUi='account-row';if(owner)li.dataset.owner=owner;for(const attr of ['id','noun','data-testid'])li.removeAttribute(attr);

@@ -180,7 +180,7 @@ test('one Switch accounts row sits right after View Profile, built from Reddit�
  const wrap=d.querySelector('[data-rt-ui="accounts"]');assert.equal(wrap.previousElementSibling,d.querySelector('faceplate-tracker'),'directly after View Profile');
  assert.equal(entry(d).querySelector('.text-body-2').textContent,'Switch accounts');assert.equal(entry(d).querySelector('.text-caption-1').textContent,'1 other account');assert.equal(entry(d).querySelector('.text-caption-1').hidden,false,'the caption shows');
  assert.ok(entry(d).querySelector('[data-rt-icon="switchAccount"]') && entry(d).querySelector('[data-rt-icon="next"]'));assert.equal(entry(d).getAttribute('aria-haspopup'),'menu');
- assert.match(entry(d).className,/hover:bg-neutral-background-hover/,'Reddit’s own row classes');assert.equal(d.querySelectorAll('[data-owner="t2_bob"]').length,0,'accounts stay in the submenu');
+ assert.match(entry(d).className,/hover:bg-neutral-background-hover/,'Reddit’s own row classes');assert.ok(entry(d).closest('.rt-account-row'),'the whole row shares one hit target');assert.equal(d.querySelectorAll('[data-owner="t2_bob"]').length,0,'accounts stay in the submenu');
 });
 test('the submenu replaces Reddit’s sections in place: current account checked, others, Browse signed out, Add account',async t=>{
  const {d}=await page(t);await open(d);const menu=d.querySelector('#user-drawer-content');
@@ -204,11 +204,11 @@ test('on phones Switch accounts opens an Accounts sheet: accounts (current check
 });
 test('the phone account drawer opens above the native menu as a modal and returns focus on dismiss',async t=>{
  const {W,d}=await page(t,{menu:'hui-user-drawer-bottom-sheet'});W.eval(read('feed-sheet.js'));W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
- let modal;W.HTMLDialogElement.prototype.showModal=function(){modal=this;this.setAttribute('open','');};
+ let modal;W.HTMLDialogElement.prototype.showModal=function(){modal=this;this.setAttribute('open','');this.scrollTop=85;};
  const opener=entry(d);
  await open(d);
  const sheet=d.querySelector('dialog[data-rt-ui="feed-sheet"][open]');
- assert.ok(sheet);assert.equal(sheet,modal);assert.equal(d.getElementById(sheet.getAttribute('aria-labelledby')).textContent,'Accounts');
+ assert.ok(sheet);assert.equal(sheet,modal);assert.equal(sheet.scrollTop,0,'the auto-focus scroll is cleared before the slide-up');assert.equal(d.getElementById(sheet.getAttribute('aria-labelledby')).textContent,'Accounts');
  assert.ok(sheet.querySelector('.rt-fsheet-divider'));
  d.querySelector('.rt-fsheet-close').click();
  assert.equal(d.querySelector('[data-rt-ui="feed-sheet"]'),null);assert.equal(d.activeElement,opener);
