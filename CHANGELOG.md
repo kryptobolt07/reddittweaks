@@ -1,3 +1,13 @@
+# 0.52.0 preview
+
+- **Mobile post navigation:** short changes in scroll direction keep the navbar in its current state. A deliberate upward scroll shows it, and a larger downward reversal hides it.
+- **Android:** recognized Reddit app promotions use the native browser continuation and keep the current Reddit page open.
+- **Smooth scrolling:** touch devices leave Reddit in charge of drawing cards and skip the extension's scan for offscreen items. Layout measurement caching follows the current area's setting.
+- **External videos:** feed previews fit the existing media slot. Still images fall back to other available artwork when the first choice fails. **Shows controls, stays muted** unlocks the playing preview in place. The sound option for opening a post applies separately.
+- **Version:** minor increment for the Android app prompt handling and muted preview interaction.
+- **Live validation:** Chrome Dev measured the 48 px navbar fully open and hidden, a fitted 440 × 440 RedGIFs iframe, and decoded RedGIFs and Vimeo stills. Four cached-feed scroll passes recorded a 16.7 ms median frame interval with Smooth scrolling caches on and off. Cold card drawing and live sound transitions remain unverified. Regular Chrome returned the Android **Mature Content** screen, which offers **View In App** and **Go Home**. Browser continuation was tested on a fixture that offers that action.
+- **Package validation:** 2,069 tests passed in UTC with test concurrency of four. Firefox lint reported zero errors, warnings and notices. All 80 Chromium and 81 Firefox assets match the source, unpacked folders and ZIPs. Chromium SHA-256 `a487a8ac408454695b7047384fa2a42778761c0b393ec38d8676da155e99de6d`. Firefox SHA-256 `c4a2d5cb88784eb8c1262cec4900b5ddab60e9d658bdfe0d2d619705a18be4dc`.
+
 # 0.51.4 preview
 
 - **Direct embed controls:** turning sound on or off presses the player's own sound button, so its sound state and icon follow, instead of changing the video underneath it. While embed links are blocked, the player also can't open its own site from script. If you enabled Direct embed controls before this version, the extension adds the new helper itself when it updates.

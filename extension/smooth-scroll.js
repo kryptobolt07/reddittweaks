@@ -1,5 +1,4 @@
-/* Smooth scrolling across Reddit (docs/smooth-feeds-sitewide-spec.md). Reddit keeps every loaded post and comment laid
-   out and painted however far away it is. A unit more than two screens away gets content-visibility:hidden at its
+/* Smooth scrolling across Reddit (docs/smooth-feeds-sitewide-spec.md). A mounted unit more than two screens away gets content-visibility:hidden at its
    measured height ([data-rt-smooth][data-rt-skip] in post-discovery.css), so the page keeps its height and scroll
    position while the browser skips its layout and paint; it is drawn again before it comes back on screen.
    Profile feeds the extension manages keep the page-world feed bridge (shreddit-feed[data-rt-loading-owner]). */
