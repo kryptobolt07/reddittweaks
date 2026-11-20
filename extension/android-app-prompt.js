@@ -1,14 +1,15 @@
 /* Use Reddit's web continuation for its Android app-promotion dialog. */
 (() => {
   'use strict';
-  if (window.top !== window || !(/\bAndroid\b/i.test(navigator.userAgentData?.platform || navigator.userAgent))) return;
+  const android = /\bAndroid\b/i;
+  if (window.top !== window || !(android.test(navigator.userAgentData?.platform) || android.test(navigator.userAgent))) return;
 
-  const SHEET = 'xpromo-bottom-sheet, shreddit-xpromo-bottom-sheet, shreddit-async-loader[bundlename*="xpromo" i], [data-testid*="xpromo" i]';
+  const SHEET = 'configured-xpromo-modal rpl-dialog[open], xpromo-bottom-sheet, shreddit-xpromo-bottom-sheet, shreddit-async-loader[bundlename*="xpromo" i], [data-testid*="xpromo" i]';
   const DIALOG = 'dialog[open], [role="dialog"], [aria-modal="true"]';
   const CANDIDATE = SHEET + ', ' + DIALOG;
   const HEADING = 'h1, h2, h3, h4, [role="heading"], [slot="title"], [slot="heading"]';
   const TITLE = /^(?:open in (?:the )?(?:reddit )?app|see (?:this post|this community|reddit) in (?:the )?(?:reddit )?app|(?:the )?reddit app|reddit is better in the app)$/i;
-  const APP = /^(?:open|use)(?: (?:in|the))?(?: (?:the )?(?:reddit )?app| reddit)?$/i;
+  const APP = /^(?:open|use|view)(?: (?:in|the))?(?: (?:the )?(?:reddit )?app| reddit)?$/i;
   const WEB = /^(?:continue|view|stay|open) (?:in|on|with) (?:the |your )?(?:web(?: browser)?|browser|chrome|firefox|reddit\.com)$/i;
   const BROWSER = /^(?:google chrome|chrome|firefox|samsung internet|web browser|browser)$/i;
   const BUTTON = 'button, [role="button"], a[href]';

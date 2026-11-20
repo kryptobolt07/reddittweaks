@@ -10,3 +10,5 @@ When the modern Reddit site presents its Android app-promotion dialog, use the d
 | Non-Android viewport or another dialog (T15) | Preserve Reddit's normal handling. A community age or access prompt cannot qualify as an app promotion. |
 
 The extension adds no markup. A document observer discovers native HTML and recognized open shadow roots. Weak references prevent duplicate actions without retaining discarded dialogs. The unit fixtures cover English controls, including the Chrome row's short Continue label. Other languages and variants without a recognized action retain the native dialog.
+
+The existing `/r/totalkalesh/` tab in regular Chrome supplied the native `configured-xpromo-modal > rpl-dialog` structure. The Android-emulated response used the **Mature Content** variant. Its template contained **View In App** and **Go Home** and offered no browser continuation. This variant retains Reddit's behavior, and a synthetic fixture covers the same component with an explicit browser action.
