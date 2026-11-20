@@ -393,6 +393,30 @@ test('archive post page card has a back button, community line, native title and
   assert.match(row.textContent,/1\.2K[\s\S]*120[\s\S]*Share/);assert.equal(row.querySelectorAll('button[disabled]').length,2,'votes are disabled');
 });
 
+test('the mobile archive credit row keeps its circular Back before the avatar and returns to the previous Reddit entry',async t=>{
+  const {W,sa}=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive&rt_type=video'});
+  t.after(()=>{sa.destroy();W.close();});
+  const from=W.location.href;
+  W.history.pushState({},'','/r/gone/comments/thr1/t/');
+  Object.defineProperty(W,'navigation',{value:{currentEntry:{index:1},entries:()=>[{url:from},{url:W.location.href}]}});
+  let backs=0;
+  W.history.back=()=>{backs++;};
+  const {archiveCard}=W.RTPostDiscovery;
+  const card=archiveCard(archived(W,{id:'thr1',is_self:true,selftext:'Hello'}),{thread:true});
+  const credit=card.querySelector('[slot="credit-bar"]');
+  const back=credit.querySelector('.rt-sra-thread-credit-start > button[aria-label="Back"]');
+  assert.ok(back);
+  assert.equal(back.nextElementSibling.classList.contains('rt-archive-avatar'),true);
+  assert.equal(back.querySelector('svg').getAttribute('width'),'16');
+  assert.equal(archiveCard(archived(W,{id:'feed1',is_self:true})).querySelector('.rt-sra-back'),null);
+  const css=fs.readFileSync('extension/subreddit-archive.css','utf8');
+  const mobile=css.slice(css.indexOf('/* A mobile post detail'),css.indexOf('.rt-sra-thread-comment{'));
+  assert.match(mobile,/\.rt-sra-thread-credit-start\{[^}]*flex-wrap:nowrap/);
+  assert.match(mobile,/\.rt-sra-back\{[^}]*--color-secondary-background/);
+  back.click();
+  assert.equal(backs,1);
+});
+
 test('archived comments carry a default avatar in the native avatar slot',async()=>{
   const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>message.action==='archive-ids'?{ok:true,posts:[post('abc12',1500000000)]}:{ok:true,posts:[comment('c1',1500000100,{linkId:'abc12',link_id:'t3_abc12',parent_id:'t3_abc12'})]}});
   await tick();await tick();

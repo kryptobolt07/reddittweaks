@@ -2956,12 +2956,20 @@ let host='';try{host=new URL(linkUrl).hostname.replace(/^www\./,'');}catch{}cons
       const left=make('span','flex flex-wrap text-12 gap-2xs items-center min-w-0 relative'),right=make('span','flex items-center gap-xs');right.dataset.rtCreditRight='true';
       if(thread){
         const back=make('button','button button-plain icon inline-flex items-center justify-center rounded-full w-xl h-xl shrink-0 rt-sra-back');back.type='button';back.setAttribute('aria-label','Back');back.title='Back';back.append(redditIcon('back',16));
-        back.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(history.length>1 && document.referrer.startsWith(location.origin))history.back();else location.assign('/r/'+encodeURIComponent(post.subreddit)+'/?rt_view=archive');});
-        const community=link('r/'+post.subreddit,'/r/'+encodeURIComponent(post.subreddit)+'/?rt_view=archive','font-bold text-12 text-neutral-content-strong no-underline hover:underline');
+        const archiveRoute='/r/'+encodeURIComponent(post.subreddit)+'/?rt_view=archive';
+        back.addEventListener('click',event=>{
+          event.preventDefault();
+          event.stopPropagation();
+          const navigation=window.navigation;
+          const previous=navigation ? navigation.entries()[navigation.currentEntry?.index-1]?.url : document.referrer;
+          if(history.length>1 && previous && new URL(previous).origin===location.origin)history.back();
+          else location.assign(archiveRoute);
+        });
+        const community=link('r/'+post.subreddit,archiveRoute,'font-bold text-12 text-neutral-content-strong no-underline hover:underline');
         const lines=make('div','flex gap-0 flex-col truncate'),top=make('span','flex items-center gap-2xs');top.append(community,make('span','text-neutral-content-weak','•'),date);
         lines.append(top,authorLink('text-12 text-neutral-content no-underline hover:underline'));
         // The banned community has no icon worth showing; use the poster's picture (real one swapped in by the archive).
-        const avatar=make('span','inline-flex items-center justify-center w-xl h-xl relative shrink-0 rt-archive-avatar rt-archive-avatar-lg');avatar.append(defaultAvatar(post.author,32));left.classList.add('gap-xs');left.append(back,avatar,lines);
+        const avatar=make('span','inline-flex items-center justify-center w-xl h-xl relative shrink-0 rt-archive-avatar rt-archive-avatar-lg');avatar.append(defaultAvatar(post.author,32));left.classList.add('gap-xs','rt-sra-thread-credit-start');left.append(back,avatar,lines);
       }else{
         const author=make('span','flex');author.slot='authorName';const inner=make('span','inline-flex items-center gap-2xs max-w-full rt-archive-author'),name=authorLink('flex items-center text-neutral-content font-bold no-underline hover:underline'),frame=make('span','inline-flex items-center justify-center w-lg h-lg relative shrink-0 rt-archive-avatar');frame.append(defaultAvatar(post.author,24));inner.append(frame,name);author.append(inner);
         left.append(author,make('span','inline-block my-0 text-neutral-content-weak','•'),date);
