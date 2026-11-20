@@ -205,3 +205,54 @@ test('Reddit can replace its reveal button when hydration reapplies the post blu
   assert.equal(gate.hasAttribute('blurred'), false);
   assert.deepEqual(trace, ['Reveal NSFW media', 'Reveal NSFW media']);
 });
+
+const inlinePromotion = '<xpromo-nsfw-blocking-container><shreddit-blurred-container reason="nsfw" blurred>' +
+  '<div slot="revealed"><shreddit-player></shreddit-player></div></shreddit-blurred-container>' +
+  '<a slot="view-in-app-button" href="https://app.example/">View in app</a></xpromo-nsfw-blocking-container>';
+const inlinePost = (id, promotion = inlinePromotion) =>
+  `<shreddit-post id="t3_${id}"><div slot="post-media-container">${promotion}</div></shreddit-post>`;
+const inlinePostURL = 'https://www.reddit.com/r/example/comments/abc123/example/';
+const attachPromotion = host => {
+  const shadow = host.attachShadow({mode:'open'});
+  shadow.innerHTML = '<slot></slot><div class="prompt"><h3>Mature Content</h3><slot name="view-in-app-button"></slot></div>';
+  return shadow;
+};
+
+test('only the opened mobile post hides its inline app promotion independently of media blur', async t => {
+  const {window, document, setOverlay, trace} = setup(t, `<main>${inlinePost('abc123')}${inlinePost('other')}</main>`,
+    'iOS', {hideMatureOverlay:false}, undefined, inlinePostURL);
+  const [current, other] = document.querySelectorAll('xpromo-nsfw-blocking-container');
+  const promotion = attachPromotion(current);
+  attachPromotion(other);
+  const player = current.querySelector('shreddit-player');
+  const hidden = 'data-rt-hide-post-app-prompt';
+  await settle();
+  assert.equal(current.hasAttribute(hidden), false);
+  setOverlay(true);
+  await settle();
+  assert.equal(current.hasAttribute(hidden), true);
+  assert.match(promotion.querySelector('style').textContent, /:host\(\[data-rt-hide-post-app-prompt\]\).*\.prompt.*display:\s*none/s);
+  assert.equal(other.hasAttribute(hidden), false);
+  assert.equal(current.querySelector('shreddit-player'), player);
+  assert.ok(current.querySelector('shreddit-blurred-container[blurred]'));
+  assert.deepEqual(trace, []);
+
+  window.history.pushState(null, '', '/r/example/comments/other/example/');
+  document.dispatchEvent(new window.Event('reddit:route'));
+  assert.equal(current.hasAttribute(hidden), false);
+  assert.equal(other.hasAttribute(hidden), true);
+  setOverlay(false);
+  assert.equal(other.hasAttribute(hidden), false);
+});
+
+test('a late inline shadow root is handled and desktop keeps its promotion', async t => {
+  const markup = `<main>${inlinePost('abc123')}</main>`;
+  const phone = setup(t, markup, true, {}, undefined, inlinePostURL);
+  const desktop = setup(t, markup, false, {}, undefined, inlinePostURL);
+  await settle();
+  const mobileShadow = attachPromotion(phone.document.querySelector('xpromo-nsfw-blocking-container'));
+  const desktopShadow = attachPromotion(desktop.document.querySelector('xpromo-nsfw-blocking-container'));
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.ok(mobileShadow.querySelector('style'));
+  assert.equal(desktopShadow.querySelector('style'), null);
+});

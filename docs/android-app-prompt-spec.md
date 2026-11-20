@@ -6,6 +6,8 @@ When the modern Reddit site presents an app-promotion dialog on Android or iOS, 
 
 **Reveal NSFW media on mobile posts** is a separate setting and defaults off. The native mobile post showed `shreddit-blurred-container[reason="nsfw"][blurred]` inside its media slot. Use the existing reveal button for that component, or the archive renderer's equivalent button, only for the post ID in the current URL. A spoiler-only overlay, a recommendation and a feed card remain outside this setting. On cold load (T1) Reddit can briefly reveal the media and then reapply the blur during hydration (T7). Use each reveal button once so its replacement can be used when it appears. A new toggle or route change can reveal the current post after its media controls hydrate.
 
+The opened mobile post can also have a separate app-only scrim in the video slot. The **Hide Mature Content overlay on mobile** switch hides the scrim in Reddit's `xpromo-nsfw-blocking-container` only when it wraps media already provided by Reddit for the opened post. Keep the native media and its blur control in place. Check when the shadow root hydrates (T7), clear the hide state when leaving the post (T8), and restore the scrim when the setting turns off (T10).
+
 | Transition | Expected behavior |
 |---|---|
 | A promotion is present on initial load (T1) | Remove its app-only owner or invoke the web action once. |
