@@ -1,3 +1,12 @@
+# 0.54.0 preview
+
+- **Download media:** a new action in the desktop action bar and the phone overflow menu saves a post's original image, gallery images, GIF or MP4 directly. The worker validates the Reddit origin, media host and filename before starting the browser download. NSFW videos whose player has not initialized fall back to Reddit's direct preview MP4 instead of showing a retry row.
+- **Mobile account switcher:** the whole account row is tappable, not only its text. The sheet starts at the bottom edge instead of jumping from an auto-focused scroll offset, and the avatar stays centered in its circle.
+- **Mobile post menu:** Reddit's copied bottom-sheet action slot no longer shows duplicate raffle rows, and the taller menu is no longer clipped.
+- **Mobile overlays:** the Browsing switch now also removes Reddit's page-fade app promotion when it carries an app-store link, while leaving other sheets and the page scroll lock intact.
+- **Version:** minor increment for the new download feature and the expanded mobile overlay handling.
+- **Validation:** 2,122 tests passed. Download tests cover the worker's origin, host and filename checks, partial gallery failures, callback-style download APIs, and the NSFW preview fallback. Account-sheet tests cover the shared row hit target, cleared modal scroll and opening-tap backdrop guard. All 84 Chromium and 85 Firefox assets match the source, unpacked folders and ZIPs. Firefox lint reported zero errors, warnings and notices. Not checked live on a phone with this build. Chromium SHA-256 `d65ba993c9a38e804db9cc32c6dde29405bb746903a410d6048036cfa57ffc1b`. Firefox SHA-256 `b90b59dad8f457b3fdf6ff1f34967db5b11448656641210bfd2b5729ca86fbc4`.
+
 # 0.53.6 preview
 
 - **Embed sizing:** stop forcing the provider iframe to fill Reddit’s slot and remove the emulated-viewport scaling and clipping. The iframe keeps Reddit’s and the provider’s own size in the feed and the post, so the real post picture is no longer enlarged. The preview sound button returns to the provider’s own bottom-right corner.
