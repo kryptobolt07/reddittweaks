@@ -226,18 +226,27 @@ test('a post video pauses once fully out of view and resumes at the same time wh
  const off=page(t,{detail:true});const vo=new off.W.RTVideoControl.Videos({readSettings:async()=>({videoScrollAway:'reddit'}),readPreference:async()=>false,observe:false});await vo.ready;
  off.video._playing=true;off.io.cb([{target:off.player,intersectionRatio:0}]);assert.equal(off.video.paused,false,'switch off');
 });
-test('the playing native video defers scrolling and then takes the post slot',async t=>{
+test('the same playing media survives feed removal and moves into the detail slot without another play',async t=>{
  const p=page(t),calls=nativeMove(p);
  const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
  p.startFromControl();p.video.currentTime=8;
  const feed=p.player.parentElement;
+ const surface=feed.closest('main');
+ const before=surface.outerHTML.length;
  p.click(p.title);
- assert.equal(p.W.dispatchEvent(new p.W.WheelEvent('wheel',{deltaY:20,bubbles:true,cancelable:true})),false);
- assert.equal(p.player.parentElement.style.position,'fixed');
+ assert.notEqual(p.player.parentElement,feed);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-media-moving'),true,'filtered feeds stay visible while it moves');
+ assert.equal(fs.readFileSync('extension/post-discovery.css','utf8').includes('data-rt-video-outgoing'),false);
+ assert.equal([...surface.attributes].length,0,'the feed stays on screen as Reddit leaves it');
+ assert.ok(surface.outerHTML.length<before,'only the player left the card');
+ assert.equal(p.player.parentElement.style.position,'absolute','the video stays at its card place in document coordinates above the feed');
  assert.deepEqual(calls,['begin']);
- p.player.pause('background');assert.equal(p.video.paused,false);
+ p.player.pause('background');
+ assert.equal(p.video.paused,false,'Reddit’s navigation pause leaves the held player running');
  p.W.history.pushState({},'',postPath);
+ feed.remove();
  p.io.cb([{target:p.player,intersectionRatio:0}]);
+ assert.equal(p.video.isConnected,true,'the departed feed does not disconnect its video');
  assert.equal(p.video.paused,false);
  p.video.currentTime=9.25;
  const detail=p.d.createElement('shreddit-post');detail.id='t3_test';
@@ -247,10 +256,46 @@ test('the playing native video defers scrolling and then takes the post slot',as
  assert.equal(p.player.shadowRoot.querySelector('video'),p.video);
  assert.equal(p.video.currentTime,9.25);assert.equal(p.video.paused,false);
  assert.equal(p.player.className,'detail-layout');
- assert.equal(feed.querySelector('shreddit-player').getAttribute('player-type'),'in_feed_player');
+ assert.equal(feed.querySelector('shreddit-player').getAttribute('player-type'),'in_feed_player','a cached feed still has its player when restored');
  assert.deepEqual(calls,['begin','end']);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-media-moving'),false);
  assert.equal(p.W.sessionStorage.getItem(continuationKey),null);
- p.player.pause('background');assert.equal(p.video.paused,true);
+ p.player.pause('background');
+ assert.equal(p.video.paused,true,'normal pause behavior resumes after placement');
+});
+test('cancelling before the detail slot mounts restores the playing player to its original feed',async t=>{
+ const p=page(t),calls=nativeMove(p);
+ const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
+ p.startFromControl();
+ const feed=p.player.parentElement;p.click(p.title);
+ assert.notEqual(p.player.parentElement,feed);
+ p.W.dispatchEvent(new p.W.PopStateEvent('popstate'));
+ assert.equal(p.player.parentElement,feed);
+ assert.equal(p.video.paused,false);
+ assert.deepEqual(calls,['begin','end']);
+});
+
+test('a wheel scroll during the move stays free instead of pausing or cancelling playback',async t=>{
+ const p=page(t),calls=nativeMove(p);
+ const controller=new p.W.RTVideoControl.Videos({readPreference:async()=>false,observe:false});await controller.ready;
+ p.startFromControl();p.video.currentTime=8;
+ const feed=p.player.parentElement;p.click(p.title);
+ assert.notEqual(p.player.parentElement,feed);
+ const wheel=new p.W.WheelEvent('wheel',{deltaY:20,bubbles:true,cancelable:true});
+ p.W.dispatchEvent(wheel);
+ assert.equal(wheel.defaultPrevented,false,'scrolling is never frozen');
+ assert.equal(p.player.parentElement.style.position,'absolute','the player stays anchored in document coordinates');
+ assert.equal(p.video.paused,false,'playback does not pause');
+ assert.deepEqual(calls,['begin']);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-media-moving'),true);
+ p.W.history.pushState({},'',postPath);
+ const post=p.d.createElement('shreddit-post');post.id='t3_test';p.d.body.append(post);
+ const detail=p.player.cloneNode();detail.setAttribute('player-type','post_detail_screen');post.append(detail);
+ detail.attachShadow({mode:'open'}).appendChild(p.d.createElement('video'));
+ controller.handoff();
+ assert.equal(p.player.parentElement,post,'still lands seamlessly in the post');
+ assert.equal(p.video.paused,false);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-media-moving'),false);
 });
 test('Back before the detail slot mounts releases the native pause override',async t=>{
  const p=page(t),calls=nativeMove(p);
@@ -337,7 +382,7 @@ test('the held video stays visible until Reddit lays out the detail slot',async 
  detail.getBoundingClientRect=()=>({left:0,top:90,width:visible?700:0,height:visible?390:0});
  p.d.querySelector('main shreddit-post').append(detail);controller.scan();
  assert.equal(p.player.getAttribute('player-type'),'in_feed_player');
- assert.equal(p.player.parentElement.style.position,'fixed');
+ assert.equal(p.player.parentElement.style.position,'absolute');
  assert.equal(p.video.paused,false);
  visible=true;notify();
  assert.equal(p.player.getAttribute('player-type'),'post_detail_screen');
@@ -627,7 +672,7 @@ test('a playing YouTube embed keeps its player: held at its card, then placed in
  target.addEventListener('rt-place-held-embed',event=>{placed.push('place');if(ready)event.preventDefault();});
  target.addEventListener('rt-embed-sound',()=>placed.push('sound'));
  controller.scan();assert.deepEqual(placed,['place'],'waits for the post embed');
- assert.equal(target.style.visibility,'','Reddit’s embed stays visible while waiting for an inline move');
+ assert.equal(target.style.visibility,'hidden','Reddit’s own embed UI stays hidden meanwhile');
  ready=true;controller.scan();
  assert.equal(target.style.visibility,'');assert.equal(target.dataset.rtIncoming,undefined);
  assert.deepEqual(placed,['place','place'],'placement does not repeat the sound change');
@@ -670,6 +715,19 @@ test('Back before the post embed is ready returns the held YouTube player to its
  let released=0;p.d.addEventListener('rt-release-feed-embed',()=>released++);
  p.click(p.title);p.W.dispatchEvent(new p.W.PopStateEvent('popstate'));
  assert.equal(released,1);assert.equal(p.W.sessionStorage.getItem(embedKey),null);
+});
+test('an unrevealed post blur gate conceals a held YouTube overlay while keeping the handoff alive for manual reveal',async t=>{
+ const p=page(t);const e=embed(p);const control=await hoverController(p);
+ e.node.addEventListener('rt-hold-feed-embed',event=>event.preventDefault());
+ let concealed=0;p.d.addEventListener('rt-conceal-held-media',()=>concealed++);
+ p.click(p.title);assert.ok(p.W.sessionStorage.getItem(embedKey));
+ p.W.history.pushState({},'',postPath);
+ const detail=p.d.createElement('shreddit-post');detail.id='t3_test';
+ detail.innerHTML='<div slot="post-media-container"><shreddit-blurred-container blurred reason="spoiler"><div slot="revealed"></div></shreddit-blurred-container></div>';
+ const target=embed(p).node;detail.querySelector('[slot="revealed"]').append(target);p.d.body.append(detail);
+ control.embedHandoff();
+ assert.equal(concealed,1,'the fixed stage is concealed so it never floats over the blurred gate');
+ assert.ok(p.W.sessionStorage.getItem(embedKey),'handoff stays ready if the user reveals the gate');
 });
 test('a disconnected YouTube feed preview falls back to the post’s own embed at the saved position',async t=>{
  const p=page(t);const e=embed(p);const control=await hoverController(p);

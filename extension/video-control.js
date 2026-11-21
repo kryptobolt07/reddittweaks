@@ -407,12 +407,16 @@
      }
      continue;
     }
-    if(!this.detailEmbeds.has(embed)){this.detailEmbeds.add(embed);this.io?.observe(embed);}
-    this.manageViewport(embed,!this.pauseAway || embed.matches(EMBED) || Boolean(state && (state.direct || state.kind!=='flags')));
+    this.trackDetailEmbed(embed,state);
    }
    if(this.configured)this.parkIdle();
    this.handoff();
    this.embedHandoff();
+  }
+  trackDetailEmbed(embed,state){
+   if(!this.detailEmbeds.has(embed)){this.detailEmbeds.add(embed);this.io?.observe(embed);}
+   if(state===undefined){const frame=controlFrame(embed);state=frame && this.frameState(frame);}
+   this.manageViewport(embed,!this.pauseAway || embed.matches(EMBED) || Boolean(state && (state.direct || state.kind!=='flags')));
   }
   attach(player){
    const direct=player.matches('video'),root=direct?player:player.shadowRoot;
@@ -910,7 +914,7 @@
    if(!embed.shadowRoot || this.watchedEmbeds.has(embed))return;
    const root=embed.shadowRoot;
    const observer=new this.win.MutationObserver(()=>{
-    if(this.dead || !this.configured || !this.feedEmbed(embed) || this.ePreview?.embed===embed || embed.dataset.rtEmbedUsed==='1')return;
+    if(this.dead || !this.configured || !this.feedEmbed(embed) || this.ePreview?.embed===embed || this.embedPending?.source===embed || embed.dataset.rtEmbedUsed==='1')return;
     const frame=controlFrame(embed);
     if(frame && root.querySelector('[data-rt-pre-still]'))this.awaitDraw(frame);
     this.observePoster(embed);this.syncIdleEmbed(embed);this.paintPoster(embed);
@@ -1157,7 +1161,10 @@
     const target=this.detailEmbedForHandoff(ANY_EMBED,pending);
     if(!this.readyPostMedia(target,pending,id))return;
     if(generic.held){
+     if(!('rtIncoming' in target.dataset)){target.dataset.rtIncoming=target.style.visibility;target.style.visibility='hidden';}
      if(target.dispatchEvent(new this.win.Event('rt-place-held-embed',{bubbles:true,cancelable:true})))return;
+     target.style.visibility=target.dataset.rtIncoming;delete target.dataset.rtIncoming;
+     this.trackDetailEmbed(target);
      if(generic.frame?.isConnected)this.framePolicy(generic.frame,this.blockEmbedLinks(false));
      if(generic.sound?.frame.isConnected)this.frameSound(generic.sound,false);
     }else if(generic.resume){
@@ -1184,7 +1191,11 @@
     return;
    }
    if(pending?.held){
+    // Waits until Reddit has laid out the post's embed; its own thumbnail and play button stay hidden meanwhile.
+    if(!('rtIncoming' in embed.dataset)){embed.dataset.rtIncoming=embed.style.visibility;embed.style.visibility='hidden';}
     if(embed.dispatchEvent(new this.win.Event('rt-place-held-embed',{bubbles:true,cancelable:true})))return;
+    embed.style.visibility=embed.dataset.rtIncoming;delete embed.dataset.rtIncoming;
+    this.trackDetailEmbed(embed);
     this.embedPending=null;this.clearEmbedHandoff();
     if(pending.restart){embed.dataset.rtStart='0';embed.dataset.rtMuted=String(saved.muted===true);embed.dispatchEvent(new this.win.Event('rt-embed-continue',{bubbles:true,cancelable:true}));}
     return;
@@ -1200,6 +1211,7 @@
   }
   clearEmbedHandoff(){
    this.win.clearTimeout(this.embedExpiry);
+   for(const embed of this.doc.querySelectorAll('[data-rt-incoming]')){embed.style.visibility=embed.dataset.rtIncoming;delete embed.dataset.rtIncoming;}
    this.releaseHeldEmbed();
    this.embedPending=null;
    try{this.win.sessionStorage.removeItem(EMBED_KEY);}catch{}
@@ -1415,12 +1427,14 @@
    if(!this.io)return;
    this.visibilityReady.set(player,Infinity);
    this.io.unobserve(player);
-   // Discard queued feed geometry and observe the player after it lands in the post.
-   this.win.requestAnimationFrame(()=>{
+   // Discard feed geometry and wait for the relocated player to paint in the post (after its flight, if it flies).
+   const observe=()=>this.win.requestAnimationFrame(()=>{
     if(this.dead)return;
     this.visibilityReady.set(player,this.win.performance.now());
     if(player.isConnected && this.players.has(player))this.io.observe(player);
    });
+   if(player.hasAttribute('data-rt-video-flying'))player.addEventListener('rt-video-placed',observe,{once:true});
+   else this.win.requestAnimationFrame(observe);
   }
   onVisibility(entries){
    const pending=this.activeHandoff();
