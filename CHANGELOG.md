@@ -1,3 +1,10 @@
+# 0.54.3 preview
+
+- **Feed-to-post media transitions:** held native videos and provider embeds now stage in document coordinates (`position: absolute`) so scrolling stays completely free and moves the playing preview in pixel lockstep with its feed card without pausing playback or detaching into a floating overlay. When Reddit swaps to the post, the stage pins to its last on-screen rect (or conceals on user scroll while pinned or over an unrevealed blur/spoiler gate) and temporarily unclips Reddit's tight `overflow: hidden` media wrappers during the 220 ms compositor glide.
+- **Embed overlay & visibility fixes:** fixed a Chrome `checkVisibility` deadlock against `data-rt-incoming` `visibility: hidden` that could leave held embeds stuck in the stage, preserved post iframe styles, used `moveEmbedFrame` on hold, prevented `watchEmbed` from covering held feed embeds, and registered detail viewport ownership immediately upon landing.
+- **Version:** patch increment for the feed-to-post playback transition, scrolling, and embed overlay fixes.
+- **Validation:** all 2,137 tests passed in a clean checkout of the release tree. Live Chrome CDP confirmed Reddit's `static` `body`/`html`, header `z-index: 4`, and exact-size `overflow: hidden` media wrappers on both `shreddit-player` and `shreddit-embed`. Live third-party provider playback and physical-device behavior were outside this validation. Both ZIPs matched the source and unpacked assets. Firefox lint reported zero errors, warnings, and notices. Chromium SHA-256 `0a68fc97be255df120e54340c2e4781942cf2c9518a30b6a53011c955749ed36`. Firefox SHA-256 `f1f61526c0fd88aa3c785462b30aa46d67f49c1f16f8a4756eea5b1a28cf959c`.
+
 # 0.54.2 preview
 
 - Native videos and supported provider embeds keep playing during the shared-element transition into the post. Scrolling is briefly deferred while the picture moves.
