@@ -2,9 +2,10 @@
 
 - **Post menus:** on desktop and mobile, opening a post menu no longer triggers a full feed scan or refreshes unrelated profile, chat, or account controls. The Raffle and Download actions update in the affected menu.
 - **Download media:** the menu opens with a loading skeleton while the selected post's images or video qualities are read. The loading work is canceled when the menu closes.
+- **Raffle:** choosing Raffle shows loading feedback before Chrome opens the dialog. The rules fill the same dialog after it appears. Late native menu actions retain the Raffle and Download rows.
 - **Video and embed previews** stay inside the scrolling feed card until they can move into the post's media slot. An explicit NSFW reveal carries into that same post through Reddit's own media control.
 - Version 0.54.1 is a patch for menu responsiveness and playback handoff fixes.
-- All 2,127 tests passed. Both ZIPs matched the unpacked folders and source byte for byte. Firefox lint reported zero errors, warnings and notices. Chrome CDP verified the native cover and 412 × 412 player on live Reddit and checked the full handoff for native video and provider iframes in mobile and desktop fixtures. The live feed served native videos, so provider playback was exercised in the fixtures. Chromium SHA-256 `8e2298bc83d96852bd7793c86e6dc4f28ef931da9091b6635563e3661eb1a513`. Firefox SHA-256 `6f35fbc67da4a1e700757d4be25e4959888a4c7aceca7b0f947de4cd88dfc92f`.
+- All 2,130 tests passed. Both ZIPs matched the unpacked folders and source byte for byte. Firefox lint reported zero errors, warnings and notices. Chrome CDP verified the native cover and 412 × 412 player on live Reddit and checked the full handoff for native video and provider iframes in mobile and desktop fixtures. The live feed served native videos, so provider playback was exercised in the fixtures. The same live phone layout confirmed that the deferred Raffle rules appear after the click handler returns. A comparable end-to-end INP measurement for Reddit’s native menu is pending. Chromium SHA-256 `ac5e31b6968b155e9a78b14cdbb1418a46d8bfabb2357b701763001a3486ab10`. Firefox SHA-256 `44422203f9d7e70654dc07a13a11caea2f4f9fe75befd0630865c2dc9f0cdd48`.
 
 # 0.54.0 preview
 
