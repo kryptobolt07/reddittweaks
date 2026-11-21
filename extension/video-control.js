@@ -246,7 +246,10 @@
    // The page bridge reports a YouTube player that started (by its own controls, a preview or a continuation).
    this.onEmbedPlaying=event=>{
     const embed=event.target;if(!embed?.matches?.(EMBED))return;
-    if(this.embedPending?.held && (this.embedPending.source===embed || this.isDetailEmbed(embed)))return;
+    if(this.embedPending?.held){
+     if(this.embedPending.source===embed)return;
+     if(this.isDetailEmbed(embed)){embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));return;}
+    }
     if(this.startMode('embed')==='play' && this.feedEmbed(embed) && embed.dataset.rtEmbedUsed!=='1'){
      embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));this.cover(embed,true);return;
     }
@@ -281,7 +284,8 @@
        if(state.directSound){this.postDirect(frame,state.directSound);state.directSound='';}
        if(state.directPlayback){this.postDirect(frame,state.directPlayback);state.directPlayback='';}
        else if(this.embedPending?.frame!==frame){
-        if(this.feedEmbed(embed))this.postDirect(frame,this.idleChoice(frame));
+        if(this.embedPending?.held && this.isDetailEmbed(embed))this.postDirect(frame,'pause');
+        else if(this.feedEmbed(embed))this.postDirect(frame,this.idleChoice(frame));
         else if(first)this.postDirect(frame,'release');
        }
        if(this.isDetailEmbed(embed))this.manageViewport(embed,true);
@@ -588,7 +592,10 @@
    if(kind!=='play')return;
    state.played=true;state.playing=true;
    const embed=embedOfFrame(frame),pending=this.embedPending;
-   if(pending?.held && (pending.frame===frame || this.isDetailEmbed(embed)))return;
+   if(pending?.held){
+    if(pending.frame===frame)return;
+    if(this.isDetailEmbed(embed)){this.command(frame,'pause');return;}
+   }
    if(!embed?.matches?.(ANY_EMBED) || this.ePreview?.embed===embed)return;
    if(this.feedEmbed(embed) && this.startMode('embed')==='play' && embed.dataset.rtEmbedUsed!=='1'){
     this.command(frame,'pause');this.cover(embed,true,true);return;
@@ -1068,7 +1075,7 @@
   rememberEmbed(embed,id){
    const preview=this.ePreview?.embed===embed && this.ePreview.active ? this.ePreview : null;
    const reveal=this.revealedMediaGates.has(embed.closest(NSFW_GATE));
-   const handoff={id,from:this.win.location.pathname,source:embed,reveal,owner:owner(this.doc)};
+   const handoff={id,from:this.win.location.pathname,source:embed,sourceCard:embed.closest('shreddit-post'),reveal,owner:owner(this.doc)};
    // Other providers: no position to read, but the same iframe (previewing, or one you clicked into) moves into the post.
    if(!embed.matches(EMBED)){
     if(!preview && embed.dataset.rtEmbedUsed!=='1')return false;
@@ -1099,9 +1106,10 @@
    try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify({id,owner:owner(this.doc),at:Date.now(),time:restart || !Number.isFinite(time) || time<0?0:time,muted}));}catch{}
    if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;}
    // The same YouTube player moves into the post (page bridge); without it, the post's embed starts at this second.
+   const frame=youTubeLite(embed)?.querySelector('iframe');
    const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
    this.stopWatchingFeedSound(embed);
-   this.watchEmbedHandoff({...handoff,held,restart,frame:youTubeLite(embed)?.querySelector('iframe')});
+   this.watchEmbedHandoff({...handoff,held,restart,frame});
    if(held && preview && !muted)embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
    if(!held)embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
    return true;
@@ -1118,15 +1126,18 @@
   }
   readyPostMedia(target,pending,id){
    // Reddit can mount its blur before the player, or replace the blur's button during hydration.
-   if(pending?.reveal && (pending.saved?.owner ?? pending.owner)===owner(this.doc)){
-    const post=target?.closest('shreddit-post') || [...this.doc.querySelectorAll('shreddit-post[id="t3_'+id+'"]')]
-     .find(card=>card!==pending.source?.closest('shreddit-post') && !card.closest('shreddit-feed,shreddit-comment'));
-    const gate=target?.closest(BLURRED) || (!target && post?.querySelector(POST_MEDIA+' '+NSFW_GATE+'[blurred]'));
-    const button=gate && gate.matches(NSFW_GATE) && gate.closest(POST_MEDIA) && !gate.parentElement?.closest(BLURRED) && nativeRevealButton(gate);
+   const post=!target && (pending?.held || pending?.reveal) && [...this.doc.querySelectorAll('shreddit-post[id="t3_'+id+'"]')]
+    .find(card=>card!==pending.sourceCard && !card.closest('shreddit-feed,shreddit-comment'));
+   const gate=target?.closest(BLURRED) || post?.querySelector?.(POST_MEDIA+' '+BLURRED);
+   if(gate?.matches(NSFW_GATE) && gate.closest(POST_MEDIA) && !gate.parentElement?.closest(BLURRED) &&
+      pending?.reveal && (pending.saved?.owner ?? pending.owner)===owner(this.doc)){
+    const button=nativeRevealButton(gate);
     if(button && button.checkVisibility?.({visibilityProperty:true})!==false){
      const attempted=pending.revealButtons ??= new WeakSet();
      if(!attempted.has(button)){attempted.add(button);button.click();}
     }
+   }else if(gate && pending?.held){
+    this.doc.dispatchEvent(new this.win.Event('rt-conceal-held-media'));
    }
    return Boolean(target?.isConnected && !target.closest(BLURRED));
   }
@@ -1138,7 +1149,7 @@
   embedHandoff(){
    const pending=this.embedPending;
    if(pending && this.win.location.pathname===pending.from)return;
-   if(pending?.held && (!pending.source.isConnected || pending.frame && !pending.frame.isConnected))this.releaseHeldEmbed();
+   if(pending?.held && !(pending.frame || pending.source).isConnected)this.releaseHeldEmbed();
    const generic=pending?.generic?pending:null;
    if(generic){
     const id=postId(this.win.location.pathname);
@@ -1253,12 +1264,12 @@
    if(!sourceVideo || sourceVideo.paused || sourceVideo.ended || !this.started.has(sourceVideo) || this.previews.has(source) || source.closest(BLURRED))return;
    this.clearHandoff();
    const saved={id,owner:owner(this.doc),at:Date.now(),...this.playback(sourceVideo)};
-   const pending=this.pending={saved,source,sourceVideo,from:this.win.location.pathname,reached:false,
+   const pending=this.pending={saved,source,sourceVideo,sourceCard:card,from:this.win.location.pathname,reached:false,
     reveal:this.revealedMediaGates.has(source.closest(NSFW_GATE))};
    this.saveHandoff();
    pending.held=!source.dispatchEvent(new this.win.Event('rt-hold-feed-video',{bubbles:true,cancelable:true}));
    this.expiry=this.win.setTimeout(()=>this.clearHandoff(),CONTINUE_MS);
-   if(pending.reveal){
+   if(pending.held || pending.reveal){
     const watch=()=>{
      if(this.pending!==pending || this.dead)return;
      this.handoff();
@@ -1327,11 +1338,16 @@
    if(!this.readyPostMedia(player,pending,id))return;
    if(pending.held && this.waitForDetailLayout(pending,player))return;
    if(pending.held && player.checkVisibility?.({visibilityProperty:true})===false)return;
-   if(pending.held && !player.dispatchEvent(new this.win.Event('rt-place-held-video',{bubbles:true,cancelable:true}))){
-    pending.held=false;
-    this.observeAfterMove(pending.source);
-    this.clearHandoff();
-    return;
+   if(pending.held){
+    if(player.localName===pending.source.localName){
+     if(!player.dispatchEvent(new this.win.Event('rt-place-held-video',{bubbles:true,cancelable:true}))){
+      pending.held=false;
+      this.observeAfterMove(pending.source);
+      this.clearHandoff();
+     }
+     return;
+    }
+    this.releaseHeldVideo();
    }
    this.attach(player);
    const video=this.video(player);

@@ -52,10 +52,10 @@
     const post=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/.*)?$/i);
     return profile?{username:profile[1]}:post?{id:post[1].toLowerCase()}:null;
   }
-  const videoPlayers='shreddit-player,shreddit-player-2';
+  const videoPlayers='shreddit-player,shreddit-player-2',FLIGHT_MS=220,SCROLL_LOCK_MS=2500;
   const coveredMedia=node=>node.closest('shreddit-blurred-container[blurred]');
   let heldVideo,heldEmbed=null;
-  // Type-filtered feeds can stay visible while their inline player waits for the post.
+  // Type-filtered feeds can stay visible behind the shared-element transition.
   const markMove=()=>document.documentElement.toggleAttribute('data-rt-media-moving',Boolean(heldVideo || heldEmbed));
   function movePlayer(parent,player,before=null){
     if(parent.moveBefore)parent.moveBefore(player,before);
@@ -73,10 +73,110 @@
       else frame.setAttribute('style',style);
     }
   }
+  function blockTransitionScroll(event){
+    if(event.ctrlKey || event.metaKey || event.altKey || event.touches?.length>1)return;
+    if(event.type==='keydown' && (![' ','PageUp','PageDown','Home','End','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key) ||
+       event.composedPath().some(node=>node.matches?.('button,input,textarea,select,[role="button"],[contenteditable]:not([contenteditable="false"])'))))return;
+    event.preventDefault();
+  }
+  function lockTransitionScroll(){
+    const style=document.createElement('style');
+    style.dataset.rtMediaScrollLock='';
+    style.textContent=':root{overflow:hidden!important;scrollbar-gutter:stable}';
+    document.documentElement.append(style);
+    for(const type of ['wheel','touchmove','keydown'])addEventListener(type,blockTransitionScroll,{capture:true,passive:false});
+    return ()=>{
+      style.remove();
+      for(const type of ['wheel','touchmove','keydown'])removeEventListener(type,blockTransitionScroll,true);
+    };
+  }
+  function cornerOf(node){
+    const box=node.getBoundingClientRect();
+    for(let el=node;el?.nodeType===1 && !el.matches('shreddit-post');el=el.parentElement || el.getRootNode().host){
+      const style=getComputedStyle(el),radius=parseFloat(style.borderTopLeftRadius) || 0;
+      if(radius>0 && (el===node || /hidden|clip/.test(style.overflow+' '+style.overflowX))){
+        const bounds=el.getBoundingClientRect();
+        if(Math.abs(bounds.width-box.width)<=2 && Math.abs(bounds.height-box.height)<=2)return radius;
+      }
+    }
+    return 0;
+  }
+  const roundClip=(y,x,r)=>`inset(${y}px ${x}px${r>0?` round ${r}px`:''})`;
+  function sameBox(a,b){
+    return ['left','top','width','height'].every(key=>Math.abs(a[key]-b[key])<1);
+  }
+  function stagePlayer(node,rect,move){
+    const stage=document.createElement('div'),slot=document.createElement('div'),style=getComputedStyle(node);
+    const sourceCorner=cornerOf(node);
+    stage.setAttribute('aria-hidden','true');
+    slot.setAttribute('aria-hidden','true');
+    if(node.slot)slot.slot=node.slot;
+    Object.assign(slot.style,{width:rect.width+'px',height:rect.height+'px',margin:style.margin,visibility:'hidden'});
+    if(style.position==='absolute')Object.assign(slot.style,{position:'absolute',left:style.left,top:style.top});
+    Object.assign(stage.style,{position:'fixed',zIndex:'3',pointerEvents:'none',overflow:'hidden'});
+    let box=rect,corner=sourceCorner,flight,locked=true;
+    const placeBox=(next,radius)=>{
+      box=next;corner=radius;
+      Object.assign(stage.style,{left:next.left+'px',top:next.top+'px',width:next.width+'px',height:next.height+'px',borderRadius:radius+'px'});
+    };
+    placeBox(rect,sourceCorner);
+    node.before(slot);
+    document.body.append(stage);
+    move(stage,node);
+    const unlock=lockTransitionScroll();
+    const stopLock=()=>{
+      if(locked){locked=false;unlock();}
+    };
+    const timeout=setTimeout(stopLock,SCROLL_LOCK_MS);
+    const cancelFlight=()=>{flight?.animation.cancel();flight=null;};
+    const conceal=()=>{stage.style.visibility='hidden';cancelFlight();stopLock();};
+    const trackScroll=()=>{
+      if(!locked){conceal();return;}
+      const bounds=slot.getBoundingClientRect();
+      if(!flight && slot.isConnected && bounds.width && bounds.height)placeBox(bounds,sourceCorner);
+    };
+    addEventListener('scroll',trackScroll,true);
+    return {
+      slot,conceal,
+      ready(target,to,aspect){
+        if(stage.style.visibility==='hidden' || !stage.animate || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return true;
+        if(flight?.target===target && sameBox(box,to))return flight.done;
+        const painted=flight?stage.getBoundingClientRect():box;
+        cancelFlight();
+        if(sameBox(painted,to))return true;
+        if(!locked)return true;
+        const landing=cornerOf(target),fromCorner=corner;
+        const scale=Math.min(painted.width,painted.height*aspect)/Math.min(to.width,to.height*aspect);
+        const x=painted.left+painted.width/2-to.left-to.width/2,y=painted.top+painted.height/2-to.top-to.height/2;
+        const insetX=Math.max(0,(to.width-painted.width/scale)/2),insetY=Math.max(0,(to.height-painted.height/scale)/2);
+        placeBox(to,landing);
+        const animation=stage.animate([
+          {transform:`translate(${x}px,${y}px) scale(${scale})`,clipPath:roundClip(insetY,insetX,fromCorner/scale)},
+          {transform:'none',clipPath:roundClip(0,0,landing)}
+        ],{duration:FLIGHT_MS,easing:'cubic-bezier(.2,.8,.2,1)',fill:'both'});
+        const current=flight={target,animation,done:false};
+        animation.finished.then(()=>{current.done=true;},()=>{});
+        return false;
+      },
+      close(returnToFeed){
+        clearTimeout(timeout);
+        cancelFlight();
+        stopLock();
+        removeEventListener('scroll',trackScroll,true);
+        if(returnToFeed && slot.parentNode){
+          if(slot.isConnected)move(slot.parentNode,node,slot);
+          else slot.parentNode.insertBefore(node,slot);
+        }
+        slot.remove();
+        stage.remove();
+      }
+    };
+  }
   function releaseVideo(){
     if(!heldVideo)return;
-    const {controller,restorePause}=heldVideo;
+    const {controller,restorePause,moving}=heldVideo;
     heldVideo=null;markMove();
+    moving.close(true);
     restorePause();
     controller.endDomReparent();
   }
@@ -87,8 +187,8 @@
        !id || player.closest('shreddit-post')?.id!==id || !video || video.paused || video.ended ||
        typeof controller?.beginDomReparent!=='function' || typeof controller.endDomReparent!=='function' ||
        controller.shouldPreserveMedia?.() || typeof player.pause!=='function' || coveredMedia(player))return;
-    const {width,height}=player.getBoundingClientRect();
-    if(!width || !height)return;
+    const rect=player.getBoundingClientRect();
+    if(!rect.width || !rect.height || !document.body || heldEmbed)return;
     const pause=player.pause,ownPause=Object.hasOwn(player,'pause');
     function preserveNavigation(reason,...args){
       // Reddit calls the background pause for both route changes and actual tab visibility.
@@ -102,7 +202,8 @@
       else delete player.pause;
     };
     controller.beginDomReparent();
-    heldVideo={player,id,controller,restorePause};markMove();
+    const moving=stagePlayer(player,rect,movePlayer);
+    heldVideo={player,id,controller,restorePause,moving,rect};markMove();
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-video',event=>{
@@ -112,13 +213,16 @@
        detail.closest('shreddit-post')?.id!==heldVideo.id || detail.closest('shreddit-comment') ||
        detail.localName!==heldVideo.player.localName || !heldVideo.player.isConnected || coveredMedia(detail) ||
        detail.checkVisibility?.({visibilityProperty:true})===false)return;
-    const {player}=heldVideo;
+    const {player,moving,rect,controller,restorePause}=heldVideo;
+    const to=detail.getBoundingClientRect();
+    if(typeof ResizeObserver==='function' && (!to.width || !to.height))return;
+    const video=player.shadowRoot?.querySelector('video'),aspect=video?.videoWidth/video?.videoHeight;
+    if(to.width && to.height && !moving.ready(detail,to,Number.isFinite(aspect) && aspect>0?aspect:rect.width/rect.height))return;
     // A post player re-applies Reddit's session sound state when the move ends (and mutes autoplay without one); a
     // video playing with sound keeps it.
-    const video=player.shadowRoot?.querySelector('video');
     if(video && !video.muted && video.volume>0 && !player.forceMuted)player.volumeController?.setVolume?.(Math.sqrt(video.volume));
     // Keep a fresh feed player in Reddit's cached card for Back navigation.
-    const home=player.parentNode,next=player.nextSibling,replacement=player.cloneNode(true);
+    const replacement=player.cloneNode(true);
     for(const name of ['class','style','slot','player-type','data-post-click-location','priority','is-mobile','hide-autoplay-toggle']){
       const value=detail.getAttribute(name);
       if(value===null)player.removeAttribute(name);
@@ -126,8 +230,11 @@
     }
     movePlayer(detail.parentNode,player,detail);
     detail.remove();
-    home.insertBefore(replacement,next?.parentNode===home?next:null);
-    releaseVideo();
+    moving.slot.replaceWith(replacement);
+    heldVideo=null;markMove();
+    moving.close(false);
+    restorePause();
+    controller.endDomReparent();
     event.preventDefault();
   });
   // Our plays go through Reddit's player, which keeps its controls, poster and session in step with the video.
@@ -275,28 +382,39 @@
     if(player){try{playYouTubeWithSound(player);}catch{}return;}
     pendingYouTube.get(embed)?.then(ready=>{if(embed.isConnected)playYouTubeWithSound(ready);}).catch(()=>{});
   });
-  // Keep the live iframe in the feed's layout until the destination can receive it in its own layout.
+  // Move the browsing context itself, so providers can keep playing even after Reddit removes the feed.
   // Other providers (Streamable, Twitch, Dailymotion, …): Reddit renders their oEmbed iframe directly in the embed.
   const rawFrame=embed=>{const frame=embed?.shadowRoot?.querySelector?.('iframe');return frame && !frame.closest('lite-youtube,lite-vimeo')?frame:null;};
   // Vimeo: Reddit's lite-vimeo makes its player inside its own shadow root once started.
   const vimeoLite=embed=>embed?.shadowRoot?.querySelector?.('lite-vimeo') || null;
   const playerFrame=embed=>rawFrame(embed) || vimeoLite(embed)?.shadowRoot?.querySelector?.('iframe') || null;
-  function releaseEmbed(){
+  function restoreStyle(node,value){
+    if(value===null)node.removeAttribute('style');else node.setAttribute('style',value);
+  }
+  function releaseEmbed(returnToFeed=true){
     if(!heldEmbed)return;
-    heldEmbed.restorePause();
+    const {ifr,lite,style,liteStyle,moving,restorePause}=heldEmbed;
     heldEmbed=null;markMove();
+    moving.close(returnToFeed);
+    if(returnToFeed)restoreStyle(ifr,style);
+    if(lite)restoreStyle(lite,liteStyle);
+    restorePause();
   }
   document.addEventListener('rt-hold-feed-embed',event=>{
     const embed=event.target,lite=liteOf(embed),ifr=lite?lite.querySelector('iframe'):playerFrame(embed),player=ytPlayers.get(embed);
-    if(heldEmbed || !ifr || (lite && !player) || coveredMedia(embed) || typeof document.body?.moveBefore!=='function')return;
-    const {width,height}=ifr.getBoundingClientRect();
-    if(!width || !height)return;
-    heldEmbed={embed,lite,ifr,player,restorePause:preserveEmbedPlayback(embed,true)};markMove();
+    const id=embed.closest('shreddit-post')?.id;
+    if(!id || heldEmbed || heldVideo || !ifr || (lite && !player) || coveredMedia(embed) || typeof document.body?.moveBefore!=='function')return;
+    const rect=ifr.getBoundingClientRect(),style=ifr.getAttribute('style'),liteStyle=lite?.getAttribute('style') ?? null;
+    if(!rect.width || !rect.height)return;
+    const moving=stagePlayer(ifr,rect,moveEmbedFrame);
+    if(lite)lite.style.visibility='hidden';
+    Object.assign(ifr.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
+    heldEmbed={embed,lite,ifr,player,id,style,liteStyle,moving,rect,restorePause:preserveEmbedPlayback(embed,true)};markMove();
     event.preventDefault();
   });
   document.addEventListener('rt-place-held-embed',event=>{
     const embed=event.target,held=heldEmbed;
-    if(!held || !detailEmbed(embed) || embed===held.embed || embed.closest('shreddit-post')?.id!==held.embed.closest('shreddit-post')?.id ||
+    if(!held || !detailEmbed(embed) || embed===held.embed || embed.closest('shreddit-post')?.id!==held.id ||
        !held.ifr.isConnected || coveredMedia(embed))return;
     const lite=held.lite?liteOf(embed):null,target=held.lite?null:playerFrame(embed);
     // A post whose lite-vimeo has not made its player yet: the moving player covers it.
@@ -304,12 +422,13 @@
     if(held.lite?!lite:!(target || cover))return;
     const slot=lite || target || cover,to=slot.getBoundingClientRect();
     if(!to.width || !to.height || slot.checkVisibility?.({visibilityProperty:true})===false)return;
-    releaseEmbed();
+    if(!held.moving.ready(slot,to,held.lite?16/9:held.rect.width/held.rect.height))return;
     if(lite){
       lite.classList.add('lyt-activated');
       embed.hasActivatedYouTubePlayer=true;
       lite.playerPromise=Promise.resolve(held.player);
       for(const old of lite.querySelectorAll('iframe'))old.remove();
+      restoreStyle(held.ifr,held.style);
       moveEmbedFrame(lite,held.ifr);
       followYouTube(embed,held.player);
       // The cached feed card gets a fresh, unplayed embed for Back.
@@ -328,9 +447,14 @@
       Object.assign(held.ifr.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
       moveEmbedFrame(embed.shadowRoot,held.ifr);
     }
+    releaseEmbed(false);
     event.preventDefault();
   });
-  document.addEventListener('rt-release-feed-embed',releaseEmbed);
+  document.addEventListener('rt-release-feed-embed',()=>releaseEmbed());
+  document.addEventListener('rt-conceal-held-media',()=>{
+    heldVideo?.moving.conceal();
+    heldEmbed?.moving.conceal();
+  });
   // Synchronous read for the content script: whether it plays, where, and with sound.
   document.addEventListener('rt-embed-snapshot',event=>{
     const embed=event.target,player=ytPlayers.get(embed);

@@ -944,9 +944,11 @@ test('another provider’s iframe is held at its card, then replaces the post’
  const frame=embed.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));frame.src='https://streamable.com/e/abc?autoplay=1';
  frame.getBoundingClientRect=()=>({left:10,top:100,width:360,height:203});
  const hold=new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true});embed.dispatchEvent(hold);
- assert.equal(hold.defaultPrevented,true);assert.equal(frame.parentNode,embed.shadowRoot);
+ assert.equal(hold.defaultPrevented,true);assert.equal(frame.parentElement.style.position,'fixed');
  assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),true);
  W.history.pushState({},'','/r/soccer/comments/abc/goal/');
+ d.querySelector('shreddit-feed').remove();
+ assert.equal(frame.isConnected,true);
  const post=d.createElement('shreddit-post');post.id='t3_abc';d.body.append(post);
  const target=d.createElement('shreddit-embed');post.append(target);const own=target.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));
  own.getBoundingClientRect=()=>({left:0,top:60,width:390,height:220});
@@ -955,7 +957,7 @@ test('another provider’s iframe is held at its card, then replaces the post’
  assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),false);
 });
 
-test('scroll gestures during an embed handoff leave the iframe in its scrolling card',t=>{
+test('scroll gestures are blocked only while the staged iframe is visible',t=>{
  const {W}=setup(t,{url:'https://www.reddit.com/r/soccer/',before:W=>{W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};}});
  const d=W.document;d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_abc"><shreddit-embed></shreddit-embed></shreddit-post></shreddit-feed>';
  const embed=d.querySelector('shreddit-embed'),frame=embed.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));
@@ -963,11 +965,18 @@ test('scroll gestures during an embed handoff leave the iframe in its scrolling 
  const pause=()=>{};embed.pausePlayback=pause;
  const hold=new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true});embed.dispatchEvent(hold);
  assert.equal(hold.defaultPrevented,true);assert.notEqual(embed.pausePlayback,pause);
- d.dispatchEvent(new W.WheelEvent('wheel',{deltaY:12,bubbles:true}));
- d.dispatchEvent(new W.KeyboardEvent('keydown',{key:'PageDown',bubbles:true}));
+ const stage=frame.parentElement;
+ const wheel=()=>d.dispatchEvent(new W.WheelEvent('wheel',{deltaY:12,bubbles:true,cancelable:true}));
+ assert.equal(wheel(),false);
+ assert.equal(d.dispatchEvent(new W.KeyboardEvent('keydown',{key:'PageDown',bubbles:true,cancelable:true})),false);
+ assert.equal(frame.parentElement,stage);
+ d.dispatchEvent(new W.Event('rt-conceal-held-media'));
+ assert.equal(stage.style.visibility,'hidden');
+ assert.equal(wheel(),true);
+ assert.equal(frame.isConnected,true,'the frame stays alive after scroll is released');
+ d.dispatchEvent(new W.Event('rt-release-feed-embed'));
  assert.equal(frame.parentNode,embed.shadowRoot);
  assert.equal(frame.hasAttribute('style'),false);
- d.dispatchEvent(new W.Event('rt-release-feed-embed'));
  assert.equal(embed.pausePlayback,pause);
 });
 
@@ -979,7 +988,7 @@ test('a Vimeo player made by Reddit’s lite-vimeo is held at its card and place
  const frame=lite.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));frame.src='https://player.vimeo.com/video/1?autoplay=1&muted=1';
  frame.getBoundingClientRect=()=>({left:10,top:100,width:360,height:203});
  const hold=new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true});embed.dispatchEvent(hold);
- assert.equal(hold.defaultPrevented,true,'held');assert.equal(frame.parentNode,lite.shadowRoot);
+ assert.equal(hold.defaultPrevented,true,'held');assert.equal(frame.parentElement.style.position,'fixed');
  W.history.pushState({},'','/r/videos/comments/vim/clip/');
  const post=d.createElement('shreddit-post');post.id='t3_vim';d.body.append(post);
  const target=d.createElement('shreddit-embed');post.append(target);const own=target.attachShadow({mode:'open'}).appendChild(d.createElement('lite-vimeo'));own.attachShadow({mode:'open'});
@@ -990,10 +999,9 @@ test('a Vimeo player made by Reddit’s lite-vimeo is held at its card and place
  assert.equal(d.documentElement.hasAttribute('data-rt-media-moving'),false);
 });
 
-test('an embed stays in its card until the native detail cover opens, then lands without a flight',t=>{
+test('an embed lands only after the native detail cover opens',t=>{
  const {W}=setup(t,{url:'https://www.reddit.com/r/soccer/',before:W=>{
   W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};
-  W.Element.prototype.animate=()=>assert.fail('the player must stay within the media slots');
  }});
  const d=W.document;d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_abc"><shreddit-embed></shreddit-embed></shreddit-post></shreddit-feed>';
  const embed=d.querySelector('shreddit-embed');
@@ -1008,10 +1016,42 @@ test('an embed stays in its card until the native detail cover opens, then lands
  own.style.borderRadius='8px';own.width='390';own.getBoundingClientRect=()=>({left:0,top:-460,width:390,height:220});
  const place=()=>target.dispatchEvent(new W.Event('rt-place-held-embed',{bubbles:true,cancelable:true}));
  assert.equal(place(),true,'covered detail is never used');
- assert.equal(frame.parentNode,embed.shadowRoot);assert.equal(own.isConnected,true);
+ assert.equal(frame.parentElement.style.position,'fixed');assert.equal(own.isConnected,true);
  gate.removeAttribute('blurred');
  assert.equal(place(),false,'a laid-out post slot can receive its player even after scrolling away');
  assert.equal(frame.parentNode,target.shadowRoot);assert.equal(own.isConnected,false);
  assert.equal(frame.style.borderRadius,'8px');
  assert.equal(frame.width,'390');
+});
+
+test('a provider iframe stays live in the moving stage until its animation ends',async t=>{
+ let finish,flight;
+ const {W}=setup(t,{url:'https://www.reddit.com/r/videos/',before:W=>{
+  W.Element.prototype.moveBefore=function(node,ref){return this.insertBefore(node,ref);};
+  W.Element.prototype.animate=function(keyframes,options){
+   flight={node:this,keyframes,options};
+   return {finished:new Promise(resolve=>{finish=resolve;}),cancel(){}};
+  };
+ }});
+ const d=W.document;
+ d.body.innerHTML='<shreddit-feed><shreddit-post id="t3_vid"><shreddit-embed></shreddit-embed></shreddit-post></shreddit-feed>';
+ const embed=d.querySelector('shreddit-embed'),frame=embed.attachShadow({mode:'open'}).appendChild(d.createElement('iframe'));
+ frame.getBoundingClientRect=()=>({left:15,top:300,width:390,height:220});
+ embed.dispatchEvent(new W.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
+ const stage=frame.parentElement;
+ d.querySelector('shreddit-feed').remove();
+ W.history.pushState({},'','/r/videos/comments/vid/title/');
+ d.body.insertAdjacentHTML('beforeend','<shreddit-post id="t3_vid"><shreddit-embed></shreddit-embed></shreddit-post>');
+ const target=d.querySelector('shreddit-embed'),root=target.attachShadow({mode:'open'});
+ root.appendChild(d.createElement('iframe')).getBoundingClientRect=()=>({left:15,top:120,width:390,height:220});
+ const place=()=>target.dispatchEvent(new W.Event('rt-place-held-embed',{bubbles:true,cancelable:true}));
+ const wheel=()=>d.dispatchEvent(new W.WheelEvent('wheel',{deltaY:24,bubbles:true,cancelable:true}));
+ assert.equal(place(),true);
+ assert.equal(flight.node,stage);assert.equal(flight.options.duration,220);
+ assert.equal(flight.keyframes[0].transform,'translate(0px,180px) scale(1)');
+ assert.equal(frame.isConnected,true);assert.equal(wheel(),false);
+ finish();await Promise.resolve();
+ assert.equal(place(),false);
+ assert.equal(frame.parentNode,root);assert.equal(stage.isConnected,false);
+ assert.equal(wheel(),true);
 });
