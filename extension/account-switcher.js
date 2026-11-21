@@ -43,7 +43,9 @@
  class Switcher{
   constructor({send:transport=send}={}){
    this.send=transport;this.lists=new WeakMap();this.panels=new WeakMap();this.queued=false;this.dead=false;
-   this.observer=new MutationObserver(()=>this.schedule());
+   this.observer=new MutationObserver(records=>{
+    if(!globalThis.RTPostMenuDOM?.onlyMenuChanges(records))this.schedule();
+   });
    this.observer.observe(document.documentElement,{childList:true,subtree:true});
    // Opening Reddit's menu again always starts from its own view.
    this.onPress=event=>{if(event.target?.closest?.('#expand-user-drawer-button'))for(const menu of document.querySelectorAll(MENUS))this.closePanel(menu);};

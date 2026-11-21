@@ -85,6 +85,7 @@
       ],
       "run_at": "document_start",
       "js": [
+        "post-menu-dom.js",
         "profile-notice.js",
         "share-links-settings.js",
         "android-app-prompt.js",

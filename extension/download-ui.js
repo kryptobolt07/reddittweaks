@@ -52,7 +52,22 @@
       document.addEventListener('click',this.onClick,true);document.addEventListener('keydown',this.onKeydown,true);
       if(this.mobile.addEventListener)this.mobile.addEventListener('change',this.onViewport);else this.mobile.addListener?.(this.onViewport);
       if(observe){
-        this.observer=new MutationObserver(()=>{if(!this.queued){this.queued=true;queueMicrotask(()=>{this.queued=false;this.sync();});}});
+        this.observer=new MutationObserver(records=>{
+          const dom=globalThis.RTPostMenuDOM;
+          if(dom?.onlyMenuChanges(records)){
+            if(this.sheetItem && !this.sheetItem.isConnected)this.close();
+            if(this.mobile.matches){
+              for(const menu of new Set(records.map(record=>record.target.closest?.(dom.inline)).filter(Boolean))){
+                const post=menu.closest('shreddit-post');
+                if(post && menu.isConnected)this.syncMenu(menu,post);
+              }
+              this.dedupe();
+            }
+          }else if(!this.queued){
+            this.queued=true;
+            queueMicrotask(()=>{this.queued=false;this.sync();});
+          }
+        });
         this.observer.observe(document.documentElement,{childList:true,subtree:true});
       }
     }
@@ -69,21 +84,17 @@
       if(this.sheetItem && !this.sheetItem.isConnected)this.close();
       if(!this.mobile.matches)for(const item of document.querySelectorAll('[data-rt-download="item"]'))item.remove();
       for(const post of document.querySelectorAll('shreddit-post')){
-        const supported=SUPPORTED.has(String(post.getAttribute('post-type') || '').toLowerCase()),root=post.shadowRoot;
+        const type=String(post.getAttribute('post-type') || '').toLowerCase(),root=post.shadowRoot;
         if(this.mobile.matches){
           root?.querySelector('[data-rt-download="action"]')?.remove();
-          if(!supported)continue;
-          const menu=post.querySelector('shreddit-post-overflow-menu');if(!menu)continue;
-          const existing=menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-download="item"]');
-          if(existing || !M.mediaFor(post)?.items?.length)continue;
-          let slot=menu.querySelector(':scope > [slot="devvit-context-actions"]');
-          if(!slot){slot=make('div');slot.setAttribute('slot','devvit-context-actions');menu.append(slot);}
-          slot.append(this.menuItem(menu,post));
+          if(!SUPPORTED.has(type))continue;
+          const menu=post.querySelector('shreddit-post-overflow-menu');
+          if(menu)this.syncMenu(menu,post);
         }else{
           const row=root?.querySelector('rpl-action-bar [data-testid="action-row"]');
           let action=root?.querySelector('[data-rt-download="action"]');
-          if(!supported || !row){action?.remove();continue;}
-          if(!action){if(!M.mediaFor(post)?.items?.length)continue;action=this.action(post);}
+          if(!SUPPORTED.has(type) || !row){action?.remove();continue;}
+          if(!action){if(!M.hasMediaSource(post,type))continue;action=this.action(post);}
           const share=row.querySelector(':scope > slot[name="share-button"]');
           if(action.parentElement!==row){
             if(share)share.after(action);
@@ -95,6 +106,15 @@
         }
       }
       if(this.mobile.matches)this.dedupe();
+    }
+    syncMenu(menu,post) {
+      const type=String(post.getAttribute('post-type') || '').toLowerCase();
+      if(!SUPPORTED.has(type))return;
+      const existing=menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-download="item"]');
+      if(existing || !M.hasMediaSource(post,type))return;
+      let slot=menu.querySelector(':scope > [slot="devvit-context-actions"]');
+      if(!slot){slot=make('div');slot.setAttribute('slot','devvit-context-actions');menu.append(slot);}
+      slot.append(this.menuItem(menu,post));
     }
     dedupe() {
       const portal=document.getElementById('post-overflow-menu-bottom-sheet');if(!portal)return;
@@ -136,9 +156,10 @@
       if(this.dropdown===dropdown && dropdown.hasAttribute('open')){this.close(true);return;}
       this.close();
       this.dropdown=dropdown;this.button=button;this.panel=menu;this.post=post;
-      this.render(menu,post,false);
       dropdown.setAttribute('open','');button.setAttribute('aria-expanded','true');
-      menu.querySelector('[role="menuitem"]')?.focus({preventScroll:true});
+      menu.tabIndex=-1;
+      menu.focus({preventScroll:true});
+      this.loadOptions(menu,post);
     }
     openSheet(menu,post,item) {
       if(this.sheetItem===item && this.panel){this.close(true);return;}
@@ -151,16 +172,45 @@
       const panel=make('div','rt-download-submenu');panel.dataset.rtDownload='panel';panel.setAttribute('role','menu');panel.setAttribute('aria-label','Download media');
       panel.addEventListener('keydown',event=>this.onPanelKey(event),true);
       this.sheet=sheet;this.sheetItem=item;this.panel=panel;this.post=post;this.hidden=hidden;
-      host.append(panel);this.render(panel,post,true);
-      panel.querySelector('[data-rt-download="back"]')?.focus({preventScroll:true});
+      host.append(panel);
+      const back=this.row({label:'Back',caption:'Download media',icon:'arrow-back',onSelect:()=>this.close(true)});
+      back.dataset.rtDownload='back';panel.append(back);
+      back.focus({preventScroll:true});
+      this.loadOptions(panel,post);
     }
-    render(panel,post,back) {
-      panel.replaceChildren();
-      if(back){
-        const row=this.row({label:'Back',caption:'Download media',icon:'arrow-back',onSelect:()=>this.close(true)});row.dataset.rtDownload='back';panel.append(row);
+    loadOptions(panel,post) {
+      const loading=make('div','rt-download-loading');
+      loading.dataset.rtDownload='loading';loading.setAttribute('role','status');
+      loading.setAttribute('aria-label','Loading download options');
+      loading.style.cssText='display:grid;gap:8px;padding:14px 16px';
+      for(const width of ['70%','46%']){
+        const line=make('faceplate-shimmer');
+        line.setAttribute('shape','pill');line.setAttribute('aria-hidden','true');
+        line.style.cssText='display:block;height:10px;width:'+width+';border-radius:999px;background-color:color-mix(in srgb,var(--color-neutral-content-strong,#181c1f) 16%,var(--color-neutral-background,#fff))';
+        loading.append(line);
       }
-      const media=M.mediaFor(post);
-      if(!media || !media.items.length){const item=this.sheetItem;this.close();item?.remove();return;}
+      panel.setAttribute('aria-busy','true');
+      panel.append(loading);
+      const resolve=()=>{
+        this.cancelOptions=null;
+        if(this.panel!==panel || !panel.isConnected || !post.isConnected)return;
+        loading.remove();panel.removeAttribute('aria-busy');
+        const media=M.mediaFor(post);
+        if(!media?.items.length){this.showError('No downloadable media found.');return;}
+        this.renderOptions(panel,post,media);
+        const active=panel.getRootNode().activeElement;
+        if(this.dropdown && (active===panel || active===this.button))panel.querySelector('[role="menuitem"]')?.focus({preventScroll:true});
+      };
+      // Let the menu and its skeleton paint before parsing media or building quality rows.
+      if(!document.hidden && typeof requestAnimationFrame==='function'){
+        let frame=requestAnimationFrame(()=>{frame=requestAnimationFrame(resolve);});
+        this.cancelOptions=()=>cancelAnimationFrame(frame);
+      }else{
+        const timer=setTimeout(resolve,0);
+        this.cancelOptions=()=>clearTimeout(timer);
+      }
+    }
+    renderOptions(panel,post,media) {
       if(media.type==='gallery' && media.items.length>1){
         panel.append(this.row({label:'All images',caption:media.items.length+' images',icon:'image',onSelect:()=>this.download(post,media.items)}));
       }
@@ -186,20 +236,22 @@
       event.preventDefault();event.stopImmediatePropagation();
       const rows=[...this.panel.querySelectorAll('[role="menuitem"]:not([aria-disabled="true"])')];
       if(!rows.length)return;
-      const current=rows.indexOf(document.activeElement),next=event.key==='Home'?0:event.key==='End'?rows.length-1:current<0?(event.key==='ArrowUp'?rows.length-1:0):(current+(event.key==='ArrowUp'?-1:1)+rows.length)%rows.length;
+      const current=rows.indexOf(this.panel.getRootNode().activeElement),next=event.key==='Home'?0:event.key==='End'?rows.length-1:current<0?(event.key==='ArrowUp'?rows.length-1:0):(current+(event.key==='ArrowUp'?-1:1)+rows.length)%rows.length;
       rows[next].focus({preventScroll:true});
     }
     async download(post,items) {
       if(this.busy)return;
       const plan=M.filesFor(post,items);
       if(!plan.files.length){this.showError('No downloadable media found.');return;}
+      const request=this.downloadJob={};
       this.busy=true;this.panel?.setAttribute('aria-busy','true');
       try{
         const response=await this.read({action:'download',files:plan.files});
+        if(this.downloadJob!==request)return;
         if(!response?.ok)throw Error(response?.error || 'Some downloads could not start.');
         const focus=this.button || this.sheetItem?.querySelector('[role="menuitem"]');this.close();focus?.focus({preventScroll:true});
-      }catch(error){this.showError(error?.message || 'Unable to download this media.');}
-      finally{this.busy=false;this.panel?.removeAttribute('aria-busy');}
+      }catch(error){if(this.downloadJob===request)this.showError(error?.message || 'Unable to download this media.');}
+      finally{if(this.downloadJob===request){this.downloadJob=null;this.busy=false;this.panel?.removeAttribute('aria-busy');}}
     }
     showError(message) {
       if(!this.panel)return;
@@ -209,6 +261,9 @@
     }
     close(focus=false) {
       const button=this.button,item=this.sheetItem;
+      this.cancelOptions?.();this.cancelOptions=null;
+      this.downloadJob=null;
+      this.panel?.removeAttribute('aria-busy');
       if(this.dropdown)this.dropdown.removeAttribute('open');
       button?.setAttribute('aria-expanded','false');
       item?.querySelector('[role="menuitem"]')?.setAttribute('aria-expanded','false');

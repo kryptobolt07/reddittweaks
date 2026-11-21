@@ -929,7 +929,10 @@
   // A modest discovery heartbeat covers delayed Lit hydration without patching Reddit.
   // The heartbeat's refresh returns immediately while the probe back-off applies, so it is a bare timer wake on pages without chat.
   const heartbeat = setInterval(()=>{if(scrollActive())schedule();else refresh();},1800);
-  const observer = new MutationObserver(mutationsChanged); observer.observe(document,{childList:true,subtree:true});
+  const observer = new MutationObserver(records => {
+    if (!globalThis.RTPostMenuDOM?.onlyMenuChanges(records)) mutationsChanged(records);
+  });
+  observer.observe(document,{childList:true,subtree:true});
   document.addEventListener('visibilitychange',schedule);
   // Reddit's page world announces chat components as they connect.
   for(const name of ['rcs-chat-present','rcs-chat-starting'])document.addEventListener(name,()=>{wakeProbe();schedule();});

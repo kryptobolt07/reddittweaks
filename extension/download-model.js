@@ -47,7 +47,7 @@
     return Number.isInteger(number) && number>0 && number<=20000?number:0;
   }
   function dimensionsOf(node) {
-    const width=dimension(node?.getAttribute?.('width') || node?.width),height=dimension(node?.getAttribute?.('height') || node?.height);
+    const width=dimension(node?.getAttribute?.('width') || node?.naturalWidth),height=dimension(node?.getAttribute?.('height') || node?.naturalHeight);
     return width && height?{width,height}:{};
   }
   function safeSources(image) {
@@ -97,13 +97,9 @@
         return url && url.pathname===path && kindOf(source)==='image';
       })) || null;
     }
-    if(!href){
-      const container=post?.querySelector?.('[slot="post-media-container"]') || post;
-      image=[...container?.querySelectorAll?.('img') || []].filter(candidate=>bestSource(candidate)).sort((a,b)=>scoreImage(b,bestSource(b))-scoreImage(a,bestSource(a)))[0] || null;
-    }
-    const url=href || bestSource(image);
-    if(!url || kindOf(url)!=='image')return [];
-    return [{kind:'image',url,...dimensionsOf(image)}];
+    if(href)return kindOf(href)==='image'?[{kind:'image',url:href,...dimensionsOf(image)}]:[];
+    const best=bestImage(post?.querySelector?.('[slot="post-media-container"]') || post);
+    return best?[{kind:'image',...best}]:[];
   }
   function galleryItems(post) {
     const carousel=post?.querySelector?.('gallery-carousel');
@@ -153,6 +149,20 @@
     const heights=new Set();
     return items.filter(item=>{if(!item.height)return true;if(heights.has(item.height))return false;heights.add(item.height);return true;}).slice(0,MAX_FILES);
   }
+  const imageSource='img[src],img[srcset],img[data-lazy-src],img[data-src],picture:has(source[srcset]) img';
+  function hasMediaSource(post,type) {
+    if(type==='image' || type==='gif'){
+      const url=safeDownloadUrl(post.getAttribute('content-href'));
+      if(url && kindOf(url)==='image')return true;
+    }
+    if(type==='video' || type==='gif'){
+      const player=post.querySelector('shreddit-player,shreddit-player-2');
+      if(player?.getAttribute('packaged-media-json') || player?.shadowRoot?.querySelector('shreddit-media-ui[preview]'))return true;
+    }
+    if(type==='gallery')return Boolean(post.querySelector('gallery-carousel')?.querySelector(imageSource));
+    if(type==='image' || type==='gif')return Boolean((post.querySelector('[slot="post-media-container"]') || post).querySelector(imageSource));
+    return false;
+  }
   function mediaFor(post) {
     const type=String(post?.getAttribute?.('post-type') || '').toLowerCase();
     if(type==='video')return {type,items:videoItems(post)};
@@ -183,5 +193,5 @@
     const list=Array.isArray(items)?items.slice(0,MAX_FILES):[];
     return {files:list.map((item,index)=>({url:safeDownloadUrl(item.url),filename:filenameFor(post,item,index,list.length)})).filter(file=>file.url)};
   }
-  globalThis.RTDownloadModel=Object.freeze({MAX_FILES,safeDownloadUrl,isRedditPage,safeFilename,mediaFor,labelFor,captionFor,filenameFor,filesFor,extensionOf});
+  globalThis.RTDownloadModel=Object.freeze({MAX_FILES,safeDownloadUrl,isRedditPage,safeFilename,hasMediaSource,mediaFor,labelFor,captionFor,filenameFor,filesFor,extensionOf});
 })();

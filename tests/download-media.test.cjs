@@ -5,6 +5,11 @@ const {JSDOM}=require('jsdom');
 const read=file=>fs.readFileSync('extension/'+file,'utf8');
 const flush=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setTimeout(resolve,0));};
 const plain=value=>JSON.parse(JSON.stringify(value));
+async function waitOptions(s){
+  for(let i=0;i<3 && s.panel()?.getAttribute('aria-busy')==='true';i++){
+    await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+  }
+}
 
 function model(){
   const context=vm.createContext({URL,Set,Map,Number,String,Array,Object,JSON,Math,Error});
@@ -14,10 +19,15 @@ function model(){
 function page(type='image',extra=''){
   return `<!doctype html><html><body><main><shreddit-post id="t3_post1" post-type="${type}" post-title="A test / image" content-href="https://i.redd.it/abc.jpeg" permalink="/r/Alpha/comments/post1/title/"><div slot="post-media-container"><img class="z-1" src="https://i.redd.it/abc.jpeg" width="1200" height="800"></div><shreddit-post-overflow-menu post-id="t3_post1" permalink="/r/Alpha/comments/post1/title/"><button type="button" aria-haspopup="menu" aria-expanded="true">⋯</button><div slot="devvit-context-actions" role="menuitem"><span>Save</span></div></shreddit-post-overflow-menu>${extra}</shreddit-post></main></body></html>`;
 }
-function ui(t,{type='image',extra='',read:reader,mobile=false}={}){
+function ui(t,{type='image',extra='',read:reader,mobile=false,onResolve}={}){
   const dom=new JSDOM(page(type,extra),{url:'https://www.reddit.com/r/Alpha/',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,D=W.document;
   t.after(()=>W.close());
-  for(const file of ['download-model.js','download-ui.js'])W.eval(read(file));
+  W.eval(read('download-model.js'));
+  if(onResolve){
+    const original=W.RTDownloadModel;
+    W.RTDownloadModel={...original,mediaFor(post){onResolve(post);return original.mediaFor(post);}};
+  }
+  W.eval(read('download-ui.js'));
   const post=D.querySelector('shreddit-post'),menu=D.querySelector('shreddit-post-overflow-menu'),trigger=menu.querySelector('button'),calls=[];
   const shadow=post.attachShadow({mode:'open'});
   shadow.innerHTML='<rpl-action-bar><div data-testid="action-row"><slot name="share-button"></slot><slot name="action-row-whitespace"></slot></div></rpl-action-bar>';
@@ -85,6 +95,7 @@ test('desktop puts one download button in the action bar next to Share, not in �
   assert.equal(s.item(),null);assert.equal(button.getAttribute('aria-label'),'Download media');assert.equal(button.getAttribute('aria-expanded'),'false');
   button.click();
   assert.equal(action.hasAttribute('open'),true);assert.equal(button.getAttribute('aria-expanded'),'true');
+  await waitOptions(s);
   assert.deepEqual([...s.panel().querySelectorAll('[role="menuitem"]')].map(node=>node.querySelector('.text-body-2').textContent),['Original image']);
   s.panel().querySelector('[role="menuitem"]').click();await flush();
   assert.equal(s.calls.length,1);assert.equal(action.hasAttribute('open'),false);assert.equal(s.panel().querySelectorAll('[role="menuitem"]').length,0);assert.equal(button.getAttribute('aria-expanded'),'false');
@@ -97,6 +108,7 @@ test('mobile keeps the download item in ⋯ and opens the phone submenu in place
   const slot=s.D.createElement('div');slot.setAttribute('slot','devvit-context-actions');slot.setAttribute('role','menuitem');slot.append(item);portal.append(slot);s.D.body.append(portal);
   item.querySelector('[role="menuitem"]').click();
   assert.ok(s.panel());assert.equal(s.panel().parentElement,portal);assert.equal(slot.style.display,'none');
+  await waitOptions(s);
   assert.deepEqual([...s.panel().querySelectorAll('[role="menuitem"]')].map(node=>node.querySelector('.text-body-2').textContent),['Back','Original image']);
   s.panel().querySelector('[data-rt-download="back"]').click();
   assert.equal(s.panel(),null);assert.equal(slot.style.display,'');assert.equal(item.querySelector('[role="menuitem"]').getAttribute('aria-expanded'),'false');
@@ -114,13 +126,13 @@ test('the phone bottom sheet keeps one copied download item',t=>{
 
 test('gallery and video rows offer all images and quality choices, then send one download request',async t=>{
   const gallery=ui(t,{type:'gallery',extra:'<gallery-carousel><li slot="page-1"><img src="https://i.redd.it/one.jpeg" width="10" height="20"></li><li slot="page-2"><img src="https://i.redd.it/two.jpeg" width="20" height="30"></li></gallery-carousel>'});
-  gallery.action().querySelector('button').click();
+  gallery.action().querySelector('button').click();await waitOptions(gallery);
   assert.deepEqual([...gallery.panel().querySelectorAll('[role="menuitem"]')].map(node=>node.querySelector('.text-body-2').textContent),['All images','Image 1','Image 2']);
   gallery.panel().querySelectorAll('[role="menuitem"]')[0].click();await flush();
   assert.equal(gallery.calls.length,1);assert.deepEqual(plain(gallery.calls[0].files.map(file=>file.filename)),['A test - image-1.jpeg','A test - image-2.jpeg']);
   assert.equal(gallery.action().hasAttribute('open'),false);assert.equal(gallery.panel().querySelectorAll('[role="menuitem"]').length,0);assert.equal(gallery.action().querySelector('button').getAttribute('aria-expanded'),'false');
   const video=ui(t,{type:'video',extra:`<shreddit-player packaged-media-json='${videoJson([['https://packaged-media.redd.it/v/pb/m2-res_480p.mp4',854,480,500000],['https://packaged-media.redd.it/v/pb/m2-res_720p.mp4',1280,720,1200000]])}'></shreddit-player>`});
-  video.action().querySelector('button').click();
+  video.action().querySelector('button').click();await waitOptions(video);
   const rows=[...video.panel().querySelectorAll('[role="menuitem"]')];
   assert.deepEqual(rows.map(node=>node.querySelector('.text-body-2').textContent),['720p','480p']);
   rows[0].click();await flush();
@@ -133,7 +145,7 @@ test('an NSFW video without packaged JSON offers Reddit’s direct preview MP4',
   const player=s.post.querySelector('shreddit-player'),shadow=player.attachShadow({mode:'open'});
   shadow.innerHTML='<shreddit-media-ui preview="https://v.redd.it/abc/CMAF_96.mp4"></shreddit-media-ui>';
   s.download.sync();
-  s.action().querySelector('button').click();
+  s.action().querySelector('button').click();await waitOptions(s);
   const rows=[...s.panel().querySelectorAll('[role="menuitem"]')];
   assert.deepEqual(rows.map(node=>node.querySelector('.text-body-2').textContent),['Video']);
   rows[0].click();await flush();
@@ -146,14 +158,14 @@ test('a missing source is not offered, and a failed worker shows an error',async
   assert.equal(empty.action(),null,'no action-bar button without media');
   assert.equal(empty.D.body.textContent.includes('Try again'),false);
   const failed=ui(t,{read:async()=>{throw Error('Worker unavailable');}});
-  failed.action().querySelector('button').click();failed.panel().querySelectorAll('[role="menuitem"]')[0].click();await flush();
+  failed.action().querySelector('button').click();await waitOptions(failed);failed.panel().querySelectorAll('[role="menuitem"]')[0].click();await flush();
   assert.ok(failed.panel());assert.equal(failed.panel().querySelector('[data-rt-download="error"]').textContent,'Worker unavailable');
   assert.equal(failed.panel().getAttribute('aria-busy'),null);
 });
 
 test('keyboard navigation stays inside the download menu and Escape returns to the button',async t=>{
   const s=ui(t),button=s.action().querySelector('button');
-  button.click();
+  button.click();await waitOptions(s);
   const row=s.panel().querySelector('[role="menuitem"]');assert.ok(row);assert.equal(row.querySelector('.text-body-2').textContent,'Original image');
   row.dispatchEvent(new s.W.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
   assert.equal(s.action().hasAttribute('open'),false);assert.equal(s.panel().querySelectorAll('[role="menuitem"]').length,0);assert.equal(button.getAttribute('aria-expanded'),'false');
@@ -219,4 +231,65 @@ test('callback-style download APIs and a missing downloads API are handled',asyn
   const missing=broker(null,{noDownloads:true});
   const result=await missing.B.handle({scope:'rt-download',files},sender);
   assert.equal(result.ok,false);assert.match(result.files[0].error,/Downloads are unavailable/);
+});
+
+test('the desktop Download menu paints a loading row before inspecting a video and cancels when closed',async t=>{
+  let reads=0;
+  const s=ui(t,{type:'video',extra:`<shreddit-player packaged-media-json='${videoJson([['https://v.redd.it/abc/CMAF_96.mp4',960,540,800000]])}'></shreddit-player>`,onResolve:()=>{reads++;}});
+  const button=s.action().querySelector('button');
+  assert.equal(reads,0,'mounting the action must not parse media');
+  button.click();
+  assert.equal(s.action().hasAttribute('open'),true);
+  assert.equal(s.panel().getAttribute('aria-busy'),'true');
+  assert.ok(s.panel().querySelector('[data-rt-download="loading"]'));
+  await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+  assert.equal(reads,0,'the first frame gets the skeleton before the video lookup');
+  button.click();
+  await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+  assert.equal(reads,0,'closing cancels the queued lookup');
+  button.click();
+  for(let i=0;i<3;i++)await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+  assert.equal(reads,1);
+  assert.equal(s.panel().getAttribute('aria-busy'),null);
+  assert.equal(s.panel().querySelector('[data-rt-download="loading"]'),null);
+  assert.equal(s.panel().querySelector('.rt-download-label').textContent,'540p');
+});
+
+test('the mobile post menu leaves video extraction to the Download submenu and preserves its Back row',async t=>{
+  let reads=0;
+  const s=ui(t,{mobile:true,type:'video',extra:'<shreddit-player packaged-media-json="{}"></shreddit-player>',onResolve:()=>{reads++;}});
+  assert.equal(reads,0,'mounting the post menu only checks for a possible source');
+  const item=s.item();
+  assert.ok(item);
+  const portal=s.D.createElement('div');
+  portal.id='post-overflow-menu-bottom-sheet';portal.className='post-overflow-menu-bottom-sheet';
+  const slot=s.D.createElement('div');slot.setAttribute('slot','devvit-context-actions');slot.append(item);portal.append(slot);s.D.body.append(portal);
+  item.querySelector('[role="menuitem"]').click();
+  const panel=s.panel(),back=panel.querySelector('[data-rt-download="back"]');
+  assert.equal(reads,0);
+  assert.ok(back && panel.querySelector('[data-rt-download="loading"]'));
+  assert.equal(s.D.activeElement,back);
+  for(let i=0;i<3;i++)await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+  assert.equal(reads,1);
+  assert.equal(panel.querySelector('[data-rt-download="back"]'),back);
+  assert.equal(s.D.activeElement,back);
+  assert.match(panel.querySelector('[data-rt-download="error"]').textContent,/No downloadable media found/);
+  back.click();
+  assert.equal(s.panel(),null);
+  assert.equal(s.D.activeElement,item.querySelector('[role="menuitem"]'));
+});
+
+test('a finished download cannot close a reopened menu or clear its loading row',async t=>{
+  let complete;
+  const s=ui(t,{read:()=>new Promise(resolve=>{complete=resolve;})});
+  const button=s.action().querySelector('button');
+  button.click();await waitOptions(s);
+  s.panel().querySelector('[role="menuitem"]').click();
+  button.click();button.click();
+  complete({ok:true});await Promise.resolve();
+  assert.equal(s.action().hasAttribute('open'),true);
+  assert.equal(s.panel().getAttribute('aria-busy'),'true');
+  assert.ok(s.panel().querySelector('[data-rt-download="loading"]'));
+  await waitOptions(s);
+  assert.ok(s.panel().querySelector('[role="menuitem"]'));
 });

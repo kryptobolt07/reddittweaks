@@ -284,7 +284,7 @@
           return;
         }
         if (records.some(record => {
-          if (record.target.closest?.('[data-rt-ui]')) return false;
+          if (globalThis.RTPostMenuDOM?.isMenuMutation(record) || record.target.closest?.('[data-rt-ui]')) return false;
           return [...record.addedNodes, ...record.removedNodes].some(node =>
             node.nodeType === 1 && !node.matches('[data-rt-ui]'));
         })) this.schedule();
@@ -738,10 +738,13 @@
           const parent = unit.parentElement;
           if (parent !== this.feed && !parent?.matches('faceplate-batch,faceplate-partial')) continue;
           if (card.parentElement?.closest('shreddit-post,shreddit-ad-post')) continue;
-          const type = filters.inferType(card);
           const flairNode=flair && card.querySelector('[slot="post-flair"]');
-          if ((!flair || flairNode && fold(cardFlair(flairNode))===flair) && (!nsfw || nsfwCard(card)) &&
-              (!types.length || wanted.has(type) || (wanted.has('video') && type === 'embed' && externalVideo(card)))) matching++;
+          let matches=(!nsfw || nsfwCard(card)) && (!flair || flairNode && fold(cardFlair(flairNode))===flair);
+          if (matches && wanted.size) {
+            const type=filters.inferType(card);
+            matches=wanted.has(type) || (wanted.has('video') && type === 'embed' && externalVideo(card));
+          }
+          if (matches) matching++;
           else {
             next.add(unit);
             if (unit.nextElementSibling?.tagName === 'HR') next.add(unit.nextElementSibling);

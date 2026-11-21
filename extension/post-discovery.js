@@ -296,7 +296,7 @@
       };document.addEventListener('keydown',this.onEmptyProfileSearch,true);
       // Changes inside the observed feed are handled by its own observer; only
       // route/page-level changes need a scan.
-      if(observe){this.observer=new MutationObserver(records=>{if(this.orphaned())return;this.syncProfileNotice();this.syncOwnListHeader();if(this.feed)this.trackVirtualization(records);
+      if(observe){this.observer=new MutationObserver(records=>{if(this.orphaned() || globalThis.RTPostMenuDOM?.onlyMenuChanges(records))return;this.syncProfileNotice();this.syncOwnListHeader();if(this.feed)this.trackVirtualization(records);
         const handoff=this.profileHandoff;
         if((handoff && !(handoff.incoming || handoff.main).isConnected) || (this.profileReturnKey && this.host && !this.host.isConnected)){this.scan();return;}
         // Reddit's start-up reconcile removes what we inserted into main (only our nodes change, so the

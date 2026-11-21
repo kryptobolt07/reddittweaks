@@ -86,14 +86,27 @@
     constructor({read=bridgeRead,readSettings=defaultSettings,observe=true,random,raffler=defaultRaffler}={}){
       this.read=read;this.raffler=raffler;this.readSettings=readSettings;this.random=random;this.enabled=false;this.dead=false;this.dialog=null;
       if(observe){
-        this.observer=new MutationObserver(()=>{if(!this.queued){this.queued=true;queueMicrotask(()=>{this.queued=false;this.sync();});}});
+        this.observer=new MutationObserver(records=>{
+          const dom=globalThis.RTPostMenuDOM;
+          if(dom?.onlyMenuChanges(records)){
+            for(const menu of new Set(records.map(record=>record.target.closest?.(dom.inline)).filter(Boolean)))this.syncMenu(menu);
+            this.dedupe();
+          }else if(!this.queued){
+            this.queued=true;
+            queueMicrotask(()=>{this.queued=false;this.sync();});
+          }
+        });
         this.observer.observe(document.documentElement,{childList:true,subtree:true});
         this.onSettings=(changes,area)=>{if(area==='local' && changes['rt-settings-v1'])this.loadSettings();};
         this.onSettingsMessage=message=>{if(message?.scope==='rt-posts' && message.action==='settings-changed')this.loadSettings();};
         try{chrome.storage?.onChanged?.addListener(this.onSettings);}catch{}try{chrome.runtime?.onMessage?.addListener(this.onSettingsMessage);}catch{}
       }
       // Safety net: make sure the item exists the moment a post's ⋯ button is pressed, before Reddit draws the menu.
-      this.onPress=event=>{const menu=event.composedPath?.().find(node=>node?.tagName==='SHREDDIT-POST-OVERFLOW-MENU');if(menu){this.sync();this.menuStatus(menu);}};
+      this.onPress=event=>{
+        if(!this.enabled || event.type==='keydown' && !['Enter',' '].includes(event.key))return;
+        const menu=event.composedPath?.().find(node=>node?.tagName==='SHREDDIT-POST-OVERFLOW-MENU');
+        if(menu){this.syncMenu(menu);this.menuStatus(menu);}
+      };
       document.addEventListener('pointerdown',this.onPress,true);document.addEventListener('keydown',this.onPress,true);
       // Fetch the Reddit Raffler status as ⋯ is hovered or focused, so the menu usually opens with it already known.
       this.onNear=event=>{if(!this.enabled)return;const menu=event.composedPath?.().find(node=>node?.tagName==='SHREDDIT-POST-OVERFLOW-MENU');if(menu)this.menuStatus(menu);};
@@ -114,17 +127,18 @@
     // One item per post menu, in the menu's own action slot (B1).
     sync(){
       if(this.dead)return;
-      const menus=document.querySelectorAll('shreddit-post-overflow-menu');
-      for(const menu of menus){
-        const existing=menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]');
-        if(!this.enabled){existing?.remove();continue;}
-        if(existing || !/^t3_[a-z0-9]{1,10}$/i.test(menu.getAttribute('post-id') || ''))continue;
-        let slot=menu.querySelector(':scope > [slot="devvit-context-actions"]');
-        if(!slot){slot=make('div');slot.setAttribute('slot','devvit-context-actions');menu.append(slot);}
-        slot.append(this.menuItem(menu));
-      }
+      for(const menu of document.querySelectorAll('shreddit-post-overflow-menu'))this.syncMenu(menu);
       this.dedupe();
       if(!this.enabled)this.close(true);
+    }
+    syncMenu(menu){
+      if(!menu.isConnected)return;
+      const existing=menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]');
+      if(!this.enabled){existing?.remove();return;}
+      if(existing || !/^t3_[a-z0-9]{1,10}$/i.test(menu.getAttribute('post-id') || ''))return;
+      let slot=menu.querySelector(':scope > [slot="devvit-context-actions"]');
+      if(!slot){slot=make('div');slot.setAttribute('slot','devvit-context-actions');menu.append(slot);}
+      slot.append(this.menuItem(menu));
     }
     dedupe(){
       const portal=document.getElementById('post-overflow-menu-bottom-sheet');if(!portal)return;

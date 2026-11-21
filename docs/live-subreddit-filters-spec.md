@@ -69,3 +69,16 @@ The same-document return state is scoped to the browser history entry. On the sa
 On the filtered subreddit in Brave, Reddit's Card and Compact destinations already included the Videos filter. The shared chip wrapper used its default full-width sizing inside Reddit's compact toolbar, so the chip container received pointer input at the center of the native View button. Use the existing inline chip rail sizing when the community toolbar sits in Reddit's feed rail. The native trigger must receive pointer input with filters active, and the Card and Compact links must retain the filter.
 
 With the inline rail sizing applied in Brave, the same pointer coordinates opened Reddit's View menu. Both links retained Videos and loaded cards with their requested `cardView` and `compactView` layouts.
+
+## Post menu latency on large feeds
+
+The mobile layout in regular Chrome had 497 mounted posts and about 67,500 light DOM elements in an NSFW-filtered feed. The native three-dot menu mounts a separate portal under `shreddit-app` and then fills it with the native actions and the copied extension rows. A slow tap took 848 ms in Chrome Event Timing. A CPU profile showed Reddit reading portal colors and the visual viewport, alongside extension observers sweeping the feed, post menus, and unrelated profile and account controls.
+
+| Transition | Expected behavior |
+| --- | --- |
+| T1, T6, T7 | Reddit can hydrate or replace a post menu and append a batch while the sheet is open. Download and Raffle rows are prepared for the affected menu. Filtering still processes actual feed changes. |
+| T8, T15 | The inline menu and phone sheet open and close through Reddit. Mutations confined to the menu skip feed, profile, account and chat discovery. Download and Raffle reconcile the affected menu and deduplicate projected mobile rows. |
+
+An NSFW-only filter checks a post's NSFW marker without inspecting the post's media to infer a type. If a type filter is also active, run that check for posts that match the other filters. Reddit still owns the sheet, including its theme, viewport sizing and focus behavior.
+
+Download media uses a source presence check when mounting its action. Both its desktop dropdown and mobile submenu open with a loading skeleton, then parse the chosen post's media and build the quality or image rows after a frame. Closing the panel cancels that work. The phone's Back row stays focused while options load, and an unreadable source shows an inline message.

@@ -81,7 +81,9 @@
     if(roots.length && Date.now()<hydrationUntil)discoveryTimer=setTimeout(discover,100);
   }
   function wake(){if(used || queued)return;hydrationUntil=Date.now()+4500;queued=true;queueMicrotask(discover);}
-  const documentObserver=new MutationObserver(records=>{if(records.some(record=>[...record.addedNodes].some(candidate)))wake();});
+  const documentObserver=new MutationObserver(records=>{
+    if(records.some(record=>!globalThis.RTPostMenuDOM?.isMenuMutation(record) && [...record.addedNodes].some(candidate)))wake();
+  });
   documentObserver.observe(document,{childList:true,subtree:true});observers.push(documentObserver);
   document.addEventListener('rcs-chat-present',wake);document.addEventListener('rcs-chat-starting',wake);
   globalThis.RCSChatStartup=Object.freeze({check,stop(){used=true;release();endDiscovery();}});

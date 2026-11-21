@@ -134,7 +134,9 @@
   let settings;try{settings=chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});}catch(error){settings=Promise.reject(error);}settings.catch(()=>{});
   globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,setRestoreEnabled,unavailableNotice,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
   // Observe the Document: the root may not exist yet at document_start.
-  const observer=new MutationObserver(refresh);observer.observe(document,{childList:true,subtree:true});
+  const observer=new MutationObserver(records=>{
+    if(!globalThis.RTPostMenuDOM?.onlyMenuChanges(records))refresh(records);
+  });observer.observe(document,{childList:true,subtree:true});
   window.addEventListener('popstate',refresh);document.addEventListener('reddit:route',refresh);
   refresh();
   const initialRevision=revision,initialRestoreRevision=restoreRevision;
