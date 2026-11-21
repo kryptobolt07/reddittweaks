@@ -27,6 +27,7 @@
   const sortBoot = 'data-rt-community-sort-boot';
   const sortNative = 'data-rt-community-sort-native';
   const nsfwParam = 'rt_nsfw',nsfwGlyph = 'nsfw-fill-12';
+  const parkAfter = 40;
   const nsfwCard = card => ['nsfw','is-nsfw','over-18'].some(name => card.hasAttribute(name) && !/^(?:false|0)$/i.test(card.getAttribute(name))) ||
     Boolean(card.querySelector('[slot="ssr-post-content-header"] [icon-name="nsfw-fill-12"]'));
   const feedSortIcons = {best:'best',hot:'hot',new:'new',top:'top',rising:'top',controversial:'sort'};
@@ -245,6 +246,8 @@
       this.enabled = enabled;
       this.waitingForSettings = waitingForSettings;
       this.hidden = new Set();
+      this.parked = new Map();
+      this.parkedMoves = new WeakMap();
       this.flairs = loadFlairs();
       this.links = new Map();
       this.positions = new Map();
@@ -284,7 +287,7 @@
           return;
         }
         if (records.some(record => {
-          if (globalThis.RTPostMenuDOM?.isMenuMutation(record) || record.target.closest?.('[data-rt-ui]')) return false;
+          if (this.isParkingMutation(record) || globalThis.RTPostMenuDOM?.isMenuMutation(record) || record.target.closest?.('[data-rt-ui]')) return false;
           return [...record.addedNodes, ...record.removedNodes].some(node =>
             node.nodeType === 1 && !node.matches('[data-rt-ui]'));
         })) this.schedule();
@@ -314,8 +317,38 @@
     }
 
     clearHidden() {
+      this.restoreParked();
       for (const node of this.hidden) node.removeAttribute(hidden);
       this.hidden.clear();
+    }
+
+    isParkingMutation({addedNodes,removedNodes}) {
+      if (addedNodes.length !== 1 || removedNodes.length !== 1) return false;
+      return this.parkedMoves.get(addedNodes[0]) === removedNodes[0] ||
+        this.parkedMoves.get(removedNodes[0]) === addedNodes[0];
+    }
+
+    restoreParked() {
+      for (const [unit,{card,marker}] of this.parked) {
+        if (!unit.contains(marker)) continue;
+        if (unit.querySelector('shreddit-post,shreddit-ad-post')) marker.remove();
+        else marker.replaceWith(card);
+      }
+      this.parked.clear();
+      this.parkKey = '';
+    }
+
+    parkHiddenCards(candidates) {
+      if (!this.parked.size && candidates.length < parkAfter) return;
+      // Keep Reddit's article, separator, and batch in the feed. A detached card's
+      // subtree stays out of the native menu's document-wide style recalculation.
+      for (const [unit,card] of candidates) {
+        if (unit.querySelectorAll('shreddit-post').length !== 1) continue;
+        const marker = document.createComment('filtered post');
+        this.parkedMoves.set(marker,card);
+        this.parked.set(unit,{card,marker});
+        card.replaceWith(marker);
+      }
     }
 
     restoreLinks() {
@@ -727,17 +760,32 @@
       const types = this.selectedTypes();
       const nsfw = this.feed && this.activeNsfw();
       const flair = this.feed && this.scope.owner && fold(this.activeFlair());
+      const parkKey = this.feed && (types.length || nsfw || flair) ? JSON.stringify([types,Boolean(nsfw),flair]) : '';
+      if (parkKey !== this.parkKey) {
+        this.restoreParked();
+        this.parkKey = parkKey;
+      }
       const period = this.feed ? '' : this.url.searchParams.get('t');
       const date = period && filters.dateRange({date:{preset:period === 'day' ? '24h' : period}});
       const next = new Set();
       let matching = 0;
       if (this.feed && (types.length || nsfw || flair)) {
         const wanted = new Set(types);
+        const candidates = [];
+        const hide = unit => {
+          next.add(unit);
+          if (unit.nextElementSibling?.tagName === 'HR') next.add(unit.nextElementSibling);
+        };
         for (const card of this.feed.querySelectorAll('shreddit-post')) {
           const unit = card.closest('article') || card;
           const parent = unit.parentElement;
           if (parent !== this.feed && !parent?.matches('faceplate-batch,faceplate-partial')) continue;
           if (card.parentElement?.closest('shreddit-post,shreddit-ad-post')) continue;
+          const replaced = this.parked.get(unit);
+          if (replaced) {
+            replaced.marker.remove();
+            this.parked.delete(unit);
+          }
           const flairNode=flair && card.querySelector('[slot="post-flair"]');
           let matches=(!nsfw || nsfwCard(card)) && (!flair || flairNode && fold(cardFlair(flairNode))===flair);
           if (matches && wanted.size) {
@@ -746,8 +794,8 @@
           }
           if (matches) matching++;
           else {
-            next.add(unit);
-            if (unit.nextElementSibling?.tagName === 'HR') next.add(unit.nextElementSibling);
+            hide(unit);
+            if (unit.localName === 'article' && card.hasAttribute('post-type')) candidates.push([unit,card]);
           }
         }
         // Promoted units are not posts of the chosen type; hiding the posts around them
@@ -756,9 +804,13 @@
           const unit = ad.closest('article') || ad;
           const parent = unit.parentElement;
           if (parent !== this.feed && !parent?.matches('faceplate-batch,faceplate-partial')) continue;
-          next.add(unit);
-          if (unit.nextElementSibling?.tagName === 'HR') next.add(unit.nextElementSibling);
+          hide(unit);
         }
+        for (const [unit,{marker}] of this.parked) {
+          if (!unit.contains(marker)) this.parked.delete(unit);
+          else if (this.feed.contains(unit)) hide(unit);
+        }
+        this.parkHiddenCards(candidates);
       }
       if (this.isMedia() && types.length) {
         const wanted = new Set(types);

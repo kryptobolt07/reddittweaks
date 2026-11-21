@@ -530,3 +530,30 @@ test('an unsupported native feed sort remains available and the boot gate stays 
  D.dispatchEvent(new W.Event('reddit:route'));await flush();
  assert.equal(D.documentElement.hasAttribute(heldSorts),false);
 });
+
+test('a large filtered feed detaches only hidden card contents and restores the same native nodes',async t=>{
+ const markup='<main><shreddit-feed><faceplate-batch>'+card('video','Match')+card('text','Hidden').repeat(45)+
+  '</faceplate-batch><faceplate-partial slot="load-after"></faceplate-partial></shreddit-feed></main>';
+ const {D,controller}=setup(t,'/r/Example/',markup);
+ const feed=D.querySelector('shreddit-feed'),batch=feed.querySelector('faceplate-batch');
+ const posts=[...batch.querySelectorAll('shreddit-post')],wrappers=[...batch.querySelectorAll('article')];
+ const pager=feed.querySelector('[slot="load-after"]');
+ controller.applyTypes(['video']);await flush();
+ assert.equal(batch.querySelectorAll('article').length,wrappers.length,'Reddit keeps its native wrappers');
+ assert.deepEqual([...batch.querySelectorAll('shreddit-post')],[posts[0]]);
+ assert.equal(batch.querySelectorAll('article['+stop+'] + hr['+stop+']').length,45);
+ assert.equal(feed.querySelector('[slot="load-after"]'),pager);
+
+ const extra= D.createElement('faceplate-batch');
+ extra.innerHTML=card('text','Later');
+ const newPost=extra.querySelector('shreddit-post');feed.insertBefore(extra,pager);
+ await flush();
+ assert.equal(newPost.isConnected,false,'new hidden cards are parked as pagination appends them');
+ batch.remove();
+ controller.applyTypes([]);await flush();
+ assert.deepEqual([...batch.querySelectorAll('shreddit-post')],posts,'even a cached native batch gets its original cards back');
+ assert.equal(newPost.isConnected,true);
+ feed.insertBefore(batch,pager);
+ assert.deepEqual([...batch.querySelectorAll('article')],wrappers);
+ assert.equal(feed.querySelectorAll('['+stop+']').length,0);
+});

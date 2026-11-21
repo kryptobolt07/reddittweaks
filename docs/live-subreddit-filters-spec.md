@@ -82,3 +82,9 @@ The mobile layout in regular Chrome had 497 mounted posts and about 67,500 light
 An NSFW-only filter checks a post's NSFW marker without inspecting the post's media to infer a type. If a type filter is also active, run that check for posts that match the other filters. Reddit still owns the sheet, including its theme, viewport sizing and focus behavior.
 
 Download media uses a source presence check when mounting its action. Both its desktop dropdown and mobile submenu open with a loading skeleton, then parse the chosen post's media and build the quality or image rows after a frame. Closing the panel cancels that work. The phone's Back row stays focused while options load, and an unreadable source shows an inline message.
+
+With Videos and NSFW enabled on the same 440 px Chrome tab, 496 posts were mounted and only four matched. The filtered-out article subtrees contained more than 61,000 light DOM elements, even though their wrappers had zero height. Three taps measured 584–608 ms from click to next paint. The filter controller did not refresh during the taps. Chrome attributed 344–367 ms of forced style and layout to Reddit's native menu listener, including its portal color and viewport reads.
+
+Once at least 40 ordinary native cards are filtered out, detach their post subtrees and keep the hidden article, separator, and pagination in the original feed. Restore the same nodes in their original positions when filters change or are disabled, including in batches cached by Reddit. Parking and restoration mutations do not queue a redundant filter refresh.
+
+Running that implementation in the same tab reduced click-to-next-paint to 152–160 ms and native forced style and layout to about 86 ms. Reddit's action sheet kept the same seven actions and closed normally. The regression fixture covers later native batches, original node identity, separators, pagination, and clearing filters while a batch is detached.
