@@ -140,3 +140,7 @@ When the existing raffle is unverified and the Reddit account is the post's auth
 - Reddit now refuses `/api/info.json` on www.reddit.com (HTTP 403, measured 2026-11-15), which left public results without comment text. Each winner's comment is read from its permalink JSON (`/comments/<post>/_/<comment>.json?depth=1&limit=1`), three at a time; a failed read affects only that row, and only comments of the open post are used. Private draws already carry the text they read.
 - Account facts are short chips on the name line, in the profile search filter-chip look: age (`7mo`, `3d`, `13y`), comment karma and post karma in compact numbers (`1.2K`), each with an icon and its full wording as the label and tooltip. Copied results keep the full wording.
 - Message winners carries a chat icon. On phones, two footer buttons share one line (the secondary moves to the leading slot; Reddit's card stacks its button group below 640 px), and scrolling past a dialog's end never scrolls the page.
+
+### Opening the rules dialog
+
+Selecting the raffle row shows its loading skeleton before Chrome activates the modal. The modal opens with the post title, Close, and a loading skeleton in the same tab. The rules replace the skeleton in that same modal after paint, and the first screen keeps focus on its heading. Close and Escape cancel a pending open. Opening the modal checks Raffler status but does not scan comments. Hover, focus and press share a pending status request and update each menu row only when its text changes.

@@ -115,3 +115,37 @@ test('post menu mutations do not wake account-menu discovery, but mounting the a
   assert.ok(scans()>0,'mixed records still discover the account drawer');
   assert.ok(drawer.querySelector('[data-rt-ui="accounts"]'));
 });
+
+test('the raffle dialog can open and hydrate without rechecking the community feed',async t=>{
+  const {W,D,cleanup}=setup(t,['post-model.js','feed-filters.js','feed-sheet.js','live-subreddit-filters.js']);
+  const controller=new W.RTLiveSubredditFilters.Controller();
+  cleanup.push(()=>controller.destroy());
+  await flush();
+  const calls=countMethod(controller,'refresh');
+  D.body.insertAdjacentHTML('beforeend','<dialog data-rt-raffle="dialog"><p>Loading</p></dialog>');
+  await flush();
+  D.querySelector('dialog p').replaceWith(D.createElement('form'));
+  await flush();
+  D.querySelector('dialog').remove();
+  await flush();
+  assert.equal(calls(),0);
+});
+
+test('a late native action slot does not discard the sole download and raffle rows',async t=>{
+  const {W,D,cleanup,app}=setup(t,['post-model.js','feed-filters.js','raffle-model.js','raffle-ui.js','download-model.js','download-ui.js']);
+  const raffle=new W.RTRaffle.Raffle({readSettings:async()=>({raffles:true})});
+  const download=new W.RTDownloadUI.Download({mobile:true});
+  cleanup.push(()=>{raffle.destroy();download.destroy();});
+  download.sync();await raffle.ready;await flush();
+  const menu=D.querySelector('shreddit-post-overflow-menu');
+  const projected=menu.querySelector('[slot="devvit-context-actions"]').cloneNode(true);
+  const portal=D.createElement('div');portal.id='post-overflow-menu-bottom-sheet';
+  const nativeSlot=D.createElement('div');nativeSlot.setAttribute('slot','devvit-context-actions');
+  portal.append(nativeSlot,projected);app.append(portal);
+  await flush();
+  nativeSlot.append(D.createElement('shreddit-async-loader'));
+  await flush();
+  assert.equal(nativeSlot.querySelectorAll('[data-rt-raffle="item"]').length,1);
+  assert.equal(nativeSlot.querySelectorAll('[data-rt-download="item"]').length,1);
+  assert.equal(portal.querySelectorAll('[data-rt-ui$="menu-item"]').length,2);
+});

@@ -27,6 +27,7 @@ function ui(t,{type='image',extra='',read:reader,mobile=false,onResolve}={}){
     const original=W.RTDownloadModel;
     W.RTDownloadModel={...original,mediaFor(post){onResolve(post);return original.mediaFor(post);}};
   }
+  W.eval(read('post-menu-dom.js'));
   W.eval(read('download-ui.js'));
   const post=D.querySelector('shreddit-post'),menu=D.querySelector('shreddit-post-overflow-menu'),trigger=menu.querySelector('button'),calls=[];
   const shadow=post.attachShadow({mode:'open'});

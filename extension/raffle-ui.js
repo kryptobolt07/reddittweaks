@@ -81,6 +81,14 @@
   // Reddit's default avatars, chosen the way Reddit does for users without one (0–7).
   const defaultAvatar=name=>'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_'+([...String(name)].reduce((h,ch)=>(h*31+ch.charCodeAt(0))>>>0,7)%8)+'.png';
   const wait=(ms,signal)=>new Promise((resolve,reject)=>{const t=setTimeout(resolve,ms);signal?.addEventListener('abort',()=>{clearTimeout(t);reject(Error('Request cancelled.'));},{once:true});});
+  function afterPaint(work){
+    if(!document.hidden && typeof requestAnimationFrame==='function'){
+      let frame=requestAnimationFrame(()=>{frame=requestAnimationFrame(work);});
+      return ()=>cancelAnimationFrame(frame);
+    }
+    const timer=setTimeout(work,0);
+    return ()=>clearTimeout(timer);
+  }
 
   class Raffle {
     constructor({read=bridgeRead,readSettings=defaultSettings,observe=true,random,raffler=defaultRaffler}={}){
@@ -143,12 +151,7 @@
     dedupe(){
       const portal=document.getElementById('post-overflow-menu-bottom-sheet');if(!portal)return;
       if(!this.enabled){for(const item of portal.querySelectorAll('[data-rt-raffle="item"]'))item.remove();return;}
-      const slots=[...portal.querySelectorAll('[slot="devvit-context-actions"]')];
-      const keep=slots.find(slot=>slot.querySelector('shreddit-async-loader,hr,li:not([data-rt-raffle="item"])')) || slots[0];
-      for(const slot of slots){
-        const items=[...slot.querySelectorAll('[data-rt-raffle="item"]')];
-        for(const item of items)if(slot!==keep || item!==items[0])item.remove();
-      }
+      globalThis.RTPostMenuDOM?.retainAction(portal,'[data-rt-raffle="item"]');
     }
     statusItems(menu){
       const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();
@@ -170,8 +173,8 @@
       lead.append(box,text);row.append(lead,tail);li.append(row);li.dataset.rtRaffleState='loading';row.setAttribute('aria-busy','true');
       const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();this.applyStatus(li,this.raffleStatus?.get(id)?.status);
       const choose=event=>{event.preventDefault();event.stopPropagation();
-        const trigger=menu.querySelector('button[aria-haspopup]');if(trigger?.getAttribute('aria-expanded')==='true')trigger.click();
-        this.open(this.postOf(menu),trigger);};
+        const trigger=menu.querySelector('button[aria-haspopup]');
+        this.openFromMenu(this.postOf(menu),trigger,li);};
       row.addEventListener('click',choose);row.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' ')choose(event);});
       return li;
     }
@@ -180,19 +183,36 @@
     async menuStatus(menu){
       if(!this.enabled)return;const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();if(!/^[a-z0-9]{1,10}$/.test(id))return;
       this.raffleStatus ||= new Map();const cached=this.raffleStatus.get(id);
-      if(!cached || Date.now()-cached.at>300000){
-        const entry={at:Date.now(),status:null};entry.pending=this.raffler({action:'status',postId:id}).then(r=>entry.status={exists:Boolean(r?.exists),verified:Boolean(r?.raffle?.verified)},()=>null);
-        if(this.raffleStatus.size>=200)this.raffleStatus.delete(this.raffleStatus.keys().next().value);this.raffleStatus.set(id,entry);
+      if(cached && Date.now()-cached.at<=300000){
+        if(cached.status)for(const item of this.statusItems(menu))this.applyStatus(item,cached.status);
+        else cached.menus.add(menu);
+        return;
       }
-      const entry=this.raffleStatus.get(id),status=await entry?.pending;
-      if(!status){if(this.raffleStatus.get(id)===entry)this.raffleStatus.delete(id);for(const item of this.statusItems(menu))this.applyStatus(item,{exists:false});return;}
-      for(const item of this.statusItems(menu))this.applyStatus(item,status);
+      const entry={at:Date.now(),status:null,menus:new Set([menu])};
+      if(this.raffleStatus.size>=200)this.raffleStatus.delete(this.raffleStatus.keys().next().value);
+      this.raffleStatus.set(id,entry);
+      let status;
+      try{
+        const response=await this.raffler({action:'status',postId:id});
+        status={exists:Boolean(response?.exists),verified:Boolean(response?.raffle?.verified)};
+      }catch{}
+      if(this.raffleStatus.get(id)!==entry || this.dead)return;
+      entry.status=status;
+      if(!status)this.raffleStatus.delete(id);
+      const items=new Set([...entry.menus].flatMap(source=>this.statusItems(source)));
+      entry.menus.clear();
+      for(const item of items)this.applyStatus(item,status || {exists:false});
     }
     applyStatus(item,status){
       if(!item || !status)return;const drawn=Boolean(status.exists);
-      item.querySelector('.text-body-2').textContent=drawn?'View raffle results':'Run a raffle';
-      item.querySelector('.text-caption-1').textContent=drawn?'Drawn on Reddit Raffler'+(status.verified?' · verified':''):'Pick winners from the comments';
-      item.dataset.rtRaffleState=drawn?'drawn':'none';item.querySelector('[role="menuitem"]').removeAttribute('aria-busy');
+      const label=drawn?'View raffle results':'Run a raffle';
+      const caption=drawn?'Drawn on Reddit Raffler'+(status.verified?' · verified':''):'Pick winners from the comments';
+      const title=item.querySelector('.text-body-2'),subtitle=item.querySelector('.text-caption-1');
+      if(title.textContent!==label)title.textContent=label;
+      if(subtitle.textContent!==caption)subtitle.textContent=caption;
+      const state=drawn?'drawn':'none';
+      if(item.dataset.rtRaffleState!==state)item.dataset.rtRaffleState=state;
+      item.querySelector('[role="menuitem"]').removeAttribute('aria-busy');
     }
     postOf(menu){
       const card=menu.closest('shreddit-post');
@@ -205,16 +225,61 @@
        Two ways to draw, chosen at the top: a public draw on Reddit Raffler (permanent results page, one per post) or a
        private draw here (not recorded, can be redone). Rules use Reddit's settings rows (FINDINGS.md). Revised
        2026-11-15 after an independent review (clear choice, one main action, exists-state, phone fixes, a11y). */
-    open(post,trigger=null){
-      this.close(true);
+    createDialogShell(post,trigger){
       const media=globalThis.matchMedia?.(MOBILE),narrow=media?.matches===true;
       const dialog=make('dialog','rt-raffle-dialog'+(narrow?' rt-raffle-sheet':''));dialog.dataset.rtRaffle='dialog';dialog.setAttribute('aria-labelledby','rt-raffle-title');
       const card=make('rpl-modal-card','rt-raffle-card');card.setAttribute('appearance',narrow?'bottom-sheet':'modal');
       // Header: the post as a small kicker above the title (the redaction dialog uses the same header).
-      const head=make('div','rt-dialog-head');head.slot='title';const h2=make('h2','rt-dialog-title m-0 text-neutral-content-strong','Run a raffle');h2.id='rt-raffle-title';h2.tabIndex=-1;
+      const head=make('div','rt-dialog-head');head.slot='title';const h2=make('h2','rt-dialog-title m-0 text-neutral-content-strong','Run a raffle');h2.id='rt-raffle-title';h2.tabIndex=-1;h2.setAttribute('autofocus','');
       const postLine=make('p','rt-dialog-kicker rt-raffle-post m-0');if(post.subreddit)postLine.append(make('span','rt-raffle-post-sub','r/'+post.subreddit),make('span','rt-raffle-post-dot','•'));postLine.append(make('span','rt-raffle-post-title',post.title || 'Post '+post.id));
       head.append(postLine,h2);
       const close=make('button','rt-dialog-close button-small button-secondary icon items-center justify-center button inline-flex');close.type='button';close.slot='close-button';close.setAttribute('aria-label','Close');close.append(icon(CLOSE,16));
+      card.append(head,close);dialog.append(card);
+      close.addEventListener('click',()=>this.close());
+      dialog.addEventListener('cancel',event=>{event.preventDefault();if(this.dialog?.popup)this.closeUsers();else this.close();});
+      // A stray click on the dim backdrop never throws away results or interrupts sending.
+      dialog.addEventListener('click',event=>{if(event.target===dialog && !this.dialog?.result && !this.dialog?.chat?.sending)this.close();});
+      return {dialog,card,h2,media,narrow,trigger};
+    }
+    showDialog(shell){
+      document.body.append(shell.dialog);
+      try{shell.dialog.showModal();}catch{shell.dialog.setAttribute('open','');}
+      // Focus the heading instead of opening the phone keyboard.
+      if(document.activeElement!==shell.h2)shell.h2.focus({preventScroll:true});
+    }
+    openFromMenu(post,trigger,item){
+      if(this.pendingDialog?.item===item)return;
+      this.close(true);
+      const shell=this.createDialogShell(post,trigger);
+      shell.item=item;
+      const skeleton=make('div','rt-raffle-body rt-raffle-loading rt-skeleton');skeleton.dataset.rtRaffle='loading';
+      skeleton.setAttribute('role','status');skeleton.setAttribute('aria-label','Loading raffle options');
+      for(const width of ['76%','53%','89%','62%']){
+        const line=make('span','rt-skeleton-line rt-skeleton-fallback');
+        line.style.width=width;line.setAttribute('aria-hidden','true');skeleton.append(line);
+      }
+      shell.card.append(skeleton);
+      shell.dialog.setAttribute('aria-busy','true');
+      this.pendingDialog=shell;
+      item.setAttribute('data-rt-raffle-opening','');
+      const sheet=item.closest('#post-overflow-menu-bottom-sheet');
+      shell.cancel=afterPaint(()=>{
+        if(this.pendingDialog!==shell)return;
+        if(!item.isConnected || sheet && !sheet.contains(item)){this.close(true);return;}
+        item.removeAttribute('data-rt-raffle-opening');
+        if(trigger?.getAttribute('aria-expanded')==='true')trigger.click();
+        this.showDialog(shell);
+        shell.cancel=afterPaint(()=>{
+          if(this.pendingDialog!==shell)return;
+          this.pendingDialog=null;
+          skeleton.remove();shell.dialog.removeAttribute('aria-busy');
+          this.open(post,trigger,shell);
+        });
+      });
+    }
+    open(post,trigger=null,shell=null){
+      if(!shell){this.close(true);shell=this.createDialogShell(post,trigger);}
+      const {dialog,card,h2,media,narrow}=shell;
       const body=make('div','rt-raffle-body');
       // One polite live region for announcements that matter (reading done, errors, copy, sending), not every keystroke.
       const announce=make('p','rt-raffle-sr');announce.setAttribute('role','status');announce.setAttribute('aria-live','polite');
@@ -273,7 +338,7 @@
       again.classList.add('rt-raffle-draw-icon');
       const views={rules:[drawButton],results:[back,again,message],message:[msgBack,send]};
       for(const b of [...views.results,...views.message])b.hidden=true;
-      card.append(head,close,body,note,drawButton,back,again,message,msgBack,send);dialog.append(card);document.body.append(dialog);
+      card.append(body,note,drawButton,back,again,message,msgBack,send);
       // Below 640 px Reddit's card stacks its button group; a secondary button moved to the leading slot sits on the
       // same line as the main one instead (the footer becomes a row in post-discovery.css).
       for(const b of [again,msgBack])b.dataset.rtSlot=b.slot;
@@ -284,11 +349,6 @@
         controller:new AbortController(),entries:new Map(),coverage:null,reading:false,privateReady:false,preparing:false,drawing:false,accounts:new Map(),generation:0,view:'rules',result:null,chat:null,draws:0,againConfirm:false,closeAsked:false,touched:false};
       // Phone ↔ desktop follows rotation and resizing (Reddit's bottom sheet below 640 px).
       state.onMedia=()=>{const small=media.matches;dialog.classList.toggle('rt-raffle-sheet',small);card.setAttribute('appearance',small?'bottom-sheet':'modal');footerSlots(small);};media?.addEventListener?.('change',state.onMedia);state.media=media;
-      const finish=()=>this.close();
-      close.addEventListener('click',finish);
-      dialog.addEventListener('cancel',event=>{event.preventDefault();if(state.popup)this.closeUsers();else finish();});
-      // A stray click on the dim backdrop never throws away results or interrupts sending.
-      dialog.addEventListener('click',event=>{if(event.target===dialog && !state.result && !state.chat?.sending)finish();});
       for(const {radio} of [publicOption,privateOption])radio.addEventListener('change',()=>{if(radio.checked)this.setMode(radio.value,{user:true});});
       form.addEventListener('input',event=>{state.touched=true;state.raffler.confirm=false;this.setNote('');if(event.target.name!=='winners')state.qualifiedRange=null;if(event.target.name==='topLevelOnly'){state.privateReady=false;state.coverage=null;state.pool=null;}if(event.target.name==='excludeUsers')this.syncUsersCaption();this.updateSummary();});
       form.addEventListener('change',event=>{if(event.target.name!=='topLevelOnly')this.updateSummary();});
@@ -298,9 +358,7 @@
       back.addEventListener('click',()=>{this.showView('rules');});
       message.addEventListener('click',()=>this.openMessage());
       msgBack.addEventListener('click',()=>{if(!state.chat?.sending)this.showView('results');});send.addEventListener('click',()=>this.sendMessages());
-      try{dialog.showModal();}catch{dialog.setAttribute('open','');}
-      // Focus the heading, not a field: no focus ring, and no phone keyboard over the sheet.
-      h2.focus({preventScroll:true});
+      if(!dialog.isConnected)this.showDialog(shell);
       this.setMode('public');this.checkRaffler();
       return state;
     }
@@ -323,6 +381,15 @@
     setNote(text,{alert=false}={}){const note=this.dialog?.note;if(!note)return;if(note.textContent!==text)note.textContent=text;note.dataset.alert=String(alert);note.hidden=!text;if(text)note.scrollIntoView?.({block:'nearest'});}
     say(text){const a=this.dialog?.announce;if(a && text && a.textContent!==text)a.textContent=text;}
     close(force=false){
+      const pending=this.pendingDialog;
+      if(pending){
+        this.pendingDialog=null;pending.cancel?.();
+        pending.item?.removeAttribute('data-rt-raffle-opening');
+        const opened=pending.dialog.isConnected;
+        try{pending.dialog.close();}catch{}
+        pending.dialog.remove();
+        if(opened && pending.trigger?.isConnected)pending.trigger.focus({preventScroll:true});
+      }
       const state=this.dialog;if(!state)return;
       // Private results exist only here: the first close asks, unless they were copied or messaged.
       if(!force && state.result && !state.result.official && !state.saved && !state.closeAsked){state.closeAsked=true;this.setNote('These winners aren’t saved anywhere. Copy them first, or close again to discard.',{alert:true});return;}

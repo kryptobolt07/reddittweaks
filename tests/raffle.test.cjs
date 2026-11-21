@@ -50,7 +50,7 @@ async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},
  W.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};W.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};
  const media={matches:narrow,listeners:[],addEventListener(type,fn){this.listeners.push(fn);},removeEventListener(){}};
  W.matchMedia=q=>/max-width/.test(q)?media:{matches:false,addEventListener(){},removeEventListener(){}};W.CSS={escape:v=>String(v).replace(/"/g,'\\"')};
- for(const file of ['post-model.js','feed-filters.js','raffle-model.js','raffle-ui.js'])W.eval(read(file));
+ for(const file of ['post-model.js','feed-filters.js','post-menu-dom.js','raffle-model.js','raffle-ui.js'])W.eval(read(file));
  let current=settings;
  const readFn=async args=>{calls.push(args);
   if(args.action==='raffle-me')return {username:me};
@@ -68,7 +68,9 @@ async function ui(t,{url='https://www.reddit.com/r/Alpha/',thread,tree,users={},
   status:()=>q('.rt-raffle-status').textContent,note:()=>q('.rt-raffle-footnote').textContent,primary:()=>visible('primary-button'),secondary:()=>visible('secondary-button'),tertiary:()=>visible('tertiary-button:not(.rt-raffle-footnote)') || [...D.querySelectorAll('[data-rt-raffle] [slot="tertiary-button"]:not([hidden])')].find(e=>e.tagName==='BUTTON'),
   publicSub:()=>q('.rt-raffle-raffler-state').textContent,mode:v=>{const radio=q('input[name="rt-raffle-draw"][value="'+v+'"]');radio.checked=true;radio.dispatchEvent(new W.Event('change'));},
   input:(name,value)=>{const el=q('[name="'+name+'"]');el.value=value;el.dispatchEvent(new W.Event('input',{bubbles:true}));},
-  open:async()=>{q('[data-rt-raffle="item"] [role="menuitem"]').click();await flush();}};
+  open:async()=>{q('[data-rt-raffle="item"] [role="menuitem"]').click();
+    for(let i=0;i<5 && !q('.rt-raffle-form');i++)await new Promise(resolve=>W.requestAnimationFrame(resolve));
+    await flush();}};
 }
 const privateDraw=async(s,winners='1')=>{s.mode('private');if(winners!=='1')s.input('winners',winners);s.primary().click();await flush();};
 const loadPrivate=async s=>{const previous=s.q('[name=winners]').value;s.mode('private');s.input('winners','100');s.primary().click();await flush();s.input('winners',previous);};
@@ -666,4 +668,35 @@ test('Message winners carries a chat icon',async t=>{
 test('the raffle menu item never renders outside an undefined post menu',()=>{
   const css=fs.readFileSync('extension/post-discovery.css','utf8');
   assert.match(css,/shreddit-post-overflow-menu:not\(:defined\)>\[slot="devvit-context-actions"\]\{display:none!important\}/);
+});
+
+test('opening Raffle paints a cancellable skeleton before building the rules',async t=>{
+ const s=await ui(t);
+ const row=s.item().querySelector('[role="menuitem"]');
+ row.click();
+ assert.ok(s.item().hasAttribute('data-rt-raffle-opening'));
+ assert.equal(s.dialog(),null,'the native modal does not block the tap');
+ await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+ assert.equal(s.dialog(),null,'the menu gets the first frame');
+ await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+ const shell=s.dialog();
+ assert.ok(shell?.hasAttribute('open'));
+ assert.ok(shell.querySelector('[data-rt-raffle="loading"]'));
+ assert.equal(shell.querySelector('form'),null);
+ assert.equal(s.rafflerCalls.length,0,'opening the shell has not started a status read');
+ await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+ assert.equal(shell.querySelector('form'),null,'the first frame is available to paint the skeleton');
+ shell.querySelector('[aria-label="Close"]').click();
+ await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+ assert.equal(s.dialog(),null);
+ assert.ok(!s.rafflerCalls.some(call=>call.action==='session'),'closing cancels the dialog check; focusing the trigger may check its menu status');
+ row.click();
+ for(let i=0;i<2;i++)await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+ const second=s.dialog();
+ for(let i=0;i<3;i++)await new Promise(resolve=>s.W.requestAnimationFrame(resolve));
+ assert.equal(s.dialog(),second,'the rules hydrate the same dialog');
+ assert.equal(second.querySelector('[data-rt-raffle="loading"]'),null);
+ assert.ok(second.querySelector('form'));
+ assert.equal(s.D.activeElement?.id,'rt-raffle-title');
+ assert.ok(!s.calls.some(call=>call.action==='raffle-thread'),'opening never scans entrants');
 });

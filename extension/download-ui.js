@@ -117,13 +117,8 @@
       slot.append(this.menuItem(menu,post));
     }
     dedupe() {
-      const portal=document.getElementById('post-overflow-menu-bottom-sheet');if(!portal)return;
-      const slots=[...portal.querySelectorAll('[slot="devvit-context-actions"]')];
-      const keep=slots.find(slot=>slot.querySelector('shreddit-async-loader,hr,li:not([data-rt-download="item"])')) || slots[0];
-      for(const slot of slots){
-        const items=[...slot.querySelectorAll('[data-rt-download="item"]')];
-        for(const item of items)if(slot!==keep || item!==items[0])item.remove();
-      }
+      const portal=document.getElementById('post-overflow-menu-bottom-sheet');
+      if(portal && !this.sheetItem)globalThis.RTPostMenuDOM?.retainAction(portal,'[data-rt-download="item"]');
     }
     action(post) {
       const wrapper=make('rpl-dropdown','relative rt-download-action');

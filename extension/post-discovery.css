@@ -410,9 +410,9 @@ shreddit-feed[data-rt-unapproved-hidden]{display:none!important}
 .rt-unapproved-summary[data-error="true"]{color:var(--color-danger-content,#d93900)}
 /* ⋯ menu item: Reddit's skeleton over the label and caption until the Reddit Raffler status is known; the text
    underneath keeps the final size, so the wording arrives without moving anything. */
-[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1){position:relative;width:fit-content;max-width:100%;color:transparent!important;user-select:none}
-[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1)::after{--rt-skeleton-base:color-mix(in srgb,var(--color-neutral-content-strong,#1a1a1b) 16%,var(--color-neutral-background,#fff));content:'';position:absolute;inset:3px 0;border-radius:999px;background-image:linear-gradient(90deg,var(--rt-skeleton-base) 30%,color-mix(in srgb,var(--rt-skeleton-base) 45%,var(--color-neutral-background,#fff)) 50%,var(--rt-skeleton-base) 70%);background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite}
-@media(prefers-reduced-motion:reduce){[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1)::after{animation:none}}
+[data-rt-raffle-opening] :is(.text-body-2,.text-caption-1),[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1){position:relative;width:fit-content;max-width:100%;color:transparent!important;user-select:none}
+[data-rt-raffle-opening] :is(.text-body-2,.text-caption-1)::after,[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1)::after{--rt-skeleton-base:color-mix(in srgb,var(--color-neutral-content-strong,#1a1a1b) 16%,var(--color-neutral-background,#fff));content:'';position:absolute;inset:3px 0;border-radius:999px;background-image:linear-gradient(90deg,var(--rt-skeleton-base) 30%,color-mix(in srgb,var(--rt-skeleton-base) 45%,var(--color-neutral-background,#fff)) 50%,var(--rt-skeleton-base) 70%);background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){[data-rt-raffle-opening] :is(.text-body-2,.text-caption-1)::after,[data-rt-raffle="item"][data-rt-raffle-state="loading"] :is(.text-body-2,.text-caption-1)::after{animation:none}}
 /* In search result rows a revealed spoiler/NSFW comment passes clicks through to the comment link beneath it. */
 .rt-search-unit .rt-sensitive.rt-revealed{pointer-events:none}
 /* Raffle dialog (docs/raffle-spec.md). Reddit's rpl-modal-card on its measured scrim. Rules follow Reddit's settings
@@ -438,6 +438,7 @@ dialog.rt-raffle-dialog::backdrop{background-color:var(--color-scrim-background,
    (winners, Download a copy) look blurred; the fade is switched off for these dialogs. */
 .rt-raffle-card{--scrollbox-overlay-height:0px;overscroll-behavior:contain;flex:0 1 auto;width:min(520px,100%);height:auto;min-height:0;max-height:min(760px,100%);border-radius:var(--rem16,16px);box-shadow:var(--boxshadow-modal,0 2px 15px rgba(26,26,27,.3));background:var(--color-ui-modalbackground,#fff)}
 .rt-raffle-body{display:flex;flex-direction:column;gap:10px;padding:0 16px 8px;width:100%;box-sizing:border-box;font-size:14px;line-height:20px}
+.rt-raffle-loading{min-height:min(34rem,72dvh);gap:28px;padding-top:24px}
 /* Header shared by the raffle and redaction dialogs: a small kicker (the post, or the step) above an 18/24 title,
    with tighter space around it than Reddit's default title row. */
 .rt-dialog-head{display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:0;min-height:40px;box-sizing:border-box;padding:12px 8px 6px 16px}
