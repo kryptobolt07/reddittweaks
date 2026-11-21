@@ -204,4 +204,13 @@ Git uses the repeatable workflow in [AGENTS.md](AGENTS.md): small conventional c
 
 The packaged release's validation record distinguishes synthetic Brave checks from live testing on the signed-in Reddit account. Reloading the updated extension is required for live validation of the new installed build.
 
+### Browser testing with Playwright + Chrome Dev
+
+`playwright-core` is installed globally (`(global npm folder)/playwright-core`) so it can be reused across projects without downloading extra browser binaries. This repository keeps its own git-ignored Chrome Dev profile in `.chrome-dev-profile/` (completely separate from regular Chrome and regular Chrome Dev profiles).
+
+- Launch a headed setup or live-testing session with `/usr/bin/google-chrome-unstable --user-data-dir="$PWD/.chrome-dev-profile" --enable-unsafe-extension-debugging --remote-debugging-port=0 --no-first-run https://www.reddit.com/` (no `--enable-automation` flag, so Reddit sign-in works normally).
+- Branded Chrome 137+ ignores `--load-extension`, so load/reload the unpacked build via official CDP after connecting Playwright (`chromium.connectOverCDP` using `.chrome-dev-profile/DevToolsActivePort` or `chromium.launchPersistentContext` with `executablePath: '/usr/bin/google-chrome-unstable'`):
+  `await (await browser.newBrowserCDPSession()).send('Extensions.loadUnpacked', { path: path.resolve('artifacts/reddit-chat-search') })`.
+- Use `context.newCDPSession(page)` on the same page for live DOM-survival checks and DevTools profiling (`Performance.getMetrics`, `Tracing.start`, `Emulation.setCPUThrottlingRate`). For fast offline fixture checks, Playwright can also run `--headless=new` against the local preview server.
+
 The earlier numeric-segment and separate-dropdown experiments are recorded in `1378c4e` and `d3ff68f`; the current slash-date/calendar picker replaces their presentation while preserving saved-message storage. The independent typing fix is `fa72432`. The older standalone design preview retains its historical calendar; load the exported extension to test the current controls.
