@@ -1,3 +1,10 @@
+# 0.54.2 preview
+
+- Native videos and supported provider embeds keep playing during the shared-element transition into the post. Scrolling is briefly deferred while the picture moves.
+- Large filtered feeds keep hidden card contents out of the active document, reducing the work Chrome does when opening a post menu.
+- Version 0.54.2 is a patch for playback continuity and filtered-feed menu latency.
+- All 2,132 tests passed. On a large filtered feed in Chrome, click-to-next-paint fell from 584–608 ms to 152–160 ms after installing the package and reloading the page. Chromium fixtures kept native video, raw iframes, YouTube, and Vimeo playback moving through the handoff with zero pause events. Live third-party playback and physical-device behavior were outside this validation. Both ZIPs matched the source and unpacked assets. Firefox lint reported zero errors, warnings, and notices. Chromium SHA-256 `450d97fd230aac46e931a027f51f49a6824bcaf7f3cdd7d937eff14adcabb559`. Firefox SHA-256 `5bf835c433687e64459e3a2b290402dd95a5bf1a0ae84301c6890aaaf9633cfa`.
+
 # 0.54.1 preview
 
 - **Post menus:** on desktop and mobile, opening a post menu no longer triggers a full feed scan or refreshes unrelated profile, chat, or account controls. The Raffle and Download actions update in the affected menu.
