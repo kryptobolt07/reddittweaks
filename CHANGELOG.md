@@ -1,3 +1,10 @@
+# 0.58.3 preview
+
+- Restored the divider directly below Feed options on the blocked-profile Overview, Posts and Comments tabs.
+- Existing Reddit tabs reconnect their account menus after an extension update. Interrupted account-list reads retry once. The account menu offers a retry when a read still fails.
+- Patch increment for blocked-profile layout and account-menu recovery.
+- Validation: all 2,191 tests passed. Headless Chrome Dev reproduced the 0.58.2 account error after an extension reload and verified that an upgrade to 0.58.3 reopened desktop and mobile account menus in the same Reddit document. Packaged Playwright fixtures measured one 1 px divider below Feed options at desktop and phone widths. The live Reddit profile request returned HTTP 403 before the UI rendered. Both packages matched source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings, and notices. Chromium SHA-256 `69c15187f5fe624d8f95a1359b12f397da8cd0d0ce4e820aad9686134c3ad95c`. Firefox SHA-256 `db2a0d92f87062f5fb5b1ca355838d59aae7b892b8e42c6be86ce0183f905c45`.
+
 # 0.58.2 preview
 
 - Blocked-profile feeds use one full-width divider per card. Public cards display neutral vote controls and keep public links and sharing available. Archive and removal labels remain on the items they describe.
