@@ -1,3 +1,15 @@
+# 0.59.0 preview
+
+- **New:** posts and comments by accounts that blocked you now appear on post pages. For a signed-in reader, Reddit shows such a post as [deleted] without its body or media, and such a comment as “Comment deleted by user”, exactly like real deletions. Reddit Tweaks checks those items against Reddit's own signed-out view. When that view shows a live author, it fills in the author, avatar, text and media, with the cue “u/… has blocked you · Shown from Reddit's signed-out view”. This needs the blocked-profile setting, not the archive. Real deletions still go to the archive when it is on. Signed-out reads on a post page are limited to that post's fragment and its comment fragments.
+- **Fix:** a post its author deleted keeps only its title. Reddit drops its type, body and media without showing a notice. With the archive on, it now gets its archived body and media back. Before, only the author was restored. Media that Reddit has purged shows the unavailable note.
+- **Fix:** a blocked comment that Reddit re-creates during its signed-out check can no longer be labelled as deleted by the archive.
+- Minor increment: a new user-facing capability, compatible with existing settings.
+- **Testing:** all 2,213 tests passed. A live check used a signed-in Chrome Dev profile and the packaged build:
+  - u/example_account's image post: the author and image were restored.
+  - Its thread comment: the author, avatar and text were restored, with the signed-out cue on repeated loads.
+  - With the archive on, the r/TeenIndia post `1y1x74o` got its body back. Its video and preview are purged on Reddit (HTTP 403 and 404).
+- **Integrity:** both packages matched source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings and notices; Firefox rendering was not checked. Chromium SHA-256 `3d89880542e9858e0551ff8b359d42734e654dfdef55bb865ce510c140471eb0`. Firefox SHA-256 `8bb4dc2e5e6ac2a18715ab6a2ff60ec0633c319dbde1273906a59cfa0b558e3b`.
+
 # 0.58.7 preview
 
 - Back to a blocked profile restores its loaded cards on the first frame, at the same scroll position and the same top item, with no loading halo. The halo had been inserted above restored activity, moving every card down 192 px and leaving a spinner over loaded content.

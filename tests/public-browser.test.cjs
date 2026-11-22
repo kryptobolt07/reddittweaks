@@ -208,3 +208,13 @@ test('Firefox relay fallback reads through setRelay when credentialless iframes 
  assert.deepEqual(relayed,[['https://www.reddit.com/svc/shreddit/user-hover-card/Example',true]]);
  assert.equal(e.events.includes('append'),false,'never appends a non-credentialless iframe');
 });
+test('on a post page a signed-in reader may check that post and its thread comments, nothing else',async()=>{
+ const e=env({topLoggedIn:true});e.location.pathname='/r/Alpha/comments/post1/title/';e.location.href='https://www.reddit.com'+e.location.pathname;
+ await e.read('https://www.reddit.com/svc/shreddit/partial-feed-post/t3_post1?isProfile=true');
+ await e.read('https://www.reddit.com/svc/shreddit/comment/t1_19gsnavtu46ip?isProfile=true');
+ assert.equal(e.calls.length,2);
+ await assert.rejects(e.read('https://www.reddit.com/svc/shreddit/partial-feed-post/t3_other1?isProfile=true'),/Invalid signed-out item check/);
+ await assert.rejects(e.read('https://www.reddit.com/svc/shreddit/comment/t1_19gsnavtu46ip?isProfile=false'));
+ const out=env();out.location.pathname='/r/Alpha/comments/post1/title/';out.location.href='https://www.reddit.com'+out.location.pathname;
+ await assert.rejects(out.read('https://www.reddit.com/svc/shreddit/comment/t1_19gsnavtu46ip?isProfile=true'),/Invalid signed-out item check/,'a signed-out reader has nothing blocked');
+});

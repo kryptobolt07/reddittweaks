@@ -177,3 +177,66 @@ test('archive reader snapshots do not become proof of current Reddit deletion',a
  await r.scan();await settle();assert.equal(calls.length,count);assert.equal(snapshot.querySelector('[data-rt-source]'),null);assert.equal(snapshot.hasAttribute('data-rt-pending'),false);
  r.destroy?.();doc.defaultView.close();
 });
+
+// An account that blocked the signed-in reader looks deleted on a post page. Reddit's signed-out view decides.
+const signedInPage=doc=>doc.body.insertAdjacentHTML('afterbegin','<shreddit-app user-logged-in="true" logged-in-user-id="t2_reader"></shreddit-app>');
+const blockedReply=({comments={},post=null}={})=>async message=>{
+ if(message.action!=='blocked-thread-items')return {avatar:''};
+ return {post:message.post?post:null,comments:message.ids.filter(id=>comments[id]).map(id=>({id:id.slice(3),...comments[id]})),missing:message.ids.filter(id=>!comments[id])};
+};
+test('a blocker’s comment shows its signed-out author and text first, and only real deletions reach the archive',async()=>{
+ const e=setup({avatar:blockedReply({comments:{t1_gone1:{author:'Blocker',body:'Real words',bodyHtml:'<p>Real words</p>',avatar:'https://styles.redditmedia.com/t5_b/styles/profileIcon_b.png'}}})});signedInPage(e.doc);
+ await e.r.ready;await settle();await settle();
+ const asked=e.avatarCalls.filter(c=>c.action==='blocked-thread-items');assert.equal(asked.length,1);assert.equal(asked[0].postId,'abc12');assert.deepEqual([...asked[0].ids].sort(),['t1_gone1','t1_kid1','t1_late1']);
+ const gone=comment(e.doc,'t1_gone1');assert.match(gone.querySelector('[data-rt-recovered-text]').textContent,/Real words/);
+ const badge=gone.querySelector('[data-rt-source]');assert.equal(badge.title,'u/Blocker has blocked you · Shown from Reddit’s signed-out view');assert.equal(badge.dataset.state,'blocked');
+ const author=gone.querySelector('[data-rt-archived-author]');assert.equal(author.textContent,'Blocker');assert.equal(author.title,'Author from Reddit’s signed-out view');
+ assert.equal(gone.querySelector(':scope > details').open,true);
+ const archived=e.calls.filter(c=>c.action==='archive-comments').flatMap(c=>c.ids).sort();assert.deepEqual(archived,['t1_kid1','t1_late1'],'the archive is asked only about what the signed-out view did not show');
+ assert.equal(e.avatarCalls.some(c=>c.action==='user-avatar' && c.username==='Blocker'),false,'the signed-out picture is used');
+});
+test('blocked content is filled from the signed-out view without the archive, and never for a signed-out reader',async()=>{
+ const off={postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true};
+ const e=setup({settings:off,avatar:blockedReply({comments:{t1_kid1:{author:'Blocker',body:'Reply words'}}})});signedInPage(e.doc);
+ await e.r.ready;await settle();await settle();
+ assert.match(comment(e.doc,'t1_kid1').textContent,/Reply words/);assert.equal(e.calls.length,0,'no archive request');
+ assert.equal(comment(e.doc,'t1_gone1').querySelector('.notice p').textContent,'Comment deleted by user','a real deletion keeps Reddit’s notice');
+ assert.equal(comment(e.doc,'t1_gone1').hasAttribute('data-rt-settled'),true);
+ const out=setup({settings:off,avatar:blockedReply({comments:{t1_kid1:{author:'Blocker',body:'Reply words'}}})});
+ await out.r.ready;await settle();assert.equal(out.avatarCalls.some(c=>c.action==='blocked-thread-items'),false);
+ const optOut=setup({settings:{...off,blockedProfiles:false},avatar:blockedReply()});signedInPage(optOut.doc);
+ await optOut.r.ready;await settle();assert.equal(optOut.avatarCalls.some(c=>c.action==='blocked-thread-items'),false);
+});
+test('a blocker’s post gets its signed-out author, text and media inside Reddit’s post element',async()=>{
+ const e=setup({avatar:blockedReply({post:{id:'abc12',author:'Blocker',title:'Is this good?',body:'Post words',bodyHtml:'<p>Post words</p>',media:[{kind:'image',url:'https://i.redd.it/chair.png'}],url:'https://i.redd.it/chair.png'}})});
+ e.doc.querySelector('main').insertAdjacentHTML('afterbegin','<shreddit-post id="t3_abc12" author="[deleted]" is-author-deleted post-title="Is this good?"><span slot="credit-bar"><span class="author-cls">[deleted]</span><span><shreddit-post-overflow-menu></shreddit-post-overflow-menu></span></span><h1 slot="title">Is this good?</h1></shreddit-post>');
+ signedInPage(e.doc);await e.r.ready;await settle();await settle();
+ const post=e.doc.querySelector('shreddit-post');
+ assert.equal(post.querySelector('[data-rt-archived-author]').textContent,'Blocker');assert.match(post.querySelector('.rt-recovered-md').textContent,/Post words/);
+ assert.ok([...post.querySelectorAll('img')].some(img=>img.src==='https://i.redd.it/chair.png'));
+ assert.equal(post.querySelector('[data-rt-source]').title,'u/Blocker has blocked you · Shown from Reddit’s signed-out view');
+ assert.equal(e.calls.some(c=>c.action==='archive-ids'),false,'no archive lookup for a blocked post');assert.equal(post.hasAttribute('data-rt-settled'),true);
+ e.r.setSettings({postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true});
+ assert.equal(post.querySelector('.author-cls').textContent,'[deleted]');assert.equal(post.querySelector('[data-rt-source],.rt-recovered-md'),null);
+});
+test('a post its author deleted, which keeps only its title, gets its archived body back',async()=>{
+ const e=setup({archive:message=>message.action==='archive-ids'?{ok:true,posts:[{id:'abc12',author:'Poster',title:'Read body',selftext:'The original body',created_utc:1700000000,retrieved_on:1700086400}]}:{ok:true,posts:[]}});
+ e.doc.querySelector('main').insertAdjacentHTML('afterbegin','<shreddit-post id="t3_abc12" author="[deleted]" is-author-deleted content-href="https://v.redd.it/x" post-title="Read body"><span slot="credit-bar"><span class="author-cls">[deleted]</span><span><shreddit-post-overflow-menu></shreddit-post-overflow-menu></span></span><h1 slot="title">Read body</h1></shreddit-post>');
+ await e.r.ready;await settle();const post=e.doc.querySelector('shreddit-post');
+ assert.match(post.querySelector('.rt-recovered-md').textContent,/The original body/);
+ assert.match(post.querySelector('[data-rt-source]').title,/^Deleted on Reddit · Restored from an Arctic Shift snapshot/);
+ const kept=setup({archive:message=>message.action==='archive-ids'?{ok:true,posts:[{id:'abc12',author:'Poster',title:'Alive',selftext:'Other text',created_utc:1700000000}]}:{ok:true,posts:[]}});
+ kept.doc.querySelector('main').insertAdjacentHTML('afterbegin','<shreddit-post id="t3_abc12" author="[deleted]" is-author-deleted post-type="text" post-title="Alive"><span slot="credit-bar"><span class="author-cls">[deleted]</span></span><h1 slot="title">Alive</h1><div slot="text-body"><p>Still here</p></div></shreddit-post>');
+ await kept.r.ready;await settle();const alive=kept.doc.querySelector('shreddit-post');
+ assert.equal(alive.querySelector('.rt-recovered-md'),null,'a deleted account’s surviving post keeps its own content');assert.equal(alive.querySelector('[data-rt-archived-author]').textContent,'Poster');
+});
+test('a comment seen again while its signed-out check is pending is never answered by the archive first',async()=>{
+ let release;const pending=new Promise(r=>release=r);
+ const e=setup({avatar:async message=>{if(message.action!=='blocked-thread-items')return {avatar:''};await pending;return {post:null,comments:message.ids.includes('t1_gone1')?[{id:'gone1',author:'Blocker',body:'Real words'}]:[],missing:message.ids.filter(id=>id!=='t1_gone1')};}});signedInPage(e.doc);
+ await e.r.ready;await settle();
+ // Reddit re-creates the comment while the check is out.
+ const old=comment(e.doc,'t1_gone1');old.replaceWith(old.cloneNode(true));await e.r.scan();await settle();
+ assert.equal(e.calls.flatMap(c=>c.ids || []).includes('t1_gone1'),false,'not sent to the archive while pending');
+ release();await settle();await settle();
+ assert.equal(comment(e.doc,'t1_gone1').querySelector('[data-rt-source]').title,'u/Blocker has blocked you · Shown from Reddit’s signed-out view');
+});
