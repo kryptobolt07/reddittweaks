@@ -1,3 +1,15 @@
+# 0.58.7 preview
+
+- Back to a blocked profile restores its loaded cards on the first frame, at the same scroll position and the same top item, with no loading halo. The halo had been inserted above restored activity, moving every card down 192 px and leaving a spinner over loaded content.
+- On blocked profiles, Hidden shows public activity that signed-out author search finds but the profile listing omits, once the listing has covered that point. Before, it showed everything. Deleted without the archive now says the archive is needed instead of paging through history.
+- Signed-out reads wait for a free slot instead of failing with “Public checks are busy”. Search fallback continuations now load page two instead of repeating page one.
+- Patch increment: transition and filter correctness fixes.
+- All 2,206 tests passed. The live checks used a signed-in Chrome Dev profile with the packaged build, on an account that blocked the reader, with the archive off:
+  - Back from comments and posts at 1440 and 412 px, on Overview, Comments and a filtered Images view: zero card shift and no loader, matching native u/spez.
+  - Hidden: it read 491 items and reported none found.
+  - Deleted: the archive notice appeared immediately.
+- Both packages matched source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings and notices; Firefox rendering was not checked. Chromium SHA-256 `d7aac933958ef4f44683333452a83989da261f5ade9abef8073bbb19cefee29a`. Firefox SHA-256 `287b40f8a07028dec83dd88f661a2d73e5757c158052d3c712c2c6f5a93828a8`.
+
 # 0.58.6 preview
 
 - Blocked profiles render from Reddit's own signed-out pages. Overview is one interleaved stream in Reddit's order, so comments no longer appear above posts that were already shown. Each card comes from the listing that delivered it, so cards are no longer fetched again one at a time (13 such reads before, none now).
