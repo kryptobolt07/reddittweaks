@@ -38,7 +38,7 @@
   const blockedLabel=author=>'u/'+author+' has blocked you · Shown from Reddit’s signed-out view';
   class ThreadRestore {
     constructor({archive=send,reddit=(...args)=>globalThis.RTPostDiscovery?.redditRead?.(...args),settings=readSettings,observe=true,retryMs=15000,pendingMs=5000}={}){
-      this.reddit=reddit;this.avatars=new Map();this.sharePatches=new Map();this.shareComments=new WeakSet();this.retryAt=0;this.archive=archive;this.retryMs=retryMs;this.settings=null;this.postId='';this.patches=new Map();this.requested=new Set();this.queue=new Set();this.attempts=new Map();this.timer=null;this.pendingMs=pendingMs;this.records=new Map();this.done=new Set();this.shown=new Set();this.holdTimers=new Set();this.timed=new WeakSet();this.checked=new WeakSet();this.postAuthors=new Map();this.signedOutQueue=new Set();this.signedOutAsked=new Set();
+      this.reddit=reddit;this.avatars=new Map();this.sharePatches=new Map();this.shareComments=new WeakSet();this.retryAt=0;this.archive=archive;this.retryMs=retryMs;this.settings=null;this.postId='';this.patches=new Map();this.requested=new Set();this.queue=new Set();this.attempts=new Map();this.timer=null;this.pendingMs=pendingMs;this.records=new Map();this.done=new Set();this.shown=new Set();this.holdTimers=new Set();this.timed=new WeakSet();this.checked=new WeakSet();this.postAuthors=new Map();this.signedOutQueue=new Set();this.signedOutAsked=new Set();this.signedOutPending=new Set();
       if(observe){
         // Only added elements can bring new comments or a new post.
         this.observer=new MutationObserver(records=>{if(records.some(r=>r.type==='attributes'?(r.target.matches('shreddit-post') || r.attributeName==='data-rt-community-filtered'):!this.ownsMutation(r) && [...r.addedNodes].some(node=>node.nodeType===1)))this.schedule();});
@@ -65,7 +65,7 @@
     schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.scan();},200);}
     scan(){
       const postId=postIdOf();
-      if(postId!==this.postId){clearTimeout(this.retryTimer);this.retryAt=0;this.restoreAll();this.requested.clear();this.queue.clear();this.attempts.clear();this.signedOutQueue.clear();this.signedOutAsked.clear();this.postId=postId;this.postState=null;this.syncRootFlag();}
+      if(postId!==this.postId){clearTimeout(this.retryTimer);this.retryAt=0;this.restoreAll();this.requested.clear();this.queue.clear();this.attempts.clear();this.signedOutQueue.clear();this.signedOutAsked.clear();this.signedOutPending.clear();this.postId=postId;this.postState=null;this.syncRootFlag();}
       if(!this.active())return;
       if(!postId)return this.enabled()?this.scanFeedAuthors():undefined;
       this.restorePost();
@@ -79,7 +79,8 @@
         if(this.shareComments.has(comment) || this.requested.has(id))this.restoreShare(comment,id);
         // Reddit can re-create an answered comment: restore it again from the kept record, with no new request.
         if(this.done.has(id)){if(!this.checked.has(comment)){this.reapply(id,comment);this.settleNode(comment);}continue;}
-        if(this.requested.has(id) || this.signedOutQueue.has(id) || this.checked.has(comment))continue;
+        // Asked of the signed-out view and not answered yet: the archive must not answer first.
+        if(this.requested.has(id) || this.signedOutQueue.has(id) || this.signedOutPending.has(id) || this.checked.has(comment))continue;
         if(M.domStatus(comment)){this.shareComments.add(comment);this.restoreShare(comment,id);}
         // Skeleton instead of Reddit's notice while the archive is asked.
         const notice=this.noticeParagraph(comment);
@@ -105,9 +106,10 @@
       if(this.signedOutFlushing || !this.signedOutQueue.size)return;this.signedOutFlushing=true;const postId=this.postId;
       try{
         while(this.signedOutQueue.size && postId===this.postId && this.signedOutEnabled()){
-          const ids=[...this.signedOutQueue].slice(0,10);for(const id of ids){this.signedOutQueue.delete(id);this.signedOutAsked.add(id);}
+          const ids=[...this.signedOutQueue].slice(0,10);for(const id of ids){this.signedOutQueue.delete(id);this.signedOutAsked.add(id);this.signedOutPending.add(id);}
           let result=null;
           try{result=await this.reddit({action:'blocked-thread-items',postId,ids});}catch{}
+          for(const id of ids)this.signedOutPending.delete(id);
           if(postId!==this.postId)return;
           const found=new Set(),nodes=this.commentNodes(ids);
           for(const raw of result?.comments || []){

@@ -230,3 +230,13 @@ test('a post its author deleted, which keeps only its title, gets its archived b
  await kept.r.ready;await settle();const alive=kept.doc.querySelector('shreddit-post');
  assert.equal(alive.querySelector('.rt-recovered-md'),null,'a deleted account’s surviving post keeps its own content');assert.equal(alive.querySelector('[data-rt-archived-author]').textContent,'Poster');
 });
+test('a comment seen again while its signed-out check is pending is never answered by the archive first',async()=>{
+ let release;const pending=new Promise(r=>release=r);
+ const e=setup({avatar:async message=>{if(message.action!=='blocked-thread-items')return {avatar:''};await pending;return {post:null,comments:message.ids.includes('t1_gone1')?[{id:'gone1',author:'Blocker',body:'Real words'}]:[],missing:message.ids.filter(id=>id!=='t1_gone1')};}});signedInPage(e.doc);
+ await e.r.ready;await settle();
+ // Reddit re-creates the comment while the check is out.
+ const old=comment(e.doc,'t1_gone1');old.replaceWith(old.cloneNode(true));await e.r.scan();await settle();
+ assert.equal(e.calls.flatMap(c=>c.ids || []).includes('t1_gone1'),false,'not sent to the archive while pending');
+ release();await settle();await settle();
+ assert.equal(comment(e.doc,'t1_gone1').querySelector('[data-rt-source]').title,'u/Blocker has blocked you · Shown from Reddit’s signed-out view');
+});
