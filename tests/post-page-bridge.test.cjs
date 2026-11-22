@@ -1344,6 +1344,13 @@ test('signed-out profile pages supply their own native cards: render-card reuses
  assert.ok(compactBrowser.some(req=>req.url.includes('/svc/shreddit/partial-feed-post/t3_abc12')),'compact view reads the compact fragment');
 });
 
+test('a busy signed-out transport delays a blocked-profile page instead of failing it',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});let attempts=0;
+ e.W.RTPublicBrowser={isSupported:()=>true,read:async()=>{attempts++;if(attempts<3)throw Error('Public checks are busy. Try again shortly.');return '<main><shreddit-feed><shreddit-post id="t3_abc12" author="BlockedUser" post-title="Public" created-timestamp="2026-10-20T12:00:00Z" permalink="/r/example/comments/abc12/public/"></shreddit-post></shreddit-feed></main>';}};
+ const page=await e.send({action:'blocked-profile-page',username:'BlockedUser',mode:'profile',view:'overview',sort:'new'});
+ assert.equal(page.ok,true,page.error);assert.equal(attempts,3);assert.deepEqual(page.posts.map(p=>p.fullname),['t3_abc12']);
+});
+
 test('a remount repeating a cancelled blocked-profile read joins the read in flight instead of starting over',async t=>{
  let finish;const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/comments/'}),w=e.W;
  const browser=publicBrowserMock(e,()=>new Promise(resolve=>{finish=resolve;}));

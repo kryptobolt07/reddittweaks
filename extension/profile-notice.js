@@ -28,7 +28,9 @@
       }
       const shell=notice.previousElementSibling;
       const activity=shell?.matches('[data-rt-account-state="blocked"]')?shell.querySelector('[data-rt-profile-activity]'):null;
-      if(activity){if(blockedLoader.parentNode!==activity)activity.prepend(blockedLoader);}
+      // A restored view that already shows activity is not a first load.
+      if(activity?.querySelector('[data-rt-ui="activity-item"]')){blockedReady=true;blockedLoader.remove();blockedLoader=null;doc.documentElement?.removeAttribute('data-rt-profile-scope-pending');}
+      else if(activity){if(blockedLoader.parentNode!==activity)activity.prepend(blockedLoader);}
       else if(blockedLoader.nextElementSibling!==notice)notice.before(blockedLoader);
     }else if(blockedLoader){blockedLoader.remove();blockedLoader=null;}
     if(notice && blockedResult===undefined && !blockedTimer){

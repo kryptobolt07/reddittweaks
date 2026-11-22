@@ -2042,6 +2042,38 @@ test('the early guard holds a signed-in profile fallback through the probe and r
  assert.equal(root.hasAttribute('data-rt-blocked-profile-hold'),false);
 });
 
+test('Back to a loaded blocked profile restores its cards without the first-load halo above them',async t=>{
+ const {W,d}=setup(t,{reddit:async input=>input.action==='blocked-probe'?{blocked:true}:{posts:[raw()],hasMore:false}});
+ await d.ready;d.reset();const notice=blockedNotFoundPage(W),app=notice.parentElement;
+ W.chrome={runtime:{id:'fixture',sendMessage:()=>new Promise(()=>{})}};
+ W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
+ d.scan();await new Promise(r=>setImmediate(r));await d.refreshActivity();await new Promise(r=>setImmediate(r));
+ const root=W.document.documentElement,card=d.nodes.get('abc12'),profileUrl=W.location.pathname+W.location.search;
+ assert.ok(card.isConnected);assert.equal(W.document.querySelector('[data-rt-ui="blocked-profile-loader"]'),null);
+ // Open a post: Reddit replaces the page.
+ W.history.pushState({},'','/r/example/comments/abc12/a_public_post/');
+ const post=W.document.createElement('main');post.innerHTML='<shreddit-post id="t3_abc12"></shreddit-post>';app.replaceChildren(post);
+ W.RTProfileNoticeGuard.refresh([]);d.onRoute(new W.PopStateEvent('popstate'));await new Promise(r=>setImmediate(r));
+ // Back: Reddit puts its cached profile page (the same not-found notice) back.
+ W.history.replaceState({},'',profileUrl);app.replaceChildren(notice);
+ W.RTProfileNoticeGuard.refresh([]);d.onRoute(new W.PopStateEvent('popstate'));
+ await new Promise(r=>setTimeout(r,300));for(let i=0;i<3;i++)await new Promise(r=>setImmediate(r));
+ assert.ok(card.isConnected,'the same loaded cards come back');
+ assert.equal(W.document.querySelector('[data-rt-ui="blocked-profile-loader"]'),null,'no halo above restored activity');
+ assert.equal(root.hasAttribute('data-rt-profile-scope-pending'),false);
+});
+
+test('the early guard never puts its first-load halo into a blocked view that already shows activity',async t=>{
+ const {W}=setup(t);const notice=blockedNotFoundPage(W);
+ const shell=W.document.createElement('div');shell.dataset.rtAccountState='blocked';shell.innerHTML='<main><div data-rt-profile-activity><shreddit-feed><article data-rt-ui="activity-item"></article></shreddit-feed></div></main>';notice.before(shell);
+ W.chrome={runtime:{id:'fixture',sendMessage:()=>new Promise(()=>{})}};
+ W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
+ W.RTProfileNoticeGuard.resolveBlockedNotice('Example',true);W.RTProfileNoticeGuard.refresh([]);
+ assert.equal(W.document.querySelector('[data-rt-ui="blocked-profile-loader"]'),null);
+ assert.equal(W.document.documentElement.hasAttribute('data-rt-profile-scope-pending'),false);
+ assert.equal(W.document.documentElement.hasAttribute('data-rt-blocked-profile-hold'),true,'the native notice stays held');
+});
+
 test('a blocked profile retains one native halo and withholds search scope until public activity is visible',async t=>{
  let reply;
  const {W,d}=setup(t,{reddit:async input=>input.action==='blocked-probe'?{blocked:true}:
@@ -2251,6 +2283,58 @@ test('a hidden-activity blocked Overview searches posts and comments in one load
  await run;await new Promise(r=>setImmediate(r));
  const order=[...d.feed.querySelectorAll('[data-rt-ui="activity-item"]')].filter(node=>!node.hidden && !node.hasAttribute('data-rt-order-pending')).map(node=>node.dataset.rtNativeFullname);
  assert.deepEqual(order,['t1_cmta1','t3_pst01'],'newer comment above the post, never inserted after it');
+});
+
+test('Hidden on a blocked profile is search activity the signed-out listing has covered but does not list',async t=>{
+ const calls=[];
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{postDiscovery:true,archiveDiscovery:false,blockedProfiles:true},reddit:async input=>{
+  calls.push(input);
+  if(input.action==='blocked-probe')return {blocked:true};
+  if(input.action==='blocked-profile-page' && input.mode==='profile')return {mode:'profile',posts:[raw('lst01',{created_utc:1700000300}),raw('lst02',{created_utc:1700000100})],after:'next',hasMore:true,metadata:{curated:false,gated:false}};
+  if(input.action==='blocked-profile-page' && input.type==='posts')return {mode:'search',posts:[raw('lst01',{created_utc:1700000300}),raw('hid01',{created_utc:1700000200}),raw('old01',{created_utc:1700000050})],after:null,hasMore:false};
+  if(input.action==='blocked-profile-page')return {mode:'search',posts:[],after:null,hasMore:false};
+  return {posts:[],hasMore:false};
+ }});
+ await d.ready;d.reset();blockedNotFoundPage(W);d.scan();await new Promise(r=>setImmediate(r));await d.refreshActivity();
+ assert.equal(calls.some(c=>c.mode==='search'),false,'no search until Hidden is chosen');
+ d.activityFilter='hidden';d.ensureBlockedHidden();await d.redditRun;
+ assert.deepEqual(calls.filter(c=>c.mode==='search').map(c=>c.type).sort(),['comments','posts']);
+ const match=id=>d.matchesActivity(d.live.get(id) || [...d.live.values()].find(p=>p.id===id));
+ assert.equal(match('lst01'),false,'listed on the profile');
+ assert.equal(match('hid01'),true,'search-only within what the listing covered');
+ assert.equal(match('old01'),false,'older than the listing has reached: not proven hidden');
+ d.redMore.overview=false;
+ assert.equal(match('old01'),true,'once the listing is read in full');
+});
+
+test('Deleted on a blocked profile without the archive stops paging and says why it is empty',async t=>{
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{postDiscovery:true,archiveDiscovery:false,blockedProfiles:true},reddit:async input=>{
+  if(input.action==='blocked-probe')return {blocked:true};
+  if(input.action==='blocked-profile-page')return {mode:'profile',posts:[raw()],after:'next',hasMore:true,metadata:{curated:false,gated:false}};
+  return {posts:[],hasMore:false};
+ }});
+ await d.ready;d.reset();blockedNotFoundPage(W);d.scan();await new Promise(r=>setImmediate(r));await d.refreshActivity();
+ assert.equal(d.hasMoreProfile(),true);
+ d.activityFilter='deleted';assert.equal(d.hasMoreProfile(),false,'nothing Reddit shows signed out can be deleted');
+ d.render();for(let i=0;i<3;i++)await new Promise(r=>setImmediate(r));d.updateActivityEmptyState();
+ assert.equal(d.activityEmpty?.hidden,false);assert.match(d.activityEmpty.textContent,/Deleted activity needs the archive/);
+ d.activityFilter='all';assert.equal(d.hasMoreProfile(),true,'All activity pages again');
+});
+
+test('signed-out search continuations pass Reddit’s cursor',async t=>{
+ const calls=[];
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/',settings:{postDiscovery:true,archiveDiscovery:false,blockedProfiles:true},reddit:async input=>{
+  calls.push(input);
+  if(input.action==='blocked-probe')return {blocked:true};
+  if(input.action==='blocked-profile-page' && input.mode==='profile')return {mode:'profile',posts:[],after:null,hasMore:false,metadata:{curated:true,gated:false}};
+  if(input.action==='blocked-profile-page')return {mode:'search',posts:[raw(input.cursor?'pg002':'pg001')],after:input.cursor?null:'cursor-2',hasMore:!input.cursor};
+  return {posts:[],hasMore:false};
+ }});
+ await d.ready;d.reset();blockedNotFoundPage(W);d.scan();await new Promise(r=>setImmediate(r));await d.refreshActivity();
+ await d.loadReddit({more:true});
+ const searches=calls.filter(c=>c.mode==='search');
+ assert.equal(searches.at(-1).cursor,'cursor-2');assert.equal('after' in searches.at(-1),false);
+ assert.ok(d.live.has('pg002') || [...d.live.values()].some(p=>p.id==='pg002'),'page two arrives');
 });
 
 test('blocked-probe leaves genuine 404 profiles untouched and shows a non-intrusive Firefox note on unsupported',async t=>{

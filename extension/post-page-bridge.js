@@ -37,9 +37,17 @@
       }});
     };
   })();
-  function publicBrowserRead(url,signal,refresh=false){
+  // The signed-out transport holds one read and one queued; a third is refused
+  // as busy. Wait for a free slot instead of failing a page of activity.
+  async function publicBrowserRead(url,signal,refresh=false){
     if(!globalThis.RTPublicBrowser)throw Error('Reddit blocked logged-out search (HTTP 403).');
-    return RTPublicBrowser.read(url,{signal,refresh});
+    while(true){
+      try{return await RTPublicBrowser.read(url,{signal,refresh});}
+      catch(error){
+        if(signal?.aborted || !/busy/i.test(error?.message || ''))throw error;
+        await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{signal?.removeEventListener('abort',stop);resolve();},200),stop=()=>{clearTimeout(timer);reject(Error('Post request cancelled.'));};signal?.addEventListener('abort',stop,{once:true});});
+      }
+    }
   }
   // A blocked profile remounts when Reddit swaps in its own page for the same
   // route; its identical request joins the listing read already in flight rather
