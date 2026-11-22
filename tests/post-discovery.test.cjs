@@ -2050,22 +2050,49 @@ test('blocked-profile tabs retain the current cards until the incoming tab is re
  await d.ready;d.reset();const notice=blockedNotFoundPage(W);
  d.scan();await new Promise(resolve=>setImmediate(resolve));await d.refreshActivity();
  const main=d.archiveMain,card=d.nodes.get(comment().fullname);
- main.getBoundingClientRect=()=>({left:120,top:56,width:620,height:840});
+ main.querySelector('[data-rt-ui="mobile-about"]').open=true;
  main.querySelector('#profile-tab-posts_tab').click();
  assert.equal(W.location.pathname,'/user/Example/submitted/');
- assert.ok(card.closest('[data-rt-profile-handoff]'));
- assert.ok(d.archiveMain.hasAttribute('data-rt-profile-incoming'));
+ const stage=card.closest('[data-rt-profile-handoff="activity"]');
+ assert.ok(stage);
+ assert.ok(d.archiveMain.contains(stage));
+ assert.equal(stage.querySelector('faceplate-tabgroup,[data-rt-ui="mobile-about"]'),null);
+ assert.equal(W.document.querySelectorAll('#profile-feed-tabgroup [aria-current="page"]').length,1);
+ assert.equal(d.archiveMain.querySelector('#profile-tab-posts_tab').getAttribute('aria-current'),'page');
+ assert.equal(d.archiveMain.querySelector('[data-rt-ui="mobile-about"]').open,true);
+ assert.ok(d.feed.closest('[data-rt-profile-incoming][inert]'));
  assert.ok(notice.hasAttribute('data-rt-archive-notice'));
  const pending=d.refreshActivity();finishPost({posts:[raw()],hasMore:false});await pending;
  await new Promise(resolve=>setImmediate(resolve));
  assert.equal(W.document.querySelector('[data-rt-profile-handoff]'),null);
- assert.equal(d.archiveMain.hasAttribute('data-rt-profile-incoming'),false);
+ assert.equal(d.feed.closest('[data-rt-profile-incoming],[inert]'),null);
  assert.ok(d.nodes.get('abc12').isConnected);
  W.history.replaceState({},'','/user/Example/comments/');d.onRoute(new W.PopStateEvent('popstate'));
  assert.equal(d.archiveMain,main);
  assert.ok(card.isConnected);
  assert.equal(calls.filter(c=>c.action==='blocked-probe').length,1);
  assert.equal(calls.filter(c=>c.action==='blocked-profile-page').length,2);
+});
+
+test('a newer blocked-profile tab keeps the last visible activity and Back releases it immediately',async t=>{
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/',reddit:async input=>{
+  if(input.action==='blocked-probe')return {blocked:true};
+  return {posts:[raw()],hasMore:false};
+ }});
+ await d.ready;d.reset();blockedNotFoundPage(W);
+ d.scan();await new Promise(resolve=>setImmediate(resolve));await d.refreshActivity();
+ const original=d.archiveMain,card=d.nodes.get('abc12');
+ original.querySelector('#profile-tab-comments_tab').click();
+ const stage=card.closest('[data-rt-profile-handoff="activity"]');
+ assert.ok(stage);
+ d.archiveMain.querySelector('#profile-tab-overview_tab').click();
+ assert.equal(card.closest('[data-rt-profile-handoff="activity"]'),stage);
+ assert.ok(stage.isConnected);
+ assert.equal(W.document.querySelector('#profile-feed-tabgroup [aria-current="page"]').id,'profile-tab-overview_tab');
+ W.history.replaceState({},'','/user/Example/submitted/');d.onRoute(new W.PopStateEvent('popstate'));
+ assert.equal(d.archiveMain,original);
+ assert.equal(W.document.querySelector('[data-rt-profile-handoff]'),null);
+ assert.ok(card.isConnected);
 });
 
 test('blocked profile search keeps native scope for Enter, form submit, and result type changes',async t=>{

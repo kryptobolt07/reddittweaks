@@ -468,6 +468,9 @@ shreddit-post.rt-archive-compact {
 [data-rt-blocked-native-rule] {
   display: none !important;
 }
+[data-rt-account-state="blocked"] [data-rt-ui="profile-controls"][data-rt-native-inset] {
+  min-block-size: var(--size-button-sm-h, 32px);
+}
 [data-rt-ui="archive-profile"] .rt-archive-empty {
   margin: 24px 0;
   padding: 20px 16px;

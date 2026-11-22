@@ -24,7 +24,7 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-posts-notice{font-size:12px;line-height:1.5;margin:0 auto 0 0;cursor:default}.rt-posts-notice[hidden]{display:none}
 .rt-posts-status[data-error=true]+.rt-posts-notice{margin-inline-start:12px}.rt-posts-status:empty{display:none}
 .rt-post-loading{display:block;padding:0;overflow-anchor:none}.rt-post-loading[hidden]{display:none!important}
-[data-rt-profile-handoff] {
+[data-rt-profile-handoff=""] {
   position: fixed;
   bottom: 0;
   z-index: 2;
@@ -44,6 +44,17 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 }
 [data-rt-profile-incoming] {
   opacity: 0;
+  pointer-events: none;
+}
+.rt-blocked-profile-activity {
+  position: relative;
+  min-width: 0;
+}
+.rt-blocked-profile-activity > [data-rt-profile-incoming] {
+  position: absolute;
+  inset: 0 0 auto;
+}
+[data-rt-profile-handoff="activity"] {
   pointer-events: none;
 }
 .rt-native-card{min-width:0;overflow-anchor:auto}.rt-native-placeholder{display:flex;gap:12px;align-items:flex-start;min-height:112px;padding:16px}

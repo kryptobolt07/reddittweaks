@@ -572,36 +572,55 @@
     }
     rememberProfileHandoff(context,{blocked=false}={}){
       if(this.profileHandoff || !blocked && context.username.toLowerCase()===this.context.username.toLowerCase() || !this.feed.querySelector(publishedProfileCard) && !(blocked && this.archiveEmpty?.hidden===false))return;
-      const main=this.feed.closest('main'),rect=main?.getBoundingClientRect(),previousY=this.profileScrollY ?? scrollY;
+      const main=this.feed.closest('main'),previousY=this.profileScrollY ?? scrollY;
+      if(blocked){
+        const activity=this.feed.closest('[data-rt-profile-activity]');
+        if(activity)this.profileHandoff={key:context.key,sourceKey:this.context.key,main,activity,archiveParent:activity.parentNode,scrollY:previousY};
+        return;
+      }
+      const rect=main?.getBoundingClientRect();
       if(!rect?.width || !rect.height)return;
-      this.profileHandoff={key:context.key,sourceKey:this.context.key,main,archiveParent:blocked?main.parentNode:null,rect:{left:rect.left,width:rect.width,top:rect.top+scrollY-previousY},scrollY:previousY};
+      this.profileHandoff={key:context.key,sourceKey:this.context.key,main,rect:{left:rect.left,width:rect.width,top:rect.top+scrollY-previousY},scrollY:previousY};
     }
     showProfileHandoff(main){
       const handoff=this.profileHandoff;
       if(!handoff || handoff.main.isConnected && !handoff.stage)return;
+      const incoming=handoff.activity?main.querySelector('[data-rt-profile-activity]'):main;
+      if(!incoming || handoff.incoming===incoming)return;
       if(!handoff.stage){
-        // Parking keeps the original cards. Use the detached main as an inert
-        // layer while the new feed hydrates at its usual size underneath it.
         const stage=handoff.stage=make('div');
-        stage.dataset.rtUi='profile-handoff';stage.dataset.rtProfileHandoff='';
+        stage.dataset.rtUi='profile-handoff';stage.dataset.rtProfileHandoff=handoff.activity?'activity':'';
         stage.setAttribute('inert','');stage.setAttribute('aria-hidden','true');
-        const {left,top,width}=handoff.rect,visibleTop=Math.max(0,top);
-        Object.assign(stage.style,{left:left+'px',top:visibleTop+'px',width:width+'px'});
-        stage.style.setProperty('--rt-profile-offset',(top-visibleTop)+'px');
-        stage.append(handoff.main);document.body.append(stage);
+        if(handoff.activity)stage.append(handoff.activity);
+        else{
+          // For a different profile, keep the detached main at its previous
+          // viewport position while Reddit supplies the new layout.
+          const {left,top,width}=handoff.rect,visibleTop=Math.max(0,top);
+          Object.assign(stage.style,{left:left+'px',top:visibleTop+'px',width:width+'px'});
+          stage.style.setProperty('--rt-profile-offset',(top-visibleTop)+'px');
+          stage.append(handoff.main);document.body.append(stage);
+        }
         handoff.timer=setTimeout(()=>this.clearProfileHandoff(),profileHandoffMs);
       }
-      if(handoff.incoming===main)return;
+      this.revealProfileHandoff(handoff);
+      handoff.incoming=incoming;incoming.setAttribute('data-rt-profile-incoming','');
+      if(handoff.activity){
+        // Only the outgoing feed stays in flow. The destination's header,
+        // tabs and controls stay visible while its activity loads behind it.
+        incoming.setAttribute('inert','');
+        incoming.after(handoff.stage);
+      }
+    }
+    revealProfileHandoff(handoff){
       handoff.incoming?.removeAttribute('data-rt-profile-incoming');
-      handoff.incoming=main;main.setAttribute('data-rt-profile-incoming','');
+      if(handoff.activity)handoff.incoming?.removeAttribute('inert');
     }
     clearProfileHandoff(){
       const handoff=this.profileHandoff;if(!handoff)return;
       this.profileHandoff=null;clearTimeout(handoff.timer);
-      handoff.incoming?.removeAttribute('data-rt-profile-incoming');
-      if(handoff.stage && handoff.archiveParent)handoff.archiveParent.prepend(handoff.main);
+      this.revealProfileHandoff(handoff);
+      if(handoff.stage && handoff.activity)handoff.archiveParent.prepend(handoff.activity);
       handoff.stage?.remove();
-      if(handoff.focus?.isConnected && pageRoute()?.key===handoff.key && document.activeElement===document.body)handoff.focus.focus({preventScroll:true});
     }
     updateProfileHandoff({settled=false,ready=false}={}){
       const handoff=this.profileHandoff;
@@ -650,8 +669,9 @@
       if(this.profileReturnKey!==context?.key)this.profileReturnKey=null;
       if(this.profileHandoff && this.profileHandoff.key!==context?.key){
         const handoff=this.profileHandoff;
-        if(handoff.stage && !handoff.archiveParent && handoff.sourceKey===this.profileReturnKey && pageMain()===handoff.incoming)return;
-        this.clearProfileHandoff();
+        if(handoff.stage && !handoff.activity && handoff.sourceKey===this.profileReturnKey && pageMain()===handoff.incoming)return;
+        if(handoff.activity && this.blockedProfile && context?.kind==='profile' && context.username.toLowerCase()===this.context.username.toLowerCase() && context.key!==handoff.sourceKey)handoff.key=context.key;
+        else this.clearProfileHandoff();
       }
       if(this.blockedProfile && document.querySelector('shreddit-app[user-logged-in="false"]')){this.blockedProbes?.clear();this.discardAllParked();this.reset();}
       if(this.context?.section && (nativeAccount && nativeAccount.username.toLowerCase()!==this.context.username.toLowerCase() || document.querySelector('shreddit-app[user-logged-in="false"]'))){this.discardAllParked();this.reset({restoreImmediately:true});}
@@ -667,6 +687,7 @@
       }
       if(this.outgoingProfileVisible(context)){this.profileTransition=true;this.rememberProfileHandoff(context);return;}
       const blockedTabChange=this.blockedProfile && this.archiveShell?.isConnected && this.archiveNotice?.isConnected && context.kind==='profile' && this.context.username.toLowerCase()===context.username.toLowerCase() && this.context.key!==context.key && (this.context.view!==context.view || context.view==='search');
+      const aboutOpen=blockedTabChange?this.archiveMain.querySelector('[data-rt-ui="mobile-about"]')?.open:undefined;
       if(blockedTabChange){
         this.rememberProfileHandoff(context,{blocked:true});
         this.archiveShell.remove();
@@ -702,15 +723,19 @@
             if(cached.blocked){
               const parked=[...this.parked].reverse().find(([feed,state])=>state.blockedProfile && state.archiveNotice===notFound && state.archiveShell.contains(feed) && state.context.key===context.key && state.rtSearch===location.search);
               if(parked){
-                notFound.before(parked[1].archiveShell);
+                const [feed,state]=parked;
+                if(aboutOpen!==undefined)state.archiveMain.querySelector('[data-rt-ui="mobile-about"]').open=aboutOpen;
+                notFound.before(state.archiveShell);
                 notFound.setAttribute('data-rt-archive-notice','true');
+                if(feed.querySelector(publishedProfileCard) || state.archiveEmpty?.hidden===false)this.clearProfileHandoff();
+                else this.showProfileHandoff(state.archiveMain);
                 this.adopt(...parked);
-                this.clearProfileHandoff();
-                if(this.profileReturnKey===context.key){this.profileReturnKey=null;this.restoreProfileScroll(parked[1].handoffScrollY);}
+                if(this.profileReturnKey===context.key){this.profileReturnKey=null;this.restoreProfileScroll(state.handoffScrollY);}
                 this.scan();
                 return;
               }
               main=this.mountArchiveProfile(context,notFound,notFound,'blocked',cached.profile);
+              if(aboutOpen!==undefined)main.querySelector('[data-rt-ui="mobile-about"]').open=aboutOpen;
             }
             else if(cached.reason==='unsupported'){
               if(cached.forceArchive && this.settings.archiveDiscovery)main=this.mountArchiveProfile(context,notFound,notFound,'banned',cached.profile);
@@ -762,7 +787,7 @@
       this.notice=make('p','rt-posts-notice');this.notice.setAttribute('role','note');this.notice.hidden=true;
       toolbar.append(this.status,this.notice);host.append(toolbar,this.loading,this.results,this.more);
       if(context.kind==='profile' && !context.section){this.rtChips=make('div','rt-filter-chips');this.rtChips.dataset.rtUi='filter-chips';this.rtChips.hidden=true;host.prepend(this.rtChips);this.renderFilterChips();}
-      if(context.kind==='profile'){target.before(host);if(this.archiveEmpty?.parentElement===main)target.before(this.archiveEmpty);this.results.hidden=true;this.more.textContent=context.view==='search'?'Load more':'More discoveries';toolbar.append(this.more);}else target.after(host);
+      if(context.kind==='profile'){target.before(host);if(this.archiveEmpty?.parentElement===target.parentElement)target.before(this.archiveEmpty);this.results.hidden=true;this.more.textContent=context.view==='search'?'Load more':'More discoveries';toolbar.append(this.more);}else target.after(host);
       if(context.kind==='profile'){this.loading.dataset.rtUi='profile-loading';this.loading.slot='load-after';this.feed.append(this.loading);this.observeBatchTail();}
       if((this.archiveOnly || this.blockedProfile) && this.autoDiscover)this.loadNavigation();
       // The Removed section already records the native empty notice in searchHidden before hiding it.
@@ -1539,11 +1564,7 @@
           const focused=document.activeElement===tab;
           if(!selected && !this.navigateBlockedProfile(tab.href))return;
           event.preventDefault();
-          if(focused){
-            const selected=this.archiveMain?.querySelector('#'+tab.id);
-            if(this.profileHandoff?.stage)this.profileHandoff.focus=selected;
-            else selected?.focus({preventScroll:true});
-          }
+          if(focused)this.archiveMain?.querySelector('#'+tab.id)?.focus({preventScroll:true});
         });
         tab.className='button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex';tab.setAttribute('rpl','');tab.setAttribute('slot','page-'+(i+1));tab.id=context.view==='search'?'search-results-page-tab-'+view:'profile-tab-'+view+'_tab';tab.tabIndex=selected?0:-1;
         const content=make('span','flex items-center justify-center'),text=make('span','flex items-center gap-xs',label);content.append(text);tab.append(content);
@@ -1560,7 +1581,11 @@
       if(this.blockedProfile && context.view!=='search'){
         const divider=make('hr','border-0 border-b-sm border-solid border-b-neutral-border-weak');divider.dataset.rtUi='profile-feed-rule';shell.append(divider);
       }
-      shell.append(this.archiveEmpty,feed);columns.append(shell,this.archiveSidebar(context,state,profileMeta));subgrid.append(columns);layout.append(subgrid,this.navigationTarget());anchor.before(layout);notice.setAttribute('data-rt-archive-notice','true');return shell;
+      if(this.blockedProfile){
+        const region=make('div','rt-blocked-profile-activity'),activity=make('div');
+        activity.dataset.rtProfileActivity='';activity.append(this.archiveEmpty,feed);region.append(activity);shell.append(region);
+      }else shell.append(this.archiveEmpty,feed);
+      columns.append(shell,this.archiveSidebar(context,state,profileMeta));subgrid.append(columns);layout.append(subgrid,this.navigationTarget());anchor.before(layout);notice.setAttribute('data-rt-archive-notice','true');return shell;
     }
     buildMobileAbout(context,state='deleted',profileMeta=null){
       const details=make('details','rt-mobile-about');details.dataset.rtUi='mobile-about';
