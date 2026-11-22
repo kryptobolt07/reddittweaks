@@ -1,3 +1,10 @@
+# 0.58.4 preview
+
+- Blocked-profile tab changes keep one visible tab strip with the destination selected while outgoing cards stay in place until the new activity is ready.
+- Desktop About stays hidden through the transition. Mobile About keeps its open state, including on Back.
+- Patch increment for blocked-profile transition fixes.
+- Validation: all 2,192 tests passed. Headless Playwright on the packaged build checked desktop and mobile selection, About visibility, outgoing card position, rapid tab changes, Back and Forward, and focus after Enter. The live Chrome Dev check returned HTTP 403 before Reddit rendered the profile. Both packages matched source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings, and notices. Chromium SHA-256 `7f6a68b72cb64aaa1b2df6eeee5b2ef252ba0c3c18b2d413cd4a937b7bfa6f20`. Firefox SHA-256 `6209678e7f0407b85b6e67d6bca6ef1dd18cc61d2ce4378712cb21b054efb672`.
+
 # 0.58.3 preview
 
 - Restored the divider directly below Feed options on the blocked-profile Overview, Posts and Comments tabs.
