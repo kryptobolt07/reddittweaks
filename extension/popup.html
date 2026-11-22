@@ -46,241 +46,285 @@
     </div>
 
     <div class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-      <section class="card" aria-labelledby="reddit-heading">
-        <div class="card-heading"><h1 id="reddit-heading">Browsing</h1><span class="group-count"></span></div>
-      <div class="setting-row">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8.5 2a6.5 6.5 0 0 1 5.18 10.43l3.94 3.95a.9.9 0 0 1-1.27 1.27l-3.95-3.94A6.5 6.5 0 1 1 8.5 2Zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg></span>
-        <div class="setting-copy"><label for="post-discovery">Profile search &amp; hidden activity</label><p id="post-discovery-desc">Search profiles and your activity, find hidden posts, and browse or filter subreddits.</p></div>
-        <input class="switch" type="checkbox" id="post-discovery" data-setting="postDiscovery" aria-describedby="post-discovery-desc">
-      </div>
-      <div class="setting-row" data-requires="post-discovery">
-        <div class="setting-copy"><label for="history-limit">History length</label><p id="history-limit-desc">Keep more future views on this device. Raising the limit cannot recover earlier visits. Reddit’s 20 restores the native list and deletes recorded views.</p></div>
-        <button id="history-limit" class="setting-choice" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="history-limit-menu" aria-describedby="history-limit-desc" disabled><span data-history-value>20</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="history-limit-menu" class="setting-menu" role="menu" aria-label="History length" hidden>
-          <button type="button" role="menuitemradio" data-value="20" aria-checked="true">20</button>
-          <button type="button" role="menuitemradio" data-value="100" aria-checked="false">100 posts</button>
-          <button type="button" role="menuitemradio" data-value="500" aria-checked="false">500 posts</button>
-          <button type="button" role="menuitemradio" data-value="1000" aria-checked="false">1,000 posts</button>
-          <button type="button" role="menuitemradio" data-value="5000" aria-checked="false">5,000 posts</button>
-          <button type="button" role="menuitemradio" data-value="0" aria-checked="false">No limit</button>
-        </div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-copy"><label for="smooth-feeds">Smooth scrolling</label><p id="smooth-feeds-desc">Reuse page measurements while scrolling. On computers, also skip drawing posts and comments far off screen.</p></div>
-        <input class="switch" type="checkbox" id="smooth-feeds" data-setting="smoothFeeds" aria-describedby="smooth-feeds-desc">
-      </div>
-      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
-        <div class="setting-copy"><label for="smooth-home">Home, Popular &amp; All</label><p id="smooth-home-desc">Your home feed and Reddit’s shared feeds.</p></div>
-        <input class="switch" type="checkbox" id="smooth-home" data-setting="smoothHome" aria-describedby="smooth-home-desc">
-      </div>
-      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
-        <div class="setting-copy"><label for="smooth-subreddits">Subreddits</label><p id="smooth-subreddits-desc">Community feeds.</p></div>
-        <input class="switch" type="checkbox" id="smooth-subreddits" data-setting="smoothSubreddits" aria-describedby="smooth-subreddits-desc">
-      </div>
-      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
-        <div class="setting-copy"><label for="smooth-profiles">Profiles</label><p id="smooth-profiles-desc">User profiles, including the ones profile search loads.</p></div>
-        <input class="switch" type="checkbox" id="smooth-profiles" data-setting="smoothProfiles" aria-describedby="smooth-profiles-desc">
-      </div>
-      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
-        <div class="setting-copy"><label for="smooth-search">Search results</label><p id="smooth-search-desc">Post results on Reddit search.</p></div>
-        <input class="switch" type="checkbox" id="smooth-search" data-setting="smoothSearch" aria-describedby="smooth-search-desc">
-      </div>
-      <div class="setting-row" data-requires="smooth-feeds" data-level="2" data-detail>
-        <div class="setting-copy"><label for="smooth-comments">Long comment threads</label><p id="smooth-comments-desc">Skips drawing top-level comments far off screen. Off by default: very new.</p></div>
-        <input class="switch" type="checkbox" id="smooth-comments" data-setting="smoothComments" aria-describedby="smooth-comments-desc">
-      </div>
-      <div class="setting-row">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8 5H5a5 5 0 0 0 0 10h3v-2H5a3 3 0 0 1 0-6h3V5Zm4 0v2h3a3 3 0 0 1 0 6h-3v2h3a5 5 0 0 0 0-10h-3ZM5 9v2h10V9H5Z"/></svg></span>
-        <div class="setting-copy"><label for="clean-share-links">Clean shared links</label><p id="clean-share-links-desc">Copy post and comment links without Reddit’s sharing identifiers.</p></div>
-        <input class="switch" type="checkbox" id="clean-share-links" data-setting="cleanShareLinks" aria-describedby="clean-share-links-desc">
-      </div>
-      <div class="setting-row">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M6.5 1.5h7A2.5 2.5 0 0 1 16 4v12a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 16V4a2.5 2.5 0 0 1 2.5-2.5Zm0 1.8a.7.7 0 0 0-.7.7v12c0 .39.31.7.7.7h7a.7.7 0 0 0 .7-.7V4a.7.7 0 0 0-.7-.7h-7ZM8.5 14.6h3v1.6h-3v-1.6Z"/></svg></span>
-        <div class="setting-copy"><label for="hide-mature-overlay">Hide mobile app overlays</label><p id="hide-mature-overlay-desc">Keep browsing when Reddit asks you to open the app, including Mature Content prompts. Refresh the Reddit page after turning this off.</p></div>
-        <input class="switch" type="checkbox" id="hide-mature-overlay" data-setting="hideMatureOverlay" aria-describedby="hide-mature-overlay-desc">
-      </div>
-      <div class="setting-row">
-        <div class="setting-copy"><label for="reveal-nsfw-post-media">Reveal NSFW media on mobile posts</label><p id="reveal-nsfw-post-media-desc">Automatically reveal blurred NSFW media when you open a post.</p></div>
-        <input class="switch" type="checkbox" id="reveal-nsfw-post-media" data-setting="revealNsfwPostMedia" aria-describedby="reveal-nsfw-post-media-desc">
-      </div>
-      <div class="setting-row">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 1.5 3 4.3v5.2c0 4.2 2.9 7.8 7 9 4.1-1.2 7-4.8 7-9V4.3l-7-2.8Zm5.2 8c0 3.2-2.1 6-5.2 7.1-3.1-1.1-5.2-3.9-5.2-7.1V5.5L10 3.4l5.2 2.1v4Zm-6.1 1.4L7.4 9.2 6.1 10.5l3 3 5-5-1.3-1.3-3.7 3.7Z"/></svg></span>
-        <div class="setting-copy"><label for="mod-unapproved-filter">Not yet approved filter</label><p id="mod-unapproved-filter-desc">In communities you moderate, show only posts no moderator has approved yet.</p></div>
-        <input class="switch" type="checkbox" id="mod-unapproved-filter" data-setting="modUnapprovedFilter" aria-describedby="mod-unapproved-filter-desc">
-      </div>
-      </section>
-      <section class="card" aria-labelledby="videos-heading">
-        <div class="card-heading"><h2 id="videos-heading">Videos</h2><span class="category-hint">Playback</span></div>
-      <div class="setting-row" data-device="mouse">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3h11A2.5 2.5 0 0 1 18 5.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 14.5v-9Zm2.5-.7a.7.7 0 0 0-.7.7v9c0 .39.31.7.7.7h11a.7.7 0 0 0 .7-.7v-9a.7.7 0 0 0-.7-.7h-11ZM8.2 7.1v5.8a.6.6 0 0 0 .91.51l4.6-2.9a.6.6 0 0 0 0-1.02l-4.6-2.9a.6.6 0 0 0-.91.51Z"/></svg></span>
-        <div class="setting-copy"><label for="video-start">Videos start</label><p id="video-start-desc">Autoplay plays the video in view without sound, one at a time.</p></div>
-        <button id="video-start" class="setting-choice" type="button" data-choice="videoStart" aria-haspopup="menu" aria-expanded="false" aria-controls="video-start-menu" aria-describedby="video-start-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="video-start-menu" class="setting-menu" role="menu" aria-label="Videos start" hidden>
-          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
-          <button type="button" role="menuitemradio" data-value="hover" data-short="On hover" aria-checked="false">Preview on hover, muted</button>
-          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
-        </div>
-      </div>
-      <div class="setting-row" data-device="touch">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M6.5 1.5h7A2.5 2.5 0 0 1 16 4v12a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 16V4a2.5 2.5 0 0 1 2.5-2.5Zm0 1.8a.7.7 0 0 0-.7.7v12c0 .39.31.7.7.7h7a.7.7 0 0 0 .7-.7V4a.7.7 0 0 0-.7-.7h-7ZM8.5 14.6h3v1.6h-3v-1.6Z"/></svg></span>
-        <div class="setting-copy"><label for="video-start-touch">Videos start</label><p id="video-start-touch-desc">Autoplay plays the video in view without sound, one at a time.</p></div>
-        <button id="video-start-touch" class="setting-choice" type="button" data-choice="videoStartTouch" aria-haspopup="menu" aria-expanded="false" aria-controls="video-start-touch-menu" aria-describedby="video-start-touch-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="video-start-touch-menu" class="setting-menu" role="menu" aria-label="Videos start" hidden>
-          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
-          <button type="button" role="menuitemradio" data-value="stop" data-short="When I stop" aria-checked="false">Preview the one I stop on, muted</button>
-          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
-        </div>
-      </div>
-      <div class="setting-row" data-device="mouse">
-        <span class="tile gif-tile" aria-hidden="true">GIF</span>
-        <div class="setting-copy"><label for="gif-start">GIFs start</label><p id="gif-start-desc">Loops silently alongside other media.</p></div>
-        <button id="gif-start" class="setting-choice" type="button" data-choice="gifStart" aria-haspopup="menu" aria-expanded="false" aria-controls="gif-start-menu" aria-describedby="gif-start-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="gif-start-menu" class="setting-menu" role="menu" aria-label="GIFs start" hidden>
-          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
-          <button type="button" role="menuitemradio" data-value="hover" data-short="On hover" aria-checked="false">Preview on hover, muted</button>
-          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
-        </div>
-      </div>
-      <div class="setting-row" data-device="touch">
-        <span class="tile gif-tile" aria-hidden="true">GIF</span>
-        <div class="setting-copy"><label for="gif-start-touch">GIFs start</label><p id="gif-start-touch-desc">Loops silently alongside other media.</p></div>
-        <button id="gif-start-touch" class="setting-choice" type="button" data-choice="gifStartTouch" aria-haspopup="menu" aria-expanded="false" aria-controls="gif-start-touch-menu" aria-describedby="gif-start-touch-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="gif-start-touch-menu" class="setting-menu" role="menu" aria-label="GIFs start" hidden>
-          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
-          <button type="button" role="menuitemradio" data-value="stop" data-short="When I stop" aria-checked="false">Preview the one I stop on, muted</button>
-          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
-        </div>
-      </div>
-      <div class="setting-row" data-device="mouse">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M7.9 12.1a.9.9 0 0 1 0-1.27l4.93-4.93a.9.9 0 0 1 1.27 1.27L9.17 12.1a.9.9 0 0 1-1.27 0ZM5.28 10.36l2.12-2.12 1.27 1.27-2.12 2.12a1.9 1.9 0 0 0 2.69 2.69l2.12-2.12 1.27 1.27-2.12 2.12a3.7 3.7 0 0 1-5.23-5.23Zm4.09-3.83 2.12-2.12a3.7 3.7 0 1 1 5.23 5.23l-2.12 2.12-1.27-1.27 2.12-2.12a1.9 1.9 0 1 0-2.69-2.69l-2.12 2.12Z"/></svg></span>
-        <div class="setting-copy"><label for="embed-start">Embedded players start</label><p id="embed-start-desc">Videos from other sites such as YouTube.</p></div>
-        <button id="embed-start" class="setting-choice" type="button" data-choice="embedStart" aria-haspopup="menu" aria-expanded="false" aria-controls="embed-start-menu" aria-describedby="embed-start-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="embed-start-menu" class="setting-menu" role="menu" aria-label="Embedded players start" hidden>
-          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
-          <button type="button" role="menuitemradio" data-value="hover" data-short="On hover" aria-checked="false">Preview on hover, muted</button>
-          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
-        </div>
-      </div>
-      <div class="setting-row" data-device="touch">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M7.9 12.1a.9.9 0 0 1 0-1.27l4.93-4.93a.9.9 0 0 1 1.27 1.27L9.17 12.1a.9.9 0 0 1-1.27 0ZM5.28 10.36l2.12-2.12 1.27 1.27-2.12 2.12a1.9 1.9 0 0 0 2.69 2.69l2.12-2.12 1.27 1.27-2.12 2.12a3.7 3.7 0 0 1-5.23-5.23Zm4.09-3.83 2.12-2.12a3.7 3.7 0 1 1 5.23 5.23l-2.12 2.12-1.27-1.27 2.12-2.12a1.9 1.9 0 1 0-2.69-2.69l-2.12 2.12Z"/></svg></span>
-        <div class="setting-copy"><label for="embed-start-touch">Embedded players start</label><p id="embed-start-touch-desc">Videos from other sites such as YouTube.</p></div>
-        <button id="embed-start-touch" class="setting-choice" type="button" data-choice="embedStartTouch" aria-haspopup="menu" aria-expanded="false" aria-controls="embed-start-touch-menu" aria-describedby="embed-start-touch-desc" disabled><span data-choice-value>Autoplay</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="embed-start-touch-menu" class="setting-menu" role="menu" aria-label="Embedded players start" hidden>
-          <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
-          <button type="button" role="menuitemradio" data-value="stop" data-short="When I stop" aria-checked="false">Preview the one I stop on, muted</button>
-          <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
-        </div>
-      </div>
-      <div class="setting-row" data-detail data-preview-row>
-        <div class="setting-copy"><label for="video-preview-click">Clicking a muted video</label><p id="video-preview-click-desc">Its sound button always works in place.</p></div>
-        <button id="video-preview-click" class="setting-choice" type="button" data-choice="videoPreviewClick" aria-haspopup="menu" aria-expanded="false" aria-controls="video-preview-click-menu" aria-describedby="video-preview-click-desc" disabled><span data-choice-value>Opens post</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="video-preview-click-menu" class="setting-menu" role="menu" aria-label="Clicking a preview" hidden>
-          <button type="button" role="menuitemradio" data-value="open" data-short="Opens post" aria-checked="false">Opens the post</button>
-          <button type="button" role="menuitemradio" data-value="muted" data-short="Stays muted" aria-checked="false">Shows controls, stays muted</button>
-          <button type="button" role="menuitemradio" data-value="sound" data-short="Plays with sound" aria-checked="false">Plays here with sound</button>
-        </div>
-      </div>
-      <div class="setting-row" data-detail data-preview-row>
-        <div class="setting-copy"><label for="video-preview-from">Once you open it, it plays</label><p id="video-preview-from-desc">For a muted video you open or play here.</p></div>
-        <button id="video-preview-from" class="setting-choice" type="button" data-choice="videoPreviewFrom" aria-haspopup="menu" aria-expanded="false" aria-controls="video-preview-from-menu" aria-describedby="video-preview-from-desc" disabled><span data-choice-value>Continues</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="video-preview-from-menu" class="setting-menu" role="menu" aria-label="An opened preview" hidden>
-          <button type="button" role="menuitemradio" data-value="position" data-short="Continues" aria-checked="false">From where it was</button>
-          <button type="button" role="menuitemradio" data-value="start" data-short="From start" aria-checked="false">Starts from the beginning</button>
-        </div>
-      </div>
-      <div class="setting-row" data-detail data-preview-row>
-        <div class="setting-copy"><label for="video-unmute-preview">Sound when opening a preview</label><p id="video-unmute-preview-desc">Applies when the preview’s post opens.</p></div>
-        <input class="switch" type="checkbox" id="video-unmute-preview" data-setting="videoUnmutePreview" aria-describedby="video-unmute-preview-desc">
-      </div>
-      <div class="setting-row">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M11 3h6v6h-1.8V6.07l-6.06 6.06-1.27-1.27L13.93 4.8H11V3ZM4.5 5H8v1.8H4.8v8.4h8.4V12H15v3.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 15.5v-9A1.5 1.5 0 0 1 4.5 5Z"/></svg></span>
-        <div class="setting-copy"><label for="video-open-post">Opening a post that is playing</label><p id="video-open-post-desc">Keeps playing moves the same video into the post without restarting.</p></div>
-        <button id="video-open-post" class="setting-choice" type="button" data-choice="videoOpenPost" aria-haspopup="menu" aria-expanded="false" aria-controls="video-open-post-menu" aria-describedby="video-open-post-desc" disabled><span data-choice-value>Keeps playing</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="video-open-post-menu" class="setting-menu" role="menu" aria-label="Opening a post that is playing" hidden>
-          <button type="button" role="menuitemradio" data-value="continue" data-short="Keeps playing" aria-checked="false">Keeps playing in the post</button>
-          <button type="button" role="menuitemradio" data-value="reddit" data-short="Starts over" aria-checked="false">The post’s player starts again</button>
-        </div>
-      </div>
-      <div class="setting-row">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M6 4h2.6v12H6V4Zm5.4 0H14v12h-2.6V4Z"/></svg></span>
-        <div class="setting-copy"><label for="video-scroll-away">When you scroll past media in a post</label><p id="video-scroll-away-desc">Applies to players in the post and its comments.</p></div>
-        <button id="video-scroll-away" class="setting-choice" type="button" data-choice="videoScrollAway" aria-haspopup="menu" aria-expanded="false" aria-controls="video-scroll-away-menu" aria-describedby="video-scroll-away-desc" disabled><span data-choice-value>Keeps playing</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="video-scroll-away-menu" class="setting-menu" role="menu" aria-label="When you scroll past media in a post" hidden>
-          <button type="button" role="menuitemradio" data-value="reddit" data-short="Keeps playing" aria-checked="false">Keeps playing off screen</button>
-          <button type="button" role="menuitemradio" data-value="pause" data-short="Pauses" aria-checked="false">Pauses, and resumes when back</button>
-        </div>
-      </div>
-      <div class="setting-row">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 1.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Zm0 1.7c1.57 0 3.01.53 4.16 1.43l-9.53 9.53A6.8 6.8 0 0 1 10 3.2Zm0 13.6a6.77 6.77 0 0 1-4.16-1.43l9.53-9.53A6.8 6.8 0 0 1 10 16.8Z"/></svg></span>
-        <div class="setting-copy"><label for="embed-block-links">Block embed links</label><p id="embed-block-links-desc">Prevent players from opening their source sites. Works with Direct embed controls.</p></div>
-        <button id="embed-block-links" class="setting-choice" type="button" data-choice="embedBlockLinks" aria-haspopup="menu" aria-expanded="false" aria-controls="embed-block-links-menu" aria-describedby="embed-block-links-desc" disabled><span data-choice-value>Off</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-        <div id="embed-block-links-menu" class="setting-menu" role="menu" aria-label="Block embed links" hidden>
-          <button type="button" role="menuitemradio" data-value="off" aria-checked="false">Off</button>
-          <button type="button" role="menuitemradio" data-value="feed" aria-checked="false">In feeds</button>
-          <button type="button" role="menuitemradio" data-value="posts" aria-checked="false">In posts</button>
-          <button type="button" role="menuitemradio" data-value="both" aria-checked="false">Feeds and posts</button>
-        </div>
-      </div>
-      <div class="setting-row" id="direct-embed-row" hidden>
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4 7H1v6h3l5 4V3L4 7Zm7 .8a3 3 0 0 1 0 4.4l1.2 1.2a4.7 4.7 0 0 0 0-6.8L11 7.8Zm2.4-2.4a6.5 6.5 0 0 1 0 9.2l1.2 1.2a8.2 8.2 0 0 0 0-11.6l-1.2 1.2Z"/></svg></span>
-        <div class="setting-copy"><label for="direct-embed-controls">Direct embed controls</label><p id="direct-embed-status" role="status">Allow in-place sound and link blocking across supported players.</p></div>
-        <button id="direct-embed-controls" class="setting-choice" type="button" aria-describedby="direct-embed-status">Enable</button>
-      </div>
-        <p class="card-note">Only one video plays at a time, embedded players included.</p>
-      </section>
-      <section class="card" aria-labelledby="tools-heading">
-        <div class="card-heading"><h2 id="tools-heading">Tools</h2><span class="group-count"></span></div>
-      <div class="setting-row">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M16.6 3H3.4A2.4 2.4 0 001 5.4v2.2a.9.9 0 00.9.9 1.5 1.5 0 010 3 .9.9 0 00-.9.9v2.2A2.4 2.4 0 003.4 17h13.2a2.4 2.4 0 002.4-2.4v-2.2a.9.9 0 00-.9-.9 1.5 1.5 0 010-3 .9.9 0 00.9-.9V5.4A2.4 2.4 0 0016.6 3Zm.6 4.26a3.3 3.3 0 000 5.48v1.86a.6.6 0 01-.6.6H3.4a.6.6 0 01-.6-.6v-1.86a3.3 3.3 0 000-5.48V5.4a.6.6 0 01.6-.6h13.2a.6.6 0 01.6.6v1.86Z"/></svg></span>
-        <div class="setting-copy"><label for="raffles">Raffles</label><p id="raffles-desc">Pick winners from a post’s ⋯ menu. Public draws send the post link and rules to redditraffler.com.</p></div>
-        <input class="switch" type="checkbox" id="raffles" data-setting="raffles" aria-describedby="raffles-desc">
-      </div>
-      </section>
-      <section class="card" aria-labelledby="removal-settings-heading">
-        <div class="card-heading"><h2 id="removal-settings-heading">Your removed content</h2><span class="group-count"></span></div>
+      <!-- 2.1 Browsing & Feed -->
+      <section class="card" aria-labelledby="browsing-heading">
+        <div class="card-heading"><h2 id="browsing-heading">Browsing &amp; Feed</h2><span class="group-count"></span></div>
         <div class="setting-row">
-          <div class="setting-copy"><label for="own-removal">Check my posts and comments</label><p id="own-removal-desc">Show removal evidence while browsing Reddit. Some items cannot be checked. Archive evidence needs “Use the archive”. No checks with Reddit tabs closed.</p></div>
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8.5 2a6.5 6.5 0 0 1 5.18 10.43l3.94 3.95a.9.9 0 0 1-1.27 1.27l-3.95-3.94A6.5 6.5 0 1 1 8.5 2Zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg></span>
+          <div class="setting-copy"><label for="post-discovery">Profile search &amp; hidden activity</label><p id="post-discovery-desc">Search profiles and your activity, find hidden posts, and browse or filter subreddits.</p></div>
+          <input class="switch" type="checkbox" id="post-discovery" data-setting="postDiscovery" aria-describedby="post-discovery-desc">
+        </div>
+        <div class="setting-row" data-requires="post-discovery" data-level="2">
+          <div class="setting-copy"><label for="history-limit">History length</label><p id="history-limit-desc">Keep more future views on this device. Reddit’s 20 restores the native list and clears recorded views.</p></div>
+          <button id="history-limit" class="setting-choice" type="button" data-choice="historyLimit" data-default="20" data-value-type="number" data-count="exclude" data-menu-width="164" aria-haspopup="menu" aria-expanded="false" aria-controls="history-limit-menu" aria-describedby="history-limit-desc" disabled><span data-choice-value>20</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="history-limit-menu" class="setting-menu" role="menu" aria-label="History length" hidden>
+            <button type="button" role="menuitemradio" data-value="20" data-short="20" aria-checked="true">20</button>
+            <button type="button" role="menuitemradio" data-value="100" data-short="100" aria-checked="false">100 posts</button>
+            <button type="button" role="menuitemradio" data-value="500" data-short="500" aria-checked="false">500 posts</button>
+            <button type="button" role="menuitemradio" data-value="1000" data-short="1,000" aria-checked="false">1,000 posts</button>
+            <button type="button" role="menuitemradio" data-value="5000" data-short="5,000" aria-checked="false">5,000 posts</button>
+            <button type="button" role="menuitemradio" data-value="0" data-short="No limit" aria-checked="false">No limit</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8 5H5a5 5 0 0 0 0 10h3v-2H5a3 3 0 0 1 0-6h3V5Zm4 0v2h3a3 3 0 0 1 0 6h-3v2h3a5 5 0 0 0 0-10h-3ZM5 9v2h10V9H5Z"/></svg></span>
+          <div class="setting-copy"><label for="clean-share-links">Clean shared links</label><p id="clean-share-links-desc">Copy post and comment links without Reddit’s tracking parameters.</p></div>
+          <input class="switch" type="checkbox" id="clean-share-links" data-setting="cleanShareLinks" aria-describedby="clean-share-links-desc">
+        </div>
+      </section>
+
+      <!-- 2.2 Performance -->
+      <section class="card" aria-labelledby="performance-heading">
+        <div class="card-heading"><h2 id="performance-heading">Performance</h2><span class="group-count"></span></div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M11.3 1.8a.8.8 0 0 1 .7.92L10.8 8h4.5a.8.8 0 0 1 .64 1.28l-7 9.2a.8.8 0 0 1-1.42-.65L8.9 12H4.7a.8.8 0 0 1-.64-1.28l6.6-8.68a.8.8 0 0 1 .64-.24Z"/></svg></span>
+          <div class="setting-copy"><label for="smooth-feeds">Smooth scrolling</label><p id="smooth-feeds-desc">Optimize Home, Popular, All, Subreddits, Profiles, and Search feeds while scrolling.</p></div>
+          <input class="switch" type="checkbox" id="smooth-feeds" data-setting="smoothFeeds" aria-describedby="smooth-feeds-desc">
+        </div>
+        <div class="setting-row" data-requires="smooth-feeds" data-level="2">
+          <div class="setting-copy"><label for="smooth-comments">Long comment threads <span class="badge badge-beta">Beta</span></label><p id="smooth-comments-desc">Skip drawing top-level comments far off screen on desktop.</p></div>
+          <input class="switch" type="checkbox" id="smooth-comments" data-setting="smoothComments" aria-describedby="smooth-comments-desc">
+        </div>
+      </section>
+
+      <!-- 2.3 Videos & Embeds -->
+      <section class="card" id="videos-card" aria-labelledby="videos-heading">
+        <div class="card-heading">
+          <h2 id="videos-heading">Videos &amp; Embeds</h2>
+          <div class="card-heading-actions">
+            <button id="reset-video-defaults" class="reset-action" type="button" hidden>Reset</button>
+            <span class="group-count" data-count-mode="media"></span>
+          </div>
+        </div>
+
+        <div class="sub-heading">Feed Start Behavior</div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3h11A2.5 2.5 0 0 1 18 5.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 2 14.5v-9Zm2.5-.7a.7.7 0 0 0-.7.7v9c0 .39.31.7.7.7h11a.7.7 0 0 0 .7-.7v-9a.7.7 0 0 0-.7-.7h-11ZM8.2 7.1v5.8a.6.6 0 0 0 .91.51l4.6-2.9a.6.6 0 0 0 0-1.02l-4.6-2.9a.6.6 0 0 0-.91.51Z"/></svg></span>
+          <div class="setting-copy"><label for="video-start">Videos start</label><p id="video-start-desc">How native Reddit videos begin playing in feeds.</p></div>
+          <button id="video-start" class="setting-choice" type="button" data-choice="videoStart" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="video-start-menu" aria-describedby="video-start-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="video-start-menu" class="setting-menu" role="menu" aria-label="Videos start" hidden>
+            <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>
+            <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
+            <button type="button" role="menuitemradio" data-value="preview" data-short="On hover" data-touch-label="Preview the one I stop on, muted" data-touch-short="When I stop" aria-checked="false">Preview on hover, muted</button>
+            <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M7.9 12.1a.9.9 0 0 1 0-1.27l4.93-4.93a.9.9 0 0 1 1.27 1.27L9.17 12.1a.9.9 0 0 1-1.27 0ZM5.28 10.36l2.12-2.12 1.27 1.27-2.12 2.12a1.9 1.9 0 0 0 2.69 2.69l2.12-2.12 1.27 1.27-2.12 2.12a3.7 3.7 0 0 1-5.23-5.23Zm4.09-3.83 2.12-2.12a3.7 3.7 0 1 1 5.23 5.23l-2.12 2.12-1.27-1.27 2.12-2.12a1.9 1.9 0 1 0-2.69-2.69l-2.12 2.12Z"/></svg></span>
+          <div class="setting-copy"><label for="embed-start">Embedded players start</label><p id="embed-start-desc">Videos from sites such as YouTube, Vimeo, Streamable, and RedGIFs.</p></div>
+          <button id="embed-start" class="setting-choice" type="button" data-choice="embedStart" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="embed-start-menu" aria-describedby="embed-start-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="embed-start-menu" class="setting-menu" role="menu" aria-label="Embedded players start" hidden>
+            <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Provider Default</button>
+            <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
+            <button type="button" role="menuitemradio" data-value="preview" data-short="On hover" data-touch-label="Preview the one I stop on, muted" data-touch-short="When I stop" aria-checked="false">Preview on hover, muted</button>
+            <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
+          </div>
+        </div>
+
+        <div class="sub-heading">Click &amp; Audio Behavior</div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M5 2.6a.8.8 0 0 1 1.24-.67l10.2 6.8a.8.8 0 0 1-.27 1.44l-4.23.94 2.12 4.38a.8.8 0 0 1-1.44.7l-2.12-4.38-3.02 3.1a.8.8 0 0 1-1.38-.56V2.6Z"/></svg></span>
+          <div class="setting-copy"><label for="media-click-action">Media click action</label><p id="media-click-action-desc">What happens when clicking a video or embed. Post titles keep normal links.</p></div>
+          <button id="media-click-action" class="setting-choice" type="button" data-choice="mediaClickAction" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="media-click-action-menu" aria-describedby="media-click-action-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="media-click-action-menu" class="setting-menu" role="menu" aria-label="Media click action" hidden>
+            <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit / Provider Default</button>
+            <button type="button" role="menuitemradio" data-value="inline" data-short="Play in feed" aria-checked="false">Play / Control in feed</button>
+            <button type="button" role="menuitemradio" data-value="open" data-short="Open post" aria-checked="false">Open post</button>
+            <button type="button" role="menuitemradio" data-value="fullscreen" data-short="Fullscreen" aria-checked="false">Open in fullscreen</button>
+          </div>
+        </div>
+
+        <div class="setting-row" data-requires-choice="media-click-action" data-requires-not="default" data-level="2">
+          <div class="setting-copy"><label for="click-audio">Click audio behavior</label><p id="click-audio-desc">Sound state when activating a video or embed.</p></div>
+          <button id="click-audio" class="setting-choice" type="button" data-choice="clickAudio" data-default="muted" data-count="exclude" aria-haspopup="menu" aria-expanded="false" aria-controls="click-audio-menu" aria-describedby="click-audio-desc" disabled><span data-choice-value>Keep muted</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="click-audio-menu" class="setting-menu" role="menu" aria-label="Click audio behavior" hidden>
+            <button type="button" role="menuitemradio" data-value="muted" data-short="Keep muted" aria-checked="true">Keep muted</button>
+            <button type="button" role="menuitemradio" data-value="unmute" data-short="Unmute" aria-checked="false">Unmute on click</button>
+          </div>
+        </div>
+
+        <div class="sub-heading">GIFs</div>
+        <div class="setting-row">
+          <span class="tile gif-tile" aria-hidden="true">GIF</span>
+          <div class="setting-copy"><label for="gif-start">GIFs start</label><p id="gif-start-desc">Independent policy for silent looping GIFs.</p></div>
+          <button id="gif-start" class="setting-choice" type="button" data-choice="gifStart" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="gif-start-menu" aria-describedby="gif-start-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="gif-start-menu" class="setting-menu" role="menu" aria-label="GIFs start" hidden>
+            <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>
+            <button type="button" role="menuitemradio" data-value="autoplay" data-short="Autoplay" aria-checked="false">Autoplay, muted</button>
+            <button type="button" role="menuitemradio" data-value="preview" data-short="On hover" data-touch-label="Preview the one I stop on, muted" data-touch-short="When I stop" aria-checked="false">Preview on hover, muted</button>
+            <button type="button" role="menuitemradio" data-value="play" data-short="On Play" aria-checked="false">Only when I press Play</button>
+          </div>
+        </div>
+
+        <div class="sub-heading" id="embed-controls-heading" hidden>Embed Controls</div>
+        <div class="setting-row" id="direct-embed-row" hidden>
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4 7H1v6h3l5 4V3L4 7Zm7 .8a3 3 0 0 1 0 4.4l1.2 1.2a4.7 4.7 0 0 0 0-6.8L11 7.8Zm2.4-2.4a6.5 6.5 0 0 1 0 9.2l1.2 1.2a8.2 8.2 0 0 0 0-11.6l-1.2 1.2Z"/></svg></span>
+          <div class="setting-copy"><label for="direct-embed-controls">Direct embed controls</label><p id="direct-embed-status" role="status">Allow in-place sound and link blocking on supported players.</p></div>
+          <button id="direct-embed-controls" class="permission-action" type="button" data-granted="false" aria-describedby="direct-embed-status">Grant access</button>
+        </div>
+
+        <div class="setting-row" data-requires-permission="direct-embed-controls" data-level="2">
+          <div class="setting-copy"><label for="embed-block-links">Block embed links</label><p id="embed-block-links-desc">Prevent supported embedded players from opening their source sites.</p></div>
+          <button id="embed-block-links" class="setting-choice" type="button" data-choice="embedBlockLinks" data-default="off" aria-haspopup="menu" aria-expanded="false" aria-controls="embed-block-links-menu" aria-describedby="embed-block-links-desc" disabled><span data-choice-value>Off</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="embed-block-links-menu" class="setting-menu" role="menu" aria-label="Block embed links" hidden>
+            <button type="button" role="menuitemradio" data-value="off" data-short="Off" aria-checked="true">Off</button>
+            <button type="button" role="menuitemradio" data-value="feed" data-short="In feeds" aria-checked="false">In feeds</button>
+            <button type="button" role="menuitemradio" data-value="posts" data-short="In posts" aria-checked="false">In posts</button>
+            <button type="button" role="menuitemradio" data-value="both" data-short="Feeds &amp; posts" aria-checked="false">Feeds and posts</button>
+          </div>
+        </div>
+
+        <!-- Collapsible Enhancements Drawer -->
+        <div class="drawer-section">
+          <button id="enhancements-toggle" class="drawer-toggle" type="button" aria-expanded="false" aria-controls="video-enhancements">
+            <span class="drawer-copy">
+              <span class="drawer-title">Enhancements <span id="enhancements-badge" class="badge badge-accent" hidden></span></span>
+              <span class="drawer-subtitle">Exclusive playback, volume memory, mini-player, 2× speed &amp; more</span>
+            </span>
+            <svg class="drawer-chevron" aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg>
+          </button>
+          <div id="video-enhancements" class="drawer-body" data-open="false">
+            <div class="drawer-inner" inert>
+              <div class="setting-row">
+                <div class="setting-copy"><label for="single-video">Play one video at a time</label><p id="single-video-desc">Pause other playing videos when a new one starts. Excludes GIFs.</p></div>
+                <input class="switch" type="checkbox" id="single-video" data-setting="singleVideo" aria-describedby="single-video-desc">
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><label for="volume-memory">Persistent volume memory</label><p id="volume-memory-desc">Remember your volume level across videos.</p></div>
+                <input class="switch" type="checkbox" id="volume-memory" data-setting="volumeMemory" aria-describedby="volume-memory-desc">
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><label for="video-scroll-away">When scrolling past media</label><p id="video-scroll-away-desc">Behavior for playing media in posts as you scroll past.</p></div>
+                <button id="video-scroll-away" class="setting-choice" type="button" data-choice="videoScrollAway" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="video-scroll-away-menu" aria-describedby="video-scroll-away-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+                <div id="video-scroll-away-menu" class="setting-menu" role="menu" aria-label="When scrolling past media" hidden>
+                  <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>
+                  <button type="button" role="menuitemradio" data-value="pause" data-short="Pause" aria-checked="false">Pause &amp; resume</button>
+                  <button type="button" role="menuitemradio" data-value="mini" data-short="Mini-player" aria-checked="false">Floating mini-player (Beta)</button>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><label for="video-open-post">Timestamp continuity on post open</label><p id="video-open-post-desc">How a playing feed video continues when you open its post.</p></div>
+                <button id="video-open-post" class="setting-choice" type="button" data-choice="videoOpenPost" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="video-open-post-menu" aria-describedby="video-open-post-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+                <div id="video-open-post-menu" class="setting-menu" role="menu" aria-label="Timestamp continuity on post open" hidden>
+                  <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>
+                  <button type="button" role="menuitemradio" data-value="position" data-short="Keep time" aria-checked="false">Keep timestamp</button>
+                  <button type="button" role="menuitemradio" data-value="start" data-short="From start" aria-checked="false">Start from beginning</button>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><label for="hold-for-2x">Hold for 2× speed</label><p id="hold-for-2x-desc" data-touch-desc="Long-press the right side of a playing video for 2× speed.">Press and hold on a playing video to speed up to 2×.</p></div>
+                <input class="switch" type="checkbox" id="hold-for-2x" data-setting="holdFor2x" aria-describedby="hold-for-2x-desc">
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><label for="loop-policy">Looping policy</label><p id="loop-policy-desc">Control whether native and direct-controlled videos repeat. Excludes GIFs.</p></div>
+                <button id="loop-policy" class="setting-choice" type="button" data-choice="loopPolicy" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="loop-policy-menu" aria-describedby="loop-policy-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+                <div id="loop-policy-menu" class="setting-menu" role="menu" aria-label="Looping policy" hidden>
+                  <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>
+                  <button type="button" role="menuitemradio" data-value="always" data-short="Always" aria-checked="false">Always loop</button>
+                  <button type="button" role="menuitemradio" data-value="never" data-short="Never" aria-checked="false">Never loop</button>
+                  <button type="button" role="menuitemradio" data-value="short" data-short="&lt;30s only" aria-checked="false">Short videos (&lt;30s)</button>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><label for="stream-quality">Stream quality <span class="badge badge-beta">Beta</span></label><p id="stream-quality-desc">Preferred resolution for native Reddit videos.</p></div>
+                <button id="stream-quality" class="setting-choice" type="button" data-choice="streamQuality" data-default="auto" aria-haspopup="menu" aria-expanded="false" aria-controls="stream-quality-menu" aria-describedby="stream-quality-desc" disabled><span data-choice-value>Auto</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+                <div id="stream-quality-menu" class="setting-menu" role="menu" aria-label="Stream quality" hidden>
+                  <button type="button" role="menuitemradio" data-value="auto" data-short="Auto" aria-checked="true">Auto (Reddit Default)</button>
+                  <button type="button" role="menuitemradio" data-value="max" data-short="Highest" aria-checked="false">Always highest</button>
+                  <button type="button" role="menuitemradio" data-value="saver" data-short="Data saver" aria-checked="false">Data saver (≤480p)</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2.4 Mobile Web (hidden on desktop) -->
+      <section class="card" id="mobile-web-card" data-device="touch" aria-labelledby="mobile-heading">
+        <div class="card-heading"><h2 id="mobile-heading">Mobile Web</h2><span class="group-count"></span></div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M6.5 1.5h7A2.5 2.5 0 0 1 16 4v12a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 16V4a2.5 2.5 0 0 1 2.5-2.5Zm0 1.8a.7.7 0 0 0-.7.7v12c0 .39.31.7.7.7h7a.7.7 0 0 0 .7-.7V4a.7.7 0 0 0-.7-.7h-7ZM8.5 14.6h3v1.6h-3v-1.6Z"/></svg></span>
+          <div class="setting-copy"><label for="hide-mature-overlay">Hide mobile app overlays <span class="badge badge-mobile">Mobile Only</span></label><p id="hide-mature-overlay-desc">Keep browsing when Reddit asks you to open the app, including Mature Content prompts. Refresh after turning off.</p></div>
+          <input class="switch" type="checkbox" id="hide-mature-overlay" data-setting="hideMatureOverlay" aria-describedby="hide-mature-overlay-desc">
+        </div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 4c4.4 0 7.9 3 9 6-1.1 3-4.6 6-9 6s-7.9-3-9-6c1.1-3 4.6-6 9-6Zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0 1.8a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4Z"/></svg></span>
+          <div class="setting-copy"><label for="reveal-nsfw-post-media">Reveal NSFW media on mobile posts <span class="badge badge-mobile">Mobile Only</span></label><p id="reveal-nsfw-post-media-desc">Automatically reveal blurred NSFW media when you open a post.</p></div>
+          <input class="switch" type="checkbox" id="reveal-nsfw-post-media" data-setting="revealNsfwPostMedia" aria-describedby="reveal-nsfw-post-media-desc">
+        </div>
+      </section>
+
+      <!-- 2.5 Tools & Moderation -->
+      <section class="card" aria-labelledby="tools-heading">
+        <div class="card-heading"><h2 id="tools-heading">Tools &amp; Moderation</h2><span class="group-count"></span></div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M16.6 3H3.4A2.4 2.4 0 001 5.4v2.2a.9.9 0 00.9.9 1.5 1.5 0 010 3 .9.9 0 00-.9.9v2.2A2.4 2.4 0 003.4 17h13.2a2.4 2.4 0 002.4-2.4v-2.2a.9.9 0 00-.9-.9 1.5 1.5 0 010-3 .9.9 0 00.9-.9V5.4A2.4 2.4 0 0016.6 3Zm.6 4.26a3.3 3.3 0 000 5.48v1.86a.6.6 0 01-.6.6H3.4a.6.6 0 01-.6-.6v-1.86a3.3 3.3 0 000-5.48V5.4a.6.6 0 01.6-.6h13.2a.6.6 0 01.6.6v1.86Z"/></svg></span>
+          <div class="setting-copy"><label for="raffles">Raffles</label><p id="raffles-desc">Pick winners from a post’s ⋯ menu. Public draws send the post link and rules to redditraffler.com.</p></div>
+          <input class="switch" type="checkbox" id="raffles" data-setting="raffles" aria-describedby="raffles-desc">
+        </div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2.5a.9.9 0 0 1 .9.9v7.76l2.46-2.46a.9.9 0 1 1 1.28 1.28l-4 4a.9.9 0 0 1-1.28 0l-4-4a.9.9 0 0 1 1.28-1.28l2.46 2.46V3.4a.9.9 0 0 1 .9-.9ZM3.4 15.2h13.2a.9.9 0 0 1 0 1.8H3.4a.9.9 0 0 1 0-1.8Z"/></svg></span>
+          <div class="setting-copy"><label for="download-media">Download media</label><p id="download-media-desc">Add a download option for images, galleries, GIFs, and videos on Reddit posts.</p></div>
+          <input class="switch" type="checkbox" id="download-media" data-setting="downloadMedia" aria-describedby="download-media-desc">
+        </div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 1.5 3 4.3v5.2c0 4.2 2.9 7.8 7 9 4.1-1.2 7-4.8 7-9V4.3l-7-2.8Zm5.2 8c0 3.2-2.1 6-5.2 7.1-3.1-1.1-5.2-3.9-5.2-7.1V5.5L10 3.4l5.2 2.1v4Zm-6.1 1.4L7.4 9.2 6.1 10.5l3 3 5-5-1.3-1.3-3.7 3.7Z"/></svg></span>
+          <div class="setting-copy"><label for="mod-unapproved-filter">Not yet approved filter</label><p id="mod-unapproved-filter-desc">In communities you moderate, show only posts no moderator has approved yet.</p></div>
+          <input class="switch" type="checkbox" id="mod-unapproved-filter" data-setting="modUnapprovedFilter" aria-describedby="mod-unapproved-filter-desc">
+        </div>
+      </section>
+
+      <!-- 2.6 Your Removed Content -->
+      <section class="card" aria-labelledby="removal-settings-heading">
+        <div class="card-heading"><h2 id="removal-settings-heading">Your Removed Content</h2><span class="group-count"></span></div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm0 1.8a6.2 6.2 0 1 0 0 12.4 6.2 6.2 0 0 0 0-12.4ZM9.1 6.2h1.8v4.8H9.1V6.2Zm0 6.4h1.8v1.8H9.1v-1.8Z"/></svg></span>
+          <div class="setting-copy"><label for="own-removal">Check my posts and comments</label><p id="own-removal-desc">Show removal evidence while browsing Reddit. Archive evidence requires “Use the archive”. No checks with Reddit tabs closed.</p></div>
           <input class="switch" type="checkbox" id="own-removal" data-setting="ownRemoval" aria-describedby="own-removal-desc">
         </div>
-        <div class="setting-row" data-requires="own-removal">
-          <div class="setting-copy"><label for="removal-notifications">Count new changes</label><p id="removal-notifications-desc">Show a toolbar count for new removals, approvals and lock changes observed while browsing. Opening Removed on your profile clears it. Checks stay on this device.</p></div>
+        <div class="setting-row" data-requires="own-removal" data-level="2">
+          <div class="setting-copy"><label for="removal-notifications">Count new changes</label><p id="removal-notifications-desc">Show a toolbar count for new removals, approvals, and lock changes observed while browsing. Checks stay on this device.</p></div>
           <input class="switch" type="checkbox" id="removal-notifications" data-setting="removalNotifications" aria-describedby="removal-notifications-desc">
         </div>
-        <button id="clear-removal-history" class="link-action" type="button" disabled>Clear this account’s checks</button>
+        <div class="card-action-row"><button id="clear-removal-history" class="link-action" type="button" disabled>Clear this account’s checks</button></div>
         <p id="removal-status" class="settings-status inline-status" role="status"></p>
       </section>
+
+      <!-- 2.7 Arctic Shift Archive -->
       <section class="card" aria-labelledby="archive-heading">
-        <div class="card-heading"><h2 id="archive-heading">Arctic Shift archive</h2><span class="group-count"></span></div>
+        <div class="card-heading"><h2 id="archive-heading">Arctic Shift Archive</h2><span class="group-count"></span></div>
         <p class="group-note">Optional third-party archive. Off unless you turn it on.</p>
-      <div class="setting-row" data-requires="post-discovery">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h13A1.5 1.5 0 0 1 18 4.5v2A1.5 1.5 0 0 1 17 7.9V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.9A1.5 1.5 0 0 1 2 6.5v-2Zm2.8 3.7V15c0 .1.1.2.2.2h10c.1 0 .2-.1.2-.2V8.2H4.8ZM3.8 4.8v1.6h12.4V4.8H3.8Zm3.7 5.3c0-.5.4-.9.9-.9h3.2a.9.9 0 0 1 0 1.8H8.4a.9.9 0 0 1-.9-.9Z"/></svg></span>
-        <div class="setting-copy"><label for="archive-discovery">Use the archive</label><p id="archive-discovery-desc">Find and restore deleted activity and browse banned or private communities. Sends usernames, communities and search words to Arctic Shift. Coverage may be incomplete.</p></div>
-        <input class="switch" type="checkbox" id="archive-discovery" data-setting="archiveDiscovery" aria-describedby="archive-discovery-desc">
-      </div>
-      <div class="setting-row" data-requires="archive-discovery">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2.5a7.5 7.5 0 0 1 7.13 5.16.9.9 0 1 1-1.71.56A5.7 5.7 0 0 0 5.4 6.6h1.85a.9.9 0 0 1 0 1.8H3.3a.9.9 0 0 1-.9-.9V3.55a.9.9 0 0 1 1.8 0v1.6A7.48 7.48 0 0 1 10 2.5Zm-6.4 8.78a.9.9 0 0 1 1.13.58A5.7 5.7 0 0 0 14.6 13.4h-1.85a.9.9 0 0 1 0-1.8h3.95c.5 0 .9.4.9.9v3.95a.9.9 0 0 1-1.8 0v-1.6A7.48 7.48 0 0 1 3.03 12.4a.9.9 0 0 1 .57-1.13Z"/></svg></span>
-        <div class="setting-copy"><label for="restore-deleted-content">Restore deleted content</label><p id="restore-deleted-content-desc">Show archived posts, comments, images and authors in place.</p></div>
-        <input class="switch" type="checkbox" id="restore-deleted-content" data-setting="restoreDeletedContent" aria-describedby="restore-deleted-content-desc">
-      </div>
-      <div class="setting-row" data-requires="archive-discovery">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3 4h14v12H3zM5 6v8h10V6H5z"/></svg></span>
-        <div class="setting-copy"><label for="subreddit-archive">Banned and private communities</label><p id="subreddit-archive-desc">Offer archived posts and search on Reddit’s notice.</p></div>
-        <input class="switch" type="checkbox" id="subreddit-archive" data-setting="subredditArchive" aria-describedby="subreddit-archive-desc">
-      </div>
-      <div class="setting-row" data-requires="subreddit-archive" data-level="2">
-        <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-1 4h2v4l3 2-1 1.5-4-2.7V6z"/></svg></span>
-        <div class="setting-copy"><label for="subreddit-archive-automatic">Open automatically</label><p id="subreddit-archive-automatic-desc">Skip the notice and load the archive directly.</p></div>
-        <input class="switch" type="checkbox" id="subreddit-archive-automatic" data-setting="subredditArchiveAutomatic" aria-describedby="subreddit-archive-automatic-desc">
-      </div>
+        <div class="setting-row" data-requires="post-discovery">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h13A1.5 1.5 0 0 1 18 4.5v2A1.5 1.5 0 0 1 17 7.9V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.9A1.5 1.5 0 0 1 2 6.5v-2Zm2.8 3.7V15c0 .1.1.2.2.2h10c.1 0 .2-.1.2-.2V8.2H4.8ZM3.8 4.8v1.6h12.4V4.8H3.8Zm3.7 5.3c0-.5.4-.9.9-.9h3.2a.9.9 0 0 1 0 1.8H8.4a.9.9 0 0 1-.9-.9Z"/></svg></span>
+          <div class="setting-copy"><label for="archive-discovery">Use the archive</label><p id="archive-discovery-desc">Find and restore deleted activity and browse banned or private communities. Sends usernames, communities, and search words to Arctic Shift.</p></div>
+          <input class="switch" type="checkbox" id="archive-discovery" data-setting="archiveDiscovery" aria-describedby="archive-discovery-desc">
+        </div>
+        <div class="setting-row" data-requires="archive-discovery" data-level="2">
+          <div class="setting-copy"><label for="restore-deleted-content">Restore deleted content</label><p id="restore-deleted-content-desc">Show archived posts, comments, images, and authors in place.</p></div>
+          <input class="switch" type="checkbox" id="restore-deleted-content" data-setting="restoreDeletedContent" aria-describedby="restore-deleted-content-desc">
+        </div>
+        <div class="setting-row" data-requires="archive-discovery" data-level="2">
+          <div class="setting-copy"><label for="subreddit-archive">Banned and private communities</label><p id="subreddit-archive-desc">Offer archived posts and search on Reddit’s notice.</p></div>
+          <input class="switch" type="checkbox" id="subreddit-archive" data-setting="subredditArchive" aria-describedby="subreddit-archive-desc">
+        </div>
+        <div class="setting-row" data-requires="subreddit-archive" data-level="3">
+          <div class="setting-copy"><label for="subreddit-archive-automatic">Open automatically</label><p id="subreddit-archive-automatic-desc">Skip the notice and load the archive directly.</p></div>
+          <input class="switch" type="checkbox" id="subreddit-archive-automatic" data-setting="subredditArchiveAutomatic" aria-describedby="subreddit-archive-automatic-desc">
+        </div>
       </section>
-      <p id="settings-status" class="settings-status" role="status" aria-live="polite">Loading settings…</p>
     </div>
 
     <div class="panel" id="panel-data" role="tabpanel" aria-labelledby="tab-data" hidden>
       <section class="card chat-category" aria-labelledby="chat-heading">
         <div class="card-heading"><h2 id="chat-heading">Chat search</h2><span class="category-hint">Saved on this device</span></div>
+        <div class="setting-row chat-toggle-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 1.5a8.5 8.5 0 0 0-8.5 8.5c0 1.84.74 3.38 1.83 4.68l-2.55 2.55a.74.74 0 0 0 .53 1.27H10a8.5 8.5 0 0 0 0-17Zm0 15.3H6.38c-.94 0-1.8.05-2.88.13l-.07-.18c.75-.6 1.48-1.27 2.2-1.97l-.99-1.2A6.5 6.5 0 0 1 3.2 10a6.8 6.8 0 1 1 6.8 6.8Z"/></svg></span>
+          <div class="setting-copy"><label for="chat-search">Enable local chat search &amp; indexing</label><p id="chat-search-desc">Index loaded chat messages on this device. Turning off pauses capture without deleting saved history.</p></div>
+          <input class="switch" type="checkbox" id="chat-search" data-setting="chatSearch" aria-describedby="chat-search-desc">
+        </div>
         <div class="chat-intro-row">
-          <p class="chat-intro">Search loaded messages across all chats.</p>
+          <p class="chat-intro">Search loaded messages across all chats. <span id="chat-paused-pill" class="badge badge-muted" hidden>Paused</span></p>
           <div class="cache-about" id="cache-about">
             <button type="button" id="cache-info-toggle" class="info-trigger" aria-expanded="false" aria-controls="cache-info-panel" aria-label="About saved chat history" title="About saved chat history"><svg class="info-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.2v4.1"/><circle class="info-dot" cx="8" cy="4.9" r=".6"/></svg></button>
             <div class="cache-popover" id="cache-info-panel" role="dialog" aria-labelledby="cache-info-title" tabindex="-1" hidden>
@@ -289,14 +333,16 @@
             </div>
           </div>
         </div>
-        <div class="stats"><span class="tile small" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 1a9 9 0 0 0-9 9c0 1.95.79 3.58 1.94 4.96L.23 17.66A.78.78 0 0 0 .79 19H10a9 9 0 0 0 0-18Zm0 16.2H6.16c-.99 0-1.9.05-3.04.14l-.08-.19c.79-.63 1.57-1.34 2.33-2.08l-1.05-1.27C3.3 12.58 2.8 11.33 2.8 10a7.2 7.2 0 1 1 7.2 7.2Z"/></svg></span><p id="message-stats" class="message-stats" role="status">Checking saved messages…</p><a class="chat-link" href="https://www.reddit.com/chat/" target="_blank" rel="noopener noreferrer" aria-label="Open Reddit chat">Open <span aria-hidden="true">↗</span></a></div>
+        <div class="stats" id="chat-stats-box"><span class="tile small" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 1a9 9 0 0 0-9 9c0 1.95.79 3.58 1.94 4.96L.23 17.66A.78.78 0 0 0 .79 19H10a9 9 0 0 0 0-18Zm0 16.2H6.16c-.99 0-1.9.05-3.04.14l-.08-.19c.79-.63 1.57-1.34 2.33-2.08l-1.05-1.27C3.3 12.58 2.8 11.33 2.8 10a7.2 7.2 0 1 1 7.2 7.2Z"/></svg></span><p id="message-stats" class="message-stats" role="status">Checking saved messages…</p><a class="chat-link" href="https://www.reddit.com/chat/" target="_blank" rel="noopener noreferrer" aria-label="Open Reddit chat">Open <span aria-hidden="true">↗</span></a></div>
         <div class="cache-actions"><button id="clear-messages" type="button">Clear saved messages</button><button id="clear-cache" type="button">Clear saved usernames</button></div>
         <p id="cache-status" role="status" aria-live="polite"></p>
       </section>
       <section class="card tips-card" aria-labelledby="tips-heading"><h2 id="tips-heading">Search tips</h2><p class="search-syntax-hint">Search anywhere with <code>"phrases"</code>, <code>OR</code>, <code>-word</code>, <code>u/</code>, <code>r/</code>, <code>title:</code>. Press <kbd>Ctrl</kbd>+<kbd>/</kbd> in a search box for tips.</p></section>
     </div>
   </main>
+  <p id="settings-status" class="settings-status settings-status-bar" role="status" aria-live="polite" data-inactive="true">Loading settings…</p>
   <footer>Independent extension, not affiliated with Reddit.</footer>
+  <script src="post-model.js"></script>
   <script src="embed-player-hosts.js"></script>
   <script src="popup.js"></script>
   <script src="popup-accounts.js"></script>
