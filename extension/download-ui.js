@@ -121,7 +121,10 @@
         item.remove();
       }
       for(const slot of slots)globalThis.RTPostMenuDOM?.reconcile?.(slot);
-      for(const post of document.querySelectorAll('shreddit-post'))for(const action of post.shadowRoot?.querySelectorAll('[data-rt-download="action"]') || [])action.remove();
+      for(const post of document.querySelectorAll('shreddit-post')){
+        for(const action of post.shadowRoot?.querySelectorAll('[data-rt-download="action"]') || [])action.remove();
+        for(const action of post.querySelectorAll(':scope > [data-rt-ui="archive-action-row"] [data-rt-download="action"]'))action.remove();
+      }
     }
     destroy() {
       this.dead=true;clearTimeout(this.settingsRetry);this.observer?.disconnect();
@@ -147,17 +150,19 @@
       }
       for(const post of document.querySelectorAll('shreddit-post')){
         const type=String(post.getAttribute('post-type') || '').toLowerCase(),root=post.shadowRoot;
+        const fallbackRow=post.querySelector(':scope > [data-rt-ui="archive-action-row"]');
         if(this.mobile.matches){
           root?.querySelector('[data-rt-download="action"]')?.remove();
+          fallbackRow?.querySelector('[data-rt-download="action"]')?.remove();
           if(!SUPPORTED.has(type))continue;
           const menu=post.querySelector('shreddit-post-overflow-menu');
           if(menu)this.syncMenu(menu,post);
         }else{
-          const row=root?.querySelector('rpl-action-bar [data-testid="action-row"]');
-          let action=root?.querySelector('[data-rt-download="action"]');
+          const row=root?.querySelector('rpl-action-bar [data-testid="action-row"]') || fallbackRow;
+          let action=row?.querySelector('[data-rt-download="action"]') || root?.querySelector('[data-rt-download="action"]') || fallbackRow?.querySelector('[data-rt-download="action"]');
           if(!SUPPORTED.has(type) || !row){action?.remove();continue;}
           if(!action){if(!M.hasMediaSource(post,type))continue;action=this.action(post);}
-          const share=row.querySelector(':scope > slot[name="share-button"]');
+          const share=row.querySelector(':scope > slot[name="share-button"], :scope > .rt-sra-share');
           if(action.parentElement!==row){
             if(share)share.after(action);
             else{

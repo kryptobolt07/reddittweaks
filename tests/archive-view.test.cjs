@@ -58,3 +58,40 @@ test('image dimensions are accepted only as positive integers up to 20000; unkno
  const root=W.RTArchiveView.image('https://i.redd.it/abc.png',{doc:W.document}),main=root.querySelectorAll('img')[1],box=root.querySelector('[data-aspect-ratio-container]');
  Object.defineProperty(main,'naturalWidth',{value:99999});Object.defineProperty(main,'naturalHeight',{value:10});main.dispatchEvent(new W.Event('load'));assert.equal(box.style.aspectRatio,'16 / 9','an implausible natural size is ignored');
 });
+
+test('multi-image galleries render an interactive carousel and click-to-zoom lightbox while keeping all preview images in the DOM',()=>{
+ const W=setup();
+ const items=[
+  {kind:'image',url:'https://i.redd.it/one.png',width:800,height:600},
+  {kind:'image',url:'https://i.redd.it/two.png',width:800,height:600},
+  {kind:'image',url:'https://i.redd.it/three.png',width:800,height:600}
+ ];
+ const gallery=W.RTArchiveView.media(items,{alt:'Album',doc:W.document});
+ W.document.body.append(gallery);
+ assert.ok(gallery.classList.contains('rt-archive-gallery'));
+ assert.deepEqual([...gallery.querySelectorAll('.preview-img')].map(img=>img.src),items.map(i=>i.url));
+ const slides=[...gallery.querySelectorAll('.rt-gallery-slide')];
+ assert.equal(slides.length,3);
+ assert.equal(slides[0].hidden,false);assert.equal(slides[1].hidden,true);assert.equal(slides[2].hidden,true);
+ const counter=gallery.querySelector('.rt-gallery-counter');
+ assert.equal(counter.textContent,'1 / 3');
+ const next=gallery.querySelector('.rt-gallery-next'),prev=gallery.querySelector('.rt-gallery-prev');
+ assert.equal(prev.hidden,true);assert.equal(next.hidden,false);
+ next.click();
+ assert.equal(counter.textContent,'2 / 3');
+ assert.equal(slides[0].hidden,true);assert.equal(slides[1].hidden,false);
+ assert.equal(prev.hidden,false);
+ gallery.querySelectorAll('.rt-gallery-dot')[2].click();
+ assert.equal(counter.textContent,'3 / 3');
+ assert.equal(next.hidden,true);
+ // Lightbox opens on image click and closes on Escape
+ slides[2].querySelector('img.preview-img').click();
+ const lb=W.document.querySelector('[data-rt-ui="archive-lightbox"]');
+ assert.ok(lb,'lightbox opens on image click');
+ assert.equal(lb.querySelector('.rt-lightbox-img').src,'https://i.redd.it/three.png');
+ W.document.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+ assert.equal(W.document.querySelector('[data-rt-ui="archive-lightbox"]'),null);
+ assert.deepEqual([...W.RTArchiveView.mediaSources(gallery)].map(s=>s.url),items.map(i=>i.url));
+ W.close();
+});
+

@@ -2016,3 +2016,81 @@ test('profile discovery keeps its document gutter stable across loading and read
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.notEqual(gutter(),'stable','opt-out restores native document styling');
  W.history.pushState({},'','/user/Example/saved/');d.onRoute();assert.notEqual(gutter(),'stable','unsupported native sections keep their own styling');
 });
+
+function blockedNotFoundPage(W,{loggedIn='true'}={}){
+ W.document.body.innerHTML='<shreddit-app user-logged-in="'+loggedIn+'"><div id="shreddit-forbidden"><div id="shreddit-forbidden-not_found"><svg icon-name="meme-fill"></svg><h3 id="shreddit-forbidden-title">Sorry, nobody on Reddit goes by that name.</h3></div></div></shreddit-app>';
+ return W.document.getElementById('shreddit-forbidden');
+}
+
+test('blocked-by-user profiles mount signed-out activity when blocked-probe confirms a live blocker account, auto-falling back to search when curated',async t=>{
+ const actions=[];
+ const {W,d}=setup(t,{
+  url:'https://www.reddit.com/user/Example/',
+  settings:{postDiscovery:true,archiveDiscovery:false,blockedProfiles:true},
+  reddit:async input=>{
+   actions.push(input.action+(input.mode?':'+input.mode:''));
+   if(input.action==='blocked-probe'){
+    return {ok:true,blocked:true,profile:{username:'Example',displayName:'Example Display',avatar:'https://styles.redditmedia.com/t5_x/styles/profileIcon_abc.png',postKarma:420,commentKarma:1337,cakeDay:'Jan 1, 2020'}};
+   }
+   if(input.action==='blocked-profile-page'){
+    if(input.mode==='profile')return {ok:true,posts:[],after:null,hasMore:false,metadata:{curated:true,gated:false}};
+    return {ok:true,posts:input.type==='comments'?[comment('bc1')]:[raw('bp1')],after:null,hasMore:false,metadata:{curated:false,gated:false}};
+   }
+   if(input.action==='render-navigation' || input.action==='render-controls'){
+    const el=W.document.getElementById(input.target);if(el)el.innerHTML='<nav></nav>';return {rendered:true};
+   }
+   return {posts:[],hasMore:false};
+  }
+ });
+ await d.ready;d.reset();
+ const notice=blockedNotFoundPage(W);
+ d.autoDiscover=true;d.scan();
+ for(let i=0;i<8;i++)await new Promise(r=>setImmediate(r));
+ assert.equal(d.blockedProfile,true);
+ assert.equal(d.accountState,'blocked');
+ assert.equal(d.archiveShell?.dataset.rtAccountState,'blocked');
+ assert.equal(notice.dataset.rtArchiveNotice,'true');
+ assert.equal(d.archiveShell.querySelector('[data-testid="profile-display-name"]').textContent,'Example Display');
+ assert.match(d.archiveShell.querySelector('[data-testid="profile-account-state"]').textContent,/This user has blocked your account\. Showing public signed-out activity\./);
+ assert.ok(d.archiveShell.querySelector('[data-rt-ui="mobile-about"]'),'collapsible mobile About accordion is mounted');
+ assert.ok(actions.includes('blocked-probe'));
+ assert.ok(actions.includes('blocked-profile-page:profile'));
+ assert.ok(actions.includes('blocked-profile-page:search'),'curated profile automatically falls back to signed-out search');
+ assert.equal(d.feed.querySelectorAll('.rt-native-card').length,2);
+ // Disabling blockedProfiles tears down the shell and restores the native notice
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:true,archiveDiscovery:false,blockedProfiles:false}}},'local');
+ assert.equal(W.document.querySelector('[data-rt-ui="archive-profile"]'),null);
+ assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);
+});
+
+test('blocked-probe leaves genuine 404 profiles untouched and shows a non-intrusive Firefox note on unsupported',async t=>{
+ let mode='not-found';
+ const {W,d}=setup(t,{
+  url:'https://www.reddit.com/user/NoSuchUser/',
+  settings:{postDiscovery:true,archiveDiscovery:true,blockedProfiles:true},
+  reddit:async input=>{
+   if(input.action==='blocked-probe')return {ok:true,blocked:false,reason:mode};
+   return {posts:[],hasMore:false};
+  },
+  archive:async()=>({posts:[raw('arch1')],hasMore:false})
+ });
+ await d.ready;d.reset();
+ const notice=blockedNotFoundPage(W);
+ d.scan();
+ for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));
+ assert.equal(W.document.querySelector('[data-rt-ui="archive-profile"]'),null,'genuine 404 is left untouched');
+ assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);
+
+ mode='unsupported';
+ d.blockedProbes?.clear();
+ d.scan();
+ for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));
+ const note=notice.querySelector('[data-rt-ui="blocked-unsupported"]');
+ assert.ok(note,'Firefox unsupported note is shown');
+ const btn=note.querySelector('button');
+ assert.ok(btn,'offers Arctic Shift archive fallback button when archiveDiscovery is on');
+ btn.click();
+ for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));
+ assert.ok(W.document.querySelector('[data-rt-ui="archive-profile"]'),'clicking fallback mounts archive profile');
+});
+

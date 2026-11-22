@@ -129,10 +129,15 @@
     }
   }
   function unavailableNotice(){for(const [notice,anchor] of notices)if(anchor.isConnected){const state=notice.querySelector('img[alt="Deleted user"]')?'deleted':notice.id==='shreddit-forbidden'?'banned':'';if(state)return {notice,anchor,state};}return null;}
+  function notFoundNotice(doc=globalThis.document || window.document){
+    const forbidden=doc?.querySelector?.('shreddit-app > #shreddit-forbidden');
+    if(!forbidden || !forbidden.querySelector('#shreddit-forbidden-not_found') || !forbidden.querySelector('svg[icon-name="meme-fill"]') || forbidden.querySelector('svg[icon-name="ban-fill"]') || forbidden.querySelector('img[alt="Deleted user"]'))return null;
+    return forbidden;
+  }
   function setEnabled(value){revision++;const next=value===true,changed=next!==enabled;enabled=next;refresh(changed?undefined:[]);}
   const emptyTemplate=()=>[...notices.keys()].find(n=>n.id==='empty-feed-content' && n.querySelector('[data-testid="empty-state-creative"]'))?.cloneNode(true) || null;
   let settings;try{settings=chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});}catch(error){settings=Promise.reject(error);}settings.catch(()=>{});
-  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,setRestoreEnabled,unavailableNotice,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
+  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,setRestoreEnabled,unavailableNotice,notFoundNotice,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
   // Observe the Document: the root may not exist yet at document_start.
   const observer=new MutationObserver(records=>{
     if(!globalThis.RTPostMenuDOM?.onlyMenuChanges(records))refresh(records);

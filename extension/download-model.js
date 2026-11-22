@@ -80,6 +80,7 @@
   function bestImage(root) {
     let best=null,bestScore=-1;
     for(const image of root?.querySelectorAll?.('img') || []){
+      if(image.classList?.contains('rt-media-backdrop'))continue;
       const url=bestSource(image);
       if(!url)continue;
       const score=scoreImage(image,url);
@@ -92,29 +93,55 @@
     let image=null;
     if(href){
       const path=urlOf(href)?.pathname;
-      image=[...post.querySelectorAll('img')].find(candidate=>safeSources(candidate).some(source=>{
+      image=[...post.querySelectorAll('img')].find(candidate=>!candidate.classList?.contains('rt-media-backdrop') && safeSources(candidate).some(source=>{
         const url=urlOf(source);
         return url && url.pathname===path && kindOf(source)==='image';
       })) || null;
     }
     if(href)return kindOf(href)==='image'?[{kind:'image',url:href,...dimensionsOf(image)}]:[];
     const best=bestImage(post?.querySelector?.('[slot="post-media-container"]') || post);
-    return best?[{kind:'image',...best}]:[];
+    if(best)return [{kind:'image',...best}];
+    const registered=(globalThis.RTArchiveView?.mediaSources?.(post) || []).find(item=>item.kind==='image' && safeDownloadUrl(item.url));
+    return registered?[{kind:'image',url:safeDownloadUrl(registered.url),...(dimension(registered.width)&&dimension(registered.height)?{width:dimension(registered.width),height:dimension(registered.height)}:{})}]:[];
   }
   function galleryItems(post) {
     const carousel=post?.querySelector?.('gallery-carousel');
-    if(!carousel)return [];
-    const pages=[...carousel.querySelectorAll('li[slot^="page-"]')].map((page,index)=>({page,index:Number(page.getAttribute('slot').split('-')[1]) || index}));
-    pages.sort((a,b)=>a.index-b.index);
-    const roots=pages.length?pages.map(entry=>entry.page):[carousel];
-    const seen=new Set(),items=[];
-    for(const root of roots){
-      const image=bestImage(root);
-      if(!image || seen.has(image.url))continue;
-      seen.add(image.url);items.push({kind:'image',...image});
-      if(items.length>=MAX_FILES)break;
+    if(carousel){
+      const pages=[...carousel.querySelectorAll('li[slot^="page-"]')].map((page,index)=>({page,index:Number(page.getAttribute('slot').split('-')[1]) || index}));
+      pages.sort((a,b)=>a.index-b.index);
+      const roots=pages.length?pages.map(entry=>entry.page):[carousel];
+      const seen=new Set(),items=[];
+      for(const root of roots){
+        const image=bestImage(root);
+        if(!image || seen.has(image.url))continue;
+        seen.add(image.url);items.push({kind:'image',...image});
+        if(items.length>=MAX_FILES)break;
+      }
+      if(!items.length){const image=bestImage(carousel);if(image)items.push({kind:'image',...image});}
+      return items;
     }
-    if(!items.length){const image=bestImage(carousel);if(image)items.push({kind:'image',...image});}
+    const group=post?.querySelector?.('.rt-archive-media-group');
+    const seen=new Set(),items=[];
+    if(group){
+      const slides=[...group.querySelectorAll('.rt-gallery-slide,.rt-archived-media')];
+      const roots=slides.length?slides:[group];
+      for(const root of roots){
+        const image=bestImage(root);
+        if(!image || seen.has(image.url))continue;
+        seen.add(image.url);items.push({kind:'image',...image});
+        if(items.length>=MAX_FILES)break;
+      }
+    }
+    if(!items.length){
+      for(const entry of globalThis.RTArchiveView?.mediaSources?.(post) || []){
+        const url=safeDownloadUrl(entry?.url);
+        if(!url || kindOf(url)!=='image' || seen.has(url))continue;
+        seen.add(url);
+        const width=dimension(entry.width),height=dimension(entry.height);
+        items.push({kind:'image',url,...(width&&height?{width,height}:{})});
+        if(items.length>=MAX_FILES)break;
+      }
+    }
     return items;
   }
   function bitrateText(value) {
@@ -143,7 +170,16 @@
     if(!items.length){
       const preview=player?.shadowRoot?.querySelector?.('shreddit-media-ui')?.getAttribute?.('preview');
       const url=safeDownloadUrl(preview);
-      if(url && kindOf(url)==='video')items.push({kind:'video',url});
+      if(url && kindOf(url)==='video'){seen.add(url);items.push({kind:'video',url});}
+    }
+    if(!items.length){
+      for(const entry of globalThis.RTArchiveView?.mediaSources?.(post) || []){
+        const url=safeDownloadUrl(entry?.url);
+        if(!url || kindOf(url)!=='video' || seen.has(url))continue;
+        seen.add(url);
+        const width=dimension(entry.width),height=dimension(entry.height);
+        items.push({kind:'video',url,...(width&&height?{width,height}:{})});
+      }
     }
     items.sort((a,b)=>(b.height || 0)-(a.height || 0) || (b.bitrate || 0)-(a.bitrate || 0));
     const heights=new Set();
@@ -158,9 +194,14 @@
     if(type==='video' || type==='gif'){
       const player=post.querySelector('shreddit-player,shreddit-player-2');
       if(player?.getAttribute('packaged-media-json') || player?.shadowRoot?.querySelector('shreddit-media-ui[preview]'))return true;
+      if((globalThis.RTArchiveView?.mediaSources?.(post) || []).some(entry=>{const url=safeDownloadUrl(entry?.url);return Boolean(url && kindOf(url)==='video');}))return true;
     }
-    if(type==='gallery')return Boolean(post.querySelector('gallery-carousel')?.querySelector(imageSource));
-    if(type==='image' || type==='gif')return Boolean((post.querySelector('[slot="post-media-container"]') || post).querySelector(imageSource));
+    if(type==='gallery'){
+      if(post.querySelector('gallery-carousel')?.querySelector(imageSource))return true;
+      if(post.querySelector('.rt-archive-media-group')?.querySelector(imageSource))return true;
+      return (globalThis.RTArchiveView?.mediaSources?.(post) || []).some(entry=>{const url=safeDownloadUrl(entry?.url);return Boolean(url && kindOf(url)==='image');});
+    }
+    if(type==='image' || type==='gif')return Boolean((post.querySelector('[slot="post-media-container"]') || post).querySelector(imageSource)) || (globalThis.RTArchiveView?.mediaSources?.(post) || []).some(entry=>{const url=safeDownloadUrl(entry?.url);return Boolean(url && kindOf(url)==='image');});
     return false;
   }
   function mediaFor(post) {
