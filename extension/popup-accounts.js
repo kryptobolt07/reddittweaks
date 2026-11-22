@@ -18,14 +18,23 @@
  const say=(text,error=false)=>{status.textContent=text;status.classList.toggle('error',error);};
  const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
  const busy=on=>{for(const b of card.querySelectorAll('button'))b.disabled=on || b===anonymous && signedOut;};
- async function refresh(){
+ let detectRetries=0,detectTimer=0;
+ async function refresh({recheck=false}={}){
+  clearTimeout(detectTimer);
   const result=await send({action:'list'});
   if(!result?.ok){list.replaceChildren();say(result?.error || 'Accounts are unavailable.',true);return;}
   signedOut=result.signedOut===true || result.anonymous===true;
   if(anonymous){anonymous.textContent=result.anonymous?'Browsing anonymously':signedOut?'Signed out':'Anonymous browsing';anonymous.disabled=signedOut;anonymous.setAttribute('aria-pressed',String(signedOut));}
   add.textContent=signedOut?'Sign in':'Add account';
-  if(!result.accounts.length){list.replaceChildren(make('li','account-empty',signedOut?'No saved accounts yet. Sign in to Reddit to save an account.':'No saved accounts yet. Accounts you’re signed in to on Reddit are saved automatically.'));return;}
-  list.replaceChildren(...result.accounts.map(row));
+  if(!result.accounts.length){list.replaceChildren(make('li','account-empty',signedOut?'No saved accounts yet. Sign in to Reddit to save an account.':result.detecting?'Detecting your signed-in Reddit account…':'No saved accounts yet. Accounts you’re signed in to on Reddit are saved automatically.'));}
+  else list.replaceChildren(...result.accounts.map(row));
+  if(result.detecting && detectRetries<2){
+   detectRetries++;
+   detectTimer=setTimeout(()=>refresh({recheck:true}),800);
+  }else if(!result.detecting){
+   detectRetries=0;
+   if(recheck && status.textContent==='Detecting your signed-in Reddit account…')say('');
+  }
  }
  async function addAccount(){busy(true);say('Opening Reddit sign-in…');const r=await send({action:'add'});busy(false);if(!r?.ok)say(r?.error || 'Could not open Reddit sign-in.',true);else say('Sign in on the Reddit tab. The new account is saved when you do.');}
  function row(account){

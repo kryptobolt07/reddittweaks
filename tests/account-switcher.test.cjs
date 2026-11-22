@@ -164,6 +164,65 @@ test('a private-window login can be saved permanently on explicit request withou
  assert.equal(w.jar.get('reddit_session').value,'reddit_session-alice','normal cookie store untouched');
  assert.equal(w.reloads.length,0,'saving does not reload tabs');
 });
+test('Firefox for Android private tabs work without chrome.windows, with popup tabs lacking openerTabId, and trigger report on unsaved list',async()=>{
+ const values={},sessionValues={},reloads=[],reports=[];
+ const normalJar=jarFor('alice'),privJar=jarFor('carol');
+ const jars={'firefox-default':normalJar,'firefox-private':privJar};
+ const tabs=[
+  {id:1,url:'https://www.reddit.com/',active:false,incognito:false,cookieStoreId:'firefox-default',lastAccessed:100},
+  {id:5,url:'https://www.reddit.com/',active:true,incognito:true,cookieStoreId:'firefox-private',lastAccessed:500},
+  {id:9,url:'moz-extension://own/popup.html',active:false,incognito:false,cookieStoreId:'firefox-default',lastAccessed:400}
+ ];
+ const area=bag=>({async get(k){if(k===null)return structuredClone(bag);return {[k]:structuredClone(bag[k])};},async set(v){Object.assign(bag,structuredClone(v));}});
+ let listener;
+ const chrome={
+  runtime:{id:'own',getURL:p=>'moz-extension://own/'+p,onMessage:{addListener(fn){listener=fn;}}},
+  storage:{local:area(values),session:area(sessionValues)},
+  // Firefox for Android does not expose chrome.windows
+  cookies:{
+   async getAll({domain,storeId}){return [...(jars[storeId ?? 'firefox-default']).values()].filter(c=>c.domain.replace(/^\./,'').endsWith(domain)).map(c=>({...c}));},
+   async getAllCookieStores(){return [{id:'firefox-default',tabIds:[1,9]},{id:'firefox-private',tabIds:[5]}];},
+   async remove({url,name,storeId}){jars[storeId ?? 'firefox-default'].delete(name);return {url,name};},
+   async set(details){const {url,storeId,...rest}=details;jars[storeId ?? 'firefox-default'].set(details.name,{hostOnly:!details.domain,session:!details.expirationDate,...rest,domain:details.domain || new URL(url).hostname});return details;}
+  },
+  tabs:{
+   async query(q={}){return tabs.filter(t=>(q.active==null || t.active===q.active)).map(t=>({...t}));},
+   async get(id){return {...(tabs.find(t=>t.id===id) || {id})};},
+   async sendMessage(id,msg){reports.push([id,msg.action]);},
+   async reload(id){reloads.push(id);}
+  }
+ };
+ const ctx=vm.createContext({chrome,URL,console,setTimeout,clearTimeout,structuredClone});
+ for(const file of ['post-model.js','account-broker.js'])vm.runInContext(read(file),ctx);
+ const send=(msg,from)=>new Promise(resolve=>{if(listener({scope:'rt-accounts',...msg},from,resolve)!==true)resolve(undefined);});
+ const popupView={id:'own',url:'moz-extension://own/popup.html'};
+ const popupTabNoOpener={id:'own',url:'moz-extension://own/popup.html',tab:{id:9,incognito:false,cookieStoreId:'firefox-default'}};
+ const privReddit={id:'own',frameId:0,tab:{id:5,incognito:true,cookieStoreId:'firefox-private'},url:'https://www.reddit.com/'};
+ // 1. Popup opens before the private Reddit tab has reported: list sees firefox-private and asks tab 5 to report!
+ const early=await send({action:'list'},popupView);
+ await flush();
+ assert.equal(early.ok,true);assert.equal(early.private,true,'detected firefox-private via active tab without chrome.windows');
+ assert.equal(early.signedOut,false);assert.equal(early.detecting,true,'flags unsaved active session');
+ assert.deepEqual(reports,[[5,'report']],'asked only the private Reddit tab to report');
+ // 2. Private tab saves carol; both popupView (no sender.tab) and popupTabNoOpener see carol + Save permanently
+ await send({action:'remember',owner:'t2_carol'},privReddit);
+ await send({action:'save-current',owner:'t2_carol',username:'carol',avatar:''},privReddit);
+ const after=await send({action:'list'},popupView);
+ assert.equal(after.private,true);assert.equal(after.current,'t2_carol');assert.equal(after.detecting,undefined);
+ assert.equal(after.accounts.find(a=>a.owner==='t2_carol')?.private,true);
+ // Simulate popup opened as an active tab without openerTabId (fallback to highest lastAccessed non-popup tab)
+ tabs[1].active=false;tabs[2].active=true;
+ const fromTab=await send({action:'list'},popupTabNoOpener);
+ assert.equal(fromTab.private,true);assert.equal(fromTab.current,'t2_carol');
+});
+test('single-window mobile shim with win.incognito=false still respects active tab.incognito=true',async()=>{
+ const w=worker({privateJar:jarFor('carol'),focused:{id:1,incognito:false,tabs:[{id:3,active:true,incognito:true}]}});
+ await w.send({action:'remember',owner:'t2_carol'},w.incognito);
+ await w.send({action:'save-current',owner:'t2_carol',username:'carol',avatar:''},w.incognito);
+ const list=await w.send({action:'list'},w.popup);
+ assert.equal(list.private,true,'tab.incognito takes precedence over single-window win.incognito=false');
+ assert.equal(list.current,'t2_carol');
+});
 
 test('Reddit’s device settings (sort, view, chat layout, codecs, consent) are never touched by switching, adding or anonymous browsing',async()=>{
  // Measured 2026-11-19: these reddit.com cookies hold device preferences; only the five session cookies belong to an account.

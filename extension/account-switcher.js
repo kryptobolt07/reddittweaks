@@ -93,25 +93,29 @@
    return native?.owner===owner?{username:native.username,avatar:''}:null;
   }
   async readAccount(owner){
-   const pageFetch=globalThis.content?.fetch?.bind(globalThis.content) || globalThis.fetch;
-   if(!pageFetch)return;
+   const fetchers=[globalThis.content?.fetch?.bind(globalThis.content),globalThis.fetch].filter((fn,i,a)=>typeof fn==='function' && a.indexOf(fn)===i);
+   if(!fetchers.length)return;
    const options={credentials:'include',cache:'no-store',redirect:'error'};
-   // This account-specific partial is already provided by Reddit's own drawer. Its query is opaque.
+   const get=async(url,headers)=>{
+    for(const fn of fetchers){try{const r=await fn(url,{...options,headers});if(r?.ok)return r;}catch{}}
+    return null;
+   };
+   // This account-specific partial is already provided by Reddit's own drawer. Its query is opaque (and may be absent on mobile).
    const partial=document.querySelector('#expand-user-drawer-button')?.closest('rpl-dropdown,hui-user-drawer')
-    ?.querySelector('faceplate-partial[src*="/user-drawer-menu?"]') ||
+    ?.querySelector('faceplate-partial[src*="/user-drawer-menu"]') ||
     document.querySelector('#user-drawer-content faceplate-partial[src],#hui-user-drawer-bottom-sheet faceplate-partial[src]');
    if(partial)try{
     const url=new URL(partial.getAttribute('src'),location.origin);
     if(url.origin===location.origin && /^\/svc\/shreddit\/partial\/[\w-]+\/user-drawer-menu\/?$/.test(url.pathname)){
-     const response=await pageFetch(url.href,{...options,headers:{Accept:'text/vnd.reddit.partial+html'}});
-     if(response.ok){
+     const response=await get(url.href,{Accept:'text/vnd.reddit.partial+html'});
+     if(response){
       const row=profileRow(new DOMParser().parseFromString(await response.text(),'text/html')),username=profileName(row);
       if(username && signedIn()===owner)return {username,avatar:avatarOf(row)};
      }
     }
    }catch{}
    try{
-    const response=await pageFetch('/api/me.json',{...options,headers:{Accept:'application/json'}});if(!response.ok)return;
+    const response=await get('/api/me.json',{Accept:'application/json'});if(!response)return;
     const me=(await response.json())?.data;
     if('t2_'+String(me?.id || '').toLowerCase()===owner && /^[\w-]{3,20}$/.test(me?.name || ''))
      return {username:me.name,avatar:String(me.icon_img || '').startsWith('https://')?me.icon_img:''};
@@ -120,7 +124,7 @@
   async saveNew(owner,account=this.nativeAccount(owner)){
    account ||= await this.readAccount(owner);
    if(!account || this.dead || signedIn()!==owner)return;
-   this.captureAttempted={owner,username:account.username};
+   this.captureAttempted={owner,username:account.username,at:Date.now()};
    const avatar=avatarOf(document.getElementById('expand-user-drawer-button')) || account.avatar;
    return this.send({action:'save-current',owner,username:account.username,avatar});
   }
@@ -130,7 +134,8 @@
    const owner=signedIn(),menus=[...document.querySelectorAll(MENUS)];
    if(!this.remembering && owner && this.awaitingIdentity===owner){
     const account=this.nativeAccount(owner);
-    if(account && (this.captureAttempted?.owner!==owner || this.captureAttempted?.username!==account.username))
+    const stale=!this.captureAttempted || this.captureAttempted.owner!==owner || this.captureAttempted.username!==account?.username || Date.now()-(this.captureAttempted.at || 0)>3000;
+    if(account && stale)
      this.saveNew(owner,account).then(result=>{if(result?.ok){this.awaitingIdentity='';this.lists=new WeakMap();this.schedule();}});
    }
    if(owner && this.remembered){

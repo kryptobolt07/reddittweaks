@@ -18,24 +18,51 @@
  const privateId=id=>id==='1' || id==='firefox-private';
  const normalId=id=>id==='0' || id==='firefox-default';
  // ---- Cookie store of the asking tab or window: {id (undefined = the normal default), private, windowId}. ----
+ async function activeTab(excludeId){
+  for(const query of [{active:true,currentWindow:true},{active:true}]){
+   try{
+    const tabs=await chrome.tabs?.query?.(query);
+    const hit=(tabs || []).find(t=>t && t.id!==excludeId && !popupPage({url:t.url}));
+    if(hit)return hit;
+   }catch{}
+  }
+  if(!chrome.windows?.getLastFocused){
+   try{
+    const all=(await chrome.tabs?.query?.({}) || []).filter(t=>t && t.id!==excludeId && !popupPage({url:t.url}) && Number.isFinite(t.lastAccessed));
+    all.sort((a,b)=>b.lastAccessed-a.lastAccessed);
+    if(all[0])return all[0];
+   }catch{}
+  }
+  return null;
+ }
  async function jarOf(sender){
-  // On phones the popup is a tab of its own: act on the store of the tab it was opened from.
-  if(sender?.tab && popupPage(sender) && Number.isInteger(sender.tab.openerTabId)){
-   try{const opener=await chrome.tabs.get(sender.tab.openerTabId);if(opener)return jarOf({tab:opener});}catch{}
+  // On phones the popup can be a tab of its own: act on the store of the tab it was opened from.
+  if(sender?.tab && popupPage(sender)){
+   if(Number.isInteger(sender.tab.openerTabId)){
+    try{const opener=await chrome.tabs.get(sender.tab.openerTabId);if(opener)return jarOf({tab:opener});}catch{}
+   }
+   // Firefox for Android (no windows API) may open the popup as a non-private tab without openerTabId.
+   if(!sender.tab.incognito && !privateId(sender.tab.cookieStoreId) && !chrome.windows?.getLastFocused){
+    const active=await activeTab(sender.tab.id);
+    if(active)return jarForTab(active);
+   }
   }
   if(sender?.tab)return jarForTab(sender.tab);
-  // The popup: the window it was opened from.
+  // Desktop popup (or Firefox for Android popup view where sender.tab is absent and chrome.windows is unavailable).
   let win=null;try{win=await chrome.windows?.getLastFocused?.({populate:true});}catch{}
-  const tab=(win?.tabs || []).find(t=>t.active) || win?.tabs?.[0];
-  return jarForTab({...tab,windowId:win?.id,incognito:win?.incognito ?? tab?.incognito});
+  let tab=(win?.tabs || []).find(t=>t.active) || win?.tabs?.[0];
+  if(!tab)tab=await activeTab();
+  if(!tab && !win)return jarForTab({});
+  return jarForTab({...tab,windowId:tab?.windowId ?? win?.id,incognito:tab?.incognito ?? win?.incognito});
  }
  async function cookieStores(){try{return await chrome.cookies.getAllCookieStores?.() || [];}catch{return [];}}
  async function jarForTab(tab){
   if(tab.incognito==null && !tab.cookieStoreId && Number.isInteger(tab.id)){
    try{tab={...tab,...await chrome.tabs.get?.(tab.id)};}catch{}
   }
-  const store=!tab.cookieStoreId && tab.incognito!==false && Number.isInteger(tab.id)
-   ? (await cookieStores()).find(entry=>entry.tabIds?.includes(tab.id)):null;
+  const stores=!tab.cookieStoreId && tab.incognito!==false?await cookieStores():[];
+  const store=(Number.isInteger(tab.id)?stores.find(entry=>entry.tabIds?.includes(tab.id)):null)
+   || (tab.incognito===true?stores.find(entry=>entry.incognito===true || privateId(entry.id)):null);
   const id=tab.cookieStoreId || store?.id,priv=tab.incognito===true || store?.incognito===true || privateId(id);
   if(priv && (!id || normalId(id)))throw Error('Reddit’s private cookie store is unavailable in this window.');
   return {id,private:priv,windowId:tab.windowId};
@@ -120,7 +147,9 @@
   if(message.action==='list'){
    const signedOut=!await signedIn(jar) || redditPage(sender) && !ownerOK(owner);
    const current=signedOut || s.anonymous?'':redditPage(sender)?owner:s.current;
-   return {ok:true,accounts:view(s,current),current,signedOut,anonymous:s.anonymous,private:Boolean(jar.private)};
+   const detecting=Boolean(popupPage(sender) && !signedOut && !s.anonymous && !(ownerOK(current) && known(s,current)));
+   if(detecting)askToReport(jar).catch(()=>{});
+   return {ok:true,accounts:view(s,current),current,signedOut,anonymous:s.anonymous,private:Boolean(jar.private),...(detecting?{detecting:true}:{})};
   }
   if(message.action==='remember'){
    // A page reports who is signed in now. A switch that did not land on its target means that session expired.
