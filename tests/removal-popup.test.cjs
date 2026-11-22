@@ -110,18 +110,31 @@ test('History menu escapes the masked settings panel, uses uniform rows and stay
   menu.dispatchEvent(new s.W.Event('scroll'));assert.equal(menu.hidden,false,'scrolling the overlay does not dismiss it');
 });
 
-test('Performance consolidates smooth scrolling into one Feeds toggle with nested Beta Long comment threads',async t=>{
+test('Performance keeps Smooth scrolling clean with a collapsible Choose surfaces drawer for all 5 regions',async t=>{
   const s=await setup(t),d=s.W.document,box=d.querySelector('#smooth-feeds');await settle();
   assert.ok(box);assert.equal(box.dataset.setting,'smoothFeeds');assert.equal(box.checked,true);
   assert.equal(box.closest('section').getAttribute('aria-labelledby'),'performance-heading');
   assert.equal(box.closest('.setting-row').dataset.requires,undefined);
+  const toggle=d.querySelector('#smooth-surfaces-toggle'),body=d.querySelector('#smooth-surfaces'),badge=d.querySelector('#smooth-surfaces-badge');
+  assert.equal(toggle.getAttribute('aria-expanded'),'false','surface fine-tuning drawer starts collapsed');
+  assert.equal(body.dataset.open,'false');
+  assert.equal(badge.textContent,'4 of 5 on');
+  toggle.click();await settle();
+  assert.equal(toggle.getAttribute('aria-expanded'),'true');
+  assert.equal(body.dataset.open,'true');
   const subs=[...d.querySelectorAll('.setting-row[data-requires="smooth-feeds"]')];
-  assert.deepEqual(subs.map(r=>r.querySelector('input').dataset.setting+':'+r.querySelector('input').checked),['smoothComments:false']);
-  assert.equal(subs[0].dataset.level,'2');
-  assert.equal(subs[0].querySelector('.badge-beta')?.textContent,'Beta');
+  assert.deepEqual(subs.map(r=>r.querySelector('input').dataset.setting+':'+r.querySelector('input').checked),[
+    'smoothHome:true','smoothSubreddits:true','smoothProfiles:true','smoothSearch:true','smoothComments:false'
+  ]);
+  assert.equal(d.querySelector('#smooth-comments').closest('.setting-row').querySelector('.badge-beta')?.textContent,'Beta');
+  d.querySelector('#smooth-home').click();await settle();
+  assert.equal(s.storage['rt-settings-v1'].smoothHome,false);
+  assert.equal(badge.textContent,'3 of 5 on');
   d.querySelector('#smooth-comments').click();await settle();
   assert.equal(s.storage['rt-settings-v1'].smoothComments,true);
+  assert.equal(badge.textContent,'4 of 5 on');
   box.click();await settle();
   assert.equal(s.storage['rt-settings-v1'].smoothFeeds,false);
-  assert.equal(subs[0].hidden,true,'nested comment option folds away when smoothFeeds is off');
+  assert.equal(toggle.closest('.drawer-section').hidden,true,'Choose surfaces drawer hides when smoothFeeds is off');
+  assert.equal(subs.every(r=>r.hidden),true,'all surface rows fold away when smoothFeeds is off');
 });

@@ -78,12 +78,41 @@
         <div class="card-heading"><h2 id="performance-heading">Performance</h2><span class="group-count"></span></div>
         <div class="setting-row">
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M11.3 1.8a.8.8 0 0 1 .7.92L10.8 8h4.5a.8.8 0 0 1 .64 1.28l-7 9.2a.8.8 0 0 1-1.42-.65L8.9 12H4.7a.8.8 0 0 1-.64-1.28l6.6-8.68a.8.8 0 0 1 .64-.24Z"/></svg></span>
-          <div class="setting-copy"><label for="smooth-feeds">Smooth scrolling</label><p id="smooth-feeds-desc">Optimize Home, Popular, All, Subreddits, Profiles, and Search feeds while scrolling.</p></div>
+          <div class="setting-copy"><label for="smooth-feeds">Smooth scrolling</label><p id="smooth-feeds-desc">Reuse page measurements while scrolling and skip drawing far off-screen content on desktop.</p></div>
           <input class="switch" type="checkbox" id="smooth-feeds" data-setting="smoothFeeds" aria-describedby="smooth-feeds-desc">
         </div>
-        <div class="setting-row" data-requires="smooth-feeds" data-level="2">
-          <div class="setting-copy"><label for="smooth-comments">Long comment threads <span class="badge badge-beta">Beta</span></label><p id="smooth-comments-desc">Skip drawing top-level comments far off screen on desktop.</p></div>
-          <input class="switch" type="checkbox" id="smooth-comments" data-setting="smoothComments" aria-describedby="smooth-comments-desc">
+        <div class="drawer-section" data-requires="smooth-feeds">
+          <button id="smooth-surfaces-toggle" class="drawer-toggle" type="button" aria-expanded="false" aria-controls="smooth-surfaces">
+            <span class="drawer-copy">
+              <span class="drawer-title">Choose surfaces <span id="smooth-surfaces-badge" class="badge badge-accent"></span></span>
+              <span class="drawer-subtitle">Home, Subreddits, Profiles, Search &amp; comment threads</span>
+            </span>
+            <svg class="drawer-chevron" aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg>
+          </button>
+          <div id="smooth-surfaces" class="drawer-body" data-open="false">
+            <div class="drawer-inner" inert>
+              <div class="setting-row" data-requires="smooth-feeds" data-detail>
+                <div class="setting-copy"><label for="smooth-home">Home, Popular &amp; All</label><p id="smooth-home-desc">Your home feed and Reddit’s shared feeds.</p></div>
+                <input class="switch" type="checkbox" id="smooth-home" data-setting="smoothHome" data-count="exclude" aria-describedby="smooth-home-desc">
+              </div>
+              <div class="setting-row" data-requires="smooth-feeds" data-detail>
+                <div class="setting-copy"><label for="smooth-subreddits">Subreddits</label><p id="smooth-subreddits-desc">Community feeds.</p></div>
+                <input class="switch" type="checkbox" id="smooth-subreddits" data-setting="smoothSubreddits" data-count="exclude" aria-describedby="smooth-subreddits-desc">
+              </div>
+              <div class="setting-row" data-requires="smooth-feeds" data-detail>
+                <div class="setting-copy"><label for="smooth-profiles">Profiles</label><p id="smooth-profiles-desc">User profiles, including feeds loaded by profile search.</p></div>
+                <input class="switch" type="checkbox" id="smooth-profiles" data-setting="smoothProfiles" data-count="exclude" aria-describedby="smooth-profiles-desc">
+              </div>
+              <div class="setting-row" data-requires="smooth-feeds" data-detail>
+                <div class="setting-copy"><label for="smooth-search">Search results</label><p id="smooth-search-desc">Post results on Reddit search.</p></div>
+                <input class="switch" type="checkbox" id="smooth-search" data-setting="smoothSearch" data-count="exclude" aria-describedby="smooth-search-desc">
+              </div>
+              <div class="setting-row" data-requires="smooth-feeds">
+                <div class="setting-copy"><label for="smooth-comments">Long comment threads <span class="badge badge-beta">Beta</span></label><p id="smooth-comments-desc">Skip drawing top-level comments far off screen on desktop.</p></div>
+                <input class="switch" type="checkbox" id="smooth-comments" data-setting="smoothComments" aria-describedby="smooth-comments-desc">
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

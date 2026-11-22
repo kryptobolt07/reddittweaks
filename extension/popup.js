@@ -11,11 +11,10 @@ const FALLBACK_SETTINGS_DEFAULTS={
   subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,
   modUnapprovedFilter:true,raffles:true,downloadMedia:true,
   ownRemoval:false,removalNotifications:false,historyLimit:20,
-  smoothFeeds:true,smoothComments:false,hideMatureOverlay:true,
-  revealNsfwPostMedia:false,chatSearch:true,...FALLBACK_VIDEO_DEFAULTS
+  smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,
+  hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,...FALLBACK_VIDEO_DEFAULTS
 };
 function fallbackNormalizeSettings(raw){
-  const legacyFeedsOff=raw?.smoothHome===false && raw?.smoothSubreddits===false && raw?.smoothProfiles===false && raw?.smoothSearch===false;
   const starts=['default','autoplay','preview','play'];
   const mapStart=v=>starts.includes(v)?v:v==='hover'||v==='stop'?'preview':v==='reddit'?'default':null;
   const pick=(k,allowed,fb)=>allowed.includes(raw?.[k])?raw[k]:fb;
@@ -32,7 +31,11 @@ function fallbackNormalizeSettings(raw){
     ownRemoval:raw?.ownRemoval===true,
     removalNotifications:raw?.removalNotifications===true,
     historyLimit:FALLBACK_HISTORY_LIMITS.includes(raw?.historyLimit)?raw.historyLimit:20,
-    smoothFeeds:raw?.smoothFeeds===false || legacyFeedsOff?false:true,
+    smoothFeeds:raw?.smoothFeeds!==false,
+    smoothHome:raw?.smoothHome!==false,
+    smoothSubreddits:raw?.smoothSubreddits!==false,
+    smoothProfiles:raw?.smoothProfiles!==false,
+    smoothSearch:raw?.smoothSearch!==false,
     smoothComments:raw?.smoothComments===true,
     hideMatureOverlay:raw?.hideMatureOverlay!==false,
     revealNsfwPostMedia:raw?.revealNsfwPostMedia===true,
@@ -67,7 +70,6 @@ const SETTINGS_DEFAULTS=Model.SETTINGS_DEFAULTS;
 const VIDEO_DEFAULTS=Model.VIDEO_DEFAULTS;
 const normalizeSettings=Model.normalizeSettings;
 const DEPRECATED_KEYS=[
-  'smoothHome','smoothSubreddits','smoothProfiles','smoothSearch',
   'videoStartTouch','embedStartTouch','gifStartTouch','videoPreviews','videoPreviewsInView',
   'videoPreviewClick','videoPreviewClickPlays','videoPreviewFrom','videoPreviewRestart','videoUnmutePreview'
 ];
@@ -300,22 +302,24 @@ document.getElementById('reset-video-defaults')?.addEventListener('click',async 
   }).finally(()=>{button.disabled=false;});
 });
 
-// Collapsible Enhancements drawer
-const enhancementsToggle=document.getElementById('enhancements-toggle');
+// Collapsible drawers (Smooth scrolling surfaces & Videos Enhancements)
 const enhancementsBody=document.getElementById('video-enhancements');
-if(enhancementsToggle && enhancementsBody){
-  const inner=enhancementsBody.querySelector('.drawer-inner');
+const smoothSurfacesBody=document.getElementById('smooth-surfaces');
+for(const toggle of document.querySelectorAll('.drawer-toggle[aria-controls]')){
+  const body=document.getElementById(toggle.getAttribute('aria-controls'));
+  if(!body)continue;
+  const inner=body.querySelector('.drawer-inner');
   const setDrawer=open=>{
-    enhancementsToggle.setAttribute('aria-expanded',String(open));
-    enhancementsBody.dataset.open=String(open);
+    toggle.setAttribute('aria-expanded',String(open));
+    body.dataset.open=String(open);
     if(inner){
       if(open)inner.removeAttribute('inert');
       else inner.setAttribute('inert','');
     }
     settled();
   };
-  enhancementsToggle.addEventListener('click',()=>setDrawer(enhancementsToggle.getAttribute('aria-expanded')!=='true'));
-  enhancementsBody.addEventListener('transitionend',()=>settled());
+  toggle.addEventListener('click',()=>setDrawer(toggle.getAttribute('aria-expanded')!=='true'));
+  body.addEventListener('transitionend',()=>settled());
 }
 
 // Direct embed controls: explicit Grant access / Revoke access permission button.
@@ -421,6 +425,11 @@ function isDeviceHidden(el){
   return Boolean(scoped && scoped.dataset.device!==activeDevice);
 }
 function syncDependencies(){
+  for(const drawer of document.querySelectorAll('.drawer-section[data-requires]')){
+    if(isDeviceHidden(drawer))continue;
+    const parent=document.getElementById(drawer.dataset.requires);
+    drawer.hidden=!Boolean(parent?.checked);
+  }
   for(const row of document.querySelectorAll('.setting-row[data-requires]')){
     if(isDeviceHidden(row))continue;
     const parent=document.getElementById(row.dataset.requires),ancestor=parent?.closest('.setting-row[data-requires]');
@@ -506,6 +515,14 @@ function syncSummary(){
     }
   }
 
+  // Smooth scrolling surfaces drawer live badge.
+  const smoothBadge=document.getElementById('smooth-surfaces-badge');
+  if(smoothBadge && smoothSurfacesBody){
+    const surfaceControls=[...smoothSurfacesBody.querySelectorAll('[data-setting]')];
+    const surfaceActive=surfaceControls.filter(c=>c.checked && !c.closest('.setting-row')?.classList.contains('is-inactive')).length;
+    smoothBadge.hidden=surfaceControls.length===0;
+    smoothBadge.textContent=surfaceActive+' of '+surfaceControls.length+' on';
+  }
   // Enhancements drawer live badge & Videos & Embeds Reset button visibility.
   const enhBadge=document.getElementById('enhancements-badge');
   if(enhBadge && enhancementsBody){

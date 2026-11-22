@@ -8,7 +8,7 @@ test('automatic deleted-content restoration defaults on independently of archive
  assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{
   postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
   cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,
-  historyLimit:20,smoothFeeds:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,
+  historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,
   videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
   singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
  });
@@ -22,10 +22,12 @@ test('automatic deleted-content restoration defaults on independently of archive
 });
 test('legacy 0.46–0.54 settings migrate cleanly to canonical rt-settings-v1 while fresh installs remain passive',()=>{
  const m=model();
- // Performance consolidation: turning off all 4 legacy feed toggles migrates smoothFeeds to false.
- assert.equal(m.normalizeSettings({smoothFeeds:true,smoothHome:false,smoothSubreddits:false,smoothProfiles:false,smoothSearch:false}).smoothFeeds,false);
- assert.equal(m.normalizeSettings({smoothFeeds:true,smoothHome:false,smoothSubreddits:true,smoothProfiles:false,smoothSearch:false}).smoothFeeds,true);
- assert.equal('smoothHome' in m.normalizeSettings({smoothHome:false}),false);
+ // Per-surface smooth scrolling controls remain independently configurable.
+ assert.equal(m.normalizeSettings({smoothFeeds:true,smoothHome:false,smoothSubreddits:true,smoothProfiles:false,smoothSearch:true}).smoothFeeds,true);
+ assert.equal(m.normalizeSettings({smoothHome:false}).smoothHome,false);
+ assert.equal(m.normalizeSettings({smoothProfiles:false}).smoothProfiles,false);
+ assert.equal(m.normalizeSettings({smoothSubreddits:false}).smoothSubreddits,false);
+ assert.equal(m.normalizeSettings({smoothSearch:false}).smoothSearch,false);
  // Feed start migration (desktop hover, touch stop, 0.48 reddit, 0.46 videoPreviewsInView)
  assert.equal(m.videoSettings({videoStart:'hover'}).videoStart,'preview');
  assert.equal(m.videoSettings({videoStartTouch:'stop'}).videoStart,'preview');

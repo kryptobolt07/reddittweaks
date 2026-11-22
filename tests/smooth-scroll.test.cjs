@@ -12,7 +12,7 @@ function page(t,{path='/',html}={}){
  const fire=(el,{intersecting=false,height=500}={})=>io.callback([{target:el,isIntersecting:intersecting,boundingClientRect:{height}}]);
  return {W,d:W.document,io,fire};
 }
-test('feeds share one smoothFeeds toggle; comment threads are opt-in and governed by smoothFeeds',t=>{
+test('each smooth scrolling region is independently configurable under smoothFeeds, with comments opt-in',t=>{
  const {W}=page(t),{area,enabled}=W.RTSmoothScroll;
  const cases={'/':'home','/r/popular/':'home','/r/all/top/':'home','/r/pics/':'subreddits','/r/pics/new/':'subreddits','/r/pics/comments/abc/title/':'comments','/search/':'search','/r/pics/search/':'search','/user/someone/':'profiles','/user/someone/comments/':'profiles'};
  for(const [path,name] of Object.entries(cases))assert.equal(area(path),name,path);
@@ -20,8 +20,10 @@ test('feeds share one smoothFeeds toggle; comment threads are opt-in and governe
  assert.equal(enabled({},'comments'),false);assert.equal(enabled({smoothComments:true},'comments'),true);
  assert.equal(enabled({smoothFeeds:false,smoothComments:true},'comments'),false);
  assert.equal(enabled({smoothFeeds:false},'home'),false);
- assert.equal(enabled({smoothHome:false,smoothSubreddits:false,smoothProfiles:false,smoothSearch:false},'subreddits'),false,'legacy all-4-off stays off');
- assert.equal(enabled({smoothHome:false},'home'),true,'partial legacy off consolidates to smoothFeeds');
+ assert.equal(enabled({smoothHome:false},'home'),false,'home can be toggled off independently');
+ assert.equal(enabled({smoothHome:false},'subreddits'),true,'turning off home leaves subreddits on');
+ assert.equal(enabled({smoothProfiles:false},'profiles'),false,'profiles can be toggled off independently');
+ assert.equal(enabled({smoothSearch:false},'search'),false,'search can be toggled off independently');
 });
 test('posts and ads far off screen skip drawing at their measured height, come back near the screen, and never while focused',async t=>{
  const {W,d,io,fire}=page(t);const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>({}),observe:false});await s.ready;

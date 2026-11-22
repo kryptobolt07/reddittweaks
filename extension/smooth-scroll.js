@@ -23,8 +23,8 @@
   if(/^\/r\/[^/]+/i.test(path))return 'subreddits';
   return 'home';
  }
- const feedsEnabled=settings=>settings?.smoothFeeds!==false && !(settings?.smoothHome===false && settings?.smoothSubreddits===false && settings?.smoothProfiles===false && settings?.smoothSearch===false);
- const enabled=(settings,name)=>feedsEnabled(settings) && (name==='comments'?settings?.smoothComments===true:true);
+ const KEYS={home:'smoothHome',subreddits:'smoothSubreddits',profiles:'smoothProfiles',search:'smoothSearch',comments:'smoothComments'};
+ const enabled=(settings,name)=>settings?.smoothFeeds!==false && (name==='comments'?settings?.[KEYS[name]]===true:settings?.[KEYS[name]]!==false);
  const selectorFor=name=>(name==='comments'?UNITS.comments:name==='search'?UNITS.search:UNITS.feed)+', '+OWN;
 
  class Smooth{

@@ -391,22 +391,25 @@ test('adaptive platform copy switches between mouse and touch labels without dup
   assert.equal(touch.state['rt-settings-v1'].videoStart,'preview');
 });
 
-test('legacy saved settings migrate cleanly in popup and deprecated keys are stripped on write',async t=>{
-  const legacy={videoPreviews:false,videoPreviewsInView:true,videoPreviewClick:'here',videoUnmutePreview:false,smoothHome:false,smoothSubreddits:false,smoothProfiles:false,smoothSearch:false,futureOption:'keep'};
+test('legacy saved settings migrate cleanly in popup while preserving per-surface smooth toggles and stripping deprecated media keys',async t=>{
+  const legacy={videoPreviews:false,videoPreviewsInView:true,videoPreviewClick:'here',videoUnmutePreview:false,smoothHome:false,smoothSubreddits:true,smoothProfiles:false,smoothSearch:true,futureOption:'keep'};
   const p=popup(t,{storedTab:'settings',settings:{'rt-settings-v1':legacy}});await settle();
   const doc=p.w.document;
   assert.equal(doc.getElementById('video-start').textContent.trim(),'On hover');
   assert.equal(doc.getElementById('media-click-action').textContent.trim(),'Play in feed');
   assert.equal(doc.getElementById('click-audio').textContent.trim(),'Keep muted');
-  assert.equal(doc.getElementById('smooth-feeds').checked,false,'all-off legacy smooth flags migrate to smoothFeeds:false');
+  assert.equal(doc.getElementById('smooth-feeds').checked,true);
+  assert.equal(doc.getElementById('smooth-home').checked,false,'saved per-surface smooth toggles are preserved');
+  assert.equal(doc.getElementById('smooth-subreddits').checked,true);
+  assert.equal(doc.getElementById('smooth-profiles').checked,false);
+  assert.equal(doc.getElementById('smooth-surfaces-badge').textContent,'2 of 5 on');
 
-  // Re-enabling smoothFeeds clears legacy smooth keys so smoothFeeds stays true.
-  doc.getElementById('smooth-feeds').click();await settle();
-  assert.equal(p.state['rt-settings-v1'].smoothFeeds,true);
-  assert.equal('smoothHome' in p.state['rt-settings-v1'],false);
+  doc.getElementById('smooth-home').click();await settle();
+  assert.equal(p.state['rt-settings-v1'].smoothHome,true);
+  assert.equal(p.state['rt-settings-v1'].smoothProfiles,false);
   assert.equal('videoPreviewClick' in p.state['rt-settings-v1'],false);
   assert.equal(p.state['rt-settings-v1'].futureOption,'keep','unknown keys preserved');
-  assert.equal(p.w.RTPostModel.normalizeSettings(p.state['rt-settings-v1']).smoothFeeds,true);
+  assert.equal(doc.getElementById('smooth-surfaces-badge').textContent,'3 of 5 on');
 });
 
 test('popup styles: fixed desktop height, scroll fade, fluid touch targets, and desktop FOUC guard',()=>{

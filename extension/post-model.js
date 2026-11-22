@@ -88,6 +88,10 @@
     removalNotifications:false,
     historyLimit:20,
     smoothFeeds:true,
+    smoothHome:true,
+    smoothSubreddits:true,
+    smoothProfiles:true,
+    smoothSearch:true,
     smoothComments:false,
     hideMatureOverlay:true,
     revealNsfwPostMedia:false,
@@ -95,7 +99,6 @@
     ...VIDEO_DEFAULTS
   });
   function normalizeSettings(raw){
-    const legacyFeedsOff=raw?.smoothHome===false && raw?.smoothSubreddits===false && raw?.smoothProfiles===false && raw?.smoothSearch===false;
     return {
       postDiscovery:raw?.postDiscovery!==false,
       archiveDiscovery:raw?.archiveDiscovery===true,
@@ -109,7 +112,11 @@
       ownRemoval:raw?.ownRemoval===true,
       removalNotifications:raw?.removalNotifications===true,
       historyLimit:HISTORY_LIMITS.includes(raw?.historyLimit)?raw.historyLimit:20,
-      smoothFeeds:raw?.smoothFeeds===false || legacyFeedsOff?false:true,
+      smoothFeeds:raw?.smoothFeeds!==false,
+      smoothHome:raw?.smoothHome!==false,
+      smoothSubreddits:raw?.smoothSubreddits!==false,
+      smoothProfiles:raw?.smoothProfiles!==false,
+      smoothSearch:raw?.smoothSearch!==false,
       smoothComments:raw?.smoothComments===true,
       hideMatureOverlay:raw?.hideMatureOverlay!==false,
       revealNsfwPostMedia:raw?.revealNsfwPostMedia===true,
