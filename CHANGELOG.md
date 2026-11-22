@@ -1,3 +1,10 @@
+# 0.57.0 preview
+
+- **Promoted Seamless post transition & separate post-card click audio policy:** moved **Seamless post transition** (`videoOpenPost`) out of the collapsed **Enhancements** drawer into the main **Videos & Embeds** section under **Click, Audio & Post Transition** with a custom mini-player-to-post transition icon, and added a nested **Post card click audio** (`cardClickAudio`: `Keep current audio` · `Keep muted` · `Unmute on open`) control so clicking a post card/title around a video can follow an independent audio policy from clicking the video/embed itself (`Video click audio`).
+- **Seamless transition for Reddit-default autoplayed media:** feed videos and embeds started natively under `Reddit Default` start modes now transition smoothly into the post when **Seamless post transition** is enabled.
+- **Version:** minor increment for adding the independent post-card click audio policy alongside the promoted **Seamless post transition** control and native-autoplay handoff support.
+- **Validation:** all 2,159 tests passed, including new post-card vs. video-click audio policy tests, Reddit-default seamless handoff tests, and popup dependency/count checks. Both ZIPs matched the source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings, and notices. Chromium SHA-256 `84f5e0be7a21fb35c99feed8a71cf89b275a4f2a2ddf41c389771b912bd2da66`. Firefox SHA-256 `5cbf1872d01fd1018aa4dc54fd3ee2ca2bb01bde44048006654bc71f78eb93d8`.
+
 # 0.56.1 preview
 
 - **Firefox for Android private-tab account detection:** fixed the popup cookie-store lookup when `browser.windows` is unavailable (falling back to `tabs.query({ active: true })` and most recently accessed non-popup tab when opened without `openerTabId`), prioritized `tab.incognito` over single-window `win.incognito`, added a private-store fallback in `jarForTab`, and made popup account listing nudge unreported signed-in Reddit tabs automatically.
