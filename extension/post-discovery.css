@@ -203,8 +203,11 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-filter-chips[hidden]{display:none!important}
 /* Same pill as the chat search filters: tinted border and fill, small label, round remove button. */
 .rt-filter-chip{flex:0 0 auto;min-width:0;max-width:min(260px,75vw)}
-/* Reddit's rpl-input-chip draws the pill itself; this look is only a fallback before it is defined. */
-.rt-filter-chip:not(:defined){display:inline-flex;flex:0 0 auto;align-items:center;gap:5px;min-width:0;max-width:min(260px,75vw);min-height:26px;box-sizing:border-box;padding:2px 4px 2px 8px;border:1px solid color-mix(in srgb,#ff4500 22%,var(--color-neutral-border,#dfe6e9));border-radius:999px;background:color-mix(in srgb,#ff4500 6%,var(--color-neutral-background,#fff));color:var(--color-neutral-content-strong,#172328);font-size:12px;font-weight:400;line-height:1.35}
+/* Match Reddit's bordered input chip before the custom element upgrades. */
+.rt-filter-chip:not(:defined){display:inline-flex;align-items:center;min-height:32px;box-sizing:border-box;padding:3px 5px 3px 11px;border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:8px;background:transparent;color:var(--color-neutral-content-strong,#172328);font-size:12px;font-weight:600;line-height:16px}
+.rt-filter-chip:not(:defined) .rt-filter-chip-lead{margin-inline-end:5px}
+.rt-filter-chip:not(:defined) .rt-filter-chip-icon,.rt-filter-chip:not(:defined) .rt-filter-chip-icon svg{width:16px;height:16px}
+.rt-filter-chip:not(:defined) .rt-filter-chip-remove{flex-basis:16px;width:16px;height:16px;margin-inline-start:4px;color:inherit}
 .rt-filter-chip-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px;border-radius:50%;overflow:hidden;color:var(--color-neutral-content-weak,#52656c)}
 .rt-filter-chip-icon svg{width:14px;height:14px}
 .rt-filter-chip-icon img,.rt-filter-chip-icon .rt-community-img{display:block;width:16px;height:16px;object-fit:cover;object-position:50% 50%;border-radius:50%}
@@ -744,7 +747,7 @@ html[data-rt-smooth-feed] shreddit-feed[data-rt-loading-owner]>[data-rt-skip]{co
 /* Before Reddit's script defines the post menu (slow connections), its light-DOM children render in place: keep the
    raffle item hidden until the menu can slot it into its closed popup. */
 shreddit-post-overflow-menu:not(:defined)>[slot="devvit-context-actions"]{display:none!important}
-@media (max-width:767.98px){#post-overflow-menu-bottom-sheet .max-h-\[19rem\]{max-height:none!important;overflow:visible!important}}
+@media (max-width:767.98px){#post-overflow-menu-bottom-sheet .max-h-\[19rem\]{max-height:calc(100dvh - 56px - env(safe-area-inset-bottom,0px))!important;overflow-y:auto!important;overscroll-behavior:contain;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}}
 /* Compact native header on upward scrolling from mobile Home. */
 reddit-header-small [data-rt-home-search]{display:none}
 @media (max-width:767.98px){
@@ -831,11 +834,11 @@ dialog.rt-fsheet-root .rt-fsheet-body{min-height:0}
 [data-rt-community-outgoing],[data-rt-community-restoring]{visibility:hidden!important;opacity:0!important;pointer-events:none!important}
 [data-rt-community-filtered],[data-rt-community-paused],[data-rt-community-sort-replaced],.rt-community-note [hidden]{display:none!important}
 html[data-rt-community-sort-boot] main shreddit-sort-dropdown:is([sort-event="feed-sort-change"],[sort-event="feed-time-sort-change"]):not([data-rt-community-sort-native]){display:none!important}
-.rt-community-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding-block:4px 8px}
+.rt-community-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0;max-width:100%;box-sizing:border-box;padding-block:4px 8px}
 .rt-community-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;margin:0;padding:0 12px;border:0;border-radius:999px;background:transparent;color:var(--color-secondary-plain,#0f1a1c);font:600 12px/16px var(--font-sans,inherit);text-decoration:none;cursor:pointer}
 .rt-community-button:hover{background:var(--color-secondary-background-hover,#e5ebee);text-decoration:none}
 .rt-community-button:focus-visible,.rt-community-flair-form input:focus-visible{outline:2px solid var(--color-global-focus,#0079d3);outline-offset:2px}
-.rt-community-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0;margin:0}
+.rt-community-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0;max-width:100%;margin:0}
 .rt-community-note{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 12px;font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-community-flair-form{display:flex;gap:8px;padding:8px 16px 12px}
 .rt-community-flair-form input{flex:1;min-width:0;margin:0;padding:8px 12px;border:1px solid var(--color-neutral-border,#ccd2d4);border-radius:999px;background:var(--color-neutral-background,#fff);color:inherit;font:inherit}

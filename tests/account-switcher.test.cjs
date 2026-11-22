@@ -262,8 +262,10 @@ test('a page whose signed-in state arrives late still reports it, and reports ag
  const s=new W.RTAccountSwitcher.Switcher({send:async message=>{sent.push(message.action+':'+(message.owner ?? ''));return {ok:true};}});t.after(()=>{s.destroy();W.close();});
  await s.ready;await flush();assert.deepEqual(sent,[],'nothing to report before Reddit’s app element exists');
  W.document.body.insertAdjacentHTML('beforeend','<shreddit-app></shreddit-app>');s.scan();await flush();
- assert.deepEqual(sent,['remember:'],'signed out so far');
- const app=W.document.querySelector('shreddit-app');app.setAttribute('user-logged-in','true');app.setAttribute('logged-in-user-id','t2_alice');
+ assert.deepEqual(sent,[],'an incomplete shreddit-app header does not falsely report signed out');
+ const app=W.document.querySelector('shreddit-app');app.setAttribute('user-logged-in','false');s.scan();await flush();
+ assert.deepEqual(sent,['remember:'],'signed out once Reddit reports user-logged-in=false');
+ app.setAttribute('user-logged-in','true');app.setAttribute('logged-in-user-id','t2_alice');
  s.scan();await flush();s.scan();await flush();
  assert.deepEqual(sent,['remember:','remember:t2_alice'],'reported once Reddit says who is signed in');
 });

@@ -25,11 +25,24 @@
  const icon=(name,size=20)=>{if(STROKES[name]){const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','none');s.setAttribute('stroke','currentColor');s.setAttribute('stroke-width','1.7');s.setAttribute('stroke-linecap','round');s.setAttribute('stroke-linejoin','round');s.setAttribute('aria-hidden','true');s.dataset.rtIcon=name;for(const d of STROKES[name]){const p=document.createElementNS(SVG,'path');p.setAttribute('d',d);s.append(p);}return s;}
   const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','currentColor');s.setAttribute('aria-hidden','true');s.dataset.rtIcon=name;const p=document.createElementNS(SVG,'path');p.setAttribute('d',ICONS[name]);s.append(p);return s;};
  const send=message=>new Promise(resolve=>{try{chrome.runtime.sendMessage({scope:'rt-accounts',...message},response=>{void chrome.runtime.lastError;resolve(response || {ok:false,error:'Accounts are unavailable. Reload this tab.'});});}catch{resolve({ok:false,error:'Accounts are unavailable. Reload this tab.'});}});
- // Reddit's logged-in account ID; '' when signed out; null before Reddit's app element exists.
- const signedIn=()=>{const app=document.querySelector('shreddit-app');if(!app)return null;const owner=(app.getAttribute('logged-in-user-id') || '').toLowerCase();return app.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(owner)?owner:'';};
- const profileRow=menu=>{for(const li of menu.querySelectorAll('li')){const href=li.querySelector(':scope > a')?.getAttribute('href') || '';if(/^\/user\/[\w-]{3,20}\/?$/.test(href))return li;}return null;};
- // Signed out, Reddit's menu starts with its Log In row: the switcher sits after that one.
- const firstRow=menu=>[...menu.querySelectorAll('ul li')].find(li=>li.querySelector(':scope > a, :scope > button') && !li.closest('[data-rt-ui]')) || null;
+ const profileName=row=>/^\/user\/([\w-]{3,20})\/?$/i.exec(row?.querySelector(':scope > a')?.getAttribute('href') || '')?.[1] || '';
+ const profileRow=menu=>[...menu.querySelectorAll('li')].find(li=>!li.closest('[data-rt-ui]') && profileName(li)) || null;
+ const loginRow=menu=>[...menu.querySelectorAll('ul li')].find(li=>{
+  if(li.closest('[data-rt-ui]'))return false;
+  const action=li.querySelector(':scope > a, :scope > button');
+  return /^\/(?:login|register)(?:[/?#]|$)/i.test(action?.getAttribute('href') || '') ||
+    Boolean(action?.matches('button') && /^(?:log in|sign in|log in \/ sign up)$/i.test((action.getAttribute('aria-label') || action.textContent).trim()));
+ });
+ // An incomplete app header is distinct from Reddit reporting a signed-out session.
+ const signedIn=()=>{
+  const app=document.querySelector('shreddit-app'),status=app?.getAttribute('user-logged-in');
+  if(status==='true'){
+   const owner=(app.getAttribute('logged-in-user-id') || '').toLowerCase();
+   return /^t2_[a-z0-9]{1,13}$/.test(owner)?owner:null;
+  }
+  if(status==='false' || app && [...document.querySelectorAll(MENUS)].some(loginRow))return '';
+  return null;
+ };
  const avatarOf=root=>{
   const portrait=root?.querySelector('[avatar]') || root;
   const image=portrait?.querySelector('img[src],svg image[href]');
@@ -46,7 +59,7 @@
    this.observer=new MutationObserver(records=>{
     if(!globalThis.RTPostMenuDOM?.onlyMenuChanges(records))this.schedule();
    });
-   this.observer.observe(document.documentElement,{childList:true,subtree:true});
+   this.observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['user-logged-in','logged-in-user-id']});
    // Opening Reddit's menu again always starts from its own view.
    this.onPress=event=>{if(event.target?.closest?.('#expand-user-drawer-button'))for(const menu of document.querySelectorAll(MENUS))this.closePanel(menu);};
    this.onKey=event=>{if(event.key!=='Escape')return;const menu=[...document.querySelectorAll(MENUS)].find(m=>this.panels.get(m)?.open);if(!menu)return;event.preventDefault();event.stopPropagation();this.closePanel(menu,true);};
@@ -60,25 +73,66 @@
   remember(){
    const owner=signedIn();if(owner===null || this.remembering)return this.remembering || Promise.resolve(false);
    this.remembering=this.send({action:'remember',owner}).then(async result=>{
-    this.anonymous=result?.anonymous===true;
-    if(result?.save)await this.saveNew(owner);
-    if(result?.ok!==false){this.remembered=true;this.reported=owner;}
+    if(!result?.ok || this.dead || signedIn()!==owner)return false;
+    if(result.save){
+     this.awaitingIdentity=owner;
+     if((await this.saveNew(owner))?.ok)this.awaitingIdentity='';
+    }else this.awaitingIdentity='';
+    this.remembered=true;this.reported=owner;
     return true;
-   }).finally(()=>{this.remembering=null;});
+   }).finally(()=>{this.remembering=null;if(!this.dead && signedIn()!==owner)this.schedule();});
    return this.remembering;
   }
-  // Read this account's own name from Reddit once and save it.
-  async saveNew(owner){
-   try{const response=await fetch('/api/me.json',{credentials:'include',cache:'no-store',headers:{Accept:'application/json'}});if(!response.ok)return;const me=(await response.json())?.data;
-    if(!me || 't2_'+String(me.id || '').toLowerCase()!==owner || !/^[\w-]{3,20}$/.test(me.name || ''))return;
-    const avatar=avatarOf(document.getElementById('expand-user-drawer-button')) ||
-      (String(me.icon_img || '').startsWith('https://')?me.icon_img:'');
-    return this.send({action:'save-current',owner,username:me.name,avatar});}catch{}
+  nativeAccount(owner){
+   if(!owner || signedIn()!==owner)return null;
+   for(const menu of document.querySelectorAll(MENUS)){
+    const row=profileRow(menu),username=profileName(row);
+    if(username)return {username,avatar:avatarOf(row)};
+   }
+   const native=globalThis.RTNativeRemoval?.identity(document);
+   return native?.owner===owner?{username:native.username,avatar:''}:null;
+  }
+  async readAccount(owner){
+   const pageFetch=globalThis.content?.fetch?.bind(globalThis.content) || globalThis.fetch;
+   if(!pageFetch)return;
+   const options={credentials:'include',cache:'no-store',redirect:'error'};
+   // This account-specific partial is already provided by Reddit's own drawer. Its query is opaque.
+   const partial=document.querySelector('#expand-user-drawer-button')?.closest('rpl-dropdown,hui-user-drawer')
+    ?.querySelector('faceplate-partial[src*="/user-drawer-menu?"]') ||
+    document.querySelector('#user-drawer-content faceplate-partial[src],#hui-user-drawer-bottom-sheet faceplate-partial[src]');
+   if(partial)try{
+    const url=new URL(partial.getAttribute('src'),location.origin);
+    if(url.origin===location.origin && /^\/svc\/shreddit\/partial\/[\w-]+\/user-drawer-menu\/?$/.test(url.pathname)){
+     const response=await pageFetch(url.href,{...options,headers:{Accept:'text/vnd.reddit.partial+html'}});
+     if(response.ok){
+      const row=profileRow(new DOMParser().parseFromString(await response.text(),'text/html')),username=profileName(row);
+      if(username && signedIn()===owner)return {username,avatar:avatarOf(row)};
+     }
+    }
+   }catch{}
+   try{
+    const response=await pageFetch('/api/me.json',{...options,headers:{Accept:'application/json'}});if(!response.ok)return;
+    const me=(await response.json())?.data;
+    if('t2_'+String(me?.id || '').toLowerCase()===owner && /^[\w-]{3,20}$/.test(me?.name || ''))
+     return {username:me.name,avatar:String(me.icon_img || '').startsWith('https://')?me.icon_img:''};
+   }catch{}
+  }
+  async saveNew(owner,account=this.nativeAccount(owner)){
+   account ||= await this.readAccount(owner);
+   if(!account || this.dead || signedIn()!==owner)return;
+   this.captureAttempted={owner,username:account.username};
+   const avatar=avatarOf(document.getElementById('expand-user-drawer-button')) || account.avatar;
+   return this.send({action:'save-current',owner,username:account.username,avatar});
   }
   schedule(){if(this.queued || this.dead)return;this.queued=true;queueMicrotask(()=>{this.queued=false;if(!this.dead)this.scan();});}
   scan(){
    if(!this.remembering && (!this.remembered || this.reported!==signedIn()) && signedIn()!==null)this.remember().then(reported=>{if(reported && !this.dead)this.schedule();});
    const owner=signedIn(),menus=[...document.querySelectorAll(MENUS)];
+   if(!this.remembering && owner && this.awaitingIdentity===owner){
+    const account=this.nativeAccount(owner);
+    if(account && (this.captureAttempted?.owner!==owner || this.captureAttempted?.username!==account.username))
+     this.saveNew(owner,account).then(result=>{if(result?.ok){this.awaitingIdentity='';this.lists=new WeakMap();this.schedule();}});
+   }
    if(owner && this.remembered){
     const avatar=avatarOf(document.getElementById('expand-user-drawer-button')) ||
       menus.map(menu=>avatarOf(profileRow(menu))).find(Boolean);
@@ -88,7 +142,7 @@
     }
    }
    for(const menu of menus){
-    const row=owner?profileRow(menu):owner===''?firstRow(menu):null,entry=menu.querySelector('[data-rt-ui="accounts"]');
+    const row=owner?profileRow(menu):owner===''?loginRow(menu):null,entry=menu.querySelector('[data-rt-ui="accounts"]');
     if(!row){entry?.remove();this.closePanel(menu);continue;}
     const anchor=row.parentElement?.matches('faceplate-tracker')?row.parentElement:row;
     const panel=this.panels.get(menu);if(panel?.open && !panel.node.isConnected)this.openPanel(menu);
@@ -96,20 +150,22 @@
     entry?.remove();
     // Signed out, the row appears only when something is saved: decide first, so it is never added and removed again.
     if(!owner){const state=this.panels.get(menu) || {};if(state.checking || state.emptyUntil>Date.now())continue;state.checking=true;this.panels.set(menu,state);
-     this.load(menu,this.context(row,owner)).then(result=>{state.checking=false;if(this.dead || !row.isConnected)return;if(!(result?.ok && (result.accounts.length || result.anonymous))){state.emptyUntil=Date.now()+5000;return;}if(!menu.querySelector('[data-rt-ui="accounts"]'))this.render(menu,anchor,row,owner);});continue;}
+     this.load(menu,this.context(row,owner)).then(result=>{state.checking=false;if(this.dead || !row.isConnected || signedIn()!==owner)return;if(!(result?.ok && result.accounts.length)){state.emptyUntil=Date.now()+5000;return;}if(!menu.querySelector('[data-rt-ui="accounts"]'))this.render(menu,anchor,row,owner);});continue;}
     this.render(menu,anchor,row,owner);
    }
   }
   context(row,owner){
-   const href=row.querySelector(':scope > a')?.getAttribute('href') || '';
-   return {owner,username:owner?(href.split('/')[2] || ''):'',avatar:owner?avatarOf(row):''};
+   return {owner,username:owner?profileName(row):'',avatar:owner?avatarOf(row):''};
   }
   async load(menu,{owner,username,avatar}){
    let pending=this.lists.get(menu);
    if(!pending || pending.owner!==owner || Date.now()-pending.at>5000){
     const job=(async()=>{let result=await this.send({action:'list',owner});
      // First time the menu shows for an unsaved account: save it, so switching back is possible.
-     if(owner && result?.ok && !result.accounts.some(a=>a.owner===owner)){const saved=await this.send({action:'save-current',owner,username,avatar});if(saved?.ok)result={...result,ok:true,accounts:saved.accounts};}
+     if(owner && signedIn()===owner && username && result?.ok && !result.accounts.some(a=>a.owner===owner)){
+      const saved=await this.send({action:'save-current',owner,username,avatar});
+      if(saved?.ok){this.awaitingIdentity='';result={...result,...saved};}
+     }
      return result;})();
     pending={owner,at:Date.now(),job};this.lists.set(menu,pending);
    }
@@ -127,7 +183,7 @@
     if(!entry.isConnected || this.dead)return;const caption=entry.querySelector('.text-caption-1');
     if(!result?.ok){if(caption){caption.textContent=result?.error || 'Reload this tab to retry.';caption.hidden=false;}return;}
     const others=result.accounts.filter(a=>a.owner!==owner).length;
-    if(caption){caption.textContent=result.anonymous?'Browsing anonymously':others?others+(others===1?' other account':' other accounts'):'Add another account';caption.hidden=false;}
+    if(caption){caption.textContent=result.anonymous?'Browsing anonymously':!owner || result.signedOut?'Signed out here':others?others+(others===1?' other account':' other accounts'):'Add another account';caption.hidden=false;}
    });
   }
   // The panel replaces the menu's sections in place; Reddit's nodes are hidden, never removed.
@@ -149,15 +205,16 @@
    this.load(menu,me).then(result=>{
     if(!panel.isConnected || this.dead)return;
     const rows=[],rule=()=>{const li=document.createElement('li');li.setAttribute('role','separator');li.className='list-none';const hr=document.createElement('hr');hr.className='h-px w-100 bg-neutral-border-weak border-0 my-xs';li.append(hr);return li;};
-    if(!result?.ok)rows.push(this.row(state.source,{label:'Accounts unavailable',caption:result?.error || 'Reload this tab to retry.',disabled:true}));
-    else for(const account of result.accounts){
-     const current=!result.anonymous && account.owner===me.owner;
+    if(!result?.ok){panel.append(this.row(state.source,{label:'Accounts unavailable',caption:result?.error || 'Reload this tab to retry.',disabled:true}));return;}
+    const signedOut=!me.owner || result.signedOut===true || result.anonymous===true;
+    for(const account of result.accounts){
+     const current=!signedOut && account.owner===me.owner;
      rows.push(this.row(state.source,{label:'u/'+account.username,caption:current?'Signed in':account.expired?'Sign in again':account.private?'This private window':'Switch to this account',avatar:account.avatar,keepAvatar:current && Boolean(me.owner),check:current,owner:account.owner,
-      confirm:account.expired && !current,run:current?null:account.expired?()=>this.add(me):()=>this.switchTo(account.owner,me.owner)}));
+      confirm:account.expired && !current && !signedOut,run:current?null:account.expired?()=>this.add(me):()=>this.switchTo(account.owner,me.owner)}));
     }
     rows.push(rule());
-    rows.push(this.row(state.source,{label:'Anonymous browsing',caption:result?.anonymous?'Signed out here':'Use Reddit without an account',lead:'signedOut',check:result?.anonymous===true,confirm:true,run:result?.anonymous?null:()=>this.anonymousMode(me)}));
-    rows.push(this.row(state.source,{label:'Add account',caption:'Sign in to another account',lead:'add',confirm:true,run:()=>this.add(me)}));
+    rows.push(this.row(state.source,{label:'Anonymous browsing',caption:signedOut?'Signed out here':'Use Reddit without an account',lead:'signedOut',check:signedOut,confirm:!signedOut,run:signedOut?null:()=>this.anonymousMode(me)}));
+    rows.push(this.row(state.source,{label:'Add account',caption:signedOut?'Sign in to Reddit':'Sign in to another account',lead:'add',confirm:!signedOut,run:()=>this.add(me)}));
     panel.append(...rows);
     panel.querySelector('[data-owner] a[tabindex="0"],[data-rt-ui="account-row"] a[tabindex="0"]')?.focus?.({preventScroll:true});
    });
@@ -174,15 +231,16 @@
    const circle=(name,plain=false)=>{const wrap=document.createElement('span');wrap.className='rt-account-glyph'+(plain?' rt-plain':'');wrap.append(icon(name));return wrap;};
    this.accountSheet=globalThis.RTFeedSheet.open({title:'Accounts',modal:true,returnFocus:entry.querySelector(':scope > a') || entry,build:(_body,ui)=>{
     if(!result?.ok){ui.row({label:'Accounts unavailable',subtitle:result?.error || 'Reload this tab to retry.'});return;}
+    const signedOut=!me.owner || result.signedOut===true || result.anonymous===true;
     for(const account of result.accounts){
-     const current=!result.anonymous && account.owner===me.owner;
+     const current=!signedOut && account.owner===me.owner;
      ui.row({label:'u/'+account.username,subtitle:current?'Signed in':account.expired?'Sign in again':account.private?'This private window':'',avatar:current && me.owner?(account.avatar || ownAvatar() || circle('switchAccount')):(account.avatar || circle('switchAccount')),selected:current,
-      confirm:account.expired && !current,busy:account.expired?'Opening Reddit sign-in…':'Switching…',onSelect:current?()=>({ok:true,stay:true}):account.expired?()=>this.add(me):()=>this.switchTo(account.owner,me.owner),keepOpen:current,
+      confirm:account.expired && !current && !signedOut,busy:account.expired?'Opening Reddit sign-in…':'Switching…',onSelect:current?()=>({ok:true,stay:true}):account.expired?()=>this.add(me):()=>this.switchTo(account.owner,me.owner),keepOpen:current,
       action:current?{icon:icon('logout'),label:'Sign out of u/'+account.username+' here',confirm:true,busy:'Signing out here…',onSelect:()=>this.anonymousMode(me)}:null});
     }
     ui.divider();
-    ui.row({label:'Anonymous browsing',subtitle:result.anonymous?'Signed out here':'',avatar:circle('signedOut'),selected:result.anonymous===true,confirm:!result.anonymous,busy:'Signing out here…',keepOpen:result.anonymous===true,onSelect:result.anonymous?()=>({ok:true,stay:true}):()=>this.anonymousMode(me)});
-    ui.row({label:'Add account',avatar:circle('add',true),confirm:true,busy:'Opening Reddit sign-in…',onSelect:()=>this.add(me)});
+    ui.row({label:'Anonymous browsing',subtitle:signedOut?'Signed out here':'',avatar:circle('signedOut'),selected:signedOut,confirm:!signedOut,busy:'Signing out here…',keepOpen:signedOut,onSelect:signedOut?()=>({ok:true,stay:true}):()=>this.anonymousMode(me)});
+    ui.row({label:'Add account',avatar:circle('add',true),confirm:!signedOut,busy:'Opening Reddit sign-in…',onSelect:()=>this.add(me)});
    }});
   }
   closePanel(menu,focus=false){
