@@ -3,11 +3,54 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm');
 function model(){const context=vm.createContext({URL});vm.runInContext(fs.readFileSync('extension/post-model.js','utf8'),context);return context.RTPostModel;}
 const post=(extra={})=>({id:'abc12',author:'Example',created_utc:1700000000,title:'Title',selftext:'Original body',...extra});
-test('automatic deleted-content restoration defaults on independently of archive opt-in',()=>{
- const m=model();assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,videoStart:'autoplay',videoStartTouch:'autoplay',gifStart:'autoplay',gifStartTouch:'autoplay',embedStart:'autoplay',embedStartTouch:'autoplay',embedBlockLinks:'off',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'continue',videoScrollAway:'reddit'});
+test('automatic deleted-content restoration defaults on independently of archive opt-in and media defaults are passive',()=>{
+ const m=model();
+ assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{
+  postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
+  cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,
+  historyLimit:20,smoothFeeds:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,
+  videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
+  singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
+ });
+ assert.deepEqual(JSON.parse(JSON.stringify(m.SETTINGS_DEFAULTS)),JSON.parse(JSON.stringify(m.normalizeSettings())));
+ assert.deepEqual(JSON.parse(JSON.stringify(m.VIDEO_DEFAULTS)),JSON.parse(JSON.stringify(m.videoSettings())));
  assert.equal(m.normalizeSettings({restoreDeletedContent:false}).restoreDeletedContent,false);
  for(const value of [true,null,0,'false'])assert.equal(m.normalizeSettings({restoreDeletedContent:value}).restoreDeletedContent,true);
  assert.equal(m.normalizeSettings({restoreDeletedContent:true,archiveDiscovery:false}).archiveDiscovery,false);
+ assert.equal(m.normalizeSettings({downloadMedia:false,chatSearch:false}).downloadMedia,false);
+ assert.equal(m.normalizeSettings({downloadMedia:false,chatSearch:false}).chatSearch,false);
+});
+test('legacy 0.46–0.54 settings migrate cleanly to canonical rt-settings-v1 while fresh installs remain passive',()=>{
+ const m=model();
+ // Performance consolidation: turning off all 4 legacy feed toggles migrates smoothFeeds to false.
+ assert.equal(m.normalizeSettings({smoothFeeds:true,smoothHome:false,smoothSubreddits:false,smoothProfiles:false,smoothSearch:false}).smoothFeeds,false);
+ assert.equal(m.normalizeSettings({smoothFeeds:true,smoothHome:false,smoothSubreddits:true,smoothProfiles:false,smoothSearch:false}).smoothFeeds,true);
+ assert.equal('smoothHome' in m.normalizeSettings({smoothHome:false}),false);
+ // Feed start migration (desktop hover, touch stop, 0.48 reddit, 0.46 videoPreviewsInView)
+ assert.equal(m.videoSettings({videoStart:'hover'}).videoStart,'preview');
+ assert.equal(m.videoSettings({videoStartTouch:'stop'}).videoStart,'preview');
+ assert.equal(m.videoSettings({videoStart:'reddit'}).videoStart,'default');
+ assert.equal(m.videoSettings({videoPreviewsInView:true}).videoStart,'preview');
+ assert.equal(m.videoSettings({embedStartTouch:'stop',gifStart:'play'}).embedStart,'preview');
+ assert.equal(m.videoSettings({embedStartTouch:'stop',gifStart:'play'}).gifStart,'play');
+ // Click & audio migration
+ assert.deepEqual({a:m.videoSettings({videoPreviewClick:'muted'}).mediaClickAction,b:m.videoSettings({videoPreviewClick:'muted'}).clickAudio},{a:'inline',b:'muted'});
+ assert.deepEqual({a:m.videoSettings({videoPreviewClick:'sound'}).mediaClickAction,b:m.videoSettings({videoPreviewClick:'sound'}).clickAudio},{a:'inline',b:'unmute'});
+ assert.deepEqual({a:m.videoSettings({videoPreviewClick:'here',videoUnmutePreview:false}).mediaClickAction,b:m.videoSettings({videoPreviewClick:'here',videoUnmutePreview:false}).clickAudio},{a:'inline',b:'muted'});
+ assert.deepEqual({a:m.videoSettings({videoPreviewClickPlays:true}).mediaClickAction,b:m.videoSettings({videoPreviewClickPlays:true}).clickAudio},{a:'inline',b:'unmute'});
+ assert.deepEqual({a:m.videoSettings({videoPreviewClick:'open',videoUnmutePreview:true}).mediaClickAction,b:m.videoSettings({videoPreviewClick:'open',videoUnmutePreview:true}).clickAudio},{a:'open',b:'unmute'});
+ assert.deepEqual({a:m.videoSettings({videoPreviewClick:'open',videoUnmutePreview:false}).mediaClickAction,b:m.videoSettings({videoPreviewClick:'open',videoUnmutePreview:false}).clickAudio},{a:'open',b:'muted'});
+ // Open post & scroll away migration + new enhancements
+ assert.equal(m.videoSettings({videoOpenPost:'continue',videoPreviewFrom:'position'}).videoOpenPost,'position');
+ assert.equal(m.videoSettings({videoOpenPost:'continue',videoPreviewFrom:'start'}).videoOpenPost,'start');
+ assert.equal(m.videoSettings({videoOpenPost:'continue',videoPreviewRestart:true}).videoOpenPost,'start');
+ assert.equal(m.videoSettings({videoOpenPost:'reddit'}).videoOpenPost,'default');
+ assert.equal(m.videoSettings({videoScrollAway:'reddit'}).videoScrollAway,'default');
+ assert.equal(m.videoSettings({videoScrollAway:'mini'}).videoScrollAway,'mini');
+ const enh=m.videoSettings({mediaClickAction:'fullscreen',clickAudio:'unmute',singleVideo:true,volumeMemory:true,holdFor2x:true,loopPolicy:'short',streamQuality:'saver'});
+ assert.deepEqual(JSON.parse(JSON.stringify(enh)),{videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'fullscreen',clickAudio:'unmute',embedBlockLinks:'off',singleVideo:true,volumeMemory:true,videoScrollAway:'default',videoOpenPost:'default',holdFor2x:true,loopPolicy:'short',streamQuality:'saver'});
+ // Invalid values fall back safely
+ assert.deepEqual(JSON.parse(JSON.stringify(m.videoSettings({videoStart:'bogus',loopPolicy:'nope',streamQuality:'4k',singleVideo:'true'}))),JSON.parse(JSON.stringify(m.VIDEO_DEFAULTS)));
 });
 test('post normalization validates identity, caps untrusted text and rejects unsafe URLs',()=>{
  const m=model();assert.equal(m.validateUsername('x'),true);assert.equal(m.validateUsername('name?query'),false);assert.equal(m.validateId('t3_abc12'),true);

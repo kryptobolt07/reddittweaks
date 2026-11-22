@@ -459,8 +459,10 @@
   async function handle(message,sender){
     if(message?.scope!=='rt-posts')return;
     if(message.action==='get-settings'){
-      let u;try{u=new URL(sender?.url);}catch{}
-      if(sender?.id!==chrome.runtime.id || sender.frameId!==0 || u?.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(u?.hostname) || u.port || sender.origin && sender.origin!==u.origin)return fail('Settings require a Reddit page.','forbidden');
+      let u;try{u=new URL(sender?.url==='about:blank' && sender?.tab?.url?sender.tab.url:sender?.url);}catch{}
+      const validFrame=sender?.frameId==null || Number.isInteger(sender.frameId) && sender.frameId>=0;
+      const redditHost=typeof u?.hostname==='string' && /^(?:[a-z0-9-]+\.)*reddit\.com$/i.test(u.hostname);
+      if(sender?.id!==chrome.runtime.id || !validFrame || u?.protocol!=='https:' || !redditHost || u.port || sender.origin && sender.origin!==u.origin)return fail('Settings require a Reddit page.','forbidden');
       if(Number.isInteger(sender.tab?.id)){if(subscribers.size>=30)subscribers.delete(subscribers.values().next().value);subscribers.add(sender.tab.id);}
       const stored=await chrome.storage.local.get('rt-settings-v1');return {ok:true,settings:Model.normalizeSettings(stored['rt-settings-v1'])};
     }
@@ -517,7 +519,7 @@
     try{for(const tab of await chrome.tabs?.query?.({url:['https://*.reddit.com/*','https://reddit.com/*']}) || [])if(Number.isInteger(tab.id))targets.add(tab.id);}catch{}
     const settings=Model.normalizeSettings(changes['rt-settings-v1'].newValue);
     for(const id of targets){
-      Promise.resolve(chrome.tabs?.sendMessage(id,{scope:'rt-posts',action:'settings-changed',settings},{frameId:0})).catch(()=>subscribers.delete(id));
+      Promise.resolve(chrome.tabs?.sendMessage(id,{scope:'rt-posts',action:'settings-changed',settings})).catch(()=>subscribers.delete(id));
     }
   });
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{

@@ -78,9 +78,12 @@ test('opting out while a global request slot is queued prevents another fetch',a
 });
 test('content scripts read only normalized preferences through the trusted worker even with archives off',async()=>{
  const e=env({settings:{postDiscovery:true,archiveDiscovery:false,privateChatData:'never expose'}}),result=await e.send({action:'get-settings'});
- assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(result.settings)),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,videoStart:'autoplay',videoStartTouch:'autoplay',gifStart:'autoplay',gifStartTouch:'autoplay',embedStart:'autoplay',embedStartTouch:'autoplay',embedBlockLinks:'off',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'continue',videoScrollAway:'reddit'});assert.equal(e.calls.length,0);
+ assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(result.settings)),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'});assert.equal(e.calls.length,0);
+ assert.equal((await e.send({action:'get-settings'},{frameId:3,url:'https://chat.reddit.com/room/!a:reddit.com'})).ok,true,'chat subframes and chat.reddit.com can read normalized settings');
+ assert.equal((await e.send({action:'get-settings'},{frameId:2,url:'about:blank',tab:{url:'https://www.reddit.com/'}})).ok,true,'about:blank chat frame inside Reddit can read normalized settings');
  assert.equal((await e.send({action:'get-settings'},{id:'foreign'})).code,'forbidden');
  assert.equal((await e.send({action:'get-settings'},{url:'https://evil.test/'})).code,'forbidden');
+ assert.equal((await e.send({action:'get-settings'},{url:'https://notreddit.com/'})).code,'forbidden');
 });
 test('automatic restoration preference never enables archive requests without archive opt-in',async()=>{
  const e=env({settings:{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true}});assert.equal((await e.send()).code,'disabled');assert.equal(e.calls.length,0);
@@ -93,10 +96,11 @@ test('archived comments use their own endpoint, projection, identity and profile
  assert.equal((await e.send({kind:'video'})).code,'invalid-request');
 });
 
-test('settings changes reach registered Reddit tabs without exposing trusted chat storage',async()=>{
+test('settings changes reach registered Reddit tabs across all frames without exposing trusted chat storage',async()=>{
  const e=env();await e.send({action:'get-settings'},{tab:{id:5,url:'https://www.reddit.com/user/Example/'}});
- e.changeSettings({postDiscovery:false,archiveDiscovery:false,gifStart:'play',embedStartTouch:'stop',hideMatureOverlay:false,revealNsfwPostMedia:true,privateChats:['secret']});await new Promise(r=>setImmediate(r));
- assert.equal(e.notifications.length,1);assert.equal(e.notifications[0][0],5);const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:false,revealNsfwPostMedia:true,videoStart:'autoplay',videoStartTouch:'autoplay',gifStart:'play',gifStartTouch:'autoplay',embedStart:'autoplay',embedStartTouch:'stop',embedBlockLinks:'off',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'continue',videoScrollAway:'reddit'}});
+ e.changeSettings({postDiscovery:false,archiveDiscovery:false,gifStart:'play',embedStartTouch:'stop',hideMatureOverlay:false,revealNsfwPostMedia:true,chatSearch:false,downloadMedia:false,privateChats:['secret']});await new Promise(r=>setImmediate(r));
+ assert.equal(e.notifications.length,1);assert.equal(e.notifications[0][0],5);assert.equal(e.notifications[0].length,2,'broadcasts to all frames without frameId:0 restriction');
+ const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:false,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothComments:false,hideMatureOverlay:false,revealNsfwPostMedia:true,chatSearch:false,videoStart:'default',embedStart:'preview',gifStart:'play',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'}});
 });
 
 test('settings changes reach every open Reddit tab, even after the worker forgot who asked',async()=>{
@@ -296,4 +300,54 @@ test('thread comment pagination detects stalled cursors and focused IDs remain s
 test('archive profile reads support the dedicated Removed list shell without opening other list routes',async()=>{
  const e=env();assert.equal((await e.send({}, {url:'https://www.reddit.com/user/Example/hidden/?rt_view=removed'})).ok,true);
  for(const url of ['https://www.reddit.com/user/Other/hidden/?rt_view=removed','https://www.reddit.com/user/Example/hidden/','https://www.reddit.com/user/Example/saved/'])assert.equal((await e.send({}, {url})).code,'forbidden');
+});
+
+test('cache-broker reports rt-embed-player holdFeed from embedStart and gates chat indexing on chatSearch while preserving stats and clear',async()=>{
+ const {indexedDB,IDBKeyRange}=require('fake-indexeddb');
+ const listeners=[],localStore={},sessionStore={};
+ const ctx=vm.createContext({
+  URL,AbortController,Date,console,setTimeout,clearTimeout,TextEncoder,TextDecoder,indexedDB,IDBKeyRange,crypto,
+  importScripts(...files){for(const file of files)vm.runInContext(fs.readFileSync('extension/'+file,'utf8'),ctx);},
+  chrome:{
+   runtime:{id:'own',getURL:p=>'chrome-extension://own/'+p,onInstalled:{addListener(){}},onMessage:{addListener(fn){listeners.push(fn);}}},
+   storage:{
+    onChanged:{addListener(){}},
+    local:{setAccessLevel(){},async get(keys){if(keys==null)return {...localStore};if(typeof keys==='string')return {[keys]:localStore[keys]};const out={};for(const k of keys)out[k]=localStore[k];return out;},async set(values){Object.assign(localStore,values);},async remove(keys){for(const k of Array.isArray(keys)?keys:[keys])delete localStore[k];}},
+    session:{async get(keys){if(keys==null)return {...sessionStore};if(typeof keys==='string')return {[keys]:sessionStore[keys]};const out={};for(const k of keys)out[k]=sessionStore[k];return out;},async set(values){Object.assign(sessionStore,values);},async remove(keys){for(const k of Array.isArray(keys)?keys:[keys])delete sessionStore[k];}}
+   },
+   tabs:{async query(){return [];},async sendMessage(){}},
+   action:{setBadgeText(){},setBadgeBackgroundColor(){},setTitle(){}}
+  }
+ });
+ vm.runInContext(fs.readFileSync('extension/cache-broker.js','utf8'),ctx);
+ const dispatch=(msg,sender)=>new Promise(resolve=>{
+  let responded=false;
+  for(const fn of listeners){
+   const r=fn(msg,sender,val=>{responded=true;resolve(val);});
+   if(responded || r===true)return;
+  }
+  resolve(undefined);
+ });
+ // 1. rt-embed-player holdFeed reflects embedStart !== 'default'
+ const embedSender={id:'own',frameId:2,url:'https://www.redgifs.com/ifr/demo',tab:{url:'https://www.reddit.com/r/test/'}};
+ assert.deepEqual(JSON.parse(JSON.stringify(await dispatch({scope:'rt-embed-player'},embedSender))),{authorized:true,holdFeed:false});
+ localStore['rt-settings-v1']={embedStart:'play'};
+ assert.deepEqual(JSON.parse(JSON.stringify(await dispatch({scope:'rt-embed-player'},embedSender))),{authorized:true,holdFeed:true});
+ assert.deepEqual(JSON.parse(JSON.stringify(await dispatch({scope:'rt-embed-player'},{...embedSender,tab:{url:'https://evil.test/'}}))),{authorized:false,holdFeed:false});
+ // 2. chatSearch: false blocks chat writes while keeping stats and clear available
+ const owner='@alice:reddit.com',redditSender={id:'own',frameId:0,url:'https://www.reddit.com/chat/',tab:{id:1,url:'https://www.reddit.com/chat/'}},popupSender={id:'own',frameId:0,url:'chrome-extension://own/popup.html'};
+ localStore['rt-settings-v1']={chatSearch:true};
+ const saved=await dispatch({scope:'rcs-messages',action:'ingest',owner,roomId:'!r:reddit.com',events:[{event_id:'$1',room_id:'!r:reddit.com',type:'m.room.message',sender:owner,origin_server_ts:1000,content:{body:'hello'}}]},redditSender);
+ assert.equal(saved.ok,true);assert.equal(saved.changed,true);
+ localStore['rt-settings-v1']={chatSearch:false};
+ const blocked=await dispatch({scope:'rcs-messages',action:'ingest',owner,roomId:'!r:reddit.com',events:[{event_id:'$2',room_id:'!r:reddit.com',type:'m.room.message',sender:owner,origin_server_ts:2000,content:{body:'ignored'}}]},redditSender);
+ assert.equal(blocked.ok,true);assert.equal(blocked.changed,false);assert.equal(blocked.disabled,true);
+ const blockedDir=await dispatch({scope:'rcs-directory',action:'identity-state',owner,states:[]},redditSender);
+ assert.equal(blockedDir.ok,true);assert.equal(blockedDir.disabled,true);
+ const stats=await dispatch({scope:'rcs-messages',action:'stats'},popupSender);
+ assert.equal(stats.ok,true);assert.equal(stats.stats.messages,1,'existing saved messages remain readable when paused');
+ const cleared=await dispatch({scope:'rcs-messages',action:'clear'},popupSender);
+ assert.equal(cleared.ok,true);assert.equal(cleared.cleared,true);
+ const afterClear=await dispatch({scope:'rcs-messages',action:'stats'},popupSender);
+ assert.equal(afterClear.stats.messages,0,'popup clear still works when chatSearch is off');
 });

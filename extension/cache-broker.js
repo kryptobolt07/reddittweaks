@@ -15,6 +15,10 @@ let queue=Promise.resolve();
 chrome.storage.local.setAccessLevel?.({accessLevel:'TRUSTED_CONTEXTS'});
 // The action opens as a tab in some phone browsers. Match the actual popup document in either host.
 const isPopup=sender=>(sender.frameId ?? 0)===0 && sender.url?.split(/[?#]/,1)[0]===chrome.runtime.getURL('popup.html');
+async function chatSearchEnabled() {
+  try{const stored=await chrome.storage?.local?.get?.('rt-settings-v1');return stored?.['rt-settings-v1']?.chatSearch!==false;}
+  catch{return true;}
+}
 async function entryFor(owner) {
   const key=cachePrefix+owner;
   const stored=await chrome.storage.local.get([key,oldPrefix+owner]);
@@ -92,6 +96,7 @@ async function handle(message,sender) {
   if(message.action==='read')return reply;
   if(message.action==='invalidate') {await chrome.storage.session.remove(sessionKey);return {...reply,verifiedAt:0};}
   if(message.action==='identity-state') {
+    if(!await chatSearchEnabled())return {changed:false,disabled:true};
     // A classification of an unavailable account needs no directory lease: it only sets two fields on a person
     // already saved, and this handler runs inside the same serialized queue as every directory write.
     if(!entry || !Array.isArray(message.states))return {changed:false};
@@ -121,6 +126,10 @@ async function handle(message,sender) {
     await chrome.storage.session.set({[leaseKey]:{...lease,expires:now+90000}});return {renewed:true};
   }
   if(message.action==='publish' || message.action==='checkpoint') {
+    if(!await chatSearchEnabled()) {
+      if(message.action==='publish')await chrome.storage.session.remove(leaseKey);
+      return {...reply,disabled:true};
+    }
     if(!Array.isArray(message.records))throw Error('Invalid directory');
     const previous=Model.view(entry),identityMap={...(entry?.identities || {})};
     for(const person of message.identities || []) {
@@ -175,10 +184,10 @@ async function handleMessages(message,sender) {
   }
   if(message.action==='stats' && popup)return messages.stats(message.owner,{committed:true});
   if(!RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
-  if(message.action==='ingest') {const result=await messages.ingest(message);if(result.changed!==false)await notifyMessageTabs(message.owner,false,result.roomIds);return result;}
+  if(message.action==='ingest') {if(!await chatSearchEnabled())return {changed:false,disabled:true};const result=await messages.ingest(message);if(result.changed!==false)await notifyMessageTabs(message.owner,false,result.roomIds);return result;}
   // Layout hints do not broadcast message changes or restart active searches.
-  if(message.action==='image-dimensions')return messages.rememberDimensions(message);
-  if(message.action==='mark-native-import-complete'){await messages.importState(message.owner,true);return {nativeImportComplete:true};}
+  if(message.action==='image-dimensions')return await chatSearchEnabled()?messages.rememberDimensions(message):{changed:false,disabled:true};
+  if(message.action==='mark-native-import-complete'){if(!await chatSearchEnabled())return {nativeImportComplete:false,disabled:true};await messages.importState(message.owner,true);return {nativeImportComplete:true};}
   if(message.action==='stats')return messages.stats(message.owner,{committed:true});
   if(message.action==='summaries')return messages.summaries(message.owner,{committed:true});
   if(message.action==='search')return messages.search(message.owner,{...message,committed:true},await entryFor(message.owner));
@@ -226,5 +235,11 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(message?.scope!=='rt-embed-player')return;
   let origin='';try{origin=new URL(sender.tab?.url).origin;}catch{}
-  respond(sender.id===chrome.runtime.id && sender.frameId>0 && Boolean(RTEmbedHosts.playerOrigin(sender.url)) && RTEmbedHosts.redditOrigins.includes(origin));
+  const authorized=sender.id===chrome.runtime.id && sender.frameId>0 && Boolean(RTEmbedHosts.playerOrigin(sender.url)) && RTEmbedHosts.redditOrigins.includes(origin);
+  if(!authorized){respond({authorized:false,holdFeed:false});return;}
+  Promise.resolve(chrome.storage?.local?.get?.('rt-settings-v1')).then(stored=>{
+    const settings=globalThis.RTPostModel?.normalizeSettings?.(stored?.['rt-settings-v1']);
+    respond({authorized:true,holdFeed:Boolean(settings && settings.embedStart!=='default')});
+  },()=>respond({authorized:true,holdFeed:false}));
+  return true;
 });

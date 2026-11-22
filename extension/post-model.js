@@ -58,25 +58,96 @@
     return result;
   }
   // Viewed-posts History: 20 is Reddit's own limit (nothing recorded); 0 means no limit.
-  const historyLimits=[20,100,500,1000,5000,0];
-  function normalizeSettings(raw){return {postDiscovery:raw?.postDiscovery!==false,archiveDiscovery:raw?.archiveDiscovery===true,restoreDeletedContent:raw?.restoreDeletedContent!==false,subredditArchive:raw?.subredditArchive===true,subredditArchiveAutomatic:raw?.subredditArchiveAutomatic===true,cleanShareLinks:raw?.cleanShareLinks===true,modUnapprovedFilter:raw?.modUnapprovedFilter!==false,raffles:raw?.raffles!==false,ownRemoval:raw?.ownRemoval===true,removalNotifications:raw?.removalNotifications===true,historyLimit:historyLimits.includes(raw?.historyLimit)?raw.historyLimit:20,smoothFeeds:raw?.smoothFeeds!==false,smoothHome:raw?.smoothHome!==false,smoothSubreddits:raw?.smoothSubreddits!==false,smoothProfiles:raw?.smoothProfiles!==false,smoothSearch:raw?.smoothSearch!==false,smoothComments:raw?.smoothComments===true,hideMatureOverlay:raw?.hideMatureOverlay!==false,revealNsfwPostMedia:raw?.revealNsfwPostMedia===true,...videoSettings(raw)};}
-  // Videos (docs/video-control-spec.md): the extension's own choices (they replace Reddit's autoplay and its setting);
-  // 0.48's 'reddit' start is now 'autoplay'. Of the 0.46–0.47 switches only the opt-ins migrate (phone previews, click
-  // plays here, restart): the popup wrote its on-by-default switches whether or not anyone chose them.
-  function videoSettings(raw){
-    const mouse=['autoplay','hover','play'],touch=['autoplay','stop','play'];
-    const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;
-    const videoStart=pick('videoStart',mouse,'autoplay');
-    const videoStartTouch=raw?.videoStartTouch==='reddit'?'autoplay':pick('videoStartTouch',touch,raw?.videoPreviewsInView===true?'stop':'autoplay');
+  const HISTORY_LIMITS=Object.freeze([20,100,500,1000,5000,0]);
+  const VIDEO_DEFAULTS=Object.freeze({
+    videoStart:'default',
+    embedStart:'default',
+    gifStart:'default',
+    mediaClickAction:'default',
+    clickAudio:'muted',
+    embedBlockLinks:'off',
+    singleVideo:false,
+    volumeMemory:false,
+    videoScrollAway:'default',
+    videoOpenPost:'default',
+    holdFor2x:false,
+    loopPolicy:'default',
+    streamQuality:'auto'
+  });
+  const SETTINGS_DEFAULTS=Object.freeze({
+    postDiscovery:true,
+    archiveDiscovery:false,
+    restoreDeletedContent:true,
+    subredditArchive:false,
+    subredditArchiveAutomatic:false,
+    cleanShareLinks:false,
+    modUnapprovedFilter:true,
+    raffles:true,
+    downloadMedia:true,
+    ownRemoval:false,
+    removalNotifications:false,
+    historyLimit:20,
+    smoothFeeds:true,
+    smoothComments:false,
+    hideMatureOverlay:true,
+    revealNsfwPostMedia:false,
+    chatSearch:true,
+    ...VIDEO_DEFAULTS
+  });
+  function normalizeSettings(raw){
+    const legacyFeedsOff=raw?.smoothHome===false && raw?.smoothSubreddits===false && raw?.smoothProfiles===false && raw?.smoothSearch===false;
     return {
-      videoStart,videoStartTouch,gifStart:pick('gifStart',mouse,'autoplay'),gifStartTouch:pick('gifStartTouch',touch,'autoplay'),
-      embedStart:pick('embedStart',mouse,videoStart),embedStartTouch:pick('embedStartTouch',touch,videoStartTouch),
+      postDiscovery:raw?.postDiscovery!==false,
+      archiveDiscovery:raw?.archiveDiscovery===true,
+      restoreDeletedContent:raw?.restoreDeletedContent!==false,
+      subredditArchive:raw?.subredditArchive===true,
+      subredditArchiveAutomatic:raw?.subredditArchiveAutomatic===true,
+      cleanShareLinks:raw?.cleanShareLinks===true,
+      modUnapprovedFilter:raw?.modUnapprovedFilter!==false,
+      raffles:raw?.raffles!==false,
+      downloadMedia:raw?.downloadMedia!==false,
+      ownRemoval:raw?.ownRemoval===true,
+      removalNotifications:raw?.removalNotifications===true,
+      historyLimit:HISTORY_LIMITS.includes(raw?.historyLimit)?raw.historyLimit:20,
+      smoothFeeds:raw?.smoothFeeds===false || legacyFeedsOff?false:true,
+      smoothComments:raw?.smoothComments===true,
+      hideMatureOverlay:raw?.hideMatureOverlay!==false,
+      revealNsfwPostMedia:raw?.revealNsfwPostMedia===true,
+      chatSearch:raw?.chatSearch!==false,
+      ...videoSettings(raw)
+    };
+  }
+  // Videos & Embeds: every media/enhancement setting defaults to passive ('default'/'muted'/'off'/'auto'/false)
+  // so fresh installs leave Reddit & third-party embeds untouched. Legacy 0.46–0.54 explicit choices migrate cleanly.
+  function videoSettings(raw){
+    const starts=['default','autoplay','preview','play'];
+    const mapStart=value=>starts.includes(value)?value:value==='hover' || value==='stop'?'preview':value==='reddit'?'default':null;
+    const pick=(key,allowed,fallback)=>allowed.includes(raw?.[key])?raw[key]:fallback;
+    const videoStart=mapStart(raw?.videoStart) ?? mapStart(raw?.videoStartTouch) ?? (raw?.videoPreviewsInView===true?'preview':'default');
+    const embedStart=mapStart(raw?.embedStart) ?? mapStart(raw?.embedStartTouch) ?? 'default';
+    const gifStart=mapStart(raw?.gifStart) ?? mapStart(raw?.gifStartTouch) ?? 'default';
+    const mediaClickAction=pick('mediaClickAction',['default','inline','open','fullscreen'],
+      ['muted','sound','here'].includes(raw?.videoPreviewClick) || raw?.videoPreviewClickPlays===true ? 'inline' :
+      raw?.videoPreviewClick==='open' ? 'open' : 'default');
+    const clickAudio=pick('clickAudio',['muted','unmute'],
+      raw?.videoPreviewClick==='muted' ? 'muted' :
+      raw?.videoPreviewClick==='sound' ? 'unmute' :
+      (raw?.videoPreviewClick==='here' || raw?.videoPreviewClickPlays===true) && raw?.videoUnmutePreview!==false ? 'unmute' :
+      raw?.videoUnmutePreview===true ? 'unmute' : 'muted');
+    const videoOpenPost=pick('videoOpenPost',['default','position','start'],
+      raw?.videoOpenPost==='reddit' ? 'default' :
+      raw?.videoOpenPost==='continue' ? (raw?.videoPreviewFrom==='start' || raw?.videoPreviewRestart===true ? 'start' : 'position') :
+      raw?.videoPreviewFrom==='start' || raw?.videoPreviewRestart===true ? 'start' : 'default');
+    const videoScrollAway=pick('videoScrollAway',['default','pause','mini'],'default');
+    return {
+      videoStart,embedStart,gifStart,mediaClickAction,clickAudio,
       embedBlockLinks:pick('embedBlockLinks',['off','feed','posts','both'],'off'),
-      videoPreviewClick:pick('videoPreviewClick',['open','muted','sound'],
-        raw?.videoPreviewClick==='here' || raw?.videoPreviewClickPlays===true ? (raw?.videoUnmutePreview===false?'muted':'sound') : 'open'),
-      videoPreviewFrom:pick('videoPreviewFrom',['position','start'],raw?.videoPreviewRestart===true?'start':'position'),
-      videoUnmutePreview:raw?.videoUnmutePreview!==false,
-      videoOpenPost:pick('videoOpenPost',['continue','reddit'],'continue'),videoScrollAway:pick('videoScrollAway',['reddit','pause'],'reddit')
+      singleVideo:raw?.singleVideo===true,
+      volumeMemory:raw?.volumeMemory===true,
+      videoScrollAway,videoOpenPost,
+      holdFor2x:raw?.holdFor2x===true,
+      loopPolicy:pick('loopPolicy',['default','always','never','short'],'default'),
+      streamQuality:pick('streamQuality',['auto','max','saver'],'auto')
     };
   }
   // Strip share tracking without resolving URLs or touching message/clipboard contents that are not a single URL.
@@ -275,5 +346,5 @@
     const name=match?.[1].toLowerCase();
     return name && !['all','popular'].includes(name) && (url.searchParams.get('rt_type') || url.searchParams.get('rt_nsfw')==='1' || /^flair_name:/.test(url.searchParams.get('f') || ''))?name:'';
   }
-  globalThis.RTPostModel=Object.freeze({noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord,filteredCommunity});
+  globalThis.RTPostModel=Object.freeze({SETTINGS_DEFAULTS,VIDEO_DEFAULTS,HISTORY_LIMITS,noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord,filteredCommunity});
 })();
