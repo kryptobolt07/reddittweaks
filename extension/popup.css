@@ -36,7 +36,7 @@ svg{display:block}
 .account-copy{display:flex;flex-direction:column;min-width:0;flex:1}.account-name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.account-caption{color:var(--muted);font-size:11px}
 .account-list>li[data-current] .account-caption{color:var(--link-text);font-weight:650}.account-list>li[data-expired] .account-caption{color:var(--danger)}
 .account-switch,.account-save,.account-remove{flex:none;min-height:28px;margin:0;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--text);font:inherit;font-size:11.5px;font-weight:750;cursor:pointer}.account-switch:hover,.account-save:hover,.account-remove:hover{background:var(--surface)}
-.account-save{border-color:color-mix(in srgb,var(--accent) 40%,var(--line));color:var(--link-text)}.account-save.confirming{border-color:var(--accent);background:var(--accent-tint);color:var(--link-text)}
+.account-save{border-color:color-mix(in srgb,var(--accent) 40%,var(--line));color:var(--link-text)}.account-save.confirming{border-color:var(--accent);background:var(--accent-soft);color:var(--link-text)}
 .account-remove{padding:0 9px;color:var(--muted)}.account-remove.confirming{border-color:var(--danger);color:var(--danger)}.account-switch:disabled,.account-save:disabled,.account-remove:disabled{opacity:.6;cursor:wait}
 .tool-card{display:flex;flex-direction:column;gap:8px;padding:10px 12px}
 .tool-head{display:flex;align-items:flex-start;gap:10px}
