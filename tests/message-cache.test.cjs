@@ -353,3 +353,69 @@ test('native connection starts reconciliation without a search and a late databa
   connect(true,'replacement');await waitForTick();assert.equal(h.imports,3,'a replacement client attaches and checks local history again');
   h.change({scope:'rcs-messages-changed',owner,cleared:true});connect(true,'after-clear');await waitForTick();assert.equal(h.imports,3,'Clear does not refill old history in the same document');h.dom.window.close();
 });
+test('popup global stats are cached persistently and updated incrementally without rescanning IndexedDB',async()=>{
+  const storeValues={};
+  const makeBroker=()=>{
+    const listeners=[],ctx=vm.createContext({indexedDB,IDBKeyRange,TextEncoder,console,crypto});
+    ctx.chrome={
+      runtime:{id:'extension',getURL:path=>'chrome-extension://extension/'+path,onMessage:{addListener:fn=>listeners.push(fn)}},
+      tabs:{query:async()=>[],sendMessage:async()=>{}},
+      storage:{
+        local:{
+          get:async keys=>{
+            if(keys===null)return {...storeValues};
+            const list=Array.isArray(keys)?keys:[keys],out={};
+            for(const k of list)if(k in storeValues)out[k]=JSON.parse(JSON.stringify(storeValues[k]));
+            return out;
+          },
+          set:async values=>{for(const [k,v] of Object.entries(values))storeValues[k]=JSON.parse(JSON.stringify(v));},
+          remove:async keys=>{for(const k of (Array.isArray(keys)?keys:[keys]))delete storeValues[k];},
+          setAccessLevel:()=>{}
+        },
+        session:{get:async()=>({}),set:async()=>{},remove:async()=>{}}
+      }
+    };
+    ctx.importScripts=(...files)=>files.forEach(file=>vm.runInContext(fs.readFileSync(`extension/${file}`,'utf8'),ctx));
+    vm.runInContext(fs.readFileSync('extension/cache-broker.js','utf8'),ctx);
+    const send=(message,sender)=>new Promise(resolve=>listeners.find(listener=>listener({scope:'rcs-messages',...message},sender,resolve)));
+    return {ctx,send};
+  };
+  const tab={id:'extension',url:'https://chat.reddit.com/',tab:{id:1}},popup={id:'extension',url:'chrome-extension://extension/popup.html'};
+  const b1=makeBroker();
+  await b1.send({action:'clear'},popup); // clean baseline
+  await b1.send({...batch([event('$m1','hello'),event('$m2','photo',2000,{content:{msgtype:'m.image',body:'photo',url:'https://i.redd.it/pic.png'}})],{identities:[{id:owner,name:'me'}],coverage:{complete:true,dateComplete:true}}),action:'ingest'},tab);
+  const first=await b1.send({action:'stats'},popup);
+  assert.equal(first.ok,true);assert.equal(first.stats.messages,2);assert.equal(first.stats.rooms,1);assert.equal(first.stats.completeRooms,1);assert.equal(first.accounts,1);
+  // Seeded in chrome.storage.local; subsequent reads & mutations must never invoke full IndexedDB getAll scans.
+  const b2=makeBroker();
+  const b2Messages=vm.runInContext('messages',b2.ctx);
+  const db=await b2Messages.db(),origTx=db.transaction.bind(db);
+  let fullScans=0;
+  db.transaction=(...args)=>{
+    const tx=origTx(...args),getStore=tx.objectStore.bind(tx);
+    tx.objectStore=name=>{const store=getStore(name);const origGetAll=store.getAll.bind(store);store.getAll=(...a)=>{if(!a.length)fullScans++;return origGetAll(...a);};return store;};
+    return tx;
+  };
+  const coldHit=await b2.send({action:'stats'},popup);
+  assert.equal(fullScans,0,'restarted service worker serves cached popup stats without scanning IndexedDB');
+  assert.deepEqual({...coldHit.stats},{...first.stats});
+  // Incremental updates across ingest (same room + new room + second account), dimensions, and importState
+  await b2.send({...batch([event('$m3','third')]),action:'ingest'},tab);
+  await b2.send({...batch([event('$m4','other room',3000,{room_id:'!room2:reddit.com'})],{owner:other,roomId:'!room2:reddit.com'}),action:'ingest'},tab);
+  await b2.send({action:'image-dimensions',owner,records:[{roomId,eventId:'$m2',preview:'https://i.redd.it/pic.png',width:800,height:600}]},tab);
+  await b2.send({action:'mark-native-import-complete',owner},tab);
+  const incremental=await b2.send({action:'stats'},popup);
+  assert.equal(fullScans,0,'incremental updates avoid full IndexedDB scans');
+  // Compare against a fresh ground-truth full scan
+  db.transaction=origTx;
+  const truth=await b2Messages.stats(undefined,{committed:true});
+  assert.deepEqual({...incremental.stats},{...truth.stats},'incremental stats match full IndexedDB scan byte-for-byte');
+  assert.equal(incremental.accounts,truth.accounts);
+  // Per-owner clear invalidates cache and recomputes accurately; full clear zeroes cache without scanning
+  await b2.send({action:'clear',owner:other},popup);
+  const afterOwnerClear=await b2.send({action:'stats'},popup);
+  assert.equal(afterOwnerClear.stats.messages,3);assert.equal(afterOwnerClear.accounts,1);
+  await b2.send({action:'clear'},popup);
+  const afterClearAll=await b2.send({action:'stats'},popup);
+  assert.equal(afterClearAll.stats.messages,0);assert.equal(afterClearAll.stats.rooms,0);assert.equal(afterClearAll.stats.approxBytes,0);assert.equal(afterClearAll.accounts,0);
+});

@@ -77,7 +77,7 @@
   const request=task=>new Promise((resolve,reject)=>{task.onsuccess=()=>resolve(task.result);task.onerror=()=>reject(task.error || Error('Message storage failed'));});
   const done=tx=>new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=tx.onerror=()=>reject(tx.error || Error('Message storage failed'));});
   class Store {
-    constructor({indexedDB=globalThis.indexedDB,name='rcs-messages-v1'}={}) {this.idb=indexedDB;this.name=name;this.persistent=Boolean(indexedDB);this.memory=new Map();this.identities=new Map();this.database=null;this.connection=null;this.queue=Promise.resolve();}
+    constructor({indexedDB=globalThis.indexedDB,name='rcs-messages-v1',onStatsDelta=null}={}) {this.idb=indexedDB;this.name=name;this.persistent=Boolean(indexedDB);this.onStatsDelta=onStatsDelta;this.writeEpoch=0;this.memory=new Map();this.identities=new Map();this.database=null;this.connection=null;this.queue=Promise.resolve();}
     forgetConnection(db) {if(this.connection===db){this.connection=null;this.database=null;}}
     async db() {
       if(!this.persistent)return null;
@@ -107,13 +107,14 @@
       if(!Array.isArray(batch.events) || batch.events.length>1000 || (batch.identities?.length || 0)>1000)throw Error('Invalid message batch');
       const grouped=new Map();for(const raw of batch.events){const event=compact(raw,batch.roomId);if(event){if(!grouped.has(event.room))grouped.set(event.room,[]);grouped.get(event.room).push(event);}}
       if(batch.roomId && !grouped.has(batch.roomId))grouped.set(str(batch.roomId),[]);
+      this.writeEpoch++;
       const tx=await this.transaction(['rooms','identities'],'readwrite'),completion=tx?done(tx):null;
       try {
         const read=tx?request(tx.objectStore('identities').get(batch.owner)):Promise.resolve(this.identities.get(batch.owner));
         const rows=await Promise.all([...grouped.keys()].map(roomId=>tx?request(tx.objectStore('rooms').get([batch.owner,roomId])):Promise.resolve(this.memory.get(JSON.stringify([batch.owner,roomId])))));
-        const previous=await read,people={...previous?.people};let identitiesChanged=false;
+        const previous=await read,people={...previous?.people};let identitiesChanged=false,deltaMessages=0,deltaRooms=0,deltaCompleteRooms=0,deltaBytes=0;
         for(const raw of batch.identities || []){const person=identity(raw);if(person){const merged=mergeIdentity(people[person.id],person);if(JSON.stringify(people[person.id])!==JSON.stringify(merged)){people[person.id]=merged;identitiesChanged=true;}}}
-        if(identitiesChanged){const saved={...previous,owner:batch.owner,people};delete saved.approxBytes;saved.approxBytes=bytes(saved);if(tx)tx.objectStore('identities').put(saved);else this.identities.set(batch.owner,saved);}
+        if(identitiesChanged){const prevIdentityBytes=previous?(previous.approxBytes ?? bytes(previous)):0;const saved={...previous,owner:batch.owner,people};delete saved.approxBytes;saved.approxBytes=bytes(saved);deltaBytes+=saved.approxBytes-prevIdentityBytes;if(tx)tx.objectStore('identities').put(saved);else this.identities.set(batch.owner,saved);}
         const roomIds=[];let i=0;
         for(const [roomId,events]of grouped){
           const before=rows[i++],ledger=new Map((before?.events || []).map(event=>[event.id,event])),coverage=roomId===batch.roomId?batch.coverage:undefined;
@@ -121,21 +122,26 @@
           // A startup reconciliation can read old cached rows again. Compare
           // their durable ledger before reducing/rewriting a whole room.
           if(!changed)continue;
+          const prevMessages=before?before.records.filter(serverRecord).length:0,prevComplete=before?.coverage?.complete?1:0,prevBytes=before?(before.approxBytes ?? bytes(before)):0;
           const row=reduce(before || {owner:batch.owner,roomId,events:[]},events,coverage);
+          deltaMessages+=row.records.length-prevMessages;deltaRooms+=before?0:1;deltaCompleteRooms+=(row.coverage.complete?1:0)-prevComplete;deltaBytes+=row.approxBytes-prevBytes;
           if(tx)tx.objectStore('rooms').put(row);else this.memory.set(JSON.stringify([batch.owner,roomId]),row);roomIds.push(roomId);
         }
-        if(completion)await completion;return {owner:batch.owner,persistent:this.persistent,changed:identitiesChanged || roomIds.length>0,...(!identitiesChanged?{roomIds}:{})};
+        if(completion)await completion;
+        if((identitiesChanged || roomIds.length>0) && this.onStatsDelta)this.onStatsDelta({owner:batch.owner,messages:deltaMessages,rooms:deltaRooms,completeRooms:deltaCompleteRooms,approxBytes:deltaBytes});
+        return {owner:batch.owner,persistent:this.persistent,changed:identitiesChanged || roomIds.length>0,...(!identitiesChanged?{roomIds}:{})};
       } catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
     }
     rememberDimensions(batch){const result=this.queue.then(()=>this.writeDimensions(batch));this.queue=result.catch(()=>{});return result;}
     async writeDimensions({owner,records}={}){
       if(!ownerOK(owner) || !Array.isArray(records) || records.length>100)throw Error('Invalid image dimensions');
       for(const r of records)if(typeof r?.roomId!=='string' || !r.roomId || r.roomId.length>1000 || typeof r.eventId!=='string' || !r.eventId || r.eventId.length>1000 || !previewURL(r.preview) || !Number.isFinite(r.width) || !Number.isFinite(r.height) || r.width<1 || r.height<1 || r.width>100000 || r.height>100000)throw Error('Invalid image dimensions');
+      this.writeEpoch++;
       const rooms=[...new Set(records.map(r=>r.roomId))],tx=await this.transaction('rooms','readwrite'),completion=tx?done(tx):null;
       try{
-        const rows=await Promise.all(rooms.map(id=>tx?request(tx.objectStore('rooms').get([owner,id])):Promise.resolve(this.memory.get(JSON.stringify([owner,id]))))),changed=[];
+        const rows=await Promise.all(rooms.map(id=>tx?request(tx.objectStore('rooms').get([owner,id])):Promise.resolve(this.memory.get(JSON.stringify([owner,id]))))),changed=[];let deltaBytes=0;
         for(let i=0;i<rooms.length;i++){
-          const row=rows[i];if(!row)continue;const ledger=new Map(row.events.map(e=>[e.id,e]));let dirty=false;
+          const row=rows[i];if(!row)continue;const prevBytes=row.approxBytes ?? bytes(row);const ledger=new Map(row.events.map(e=>[e.id,e]));let dirty=false;
           for(const r of records.filter(r=>r.roomId===rooms[i])){
             const current=row.records.find(e=>e.id===r.eventId),event=current && ledger.get(current.bodyEvent);
             // Never revive redacted content or apply stale load events to edits.
@@ -144,10 +150,12 @@
             if(event.attachmentWidth===width && event.attachmentHeight===height)continue;
             event.attachmentWidth=width;event.attachmentHeight=height;event.attachmentDimensionsSource='decoded';dirty=true;
           }
-          if(!dirty)continue;delete row.approxBytes;row.approxBytes=bytes(row);
+          if(!dirty)continue;delete row.approxBytes;row.approxBytes=bytes(row);deltaBytes+=row.approxBytes-prevBytes;
           if(tx)tx.objectStore('rooms').put(row);else this.memory.set(JSON.stringify([owner,row.roomId]),row);changed.push(row.roomId);
         }
-        if(completion)await completion;return {owner,changed:changed.length>0,roomIds:changed};
+        if(completion)await completion;
+        if(changed.length>0 && this.onStatsDelta)this.onStatsDelta({owner,messages:0,rooms:0,completeRooms:0,approxBytes:deltaBytes});
+        return {owner,changed:changed.length>0,roomIds:changed};
       }catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
     }
     async snapshot(owner,roomId,{committed=false}={}) {
@@ -203,10 +211,10 @@
       return {owner,selfIdentity:identity(people[owner]),persistent:this.persistent,summaries};
     }
     statistics(rows,people,identityBytes) {return {messages:rows.reduce((sum,row)=>sum+row.records.length,0),rooms:rows.length,completeRooms:rows.filter(row=>row.coverage.complete).length,approxBytes:rows.reduce((sum,row)=>sum+(row.approxBytes ?? bytes(row)),0)+(identityBytes ?? (Array.isArray(people)?people.reduce((sum,person)=>sum+(person.approxBytes ?? bytes(person)),0):bytes(people)))};}
-    async importState(owner,mark=false) {await this.queue;const tx=await this.transaction('identities',mark?'readwrite':'readonly');if(!tx){const saved=this.identities.get(owner) || {owner,people:{}};if(mark){saved.nativeImportComplete=true;saved.nativeReconciledAt=Date.now();delete saved.approxBytes;saved.approxBytes=bytes(saved);this.identities.set(owner,saved);}return mark || Boolean(saved.nativeImportComplete);}const completion=done(tx);const saved=await request(tx.objectStore('identities').get(owner)) || {owner,people:{}};if(mark){saved.nativeImportComplete=true;saved.nativeReconciledAt=Date.now();delete saved.approxBytes;saved.approxBytes=bytes(saved);tx.objectStore('identities').put(saved);}await completion;return mark || Boolean(saved.nativeImportComplete);}
-    async stats(owner,{committed=false}={}) {if(owner){const {rows,people,identityBytes,nativeReconciledAt,nativeImportComplete}=await this.snapshot(owner,undefined,{committed});return {owner,persistent:this.persistent,nativeImportComplete,nativeReconciledAt,stats:this.statistics(rows,people,identityBytes)};}if(!committed)await this.queue;const tx=await this.transaction(['rooms','identities']);const [rows,people]=tx?await Promise.all([request(tx.objectStore('rooms').getAll()),request(tx.objectStore('identities').getAll())]):[[...this.memory.values()],[...this.identities.values()]];return {persistent:this.persistent,accounts:new Set([...rows.map(row=>row.owner),...people.map(person=>person.owner)]).size,stats:this.statistics(searchableRows(rows),people)};}
-    async clear(owner) {await this.queue;const tx=await this.transaction(['rooms','identities'],'readwrite');if(!tx){for(const [key,row]of this.memory)if(!owner || row.owner===owner)this.memory.delete(key);if(owner)this.identities.delete(owner);else this.identities.clear();return;}
-      const completion=done(tx);if(!owner){tx.objectStore('rooms').clear();tx.objectStore('identities').clear();}else{const rows=await request(tx.objectStore('rooms').getAll());for(const row of rows)if(row.owner===owner)tx.objectStore('rooms').delete([owner,row.roomId]);tx.objectStore('identities').delete(owner);}await completion;}
+    async importState(owner,mark=false) {await this.queue;if(mark)this.writeEpoch++;const tx=await this.transaction('identities',mark?'readwrite':'readonly');if(!tx){const existing=this.identities.get(owner),prevBytes=existing?(existing.approxBytes ?? bytes(existing)):0,saved=existing || {owner,people:{}};if(mark){saved.nativeImportComplete=true;saved.nativeReconciledAt=Date.now();delete saved.approxBytes;saved.approxBytes=bytes(saved);this.identities.set(owner,saved);if(this.onStatsDelta)this.onStatsDelta({owner,messages:0,rooms:0,completeRooms:0,approxBytes:saved.approxBytes-prevBytes});}return mark || Boolean(saved.nativeImportComplete);}const completion=done(tx);const existing=await request(tx.objectStore('identities').get(owner)),prevBytes=existing?(existing.approxBytes ?? bytes(existing)):0,saved=existing || {owner,people:{}};if(mark){saved.nativeImportComplete=true;saved.nativeReconciledAt=Date.now();delete saved.approxBytes;saved.approxBytes=bytes(saved);tx.objectStore('identities').put(saved);}await completion;if(mark && this.onStatsDelta)this.onStatsDelta({owner,messages:0,rooms:0,completeRooms:0,approxBytes:saved.approxBytes-prevBytes});return mark || Boolean(saved.nativeImportComplete);}
+    async stats(owner,{committed=false,includeOwners=false}={}) {if(owner){const {rows,people,identityBytes,nativeReconciledAt,nativeImportComplete}=await this.snapshot(owner,undefined,{committed});return {owner,persistent:this.persistent,nativeImportComplete,nativeReconciledAt,stats:this.statistics(rows,people,identityBytes)};}if(!committed)await this.queue;const tx=await this.transaction(['rooms','identities']);const [rows,people]=tx?await Promise.all([request(tx.objectStore('rooms').getAll()),request(tx.objectStore('identities').getAll())]):[[...this.memory.values()],[...this.identities.values()]];const owners=[...new Set([...rows.map(row=>row.owner),...people.map(person=>person.owner)])];return {persistent:this.persistent,accounts:owners.length,...(includeOwners?{owners}:{}),stats:this.statistics(searchableRows(rows),people)};}
+    async clear(owner) {await this.queue;this.writeEpoch++;const tx=await this.transaction(['rooms','identities'],'readwrite');if(!tx){for(const [key,row]of this.memory)if(!owner || row.owner===owner)this.memory.delete(key);if(owner)this.identities.delete(owner);else this.identities.clear();if(this.onStatsDelta)this.onStatsDelta(owner?{reset:true}:{clearAll:true});return;}
+      const completion=done(tx);if(!owner){tx.objectStore('rooms').clear();tx.objectStore('identities').clear();}else{const rows=await request(tx.objectStore('rooms').getAll());for(const row of rows)if(row.owner===owner)tx.objectStore('rooms').delete([owner,row.roomId]);tx.objectStore('identities').delete(owner);}await completion;if(this.onStatsDelta)this.onStatsDelta(owner?{reset:true}:{clearAll:true});}
   }
   globalThis.RCSMessageStore=Object.freeze({Store,compact,reduce,ownerOK,previewURL});
 })();

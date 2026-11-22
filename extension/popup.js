@@ -362,17 +362,37 @@ async function loadDirectEmbedControls(){
 }
 
 // Data tab: chat message stats, two-click clear actions, and About popover.
+const MESSAGE_STATS_KEY='rt-message-stats-v1';
 let messageStatsRead=0;
-async function updateMessageStats(){
+function formatMessageStats(stats){
+  const bytes=stats?.approxBytes || 0;
+  const size=bytes<1048576?`${Math.ceil(bytes/1024).toLocaleString()} KB`:`${(bytes/1048576).toFixed(1)} MB`;
+  return `${(stats?.messages || 0).toLocaleString()} saved messages · ${(stats?.rooms || 0).toLocaleString()} chats · ${size} estimated data`;
+}
+function readCachedMessageStats(){
+  try{
+    const parsed=JSON.parse(localStorage.getItem(MESSAGE_STATS_KEY) || 'null');
+    if(parsed && Number.isFinite(parsed.messages) && Number.isFinite(parsed.rooms) && Number.isFinite(parsed.approxBytes))return parsed;
+  }catch{}
+  return null;
+}
+function writeCachedMessageStats(stats){
+  try{
+    if(!stats)localStorage.removeItem(MESSAGE_STATS_KEY);
+    else localStorage.setItem(MESSAGE_STATS_KEY,JSON.stringify({messages:stats.messages || 0,rooms:stats.rooms || 0,approxBytes:stats.approxBytes || 0}));
+  }catch{}
+}
+async function updateMessageStats({fresh=false}={}){
   const read=++messageStatsRead;
   const element=document.querySelector('#message-stats');
-  element.textContent='Checking saved messages…';
+  const cached=fresh?null:readCachedMessageStats();
+  element.textContent=cached?formatMessageStats(cached):'Checking saved messages…';
   try{
     const result=await chrome.runtime.sendMessage({scope:'rcs-messages',action:'stats'});
     if(!result?.ok)throw Error('Cache unavailable');
-    const stats=result.stats || {},bytes=stats.approxBytes || 0;
-    const size=bytes<1048576?`${Math.ceil(bytes/1024).toLocaleString()} KB`:`${(bytes/1048576).toFixed(1)} MB`;
-    if(read===messageStatsRead)element.textContent=`${(stats.messages || 0).toLocaleString()} saved messages · ${(stats.rooms || 0).toLocaleString()} chats · ${size} estimated data`;
+    const stats=result.stats || {};
+    writeCachedMessageStats(stats);
+    if(read===messageStatsRead)element.textContent=formatMessageStats(stats);
   }catch{if(read===messageStatsRead)element.textContent='Statistics unavailable. Reopen to retry.';}
   if(read===messageStatsRead)settled();
 }
@@ -401,7 +421,7 @@ function clearAction(id,{scope,warning,done,failed,after}){
   });
 }
 clearAction('#clear-cache',{scope:'rcs-directory',warning:'Clears saved usernames for every Reddit account on this device. Click Confirm clear to proceed.',done:'Saved usernames cleared. Refresh Reddit to rebuild.',failed:'Could not clear the cache. Please retry.'});
-clearAction('#clear-messages',{scope:'rcs-messages',warning:'Clears saved messages for every Reddit account on this device. Click Confirm clear to proceed.',done:'Saved messages cleared. Open chats can save newly received messages.',failed:'Could not clear saved messages. Please retry.',after:updateMessageStats});
+clearAction('#clear-messages',{scope:'rcs-messages',warning:'Clears saved messages for every Reddit account on this device. Click Confirm clear to proceed.',done:'Saved messages cleared. Open chats can save newly received messages.',failed:'Could not clear saved messages. Please retry.',after:()=>{writeCachedMessageStats(null);return updateMessageStats({fresh:true});}});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')disarm();});
 document.addEventListener('click',event=>{if(armed && event.target!==armed.button)disarm();});
 

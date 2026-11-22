@@ -162,7 +162,75 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
 
 /* Independent write queue: directory refreshes cannot block saved-message searches. */
 importScripts('search-core.js','message-store.js');
-const messages=new RCSMessageStore.Store();
+const messageStatsKey='rcs-message-stats-v1';
+let messageStatsCache=undefined;
+let messageStatsWork=Promise.resolve();
+let pendingGlobalStats=null;
+function validMessageStats(entry) {
+  return Boolean(entry && Array.isArray(entry.owners) && entry.owners.every(owner=>typeof owner==='string') && entry.stats
+    && Number.isFinite(entry.stats.messages) && entry.stats.messages>=0
+    && Number.isFinite(entry.stats.rooms) && entry.stats.rooms>=0
+    && Number.isFinite(entry.stats.completeRooms) && entry.stats.completeRooms>=0
+    && Number.isFinite(entry.stats.approxBytes) && entry.stats.approxBytes>=0);
+}
+async function readMessageStatsCache() {
+  if(messageStatsCache!==undefined)return messageStatsCache;
+  try{
+    const stored=await chrome.storage?.local?.get?.(messageStatsKey);
+    const entry=stored?.[messageStatsKey];
+    if(messageStatsCache===undefined)messageStatsCache=validMessageStats(entry)?entry:null;
+  }catch{if(messageStatsCache===undefined)messageStatsCache=null;}
+  return messageStatsCache;
+}
+function updateMessageStatsCache(delta) {
+  messageStatsWork=messageStatsWork.then(async()=>{
+    if(delta.clearAll){
+      messageStatsCache={owners:[],stats:{messages:0,rooms:0,completeRooms:0,approxBytes:0}};
+      await chrome.storage?.local?.set?.({[messageStatsKey]:messageStatsCache});
+      return;
+    }
+    if(delta.reset){
+      messageStatsCache=null;
+      await chrome.storage?.local?.remove?.(messageStatsKey);
+      return;
+    }
+    const current=await readMessageStatsCache();
+    if(!current)return;
+    const owners=current.owners.includes(delta.owner)?current.owners:[...current.owners,delta.owner];
+    messageStatsCache={
+      owners,
+      stats:{
+        messages:Math.max(0,current.stats.messages+(delta.messages || 0)),
+        rooms:Math.max(0,current.stats.rooms+(delta.rooms || 0)),
+        completeRooms:Math.max(0,current.stats.completeRooms+(delta.completeRooms || 0)),
+        approxBytes:Math.max(0,current.stats.approxBytes+(delta.approxBytes || 0))
+      }
+    };
+    await chrome.storage?.local?.set?.({[messageStatsKey]:messageStatsCache});
+  }).catch(()=>{});
+}
+async function globalMessageStats() {
+  await messageStatsWork;
+  const cached=await readMessageStatsCache();
+  if(cached)return {persistent:messages.persistent,accounts:cached.owners.length,stats:{...cached.stats}};
+  if(!pendingGlobalStats){
+    pendingGlobalStats=(async()=>{
+      const epoch=messages.writeEpoch;
+      const full=await messages.stats(undefined,{committed:true,includeOwners:true});
+      if(messages.writeEpoch===epoch){
+        const seeded={owners:full.owners,stats:{...full.stats}};
+        messageStatsWork=messageStatsWork.then(async()=>{
+          if(messages.writeEpoch!==epoch)return;
+          messageStatsCache=seeded;
+          await chrome.storage?.local?.set?.({[messageStatsKey]:seeded});
+        }).catch(()=>{});
+      }
+      return {persistent:full.persistent,accounts:full.accounts,stats:full.stats};
+    })().finally(()=>{pendingGlobalStats=null;});
+  }
+  return pendingGlobalStats;
+}
+const messages=new RCSMessageStore.Store({onStatsDelta:updateMessageStatsCache});
 let messageQueue=Promise.resolve();
 async function notifyMessageTabs(owner,cleared=false,roomIds) {
   const tabs=await chrome.tabs.query({});
@@ -182,7 +250,7 @@ async function handleMessages(message,sender) {
     else {const all=await chrome.storage.local.get(null);await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(recentPrefix) || key.startsWith(scopedRecentPrefix)));}
     await notifyMessageTabs(message.owner || null,true);return {cleared:true};
   }
-  if(message.action==='stats' && popup)return messages.stats(message.owner,{committed:true});
+  if(message.action==='stats' && popup)return message.owner?messages.stats(message.owner,{committed:true}):globalMessageStats();
   if(!RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
   if(message.action==='ingest') {if(!await chatSearchEnabled())return {changed:false,disabled:true};const result=await messages.ingest(message);if(result.changed!==false)await notifyMessageTabs(message.owner,false,result.roomIds);return result;}
   // Layout hints do not broadcast message changes or restart active searches.

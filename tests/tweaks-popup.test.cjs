@@ -10,11 +10,12 @@ const hostsScript=fs.readFileSync(path.join(__dirname,'../extension/embed-player
 const script=fs.readFileSync(path.join(__dirname,'../extension/popup.js'),'utf8');
 const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
 
-function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,storedTab,mirror,touch=false,embedAccess}={}){
+function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,storedTab,mirror,statsMirror,sendMessage,touch=false,embedAccess}={}){
   const dom=new JSDOM(html,{runScripts:'outside-only',url:'https://extension.test/popup.html'}),w=dom.window;
   t.after(w.close.bind(w));
   if(storedTab)w.localStorage.setItem('rt-popup-tab',storedTab);
   if(mirror)w.localStorage.setItem('rt-settings-mirror-v1',JSON.stringify(mirror));
+  if(statsMirror)w.localStorage.setItem('rt-message-stats-v1',JSON.stringify(statsMirror));
   const frames=[];
   w.requestAnimationFrame=callback=>frames.push(callback);
   w.matchMedia=query=>({matches:query.includes('pointer: coarse')?touch:false});
@@ -27,6 +28,7 @@ function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,stored
     runtime:{async sendMessage(request){
       messages.push(request);
       if(runtimeFailure)throw Error('runtime failed');
+      if(sendMessage)return sendMessage(request);
       return request.action==='stats'?{ok:true,stats:{messages:42,rooms:3,approxBytes:2048}}:{ok:true};
     }}
   };
@@ -150,6 +152,21 @@ test('Data tab has local chat search toggle (default On), Paused state when off,
   assert.ok(p.messages.some(message=>message.scope==='rcs-directory'&&message.action==='clear'));
   assert.match(doc.querySelector('#cache-status').textContent,/Saved usernames cleared/);
   assert.equal(p.messages.filter(message=>message.action==='stats').length,2,'clearing saved messages refreshes the count');
+});
+
+test('Data tab shows cached message stats immediately on reopen without flashing loading text',async t=>{
+  let resolveStats;
+  const p=popup(t,{
+    storedTab:'data',
+    statsMirror:{messages:36331,rooms:2075,approxBytes:22124954},
+    sendMessage:request=>request.action==='stats'?new Promise(resolve=>{resolveStats=resolve;}):{ok:true}
+  });
+  const statsEl=p.w.document.querySelector('#message-stats');
+  assert.match(statsEl.textContent,/36,331 saved messages.*2,075 chats.*21\.1 MB estimated data/,'renders cached stats synchronously before background replies');
+  resolveStats({ok:true,stats:{messages:36335,rooms:2076,approxBytes:22229811}});
+  await settle();
+  assert.match(statsEl.textContent,/36,335 saved messages.*2,076 chats.*21\.2 MB estimated data/,'updates seamlessly when background replies');
+  assert.equal(JSON.parse(p.w.localStorage.getItem('rt-message-stats-v1')).messages,36335);
 });
 
 test('Home opens with one settings read and leaves hidden panels idle',async t=>{
