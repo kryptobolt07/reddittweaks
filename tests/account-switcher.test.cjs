@@ -256,6 +256,35 @@ test('one Switch accounts row sits right after View Profile, built from Reddit�
  assert.ok(entry(d).querySelector('[data-rt-icon="switchAccount"]') && entry(d).querySelector('[data-rt-icon="next"]'));assert.equal(entry(d).getAttribute('aria-haspopup'),'menu');
  assert.match(entry(d).className,/hover:bg-neutral-background-hover/,'Reddit’s own row classes');assert.ok(entry(d).closest('.rt-account-row'),'the whole row shares one hit target');assert.equal(d.querySelectorAll('[data-owner="t2_bob"]').length,0,'accounts stay in the submenu');
 });
+test('a lost list reply retries once and refreshes the account menu without navigation',async t=>{
+ let reads=0;
+ const {d,sent}=await page(t,{list:()=>++reads===1?{ok:false,transient:true}:{ok:true,accounts:[alice,bob]}});
+ await open(d);
+ await new Promise(resolve=>setTimeout(resolve,250));
+ await flush();
+ assert.equal(reads,2);
+ assert.ok(panelRows(d).includes('u/bob|Switch to this account'));
+ assert.equal(sent.filter(m=>['switch','add','anonymous'].includes(m.action)).length,0);
+});
+test('a failed list can be retried inside the same account menu',async t=>{
+ let available=false;
+ const {d}=await page(t,{list:()=>available?{ok:true,accounts:[alice,bob]}:{ok:false,error:'Worker unavailable'}});
+ await open(d);assert.ok(panelRows(d).includes('Try again|Worker unavailable'));
+ available=true;d.querySelector('[data-rt-ui="accounts-panel"] [data-rt-ui="account-row"] a').click();await flush();
+ assert.ok(panelRows(d).includes('u/bob|Switch to this account'));
+ d.querySelector('[aria-label="Back to menu"]').click();
+ assert.ok([...d.querySelector('#user-drawer-content').children].every(child=>child.style.display!=='none'));
+});
+test('reattaching a menu reads the list before an explicit open and skips startup account writes',async t=>{
+ const {window:W}=new JSDOM('<shreddit-app user-logged-in="true" logged-in-user-id="t2_alice"></shreddit-app>'+menuHtml('user-drawer-content','alice'),{url:'https://www.reddit.com/',runScripts:'outside-only'});
+ W.__rtAccountSwitcherTest=true;W.eval(read('account-switcher.js'));
+ const sent=[],s=new W.RTAccountSwitcher.Switcher({reconnected:true,send:async message=>{
+  sent.push(message.action);return {ok:true,accounts:message.action==='list'?[]:[alice]};
+ }});
+ t.after(()=>{s.destroy();W.close();});
+ await s.ready;await flush();assert.deepEqual(sent,['list']);
+ await open(W.document);assert.deepEqual(sent,['list','save-current']);
+});
 test('the submenu replaces Reddit’s sections in place: current account checked, others, Browse signed out, Add account',async t=>{
  const {d}=await page(t);await open(d);const menu=d.querySelector('#user-drawer-content');
  assert.equal([...menu.children].filter(c=>c.dataset.rtUi!=='accounts-panel').every(c=>c.style.display==='none'),true,'Reddit’s sections are hidden, not removed');

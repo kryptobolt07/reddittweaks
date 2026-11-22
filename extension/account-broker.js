@@ -233,6 +233,22 @@
   if(message?.scope!=='rt-accounts')return;
   serial(()=>handle(message,sender)).then(respond,error=>respond({ok:false,error:error.message || 'Accounts are unavailable.'}));return true;
  });
+ // Content scripts in an existing tab lose messaging when the extension is
+ // replaced. Reconnect only the account menu, without navigating the document.
+ chrome.runtime.onInstalled?.addListener(async ({reason})=>{
+  if(!['install','update'].includes(reason) || !chrome.scripting?.executeScript)return;
+  const url=['https://reddit.com/*','https://www.reddit.com/*','https://new.reddit.com/*','https://sh.reddit.com/*'];
+  const tabs=await chrome.tabs.query({url}).catch(()=>[]);
+  await Promise.allSettled(tabs.filter(tab=>Number.isInteger(tab.id) && !tab.discarded).map(async tab=>{
+   const target={tabId:tab.id};
+   const [frame]=await chrome.scripting.executeScript({target,func:()=>{
+    if(globalThis.RTAccountSwitcher)return false;
+    globalThis.__rtAccountSwitcherReconnect=true;
+    return true;
+   }});
+   if(frame?.result)await chrome.scripting.executeScript({target:frame.documentId?{tabId:tab.id,documentIds:[frame.documentId]}:target,files:['feed-sheet.js','account-switcher.js']});
+  }));
+ });
  // Closing the sign-in tab while still signed out also ends Add account (normal windows and each private store).
  chrome.tabs?.onRemoved?.addListener(tabId=>serial(async()=>{try{
   const jars=[{id:undefined,private:false}];

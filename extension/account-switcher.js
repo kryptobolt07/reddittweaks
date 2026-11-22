@@ -24,7 +24,18 @@
 
  const icon=(name,size=20)=>{if(STROKES[name]){const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','none');s.setAttribute('stroke','currentColor');s.setAttribute('stroke-width','1.7');s.setAttribute('stroke-linecap','round');s.setAttribute('stroke-linejoin','round');s.setAttribute('aria-hidden','true');s.dataset.rtIcon=name;for(const d of STROKES[name]){const p=document.createElementNS(SVG,'path');p.setAttribute('d',d);s.append(p);}return s;}
   const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','currentColor');s.setAttribute('aria-hidden','true');s.dataset.rtIcon=name;const p=document.createElementNS(SVG,'path');p.setAttribute('d',ICONS[name]);s.append(p);return s;};
- const send=message=>new Promise(resolve=>{try{chrome.runtime.sendMessage({scope:'rt-accounts',...message},response=>{void chrome.runtime.lastError;resolve(response || {ok:false,error:'Accounts are unavailable. Reload this tab.'});});}catch{resolve({ok:false,error:'Accounts are unavailable. Reload this tab.'});}});
+ const transportFailure=error=>/extension context invalidated/i.test(error || '') || !globalThis.chrome?.runtime?.id
+  ?{ok:false,needsReload:true,error:'Reload this tab to reconnect the account switcher.'}
+  :{ok:false,transient:true,error:'Couldn’t reach the account switcher.'};
+ const send=message=>new Promise(resolve=>{
+  let timer;
+  const done=value=>{clearTimeout(timer);resolve(value);};
+  if(message.action==='list')timer=setTimeout(()=>done(transportFailure()),5000);
+  try{chrome.runtime.sendMessage({scope:'rt-accounts',...message},response=>{
+   try{const error=chrome.runtime.lastError;done(error || !response?transportFailure(error?.message):response);}
+   catch(error){done(transportFailure(error.message));}
+  });}catch(error){done(transportFailure(error.message));}
+ });
  const profileName=row=>/^\/user\/([\w-]{3,20})\/?$/i.exec(row?.querySelector(':scope > a')?.getAttribute('href') || '')?.[1] || '';
  const profileRow=menu=>[...menu.querySelectorAll('li')].find(li=>!li.closest('[data-rt-ui]') && profileName(li)) || null;
  const loginRow=menu=>[...menu.querySelectorAll('ul li')].find(li=>{
@@ -54,8 +65,8 @@
  };
 
  class Switcher{
-  constructor({send:transport=send}={}){
-   this.send=transport;this.lists=new WeakMap();this.panels=new WeakMap();this.queued=false;this.dead=false;
+  constructor({send:transport=send,reconnected=false}={}){
+   this.send=transport;this.lists=new WeakMap();this.panels=new WeakMap();this.queued=false;this.dead=false;this.reconnected=reconnected;
    this.observer=new MutationObserver(records=>{
     if(!globalThis.RTPostMenuDOM?.onlyMenuChanges(records))this.schedule();
    });
@@ -64,7 +75,12 @@
    this.onPress=event=>{if(event.target?.closest?.('#expand-user-drawer-button'))for(const menu of document.querySelectorAll(MENUS))this.closePanel(menu);};
    this.onKey=event=>{if(event.key!=='Escape')return;const menu=[...document.querySelectorAll(MENUS)].find(m=>this.panels.get(m)?.open);if(!menu)return;event.preventDefault();event.stopPropagation();this.closePanel(menu,true);};
    document.addEventListener('pointerdown',this.onPress,true);document.addEventListener('keydown',this.onKey,true);
-   this.ready=this.remember().then(()=>this.scan());
+   if(reconnected){
+    // Already-open documents may show stale identity markup. Only a new
+    // document, a changed identity or a requested report should save it.
+    this.remembered=true;this.reported=signedIn();this.scan();
+    this.ready=Promise.resolve();
+   }else this.ready=this.remember().then(()=>this.scan());
   }
   // Every signed-in page refreshes a saved account's session (rotating tokens) and settles a pending switch; an
   // account not saved yet is saved now, so switching works straight away. Reddit's app element (and its signed-in
@@ -78,7 +94,7 @@
      this.awaitingIdentity=owner;
      if((await this.saveNew(owner))?.ok)this.awaitingIdentity='';
     }else this.awaitingIdentity='';
-    this.remembered=true;this.reported=owner;
+    this.remembered=true;this.reported=owner;this.reconnected=false;
     return true;
    }).finally(()=>{this.remembering=null;if(!this.dead && signedIn()!==owner)this.schedule();});
    return this.remembering;
@@ -138,7 +154,7 @@
     if(account && stale)
      this.saveNew(owner,account).then(result=>{if(result?.ok){this.awaitingIdentity='';this.lists=new WeakMap();this.schedule();}});
    }
-   if(owner && this.remembered){
+   if(owner && this.remembered && !this.reconnected){
     const avatar=avatarOf(document.getElementById('expand-user-drawer-button')) ||
       menus.map(menu=>avatarOf(profileRow(menu))).find(Boolean);
     if(avatar && (this.reportedAvatar?.owner!==owner || this.reportedAvatar.avatar!==avatar)){
@@ -162,19 +178,45 @@
   context(row,owner){
    return {owner,username:owner?profileName(row):'',avatar:owner?avatarOf(row):''};
   }
-  async load(menu,{owner,username,avatar}){
+  async load(menu,{owner,username,avatar},{saveMissing=false}={}){
    let pending=this.lists.get(menu);
-   if(!pending || pending.owner!==owner || Date.now()-pending.at>5000){
-    const job=(async()=>{let result=await this.send({action:'list',owner});
-     // First time the menu shows for an unsaved account: save it, so switching back is possible.
-     if(owner && signedIn()===owner && username && result?.ok && !result.accounts.some(a=>a.owner===owner)){
-      const saved=await this.send({action:'save-current',owner,username,avatar});
-      if(saved?.ok){this.awaitingIdentity='';result={...result,...saved};}
+   if(!pending || pending.owner!==owner || (pending.at!==null && Date.now()-pending.at>5000)){
+    pending={owner,at:null};
+    pending.job=(async()=>{let result=await this.send({action:'list',owner});
+     if(result?.transient && !this.dead && signedIn()===owner){
+      await new Promise(resolve=>setTimeout(resolve,200));
+      if(!this.dead && signedIn()===owner)result=await this.send({action:'list',owner});
+     }
+     if(this.lists.get(menu)===pending){
+      if(result?.ok)pending.at=Date.now();else this.lists.delete(menu);
+      if(!this.dead && signedIn()===owner)this.updateCaption(menu,owner,result);
      }
      return result;})();
-    pending={owner,at:Date.now(),job};this.lists.set(menu,pending);
+    this.lists.set(menu,pending);
    }
-   return pending.job;
+   const result=await pending.job;
+   // In a reattached document only an explicit open can save a missing account.
+   if(!saveMissing || this.dead || !menu.isConnected || !owner || signedIn()!==owner || !username ||
+    !result?.ok || result.signedOut || result.accounts.some(a=>a.owner===owner))return result;
+   pending.saving ||= this.send({action:'save-current',owner,username,avatar}).then(saved=>{
+    if(!saved?.ok){pending.saving=null;return result;}
+    this.awaitingIdentity='';
+    const updated={...result,...saved};
+    if(this.lists.get(menu)===pending){pending.job=Promise.resolve(updated);this.updateCaption(menu,owner,updated);}
+    return updated;
+   });
+   return pending.saving;
+  }
+  updateCaption(menu,owner,result){
+   const entry=menu.querySelector('[data-rt-ui="accounts"]'),caption=entry?.querySelector('.text-caption-1');
+   if(!caption || entry.dataset.owner!==owner)return;
+   const others=result?.ok?result.accounts.filter(a=>a.owner!==owner).length:0;
+   caption.textContent=result?.ok?(result.anonymous?'Browsing anonymously':!owner || result.signedOut?'Signed out here':others?others+(others===1?' other account':' other accounts'):'Add another account'):(result?.error || '');
+   caption.hidden=!caption.textContent;
+  }
+  retryAction(result,retry){
+   if(result?.needsReload)return {label:'Reload this tab',caption:'Reconnect the account switcher',run:async()=>{location.reload();return {ok:true};}};
+   return {label:'Try again',caption:result?.error || 'Couldn’t load accounts.',run:async()=>{await retry();return {ok:true};}};
   }
   // The single entry row in Reddit's menu.
   render(menu,anchor,row,owner){
@@ -184,18 +226,13 @@
    const wrap=anchor.matches('faceplate-tracker')?(()=>{const w=document.createElement('div');w.className='contents';w.setAttribute('role','presentation');return w;})():null;
    if(wrap){wrap.dataset.rtUi='accounts';wrap.dataset.owner=owner;delete entry.dataset.rtUi;wrap.append(entry);anchor.after(wrap);}else anchor.after(entry);
    this.panels.set(menu,{...(this.panels.get(menu) || {}),source:row,me,open:this.panels.get(menu)?.open || false});
-   this.load(menu,me).then(result=>{
-    if(!entry.isConnected || this.dead)return;const caption=entry.querySelector('.text-caption-1');
-    if(!result?.ok){if(caption){caption.textContent=result?.error || 'Reload this tab to retry.';caption.hidden=false;}return;}
-    const others=result.accounts.filter(a=>a.owner!==owner).length;
-    if(caption){caption.textContent=result.anonymous?'Browsing anonymously':!owner || result.signedOut?'Signed out here':others?others+(others===1?' other account':' other accounts'):'Add another account';caption.hidden=false;}
-   });
+   this.load(menu,me,{saveMissing:!this.reconnected}).then(result=>{if(!this.dead && entry.isConnected && signedIn()===owner)this.updateCaption(menu,owner,result);});
   }
   // The panel replaces the menu's sections in place; Reddit's nodes are hidden, never removed.
   openPanel(menu){
    const state=this.panels.get(menu);if(!state?.source)return;
    const list=state.source.closest('ul'),container=list?.parentElement;if(!container)return;
-   if(state.node?.isConnected)state.node.remove();
+   this.closePanel(menu);
    const panel=document.createElement('ul');panel.className=list.className;panel.dataset.rtUi='accounts-panel';panel.setAttribute('role','menu');panel.setAttribute('aria-label','Switch accounts');
    const hidden=[];for(const child of container.children){if(child===panel || child.dataset?.rtUi==='accounts-panel')continue;hidden.push([child,child.style.display]);child.style.display='none';}
    state.hidden=hidden;state.node=panel;state.open=true;container.append(panel);
@@ -207,10 +244,10 @@
    backButton.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.closePanel(menu,true);});
    for(const type of ['pointerdown','pointerup','touchstart','touchend','mousedown','mouseup'])backButton.addEventListener(type,event=>event.stopPropagation());
    panel.append(back);
-   this.load(menu,me).then(result=>{
-    if(!panel.isConnected || this.dead)return;
+   this.load(menu,me,{saveMissing:true}).then(result=>{
+    if(!panel.isConnected || this.dead || signedIn()!==me.owner)return;
     const rows=[],rule=()=>{const li=document.createElement('li');li.setAttribute('role','separator');li.className='list-none';const hr=document.createElement('hr');hr.className='h-px w-100 bg-neutral-border-weak border-0 my-xs';li.append(hr);return li;};
-    if(!result?.ok){panel.append(this.row(state.source,{label:'Accounts unavailable',caption:result?.error || 'Reload this tab to retry.',disabled:true}));return;}
+    if(!result?.ok){panel.append(this.row(state.source,this.retryAction(result,()=>this.openPanel(menu))));return;}
     const signedOut=!me.owner || result.signedOut===true || result.anonymous===true;
     for(const account of result.accounts){
      const current=!signedOut && account.owner===me.owner;
@@ -230,12 +267,15 @@
   // menu sheet, instead of swapping that sheet's content in place.
   async openSheet(menu,entry){
    const state=this.panels.get(menu);if(!state?.source)return;
-   const me=state.me,drawer=menu.closest('rpl-bottom-sheet'),result=await this.load(menu,me);
+   const me=state.me,drawer=menu.closest('rpl-bottom-sheet'),result=await this.load(menu,me,{saveMissing:true});
    if(this.dead || !entry.isConnected || signedIn()!==me.owner || drawer && !drawer.hasAttribute('open'))return;
    const ownAvatar=()=>{const node=state.source.querySelector('[avatar]');return node?node.cloneNode(true):null;};
    const circle=(name,plain=false)=>{const wrap=document.createElement('span');wrap.className='rt-account-glyph'+(plain?' rt-plain':'');wrap.append(icon(name));return wrap;};
    this.accountSheet=globalThis.RTFeedSheet.open({title:'Accounts',modal:true,returnFocus:entry.querySelector(':scope > a') || entry,build:(_body,ui)=>{
-    if(!result?.ok){ui.row({label:'Accounts unavailable',subtitle:result?.error || 'Reload this tab to retry.'});return;}
+    if(!result?.ok){
+     const action=this.retryAction(result,()=>this.openSheet(menu,entry));
+     ui.row({label:action.label,subtitle:action.caption,onSelect:action.run,keepOpen:true});return;
+    }
     const signedOut=!me.owner || result.signedOut===true || result.anonymous===true;
     for(const account of result.accounts){
      const current=!signedOut && account.owner===me.owner;
@@ -308,12 +348,27 @@
  }
  globalThis.RTAccountSwitcher=Object.freeze({Switcher,profileRow});
  if(globalThis.chrome?.runtime?.id && !globalThis.__rtAccountSwitcherTest){
-  const switcher=new Switcher();
+  const reconnected=globalThis.__rtAccountSwitcherReconnect===true;
+  delete globalThis.__rtAccountSwitcherReconnect;
+  if(reconnected){
+   document.dispatchEvent(new Event('rt-account-switcher-detach'));
+   // Restore native sections when taking over from an older version that
+   // did not listen for detachment.
+   for(const panel of document.querySelectorAll('[data-rt-ui="accounts-panel"]'))panel.querySelector('[aria-label="Back to menu"]')?.click();
+   for(const sheet of document.querySelectorAll('[data-rt-ui="feed-sheet"]'))if(sheet.querySelector('.rt-fsheet-title')?.textContent==='Accounts')sheet.querySelector('.rt-fsheet-close')?.click();
+   for(const row of document.querySelectorAll('[data-rt-ui="accounts"]'))row.remove();
+  }
+  const switcher=new Switcher({reconnected});
   // The worker asks open Reddit tabs to report who is signed in when the popup finds a session it has not saved.
-  chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+  const report=(message,sender,respond)=>{
    if(message?.scope!=='rt-accounts' || message.action!=='report' || sender?.id!==chrome.runtime.id)return;
    switcher.remembered=false;
    switcher.remember().then(()=>respond({ok:true}),()=>respond({ok:false}));return true;
-  });
+  };
+  chrome.runtime.onMessage.addListener(report);
+  document.addEventListener('rt-account-switcher-detach',()=>{
+   switcher.destroy();
+   try{chrome.runtime.onMessage.removeListener(report);}catch{}
+  },{once:true});
  }
 })();
