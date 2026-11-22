@@ -1,3 +1,10 @@
+# 0.58.5 preview
+
+- On blocked profiles, the clicked tab shows Reddit’s lighter pressed colour while the current tab remains selected. Selection and content switch together when the first result is ready.
+- A single Reddit loading halo shows during the first blocked-profile load. The profile search pill appears when the first content or the empty state is ready and stays visible during tab changes.
+- Patch increment for tab transition timing and first-load feedback.
+- All 2,193 tests passed. Headless Playwright checked the packaged build at desktop and phone widths, including the initial halo, search scope reveal, pressed and selected states, rapid tab changes, keyboard focus and history navigation. The live Chrome Dev check returned HTTP 403 before Reddit rendered the profile. Both packages matched source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings and notices. Chromium SHA-256 `ba36bba5e614823ca4e87072b3dc812f5abc293517791758886cf7d209169361`. Firefox SHA-256 `8de528f722fcbc69c922459801636506523b6f485b4b28807a6d818528742cbc`.
+
 # 0.58.4 preview
 
 - Blocked-profile tab changes keep one visible tab strip with the destination selected while outgoing cards stay in place until the new activity is ready.
