@@ -780,3 +780,67 @@ test('on phones archive menus open as bottom sheets with a title, close button a
  phone=false;sa.sortMenu.button.click();assert.equal(sa.sortMenu.menu.classList.contains('rt-sra-sheet'),false,'desktop popover');assert.equal(doc.querySelector('[data-rt-ui="subreddit-menu-scrim"]'),null);
  assert.match(fs.readFileSync('extension/subreddit-archive.css','utf8'),/\.rt-sra-menu\.rt-sra-sheet\{position:fixed/);
 });
+
+test('subreddit archive supports banner artwork, mobile Feed/About tabs, Card/Compact view toggle, clickable flair filter, and comment badges',async()=>{
+ const rows=[
+  post('p1',1500000000,{flair:'Meta',flairBg:'#0079d3',flairTextColor:'light',stickied:true}),
+  post('p2',1400000000,{flair:'News'})
+ ];
+ const ctx=await boot({
+  url:'https://www.reddit.com/r/gone/?rt_view=archive',
+  meta:{title:'Gone Sub',banner:'https://styles.redditmedia.com/t5_x/styles/bannerPositionedImage_abc.png',primaryColor:'#112233'},
+  pages:()=>[{items:rows,searchedBackTo:1400000000,hasMore:false,cursor:null}]
+ });
+ await tick();const {doc,sa,W}=ctx;
+ // Banner image rendered
+ const bannerImg=doc.querySelector('.rt-sra-banner.rt-sra-banner-has-image .rt-sra-banner-img');
+ assert.ok(bannerImg,'banner image rendered from archive metadata');
+ assert.equal(bannerImg.src,'https://styles.redditmedia.com/t5_x/styles/bannerPositionedImage_abc.png');
+ // Mobile Feed | About tabs
+ const mobileTabs=doc.querySelector('[data-rt-ui="archive-mobile-tabs"]');
+ const mobileAbout=doc.querySelector('[data-rt-ui="archive-mobile-about"]');
+ assert.ok(mobileTabs && mobileAbout,'mobile Feed | About tabs and about pane mounted');
+ mobileTabs.querySelector('[data-rt-tab="about"]').click();
+ assert.equal(doc.querySelector('main').hidden,true);
+ assert.equal(mobileAbout.hidden,false);
+ assert.match(mobileAbout.textContent,/About this archive/);
+ mobileTabs.querySelector('[data-rt-tab="feed"]').click();
+ assert.equal(doc.querySelector('main').hidden,false);
+ assert.equal(mobileAbout.hidden,true);
+ // Card / Compact view switcher
+ const viewBtn=doc.querySelector('[data-rt-ui="archive-view-toggle"]');
+ assert.ok(viewBtn);
+ assert.equal(viewBtn.dataset.viewType,'cardView');
+ viewBtn.click();await tick();
+ assert.equal(viewBtn.dataset.viewType,'compactView');
+ assert.equal(new W.URLSearchParams(W.location.search).get('feedViewType'),'compactView');
+ assert.equal(doc.querySelector('shreddit-post').getAttribute('view-type'),'compactView');
+ // Clickable flair pill filters feed and renders removable chip
+ const flairPill=doc.querySelector('.rt-archive-flair-pill[data-rt-flair="Meta"]');
+ assert.ok(flairPill);
+ assert.ok(flairPill.classList.contains('rt-flair-colored'));
+ flairPill.click();await tick();
+ assert.equal(sa.flairFilter,'Meta');
+ assert.equal(new W.URLSearchParams(W.location.search).get('rt_flair'),'Meta');
+ assert.ok(doc.querySelector('[data-rt-extra-chip="flair"]'));
+ sa.destroy();W.close();
+
+ // Comment badges (OP, MOD, Pinned, authorFlair, Edited) without SVG inside commentMeta
+ const thread=await boot({
+  url:'https://www.reddit.com/r/gone/comments/abc12/title/',
+  archive:async message=>message.action==='archive-ids'
+   ?{ok:true,posts:[post('abc12',1500000000,{author:'alice'})]}
+   :{ok:true,posts:[comment('c1',1500000010,{linkId:'abc12',parentId:'t3_abc12',author:'alice',isSubmitter:true,distinguished:'moderator',stickied:true,edited:1500000090,authorFlair:'Founder',authorFlairBg:'#224466',authorFlairTextColor:'light'})],hasMore:false}
+ });
+ await tick();await tick();
+ const meta=thread.doc.querySelector('[data-rt-ui="archive-thread-comment"] [slot="commentMeta"]');
+ assert.ok(meta);
+ assert.equal(meta.querySelectorAll('svg').length,0);
+ assert.ok(meta.querySelector('.rt-sra-badge-op'));
+ assert.ok(meta.querySelector('.rt-sra-badge-mod'));
+ assert.ok(meta.querySelector('.rt-sra-badge-pinned'));
+ assert.equal(meta.querySelector('.rt-sra-author-flair')?.textContent,'Founder');
+ assert.match(meta.querySelector('.rt-sra-edited')?.textContent || '',/Edited/);
+ thread.sa.destroy();thread.W.close();
+});
+
