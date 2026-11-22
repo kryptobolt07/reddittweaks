@@ -186,7 +186,7 @@ function updateMessageStatsCache(delta) {
   messageStatsWork=messageStatsWork.then(async()=>{
     if(delta.clearAll){
       messageStatsCache={owners:[],stats:{messages:0,rooms:0,completeRooms:0,approxBytes:0}};
-      await chrome.storage?.local?.set?.({[messageStatsKey]:messageStatsCache});
+      await chrome.storage?.local?.remove?.(messageStatsKey);
       return;
     }
     if(delta.reset){
