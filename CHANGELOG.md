@@ -1,3 +1,11 @@
+# 0.58.6 preview
+
+- Blocked profiles render from Reddit's own signed-out pages. Overview is one interleaved stream in Reddit's order, so comments no longer appear above posts that were already shown. Each card comes from the listing that delivered it, so cards are no longer fetched again one at a time (13 such reads before, none now).
+- On blocked profiles, a clicked tab shows only Reddit's press overlay. It stays unfilled while its activity loads, and selection moves when the activity arrives, as on native profiles. Reaching Comments took about 1.1 s, down from about 2.6 s, because a repeated read now joins the one already in flight and keeps the anonymous session.
+- The left navigation column no longer shows shimmer rows. It stays empty with Reddit's border, like a native page, and the navigation read starts alongside the blocked check.
+- Patch increment: user-visible loading and transition fixes, no new feature.
+- All 2,200 tests passed. A live check used a signed-in Chrome Dev profile with the packaged build, at 1440 and 412 px, on an account that blocked the reader, with the archive off. It covered Overview order, signed-out reads per load, the tab hover, press and selection sequence compared frame by frame with native u/spez, and the navigation timeline. The hidden-activity search fallback is covered by unit tests only. Both packages matched source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings and notices; Firefox rendering was not checked. Chromium SHA-256 `ca2596d86a92c6f86f2900ffde90dda63814f994793a5be0a576387efb159f16`. Firefox SHA-256 `64117dfbde59b9284d4df7f3d9f39d40a76cfd8c22f9060d406727c80cd90816`.
+
 # 0.58.5 preview
 
 - On blocked profiles, the clicked tab shows Reddit’s lighter pressed colour while the current tab remains selected. Selection and content switch together when the first result is ready.
