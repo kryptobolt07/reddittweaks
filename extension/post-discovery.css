@@ -184,9 +184,6 @@ html[data-rt-restore] main shreddit-post:is([data-rt-pending],:has(> [slot="post
 .rt-skeleton-fallback::after,.rt-skeleton-line:not(:defined)::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--color-neutral-background,#fff) 55%,transparent),transparent);animation:rt-skeleton-sweep 1.5s ease-in-out infinite}
 @keyframes rt-skeleton-sweep{to{transform:translateX(100%)}}
 /* Navigation column while Reddit's left navigation loads: rows in its rhythm, never a blank column. */
-.rt-nav-skeleton{gap:22px;padding:24px 16px;overflow:hidden}
-.rt-nav-skeleton .rt-skeleton-line{height:12px}
-.rt-nav-skeleton .rt-skeleton-line:nth-child(odd){width:72%}.rt-nav-skeleton .rt-skeleton-line:nth-child(even){width:56%}
 @media(prefers-reduced-motion:reduce){.rt-skeleton-fallback::after,.rt-skeleton-line:not(:defined)::after{display:none}}
 /* The notice paragraph itself carries data-rt-hold (set with the skeleton, removed on
    settle), so nested replies under an already-settled parent are held too. */

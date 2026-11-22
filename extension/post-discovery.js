@@ -185,8 +185,9 @@
     if(value==='0' || value==='1')return value==='0'?'flex-nav-collapsed':'flex-nav-expanded';
     return native?.getAttribute('expanded')==='0'?'flex-nav-collapsed':'flex-nav-expanded';
   }
-  // Skeleton rows in the navigation column while Reddit's navigation loads, instead of an empty column.
-  function navSkeleton(){const box=make('div','rt-skeleton rt-nav-skeleton');box.setAttribute('aria-hidden','true');for(let i=0;i<7;i++)box.append(make('span','rt-skeleton-line rt-skeleton-fallback'));return box;}
+  // The navigation column while Reddit's navigation loads: like a native page's own nav before its rows
+  // arrive, an empty column with the nav's border and width, never placeholder rows.
+  function navSkeleton(){const box=make('div','rt-nav-reserve h-screen-without-header xs:sticky xs:top-[56px] border-0 border-solid s:border-e-sm border-e-neutral-border');box.setAttribute('aria-hidden','true');return box;}
   function clipFade(content,fade){const check=()=>{fade.hidden=!(content.scrollHeight>content.clientHeight+1);};check();if(typeof ResizeObserver==='function' && !fade.rtWatched){fade.rtWatched=true;new ResizeObserver(check).observe(content);}return fade;}
   function sensitive(content,label,{media=true}={}){
     const box=make('div','relative overflow-hidden rt-sensitive'+(media?' rt-sensitive-media':''));content.classList.add('rt-sensitive-content');box.append(content);
@@ -274,7 +275,9 @@
     tab.toggleAttribute('faceplate-tab-selected',selected);
     for(const name of ['bg-secondary-background-selected','!text-neutral-content-strong','tab-selected'])tab.classList.toggle(name,selected);
     if(selected){tab.setAttribute('aria-current','page');tab.style.backgroundColor='var(--color-secondary-background-selected)';}
-    else{tab.removeAttribute('aria-current');tab.style.removeProperty('background-color');}
+    // Reddit's tab group writes this inline on every unselected tab, so hovering paints nothing and only a
+    // press shows its overlay: a clicked tab is not left highlighted while its activity loads.
+    else{tab.removeAttribute('aria-current');tab.style.backgroundColor='transparent';}
     tab.tabIndex=selected?0:-1;
   }
   function selectProfileTab(tab){
@@ -1528,6 +1531,8 @@
       const pending=this.blockedProbeInFlight;
       if(pending?.path===path && pending.owner===owner && pending.revision===revision)return;
       const probe=this.blockedProbeInFlight={path,owner,revision};
+      // A confirmed block mounts a page with Reddit's navigation: read it alongside the check.
+      if(!pending)this.request({action:'prefetch-navigation',username:context.username}).catch(()=>{});
       const current=()=>!this.dead && this.blockedProbeInFlight===probe && this.settingsRevision===revision && location.pathname===path && loggedInOwner()===owner;
       try{
         const res=await this.request({action:'blocked-probe',username:context.username});
@@ -2112,7 +2117,7 @@
     archiveQueryOn(){return !this.isOwnList() && (this.isSearch() || this.rtActive()) && Boolean(globalThis.RTArchiveQuery?.search) && Boolean(this.settings.archiveDiscovery);}
     oldSort(){return (this.isSearch()?this.effectiveSort()==='old':this.rtActive() && this.rtFilters.sort==='old') && this.archiveQueryOn();}
     // Filtered archive pages are placed by date among Reddit's cards instead of waiting for a shared frontier.
-    freeMerge(){return this.isSearch() || this.oldSort() || this. blockedProfile || this.archiveQueryOn() && (this.context?.sort==='new' || this.archiveOnly);}
+    freeMerge(){return this.isSearch() || this.oldSort() || this.blockedProfile && !(this.blockedUseSearch && this.kinds().length>1) || this.archiveQueryOn() && (this.context?.sort==='new' || this.archiveOnly);}
     rtPredicate(){const f=globalThis.RTFeedFilters,sig=JSON.stringify(f.serialize(this.rtFilters))+':'+Math.floor(Date.now()/60000);if(this.rtPred?.sig!==sig)this.rtPred={sig,fn:f.predicate(this.rtFilters)};return this.rtPred.fn;}
     filterItem(post){
       const f=globalThis.RTFeedFilters,key=itemKey(post),native=this.isSearch() && post.source==='reddit'?this.nodes.get(key)?.querySelector('shreddit-post'):null;
@@ -2757,13 +2762,13 @@
       finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.more.disabled=false;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;this.discover.disabled=this.archiveBusy;if(this.archiveButton)this.archiveButton.disabled=this.archiveBusy;this.ensureActivityArchive();}}
     }
     loadReddit({more=false,retry=false,keys=null,force=false}={}){if(this.isOwnList())return;if(this.isSearch() && !this.clientSearchOn())return;if(this.busy)return this.redditRun;if(force)this.publicBlockedUntil=0;if(!more && !retry){this.initialPrefetchDone=false;this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};this.sourceNotices={};this.clearSourceRetries(key=>!key.startsWith('archive-'));this.refreshStatuses();}if(retry && !keys)this.clearSourceRetries(key=>!key.startsWith('archive-') && !['recovery','replies','verify'].includes(key));if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
-      const frontier=this.publicationFloor(),streams=this.kinds().flatMap(kind=>this.blockedProfile?[{kind,key:kind,stream:'blocked'}]:kind==='comment' && !this.isSearch()?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}])      .filter(({key})=>{if(key!=='comment-public' || !(this.publicBlockedUntil>Date.now()))return true;this.sourceNotices[key]=publicBlockedNote;this.redMore[key]=false;return false;})
+      const frontier=this.publicationFloor(),blockedOverview=this.blockedOverviewStream(),streams=(blockedOverview?['overview']:this.kinds()).flatMap(kind=>this.blockedProfile?[{kind,key:kind,stream:'blocked'}]:kind==='comment' && !this.isSearch()?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}])      .filter(({key})=>{if(key!=='comment-public' || !(this.publicBlockedUntil>Date.now()))return true;this.sourceNotices[key]=publicBlockedNote;this.redMore[key]=false;return false;})
       .filter(({key})=>retry?(keys?keys.includes(key):Boolean(this.sourceErrors[key])):!more || this.redMore[key] && (this.context.sort!=='new' || (this.sourceFrontiers.get(key)?.floor ?? Infinity)>=frontier));
       for(const {key} of streams){if(!more && !retry)this.sourceFrontiers.delete(key);this.sourcePending.add(key);this.sourceStartedAt.set(key,Date.now());}
       if(streams.length)this.scheduleGate(this.sourceWaitMs);
       return this.redditRun=this.run(async current=>{
       const errors=[];let succeeded=false;
-      await Promise.all(streams.map(async ({kind,key,stream})=>{
+      const loadStream=async ({kind,key,stream})=>{
         if(more && !retry && !this.redMore[key])return;
         const old=more || retry?this.afterByKind[key]:null;this.pages++;
         try{
@@ -2771,11 +2776,20 @@
           if(this.blockedProfile){
             const searchType=kind==='comment'?'comments':'posts';
             if(!this.isSearch() && !this.blockedUseSearch){
-              result=await this.request({action:'blocked-profile-page',username:this.context.username,mode:'profile',view:kind==='comment'?'comments':'submitted',sort:this.effectiveSort(),range:this.context.range,...(old?{after:old}:{})});
+              // Reddit's own signed-out tab, in its own order: Overview is one
+              // interleaved stream, never posts and comments merged after the fact.
+              result=await this.request({action:'blocked-profile-page',username:this.context.username,mode:'profile',view:kind==='overview'?'overview':kind==='comment'?'comments':'submitted',sort:this.effectiveSort(),range:this.context.range,...(old?{after:old}:{})});
               if(!current())return;
               if(!more && !retry && (result?.metadata?.curated || result?.metadata?.gated || !(result?.posts?.length))){
                 this.blockedUseSearch=true;
                 if(result?.metadata?.curated)this.sourceNotices.curated='Profile feed is curated · Showing public search activity';
+                // Search has no overview: read one stream per kind, published
+                // together up to their shared date (publicationFloor).
+                if(kind==='overview'){
+                  this.redMore[key]=false;
+                  for(const name of ['post','comment']){this.sourcePending.add(name);this.sourceStartedAt.set(name,Date.now());}
+                  await Promise.all(['post','comment'].map(name=>loadStream({kind:name,key:name,stream:'blocked'})));return;
+                }
                 result=await this.request({action:'blocked-profile-page',username:this.context.username,mode:'search',type:searchType,sort:this.effectiveSort(),range:this.context.range});
               }
             }else{
@@ -2789,7 +2803,8 @@
             if(stream==='public' && previous && this.commentOrigins.get(id)!=='public'){this.live.set(id,{...previous,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler});continue;}
             const merged=previous?{...p,over18:previous.over18 || p.over18,spoiler:previous.spoiler || p.spoiler}:p;this.live.set(id,merged);incoming.set(id,merged);if(kind==='comment')this.commentOrigins.set(id,stream);
           }
-          if(!more && !retry && (this.context.sort==='hot' || this.isSearch() && ['hot','relevance'].includes(this.effectiveSort())) && stream!=='public'){
+          if(kind==='overview'){if(!more && !retry)this.live=new Map([...incoming,...[...this.live].filter(([id])=>!incoming.has(id))]);}
+          else if(!more && !retry && (this.context.sort==='hot' || this.isSearch() && ['hot','relevance'].includes(this.effectiveSort())) && stream!=='public'){
             const belongs=post=>(post.kind==='comment'?'comment':'post')===kind,group=new Map([...incoming,...[...this.live].filter(([id,p])=>belongs(p) && !incoming.has(id))]);
             this.live=new Map(this.kinds().flatMap(type=>type===kind?[...group]:[...this.live].filter(([,p])=>(p.kind==='comment'?'comment':'post')===type)));
           }
@@ -2797,14 +2812,18 @@
         }catch(error){if(!current())return;this.redMore[key]=false;this.noteSourcePage(key,[],false);
           if(stream==='public' && /\(HTTP 403\)/.test(error.message)){this.publicBlockedUntil=Date.now()+publicBlockMs;this.sourceNotices[key]=publicBlockedNote;return;}
           if(this.scheduleSourceRetry(key,error,'reddit'))return;
-          this.sourceErrors[key]=error.message;errors.push((stream==='public'?'Public comments: ':kind==='comment'?'Comments: ':'Posts: ')+error.message);}
+          this.sourceErrors[key]=error.message;errors.push((stream==='public'?'Public comments: ':kind==='overview'?'':kind==='comment'?'Comments: ':'Posts: ')+error.message);}
         finally{if(current()){this.sourcePending.delete(key);this.sourceStartedAt.delete(key);}}
-      }));
+      };
+      await Promise.all(streams.map(loadStream));
       if(!current())return;
       this.after=this.afterByKind.post;this.moreReddit=Object.values(this.redMore).some(Boolean);this.loaded=succeeded || this.loaded;this.render();
       if(errors.length)this.setStatus(errors.join(' '),true);
       this.discover.setAttribute('aria-label','Refresh activity');
     });}
+    // A blocked profile's Overview reads Reddit's signed-out overview tab as one
+    // stream. Search (hidden activity, or the search tab) has no overview.
+    blockedOverviewStream(){return Boolean(this.blockedProfile && !this.isSearch() && !this.blockedUseSearch && this.context?.view==='overview');}
     // Refresh forgets every stored status: a re-approved or restored item must not
     // keep a stale Removed or Deleted cue. Cards re-read their own markup, and
     // archive candidates are verified again where their status matters.
@@ -3029,7 +3048,7 @@
       // Quick retries stay behind the normal loader; only long waits or repeated failures get a note.
       const retrying=this.waitingRetries().filter(entry=>entry.visible!==false),continuation=Boolean(work || pending || more || this.mergePendingNodes.size || this.waitingRetries().length);
       const nativeLoading=this.nativeFeedLoading(),owner=nativeLoading?'native':'extension',halo=this.loading.querySelector('.rt-native-loading'),quiet=nativeLoading || (paused || retrying.length>0) && !work;
-      const archiveView=this.activityFilter==='deleted' && this.settings.archiveDiscovery,failedArchive=this.kinds().filter(kind=>this.sourceErrors['archive-'+kind]),failedSearch=!archiveView && ['post','comment','comment-public'].some(key=>this.sourceErrors[key]);
+      const archiveView=this.activityFilter==='deleted' && this.settings.archiveDiscovery,failedArchive=this.kinds().filter(kind=>this.sourceErrors['archive-'+kind]),failedSearch=!archiveView && ['post','comment','comment-public','overview'].some(key=>this.sourceErrors[key]);
       let message='',action=null,label='';
       if(paused && !work){
         if(archiveView && failedArchive.length){message='Some archived items couldn’t be loaded. Existing results are kept.';label='Retry loading';action=()=>{for(const kind of failedArchive)delete this.sourceErrors['archive-'+kind];this.batchAutoPaused=false;this.archiveMore=Object.fromEntries(Object.entries(this.archiveMore).concat(failedArchive.map(kind=>[kind,true])));return this.archiveBusy?undefined:(this.archiveRun=this.archivePage({more:true,only:failedArchive}));};}

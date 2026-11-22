@@ -424,6 +424,18 @@ test('native navigation attaches only Reddit sidebar markup from a fixed same-or
  const e=setup(t,{fetcher:async()=>nativeResponse('<main id="home">Synthetic unrelated feed</main><flex-left-nav-container id="left-sidebar-container"><reddit-sidebar-nav><a href="/">Home</a></reddit-sidebar-nav></flex-left-nav-container>')}),target=navigationTarget(e);
  const result=await e.send({action:'render-navigation',username:'Example',target:target.id});assert.equal(result.ok,true);assert.equal(result.rendered,true);assert.equal(result.html,undefined);assert.ok(target.querySelector('flex-left-nav-container'));assert.equal(target.querySelector('#home'),null);assert.equal(target.textContent.includes('unrelated'),false);const [url,options]=e.calls[0];assert.equal(new URL(url).pathname,'/');assert.equal(options.credentials,'include');assert.equal(options.redirect,'error');
 });
+test('the navigation read started alongside a blocked-profile check is the one the mounted page renders',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/user/Example/',fetcher:async()=>nativeResponse('<flex-left-nav-container id="left-sidebar-container"><reddit-sidebar-nav><a href="/">Home</a></reddit-sidebar-nav></flex-left-nav-container>')});
+ for(const bad of [{username:'Other'},{username:'Example',url:'https://evil.example/'}])assert.equal((await e.send({action:'prefetch-navigation',...bad})).ok,false);
+ assert.equal(e.calls.length,0);
+ const early=await e.send({action:'prefetch-navigation',username:'Example'});assert.equal(early.ok,true);assert.equal(early.started,true);assert.equal(e.calls.length,1);
+ const target=navigationTarget(e);
+ const result=await e.send({action:'render-navigation',username:'Example',target:target.id,navigationLease:'lease-after-mount'});
+ assert.equal(result.rendered,true);assert.equal(e.calls.length,1,'no second navigation read');assert.ok(target.querySelector('flex-left-nav-container'));
+ // A page that already has Reddit's navigation needs no early read.
+ const native=setup(t,{url:'https://www.reddit.com/user/Example/'});native.W.document.body.insertAdjacentHTML('beforeend','<flex-left-nav-container id="left-sidebar-container"></flex-left-nav-container>');
+ const skipped=await native.send({action:'prefetch-navigation',username:'Example'});assert.equal(skipped.started,false);assert.equal(native.calls.length,0);
+});
 test('navigation rejects foreign targets and profile changes but survives same-profile tab changes',async t=>{
  let resolve;const e=setup(t,{fetcher:()=>new Promise(r=>resolve=r)}),target=navigationTarget(e);
  for(const input of [{username:'Other'},{target:'main'},{target:'rt-nav-missing'}])assert.equal((await e.send({action:'render-navigation',username:'Example',target:target.id,...input})).ok,false);assert.equal(e.calls.length,0);
@@ -1300,6 +1312,53 @@ test('blocked-profile-page parses signed-out metadata, posts/comments, continuat
   {username:'BlockedUser',type:'users'},
   {username:'BlockedUser',url:'https://evil.example'}
  ])assert.equal((await e.send({action:'blocked-profile-page',...bad})).ok,false,JSON.stringify(bad));
+});
+
+test('signed-out profile pages supply their own native cards: render-card reuses them with the page module loader and reads nothing more',async t=>{
+ const loader='<faceplate-loader name="Profile_synthetic" src="concat:aaa,bbb" data-prefix="shreddit/"></faceplate-loader>';
+ const listing=`<html><body>${loader}<main><shreddit-feed>
+  <article><shreddit-post id="t3_abc12" author="BlockedUser" post-title="Public post" view-context="ProfileFeed" created-timestamp="2026-10-20T12:00:00Z" permalink="/r/example/comments/abc12/public_post/"><a slot="full-post-link" href="/r/example/comments/abc12/public_post/">Public post</a></shreddit-post></article>
+  <shreddit-profile-comment comment-id="t1_cmnt1" author="BlockedUser" created-timestamp="2026-10-19T12:00:00Z" permalink="/r/example/comments/abc12/public_post/cmnt1/"><div class="md"><p>Public reply</p></div><shreddit-comment-action-row comment-id="t1_cmnt1" score="3"></shreddit-comment-action-row></shreddit-profile-comment>
+ </shreddit-feed></main></body></html>`;
+ const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ const browser=publicBrowserMock(e,()=>listing);
+ const page=await e.send({action:'blocked-profile-page',username:'BlockedUser',tab:'overview',sort:'new'});
+ assert.equal(page.ok,true,page.error);assert.deepEqual(page.posts.map(p=>p.fullname),['t3_abc12','t1_cmnt1'],'one interleaved overview stream');
+ assert.equal('cards' in page,false,'card markup stays in the page world');assert.equal(browser.length,1);
+ const postSlot=nativeTarget(e,{kind:'post',id:'abc12',target:'rt-native-post'}),commentSlot=nativeTarget(e,{kind:'comment',id:'cmnt1',target:'rt-native-comment'});
+ const rendered=[];const Partial=e.W.customElements.get('faceplate-partial'),original=Partial.prototype._renderContent;
+ Partial.prototype._renderContent=function(text){rendered.push(text);return original.call(this,text);};
+ const post=await e.send({action:'render-card',username:'BlockedUser',kind:'post',postId:'abc12',target:postSlot.id,anonymous:true});
+ const comment=await e.send({action:'render-card',username:'BlockedUser',kind:'comment',postId:'cmnt1',target:commentSlot.id,anonymous:true});
+ assert.equal(post.ok,true,post.error);assert.equal(post.rendered,true);assert.equal(comment.ok,true,comment.error);assert.equal(comment.rendered,true);
+ assert.equal(browser.length,1,'no per-card signed-out reads');assert.equal(e.calls.length,0,'no signed-in reads');
+ assert.equal(postSlot.querySelector('shreddit-post').getAttribute('view-context'),'ProfileFeed','the profile feed card itself');
+ assert.equal(postSlot.querySelector('shreddit-post').dataset.rtAnonymousCard,'true');assert.equal(commentSlot.querySelector('shreddit-comment-action-row').hasAttribute('inert'),true);
+ assert.ok(rendered.length===2 && rendered.every(text=>text.startsWith('<faceplate-loader name="Profile_synthetic"')),'each card carries the page module loader');
+ // A compact post card is still Reddit's compact fragment.
+ const compact=setup(t,{url:'https://www.reddit.com/user/BlockedUser/?feedViewType=compactView'});
+ const compactBrowser=publicBrowserMock(compact,req=>req.url.includes('partial-feed-post')?'<shreddit-post id="t3_abc12" author="BlockedUser"></shreddit-post>':listing);
+ assert.equal((await compact.send({action:'blocked-profile-page',username:'BlockedUser',tab:'overview',sort:'new'})).ok,true);
+ const compactSlot=nativeTarget(compact,{kind:'post',id:'abc12'});
+ assert.equal((await compact.send({action:'render-card',username:'BlockedUser',kind:'post',postId:'abc12',target:compactSlot.id,anonymous:true})).ok,true);
+ assert.ok(compactBrowser.some(req=>req.url.includes('/svc/shreddit/partial-feed-post/t3_abc12')),'compact view reads the compact fragment');
+});
+
+test('a remount repeating a cancelled blocked-profile read joins the read in flight instead of starting over',async t=>{
+ let finish;const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/comments/'}),w=e.W;
+ const browser=publicBrowserMock(e,()=>new Promise(resolve=>{finish=resolve;}));
+ const send=(id,input)=>new Promise(resolve=>{const listener=event=>{const r=JSON.parse(event.detail);if(r.id!==id)return;w.document.removeEventListener('rt-post-response',listener);resolve(r);};w.document.addEventListener('rt-post-response',listener);w.document.dispatchEvent(new w.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'test',id,...input})}));});
+ const request={action:'blocked-profile-page',username:'BlockedUser',mode:'profile',view:'comments',sort:'new'};
+ const first=send('first',request);await new Promise(r=>setImmediate(r));
+ w.document.dispatchEvent(new w.CustomEvent('rt-post-request',{detail:JSON.stringify({channel:'test',id:'first',action:'cancel'})}));
+ assert.match((await first).error,/cancelled/);
+ const second=send('second',request);await new Promise(r=>setImmediate(r));
+ finish('<main><shreddit-feed><shreddit-profile-comment comment-id="t1_cmnt1" author="BlockedUser" created-timestamp="2026-10-19T12:00:00Z" permalink="/r/example/comments/abc12/public_post/cmnt1/"><div class="md"><p>Reply</p></div></shreddit-profile-comment></shreddit-feed></main>');
+ const result=await second;assert.equal(result.ok,true,result.error);assert.deepEqual(result.posts.map(p=>p.fullname),['t1_cmnt1']);
+ assert.deepEqual(browser.map(call=>call.action),['read'],'one physical read, never aborted');
+ // Settled reads are not reused: the next request reads again.
+ const third=send('third',request);await new Promise(r=>setImmediate(r));finish('<main><shreddit-feed></shreddit-feed></main>');await third;
+ assert.equal(browser.filter(call=>call.action==='read').length,2);
 });
 
 test('render-card with anonymous:true uses RTPublicBrowser and marks vote/reply/overflow read-only while preserving permalinks, Share and Download',async t=>{

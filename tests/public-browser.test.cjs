@@ -64,10 +64,11 @@ test('only one active request and one queued request; third is rejected',async()
  let release;const gate=new Promise(resolve=>release=resolve);const e=env({fetcher:async url=>{await gate;return response(url);}});
  const a=e.read(endpoint()),b=e.read(endpoint('second'));await assert.rejects(e.read(endpoint('third')),/busy/);await tick();assert.equal(e.calls.length,1);release();await Promise.all([a,b]);assert.equal(e.calls.length,2);
 });
-test('waiting cancellation never issues its fetch and active cancellation aborts native fetch',async()=>{
+test('waiting cancellation never issues its fetch and active cancellation aborts native fetch but keeps the healthy frame',async()=>{
  let release;const gate=new Promise(resolve=>release=resolve);const e=env({fetcher:async url=>{await gate;return response(url);}}),controller=new AbortController();
  const a=e.read(endpoint()),b=e.read(endpoint('waiting'),{signal:controller.signal});controller.abort();release();await a;await assert.rejects(b,/cancelled/);assert.equal(e.calls.length,1);
- const active=env({fetcher:(url,options)=>new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Error('aborted')),{once:true}))}),abort=new AbortController();const p=active.read(endpoint(),{signal:abort.signal});await tick();abort.abort();await assert.rejects(p,/cancelled/);assert.equal(active.calls[0][1].signal.aborted,true);assert.equal(active.nodes[0].isConnected,false);
+ const active=env({fetcher:(url,options)=>new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Error('aborted')),{once:true}))}),abort=new AbortController();const p=active.read(endpoint(),{signal:abort.signal});await tick();abort.abort();await assert.rejects(p,/cancelled/);assert.equal(active.calls[0][1].signal.aborted,true);assert.equal(active.nodes[0].isConnected,true,'a caller cancel keeps the anonymous session');
+ const again=active.read(endpoint('again'));await tick();assert.equal(active.nodes.length,1,'the repeat reuses the same frame');assert.equal(active.calls.length,2);
 });
 test('declared and streamed responses over three million bytes are rejected and frame discarded',async()=>{
  for(const options of [{length:'3000001'},{chunks:[new Uint8Array(1500000),new Uint8Array(1500001)]}]){

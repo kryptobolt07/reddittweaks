@@ -67,3 +67,16 @@ On the installed 0.49.0 build, the latest floating-chat message’s profile text
 | T3 / T10 / T11: cancelled navigation, disabled discovery or account change | Cancelled navigation retains the existing card nodes and filter state. Opt-out and signed-in account changes can tear the old view down immediately. |
 
 With the exact scoped CSS applied temporarily in the affected Brave tab, Comments → Posts kept main/feed/card x at 112.5px throughout the empty/loading interval and while 1–12 extension posts attached. The DOM clientWidth still reflects physical scrollbar presence (1280/1265px), but the reserved gutter keeps the rendered columns stable. The temporary verification style is removed after inspection; the packaged stylesheet supplies the permanent rule after extension reload and page refresh.
+
+## Blocked profiles (signed-out activity)
+
+Measured 2026-11-23 in a signed-in Chrome Dev profile at 1440 and 412 px. The reference is native u/spez; the blocked case is an account that blocked the reader.
+
+| Row | Native behaviour | Our view must |
+|---|---|---|
+| B1 tab press | An unselected tab carries inline `background-color: transparent`. Hover paints nothing. A press shows Reddit's overlay (`linear-gradient(rgba(0,0,0,.15)…)`). After release, the old tab stays selected and the clicked tab has no fill. Selection moves when the content arrives (about 0.75 s on Comments). | Use the same inline background on unselected tabs and no pending fill of its own. Keep the outgoing selection until the destination activity is visible. |
+| B2 Overview order | One overview listing interleaves posts and comments. Its continuation is `profile_overview-more-posts`. | Read Reddit's signed-out overview tab as one stream, in Reddit's order. Never read separate post and comment streams and merge them after the fact. |
+| B3 card source | Signed-out listing pages and continuations contain the native profile-feed card for each item, plus the page's `Profile_` module loader. | Render each card from the listing that delivered it, with that loader. Make no per-card reads. Compact post cards still come from Reddit's compact fragment. |
+| B4 hidden activity | The signed-out profile page has no feed when the account hides its activity. | Fall back to signed-out author search for posts and comments in the same load. Publish them together, up to their shared date. |
+| B5 left navigation | A direct load shows the empty bordered navigation column, then its rows (no shimmer rows). | Reserve the same empty bordered column. Start the navigation read alongside the blocked check, so the navigation appears when the page mounts. |
+| B6 remount | Reddit swaps in its own page for the same route after a tab click. | The repeated listing request joins the read already in flight, and a caller's cancel keeps the anonymous session. |

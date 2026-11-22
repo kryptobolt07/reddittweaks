@@ -171,7 +171,9 @@
     }catch(error){
       controller.abort();
       const cancelled=signal?.aborted || generation!==revision || location.href!==page;
-      let reusable=false;try{reusable=!!context(node) && (responseStatus===429 || responseStatus>=500 || hoverRead && responseStatus===404 || itemRead && (responseStatus===403 || cancelled && generation===revision) || timedOut || error.name==='TypeError');}catch{}
+      // A caller's own cancel on the same page (a remount repeating its request) leaves the anonymous
+      // session healthy: keep it, so the repeat does not wait for a new frame.
+      let reusable=false;try{reusable=!!context(node) && (responseStatus===429 || responseStatus>=500 || hoverRead && responseStatus===404 || itemRead && responseStatus===403 || signal?.aborted && generation===revision && location.href===page && (!responseStatus || responseStatus===200) || timedOut || error.name==='TypeError');}catch{}
       if(!reusable){verifiedSession=false;discard();}
       if(!cancelled && !reusable && cooldownUntil<=Date.now()){cooldownUntil=Date.now()+600000;rateLimited=false;}
       if(cancelled)throw failure('Post request cancelled.');

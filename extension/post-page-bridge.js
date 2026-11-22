@@ -41,6 +41,24 @@
     if(!globalThis.RTPublicBrowser)throw Error('Reddit blocked logged-out search (HTTP 403).');
     return RTPublicBrowser.read(url,{signal,refresh});
   }
+  // A blocked profile remounts when Reddit swaps in its own page for the same
+  // route; its identical request joins the listing read already in flight rather
+  // than cancelling it and starting over. Results are never kept once settled.
+  const blockedReads=new Map(),blockedReadGraceMs=1500;
+  function sharedBlockedRead(url,signal,refresh=false){
+    let entry=!refresh && blockedReads.get(url);
+    if(!entry){
+      const controller=new AbortController();
+      entry={controller,consumers:0,timer:0,settled:false};
+      entry.promise=publicBrowserRead(url,controller.signal,refresh).finally(()=>{entry.settled=true;clearTimeout(entry.timer);if(blockedReads.get(url)===entry)blockedReads.delete(url);});
+      entry.promise.catch(()=>{});blockedReads.set(url,entry);
+    }
+    entry.consumers++;clearTimeout(entry.timer);
+    return waitNative(entry.promise,signal,()=>{
+      entry.consumers--;
+      if(!entry.consumers && !entry.settled)entry.timer=setTimeout(()=>{if(entry.consumers || entry.settled)return;entry.controller.abort();if(blockedReads.get(url)===entry)blockedReads.delete(url);},blockedReadGraceMs);
+    });
+  }
   // Bound simultaneous work and honor server cooldowns; cursor-driven scrolling
   // must not stall behind an unrelated lifetime or rolling card-count quota.
   const M=RTPostModel,jobs=new Map(),rendererWaits=new WeakMap(),navigationReads=new Map(),controlReads=new Map(),emptySearchReads=new Map(),statusReads=new Map(),nativeCardReads=new Map();let active=0,cardActive=0,postCardActive=0,cooldown=0;
@@ -1162,9 +1180,20 @@
     const after=commentPageCursor(cursor,stream,username,sort,range,q);
     return {posts,after,hasMore:Boolean(after),incomplete:true,source:'reddit'};
   }
+  // A profile that may be mounted by the extension (blocked-profile check) reads
+  // the navigation alongside that check, so the page shows Reddit's navigation
+  // as soon as it mounts instead of waiting for a second read.
+  const earlyNavigation='early-navigation';
+  function prefetchNavigation(input){
+    const context=route();
+    if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase() || ['url','origin','method','headers'].some(key=>input[key]!==undefined))throw Error('Open the matching Reddit profile.');
+    if(Date.now()<cooldown || document.querySelector('flex-left-nav-container#left-sidebar-container'))return {started:false};
+    navigationText(earlyNavigation).catch(()=>{});return {started:true};
+  }
   function navigationText(lease){
     const now=Date.now(),app=document.querySelector('shreddit-app');for(const [key,value] of navigationReads)if(value.expires<=now || value.app!==app)navigationReads.delete(key);
     const cached=navigationReads.get(lease);if(cached)return cached.promise;
+    const early=lease!==earlyNavigation && navigationReads.get(earlyNavigation);if(early){navigationReads.delete(earlyNavigation);navigationReads.set(lease,early);return early.promise;}
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
     const promise=(async()=>{const response=await fetch(new URL('/',location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/html'},signal:controller.signal});if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));throw Error('Reddit navigation is rate limited.');}if(!response.ok)throw Error('Reddit navigation could not be loaded.');const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),navigation=doc.querySelector('flex-left-nav-container#left-sidebar-container');if(!navigation)throw Error('Reddit returned no native navigation.');const bootstrap=navigation.closest('.grid-container')?.previousElementSibling;for(const script of navigation.querySelectorAll('script'))script.remove();const boot=bootstrap?.tagName==='FACEPLATE-LOADER'?bootstrap.cloneNode(false).outerHTML:'';return boot+'<div class="grid-container">'+navigation.outerHTML+'</div>';})().finally(()=>clearTimeout(timer));
     if(navigationReads.size>=2)navigationReads.delete(navigationReads.keys().next().value);const entry={app,promise,expires:now+30000};navigationReads.set(lease,entry);promise.catch(()=>{if(navigationReads.get(lease)===entry)navigationReads.delete(lease);});return promise;
@@ -1401,6 +1430,7 @@
   function nativeCapacity(comments){return cardActive<4 && (comments || postCardActive<2);}
   async function nativeFragment(comments,fullname,path,signal,{anonymous=false,input=null}={}){
     const key=path+'|'+(anonymous?'anon|':'')+fullname;
+    if(anonymous){const text=signedOutCard(input?.username,fullname,comments,input);if(text)return {text,url:anonymousCardUrl(comments,fullname,input)};}
     while(true){
       if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
       trimNativeReads(path);const cached=nativeCardReads.get(key);if(cached){if(cached.controller.signal.aborted){await waitNative(cached.promise.catch(()=>null),signal);continue;}return consumeNative(cached,signal);}
@@ -1527,7 +1557,7 @@
     const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node) && !node.closest('[data-rt-search-hidden],[data-rt-profile-handoff]'));
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
     const now=Date.now(),cacheKey=path+'|'+(anonymous?'anon|':'')+fullname;
-    if((!anonymous && now<cooldown) || !nativeCapacity(comments) && !nativeCardReads.has(cacheKey))return {deferred:true,retryAfterMs:Math.max(100,!anonymous && now<cooldown?cooldown-now:250)};
+    if((!anonymous && now<cooldown) || !nativeCapacity(comments) && !nativeCardReads.has(cacheKey) && !(anonymous && signedOutCard(input.username,fullname,comments,input)))return {deferred:true,retryAfterMs:Math.max(100,!anonymous && now<cooldown?cooldown-now:250)};
     if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function'){
       const since=rendererWaits.get(target) ?? now;rendererWaits.set(target,since);
       if(now-since>=10000)throw Error('Reddit’s native card renderer did not become ready. Retry after the page finishes loading.');
@@ -1768,7 +1798,7 @@
     return {username,displayName,bio,avatar,banner,postKarma,commentKarma,karma,cakeDay,curated,gated};
   }
   function parseBlockedProfileListing(doc,username,{continuation=false,previousUrl=null}={}){
-    const feed=doc.querySelector('main shreddit-feed,shreddit-feed') || doc,posts=[],seen=new Set();
+    const feed=doc.querySelector('main shreddit-feed,shreddit-feed') || doc,posts=[],seen=new Set(),markup=new Map();
     const closestCard=node=>node?.closest?.('shreddit-post,shreddit-profile-comment,shreddit-comment');
     const own=(card,selector)=>[...card.querySelectorAll(selector)].find(n=>closestCard(n)===card);
     const flag=(card,name)=>card.hasAttribute(name) && !['false','0'].includes(String(card.getAttribute(name)).toLowerCase());
@@ -1821,7 +1851,7 @@
             thumbnail:M.mediaUrl(preview?.getAttribute('src') || own(card,'video[poster]')?.getAttribute('poster') || card.getAttribute('thumbnail') || contentHref) || undefined,
             subredditIcon:own(card,'[slot="credit-bar"] img[src],.shreddit-subreddit-icon__icon img[src]')?.getAttribute('src') || undefined
           },{source:'reddit'});
-          if(post && !seen.has(post.fullname)){seen.add(post.fullname);posts.push(post);}
+          if(post && !seen.has(post.fullname)){seen.add(post.fullname);posts.push(post);markup.set(post.fullname,card.outerHTML);}
         }else{
           const fullname=(card.getAttribute('comment-id') || card.getAttribute('thingid') || card.id || '').toLowerCase();
           if(!M.validateCommentId(fullname) || !fullname.startsWith('t1_'))continue;
@@ -1846,7 +1876,7 @@
             spoiler:flag(card,'spoiler') || flag(card,'is-spoiler'),
             subredditIcon:own(card,'.shreddit-subreddit-icon__icon img[src],[avatar] img[src]')?.getAttribute('src') || undefined
           },{source:'reddit'});
-          if(comment && !seen.has(comment.fullname)){seen.add(comment.fullname);posts.push(comment);}
+          if(comment && !seen.has(comment.fullname)){seen.add(comment.fullname);posts.push(comment);markup.set(comment.fullname,card.outerHTML);}
         }
       }catch{ /* Skip malformed cards cleanly. */ }
     }
@@ -1862,7 +1892,28 @@
       }catch{}
     }
     const metadata=continuation?null:parseBlockedProfileMetadata(doc,username);
-    return {metadata,posts,nextUrl};
+    return {metadata,posts,nextUrl,cards:markup};
+  }
+  // A signed-out profile page already holds Reddit's own native card for every
+  // item it lists, in the profile feed's markup. Keep them so each card renders
+  // from the page that listed it instead of being fetched again one by one.
+  // Each entry carries the page's Profile module loader, as a single-card
+  // fragment carries its own, so rarer components (galleries) still load.
+  // Page-world memory only, bounded, and scoped to one visited profile.
+  const signedOutCards=new Map(),signedOutCardLimit=200,signedOutCardMs=600000;let signedOutOwner='';
+  function keepSignedOutCards(doc,username,cards){
+    const owner=String(username).toLowerCase();if(owner!==signedOutOwner){signedOutCards.clear();signedOutOwner=owner;}
+    const loader=doc.querySelector('faceplate-loader[name^="Profile_"]')?.outerHTML || '',expires=Date.now()+signedOutCardMs;
+    for(const [fullname,html] of cards){signedOutCards.delete(fullname);signedOutCards.set(fullname,{text:loader+html,expires});}
+    while(signedOutCards.size>signedOutCardLimit)signedOutCards.delete(signedOutCards.keys().next().value);
+  }
+  function signedOutCard(username,fullname,comments,input){
+    // Listing pages are card view; a compact post card still comes from Reddit's compact fragment.
+    if(!comments && (input?.view || new URLSearchParams(location.search).get('feedViewType'))==='compactView')return null;
+    if(String(username || '').toLowerCase()!==signedOutOwner)return null;
+    const entry=signedOutCards.get(fullname);if(!entry)return null;
+    if(entry.expires<=Date.now()){signedOutCards.delete(fullname);return null;}
+    return entry.text;
   }
   async function blockedProfilePage(input,signal){
     blockedContext(input);
@@ -1891,7 +1942,7 @@
         url.searchParams.set('limit','25');
         if(input.cursor)url.searchParams.set('cursor',input.cursor);
         const html=await Promise.race([
-          publicBrowserRead(url.href,controller.signal,input.refresh===true),
+          sharedBlockedRead(url.href,controller.signal,input.refresh===true),
           new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Signed-out search timed out. Try again.'));},25000);})
         ]);
         if(signal?.aborted || pageKey()!==path)throw Error(signal?.aborted?'Post request cancelled.':'Page changed. Try again.');
@@ -1920,11 +1971,12 @@
         if(tRaw!=null)url.searchParams.set('t',tRaw);
       }
       const html=await Promise.race([
-        publicBrowserRead(url.href,controller.signal,input.refresh===true),
+        sharedBlockedRead(url.href,controller.signal,input.refresh===true),
         new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Signed-out profile load timed out. Try again.'));},25000);})
       ]);
       if(signal?.aborted || pageKey()!==path)throw Error(signal?.aborted?'Post request cancelled.':'Page changed. Try again.');
-      const parsed=parseBlockedProfileListing(new DOMParser().parseFromString(html,'text/html'),input.username,{continuation:isContinuation,previousUrl:isContinuation?url.pathname+url.search:null});
+      const doc=new DOMParser().parseFromString(html,'text/html'),parsed=parseBlockedProfileListing(doc,input.username,{continuation:isContinuation,previousUrl:isContinuation?url.pathname+url.search:null});
+      keepSignedOutCards(doc,input.username,parsed.cards);
       return {mode:'profile',tab,sort,metadata:parsed.metadata,posts:parsed.posts,nextUrl:parsed.nextUrl,after:parsed.nextUrl,cursor:null,hasMore:Boolean(parsed.nextUrl),incomplete:true,source:'reddit',signedOut:true};
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
@@ -2400,6 +2452,7 @@
     if(input.action==='render-card')return renderCard(input,signal);
     if(input.action==='status')return readStatuses(input,signal);
     if(input.action==='render-navigation')return renderNavigation(input,signal);
+    if(input.action==='prefetch-navigation')return prefetchNavigation(input);
     if(input.action==='refresh-archive-thread')return refreshArchiveThread(input);
     if(input.action==='load-archive-comment-modules')return loadArchiveCommentModules(input,signal);
     if(input.action==='render-controls')return renderControls(input,signal);

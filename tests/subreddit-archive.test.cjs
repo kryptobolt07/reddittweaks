@@ -557,7 +557,7 @@ test('collapsed native navigation preference sets the layout before asynchronous
   const ctx=await boot({reddit:async()=>{await pending;return {rendered:true};}});t.after(()=>ctx.W.close());
   ctx.doc.cookie='hui_flex_nav_expanded_state=0; path=/';button(ctx.doc).click();
   assert.equal(ctx.sa.layout.classList.contains('flex-nav-collapsed'),true);assert.equal(ctx.sa.layout.classList.contains('flex-nav-expanded'),false);
-  assert.ok(ctx.doc.querySelector('[data-rt-ui="community-navigation"] .left-sidebar .rt-nav-skeleton .rt-skeleton-line'),'a skeleton column, not blank space, while the navigation loads');
+  assert.ok(ctx.doc.querySelector('[data-rt-ui="community-navigation"] .left-sidebar .rt-nav-reserve'),'the navigation column is reserved while the navigation loads');assert.equal(ctx.doc.querySelector('[data-rt-ui="community-navigation"] .left-sidebar .rt-skeleton-line'),null,'no placeholder rows');
   release();await tick();assert.equal(ctx.sa.layout.classList.contains('flex-nav-collapsed'),true);
 });
 

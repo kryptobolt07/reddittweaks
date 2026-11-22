@@ -292,10 +292,10 @@ test('deleted profiles use archive discovery with native tabs and native card hy
  await d.loadReddit();await new Promise(r=>setImmediate(r));assert.ok(calls.every(call=>['render-navigation','render-controls'].includes(call.action)));assert.equal(nativeRenders,1);assert.equal(d.feed.querySelectorAll('.rt-native-card').length,1);assert.ok(d.archiveShell.querySelector('faceplate-tabgroup[for="profile-feed-tabs"]'));assert.equal(d.feed.tagName,'SHREDDIT-FEED');
  d.reset();assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);assert.equal(W.document.querySelector('[data-rt-ui="archive-profile"]'),null);
 });
-test('a deleted profile keeps the reader’s collapsed navigation and shows a skeleton column, not blank space, while it loads',async t=>{
+test('a deleted profile keeps the reader’s collapsed navigation and shows Reddit’s empty navigation column, not placeholder rows, while it loads',async t=>{
  const {W,d}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},archive:async()=>({posts:[],hasMore:false})});
  W.document.cookie='hui_flex_nav_expanded_state=0; path=/';await d.ready;d.reset();deletedPage(W);d.autoDiscover=true;d.scan();
- const reserve=W.document.querySelector('[data-rt-ui="profile-navigation"] .left-sidebar');assert.ok(reserve?.querySelector('.rt-nav-skeleton .rt-skeleton-line'),'Reddit-style skeleton rows while the navigation is requested');
+ const reserve=W.document.querySelector('[data-rt-ui="profile-navigation"] .left-sidebar');assert.ok(reserve?.querySelector('.rt-nav-reserve.s\\:border-e-sm'),'the navigation column keeps its border while the navigation is requested');assert.equal(reserve.querySelector('.rt-skeleton-line,faceplate-shimmer'),null,'no placeholder rows: native navigation never shows them');
  await new Promise(r=>setImmediate(r));
  const shell=W.document.querySelector('[data-rt-ui="archive-profile"]');assert.equal(shell.classList.contains('flex-nav-collapsed'),true);assert.equal(shell.classList.contains('flex-nav-expanded'),false);
 });
@@ -2097,6 +2097,18 @@ test('blocked-profile tabs retain the current cards until the incoming tab is re
  assert.equal(calls.filter(c=>c.action==='blocked-profile-page').length,2);
 });
 
+test('a pending blocked-profile tab has no lasting fill: like Reddit, only press and hover style it until its activity arrives',()=>{
+ const fs=require('fs'),path=require('path');
+ for(const file of ['profile-search.css','post-discovery.css']){const css=fs.readFileSync(path.join(__dirname,'..','extension',file),'utf8');assert.equal(/\[data-rt-profile-tab-pending\][^{]*\{[^}]*background/.test(css),false,file);}
+});
+
+test('unselected blocked-profile tabs carry Reddit’s inline transparent background, so hover leaves no fill',async t=>{
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',reddit:async input=>input.action==='blocked-probe'?{blocked:true}:{posts:[],hasMore:false}});
+ await d.ready;d.reset();blockedNotFoundPage(W);d.scan();await new Promise(r=>setImmediate(r));
+ const tabs=[...d.archiveMain.querySelectorAll('#profile-feed-tabgroup > a')];
+ assert.deepEqual(tabs.map(tab=>tab.style.backgroundColor),['var(--color-secondary-background-selected)','transparent','transparent']);
+});
+
 test('a newer blocked-profile tab keeps the last visible activity and Back releases it immediately',async t=>{
  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/',reddit:async input=>{
   if(input.action==='blocked-probe')return {blocked:true};
@@ -2203,6 +2215,42 @@ test('blocked-by-user profiles mount signed-out activity when blocked-probe conf
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:true,archiveDiscovery:false,blockedProfiles:false}}},'local');
  assert.equal(W.document.querySelector('[data-rt-ui="archive-profile"]'),null);
  assert.equal(notice.hasAttribute('data-rt-archive-notice'),false);
+});
+
+test('a blocked profile Overview reads Reddit’s one interleaved signed-out overview, not posts and comments merged later',async t=>{
+ const calls=[];const note=(id,created)=>({kind:'comment',id,fullname:'t1_'+id,author:'Example',link_id:'t3_abc12',parent_id:'t3_abc12',created_utc:created,body:'Comment '+id,subreddit:'example'});
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{postDiscovery:true,archiveDiscovery:false,blockedProfiles:true},reddit:async input=>{
+  calls.push(input);
+  if(input.action==='blocked-probe')return {blocked:true,profile:{displayName:'Example'}};
+  if(input.action==='blocked-profile-page')return {posts:[note('cmta1',1700000300),raw('pst01',{created_utc:1700000200}),note('cmta2',1700000100)],after:null,hasMore:false,metadata:{curated:false,gated:false}};
+  return {posts:[],hasMore:false};
+ }});
+ await d.ready;d.reset();blockedNotFoundPage(W);d.scan();await new Promise(r=>setImmediate(r));await d.refreshActivity();
+ const pages=calls.filter(c=>c.action==='blocked-profile-page');
+ assert.equal(pages.length,1,'one read for the whole overview');assert.equal(pages[0].view,'overview');assert.equal(pages[0].mode,'profile');
+ const order=[...d.feed.querySelectorAll('[data-rt-ui="activity-item"]')].map(node=>node.dataset.rtNativeFullname);
+ assert.deepEqual(order,['t1_cmta1','t3_pst01','t1_cmta2'],'Reddit’s own interleaving');
+});
+
+test('a hidden-activity blocked Overview searches posts and comments in one load and publishes neither ahead of the other',async t=>{
+ const calls=[];let finishComments;
+ const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{postDiscovery:true,archiveDiscovery:false,blockedProfiles:true},reddit:async input=>{
+  calls.push(input);
+  if(input.action==='blocked-probe')return {blocked:true,profile:{displayName:'Example'}};
+  if(input.action==='blocked-profile-page' && input.mode==='profile')return {posts:[],after:null,hasMore:false,metadata:{curated:true,gated:false}};
+  if(input.action==='blocked-profile-page' && input.type==='posts')return {posts:[raw('pst01',{created_utc:1700000100})],after:null,hasMore:false};
+  if(input.action==='blocked-profile-page')return new Promise(resolve=>{finishComments=resolve;});
+  return {posts:[],hasMore:false};
+ }});
+ await d.ready;d.reset();blockedNotFoundPage(W);d.scan();await new Promise(r=>setImmediate(r));
+ const run=d.refreshActivity();for(let i=0;i<6;i++)await new Promise(r=>setImmediate(r));
+ assert.deepEqual(calls.filter(c=>c.action==='blocked-profile-page').map(c=>c.mode+':'+(c.view || c.type)),['profile:overview','search:posts','search:comments'],'both kinds read in the same load');
+ const post=d.nodes.get('pst01');
+ assert.ok(!post || !post.isConnected || post.hidden || post.hasAttribute('data-rt-order-pending'),'the post waits for the comment stream');
+ finishComments({posts:[{kind:'comment',id:'cmta1',fullname:'t1_cmta1',author:'Example',link_id:'t3_abc12',parent_id:'t3_abc12',created_utc:1700000300,body:'Newer comment',subreddit:'example'}],after:null,hasMore:false});
+ await run;await new Promise(r=>setImmediate(r));
+ const order=[...d.feed.querySelectorAll('[data-rt-ui="activity-item"]')].filter(node=>!node.hidden && !node.hasAttribute('data-rt-order-pending')).map(node=>node.dataset.rtNativeFullname);
+ assert.deepEqual(order,['t1_cmta1','t3_pst01'],'newer comment above the post, never inserted after it');
 });
 
 test('blocked-probe leaves genuine 404 profiles untouched and shows a non-intrusive Firefox note on unsupported',async t=>{
