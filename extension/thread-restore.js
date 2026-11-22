@@ -25,14 +25,20 @@
   }
   const authorGone=node=>node.getAttribute('author')==='[deleted]' || node.hasAttribute('is-author-deleted');
   const deletedLabel=/^(?:u\/)?\[deleted\]$/i;
+  // A post its author deleted keeps only its title: Reddit drops its type, body and media and shows [deleted]
+  // with no notice. A deleted account's surviving post keeps its type and content.
+  const contentGone=post=>authorGone(post) && !post.hasAttribute('post-type') && !post.querySelector('[slot="text-body"],[slot="post-media-container"],[slot="thumbnail"]');
   const postAuthorLabel=post=>{
     const credit=post.querySelector('[slot="credit-bar"]');
     return [...(credit?credit.querySelectorAll('a,span'):post.querySelectorAll('[slot="authorName"],.author'))].find(el=>el.childElementCount===0 && deletedLabel.test(el.textContent.trim()) && !el.closest('[data-rt-source],[data-rt-archived-author]'));
   };
   async function readSettings(){return (await send({action:'get-settings'})).settings;}
+  const signedIn=()=>{const app=document.querySelector('shreddit-app');return Boolean(app && app.getAttribute('user-logged-in')!=='false' && (app.getAttribute('user-logged-in')==='true' || app.hasAttribute('logged-in-user-id')));};
+  // An account that blocked the reader looks deleted on a post page; Reddit's signed-out view shows it.
+  const blockedLabel=author=>'u/'+author+' has blocked you · Shown from Reddit’s signed-out view';
   class ThreadRestore {
     constructor({archive=send,reddit=(...args)=>globalThis.RTPostDiscovery?.redditRead?.(...args),settings=readSettings,observe=true,retryMs=15000,pendingMs=5000}={}){
-      this.reddit=reddit;this.avatars=new Map();this.sharePatches=new Map();this.shareComments=new WeakSet();this.retryAt=0;this.archive=archive;this.retryMs=retryMs;this.settings=null;this.postId='';this.patches=new Map();this.requested=new Set();this.queue=new Set();this.attempts=new Map();this.timer=null;this.pendingMs=pendingMs;this.records=new Map();this.done=new Set();this.shown=new Set();this.holdTimers=new Set();this.timed=new WeakSet();this.checked=new WeakSet();this.postAuthors=new Map();
+      this.reddit=reddit;this.avatars=new Map();this.sharePatches=new Map();this.shareComments=new WeakSet();this.retryAt=0;this.archive=archive;this.retryMs=retryMs;this.settings=null;this.postId='';this.patches=new Map();this.requested=new Set();this.queue=new Set();this.attempts=new Map();this.timer=null;this.pendingMs=pendingMs;this.records=new Map();this.done=new Set();this.shown=new Set();this.holdTimers=new Set();this.timed=new WeakSet();this.checked=new WeakSet();this.postAuthors=new Map();this.signedOutQueue=new Set();this.signedOutAsked=new Set();
       if(observe){
         // Only added elements can bring new comments or a new post.
         this.observer=new MutationObserver(records=>{if(records.some(r=>r.type==='attributes'?(r.target.matches('shreddit-post') || r.attributeName==='data-rt-community-filtered'):!this.ownsMutation(r) && [...r.addedNodes].some(node=>node.nodeType===1)))this.schedule();});
@@ -42,17 +48,26 @@
       }
       this.ready=Promise.resolve().then(settings).then(value=>this.setSettings(value),()=>this.setSettings(null));
     }
-    setSettings(value){this.settings=value?M.normalizeSettings(value):null;if(!this.enabled()){this.restoreAll();this.requested.clear();this.queue.clear();this.postAuthors.clear();}this.syncRootFlag();this.scan();}
+    setSettings(value){this.settings=value?M.normalizeSettings(value):null;if(!this.active()){this.restoreAll();this.requested.clear();this.queue.clear();this.postAuthors.clear();this.signedOutQueue.clear();this.signedOutAsked.clear();}this.syncRootFlag();this.scan();}
     // Lets CSS show a skeleton (instead of Reddit's removal title) before scripts finish.
-    syncRootFlag(){if(globalThis.RTProfileNoticeGuard?.setRestoreEnabled)RTProfileNoticeGuard.setRestoreEnabled(this.enabled());else document.documentElement.toggleAttribute('data-rt-restore',this.enabled() && Boolean(postIdOf()));}
+    syncRootFlag(){if(globalThis.RTProfileNoticeGuard?.setRestoreEnabled)RTProfileNoticeGuard.setRestoreEnabled(this.active());else document.documentElement.toggleAttribute('data-rt-restore',this.active() && Boolean(postIdOf()));}
     enabled(){const s=this.settings;return Boolean(s?.postDiscovery && s.archiveDiscovery && s.restoreDeletedContent);}
+    // Accounts that blocked the reader: checked against Reddit's signed-out view, archive or not.
+    signedOutEnabled(){const s=this.settings;return Boolean(s?.postDiscovery && s.blockedProfiles!==false) && signedIn();}
+    active(){return this.enabled() || this.signedOutEnabled();}
+    // Where a [deleted]-looking comment is asked first: Reddit's signed-out view, then the archive.
+    want(id){
+      if(this.signedOutEnabled() && !this.signedOutAsked.has(id)){this.signedOutQueue.add(id);return true;}
+      if(this.enabled()){this.queue.add(id);return true;}
+      return false;
+    }
     ownsMutation(record){return [...record.addedNodes,...record.removedNodes].every(node=>node.nodeType===1 && (node.dataset?.rtRecoveredText || node.dataset?.rtSource)) && record.addedNodes.length+record.removedNodes.length>0;}
     schedule(){if(this.timer)return;this.timer=setTimeout(()=>{this.timer=null;this.scan();},200);}
     scan(){
       const postId=postIdOf();
-      if(postId!==this.postId){clearTimeout(this.retryTimer);this.retryAt=0;this.restoreAll();this.requested.clear();this.queue.clear();this.attempts.clear();this.postId=postId;this.postState=null;this.syncRootFlag();}
-      if(!this.enabled())return;
-      if(!postId)return this.scanFeedAuthors();
+      if(postId!==this.postId){clearTimeout(this.retryTimer);this.retryAt=0;this.restoreAll();this.requested.clear();this.queue.clear();this.attempts.clear();this.signedOutQueue.clear();this.signedOutAsked.clear();this.postId=postId;this.postState=null;this.syncRootFlag();}
+      if(!this.active())return;
+      if(!postId)return this.enabled()?this.scanFeedAuthors():undefined;
       this.restorePost();
       for(const comment of document.querySelectorAll('main shreddit-comment[thingid]')){
         // Archived reader text is a snapshot, not current Reddit deletion evidence.
@@ -64,24 +79,52 @@
         if(this.shareComments.has(comment) || this.requested.has(id))this.restoreShare(comment,id);
         // Reddit can re-create an answered comment: restore it again from the kept record, with no new request.
         if(this.done.has(id)){if(!this.checked.has(comment)){this.reapply(id,comment);this.settleNode(comment);}continue;}
-        if(this.requested.has(id) || this.checked.has(comment))continue;
+        if(this.requested.has(id) || this.signedOutQueue.has(id) || this.checked.has(comment))continue;
         if(M.domStatus(comment)){this.shareComments.add(comment);this.restoreShare(comment,id);}
         // Skeleton instead of Reddit's notice while the archive is asked.
         const notice=this.noticeParagraph(comment);
         if(!notice){
           // A deleted account keeps its text but shows [deleted] as the author: ask for the author only (same
           // batched request), with no skeleton since the text is already there.
-          if(authorGone(comment)){this.queue.add(id);this.checked.add(comment);continue;}
+          if(authorGone(comment)){this.want(id);this.checked.add(comment);continue;}
           comment.setAttribute('data-rt-settled','');this.checked.add(comment);continue;
         }
-        this.queue.add(id);
+        if(!this.want(id)){comment.setAttribute('data-rt-settled','');this.checked.add(comment);continue;}
         // Already waited the visible limit once: show Reddit's notice, keep trying quietly.
         if(this.shown.has(id)){this.settleNode(comment);continue;}
         notice.dataset.rtNotice='true';notice.dataset.rtHold='';comment.setAttribute('data-rt-pending','');
         if(![...comment.querySelectorAll('[data-rt-skeleton]')].some(n=>n.closest('shreddit-comment')===comment)){const skeleton=globalThis.RTArchiveView?.skeleton({lines:2});if(skeleton)notice.after(skeleton);}
         if(!this.timed.has(comment)){this.timed.add(comment);this.later(()=>{if(comment.hasAttribute('data-rt-pending') && !this.done.has(id)){this.shown.add(id);this.settleNode(comment);}});}
       }
+      this.flushSignedOut();
       return this.flush();
+    }
+    // Comments that look deleted, asked of Reddit's signed-out view ten at a time. What it shows with a live
+    // author is an account that blocked the reader; the rest go on to the archive when that is enabled.
+    async flushSignedOut(){
+      if(this.signedOutFlushing || !this.signedOutQueue.size)return;this.signedOutFlushing=true;const postId=this.postId;
+      try{
+        while(this.signedOutQueue.size && postId===this.postId && this.signedOutEnabled()){
+          const ids=[...this.signedOutQueue].slice(0,10);for(const id of ids){this.signedOutQueue.delete(id);this.signedOutAsked.add(id);}
+          let result=null;
+          try{result=await this.reddit({action:'blocked-thread-items',postId,ids});}catch{}
+          if(postId!==this.postId)return;
+          const found=new Set(),nodes=this.commentNodes(ids);
+          for(const raw of result?.comments || []){
+            const id='t1_'+String(raw?.id || '').toLowerCase();if(!ids.includes(id) || !M.validateUsername(raw.author) || typeof raw.body!=='string' || !raw.body.trim())continue;
+            const record={id:raw.id.toLowerCase(),author:raw.author,body:raw.body,bodyHtml:typeof raw.bodyHtml==='string'?raw.bodyHtml:'',avatar:raw.avatar,source:'signed-out'};
+            found.add(id);this.remember(record);this.done.add(id);
+            const avatar=safeAvatar(raw.avatar);if(avatar && !this.avatars.has(raw.author.toLowerCase()))this.avatars.set(raw.author.toLowerCase(),avatar);
+            for(const node of nodes.get(id) || [])try{this.apply(record,node);this.settleNode(node);}catch{}
+          }
+          for(const id of ids){
+            if(found.has(id))continue;
+            if(this.enabled())this.queue.add(id);
+            else{this.done.add(id);for(const node of nodes.get(id) || [])this.settleNode(node);}
+          }
+        }
+      }finally{this.signedOutFlushing=false;}
+      if(postId===this.postId)this.flush();
     }
     // Visible pending states last at most pendingMs; CSS has its own longer fail-safe.
     later(fn){const timer=setTimeout(()=>{this.holdTimers.delete(timer);fn();},this.pendingMs);this.holdTimers.add(timer);}
@@ -146,9 +189,9 @@
       if(!comment)return;
       const p=this.noticeParagraph(comment);
       // Author only: the text is intact (a deleted account), so only the name changes.
-      if(!p){if(!author || !authorGone(comment) || this.patches.has(comment))return;const patch={original:[],comment,body:comment,authorOnly:true};this.patches.set(comment,patch);this.restoreAuthor(comment,author,patch);return;}
+      if(!p){if(!author || !authorGone(comment) || this.patches.has(comment))return;const patch={original:[],comment,body:comment,authorOnly:true};this.patches.set(comment,patch);this.restoreAuthor(comment,author,patch,archived.source==='signed-out'?'signed-out':'archive');return;}
       const body=p.parentElement;if(!body || this.patches.has(body))return;
-      const status=M.noticeStatus(p.textContent) || 'deleted',cue=cueOf(status,p.textContent);
+      const blocked=archived.source==='signed-out',status=blocked?'blocked':M.noticeStatus(p.textContent) || 'deleted',cue=cueOf(status,p.textContent);
       this.patches.set(body,{original:[...body.childNodes],comment,body});
       if(hasText){
       // Reuse Reddit's own comment-body classes from a normal comment on this page.
@@ -167,12 +210,12 @@
       if(meta && !meta.querySelector('[data-rt-source]')){
         const when=archived.retrieved?' from '+new Date(archived.retrieved*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}):'';
         const by=M.validateUsername(archived.author)?' · Originally posted by u/'+archived.author:'';
-        const label=cue+' · '+(hasText?'Text from an Arctic Shift snapshot'+when:'The Arctic Shift snapshot has no text')+by;
+        const label=blocked?blockedLabel(archived.author):cue+' · '+(hasText?'Text from an Arctic Shift snapshot'+when:'The Arctic Shift snapshot has no text')+by;
         const badge=this.labelBadge(this.makeBadge(status,'rt-post-indicator rt-thread-indicator'),label);
         (meta.querySelector('shreddit-comment-badges')?.parentElement || meta).append(badge);
         this.patches.get(body).badge=badge;
       }
-      if(author)this.restoreAuthor(comment,author,this.patches.get(body));
+      if(author)this.restoreAuthor(comment,author,this.patches.get(body),blocked?'signed-out':'archive');
       // On this comment's own permalink, Reddit's "no longer exists" toast now says where the text came from.
       if(hasText)globalThis.RTProfileNoticeGuard?.resolveCommentAlert?.(archived.id,status);
     }
@@ -180,7 +223,7 @@
     // is unavailable) a short text mark instead of an empty box.
     makeBadge(status,cls){
       const badge=make('span',cls);badge.dataset.rtSource='true';badge.dataset.state=status;
-      const icon=globalThis.RTPostDiscovery?.glyph?.(status==='removed'?'removed':'deleted');
+      const icon=globalThis.RTPostDiscovery?.glyph?.(status==='removed'?'removed':status==='blocked'?'hidden':'deleted');
       if(icon)badge.append(icon);else{const mark=make('span','rt-badge-fallback','i');mark.setAttribute('aria-hidden','true');badge.append(mark);}
       return badge;
     }
@@ -189,10 +232,11 @@
     // native comment author: a nameplate profile link and Reddit's avatar
     // markup (snoovatar headshot on the avatar gradient, or a plain rounded
     // image). A dotted underline and tooltip mark the identity as archived.
-    restoreAuthor(comment,author,patch){
+    restoreAuthor(comment,author,patch,source='archive'){
+      const where=source==='signed-out'?'Reddit’s signed-out view':'an Arctic Shift snapshot';
       const label=comment.querySelector('.author-name-meta span[dir],[slot="commentMeta"] span[dir]');
       if(label && label.textContent.trim()==='[deleted]' && !patch.author){
-        const link=make('a','truncate font-bold text-neutral-content-strong text-12 focus-visible:-outline-offset-1 hover:underline rt-archived-author');link.href='https://www.reddit.com/user/'+author+'/';link.dir='auto';link.dataset.rtArchivedAuthor='true';link.setAttribute('aria-label','u/'+author+' (from archive)');link.title='Original author from an Arctic Shift snapshot';
+        const link=make('a','truncate font-bold text-neutral-content-strong text-12 focus-visible:-outline-offset-1 hover:underline rt-archived-author');link.href='https://www.reddit.com/user/'+author+'/';link.dir='auto';link.dataset.rtArchivedAuthor='true';link.setAttribute('aria-label','u/'+author+(source==='signed-out'?' (signed-out view)':' (from archive)'));link.title='Author from '+where;
         const plate=make('span','inline-flex items-center max-w-full whitespace-nowrap');plate.dir='auto';plate.dataset.testid='nameplate';plate.append(make('span','truncate',author));link.append(plate);
         patch.author={label,link};label.replaceWith(link);
         // Reddit opens its profile card from an author-hovercard-trigger, for the comment's author
@@ -241,8 +285,23 @@
     restorePost(){
       const postId=this.postId,native=[...document.querySelectorAll('main shreddit-post[id="t3_'+postId+'"]')].find(node=>!node.closest('[data-rt-ui],shreddit-feed'));
       if(!native || document.documentElement.hasAttribute('data-rt-subreddit-archive'))return;
-      const state=this.postState?.native===native?this.postState:(this.postState={native,status:M.domStatus(native)});
+      const state=this.postState?.native===native?this.postState:(this.postState={native,status:M.domStatus(native) || (contentGone(native)?'deleted':null)});
       const {status}=state;
+      // An account that blocked the reader: its post shows [deleted] without body or media. Ask Reddit's
+      // signed-out view first; the archive is asked only when that shows no live author.
+      if(state.signedOut==='pending' || state.signedOut==='found')return;
+      if(!state.signedOut && !state.started && this.signedOutEnabled() && (authorGone(native) || postAuthorLabel(native))){
+        state.signedOut='pending';native.setAttribute('data-rt-pending','');
+        const settle=()=>{if(this.postState===state){native.removeAttribute('data-rt-pending');native.setAttribute('data-rt-settled','');}};
+        this.later(()=>{if(state.signedOut==='pending')settle();});
+        return Promise.resolve().then(()=>this.reddit({action:'blocked-thread-items',postId,post:true,ids:[]})).then(result=>{
+          if(this.postState!==state)return;
+          const found=result?.post;
+          if(found && found.id===postId && M.validateUsername(found.author)){state.signedOut='found';this.applySignedOutPost(state,found);settle();return;}
+          state.signedOut='none';native.removeAttribute('data-rt-pending');this.restorePost();
+        },()=>{if(this.postState!==state)return;state.signedOut='none';native.removeAttribute('data-rt-pending');this.restorePost();});
+      }
+      if(!this.enabled()){if(state.signedOut==='none' || !this.signedOutEnabled())native.setAttribute('data-rt-settled','');return;}
       if(state.started){this.applyPostAuthor(state);return;}
       if(!status){
         // A deleted account's post keeps its content; only its [deleted] author is looked up, with no deletion cues.
@@ -303,6 +362,31 @@
         this.labelBadge(badge,label);patch.added.push(badge);state.reserved=null;
       }).catch(()=>{}).finally(()=>{if(this.postState===state){state.reserved?.remove();settle();}});
     }
+    // Fill a blocked account's post from Reddit's signed-out view: its author, its text and its media, inside
+    // Reddit's own post element, with a cue saying where they came from.
+    applySignedOutPost(state,post){
+      const {native}=state,patch=state.patch ||= {native,added:[],title:null,author:null};
+      const place=(node,slots)=>{native.append(node);patch.added.push(node);for(const slot of slots){node.slot=slot;if(!native.shadowRoot || node.assignedSlot)return;}if(native.shadowRoot && !node.assignedSlot)node.removeAttribute('slot');};
+      const restricted=native.matches('[nsfw],[spoiler],[is-nsfw],[over-18]') || Boolean(native.querySelector('shreddit-content-gate,[slot="nsfw-blocker"]'));
+      const text=typeof post.body==='string'?post.body.trim():'';
+      if(text && !M.noticeStatus(text) && !native.querySelector('[slot="text-body"] [data-rt-recovered-text]')){
+        const body=make('div','md text-14 pb-xs rt-recovered-md');body.dataset.rtRecoveredText='true';
+        const rendered=globalThis.RTMarkdown?.fromHtml(post.bodyHtml) || globalThis.RTMarkdown?.render(text);if(rendered)body.append(rendered);else body.append(make('p','',text));
+        place(body,['text-body','post-recovery-section','post-removed-banner']);
+      }
+      if(!restricted && Array.isArray(post.media) && post.media.length && !native.querySelector('[slot="post-media-container"] img,[slot="post-media-container"] video,[data-rt-recovered-text].rt-archive-media-group')){
+        const subreddit=native.getAttribute('subreddit-prefixed-name') || '',alt=(subreddit?subreddit+' - ':'')+(post.title || native.getAttribute('post-title') || '');
+        let figure=globalThis.RTArchiveView?.media(post.media,{alt,postId:post.id,href:post.url});
+        if(!figure){const safe=post.media.map(item=>M.mediaUrl(item.kind==='video'?item.poster:item.url)).filter(Boolean);if(safe.length){figure=make('div','rt-archive-media-group rt-archived-media');figure.dataset.rtRecoveredText='true';for(const url of safe){const img=make('img');img.src=url;img.alt=alt;img.loading='lazy';img.referrerPolicy='no-referrer';figure.append(img);}}}
+        if(figure)place(figure,['post-media-container','text-body','post-recovery-section']);
+      }
+      state.archivedAuthor=post.author;this.cachePostAuthor(state.native.id.slice(3).toLowerCase(),post.author);
+      if(!patch.author?.link.isConnected)patch.author=this.restorePostAuthor(native,post.author,'signed-out');
+      const badge=this.labelBadge(this.makeBadge('blocked','rt-post-indicator'),blockedLabel(post.author));
+      const credit=native.querySelector('[slot="credit-bar"]') || native;let actions=credit.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==credit)actions=actions.parentElement;
+      if(actions)actions.prepend(badge);else{badge.style.marginInlineStart='auto';credit.append(badge);}
+      patch.added.push(badge);
+    }
     // The post's archive lookup retries transient failures, bounded like the comments'.
     async lookupPost(postId,state){
       for(let attempt=1;;attempt++){
@@ -326,11 +410,11 @@
     }
     // Replace the post header's [deleted] author with the archived username,
     // keeping Reddit's element classes; the dotted underline marks it archived.
-    restorePostAuthor(native,author){
+    restorePostAuthor(native,author,source='archive'){
       const label=postAuthorLabel(native);if(!label)return null;
       const original=label.textContent,name=(original.trim().startsWith('u/')?'u/':'')+author;
-      const accessible='u/'+author+' (from archive)',link=make('a',(label.className || '')+' rt-archived-author',name);
-      link.href='https://www.reddit.com/user/'+author+'/';link.dataset.rtArchivedAuthor='true';link.title='Original author from an Arctic Shift snapshot';link.setAttribute('aria-label',accessible);
+      const accessible='u/'+author+(source==='signed-out'?' (signed-out view)':' (from archive)'),link=make('a',(label.className || '')+' rt-archived-author',name);
+      link.href='https://www.reddit.com/user/'+author+'/';link.dataset.rtArchivedAuthor='true';link.title=source==='signed-out'?'Author from Reddit’s signed-out view':'Original author from an Arctic Shift snapshot';link.setAttribute('aria-label',accessible);
       link.addEventListener('click',event=>{
         if(event.button!==0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)return;
         const from=location.href;

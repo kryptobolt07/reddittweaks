@@ -22,7 +22,11 @@
     if(item){
       const isPost=item[1].startsWith('partial-feed-post/'),allowed=isPost?['isProfile','pvc','fvt']:['isProfile'];
       const bad=p.get('isProfile')!=='true' || (p.has('pvc') && !/^Profile[A-Za-z0-9]{0,24}$/.test(p.get('pvc'))) || (p.has('fvt') && !['cardView','compactView'].includes(p.get('fvt'))) || [...p.keys()].some(key=>!allowed.includes(key) || p.getAll(key).length!==1);
-      if(!(me || signedInTop && visited) || bad)throw failure('Invalid signed-out item check.');
+      // On a post page, a signed-in reader may check that post and comments shown in its thread: an account
+      // that blocked the reader appears there as [deleted], and only its signed-out view tells them apart.
+      const thread=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.[1]?.toLowerCase();
+      const threadItem=Boolean(signedInTop && thread && (!isPost || item[1].toLowerCase()==='partial-feed-post/t3_'+thread));
+      if(!(me || signedInTop && visited || threadItem) || bad)throw failure('Invalid signed-out item check.');
       return url;
     }
     const hover=url.pathname.match(/^\/svc\/shreddit\/user-hover-card\/([\w-]{1,20})$/i);

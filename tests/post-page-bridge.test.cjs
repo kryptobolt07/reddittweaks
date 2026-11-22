@@ -1344,6 +1344,29 @@ test('signed-out profile pages supply their own native cards: render-card reuses
  assert.ok(compactBrowser.some(req=>req.url.includes('/svc/shreddit/partial-feed-post/t3_abc12')),'compact view reads the compact fragment');
 });
 
+test('blocked-thread-items returns only this thread’s items that Reddit shows signed out with a live author',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/a_title/'});
+ e.W.document.body.insertAdjacentHTML('afterbegin','<shreddit-app user-logged-in="true"></shreddit-app>');
+ const comment=(id,author,post='abc12',body='Real words')=>`<shreddit-profile-comment comment-id="t1_${id}" author="${author}" permalink="/r/example/comments/${post}/a_title/${id}/"><div id="t1_${id}-comment-rtjson-content" class="md"><p>${body}</p><script>bad()</script></div></shreddit-profile-comment>`;
+ const browser=publicBrowserMock(e,req=>{
+  if(req.url.includes('partial-feed-post'))return '<shreddit-post id="t3_abc12" author="Blocker" post-type="image" post-title="A title" content-href="https://i.redd.it/chair.png"><div slot="text-body"><div id="t3_abc12-post-rtjson-content"><p>Post words</p></div></div></shreddit-post>';
+  if(req.url.includes('t1_live1'))return comment('live1','Blocker');
+  if(req.url.includes('t1_gone1'))return comment('gone1','[deleted]');
+  if(req.url.includes('t1_else1'))return comment('else1','Blocker','zzz99');
+  return '<main></main>';
+ });
+ const r=await e.send({action:'blocked-thread-items',postId:'abc12',post:true,ids:['t1_live1','t1_gone1','t1_else1','t1_none1']});
+ assert.equal(r.ok,true,r.error);assert.equal(e.calls.length,0,'never a signed-in read');
+ assert.deepEqual(r.comments.map(c=>[c.id,c.author,c.body]),[['live1','Blocker','Real words']]);
+ assert.equal(r.comments[0].bodyHtml.includes('script'),false);
+ assert.deepEqual(r.missing.sort(),['t1_else1','t1_gone1','t1_none1'],'real deletions and other threads are not shown');
+ assert.deepEqual({author:r.post.author,body:r.post.body,media:r.post.media},{author:'Blocker',body:'Post words',media:[{kind:'image',url:'https://i.redd.it/chair.png'}]});
+ assert.ok(browser.every(c=>c.action!=='read' || /isProfile=true/.test(c.url)));
+ for(const bad of [{postId:'zzz99'},{postId:'abc12',ids:['t3_abc12']},{postId:'abc12',ids:Array.from({length:11},(_,i)=>'t1_a'+i)},{postId:'abc12',url:'https://evil.example/'}])assert.equal((await e.send({action:'blocked-thread-items',...bad})).ok,false,JSON.stringify(bad));
+ const signedOut=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/a_title/'});signedOut.W.document.body.insertAdjacentHTML('afterbegin','<shreddit-app user-logged-in="false"></shreddit-app>');publicBrowserMock(signedOut,()=>assert.fail('no read'));
+ assert.equal((await signedOut.send({action:'blocked-thread-items',postId:'abc12',ids:['t1_live1']})).ok,false);
+});
+
 test('a busy signed-out transport delays a blocked-profile page instead of failing it',async t=>{
  const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});let attempts=0;
  e.W.RTPublicBrowser={isSupported:()=>true,read:async()=>{attempts++;if(attempts<3)throw Error('Public checks are busy. Try again shortly.');return '<main><shreddit-feed><shreddit-post id="t3_abc12" author="BlockedUser" post-title="Public" created-timestamp="2026-10-20T12:00:00Z" permalink="/r/example/comments/abc12/public/"></shreddit-post></shreddit-feed></main>';}};

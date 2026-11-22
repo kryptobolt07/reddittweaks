@@ -1988,6 +1988,69 @@
       return {mode:'profile',tab,sort,metadata:parsed.metadata,posts:parsed.posts,nextUrl:parsed.nextUrl,after:parsed.nextUrl,cursor:null,hasMore:Boolean(parsed.nextUrl),incomplete:true,source:'reddit',signedOut:true};
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
+  // On a post page, an account that blocked the reader shows as [deleted]: its post loses its body and media,
+  // and its comments read "Comment deleted by user". Reddit's signed-out view of the same items tells a block
+  // from a real deletion. Only items of this thread that Reddit shows signed out with a live author return.
+  function threadContext(input){
+    const postId=location.pathname.match(/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.[1]?.toLowerCase();
+    if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !postId || input.postId!==postId)throw Error('Open the matching Reddit post.');
+    if(document.querySelector('shreddit-app')?.getAttribute('user-logged-in')==='false')throw Error('Sign in to Reddit to check blocked accounts.');
+    if(['url','origin','method','headers'].some(key=>input[key]!==undefined))throw Error('Invalid blocked thread request.');
+    const ids=input.ids===undefined?[]:input.ids;
+    if(!Array.isArray(ids) || ids.length>10 || !ids.every(id=>typeof id==='string' && /^t1_[a-z0-9]{1,32}$/.test(id)))throw Error('Invalid comment list.');
+    return {postId,ids:[...new Set(ids)]};
+  }
+  const liveAuthor=name=>M.validateUsername(name) && !/^\[deleted\]$/i.test(name);
+  function threadBody(node){
+    if(!node)return {body:'',bodyHtml:''};
+    const clone=node.cloneNode(true);for(const bad of clone.querySelectorAll('script,style,template,shreddit-comment,shreddit-profile-comment,shreddit-post'))bad.remove();
+    const html=clone.innerHTML.trim(),paras=[...clone.querySelectorAll('p')].map(p=>p.textContent.trim()).filter(Boolean);
+    return {body:(paras.length?paras.join('\n\n'):clone.textContent.trim()).slice(0,40000),bodyHtml:html.length<=100000?html:''};
+  }
+  function signedOutThreadComment(doc,id,postId){
+    const card=doc.querySelector('shreddit-profile-comment[comment-id="'+id+'"]');if(!card)return null;
+    const own=selector=>[...card.querySelectorAll(selector)].find(node=>node.closest('shreddit-profile-comment')===card);
+    const actionRow=own('shreddit-comment-action-row'),overflow=own('shreddit-overflow-menu[author-name]');
+    const author=card.getAttribute('author') || overflow?.getAttribute('author-name') || actionRow?.getAttribute('author') || own('[id^="poster-info-"] a[href*="/user/"]')?.getAttribute('href')?.match(/\/user\/([\w-]{1,20})\/?$/i)?.[1] || '';
+    const href=card.getAttribute('permalink') || actionRow?.getAttribute('permalink') || own('a[href*="/comment/"]')?.getAttribute('href') || '';
+    let path='';try{path=new URL(href,location.origin).pathname;}catch{}
+    if(!liveAuthor(author) || path.match(/\/comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.[1]?.toLowerCase()!==postId)return null;
+    const {body,bodyHtml}=threadBody(own('[id$="-rtjson-content"]') || own('[slot="comment"]') || own('.md'));
+    if(!body || M.noticeStatus?.(body))return null;
+    return {id:id.slice(3),author,body,bodyHtml,avatar:extractHoverAvatar(card)};
+  }
+  function signedOutThreadPost(doc,postId){
+    const card=doc.querySelector('shreddit-post[id="t3_'+postId+'"]');if(!card)return null;
+    const author=card.getAttribute('author') || '';if(!liveAuthor(author))return null;
+    const own=selector=>[...card.querySelectorAll(selector)].find(node=>node.closest('shreddit-post')===card);
+    const {body,bodyHtml}=threadBody(own('[slot="text-body"] [id$="-rtjson-content"]') || own('[slot="text-body"]'));
+    const type=card.getAttribute('post-type') || '',href=card.getAttribute('content-href') || '',media=[];
+    const add=(kind,url,extra={})=>{const safe=M.mediaUrl(url);if(safe && media.length<20 && !media.some(item=>item.url===safe))media.push({kind,url:safe,...extra});};
+    if(type==='image')add('image',href);
+    if(type==='gallery')for(const img of card.querySelectorAll('gallery-carousel img[src],gallery-carousel img[data-lazy-src]'))add('image',img.getAttribute('src') || img.getAttribute('data-lazy-src'));
+    const player=own('shreddit-player,shreddit-player-2');
+    if(player){const poster=M.mediaUrl(player.getAttribute('poster') || player.getAttribute('preview') || '');if(poster)media.push({kind:'video',poster,url:poster});}
+    if(!media.length){const preview=own('[slot="post-media-container"] img[src],[slot="thumbnail"] img[src],img[data-testid="post-thumbnail"]');if(preview)add('thumbnail',preview.getAttribute('src'));}
+    return {id:postId,author,title:card.getAttribute('post-title') || '',body,bodyHtml,media,url:href,postType:type};
+  }
+  async function blockedThreadItems(input,signal){
+    const {postId,ids}=threadContext(input),path=pageKey();
+    if(!publicBrowserSupported())return {unsupported:true,comments:[],post:null};
+    const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
+    const read=async url=>{const text=await publicBrowserRead(url.href,controller.signal,false);if(controller.signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');return new DOMParser().parseFromString(text,'text/html');};
+    const comments=[],missing=[];let post=null,failed=false;
+    try{
+      if(input.post===true){
+        try{const url=new URL('/svc/shreddit/partial-feed-post/t3_'+postId,location.origin);url.searchParams.set('isProfile','true');post=signedOutThreadPost(await read(url),postId);}
+        catch(error){if(controller.signal.aborted || pageKey()!==path)throw error;failed=true;}
+      }
+      for(const id of ids){
+        try{const url=new URL('/svc/shreddit/comment/'+id,location.origin);url.searchParams.set('isProfile','true');const found=signedOutThreadComment(await read(url),id,postId);if(found)comments.push(found);else missing.push(id);}
+        catch(error){if(controller.signal.aborted || pageKey()!==path)throw error;failed=true;}
+      }
+      return {post,comments,missing,incomplete:failed};
+    }finally{signal?.removeEventListener('abort',cancel);}
+  }
   const ownLists=new Set(['saved','history','hidden','upvoted','downvoted','removed']);
   // The Removed list reads your own overview and keeps only the moderation facts Reddit gives the author
   // (docs/own-removal-detection-spec.md §4.1 E1). The content script classifies them with RTRemovalModel.
@@ -2442,6 +2505,7 @@
     if(input.action==='removal-public-profile')return readRemovalPublicProfile(input,signal);
     if(input.action==='blocked-probe')return blockedProbe(input,signal);
     if(input.action==='blocked-profile-page')return blockedProfilePage(input,signal);
+    if(input.action==='blocked-thread-items')return blockedThreadItems(input,signal);
     if(input.action==='community-suggestions')return readCommunitySuggestions(input,signal);
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
     if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
@@ -2543,7 +2607,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['own-list','own-list-identity','removal-public','removal-public-profile','blocked-probe','blocked-profile-page','render-card','render-navigation','render-controls','render-search-empty','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['own-list','own-list-identity','removal-public','removal-public-profile','blocked-probe','blocked-profile-page','blocked-thread-items','render-card','render-navigation','render-controls','render-search-empty','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}
