@@ -521,6 +521,16 @@
   get unmutePreview(){return this.choice.clickAudio==='unmute';}
   get continueOnOpen(){return this.choice.videoOpenPost==='position' || this.choice.videoOpenPost==='start';}
   get restartPreview(){return this.choice.videoOpenPost==='start';}
+  get cardClickAudio(){return this.choice.cardClickAudio || 'keep';}
+  // Whether media carried into its post should have sound. A click on the video itself (openPost sets this.opening)
+  // follows clickAudio; a click on the card around it (title, body, whitespace) follows cardClickAudio.
+  wantOpenSound(wasMuted,{isPreview=false}={}){
+   if(this.opening || !this.cardOpen)return wasMuted?this.unmutePreview:true;
+   const policy=this.cardClickAudio;
+   if(policy==='unmute')return true;
+   if(policy==='muted')return false;
+   return isPreview?this.unmutePreview:!wasMuted;
+  }
   get holdFor2x(){return this.choice.holdFor2x===true;}
   get loopPolicy(){return this.choice.loopPolicy;}
   get streamQuality(){return this.choice.streamQuality;}
@@ -1484,21 +1494,22 @@
    const handoff={id,from:this.win.location.pathname,source:embed,sourceCard:embed.closest('shreddit-post'),reveal,owner:owner(this.doc)};
    // Other providers: no position to read, but the same iframe (previewing, or one you clicked into) moves into the post.
    if(!embed.matches(EMBED)){
-    if(!preview && embed.dataset.rtEmbedUsed!=='1')return false;
     const frame=controlFrame(embed),state=this.frames.get(frame);
+    if(!preview && embed.dataset.rtEmbedUsed!=='1' && !(this.startMode('embed')==='default' && state?.playing))return false;
     if(!preview && state?.playing===false)return false;
     const progress=state?.progress;
+    const wantSound=this.wantOpenSound(preview?true:(progress?.muted ?? true),{isPreview:Boolean(preview)});
    if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);
-    if(this.unmutePreview)this.frameSound(preview.frame,false);}
+    if(wantSound)this.frameSound(preview.frame,false);}
    this.clearEmbedHandoff();
    if(!this.continueOnOpen)return false;
    const resume=progress?{
     id,owner:owner(this.doc),at:Date.now(),generic:true,
-    time:this.restartPreview?0:progress.time,muted:preview?!this.unmutePreview:progress.muted
+    time:this.restartPreview?0:progress.time,muted:!wantSound
    }:null;
    if(resume)try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify(resume));}catch{}
    const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
-   const sound=this.unmutePreview?preview?.frame:null;
+   const sound=wantSound?preview?.frame:null;
    if(!held && !sound && !resume && !reveal)return false;
    this.stopWatchingFeedSound(embed);
    this.watchEmbedHandoff({...handoff,held,generic:true,sound,frame,resume});
@@ -1508,7 +1519,8 @@
   embed.dispatchEvent(new this.win.Event('rt-embed-snapshot',{bubbles:true}));
   const time=Number(embed.dataset.rtEmbedTime);
   if(!preview && (embed.dataset.rtEmbedState!=='playing' || !Number.isFinite(time) || time<0))return false;
-  const muted=preview?!this.unmutePreview:embed.dataset.rtEmbedMuted==='true';
+  const wasMuted=preview?true:embed.dataset.rtEmbedMuted==='true';
+  const muted=!this.wantOpenSound(wasMuted,{isPreview:Boolean(preview)});
   const restart=Boolean(this.restartPreview);
    this.clearEmbedHandoff();
    try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify({id,owner:owner(this.doc),at:Date.now(),time:restart || !Number.isFinite(time) || time<0?0:time,muted}));}catch{}
@@ -1518,7 +1530,7 @@
    const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
    this.stopWatchingFeedSound(embed);
    this.watchEmbedHandoff({...handoff,held,restart,frame});
-   if(held && preview && !muted)embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
+   if(held && wasMuted && !muted)embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
    if(!held)embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
    return true;
   }
@@ -1672,13 +1684,24 @@
    if(!link || !card || link.hasAttribute('download') || link.target && link.target!=='_self')return;
    const url=new URL(link.href,this.win.location.href),id=postId(url.pathname);
    if(url.origin!==this.win.location.origin || !id || card.id!=='t3_'+id || postId(this.win.location.pathname)===id)return;
+   this.cardOpen=!this.opening;
+   try{this.rememberCard(card,id);}finally{this.cardOpen=false;}
+  }
+  rememberCard(card,id){
    const embed=[...card.querySelectorAll(ANY_EMBED)].find(node=>this.feedEmbed(node));
    if(embed && this.continueOnOpen && this.rememberEmbed(embed,id))return;
    if(!this.continueOnOpen)return;
    const source=[...card.querySelectorAll(PLAYERS)].find(player=>player.getAttribute('player-type')===FEED_PLAYER);
    const sourceVideo=source && this.video(source);
-   if(sourceVideo && this.previews.get(source)?.video===sourceVideo)this.promotePreview(source,'open');
-   if(!sourceVideo || sourceVideo.paused || sourceVideo.ended || !this.started.has(sourceVideo) || this.previews.has(source) || source.closest(BLURRED))return;
+   const wasPreview=Boolean(sourceVideo && this.previews.get(source)?.video===sourceVideo);
+   if(wasPreview)this.promotePreview(source,'open',this.wantOpenSound(true,{isPreview:true}));
+   const nativePlaying=Boolean(source && this.startMode(mediaKind(source))==='default' && !this.previews.has(source));
+   if(!sourceVideo || sourceVideo.paused || sourceVideo.ended || (!this.started.has(sourceVideo) && !nativePlaying) || this.previews.has(source) || source.closest(BLURRED))return;
+   if(this.cardOpen && !wasPreview){
+    const wantSound=this.wantOpenSound(sourceVideo.muted,{isPreview:false});
+    if(wantSound && sourceVideo.muted && this.hasAudio(source,sourceVideo)){this.started.add(sourceVideo);this.fadeIn(sourceVideo,this.targetVolume(sourceVideo),source);}
+    else if(!wantSound && !sourceVideo.muted)sourceVideo.muted=true;
+   }
    if(this.restartPreview)sourceVideo.currentTime=0;
    this.clearHandoff();
    const saved={id,owner:owner(this.doc),at:Date.now(),...this.playback(sourceVideo)};

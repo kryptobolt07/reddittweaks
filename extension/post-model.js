@@ -70,6 +70,7 @@
     volumeMemory:false,
     videoScrollAway:'default',
     videoOpenPost:'default',
+    cardClickAudio:'keep',
     holdFor2x:false,
     loopPolicy:'default',
     streamQuality:'auto'
@@ -152,6 +153,7 @@
       singleVideo:raw?.singleVideo===true,
       volumeMemory:raw?.volumeMemory===true,
       videoScrollAway,videoOpenPost,
+      cardClickAudio:pick('cardClickAudio',['keep','muted','unmute'],'keep'),
       holdFor2x:raw?.holdFor2x===true,
       loopPolicy:pick('loopPolicy',['default','always','never','short'],'default'),
       streamQuality:pick('streamQuality',['auto','max','saver'],'auto')

@@ -151,7 +151,7 @@
           </div>
         </div>
 
-        <div class="sub-heading">Click &amp; Audio Behavior</div>
+        <div class="sub-heading">Click, Audio &amp; Post Transition</div>
         <div class="setting-row">
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M5 2.6a.8.8 0 0 1 1.24-.67l10.2 6.8a.8.8 0 0 1-.27 1.44l-4.23.94 2.12 4.38a.8.8 0 0 1-1.44.7l-2.12-4.38-3.02 3.1a.8.8 0 0 1-1.38-.56V2.6Z"/></svg></span>
           <div class="setting-copy"><label for="media-click-action">Media click action</label><p id="media-click-action-desc">What happens when clicking a video or embed. Post titles keep normal links.</p></div>
@@ -165,11 +165,32 @@
         </div>
 
         <div class="setting-row" data-requires-choice="media-click-action" data-requires-not="default" data-level="2">
-          <div class="setting-copy"><label for="click-audio">Click audio behavior</label><p id="click-audio-desc">Sound state when activating a video or embed.</p></div>
+          <div class="setting-copy"><label for="click-audio">Video click audio</label><p id="click-audio-desc">Sound state when clicking directly on a video or embed.</p></div>
           <button id="click-audio" class="setting-choice" type="button" data-choice="clickAudio" data-default="muted" data-count="exclude" aria-haspopup="menu" aria-expanded="false" aria-controls="click-audio-menu" aria-describedby="click-audio-desc" disabled><span data-choice-value>Keep muted</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-          <div id="click-audio-menu" class="setting-menu" role="menu" aria-label="Click audio behavior" hidden>
+          <div id="click-audio-menu" class="setting-menu" role="menu" aria-label="Video click audio" hidden>
             <button type="button" role="menuitemradio" data-value="muted" data-short="Keep muted" aria-checked="true">Keep muted</button>
             <button type="button" role="menuitemradio" data-value="unmute" data-short="Unmute" aria-checked="false">Unmute on click</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M2 8.2V5.2A2.2 2.2 0 0 1 4.2 3h11.6A2.2 2.2 0 0 1 18 5.2v9.6a2.2 2.2 0 0 1-2.2 2.2h-4.3a.9.9 0 0 1 0-1.8h4.3a.4.4 0 0 0 .4-.4V5.2a.4.4 0 0 0-.4-.4H4.2a.4.4 0 0 0-.4.4v3a.9.9 0 0 1-1.8 0ZM3.4 10.6h4.4a1.6 1.6 0 0 1 1.6 1.6v3.4a1.6 1.6 0 0 1-1.6 1.6H3.4a1.6 1.6 0 0 1-1.6-1.6v-3.4a1.6 1.6 0 0 1 1.6-1.6Zm1.1 1.8v3l2.5-1.5-2.5-1.5Zm6.9-6.8h3.2a.8.8 0 0 1 .8.8v3.2a.8.8 0 0 1-1.6 0V8.33l-2.45 2.45a.8.8 0 1 1-1.13-1.13L12.67 7.2H11.4a.8.8 0 0 1 0-1.6Z"/></svg></span>
+          <div class="setting-copy"><label for="video-open-post">Seamless post transition</label><p id="video-open-post-desc">Carry a playing feed video or embed smoothly into the post without reloading it.</p></div>
+          <button id="video-open-post" class="setting-choice" type="button" data-choice="videoOpenPost" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="video-open-post-menu" aria-describedby="video-open-post-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="video-open-post-menu" class="setting-menu" role="menu" aria-label="Seamless post transition" hidden>
+            <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>
+            <button type="button" role="menuitemradio" data-value="position" data-short="Keep time" aria-checked="false">Keep playing from current time</button>
+            <button type="button" role="menuitemradio" data-value="start" data-short="From start" aria-checked="false">Restart smoothly from beginning</button>
+          </div>
+        </div>
+
+        <div class="setting-row" data-requires-choice="video-open-post" data-requires-not="default" data-level="2">
+          <div class="setting-copy"><label for="card-click-audio">Post card click audio</label><p id="card-click-audio-desc">Sound state when opening a post by clicking its title or card around the video.</p></div>
+          <button id="card-click-audio" class="setting-choice" type="button" data-choice="cardClickAudio" data-default="keep" data-count="exclude" aria-haspopup="menu" aria-expanded="false" aria-controls="card-click-audio-menu" aria-describedby="card-click-audio-desc" disabled><span data-choice-value>Keep current</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="card-click-audio-menu" class="setting-menu" role="menu" aria-label="Post card click audio" hidden>
+            <button type="button" role="menuitemradio" data-value="keep" data-short="Keep current" aria-checked="true">Keep current audio</button>
+            <button type="button" role="menuitemradio" data-value="muted" data-short="Keep muted" aria-checked="false">Keep muted</button>
+            <button type="button" role="menuitemradio" data-value="unmute" data-short="Unmute" aria-checked="false">Unmute on open</button>
           </div>
         </div>
 
@@ -230,15 +251,6 @@
                   <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>
                   <button type="button" role="menuitemradio" data-value="pause" data-short="Pause" aria-checked="false">Pause &amp; resume</button>
                   <button type="button" role="menuitemradio" data-value="mini" data-short="Mini-player" aria-checked="false">Floating mini-player (Beta)</button>
-                </div>
-              </div>
-              <div class="setting-row">
-                <div class="setting-copy"><label for="video-open-post">Timestamp continuity on post open</label><p id="video-open-post-desc">How a playing feed video continues when you open its post.</p></div>
-                <button id="video-open-post" class="setting-choice" type="button" data-choice="videoOpenPost" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="video-open-post-menu" aria-describedby="video-open-post-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
-                <div id="video-open-post-menu" class="setting-menu" role="menu" aria-label="Timestamp continuity on post open" hidden>
-                  <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>
-                  <button type="button" role="menuitemradio" data-value="position" data-short="Keep time" aria-checked="false">Keep timestamp</button>
-                  <button type="button" role="menuitemradio" data-value="start" data-short="From start" aria-checked="false">Start from beginning</button>
                 </div>
               </div>
               <div class="setting-row">

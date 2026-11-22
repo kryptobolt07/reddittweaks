@@ -76,7 +76,7 @@ test('video choices default to passive Reddit/Provider defaults, and legacy opt-
   videoStart:'default',embedStart:'default',gifStart:'default',
   mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
   singleVideo:false,volumeMemory:false,videoScrollAway:'default',
-  videoOpenPost:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
+  videoOpenPost:'default',cardClickAudio:'keep',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
  },'100% passive defaults on fresh install');
  const migrated=v({videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false,videoOpenPost:'continue',videoScrollAway:'reddit'});
  assert.equal(migrated.videoStart,'preview');
@@ -987,6 +987,19 @@ test('default choices are passive on post open; enabling videoOpenPost carries t
  const c2=new q.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoOpenPost:'position'}),readPreference:async()=>false,observe:false});await c2.ready;await flush();
  q.startFromControl();q.click(q.title);
  assert.ok(q.W.sessionStorage.getItem(continuationKey),'videoOpenPost=position carries playback into the post');
+ const r=page(t);
+ const c3=new r.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoStart:'default',videoOpenPost:'position'}),readPreference:async()=>false,observe:false});await c3.ready;await flush();
+ r.video.currentTime=4;r.start();r.click(r.title);
+ assert.ok(r.W.sessionStorage.getItem(continuationKey),'videoOpenPost=position carries Reddit-autoplayed video into the post');
+ // Separate policies: clicking the video itself uses clickAudio, clicking the post card around it uses cardClickAudio
+ const s1=page(t);
+ const c4=new s1.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoStart:'default',mediaClickAction:'open',clickAudio:'unmute',videoOpenPost:'position',cardClickAudio:'muted'}),readPreference:async()=>false,observe:false});await c4.ready;await flush();
+ s1.video.currentTime=5;s1.video.muted=true;s1.start();s1.click(s1.title);
+ assert.equal(JSON.parse(s1.W.sessionStorage.getItem(continuationKey)).muted,true,'clicking the post card respects cardClickAudio=muted even when clickAudio=unmute');
+ const s2=page(t);
+ const c5=new s2.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoStart:'default',mediaClickAction:'inline',clickAudio:'muted',videoOpenPost:'position',cardClickAudio:'unmute'}),readPreference:async()=>false,observe:false});await c5.ready;await flush();
+ s2.video.currentTime=6;s2.video.muted=true;s2.start();s2.click(s2.title);
+ assert.equal(JSON.parse(s2.W.sessionStorage.getItem(continuationKey)).muted,false,'clicking the post card respects cardClickAudio=unmute even when clickAudio=muted');
 });
 
 test('a player with controls that stops being the one playing stays paused on its own frame, with nothing over it',async t=>{

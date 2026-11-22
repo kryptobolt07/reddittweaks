@@ -10,7 +10,7 @@ test('automatic deleted-content restoration defaults on independently of archive
   cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,
   historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,
   videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
-  singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
+  singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',cardClickAudio:'keep',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
  });
  assert.deepEqual(JSON.parse(JSON.stringify(m.SETTINGS_DEFAULTS)),JSON.parse(JSON.stringify(m.normalizeSettings())));
  assert.deepEqual(JSON.parse(JSON.stringify(m.VIDEO_DEFAULTS)),JSON.parse(JSON.stringify(m.videoSettings())));
@@ -50,7 +50,7 @@ test('legacy 0.46–0.54 settings migrate cleanly to canonical rt-settings-v1 wh
  assert.equal(m.videoSettings({videoScrollAway:'reddit'}).videoScrollAway,'default');
  assert.equal(m.videoSettings({videoScrollAway:'mini'}).videoScrollAway,'mini');
  const enh=m.videoSettings({mediaClickAction:'fullscreen',clickAudio:'unmute',singleVideo:true,volumeMemory:true,holdFor2x:true,loopPolicy:'short',streamQuality:'saver'});
- assert.deepEqual(JSON.parse(JSON.stringify(enh)),{videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'fullscreen',clickAudio:'unmute',embedBlockLinks:'off',singleVideo:true,volumeMemory:true,videoScrollAway:'default',videoOpenPost:'default',holdFor2x:true,loopPolicy:'short',streamQuality:'saver'});
+ assert.deepEqual(JSON.parse(JSON.stringify(enh)),{videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'fullscreen',clickAudio:'unmute',embedBlockLinks:'off',singleVideo:true,volumeMemory:true,videoScrollAway:'default',videoOpenPost:'default',cardClickAudio:'keep',holdFor2x:true,loopPolicy:'short',streamQuality:'saver'});
  // Invalid values fall back safely
  assert.deepEqual(JSON.parse(JSON.stringify(m.videoSettings({videoStart:'bogus',loopPolicy:'nope',streamQuality:'4k',singleVideo:'true'}))),JSON.parse(JSON.stringify(m.VIDEO_DEFAULTS)));
 });

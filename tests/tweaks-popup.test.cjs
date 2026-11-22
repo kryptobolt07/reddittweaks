@@ -350,6 +350,22 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   doc.querySelector('#click-audio-menu [data-value="unmute"]').click();await settle();
   assert.equal(count('videos-heading'),'1 of 12 active','clickAudio is excluded from counts');
 
+  // Seamless post transition sits in the main Videos & Embeds section (not inside the collapsed Enhancements drawer)
+  // and reveals its nested Post card click audio row when enabled.
+  const openPostBtn=doc.getElementById('video-open-post'),cardAudioRow=doc.getElementById('card-click-audio').closest('.setting-row');
+  assert.equal(Boolean(openPostBtn.closest('#video-enhancements')),false,'Seamless post transition is promoted out of Enhancements');
+  assert.equal(cardAudioRow.hidden,true,'cardClickAudio hidden when videoOpenPost is Default');
+  openPostBtn.click();
+  doc.querySelector('#video-open-post-menu [data-value="position"]').click();await settle();
+  assert.equal(cardAudioRow.hidden,false,'cardClickAudio appears when videoOpenPost is enabled');
+  assert.equal(count('videos-heading'),'2 of 12 active');
+  doc.getElementById('card-click-audio').click();
+  doc.querySelector('#card-click-audio-menu [data-value="unmute"]').click();await settle();
+  assert.equal(count('videos-heading'),'2 of 12 active','cardClickAudio is excluded from counts');
+  openPostBtn.click();
+  doc.querySelector('#video-open-post-menu [data-value="default"]').click();await settle();
+  assert.equal(cardAudioRow.hidden,true);
+
   // Enabling Archive turns on Archive + already-checked restoreDeletedContent (+2).
   const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(count('archive-heading'),'2 of 4 on');
