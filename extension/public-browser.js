@@ -9,35 +9,57 @@
   function discard(){frame?.remove();frame=null;window.removeEventListener('pagehide',close);}
   function close(){revision++;verifiedSession=false;clearTimeout(idleTimer);activeController?.abort();discard();}
   function idle(){clearTimeout(idleTimer);if(!pending)idleTimer=setTimeout(discard,60000);}
+  const sorts=['new','hot','top'],ranges=['hour','day','week','month','year','all'];
   function validate(value){
     const url=new URL(value),p=url.searchParams;
-    if(location.origin===origin && url.origin===origin && !url.username && !url.password && !url.port && !url.hash && /^\/svc\/shreddit\/(?:comment\/t1_[a-z0-9]{1,32}|partial-feed-post\/t3_[a-z0-9]{1,10})$/.test(url.pathname)){
-      if(!globalThis.RTNativeRemoval?.identity(document) || p.get('isProfile')!=='true' || [...p.keys()].length!==1)throw failure('Invalid signed-out item check.');return url;
-    }
-    // Your own profile as a signed-out visitor sees it (spec §18): its first page and native continuations only.
-    const me=globalThis.RTNativeRemoval?.identity(document),clean=location.origin===origin && url.origin===origin && !url.username && !url.password && !url.port && !url.hash;
-    if(clean && me && ['/user/'+me.username.toLowerCase()+'/','/user/'+me.username.toLowerCase()+'/submitted/'].includes(url.pathname.toLowerCase())){
-      if([...p.keys()].length!==1 || p.get('sort')!=='new')throw failure('Invalid signed-out profile read.');return url;
-    }
-    if(clean && /^\/svc\/shreddit\/profiles\/profile_(?:overview|posts)-more-posts\/new\/$/.test(url.pathname)){
-      // Captured 2026-11-16: page 2 onward adds distance.
-      const allowed=['sort','after','name','navigationSessionId','feedLength','referer','distance'];
-      if(!me || p.get('name')?.toLowerCase()!==me.username.toLowerCase() || p.get('sort')!=='new' || url.href.length>4096 || [...p.keys()].some(key=>!allowed.includes(key) || p.getAll(key).length!==1) || [...p.values()].some(value=>/[\u0000-\u001f\u007f]/.test(value)))throw failure('Invalid signed-out profile read.');
+    const clean=location.origin===origin && url.origin===origin && !url.username && !url.password && !url.port && !url.hash;
+    if(!clean)throw failure();
+    const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search))?\/?$/i),visited=profile?.[1] || '';
+    const me=globalThis.RTNativeRemoval?.identity(document),topApp=document.querySelector?.('shreddit-app');
+    const signedInTop=Boolean(me || topApp && (topApp.hasAttribute?.('logged-in') || topApp.hasAttribute?.('logged-in-user-id') || topApp.getAttribute?.('user-logged-in')==='true'));
+    const allowedUser=name=>Boolean(name) && (me && name.toLowerCase()===me.username.toLowerCase() || signedInTop && visited && name.toLowerCase()===visited.toLowerCase());
+    const item=url.pathname.match(/^\/svc\/shreddit\/(comment\/t1_[a-z0-9]{1,32}|partial-feed-post\/t3_[a-z0-9]{1,10})$/);
+    if(item){
+      const isPost=item[1].startsWith('partial-feed-post/'),allowed=isPost?['isProfile','pvc','fvt']:['isProfile'];
+      const bad=p.get('isProfile')!=='true' || (p.has('pvc') && !/^Profile[A-Za-z0-9]{0,24}$/.test(p.get('pvc'))) || (p.has('fvt') && !['cardView','compactView'].includes(p.get('fvt'))) || [...p.keys()].some(key=>!allowed.includes(key) || p.getAll(key).length!==1);
+      if(!(me || signedInTop && visited) || bad)throw failure('Invalid signed-out item check.');
       return url;
     }
-    const profile=location.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search))?\/?$/i);
-    if(location.origin!==origin || !profile || url.origin!==origin || url.username || url.password || url.port || url.hash || url.pathname!=='/svc/shreddit/search/')throw failure();
+    const hover=url.pathname.match(/^\/svc\/shreddit\/user-hover-card\/([\w-]{1,20})$/i);
+    if(hover){
+      if(!allowedUser(hover[1]) || [...p.keys()].length!==0)throw failure('Invalid signed-out profile check.');
+      return url;
+    }
+    // Own profile (spec §18) or visited profile while signed in (blocked-by-user): first page and native continuations only.
+    const page=url.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(submitted|comments))?\/$/i);
+    if(page){
+      const bad=(p.has('sort') && !sorts.includes(p.get('sort'))) || (p.has('t') && !ranges.includes(p.get('t'))) || [...p.keys()].some(key=>!['sort','t'].includes(key) || p.getAll(key).length!==1);
+      if(!allowedUser(page[1]) || bad)throw failure('Invalid signed-out profile read.');
+      return url;
+    }
+    const more=url.pathname.match(/^\/svc\/shreddit\/profiles\/profile_(overview|posts|comments)-more-posts\/(new|hot|top)\/$/);
+    if(more){
+      // Captured 2026-11-16: page 2 onward adds distance.
+      const allowed=['sort','after','name','navigationSessionId','feedLength','referer','distance','t','cursor'];
+      if(!allowedUser(p.get('name')) || (p.has('sort') && p.get('sort')!==more[2]) || (p.has('t') && !ranges.includes(p.get('t'))) || url.href.length>4096 || [...p.keys()].some(key=>!allowed.includes(key) || p.getAll(key).length!==1) || [...p.values()].some(value=>/[\u0000-\u001f\u007f]/.test(value)))throw failure('Invalid signed-out profile read.');
+      return url;
+    }
+    if(!profile || url.pathname!=='/svc/shreddit/search/')throw failure();
     const q=p.get('q') || '',author=q.match(/^author:"([\w-]{1,20})"(?: [^\u0000-\u001f\u007f]{1,300})?$/);
     if(!author || author[1].toLowerCase()!==profile[1].toLowerCase() || !['posts','comments'].includes(p.get('type')) || !['new','hot','top','relevance','comments'].includes(p.get('sort')) || p.get('limit')!=='25')throw failure();
-    if(p.has('t') && !['hour','day','week','month','year','all'].includes(p.get('t')) || p.has('cursor') && (!p.get('cursor') || p.get('cursor').length>4096 || /[\u0000-\u001f\u007f]/.test(p.get('cursor'))))throw failure();
+    if(p.has('t') && !ranges.includes(p.get('t')) || p.has('cursor') && (!p.get('cursor') || p.get('cursor').length>4096 || /[\u0000-\u001f\u007f]/.test(p.get('cursor'))))throw failure();
     for(const key of p.keys())if(!['q','type','sort','limit','t','cursor','rt_public_search'].includes(key) || p.getAll(key).length!==1)throw failure();
     p.delete('rt_public_search');return url;
+  }
+  function isSupported(){
+    if(globalThis.HTMLIFrameElement?.prototype)return 'credentialless' in HTMLIFrameElement.prototype;
+    try{return 'credentialless' in document.createElement('iframe');}catch{return false;}
   }
   function create(){
     if(frame?.isConnected)return frame;
     discard();
     const node=document.createElement('iframe');
-    if(!('credentialless' in node))throw failure();
+    if(!('credentialless' in node))throw Object.assign(failure(),{unsupported:true});
     node.credentialless=true;
     // Reddit's automatic JS check submits its own verification form. Keep
     // native submission available, while blocking popups and top navigation.
@@ -81,7 +103,7 @@
     }catch(error){controller.abort();throw error;}finally{await reader.cancel().catch(()=>{});}
   }
   async function perform(value,{signal,refresh=false}={}){
-    const url=validate(value),page=location.href,generation=revision,itemRead=/^\/svc\/shreddit\/(?:comment|partial-feed-post)\//.test(url.pathname),firstProfilePage=url.pathname.startsWith('/user/');
+    const url=validate(value),page=location.href,generation=revision,itemRead=/^\/svc\/shreddit\/(?:comment|partial-feed-post)\//.test(url.pathname),hoverRead=url.pathname.startsWith('/svc/shreddit/user-hover-card/'),firstProfilePage=url.pathname.startsWith('/user/');
     if(signal?.aborted)throw failure('Post request cancelled.');
     if(refresh && !rateLimited)cooldownUntil=0;
     if(itemRead && refresh && !rateLimited)itemRefusals.delete(url.pathname);
@@ -95,10 +117,10 @@
       timer=setTimeout(()=>{timedOut=true;controller.abort();},5000);
       const response=await initial.window.fetch(url.href,{method:'GET',credentials:'same-origin',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',headers:{Accept:firstProfilePage?'text/html':'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
       responseStatus=response.status;
-      if(response.status===429){const hint=response.headers.get('retry-after'),seconds=Number(hint),retry=Number.isFinite(seconds)?seconds*1000:Date.parse(hint)-Date.now();cooldownUntil=Date.now()+Math.min(3600000,retry>0?retry:60000);rateLimited=true;throw failure('Reddit rate limit reached. Try again later.');}
-      if(response.status>=500)throw failure('Reddit couldn’t load public search (HTTP '+response.status+').');
+      if(response.status===429){const hint=response.headers.get('retry-after'),seconds=Number(hint),retry=Number.isFinite(seconds)?seconds*1000:Date.parse(hint)-Date.now();cooldownUntil=Date.now()+Math.min(3600000,retry>0?retry:60000);rateLimited=true;throw Object.assign(failure('Reddit rate limit reached. Try again later.'),{status:429});}
+      if(response.status>=500)throw Object.assign(failure('Reddit couldn’t load public search (HTTP '+response.status+').'),{status:response.status});
       if(itemRead && response.status===403){if(itemRefusals.size>=1000)itemRefusals.delete(itemRefusals.keys().next().value);itemRefusals.set(url.pathname,Date.now()+600000);}
-      if(!response.ok || response.redirected || response.url!==url.href)throw failure(itemRead?'Reddit blocked logged-out item checks (HTTP '+response.status+').':undefined);
+      if(!response.ok || response.redirected || response.url!==url.href)throw Object.assign(failure(itemRead?'Reddit blocked logged-out item checks (HTTP '+response.status+').':undefined),{status:response.status});
       const result=await text(response,controller),current=context(node);
       if(controller.signal.aborted || location.href!==page || !current || current.window!==initial.window || current.document!==initial.document)throw failure('Page changed. Try again.');
       verifiedSession=true;
@@ -106,7 +128,7 @@
     }catch(error){
       controller.abort();
       const cancelled=signal?.aborted || generation!==revision || location.href!==page;
-      let reusable=false;try{reusable=!!context(node) && (responseStatus===429 || responseStatus>=500 || itemRead && (responseStatus===403 || cancelled && generation===revision) || timedOut || error.name==='TypeError');}catch{}
+      let reusable=false;try{reusable=!!context(node) && (responseStatus===429 || responseStatus>=500 || hoverRead && responseStatus===404 || itemRead && (responseStatus===403 || cancelled && generation===revision) || timedOut || error.name==='TypeError');}catch{}
       if(!reusable){verifiedSession=false;discard();}
       if(!cancelled && !reusable && cooldownUntil<=Date.now()){cooldownUntil=Date.now()+600000;rateLimited=false;}
       if(cancelled)throw failure('Post request cancelled.');
@@ -124,5 +146,5 @@
   // Removing an idle iframe does not clear the top document's anonymous jar.
   // This flag caches transport health only; requested content is always fresh.
   function hasSession(){if(!verifiedSession)return false;if(!frame)return true;try{return !!context(frame);}catch{return false;}}
-  globalThis.RTPublicBrowser=Object.freeze({read,close,hasSession});
+  globalThis.RTPublicBrowser=Object.freeze({read,close,hasSession,isSupported});
 })();

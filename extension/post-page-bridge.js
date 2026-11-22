@@ -1287,27 +1287,64 @@
     entry.consumers++;
     return waitNative(entry.promise,signal,()=>{entry.consumers--;if(entry.pending && !entry.consumers)entry.controller.abort();});
   }
+  function anonymousCardUrl(comments,fullname,input){
+    const url=new URL(comments?'/svc/shreddit/comment/'+fullname:'/svc/shreddit/partial-feed-post/'+fullname,location.origin);
+    url.searchParams.set('isProfile','true');
+    if(!comments){
+      const view=input?.view || new URLSearchParams(location.search).get('feedViewType');
+      if(view==='compactView'){url.searchParams.set('pvc','ProfileFeed2');url.searchParams.set('fvt','compactView');}
+    }
+    return url;
+  }
+  const publicBrowserSupported=()=>Boolean(globalThis.RTPublicBrowser && (typeof RTPublicBrowser.isSupported!=='function' || RTPublicBrowser.isSupported()));
+  function markReadOnlyCard(native){
+    if(!native)return;
+    native.dataset.rtAnonymousCard='true';
+    const disable=el=>{if(!el)return;el.setAttribute('inert','');el.setAttribute('aria-disabled','true');if(el.tagName==='BUTTON')el.disabled=true;};
+    const interactiveVoteSelector='button[upvote],button[downvote],button[aria-label*="upvote" i],button[aria-label*="downvote" i],button[aria-label*="reply" i],button[aria-label*="award" i],award-button,[data-post-click-location="vote"]';
+    const overflowSelector='shreddit-post-overflow-menu,shreddit-overflow-menu,shreddit-comment-overflow-menu';
+    const keepActionSelector='slot[name="share-button"],[data-rt-download],shreddit-post-share-button,shreddit-comment-share-button,button[aria-label*="share" i],a[href*="/comments/"]';
+    const hasPreservedAction=container=>Boolean(container.querySelector(keepActionSelector) || [...container.querySelectorAll('button')].some(btn=>btn.textContent.trim().toLowerCase()==='share'));
+    for(const root of [native,native.shadowRoot].filter(Boolean)){
+      for(const menu of root.querySelectorAll(overflowSelector))disable(menu);
+      for(const bar of root.querySelectorAll('rpl-action-bar,shreddit-comment-action-row')){
+        if(hasPreservedAction(bar)){
+          for(const ctrl of bar.querySelectorAll(interactiveVoteSelector+','+overflowSelector))disable(ctrl);
+        }else{
+          disable(bar);
+          bar.title='Signed-out preview · Vote and reply disabled';
+        }
+      }
+      for(const ctrl of root.querySelectorAll(interactiveVoteSelector))disable(ctrl);
+    }
+  }
   // Comments are small fragments; share four physical reads across render and
   // status consumers, retaining the lower two-read limit for heavier posts.
   function nativeCapacity(comments){return cardActive<4 && (comments || postCardActive<2);}
-  async function nativeFragment(comments,fullname,path,signal){
-    const key=path+'|'+fullname;
+  async function nativeFragment(comments,fullname,path,signal,{anonymous=false,input=null}={}){
+    const key=path+'|'+(anonymous?'anon|':'')+fullname;
     while(true){
       if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
       trimNativeReads(path);const cached=nativeCardReads.get(key);if(cached){if(cached.controller.signal.aborted){await waitNative(cached.promise.catch(()=>null),signal);continue;}return consumeNative(cached,signal);}
-      if(Date.now()<cooldown)return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};
+      if(!anonymous && Date.now()<cooldown)return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};
       if(nativeCapacity(comments))break;
       // Join existing reads before taking a slot; a busy renderer is not
       // evidence of an unknown status. Recheck the cache after a slot opens.
       await waitNative(Promise.race([...nativeCardReads.values()].filter(entry=>entry.pending).map(entry=>entry.promise.catch(()=>null))),signal);
     }
-    const url=nativeCardUrl(comments,fullname),entry={path,pending:true,size:0,expires:Infinity,controller:new AbortController(),consumers:0};cardActive++;if(!comments)postCardActive++;
+    const url=anonymous?anonymousCardUrl(comments,fullname,input):nativeCardUrl(comments,fullname),entry={path,pending:true,size:0,expires:Infinity,controller:new AbortController(),consumers:0};cardActive++;if(!comments)postCardActive++;
     entry.promise=(async()=>{
-      const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:entry.controller.signal});
-      if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};}
-      if(!response.ok)throw Error(`Reddit could not render this card (HTTP ${response.status}).`);
-      if(response.headers.get('content-type')?.split(';')[0].trim()!=='text/vnd.reddit.partial+html')throw Error('Reddit returned no native card fragment.');
-      const text=await boundedText(response),doc=new DOMParser().parseFromString(text,'text/html'),selector=comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`;
+      let text;
+      if(anonymous){
+        text=await publicBrowserRead(url.href,entry.controller.signal,false);
+      }else{
+        const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:entry.controller.signal});
+        if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,reason:'rate-limit',retryAfterMs:cooldown-Date.now()};}
+        if(!response.ok)throw Error(`Reddit could not render this card (HTTP ${response.status}).`);
+        if(response.headers.get('content-type')?.split(';')[0].trim()!=='text/vnd.reddit.partial+html')throw Error('Reddit returned no native card fragment.');
+        text=await boundedText(response);
+      }
+      const doc=new DOMParser().parseFromString(text,'text/html'),selector=comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`;
       // Reddit answers a comment its author deleted exactly like an ID that never existed: a small
       // shell with no comment card at all. Removed comments still get a card (body "[removed]").
       if(!doc.querySelector(selector)){
@@ -1400,18 +1437,19 @@
     }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
   async function renderCard(input,signal){
-    const context=route(),path=pageKey(),comments=input.kind==='comment';
+    const context=route(),path=pageKey(),comments=input.kind==='comment',anonymous=input.anonymous===true;
     if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname))throw Error('Open a public Reddit profile.');
     if(!context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Profile changed. Try again.');
     if(!['post','comment'].includes(input.kind) || !(comments?M.validateCommentId(input.postId):M.validateId(input.postId)))throw Error('Invalid native card identity.');
     if(typeof input.target!=='string' || !/^rt-native-[a-z0-9-]{1,60}$/i.test(input.target))throw Error('Invalid native card target.');
+    if(anonymous && !publicBrowserSupported())throw Error('Signed-out card rendering is unavailable in this browser.');
     const fullname=(comments?'t1_':'t3_')+input.postId.toLowerCase().replace(/^t[13]_/,''),target=document.getElementById(input.target);
     if(!target?.isConnected || target.dataset.rtUi!=='activity-item' || target.dataset.rtNativeFullname!==fullname || !target.closest('main'))throw Error('Native card target is no longer available.');
     const selector=comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`;
     const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node) && !node.closest('[data-rt-search-hidden]'));
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
-    const now=Date.now();
-    if(now<cooldown || !nativeCapacity(comments) && !nativeCardReads.has(path+'|'+fullname))return {deferred:true,retryAfterMs:Math.max(100,now<cooldown?cooldown-now:250)};
+    const now=Date.now(),cacheKey=path+'|'+(anonymous?'anon|':'')+fullname;
+    if((!anonymous && now<cooldown) || !nativeCapacity(comments) && !nativeCardReads.has(cacheKey))return {deferred:true,retryAfterMs:Math.max(100,!anonymous && now<cooldown?cooldown-now:250)};
     if(typeof customElements.get('faceplate-partial')?.prototype?._renderContent!=='function'){
       const since=rendererWaits.get(target) ?? now;rendererWaits.set(target,since);
       if(now-since>=10000)throw Error('Reddit’s native card renderer did not become ready. Retry after the page finishes loading.');
@@ -1422,14 +1460,14 @@
     let timer;
     try{
       const operation=(async()=>{
-        const fragment=await nativeFragment(comments,fullname,path,controller.signal);if(fragment.deferred)return fragment;
-        if(fragment.missing){rememberStatus(path,fullname,{fullname,status:'deleted',author:'[deleted]',over18:false,spoiler:false});throw Error('Reddit no longer has this comment.');}
+        const fragment=await nativeFragment(comments,fullname,path,controller.signal,{anonymous,input});if(fragment.deferred)return fragment;
+        if(fragment.missing){if(!anonymous)rememberStatus(path,fullname,{fullname,status:'deleted',author:'[deleted]',over18:false,spoiler:false});throw Error('Reddit no longer has this comment.');}
         const {text,url}=fragment,doc=new DOMParser().parseFromString(text,'text/html');
-        const evidence=nativeStatus(doc,comments,fullname,input.username);rememberStatus(path,fullname,evidence);
+        const evidence=nativeStatus(doc,comments,fullname,input.username);if(!anonymous)rememberStatus(path,fullname,evidence);
         if(pageKey()!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
         if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
-        // The authenticated HTML stays in Reddit's page world. Use its own trusted
-        // fragment renderer so component modules, media and native actions hydrate.
+        // Card HTML stays in Reddit's page world. Use its own trusted fragment
+        // renderer so component modules, media and native actions hydrate.
         const partial=document.createElement('faceplate-partial');partial.loading='programmatic';partial.src=url.pathname+url.search;partial.renderMode='contents';
         target.replaceChildren(partial);partial._renderContent(text);
         if(!target.querySelector(selector))throw Error('Reddit could not attach its native card.');
@@ -1437,10 +1475,11 @@
         await waitNative(customElements.whenDefined(tag),controller.signal);
         const native=target.querySelector(selector);if(native?.updateComplete)await waitNative(Promise.resolve(native.updateComplete),controller.signal);
         if(pageKey()!==path || controller.signal.aborted || !target.isConnected || document.getElementById(input.target)!==target || !native || !target.contains(native))throw Error('Page changed. Try again.');
+        if(anonymous)markReadOnlyCard(native);
         // The card Reddit just served is current evidence: report what it proves (available, deleted or removed).
-        target.dataset.rtNativeState='ready';return {rendered:true,fullname,...(evidence?{status:evidence.status}:{})};
+        target.dataset.rtNativeState='ready';return {rendered:true,fullname,...(anonymous?{anonymous:true}:{}),...(evidence?{status:evidence.status}:{})};
       })();
-      const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Native card loading timed out.'));},10000);});
+      const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Native card loading timed out.'));},anonymous?20000:10000);});
       return await Promise.race([operation,timeout]);
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
@@ -1452,33 +1491,361 @@
   // comments use its headshot, published next to it as <id>-headshot.png.
   const headshotOf=value=>{try{const url=new URL(value);if(url.hostname==='i.redd.it' && /^\/snoovatar\/avatars\/[0-9a-z-]+\.png$/i.test(url.pathname) && !/-headshot\.png$/i.test(url.pathname)){url.pathname=url.pathname.replace(/\.png$/i,'-headshot.png');url.search='';return url.href;}}catch{}return value;};
   const safeAvatar=value=>{try{const url=new URL(value);return url.protocol==='https:' && !url.username && !url.password && avatarHosts.has(url.hostname) && (!url.pathname.includes('/snoovatar/avatars/') || /-headshot\.[a-z]+$/i.test(url.pathname))?url.href:'';}catch{return '';}};
+  const safeBanner=value=>{try{const url=new URL(String(value || '').replace(/&amp;/gi,'&'));return url.protocol==='https:' && !url.username && !url.password && !url.port && (avatarHosts.has(url.hostname) || ['a.thumbs.redditmedia.com','b.thumbs.redditmedia.com'].includes(url.hostname))?url.href:'';}catch{return '';}};
+  function extractHoverAvatar(root){
+    if(!root)return '';
+    const headshot=[...root.querySelectorAll('[avatar] image[href],[avatar] img[src]')];
+    const pool=headshot.length?headshot:[...root.querySelectorAll('img[alt*="avatar" i][src],img[src*="snoovatar"],img[src*="profileIcon"],img[src*="avatar_default"]')];
+    for(const img of pool){
+      const raw=img.getAttribute('href') || img.getAttribute('src') || '';
+      if(/suspended-snoo/i.test(raw))continue;
+      const candidate=safeAvatar(headshotOf(raw));
+      if(candidate)return candidate;
+    }
+    return '';
+  }
   async function userAvatar(input,signal){
     if(!M.validateUsername(input.username))throw Error('Invalid username.');
-    const name=input.username.toLowerCase(),now=Date.now(),cached=avatarReads.get(name);
+    const anonymous=input.anonymous===true,name=input.username.toLowerCase(),cacheKey=(anonymous?'anon:':'')+name,now=Date.now(),cached=avatarReads.get(cacheKey);
     // Reuse a native comment headshot (including its signed preview query)
     // when this author already appears on the page. Never synthesize signatures.
     // A restored comment carries its archived author but still Reddit's placeholder avatar: never reuse it.
-    for(const comment of document.querySelectorAll('shreddit-comment[author]:not([is-author-deleted])'))if(comment.getAttribute('author')?.toLowerCase()===name){const slot=comment.querySelector('[slot="commentAvatar"]');if(slot?.closest('shreddit-comment')!==comment)continue;for(const image of slot?.querySelectorAll('image[href],img[src]') || []){const url=safeAvatar(image.getAttribute('href') || image.getAttribute('src'));if(url)return {avatar:url};}}
+    if(!anonymous)for(const comment of document.querySelectorAll('shreddit-comment[author]:not([is-author-deleted])'))if(comment.getAttribute('author')?.toLowerCase()===name){const slot=comment.querySelector('[slot="commentAvatar"]');if(slot?.closest('shreddit-comment')!==comment)continue;for(const image of slot?.querySelectorAll('image[href],img[src]') || []){const url=safeAvatar(image.getAttribute('href') || image.getAttribute('src'));if(url)return {avatar:url};}}
     if(cached?.expires>now)return {avatar:cached.url};
-    if(now<cooldown)return {deferred:true,retryAfterMs:cooldown-now};
+    if(anonymous && !publicBrowserSupported())return {avatar:''};
+    if(!anonymous && now<cooldown)return {deferred:true,retryAfterMs:cooldown-now};
     if(active>=2)return {deferred:true,retryAfterMs:250};
-    const controller=new AbortController(),cancel=()=>controller.abort(),timer=setTimeout(cancel,8000);signal?.addEventListener('abort',cancel,{once:true});active++;
+    const controller=new AbortController(),cancel=()=>controller.abort(),timer=setTimeout(cancel,anonymous?12000:8000);signal?.addEventListener('abort',cancel,{once:true});active++;
     try{
       // Reddit's hover card is served to signed-out visitors and is tiny; its
       // [avatar] image is the profile headshot. Deleted and suspended accounts
       // return a card without one. No /about.json: it is unavailable signed out.
-      const response=await fetch(new URL('/svc/shreddit/user-hover-card/'+encodeURIComponent(input.username),location.origin).href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
-      if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
-      let url='';
-      if(response.ok){
-        const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),headshot=[...doc.querySelectorAll('[avatar] image[href],[avatar] img[src]')],pool=headshot.length?headshot:[...doc.querySelectorAll('img[alt*="avatar" i][src]')];
-        // The first safe headshot wins; a full-body Snoovatar is rejected by safeAvatar,
-        // so an unavailable headshot keeps the native default.
-        for(const img of pool){const candidate=safeAvatar(headshotOf(img.getAttribute('href') || img.getAttribute('src')));if(candidate){url=candidate;break;}}
+      const hoverUrl=new URL('/svc/shreddit/user-hover-card/'+encodeURIComponent(input.username),location.origin).href;
+      let url='',ok=false;
+      if(anonymous){
+        try{
+          const html=await publicBrowserRead(hoverUrl,controller.signal,input.refresh===true);
+          ok=true;
+          url=extractHoverAvatar(new DOMParser().parseFromString(html,'text/html'));
+        }catch(error){
+          if(signal?.aborted)throw Error('Post request cancelled.');
+          ok=false;url='';
+        }
+      }else{
+        const response=await fetch(hoverUrl,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
+        if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
+        ok=response.ok;
+        if(response.ok){
+          const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),headshot=[...doc.querySelectorAll('[avatar] image[href],[avatar] img[src]')],pool=headshot.length?headshot:[...doc.querySelectorAll('img[alt*="avatar" i][src]')];
+          // The first safe headshot wins; a full-body Snoovatar is rejected by safeAvatar,
+          // so an unavailable headshot keeps the native default.
+          for(const img of pool){const candidate=safeAvatar(headshotOf(img.getAttribute('href') || img.getAttribute('src')));if(candidate){url=candidate;break;}}
+        }
       }
-      if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(name,{url,expires:Date.now()+(response.ok?1800000:60000)});
+      if(avatarReads.size>=200)avatarReads.delete(avatarReads.keys().next().value);avatarReads.set(cacheKey,{url,expires:Date.now()+(ok?1800000:60000)});
       return {avatar:url};
     }finally{active--;clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
+  }
+  // Blocked-by-user signed-out probe and profile reader (all reads strictly through RTPublicBrowser).
+  function visibleText(root){
+    if(!root)return '';
+    const clone=root.cloneNode(true);
+    for(const el of clone.querySelectorAll('script,style,noscript,template'))el.remove();
+    return (clone.textContent || '').replace(/\s+/g,' ').trim();
+  }
+  function parseCompactCount(value){
+    if(typeof value==='number')return Number.isFinite(value)?Math.round(value):null;
+    const raw=String(value ?? '').replace(/,/g,'').trim();
+    const m=raw.match(/^(-?\d+(?:\.\d+)?)\s*([kmb])?$/i);
+    if(!m)return null;
+    const base=Number(m[1]),mult={k:1e3,m:1e6,b:1e9}[(m[2] || '').toLowerCase()] || 1;
+    return Number.isFinite(base)?Math.round(base*mult):null;
+  }
+  function extractKarmaStats(root){
+    let postKarma=null,commentKarma=null,karma=null;
+    if(!root)return {postKarma,commentKarma,karma};
+    const readCount=el=>{
+      if(!el)return null;
+      const num=el.getAttribute?.('number') ?? el.querySelector?.('faceplate-number[number]')?.getAttribute('number');
+      if(num!=null && num!==''){const parsed=parseCompactCount(num);if(parsed!==null)return parsed;}
+      return parseCompactCount(visibleText(el));
+    };
+    const postEl=root.querySelector('[data-testid="post-karma"]');
+    const commentEl=root.querySelector('[data-testid="comment-karma"]');
+    const totalEl=root.querySelector('[data-testid="karma-number"]');
+    if(postEl)postKarma=readCount(postEl);
+    if(commentEl)commentKarma=readCount(commentEl);
+    if(totalEl)karma=readCount(totalEl);
+    for(const num of root.querySelectorAll('faceplate-number[number]')){
+      const val=parseCompactCount(num.getAttribute('number'));if(val===null)continue;
+      const block=num.closest('div,li,p,span,dl') || num.parentElement;
+      const label=visibleText(block);
+      if(postKarma===null && /\bpost\s+karma\b/i.test(label) && !/\bcomment\s+karma\b/i.test(label))postKarma=val;
+      if(commentKarma===null && /\bcomment\s+karma\b/i.test(label) && !/\bpost\s+karma\b/i.test(label))commentKarma=val;
+    }
+    const text=visibleText(root);
+    if(postKarma===null){
+      const m=text.match(/(-?[\d,]+(?:\.\d+)?\s*[kmb]?)\s+post\s+karma\b/i) || text.match(/\bpost\s+karma\s*[:·]?\s*(-?[\d,]+(?:\.\d+)?\s*[kmb]?)/i);
+      if(m)postKarma=parseCompactCount(m[1]);
+    }
+    if(commentKarma===null){
+      const m=text.match(/(-?[\d,]+(?:\.\d+)?\s*[kmb]?)\s+comment\s+karma\b/i) || text.match(/\bcomment\s+karma\s*[:·]?\s*(-?[\d,]+(?:\.\d+)?\s*[kmb]?)/i);
+      if(m)commentKarma=parseCompactCount(m[1]);
+    }
+    if(karma===null && postKarma!==null && commentKarma!==null)karma=postKarma+commentKarma;
+    return {postKarma,commentKarma,karma};
+  }
+  function extractCakeDay(root){
+    if(!root)return '';
+    const dateRe=/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b/i;
+    const time=root.querySelector('time[data-testid="cake-day"],[data-testid="cake-day"] time,time[datetime]');
+    if(time){
+      const text=(time.textContent || '').replace(/\s+/g,' ').trim();
+      if(dateRe.test(text))return text.match(dateRe)[0];
+      const parsed=Date.parse(time.getAttribute('datetime') || '');
+      if(Number.isFinite(parsed))return new Date(parsed).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
+      if(text)return text.slice(0,40);
+    }
+    const match=visibleText(root).match(dateRe);
+    return match?match[0]:'';
+  }
+  function parseBlockedHoverCard(html,expectedUsername){
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const card=doc.querySelector('[data-testid="user-hover-card"]');
+    if(!card){
+      const bodyText=visibleText(doc.body);
+      if(doc.querySelector('form[action*="challenge"],#challenge-form') || /prove your humanity|whoa there|blocked by network security/i.test(bodyText))return {blocked:false,reason:'unavailable'};
+      if(/\bsuspended\b/i.test(bodyText))return {blocked:false,reason:'suspended'};
+      if(/\bdeleted\b/i.test(bodyText))return {blocked:false,reason:'deleted'};
+      return {blocked:false,reason:'not-found'};
+    }
+    const cardText=visibleText(card);
+    if(card.querySelector('img[src*="suspended-snoo"]') || /\b(?:account(?:\s+has\s+been|\s+is)?\s+suspended|has\s+been\s+suspended|account\s+suspended)\b/i.test(cardText))return {blocked:false,reason:'suspended'};
+    if(card.querySelector('img[alt="Deleted user"]') || /\b(?:account\s+has\s+been\s+deleted|this\s+account\s+is\s+deleted|deleted\s+user)\b/i.test(cardText) || cardText.includes('[deleted]'))return {blocked:false,reason:'deleted'};
+    let handle='';
+    for(const a of card.querySelectorAll('a[href*="/user/"]')){
+      const m=(a.getAttribute('href') || '').match(/^(?:https:\/\/(?:www\.)?reddit\.com)?\/user\/([\w-]{1,20})\/?$/i);
+      if(m){handle=m[1];break;}
+    }
+    if(!handle){const m=cardText.match(/\bu\/([\w-]{1,20})\b/i);if(m)handle=m[1];}
+    if(handle && handle.toLowerCase()!==expectedUsername.toLowerCase())return {blocked:false,reason:'unavailable'};
+    const username=handle || expectedUsername;
+    const nameNode=card.querySelector('[data-testid="nameplate"] .truncate,[data-testid="nameplate"],h1,h2,a[href*="/user/"] span,span.font-bold');
+    const displayName=(visibleText(nameNode) || username).replace(/^u\//i,'').slice(0,100) || username;
+    const avatar=extractHoverAvatar(card);
+    const {postKarma,commentKarma}=extractKarmaStats(card);
+    const cakeDay=extractCakeDay(card);
+    return {blocked:true,profile:{username,displayName,avatar,postKarma,commentKarma,cakeDay}};
+  }
+  function blockedContext(input){
+    const context=route();
+    if(location.protocol!=='https:' || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(location.hostname) || !context?.username || !M.validateUsername(input.username) || context.username.toLowerCase()!==input.username.toLowerCase())throw Error('Open the matching Reddit profile.');
+    if(['url','origin','method','headers'].some(key=>input[key]!==undefined))throw Error('Invalid blocked profile request.');
+    return context;
+  }
+  async function blockedProbe(input,signal){
+    blockedContext(input);
+    const path=pageKey();
+    if(!publicBrowserSupported())return {blocked:false,reason:'unsupported'};
+    const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
+    let timer;
+    try{
+      const url=new URL('/svc/shreddit/user-hover-card/'+encodeURIComponent(input.username),location.origin);
+      const html=await Promise.race([
+        publicBrowserRead(url.href,controller.signal,input.refresh===true),
+        new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Blocked profile probe timed out.'));},15000);})
+      ]);
+      if(signal?.aborted || pageKey()!==path)throw Error(signal?.aborted?'Post request cancelled.':'Page changed. Try again.');
+      return parseBlockedHoverCard(html,input.username);
+    }catch(error){
+      if(signal?.aborted)throw Error('Post request cancelled.');
+      if(pageKey()!==path)throw Error('Page changed. Try again.');
+      if(error?.unsupported)return {blocked:false,reason:'unsupported'};
+      if(error?.status===404)return {blocked:false,reason:'not-found'};
+      return {blocked:false,reason:'unavailable'};
+    }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
+  }
+  function parseBlockedProfileMetadata(doc,username){
+    const main=doc.querySelector('main'),sidebar=doc.querySelector('aside#right-sidebar-container,aside[aria-label*="profile" i]') || null;
+    const gated=!main || Boolean(doc.querySelector('#shreddit-forbidden') && !main.querySelector('shreddit-feed,#empty-feed-content'));
+    const empty=doc.querySelector('#empty-feed-content');
+    const curated=Boolean(doc.querySelector('#empty-feed-content img[src*="snoo_wave"]') || empty && /likes to keep their (?:posts|comments) hidden/i.test(visibleText(empty)));
+    const h1=main?.querySelector('h1:not(#shreddit-forbidden-title)') || sidebar?.querySelector('h1,h2');
+    const displayName=(visibleText(h1) || username).replace(/^u\//i,'').slice(0,100) || username;
+    const bioNode=(sidebar || main || doc).querySelector('[data-testid="profile-description"],[data-testid="profile-bio"]');
+    const bio=visibleText(bioNode).slice(0,500);
+    const avatar=extractHoverAvatar(main) || extractHoverAvatar(sidebar) || extractHoverAvatar(doc);
+    let banner='';
+    const bannerImg=doc.querySelector('main [data-testid="profile-banner"] img[src],aside [data-testid="profile-banner"] img[src],img[src*="bannerImage"],img[alt*="banner" i][src]');
+    if(bannerImg)banner=safeBanner(bannerImg.getAttribute('src'));
+    if(!banner){
+      for(const el of doc.querySelectorAll('[data-testid="profile-banner"][style],[style*="bannerImage"]')){
+        const m=(el.getAttribute('style') || '').match(/url\(\s*['"]?(https:\/\/[^'")\s]+)['"]?\s*\)/i);
+        if(m){banner=safeBanner(m[1]);if(banner)break;}
+      }
+    }
+    const {postKarma,commentKarma,karma}=extractKarmaStats(sidebar || main || doc);
+    const cakeDay=extractCakeDay(sidebar || main || doc);
+    return {username,displayName,bio,avatar,banner,postKarma,commentKarma,karma,cakeDay,curated,gated};
+  }
+  function parseBlockedProfileListing(doc,username,{continuation=false,previousUrl=null}={}){
+    const feed=doc.querySelector('main shreddit-feed,shreddit-feed') || doc,posts=[],seen=new Set();
+    const closestCard=node=>node?.closest?.('shreddit-post,shreddit-profile-comment,shreddit-comment');
+    const own=(card,selector)=>[...card.querySelectorAll(selector)].find(n=>closestCard(n)===card);
+    const flag=(card,name)=>card.hasAttribute(name) && !['false','0'].includes(String(card.getAttribute(name)).toLowerCase());
+    const cardBody=card=>{
+      const node=own(card,'[slot="text-body"],[slot="comment"],[id$="-comment-rtjson-content"],[id$="-post-rtjson-content"],[id$="-rtjson-content"],.md');
+      if(!node)return '';
+      const clone=node.cloneNode(true);
+      for(const bad of clone.querySelectorAll('shreddit-comment,shreddit-profile-comment,shreddit-post,script,style'))bad.remove();
+      const paras=[...clone.querySelectorAll('p')].map(p=>p.textContent.trim()).filter(Boolean);
+      return paras.length?paras.join('\n\n'):clone.textContent.trim();
+    };
+    const commentPostTitle=(card,postId)=>{
+      const pattern=new RegExp('^/(?:r|user)/[\\w-]+/comments/'+postId+'/[^/]*/?$','i');
+      for(const a of card.querySelectorAll('a[href]')){
+        let p;try{p=new URL(a.getAttribute('href'),location.origin).pathname;}catch{continue;}
+        if(pattern.test(p)){const text=a.textContent.trim();if(text)return text.slice(0,300);}
+      }
+      return '';
+    };
+    const cards=[...feed.querySelectorAll('shreddit-post,shreddit-profile-comment')].filter(card=>!card.closest('[data-rt-ui]')).slice(0,100);
+    for(const card of cards){
+      try{
+        const isComment=card.tagName==='SHREDDIT-PROFILE-COMMENT';
+        if(!isComment){
+          const fullname=(card.id || card.getAttribute('id') || '').toLowerCase();
+          if(!M.validateId(fullname) || !fullname.startsWith('t3_'))continue;
+          const author=card.getAttribute('author') || '';
+          if(author && author.toLowerCase()!==username.toLowerCase())continue;
+          const href=card.getAttribute('permalink') || own(card,'a[slot="full-post-link"],a[slot="title"]')?.getAttribute('href') || '';
+          const linkUrl=href?new URL(href,location.origin):null;
+          if(linkUrl && linkUrl.origin!==location.origin)continue;
+          const pathName=linkUrl?.pathname || '';
+          const created=Date.parse(card.getAttribute('created-timestamp') || own(card,'faceplate-timeago[ts]')?.getAttribute('ts') || own(card,'time[datetime]')?.getAttribute('datetime') || '')/1000;
+          const preview=own(card,'[slot="post-media-container"] img[src],[slot="post-media-container"] faceplate-img[src],[slot="thumbnail"] img[src],[slot="thumbnail"] faceplate-img[src],img[data-testid="post-thumbnail"],faceplate-img[data-testid="post-thumbnail"]');
+          const contentHref=card.getAttribute('content-href') || '';
+          const post=M.normalizePost({
+            id:fullname.slice(3),author:author || username,
+            title:card.getAttribute('post-title') || own(card,'[slot="title"]')?.textContent?.trim() || '',
+            selftext:cardBody(card),
+            subreddit:(card.getAttribute('subreddit-name') || card.getAttribute('subreddit-prefixed-name') || pathName.match(/^\/r\/([^/]+)\//)?.[1] || '').replace(/^r\//i,''),
+            created_utc:created,permalink:linkUrl?linkUrl.pathname+linkUrl.search:undefined,url:contentHref,
+            postType:card.getAttribute('post-type') || undefined,
+            is_self:['text','textmedia'].includes(card.getAttribute('post-type')),
+            over_18:flag(card,'nsfw') || flag(card,'is-nsfw'),
+            spoiler:flag(card,'spoiler') || flag(card,'is-spoiler'),
+            score:Number(card.getAttribute('score')) || 0,
+            num_comments:Number(card.getAttribute('comment-count')) || 0,
+            link_flair_text:own(card,'[slot="post-flair"]')?.textContent?.trim() || '',
+            domain:card.getAttribute('domain') || '',
+            thumbnail:M.mediaUrl(preview?.getAttribute('src') || own(card,'video[poster]')?.getAttribute('poster') || card.getAttribute('thumbnail') || contentHref) || undefined,
+            subredditIcon:own(card,'[slot="credit-bar"] img[src],.shreddit-subreddit-icon__icon img[src]')?.getAttribute('src') || undefined
+          },{source:'reddit'});
+          if(post && !seen.has(post.fullname)){seen.add(post.fullname);posts.push(post);}
+        }else{
+          const fullname=(card.getAttribute('comment-id') || card.getAttribute('thingid') || card.id || '').toLowerCase();
+          if(!M.validateCommentId(fullname) || !fullname.startsWith('t1_'))continue;
+          const overflow=own(card,'shreddit-overflow-menu[author-name]'),actionRow=own(card,'shreddit-comment-action-row');
+          const author=card.getAttribute('author') || overflow?.getAttribute('author-name') || actionRow?.getAttribute('author') || own(card,'[id^="poster-info-"] a[href*="/user/"]')?.getAttribute('href')?.match(/\/user\/([\w-]{1,20})\/?$/i)?.[1] || '';
+          if(author && author.toLowerCase()!==username.toLowerCase())continue;
+          const href=card.getAttribute('permalink') || card.getAttribute('href') || actionRow?.getAttribute('permalink') || own(card,'a[href*="/comment/"]')?.getAttribute('href') || '';
+          const linkUrl=new URL(href,location.origin);
+          if(linkUrl.origin!==location.origin)continue;
+          const pathName=linkUrl.pathname,postId=pathName.match(/\/comments\/([a-z0-9]{1,10})(?:\/|$)/i)?.[1];
+          if(!postId)continue;
+          const created=Date.parse(card.getAttribute('created-timestamp') || own(card,'faceplate-timeago[ts]')?.getAttribute('ts') || own(card,'time[datetime]')?.getAttribute('datetime') || '')/1000;
+          const profileSub=pathName.match(/^\/user\/([\w-]{1,20})\/comments\//i)?.[1];
+          const subreddit=(card.getAttribute('subreddit-name') || card.getAttribute('subreddit-prefixed-name') || pathName.match(/^\/r\/([^/]+)\//)?.[1] || (profileSub?'u_'+profileSub:'')).replace(/^r\//i,'');
+          const score=Number(card.getAttribute('score') ?? actionRow?.getAttribute('score') ?? own(card,'faceplate-number[number]')?.getAttribute('number')) || 0;
+          const comment=M.normalizeComment({
+            id:fullname.slice(3),author:author || username,body:cardBody(card),
+            link_id:'t3_'+postId,parent_id:card.getAttribute('parentid') || card.getAttribute('parent-id') || 't3_'+postId,
+            link_title:card.getAttribute('post-title') || own(card,'h2')?.textContent?.trim() || commentPostTitle(card,postId),
+            subreddit,created_utc:created,score,permalink:linkUrl.pathname+linkUrl.search,
+            over_18:flag(card,'nsfw') || flag(card,'is-nsfw'),
+            spoiler:flag(card,'spoiler') || flag(card,'is-spoiler'),
+            subredditIcon:own(card,'.shreddit-subreddit-icon__icon img[src],[avatar] img[src]')?.getAttribute('src') || undefined
+          },{source:'reddit'});
+          if(comment && !seen.has(comment.fullname)){seen.add(comment.fullname);posts.push(comment);}
+        }
+      }catch{ /* Skip malformed cards cleanly. */ }
+    }
+    let nextUrl=null;
+    for(const partial of feed.querySelectorAll('faceplate-partial[src*="/svc/shreddit/profiles/"]')){
+      try{
+        const u=new URL(partial.getAttribute('src'),location.origin);
+        if(!u.pathname.includes('more-posts') || u.origin!==location.origin || u.href.length>4096)continue;
+        if(!/^\/svc\/shreddit\/profiles\/profile_(overview|posts|comments)-more-posts\/(new|hot|top)\/$/.test(u.pathname))continue;
+        if(u.searchParams.get('name')?.toLowerCase()!==username.toLowerCase())continue;
+        const candidate=u.pathname+u.search;
+        if(candidate!==previousUrl){nextUrl=candidate;break;}
+      }catch{}
+    }
+    const metadata=continuation?null:parseBlockedProfileMetadata(doc,username);
+    return {metadata,posts,nextUrl};
+  }
+  async function blockedProfilePage(input,signal){
+    blockedContext(input);
+    const path=pageKey();
+    if(!publicBrowserSupported())throw Error('Signed-out profile browsing is unavailable in this browser.');
+    if(input.mode!=null && !['profile','search'].includes(input.mode))throw Error('Invalid blocked profile mode.');
+    const mode=input.mode==='search' || input.mode!=='profile' && (input.type!=null || input.kind!=null || input.query!==undefined || input.cursor!==undefined)?'search':'profile';
+    const validRanges=['hour','day','week','month','year','all'];
+    const tRaw=input.t ?? input.range;
+    if(tRaw!=null && !validRanges.includes(tRaw))throw Error('Invalid time range.');
+    const controller=new AbortController(),cancel=()=>controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();
+    let timer;
+    try{
+      if(mode==='search'){
+        const type=input.type ?? (input.kind==='comment'?'comments':input.kind==='post'?'posts':'');
+        if(!['posts','comments'].includes(type))throw Error('Invalid blocked profile search type.');
+        const query=input.query===undefined?'':typeof input.query==='string'?input.query.trim():null;
+        if(query===null || query.length>300 || /[\u0000-\u001f\u007f]/.test(query))throw Error('Invalid search words.');
+        const hasQuery=Boolean(query),sort=input.sort ?? (hasQuery?'relevance':'new'),range=tRaw ?? 'all';
+        if(!['new','hot','top','relevance','comments'].includes(sort))throw Error('Invalid blocked profile sort.');
+        if(input.cursor!=null && (typeof input.cursor!=='string' || !input.cursor || input.cursor.length>4096 || /[\u0000-\u001f\u007f]/.test(input.cursor)))throw Error('Invalid search cursor.');
+        const q=authorQuery(input.username)+(hasQuery?' '+query:'');
+        const url=new URL('/svc/shreddit/search/',location.origin);
+        url.searchParams.set('q',q);url.searchParams.set('type',type);url.searchParams.set('sort',sort);
+        if(sort==='top' || tRaw!=null && (hasQuery || tRaw!=='all'))url.searchParams.set('t',range);
+        url.searchParams.set('limit','25');
+        if(input.cursor)url.searchParams.set('cursor',input.cursor);
+        const html=await Promise.race([
+          publicBrowserRead(url.href,controller.signal,input.refresh===true),
+          new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Signed-out search timed out. Try again.'));},25000);})
+        ]);
+        if(signal?.aborted || pageKey()!==path)throw Error(signal?.aborted?'Post request cancelled.':'Page changed. Try again.');
+        const listing=(type==='comments'?commentListing:postListing)(html,input.username,{sort,range,stream:'public',q,search:hasQuery});
+        const nextCursor=searchCursor(new DOMParser().parseFromString(html,'text/html'),input.username,type,sort,range,{q,search:hasQuery});
+        return {mode:'search',type,sort,metadata:null,posts:listing.posts,nextUrl:null,cursor:nextCursor,hasMore:Boolean(nextCursor),incomplete:true,source:'reddit',signedOut:true};
+      }
+      const isContinuation=input.moreUrl!=null;
+      let url,tab='overview',sort='new';
+      if(isContinuation){
+        if(typeof input.moreUrl!=='string' || !input.moreUrl || input.moreUrl.length>4096 || /[\u0000-\u001f\u007f]/.test(input.moreUrl))throw Error('Invalid profile continuation.');
+        url=new URL(input.moreUrl,location.origin);
+        const m=url.pathname.match(/^\/svc\/shreddit\/profiles\/profile_(overview|posts|comments)-more-posts\/(new|hot|top)\/$/);
+        const allowed=['sort','after','name','navigationSessionId','feedLength','referer','distance','t','cursor'];
+        if(!m || url.origin!==location.origin || url.username || url.password || url.port || url.hash || url.searchParams.get('name')?.toLowerCase()!==input.username.toLowerCase() || (url.searchParams.has('sort') && url.searchParams.get('sort')!==m[2]) || (url.searchParams.has('t') && !validRanges.includes(url.searchParams.get('t'))) || [...url.searchParams.keys()].some(key=>!allowed.includes(key) || url.searchParams.getAll(key).length!==1) || [...url.searchParams.values()].some(v=>/[\u0000-\u001f\u007f]/.test(v)))throw Error('Invalid profile continuation.');
+        tab=m[1]==='posts'?'submitted':m[1];sort=m[2];
+      }else{
+        tab=input.tab==='posts'?'submitted':(input.tab ?? 'overview');
+        sort=input.sort ?? 'new';
+        if(!['overview','submitted','comments'].includes(tab))throw Error('Invalid profile tab.');
+        if(!['new','hot','top'].includes(sort))throw Error('Invalid profile sort.');
+        url=new URL('/user/'+encodeURIComponent(input.username)+'/'+(tab==='overview'?'':tab+'/'),location.origin);
+        url.searchParams.set('sort',sort);
+        if(tRaw!=null)url.searchParams.set('t',tRaw);
+      }
+      const html=await Promise.race([
+        publicBrowserRead(url.href,controller.signal,input.refresh===true),
+        new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Signed-out profile load timed out. Try again.'));},25000);})
+      ]);
+      if(signal?.aborted || pageKey()!==path)throw Error(signal?.aborted?'Post request cancelled.':'Page changed. Try again.');
+      const parsed=parseBlockedProfileListing(new DOMParser().parseFromString(html,'text/html'),input.username,{continuation:isContinuation,previousUrl:isContinuation?url.pathname+url.search:null});
+      return {mode:'profile',tab,sort,metadata:parsed.metadata,posts:parsed.posts,nextUrl:parsed.nextUrl,cursor:null,hasMore:Boolean(parsed.nextUrl),incomplete:true,source:'reddit',signedOut:true};
+    }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
   const ownLists=new Set(['saved','history','hidden','upvoted','downvoted','removed']);
   // The Removed list reads your own overview and keeps only the moderation facts Reddit gives the author
@@ -1932,6 +2299,8 @@
   async function read(input,signal){
     if(input.action==='removal-public')return readRemovalPublic(input,signal);
     if(input.action==='removal-public-profile')return readRemovalPublicProfile(input,signal);
+    if(input.action==='blocked-probe')return blockedProbe(input,signal);
+    if(input.action==='blocked-profile-page')return blockedProfilePage(input,signal);
     if(input.action==='community-suggestions')return readCommunitySuggestions(input,signal);
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
     if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
@@ -2032,7 +2401,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['own-list','own-list-identity','removal-public','removal-public-profile','render-card','render-navigation','render-controls','render-search-empty','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['own-list','own-list-identity','removal-public','removal-public-profile','blocked-probe','blocked-profile-page','render-card','render-navigation','render-controls','render-search-empty','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}

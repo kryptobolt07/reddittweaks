@@ -3,11 +3,11 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const endpoint=(query='hello')=>'https://www.reddit.com/svc/shreddit/search/?'+new URLSearchParams({q:'author:"Example" '+query,type:'comments',sort:'new',limit:'25',rt_public_search:'1'});
-function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttributes={},nativeOwner=null}={}){
+function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttributes={},nativeOwner=null,topLoggedIn=false}={}){
  const events=[],calls=[],nodes=[],timers=new Map(),listeners={};let next=0,now=100000;
  const location={origin:'https://www.reddit.com',pathname:'/user/Example/',href:'https://www.reddit.com/user/Example/'};
- const state={loggedIn,credentialless};
- const document={documentElement:{append(node){events.push('append');node.isConnected=true;}},createElement(tag){assert.equal(tag,'iframe');let anonymous=false;
+ const state={loggedIn,credentialless,topLoggedIn};
+ const document={documentElement:{append(node){events.push('append');node.isConnected=true;}},querySelector(selector){if(selector==='shreddit-app' && state.topLoggedIn)return {hasAttribute:name=>name==='logged-in-user-id',getAttribute:name=>name==='user-logged-in'?'true':name==='logged-in-user-id'?'t2_viewer':null};return null;},createElement(tag){assert.equal(tag,'iframe');let anonymous=false;
   const d={readyState:'complete',querySelector(selector){return selector==='shreddit-app'?{hasAttribute(name){return state.loggedIn || Object.hasOwn(appAttributes,name);},getAttribute(name){return appAttributes[name] ?? (state.loggedIn && name==='user-logged-in'?'true':null);}}:{};}};
   const w={get credentialless(){return state.credentialless;},location:{origin:location.origin,pathname:'/'},document:d,customElements:{get:()=>class{}},async fetch(url,options){calls.push([url,options]);return fetcher?fetcher(url,options,e):response(url);}};
   const node={style:{setProperty(){}},setAttribute(key,value){events.push([key,value]);},isConnected:false,contentWindow:w,contentDocument:d,remove(){this.isConnected=false;events.push('remove');},set src(value){events.push('src');this.url=value;}};
@@ -17,7 +17,7 @@ function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttri
  const window={addEventListener(name,fn){listeners[name]=fn;},removeEventListener(name,fn){if(listeners[name]===fn)delete listeners[name];}};window.top=window;
  const context=vm.createContext({window,document,location,URL,AbortController,TextDecoder,RTNativeRemoval:{identity:()=>nativeOwner},Date:{now:()=>now,parse:Date.parse},setTimeout(fn,ms){const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout(id){timers.delete(id);},setInterval(fn,ms){const id=++next;timers.set(id,{fn,ms,interval:true});return id;},clearInterval(id){timers.delete(id);}});
  vm.runInContext(fs.readFileSync('extension/public-browser.js','utf8'),context);
- const e={read:(...args)=>context.RTPublicBrowser.read(...args),hasSession:()=>context.RTPublicBrowser.hasSession(),events,calls,nodes,state,location,timers,advance(ms){now+=ms;for(const [id,timer] of [...timers])if(timer.ms<=ms){if(!timer.interval)timers.delete(id);timer.fn();}},pagehide:()=>listeners.pagehide()};return e;
+ const e={read:(...args)=>context.RTPublicBrowser.read(...args),hasSession:()=>context.RTPublicBrowser.hasSession(),isSupported:()=>context.RTPublicBrowser.isSupported(),events,calls,nodes,state,location,timers,advance(ms){now+=ms;for(const [id,timer] of [...timers])if(timer.ms<=ms){if(!timer.interval)timers.delete(id);timer.fn();}},pagehide:()=>listeners.pagehide()};return e;
 }
 function response(url,{status=200,chunks=[new TextEncoder().encode('<shreddit-comment>public</shreddit-comment>')],length=null,onRead}={}){
  let index=0;return {url,ok:status===200,status,redirected:false,headers:{get:()=>length},body:{getReader(){return {async read(){onRead?.();return index<chunks.length?{value:chunks[index++],done:false}:{done:true};},async cancel(){}};}}};
@@ -125,12 +125,73 @@ test('own signed-out profile pages (spec §18): first page as HTML and native co
  const first='https://www.reddit.com/user/Example/?sort=new',next='https://www.reddit.com/svc/shreddit/profiles/profile_overview-more-posts/new/?sort=new&after=dDFfYWJj&name=Example&navigationSessionId=abc-123&feedLength=33&referer=https%3A%2F%2Fwww.reddit.com%2Fuser%2FExample%2F';
  await e.read(first);assert.equal(e.calls[0][1].headers.Accept,'text/html','the first page is a full document');assert.equal(e.calls[0][1].credentials,'same-origin');
  await e.read(next);assert.match(e.calls[1][1].headers.Accept,/partial/);await e.read(next+'&distance=25');assert.equal(e.nodes.length,1,'same anonymous frame');
- for(const bad of ['https://www.reddit.com/user/Other/?sort=new','https://www.reddit.com/user/Example/?sort=top','https://www.reddit.com/user/Example/comments/?sort=new',next.replace('name=Example','name=Other'),next.replace('profile_overview','profile_comments'),next+'&token=x','https://evil.example/user/Example/?sort=new'])await assert.rejects(e.read(bad),undefined,bad);
- const signedOut=env({nativeOwner:null});await assert.rejects(signedOut.read(first),undefined,'needs the verified own account');
+ // Widened for visited/own profile sorts (new|hot|top), time ranges, and comments tab; foreign/private/invalid routes remain strictly rejected.
+ await e.read('https://www.reddit.com/user/Example/?sort=top&t=month');
+ await e.read('https://www.reddit.com/user/Example/comments/?sort=new');
+ await e.read(next.replace('profile_overview','profile_comments'));
+ for(const bad of ['https://www.reddit.com/user/Other/?sort=new','https://www.reddit.com/user/Example/?sort=controversial','https://www.reddit.com/user/Example/saved/?sort=new',next.replace('name=Example','name=Other'),next.replace('profile_overview','profile_saved'),next+'&token=x','https://evil.example/user/Example/?sort=new'])await assert.rejects(e.read(bad),undefined,bad);
+ const signedOut=env({nativeOwner:null});await assert.rejects(signedOut.read(first),undefined,'needs a signed-in viewer or verified own account');
 });
 test('own signed-out Posts tab: first page and native continuations are allowed for the own account only',async()=>{
  const e=env({nativeOwner:{owner:'t2_self',username:'Example'}});
  const first='https://www.reddit.com/user/Example/submitted/?sort=new',next='https://www.reddit.com/svc/shreddit/profiles/profile_posts-more-posts/new/?sort=new&after=dDNfYWJj&name=Example&navigationSessionId=abc-123&feedLength=25';
  await e.read(first);assert.equal(e.calls[0][1].headers.Accept,'text/html');await e.read(next);assert.match(e.calls[1][1].headers.Accept,/partial/);
- for(const bad of ['https://www.reddit.com/user/Other/submitted/?sort=new','https://www.reddit.com/user/Example/submitted/?sort=top','https://www.reddit.com/user/Example/submitted/?sort=new&t=all',next.replace('name=Example','name=Other')])await assert.rejects(e.read(bad),undefined,bad);
+ await e.read('https://www.reddit.com/user/Example/submitted/?sort=top&t=all');
+ for(const bad of ['https://www.reddit.com/user/Other/submitted/?sort=new','https://www.reddit.com/user/Example/submitted/?sort=arbitrary','https://www.reddit.com/user/Example/submitted/?sort=top&t=forever','https://www.reddit.com/user/Example/submitted/?sort=new&token=x',next.replace('name=Example','name=Other')])await assert.rejects(e.read(bad),undefined,bad);
+});
+test('visited blocked profile reads allow only the current visited username across hover card, tabs, continuations, search, and item fragments',async()=>{
+ const e=env({topLoggedIn:true,nativeOwner:null});
+ assert.equal(e.isSupported(),true);
+ assert.equal(env({supported:false}).isSupported(),false);
+ // Hover card for visited profile
+ await e.read('https://www.reddit.com/svc/shreddit/user-hover-card/Example');
+ assert.match(e.calls[0][1].headers.Accept,/partial/);
+ // Profile pages (overview, submitted, comments) with allowlisted sort & t
+ for(const ok of [
+  'https://www.reddit.com/user/Example/',
+  'https://www.reddit.com/user/Example/?sort=hot',
+  'https://www.reddit.com/user/Example/submitted/?sort=top&t=week',
+  'https://www.reddit.com/user/Example/comments/?sort=top&t=year',
+  'https://www.reddit.com/svc/shreddit/profiles/profile_overview-more-posts/hot/?after=t3_abc&name=Example&feedLength=25&navigationSessionId=s1',
+  'https://www.reddit.com/svc/shreddit/profiles/profile_posts-more-posts/top/?sort=top&t=month&cursor=opaque&name=Example',
+  'https://www.reddit.com/svc/shreddit/profiles/profile_comments-more-posts/new/?after=t1_xyz&name=Example',
+  'https://www.reddit.com/svc/shreddit/partial-feed-post/t3_abc12?isProfile=true',
+  'https://www.reddit.com/svc/shreddit/partial-feed-post/t3_abc12?isProfile=true&pvc=ProfileFeed2&fvt=compactView',
+  'https://www.reddit.com/svc/shreddit/comment/t1_xyz99?isProfile=true',
+  'https://www.reddit.com/svc/shreddit/search/?q=author%3A%22Example%22&type=posts&sort=new&limit=25',
+  'https://www.reddit.com/svc/shreddit/search/?q=author%3A%22Example%22&type=comments&sort=top&t=all&limit=25'
+ ])await e.read(ok);
+ // Cross-profile, non-allowlisted params, and mismatched sort are strictly rejected
+ for(const bad of [
+  'https://www.reddit.com/svc/shreddit/user-hover-card/Other',
+  'https://www.reddit.com/svc/shreddit/user-hover-card/Example?extra=1',
+  'https://www.reddit.com/user/Other/',
+  'https://www.reddit.com/user/Other/submitted/?sort=new',
+  'https://www.reddit.com/user/Other/comments/?sort=new',
+  'https://www.reddit.com/user/Example/?sort=new&sort=hot',
+  'https://www.reddit.com/user/Example/?sort=top&t=decade',
+  'https://www.reddit.com/user/Example/hidden/?sort=new',
+  'https://www.reddit.com/svc/shreddit/profiles/profile_comments-more-posts/top/?sort=new&name=Example',
+  'https://www.reddit.com/svc/shreddit/profiles/profile_posts-more-posts/new/?name=Other&after=t3_abc',
+  'https://www.reddit.com/svc/shreddit/profiles/profile_posts-more-posts/new/?name=Example&t=bad',
+  'https://www.reddit.com/svc/shreddit/profiles/profile_posts-more-posts/new/?name=Example&after=a%0Ab',
+  'https://www.reddit.com/svc/shreddit/partial-feed-post/t3_abc12?isProfile=true&fvt=evil',
+  'https://www.reddit.com/svc/shreddit/comment/t1_xyz99?isProfile=true&pvc=ProfileFeed2',
+  'https://www.reddit.com/svc/shreddit/search/?q=author%3A%22Other%22&type=posts&sort=new&limit=25'
+ ])await assert.rejects(e.read(bad),undefined,bad);
+ // Leaving the profile route rejects visited-profile reads when nativeOwner is absent
+ e.location.pathname='/r/test/';e.location.href='https://www.reddit.com/r/test/';
+ for(const offRoute of [
+  'https://www.reddit.com/svc/shreddit/user-hover-card/Example',
+  'https://www.reddit.com/user/Example/?sort=new',
+  'https://www.reddit.com/svc/shreddit/partial-feed-post/t3_abc12?isProfile=true'
+ ])await assert.rejects(e.read(offRoute),undefined,offRoute);
+});
+test('hover card 404 keeps the healthy anonymous session without triggering a global cooldown',async()=>{
+ const e=env({topLoggedIn:true,fetcher:url=>response(url,{status:url.includes('user-hover-card')?404:200})});
+ await e.read(endpoint());
+ await assert.rejects(e.read('https://www.reddit.com/svc/shreddit/user-hover-card/Example'),err=>err.status===404);
+ assert.equal(e.hasSession(),true);
+ await e.read(endpoint('still-works'));
+ assert.equal(e.nodes.length,1);
 });

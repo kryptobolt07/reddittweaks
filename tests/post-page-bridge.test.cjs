@@ -1173,3 +1173,188 @@ test('a moving player keeps the rounded corners Reddit gives the media in the fe
  assert.match(clip[0].clipPath,/round [\d.]+px\)$/,'rounded from the start');assert.equal(clip[1].clipPath,'inset(0px 0px round 8px)','the post’s corners at the end');
  const scale=360/390;assert.ok(Math.abs(parseFloat(/round ([\d.]+)px/.exec(clip[0].clipPath)[1])*scale-16)<0.01,'looks 16 px round at the feed’s size');
 });
+
+test('blocked-probe reports unsupported cleanly when RTPublicBrowser is absent or credentialless is unsupported',async t=>{
+ const missing=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ const r1=await missing.send({action:'blocked-probe',username:'BlockedUser'});
+ assert.equal(r1.ok,true);assert.equal(r1.blocked,false);assert.equal(r1.reason,'unsupported');assert.equal(missing.calls.length,0);
+ const firefox=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ firefox.W.RTPublicBrowser={isSupported:()=>false,read:()=>assert.fail('must not read when unsupported')};
+ const r2=await firefox.send({action:'blocked-probe',username:'BlockedUser'});
+ assert.equal(r2.ok,true);assert.equal(r2.blocked,false);assert.equal(r2.reason,'unsupported');assert.equal(firefox.calls.length,0);
+ const runtimeUnsupported=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ publicBrowserMock(runtimeUnsupported,()=>{throw Object.assign(Error('unsupported'),{unsupported:true});});
+ const r3=await runtimeUnsupported.send({action:'blocked-probe',username:'BlockedUser'});
+ assert.equal(r3.ok,true);assert.equal(r3.blocked,false);assert.equal(r3.reason,'unsupported');
+});
+
+test('blocked-probe classifies live blocked, nonexistent, suspended, deleted and unavailable hover cards via RTPublicBrowser only',async t=>{
+ const liveHtml=`<script>SML.load(["chunk"])</script><div data-testid="user-hover-card"><a href="/user/BlockedUser/"><span data-testid="nameplate"><span class="truncate">Blocked Display</span></span></a><span>u/BlockedUser</span><img alt="u/BlockedUser avatar" src="https://i.redd.it/snoovatar/avatars/11112222-3333-4444-5555-666677778888.png"><time datetime="2025-12-24T00:00:00Z">Dec 24, 2025</time><div><faceplate-number number="383"></faceplate-number><span>Post karma</span></div><div><faceplate-number number="538"></faceplate-number><span>Comment karma</span></div><button>Follow</button></div>`;
+ const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ const browser=publicBrowserMock(e,()=>liveHtml);
+ const live=await e.send({action:'blocked-probe',username:'BlockedUser'});
+ assert.equal(live.ok,true);assert.equal(live.blocked,true);assert.equal(e.calls.length,0,'never uses signed-in fetch');
+ assert.equal(new URL(browser[0].url).pathname,'/svc/shreddit/user-hover-card/BlockedUser');
+ assert.deepEqual(live.profile,{username:'BlockedUser',displayName:'Blocked Display',avatar:'https://i.redd.it/snoovatar/avatars/11112222-3333-4444-5555-666677778888-headshot.png',postKarma:383,commentKarma:538,cakeDay:'Dec 24, 2025'});
+
+ const cases=[
+  ['not-found','<script>SML.load(["empty"])</script>'],
+  ['suspended','<div data-testid="user-hover-card"><img src="https://www.redditstatic.com/shreddit/assets/suspended-snoo.png"><p>Account suspended</p></div>'],
+  ['deleted','<div data-testid="user-hover-card"><img alt="Deleted user" src="https://www.redditstatic.com/avatars/deleted.png"><p>This account has been deleted.</p></div>'],
+  ['unavailable','<html><body><form id="challenge-form">Prove your humanity</form></body></html>'],
+  ['unavailable','<div data-testid="user-hover-card"><a href="/user/OtherUser/">u/OtherUser</a></div>']
+ ];
+ for(const [expected,html] of cases){
+  const c=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});publicBrowserMock(c,()=>html);
+  const res=await c.send({action:'blocked-probe',username:'BlockedUser'});
+  assert.equal(res.ok,true);assert.equal(res.blocked,false);assert.equal(res.reason,expected,expected);assert.equal(c.calls.length,0);
+ }
+ const err404=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});publicBrowserMock(err404,()=>{throw Object.assign(Error('404'),{status:404});});
+ assert.equal((await err404.send({action:'blocked-probe',username:'BlockedUser'})).reason,'not-found');
+ const err403=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});publicBrowserMock(err403,()=>{throw Object.assign(Error('403'),{status:403});});
+ assert.equal((await err403.send({action:'blocked-probe',username:'BlockedUser'})).reason,'unavailable');
+});
+
+test('blocked-probe rejects foreign usernames, forbidden keys, and mid-flight route changes',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ publicBrowserMock(e,()=>{e.W.history.pushState({},'','/user/OtherUser/');return '<div data-testid="user-hover-card">u/BlockedUser</div>';});
+ assert.equal((await e.send({action:'blocked-probe',username:'OtherUser'})).ok,false);
+ assert.equal((await e.send({action:'blocked-probe',username:'BlockedUser',url:'https://evil.test'})).ok,false);
+ assert.match((await e.send({action:'blocked-probe',username:'BlockedUser'})).error,/Page changed/);
+ assert.equal(e.calls.length,0);
+});
+
+test('blocked-profile-page parses signed-out metadata, posts/comments, continuations, curated/gated states, and search mode via RTPublicBrowser',async t=>{
+ const moreUrl='/svc/shreddit/profiles/profile_overview-more-posts/top/?sort=top&t=month&after=t3_post1&name=BlockedUser&feedLength=25';
+ const profileHtml=`<main>
+  <div data-testid="profile-banner"><img src="https://styles.redditmedia.com/t5_1/styles/bannerImage_synthetic.png"></div>
+  <img id="profile-icon" src="https://styles.redditmedia.com/t5_1/styles/profileIcon_synthetic.png" alt="u/BlockedUser avatar">
+  <h1>Blocked Display</h1>
+  <shreddit-feed>
+   <shreddit-post id="t3_post1" author="BlockedUser" post-title="Synthetic public post" subreddit-name="example" post-type="text" score="42" comment-count="7" created-timestamp="2026-10-01T12:00:00Z" permalink="/r/example/comments/post1/synthetic_public_post/" nsfw="false"><div slot="post-flair">Discussion</div><div slot="text-body"><p>Hello signed-out world</p></div></shreddit-post>
+   <shreddit-post id="t3_foreign" author="OtherUser" post-title="Foreign post" subreddit-name="example" created-timestamp="2026-10-01T11:00:00Z" permalink="/r/example/comments/foreign/x/"></shreddit-post>
+   <shreddit-profile-comment comment-id="t1_cmnt1" created-timestamp="2026-10-02T12:00:00Z" permalink="/r/example/comments/post1/synthetic_public_post/cmnt1/"><div id="poster-info-t1_cmnt1"><a href="/user/BlockedUser/">BlockedUser</a></div><a href="/r/example/comments/post1/synthetic_public_post/">Synthetic public post</a><div class="md"><p>Signed-out comment body</p></div><shreddit-comment-action-row score="15" permalink="/r/example/comments/post1/synthetic_public_post/cmnt1/"></shreddit-comment-action-row></shreddit-profile-comment>
+   <faceplate-partial src="${moreUrl}"></faceplate-partial>
+  </shreddit-feed>
+ </main>
+ <aside id="right-sidebar-container">
+  <p data-testid="profile-description">Synthetic bio text</p>
+  <span data-testid="karma-number">12,345</span>
+  <div data-testid="post-karma">4,000</div>
+  <div data-testid="comment-karma">8,345</div>
+  <time data-testid="cake-day" datetime="2020-06-06T00:00:00.000Z">6 y</time>
+ </aside>`;
+ const nextHtml=`<shreddit-post id="t3_post2" author="BlockedUser" post-title="Page two post" subreddit-name="example" post-type="link" score="10" comment-count="1" created-timestamp="2026-09-01T12:00:00Z" permalink="/r/example/comments/post2/page_two_post/" content-href="https://example.org/article"></shreddit-post><faceplate-partial src="${moreUrl}"></faceplate-partial>`;
+ const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ const browser=publicBrowserMock(e,req=>req.url.includes('more-posts')?nextHtml:profileHtml);
+ const page1=await e.send({action:'blocked-profile-page',username:'BlockedUser',tab:'overview',sort:'top',t:'month'});
+ assert.equal(page1.ok,true,page1.error);assert.equal(e.calls.length,0);
+ assert.equal(browser[0].url,'https://www.reddit.com/user/BlockedUser/?sort=top&t=month');
+ assert.equal(page1.mode,'profile');assert.equal(page1.signedOut,true);
+ assert.deepEqual(page1.metadata,{username:'BlockedUser',displayName:'Blocked Display',bio:'Synthetic bio text',avatar:'https://styles.redditmedia.com/t5_1/styles/profileIcon_synthetic.png',banner:'https://styles.redditmedia.com/t5_1/styles/bannerImage_synthetic.png',postKarma:4000,commentKarma:8345,karma:12345,cakeDay:'Jun 6, 2020',curated:false,gated:false});
+ assert.deepEqual(page1.posts.map(p=>p.fullname),['t3_post1','t1_cmnt1'],'foreign author excluded');
+ assert.equal(page1.posts[0].body,'Hello signed-out world');assert.equal(page1.posts[0].flair,'Discussion');
+ assert.equal(page1.posts[1].kind,'comment');assert.equal(page1.posts[1].body,'Signed-out comment body');assert.equal(page1.posts[1].score,15);
+ assert.equal(page1.nextUrl,moreUrl);assert.equal(page1.hasMore,true);
+
+ const page2=await e.send({action:'blocked-profile-page',username:'BlockedUser',moreUrl:page1.nextUrl});
+ assert.equal(page2.ok,true,page2.error);assert.equal(page2.metadata,null);
+ assert.deepEqual(page2.posts.map(p=>p.fullname),['t3_post2']);
+ assert.equal(page2.nextUrl,null,'repeated continuation URL stops pagination');assert.equal(page2.hasMore,false);
+
+ // Curated & gated detection
+ const curatedEnv=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ publicBrowserMock(curatedEnv,()=>'<main><h1>BlockedUser</h1><div id="empty-feed-content"><img src="https://www.redditstatic.com/shreddit/assets/snoo_wave.png"><p>Welcome! u/BlockedUser likes to keep their posts hidden.</p></div></main>');
+ const curated=await curatedEnv.send({action:'blocked-profile-page',username:'BlockedUser',tab:'submitted'});
+ assert.equal(curated.ok,true);assert.equal(curated.metadata.curated,true);assert.equal(curated.metadata.gated,false);
+
+ const gatedEnv=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ publicBrowserMock(gatedEnv,()=>'<shreddit-app><div id="shreddit-forbidden"><h1 id="shreddit-forbidden-title">Mature Content</h1></div></shreddit-app>');
+ const gated=await gatedEnv.send({action:'blocked-profile-page',username:'BlockedUser'});
+ assert.equal(gated.ok,true);assert.equal(gated.metadata.gated,true);assert.deepEqual(gated.posts,[]);
+
+ // Signed-out search mode (posts & comments with cursor pagination)
+ const searchEnv=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ const searchBrowser=publicBrowserMock(searchEnv,req=>{
+  const u=new URL(req.url);
+  return u.searchParams.get('type')==='comments'
+   ? nativeCommentHtml({author:'BlockedUser',next:'/svc/shreddit/search/?q=author%3A%22BlockedUser%22&type=comments&sort=new&cursor=next_c'})
+   : nativePostHtml({author:'BlockedUser',next:'/svc/shreddit/search/?q=author%3A%22BlockedUser%22+cats&type=posts&sort=relevance&t=year&cursor=next_p'});
+ });
+ const sp=await searchEnv.send({action:'blocked-profile-page',username:'BlockedUser',type:'posts',query:'cats',sort:'relevance',t:'year'});
+ assert.equal(sp.ok,true,sp.error);assert.equal(sp.mode,'search');assert.equal(sp.posts.length,1);assert.equal(sp.cursor,'next_p');assert.equal(sp.hasMore,true);assert.equal(searchEnv.calls.length,0);
+ assert.equal(new URL(searchBrowser[0].url).searchParams.get('q'),'author:"BlockedUser" cats');
+ const sc=await searchEnv.send({action:'blocked-profile-page',username:'BlockedUser',type:'comments',sort:'new',cursor:'prev_c'});
+ assert.equal(sc.ok,true,sc.error);assert.equal(sc.posts[0].kind,'comment');assert.equal(sc.cursor,'next_c');
+ assert.equal(new URL(searchBrowser[1].url).searchParams.get('cursor'),'prev_c');
+
+ // Validation rejections
+ for(const bad of [
+  {username:'OtherUser'},
+  {username:'BlockedUser',tab:'saved'},
+  {username:'BlockedUser',sort:'controversial'},
+  {username:'BlockedUser',t:'decade'},
+  {username:'BlockedUser',moreUrl:'/svc/shreddit/profiles/profile_posts-more-posts/new/?name=OtherUser&after=x'},
+  {username:'BlockedUser',moreUrl:'https://evil.example/svc/shreddit/profiles/profile_posts-more-posts/new/?name=BlockedUser'},
+  {username:'BlockedUser',type:'users'},
+  {username:'BlockedUser',url:'https://evil.example'}
+ ])assert.equal((await e.send({action:'blocked-profile-page',...bad})).ok,false,JSON.stringify(bad));
+});
+
+test('render-card with anonymous:true uses RTPublicBrowser and marks vote/reply/overflow read-only while preserving permalinks, Share and Download',async t=>{
+ const postHtml=`<article><shreddit-post id="t3_abc12" author="BlockedUser" post-title="Public post" created-timestamp="2026-10-20T12:00:00Z"><a slot="full-post-link" href="/r/example/comments/abc12/public_post/">Public post</a><shreddit-post-overflow-menu><button>Save</button></shreddit-post-overflow-menu><rpl-action-bar><div data-testid="action-row"><button aria-label="Upvote">↑</button><button aria-label="Downvote">↓</button><a href="/r/example/comments/abc12/public_post/">5 comments</a><button aria-label="Share">Share</button><button data-rt-download="action">Download</button></div></rpl-action-bar></shreddit-post></article>`;
+ const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/?feedViewType=compactView'});
+ const browser=publicBrowserMock(e,()=>postHtml);
+ const slot=nativeTarget(e,{kind:'post',id:'abc12'});
+ const r=await e.send({action:'render-card',username:'BlockedUser',kind:'post',postId:'abc12',target:slot.id,anonymous:true});
+ assert.equal(r.ok,true,r.error);assert.equal(r.rendered,true);assert.equal(r.anonymous,true);assert.equal(e.calls.length,0,'never uses signed-in fetch');
+ const u=new URL(browser[0].url);assert.equal(u.pathname,'/svc/shreddit/partial-feed-post/t3_abc12');assert.equal(u.searchParams.get('isProfile'),'true');assert.equal(u.searchParams.get('fvt'),'compactView');
+ const card=slot.querySelector('shreddit-post');assert.equal(card.dataset.rtAnonymousCard,'true');
+ assert.equal(card.querySelector('shreddit-post-overflow-menu').hasAttribute('inert'),true);
+ assert.equal(card.querySelector('button[aria-label="Upvote"]').hasAttribute('inert'),true);
+ assert.equal(card.querySelector('button[aria-label="Downvote"]').disabled,true);
+ // Permalinks, Share, and Download stay interactive
+ assert.equal(card.querySelector('rpl-action-bar').hasAttribute('inert'),false);
+ assert.equal(card.querySelector('a[slot="full-post-link"]').hasAttribute('inert'),false);
+ assert.equal(card.querySelector('button[aria-label="Share"]').hasAttribute('inert'),false);
+ assert.equal(card.querySelector('[data-rt-download="action"]').hasAttribute('inert'),false);
+
+ // Bare comment action row (no Share/Download inside) gets inert directly
+ const commentHtml=`<article><shreddit-profile-comment comment-id="t1_cmnt1" author="BlockedUser" created-timestamp="2026-10-20T12:00:00Z"><a href="/r/example/comments/abc12/public_post/cmnt1/">Permalink</a><div class="md">Public reply</div><shreddit-comment-action-row comment-id="t1_cmnt1" score="3"></shreddit-comment-action-row></shreddit-profile-comment></article>`;
+ const ce=setup(t,{url:'https://www.reddit.com/user/BlockedUser/comments/'});
+ const cBrowser=publicBrowserMock(ce,()=>commentHtml);
+ const cSlot=nativeTarget(ce,{kind:'comment',id:'cmnt1'});
+ const cr=await ce.send({action:'render-card',username:'BlockedUser',kind:'comment',postId:'cmnt1',target:cSlot.id,anonymous:true});
+ assert.equal(cr.ok,true,cr.error);assert.equal(cr.rendered,true);assert.equal(ce.calls.length,0);
+ assert.equal(cBrowser[0].url,'https://www.reddit.com/svc/shreddit/comment/t1_cmnt1?isProfile=true');
+ assert.equal(cSlot.querySelector('shreddit-comment-action-row').hasAttribute('inert'),true);
+ assert.equal(cSlot.querySelector('a[href*="/cmnt1/"]').hasAttribute('inert'),false);
+
+ // Unsupported browser fails closed without signed-in fallback
+ const unsupported=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ unsupported.W.RTPublicBrowser={isSupported:()=>false,read:()=>assert.fail('must not read')};
+ const uSlot=nativeTarget(unsupported,{kind:'post',id:'abc12'});
+ const ur=await unsupported.send({action:'render-card',username:'BlockedUser',kind:'post',postId:'abc12',target:uSlot.id,anonymous:true});
+ assert.equal(ur.ok,false);assert.equal(unsupported.calls.length,0);
+});
+
+test('user-avatar with anonymous:true resolves headshot via RTPublicBrowser without signed-in cookies or cache mixing',async t=>{
+ const full='https://i.redd.it/snoovatar/avatars/abcdef01-2345-6789-abcd-ef0123456789.png';
+ const expected='https://i.redd.it/snoovatar/avatars/abcdef01-2345-6789-abcd-ef0123456789-headshot.png';
+ const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/',fetcher:async()=>nativeResponse('<div data-testid="user-hover-card"></div>')});
+ const browser=publicBrowserMock(e,()=>`<div data-testid="user-hover-card"><img alt="u/BlockedUser avatar" src="${full}"></div>`);
+ // Signed-in lookup returns empty (blocked); anonymous lookup must NOT reuse that empty cache entry.
+ assert.equal((await e.send({action:'user-avatar',username:'BlockedUser'})).avatar,'');
+ assert.equal(e.calls.length,1);
+ const anon=await e.send({action:'user-avatar',username:'BlockedUser',anonymous:true});
+ assert.equal(anon.ok,true);assert.equal(anon.avatar,expected);
+ assert.equal(e.calls.length,1,'anonymous lookup never uses signed-in fetch');
+ assert.equal(browser.length,1);assert.equal(new URL(browser[0].url).pathname,'/svc/shreddit/user-hover-card/BlockedUser');
+ // Cached per anonymous username
+ assert.equal((await e.send({action:'user-avatar',username:'blockeduser',anonymous:true})).avatar,expected);
+ assert.equal(browser.length,1);
+ // Unsupported browser returns empty safely with zero signed-in fetch
+ const noBrowser=setup(t,{url:'https://www.reddit.com/user/BlockedUser/'});
+ const res=await noBrowser.send({action:'user-avatar',username:'BlockedUser',anonymous:true});
+ assert.equal(res.ok,true);assert.equal(res.avatar,'');assert.equal(noBrowser.calls.length,0);
+});
