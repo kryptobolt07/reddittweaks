@@ -6,7 +6,7 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1';
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1',DIRECT_PREPARE_MS=1500,DIRECT_TRIAL_MS=250;
  const COMMENT='shreddit-comment',MEDIA_NODES=PLAYERS+', '+COMMENT+' video';
  const commentOf=node=>node?.closest?.(COMMENT);
  const closedThread=node=>Boolean(commentOf(node) && node.closest('shreddit-comment[collapsed],details:not([open]),[hidden], [inert]'));
@@ -164,6 +164,19 @@
  }
  const postId=path=>/^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase() || '';
  const {videoSettings}=globalThis.RTPostModel;
+ // The post a tab first loaded (Post opened directly): the document's own navigation entry, still on screen, and not
+ // reached by a feed-to-post continuation saved for it. In-app routes never count.
+ function landingPost(win){
+  let path=win.location.pathname;
+  try{const entry=win.performance?.getEntriesByType?.('navigation')?.[0];if(entry?.name)path=new URL(entry.name).pathname;}catch{}
+  const id=postId(path);
+  if(!id || id!==postId(win.location.pathname))return '';
+  try{
+   const saved=JSON.parse(win.sessionStorage.getItem(CONTINUE_KEY) || 'null'),age=Date.now()-(saved?.at ?? NaN);
+   if(saved?.id===id && age>=0 && age<CONTINUE_MS)return '';
+  }catch{}
+  return id;
+ }
  const kinds=['video','gif','embed'];
  const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':node?.matches?.('[gif],[post-type="gif"],[data-media-type="gif"]') || node?.closest?.('shreddit-post[post-type="gif"]')?'gif':'video';
  const viewMode=(mode,touch)=>mode==='autoplay' || (touch && mode==='preview');
@@ -212,12 +225,13 @@
   writeLocalVolume(win,value);
  }
  class Videos{
-  constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,readDirect=null,readVolume=null,saveVolume=null,observe=true}={}){
+  constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,readDirect=null,readVolume=null,saveVolume=null,observe=true,landing}={}){
    this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new WeakMap();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;this.active=false;this.observe=observe;
    this.visibilityReady=new WeakMap();this.fading=new WeakMap();this.away=new WeakMap();this.loops=new Map();
    this.detailEmbeds=new Set();this.embedAway=new Set();this.feedEmbeds=new Set();this.feedSoundEmbeds=new Set();this.managedViewport=new Set();
    this.revealedMediaGates=new WeakSet();
    this.miniDismissed=new WeakSet();this.mini=null;
+   this.landing=landing ?? landingPost(this.win);this.direct=null;
    this.endedAt=new WeakMap();this.hold2x=null;this.suppressClickUntil=-Infinity;
    this.savedVolume=null;this.volumeSaveTimer=null;
    this.readVolume=readVolume || (()=>readStoredVolume(this.win));
@@ -232,6 +246,7 @@
     if(!event.isTrusted && !globalThis.__rtVideoControlTest)return;
     const path=event.composedPath();
     this.gesture={at:performance.now(),path};
+    if(this.direct)this.directGesture(event,path);
     if(event.type==='pointerdown'){
      if(this.holdFor2x)this.startHold2x(event,path);
      return;
@@ -277,8 +292,8 @@
     if(!embed || !link || !this.blockEmbedLinks(!this.isDetailEmbed(embed)))return;
     if(/^https?:/.test(link.href) && new URL(link.href).origin!==this.win.location.origin){event.preventDefault();event.stopImmediatePropagation();}
    };
-   this.onRoute=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();};
-   this.onBack=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.clearHandoff();this.clearEmbedHandoff();};
+   this.onRoute=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.win.setTimeout(()=>this.directPlayer(),0);};
+   this.onBack=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.clearHandoff();this.clearEmbedHandoff();this.directPlayer();};
    this.onMiniDismissed=event=>{
     const node=event.target;
     if(node)this.miniDismissed.add(node);
@@ -378,7 +393,7 @@
     c.mediaClickAction==='default' && c.embedBlockLinks==='off' &&
     !c.singleVideo && !c.volumeMemory && c.videoScrollAway==='default' &&
     c.videoOpenPost==='default' && !c.holdFor2x && c.loopPolicy==='default' &&
-    c.streamQuality==='auto';
+    c.streamQuality==='auto' && (c.videoDirectOpen || 'default')==='default';
   }
   activate(){
    if(this.active || this.dead)return;
@@ -447,6 +462,7 @@
    this.players.clear();this.detailEmbeds.clear();this.feedEmbeds.clear();this.feedSoundEmbeds.clear();
    this.embedAway.clear();this.away=new WeakMap();this.posterDeferred.clear();this.posterNodes.clear();
    this.clearHandoff();this.clearEmbedHandoff();
+   this.endDirect();
   }
   releaseParkedEmbeds(){
    for(const embed of this.doc.querySelectorAll(ANY_EMBED)){
@@ -469,6 +485,7 @@
   configure(settings){
    const before=this.choice;
    this.settings=settings || {};this.choice=videoSettings(this.settings);
+   if(this.configured && this.directOpen!==(before.videoDirectOpen || 'default')){this.endDirect();this.landing='';}
    const root=this.doc.documentElement;
    root?.toggleAttribute?.('data-rt-embed-override',this.startMode('embed')!=='default');
    if(this.streamQuality==='auto')root?.removeAttribute?.('data-rt-stream-quality');
@@ -494,6 +511,7 @@
    }
    if(!this.continueOnOpen){this.clearHandoff();this.clearEmbedHandoff();}
    else if(!this.configured)this.restoreHandoff();
+   if(this.pending?.saved?.id && this.pending.saved.id===this.landing)this.landing='';
    for(const [frame,state] of this.frames)if(frame.isConnected && state.direct)this.syncDirectEnhancements(frame);
    this.configured=true;this.scan();
    // Visibility reports that arrived before the settings did still choose the in-view preview.
@@ -505,7 +523,8 @@
      this.applyLoopPolicy(player,video);
      if(this.volumeMemory && this.savedVolume && !this.previews.get(player)?.active && !this._lastAttached?.has(player))this.applySavedVolume(player,video,false);
     }
-    if(this.startMode(mediaKind(player))!=='default' && !video.paused && !this.started.has(video) && !this.continued.has(video) && !this.loops.has(player)){
+    if(this.startMode(mediaKind(player))!=='default' && !video.paused && !this.started.has(video) && !this.continued.has(video) && !this.loops.has(player) &&
+       !this.directManaged(video)){
      this.block(player,video);
     }
    }
@@ -522,6 +541,7 @@
   get continueOnOpen(){return this.choice.videoOpenPost==='position' || this.choice.videoOpenPost==='start';}
   get restartPreview(){return this.choice.videoOpenPost==='start';}
   get cardClickAudio(){return this.choice.cardClickAudio || 'keep';}
+  get directOpen(){return this.choice.videoDirectOpen || 'default';}
   // Whether media carried into its post should have sound. A click on the video itself (openPost sets this.opening)
   // follows clickAudio; a click on the card around it (title, body, whitespace) follows cardClickAudio.
   wantOpenSound(wasMuted,{isPreview=false}={}){
@@ -708,6 +728,7 @@
    if(this.configured && embedOverride)this.parkIdle();
    this.handoff();
    this.embedHandoff();
+   this.applyDirect();
   }
   trackDetailEmbed(embed,state){
    if(this.scrollAway==='default')return;
@@ -733,12 +754,14 @@
    root.addEventListener('pause',event=>{
     if(!this.active || this.dead)return;
     if(event.target.paused)this.continued.delete(event.target);
+    if(this.direct?.phase==='trial' && this.direct.video===event.target && !this.userStarted(player))this.directFallback(this.direct);
    },true);
    // Reddit re-applies its saved volume when a video starts; a preview stays muted until it plays for real.
    root.addEventListener('volumechange',event=>{
     if(!this.active || this.dead)return;
     const preview=this.previews.get(player);
     if(preview?.active && preview.video===event.target && !event.target.muted){event.target.muted=true;return;}
+    if(this.directKeepsMuted(player,event.target))return;
     if(this.volumeMemory && mediaKind(player)!=='gif' && !this.fading.has(event.target) &&
        (this.started.has(event.target) || this.userStarted(player))){
      this.recordVolume(event.target);
@@ -765,6 +788,7 @@
     if(this.loops.get(player)===event.target)this.playLoop(player,event.target);
     if(this.away.get(player)?.loading)this.resumeAway(player);
     this.handoff();
+    this.applyDirect();
    },true);
    if(commentOf(player) && video && !video.paused && this.startMode(mediaKind(player))!=='default')this.block(player,video);
   }
@@ -1814,12 +1838,119 @@
    this.continued.add(video);
    this.play(player,video)?.catch?.(()=>this.continued.delete(video));
   }
+  // Post opened directly (docs/video-control-spec.md): the post's own native video on the tab's first page follows
+  // videoDirectOpen until the reader uses its controls. Posts reached in-app or by continuation are never managed.
+  directPlayer(){
+   if(!this.landing)return null;
+   const id=postId(this.win.location.pathname);
+   if(id!==this.landing){this.landing='';this.endDirect();return null;}
+   if(this.directOpen==='default' || this.direct?.ended || this.pending?.saved?.id===id)return null;
+   return [...this.doc.querySelectorAll(`[player-type="${DETAIL_PLAYER}"][post-id="t3_${id}"]:is(${PLAYERS})`)]
+    .find(node=>!node.closest('shreddit-comment') && mediaKind(node)!=='gif') || null;
+  }
+  directState(player){
+   const state=this.direct;
+   return state && !state.ended && state.player===player && this.landing && this.directPlayer()===player?state:null;
+  }
+  directManaged(video){const state=this.direct;return Boolean(state && !state.ended && state.mode!=='paused' && state.video===video);}
+  endDirect(){
+   const state=this.direct;if(!state || state.ended)return;
+   state.ended=true;this.win.clearTimeout(state.prepareTimer);
+  }
+  applyDirect(){
+   const player=this.directPlayer();
+   if(!player)return;
+   let state=this.direct;
+   if(!state || state.player!==player){this.win.clearTimeout(state?.prepareTimer);state=this.direct={player,video:null,mode:this.directOpen,phase:'start',ended:false};}
+   this.attach(player);
+   const video=this.video(player);
+   if(!video)return;
+   if(state.video!==video){state.video=video;state.requested=false;state.phase='start';}
+   if(state.mode==='paused'){
+    if(!video.paused && !this.started.has(video))this.block(player,video);
+    return;
+   }
+   if(!video.paused){this.directPlay(player,video);return;}
+   // Like Reddit's own autoplay, a video scrolled out of view (a reload keeps the scroll position) waits until it is seen.
+   if(state.requested || this.outsideViewport(player))return;
+   if(video.readyState<1){
+    // Reddit loads the source itself as it starts; ask its own loader only if nothing has arrived after a moment.
+    if(!state.prepareTimer)state.prepareTimer=this.win.setTimeout(()=>{
+     if(this.direct===state && !state.ended && state.video?.readyState<1)player.dispatchEvent(new this.win.Event('rt-prepare-detail-video',{bubbles:true}));
+    },DIRECT_PREPARE_MS);
+    return;
+   }
+   state.requested=true;
+   delete player.dataset.rtAutoplayBlocked;
+   video.muted=true;
+   this.play(player,video)?.catch?.(()=>{if(this.direct===state)state.requested=false;});
+  }
+  // A play of the managed video: Stay paused stops anything the reader did not start; the other choices let it run
+  // whatever the feed start option says, muted or trying for sound.
+  directPlay(player,video){
+   const state=this.directState(player);
+   if(!state || state.video!==video)return false;
+   if(state.mode==='paused'){
+    if(this.userStarted(player)){this.endDirect();return false;}
+    this.block(player,video);return true;
+   }
+   delete player.dataset.rtAutoplayBlocked;
+   if(state.mode==='muted'){if(!video.muted)video.muted=true;state.phase='playing';}
+   else if(state.phase==='start')this.directSound(state);
+   this.exclusive(video);
+   return true;
+  }
+  directKeepsMuted(player,video){
+   const state=this.directState(player);
+   if(!state || state.mode!=='muted' || state.video!==video || video.muted || this.userStarted(player))return false;
+   video.muted=true;return true;
+  }
+  // Before any interaction the browser decides whether sound may play (measured: Chrome pauses a playing video that is
+  // unmuted, and refuses an unmuted play()). Try it on the playing video; if refused, play muted and turn the sound on at
+  // the first click, tap or key press on the page.
+  directSound(state){
+   const {player,video}=state;
+   if(!this.hasAudio(player,video)){state.phase='playing';return;}
+   const policy=this.win.navigator?.getAutoplayPolicy?.(video);
+   if(policy==='allowed-muted' || policy==='disallowed'){this.directFallback(state);return;}
+   state.phase='trial';
+   video.volume=this.targetVolume(video);video.muted=false;
+   if(video.paused){this.directFallback(state);return;}
+   this.win.setTimeout(()=>{
+    if(this.direct!==state || state.phase!=='trial')return;
+    if(video.paused || video.muted){this.directFallback(state);return;}
+    state.phase='playing';
+    // Reddit's own volume state follows, as its sound button does, so its controls show the sound on.
+    player.dispatchEvent(new this.win.Event('rt-video-sound',{bubbles:true}));
+   },DIRECT_TRIAL_MS);
+  }
+  directFallback(state){
+   if(state.ended || state.phase==='fallback')return;
+   state.phase='fallback';
+   const {player,video}=state;
+   video.muted=true;
+   if(video.paused)this.play(player,video)?.catch?.(()=>{});
+  }
+  directGesture(event,path){
+   const state=this.direct;
+   if(!state || state.ended)return;
+   if(path.includes(state.player)){this.endDirect();return;}
+   if(state.phase!=='fallback' || !(event.type==='click' || event.type==='keydown'))return;
+   const activation=this.win.navigator?.userActivation;
+   if(activation && !activation.isActive)return;
+   const {player,video}=state;
+   this.endDirect();
+   if(!player.isConnected || video.paused || !video.muted || this.outsideViewport(player))return;
+   this.started.add(video);
+   this.fadeIn(video,this.targetVolume(video),player);
+  }
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
    if(closedThread(player)){video.pause();return;}
    const kind=mediaKind(player);
    if(kind!=='gif')this.applyLoopPolicy(player,video);
    if(this.loops.get(player)===video)return;
+   if(this.directPlay(player,video))return;
    if(this.continued.has(video)){this.exclusive(video);return;}
    const preview=this.previews.get(player);
    if(preview?.active && preview.video===video){preview.played=true;this.exclusive(video);return;}
@@ -1885,6 +2016,7 @@
    if(this.inView && !this.viewing)this.settle();
    for(const entry of entries){
     const player=entry.target,ready=this.visibilityReady.get(player);
+    if(entry.intersectionRatio>0 && this.direct && !this.direct.ended && this.direct.player===player)this.applyDirect();
     if(this.mini && (player===this.mini.slot || player===this.mini.node && !this.mini.slot)){
      if(entry.intersectionRatio>=0.5)this.exitMini(false);
      continue;

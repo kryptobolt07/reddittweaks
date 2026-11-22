@@ -124,6 +124,7 @@
     videoScrollAway:'default',
     videoOpenPost:'default',
     cardClickAudio:'keep',
+    videoDirectOpen:'default',
     holdFor2x:false,
     loopPolicy:'default',
     streamQuality:'auto'
@@ -209,6 +210,8 @@
       volumeMemory:raw?.volumeMemory===true,
       videoScrollAway,videoOpenPost,
       cardClickAudio:pick('cardClickAudio',['keep','muted','unmute'],'keep'),
+      // A post's own video when the post is the page the tab first loaded (link, new tab, reload).
+      videoDirectOpen:pick('videoDirectOpen',['default','muted','sound','paused'],'default'),
       holdFor2x:raw?.holdFor2x===true,
       loopPolicy:pick('loopPolicy',['default','always','never','short'],'default'),
       streamQuality:pick('streamQuality',['auto','max','saver'],'auto')

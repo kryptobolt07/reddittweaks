@@ -246,3 +246,64 @@ User report (0.51.2): stills still arrived late or not at all, and paused player
 6. **Looping policy** (`loopPolicy`: `'default' | 'always' | 'never' | 'short'`, default `'default'`): applies to native and direct-embed videos (`'short'` loops `< 30 s`, `'never'` blocks unsolicited post-`ended` restarts); excludes GIFs.
 7. **Stream quality** (`streamQuality`: `'auto' | 'max' | 'saver'`, default `'auto'`, `Beta`): native Reddit `v.redd.it` videos only; when non-`'auto'`, `post-page-bridge.js` filters `HLSPlaylist.m3u8` / `DASHPlaylist.mpd` master manifests in `fetch`/`XHR` (`'max'` selects highest variant; `'saver'` caps ≤480p while preserving audio tracks).
 - *Deferred*: Hover-scrubbing is intentionally omitted because Reddit feed cards do not expose storyboard VTT sprites, and raw HLS `currentTime` scrubbing causes network stalls and black frames.
+
+## Post opened directly (2026-11-23)
+
+User request: choose what a post's own video does when the post page is opened directly, by its link, in a new tab, or by a reload, rather than from a feed card. Choices: play muted, play with sound, or stay paused until Play is pressed.
+
+### Measured (live, read-only, signed-in Chrome Dev 160 copy of the test profile, extension not loaded)
+
+- Desktop 1440×900, direct load of a video post: Reddit's `shreddit-player[player-type="post_detail_screen"]` carries `autoplay`, `autoplay-pref`, `play-out-of-viewport` and `single-playback`. It appears at about 0.5 s, sets its volume at 1.21 s (muted, volume 0.25, `readyState` 0), and starts by itself **muted** at 1.30 s; frames arrive at 1.5 s. `navigator.userActivation.hasBeenActive` stays false.
+- Phone 412×915 (touch, mobile UA): the same player with `is-mobile`, 412×412 at y=124; volume set at 1.26 s, started **muted** at 1.44 s.
+- No Reddit volume is stored in `localStorage` or `sessionStorage` on a new tab, so Reddit's autoplay is muted (it keeps sound only when sound was chosen this session).
+- Sound without a gesture, on the same direct load (no CDP user gesture, two profiles, media-engagement bypass on and off): unmuting the playing video fired `volumechange` then `pause`, so Chrome **paused** it; an unmuted `video.play()` was rejected with `NotAllowedError`; a muted `play()` then resolved. Chrome has no `navigator.getAutoplayPolicy` (Firefox does). Chrome does allow sound on a page whose site has high media engagement, or after a same-origin navigation that had a user gesture, so the outcome differs per browser and visit.
+- Reddit's own `player.play()` re-applies its own volume state, so a direct `video.muted=false` before it is undone (it played muted again).
+
+### Behaviour
+
+Setting `videoDirectOpen` in the Videos & Embeds card (row *Post opened directly*, under *Click, Audio & Post Transition*):
+
+| Choice (default first) | What the post's own video does on a direct open |
+|---|---|
+| **Reddit Default** (`default`) | Nothing changes: Reddit decides (muted autoplay when Reddit's autoplay is on). Other video options apply as before. |
+| Play muted (`muted`) | Plays muted, even when Reddit's own autoplay is off, the feed start option is *Only when I press Play*, or Reddit would bring back sound chosen earlier in the tab. Reddit's mute button turns sound on as usual. |
+| Play with sound (`sound`) | Plays with sound at the remembered volume (Persistent volume memory) or Reddit's volume. If the browser refuses sound before any interaction, it plays muted and the sound comes on at the first click, tap or key press on the page while the video is still playing and on screen. Pressing the video's own controls first leaves the sound to them. |
+| Stay paused until I press Play (`paused`) | Reddit's player shows its first frame or poster and Play button; Reddit's own autoplay is stopped every time it tries, until the reader presses Play. |
+
+- **Direct open** means the post is the page the tab first loaded (typed or pasted link, bookmark, new tab, reload, a link from another site), still on that post, with no feed-to-post handoff saved for it. It applies once per landing. A post reached in-app (feed card, search result, another post's link, Back/Forward inside Reddit) and a post that continues a feed video (Seamless post transition) are never affected, so posts opened from a feed keep their moment and sound.
+- Applies to the post's own native Reddit video (`shreddit-player` or `shreddit-player-2` with `player-type="post_detail_screen"` and the post's id). Not comment media, not GIF posts (they keep *GIFs start*), not embedded players (they keep their provider's behaviour).
+- After the reader uses the video's controls (Play, pause, sound, seek) the extension stops managing it; scroll-away, loop, 2× and volume-memory options keep working as before.
+- Changing the option in the popup applies to the next direct open (or a reload); a video already managed on the open tab is not restarted or paused again.
+- Firefox: `navigator.getAutoplayPolicy('mediaelement')` answers before trying; `allowed-muted` goes straight to the muted fallback.
+
+| | Transition | Desktop | Phone |
+|---|---|---|---|
+| D1 | Direct load, Reddit Default | Reddit's own muted autoplay, untouched | Same |
+| D2 | Direct load, Play muted | Playing and muted within Reddit's start time (≈1.3 s); Reddit's controls show playing and muted | Same |
+| D3 | Direct load, Play with sound, sound allowed | Playing with sound; Reddit's mute button shows sound on | Same |
+| D4 | Direct load, Play with sound, sound refused | Playing muted (no pause visible), then sound fades in at the first click/tap/key outside the player | Same (first tap) |
+| D5 | Direct load, Stay paused | Never plays by itself (checked for ≥5 s after load and after scrolling it away and back); Play starts it | Same |
+| D6 | Reload of a direct post | Same as the first load (each load is a direct open) | Same |
+| D7 | Feed card → post in-app (T2) | Unchanged: Reddit or Seamless post transition decides; same element, time and sound | Same |
+| D8 | Direct post → feed → another video post in-app | The second post is not a direct open | Same |
+| D9 | Popup option changed with the post open (T10) | Next direct open follows it; nothing restarts on the open tab; Reddit Default with every other option at default detaches everything | Same |
+
+### Limits
+
+- Whether sound is allowed without a gesture is the browser's decision, made per visit; the fallback is muted playback with sound at the first interaction, never a silent failure or a paused video.
+- Sound that comes on is set through Reddit's own volume state, as its sound button does, so Reddit keeps sound for its later autoplays in that tab, as it would after the reader's own unmute.
+- A video Reddit starts may play for a fraction of a second (muted) before *Stay paused* pauses it.
+- Embedded players and GIF posts are not covered by this option.
+
+### Verification (2026-11-23, live, read-only, own copy of the signed-in Chrome Dev 160 profile, unpacked build of this branch)
+
+| | Desktop 1440×900 | Phone 412×915 (touch, mobile UA) |
+|---|---|---|
+| D5 Stay paused | Reddit's autoplay at 1.17 s paused 21 ms later at 0.00 s; Reddit's retry after scrolling 2500 px away and back paused again (8.76 s); Reddit's controls show Play and 0:00 / 1:02; a real click on the player played it | Reddit's autoplay at 1.17 s paused within 1 ms; retry after scrolling paused; a real tap played it |
+| D2 Play muted | Playing muted from 0.95 s | Playing muted from 2.30 s |
+| D2 after sound was chosen in the same tab, then reload | Playing, muted | — |
+| D4 Play with sound, refused (no prior interaction) | Unmuting at 1.11 s was paused by Chrome and resumed muted within 1 ms at 0.00 s; a click on blank page space faded sound in 0 → 0.25 over 206 ms | Same at 1.00 s; a tap faded the sound in |
+| D3/D6 Play with sound after a reload (sticky activation) | Sound on at 1.19 s, no pause | Sound on by 1.26 s; Reddit's sound icon shows on |
+| D7 Feed card → post in-app with Stay paused set | Reddit's own muted autoplay played on (not blocked); the navigation entry stayed the feed | Same |
+
+Unit (`tests/video-control.test.cjs`, "Post opened directly: …"): Reddit Default passive; muted overrides the feed start option and re-applied volume; lazy player loader after 1.5 s; Stay paused until the reader's Play; sound allowed, refused (Chrome-style pause on unmute), Firefox `allowed-muted`, and the reader's controls first; feed continuations (same tab and full load) and in-app returns not managed; a changed choice does not restart the open tab; an out-of-view video waits until seen. Not verified live: the Firefox build.

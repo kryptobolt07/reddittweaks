@@ -66,7 +66,7 @@ test('Direct embed controls uses Grant/Revoke access and nests Block embed links
   document.querySelector('#embed-block-links-menu [data-value="both"]').click();
   await settle();
   assert.equal(p.state['rt-settings-v1'].embedBlockLinks,'both');
-  assert.equal(document.querySelector('[aria-labelledby="videos-heading"] .group-count').textContent,'1 of 12 active');
+  assert.equal(document.querySelector('[aria-labelledby="videos-heading"] .group-count').textContent,'1 of 13 active');
 
   button.click();await settle();
   assert.equal(granted,false);
@@ -321,7 +321,7 @@ test('Home: Raffles explains where to find them and can be turned on in place',a
 
 test('accurate counters: active booleans + overridden selectors, excluding historyLimit, clickAudio, actions, and hidden device cards',async t=>{
   const p=popup(t,{tabs:redditTab,touch:false});await settle();const doc=p.w.document;
-  assert.equal(doc.getElementById('feature-summary').textContent,'7 of 27 active','desktop fresh count excludes Mobile Web card, includes blockedProfiles and chatSearch');
+  assert.equal(doc.getElementById('feature-summary').textContent,'7 of 28 active','desktop fresh count excludes Mobile Web card, includes blockedProfiles and chatSearch');
   doc.getElementById('manage-features').click();assert.equal(doc.getElementById('panel-settings').hidden,false);
   const count=id=>doc.querySelector('[aria-labelledby="'+id+'"] .group-count').textContent;
   assert.equal(count('browsing-heading'),'2 of 3 on');
@@ -335,7 +335,7 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   doc.getElementById('history-limit').click();
   doc.querySelector('#history-limit-menu [data-value="500"]').click();await settle();
   assert.equal(count('browsing-heading'),'2 of 3 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'7 of 27 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'7 of 28 active');
 
   // Overriding mediaClickAction counts (+1) and reveals clickAudio; changing clickAudio does NOT add to counts.
   const clickAudioRow=doc.getElementById('click-audio').closest('.setting-row');
@@ -343,12 +343,12 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   doc.getElementById('media-click-action').click();
   doc.querySelector('#media-click-action-menu [data-value="inline"]').click();await settle();
   assert.equal(clickAudioRow.hidden,false);
-  assert.equal(count('videos-heading'),'1 of 12 active');
-  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 27 active');
+  assert.equal(count('videos-heading'),'1 of 13 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 28 active');
   assert.equal(doc.getElementById('reset-video-defaults').hidden,false);
   doc.getElementById('click-audio').click();
   doc.querySelector('#click-audio-menu [data-value="unmute"]').click();await settle();
-  assert.equal(count('videos-heading'),'1 of 12 active','clickAudio is excluded from counts');
+  assert.equal(count('videos-heading'),'1 of 13 active','clickAudio is excluded from counts');
 
   // Seamless post transition sits in the main Videos & Embeds section (not inside the collapsed Enhancements drawer)
   // and reveals its nested Post card click audio row when enabled.
@@ -358,10 +358,10 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   openPostBtn.click();
   doc.querySelector('#video-open-post-menu [data-value="position"]').click();await settle();
   assert.equal(cardAudioRow.hidden,false,'cardClickAudio appears when videoOpenPost is enabled');
-  assert.equal(count('videos-heading'),'2 of 12 active');
+  assert.equal(count('videos-heading'),'2 of 13 active');
   doc.getElementById('card-click-audio').click();
   doc.querySelector('#card-click-audio-menu [data-value="unmute"]').click();await settle();
-  assert.equal(count('videos-heading'),'2 of 12 active','cardClickAudio is excluded from counts');
+  assert.equal(count('videos-heading'),'2 of 13 active','cardClickAudio is excluded from counts');
   openPostBtn.click();
   doc.querySelector('#video-open-post-menu [data-value="default"]').click();await settle();
   assert.equal(cardAudioRow.hidden,true);
@@ -369,11 +369,11 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   // Enabling Archive turns on Archive + already-checked restoreDeletedContent (+2).
   const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(count('archive-heading'),'2 of 4 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'10 of 27 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'10 of 28 active');
 
   // Touch device counts Mobile Web card (+1 of +2).
   const mob=popup(t,{tabs:redditTab,touch:true});await settle();
-  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'8 of 29 active');
+  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'8 of 30 active');
   assert.equal(mob.w.document.querySelector('[aria-labelledby="mobile-heading"] .group-count').textContent,'1 of 2 on');
 });
 
@@ -414,7 +414,7 @@ test('collapsible Enhancements drawer toggles smoothly, tracks live active badge
   doc.getElementById('hold-for-2x').click();await settle();
   assert.equal(badge.hidden,false);
   assert.equal(badge.textContent,'2 active');
-  assert.equal(doc.querySelector('[aria-labelledby="videos-heading"] .group-count').textContent,'2 of 12 active');
+  assert.equal(doc.querySelector('[aria-labelledby="videos-heading"] .group-count').textContent,'2 of 13 active');
   assert.equal(reset.hidden,false);
 
   // Reset restores all media keys to passive defaults without touching non-media settings.

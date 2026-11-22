@@ -4,7 +4,7 @@ const FALLBACK_VIDEO_DEFAULTS={
   videoStart:'default',embedStart:'default',gifStart:'default',
   mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
   singleVideo:false,volumeMemory:false,videoScrollAway:'default',
-  videoOpenPost:'default',cardClickAudio:'keep',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
+  videoOpenPost:'default',cardClickAudio:'keep',videoDirectOpen:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
 };
 const FALLBACK_SETTINGS_DEFAULTS={
   postDiscovery:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,
@@ -57,6 +57,7 @@ function fallbackNormalizeSettings(raw){
     videoOpenPost:pick('videoOpenPost',['default','position','start'],
       raw?.videoOpenPost==='reddit'?'default':raw?.videoOpenPost==='continue'?(raw?.videoPreviewFrom==='start'||raw?.videoPreviewRestart===true?'start':'position'):raw?.videoPreviewFrom==='start'||raw?.videoPreviewRestart===true?'start':'default'),
     cardClickAudio:pick('cardClickAudio',['keep','muted','unmute'],'keep'),
+    videoDirectOpen:pick('videoDirectOpen',['default','muted','sound','paused'],'default'),
     holdFor2x:raw?.holdFor2x===true,
     loopPolicy:pick('loopPolicy',['default','always','never','short'],'default'),
     streamQuality:pick('streamQuality',['auto','max','saver'],'auto')

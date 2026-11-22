@@ -76,8 +76,10 @@ test('video choices default to passive Reddit/Provider defaults, and legacy opt-
   videoStart:'default',embedStart:'default',gifStart:'default',
   mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
   singleVideo:false,volumeMemory:false,videoScrollAway:'default',
-  videoOpenPost:'default',cardClickAudio:'keep',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
+  videoOpenPost:'default',cardClickAudio:'keep',videoDirectOpen:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
  },'100% passive defaults on fresh install');
+ for(const value of ['default','muted','sound','paused'])assert.equal(v({videoDirectOpen:value}).videoDirectOpen,value);
+ assert.equal(v({videoDirectOpen:'loud'}).videoDirectOpen,'default','unknown direct-open choices fall back to Reddit Default');
  const migrated=v({videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false,videoOpenPost:'continue',videoScrollAway:'reddit'});
  assert.equal(migrated.videoStart,'preview');
  assert.equal(migrated.mediaClickAction,'inline');
@@ -1637,4 +1639,162 @@ test('enhancement: loopPolicy supports always, never, and short (<30s) while exc
  const cg=new g.W.RTVideoControlRaw.Videos({readSettings:async()=>({loopPolicy:'never'}),observe:false});
  await cg.ready;await flush();
  assert.equal(g.video.loop,true,'GIF ignores video loopPolicy');
+});
+
+// Post opened directly (docs/video-control-spec.md): the post the tab first loaded follows videoDirectOpen.
+function directPage(t,options){
+ const p=page(t,{detail:true,...options});
+ const calls={plays:0,sound:0,prepare:0};
+ p.W.HTMLMediaElement.prototype.play=function(){calls.plays++;this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ p.player.addEventListener('rt-video-sound',()=>calls.sound++);
+ p.player.addEventListener('rt-prepare-detail-video',()=>calls.prepare++);
+ // Reddit's own autoplay: it starts the player by script, muted unless sound was chosen this session.
+ p.redditAutoplay=(muted=true)=>{p.video.muted=muted;p.video._playing=true;p.video.dispatchEvent(new p.W.Event('play'));};
+ p.calls=calls;
+ return p;
+}
+async function directController(p,settings,{wrapped=false,landing}={}){
+ const Videos=(wrapped?p.W.RTVideoControl:p.W.RTVideoControlRaw).Videos;
+ const control=new Videos({readSettings:async()=>settings,readPreference:async()=>false,observe:false,...(landing===undefined?{}:{landing})});
+ await control.ready;await flush();
+ return control;
+}
+test('Post opened directly: Reddit Default leaves the landing post untouched and attaches nothing',async t=>{
+ const p=directPage(t);
+ const control=await directController(p,{videoDirectOpen:'default'});
+ assert.equal(control.active,false,'passive with every option at its default');
+ p.redditAutoplay(false);assert.equal(p.video.paused,false);assert.equal(p.video.muted,false,'Reddit decides the sound');
+ assert.equal(control.isPassive({...control.choice,videoDirectOpen:'muted'}),false,'any other choice activates the control');
+});
+test('Post opened directly: Play muted keeps Reddit’s autoplay muted and starts it when Reddit would not',async t=>{
+ const p=directPage(t);
+ const control=await directController(p,{videoDirectOpen:'muted',videoStart:'play'});
+ assert.equal(control.landing,'test');
+ p.redditAutoplay(false);
+ assert.equal(p.video.paused,false,'the feed start option does not block the landing post');
+ assert.equal(p.video.muted,true,'sound Reddit brought back is turned off');
+ p.video.muted=false;p.video.dispatchEvent(new p.W.Event('volumechange'));
+ assert.equal(p.video.muted,true,'Reddit re-applying its volume stays muted');
+ p.root.getElementById('mute').addEventListener('click',()=>{p.video.muted=false;p.video.dispatchEvent(new p.W.Event('volumechange'));});
+ p.root.getElementById('mute').dispatchEvent(new p.W.Event('pointerdown',{bubbles:true,composed:true}));
+ p.click(p.root.getElementById('mute'));
+ assert.equal(p.video.muted,false,'the reader’s own sound button works');
+ // Reddit's autoplay is off: nothing starts it, so the extension does, through Reddit's player, once it has metadata.
+ const q=directPage(t);
+ let viaReddit=0;q.player.addEventListener('rt-play-video',()=>viaReddit++);
+ Object.defineProperty(q.video,'readyState',{value:0,configurable:true});
+ await directController(q,{videoDirectOpen:'muted'});
+ assert.equal(q.video.paused,true,'waits for metadata');
+ Object.defineProperty(q.video,'readyState',{value:1,configurable:true});q.video.dispatchEvent(new q.W.Event('loadedmetadata'));
+ assert.equal(q.video.paused,false);assert.equal(q.video.muted,true);assert.equal(viaReddit,1,'started through Reddit’s own play');
+ q.video.pause();q.video.dispatchEvent(new q.W.Event('pause'));q.video.dispatchEvent(new q.W.Event('loadedmetadata'));
+ assert.equal(q.calls.plays,1,'started once; a later pause is not undone');
+});
+test('Post opened directly: a lazy player is asked to load only when nothing arrives',async t=>{
+ const p=directPage(t);
+ Object.defineProperty(p.video,'readyState',{value:0,configurable:true});
+ const control=await directController(p,{videoDirectOpen:'muted'});control.scan();
+ assert.equal(p.calls.prepare,0,'Reddit loads its own source first');
+ await new Promise(r=>setTimeout(r,1600));
+ assert.equal(p.calls.prepare,1,'Reddit’s own loader is asked once after the wait');
+});
+test('Post opened directly: Stay paused stops every start the reader did not make, until Play',async t=>{
+ const p=directPage(t);
+ const control=await directController(p,{videoDirectOpen:'paused'});
+ p.redditAutoplay();assert.equal(p.video.paused,true,'Reddit’s autoplay is stopped');
+ p.redditAutoplay();assert.equal(p.video.paused,true,'and again when it retries');
+ assert.equal(p.player.dataset.rtAutoplayBlocked,'true');
+ assert.equal(p.calls.plays,0,'nothing starts it');
+ p.startFromControl();assert.equal(p.video.paused,false,'the reader’s Play plays');
+ p.video.pause();p.redditAutoplay();assert.equal(p.video.paused,false,'after that, Reddit’s own behaviour returns');
+ assert.equal(control.direct.ended,true);
+ // A video Reddit already started before the settings arrived is paused at once.
+ const q=directPage(t);q.redditAutoplay();
+ await directController(q,{videoDirectOpen:'paused'});
+ assert.equal(q.video.paused,true);
+});
+test('Post opened directly: Play with sound unmutes when the browser allows it, through Reddit’s volume state',async t=>{
+ const p=directPage(t);
+ await directController(p,{videoDirectOpen:'sound'});
+ p.video.volume=0.4;p.redditAutoplay();
+ assert.equal(p.video.muted,false);assert.equal(p.video.paused,false);
+ await new Promise(r=>setTimeout(r,300));
+ assert.equal(p.video.muted,false);assert.equal(p.calls.sound,1,'Reddit’s controls are told the sound is on');
+ // A video without audio just plays.
+ const q=directPage(t);q.player.setAttribute('has-audio','false');
+ const control=await directController(q,{videoDirectOpen:'sound'});q.redditAutoplay();
+ assert.equal(q.video.muted,true);assert.equal(q.video.paused,false);assert.equal(control.direct.phase,'playing');
+});
+test('Post opened directly: refused sound falls back to muted playback, and sound comes at the first click',async t=>{
+ const refuse=p=>{
+  // Chrome without user activation: unmuting a playing video pauses it.
+  let muted=true;Object.defineProperty(p.video,'muted',{configurable:true,get:()=>muted,set(value){
+   muted=value;p.video.dispatchEvent(new p.W.Event('volumechange'));
+   if(!value && !p.allowed && p.video._playing){p.video._playing=false;p.video.dispatchEvent(new p.W.Event('pause'));}
+  }});
+ };
+ const p=directPage(t);refuse(p);
+ const control=await directController(p,{videoDirectOpen:'sound'});
+ p.redditAutoplay();
+ assert.equal(p.video.paused,false,'playing again at once');assert.equal(p.video.muted,true,'muted');
+ assert.equal(control.direct.phase,'fallback');assert.equal(p.calls.sound,0);
+ p.allowed=true;
+ p.d.body.dispatchEvent(new p.W.Event('pointerdown',{bubbles:true}));
+ assert.equal(p.video.muted,true,'a pointerdown alone is not an activation');
+ p.click(p.d.body);
+ assert.equal(p.video.muted,false,'the first click on the page turns the sound on');assert.equal(p.calls.sound,1);
+ await new Promise(r=>setTimeout(r,250));
+ assert.ok(p.video.volume>0,'faded in');
+ // Using the player's own controls first leaves the sound to them.
+ const q=directPage(t);refuse(q);
+ await directController(q,{videoDirectOpen:'sound'});q.redditAutoplay();
+ q.allowed=true;q.click(q.root.getElementById('cc'));q.click(q.d.body);
+ assert.equal(q.video.muted,true,'no sound after the reader used the player');
+ // Firefox answers before trying.
+ const f=directPage(t);let unmutes=0;f.video.addEventListener('volumechange',()=>{if(!f.video.muted)unmutes++;});
+ f.W.navigator.getAutoplayPolicy=()=>'allowed-muted';
+ const ff=await directController(f,{videoDirectOpen:'sound'});f.redditAutoplay();
+ assert.equal(unmutes,0);assert.equal(ff.direct.phase,'fallback');assert.equal(f.video.paused,false);
+});
+test('Post opened directly: posts reached in-app or by a feed continuation are never managed',async t=>{
+ // Feed → post in the same tab: the continuation keeps its moment and sound, whatever the direct-open choice.
+ const p=page(t);
+ const controller=await directController(p,{videoDirectOpen:'paused'},{wrapped:true});
+ assert.equal(controller.landing,'','the tab first loaded a feed');
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ p.video.currentTime=8;p.startFromControl();p.video.muted=false;p.click(p.title);
+ p.W.history.pushState({},'',postPath);
+ const detail=p.player.cloneNode();detail.setAttribute('player-type','post_detail_screen');p.player.after(detail);
+ const video=p.d.createElement('video');detail.attachShadow({mode:'open'}).append(video);
+ Object.defineProperty(video,'readyState',{value:1});controller.scan();
+ assert.equal(video.paused,false,'the continuation plays');assert.equal(video.currentTime,8);assert.equal(video.muted,false);
+ // A full page load that continues a feed video is not a direct open either.
+ const q=page(t,{detail:true});
+ q.W.sessionStorage.setItem(continuationKey,JSON.stringify({id:'test',owner:'t2_alice',at:Date.now(),time:3,muted:false,volume:0.5,rate:1}));
+ const restored=new q.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoDirectOpen:'paused'}),readPreference:async()=>false,observe:false});
+ await restored.ready;assert.equal(restored.landing,'');
+ // Leaving the landing post in-app ends it: coming back is not a direct open.
+ const r=directPage(t);const back=await directController(r,{videoDirectOpen:'paused'});
+ r.W.history.pushState({},'','/r/videos/');r.W.dispatchEvent(new r.W.PopStateEvent('popstate'));
+ assert.equal(back.landing,'');
+ r.W.history.pushState({},'',postPath);back.scan();r.redditAutoplay();
+ assert.equal(r.video.paused,false,'Reddit decides on the in-app visit');
+});
+test('Post opened directly: changing the choice with the post open applies to the next direct open only',async t=>{
+ const p=directPage(t);
+ const control=await directController(p,{videoDirectOpen:'muted'});
+ p.redditAutoplay();assert.equal(p.video.muted,true);
+ control.configure({videoDirectOpen:'paused'});
+ assert.equal(p.video.paused,false,'not paused on the open tab');
+ p.redditAutoplay();assert.equal(p.video.paused,false);
+ control.configure({videoDirectOpen:'default'});assert.equal(control.active,false,'back to passive');
+});
+test('Post opened directly: a video scrolled out of view waits until it is seen',async t=>{
+ const p=directPage(t);
+ Object.defineProperty(p.video,'readyState',{value:1,configurable:true});
+ let top=1200;p.player.getBoundingClientRect=()=>({top,bottom:top+300,height:300,left:0,width:400});
+ const control=await directController(p,{videoDirectOpen:'muted'});control.scan();
+ assert.equal(p.video.paused,true,'not started off screen');
+ top=200;p.io.cb([{target:p.player,intersectionRatio:0.6}]);
+ assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
 });
