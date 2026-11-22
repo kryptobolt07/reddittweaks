@@ -2029,15 +2029,36 @@ test('the early guard holds a signed-in profile fallback through the probe and r
  W.chrome={runtime:{id:'fixture',sendMessage:()=>new Promise(()=>{})}};
  W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
  assert.ok(root.hasAttribute('data-rt-blocked-profile-hold'));
+ assert.ok(W.document.querySelector('[data-rt-ui="blocked-profile-loader"] shreddit-loading'));
  assert.equal(W.RTProfileNoticeGuard.notFoundNotice(),notice);
  d.scan();await new Promise(resolve=>setImmediate(resolve));
  assert.equal(root.hasAttribute('data-rt-blocked-profile-hold'),false);
+ assert.equal(W.document.querySelector('[data-rt-ui="blocked-profile-loader"]'),null);
  assert.ok(notice.isConnected);
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:true,blockedProfiles:false}}},'local');
  assert.equal(root.hasAttribute('data-rt-blocked-profile-hold'),false);
  blockedNotFoundPage(W,{loggedIn:'false'});W.RTProfileNoticeGuard.setEnabled(true,true);d.scan();
  assert.equal(W.RTProfileNoticeGuard.notFoundNotice(),null);
  assert.equal(root.hasAttribute('data-rt-blocked-profile-hold'),false);
+});
+
+test('a blocked profile retains one native halo and withholds search scope until public activity is visible',async t=>{
+ let reply;
+ const {W,d}=setup(t,{reddit:async input=>input.action==='blocked-probe'?{blocked:true}:
+  new Promise(resolve=>{reply=resolve;})});
+ await d.ready;d.reset();blockedNotFoundPage(W);
+ W.chrome={runtime:{id:'fixture',sendMessage:()=>new Promise(()=>{})}};
+ W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
+ const root=W.document.documentElement,loader=W.document.querySelector('[data-rt-ui="blocked-profile-loader"]');
+ assert.ok(loader.querySelector('shreddit-loading'));assert.ok(root.hasAttribute('data-rt-profile-scope-pending'));
+ d.scan();await new Promise(resolve=>setImmediate(resolve));
+ assert.ok(root.hasAttribute('data-rt-profile-scope-pending'),'probe confirmation is not activity readiness');
+ assert.equal(d.archiveMain.querySelector('[data-rt-ui="blocked-profile-loader"]'),loader);
+ const run=d.refreshActivity();reply({posts:[raw()],hasMore:false});await run;
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.ok(d.nodes.get('abc12').isConnected);
+ assert.equal(loader.isConnected,false);
+ assert.equal(root.hasAttribute('data-rt-profile-scope-pending'),false);
 });
 
 test('blocked-profile tabs retain the current cards until the incoming tab is ready and reuse it on Back',async t=>{
@@ -2058,7 +2079,8 @@ test('blocked-profile tabs retain the current cards until the incoming tab is re
  assert.ok(d.archiveMain.contains(stage));
  assert.equal(stage.querySelector('faceplate-tabgroup,[data-rt-ui="mobile-about"]'),null);
  assert.equal(W.document.querySelectorAll('#profile-feed-tabgroup [aria-current="page"]').length,1);
- assert.equal(d.archiveMain.querySelector('#profile-tab-posts_tab').getAttribute('aria-current'),'page');
+ assert.equal(d.archiveMain.querySelector('#profile-tab-comments_tab').getAttribute('aria-current'),'page');
+ assert.ok(d.archiveMain.querySelector('#profile-tab-posts_tab[data-rt-profile-tab-pending]'));
  assert.equal(d.archiveMain.querySelector('[data-rt-ui="mobile-about"]').open,true);
  assert.ok(d.feed.closest('[data-rt-profile-incoming][inert]'));
  assert.ok(notice.hasAttribute('data-rt-archive-notice'));
@@ -2066,6 +2088,7 @@ test('blocked-profile tabs retain the current cards until the incoming tab is re
  await new Promise(resolve=>setImmediate(resolve));
  assert.equal(W.document.querySelector('[data-rt-profile-handoff]'),null);
  assert.equal(d.feed.closest('[data-rt-profile-incoming],[inert]'),null);
+ assert.ok(d.archiveMain.querySelector('#profile-tab-posts_tab[aria-current="page"]:not([data-rt-profile-tab-pending])'));
  assert.ok(d.nodes.get('abc12').isConnected);
  W.history.replaceState({},'','/user/Example/comments/');d.onRoute(new W.PopStateEvent('popstate'));
  assert.equal(d.archiveMain,main);
@@ -2088,7 +2111,8 @@ test('a newer blocked-profile tab keeps the last visible activity and Back relea
  d.archiveMain.querySelector('#profile-tab-overview_tab').click();
  assert.equal(card.closest('[data-rt-profile-handoff="activity"]'),stage);
  assert.ok(stage.isConnected);
- assert.equal(W.document.querySelector('#profile-feed-tabgroup [aria-current="page"]').id,'profile-tab-overview_tab');
+ assert.equal(W.document.querySelector('#profile-feed-tabgroup [aria-current="page"]').id,'profile-tab-posts_tab');
+ assert.ok(d.archiveMain.querySelector('#profile-tab-overview_tab[data-rt-profile-tab-pending]'));
  W.history.replaceState({},'','/user/Example/submitted/');d.onRoute(new W.PopStateEvent('popstate'));
  assert.equal(d.archiveMain,original);
  assert.equal(W.document.querySelector('[data-rt-profile-handoff]'),null);

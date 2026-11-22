@@ -533,6 +533,9 @@ shreddit-post.rt-archive-compact {
 [data-rt-ui="archive-profile"] .rt-profile-tabs {
   padding-inline: 16px;
 }
+[data-rt-profile-tab-pending] {
+  background-color: var(--color-secondary-background-hover, #e2e7e9) !important;
+}
 @media (min-width: 640px) {
   [data-rt-ui="archive-profile"] .rt-mobile-about {
     display: none;

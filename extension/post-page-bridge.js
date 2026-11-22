@@ -811,25 +811,41 @@
     }
   }
   // Reddit starts these headers unscoped whenever the unavailable view exists.
-  // Restore the native scope for a confirmed public view, once per header/scope
+  // Restore the native scope once public activity is ready, once per header/scope
   // so Reddit's own remove-pill action and unscoped searches still work.
   const scopedHeaders=new Map(),pendingHeaders=new WeakSet(),profileSearchHeaders='reddit-search-large,reddit-search-small';
+  const hiddenSearchScopes=new Set(),scopeGateStyles=new WeakMap();
   function syncBlockedSearchHeader(){
     const notice=document.getElementById('shreddit-forbidden');
     const shell=notice?.previousElementSibling,username=route()?.username?.toLowerCase();
-    const active=Boolean(username && notice?.hasAttribute('data-rt-archive-notice') && shell?.dataset.rtAccountState==='blocked' && shell.dataset.rtUsername?.toLowerCase()===username);
+    const pending=Boolean(username && document.documentElement?.hasAttribute('data-rt-profile-scope-pending'));
+    const active=!pending && Boolean(username && notice?.hasAttribute('data-rt-archive-notice') && shell?.dataset.rtAccountState==='blocked' && shell.dataset.rtUsername?.toLowerCase()===username);
+    for(const header of hiddenSearchScopes)if(!pending || !header.isConnected){
+      header.removeAttribute('data-rt-profile-scope-hidden');hiddenSearchScopes.delete(header);
+    }
     for(const [header,{scope,enabled}] of scopedHeaders){
       if(!active || !header.isConnected || header.getAttribute('scope')!==scope){
         if(header.isConnected && header.getAttribute('scope')===scope && notice?.isConnected)header.isSearchScopeEnabled=enabled;
         scopedHeaders.delete(header);
       }
     }
-    if(!active)return;
+    if(!active && !pending)return;
     const mobile=document.querySelector('reddit-header-small')?.shadowRoot;
     for(const header of [...document.querySelectorAll(profileSearchHeaders),...(mobile?.querySelectorAll(profileSearchHeaders) || [])]){
       if(scopedHeaders.has(header))continue;
       let scope;const attr=header.getAttribute('scope');try{scope=JSON.parse(attr);}catch{}
-      if(scope?.type!=='profile' || String(scope.name).toLowerCase()!==username || String(scope.path).replace(/\/$/,'').toLowerCase()!=='/user/'+username)continue;
+      if(scope?.type!=='profile' || String(scope.name).toLowerCase()!==username || String(scope.path).replace(/\/$/,'').toLowerCase()!=='/user/'+username){
+        if(hiddenSearchScopes.delete(header))header.removeAttribute('data-rt-profile-scope-hidden');
+        continue;
+      }
+      if(pending){
+        if(!hiddenSearchScopes.has(header)){header.setAttribute('data-rt-profile-scope-hidden','');hiddenSearchScopes.add(header);}
+        if(header.shadowRoot && !scopeGateStyles.get(header)?.isConnected){
+          const style=document.createElement('style');
+          style.textContent=':host([data-rt-profile-scope-hidden]) :is(.scoped-search-pill,#search-input-chip,#search-input-remove-filter){display:none!important}';
+          header.shadowRoot.append(style);scopeGateStyles.set(header,style);
+        }
+      }
       if(typeof header.isSearchScopeEnabled!=='boolean'){
         if(!customElements.get(header.localName) && !pendingHeaders.has(header)){
           pendingHeaders.add(header);
@@ -837,15 +853,17 @@
         }
         continue;
       }
+      if(pending)continue;
       scopedHeaders.set(header,{scope:attr,enabled:header.isSearchScopeEnabled});
       header.isSearchScopeEnabled=true;
     }
   }
   const profileNavObserver=new MutationObserver(records=>{
     seedProfileNavigation(records);
-    if(scopedHeaders.size || document.getElementById('shreddit-forbidden')?.hasAttribute('data-rt-archive-notice'))syncBlockedSearchHeader();
+    if(scopedHeaders.size || hiddenSearchScopes.size || document.documentElement?.hasAttribute('data-rt-profile-scope-pending') ||
+      document.getElementById('shreddit-forbidden')?.hasAttribute('data-rt-archive-notice'))syncBlockedSearchHeader();
   });
-  profileNavObserver.observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['data-rt-profile-discovery','data-rt-archive-notice','scope']});
+  profileNavObserver.observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['data-rt-profile-discovery','data-rt-archive-notice','data-rt-profile-scope-pending','scope']});
   document.addEventListener('focusin',event=>{if(event.composedPath().some(node=>node.matches?.(profileSearchHeaders)))syncBlockedSearchHeader();},true);
   document.addEventListener('rt-blocked-profile-search-submitted',event=>{
     const header=event.composedPath()[0];if(!scopedHeaders.has(header))return;

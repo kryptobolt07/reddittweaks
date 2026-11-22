@@ -78,6 +78,8 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 [data-rt-archive-notice]{display:none!important}
 /* The signed-in fallback is indistinguishable from a 404 until the public probe answers. */
 html[data-rt-blocked-profile-hold] shreddit-app[user-logged-in="true"] > #shreddit-forbidden:has(#shreddit-forbidden-not_found):has(svg[icon-name="meme-fill"]):not(:has(svg[icon-name="ban-fill"],img[alt="Deleted user"])){display:none!important}
+html[data-rt-profile-scope-pending] :is(reddit-search-large,reddit-search-small) :is(.scoped-search-pill,#search-input-chip,#search-input-remove-filter),
+html[data-rt-profile-scope-pending] [data-rt-account-state="blocked"] .rt-native-loading{display:none!important}
 
 /* Native display utilities override the UA hidden rule; constrain our avatar. */
 .rt-profile-avatar{box-sizing:border-box;flex:none;width:74px;height:64px;min-height:64px;padding-inline-end:10px}

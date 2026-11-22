@@ -5,15 +5,33 @@
   let enabled=true,restore=false,settingsKnown=false,revision=0,restoreRevision=0;const notices=new Map();
   const unavailableSelector='shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3),shreddit-app > #shreddit-forbidden:has(svg[icon-name="ban-fill"]):has(#shreddit-forbidden-title)';
   const notFoundSelector='shreddit-app[user-logged-in="true"] > #shreddit-forbidden:has(#shreddit-forbidden-not_found):has(svg[icon-name="meme-fill"]):not(:has(svg[icon-name="ban-fill"],img[alt="Deleted user"]))';
-  let blockedOn=true,blockedScope='',blockedResult,blockedTimer=0;
+  let blockedOn=true,blockedScope='',blockedResult,blockedReady=false,blockedTimer=0,blockedLoader=null;
   function updateBlockedHold(doc,loc){
     const username=blockedOn && loc?.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search))?\/?$/i)?.[1].toLowerCase();
     const app=username?doc.querySelector('shreddit-app'):null;
     const scope=username && app?.getAttribute('user-logged-in')!=='false'?username+':'+(app?.getAttribute('logged-in-user-id') || ''):'';
-    if(scope!==blockedScope){clearTimeout(blockedTimer);blockedTimer=0;blockedScope=scope;blockedResult=undefined;}
+    if(scope!==blockedScope){clearTimeout(blockedTimer);blockedTimer=0;blockedScope=scope;blockedResult=undefined;blockedReady=false;blockedLoader?.remove();blockedLoader=null;}
     const hold=Boolean(scope) && blockedResult!==false;
     doc.documentElement?.toggleAttribute('data-rt-blocked-profile-hold',hold);
-    if(hold && blockedResult===undefined && !blockedTimer && notFoundNotice(doc)){
+    const notice=hold?notFoundNotice(doc):null;
+    // The header can be streamed before the main element identifies the page.
+    // Suppress its scope briefly until Reddit supplies a normal profile or
+    // the blocked view has activity of its own.
+    const pending=hold && !blockedReady && (Boolean(notice) || doc.readyState==='loading' && !doc.querySelector('main'));
+    doc.documentElement?.toggleAttribute('data-rt-profile-scope-pending',pending);
+    if(pending && notice){
+      if(!blockedLoader){
+        blockedLoader=doc.createElement('div');blockedLoader.dataset.rtUi='blocked-profile-loader';blockedLoader.className='rt-sra-halo-wrap';
+        blockedLoader.setAttribute('role','status');blockedLoader.setAttribute('aria-label','Loading profile');
+        const halo=doc.createElement('shreddit-loading');halo.className='rt-sra-halo';halo.setAttribute('aria-hidden','true');
+        blockedLoader.append(halo);
+      }
+      const shell=notice.previousElementSibling;
+      const activity=shell?.matches('[data-rt-account-state="blocked"]')?shell.querySelector('[data-rt-profile-activity]'):null;
+      if(activity){if(blockedLoader.parentNode!==activity)activity.prepend(blockedLoader);}
+      else if(blockedLoader.nextElementSibling!==notice)notice.before(blockedLoader);
+    }else if(blockedLoader){blockedLoader.remove();blockedLoader=null;}
+    if(notice && blockedResult===undefined && !blockedTimer){
       // If discovery never starts, let Reddit explain why the profile is unavailable.
       blockedTimer=setTimeout(()=>resolveBlockedNotice(username,false),30000);
     }
@@ -21,7 +39,12 @@
   function resolveBlockedNotice(username,confirmed){
     if(!blockedScope || !blockedScope.startsWith(username.toLowerCase()+':'))return;
     clearTimeout(blockedTimer);blockedTimer=0;blockedResult=confirmed;
-    document.documentElement?.toggleAttribute('data-rt-blocked-profile-hold',confirmed);
+    updateBlockedHold(document,window.location);
+  }
+  function completeBlockedProfile(username){
+    if(blockedResult!==true || blockedReady || !blockedScope.startsWith(username.toLowerCase()+':'))return;
+    blockedReady=true;
+    updateBlockedHold(document,window.location);
   }
   function unavailableState(notice){
     if(notice.matches('shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3)'))return 'deleted';
@@ -165,12 +188,13 @@
     }catch{reply({ok:false,error:'Signed-out profile read failed.'});}
   });
   let settings;try{settings=chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});}catch(error){settings=Promise.reject(error);}settings.catch(()=>{});
-  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,setRestoreEnabled,unavailableNotice,notFoundNotice,resolveBlockedNotice,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
+  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,setRestoreEnabled,unavailableNotice,notFoundNotice,resolveBlockedNotice,completeBlockedProfile,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
   // Observe the Document: the root may not exist yet at document_start.
   const observer=new MutationObserver(records=>{
     if(!globalThis.RTPostMenuDOM?.onlyMenuChanges(records))refresh(records);
   });observer.observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['user-logged-in','logged-in-user-id']});
   window.addEventListener('popstate',refresh);document.addEventListener('reddit:route',refresh);
+  document.addEventListener('DOMContentLoaded',()=>updateBlockedHold(document,window.location),{once:true});
   refresh();
   const initialRevision=revision,initialRestoreRevision=restoreRevision;
   function updateSettings(s){settingsKnown=true;archiveOn=s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;setRestoreEnabled(s?.postDiscovery!==false && archiveOn && s?.restoreDeletedContent!==false);setEnabled(s?.postDiscovery!==false,s?.postDiscovery!==false && s?.blockedProfiles!==false);}

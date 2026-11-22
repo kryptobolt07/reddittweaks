@@ -1352,10 +1352,17 @@ test('blocked profile search enables the native scope once and keeps a user dism
  doc.body.innerHTML='<reddit-search-large></reddit-search-large><div data-rt-account-state="blocked" data-rt-username="Example"></div><div id="shreddit-forbidden"></div>';
  const header=doc.querySelector('reddit-search-large'),notice=doc.querySelector('#shreddit-forbidden');
  header.setAttribute('scope',JSON.stringify({type:'profile',name:'Example',path:'/user/Example/'}));
+ header.attachShadow({mode:'open'}).innerHTML='<rpl-input-chip class="scoped-search-pill"></rpl-input-chip>';
+ doc.documentElement.setAttribute('data-rt-profile-scope-pending','');
  await Promise.resolve();
  assert.equal(header.isSearchScopeEnabled,false);
  notice.dataset.rtArchiveNotice='true';await Promise.resolve();
+ assert.equal(header.isSearchScopeEnabled,false,'a confirmed shell is still loading');
+ assert.equal(header.hasAttribute('data-rt-profile-scope-hidden'),true);
+ assert.ok(header.shadowRoot.querySelector('style'));
+ doc.documentElement.removeAttribute('data-rt-profile-scope-pending');await Promise.resolve();
  assert.equal(header.isSearchScopeEnabled,true);
+ assert.equal(header.hasAttribute('data-rt-profile-scope-hidden'),false);
  header.isSearchScopeEnabled=false;doc.body.append(doc.createElement('span'));await Promise.resolve();
  assert.equal(header.isSearchScopeEnabled,false);
  const replacement=header.cloneNode();header.replaceWith(replacement);await Promise.resolve();

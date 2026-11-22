@@ -270,6 +270,20 @@
   const publishedProfileCard=':scope > [data-rt-ui="activity-item"][data-rt-native-state="ready"]:not([hidden])';
   const profileHandoffMs=12000;
   const pageMain=()=>document.querySelector('main:not([data-rt-profile-handoff] main)');
+  function styleProfileTab(tab,selected){
+    tab.toggleAttribute('faceplate-tab-selected',selected);
+    for(const name of ['bg-secondary-background-selected','!text-neutral-content-strong','tab-selected'])tab.classList.toggle(name,selected);
+    if(selected){tab.setAttribute('aria-current','page');tab.style.backgroundColor='var(--color-secondary-background-selected)';}
+    else{tab.removeAttribute('aria-current');tab.style.removeProperty('background-color');}
+    tab.tabIndex=selected?0:-1;
+  }
+  function selectProfileTab(tab){
+    const group=tab.parentElement,index=tab.slot.slice(5);
+    for(const link of group.querySelectorAll(':scope > a'))styleProfileTab(link,link===tab);
+    group.setAttribute('pageindex',index);
+    const panel=group.nextElementSibling;
+    if(panel?.matches('faceplate-tabpanel'))panel.setAttribute('pageindex',index);
+  }
   class Discovery {
     constructor({reddit=redditRead,archive=archiveRead,readSettings=settingsRead,observe=true,autoDiscover=observe,nativeRenderer=null,timing={},removalCache=message=>chrome.runtime.sendMessage({scope:'rt-removal',...message}),viewedHistory=message=>chrome.runtime.sendMessage({scope:'rt-viewed',...message})}={}){
       this.removalCache=removalCache;this.viewedHistory=viewedHistory;
@@ -575,7 +589,8 @@
       const main=this.feed.closest('main'),previousY=this.profileScrollY ?? scrollY;
       if(blocked){
         const activity=this.feed.closest('[data-rt-profile-activity]');
-        if(activity)this.profileHandoff={key:context.key,sourceKey:this.context.key,main,activity,archiveParent:activity.parentNode,scrollY:previousY};
+        const fromTab=main.querySelector('.rt-profile-tabs [aria-current="page"]')?.id;
+        if(activity)this.profileHandoff={key:context.key,sourceKey:this.context.key,main,activity,fromTab,archiveParent:activity.parentNode,scrollY:previousY};
         return;
       }
       const rect=main?.getBoundingClientRect();
@@ -609,11 +624,23 @@
         // tabs and controls stay visible while its activity loads behind it.
         incoming.setAttribute('inert','');
         incoming.after(handoff.stage);
+        const previous=handoff.fromTab && main.querySelector('#'+handoff.fromTab);
+        const next=main.querySelector('.rt-profile-tabs [aria-current="page"]');
+        if(previous && next && previous!==next){
+          selectProfileTab(previous);
+          next.setAttribute('data-rt-profile-tab-pending','');
+          handoff.pendingTab=next;
+        }
       }
     }
     revealProfileHandoff(handoff){
       handoff.incoming?.removeAttribute('data-rt-profile-incoming');
       if(handoff.activity)handoff.incoming?.removeAttribute('inert');
+      if(handoff.pendingTab){
+        selectProfileTab(handoff.pendingTab);
+        handoff.pendingTab.removeAttribute('data-rt-profile-tab-pending');
+        handoff.pendingTab=null;
+      }
     }
     clearProfileHandoff(){
       const handoff=this.profileHandoff;if(!handoff)return;
@@ -625,8 +652,11 @@
     updateProfileHandoff({settled=false,ready=false}={}){
       const handoff=this.profileHandoff;
       if(!handoff?.stage || this.context?.key!==handoff.key || pageRoute()?.key!==handoff.key)return;
+      if(settled || ready && this.hasProfileActivity())this.clearProfileHandoff();
+    }
+    hasProfileActivity(){
       const visible=node=>!node.closest('[hidden],[data-rt-order-pending],[data-rt-filter-hidden]');
-      if(settled || ready && ([...this.feed.querySelectorAll(publishedProfileCard)].some(visible) || this.nativeEntries().some(({node})=>visible(node))))this.clearProfileHandoff();
+      return [...this.feed.querySelectorAll(publishedProfileCard)].some(visible) || this.nativeEntries().some(({node})=>visible(node));
     }
     restoreProfileScroll(y){
       if(y===undefined)return;
@@ -1566,9 +1596,9 @@
           event.preventDefault();
           if(focused)this.archiveMain?.querySelector('#'+tab.id)?.focus({preventScroll:true});
         });
-        tab.className='button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex';tab.setAttribute('rpl','');tab.setAttribute('slot','page-'+(i+1));tab.id=context.view==='search'?'search-results-page-tab-'+view:'profile-tab-'+view+'_tab';tab.tabIndex=selected?0:-1;
+        tab.className='button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-plain items-center justify-center button inline-flex';tab.setAttribute('rpl','');tab.setAttribute('slot','page-'+(i+1));tab.id=context.view==='search'?'search-results-page-tab-'+view:'profile-tab-'+view+'_tab';
         const content=make('span','flex items-center justify-center'),text=make('span','flex items-center gap-xs',label);content.append(text);tab.append(content);
-        if(selected){tab.setAttribute('faceplate-tab-selected','');tab.setAttribute('aria-current','page');tab.classList.add('bg-secondary-background-selected','!text-neutral-content-strong','tab-selected');tab.style.backgroundColor='var(--color-secondary-background-selected)';}
+        styleProfileTab(tab,selected);
         tabs.append(tab);
       }
       for(const direction of ['back','forward']){const control=make('button','!px-sm button-small px-[calc(var(--rem10)-var(--button-border-width,0px))] button-plain icon items-center justify-center button inline-flex');control.type='button';control.slot=direction+'-button';control.tabIndex=-1;const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value] of Object.entries({rpl:'',class:'rpl-rtl-icon',fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','icon-name':direction==='back'?'caret-left':'caret-right'}))icon.setAttribute(key,value);const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d',direction==='back'?'M6.3 10c0-.23.088-.46.264-.636l4.6-4.6a.9.9 0 111.273 1.272L8.474 10l3.963 3.964a.9.9 0 01-1.273 1.272l-4.6-4.6A.897.897 0 016.3 10Z':'M13.7 10c0 .23-.088.46-.264.636l-4.6 4.6a.9.9 0 11-1.273-1.272L11.526 10 7.563 6.036a.9.9 0 011.273-1.272l4.6 4.6A.897.897 0 0113.7 10Z');icon.append(path);control.append(icon,make('faceplate-screen-reader-content','',direction));tabs.append(control);}
@@ -2826,7 +2856,7 @@
     // New (and Deleted); Hot/Top keep Reddit's ranking without archive filler.
     refreshActivity({force=false}={}){
       if(this.isOwnList())return this.loadOwnList();
-      if(this.isSearch()){if(this.searchParsed.invalid){this.summarize();if(this.blockedProfile)this.updateProfileHandoff({settled:true});return;}return Promise.all([this.clientSearchOn()?this.loadReddit({force}):undefined,this.loadArchive()]);}
+      if(this.isSearch()){if(this.searchParsed.invalid){this.summarize();if(this.blockedProfile){this.updateProfileHandoff({settled:true});globalThis.RTProfileNoticeGuard?.completeBlockedProfile(this.context.username);}return;}return Promise.all([this.clientSearchOn()?this.loadReddit({force}):undefined,this.loadArchive()]);}
       const merge=this.settings.archiveDiscovery && !this.archiveOnly && (this.blockedProfile || this.context?.sort==='new' || this.activityFilter==='deleted' || this.oldSort());
       const reddit=this.oldSort()?undefined:this.loadReddit({force}),archive=merge?this.loadArchive():undefined;
       return Promise.all([reddit,archive]);
@@ -3024,9 +3054,12 @@
         }else current?.remove();
       });
       this.more.hidden=!continuation || Boolean(this.batchObserver && (!paused || this.isSearch()));this.more.disabled=Boolean(this.busy || this.archiveBusy || this.activeProfileBatch && !paused);
-      if(this.profileHandoff?.stage){
+      const staging=this.profileHandoff?.stage,firstBlocked=this.blockedProfile && document.documentElement.hasAttribute('data-rt-profile-scope-pending');
+      if(staging || firstBlocked){
         const initialReady=!work && (!pending || this.shownPublished()>=profileBatchSize) && (this.loaded || this.archiveLoaded) && !this.mergePendingNodes.size;
-        this.updateProfileHandoff({ready:initialReady,settled:this.nativeBatch.blocked || !work && (Boolean(message) || initialReady && !continuation && !nativeLoading)});
+        const settled=this.nativeBatch.blocked || !work && (Boolean(message) || initialReady && !continuation && !nativeLoading);
+        if(staging)this.updateProfileHandoff({ready:Boolean(this.profileHandoff.activity) || initialReady,settled});
+        if(firstBlocked && pageRoute()?.key===this.context.key && (settled || this.hasProfileActivity()))globalThis.RTProfileNoticeGuard?.completeBlockedProfile(this.context.username);
       }
       if(pending && !this.activeProfileBatch && !paused && this.shownPublished()<profileBatchSize){this.advanceProfileBatch();return;}
       this.prefetchProfilePage();
