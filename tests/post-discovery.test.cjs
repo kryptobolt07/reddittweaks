@@ -2022,6 +2022,52 @@ function blockedNotFoundPage(W,{loggedIn='true'}={}){
  return W.document.getElementById('shreddit-forbidden');
 }
 
+test('the early guard holds a signed-in profile fallback through the probe and restores it on failure',async t=>{
+ const {W,d}=setup(t,{reddit:async()=>({blocked:false,reason:'unavailable'})});
+ await d.ready;d.reset();
+ const notice=blockedNotFoundPage(W),root=W.document.documentElement;
+ W.chrome={runtime:{id:'fixture',sendMessage:()=>new Promise(()=>{})}};
+ W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
+ assert.ok(root.hasAttribute('data-rt-blocked-profile-hold'));
+ assert.equal(W.RTProfileNoticeGuard.notFoundNotice(),notice);
+ d.scan();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(root.hasAttribute('data-rt-blocked-profile-hold'),false);
+ assert.ok(notice.isConnected);
+ d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:true,blockedProfiles:false}}},'local');
+ assert.equal(root.hasAttribute('data-rt-blocked-profile-hold'),false);
+ blockedNotFoundPage(W,{loggedIn:'false'});W.RTProfileNoticeGuard.setEnabled(true,true);d.scan();
+ assert.equal(W.RTProfileNoticeGuard.notFoundNotice(),null);
+ assert.equal(root.hasAttribute('data-rt-blocked-profile-hold'),false);
+});
+
+test('blocked-profile tabs retain the current cards until the incoming tab is ready and reuse it on Back',async t=>{
+ let finishPost;
+ const {W,d,calls}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',reddit:async input=>{
+  if(input.action==='blocked-probe')return {blocked:true,profile:{displayName:'Example'}};
+  if(input.action==='blocked-profile-page')return input.view==='comments'?{posts:[comment()],hasMore:false}:new Promise(resolve=>{finishPost=resolve;});
+  return {posts:[],hasMore:false};
+ }});
+ await d.ready;d.reset();const notice=blockedNotFoundPage(W);
+ d.scan();await new Promise(resolve=>setImmediate(resolve));await d.refreshActivity();
+ const main=d.archiveMain,card=d.nodes.get(comment().fullname);
+ main.getBoundingClientRect=()=>({left:120,top:56,width:620,height:840});
+ main.querySelector('#profile-tab-posts_tab').click();
+ assert.equal(W.location.pathname,'/user/Example/submitted/');
+ assert.ok(card.closest('[data-rt-profile-handoff]'));
+ assert.ok(d.archiveMain.hasAttribute('data-rt-profile-incoming'));
+ assert.ok(notice.hasAttribute('data-rt-archive-notice'));
+ const pending=d.refreshActivity();finishPost({posts:[raw()],hasMore:false});await pending;
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(W.document.querySelector('[data-rt-profile-handoff]'),null);
+ assert.equal(d.archiveMain.hasAttribute('data-rt-profile-incoming'),false);
+ assert.ok(d.nodes.get('abc12').isConnected);
+ W.history.replaceState({},'','/user/Example/comments/');d.onRoute(new W.PopStateEvent('popstate'));
+ assert.equal(d.archiveMain,main);
+ assert.ok(card.isConnected);
+ assert.equal(calls.filter(c=>c.action==='blocked-probe').length,1);
+ assert.equal(calls.filter(c=>c.action==='blocked-profile-page').length,2);
+});
+
 test('blocked-by-user profiles mount signed-out activity when blocked-probe confirms a live blocker account, auto-falling back to search when curated',async t=>{
  const actions=[];
  const {W,d}=setup(t,{
