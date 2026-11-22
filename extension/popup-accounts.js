@@ -37,8 +37,18 @@
    avatar.addEventListener('error',()=>avatar.replaceWith(fallback),{once:true});
    avatar.src=account.avatar;
   }
-  const copy=make('span','account-copy');copy.append(make('span','account-name','u/'+account.username),make('span','account-caption',account.current?'Signed in':account.expired?'Session expired':account.private?'This private window':'Saved on this device'));
+  const copy=make('span','account-copy');copy.append(make('span','account-name','u/'+account.username),make('span','account-caption',account.current?(account.private?'Signed in · This private window':'Signed in'):account.expired?'Session expired':account.private?'This private window':'Saved on this device'));
   li.append(avatar,copy);
+  if(account.private && !account.expired){
+   const keep=make('button','account-save','Save');keep.type='button';keep.setAttribute('aria-label','Save u/'+account.username+' permanently on this device');keep.title='Save permanently on this device';let saveTimer=0;
+   keep.addEventListener('click',async()=>{
+    if(!keep.classList.contains('confirming')){keep.classList.add('confirming');keep.textContent='Save permanently?';clearTimeout(saveTimer);saveTimer=setTimeout(()=>{keep.classList.remove('confirming');keep.textContent='Save';},4000);return;}
+    clearTimeout(saveTimer);busy(true);say('Saving u/'+account.username+' permanently…');const r=await send({action:'save-permanent',owner:account.owner});busy(false);
+    if(r?.ok){say('Saved u/'+account.username+' permanently on this device.');refresh();}
+    else{keep.classList.remove('confirming');keep.textContent='Save';say(r?.error || 'Could not save this account permanently.',true);}
+   });
+   li.append(keep);
+  }
   if(!account.current){
    const go=make('button','account-switch',account.expired?'Sign in again':'Switch');go.type='button';
    go.addEventListener('click',async()=>{

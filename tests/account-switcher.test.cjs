@@ -149,6 +149,21 @@ test('the popup opened from a private window acts on that window’s cookie stor
  const list=await w.send({action:'list'},w.popup);assert.equal(list.private,true);assert.equal(list.current,'t2_carol');
  assert.equal((await w.send({action:'switch',owner:'t2_alice'},w.popup)).ok,true);assert.equal(w.privateJar.get('reddit_session').value,'reddit_session-alice');assert.equal(w.jar.get('reddit_session').value,'reddit_session-alice');
 });
+test('a private-window login can be saved permanently on explicit request without touching normal cookies or tabs',async()=>{
+ const w=worker({privateJar:jarFor('carol'),focused:{id:7,incognito:true,tabs:[{id:3,active:true}]}});await w.send({action:'save-current',...alice});
+ await w.send({action:'remember',owner:'t2_carol'},w.incognito);await w.send({action:'save-current',owner:'t2_carol',username:'carol',avatar:''},w.incognito);
+ assert.equal(w.values['rt-accounts-v1'].accounts.some(a=>a.owner==='t2_carol'),false,'private login stays ephemeral by default');
+ assert.equal((await w.send({action:'save-permanent',owner:'t2_alice'})).ok,false,'normal windows cannot call save-permanent');
+ w.privateJar.set('reddit_session',{...w.privateJar.get('reddit_session'),value:'reddit_session-carol-fresh'});
+ const saved=await w.send({action:'save-permanent',owner:'t2_carol'},w.popup);
+ assert.equal(saved.ok,true);assert.equal(saved.current,'t2_carol');
+ const carolView=saved.accounts.find(a=>a.owner==='t2_carol');assert.equal(carolView.private,false,'saved account is no longer marked private-only');
+ const persisted=w.values['rt-accounts-v1'].accounts.find(a=>a.owner==='t2_carol');
+ assert.ok(persisted,'persisted into normal storage');
+ assert.equal(persisted.cookies.find(c=>c.name==='reddit_session').value,'reddit_session-carol-fresh','refreshed active private cookies before persisting');
+ assert.equal(w.jar.get('reddit_session').value,'reddit_session-alice','normal cookie store untouched');
+ assert.equal(w.reloads.length,0,'saving does not reload tabs');
+});
 
 test('Reddit’s device settings (sort, view, chat layout, codecs, consent) are never touched by switching, adding or anonymous browsing',async()=>{
  // Measured 2026-11-19: these reddit.com cookies hold device preferences; only the five session cookies belong to an account.
@@ -287,7 +302,7 @@ test('the phone sheet gets the same row; signed out it follows Log In when accou
 });
 async function popupPage(t,{accounts=[{owner:'t2_alice',username:'alice',avatar:'',expired:false,current:true},{owner:'t2_bob',username:'bob',avatar:'https://styles.redditmedia.com/b.png',expired:false,current:false},{owner:'t2_carol',username:'carol',avatar:'',expired:true,current:false}],fail='',hideHome=false}={}){
  const dom=new JSDOM(fs.readFileSync('extension/popup.html','utf8'),{url:'https://extension.test/popup.html',runScripts:'outside-only'}),W=dom.window,sent=[];t.after(()=>W.close());
- W.chrome={runtime:{async sendMessage(m){sent.push(JSON.parse(JSON.stringify(m)));if(m.scope!=='rt-accounts')return {ok:true};if(m.action==='list')return fail?{ok:false,error:fail}:{ok:true,accounts};if(m.action==='remove'){accounts=accounts.filter(a=>a.owner!==m.owner);return {ok:true,accounts};}return {ok:true};}}};
+ W.chrome={runtime:{async sendMessage(m){sent.push(JSON.parse(JSON.stringify(m)));if(m.scope!=='rt-accounts')return {ok:true};if(m.action==='list')return fail?{ok:false,error:fail}:{ok:true,accounts};if(m.action==='remove'){accounts=accounts.filter(a=>a.owner!==m.owner);return {ok:true,accounts};}if(m.action==='save-permanent'){accounts=accounts.map(a=>a.owner===m.owner?{...a,private:false}:a);return {ok:true,accounts};}return {ok:true};}}};
  W.document.getElementById('panel-home').hidden=hideHome;
  W.eval(read('popup-accounts.js'));await flush();return {W,d:W.document,sent};
 }
@@ -309,9 +324,22 @@ test('the popup waits to look up accounts until Home first opens',async t=>{
  home.hidden=true;await flush();home.hidden=false;await flush();
  assert.equal(sent.filter(m=>m.action==='list').length,1);
 });
-test('the popup offers Browse signed out (asks twice) and labels private-window accounts',async t=>{
- const {d,sent}=await popupPage(t,{accounts:[{owner:'t2_alice',username:'alice',avatar:'',expired:false,current:true},{owner:'t2_carol',username:'carol',avatar:'',expired:false,current:false,private:true}]});
- assert.match(popupRows(d)[1],/This private window/);const button=d.querySelector('#browse-signed-out');assert.equal(button.textContent,'Anonymous browsing');
+test('the popup offers Browse signed out (asks twice) and lets private-window logins be saved permanently with confirmation',async t=>{
+ const {d,sent}=await popupPage(t,{accounts:[{owner:'t2_alice',username:'alice',avatar:'',expired:false,current:true,private:true},{owner:'t2_carol',username:'carol',avatar:'',expired:false,current:false,private:true},{owner:'t2_bob',username:'bob',avatar:'',expired:false,current:false,private:false}]});
+ assert.match(popupRows(d)[0],/Signed in · This private window/);
+ assert.match(popupRows(d)[1],/This private window/);
+ assert.equal(d.querySelector('[data-owner="t2_bob"] .account-save'),null,'already-permanent accounts show no Save button');
+ const saveBtn=d.querySelector('[data-owner="t2_alice"] .account-save');
+ assert.ok(saveBtn,'current private-only account shows Save button');
+ assert.equal(saveBtn.textContent,'Save');
+ saveBtn.click();await flush();
+ assert.equal(sent.some(m=>m.action==='save-permanent'),false,'first click only asks to confirm');
+ assert.equal(saveBtn.textContent,'Save permanently?');
+ saveBtn.click();await flush();
+ assert.deepEqual(sent.find(m=>m.action==='save-permanent'),{scope:'rt-accounts',action:'save-permanent',owner:'t2_alice'});
+ assert.equal(d.querySelector('[data-owner="t2_alice"] .account-save'),null,'Save button disappears once saved permanently');
+ assert.match(d.querySelector('#accounts-status').textContent,/Saved u\/alice permanently/);
+ const button=d.querySelector('#browse-signed-out');assert.equal(button.textContent,'Anonymous browsing');
  button.click();await flush();assert.equal(sent.some(m=>m.action==='anonymous'),false,'first click only asks');assert.equal(button.textContent,'Sign out here?');
  button.click();await flush();assert.deepEqual(sent.find(m=>m.action==='anonymous'),{scope:'rt-accounts',action:'anonymous'});
 });

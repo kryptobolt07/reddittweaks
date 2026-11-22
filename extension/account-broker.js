@@ -95,7 +95,7 @@
  async function askToReport(jar){for(const tab of await redditTabs(jar))chrome.tabs.sendMessage?.(tab.id,{scope:'rt-accounts',action:'report'})?.catch?.(()=>{});}
  const unsaved=jar=>{askToReport(jar).catch(()=>{});return {ok:false,error:UNSAVED,unsaved:true};};
  const view=(s,current)=>{
-  const own=s.accounts.map(a=>({...a,private:Boolean(s.jar?.private)})),rest=s.shared.filter(a=>!s.accounts.some(b=>b.owner===a.owner)).map(a=>({...a,private:false}));
+  const own=s.accounts.map(a=>({...a,private:Boolean(s.jar?.private) && !s.shared.some(b=>b.owner===a.owner)})),rest=s.shared.filter(a=>!s.accounts.some(b=>b.owner===a.owner)).map(a=>({...a,private:false}));
   return [...own,...rest].map(a=>({owner:a.owner,username:a.username,avatar:a.avatar || '',savedAt:a.savedAt,expired:a.expired===true,current:a.owner===current,private:a.private}));
  };
  // Reddit's sign-in and sign-up pages: a signed-out report from these means sign-in is still in progress.
@@ -136,6 +136,23 @@
    await save(s);return {ok:true,save:Boolean(now) && !saved,current:s.current,anonymous:s.anonymous};
   }
   if(message.action==='save-current'){if(!redditPage(sender) || !ownerOK(owner))throw Error('Open Reddit signed in to save this account.');if(!await store(s,{owner,username:message.username,avatar:message.avatar}))throw Error('Reddit’s session was not found.');s.current=owner;s.anonymous=false;await save(s);return {ok:true,accounts:view(s,owner),current:owner,anonymous:false};}
+  if(message.action==='save-permanent'){
+   if(!jar.private)throw Error('This account is already saved permanently.');
+   if(!ownerOK(owner))throw Error('Unknown account.');
+   const account=s.accounts.find(a=>a.owner===owner);
+   if(!account)throw Error('That account is not saved in this private window.');
+   if(s.current===owner)await store(s,{owner});
+   const latest=s.accounts.find(a=>a.owner===owner) || account;
+   if(!latest?.cookies?.some(c=>c.name==='reddit_session'))throw Error('Reddit’s session was not found.');
+   const normal=await state({id:undefined,private:false});
+   const existing=normal.accounts.find(a=>a.owner===owner);
+   const record={owner:latest.owner,username:latest.username,avatar:latest.avatar || '',savedAt:Date.now(),expired:false,cookies:structuredClone(latest.cookies)};
+   if(existing)Object.assign(existing,record);
+   else{normal.accounts.push(record);if(normal.accounts.length>MAX)normal.accounts.shift();}
+   await save(normal);
+   s.shared=normal.accounts;
+   return {ok:true,accounts:view(s,s.current),current:s.current};
+  }
   if(message.action==='update-avatar'){
    const avatar=avatarOf(message.avatar);
    if(!redditPage(sender) || s.anonymous || s.current!==owner || !avatar || !known(s,owner))return {ok:false};
