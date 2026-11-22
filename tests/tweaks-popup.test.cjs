@@ -321,10 +321,10 @@ test('Home: Raffles explains where to find them and can be turned on in place',a
 
 test('accurate counters: active booleans + overridden selectors, excluding historyLimit, clickAudio, actions, and hidden device cards',async t=>{
   const p=popup(t,{tabs:redditTab,touch:false});await settle();const doc=p.w.document;
-  assert.equal(doc.getElementById('feature-summary').textContent,'6 of 26 active','desktop fresh count excludes Mobile Web card, includes chatSearch');
+  assert.equal(doc.getElementById('feature-summary').textContent,'7 of 27 active','desktop fresh count excludes Mobile Web card, includes blockedProfiles and chatSearch');
   doc.getElementById('manage-features').click();assert.equal(doc.getElementById('panel-settings').hidden,false);
   const count=id=>doc.querySelector('[aria-labelledby="'+id+'"] .group-count').textContent;
-  assert.equal(count('browsing-heading'),'1 of 2 on');
+  assert.equal(count('browsing-heading'),'2 of 3 on');
   assert.equal(count('performance-heading'),'1 of 2 on');
   assert.equal(count('videos-heading'),'Default');
   assert.equal(count('tools-heading'),'3 of 3 on');
@@ -334,8 +334,8 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   // Numeric History length dropdown does NOT change Browsing & Feed or Home counts.
   doc.getElementById('history-limit').click();
   doc.querySelector('#history-limit-menu [data-value="500"]').click();await settle();
-  assert.equal(count('browsing-heading'),'1 of 2 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'6 of 26 active');
+  assert.equal(count('browsing-heading'),'2 of 3 on');
+  assert.equal(doc.getElementById('feature-summary').textContent,'7 of 27 active');
 
   // Overriding mediaClickAction counts (+1) and reveals clickAudio; changing clickAudio does NOT add to counts.
   const clickAudioRow=doc.getElementById('click-audio').closest('.setting-row');
@@ -344,7 +344,7 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   doc.querySelector('#media-click-action-menu [data-value="inline"]').click();await settle();
   assert.equal(clickAudioRow.hidden,false);
   assert.equal(count('videos-heading'),'1 of 12 active');
-  assert.equal(doc.getElementById('feature-summary').textContent,'7 of 26 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 27 active');
   assert.equal(doc.getElementById('reset-video-defaults').hidden,false);
   doc.getElementById('click-audio').click();
   doc.querySelector('#click-audio-menu [data-value="unmute"]').click();await settle();
@@ -369,12 +369,31 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   // Enabling Archive turns on Archive + already-checked restoreDeletedContent (+2).
   const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(count('archive-heading'),'2 of 4 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'9 of 26 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'10 of 27 active');
 
   // Touch device counts Mobile Web card (+1 of +2).
   const mob=popup(t,{tabs:redditTab,touch:true});await settle();
-  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'7 of 28 active');
+  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'8 of 29 active');
   assert.equal(mob.w.document.querySelector('[aria-labelledby="mobile-heading"] .group-count').textContent,'1 of 2 on');
+});
+
+test('View profiles that blocked you defaults on, nests under postDiscovery, and persists independently',async t=>{
+  const p=popup(t,{storedTab:'settings',tabs:redditTab});await settle();
+  const doc=p.w.document,post=doc.getElementById('post-discovery'),blocked=doc.getElementById('blocked-profiles');
+  const row=blocked.closest('.setting-row');
+  assert.equal(blocked.checked,true);
+  assert.equal(row.dataset.requires,'post-discovery');
+  assert.equal(row.dataset.level,'2');
+  assert.equal(row.hidden,false);
+  blocked.click();await settle();
+  assert.equal(p.state['rt-settings-v1'].blockedProfiles,false);
+  assert.equal(doc.querySelector('[aria-labelledby="browsing-heading"] .group-count').textContent,'1 of 3 on');
+  blocked.click();await settle();
+  assert.equal(p.state['rt-settings-v1'].blockedProfiles,true);
+  post.click();await settle();
+  assert.equal(row.hidden,true,'hides when Profile search & hidden activity is turned off');
+  assert.equal(blocked.getAttribute('aria-disabled'),'true');
+  assert.equal(p.state['rt-settings-v1'].blockedProfiles,true,'preserves blockedProfiles while parent is off');
 });
 
 test('collapsible Enhancements drawer toggles smoothly, tracks live active badge, and Reset restores video defaults',async t=>{

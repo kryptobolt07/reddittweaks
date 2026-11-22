@@ -4,20 +4,22 @@
   const mobile = /\b(?:Android|iOS|iPhone|iPad|iPod)\b/i;
   if (window.top !== window || !(mobile.test(navigator.userAgentData?.platform) || mobile.test(navigator.userAgent))) return;
 
-  const APP_ONLY = 'configured-xpromo-modal > rpl-dialog[dialog-id="configured-xpromo-blocking_xpromo_nsfw_blocking"][blocking]';
+  const APP_ONLY = 'configured-xpromo-modal > rpl-dialog[dialog-id="configured-xpromo-blocking_xpromo_nsfw_blocking"][blocking], configured-xpromo-modal > rpl-dialog[dialog-id*="unreviewed" i][blocking]';
   const PAGE_FADE = '.configured-xpromo-bottom-sheet';
   const APP_LINK = 'a.app-link[href], a[href*="reddit.onelink.me"]';
   const POST_PROMO = 'xpromo-nsfw-blocking-container';
   const POST_MEDIA = '[slot="post-media-container"]';
   const HIDE_POST_PROMO = 'data-rt-hide-post-app-prompt';
   const SHEET = 'configured-xpromo-modal rpl-dialog[open], xpromo-bottom-sheet, shreddit-xpromo-bottom-sheet, shreddit-async-loader[bundlename*="xpromo" i], [data-testid*="xpromo" i]';
-  const DIALOG = 'dialog[open], [role="dialog"], [aria-modal="true"]';
+  const DIALOG = 'rpl-dialog[open], rpl-dialog[blocking], dialog[open], [role="dialog"], [aria-modal="true"]';
   const MEDIA = 'shreddit-blurred-container[reason="nsfw"][blurred], [data-rt-nsfw-media]';
   const CANDIDATE = [APP_ONLY, PAGE_FADE, POST_PROMO, SHEET, DIALOG, MEDIA].join(', ');
   const HEADING = 'h1, h2, h3, h4, [role="heading"], [slot="title"], [slot="heading"]';
   const TITLE = /^(?:open in (?:the )?(?:reddit )?app|see (?:this post|this community|reddit) in (?:the )?(?:reddit )?app|(?:the )?reddit app|reddit is better in the app)$/i;
+  const UNREVIEWED_TITLE = /^unreviewed content$/i;
   const APP = /^(?:open|use|view)(?: (?:in|the))?(?: (?:the )?(?:reddit )?app| reddit)?$/i;
   const WEB = /^(?:continue|view|stay|open) (?:in|on|with) (?:the |your )?(?:web(?: browser)?|browser|chrome|firefox|reddit\.com)$/i;
+  const GO_HOME = /^(?:no,?\s*)?(?:take me (?:to )?home|go home)$/i;
   const BROWSER = /^(?:google chrome|chrome|firefox|samsung internet|web browser|browser)$/i;
   const BUTTON = 'button, [role="button"], a[href]';
   const handled = new WeakSet();
@@ -119,7 +121,7 @@
     if (handled.has(dialog) || !dialog.isConnected) return;
     if (dialog.matches(APP_ONLY)) {
       // Disconnect the promotion owner before its asynchronous showModal can mount the blocking dialog.
-      if (hideMatureOverlay === true) dialog.parentElement.remove();
+      if (hideMatureOverlay === true) removePromo(dialog.parentElement);
       return;
     }
     if (dialog.matches(PAGE_FADE)) {
@@ -137,7 +139,23 @@
     if (hideMatureOverlay !== true) return;
     if (dialog.shadowRoot) observe(dialog.shadowRoot);
     const roots = dialog.shadowRoot ? [dialog, dialog.shadowRoot] : [dialog];
+    const allRoots = [...roots];
+    for (const root of roots) {
+      for (const tpl of root.querySelectorAll('template')) if (tpl.content) allRoots.push(tpl.content);
+    }
     const title = normalized(dialog.getAttribute('aria-label'));
+    const allHeadings = allRoots.flatMap(root => [...root.querySelectorAll(HEADING)]);
+    const allButtons = allRoots.flatMap(root => [...root.querySelectorAll(BUTTON)]);
+    if ((UNREVIEWED_TITLE.test(title) || allHeadings.some(node => UNREVIEWED_TITLE.test(label(node)))) &&
+      allButtons.some(button => APP.test(label(button)) && !WEB.test(label(button))) &&
+      !allButtons.some(button => WEB.test(label(button))) &&
+      (dialog.hasAttribute('blocking') || allButtons.some(button => GO_HOME.test(label(button))) || allRoots.some(root => root.querySelector(APP_LINK)))) {
+      handled.add(dialog);
+      const owner = dialog.closest('configured-xpromo-modal') ||
+        (dialog.parentElement?.matches('shreddit-async-loader[bundlename*="xpromo" i]') ? dialog.parentElement : dialog);
+      removePromo(owner);
+      return;
+    }
     const headings = roots.flatMap(root => [...root.querySelectorAll(HEADING)]);
     if (!TITLE.test(title) && !headings.some(node => TITLE.test(label(node)))) return;
     const buttons = roots.flatMap(root => [...root.querySelectorAll(BUTTON)]);

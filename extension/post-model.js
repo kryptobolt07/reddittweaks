@@ -6,6 +6,59 @@
   const validateCommentId=value=>typeof value==='string' && /^(?:t1_)?[a-z0-9]{1,32}$/i.test(value);
   const idOf=value=>validateId(value)?value.toLowerCase().replace(/^t3_/,''):'';
   const str=(value,max)=>typeof value==='string'?value.slice(0,max).replace(/\u0000/g,''):'';
+  const hexColor=value=>typeof value==='string' && /^#[0-9a-f]{6}$/i.test(value.trim())?value.trim():'';
+  const redditAssetHosts=/(?:^|\.)(?:redd\.it|redditmedia\.com|reddituploads\.com|redditstatic\.com)$/i;
+  function redditAssetUrl(value){
+    if(typeof value!=='string' || value.length>4096)return '';
+    try{const url=new URL(value.replace(/&amp;/gi,'&'));return url.protocol==='https:' && !url.username && !url.password && !url.port && redditAssetHosts.test(url.hostname)?url.href:'';}catch{return '';}
+  }
+  const flairTone=value=>{const tone=typeof value==='string'?value.trim().toLowerCase():'';return tone==='light' || tone==='dark'?tone:'';};
+  function normalizeFlairRichtext(list){
+    if(!Array.isArray(list))return null;
+    const out=[];
+    for(const entry of list.slice(0,20)){
+      if(entry?.e==='text'){const t=str(entry.t,200);if(t)out.push({e:'text',t});}
+      else if(entry?.e==='emoji'){const u=redditAssetUrl(entry.u);if(u)out.push({e:'emoji',u});}
+    }
+    return out.length?out:null;
+  }
+  function normalizeCrosspost(raw){
+    raw=raw?.data || raw;
+    if(!raw || typeof raw!=='object')return null;
+    const id=idOf(raw.id || raw.name || raw.fullname),author=str(raw.author,20),created=Number(raw.created_utc ?? raw.created);
+    if(!id || !(validateUsername(author) || author==='[deleted]') || !Number.isFinite(created) || created<=0 || created>32503680000)return null;
+    const score=Number(raw.score),comments=Number(raw.num_comments ?? raw.numComments ?? raw.comments);
+    return {id,subreddit:str(raw.subreddit,100),author,title:str(raw.title,1000),
+      permalink:safeUrl(raw.permalink,true)||'https://www.reddit.com/comments/'+id+'/',
+      created:Math.floor(created),
+      score:Number.isFinite(score)?Math.max(-1e9,Math.min(1e9,score)):0,
+      numComments:Number.isFinite(comments)?Math.max(0,Math.min(1e9,Math.floor(comments))):0,
+      media:normalizeMedia(raw)};
+  }
+  function normalizePoll(raw){
+    if(!raw || typeof raw!=='object' || !Array.isArray(raw.options))return null;
+    const options=[];
+    for(const opt of raw.options.slice(0,20)){
+      const text=str(opt?.text,300).trim();if(!text)continue;
+      const rawVotes=opt?.vote_count ?? opt?.votes,n=Number(rawVotes);
+      const votes=rawVotes!=null && rawVotes!=='' && Number.isFinite(n) && n>=0?Math.min(1e9,Math.floor(n)):null;
+      options.push({text,votes});
+    }
+    if(!options.length)return null;
+    const rawTotal=raw.total_vote_count ?? raw.totalVotes,totalNum=Number(rawTotal);
+    const totalVotes=rawTotal!=null && rawTotal!=='' && Number.isFinite(totalNum) && totalNum>=0?Math.min(1e9,Math.floor(totalNum)):0;
+    let closed=false;
+    if(typeof raw.closed==='boolean')closed=raw.closed;
+    else{const end=Number(raw.voting_end_timestamp);if(Number.isFinite(end) && end>0)closed=(end<1e12?end*1000:end)<=Date.now();}
+    return {options,totalVotes,closed};
+  }
+  function normalizeOembed(raw){
+    if(!raw || typeof raw!=='object')return null;
+    const provider=str(raw.provider_name ?? raw.provider,100).trim();
+    const title=str(raw.title,300).trim();
+    const thumbnail=redditAssetUrl(raw.thumbnail_url ?? raw.thumbnail);
+    return provider || title || thumbnail?{provider,title,thumbnail}:null;
+  }
   // Archive retrieval time arrives as epoch seconds, sometimes as a numeric string. Anything else is omitted.
   const retrievedAt=value=>{const number=typeof value==='number'?value:typeof value==='string' && /^\d+(?:\.\d+)?$/.test(value)?Number(value):NaN;return Number.isFinite(number)&&number>0&&number<=32503680000?Math.floor(number):0;};
   function safeUrl(value,redditOnly=false){
@@ -77,6 +130,7 @@
   });
   const SETTINGS_DEFAULTS=Object.freeze({
     postDiscovery:true,
+    blockedProfiles:true,
     archiveDiscovery:false,
     restoreDeletedContent:true,
     subredditArchive:false,
@@ -102,6 +156,7 @@
   function normalizeSettings(raw){
     return {
       postDiscovery:raw?.postDiscovery!==false,
+      blockedProfiles:raw?.blockedProfiles!==false,
       archiveDiscovery:raw?.archiveDiscovery===true,
       restoreDeletedContent:raw?.restoreDeletedContent!==false,
       subredditArchive:raw?.subredditArchive===true,
@@ -240,6 +295,15 @@
       status:source==='arctic-shift'?'unknown':status,source,bodySource:source,postType:postTypeOf(raw)};
     // Retain public search metadata across page-world and archive normalization.
     result.flair=str(raw.link_flair_text ?? raw.flair,1000);
+    const flairBg=hexColor(raw.link_flair_background_color ?? raw.flairBg);if(flairBg)result.flairBg=flairBg;
+    const flairTextColor=flairTone(raw.link_flair_text_color ?? raw.flairTextColor);if(flairTextColor)result.flairTextColor=flairTextColor;
+    const flairRichtext=normalizeFlairRichtext(raw.link_flair_richtext ?? raw.flairRichtext);if(flairRichtext)result.flairRichtext=flairRichtext;
+    if(raw.stickied===true)result.stickied=true;
+    if(raw.locked===true)result.locked=true;
+    if(raw.distinguished==='moderator' || raw.distinguished==='admin')result.distinguished=raw.distinguished;
+    const crosspost=normalizeCrosspost(Array.isArray(raw.crosspost_parent_list)?raw.crosspost_parent_list[0]:raw.crosspost);if(crosspost)result.crosspost=crosspost;
+    const poll=normalizePoll(raw.poll_data ?? raw.poll);if(poll)result.poll=poll;
+    const oembed=normalizeOembed(raw.secure_media?.oembed ?? raw.media?.oembed ?? raw.oembed);if(oembed)result.oembed=oembed;
     result.domain=str(raw.domain,255);
     // Search-row facts: the community icon (Reddit's image hosts only) and, for comments, the parent post's counts.
     const icon=avatarUrl(raw.subredditIcon);if(icon && /(?:^|\.)(?:redditmedia\.com|redditstatic\.com|redd\.it)$/.test(new URL(icon).hostname))result.subredditIcon=icon;
@@ -276,8 +340,15 @@
     if(/^t1_[a-z0-9]{1,32}$/.test(parent) || /^t3_[a-z0-9]{1,10}$/.test(parent))parentId=parent;
     else if(/^[a-z0-9]{1,32}$/.test(parent))parentId=(parent===linkId?'t3_':'t1_')+parent;
     else if(Object.hasOwn(raw,'parent_id') && (raw.parent_id==null || raw.parent_id===''))parentId='t3_'+linkId;
-    delete base.postType;
-    return {...base,kind:'comment',id,fullname:'t1_'+id,linkId,title:str(raw.link_title ?? raw.title,1000),
+    delete base.postType;delete base.flairBg;delete base.flairTextColor;delete base.flairRichtext;delete base.crosspost;delete base.poll;delete base.oembed;
+    const extra={};
+    if(raw.is_submitter===true || raw.isSubmitter===true)extra.isSubmitter=true;
+    if(raw.edited===true)extra.edited=true;
+    else if(typeof raw.edited==='number' && Number.isFinite(raw.edited) && raw.edited>0 && raw.edited<=32503680000)extra.edited=Math.floor(raw.edited);
+    const authorFlair=str(raw.author_flair_text ?? raw.authorFlair,200).trim();if(authorFlair)extra.authorFlair=authorFlair;
+    const authorFlairBg=hexColor(raw.author_flair_background_color ?? raw.authorFlairBg);if(authorFlairBg)extra.authorFlairBg=authorFlairBg;
+    const authorFlairTextColor=flairTone(raw.author_flair_text_color ?? raw.authorFlairTextColor);if(authorFlairTextColor)extra.authorFlairTextColor=authorFlairTextColor;
+    return {...base,...extra,kind:'comment',id,fullname:'t1_'+id,linkId,title:str(raw.link_title ?? raw.title,1000),
       permalink:safeUrl(raw.permalink,true)||'https://www.reddit.com/comments/'+linkId+'/comment/'+id+'/',
       parentId};
   }

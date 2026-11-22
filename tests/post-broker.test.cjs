@@ -78,7 +78,7 @@ test('opting out while a global request slot is queued prevents another fetch',a
 });
 test('content scripts read only normalized preferences through the trusted worker even with archives off',async()=>{
  const e=env({settings:{postDiscovery:true,archiveDiscovery:false,privateChatData:'never expose'}}),result=await e.send({action:'get-settings'});
- assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(result.settings)),{postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',cardClickAudio:'keep',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'});assert.equal(e.calls.length,0);
+ assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(result.settings)),{postDiscovery:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',cardClickAudio:'keep',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'});assert.equal(e.calls.length,0);
  assert.equal((await e.send({action:'get-settings'},{frameId:3,url:'https://chat.reddit.com/room/!a:reddit.com'})).ok,true,'chat subframes and chat.reddit.com can read normalized settings');
  assert.equal((await e.send({action:'get-settings'},{frameId:2,url:'about:blank',tab:{url:'https://www.reddit.com/'}})).ok,true,'about:blank chat frame inside Reddit can read normalized settings');
  assert.equal((await e.send({action:'get-settings'},{id:'foreign'})).code,'forbidden');
@@ -100,7 +100,7 @@ test('settings changes reach registered Reddit tabs across all frames without ex
  const e=env();await e.send({action:'get-settings'},{tab:{id:5,url:'https://www.reddit.com/user/Example/'}});
  e.changeSettings({postDiscovery:false,archiveDiscovery:false,gifStart:'play',embedStartTouch:'stop',hideMatureOverlay:false,revealNsfwPostMedia:true,chatSearch:false,downloadMedia:false,privateChats:['secret']});await new Promise(r=>setImmediate(r));
  assert.equal(e.notifications.length,1);assert.equal(e.notifications[0][0],5);assert.equal(e.notifications[0].length,2,'broadcasts to all frames without frameId:0 restriction');
- const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:false,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:false,revealNsfwPostMedia:true,chatSearch:false,videoStart:'default',embedStart:'preview',gifStart:'play',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',cardClickAudio:'keep',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'}});
+ const data=JSON.parse(JSON.stringify(e.notifications[0][1]));assert.deepEqual(data,{scope:'rt-posts',action:'settings-changed',settings:{postDiscovery:false,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:false,ownRemoval:false,removalNotifications:false,historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:false,revealNsfwPostMedia:true,chatSearch:false,videoStart:'default',embedStart:'preview',gifStart:'play',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',cardClickAudio:'keep',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'}});
 });
 
 test('settings changes reach every open Reddit tab, even after the worker forgot who asked',async()=>{
@@ -295,6 +295,25 @@ test('thread comment pagination detects stalled cursors and focused IDs remain s
  const e=env({fetcher:async url=>new URL(url).pathname.endsWith('/comments/ids')?response([row({id:'focus',body:'Focused',link_id:'t3_foreign',subreddit:'example'})]):response(Array.from({length:100},(_,i)=>row({id:(1000+i).toString(36),body:'Reply',link_id:'t3_abc12',created_utc:1700000000,subreddit:'example'})))}),sender={url:'https://www.reddit.com/r/example/comments/abc12/title/',tab:{id:1}};
  const r=await e.send({action:'archive-thread-comments',postId:'abc12',before:1700000001,focusId:'focus'},sender);assert.equal(r.ok,true);assert.equal(r.hasMore,true);assert.equal(r.cursorStalled,true);assert.equal(r.posts.some(p=>p.id==='focus'),false);
  e.setSettings({postDiscovery:true,archiveDiscovery:false});assert.equal((await e.send({action:'archive-thread-comments',postId:'abc12'},sender)).code,'disabled');
+});
+
+test('archive-thread-comments supports sort asc/desc, after cursor, and body query with validation and overlap bounds',async()=>{
+ const page=(start,step)=>Array.from({length:100},(_,i)=>row({id:(1000+i).toString(36),body:'Reply '+i,link_id:'t3_abc12',created_utc:start+step*i,subreddit:'example'}));
+ const sender={url:'https://www.reddit.com/r/example/comments/abc12/title/',tab:{id:1}};
+ const e=env({fetcher:async url=>{const p=new URL(url).searchParams;return response(p.get('sort')==='asc'?page(1700000000,1):[row({id:'q1',body:'needle text',link_id:'t3_abc12',created_utc:1700000050,subreddit:'example'}),row({id:'old',body:'needle text',link_id:'t3_abc12',created_utc:1699999900,subreddit:'example'})]);}});
+ const asc=await e.send({action:'archive-thread-comments',postId:'abc12',sort:'asc',after:1699999999},sender);
+ assert.equal(asc.ok,true);assert.equal(asc.sort,'asc');assert.equal(asc.hasMore,true);assert.equal(asc.cursor,1700000098);assert.equal(asc.cursorStalled,false);
+ assert.equal(new URL(e.calls[0][0]).searchParams.get('sort'),'asc');assert.equal(new URL(e.calls[0][0]).searchParams.get('after'),'1699999999');
+ const searched=await e.send({action:'archive-thread-comments',postId:'abc12',query:' needle ',after:1700000000},sender);
+ assert.equal(searched.ok,true);assert.deepEqual(Array.from(searched.posts,p=>p.id),['q1']);
+ assert.equal(new URL(e.calls[1][0]).searchParams.get('body'),'needle');assert.equal(new URL(e.calls[1][0]).searchParams.get('sort'),'desc');
+ for(const bad of [{sort:'top'},{after:'1'},{after:-1},{query:123},{query:'x'.repeat(257)},{query:'bad\ntext'}]){
+  assert.equal((await e.send({action:'archive-thread-comments',postId:'abc12',...bad},sender)).code,'invalid-request',JSON.stringify(bad));
+ }
+ const stalled=env({fetcher:async()=>response(Array.from({length:100},(_,i)=>row({id:(1000+i).toString(36),body:'Reply',link_id:'t3_abc12',created_utc:1700000000,subreddit:'example'})))}),sr=await stalled.send({action:'archive-thread-comments',postId:'abc12',sort:'asc',after:1699999999},sender);
+ assert.equal(sr.cursorStalled,true);assert.equal(sr.hasMore,true);
+ const slow=env({fetcher:async()=>({ok:false,status:422,headers:{get:()=>null},async text(){return JSON.stringify({data:null,error:'Timeout'});}})});
+ assert.equal((await slow.send({action:'archive-thread-comments',postId:'abc12',query:'needle'},sender)).code,'text-search-unavailable');
 });
 
 test('archive profile reads support the dedicated Removed list shell without opening other list routes',async()=>{

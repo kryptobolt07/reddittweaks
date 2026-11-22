@@ -55,6 +55,10 @@
           <input class="switch" type="checkbox" id="post-discovery" data-setting="postDiscovery" aria-describedby="post-discovery-desc">
         </div>
         <div class="setting-row" data-requires="post-discovery" data-level="2">
+          <div class="setting-copy"><label for="blocked-profiles">View profiles that blocked you</label><p id="blocked-profiles-desc">Detect when an account has blocked you and show their public signed-out profile (Chromium). Optional archive results require Use the archive.</p></div>
+          <input class="switch" type="checkbox" id="blocked-profiles" data-setting="blockedProfiles" aria-describedby="blocked-profiles-desc">
+        </div>
+        <div class="setting-row" data-requires="post-discovery" data-level="2">
           <div class="setting-copy"><label for="history-limit">History length</label><p id="history-limit-desc">Keep more future views on this device. Reddit’s 20 restores the native list and clears recorded views.</p></div>
           <button id="history-limit" class="setting-choice" type="button" data-choice="historyLimit" data-default="20" data-value-type="number" data-count="exclude" data-menu-width="164" aria-haspopup="menu" aria-expanded="false" aria-controls="history-limit-menu" aria-describedby="history-limit-desc" disabled><span data-choice-value>20</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
           <div id="history-limit-menu" class="setting-menu" role="menu" aria-label="History length" hidden>

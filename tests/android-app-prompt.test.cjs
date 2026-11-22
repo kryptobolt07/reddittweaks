@@ -302,3 +302,48 @@ test('turning Hide mobile app overlays off also leaves generic mobile app dialog
   await settle();
   assert.deepEqual(trace, ['Continue in browser']);
 });
+
+const unreviewedConfigured = `<configured-xpromo-modal>
+  <rpl-dialog open blocking dialog-id="configured-xpromo-blocking_xpromo_unreviewed_blocking">
+    <template><rpl-modal-card><h3 slot="title">Unreviewed Content</h3>
+      <a slot="primary-button" href="https://reddit.onelink.me/example">View In App</a>
+      <button slot="tertiary-button">No, take me to Home</button>
+    </rpl-modal-card></template>
+  </rpl-dialog>
+</configured-xpromo-modal>`;
+
+const unreviewedStandalone = `<rpl-dialog open blocking dialog-id="unreviewed-content-modal">
+  <rpl-modal-card><h3 slot="title">Unreviewed Content</h3>
+    <p>This community has not been reviewed and might contain content inappropriate for certain viewers. View in the Reddit app to continue.</p>
+    <a slot="primary-button" href="https://app.example/">View In App</a>
+    <button slot="tertiary-button">No, take me to Home</button>
+  </rpl-modal-card>
+</rpl-dialog>`;
+
+test('mobile Unreviewed Content blocking app modals are removed when hideMatureOverlay is enabled and respected when disabled', async t => {
+  const configured = setup(t, `<main><article>Archived feed</article></main>${unreviewedConfigured}`, 'Android');
+  configured.document.body.className = 'rpl-scroll-lock';
+  await settle();
+  assert.equal(configured.document.querySelector('configured-xpromo-modal'), null);
+  assert.equal(configured.document.body.classList.contains('rpl-scroll-lock'), false);
+  assert.equal(configured.document.querySelector('main article').textContent, 'Archived feed');
+  assert.deepEqual(configured.trace, []);
+
+  const standalone = setup(t, `<main><article>Archived post</article></main>${unreviewedStandalone}`, 'iOS', {hideMatureOverlay: false});
+  standalone.document.body.className = 'rpl-scroll-lock';
+  await settle();
+  assert.ok(standalone.document.querySelector('rpl-dialog[dialog-id="unreviewed-content-modal"]'), 'untouched while hideMatureOverlay is off');
+  standalone.setOverlay(true);
+  await settle();
+  assert.equal(standalone.document.querySelector('rpl-dialog[dialog-id="unreviewed-content-modal"]'), null);
+  assert.equal(standalone.document.body.classList.contains('rpl-scroll-lock'), false);
+  assert.deepEqual(standalone.trace, []);
+
+  const desktop = setup(t, unreviewedStandalone, false);
+  await settle();
+  assert.ok(desktop.document.querySelector('rpl-dialog[dialog-id="unreviewed-content-modal"]'), 'desktop stays untouched');
+
+  const nonApp = setup(t, `<rpl-dialog open blocking dialog-id="unreviewed-info"><h3 slot="title">Unreviewed Content</h3><button>Continue</button><button>Go back</button></rpl-dialog>`, 'Android');
+  await settle();
+  assert.ok(nonApp.document.querySelector('rpl-dialog[dialog-id="unreviewed-info"]'), 'dialogs without an app CTA stay untouched');
+});

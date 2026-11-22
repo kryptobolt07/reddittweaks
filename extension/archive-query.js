@@ -72,22 +72,28 @@
   // Streams pages of {items, searchedBackTo, hasMore, serverFiltered, cursor, stalled, mode}. At most maxPages archive requests per call;
   // pass the last page's cursor back as `cursor` to search older (desc) or newer (asc). hasMore is never false unless the archive said so.
   // textLocal: an earlier call already found text search unavailable for this scope; scan without re-asking the server.
-  async function* search({kind,author,subreddit,parsed,text,after,before,sort='desc',cursor,postTypes,maxPages=10,signal,send,titles=false,textLocal=false}={}){
+  async function* search({kind,author,subreddit,parsed,text,after,before,sort='desc',cursor,postTypes,flair,over18,maxPages=10,signal,send,titles=false,textLocal=false}={}){
     parsed=parsed ?? (text ? globalThis.RCSCore?.parseQuery?.(text) ?? {text} : null);
     if(parsed?.invalid)return;
     const plan=projection(parsed,{kind,author,subreddit,after,before}),query=plan.query,asc=sort==='asc',types=kind==='post' && postTypes?.length?new Set(postTypes):null;
+    const flairFilter=kind==='post' && typeof flair==='string' && flair.trim()?flair.trim():'';
+    const nsfwFilter=kind==='post' && typeof over18==='boolean'?over18:null;
+    const extraParams={};
+    if(flairFilter && flairFilter.length<=256 && !/[\u0000-\u001f\u007f]/.test(flairFilter))extraParams.link_flair_text=flairFilter;
+    if(nsfwFilter!=null)extraParams.over_18=nsfwFilter;
+    const baseParams={...extraParams,...plan.params};
     after=plan.params.after ?? after;before=plan.params.before ?? before;
     // Cursors overlap the boundary second, so a page can repeat the previous page's edge items; drop repeats within a call.
     let local=textLocal===true,position=cursor ?? (asc?after:before),reached=null,pages=0;const seen=new Set();
     while(pages<maxPages){
       if(signal?.aborted)return;
-      const params={...plan.params};if(local)for(const key of ['title','selftext','body','link_flair_text'])delete params[key];
+      const params={...baseParams};if(local)for(const key of ['title','selftext','body','link_flair_text'])delete params[key];
       const message={action:'archive-search',kind,...params,...(titles && kind==='comment'?{titles:true}:{}),author:author ?? params.author,subreddit:subreddit ?? params.subreddit,sort,after:asc?position:after,before:asc?before:position,query:local?undefined:query||undefined};
       let response;
       try{response=await ask(send,message);}
       catch(error){
         // A very active scope can time out on text (in the broker, or past this helper's own guard): scan without it and match locally within the page budget.
-        if(['text-search-unavailable','timeout'].includes(error.code) && (query || ['title','selftext','body','link_flair_text'].some(key=>plan.params[key])) && !local){local=true;continue;}
+        if(['text-search-unavailable','timeout'].includes(error.code) && (query || ['title','selftext','body','link_flair_text'].some(key=>baseParams[key])) && !local){local=true;continue;}
         throw error;
       }
       if(signal?.aborted)return;
@@ -96,9 +102,9 @@
       if(times.length)reached=asc?Math.max(...times):Math.min(...times);
       const scan=local || plan.residual;
       const match=post=>globalThis.RCSCore?.matchRecord && globalThis.RTPostModel?.searchRecord?globalThis.RCSCore.matchRecord(parsed,globalThis.RTPostModel.searchRecord(post)):matches(parsed,post.kind==='comment'?post.body:post.title+' '+post.body);
-      const items=posts.filter(post=>!seen.has(post.fullname || post.id) && seen.add(post.fullname || post.id) && (!scan || match(post)) && (!types || types.has(post.postType)));
+      const items=posts.filter(post=>!seen.has(post.fullname || post.id) && seen.add(post.fullname || post.id) && (!scan || !parsed || match(post)) && (!types || types.has(post.postType)) && (!flairFilter || String(post.flair || '').trim().toLowerCase()===flairFilter.toLowerCase()) && (nsfwFilter==null || Boolean(post.over18)===nsfwFilter));
       const stalled=response.cursorStalled===true,more=response.hasMore===true;
-      yield {items,searchedBackTo:reached,hasMore:more,serverFiltered:!local && Boolean(query || Object.keys(plan.params).length),cursor:more?response.cursor ?? null:null,stalled,scanned:posts.length,mode:scan?'local':'server',textLocal:local};
+      yield {items,searchedBackTo:reached,hasMore:more,serverFiltered:!local && Boolean(query || Object.keys(baseParams).length),cursor:more?response.cursor ?? null:null,stalled,scanned:posts.length,mode:scan || flairFilter && !extraParams.link_flair_text?'local':'server',textLocal:local};
       if(!more || stalled || response.cursor==null)return;
       position=response.cursor;
     }

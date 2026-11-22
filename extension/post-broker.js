@@ -216,15 +216,19 @@
   // Browsing a banned/private community's archived thread. Only the current
   // post is allowed; every returned comment is checked against that identity.
   async function archiveThreadComments(message,sender){
-    if(!Model.validateId(message.postId) || message.before!=null && !validTime(message.before) || message.focusId!=null && !Model.validateCommentId(message.focusId))return fail('Invalid thread page.','invalid-request');
-    const id=message.postId.toLowerCase().replace(/^t3_/,''),focus=message.focusId?.toLowerCase().replace(/^t1_/,'');
+    const sort=message.sort==null?'desc':message.sort,query=message.query;
+    if(!Model.validateId(message.postId) || !['desc','asc'].includes(sort) || message.before!=null && !validTime(message.before) || message.after!=null && !validTime(message.after) || message.focusId!=null && !Model.validateCommentId(message.focusId))return fail('Invalid thread page.','invalid-request');
+    if(query!=null && (typeof query!=='string' || query.length>256 || /[\u0000-\u001f\u007f]/.test(query)))return fail('Invalid search text.','invalid-request');
+    const id=message.postId.toLowerCase().replace(/^t3_/,''),focus=message.focusId?.toLowerCase().replace(/^t1_/,''),body=query?.trim() || '';
     if(!redditSender(sender) || !authorized(sender,'',[id]))return fail('Open the matching Reddit post.','forbidden');
-    const key=['thread-page',id,message.before || '',focus || ''].join(':');
-    return cachedSearch(key,()=>archiveFetch('comments/search',{link_id:id,before:message.before,sort:'desc',limit,md2html:'true'},data=>{
-      const posts=data.map(raw=>Model.normalizeComment(raw,{source:'arctic-shift'})).filter(post=>post?.linkId===id && (message.before==null || post.created<message.before));
-      const hasMore=data.length>=limit,times=posts.map(post=>post.created),cursor=hasMore && times.length?Math.min(...times)+1:null;
-      return {ok:true,posts,hasMore,cursor,cursorStalled:hasMore && (cursor==null || message.before!=null && cursor>=message.before),incomplete:true,source:'arctic-shift'};
-    })).then(async value=>{
+    const key=JSON.stringify(['thread-page',id,sort,message.after ?? '',message.before ?? '',body,focus || '']);
+    return cachedSearch(key,()=>archiveFetch('comments/search',{link_id:id,...(body?{body}:{}),after:message.after,before:message.before,sort,limit,md2html:'true'},data=>{
+      const posts=data.map(raw=>Model.normalizeComment(raw,{source:'arctic-shift'})).filter(post=>post?.linkId===id && (message.before==null || post.created<message.before) && (message.after==null || post.created>message.after));
+      const hasMore=data.length>=limit,times=posts.map(post=>post.created);
+      const edge=times.length?(sort==='asc'?Math.max(...times)-1:Math.min(...times)+1):null,bound=sort==='asc'?message.after:message.before;
+      const cursor=hasMore && edge!=null && edge>0?edge:null,cursorStalled=hasMore && (cursor==null || bound!=null && (sort==='asc'?cursor<=bound:cursor>=bound));
+      return {ok:true,posts,hasMore,cursor,cursorStalled,sort,incomplete:true,source:'arctic-shift'};
+    }).then(value=>value.ok===false && body && ['timeout','text-search-unavailable'].includes(value.code)?fail('Text search is unavailable for this thread.','text-search-unavailable'):value)).then(async value=>{
       if(value?.ok && focus && !value.posts.some(post=>post.id===focus)){
         const extra=await request('',null,[focus],'comment',{titles:false}).catch(()=>null);
         if(extra?.ok)value={...value,posts:[...value.posts,...extra.posts.filter(post=>post.linkId===id)]};
@@ -415,8 +419,9 @@
       return {ok:true,buckets,by:message.by,source:'arctic-shift'};
     }));
   }
-  // Subreddit metadata: https icon only on a Reddit-owned host. An absent record (never archived) is not-found.
+  // Subreddit metadata: https icon/banners only on a Reddit-owned host, hex theme colors only. An absent record (never archived) is not-found.
   const iconHosts=/(?:^|\.)(?:redd\.it|redditmedia\.com|reddituploads\.com|reddit\.com|redditstatic\.com)$/i;
+  const hexColor=value=>typeof value==='string' && /^#[0-9a-f]{6}$/i.test(value.trim())?value.trim():'';
   function iconUrl(value){
     if(typeof value!=='string' || value.length>4096)return '';
     try{const url=new URL(value.replace(/&amp;/gi,'&'));return url.protocol==='https:' && !url.username && !url.password && !url.port && iconHosts.test(url.hostname)?url.href:'';}catch{return '';}
@@ -431,6 +436,10 @@
       const text=(value,max)=>typeof value==='string'?value.slice(0,max).replace(/\u0000/g,''):'',number=value=>Number.isFinite(Number(value)) && Number(value)>=0?Math.floor(Number(value)):0;
       const subreddit={name:text(raw.display_name,21),title:text(raw.title,200),description:text(raw.public_description,500) || text(raw.description,2000),subscribers:number(raw.subscribers),created:number(raw.created_utc),over18:raw.over_18===true || raw.over18===true,icon:iconUrl(raw.community_icon) || iconUrl(raw.icon_img)};
       if(!subreddit.icon)delete subreddit.icon;
+      const banner=iconUrl(raw.banner_background_image) || iconUrl(raw.banner_img);if(banner)subreddit.banner=banner;
+      const mobileBanner=iconUrl(raw.mobile_banner_image);if(mobileBanner)subreddit.mobileBanner=mobileBanner;
+      const bannerColor=hexColor(raw.banner_background_color);if(bannerColor)subreddit.bannerColor=bannerColor;
+      const primaryColor=hexColor(raw.primary_color) || hexColor(raw.key_color);if(primaryColor)subreddit.primaryColor=primaryColor;
       return {ok:true,subreddit,source:'arctic-shift'};
     }));
   }

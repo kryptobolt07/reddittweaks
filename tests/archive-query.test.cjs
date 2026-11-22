@@ -143,3 +143,11 @@ test('thread title enrichment is opt-in and only forwarded for comments',async()
  await collect(Q.search({kind:'comment',subreddit:'example',send}));assert.equal('titles' in calls.at(-1),false);
  await collect(Q.search({kind:'post',subreddit:'example',titles:true,send}));assert.equal('titles' in calls.at(-1),false);
 });
+
+test('direct flair and over18 filters project to archive params and fall back locally on timeout',async()=>{
+ const {Q}=load(),calls=[],posts=[item('a',10,{flair:'News',over18:true}),item('b',9,{flair:'Other News',over18:true}),item('c',8,{flair:'News',over18:false})];
+ const pages=await collect(Q.search({kind:'post',subreddit:'example',flair:'News',over18:true,send:async m=>{calls.push(m);return m.link_flair_text?{ok:false,code:'text-search-unavailable'}:{ok:true,posts,hasMore:false};}}));
+ assert.equal(calls.length,2);assert.equal(calls[0].link_flair_text,'News');assert.equal(calls[0].over_18,true);
+ assert.equal(calls[1].link_flair_text,undefined);assert.equal(calls[1].over_18,true);
+ assert.deepEqual(pages[0].items.map(p=>p.id),['a']);assert.equal(pages[0].mode,'local');
+});

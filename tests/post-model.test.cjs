@@ -6,7 +6,7 @@ const post=(extra={})=>({id:'abc12',author:'Example',created_utc:1700000000,titl
 test('automatic deleted-content restoration defaults on independently of archive opt-in and media defaults are passive',()=>{
  const m=model();
  assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{
-  postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
+  postDiscovery:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
   cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,
   historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,
   videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
@@ -14,6 +14,8 @@ test('automatic deleted-content restoration defaults on independently of archive
  });
  assert.deepEqual(JSON.parse(JSON.stringify(m.SETTINGS_DEFAULTS)),JSON.parse(JSON.stringify(m.normalizeSettings())));
  assert.deepEqual(JSON.parse(JSON.stringify(m.VIDEO_DEFAULTS)),JSON.parse(JSON.stringify(m.videoSettings())));
+ assert.equal(m.normalizeSettings({blockedProfiles:false}).blockedProfiles,false);
+ for(const value of [true,null,0,'false'])assert.equal(m.normalizeSettings({blockedProfiles:value}).blockedProfiles,true);
  assert.equal(m.normalizeSettings({restoreDeletedContent:false}).restoreDeletedContent,false);
  for(const value of [true,null,0,'false'])assert.equal(m.normalizeSettings({restoreDeletedContent:value}).restoreDeletedContent,true);
  assert.equal(m.normalizeSettings({restoreDeletedContent:true,archiveDiscovery:false}).archiveDiscovery,false);
@@ -177,4 +179,88 @@ test('Reddit’s “[ Removed by moderator ]” title recorded by the archive is
  const M=model();const p=M.normalizePost(post({_meta:{edited_title:'[ Removed by moderator ]',removal_type:'deleted',was_deleted_later:true}}),{source:'arctic-shift'});
  assert.equal(p.archiveRemovedBy,'moderator');assert.equal(p.archiveDeletedLater,true);
  assert.equal(M.normalizePost(post({_meta:{edited_title:'A better title'}}),{source:'arctic-shift'}).archiveRemovedBy || '','','an ordinary title edit is not evidence');
+});
+
+test('normalizePost preserves sanitized optional flair, badges, crosspost, poll and oembed metadata and omits absent keys',()=>{
+ const M=model();
+ const plain=M.normalizePost(post(),{source:'arctic-shift'});
+ for(const key of ['flairBg','flairTextColor','flairRichtext','stickied','locked','distinguished','crosspost','poll','oembed']){
+  assert.equal(key in plain,false,'omits absent '+key);
+ }
+ const raw=post({
+  link_flair_text:'News',
+  link_flair_background_color:'#ff4500',
+  link_flair_text_color:'light',
+  link_flair_richtext:[
+   {e:'emoji',u:'https://emoji.redditmedia.com/abc_t5_1?w=32&amp;s=1'},
+   {e:'emoji',u:'https://evil.test/track.png'},
+   {e:'text',t:' Breaking'}
+  ],
+  stickied:true,
+  locked:true,
+  distinguished:'moderator',
+  crosspost_parent_list:[{
+   id:'t3_par99',subreddit:'ParentSub',author:'ParentAuthor',title:'Parent Title',
+   permalink:'/r/ParentSub/comments/par99/parent_title/',created_utc:1699999000,score:42,num_comments:7,
+   url:'https://i.redd.it/pic.jpg'
+  }],
+  poll_data:{
+   options:[{text:'Yes',vote_count:15},{text:'No',vote_count:5},{text:'   '}],
+   total_vote_count:20,
+   voting_end_timestamp:1000000000000
+  },
+  secure_media:{oembed:{provider_name:'YouTube',title:'Demo clip',thumbnail_url:'https://external-preview.redd.it/thumb.jpg?w=320&amp;s=1'}}
+ });
+ const first=M.normalizePost(raw,{source:'arctic-shift'}),again=M.normalizePost(first,{source:'arctic-shift'});
+ for(const item of [first,again]){
+  assert.equal(item.flairBg,'#ff4500');
+  assert.equal(item.flairTextColor,'light');
+  assert.deepEqual(JSON.parse(JSON.stringify(item.flairRichtext)),[
+   {e:'emoji',u:'https://emoji.redditmedia.com/abc_t5_1?w=32&s=1'},
+   {e:'text',t:' Breaking'}
+  ]);
+  assert.equal(item.stickied,true);
+  assert.equal(item.locked,true);
+  assert.equal(item.distinguished,'moderator');
+  assert.deepEqual(JSON.parse(JSON.stringify(item.crosspost)),{
+   id:'par99',subreddit:'ParentSub',author:'ParentAuthor',title:'Parent Title',
+   permalink:'https://www.reddit.com/r/ParentSub/comments/par99/parent_title/',created:1699999000,score:42,numComments:7,
+   media:[{url:'https://i.redd.it/pic.jpg',kind:'image'}]
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(item.poll)),{
+   options:[{text:'Yes',votes:15},{text:'No',votes:5}],totalVotes:20,closed:true
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(item.oembed)),{
+   provider:'YouTube',title:'Demo clip',thumbnail:'https://external-preview.redd.it/thumb.jpg?w=320&s=1'
+  });
+ }
+ const invalid=M.normalizePost(post({
+  link_flair_background_color:'red',link_flair_text_color:'neon',link_flair_richtext:[{e:'emoji',u:'http://emoji.redditmedia.com/x'}],
+  stickied:false,locked:'yes',distinguished:'special',crosspost_parent_list:[{id:'bad!'}],poll_data:{options:[]},
+  secure_media:{oembed:{provider_name:'Demo',thumbnail_url:'https://evil.test/t.jpg'}}
+ }),{source:'arctic-shift'});
+ for(const key of ['flairBg','flairTextColor','flairRichtext','stickied','locked','distinguished','crosspost','poll'])assert.equal(key in invalid,false,key);
+ assert.deepEqual(JSON.parse(JSON.stringify(invalid.oembed)),{provider:'Demo',title:'',thumbnail:''});
+});
+
+test('normalizeComment preserves sanitized optional submitter, mod/admin, stickied, edited and author flair metadata',()=>{
+ const M=model(),base={id:'c1',author:'Example',created_utc:1700000000,body:'Hello',link_id:'t3_abc12'};
+ const plain=M.normalizeComment(base,{source:'arctic-shift'});
+ for(const key of ['isSubmitter','distinguished','stickied','edited','authorFlair','authorFlairBg','authorFlairTextColor']){
+  assert.equal(key in plain,false,'omits absent '+key);
+ }
+ const raw={...base,is_submitter:true,distinguished:'admin',stickied:true,edited:1700000500.9,author_flair_text:' Helper ',author_flair_background_color:'#0079d3',author_flair_text_color:'light'};
+ const first=M.normalizeComment(raw,{source:'arctic-shift'}),again=M.normalizeComment(first,{source:'arctic-shift'});
+ for(const c of [first,again]){
+  assert.equal(c.isSubmitter,true);
+  assert.equal(c.distinguished,'admin');
+  assert.equal(c.stickied,true);
+  assert.equal(c.edited,1700000500);
+  assert.equal(c.authorFlair,'Helper');
+  assert.equal(c.authorFlairBg,'#0079d3');
+  assert.equal(c.authorFlairTextColor,'light');
+ }
+ assert.equal(M.normalizeComment({...base,edited:true},{source:'arctic-shift'}).edited,true);
+ assert.equal('edited' in M.normalizeComment({...base,edited:false},{source:'arctic-shift'}),false);
+ assert.equal('authorFlairBg' in M.normalizeComment({...base,author_flair_background_color:'transparent'},{source:'arctic-shift'}),false);
 });

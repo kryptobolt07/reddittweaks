@@ -79,6 +79,24 @@ test('archive-subreddit normalizes metadata and accepts only Reddit-hosted https
  assert.deepEqual(plain(r.subreddit),{name:'Testsub',title:'Test Sub',description:'A synthetic place',subscribers:1234,created:1245256101,over18:true,icon:'https://styles.redditmedia.com/t5_x/icon.png?w=256&s=abc'});
  assert.equal(params(e.calls[0]).subreddit,'testsub');
  for(const icon of ['http://styles.redditmedia.com/a.png','https://evil.test/a.png','https://redditmedia.com.evil.test/a.png','javascript:alert(1)'])assert.equal('icon' in (await env({fetcher:async()=>response([raw({community_icon:icon})])}).send({action:'archive-subreddit',name:'testsub'})).subreddit,false);
+ const themed=await env({fetcher:async()=>response([raw({
+  banner_background_image:'https://styles.redditmedia.com/t5_x/banner.png?w=1200&amp;s=1',
+  mobile_banner_image:'https://styles.redditmedia.com/t5_x/mobile.png?w=600&amp;s=2',
+  banner_background_color:'#1a2b3c',
+  primary_color:'#ff4500'
+ })])}).send({action:'archive-subreddit',name:'testsub'});
+ assert.equal(themed.subreddit.banner,'https://styles.redditmedia.com/t5_x/banner.png?w=1200&s=1');
+ assert.equal(themed.subreddit.mobileBanner,'https://styles.redditmedia.com/t5_x/mobile.png?w=600&s=2');
+ assert.equal(themed.subreddit.bannerColor,'#1a2b3c');
+ assert.equal(themed.subreddit.primaryColor,'#ff4500');
+ const fallback=await env({fetcher:async()=>response([raw({
+  banner_background_image:'https://evil.test/b.png',banner_img:'https://b.thumbs.redditmedia.com/fb.png',
+  mobile_banner_image:'http://styles.redditmedia.com/m.png',banner_background_color:'blue',primary_color:'#fff',key_color:'#0079d3'
+ })])}).send({action:'archive-subreddit',name:'testsub'});
+ assert.equal(fallback.subreddit.banner,'https://b.thumbs.redditmedia.com/fb.png');
+ assert.equal('mobileBanner' in fallback.subreddit,false);
+ assert.equal('bannerColor' in fallback.subreddit,false);
+ assert.equal(fallback.subreddit.primaryColor,'#0079d3');
  const none=await env({fetcher:async()=>response([])}).send({action:'archive-subreddit',name:'ghostsub'});assert.equal(none.ok,false);assert.equal(none.code,'not-found');
 });
 test('invalid inputs, unauthorized senders and disabled setting are rejected before any request',async()=>{
