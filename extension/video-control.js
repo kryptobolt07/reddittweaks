@@ -6,12 +6,13 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=160,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000;
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1';
  const COMMENT='shreddit-comment',MEDIA_NODES=PLAYERS+', '+COMMENT+' video';
  const commentOf=node=>node?.closest?.(COMMENT);
  const closedThread=node=>Boolean(commentOf(node) && node.closest('shreddit-comment[collapsed],details:not([open]),[hidden], [inert]'));
  const PLAY_BUTTON='.poster-play-button,.play-pause-button';
  const SOUND_CONTROL='.mute-button,.volume-slider';
+ const PLAYER_CONTROLS='button,a[href],input,select,textarea,[role="button"],[role="slider"],[role="menu"],[role="menuitem"],.fullscreen-button,.captions-button,.settings-button,[slot="controls"],vds-time-slider,media-time-range';
  const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen';
  // YouTube embeds Reddit renders as lite-youtube with the YouTube player API (controlled by the page bridge).
  const EMBED='shreddit-embed[providername="YouTube"]',EMBED_KEY='rt-embed-continue-v1',ANY_EMBED='shreddit-embed';
@@ -165,7 +166,7 @@
  const {videoSettings}=globalThis.RTPostModel;
  const kinds=['video','gif','embed'];
  const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':node?.matches?.('[gif],[post-type="gif"],[data-media-type="gif"]') || node?.closest?.('shreddit-post[post-type="gif"]')?'gif':'video';
- const viewMode=mode=>mode==='autoplay' || mode==='stop';
+ const viewMode=(mode,touch)=>mode==='autoplay' || (touch && mode==='preview');
  const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
  // Reddit's preference, from its settings page (the prefs API needs a token the page does not expose).
  async function readAutoplayDisabled({doc=document,fetcher=globalThis.fetch,store=globalThis.sessionStorage}={}){
@@ -178,18 +179,65 @@
    return disabled;
   }catch{return null;}
  }
+ function parseSavedVolume(saved){
+  return saved && typeof saved==='object' && Number.isFinite(saved.volume) && saved.volume>=0 && saved.volume<=1
+   ? {volume:saved.volume,muted:saved.muted===true} : null;
+ }
+ function readLocalVolume(win){
+  try{return parseSavedVolume(JSON.parse(win?.localStorage?.getItem(VOLUME_KEY) || 'null'));}catch{return null;}
+ }
+ function writeLocalVolume(win,value){
+  try{win?.localStorage?.setItem(VOLUME_KEY,JSON.stringify(value));}catch{}
+ }
+ function readStoredVolume(win){
+  const api=win?.browser || win?.chrome || globalThis.browser || globalThis.chrome;
+  if(api?.storage?.local?.get){
+   try{
+    return Promise.resolve(api.storage.local.get(VOLUME_KEY)).then(
+     res=>parseSavedVolume(res?.[VOLUME_KEY]) || readLocalVolume(win),
+     ()=>readLocalVolume(win)
+    );
+   }catch{}
+  }
+  return Promise.resolve(readLocalVolume(win));
+ }
+ function writeStoredVolume(win,value){
+  const api=win?.browser || win?.chrome || globalThis.browser || globalThis.chrome;
+  if(api?.storage?.local?.set){
+   try{
+    Promise.resolve(api.storage.local.set({[VOLUME_KEY]:value})).catch(()=>writeLocalVolume(win,value));
+    return;
+   }catch{}
+  }
+  writeLocalVolume(win,value);
+ }
  class Videos{
-  constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,readDirect=null,observe=true}={}){
-   this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new WeakMap();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;
+  constructor({doc=document,readSettings,readPreference=readAutoplayDisabled,readDirect=null,readVolume=null,saveVolume=null,observe=true}={}){
+   this.doc=doc;this.win=doc.defaultView;this.settings={};this.autoplayDisabled=null;this.players=new Set();this.attached=new WeakSet();this.previews=new WeakMap();this.started=new WeakSet();this.continued=new WeakSet();this.gesture={at:-Infinity,path:[]};this.dead=false;this.active=false;this.observe=observe;
    this.visibilityReady=new WeakMap();this.fading=new WeakMap();this.away=new WeakMap();this.loops=new Map();
    this.detailEmbeds=new Set();this.embedAway=new Set();this.feedEmbeds=new Set();this.feedSoundEmbeds=new Set();this.managedViewport=new Set();
    this.revealedMediaGates=new WeakSet();
+   this.miniDismissed=new WeakSet();this.mini=null;
+   this.endedAt=new WeakMap();this.hold2x=null;this.suppressClickUntil=-Infinity;
+   this.savedVolume=null;this.volumeSaveTimer=null;
+   this.readVolume=readVolume || (()=>readStoredVolume(this.win));
+   this.saveVolume=saveVolume || (val=>writeStoredVolume(this.win,val));
    this.choice=videoSettings({});
+   this.frames=new Map();this.posters=new Map();this.providerPosters=new Set();this.posterWanted=new Map();this.watchedEmbeds=new Map();
+   this.posterNodes=new Set();this.preparedPosters=new WeakSet();this.warmedPosters=new Map();
+   this.posterConsumers=new Map();this.posterQuality=new Map();this.posterDeferred=new Set();
+   this.readPosters=readPosters;
    this.onGesture=event=>{
+    if(!this.active || this.dead)return;
     if(!event.isTrusted && !globalThis.__rtVideoControlTest)return;
     const path=event.composedPath();
     this.gesture={at:performance.now(),path};
+    if(event.type==='pointerdown'){
+     if(this.holdFor2x)this.startHold2x(event,path);
+     return;
+    }
     if(event.type==='click' && event.button===0){
+     if(performance.now()<this.suppressClickUntil){event.preventDefault();event.stopImmediatePropagation();return;}
      const gate=path.find(node=>node.matches?.(NSFW_GATE+'[blurred]'));
      const card=gate?.closest('shreddit-post[id]');
      if(card && gate.closest(POST_MEDIA) && nativeRevealButton(gate) && path.includes(gate.shadowRoot) &&
@@ -199,29 +247,44 @@
     }
     const lite=path.find(node=>node.matches?.('lite-youtube,lite-vimeo')),embed=path.find(node=>node.matches?.(ANY_EMBED));
     if(event.type==='click' && event.button===0 && lite && this.feedEmbed(embed) && this.ePreview?.embed!==embed){
-     embed.dataset.rtEmbedUsed='1';this.watchFeedSound(embed);
+     embed.dataset.rtEmbedUsed='1';
+     if(this.startMode('embed')!=='default')this.watchFeedSound(embed);
     }
     const player=path.find(node=>node.matches?.(MEDIA_NODES));
     if(!player || closedThread(player))return;
     this.attach(player);
     const video=this.video(player);
-    if(this.previews.get(player)?.video===video){
-     if(event.type==='click' && event.button===0)this.usePreview(player,event,path);
-    }else if(video && !video.paused)this.started.add(video);
+    if(event.type==='click' && event.button===0){
+     this.handleVideoClick(player,video,event,path);
+    }else if(video && !video.paused && this.previews.get(player)?.video!==video){
+     this.started.add(video);
+    }
    };
+   this.onPointerMove=event=>{
+    if(!this.hold2x || this.hold2x.engaged)return;
+    if(Math.hypot(event.clientX-this.hold2x.x,event.clientY-this.hold2x.y)>10)this.endHold2x(false);
+   };
+   this.onPointerEnd=event=>this.endHold2x(event.type==='pointerup');
+   this.onContextMenu=event=>{if(this.hold2x?.engaged)event.preventDefault();};
    this.onHover=event=>this.hover(event);
-   this.onTabVisibility=()=>{if(this.doc.hidden){this.stopHover();for(const player of this.loops.keys())this.stopLoop(player);}else if(this.inView)this.settle();};
+   this.onTabVisibility=()=>{if(this.doc.hidden){this.stopHover();this.endHold2x(false);for(const player of [...this.loops.keys()])this.stopLoop(player);}else if(this.inView)this.settle();};
    this.onCommentToggle=event=>{if(commentOf(event.target))this.syncCommentVisibility();};
    // Phones, like YouTube's feed: a preview starts once scrolling has stopped for a moment.
-   this.onScroll=()=>{if(this.inView)this.settle();};
+   this.onScroll=()=>{if(this.hold2x && !this.hold2x.engaged)this.endHold2x(false);if(this.inView)this.settle();};
    this.onRemember=event=>this.remember(event);
    this.onEmbedLink=event=>{
     const path=event.composedPath(),embed=path.find(node=>node.matches?.(ANY_EMBED)),link=path.find(node=>node.matches?.('a[href]'));
     if(!embed || !link || !this.blockEmbedLinks(!this.isDetailEmbed(embed)))return;
     if(/^https?:/.test(link.href) && new URL(link.href).origin!==this.win.location.origin){event.preventDefault();event.stopImmediatePropagation();}
    };
-   this.onRoute=()=>{this.stopHover();this.handoff();};
-   this.onBack=()=>{this.stopHover();this.clearHandoff();this.clearEmbedHandoff();};
+   this.onRoute=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();};
+   this.onBack=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.clearHandoff();this.clearEmbedHandoff();};
+   this.onMiniDismissed=event=>{
+    const node=event.target;
+    if(node)this.miniDismissed.add(node);
+    if(this.mini?.slot)this.io?.unobserve(this.mini.slot);
+    this.mini=null;
+   };
    this.onPageExit=()=>{
     const pending=this.activeHandoff();
     if(pending?.sourceVideo){
@@ -232,17 +295,11 @@
     this.pending?.layoutObserver?.disconnect();
     this.releaseHeldVideo();
     this.releaseHeldEmbed();
+    this.exitMini(false);
+    this.endHold2x(false);
     this.stopHover();
     this.pending=null;
    };
-   for(const type of ['pointerdown','keydown','click'])doc.addEventListener(type,this.onGesture,true);
-   for(const type of ['pointerover','pointerout'])doc.addEventListener(type,this.onHover,true);
-   doc.addEventListener('visibilitychange',this.onTabVisibility);
-   doc.addEventListener('toggle',this.onCommentToggle,true);
-   this.win.addEventListener('scroll',this.onScroll,{passive:true,capture:true});
-   doc.addEventListener('click',this.onRemember,true);
-   for(const type of ['click','auxclick'])doc.addEventListener(type,this.onEmbedLink,true);
-   doc.addEventListener('reddit:route',this.onRoute);
    // The page bridge reports a YouTube player that started (by its own controls, a preview or a continuation).
    this.onEmbedPlaying=event=>{
     const embed=event.target;if(!embed?.matches?.(EMBED))return;
@@ -253,21 +310,19 @@
     if(this.startMode('embed')==='play' && this.feedEmbed(embed) && embed.dataset.rtEmbedUsed!=='1'){
      embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));this.cover(embed,true);return;
     }
+    if(this.volumeMemory && this.savedVolume){
+     embed.dataset.rtTargetVolume=String(this.savedVolume.volume);
+     embed.dispatchEvent(new this.win.Event('rt-embed-volume',{bubbles:true}));
+    }
     this.exclusive(embed);
    };
-   doc.addEventListener('rt-embed-playing',this.onEmbedPlaying);
    // Clicking into an embed's player moves focus into its iframe (the page sees a blur): that embed is in use, so other
-   // videos pause, and opening its post carries it over.
+   // videos pause (when singleVideo is on), and opening its post carries it over (when videoOpenPost is on).
    this.onFrameFocus=()=>this.win.setTimeout(()=>{
+    if(!this.active || this.dead)return;
     const active=this.doc.activeElement;if(!active?.matches?.(ANY_EMBED))return;
     active.dataset.rtEmbedUsed='1';this.exclusive(active);
    },0);
-   this.win.addEventListener('blur',this.onFrameFocus);
-   // Provider players report starting (see frameEvent): that one plays, everything else pauses.
-   this.frames=new Map();this.posters=new Map();this.providerPosters=new Set();this.posterWanted=new Map();this.watchedEmbeds=new WeakMap();
-   this.posterNodes=new Set();this.preparedPosters=new WeakSet();this.warmedPosters=new Map();
-   this.posterConsumers=new Map();this.posterQuality=new Map();this.posterDeferred=new Set();
-   this.readPosters=readPosters;
    this.onFrameMessage=event=>{
     for(const [frame,state] of this.frames){
      if(!frame.isConnected){this.frames.delete(frame);continue;}
@@ -281,14 +336,15 @@
        if(state.playing)state.played=true;
        if(this.ePreview?.frame?.frame===frame)this.labelEmbedSound(this.ePreview);
        this.framePolicy(frame,state.block,true);
+       this.syncDirectEnhancements(frame);
        if(state.directSound){this.postDirect(frame,state.directSound);state.directSound='';}
        if(state.directPlayback){this.postDirect(frame,state.directPlayback);state.directPlayback='';}
        else if(this.embedPending?.frame!==frame){
         if(this.embedPending?.held && this.isDetailEmbed(embed))this.postDirect(frame,'pause');
-        else if(this.feedEmbed(embed))this.postDirect(frame,this.idleChoice(frame));
+        else if(this.feedEmbed(embed) && this.startMode('embed')!=='default')this.postDirect(frame,this.idleChoice(frame));
         else if(first)this.postDirect(frame,'release');
        }
-       if(this.isDetailEmbed(embed))this.manageViewport(embed,true);
+       if(this.isDetailEmbed(embed) && this.scrollAway!=='default')this.manageViewport(embed,true);
        if(event.data.rendered===true)this.embedRendered(frame,state);
        this.embedHandoff();
       }else if(state.direct && method==='rendered')this.embedRendered(frame,state);
@@ -310,54 +366,276 @@
      return;
     }
    };
-   this.win.addEventListener('message',this.onFrameMessage);
-   this.win.addEventListener('popstate',this.onBack);
-   this.win.addEventListener('pagehide',this.onPageExit);
-   this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onVisibility(entries),{threshold:[0,0.5,IN_VIEW,1]}):null;
-   // Warm markup stills when the card arrives. Defer public metadata requests for cards well outside the viewport.
-   const screen=this.win.innerHeight || 800;
-   this.posterIO=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{
-    if(this.dead)return;
-    for(const entry of entries)if(entry.isIntersecting && this.posterDeferred.has(entry.target))this.paintPoster(entry.target);
-   },{rootMargin:`${Math.round(screen*1.5)}px 0px ${screen*5}px 0px`}):null;
-   this.mo=observe?new MutationObserver(records=>{if(records.some(record=>record.attributeName==='collapsed' && record.target.matches(COMMENT)))this.syncCommentVisibility();this.handoff();this.schedule();}):null;
-   this.mo?.observe(doc.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['collapsed','blurred']});
    this.readPreference=readPreference;this.preference=null;
    // Whether direct embed controls are on: then a player that starts by itself is held on its first frame, not unloaded.
    this.directReady=false;
    const direct=Promise.resolve(readDirect?.()).then(value=>{this.directReady=value===true;},()=>{});
-   this.ready=Promise.all([readSettings?.(),direct]).then(([s])=>{this.configure(s || {});},()=>this.configure({}));
+   const vol=Promise.resolve(this.readVolume?.()).then(value=>{if(value && typeof value==='object')this.savedVolume=value;},()=>{});
+   this.ready=Promise.all([readSettings?.(),direct,vol]).then(([s])=>{this.configure(s || {});},()=>this.configure({}));
+  }
+  isPassive(c=this.choice){
+   return c.videoStart==='default' && c.embedStart==='default' && c.gifStart==='default' &&
+    c.mediaClickAction==='default' && c.embedBlockLinks==='off' &&
+    !c.singleVideo && !c.volumeMemory && c.videoScrollAway==='default' &&
+    c.videoOpenPost==='default' && !c.holdFor2x && c.loopPolicy==='default' &&
+    c.streamQuality==='auto';
+  }
+  activate(){
+   if(this.active || this.dead)return;
+   this.active=true;
+   const doc=this.doc,win=this.win;
+   for(const type of ['pointerdown','keydown','click'])doc.addEventListener(type,this.onGesture,true);
+   doc.addEventListener('pointermove',this.onPointerMove,true);
+   for(const type of ['pointerup','pointercancel'])win.addEventListener(type,this.onPointerEnd,true);
+   doc.addEventListener('contextmenu',this.onContextMenu,true);
+   for(const type of ['pointerover','pointerout'])doc.addEventListener(type,this.onHover,true);
+   doc.addEventListener('visibilitychange',this.onTabVisibility);
+   doc.addEventListener('toggle',this.onCommentToggle,true);
+   win.addEventListener('scroll',this.onScroll,{passive:true,capture:true});
+   doc.addEventListener('click',this.onRemember,true);
+   for(const type of ['click','auxclick'])doc.addEventListener(type,this.onEmbedLink,true);
+   doc.addEventListener('reddit:route',this.onRoute);
+   doc.addEventListener('rt-embed-playing',this.onEmbedPlaying);
+   doc.addEventListener('rt-mini-dismissed',this.onMiniDismissed);
+   win.addEventListener('blur',this.onFrameFocus);
+   win.addEventListener('message',this.onFrameMessage);
+   win.addEventListener('popstate',this.onBack);
+   win.addEventListener('pagehide',this.onPageExit);
+   this.io=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>this.onVisibility(entries),{threshold:[0,0.5,IN_VIEW,1]}):null;
+   const screen=win.innerHeight || 800;
+   this.posterIO=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{
+    if(this.dead || !this.active)return;
+    for(const entry of entries)if(entry.isIntersecting && this.posterDeferred.has(entry.target))this.paintPoster(entry.target);
+   },{rootMargin:`${Math.round(screen*1.5)}px 0px ${screen*5}px 0px`}):null;
+   this.mo=this.observe?new MutationObserver(records=>{if(records.some(record=>record.attributeName==='collapsed' && record.target.matches(COMMENT)))this.syncCommentVisibility();this.handoff();this.schedule();}):null;
+   this.mo?.observe(doc.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['collapsed','blurred']});
+  }
+  deactivate(){
+   if(!this.active)return;
+   this.active=false;
+   const doc=this.doc,win=this.win;
+   this.mo?.disconnect();this.mo=null;
+   this.io?.disconnect();this.io=null;
+   this.posterIO?.disconnect();this.posterIO=null;
+   win.clearTimeout(this.posterTimer);this.posterTimer=null;
+   win.clearTimeout(this.settleTimer);win.clearTimeout(this.dwellTimer);
+   win.clearTimeout(this.volumeSaveTimer);this.volumeSaveTimer=null;
+   this.stopHover();
+   this.endHold2x(false);
+   this.exitMini(false);
+   for(const player of [...this.loops.keys()])this.stopLoop(player);
+   for(const [embed,obs] of this.watchedEmbeds){obs.disconnect();this.watchedEmbeds.delete(embed);}
+   this.releaseParkedEmbeds();
+   for(const node of [...this.managedViewport])this.manageViewport(node,false);
+   for(const type of ['pointerdown','keydown','click'])doc.removeEventListener(type,this.onGesture,true);
+   doc.removeEventListener('pointermove',this.onPointerMove,true);
+   for(const type of ['pointerup','pointercancel'])win.removeEventListener(type,this.onPointerEnd,true);
+   doc.removeEventListener('contextmenu',this.onContextMenu,true);
+   for(const type of ['pointerover','pointerout'])doc.removeEventListener(type,this.onHover,true);
+   doc.removeEventListener('visibilitychange',this.onTabVisibility);
+   doc.removeEventListener('toggle',this.onCommentToggle,true);
+   win.removeEventListener('scroll',this.onScroll,{capture:true});
+   doc.removeEventListener('click',this.onRemember,true);
+   for(const type of ['click','auxclick'])doc.removeEventListener(type,this.onEmbedLink,true);
+   doc.removeEventListener('reddit:route',this.onRoute);
+   doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);
+   doc.removeEventListener('rt-mini-dismissed',this.onMiniDismissed);
+   win.removeEventListener('blur',this.onFrameFocus);
+   win.removeEventListener('message',this.onFrameMessage);
+   win.removeEventListener('popstate',this.onBack);
+   win.removeEventListener('pagehide',this.onPageExit);
+   this.players.clear();this.detailEmbeds.clear();this.feedEmbeds.clear();this.feedSoundEmbeds.clear();
+   this.embedAway.clear();this.away=new WeakMap();this.posterDeferred.clear();this.posterNodes.clear();
+   this.clearHandoff();this.clearEmbedHandoff();
+  }
+  releaseParkedEmbeds(){
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){
+    this.uncover(embed);
+    const frame=controlFrame(embed);
+    if(frame?.dataset.rtParked){
+     const original=frame.dataset.rtSrc || '';delete frame.dataset.rtParked;delete frame.dataset.rtSrc;
+     if(original)frame.setAttribute('src',original);
+    }else if(frame && this.frames.get(frame)?.direct){
+     this.postDirect(frame,'release');
+    }
+   }
+  }
+  syncDirectEnhancements(frame){
+   if(!this.frames.get(frame)?.direct)return;
+   this.postDirect(frame,'loop',{policy:this.loopPolicy});
+   this.postDirect(frame,'hold2x',{enabled:this.holdFor2x});
+   if(this.volumeMemory && this.savedVolume)this.postDirect(frame,'volume',{volume:this.savedVolume.volume});
   }
   configure(settings){
    const before=this.choice;
    this.settings=settings || {};this.choice=videoSettings(this.settings);
+   const root=this.doc.documentElement;
+   root?.toggleAttribute?.('data-rt-embed-override',this.startMode('embed')!=='default');
+   if(this.streamQuality==='auto')root?.removeAttribute?.('data-rt-stream-quality');
+   else root?.setAttribute?.('data-rt-stream-quality',this.streamQuality);
+   if(this.isPassive()){
+    this.deactivate();
+    this.configured=true;
+    return;
+   }
+   if(!this.active)this.activate();
    const active=this.hovered || this.ePreview?.embed,kind=mediaKind(active);
    if(active && this.startMode(kind,before)!==this.startMode(kind))this.stopHover();
-   if(this.startMode('gif',before)!==this.startMode('gif'))for(const player of this.loops.keys())this.stopLoop(player);
-   if(!this.pauseAway){this.embedAway.clear();this.away=new WeakMap();}
-   if(!this.continueOnOpen)this.clearHandoff();
+   if(this.startMode('gif',before)!==this.startMode('gif'))for(const player of [...this.loops.keys()])this.stopLoop(player);
+   if(this.startMode('embed')==='default' && this.startMode('embed',before)!=='default'){
+    for(const [embed,obs] of this.watchedEmbeds){obs.disconnect();this.watchedEmbeds.delete(embed);}
+    this.releaseParkedEmbeds();
+   }
+   if(!this.holdFor2x)this.endHold2x(false);
+   if(this.scrollAway!=='mini')this.exitMini(false);
+   if(this.scrollAway==='default'){
+    this.embedAway.clear();this.away=new WeakMap();
+    for(const node of [...this.managedViewport])this.manageViewport(node,false);
+   }
+   if(!this.continueOnOpen){this.clearHandoff();this.clearEmbedHandoff();}
    else if(!this.configured)this.restoreHandoff();
+   for(const [frame,state] of this.frames)if(frame.isConnected && state.direct)this.syncDirectEnhancements(frame);
    this.configured=true;this.scan();
    // Visibility reports that arrived before the settings did still choose the in-view preview.
    if(this.inView)this.settle();
    else if(this.viewing || this.ePreview?.view)this.stopHover();
-   // These choices replace Reddit's own autoplay (and its "Autoplay media" setting): a video Reddit starts by itself is
-   // paused at once; Autoplay then plays the one in view, muted, one at a time.
-   for(const player of this.players){const video=this.video(player);if(video && !video.paused && !this.started.has(video) && !this.continued.has(video) && !this.loops.has(player))this.block(player,video);}
+   for(const player of this.players){
+    const video=this.video(player);if(!video)continue;
+    if(mediaKind(player)!=='gif'){
+     this.applyLoopPolicy(player,video);
+     if(this.volumeMemory && this.savedVolume && !this.previews.get(player)?.active && !this._lastAttached?.has(player))this.applySavedVolume(player,video,false);
+    }
+    if(this.startMode(mediaKind(player))!=='default' && !video.paused && !this.started.has(video) && !this.continued.has(video) && !this.loops.has(player)){
+     this.block(player,video);
+    }
+   }
   }
-  get touch(){return Boolean(this.win.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);}
-  // How feed videos start on this device: Autoplay (the video in view, muted) / Preview on hover (computers) or on the
-  // one you stop scrolling on (phones) / Only when you press Play.
-  startMode(kind,settings=this.choice){return settings[kind+(this.touch?'StartTouch':'Start')];}
+  get touch(){return Boolean(this.win.matchMedia?.('(hover: none) and (pointer: coarse)')?.matches);}
+  startMode(kind,settings=this.choice){return settings[kind+'Start'];}
+  get clickAction(){return this.choice.mediaClickAction;}
+  get clickAudio(){return this.choice.clickAudio;}
+  get singleVideo(){return this.choice.singleVideo===true;}
+  get volumeMemory(){return this.choice.volumeMemory===true;}
+  get scrollAway(){return this.choice.videoScrollAway;}
   get pauseAway(){return this.choice.videoScrollAway==='pause';}
-  get unmutePreview(){return this.choice.videoUnmutePreview;}
-  get continueOnOpen(){return this.choice.videoOpenPost==='continue';}
-  get previewClick(){return this.choice.videoPreviewClick;}
-  get restartPreview(){return this.choice.videoPreviewFrom==='start';}
+  get unmutePreview(){return this.choice.clickAudio==='unmute';}
+  get continueOnOpen(){return this.choice.videoOpenPost==='position' || this.choice.videoOpenPost==='start';}
+  get restartPreview(){return this.choice.videoOpenPost==='start';}
+  get holdFor2x(){return this.choice.holdFor2x===true;}
+  get loopPolicy(){return this.choice.loopPolicy;}
+  get streamQuality(){return this.choice.streamQuality;}
   blockEmbedLinks(feed){return this.choice.embedBlockLinks==='both' || this.choice.embedBlockLinks===(feed?'feed':'posts');}
-  // Phones have no hover: the video you stop scrolling on previews instead, when chosen.
-  get inView(){return kinds.some(kind=>viewMode(this.startMode(kind)));}
+  get inView(){return kinds.some(kind=>viewMode(this.startMode(kind),this.touch));}
   playback(video){return {time:video.currentTime,muted:video.muted,volume:this.fading.get(video) ?? video.volume,rate:video.playbackRate};}
+  targetVolume(video){
+   if(this.volumeMemory && this.savedVolume && this.savedVolume.volume>0)return this.savedVolume.volume;
+   return video.volume>0?video.volume:0.5;
+  }
+  hasAudio(player,video){
+   if(player?.hasAudio===false || player?.getAttribute?.('has-audio')==='false')return false;
+   if(video && video.mozHasAudio===false)return false;
+   const muteBtn=player?.shadowRoot?.querySelector?.('.mute-button');
+   if(muteBtn && (muteBtn.disabled || muteBtn.getAttribute('aria-disabled')==='true'))return false;
+   return true;
+  }
+  applySavedVolume(player,video,allowUnmute=false){
+   if(!this.volumeMemory || !this.savedVolume || !video || mediaKind(player)==='gif')return;
+   const {volume,muted}=this.savedVolume;
+   if(Number.isFinite(volume) && volume>=0 && volume<=1){
+    video.volume=volume;
+    if(player?.matches?.(PLAYERS)){
+     player.dataset.rtTargetVolume=String(volume);
+     player.dispatchEvent(new this.win.Event('rt-video-volume',{bubbles:true}));
+    }
+   }
+   if(allowUnmute && !muted && volume>0 && this.hasAudio(player,video)){
+    video.muted=false;
+   }else if(allowUnmute && muted){
+    video.muted=true;
+   }
+  }
+  recordVolume(video){
+   if(!this.volumeMemory || !video || !Number.isFinite(video.volume))return;
+   this.savedVolume={volume:Math.max(0,Math.min(1,video.volume)),muted:Boolean(video.muted)};
+   this.win.clearTimeout(this.volumeSaveTimer);
+   this.volumeSaveTimer=this.win.setTimeout(()=>this.saveVolume(this.savedVolume),150);
+  }
+  desiredLoop(video){
+   if(this.loopPolicy==='always')return true;
+   if(this.loopPolicy==='never')return false;
+   if(this.loopPolicy==='short')return Number.isFinite(video.duration) && video.duration>0 && video.duration<30;
+   return null;
+  }
+  applyLoopPolicy(player,video){
+   if(!video || mediaKind(player)==='gif' || this.loopPolicy==='default')return;
+   const want=this.desiredLoop(video);
+   if(want!==null)video.loop=want;
+  }
+  startHold2x(event,path){
+   if(event.button>0)return;
+   const player=path.find(node=>node.matches?.(MEDIA_NODES));
+   if(!player || closedThread(player) || mediaKind(player)==='gif')return;
+   const video=this.video(player);
+   if(!video || video.paused || video.ended)return;
+   if(path.some(node=>node.matches?.(PLAYER_CONTROLS+','+SOUND_CONTROL+','+PLAY_BUTTON)))return;
+   if(path[0]!==video)return;
+   const isTouch=event.pointerType==='touch' || event.pointerType==='pen';
+   const rect=video.getBoundingClientRect();
+   if(isTouch && rect.width>0 && (event.clientX-rect.left)<rect.width*0.6)return;
+   this.endHold2x(false);
+   const state={player,video,x:event.clientX,y:event.clientY,rate:video.playbackRate || 1,engaged:false,pill:null,timer:null};
+   state.timer=this.win.setTimeout(()=>{
+    if(this.hold2x!==state || this.dead || !video.isConnected || video.paused || video.ended)return;
+    state.engaged=true;
+    state.rate=video.playbackRate || 1;
+    video.playbackRate=2;
+    const host=player.shadowRoot || player.parentElement || this.doc.body;
+    if(host && host!==this.doc.body && host!==player.shadowRoot && this.win.getComputedStyle(host).position==='static'){
+     state.host=host;state.hostPos=host.style.position;host.style.position='relative';
+    }
+    if(player.shadowRoot && this.win.getComputedStyle(player).position==='static'){
+     state.host=player;state.hostPos=player.style.position;player.style.position='relative';
+    }
+    const pill=this.doc.createElement('div');
+    pill.dataset.rtSpeedPill='';
+    pill.textContent='2× ▶▶';
+    Object.assign(pill.style,{position:'absolute',top:'12px',left:'50%',transform:'translateX(-50%)',zIndex:'20',
+     padding:'4px 10px',borderRadius:'999px',background:'rgba(0,0,0,.78)',color:'#fff',
+     font:'600 12px/16px system-ui,sans-serif',pointerEvents:'none',letterSpacing:'0.02em'});
+    host?.append(pill);
+    state.pill=pill;
+   },isTouch?HOLD_2X_TOUCH_MS:HOLD_2X_MOUSE_MS);
+   this.hold2x=state;
+  }
+  endHold2x(swallowClick=false){
+   if(!this.hold2x)return;
+   const h=this.hold2x;this.hold2x=null;
+   this.win.clearTimeout(h.timer);
+   if(h.engaged){
+    try{h.video.playbackRate=h.rate;}catch{}
+    h.pill?.remove();
+    if(h.host)h.host.style.position=h.hostPos || '';
+    if(swallowClick)this.suppressClickUntil=performance.now()+120;
+   }
+  }
+  enterFullscreen(player,video){
+   const btn=player?.shadowRoot?.querySelector?.('.fullscreen-button, [aria-label*="fullscreen" i]');
+   if(btn && !btn.disabled && btn.getAttribute('aria-disabled')!=='true'){btn.click();return;}
+   if(typeof player?.requestFullscreen==='function'){Promise.resolve(player.requestFullscreen()).catch(()=>{});return;}
+   if(typeof video?.requestFullscreen==='function'){Promise.resolve(video.requestFullscreen()).catch(()=>{});return;}
+   if(typeof video?.webkitEnterFullscreen==='function'){try{video.webkitEnterFullscreen();}catch{}}
+  }
+  enterEmbedFullscreen(embed){
+   const frame=youTubeLite(embed)?.querySelector('iframe') || controlFrame(embed);
+   if(typeof frame?.requestFullscreen==='function'){Promise.resolve(frame.requestFullscreen()).catch(()=>{});return;}
+   if(typeof embed?.requestFullscreen==='function'){Promise.resolve(embed.requestFullscreen()).catch(()=>{});}
+  }
+  exitMini(dismissed=false){
+   if(!this.mini)return;
+   if(this.mini.slot)this.io?.unobserve(this.mini.slot);
+   this.mini=null;
+   this.doc.dispatchEvent(new this.win.Event('rt-mini-exit'));
+  }
   // Sound is turned on through Reddit's own volume state (the page bridge), so the post's player keeps it, then comes
   // in over 200 ms instead of at full volume.
   fadeIn(video,volume,player){
@@ -373,8 +651,9 @@
    };
    step();
   }
-  schedule(){if(this.queued || this.dead)return;this.queued=true;setTimeout(()=>{this.queued=false;if(!this.dead)this.scan();},200);}
+  schedule(){if(this.queued || this.dead || !this.active)return;this.queued=true;setTimeout(()=>{this.queued=false;if(!this.dead && this.active)this.scan();},200);}
   scan(){
+   if(!this.active || this.dead)return;
    for(const node of this.posterNodes)if(!node.isConnected)this.posterNodes.delete(node);
    for(const node of this.posterDeferred)if(!node.isConnected)this.stopDeferringPoster(node);
    for(const embed of this.feedSoundEmbeds)if(!embed.isConnected || !this.feedEmbed(embed))this.stopWatchingFeedSound(embed);
@@ -387,64 +666,97 @@
     this.manageViewport(player,false);
     this.players.delete(player);this.previews.delete(player);this.io?.unobserve(player);
    }
+   const embedOverride=this.startMode('embed')!=='default';
+   const manageDetail=this.scrollAway!=='default';
+   const attachedNow=new Set();
    for(const player of this.doc.querySelectorAll(MEDIA_NODES)){
+    const had=this.players.has(player);
     this.attach(player);
-    if(player.getAttribute('player-type')===FEED_PLAYER)this.observePoster(player);
-    if(player.matches(PLAYERS))this.manageViewport(player,this.isDetailMedia(player));
+    if(!had && this.players.has(player))attachedNow.add(player);
+    if(this.startMode(mediaKind(player))!=='default' && player.getAttribute('player-type')===FEED_PLAYER)this.observePoster(player);
+    if(player.matches(PLAYERS))this.manageViewport(player,manageDetail && this.isDetailMedia(player));
    }
+   this._lastAttached=attachedNow;
    for(const embed of this.detailEmbeds)if(!embed.isConnected || !this.isDetailEmbed(embed)){
     this.detailEmbeds.delete(embed);this.embedAway.delete(embed);this.io?.unobserve(embed);this.manageViewport(embed,false);
    }
    for(const embed of this.doc.querySelectorAll(ANY_EMBED)){
-    this.watchEmbed(embed);
-    // Watched for its still as soon as its card is in the page, before Reddit inserts the player near the screen.
-    if(this.configured && this.stillWanted(embed))this.observePoster(embed);
+    if(embedOverride){
+     this.watchEmbed(embed);
+     if(this.configured && this.stillWanted(embed))this.observePoster(embed);
+    }
     const frame=controlFrame(embed),state=frame && this.frameState(frame);
     if(state)this.framePolicy(frame,this.blockEmbedLinks(!this.isDetailEmbed(embed)));
     if(!this.isDetailEmbed(embed)){
-     if(!this.feedEmbeds.has(embed) && (this.feedEmbed(embed) || this.stillWanted(embed))){
+     if(embedOverride && !this.feedEmbeds.has(embed) && (this.feedEmbed(embed) || this.stillWanted(embed))){
       this.feedEmbeds.add(embed);this.io?.observe(embed);
      }
      continue;
     }
-    this.trackDetailEmbed(embed,state);
+    if(manageDetail)this.trackDetailEmbed(embed,state);
    }
-   if(this.configured)this.parkIdle();
+   if(this.configured && embedOverride)this.parkIdle();
    this.handoff();
    this.embedHandoff();
   }
   trackDetailEmbed(embed,state){
+   if(this.scrollAway==='default')return;
    if(!this.detailEmbeds.has(embed)){this.detailEmbeds.add(embed);this.io?.observe(embed);}
    if(state===undefined){const frame=controlFrame(embed);state=frame && this.frameState(frame);}
-   this.manageViewport(embed,!this.pauseAway || embed.matches(EMBED) || Boolean(state && (state.direct || state.kind!=='flags')));
+   this.manageViewport(embed,embed.matches(EMBED) || Boolean(state && (state.direct || state.kind!=='flags')));
   }
   attach(player){
    const direct=player.matches('video'),root=direct?player:player.shadowRoot;
    if(this.players.has(player) || !root)return;
    this.players.add(player);this.io?.observe(player);
    if(this.inView && !this.viewing)this.settle();
+   const video=this.video(player);
+   if(video && mediaKind(player)!=='gif'){
+    this.applyLoopPolicy(player,video);
+    if(this.volumeMemory && this.savedVolume && !this.previews.get(player)?.active)this.applySavedVolume(player,video,false);
+   }
    if(this.attached.has(player))return;
    this.attached.add(player);
    if(direct)player.controls=true;
-   root.addEventListener('play',event=>this.onPlay(player,event),true);
-   root.addEventListener('timeupdate',event=>this.onTime(event),true);
+   root.addEventListener('play',event=>{if(this.active && !this.dead)this.onPlay(player,event);},true);
+   root.addEventListener('timeupdate',event=>{if(this.active && !this.dead)this.onTime(event);},true);
    root.addEventListener('pause',event=>{
+    if(!this.active || this.dead)return;
     if(event.target.paused)this.continued.delete(event.target);
    },true);
    // Reddit re-applies its saved volume when a video starts; a preview stays muted until it plays for real.
    root.addEventListener('volumechange',event=>{
+    if(!this.active || this.dead)return;
     const preview=this.previews.get(player);
-    if(preview?.active && preview.video===event.target && !event.target.muted)event.target.muted=true;
+    if(preview?.active && preview.video===event.target && !event.target.muted){event.target.muted=true;return;}
+    if(this.volumeMemory && mediaKind(player)!=='gif' && !this.fading.has(event.target) &&
+       (this.started.has(event.target) || this.userStarted(player))){
+     this.recordVolume(event.target);
+    }
+   },true);
+   root.addEventListener('durationchange',event=>{
+    if(!this.active || this.dead)return;
+    if(mediaKind(player)!=='gif')this.applyLoopPolicy(player,event.target);
+   },true);
+   root.addEventListener('ended',event=>{
+    if(!this.active || this.dead || mediaKind(player)==='gif')return;
+    const v=event.target,want=this.desiredLoop(v);
+    if(want===true){v.currentTime=0;this.play(player,v)?.catch?.(()=>{});}
+    else if(want===false){this.endedAt.set(player,performance.now());}
    },true);
    root.addEventListener('loadedmetadata',event=>{
+    if(!this.active || this.dead)return;
     const preview=this.previews.get(player);
+    if(mediaKind(player)!=='gif'){
+     this.applyLoopPolicy(player,event.target);
+     if(this.volumeMemory && this.savedVolume && !preview?.active)this.applySavedVolume(player,event.target,false);
+    }
     if(preview?.active && preview.video===event.target)this.playPreview(player,preview);
     if(this.loops.get(player)===event.target)this.playLoop(player,event.target);
     if(this.away.get(player)?.loading)this.resumeAway(player);
     this.handoff();
    },true);
-   const video=this.video(player);
-   if(commentOf(player) && video && !video.paused)this.block(player,video);
+   if(commentOf(player) && video && !video.paused && this.startMode(mediaKind(player))!=='default')this.block(player,video);
   }
   video(player){return player.matches('video')?player:player.shadowRoot?.querySelector('video') || null;}
   isDetailMedia(player){
@@ -495,7 +807,7 @@
    }
    if(current && path.includes(card))this.win.clearTimeout(this.leaveTimer);
    const player=path.find(node=>node.matches?.(MEDIA_NODES));
-   if(!player || this.startMode(mediaKind(player))!=='hover' || !this.previewable(player) || event.buttons || current===player)return;
+   if(!player || this.startMode(mediaKind(player))!=='preview' || !this.previewable(player) || event.buttons || current===player)return;
    if(within(to,player))return;
    this.stopHover();
    this.hovered=player;
@@ -558,20 +870,98 @@
    preview.video.muted=preview.muted;
    if(!preview.played)this.previews.delete(player);
   }
-  // A click on a preview opens its post (as YouTube does) or plays it here; its own sound control acts in place.
-  usePreview(player,event,path){
+  // Unified Click & Audio Interaction Matrix with strict click-target isolation (video surface only; controls/card stay native).
+  handleVideoClick(player,video,event,path){
+   if(!video)return;
    const preview=this.previews.get(player);
-   if(path.some(node=>node.matches?.(SOUND_CONTROL))){
-    this.promotePreview(player,'control');
+   const isPreview=Boolean(preview && preview.video===video);
+   // GIFs are strictly independent and never inherit video click/audio rules.
+   if(mediaKind(player)==='gif'){
+    if(isPreview){this.previews.delete(player);this.started.add(video);if(this.hovered===player){this.hovered=null;this.viewing=false;}}
     return;
    }
-   const button=path.some(node=>node.matches?.(PLAY_BUTTON));
-   if(!button && path[0]!==preview.video)return;
-   if(!preview.played){this.stopHover();return;}
-   event.preventDefault();
-   event.stopImmediatePropagation();
-   if(button) this.promotePreview(player,'here');
-   else if(commentOf(player) || this.previewClick!=='open' || !this.openPost(player))this.promotePreview(player,this.previewClick==='muted'?'muted':'here');
+   if(path.some(node=>node.matches?.(SOUND_CONTROL))){
+    if(isPreview)this.promotePreview(player,'control');
+    else if(!video.paused)this.started.add(video);
+    return;
+   }
+   const playButton=path.some(node=>node.matches?.(PLAY_BUTTON));
+   if(playButton){
+    if(isPreview){
+     if(!preview.played){this.stopHover();return;}
+     event.preventDefault();event.stopImmediatePropagation();
+     const wantSound=this.clickAction==='default'?true:this.clickAudio==='unmute';
+     this.promotePreview(player,'inline',wantSound);
+    }
+    return;
+   }
+   // Strict isolation: never intercept native player controls (captions, scrubber, fullscreen, settings, links).
+   if(path.some(node=>node.matches?.(PLAYER_CONTROLS)))return;
+   if(path[0]!==video)return;
+   if(isPreview && !preview.played){this.stopHover();return;}
+   const action=this.clickAction,wantSound=this.clickAudio==='unmute';
+   const detailOrComment=this.isDetailMedia(player) || Boolean(commentOf(player));
+   const effective=action==='open' && detailOrComment?'inline':action;
+   if(effective==='default'){
+    if(isPreview){
+     this.previews.delete(player);this.started.add(video);
+     if(this.hovered===player){this.hovered=null;this.viewing=false;}
+    }else if(!video.paused)this.started.add(video);
+    return;
+   }
+   if(effective==='open'){
+    event.preventDefault();event.stopImmediatePropagation();
+    if(!isPreview && !video.paused){
+     this.started.add(video);
+     if(wantSound && video.muted && this.hasAudio(player,video))this.fadeIn(video,this.targetVolume(video),player);
+    }
+    if(this.openPost(player)){
+     if(isPreview && !this.continueOnOpen)this.promotePreview(player,'inline',wantSound);
+     return;
+    }
+   }
+   if(effective==='fullscreen'){
+    event.preventDefault();event.stopImmediatePropagation();
+    if(isPreview){this.promotePreview(player,'inline',wantSound);}
+    else{
+     this.started.add(video);
+     if(wantSound && video.muted && this.hasAudio(player,video))this.fadeIn(video,this.targetVolume(video),player);
+     else if(!wantSound)video.muted=true;
+     if(video.paused)this.play(player,video)?.catch?.(()=>{});
+    }
+    this.enterFullscreen(player,video);
+    return;
+   }
+   // effective === 'inline' (Play/Control in feed):
+   if(!video.paused){
+    if(video.muted){
+     if(wantSound && this.hasAudio(player,video)){
+      // Unmute-first priority: 1st click unmutes in place without pausing; 2nd click passes through to pause.
+      event.preventDefault();event.stopImmediatePropagation();
+      if(isPreview)this.promotePreview(player,'inline',true);
+      else{this.started.add(video);this.fadeIn(video,this.targetVolume(video),player);}
+      return;
+     }
+     if(isPreview){
+      event.preventDefault();event.stopImmediatePropagation();
+      this.promotePreview(player,'inline',false);
+      return;
+     }
+     return; // Already user-owned muted (or silent video): pass through to native pause.
+    }
+    if(isPreview){
+     event.preventDefault();event.stopImmediatePropagation();
+     this.promotePreview(player,'inline',true);
+    }
+    return; // Already playing & unmuted: 2nd click passes through to native pause.
+   }
+   // Paused video clicked with inline action: start playing with chosen clickAudio.
+   event.preventDefault();event.stopImmediatePropagation();
+   if(isPreview){this.promotePreview(player,'inline',wantSound);return;}
+   this.started.add(video);
+   if(wantSound && this.hasAudio(player,video))this.fadeIn(video,this.targetVolume(video),player);
+   else video.muted=true;
+   this.play(player,video)?.catch?.(()=>{});
   }
   post(frame,data){try{frame.contentWindow?.postMessage(data,new URL(frame.getAttribute('src') || '',this.win.location.href).origin);}catch{}}
   embedOrigin(frame){return embedHosts?.playerOrigin(frame.getAttribute('src')) || '';}
@@ -700,24 +1090,31 @@
    this.paintPoster(embed);
   }
   uncover(embed){embed.shadowRoot?.querySelector('[data-rt-parked-cover]')?.remove();embed.shadowRoot?.querySelector('[data-rt-pre-still]')?.remove();}
-  // A tap on the image plays that player with sound, as its own play button would.
+  // A tap on the image plays that player, respecting clickAudio/fullscreen when configured.
   playCovered(embed){
    if(this.ePreview?.embed!==embed)this.stopEmbed();
    else{const preview=this.ePreview;this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);}
    embed.dataset.rtEmbedUsed='1';
    this.watchFeedSound(embed);
+   const wantSound=this.clickAction==='default' || this.clickAudio==='unmute';
    const frame=controlFrame(embed);
    if(frame?.dataset.rtParked){
-    const src=frame.dataset.rtSrc;this.unpark(embed,frame,flagged(src,true));this.frameSound({frame,src},false);
+    const src=frame.dataset.rtSrc;this.unpark(embed,frame,flagged(src,wantSound));
+    if(wantSound)this.frameSound({frame,src},false);
+    else{this.command(frame,'mute');this.command(frame,'play');}
    }
    else{
     this.uncover(embed);
-    if(embed.matches(EMBED)){const lite=youTubeLite(embed);if(lite && !lite.classList.contains('lyt-activated'))lite.click();else embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));}
+    if(embed.matches(EMBED)){const lite=youTubeLite(embed);if(lite && !lite.classList.contains('lyt-activated'))lite.click();else embed.dispatchEvent(new this.win.Event(wantSound?'rt-embed-sound':'rt-embed-use-muted',{bubbles:true}));}
     else{
-     const player=frame || controlFrame(embed,'audible');
-     if(player)this.frameSound({frame:player,src:player.src},false);
+     const player=frame || controlFrame(embed,wantSound?'audible':'muted');
+     if(player){
+      if(wantSound)this.frameSound({frame:player,src:player.src},false);
+      else{this.command(player,'mute');this.command(player,'play');}
+     }
     }
    }
+   if(this.clickAction==='fullscreen')this.enterEmbedFullscreen(embed);
    this.exclusive(embed);
   }
   // A feed player that stops being the one playing goes back to its image: unloaded if it has no controls, paused
@@ -976,7 +1373,7 @@
    }
    if(current && path.includes(current.card))this.win.clearTimeout(current.leave);
    if(!embed)return false;
-   if(!this.feedEmbed(embed) || this.startMode('embed')!=='hover' || event.buttons || current?.embed===embed)return true;
+   if(!this.feedEmbed(embed) || this.startMode('embed')!=='preview' || event.buttons || current?.embed===embed)return true;
    this.stopHover();
    const preview=this.ePreview={embed,card:embed.closest('shreddit-post')};
    preview.timer=this.win.setTimeout(()=>this.startEmbed(preview),HOVER_MS);
@@ -1010,8 +1407,9 @@
    // While it previews, a layer over the embed takes the click (the iframe would otherwise play it in place).
    const layer=preview.layer=this.doc.createElement('div');
    layer.dataset.rtEmbedLayer='';
-   layer.setAttribute('role',this.previewClick==='open'?'link':'button');
-   layer.setAttribute('aria-label',{open:'Open post',muted:'Show controls, stay muted',sound:'Play with sound'}[this.previewClick]);
+   layer.setAttribute('role',this.clickAction==='open'?'link':'button');
+   const layerLabel=this.clickAction==='open'?'Open post':this.clickAction==='fullscreen'?'Open in fullscreen':this.clickAudio==='unmute'?'Play with sound':'Show controls, stay muted';
+   layer.setAttribute('aria-label',layerLabel);
    layer.tabIndex=0;
    Object.assign(layer.style,{position:'absolute',inset:'0',zIndex:'5',cursor:'pointer',background:'transparent'});
    const sound=preview.sound=this.doc.createElement('button');
@@ -1036,9 +1434,13 @@
   }
   useEmbed(preview,sound){
    if(this.ePreview!==preview)return;
-   if(sound || this.previewClick!=='open' || !this.openPost(preview.embed)){
-    this.promoteEmbed(preview,sound || this.previewClick==='sound',!sound);
+   const wantSound=sound || this.clickAudio==='unmute';
+   if(!sound && this.clickAction==='open' && this.openPost(preview.embed)){
+    if(this.ePreview===preview)this.promoteEmbed(preview,wantSound,false);
+    return;
    }
+   this.promoteEmbed(preview,wantSound,!sound);
+   if(!sound && this.clickAction==='fullscreen')this.enterEmbedFullscreen(preview.embed);
   }
   // The preview becomes the user's: the layer goes, it keeps playing, with sound when chosen.
   promoteEmbed(preview,sound,reload){
@@ -1086,26 +1488,28 @@
     const frame=controlFrame(embed),state=this.frames.get(frame);
     if(!preview && state?.playing===false)return false;
     const progress=state?.progress;
-    if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);
-     if(this.unmutePreview)this.frameSound(preview.frame,false);}
-    this.clearEmbedHandoff();
-    const resume=this.continueOnOpen && progress?{
-     id,owner:owner(this.doc),at:Date.now(),generic:true,
-     time:preview && this.restartPreview?0:progress.time,muted:preview?!this.unmutePreview:progress.muted
-    }:null;
-    if(resume)try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify(resume));}catch{}
-    const held=this.continueOnOpen && !embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
-    const sound=this.unmutePreview?preview?.frame:null;
-    if(!held && !sound && !resume && !reveal)return false;
-    this.stopWatchingFeedSound(embed);
-    this.watchEmbedHandoff({...handoff,held,generic:true,sound,frame,resume});
-    return true;
-   }
-   embed.dispatchEvent(new this.win.Event('rt-embed-snapshot',{bubbles:true}));
-   const time=Number(embed.dataset.rtEmbedTime);
-   if(!preview && (embed.dataset.rtEmbedState!=='playing' || !Number.isFinite(time) || time<0))return false;
-   const muted=preview?!this.unmutePreview:embed.dataset.rtEmbedMuted==='true';
-   const restart=Boolean(preview && this.restartPreview);
+   if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;this.restoreHost(preview);
+    if(this.unmutePreview)this.frameSound(preview.frame,false);}
+   this.clearEmbedHandoff();
+   if(!this.continueOnOpen)return false;
+   const resume=progress?{
+    id,owner:owner(this.doc),at:Date.now(),generic:true,
+    time:this.restartPreview?0:progress.time,muted:preview?!this.unmutePreview:progress.muted
+   }:null;
+   if(resume)try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify(resume));}catch{}
+   const held=!embed.dispatchEvent(new this.win.Event('rt-hold-feed-embed',{bubbles:true,cancelable:true}));
+   const sound=this.unmutePreview?preview?.frame:null;
+   if(!held && !sound && !resume && !reveal)return false;
+   this.stopWatchingFeedSound(embed);
+   this.watchEmbedHandoff({...handoff,held,generic:true,sound,frame,resume});
+   return true;
+  }
+  if(!this.continueOnOpen)return false;
+  embed.dispatchEvent(new this.win.Event('rt-embed-snapshot',{bubbles:true}));
+  const time=Number(embed.dataset.rtEmbedTime);
+  if(!preview && (embed.dataset.rtEmbedState!=='playing' || !Number.isFinite(time) || time<0))return false;
+  const muted=preview?!this.unmutePreview:embed.dataset.rtEmbedMuted==='true';
+  const restart=Boolean(this.restartPreview);
    this.clearEmbedHandoff();
    try{this.win.sessionStorage.setItem(EMBED_KEY,JSON.stringify({id,owner:owner(this.doc),at:Date.now(),time:restart || !Number.isFinite(time) || time<0?0:time,muted}));}catch{}
    if(preview){this.ePreview=null;this.win.clearTimeout(preview.timer);this.win.clearTimeout(preview.leave);preview.layer?.remove();delete embed.dataset.rtEmbedPreview;}
@@ -1241,7 +1645,7 @@
    try{link.click();}finally{this.opening=null;if(temporary)link.remove();}
    return true;
   }
-  promotePreview(player,action){
+  promotePreview(player,action,wantSound=null){
    const preview=this.previews.get(player);
    if(!preview || (!preview.played && !(action==='control' && preview.active)))return;
    const video=preview.video;
@@ -1249,8 +1653,9 @@
    this.started.add(video);
    if(this.hovered===player)this.stopHover();
    if(action==='control')return;
-   if(action!=='muted' && this.restartPreview)video.currentTime=0;
-   if(action==='here' || action==='open' && this.unmutePreview)this.fadeIn(video,video.volume>0?video.volume:0.5,player);
+   const unmute=wantSound!==null?wantSound:(action==='here' || action==='open' && this.unmutePreview);
+   if(action==='open' && this.restartPreview)video.currentTime=0;
+   if(unmute && this.hasAudio(player,video))this.fadeIn(video,this.targetVolume(video),player);
    else video.muted=true;
    if(video.paused){
     this.continued.add(video);
@@ -1268,14 +1673,16 @@
    const url=new URL(link.href,this.win.location.href),id=postId(url.pathname);
    if(url.origin!==this.win.location.origin || !id || card.id!=='t3_'+id || postId(this.win.location.pathname)===id)return;
    const embed=[...card.querySelectorAll(ANY_EMBED)].find(node=>this.feedEmbed(node));
-   if(embed && (this.continueOnOpen || !embed.matches(EMBED)) && this.rememberEmbed(embed,id))return;
+   if(embed && this.continueOnOpen && this.rememberEmbed(embed,id))return;
    if(!this.continueOnOpen)return;
    const source=[...card.querySelectorAll(PLAYERS)].find(player=>player.getAttribute('player-type')===FEED_PLAYER);
    const sourceVideo=source && this.video(source);
    if(sourceVideo && this.previews.get(source)?.video===sourceVideo)this.promotePreview(source,'open');
    if(!sourceVideo || sourceVideo.paused || sourceVideo.ended || !this.started.has(sourceVideo) || this.previews.has(source) || source.closest(BLURRED))return;
+   if(this.restartPreview)sourceVideo.currentTime=0;
    this.clearHandoff();
    const saved={id,owner:owner(this.doc),at:Date.now(),...this.playback(sourceVideo)};
+   if(this.restartPreview)saved.time=0;
    const pending=this.pending={saved,source,sourceVideo,sourceCard:card,from:this.win.location.pathname,reached:false,
     reveal:this.revealedMediaGates.has(source.closest(NSFW_GATE))};
    this.saveHandoff();
@@ -1387,20 +1794,30 @@
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
    if(closedThread(player)){video.pause();return;}
+   const kind=mediaKind(player);
+   if(kind!=='gif')this.applyLoopPolicy(player,video);
    if(this.loops.get(player)===video)return;
    if(this.continued.has(video)){this.exclusive(video);return;}
    const preview=this.previews.get(player);
    if(preview?.active && preview.video===video){preview.played=true;this.exclusive(video);return;}
    const userStarted=this.userStarted(player);
-   if(userStarted){this.started.add(video);this.previews.delete(player);this.away.delete(player);}
-   else this.started.delete(video);
-   if(!userStarted){this.block(player,video);return;}
+   if(kind!=='gif' && !userStarted && this.desiredLoop(video)===false && performance.now()-(this.endedAt.get(player) ?? -Infinity)<200){
+    video.pause();return;
+   }
+   if(userStarted){
+    this.started.add(video);this.previews.delete(player);this.away.delete(player);this.miniDismissed.delete(player);
+    if(kind!=='gif' && this.volumeMemory && this.savedVolume)this.applySavedVolume(player,video,true);
+   }else{
+    this.started.delete(video);
+    if(this.startMode(kind)!=='default'){this.block(player,video);return;}
+    if(kind!=='gif' && this.volumeMemory && this.savedVolume)this.applySavedVolume(player,video,false);
+   }
    delete player.dataset.rtAutoplayBlocked;
    this.exclusive(video);
   }
-  // One video plays at a time, as on YouTube: whatever starts (a video, a preview, a YouTube player) pauses the rest.
-  // A video held for its post keeps playing; YouTube players are paused by the page bridge.
+  // One video plays at a time (opt-in enhancement): whatever starts pauses the rest (GIFs and held post moves excluded).
   exclusive(source){
+   if(!this.singleVideo)return;
    const origin=source.matches?.('video') && commentOf(source)?source:source.getRootNode?.()?.host;
    if(origin?.matches?.(MEDIA_NODES) && mediaKind(origin)==='gif')return;
    for(const embed of this.embedAway)if(embed!==source)this.embedAway.delete(embed);
@@ -1413,8 +1830,10 @@
    if(this.ePreview && this.ePreview.embed!==source)this.stopEmbed();
    for(const [frame,state] of this.frames)if((state.kind!=='flags' || state.direct) && frame.isConnected &&
      !(this.embedPending?.held && frame===this.embedPending.frame) && embedOfFrame(frame)!==source)this.command(frame,'pause');
-   // Feed players that have played go back to their image.
-   for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(embed!==source && (embed.dataset.rtEmbedUsed==='1' || youTubeLite(embed)?.querySelector('iframe') || this.frames.get(controlFrame(embed))?.played))this.rest(embed);
+   // Feed players that have played go back to their image (only when embedStart is overridden).
+   if(this.startMode('embed')!=='default'){
+    for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(embed!==source && (embed.dataset.rtEmbedUsed==='1' || youTubeLite(embed)?.querySelector('iframe') || this.frames.get(controlFrame(embed))?.played))this.rest(embed);
+   }
    source.dispatchEvent(new this.win.Event('rt-media-exclusive',{bubbles:true,composed:true}));
   }
   block(player,video){
@@ -1423,13 +1842,13 @@
   }
   onTime(event){if(this.pending?.sourceVideo===event.target)this.updatePlayback(this.pending);}
   observeAfterMove(player){
-   this.manageViewport(player,this.isDetailMedia(player));
+   this.manageViewport(player,this.scrollAway!=='default' && this.isDetailMedia(player));
    if(!this.io)return;
    this.visibilityReady.set(player,Infinity);
    this.io.unobserve(player);
    // Discard feed geometry and wait for the relocated player to paint in the post (after its flight, if it flies).
    const observe=()=>this.win.requestAnimationFrame(()=>{
-    if(this.dead)return;
+    if(this.dead || !this.active)return;
     this.visibilityReady.set(player,this.win.performance.now());
     if(player.isConnected && this.players.has(player))this.io.observe(player);
    });
@@ -1437,11 +1856,16 @@
    else this.win.requestAnimationFrame(observe);
   }
   onVisibility(entries){
+   if(!this.active || this.dead)return;
    const pending=this.activeHandoff();
    // Feed layout settling without a scroll (cards loading in) also picks a phone preview.
    if(this.inView && !this.viewing)this.settle();
    for(const entry of entries){
     const player=entry.target,ready=this.visibilityReady.get(player);
+    if(this.mini && (player===this.mini.slot || player===this.mini.node && !this.mini.slot)){
+     if(entry.intersectionRatio>=0.5)this.exitMini(false);
+     continue;
+    }
     if(this.feedSoundEmbeds.has(player)){
      if(entry.intersectionRatio===0){
       if(player.matches(EMBED))player.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
@@ -1453,7 +1877,7 @@
     if(this.detailEmbeds.has(player)){this.onEmbedVisibility(player,entry.intersectionRatio);continue;}
     if(this.feedEmbeds.has(player)){if(entry.intersectionRatio>0)this.paintPoster(player);continue;}
     if((ready!==undefined && !(entry.time>=ready)) || (player===pending?.source && (pending.held || pending.reached)))continue;
-    // A post's own video pauses once it is fully out of view and resumes where it was when half of it is back;
+    // A post's own video pauses or floats once fully out of view and resumes/docks when half is back;
     // a feed video pauses when less than half of it is on screen and stays paused.
     const detail=player.getAttribute('player-type')===DETAIL_PLAYER || Boolean(commentOf(player)),ratio=entry.intersectionRatio;
     if(ratio<0.5 && this.loops.has(player))this.stopLoop(player);
@@ -1462,9 +1886,18 @@
     if(ratio>=0.5){if(detail)this.resumeAway(player);continue;}
     if(detail && ratio>0)continue;
     if(player===this.hovered)this.stopHover();
-    if(!this.pauseAway)continue;
+    if(this.scrollAway==='default')continue;
     const video=this.video(player);
-    if(video && !video.paused && !video.ended){
+    if(!video || video.paused || video.ended)continue;
+    if(this.scrollAway==='mini' && detail && !commentOf(player) && mediaKind(player)!=='gif' && !this.mini && !this.miniDismissed.has(player)){
+     if(!player.dispatchEvent(new this.win.Event('rt-mini-enter',{bubbles:true,cancelable:true}))){
+      const slot=this.doc.querySelector('[data-rt-mini-slot]');
+      this.mini={node:player,slot};
+      if(slot)this.io?.observe(slot);
+      continue;
+     }
+    }
+    if(this.pauseAway || this.scrollAway==='mini' && !this.miniDismissed.has(player) && !this.mini){
      video.pause();player.dataset.rtPausedAway='true';
      if(detail)this.away.set(player,{video,time:video.currentTime,visible:false});
     }
@@ -1472,7 +1905,7 @@
   }
   resumeAway(player){
    const away=this.away.get(player),video=this.video(player);
-   if(!away || !this.pauseAway || this.doc.hidden || closedThread(player)){this.away.delete(player);return;}
+   if(!away || this.scrollAway==='default' || this.doc.hidden || closedThread(player)){this.away.delete(player);return;}
    if(!away.visible)return;
    if(video!==away.video || !video.paused || video.ended){this.away.delete(player);return;}
    // Reddit may have unloaded the source while it was far away: reload it, then resume at the same time.
@@ -1490,21 +1923,35 @@
    this.play(player,video)?.catch?.(()=>this.continued.delete(video));
   }
   onEmbedVisibility(embed,ratio){
-   if(!this.pauseAway || !this.isDetailEmbed(embed) || this.doc.hidden)return;
+   if(this.scrollAway==='default' || !this.isDetailEmbed(embed) || this.doc.hidden)return;
    const youtube=embed.matches(EMBED),frame=youtube?null:controlFrame(embed);
    if(ratio>=0.5){
+    if(this.mini?.node===embed){this.exitMini(false);return;}
     if(!this.embedAway.delete(embed))return;
     if(youtube)embed.dispatchEvent(new this.win.Event('rt-embed-return',{bubbles:true}));
     else if(frame)this.command(frame,'play');
     return;
    }
    if(ratio>0 || this.embedAway.has(embed))return;
+   let playing=false;
    if(youtube){
     embed.dispatchEvent(new this.win.Event('rt-embed-snapshot',{bubbles:true}));
+    playing=embed.dataset.rtEmbedState==='playing';
+   }else if(frame){
+    playing=Boolean(this.frames.get(frame)?.playing);
+   }
+   if(this.scrollAway==='mini' && playing && !this.mini && !this.miniDismissed.has(embed)){
+    if(!embed.dispatchEvent(new this.win.Event('rt-mini-enter',{bubbles:true,cancelable:true}))){
+     this.mini={node:embed,slot:null};
+     return;
+    }
+    // Firefox / no moveBefore: gracefully fall back to pause & resume.
+   }
+   if(youtube){
     const state=embed.dataset.rtEmbedState;
     if(state==='playing')this.embedAway.add(embed);
     if(state!=='paused')embed.dispatchEvent(new this.win.Event('rt-embed-offscreen',{bubbles:true}));
-   }else if(frame && this.frames.get(frame)?.playing){
+   }else if(frame && playing){
     if(this.command(frame,'pause'))this.embedAway.add(embed);
    }
   }
@@ -1512,12 +1959,12 @@
    this.win.clearTimeout(this.settleTimer);this.win.clearTimeout(this.dwellTimer);
    const modes=kinds.map(kind=>this.startMode(kind));
    if(modes.includes('autoplay'))this.settleTimer=this.win.setTimeout(()=>this.pickInView(false),AUTOPLAY_MS);
-   if(modes.includes('stop'))this.dwellTimer=this.win.setTimeout(()=>this.pickInView(),DWELL_MS);
+   if(this.touch && modes.includes('preview'))this.dwellTimer=this.win.setTimeout(()=>this.pickInView(true),DWELL_MS);
   }
   // After scrolling stops, the feed video at least 60 % visible and nearest the middle of the screen previews, one at a
   // time; a playing preview keeps going while it stays at least half on screen.
   pickInView(settled=true){
-   if(this.dead || this.doc.hidden || this.pending?.held || this.embedPending?.held)return;
+   if(this.dead || !this.active || this.doc.hidden || this.pending?.held || this.embedPending?.held)return;
    // Once the viewer has taken over an embed, a nearby automatic preview cannot steal playback or its controls.
    if([...this.feedSoundEmbeds].some(embed=>embed.isConnected && this.feedEmbed(embed) && !this.outsideViewport(embed)))return;
    const height=this.win.innerHeight,middle=height/2;let best=null,distance=Infinity;
@@ -1525,7 +1972,7 @@
     .concat([...this.doc.querySelectorAll(ANY_EMBED)].filter(embed=>this.feedEmbed(embed)));
    for(const node of candidates){
     const kind=mediaKind(node),mode=this.startMode(kind);
-    if(!node.isConnected || !viewMode(mode) || mode==='stop' && !settled)continue;
+    if(!node.isConnected || !viewMode(mode,this.touch) || (mode==='preview' && !settled))continue;
     if(kind==='embed' && node.dataset.rtEmbedUsed==='1')continue;
     const box=node.getBoundingClientRect();if(!(box.height>0))continue;
     const shown=(Math.min(box.top+box.height,height)-Math.max(box.top,0))/box.height,gap=Math.abs(box.top+box.height/2-middle);
@@ -1537,7 +1984,7 @@
    }
    if(best && (best===this.hovered || best===this.ePreview?.embed))return;
    if(this.hovered && !this.viewing || this.ePreview && !this.ePreview.view)return;
-   if(!settled && this.startMode(mediaKind(this.hovered || this.ePreview?.embed))==='stop' && (this.viewing || this.ePreview?.view))return;
+   if(!settled && this.startMode(mediaKind(this.hovered || this.ePreview?.embed))==='preview' && (this.viewing || this.ePreview?.view))return;
    this.stopHover();
    if(!best)return;
    if(best.matches(ANY_EMBED)){
@@ -1549,20 +1996,10 @@
    this.startPreview(best);
   }
   destroy(){
-   this.dead=true;this.mo?.disconnect();this.io?.disconnect();this.posterIO?.disconnect();this.win.clearTimeout(this.posterTimer);
-   this.stopHover();
-   for(const player of this.loops.keys())this.stopLoop(player);
-   for(const type of ['pointerdown','keydown','click'])this.doc.removeEventListener(type,this.onGesture,true);
-   for(const type of ['pointerover','pointerout'])this.doc.removeEventListener(type,this.onHover,true);
-   this.doc.removeEventListener('visibilitychange',this.onTabVisibility);
-   this.doc.removeEventListener('toggle',this.onCommentToggle,true);
-   this.win.removeEventListener('scroll',this.onScroll,{capture:true});this.win.clearTimeout(this.settleTimer);this.win.clearTimeout(this.dwellTimer);
-   for(const node of this.managedViewport)this.manageViewport(node,false);
-   this.doc.removeEventListener('click',this.onRemember,true);this.doc.removeEventListener('reddit:route',this.onRoute);this.doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);this.win.removeEventListener('blur',this.onFrameFocus);this.win.removeEventListener('message',this.onFrameMessage);
-   for(const type of ['click','auxclick'])this.doc.removeEventListener(type,this.onEmbedLink,true);
-   this.win.removeEventListener('popstate',this.onBack);this.win.removeEventListener('pagehide',this.onPageExit);
-   this.clearHandoff();
-   this.clearEmbedHandoff();
+   this.dead=true;
+   this.deactivate();
+   this.doc.documentElement?.removeAttribute?.('data-rt-embed-override');
+   this.doc.documentElement?.removeAttribute?.('data-rt-stream-quality');
   }
  }
  globalThis.RTVideoControl=Object.freeze({Videos,readAutoplayDisabled});

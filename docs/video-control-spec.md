@@ -217,3 +217,32 @@ User report (0.51.2): stills still arrived late or not at all, and paused player
 - A feed-to-post handoff moves the existing iframe and excludes it from competing-player pauses until it lands. A successful move retains its media size and resumes viewport tracking in the destination. When a full navigation replaces the iframe, YouTube and authorized direct players resume from the last known position and sound state.
 - **Pause and resume** applies to the opened post's playing native video and controllable embed. A feed preview timer cannot release ownership of detail-page scrolling. Pause once the player has left the screen and resume the same media when half is back. A manually paused player stays paused.
 - Chrome can drop dynamically registered player scripts when the unpacked extension reloads. Restore missing registrations from the already granted provider permissions. An installation without that grant registers nothing.
+
+## Streamlined Passive-Default Architecture (2026-11-22)
+
+### Default State Rule & Passive Initialization
+- All media & enhancement settings default to Reddit/Provider Default (`videoStart`/`embedStart`/`gifStart`/`mediaClickAction`/`videoScrollAway`/`videoOpenPost`/`loopPolicy` = `'default'`, `clickAudio` = `'muted'`, `embedBlockLinks` = `'off'`, `streamQuality` = `'auto'`, `singleVideo`/`volumeMemory`/`holdFor2x` = `false`).
+- When all media settings are passive (`isPassive()`), `video-control.js` attaches **zero** DOM/Intersection observers, **zero** capture listeners, **zero** embed covers/facades, **zero** autoplay blocking, and **zero** viewport overrides. Toggling any option activates live via `settings-changed`; returning to passive cleanly tears down and restores parked embeds and native state.
+- `post-page-bridge.js` gates `shreddit-embed.prototype.setupLoadObserver` on `html[data-rt-embed-override]`, and gates HLS/DASH manifest filtering on `html[data-rt-stream-quality]`.
+- `embed-player.js` receives `{ authorized, holdFeed }` from `rt-embed-player` (`holdFeed = embedStart !== 'default'`), so even with Direct embed controls permission granted, fresh installs never stall third-party players on their first frame.
+
+### Unified Feed Start & Click/Audio Interaction Matrix
+- Unified per-kind start keys (`videoStart`, `embedStart`, `gifStart`) with values `'default' | 'autoplay' | 'preview' | 'play'`. Platform touch detection is standardized on `(hover: none) and (pointer: coarse)`:
+  - `'preview'` (Smart Preview): desktop hover with **300 ms** intent delay + 250 ms card grace; touch center-most card (≥60% visible) **600 ms** after scroll stops.
+  - `'play'`: blocks script autoplay on native videos and parks raw embeds behind lightweight static facades until tapped.
+  - GIFs are strictly independent and never inherit `mediaClickAction`, `clickAudio`, `singleVideo`, `volumeMemory`, `holdFor2x`, `loopPolicy`, `videoScrollAway` (`mini`), or `streamQuality`.
+- Unified click/audio controls (`mediaClickAction`: `'default' | 'inline' | 'open' | 'fullscreen'`; `clickAudio`: `'muted' | 'unmute'`):
+  - **Strict click-target isolation**: only intercepts trusted primary clicks on the `<video>` surface or active embed preview/facade layer. Post titles, card links, NSFW gates, and native player controls (mute, volume slider, scrubber, captions, fullscreen, settings) stay native.
+  - **`inline` + `unmute`**: 1st click on a playing muted video with audio unmutes in place without pausing (unmute-first priority); 2nd click passes through to native pause. Silent videos (`has-audio="false"`) skip unmute trapping and pass through cleanly.
+  - **`open`**: opens the post permalink; uses seamless `moveBefore` continuation only when `videoOpenPost` is `'position'` or `'start'`. Falls back to `'inline'` on post detail and comment videos.
+  - **`fullscreen`**: triggers Reddit's native fullscreen control (or `requestFullscreen()` / `iframe.requestFullscreen()`) inside the user gesture and applies `clickAudio`.
+
+### Enhancements (7 Shipped; Hover-Scrubbing Deferred)
+1. **Play one video at a time** (`singleVideo`, default `false`): opt-in exclusivity across native videos and controllable embeds (always excludes GIFs and held feed-to-post moves).
+2. **Persistent volume memory** (`volumeMemory`, default `false`): records user-driven `volumechange` (ignoring previews and fade ramps) and restores via `rt-video-volume` (`volumeController.setVolume(Math.sqrt(v))`), `rt-embed-volume`, and direct embed `volume`.
+3. **When scrolling past media** (`videoScrollAway`: `'default' | 'pause' | 'mini'`, default `'default'`): `'pause'` pauses and resumes post-detail media; `'mini'` (`Beta`) docks playing post-detail media into a fixed bottom-right mini-player via `beginDomReparent` + `moveBefore` with height-preserving slot, scroll-back, and close (`×`) dismissal (embeds without `moveBefore`, e.g. Firefox, gracefully fall back to `'pause'`).
+4. **Timestamp continuity on post open** (`videoOpenPost`: `'default' | 'position' | 'start'`, default `'default'`): `'position'` moves playback seamlessly preserving timestamp; `'start'` resets to `0:00`.
+5. **Hold-for-2x speed** (`holdFor2x`, default `false`): desktop 300 ms pointer hold or mobile 350 ms right-40% long-press on playing native/direct-embed videos displays a `2× ▶▶` pill, suppresses `contextmenu`, restores original speed on release, and swallows the trailing click.
+6. **Looping policy** (`loopPolicy`: `'default' | 'always' | 'never' | 'short'`, default `'default'`): applies to native and direct-embed videos (`'short'` loops `< 30 s`, `'never'` blocks unsolicited post-`ended` restarts); excludes GIFs.
+7. **Stream quality** (`streamQuality`: `'auto' | 'max' | 'saver'`, default `'auto'`, `Beta`): native Reddit `v.redd.it` videos only; when non-`'auto'`, `post-page-bridge.js` filters `HLSPlaylist.m3u8` / `DASHPlaylist.mpd` master manifests in `fetch`/`XHR` (`'max'` selects highest variant; `'saver'` caps ≤480p while preserving audio tracks).
+- *Deferred*: Hover-scrubbing is intentionally omitted because Reddit feed cards do not expose storyboard VTT sprites, and raw HLS `currentTime` scrubbing causes network stalls and black frames.

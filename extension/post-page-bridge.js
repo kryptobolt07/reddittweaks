@@ -298,13 +298,13 @@
     const id=route()?.id;
     return id && node.matches?.('shreddit-embed') && node.closest('shreddit-post')?.id==='t3_'+id && !node.closest('shreddit-feed,shreddit-comment');
   };
-  // Raw feed embeds use Reddit's loader at the viewport edge. Native lite players only load their thumbnails here.
+  // Raw feed embeds use Reddit's loader at the viewport edge only when embed overrides are active.
   function limitFeedEmbedLoad(){
     const proto=customElements.get('shreddit-embed')?.prototype,setup=proto?.setupLoadObserver;
     if(typeof setup!=='function' || typeof IntersectionObserver!=='function')return;
     proto.setupLoadObserver=function(...args){
       const provider=this.getAttribute('providername') || '';
-      if(detailEmbed(this) || !this.closest('shreddit-post[id]') || /^(?:YouTube|Vimeo|TikTok)$/i.test(provider) ||
+      if(!document.documentElement?.hasAttribute('data-rt-embed-override') || detailEmbed(this) || !this.closest('shreddit-post[id]') || /^(?:YouTube|Vimeo|TikTok)$/i.test(provider) ||
          typeof this.loadObserverIntersectionCallback!=='function')return setup.apply(this,args);
       this.loadObserver=new IntersectionObserver(this.loadObserverIntersectionCallback,{rootMargin:'0px'});
       this.loadObserver.observe(this);
@@ -562,6 +562,219 @@
     if(!player.matches?.(videoPlayers) || !video || player.forceMuted || typeof volume?.setVolume!=='function')return;
     volume.setVolume(Math.sqrt(video.volume>0?video.volume:.25));
   });
+  // Persistent volume memory: sync remembered volume into Reddit's volumeController.
+  document.addEventListener('rt-video-volume',event=>{
+    const player=event.target,video=player.shadowRoot?.querySelector?.('video'),volume=player.volumeController;
+    const raw=player.dataset?.rtTargetVolume;
+    if(player.dataset)delete player.dataset.rtTargetVolume;
+    const target=Number(raw);
+    if(!player.matches?.(videoPlayers) || !video || !Number.isFinite(target) || target<0 || target>1)return;
+    video.volume=target;
+    if(!player.forceMuted && typeof volume?.setVolume==='function')volume.setVolume(Math.sqrt(target));
+  });
+  document.addEventListener('rt-embed-volume',event=>{
+    const embed=event.target,raw=embed.dataset?.rtTargetVolume;
+    if(embed.dataset)delete embed.dataset.rtTargetVolume;
+    const target=Number(raw);
+    if(!Number.isFinite(target) || target<0 || target>1)return;
+    youTubeCall(embed,player=>player.setVolume?.(Math.round(target*100)));
+  });
+  // Floating mini-player (Beta) for post-detail media scrolled off screen: reuses reparent/moveBefore for zero reload.
+  let miniMedia=null;
+  function exitMini(dismissed=false){
+    const current=miniMedia;if(!current)return;
+    miniMedia=null;
+    const {node,player,ifr,slot,dock,controller,restorePause,style,lite,vimeo,liteStyle,vimeoStyle,home,next}=current;
+    if(dismissed){
+      if(player){const v=player.shadowRoot?.querySelector('video');if(v && !v.paused)v.pause();}
+      else if(lite)youTubeCall(node,p=>p.pauseVideo?.());
+    }
+    restorePause?.();
+    if(player){
+      restoreStyle(player,style);
+      if(slot?.isConnected)movePlayer(slot.parentNode,player,slot);
+      slot?.remove();
+      controller?.endDomReparent?.();
+    }else if(ifr){
+      restoreStyle(ifr,style);
+      if(home?.isConnected)moveEmbedFrame(home,ifr,next?.parentNode===home?next:null);
+      if(lite)restoreStyle(lite,liteStyle);
+      if(vimeo)restoreStyle(vimeo,vimeoStyle);
+    }
+    dock?.remove();
+    if(dismissed)node?.dispatchEvent(new Event('rt-mini-dismissed',{bubbles:true}));
+  }
+  function createMiniDock(node,anchor){
+    const narrow=(window.innerWidth || 800)<500;
+    const dock=document.createElement('div');
+    dock.dataset.rtMiniDock='';
+    dock.setAttribute('role','region');
+    dock.setAttribute('aria-label','Mini-player');
+    Object.assign(dock.style,{
+      position:'fixed',right:narrow?'12px':'16px',bottom:'72px',zIndex:'9999',
+      width:narrow?'200px':'320px',maxWidth:'calc(100vw - 24px)',aspectRatio:'16 / 9',
+      background:'#000',borderRadius:'12px',overflow:'hidden',
+      boxShadow:'0 8px 28px rgba(0,0,0,.45)',border:'1px solid rgba(255,255,255,.14)'
+    });
+    const bar=document.createElement('div');
+    bar.dataset.rtMiniBar='';
+    Object.assign(bar.style,{position:'absolute',top:'6px',right:'6px',zIndex:'10',display:'flex',gap:'4px'});
+    const btnStyle={width:'28px',height:'28px',border:'0',borderRadius:'999px',background:'rgba(0,0,0,.72)',color:'#fff',
+      cursor:'pointer',display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'0',font:'600 14px/1 system-ui,sans-serif'};
+    const back=document.createElement('button');
+    back.type='button';back.dataset.rtMiniBack='';back.setAttribute('aria-label','Back to video');back.title='Back to video';back.textContent='↑';
+    Object.assign(back.style,btnStyle);
+    back.addEventListener('click',event=>{
+      event.preventDefault();event.stopPropagation();
+      const target=anchor?.isConnected?anchor:node;
+      exitMini(false);
+      target?.scrollIntoView?.({behavior:'smooth',block:'center'});
+    });
+    const close=document.createElement('button');
+    close.type='button';close.dataset.rtMiniClose='';close.setAttribute('aria-label','Close mini-player');close.title='Close mini-player';close.textContent='×';
+    Object.assign(close.style,btnStyle);
+    close.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();exitMini(true);});
+    bar.append(back,close);
+    dock.append(bar);
+    document.body.append(dock);
+    return dock;
+  }
+  document.addEventListener('rt-mini-enter',event=>{
+    const node=event.target,id=route()?.id;
+    if(!id || miniMedia || heldVideo || heldEmbed || !document.body || coveredMedia(node))return;
+    if(node.matches?.(videoPlayers) && node.getAttribute('player-type')==='post_detail_screen' && node.getAttribute('post-id')==='t3_'+id && !node.closest('shreddit-comment')){
+      const video=node.shadowRoot?.querySelector('video');
+      if(!video || video.paused || video.ended)return;
+      const box=node.getBoundingClientRect(),height=box.height || 300;
+      const slot=document.createElement('div');
+      slot.dataset.rtMiniSlot='';slot.setAttribute('aria-hidden','true');
+      slot.style.height=height+'px';
+      node.before(slot);
+      const style=node.getAttribute('style');
+      const controller=node.mediaFbpController;
+      controller?.beginDomReparent?.();
+      const dock=createMiniDock(node,slot);
+      Object.assign(node.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
+      movePlayer(dock,node);
+      miniMedia={node,player:node,slot,dock,controller,style};
+      event.preventDefault();
+      return;
+    }
+    if(detailEmbed(node) && typeof document.body.moveBefore==='function'){
+      const lite=liteOf(node),vimeo=lite?null:vimeoLite(node),ifr=lite?lite.querySelector('iframe'):playerFrame(node);
+      if(!ifr)return;
+      const style=ifr.getAttribute('style'),liteStyle=lite?.getAttribute('style') ?? null,vimeoStyle=vimeo?.getAttribute('style') ?? null;
+      const home=ifr.parentNode,next=ifr.nextSibling;
+      const dock=createMiniDock(node,node);
+      const restorePause=preserveEmbedPlayback(node,true);
+      moveEmbedFrame(dock,ifr);
+      if(lite)lite.style.visibility='hidden';
+      if(vimeo)vimeo.style.visibility='hidden';
+      Object.assign(ifr.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
+      miniMedia={node,ifr,dock,restorePause,style,lite,vimeo,liteStyle,vimeoStyle,home,next};
+      event.preventDefault();
+    }
+  });
+  document.addEventListener('rt-mini-exit',()=>exitMini(false));
+  window.addEventListener('pagehide',()=>exitMini(false));
+  // Stream quality (Beta): passive when html[data-rt-stream-quality] is absent ('auto').
+  // Filters v.redd.it HLS/DASH master manifests in MAIN world so Reddit's player selects max or data-saver variants.
+  const streamManifestUrl=value=>{
+    try{const url=new URL(String(value),location.href);return url.protocol==='https:' && url.hostname==='v.redd.it' && /\/(?:HLSPlaylist\.m3u8|DASHPlaylist\.mpd)$/i.test(url.pathname)?url.pathname:'';}
+    catch{return '';}
+  };
+  function filterHlsManifest(text,mode){
+    if(typeof text!=='string' || !text.includes('#EXT-X-STREAM-INF'))return text;
+    const lines=text.split(/\r?\n/),variants=[],headers=[];
+    for(let i=0;i<lines.length;i++){
+      const line=lines[i];
+      if(line.startsWith('#EXT-X-STREAM-INF:')){
+        const uri=lines[i+1] || '';
+        const res=/RESOLUTION=\d+x(\d+)/i.exec(line),bw=/BANDWIDTH=(\d+)/i.exec(line);
+        variants.push({index:headers.length,inf:line,uri,height:res?Number(res[1]):0,bandwidth:bw?Number(bw[1]):0});
+        headers.push(null);
+        i++;
+      }else headers.push(line);
+    }
+    if(variants.length<2)return text;
+    const sorted=[...variants].sort((a,b)=>(b.height-a.height) || (b.bandwidth-a.bandwidth));
+    let keep;
+    if(mode==='max')keep=new Set([sorted[0]]);
+    else{
+      const low=variants.filter(v=>v.height>0 && v.height<=480);
+      keep=new Set(low.length?low:[sorted[sorted.length-1]]);
+    }
+    const out=[];
+    for(let i=0;i<headers.length;i++){
+      if(headers[i]!==null){out.push(headers[i]);continue;}
+      const v=variants.find(item=>item.index===i);
+      if(v && keep.has(v))out.push(v.inf,v.uri);
+    }
+    return out.join('\n');
+  }
+  function filterDashManifest(text,mode){
+    if(typeof text!=='string' || !text.includes('<Representation'))return text;
+    return text.replace(/<AdaptationSet\b[^>]*>[\s\S]*?<\/AdaptationSet>/gi,block=>{
+      if(/contentType=["']audio["']|mimeType=["']audio\//i.test(block))return block;
+      const reps=[...block.matchAll(/<Representation\b([^>]*)>[\s\S]*?<\/Representation>/gi)].map(match=>{
+        const attrs=match[1],h=/\bheight=["'](\d+)["']/i.exec(attrs),bw=/\bbandwidth=["'](\d+)["']/i.exec(attrs);
+        return {raw:match[0],height:h?Number(h[1]):0,bandwidth:bw?Number(bw[1]):0};
+      });
+      if(reps.length<2)return block;
+      const sorted=[...reps].sort((a,b)=>(b.height-a.height) || (b.bandwidth-a.bandwidth));
+      const keep=mode==='max'?new Set([sorted[0].raw]):new Set((()=>{const low=reps.filter(r=>r.height>0 && r.height<=480);return (low.length?low:[sorted[sorted.length-1]]).map(r=>r.raw);})());
+      return block.replace(/<Representation\b[^>]*>[\s\S]*?<\/Representation>/gi,raw=>keep.has(raw)?raw:'');
+    });
+  }
+  function filterStreamManifest(path,text,mode){
+    return /\.m3u8$/i.test(path)?filterHlsManifest(text,mode):filterDashManifest(text,mode);
+  }
+  const activeStreamQuality=()=>{
+    const q=document.documentElement?.getAttribute('data-rt-stream-quality');
+    return q==='max' || q==='saver'?q:'';
+  };
+  (()=>{
+    const nativeFetch=window.fetch;
+    if(typeof nativeFetch==='function'){
+      window.fetch=function(input,init){
+        const mode=activeStreamQuality();
+        if(!mode)return nativeFetch.call(window,input,init);
+        const url=typeof input==='string'?input:input?.url;
+        const path=streamManifestUrl(url);
+        if(!path)return nativeFetch.call(window,input,init);
+        return nativeFetch.call(window,input,init).then(async response=>{
+          if(!response?.ok)return response;
+          const text=await response.text();
+          const filtered=filterStreamManifest(path,text,mode);
+          const next=typeof Response==='function'?new Response(filtered,{status:response.status,statusText:response.statusText,headers:response.headers}):{ok:response.ok,status:response.status,statusText:response.statusText,headers:response.headers,text:async()=>filtered};
+          const resolvedUrl=response.url || (typeof url==='string'?url:'');
+          if(resolvedUrl)try{Object.defineProperty(next,'url',{value:resolvedUrl,configurable:true});}catch{}
+          return next;
+        });
+      };
+    }
+    const XHR=window.XMLHttpRequest;
+    const open=XHR?.prototype?.open;
+    if(typeof open==='function'){
+      const xhrMeta=new WeakMap();
+      XHR.prototype.open=function(method,url,...rest){
+        const mode=activeStreamQuality(),path=mode?streamManifestUrl(url):'';
+        if(path)xhrMeta.set(this,{path,mode});else xhrMeta.delete(this);
+        return open.call(this,method,url,...rest);
+      };
+      for(const prop of ['responseText','response']){
+        const desc=Object.getOwnPropertyDescriptor(XHR.prototype,prop);
+        if(!desc?.get || !desc.configurable)continue;
+        Object.defineProperty(XHR.prototype,prop,{configurable:true,enumerable:desc.enumerable,get(){
+          const raw=desc.get.call(this),meta=xhrMeta.get(this);
+          if(meta && this.readyState===4 && this.status>=200 && this.status<300 && typeof raw==='string'){
+            return filterStreamManifest(meta.path,raw,meta.mode);
+          }
+          return raw;
+        }});
+      }
+    }
+  })();
   document.addEventListener('rt-release-feed-video',releaseVideo);
   document.addEventListener('rt-prepare-feed-preview',event=>{
     const player=event.target;

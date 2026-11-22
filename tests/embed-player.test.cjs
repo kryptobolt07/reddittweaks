@@ -141,3 +141,36 @@ test('a blocked player cannot open its own site from script',async()=>{
  assert.equal(W.open('https://example.test/watch'),null);assert.equal(opened,1,'blocked while the page asks');
  dom.window.close();
 });
+
+test('when holdFeed is false (passive default), a direct player never stalls on its first frame',async t=>{
+ const {W,video}=await player(t,{authorized:{authorized:true,holdFeed:false}});
+ video.dispatchEvent(new W.Event('play'));
+ assert.equal(video.paused,false,'passive default does not hold playback');
+});
+
+test('a direct player applies volume, loop policy, and hold-for-2x enhancements',async t=>{
+ const {W,video,send,click}=await player(t);
+ W.__rtEmbedHold2xTest=true;
+ Object.defineProperty(video,'duration',{value:18,configurable:true});
+ video.getBoundingClientRect=()=>({left:0,top:0,width:400,height:240,bottom:240});
+ await send('volume',{volume:0.4});
+ assert.equal(video.volume,0.4);
+ await send('loop',{policy:'short'});
+ assert.equal(video.loop,true,'<30s video loops under short policy');
+ Object.defineProperty(video,'duration',{value:45,configurable:true});
+ video.dispatchEvent(new W.Event('durationchange'));
+ assert.equal(video.loop,false,'>=30s video does not loop under short policy');
+ await send('loop',{policy:'always'});
+ assert.equal(video.loop,true);
+ await send('hold2x',{enabled:true});
+ const down=new W.MouseEvent('pointerdown',{bubbles:true,composed:true,button:0,clientX:200,clientY:100});
+ Object.defineProperty(down,'pointerType',{value:'mouse'});
+ video.dispatchEvent(down);
+ await new Promise(r=>setTimeout(r,330));
+ assert.equal(video.playbackRate,2);
+ assert.ok(W.document.querySelector('[data-rt-speed-pill]'));
+ W.dispatchEvent(new W.MouseEvent('pointerup',{bubbles:true}));
+ assert.equal(video.playbackRate,1);
+ assert.equal(W.document.querySelector('[data-rt-speed-pill]'),null);
+ assert.equal(click(video),false,'trailing click after 2x hold is swallowed');
+});

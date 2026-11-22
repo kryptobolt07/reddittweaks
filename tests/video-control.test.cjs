@@ -20,9 +20,19 @@ function page(t,{owner='t2_alice',detail=false}={}){
  const player=W.document.getElementById('p1'),root=player.attachShadow({mode:'open'});root.innerHTML='<button id="play" class="play-pause-button">Play</button><button id="mute" class="mute-button">Mute</button><button id="cc">Captions</button><video></video>';
  W.__rtVideoControlTest=true;
  for(const file of ['post-model.js','embed-player-hosts.js','video-control.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
- // Defaults are Reddit's behaviour; behaviour tests opt into the features they exercise unless they say otherwise.
+ // Defaults are passive (Reddit/Provider Default); behaviour tests opt into the features they exercise unless they say otherwise.
  const Raw=W.RTVideoControl;W.RTVideoControlRaw=Raw;
- W.RTVideoControl={...Raw,Videos:class extends Raw.Videos{constructor(options={}){const read=options.readSettings;super({...options,readSettings:async()=>({videoStart:'hover',videoOpenPost:'continue',videoScrollAway:'pause',...(read?await read():{})})});}}};
+ W.RTVideoControl={...Raw,Videos:class extends Raw.Videos{constructor(options={}){const read=options.readSettings;super({...options,readSettings:async()=>{
+  const extra=read?await read():{};
+  const base={videoStart:'preview',embedStart:'preview',gifStart:'autoplay',mediaClickAction:'open',clickAudio:'unmute',singleVideo:true,videoOpenPost:'position',videoScrollAway:'pause'};
+  if('videoStart' in extra || 'videoStartTouch' in extra || 'videoPreviewsInView' in extra)delete base.videoStart;
+  if('embedStart' in extra || 'embedStartTouch' in extra)delete base.embedStart;
+  if('gifStart' in extra || 'gifStartTouch' in extra)delete base.gifStart;
+  if('mediaClickAction' in extra || 'videoPreviewClick' in extra || 'videoPreviewClickPlays' in extra)delete base.mediaClickAction;
+  if('clickAudio' in extra || 'videoPreviewClick' in extra || 'videoUnmutePreview' in extra)delete base.clickAudio;
+  if('videoOpenPost' in extra || 'videoPreviewFrom' in extra || 'videoPreviewRestart' in extra)delete base.videoOpenPost;
+  return {...base,...extra};
+ }});}}};
  const video=root.querySelector('video'),start=()=>{video._playing=true;video.dispatchEvent(new W.Event('play'));};
  const click=(target,options)=>target.dispatchEvent(new W.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,...options}));
  const title=W.document.querySelector('[slot="title"]');W.document.addEventListener('click',event=>event.preventDefault());
@@ -37,39 +47,59 @@ test('Reddit’s autoplay preference is read from its settings page once per ses
  d.querySelector('shreddit-app').setAttribute('logged-in-user-id','t2_bob');assert.equal(await W.RTVideoControl.readAutoplayDisabled({doc:d,fetcher:async()=>({text:async()=>settingsHtml(false)}),store:storage}),false,'another account reads its own');
  d.querySelector('shreddit-app').setAttribute('user-logged-in','false');assert.equal(await W.RTVideoControl.readAutoplayDisabled({doc:d,fetcher,store:storage}),null,'signed out: nothing is enforced');
 });
-test('the choices replace Reddit’s autoplay: Autoplay plays the video in view, muted; Only on Play starts nothing',async t=>{
- const p=page(t);let asked=0;
+test('default settings are genuinely passive, while Autoplay plays in-view muted and Play only starts nothing',async t=>{
+ const passive=page(t);let asked=0;
+ passive.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new passive.W.Event('play'));return Promise.resolve();};
+ Object.defineProperty(passive.video,'readyState',{value:1,configurable:true});
+ passive.player.getBoundingClientRect=()=>({top:100,bottom:400,height:300,left:0,width:390});
+ const c0=new passive.W.RTVideoControlRaw.Videos({readSettings:async()=>({}),readPreference:async()=>{asked++;return false;},observe:false});await c0.ready;await flush();
+ assert.equal(c0.active,false,'fresh install attaches zero observers/listeners');
+ assert.equal(passive.io.observed.length,0,'zero IntersectionObserver entries in passive default');
+ passive.start();assert.equal(passive.video.paused,false,'Reddit native autoplay is never blocked in passive default');
+ assert.equal(asked,0,'Reddit preference is never fetched');
+ const p=page(t);
  p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
  Object.defineProperty(p.video,'readyState',{value:1,configurable:true});
  p.player.getBoundingClientRect=()=>({top:100,bottom:400,height:300,left:0,width:390});
- const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({}),readPreference:async()=>{asked++;return false;},observe:false});await c.ready;await flush();c.scan();
- p.start();assert.equal(p.video.paused,true,'Reddit’s own autoplay is paused whatever its setting');assert.equal(asked,0,'Reddit’s preference is never read');
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoStart:'autoplay'}),readPreference:async()=>false,observe:false});await c.ready;await flush();c.scan();
+ p.start();assert.equal(p.video.paused,true,'Autoplay mode replaces Reddit native autoplay');
  p.W.dispatchEvent(new p.W.Event('scroll'));await new Promise(r=>setTimeout(r,250));
- assert.equal(p.video.paused,false,'Autoplay (the default) plays the video in view');assert.equal(p.video.muted,true);
+ assert.equal(p.video.paused,false,'Autoplay plays the video in view');assert.equal(p.video.muted,true);
  const q=page(t);const d=new q.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoStart:'play'}),readPreference:async()=>false,observe:false});await d.ready;await flush();
  q.start();q.W.dispatchEvent(new q.W.Event('scroll'));await new Promise(r=>setTimeout(r,250));assert.equal(q.video.paused,true,'Only when I press Play');
  q.startFromControl();assert.equal(q.video.paused,false,'your own Play still plays');
 });
-test('video choices default to Autoplay and Reddit’s other behaviour, and only the old opt-ins carry over',()=>{
+test('video choices default to passive Reddit/Provider defaults, and legacy opt-ins migrate cleanly',()=>{
  const W=new JSDOM('',{runScripts:'outside-only'}).window;W.eval(fs.readFileSync('extension/post-model.js','utf8'));
- const n=raw=>{const all=W.RTPostModel.normalizeSettings(raw);return Object.fromEntries(Object.entries(all).filter(([k])=>k.startsWith('video')));};
- assert.deepEqual(JSON.parse(JSON.stringify(n({}))),{videoStart:'autoplay',videoStartTouch:'autoplay',videoPreviewClick:'open',videoPreviewFrom:'position',videoUnmutePreview:true,videoOpenPost:'continue',videoScrollAway:'reddit'},'Autoplay and Reddit’s other behaviour by default');
- assert.deepEqual(JSON.parse(JSON.stringify(n({videoPreviews:true,videoContinueOnOpen:true,videoPauseOffscreen:true,videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false}))),{videoStart:'autoplay',videoStartTouch:'stop',videoPreviewClick:'muted',videoPreviewFrom:'start',videoUnmutePreview:false,videoOpenPost:'continue',videoScrollAway:'reddit'},'only the old opt-ins carry over');
- assert.equal(n({videoPreviewClick:'here',videoUnmutePreview:false}).videoPreviewClick,'muted');
- assert.equal(n({videoPreviewClick:'here',videoUnmutePreview:true}).videoPreviewClick,'sound');
- assert.equal(n({videoStart:'hover'}).videoStart,'hover');assert.equal(n({videoStart:'reddit',videoStartTouch:'reddit'}).videoStartTouch,'autoplay','0.48’s Reddit start is now Autoplay');
+ const v=raw=>W.RTPostModel.videoSettings(raw);
+ assert.deepEqual(JSON.parse(JSON.stringify(v({}))),{
+  videoStart:'default',embedStart:'default',gifStart:'default',
+  mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
+  singleVideo:false,volumeMemory:false,videoScrollAway:'default',
+  videoOpenPost:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
+ },'100% passive defaults on fresh install');
+ const migrated=v({videoPreviewsInView:true,videoPreviewClickPlays:true,videoPreviewRestart:true,videoUnmutePreview:false,videoOpenPost:'continue',videoScrollAway:'reddit'});
+ assert.equal(migrated.videoStart,'preview');
+ assert.equal(migrated.mediaClickAction,'inline');
+ assert.equal(migrated.clickAudio,'muted');
+ assert.equal(migrated.videoOpenPost,'start');
+ assert.equal(migrated.videoScrollAway,'default');
+ assert.equal(v({videoPreviewClick:'here',videoUnmutePreview:true}).clickAudio,'unmute');
+ assert.equal(v({videoStart:'hover'}).videoStart,'preview');
+ assert.equal(v({videoStart:'reddit',videoStartTouch:'reddit'}).videoStart,'default');
  W.close();
 });
-test('GIFs default to Autoplay and embeds inherit the matching device’s video choice until chosen',()=>{
+test('GIFs and embeds are independent of videoStart and default to passive',()=>{
  const W=new JSDOM('',{runScripts:'outside-only'}).window;
  try{
   W.eval(fs.readFileSync('extension/post-model.js','utf8'));
   const normalize=W.RTPostModel.normalizeSettings;
-  const legacy=normalize({videoStart:'hover',videoStartTouch:'play'});
-  assert.equal(legacy.embedStart,'hover');assert.equal(legacy.embedStartTouch,'play');
-  assert.equal(legacy.gifStart,'autoplay');assert.equal(legacy.gifStartTouch,'autoplay');
-  const chosen=normalize({...legacy,embedStart:'play',gifStartTouch:'stop'});
-  assert.equal(chosen.videoStart,'hover');assert.equal(chosen.embedStart,'play');assert.equal(chosen.gifStartTouch,'stop');
+  const onlyVideo=normalize({videoStart:'preview'});
+  assert.equal(onlyVideo.videoStart,'preview');
+  assert.equal(onlyVideo.embedStart,'default');
+  assert.equal(onlyVideo.gifStart,'default');
+  const chosen=normalize({videoStart:'preview',embedStart:'play',gifStart:'autoplay'});
+  assert.equal(chosen.videoStart,'preview');assert.equal(chosen.embedStart,'play');assert.equal(chosen.gifStart,'autoplay');
  }finally{W.close();}
 });
 test('automatic GIF loops keep playing alongside one video and stop out of view',async t=>{
@@ -401,7 +431,7 @@ async function hoverController(p,settings={}){
  const controller=new p.W.RTVideoControl.Videos({readSettings:async()=>settings,readPreference:async()=>true,observe:false});
  await controller.ready;await flush();return controller;
 }
-const waitForHover=()=>new Promise(resolve=>setTimeout(resolve,210));
+const waitForHover=()=>new Promise(resolve=>setTimeout(resolve,330));
 test('only hovering a paused feed video previews it, and play continues with audio from the current position',async t=>{
  const p=page(t);
  await hoverController(p);
@@ -479,24 +509,24 @@ test('clicking a preview opens its post by default, carrying the preview on with
  assert.equal(p.video.paused,false);assert.equal(p.video.muted,false);assert.ok(p.video.volume<0.8);
  await new Promise(resolve=>setTimeout(resolve,260));assert.equal(p.video.volume,0.8);
 });
-test('Play here plays a clicked preview in place, and From the beginning restarts it',async t=>{
- const p=page(t);await hoverController(p,{videoPreviewClickPlays:true,videoPreviewRestart:true});const c=surfaceClick(p);
+test('Play here plays a clicked preview in place, and Start from beginning restarts on post open',async t=>{
+ const p=page(t);await hoverController(p,{mediaClickAction:'inline',clickAudio:'unmute'});const c=surfaceClick(p);
  pointer(p);await waitForHover();p.video.currentTime=3.5;
  p.click(p.video);
  assert.deepEqual(c.count(),{toggled:0,opened:0});
- assert.equal(p.video.currentTime,0);assert.equal(p.video.paused,false);assert.equal(p.video.muted,false);
+ assert.equal(p.video.currentTime,3.5);assert.equal(p.video.paused,false);assert.equal(p.video.muted,false);
  pointer(p,'pointerout');await new Promise(resolve=>setTimeout(resolve,260));
  assert.equal(p.video.paused,false,'it is no longer a preview');
 });
 test('an opened preview can start from the beginning and keep its sound off',async t=>{
- const p=page(t);await hoverController(p,{videoPreviewRestart:true,videoUnmutePreview:false});
+ const p=page(t);await hoverController(p,{videoOpenPost:'start',clickAudio:'muted'});
  pointer(p);await waitForHover();p.video.currentTime=3.5;
  p.click(p.video);
  const saved=JSON.parse(p.W.sessionStorage.getItem(continuationKey));
  assert.equal(saved.time,0);assert.equal(saved.muted,true);assert.equal(p.video.muted,true);
 });
 function phone(p,coarse=true,top=200){
- p.W.matchMedia=query=>({matches:coarse && /hover: none|pointer: coarse/.test(query)});
+ p.W.matchMedia=query=>({matches:coarse && /hover: none.*pointer: coarse/.test(query)});
  const box={top,height:300};p.player.getBoundingClientRect=()=>({top:box.top,bottom:box.top+box.height,height:box.height,left:0,width:390});
  return box;
 }
@@ -534,8 +564,8 @@ test('a phone preview starts for a video that loads into view without a scroll',
  post.append(player);controller.scan();await settle();
  assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
 });
-test('each device follows its own start choice: Play only starts nothing, hover previews never autoplay the one in view',async t=>{
- for(const [coarse,settings,plays] of [[true,{videoStartTouch:'play'},false],[false,{videoStart:'hover'},false],[false,{videoStart:'autoplay'},true],[true,{videoStartTouch:'stop'},true]]){
+test('each device follows its start mode: Play starts nothing, Smart Preview adapts to hover vs touch stop',async t=>{
+ for(const [coarse,settings,plays] of [[true,{videoStart:'play'},false],[false,{videoStart:'preview'},false],[false,{videoStart:'autoplay'},true],[true,{videoStart:'preview'},true]]){
   const p=page(t);phone(p,coarse);await hoverController(p,settings);
   scroll(p);await settle();
   assert.equal(p.video.paused,!plays,JSON.stringify(settings));
@@ -905,7 +935,7 @@ test('players with no controls stay unloaded unless chosen: Autoplay loads only 
  const post2=p.d.createElement('shreddit-post');post2.id='t3_second';p.d.body.append(post2);
  const node2=p.d.createElement('shreddit-embed');node2.setAttribute('providername','RedGIFs');const f2=node2.attachShadow({mode:'open'}).appendChild(p.d.createElement('iframe'));f2.setAttribute('src','https://www.redgifs.com/ifr/second');post2.append(node2);
  node2.getBoundingClientRect=()=>({top:2000,bottom:2300,height:300,left:0,width:390});
- const controller=await hoverController(p,{videoStartTouch:'autoplay'});controller.scan();
+ const controller=await hoverController(p,{videoStart:'autoplay',embedStart:'autoplay'});controller.scan();
  assert.equal(f2.getAttribute('src'),'about:blank','off-screen: unloaded');
  scroll(p);await new Promise(r=>setTimeout(r,250));
  assert.match(a.frame.getAttribute('src'),/redgifs\.com\/ifr\/first/,'in view: loaded and playing');
@@ -948,11 +978,15 @@ test('a player with no controls that Reddit adds later is caught before it loads
  assert.deepEqual(asked,['t3_test'],'one batched lookup');
  assert.match(node.shadowRoot.querySelector('[data-rt-parked-cover]').dataset.rtStill,/preview\.redd\.it\/poster\.jpg/);
 });
-test('with the default choices a playing video carries into its post again',async t=>{
+test('default choices are passive on post open; enabling videoOpenPost carries the playing video into its post',async t=>{
  const p=page(t);
  const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({}),readPreference:async()=>false,observe:false});await c.ready;await flush();
  p.startFromControl();p.click(p.title);
- assert.ok(p.W.sessionStorage.getItem(continuationKey),'Keeps playing in the post is the default');
+ assert.equal(p.W.sessionStorage.getItem(continuationKey),null,'passive default leaves post navigation untouched');
+ const q=page(t);
+ const c2=new q.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoOpenPost:'position'}),readPreference:async()=>false,observe:false});await c2.ready;await flush();
+ q.startFromControl();q.click(q.title);
+ assert.ok(q.W.sessionStorage.getItem(continuationKey),'videoOpenPost=position carries playback into the post');
 });
 
 test('a player with controls that stops being the one playing stays paused on its own frame, with nothing over it',async t=>{
@@ -1151,13 +1185,16 @@ test('an embed preview can reveal the same controls at the same position while k
  assert.ok(p.io.observed.includes(c.node),'a user-owned muted player is observed offscreen like a sound player');
 });
 
-test('opening sound is independent of what a click in the feed would do',async t=>{
- const p=page(t);const e=embed(p,{muted:true});await hoverController(p,{videoPreviewClick:'muted',videoUnmutePreview:true});
+test('unified clickAudio controls sound on both inline clicks and post opens',async t=>{
+ const p=page(t);const e=embed(p,{muted:true});await hoverController(p,{mediaClickAction:'inline',clickAudio:'unmute'});
  e.over();await waitForHover();p.click(p.title);
  assert.equal(JSON.parse(p.W.sessionStorage.getItem(embedKey)).muted,false);
- const q=page(t);const f=await controlled(q,{videoPreviewClick:'sound',videoUnmutePreview:false});
+ const q=page(t);const f=await controlled(q,{mediaClickAction:'inline',clickAudio:'unmute'});
  f.over();await waitForHover();f.layer().click();
  assert.deepEqual(f.commands(),['mute','play','unmute','play']);
+ const r=page(t);const g=await controlled(r,{mediaClickAction:'inline',clickAudio:'muted'});
+ g.over();await waitForHover();g.layer().click();
+ assert.deepEqual(g.commands(),['mute','play']);
 });
 
 test('Vimeo can show Reddit’s fallback still until the provider begins playback',async t=>{
@@ -1338,4 +1375,253 @@ test('a direct embed remembers its time across a full navigation when the iframe
  tell(d,e.frame,{rtMedia:'hello',playing:false,rendered:true});
  assert.deepEqual(JSON.parse(JSON.stringify(sent.find(data=>data.rtMedia==='resume'))),{rtMedia:'resume',time:7.25,muted:false});
  assert.equal(detail.W.sessionStorage.getItem(embedKey),null);
+});
+
+// Phase 2 new media architecture tests: Passive Default, Click Interaction Matrix, and all 7 Enhancements.
+test('passive default attaches zero observers/wrappers and live-toggling on and back off cleanly tears down',async t=>{
+ const p=page(t);const e=frameEmbed(p,'https://www.redgifs.com/ifr/passive');
+ let managed=0;p.player.addEventListener('rt-manage-media-viewport',ev=>{managed++;ev.preventDefault();});
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({}),observe:false});await c.ready;await flush();
+ assert.equal(c.active,false);assert.equal(p.io.observed.length,0);assert.equal(managed,0);
+ assert.equal(e.frame.getAttribute('src'),'https://www.redgifs.com/ifr/passive','raw embed is untouched');
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-embed-override'),false);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-stream-quality'),false);
+ // Live activate
+ c.configure({embedStart:'play',streamQuality:'saver'});
+ assert.equal(c.active,true);assert.equal(e.frame.getAttribute('src'),'about:blank');
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-embed-override'),true);
+ assert.equal(p.d.documentElement.getAttribute('data-rt-stream-quality'),'saver');
+ // Live return to passive default
+ c.configure({});
+ assert.equal(c.active,false);
+ assert.equal(e.frame.getAttribute('src'),'https://www.redgifs.com/ifr/passive','parked embed restored');
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-embed-override'),false);
+ assert.equal(p.d.documentElement.hasAttribute('data-rt-stream-quality'),false);
+});
+
+test('click matrix: inline + unmute unmutes first without pausing and lets the second click pause; silent videos pass through',async t=>{
+ const p=page(t);
+ await hoverController(p,{videoStart:'default',mediaClickAction:'inline',clickAudio:'unmute'});
+ const c=surfaceClick(p);
+ p.video.muted=true;p.video.volume=0.6;p.start();
+ // 1st click on playing muted video: unmutes in place, does NOT reach native pause toggle
+ p.click(p.video);
+ assert.deepEqual(c.count(),{toggled:0,opened:0});
+ assert.equal(p.video.muted,false);assert.equal(p.video.paused,false);
+ // 2nd click while playing & unmuted: passes through to native pause toggle
+ p.click(p.video);
+ assert.deepEqual(c.count(),{toggled:1,opened:0});
+ // Silent video (has-audio="false"): 1st click passes through without trapping
+ const q=page(t);q.player.setAttribute('has-audio','false');
+ await hoverController(q,{videoStart:'default',mediaClickAction:'inline',clickAudio:'unmute'});
+ const qc=surfaceClick(q);q.video.muted=true;q.start();
+ q.click(q.video);
+ assert.deepEqual(qc.count(),{toggled:1,opened:0});
+});
+
+test('click matrix: strict click-target isolation preserves title, controls, and GIF independence',async t=>{
+ const p=page(t);
+ const slider=p.d.createElement('input');slider.type='range';slider.setAttribute('role','slider');
+ p.root.append(slider);
+ await hoverController(p,{videoStart:'preview',mediaClickAction:'open',clickAudio:'unmute'});
+ let titleClicks=0,sliderClicks=0,ccClicks=0;
+ p.title.addEventListener('click',()=>titleClicks++);
+ slider.addEventListener('click',()=>sliderClicks++);
+ p.root.getElementById('cc').addEventListener('click',()=>ccClicks++);
+ pointer(p);await waitForHover();
+ p.click(slider);p.click(p.root.getElementById('cc'));
+ assert.equal(sliderClicks,1,'scrubber slider is never hijacked');
+ assert.equal(ccClicks,1,'captions button is never hijacked');
+ assert.equal(titleClicks,0);
+ // GIF ignores video click/audio/open rules
+ const g=page(t);g.player.setAttribute('post-type','gif');
+ await hoverController(g,{gifStart:'autoplay',mediaClickAction:'open',clickAudio:'unmute'});
+ let gifOpened=0;g.title.addEventListener('click',()=>gifOpened++);
+ g.video.muted=true;g.start();g.click(g.video);
+ assert.equal(gifOpened,0,'GIF never inherits video mediaClickAction');
+ assert.equal(g.video.muted,true,'GIF never inherits clickAudio');
+});
+
+test('click matrix: fullscreen action invokes native fullscreen button and applies clickAudio',async t=>{
+ const p=page(t);
+ const fsBtn=p.d.createElement('button');fsBtn.className='fullscreen-button';
+ let fsClicks=0;fsBtn.addEventListener('click',()=>fsClicks++);
+ p.root.append(fsBtn);
+ await hoverController(p,{videoStart:'play',mediaClickAction:'fullscreen',clickAudio:'unmute'});
+ p.video.muted=true;p.video.volume=0.7;
+ p.click(p.video);
+ assert.equal(fsClicks,1,'uses native fullscreen button');
+ assert.equal(p.video.paused,false);assert.equal(p.video.muted,false);
+});
+
+test('click matrix: open action with videoOpenPost=default opens permalink without DOM reparenting',async t=>{
+ const p=page(t);
+ await hoverController(p,{videoStart:'preview',mediaClickAction:'open',clickAudio:'unmute',videoOpenPost:'default'});
+ let opened=0,held=0;
+ p.title.addEventListener('click',()=>opened++);
+ p.player.addEventListener('rt-hold-feed-video',ev=>{held++;ev.preventDefault();});
+ pointer(p);await waitForHover();
+ p.click(p.video);
+ assert.equal(opened,1,'opens post permalink');
+ assert.equal(held,0,'no DOM reparenting when videoOpenPost is default');
+ assert.equal(p.W.sessionStorage.getItem(continuationKey),null);
+});
+
+test('enhancement: singleVideo defaults to off (allows concurrent play) and pauses competitors when enabled',async t=>{
+ const setupTwo=async singleVideo=>{
+  const p=page(t);
+  const second=p.player.cloneNode();second.id='p2';const root2=second.attachShadow({mode:'open'});
+  root2.innerHTML='<button class="play-pause-button">Play</button><video></video>';
+  const post2=Object.assign(p.d.createElement('shreddit-post'),{id:'t3_two'});post2.append(second);
+  p.player.closest('shreddit-post').after(post2);
+  const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({singleVideo,mediaClickAction:'inline'}),observe:false});
+  await c.ready;await flush();c.scan();
+  const other=root2.querySelector('video');
+  p.startFromControl();
+  root2.querySelector('button').dispatchEvent(new p.W.Event('pointerdown',{bubbles:true,composed:true}));
+  other._playing=true;other.dispatchEvent(new p.W.Event('play'));
+  return {v1:p.video,v2:other};
+ };
+ const off=await setupTwo(false);
+ assert.equal(off.v1.paused,false,'singleVideo=false allows concurrent playback');assert.equal(off.v2.paused,false);
+ const on=await setupTwo(true);
+ assert.equal(on.v1.paused,true,'singleVideo=true pauses earlier video');assert.equal(on.v2.paused,false);
+});
+
+test('enhancement: volumeMemory persists user volume changes and restores via rt-video-volume',async t=>{
+ const p=page(t);
+ const saved=[],synced=[];
+ p.player.addEventListener('rt-video-volume',()=>synced.push(p.player.dataset.rtTargetVolume));
+ const c=new p.W.RTVideoControlRaw.Videos({
+  readSettings:async()=>({volumeMemory:true}),
+  readVolume:async()=>({volume:0.42,muted:false}),
+  saveVolume:val=>saved.push(val),
+  observe:false
+ });
+ await c.ready;await flush();
+ assert.equal(p.video.volume,0.42,'restored saved volume on attach');
+ assert.deepEqual(synced,['0.42'],'synced to Reddit volumeController');
+ p.startFromControl();
+ p.video.volume=0.75;p.video.muted=false;
+ p.video.dispatchEvent(new p.W.Event('volumechange'));
+ await new Promise(r=>setTimeout(r,200));
+ assert.deepEqual(JSON.parse(JSON.stringify(saved)),[{volume:0.75,muted:false}]);
+});
+
+test('enhancement: volumeMemory falls back to localStorage when chrome.storage.local rejects (TRUSTED_CONTEXTS)',async t=>{
+ const p=page(t);
+ p.W.chrome={storage:{local:{
+  get:()=>Promise.reject(new Error('Access to storage is not allowed from this context')),
+  set:()=>Promise.reject(new Error('Access to storage is not allowed from this context'))
+ }}};
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({volumeMemory:true}),observe:false});
+ await c.ready;await flush();
+ p.startFromControl();
+ p.video.volume=0.64;p.video.muted=false;
+ p.video.dispatchEvent(new p.W.Event('volumechange'));
+ await new Promise(r=>setTimeout(r,220));
+ assert.deepEqual(JSON.parse(p.W.localStorage.getItem('rt-video-volume-v1')),{volume:0.64,muted:false},'persists to localStorage on storage.local rejection');
+ // Fresh controller on same origin reads back from localStorage despite rejecting storage.local
+ const p2=page(t);
+ p2.W.localStorage.setItem('rt-video-volume-v1',JSON.stringify({volume:0.64,muted:false}));
+ p2.W.chrome=p.W.chrome;
+ const c2=new p2.W.RTVideoControlRaw.Videos({readSettings:async()=>({volumeMemory:true}),observe:false});
+ await c2.ready;await flush();
+ assert.equal(p2.video.volume,0.64,'restores from localStorage fallback on storage.local rejection');
+});
+
+test('enhancement: videoScrollAway=mini floats detail video offscreen, docks back on scroll return, and falls back to pause if unsupported',async t=>{
+ const p=page(t,{detail:true});
+ const events=[];
+ let slot=null;
+ p.player.addEventListener('rt-mini-enter',ev=>{
+  events.push('enter');
+  slot=p.d.createElement('div');slot.dataset.rtMiniSlot='';p.player.before(slot);
+  ev.preventDefault();
+ });
+ p.d.addEventListener('rt-mini-exit',()=>events.push('exit'));
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoScrollAway:'mini'}),observe:false});
+ await c.ready;await flush();
+ p.startFromControl();
+ p.io.cb([{target:p.player,intersectionRatio:0}]);
+ assert.deepEqual(events,['enter']);assert.equal(p.video.paused,false,'keeps playing in mini-player');
+ assert.ok(p.io.observed.includes(slot));
+ p.io.cb([{target:slot,intersectionRatio:0.6}]);
+ assert.deepEqual(events,['enter','exit'],'docks back when slot returns');
+ // Dismissed mini-player does not re-open on same post until manually replayed
+ p.io.cb([{target:p.player,intersectionRatio:0}]);
+ p.player.dispatchEvent(new p.W.Event('rt-mini-dismissed',{bubbles:true}));
+ p.io.cb([{target:p.player,intersectionRatio:0}]);
+ assert.equal(events.filter(e=>e==='enter').length,2,'does not re-open after user dismissed');
+ // Fallback to pause when rt-mini-enter is not handled (e.g. Firefox embed without moveBefore)
+ const q=page(t,{detail:true});const e=embed(q,{state:'playing'});
+ let paused=0;e.node.addEventListener('rt-embed-offscreen',()=>paused++);
+ const c2=new q.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoScrollAway:'mini'}),observe:false});
+ await c2.ready;await flush();
+ q.io.cb([{target:e.node,intersectionRatio:0}]);
+ assert.equal(paused,1,'falls back to pause when rt-mini-enter is unhandled');
+});
+
+test('enhancement: holdFor2x speeds up playing native video on desktop hold and touch right-40% long-press, swallowing trailing click',async t=>{
+ const p=page(t);
+ p.video.getBoundingClientRect=()=>({left:0,top:0,width:400,height:300});
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({holdFor2x:true}),observe:false});
+ await c.ready;await flush();
+ p.startFromControl();
+ const clicks=surfaceClick(p);
+ const down=(pointerType,clientX)=>{
+  const ev=new p.W.MouseEvent('pointerdown',{bubbles:true,composed:true,button:0,clientX,clientY:150});
+  Object.defineProperty(ev,'pointerType',{value:pointerType});
+  p.video.dispatchEvent(ev);
+ };
+ // Touch left side (25% < 60%): ignored
+ down('touch',100);await new Promise(r=>setTimeout(r,380));
+ assert.equal(p.video.playbackRate,1,'left zone on touch does not trigger 2x');
+ // Touch right side (80% >= 60%): triggers 2x
+ down('touch',320);await new Promise(r=>setTimeout(r,380));
+ assert.equal(p.video.playbackRate,2);
+ assert.ok(p.root.querySelector('[data-rt-speed-pill]'));
+ const ctx=new p.W.Event('contextmenu',{bubbles:true,cancelable:true,composed:true});
+ p.video.dispatchEvent(ctx);assert.equal(ctx.defaultPrevented,true,'suppresses mobile contextmenu while holding');
+ p.W.dispatchEvent(new p.W.MouseEvent('pointerup',{bubbles:true}));
+ assert.equal(p.video.playbackRate,1,'restores original speed');
+ assert.equal(p.root.querySelector('[data-rt-speed-pill]'),null);
+ p.click(p.video);
+ assert.equal(clicks.count().toggled,0,'trailing click after release is swallowed');
+ // Desktop mouse hold (300ms)
+ down('mouse',100);await new Promise(r=>setTimeout(r,330));
+ assert.equal(p.video.playbackRate,2);
+ p.W.dispatchEvent(new p.W.MouseEvent('pointerup',{bubbles:true}));
+ assert.equal(p.video.playbackRate,1);
+});
+
+test('enhancement: loopPolicy supports always, never, and short (<30s) while excluding GIFs',async t=>{
+ const p=page(t);
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ Object.defineProperty(p.video,'duration',{value:15,configurable:true});
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({loopPolicy:'short'}),observe:false});
+ await c.ready;await flush();
+ assert.equal(p.video.loop,true,'15s video loops under short policy');
+ Object.defineProperty(p.video,'duration',{value:45,configurable:true});
+ p.video.dispatchEvent(new p.W.Event('durationchange'));
+ assert.equal(p.video.loop,false,'45s video does not loop under short policy');
+ // Under never, immediate unsolicited restart right after ended is paused
+ c.configure({loopPolicy:'never'});
+ assert.equal(p.video.loop,false);
+ p.video.dispatchEvent(new p.W.Event('ended'));
+ p.video._playing=true;p.video.dispatchEvent(new p.W.Event('play'));
+ assert.equal(p.video.paused,true,'unsolicited loop restart blocked under never');
+ // Under always, ended replays from 0
+ c.configure({loopPolicy:'always'});
+ assert.equal(p.video.loop,true);
+ p.video.currentTime=45;p.video._playing=false;
+ p.video.dispatchEvent(new p.W.Event('ended'));
+ assert.equal(p.video.currentTime,0);assert.equal(p.video.paused,false);
+ // GIF is never forced to never-loop
+ const g=page(t);g.player.setAttribute('post-type','gif');g.video.loop=true;
+ const cg=new g.W.RTVideoControlRaw.Videos({readSettings:async()=>({loopPolicy:'never'}),observe:false});
+ await cg.ready;await flush();
+ assert.equal(g.video.loop,true,'GIF ignores video loopPolicy');
 });

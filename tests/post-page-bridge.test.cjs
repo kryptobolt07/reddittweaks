@@ -82,7 +82,7 @@ test('the current detail media can take over native viewport pause and restores 
  video.setAttribute('player-type','in_feed_player');
  assert.equal(action(video,'rt-manage-media-viewport'),true);assert.equal(video.playOutOfViewport,false);
 });
-test('raw feed embeds are inserted at the viewport edge while native thumbnails and detail keep the existing observer',t=>{
+test('raw feed embeds keep native observer by default and limit to viewport edge only when embed override is active',t=>{
  const {W}=setup(t,{intersection:true,url:'https://www.reddit.com/r/videos/',before:win=>{
   win.customElements.define('shreddit-embed',class extends win.HTMLElement{
    loadObserverIntersectionCallback=()=>{};
@@ -97,10 +97,72 @@ test('raw feed embeds are inserted at the viewport edge while native thumbnails 
   const embed=post.appendChild(W.document.createElement('shreddit-embed'));
   embed.setAttribute('providername',provider);embed.setupLoadObserver();return embed;
  };
+ assert.equal(add('RedGIFs').loadObserver.options.rootMargin,'200px','passive default keeps native observer');
+ W.document.documentElement.setAttribute('data-rt-embed-override','');
  assert.equal(add('RedGIFs').loadObserver.options.rootMargin,'0px');
  assert.equal(add('YouTube').loadObserver.options.rootMargin,'200px');
  W.history.pushState(null,'','/r/videos/comments/abc12/title/');
  assert.equal(add('RedGIFs').loadObserver.options.rootMargin,'200px');
+});
+test('rt-video-volume syncs remembered volume to video and Reddit volumeController',t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/videos/'});
+ const player=W.document.createElement('shreddit-player');
+ const video=player.attachShadow({mode:'open'}).appendChild(W.document.createElement('video'));
+ const levels=[];player.volumeController={setVolume(v){levels.push(v);}};
+ W.document.body.append(player);
+ player.dataset.rtTargetVolume='0.36';
+ player.dispatchEvent(new W.Event('rt-video-volume',{bubbles:true}));
+ assert.equal(video.volume,0.36);
+ assert.deepEqual(levels,[0.6]);
+ assert.equal(player.dataset.rtTargetVolume,undefined);
+});
+test('floating mini-player docks detail video with placeholder slot, restores on exit, and dismisses cleanly',t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/videos/comments/abc12/title/'});
+ const d=W.document,post=d.createElement('shreddit-post');post.id='t3_abc12';d.body.append(post);
+ const player=post.appendChild(d.createElement('shreddit-player'));
+ player.setAttribute('player-type','post_detail_screen');player.setAttribute('post-id','t3_abc12');
+ const video=player.attachShadow({mode:'open'}).appendChild(d.createElement('video'));
+ let paused=false;Object.defineProperty(video,'paused',{get:()=>paused});video.pause=()=>{paused=true;};
+ player.getBoundingClientRect=()=>({left:0,top:-400,width:640,height:360});
+ const reparent=[];player.mediaFbpController={beginDomReparent(){reparent.push('begin');},endDomReparent(){reparent.push('end');}};
+ assert.equal(player.dispatchEvent(new W.Event('rt-mini-enter',{bubbles:true,cancelable:true})),false);
+ const dock=d.querySelector('[data-rt-mini-dock]'),slot=d.querySelector('[data-rt-mini-slot]');
+ assert.ok(dock && slot);assert.equal(player.parentElement,dock);assert.equal(slot.style.height,'360px');assert.deepEqual(reparent,['begin']);
+ d.dispatchEvent(new W.Event('rt-mini-exit'));
+ assert.equal(d.querySelector('[data-rt-mini-dock]'),null);assert.equal(player.parentElement,post);assert.deepEqual(reparent,['begin','end']);
+ // Re-enter and dismiss via close button
+ let dismissed=0;player.addEventListener('rt-mini-dismissed',()=>dismissed++);
+ assert.equal(player.dispatchEvent(new W.Event('rt-mini-enter',{bubbles:true,cancelable:true})),false);
+ d.querySelector('[data-rt-mini-close]').click();
+ assert.equal(dismissed,1);assert.equal(video.paused,true);assert.equal(player.parentElement,post);
+});
+test('stream quality filters v.redd.it HLS and DASH manifests only when html[data-rt-stream-quality] is max or saver',async t=>{
+ const hls='#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",URI="HLS_AUDIO.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=500000,RESOLUTION=426x240,AUDIO="a"\nHLS_240.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1200000,RESOLUTION=854x480,AUDIO="a"\nHLS_480.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=4500000,RESOLUTION=1920x1080,AUDIO="a"\nHLS_1080.m3u8\n';
+ const dash='<MPD><Period><AdaptationSet contentType="video"><Representation id="1" height="240" bandwidth="400000"></Representation><Representation id="2" height="480" bandwidth="1000000"></Representation><Representation id="3" height="1080" bandwidth="4000000"></Representation></AdaptationSet><AdaptationSet contentType="audio"><Representation id="a1" bandwidth="128000"></Representation></AdaptationSet></Period></MPD>';
+ const {W}=setup(t,{fetcher:async url=>({ok:true,status:200,statusText:'OK',url:String(url),headers:new Headers(),text:async()=>String(url).endsWith('.m3u8')?hls:dash})});
+ const hlsUrl='https://v.redd.it/abc123/HLSPlaylist.m3u8',dashUrl='https://v.redd.it/abc123/DASHPlaylist.mpd';
+ // Passive default ('auto'): untouched
+ assert.equal(await (await W.fetch(hlsUrl)).text(),hls);
+ // Max quality
+ W.document.documentElement.setAttribute('data-rt-stream-quality','max');
+ const hlsMaxRes=await W.fetch(hlsUrl);
+ assert.equal(hlsMaxRes.url,hlsUrl,'preserves response.url for relative HLS segment resolution');
+ const hlsMax=await hlsMaxRes.text();
+ assert.match(hlsMax,/HLS_1080\.m3u8/);assert.doesNotMatch(hlsMax,/HLS_240\.m3u8/);assert.match(hlsMax,/HLS_AUDIO\.m3u8/);
+ const dashMaxRes=await W.fetch(dashUrl);
+ assert.equal(dashMaxRes.url,dashUrl,'preserves response.url for relative DASH segment resolution');
+ const dashMax=await dashMaxRes.text();
+ assert.match(dashMax,/height="1080"/);assert.doesNotMatch(dashMax,/height="240"/);assert.match(dashMax,/id="a1"/);
+ // Data saver (<=480p)
+ W.document.documentElement.setAttribute('data-rt-stream-quality','saver');
+ const hlsSaverRes=await W.fetch(hlsUrl);
+ assert.equal(hlsSaverRes.url,hlsUrl);
+ const hlsSaver=await hlsSaverRes.text();
+ assert.match(hlsSaver,/HLS_240\.m3u8/);assert.match(hlsSaver,/HLS_480\.m3u8/);assert.doesNotMatch(hlsSaver,/HLS_1080\.m3u8/);
+ const dashSaverRes=await W.fetch(dashUrl);
+ assert.equal(dashSaverRes.url,dashUrl);
+ const dashSaver=await dashSaverRes.text();
+ assert.match(dashSaver,/height="480"/);assert.doesNotMatch(dashSaver,/height="1080"/);assert.match(dashSaver,/id="a1"/);
 });
 test('archive comment bootstrap uses only current shell descriptors and rejects late route changes',async t=>{
  const e=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'}),w=e.W;
