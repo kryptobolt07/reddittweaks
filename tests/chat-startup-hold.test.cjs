@@ -33,3 +33,52 @@ test('first visible list is discovered before document-idle chat controls, inclu
  const manifest=JSON.parse(fs.readFileSync('extension/manifest.json','utf8')),entry=manifest.content_scripts.find(entry=>entry.js?.includes('chat-startup.js'));assert.equal(entry.run_at,'document_start');assert.ok(entry.js.indexOf('adapter.js')<entry.js.indexOf('chat-startup.js'));
 });
 test('Chrome isolated worlds without access to Reddit’s custom-element registry use the fallback',t=>{const p=setup(t);p.row('one');Object.defineProperty(p.W,'customElements',{value:null,configurable:true});assert.doesNotThrow(()=>p.check());assert.equal(p.held(),true);p.tick(300);assert.equal(p.held(),false);});
+
+test('chatSearch toggle cleanly stops startup hold, chat UI, and local capture without clearing saved data, then resumes live',async t=>{
+ const dom=new JSDOM('<!doctype html><body><rs-app><rs-rooms-nav><div class="nav-head">Chats</div><rs-virtual-scroll></rs-virtual-scroll></rs-rooms-nav></rs-app><div id="shell"></div></body>',{url:'https://chat.reddit.com/',runScripts:'outside-only',pretendToBeVisual:true});
+ const W=dom.window,D=W.document;
+ t.after(()=>{W.dispatchEvent(new W.Event('pagehide'));W.close();});
+ const shell=D.getElementById('shell'),shellRoot=shell.attachShadow({mode:'open'});
+ shellRoot.innerHTML='<div id="resizable"><button aria-label="Maximize chat view">Open</button></div>';
+ const listeners=[],ingests=[];
+ let chatSearch=true;
+ W.chrome={runtime:{id:'ext',
+  onMessage:{addListener(fn){listeners.push(fn);},removeListener(fn){const i=listeners.indexOf(fn);if(i>=0)listeners.splice(i,1);}},
+  async sendMessage(msg){
+   if(msg?.scope==='rt-posts' && msg.action==='get-settings')return {ok:true,settings:{chatSearch}};
+   if(msg?.scope==='rcs-messages' && msg.action==='ingest'){ingests.push(msg);return {ok:true,changed:true,roomIds:['!r:reddit.com']};}
+   if(msg?.scope==='rcs-directory' && msg.action==='read')return {ok:true,entry:null};
+   return {ok:true};
+  }
+ }};
+ for(const file of ['adapter.js','chat-startup.js','directory-model.js','search-core.js','data-client.js','directory-store.js','message-store.js','message-cache-client.js','date-picker.js','global-search-model.js','unified-search-styles.js','unified-search.js','content.js']){
+  W.eval(fs.readFileSync('extension/'+file,'utf8'));
+ }
+ await new Promise(r=>setTimeout(r,20));
+ assert.ok(D.querySelector('[data-rcs-ui="list"]'),'mounts chat list search when chatSearch is on');
+ assert.ok(shellRoot.querySelector('[data-rcs-ui="minimized-search"]'),'mounts minimized chat button when chatSearch is on');
+
+ // Toggle chatSearch Off via settings-changed: removes UI, stops capture, never clears stored data.
+ let resumeEvents=0;
+ D.addEventListener('rcs-message-cache-listening',e=>{if(e.detail==='resume')resumeEvents++;});
+ chatSearch=false;
+ for(const fn of [...listeners])fn({scope:'rt-posts',action:'settings-changed',settings:{chatSearch:false}},{id:'ext'});
+ assert.equal(W.RCSContent.isEnabled(),false);
+ assert.equal(W.RCSMessages.isEnabled(),false);
+ assert.equal(W.RCSDirectory.isEnabled(),false);
+ assert.equal(D.querySelector('[data-rcs-ui="list"]'),null,'removes chat list search UI when toggled off');
+ assert.equal(shellRoot.querySelector('[data-rcs-ui="minimized-search"]'),null,'removes minimized search button when toggled off');
+ D.dispatchEvent(new W.CustomEvent('rcs-message-cache-batch',{detail:JSON.stringify({owner:'@t2_me:reddit.com',roomId:'!r:reddit.com',events:[{event_id:'$1',room_id:'!r:reddit.com',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:1,content:{body:'hi'}}]})} ));
+ await new Promise(r=>setTimeout(r,20));
+ assert.equal(ingests.length,0,'drops capture batches while chatSearch is off');
+
+ // Toggle chatSearch back On: remounts UI and emits resume signal to page bridge.
+ chatSearch=true;
+ for(const fn of [...listeners])fn({scope:'rt-posts',action:'settings-changed',settings:{chatSearch:true}},{id:'ext'});
+ assert.equal(W.RCSContent.isEnabled(),true);
+ assert.equal(W.RCSMessages.isEnabled(),true);
+ assert.equal(W.RCSDirectory.isEnabled(),true);
+ assert.equal(resumeEvents,1,'notifies page bridge to resume capture without reload');
+ assert.ok(D.querySelector('[data-rcs-ui="list"]'),'remounts chat list search on toggle back on');
+ assert.ok(shellRoot.querySelector('[data-rcs-ui="minimized-search"]'),'remounts minimized chat button on toggle back on');
+});

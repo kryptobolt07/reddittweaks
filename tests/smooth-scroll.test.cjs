@@ -12,12 +12,16 @@ function page(t,{path='/',html}={}){
  const fire=(el,{intersecting=false,height=500}={})=>io.callback([{target:el,isIntersecting:intersecting,boundingClientRect:{height}}]);
  return {W,d:W.document,io,fire};
 }
-test('each page belongs to one sub-option; comment threads are off by default and the master switch rules them all',t=>{
+test('feeds share one smoothFeeds toggle; comment threads are opt-in and governed by smoothFeeds',t=>{
  const {W}=page(t),{area,enabled}=W.RTSmoothScroll;
  const cases={'/':'home','/r/popular/':'home','/r/all/top/':'home','/r/pics/':'subreddits','/r/pics/new/':'subreddits','/r/pics/comments/abc/title/':'comments','/search/':'search','/r/pics/search/':'search','/user/someone/':'profiles','/user/someone/comments/':'profiles'};
  for(const [path,name] of Object.entries(cases))assert.equal(area(path),name,path);
- assert.equal(enabled({},'home'),true);assert.equal(enabled({},'comments'),false);assert.equal(enabled({smoothComments:true},'comments'),true);
- assert.equal(enabled({smoothFeeds:false,smoothHome:true},'home'),false);assert.equal(enabled({smoothSubreddits:false},'subreddits'),false);
+ assert.equal(enabled({},'home'),true);assert.equal(enabled({},'subreddits'),true);assert.equal(enabled({},'profiles'),true);assert.equal(enabled({},'search'),true);
+ assert.equal(enabled({},'comments'),false);assert.equal(enabled({smoothComments:true},'comments'),true);
+ assert.equal(enabled({smoothFeeds:false,smoothComments:true},'comments'),false);
+ assert.equal(enabled({smoothFeeds:false},'home'),false);
+ assert.equal(enabled({smoothHome:false,smoothSubreddits:false,smoothProfiles:false,smoothSearch:false},'subreddits'),false,'legacy all-4-off stays off');
+ assert.equal(enabled({smoothHome:false},'home'),true,'partial legacy off consolidates to smoothFeeds');
 });
 test('posts and ads far off screen skip drawing at their measured height, come back near the screen, and never while focused',async t=>{
  const {W,d,io,fire}=page(t);const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>({}),observe:false});await s.ready;
@@ -33,7 +37,7 @@ test('new batches are picked up; the extension’s own profile feeds and UI are 
  const batch=d.createElement('faceplate-batch');batch.innerHTML='<article id="n1"></article><article id="n2"></article>';d.getElementById('native').append(batch);
  s.pending.add(batch);s.flush();assert.deepEqual([...io.observed].map(e=>e.id).sort(),['n1','n2']);
  fire(d.getElementById('n1'));assert.equal(d.getElementById('n1').hasAttribute('data-rt-skip'),true);
- s.configure({smoothHome:false});assert.equal(io.observed.size,0);assert.equal(d.querySelector('[data-rt-skip],[data-rt-smooth]'),null,'switching the area off clears every skip');
+ s.configure({smoothFeeds:false});assert.equal(io.observed.size,0);assert.equal(d.querySelector('[data-rt-skip],[data-rt-smooth]'),null,'switching smoothFeeds off clears every skip');
 });
 test('comment threads (opt-in) skip top-level comments only; search results skip each result',async t=>{
  const html='<shreddit-comment-tree><section><shreddit-comment depth="0" id="c1"><shreddit-comment depth="1" id="c2"></shreddit-comment></shreddit-comment></section></shreddit-comment-tree>';
@@ -48,7 +52,7 @@ test('lists the extension renders itself (profile search, archives) are smoothed
  const {W,io,fire,d}=page(t,{path:'/user/someone/search/',html});const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>({}),observe:false});await s.ready;
  assert.deepEqual([...io.observed].map(e=>e.id).sort(),['a1','c2','i1'],'extension items, not the card inside an item, not the bridge-owned feed');
  fire(d.getElementById('i1'),{height:420});assert.equal(d.getElementById('i1').hasAttribute('data-rt-skip'),true);
- const off=page(t,{path:'/user/someone/search/',html});const s2=new off.W.RTSmoothScroll.Smooth({readSettings:async()=>({smoothSearch:false}),observe:false});await s2.ready;assert.equal(off.io.observed.size,0,'the page’s option still governs');
+ const off=page(t,{path:'/user/someone/search/',html});const s2=new off.W.RTSmoothScroll.Smooth({readSettings:async()=>({smoothFeeds:false}),observe:false});await s2.ready;assert.equal(off.io.observed.size,0,'smoothFeeds still governs');
 });
 
 test('touch screens never skip drawing; a mouse keeps two screens drawn either way',async t=>{
@@ -84,12 +88,11 @@ test('touch feeds use the measurement cache without observing or scanning native
  s.destroy();
 });
 
-test('cache activation follows the current area and master switch on touch and desktop',async t=>{
+test('cache activation follows smoothFeeds and smoothComments on touch and desktop',async t=>{
  for(const coarse of [true,false]){
   const {W,d,io,fire}=page(t,{path:'/r/pics/'});
   W.matchMedia=()=>({matches:coarse});
-  const settings={smoothHome:false};
-  const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>settings,observe:false});await s.ready;
+  const s=new W.RTSmoothScroll.Smooth({readSettings:async()=>({smoothFeeds:true}),observe:false});await s.ready;
   const active=()=>d.documentElement.hasAttribute('data-rt-smooth-site');
   const card=d.getElementById('a2');
   const skipped=()=>card.hasAttribute('data-rt-skip');
@@ -97,20 +100,22 @@ test('cache activation follows the current area and master switch on touch and d
    W.history.replaceState({},'',path);
    (back?W:d).dispatchEvent(new W.Event(back?'popstate':'reddit:route'));
   };
-  assert.equal(active(),true,'subreddits are enabled by default');
+  assert.equal(active(),true,'feeds are enabled by default');
   if(!coarse){fire(card);assert.equal(skipped(),true);}
-  navigate('/');
-  assert.equal(active(),false,'home is disabled in the popup');
+  s.configure({smoothFeeds:false});
+  assert.equal(active(),false,'disabling smoothFeeds turns off the cache');
   assert.equal(skipped(),false);
   assert.equal(io.observed.size,0);
-  navigate('/r/pics/',true);
+  s.configure({smoothFeeds:true});
   assert.equal(active(),true);
   assert.equal(io.observed.size,coarse?0:3);
   navigate('/r/pics/comments/abc/title/');
   assert.equal(active(),false,'comments are off by default');
-  s.configure({...settings,smoothComments:true});
+  s.configure({smoothFeeds:true,smoothComments:true});
   assert.equal(active(),true);
-  s.configure({...settings,smoothComments:true,smoothFeeds:false});
+  s.configure({smoothFeeds:false,smoothComments:true});
+  assert.equal(active(),false);
+  navigate('/r/pics/',true);
   assert.equal(active(),false);
   s.destroy();
  }

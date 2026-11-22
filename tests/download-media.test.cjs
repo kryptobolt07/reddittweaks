@@ -294,3 +294,33 @@ test('a finished download cannot close a reopened menu or clear its loading row'
   await waitOptions(s);
   assert.ok(s.panel().querySelector('[role="menuitem"]'));
 });
+
+test('downloadMedia toggle cleanly removes and remounts desktop action bars and single-line mobile ⋯ rows live',async t=>{
+  for(const mobile of [false,true]){
+    const dom=new JSDOM(page('image'),{url:'https://www.reddit.com/r/Alpha/',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,D=W.document;
+    const listeners=[];
+    W.matchMedia=q=>({matches:mobile && /max-width/.test(q),addEventListener(){},removeEventListener(){}});
+    W.chrome={runtime:{id:'ext',onMessage:{addListener(fn){listeners.push(fn);},removeListener(fn){const i=listeners.indexOf(fn);if(i>=0)listeners.splice(i,1);}},sendMessage:async()=>({ok:true,settings:{downloadMedia:true}})}};
+    t.after(()=>{W.RTDownloadUIInstance?.destroy();W.close();});
+    const post=D.querySelector('shreddit-post'),shadow=post.attachShadow({mode:'open'});
+    shadow.innerHTML='<rpl-action-bar><div data-testid="action-row"><slot name="share-button"></slot></div></rpl-action-bar>';
+    for(const file of ['post-model.js','download-model.js','post-menu-dom.js','download-ui.js'])W.eval(read(file));
+    await W.RTDownloadUIInstance.ready;
+    if(mobile){
+      const item=D.querySelector('[data-rt-download="item"]');
+      assert.ok(item,'mounted in mobile ⋯ menu when downloadMedia is on');
+      assert.equal(item.querySelector('.text-caption-1'),null,'mobile ⋯ row is strictly single-line');
+      assert.equal(item.dataset.rtMenuAction,'download');
+    }else{
+      const action=shadow.querySelector('[data-rt-download="action"]');
+      assert.ok(action,'mounted in desktop action bar when downloadMedia is on');
+      action.querySelector('button').click();
+      assert.equal(action.hasAttribute('open'),true);
+    }
+    for(const fn of [...listeners])fn({scope:'rt-posts',action:'settings-changed',settings:{downloadMedia:false}},{id:'ext'});
+    assert.equal(shadow.querySelector('[data-rt-download="action"]'),null,'desktop button removed on toggle off');
+    assert.equal(D.querySelector('[data-rt-download="item"]'),null,'mobile ⋯ row removed on toggle off');
+    for(const fn of [...listeners])fn({scope:'rt-posts',action:'settings-changed',settings:{downloadMedia:true}},{id:'ext'});
+    assert.equal(Boolean(mobile?D.querySelector('[data-rt-download="item"]'):shadow.querySelector('[data-rt-download="action"]')),true,'remounted cleanly on toggle back on');
+  }
+});

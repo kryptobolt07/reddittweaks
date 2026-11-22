@@ -5,10 +5,23 @@
   const cacheErrors=new Map(),cacheProgress=new Map(),cacheActivity=new Map();
   const MAX_BATCHES=500,MAX_EVENTS=10000,MAX_BYTES=8*1024*1024;
   let contextError=null,healthProbe=null;
-  let owner=null,selfIdentity=null,nativeSelfIdentity=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null;
+  let owner=null,selfIdentity=null,nativeSelfIdentity=null,readRevision=0,queue=Promise.resolve(),draining=false,writeError=null,overflowError=null,chatSearchEnabled=true;
   const runtime=globalThis.chrome?.runtime,memory=!runtime?.sendMessage?new RCSMessageStore.Store({indexedDB:null}):null;
   const notify=value=>{if(owner && value.owner && value.owner!==owner)return;for(const listener of subscribers)try{listener(value);}catch{}};
   function discard(account){for(let i=pending.length-1;i>=0;i--)if(!account || pending[i].batch.owner===account)pending.splice(i,1);for(const [key,item]of dimensionPatches)if(!account || item.owner===account){dimensionPatches.delete(key);item.resolve({changed:false});}}
+  function setEnabled(next){
+    const value=next!==false;
+    if(chatSearchEnabled===value)return;
+    chatSearchEnabled=value;
+    if(!chatSearchEnabled){
+      clearTimeout(dimensionTimer);dimensionTimer=null;
+      discard();
+      for(const request of importRequests.values())request.cancel?.();
+      importRequests.clear();initializations.clear();preparing.clear();cacheProgress.clear();
+      return;
+    }
+    document.dispatchEvent(new CustomEvent('rcs-message-cache-listening',{detail:'resume'}));
+  }
   function transportError(error){
     if(contextError)return contextError;
     if(!/extension context invalidated/i.test(error?.message || ''))return error;
@@ -50,11 +63,12 @@
     if(action==='room')return memory.room(parameters.owner,parameters.roomId,undefined,{committed:true});
   }
   async function drain() {
-    while(pending.length){const item=pending[0],active=await context();if(!pending.includes(item))continue;if(item.batch.owner!==active){pending.splice(pending.indexOf(item),1);continue;}
+    while(pending.length){if(!chatSearchEnabled){discard();return;}const item=pending[0],active=await context();if(!chatSearchEnabled){discard();return;}if(!pending.includes(item))continue;if(item.batch.owner!==active){pending.splice(pending.indexOf(item),1);continue;}
       let result;item.inFlight=true;try{result=await call('ingest',item.batch);}finally{item.inFlight=false;}const index=pending.indexOf(item);if(index>=0)pending.splice(index,1);writeError=null;cacheActivity.get(active)?.();if(result.changed!==false)notify({owner:active,changed:true,roomIds:result.roomIds});}
   }
-  function schedule(){if(contextError)return Promise.reject(contextError);if(draining)return queue;draining=true;notify({owner,statusOnly:true,savingPending:pending.length>0});queue=queue.then(drain).catch(error=>{writeError=error;notify({owner,error:error.message});}).finally(()=>{draining=false;notify({owner,statusOnly:true,savingPending:pending.length>0});});return queue;}
+  function schedule(){if(!chatSearchEnabled)return Promise.resolve();if(contextError)return Promise.reject(contextError);if(draining)return queue;draining=true;notify({owner,statusOnly:true,savingPending:pending.length>0});queue=queue.then(drain).catch(error=>{writeError=error;notify({owner,error:error.message});}).finally(()=>{draining=false;notify({owner,statusOnly:true,savingPending:pending.length>0});});return queue;}
   function enqueue(batch) {
+    if(!chatSearchEnabled)return Promise.resolve();
     if(contextError)return Promise.reject(contextError);
     const events=Array.isArray(batch.events)?batch.events:[],identities=Array.isArray(batch.identities)?batch.identities.slice(0,1000):[],additions=[];
     for(let offset=0;offset<Math.max(1,events.length);offset+=500){const chunk={owner:batch.owner,roomId:batch.roomId,events:events.slice(offset,offset+500).map(event=>event.room_id?event:{...event,room_id:batch.roomId}),identities,coverage:offset+500>=events.length?batch.coverage:undefined};additions.push({batch:chunk,bytes:JSON.stringify(chunk).length*2});}
@@ -74,8 +88,12 @@
     }
     return schedule();
   }
-  document.addEventListener('rcs-message-cache-batch',event=>{let batch;try{batch=JSON.parse(event.detail);}catch{return;}if(batch && RCSMessageStore.ownerOK(batch.owner))enqueue(batch).catch(()=>{});});
-  runtime?.onMessage?.addListener(message=>{
+  document.addEventListener('rcs-message-cache-batch',event=>{if(!chatSearchEnabled)return;let batch;try{batch=JSON.parse(event.detail);}catch{return;}if(batch && RCSMessageStore.ownerOK(batch.owner))enqueue(batch).catch(()=>{});});
+  runtime?.onMessage?.addListener((message,sender)=>{
+    if(message?.scope==='rt-posts' && message.action==='settings-changed' && (!sender?.id || !runtime?.id || sender.id===runtime.id)){
+      setEnabled(message.settings?.chatSearch!==false);
+      return;
+    }
     if(message?.scope!=='rcs-messages-changed')return;
     const affectsActive=!message.owner || message.owner===owner;
     if(message.cleared){
@@ -121,11 +139,12 @@
     return initializations.get(active);
   }
   document.addEventListener('rcs-message-cache-connected',async event=>{
+    if(!chatSearchEnabled)return;
     document.dispatchEvent(new CustomEvent('rcs-message-cache-listening'));
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     if(!RCSMessageStore.ownerOK(value?.owner) || typeof value.attachment!=='string' || value.attachment.length>100)return;
     try {
-      const active=await context();if(active!==value.owner || clearedAccounts.has(active))return;
+      const active=await context();if(!chatSearchEnabled || active!==value.owner || clearedAccounts.has(active))return;
       const previous=attachments.get(active);attachments.set(active,value.attachment);
       if(previous && previous!==value.attachment){importRequests.get(active)?.cancel?.();initializations.delete(active);preparing.delete(active);imports.delete(active);}
       await ensureReady(active);
@@ -159,7 +178,7 @@
     finally{dimensionsRunning=false;if(dimensionPatches.size)dimensionTimer=setTimeout(saveDimensionPatches,100);}
   }
   function rememberImageDimensions(patch){
-    if(!RCSMessageStore.ownerOK(patch?.owner))return Promise.resolve({changed:false});
+    if(!chatSearchEnabled || !RCSMessageStore.ownerOK(patch?.owner))return Promise.resolve({changed:false});
     return new Promise(resolve=>{
       const key=JSON.stringify([patch.owner,patch.roomId,patch.eventId]),old=dimensionPatches.get(key);old?.resolve({changed:false});dimensionPatches.delete(key);
       if(dimensionPatches.size>=100){const first=dimensionPatches.keys().next().value;dimensionPatches.get(first).resolve({changed:false});dimensionPatches.delete(first);}
@@ -168,6 +187,11 @@
     });
   }
   window.addEventListener('pagehide',event=>{if(!event.persisted){clearTimeout(dimensionTimer);for(const item of dimensionPatches.values())item.resolve({changed:false});dimensionPatches.clear();}});
-  globalThis.RCSMessages=Object.freeze({getSelfIdentity:()=>selfIdentity?.id===owner?{...selfIdentity}:null,ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),rememberImageDimensions,flush,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
+  globalThis.RCSMessages=Object.freeze({getSelfIdentity:()=>selfIdentity?.id===owner?{...selfIdentity}:null,ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),rememberImageDimensions,flush,setEnabled,isEnabled:()=>chatSearchEnabled,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
+  if(runtime?.id && runtime.sendMessage){
+    Promise.resolve().then(()=>runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>{
+      if(response?.ok && response.settings?.chatSearch===false)setEnabled(false);
+    },()=>{});
+  }
   document.dispatchEvent(new CustomEvent('rcs-message-cache-listening'));
 })();

@@ -113,7 +113,7 @@
       this.onPress=event=>{
         if(!this.enabled || event.type==='keydown' && !['Enter',' '].includes(event.key))return;
         const menu=event.composedPath?.().find(node=>node?.tagName==='SHREDDIT-POST-OVERFLOW-MENU');
-        if(menu){this.syncMenu(menu);this.menuStatus(menu);}
+        if(menu){this.syncMenu(menu);this.menuStatus(menu);globalThis.RTPostMenuDOM?.prepareOpen?.(menu);}
       };
       document.addEventListener('pointerdown',this.onPress,true);document.addEventListener('keydown',this.onPress,true);
       // Fetch the Reddit Raffler status as ⋯ is hovered or focused, so the menu usually opens with it already known.
@@ -130,7 +130,7 @@
       else{this.enabled=M.normalizeSettings({}).raffles;if(attempt<6)this.settingsRetry=setTimeout(()=>this.loadSettings(attempt+1),Math.min(30000,1000*2**attempt));}
       this.sync();
     }
-    destroy(){this.dead=true;clearTimeout(this.settingsRetry);document.removeEventListener('pointerdown',this.onPress,true);document.removeEventListener('keydown',this.onPress,true);document.removeEventListener('pointerover',this.onNear,true);document.removeEventListener('focusin',this.onNear,true);this.observer?.disconnect();try{chrome.storage?.onChanged?.removeListener(this.onSettings);}catch{}try{chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}this.close(true);for(const item of document.querySelectorAll('[data-rt-raffle="item"]'))item.remove();}
+    destroy(){this.dead=true;clearTimeout(this.settingsRetry);document.removeEventListener('pointerdown',this.onPress,true);document.removeEventListener('keydown',this.onPress,true);document.removeEventListener('pointerover',this.onNear,true);document.removeEventListener('focusin',this.onNear,true);this.observer?.disconnect();try{chrome.storage?.onChanged?.removeListener(this.onSettings);}catch{}try{chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}this.close(true);const slots=new Set();for(const item of document.querySelectorAll('[data-rt-raffle="item"]')){const slot=item.closest?.('[slot="devvit-context-actions"]');if(slot)slots.add(slot);item.remove();}for(const slot of slots)globalThis.RTPostMenuDOM?.reconcile?.(slot);}
 
     // One item per post menu, in the menu's own action slot (B1).
     sync(){
@@ -142,15 +142,29 @@
     syncMenu(menu){
       if(!menu.isConnected)return;
       const existing=menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-raffle="item"]');
-      if(!this.enabled){existing?.remove();return;}
+      if(!this.enabled){
+        if(existing){const slot=existing.closest?.('[slot="devvit-context-actions"]');existing.remove();globalThis.RTPostMenuDOM?.reconcile?.(slot || menu);}
+        return;
+      }
       if(existing || !/^t3_[a-z0-9]{1,10}$/i.test(menu.getAttribute('post-id') || ''))return;
       let slot=menu.querySelector(':scope > [slot="devvit-context-actions"]');
       if(!slot){slot=make('div');slot.setAttribute('slot','devvit-context-actions');menu.append(slot);}
       slot.append(this.menuItem(menu));
+      globalThis.RTPostMenuDOM?.reconcile?.(slot);
+      globalThis.RTPostMenuDOM?.clampMenu?.(menu);
     }
     dedupe(){
       const portal=document.getElementById('post-overflow-menu-bottom-sheet');if(!portal)return;
-      if(!this.enabled){for(const item of portal.querySelectorAll('[data-rt-raffle="item"]'))item.remove();return;}
+      if(!this.enabled){
+        const slots=new Set();
+        for(const item of portal.querySelectorAll('[data-rt-raffle="item"]')){
+          const slot=item.closest?.('[slot="devvit-context-actions"]');
+          if(slot)slots.add(slot);
+          item.remove();
+        }
+        for(const slot of slots)globalThis.RTPostMenuDOM?.reconcile?.(slot);
+        return;
+      }
       globalThis.RTPostMenuDOM?.retainAction(portal,'[data-rt-raffle="item"]');
     }
     statusItems(menu){
@@ -158,17 +172,17 @@
       const items=[...menu.querySelectorAll('[data-rt-raffle="item"]')];
       const portal=document.getElementById('post-overflow-menu-bottom-sheet');
       if(portal)items.push(...[...portal.querySelectorAll('[data-rt-raffle="item"]')].filter(item=>item.dataset.rtPostId===id));
+      for(const flyout of document.querySelectorAll('[data-rt-menu-group="flyout"]'))items.push(...[...flyout.querySelectorAll('[data-rt-raffle="item"]')].filter(item=>item.dataset.rtPostId===id));
       return items;
     }
     menuItem(menu){
-      // Reddit's own menu-item markup (FINDINGS.md): li[role=presentation] > div[role=menuitem].
-      const li=make('li','relative list-none mt-0');li.setAttribute('role','presentation');li.dataset.rtRaffle='item';li.dataset.rtUi='raffle-menu-item';li.dataset.rtPostId=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();
+      // Reddit's own single-line menu-item markup: li[role=presentation] > div[role=menuitem].
+      const li=make('li','relative list-none mt-0');li.setAttribute('role','presentation');li.dataset.rtRaffle='item';li.dataset.rtMenuAction='raffle';li.dataset.rtUi='raffle-menu-item';li.dataset.rtPostId=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();
       const row=make('div','flex justify-between relative px-md gap-xs text-secondary-plain hover:text-secondary-plain-hover active:bg-interactive-pressed hover:bg-neutral-background-hover hover:no-underline cursor-pointer py-2xs -outline-offset-1');
       row.setAttribute('role','menuitem');row.tabIndex=-1;row.style.paddingInlineEnd='16px';
       const lead=make('span','flex items-center gap-xs min-w-0 shrink'),box=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4');box.append(icon(TICKET));
-      // Two lines from the start (label and caption), shown as Reddit's skeleton until the Reddit Raffler status is
-      // known, so the final wording replaces the skeleton without changing the item's height.
-      const text=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]');text.append(make('span','text-body-2','Run a raffle'),make('span','text-caption-1 text-secondary-plain-weak','Pick winners from the comments'));
+      // Strictly single-line label matching native Reddit menu row height (skeleton covers the line while loading).
+      const text=make('span','flex items-center min-w-0 shrink py-[0.375rem]');text.append(make('span','text-body-2','Run a raffle'));
       const tail=make('span','flex items-center shrink-0');tail.append(make('span','flex items-center justify-center h-lg'));
       lead.append(box,text);row.append(lead,tail);li.append(row);li.dataset.rtRaffleState='loading';row.setAttribute('aria-busy','true');
       const id=String(menu.getAttribute('post-id') || '').replace(/^t3_/i,'').toLowerCase();this.applyStatus(li,this.raffleStatus?.get(id)?.status);
@@ -206,13 +220,15 @@
     applyStatus(item,status){
       if(!item || !status)return;const drawn=Boolean(status.exists);
       const label=drawn?'View raffle results':'Run a raffle';
-      const caption=drawn?'Drawn on Reddit Raffler'+(status.verified?' · verified':''):'Pick winners from the comments';
-      const title=item.querySelector('.text-body-2'),subtitle=item.querySelector('.text-caption-1');
-      if(title.textContent!==label)title.textContent=label;
-      if(subtitle.textContent!==caption)subtitle.textContent=caption;
+      const title=item.querySelector('.text-body-2'),row=item.querySelector('[role="menuitem"]');
+      if(title && title.textContent!==label)title.textContent=label;
+      if(row){
+        if(drawn)row.title='Drawn on Reddit Raffler'+(status.verified?' · verified':'');
+        else row.removeAttribute('title');
+        row.removeAttribute('aria-busy');
+      }
       const state=drawn?'drawn':'none';
       if(item.dataset.rtRaffleState!==state)item.dataset.rtRaffleState=state;
-      item.querySelector('[role="menuitem"]').removeAttribute('aria-busy');
     }
     postOf(menu){
       const card=menu.closest('shreddit-post');

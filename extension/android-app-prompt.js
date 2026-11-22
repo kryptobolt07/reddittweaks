@@ -134,6 +134,7 @@
       revealPostMedia(dialog);
       return;
     }
+    if (hideMatureOverlay !== true) return;
     if (dialog.shadowRoot) observe(dialog.shadowRoot);
     const roots = dialog.shadowRoot ? [dialog, dialog.shadowRoot] : [dialog];
     const title = normalized(dialog.getAttribute('aria-label'));
@@ -192,7 +193,7 @@
     const changed = hideMatureOverlay !== enabled;
     hideMatureOverlay = enabled;
     if (changed) {
-      if (enabled) for (const dialog of document.querySelectorAll(APP_ONLY + ', ' + PAGE_FADE)) inspect(dialog);
+      if (enabled) for (const dialog of document.querySelectorAll(APP_ONLY + ', ' + PAGE_FADE + ', ' + SHEET + ', ' + DIALOG)) inspect(dialog);
       refreshPostPromotions();
     }
     const reveal = settings?.revealNsfwPostMedia === true;

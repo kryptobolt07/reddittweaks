@@ -318,9 +318,9 @@
     // differs. Turning discovery or the archive on or off rebuilds the view; a
     // change to restoring deleted text only adjusts what is already mounted.
     // Smooth long feeds (setting): the page-world feed bridge keeps posts mounted and skips drawing far ones.
-    syncSmoothFeed(){const on=!this.dead && Boolean(this.settings?.postDiscovery) && this.settings?.smoothFeeds!==false && this.settings?.smoothProfiles!==false;document.documentElement.toggleAttribute('data-rt-smooth-feed',on);}
+    syncSmoothFeed(){const on=!this.dead && Boolean(this.settings?.postDiscovery) && this.settings?.smoothFeeds!==false;document.documentElement.toggleAttribute('data-rt-smooth-feed',on);}
     applySettings(next){
-      if(this.dead)return;document.documentElement.toggleAttribute('data-rt-smooth-feed',Boolean(next?.postDiscovery) && next?.smoothFeeds!==false && next?.smoothProfiles!==false);const previous=this.settings,fresh=this.settingsPending || this.settingsError,names=['postDiscovery','archiveDiscovery','restoreDeletedContent','historyLimit'];
+      if(this.dead)return;document.documentElement.toggleAttribute('data-rt-smooth-feed',Boolean(next?.postDiscovery) && next?.smoothFeeds!==false);const previous=this.settings,fresh=this.settingsPending || this.settingsError,names=['postDiscovery','archiveDiscovery','restoreDeletedContent','historyLimit'];
       if(!fresh && names.every(name=>previous[name]===next[name]))return;
       viewedHistoryOn=Boolean(next.postDiscovery) && (next.historyLimit ?? 20)!==20;
       const rebuild=fresh || previous.postDiscovery!==next.postDiscovery || previous.archiveDiscovery!==next.archiveDiscovery || (previous.historyLimit ?? 20)!==(next.historyLimit ?? 20);

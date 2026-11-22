@@ -149,3 +149,64 @@ test('a late native action slot does not discard the sole download and raffle ro
   assert.equal(nativeSlot.querySelectorAll('[data-rt-download="item"]').length,1);
   assert.equal(portal.querySelectorAll('[data-rt-ui$="menu-item"]').length,2);
 });
+
+test('overflow menu clamps shadow dropdowns, coalesces resize recalculations, and collapses >2 extension actions into Reddit Tweaks ›',async t=>{
+  const {W,D,cleanup}=setup(t,['post-model.js','feed-filters.js','raffle-model.js','raffle-ui.js','download-model.js','download-ui.js']);
+  const menu=D.querySelector('shreddit-post-overflow-menu');
+  const shadow=menu.attachShadow({mode:'open'});
+  shadow.innerHTML='<rpl-dropdown open><faceplate-menu slot="content"><slot name="devvit-context-actions"></slot></faceplate-menu></rpl-dropdown>';
+  let resizes=0;
+  W.addEventListener('resize',()=>{resizes++;});
+  const raffle=new W.RTRaffle.Raffle({readSettings:async()=>({raffles:true})});
+  const download=new W.RTDownloadUI.Download({mobile:true});
+  cleanup.push(()=>{raffle.destroy();download.destroy();});
+  download.sync();await raffle.ready;await flush();
+  await new Promise(resolve=>setTimeout(resolve,20));
+  assert.ok(shadow.querySelector('style[data-rt-menu-clamp]'),'viewport clamp injected into shadowRoot');
+  assert.match(shadow.querySelector('style[data-rt-menu-clamp]').textContent,/max-height:\s*calc\(100vh - 80px\)/);
+  assert.ok(resizes>=1,'coalesced resize fired for open overflow menu');
+
+  const slot=menu.querySelector('[slot="devvit-context-actions"]');
+  assert.equal(slot.querySelector('[data-rt-menu-group="trigger"]'),null,'<=2 actions render directly');
+  const extra=D.createElement('li');extra.dataset.rtMenuAction='custom';extra.innerHTML='<div role="menuitem"><span class="text-body-2">Extra tweak</span></div>';
+  slot.append(extra);
+  W.RTPostMenuDOM.reconcile(slot);
+  const trigger=slot.querySelector('[data-rt-menu-group="trigger"]');
+  assert.ok(trigger,'>2 extension actions collapse into Reddit Tweaks ›');
+  assert.equal(trigger.querySelector('.text-body-2').textContent,'Reddit Tweaks');
+  assert.equal(slot.querySelectorAll(':scope > [data-rt-menu-action]').length,0,'direct actions moved into collapsed group');
+
+  trigger.querySelector('[role="menuitem"]').click();
+  const flyout=D.querySelector('[data-rt-menu-group="flyout"]');
+  assert.ok(flyout,'clicking trigger opens desktop flyout');
+  assert.equal(flyout.querySelectorAll('[data-rt-menu-action]').length,3);
+  W.RTPostMenuDOM.closeSubmenu();
+  assert.equal(D.querySelector('[data-rt-menu-group="flyout"]'),null);
+
+  extra.remove();
+  W.RTPostMenuDOM.reconcile(slot);
+  assert.equal(slot.querySelector('[data-rt-menu-group="trigger"]'),null,'unwraps cleanly when back to <=2 actions');
+  assert.equal(slot.querySelectorAll(':scope > [data-rt-menu-action]').length,2);
+
+  // Mobile bottom sheet >2 actions drills in-place with a single-line Back row.
+  const portal=D.createElement('div');portal.id='post-overflow-menu-bottom-sheet';
+  const sheetBody=D.createElement('div');sheetBody.className='post-overflow-menu-bottom-sheet';
+  const sheetSlot=D.createElement('div');sheetSlot.setAttribute('slot','devvit-context-actions');
+  for(const key of ['raffle','download','custom']){
+    const li=D.createElement('li');li.dataset.rtMenuAction=key;
+    li.innerHTML='<div role="menuitem"><span class="text-body-2">'+key+'</span></div>';
+    sheetSlot.append(li);
+  }
+  sheetBody.append(sheetSlot);portal.append(sheetBody);D.body.append(portal);
+  W.RTPostMenuDOM.reconcile(sheetSlot);
+  const sheetTrigger=sheetSlot.querySelector('[data-rt-menu-group="trigger"]');
+  assert.ok(sheetTrigger,'mobile bottom sheet collapses >2 actions into Reddit Tweaks ›');
+  sheetTrigger.querySelector('[role="menuitem"]').click();
+  const panel=sheetBody.querySelector('.rt-menu-sheet-panel');
+  assert.ok(panel,'opens in-place sheet panel on mobile');
+  assert.equal(sheetSlot.style.display,'none');
+  assert.equal(panel.querySelectorAll('[data-rt-menu-action]').length,3);
+  panel.querySelector('[data-rt-menu-group="back"] [role="menuitem"]').click();
+  assert.equal(sheetBody.querySelector('.rt-menu-sheet-panel'),null);
+  assert.equal(sheetSlot.style.display,'');
+});

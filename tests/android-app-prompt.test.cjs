@@ -293,3 +293,12 @@ test('a late inline shadow root is handled and desktop keeps its promotion', asy
   assert.ok(mobileShadow.querySelector('style'));
   assert.equal(desktopShadow.querySelector('style'), null);
 });
+
+test('turning Hide mobile app overlays off also leaves generic mobile app dialogs untouched until turned back on', async t => {
+  const {trace, setOverlay} = setup(t, prompt(), true, {hideMatureOverlay: false});
+  await settle();
+  assert.deepEqual(trace, []);
+  setOverlay(true);
+  await settle();
+  assert.deepEqual(trace, ['Continue in browser']);
+});

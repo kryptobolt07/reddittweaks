@@ -6,4 +6,9 @@
 .rt-download-menu .rt-download-label,.rt-download-menu .rt-download-caption,.rt-download-submenu .rt-download-label,.rt-download-submenu .rt-download-caption{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-download-menu [aria-disabled="true"],.rt-download-submenu [aria-disabled="true"]{opacity:.55;cursor:default}
 .rt-download-error{margin:4px 8px 6px;padding:6px 8px;border-radius:6px;background:var(--color-danger-background,#ffe6e0);color:var(--color-danger-content,#b8001f);font-size:12px;line-height:16px}
+shreddit-post-overflow-menu faceplate-menu,shreddit-post-overflow-menu [slot="content"],#post-overflow-menu-bottom-sheet .post-overflow-menu-bottom-sheet{max-height:calc(100vh - 80px);overflow-y:auto;overscroll-behavior:contain}
+[data-rt-menu-action]>[role="menuitem"],[data-rt-menu-group="trigger"]>[role="menuitem"]{align-items:center}
+.rt-menu-flyout{position:fixed;z-index:2147483000;margin:0;padding:4px 0;min-width:12rem;max-width:min(20rem,calc(100vw - 16px));max-height:calc(100vh - 80px);overflow-y:auto;overscroll-behavior:contain;list-style:none;border-radius:8px;background:var(--color-neutral-background,#fff);color:var(--color-secondary-onBackground,#181c1f);box-shadow:0 4px 8px rgba(0,0,0,.1),0 6px 12px rgba(0,0,0,.25);white-space:nowrap}
+.rt-menu-flyout [role="menuitem"]:focus-visible,.rt-menu-sheet-panel [role="menuitem"]:focus-visible{outline:2px solid var(--color-focus,#ff4500);outline-offset:-2px}
+.rt-menu-sheet-panel{display:flex;flex-direction:column;box-sizing:border-box;width:100%}
 @media (max-width:767.98px){#post-overflow-menu-bottom-sheet .rt-download-submenu{max-width:none;max-height:none;overflow:visible}}

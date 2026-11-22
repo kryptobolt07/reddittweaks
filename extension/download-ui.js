@@ -42,9 +42,14 @@
       }catch(error){reject(error);}
     });
   }
+  async function defaultSettings() {
+    const response=await chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});
+    if(!response?.ok)throw Error('Settings unavailable.');
+    return response.settings;
+  }
   class Download {
-    constructor({observe=true,read=defaultRead,mobile}={}) {
-      this.read=read;this.dead=false;this.dropdown=null;this.button=null;this.panel=null;this.post=null;this.sheetItem=null;this.sheet=null;this.hidden=[];this.busy=false;
+    constructor({observe=true,read=defaultRead,mobile,readSettings,enabled}={}) {
+      this.read=read;this.readSettings=readSettings || null;this.enabled=typeof enabled==='boolean'?enabled:!this.readSettings;this.dead=false;this.settingsRetry=0;this.dropdown=null;this.button=null;this.panel=null;this.post=null;this.sheetItem=null;this.sheet=null;this.hidden=[];this.busy=false;
       this.mobile=typeof mobile==='boolean'?{matches:mobile}:mobile || globalThis.matchMedia?.('(max-width: 767.98px)') || {matches:false,addEventListener(){},removeEventListener(){}};
       this.onClick=event=>{if(!this.dropdown && !this.sheetItem)return;const path=event.composedPath?.() || [];if(path.includes(this.panel) || path.includes(this.dropdown) || path.includes(this.sheetItem))return;this.close();};
       this.onKeydown=event=>{if(event.key==='Escape' && (this.dropdown || this.sheetItem)){event.preventDefault();event.stopImmediatePropagation();this.close(true);}};
@@ -53,6 +58,7 @@
       if(this.mobile.addEventListener)this.mobile.addEventListener('change',this.onViewport);else this.mobile.addListener?.(this.onViewport);
       if(observe){
         this.observer=new MutationObserver(records=>{
+          if(!this.enabled)return;
           const dom=globalThis.RTPostMenuDOM;
           if(dom?.onlyMenuChanges(records)){
             if(this.sheetItem && !this.sheetItem.isConnected)this.close();
@@ -70,19 +76,75 @@
         });
         this.observer.observe(document.documentElement,{childList:true,subtree:true});
       }
+      if(observe || this.readSettings){
+        this.onSettings=(changes,area)=>{if(area==='local' && changes['rt-settings-v1'])this.loadSettings();};
+        this.onSettingsMessage=(message,sender)=>{
+          if(sender?.id && globalThis.chrome?.runtime?.id && sender.id!==chrome.runtime.id)return;
+          if(message?.scope==='rt-posts' && message.action==='settings-changed'){
+            if(message.settings)this.applySettings(message.settings);else this.loadSettings();
+          }
+        };
+        try{chrome.storage?.onChanged?.addListener(this.onSettings);}catch{}
+        try{chrome.runtime?.onMessage?.addListener(this.onSettingsMessage);}catch{}
+      }
+      this.ready=this.readSettings?this.loadSettings():Promise.resolve();
+    }
+    applySettings(settings) {
+      if(this.dead)return;
+      const normalized=globalThis.RTPostModel?.normalizeSettings?globalThis.RTPostModel.normalizeSettings(settings):settings;
+      this.setEnabled(normalized?.downloadMedia!==false);
+    }
+    async loadSettings(attempt=0) {
+      if(!this.readSettings){this.sync();return;}
+      clearTimeout(this.settingsRetry);
+      let settings=null;
+      try{settings=await this.readSettings();}catch{}
+      if(this.dead)return;
+      if(settings)this.applySettings(settings);
+      else{
+        this.setEnabled(true);
+        if(attempt<6)this.settingsRetry=setTimeout(()=>this.loadSettings(attempt+1),Math.min(30000,1000*2**attempt));
+      }
+    }
+    setEnabled(next) {
+      if(this.dead)return;
+      this.enabled=Boolean(next);
+      if(!this.enabled)this.teardownUI();
+      else this.sync();
+    }
+    teardownUI() {
+      this.close();
+      const slots=new Set();
+      for(const item of document.querySelectorAll('[data-rt-download="item"]')){
+        const slot=item.closest?.('[slot="devvit-context-actions"]');
+        if(slot)slots.add(slot);
+        item.remove();
+      }
+      for(const slot of slots)globalThis.RTPostMenuDOM?.reconcile?.(slot);
+      for(const post of document.querySelectorAll('shreddit-post'))for(const action of post.shadowRoot?.querySelectorAll('[data-rt-download="action"]') || [])action.remove();
     }
     destroy() {
-      this.dead=true;this.close();this.observer?.disconnect();
+      this.dead=true;clearTimeout(this.settingsRetry);this.observer?.disconnect();
       document.removeEventListener('click',this.onClick,true);document.removeEventListener('keydown',this.onKeydown,true);
       if(this.mobile.removeEventListener)this.mobile.removeEventListener('change',this.onViewport);else this.mobile.removeListener?.(this.onViewport);
-      for(const item of document.querySelectorAll('[data-rt-download="item"]'))item.remove();
-      for(const post of document.querySelectorAll('shreddit-post'))for(const action of post.shadowRoot?.querySelectorAll('[data-rt-download="action"]') || [])action.remove();
+      if(this.onSettings)try{chrome.storage?.onChanged?.removeListener(this.onSettings);}catch{}
+      if(this.onSettingsMessage)try{chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}
+      this.teardownUI();
     }
     sync() {
       if(this.dead)return;
+      if(!this.enabled){this.teardownUI();return;}
       if(this.dropdown && !this.dropdown.isConnected)this.close();
       if(this.sheetItem && !this.sheetItem.isConnected)this.close();
-      if(!this.mobile.matches)for(const item of document.querySelectorAll('[data-rt-download="item"]'))item.remove();
+      if(!this.mobile.matches){
+        const slots=new Set();
+        for(const item of document.querySelectorAll('[data-rt-download="item"]')){
+          const slot=item.closest?.('[slot="devvit-context-actions"]');
+          if(slot)slots.add(slot);
+          item.remove();
+        }
+        for(const slot of slots)globalThis.RTPostMenuDOM?.reconcile?.(slot);
+      }
       for(const post of document.querySelectorAll('shreddit-post')){
         const type=String(post.getAttribute('post-type') || '').toLowerCase(),root=post.shadowRoot;
         if(this.mobile.matches){
@@ -108,6 +170,7 @@
       if(this.mobile.matches)this.dedupe();
     }
     syncMenu(menu,post) {
+      if(!this.enabled)return;
       const type=String(post.getAttribute('post-type') || '').toLowerCase();
       if(!SUPPORTED.has(type))return;
       const existing=menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-download="item"]');
@@ -115,10 +178,23 @@
       let slot=menu.querySelector(':scope > [slot="devvit-context-actions"]');
       if(!slot){slot=make('div');slot.setAttribute('slot','devvit-context-actions');menu.append(slot);}
       slot.append(this.menuItem(menu,post));
+      globalThis.RTPostMenuDOM?.reconcile?.(slot);
+      globalThis.RTPostMenuDOM?.clampMenu?.(menu);
     }
     dedupe() {
       const portal=document.getElementById('post-overflow-menu-bottom-sheet');
-      if(portal && !this.sheetItem)globalThis.RTPostMenuDOM?.retainAction(portal,'[data-rt-download="item"]');
+      if(!portal)return;
+      if(!this.enabled){
+        const slots=new Set();
+        for(const item of portal.querySelectorAll('[data-rt-download="item"]')){
+          const slot=item.closest?.('[slot="devvit-context-actions"]');
+          if(slot)slots.add(slot);
+          item.remove();
+        }
+        for(const slot of slots)globalThis.RTPostMenuDOM?.reconcile?.(slot);
+        return;
+      }
+      if(!this.sheetItem)globalThis.RTPostMenuDOM?.retainAction(portal,'[data-rt-download="item"]');
     }
     action(post) {
       const wrapper=make('rpl-dropdown','relative rt-download-action');
@@ -136,11 +212,11 @@
       return wrapper;
     }
     menuItem(menu,post) {
-      const li=make('li','relative list-none mt-0');li.setAttribute('role','presentation');li.dataset.rtDownload='item';li.dataset.rtUi='download-menu-item';
+      const li=make('li','relative list-none mt-0');li.setAttribute('role','presentation');li.dataset.rtDownload='item';li.dataset.rtMenuAction='download';li.dataset.rtUi='download-menu-item';
       const row=make('div',ROW);row.setAttribute('role','menuitem');row.setAttribute('aria-haspopup','menu');row.setAttribute('aria-expanded','false');row.tabIndex=-1;row.style.paddingInlineEnd='16px';
       const lead=make('span','flex items-center gap-xs min-w-0 shrink'),box=make('span','flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4');box.append(glyph('download'));
-      const text=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]');
-      text.append(make('span','text-body-2','Download media'),make('span','text-caption-1 text-secondary-plain-weak','Save this post’s media'));
+      const text=make('span','flex items-center min-w-0 shrink py-[0.375rem]');
+      text.append(make('span','text-body-2','Download media'));
       const tail=make('span','flex items-center shrink-0');tail.append(glyph('chevron-right'));
       lead.append(box,text);row.append(lead,tail);li.append(row);
       const choose=event=>{event.preventDefault();event.stopImmediatePropagation();this.openSheet(menu,post,li);};
@@ -159,9 +235,9 @@
     openSheet(menu,post,item) {
       if(this.sheetItem===item && this.panel){this.close(true);return;}
       this.close();
-      const sheet=item.closest?.('.post-overflow-menu-bottom-sheet'),slot=item.closest?.('[slot="devvit-context-actions"]');
-      if(!sheet || !slot)return;
-      const host=slot.parentElement,hidden=[];
+      const sheet=item.closest?.('.post-overflow-menu-bottom-sheet'),container=item.closest?.('.rt-menu-sheet-panel') || item.closest?.('[slot="devvit-context-actions"]');
+      if(!sheet || !container)return;
+      const host=container.parentElement,hidden=[];
       for(const node of [...host.children]){hidden.push({node,display:node.style.display});node.style.display='none';}
       item.querySelector('[role="menuitem"]')?.setAttribute('aria-expanded','true');
       const panel=make('div','rt-download-submenu');panel.dataset.rtDownload='panel';panel.setAttribute('role','menu');panel.setAttribute('aria-label','Download media');
@@ -271,6 +347,6 @@
       }
     }
   }
-  globalThis.RTDownloadUI=Object.freeze({Download,defaultRead});
-  if(globalThis.top===globalThis && globalThis.chrome?.runtime?.id && globalThis.location?.hostname!=='old.reddit.com')Object.defineProperty(globalThis,'RTDownloadUIInstance',{value:new Download()});
+  globalThis.RTDownloadUI=Object.freeze({Download,defaultRead,defaultSettings});
+  if(globalThis.top===globalThis && globalThis.chrome?.runtime?.id && globalThis.location?.hostname!=='old.reddit.com')Object.defineProperty(globalThis,'RTDownloadUIInstance',{value:new Download({readSettings:defaultSettings})});
 })();

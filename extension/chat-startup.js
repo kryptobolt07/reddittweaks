@@ -68,7 +68,7 @@
   // Only chat elements or a floating-chat shell position: Reddit's posts and players also have shadow roots, and treating
   // every one as a candidate re-ran discovery on each batch of posts while scrolling (measured 2026-11-19).
   const candidate=node=>A.chatNode?A.chatNode(node):node.nodeType===1 && (node.localName?.startsWith('rs-') || node.matches?.('[data-testid="chat-room-list"]'));
-  function endDiscovery(){clearTimeout(discoveryTimer);for(const observer of observers)observer.disconnect();observers.length=0;watched.clear();document.removeEventListener('rcs-chat-present',wake);document.removeEventListener('rcs-chat-starting',wake);}
+  function endDiscovery(){clearTimeout(discoveryTimer);for(const observer of observers)observer.disconnect();observers.length=0;watched.clear();document.removeEventListener('rcs-chat-present',wake);document.removeEventListener('rcs-chat-starting',wake);if(onSettingsMessage)try{chrome.runtime?.onMessage?.removeListener(onSettingsMessage);}catch{}}
   function discover(){
     queued=false;clearTimeout(discoveryTimer);if(used)return;
     const roots=A.chatRoots();check(roots);if(used)return;
@@ -81,11 +81,22 @@
     if(roots.length && Date.now()<hydrationUntil)discoveryTimer=setTimeout(discover,100);
   }
   function wake(){if(used || queued)return;hydrationUntil=Date.now()+4500;queued=true;queueMicrotask(discover);}
+  let onSettingsMessage=null;
   const documentObserver=new MutationObserver(records=>{
     if(records.some(record=>!globalThis.RTPostMenuDOM?.isMenuMutation(record) && [...record.addedNodes].some(candidate)))wake();
   });
   documentObserver.observe(document,{childList:true,subtree:true});observers.push(documentObserver);
   document.addEventListener('rcs-chat-present',wake);document.addEventListener('rcs-chat-starting',wake);
-  globalThis.RCSChatStartup=Object.freeze({check,stop(){used=true;release();endDiscovery();}});
+  const stop=()=>{used=true;release();endDiscovery();};
+  if(globalThis.chrome?.runtime?.id && chrome.runtime.sendMessage){
+    onSettingsMessage=(message,sender)=>{
+      if(sender?.id===chrome.runtime.id && message?.scope==='rt-posts' && message.action==='settings-changed' && message.settings?.chatSearch===false)stop();
+    };
+    try{chrome.runtime.onMessage?.addListener(onSettingsMessage);}catch{}
+    Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>{
+      if(response?.ok && response.settings?.chatSearch===false)stop();
+    },()=>{});
+  }
+  globalThis.RCSChatStartup=Object.freeze({check,stop});
   queueMicrotask(wake);
 })();

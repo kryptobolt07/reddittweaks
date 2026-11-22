@@ -13,8 +13,7 @@
  // Lists the extension renders itself: profile search and discovery rows, archive cards (measured 2026-11-19: 100 profile
  // search results on a 6,735 px page were never smoothed). The bridge keeps the profile feeds it owns.
  const OWN='[data-rt-ui="activity-item"], [data-rt-ui="archive-item"], [data-rt-ui="posts"] .rt-native-card, [data-rt-ui="archive-subreddit"] .rt-native-card';
- const ALL=Object.values(UNITS).join(',');
- // Which sub-option governs this page.
+ // Which page kind determines the selectors and comment-thread opt-in.
  function area(path=location.pathname){
   // Post pages carry the post ID after /comments/; a profile's Comments tab (/user/x/comments/) does not.
   if(/\/comments\/[a-z0-9]+(\/|$)/i.test(path))return 'comments';
@@ -24,8 +23,8 @@
   if(/^\/r\/[^/]+/i.test(path))return 'subreddits';
   return 'home';
  }
- const KEYS={home:'smoothHome',subreddits:'smoothSubreddits',profiles:'smoothProfiles',search:'smoothSearch',comments:'smoothComments'};
- const enabled=(settings,name)=>settings?.smoothFeeds!==false && (name==='comments'?settings?.[KEYS[name]]===true:settings?.[KEYS[name]]!==false);
+ const feedsEnabled=settings=>settings?.smoothFeeds!==false && !(settings?.smoothHome===false && settings?.smoothSubreddits===false && settings?.smoothProfiles===false && settings?.smoothSearch===false);
+ const enabled=(settings,name)=>feedsEnabled(settings) && (name==='comments'?settings?.smoothComments===true:true);
  const selectorFor=name=>(name==='comments'?UNITS.comments:name==='search'?UNITS.search:UNITS.feed)+', '+OWN;
 
  class Smooth{
@@ -36,7 +35,7 @@
    // 2.1 fps, with Reddit saturating the main thread either way. A flick outruns the redraw.
    // Re-tested with the other optimisations in place (2026-11-19, the user flicking): skipping on touch left 37.8 % of
    // moving frames at least half blank against 1.4 % without it.
-   this.touch=Boolean(globalThis.matchMedia?.('(hover: none), (pointer: coarse)')?.matches);
+   this.touch=Boolean(globalThis.matchMedia?.('(hover: none) and (pointer: coarse)')?.matches);
    this.io=typeof IntersectionObserver==='function' && !this.touch?new IntersectionObserver(entries=>this.onIntersect(entries),{rootMargin:'200% 0px 200% 0px'}):null;
    this.mo=observe && this.io?new MutationObserver(records=>{
     for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1)this.pending.add(node);

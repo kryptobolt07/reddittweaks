@@ -35,6 +35,7 @@
   let scheduled = false;
   let refreshTimer=null,fastScheduled=false,navigationFrame=0;
   let stopped = false;
+  let chatEnabled = true;
   let collapsedControl = null;
   let openListRequested = false;
   // Avatars already decoded in this page (bounded). A browser-cached image reports complete as soon
@@ -811,10 +812,10 @@
     },delay);
   }
   function schedule() {
-    if (scheduled || stopped) return; scheduled = true;pendingSince=Date.now();queueRefresh(120);
+    if (scheduled || stopped || !chatEnabled) return; scheduled = true;pendingSince=Date.now();queueRefresh(120);
   }
   function nativeScroll(event){
-    if(stopped || extensionNode(event.target) || !event.target.matches?.(A.selectors.scroller))return;
+    if(stopped || !chatEnabled || extensionNode(event.target) || !event.target.matches?.(A.selectors.scroller))return;
     lastNativeScroll=Date.now();
   }
   function composedParent(node){return node.parentElement || node.host || node.getRootNode?.().host;}
@@ -835,13 +836,13 @@
     return false;
   }
   function scheduleNavigation(){
-    if(stopped || fastScheduled)return;
+    if(stopped || !chatEnabled || fastScheduled)return;
     clearTimeout(refreshTimer);refreshTimer=null;pendingSince=0;scheduled=true;fastScheduled=true;
     // Mutation delivery precedes paint: remount retained search with the native
     // sidebar, rather than showing Reddit's list during the ordinary debounce.
-    queueMicrotask(()=>{fastScheduled=false;scheduled=false;if(stopped || !globalThis.document?.documentElement)return;refresh();
+    queueMicrotask(()=>{fastScheduled=false;scheduled=false;if(stopped || !chatEnabled || !globalThis.document?.documentElement)return;refresh();
       cancelAnimationFrame(navigationFrame);let remaining=2;
-      const follow=()=>{navigationFrame=0;if(stopped || !globalThis.document?.documentElement || document.hidden)return;
+      const follow=()=>{navigationFrame=0;if(stopped || !chatEnabled || !globalThis.document?.documentElement || document.hidden)return;
         const pending=retainedLists.size || [...controls.values()].some(control=>control.host.hidden && A.visible(control.container));
         if(!pending)return;refresh();if(--remaining>0)navigationFrame=requestAnimationFrame(follow);
       };
@@ -851,7 +852,7 @@
     });
   }
   function mutationsChanged(records){
-    if(stopped || !globalThis.document?.documentElement)return;
+    if(stopped || !chatEnabled || !globalThis.document?.documentElement)return;
     if(idle && Date.now()<probeAt){
       // No chat on this page: only a node that could be chat (or its shell) is worth a scan.
       if(!records.some(record=>record.type==='childList' && [...record.addedNodes].some(chatCandidate)))return;
@@ -867,7 +868,7 @@
     if(native.some(routeMutation))scheduleNavigation();else schedule();
   }
   function refresh() {
-    if (stopped || !globalThis.document?.documentElement || document.hidden) return;
+    if (stopped || !chatEnabled || !globalThis.document?.documentElement || document.hidden) return;
     if (idle && Date.now()<probeAt) return;
     const roots = A.chatRoots();
     globalThis.RCSChatStartup?.check(roots);
@@ -925,25 +926,60 @@
     }
     if(!globalThis.RCSDirectory?.getStartup?.().pending)globalThis.RCSNativeLabels?.update(directory,index,globalThis.RCSDirectory?.getOwner(),[...controls.values()].some(c=>c.kind==='list' && c.loading));
   }
+  function teardownChatUI() {
+    clearTimeout(refreshTimer);refreshTimer=null;cancelAnimationFrame(navigationFrame);navigationFrame=0;
+    scheduled=false;fastScheduled=false;openListRequested=false;
+    for (const [root,rootObserver] of observed){rootObserver.disconnect();root.removeEventListener('scroll',nativeScroll,true);}
+    observed.clear();
+    clearRetainedLists();
+    for (const control of controls.values()) control.destroy();
+    controls.clear();
+    collapsedControl?.host.remove(); collapsedControl=null;
+    globalThis.RCSNativeLabels?.clear();
+  }
+  function setChatEnabled(next) {
+    const value=next!==false;
+    globalThis.RCSMessages?.setEnabled?.(value);
+    globalThis.RCSDirectory?.setEnabled?.(value);
+    if(!value)globalThis.RCSChatStartup?.stop?.();
+    if(chatEnabled===value)return;
+    chatEnabled=value;
+    if(!chatEnabled){teardownChatUI();return;}
+    if(stopped)return;
+    wakeProbe();
+    refresh();
+  }
   // Shadow roots attached after an element is inserted don't emit DOM mutations.
   // A modest discovery heartbeat covers delayed Lit hydration without patching Reddit.
   // The heartbeat's refresh returns immediately while the probe back-off applies, so it is a bare timer wake on pages without chat.
-  const heartbeat = setInterval(()=>{if(scrollActive())schedule();else refresh();},1800);
+  const heartbeat = setInterval(()=>{if(!chatEnabled)return;if(scrollActive())schedule();else refresh();},1800);
   const observer = new MutationObserver(records => {
-    if (!globalThis.RTPostMenuDOM?.onlyMenuChanges(records)) mutationsChanged(records);
+    if (chatEnabled && !globalThis.RTPostMenuDOM?.onlyMenuChanges(records)) mutationsChanged(records);
   });
   observer.observe(document,{childList:true,subtree:true});
   document.addEventListener('visibilitychange',schedule);
   // Reddit's page world announces chat components as they connect.
-  for(const name of ['rcs-chat-present','rcs-chat-starting'])document.addEventListener(name,()=>{wakeProbe();schedule();});
+  for(const name of ['rcs-chat-present','rcs-chat-starting'])document.addEventListener(name,()=>{if(!chatEnabled)return;wakeProbe();schedule();});
+  let onChatSettings=null;
+  if(globalThis.chrome?.runtime?.id && chrome.runtime.sendMessage){
+    onChatSettings=(message,sender)=>{
+      if(sender?.id===chrome.runtime.id && message?.scope==='rt-posts' && message.action==='settings-changed'){
+        setChatEnabled(message.settings?.chatSearch!==false);
+      }
+    };
+    try{chrome.runtime.onMessage?.addListener(onChatSettings);}catch{}
+    Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>{
+      if(!stopped && response?.ok)setChatEnabled(response.settings?.chatSearch!==false);
+    },()=>{});
+  }
+  globalThis.RCSContent=Object.freeze({setEnabled:setChatEnabled,isEnabled:()=>chatEnabled});
   window.addEventListener('pagehide',event => {
     if (event.persisted) return;
-    stopped = true; clearInterval(heartbeat);clearTimeout(refreshTimer);cancelAnimationFrame(navigationFrame);observer.disconnect();
-    for (const [root,observer] of observed){observer.disconnect();root.removeEventListener('scroll',nativeScroll,true);}
-    clearRetainedLists();for (const control of controls.values()) control.destroy(); index.clear();
+    stopped = true; clearInterval(heartbeat);observer.disconnect();
+    if(onChatSettings)try{chrome.runtime?.onMessage?.removeListener(onChatSettings);}catch{}
+    teardownChatUI();
+    index.clear();
     directory.clear();completeRooms.clear();
-    globalThis.RCSNativeLabels?.clear();
-    collapsedControl?.host.remove();
   });
   refresh();
 })();

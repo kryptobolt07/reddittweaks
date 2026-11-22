@@ -1,6 +1,7 @@
 (() => {
   const listeners=new Set();
-  let currentOwner='',inFlight=null;
+  const classifySent=new Map();
+  let currentOwner='',inFlight=null,chatSearchEnabled=true;
   const supported=Boolean(globalThis.chrome?.runtime?.sendMessage);
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   let startup={pending:supported,owner:'',entry:null};
@@ -11,12 +12,25 @@
   }
   let startupReady=null;
   function ensureStartup() {
-    if(!supported)return Promise.resolve();
+    if(!supported || !chatSearchEnabled)return Promise.resolve();
     if(!startupReady) {
       startup={...startup,pending:true};
       startupReady=restoreStartup().finally(()=>{if(!startup.owner)startupReady=null;});
     }
     return startupReady;
+  }
+  function setEnabled(next) {
+    const value=next!==false;
+    if(chatSearchEnabled===value)return;
+    chatSearchEnabled=value;
+    if(!chatSearchEnabled){
+      if(inFlight){inFlight.cancelled=true;inFlight.task?.cancel?.();}
+      classifySent.clear();
+      startup={...startup,pending:false};
+      document.dispatchEvent(new CustomEvent('rcs-native-identities-clear'));
+      return;
+    }
+    if(supported && !startupReady && document.querySelector('rs-app'))ensureStartup();
   }
   async function restoreStartup() {
     document.dispatchEvent(new CustomEvent('rcs-native-identities-start'));
@@ -154,16 +168,16 @@
   });
   // Which unavailable accounts are on screen. Only an id list crosses; the page world holds names, decides what
   // still needs a lookup and throttles it. A source's list is re-sent only when it changes.
-  const classifySent=new Map();
   function classify(source,ids) {
     const owner=currentOwner;
-    if(!owner || !globalThis.RCSData || !Array.isArray(ids))return;
+    if(!chatSearchEnabled || !owner || !globalThis.RCSData || !Array.isArray(ids))return;
     const list=[...new Set(ids.filter(id=>typeof id==='string' && /^@[^:\s]+:[^\s]+$/.test(id)))].slice(0,200).sort(),signature=owner+'\n'+list.join('\n');
     if(classifySent.get(source)===signature)return;
     classifySent.set(source,signature);
     RCSData.request('classify-accounts',{owner,source,ids:list}).promise.catch(()=>{if(classifySent.get(source)===signature)classifySent.delete(source);});
   }
   document.addEventListener('rcs-account-state',async event=>{
+    if(!chatSearchEnabled)return;
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     if(!currentOwner || value?.owner!==currentOwner || !Array.isArray(value.states))return;
     const states=value.states.filter(state=>typeof state?.id==='string' && Number.isFinite(state.accountStateCheckedAt)).slice(0,50)
@@ -171,10 +185,10 @@
     if(!states.length)return;
     for(const listener of listeners)listener({owner:currentOwner,accountStates:states});
     // The classification outlives the page: store it with the saved identity (a no-op without a saved directory).
-    if(supported)broker('identity-state',{owner:currentOwner,states}).catch(()=>{});
+    if(supported && chatSearchEnabled)broker('identity-state',{owner:currentOwner,states}).catch(()=>{});
   });
   globalThis.chrome?.storage?.onChanged?.addListener(async(changes,area)=>{
-    if(area!=='local' || !currentOwner || !changes['rcs-directory-v2:'+currentOwner])return;
+    if(!chatSearchEnabled || area!=='local' || !currentOwner || !changes['rcs-directory-v2:'+currentOwner])return;
     const owner=currentOwner;
     try {
       const result=await broker('read',{owner});
@@ -183,15 +197,25 @@
     } catch { /* The active fetch reports storage failures. */ }
   });
   window.addEventListener('online',async()=>{
-    if(!supported || !currentOwner)return;
+    if(!chatSearchEnabled || !supported || !currentOwner)return;
     const owner=currentOwner;
     try {
       if(owner===currentOwner)for(const listener of listeners)listener({owner,reconcile:true});
     } catch { /* A later manual refresh can retry. */ }
   });
-  globalThis.RCSDirectory=Object.freeze({load,classify,getOwner:()=>currentOwner,getStartup:()=>startup,onChange(listener){listeners.add(listener);return ()=>listeners.delete(listener);}});
+  globalThis.RCSDirectory=Object.freeze({load,classify,setEnabled,isEnabled:()=>chatSearchEnabled,getOwner:()=>currentOwner,getStartup:()=>startup,onChange(listener){listeners.add(listener);return ()=>listeners.delete(listener);}});
   window.addEventListener('pagehide',event=>{if(!event.persisted && supported && currentOwner)broker('detach',{owner:currentOwner}).catch(()=>{});});
   if(supported) {
+    try{chrome.runtime?.onMessage?.addListener((message,sender)=>{
+      if(message?.scope==='rt-posts' && message.action==='settings-changed' && (!sender?.id || !chrome.runtime?.id || sender.id===chrome.runtime.id)){
+        setEnabled(message.settings?.chatSearch!==false);
+      }
+    });}catch{}
+    if(chrome.runtime?.id){
+      Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>{
+        if(response?.ok && response.settings?.chatSearch===false)setEnabled(false);
+      },()=>{});
+    }
     document.addEventListener('rcs-chat-starting',ensureStartup);
     if(document.querySelector('rs-app'))ensureStartup();
   }

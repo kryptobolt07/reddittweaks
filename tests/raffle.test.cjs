@@ -98,18 +98,18 @@ test('a failed settings read keeps raffles on and retries; the item is ensured a
  await new Promise(res=>setTimeout(res,1100));await flush();assert.equal(reads,2,'retried');assert.equal(W.document.querySelector('[data-rt-raffle="item"]'),null,'the real setting applies once read');
  const s2=await ui(t);s2.item().remove();s2.D.querySelector('button[aria-haspopup]').dispatchEvent(new s2.W.Event('pointerdown',{bubbles:true,composed:true}));assert.ok(s2.item(),'re-added as the ⋯ button is pressed');
 });
-test('the ⋯ item shows Reddit’s skeleton until the Raffler status is known, then the full wording, at the same height',async t=>{
+test('the ⋯ item is strictly single-line, shows Reddit’s skeleton until status is known, then the full wording',async t=>{
  const s=await ui(t,{raffler:m=>m.action==='status'?{ok:true,exists:true,raffle:{verified:true}}:{ok:true,signedIn:''}});
- const label=()=>s.item().querySelector('.text-body-2').textContent,caption=()=>s.item().querySelector('.text-caption-1').textContent;
- // Unknown status: a skeleton over both lines (the text stays for screen readers), never a wrong label to swap later.
- assert.equal(s.item().dataset.rtRaffleState,'loading');assert.equal(s.item().querySelector('[role="menuitem"]').getAttribute('aria-busy'),'true');assert.ok(s.item().querySelector('.text-caption-1'),'two lines from the start: no height change later');
+ const label=()=>s.item().querySelector('.text-body-2').textContent,row=()=>s.item().querySelector('[role="menuitem"]');
+ // Unknown status: single-line skeleton matching native Reddit menu row height (no secondary subtitle).
+ assert.equal(s.item().dataset.rtRaffleState,'loading');assert.equal(row().getAttribute('aria-busy'),'true');assert.equal(s.item().querySelector('.text-caption-1'),null,'strictly single-line row without subtitle');
  assert.equal(s.item().querySelector('.rt-raffle-menu-state'),null,'no pill');
  const press=()=>s.D.querySelector('button[aria-haspopup]').dispatchEvent(new s.W.Event('pointerdown',{bubbles:true,composed:true}));
  press();await flush();
- assert.equal(label(),'View raffle results');assert.equal(caption(),'Drawn on Reddit Raffler · verified');assert.equal(s.item().dataset.rtRaffleState,'drawn');assert.equal(s.item().querySelector('[role="menuitem"]').hasAttribute('aria-busy'),false);
+ assert.equal(label(),'View raffle results');assert.equal(row().title,'Drawn on Reddit Raffler · verified');assert.equal(s.item().dataset.rtRaffleState,'drawn');assert.equal(row().hasAttribute('aria-busy'),false);
  press();await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='status').length,1,'cached per post');
  const none=await ui(t);none.D.querySelector('button[aria-haspopup]').dispatchEvent(new none.W.Event('pointerdown',{bubbles:true,composed:true}));await flush();
- assert.equal(none.item().querySelector('.text-body-2').textContent,'Run a raffle');assert.equal(none.item().querySelector('.text-caption-1').textContent,'Pick winners from the comments');assert.equal(none.item().dataset.rtRaffleState,'none');
+ assert.equal(none.item().querySelector('.text-body-2').textContent,'Run a raffle');assert.equal(none.item().querySelector('.text-caption-1'),null);assert.equal(none.item().dataset.rtRaffleState,'none');
  const down=await ui(t,{raffler:m=>{throw Error('unreachable');}});down.D.querySelector('button[aria-haspopup]').dispatchEvent(new down.W.Event('pointerdown',{bubbles:true,composed:true}));await flush();
  assert.equal(down.item().dataset.rtRaffleState,'none','a failed check falls back to Run a raffle, never a stuck skeleton');
  const css=read('post-discovery.css');assert.match(css,/\[data-rt-raffle-state="loading"\] :is\(\.text-body-2,\.text-caption-1\)\{[^}]*color:transparent/);assert.match(css,/\[data-rt-raffle-state="loading"\] :is\(\.text-body-2,\.text-caption-1\)::after\{[^}]*animation:rt-shimmer/);
@@ -121,7 +121,7 @@ test('hovering or focusing ⋯ fetches the status early, so a menu opened afterw
  trigger.dispatchEvent(new s.W.Event('pointerover',{bubbles:true,composed:true}));await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='status').length,1,'prefetched on hover');
  trigger.dispatchEvent(new s.W.Event('pointerover',{bubbles:true,composed:true}));trigger.dispatchEvent(new s.W.FocusEvent('focusin',{bubbles:true,composed:true}));await flush();assert.equal(s.rafflerCalls.filter(c=>c.action==='status').length,1,'once per post');
  // Reddit redraws the menu: the new item starts with the final wording synchronously, with no skeleton or flash.
- s.item().remove();s.r.sync();assert.equal(s.item().dataset.rtRaffleState,'drawn');assert.equal(s.item().querySelector('.text-body-2').textContent,'View raffle results');assert.equal(s.item().querySelector('.text-caption-1').textContent,'Drawn on Reddit Raffler');
+ s.item().remove();s.r.sync();assert.equal(s.item().dataset.rtRaffleState,'drawn');assert.equal(s.item().querySelector('.text-body-2').textContent,'View raffle results');assert.equal(s.item().querySelector('[role="menuitem"]').title,'Drawn on Reddit Raffler');
 });
 test('the rules screen offers a public or a private draw, focuses the heading and keeps one main action',async t=>{
  const s=await ui(t);const trigger=s.D.querySelector('button[aria-haspopup]');let menuClicks=0;trigger.addEventListener('click',()=>{menuClicks++;trigger.setAttribute('aria-expanded','false');});

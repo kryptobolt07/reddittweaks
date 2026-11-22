@@ -14,10 +14,10 @@
   const capturedCoverage=new Map();
   let nativeCapture;
   let cacheConsumerReady=false;
-  document.addEventListener('rcs-message-cache-listening',()=>{
-    const first=!cacheConsumerReady;cacheConsumerReady=true;
-    if(first && nativeCapture?.ctx && nativeCapture.owner===nativeCapture.client.getUserId()){
-      // The page client can become ready before isolated content scripts attach.
+  document.addEventListener('rcs-message-cache-listening',event=>{
+    const replay=!cacheConsumerReady || event?.detail==='resume';cacheConsumerReady=true;
+    if(replay && nativeCapture?.ctx && nativeCapture.owner===nativeCapture.client.getUserId()){
+      // The page client can become ready before isolated content scripts attach, or chat indexing may resume.
       // Replay its already-loaded snapshot once, rather than deduplicating data
       // that was emitted while nobody could persist it.
       captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();nativeCapture.snapshots.clear();
