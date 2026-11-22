@@ -1,3 +1,10 @@
+# 0.58.2 preview
+
+- Blocked-profile feeds use one full-width divider per card. Public cards display neutral vote controls and keep public links and sharing available. Archive and removal labels remain on the items they describe.
+- The existing Reddit search header shows the profile scope pill. Enter and form submission search public posts or comments from that profile. Removing the pill restores Reddit’s global search.
+- Patch increment for blocked-profile display and search fixes.
+- Validation: all 2,188 tests passed. Headless Playwright checked the packaged build at 1440 px and 412 px, including divider thickness, unselected vote icons, Enter, search result tabs, Back, and scope dismissal. The previous blocked-profile transition checks also passed. The live signed-in Chrome Dev profile check returned HTTP 403 before Reddit rendered the page. Both packages matched source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings, and notices. Chromium SHA-256 `33179b1cf0f4f4ba82654988704366fe7c7ec7c1d60b70106f8d6a1d5c37bf3e`. Firefox SHA-256 `f9a38ef859eca6ba05acb3fc2ed4a1709e03313aee3e5754399cda17c163def2`.
+
 # 0.58.1 preview
 
 - The blocked-profile view holds Reddit’s signed-in unavailable page while it checks for public activity. Reddit’s own notice returns if the check fails or confirms the username is unavailable.
