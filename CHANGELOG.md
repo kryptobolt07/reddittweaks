@@ -1,3 +1,10 @@
+# 0.56.1 preview
+
+- **Firefox for Android private-tab account detection:** fixed the popup cookie-store lookup when `browser.windows` is unavailable (falling back to `tabs.query({ active: true })` and most recently accessed non-popup tab when opened without `openerTabId`), prioritized `tab.incognito` over single-window `win.incognito`, added a private-store fallback in `jarForTab`, and made popup account listing nudge unreported signed-in Reddit tabs automatically.
+- **Mobile identity & fetch resilience:** matched mobile `/user-drawer-menu` partials with or without query strings, added `fetch` fallback when Firefox `content.fetch` fails, and allowed `save-current` retries after a 3-second cooldown.
+- **Version:** patch increment for fixing private-tab login pickup on Firefox for Android and mobile web.
+- **Validation:** all 2,159 tests passed, including new Firefox for Android private-tab and single-window mobile unit tests. Both ZIPs matched the source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings, and notices. Chromium SHA-256 `8631b181542413a38379ab6f1956262861050a8de541d4ced40bc7044ed048d7`. Firefox SHA-256 `196770b777841f395f6cc17f4df4c2d9735d5ce7c96b9f075179584bedd0258e`.
+
 # 0.56.0 preview
 
 - **Save private-window logins permanently (opt-in):** accounts signed into inside a private/incognito window remain ephemeral in session storage by default, while the popup **Accounts** card now offers a two-click **Save** (`Save permanently?`) action on private-only sessions to snapshot the active private session cookies into persistent storage without touching normal windows' cookies or reloading tabs.
