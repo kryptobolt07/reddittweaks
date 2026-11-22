@@ -458,10 +458,14 @@ shreddit-post.rt-archive-compact {
   border-radius: 12px;
   margin-top: 12px;
 }
-[data-rt-ui="archive-profile"] .rt-profile-controls-rule {
+[data-rt-blocked-card-rule] {
+  height: 0;
   margin: 0;
   border: 0;
-  border-bottom: 1px solid var(--color-neutral-border-weak, #e5e8eb);
+  border-block-end: 1px solid var(--color-neutral-border-weak, #e5e8eb);
+}
+[data-rt-blocked-native-rule] {
+  display: none !important;
 }
 [data-rt-ui="archive-profile"] .rt-archive-empty {
   margin: 24px 0;

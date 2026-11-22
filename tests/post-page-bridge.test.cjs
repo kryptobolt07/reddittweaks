@@ -1303,10 +1303,13 @@ test('blocked-profile-page parses signed-out metadata, posts/comments, continuat
 });
 
 test('render-card with anonymous:true uses RTPublicBrowser and marks vote/reply/overflow read-only while preserving permalinks, Share and Download',async t=>{
- const postHtml=`<article><shreddit-post id="t3_abc12" author="BlockedUser" post-title="Public post" created-timestamp="2026-10-20T12:00:00Z"><a slot="full-post-link" href="/r/example/comments/abc12/public_post/">Public post</a><shreddit-post-overflow-menu><button>Save</button></shreddit-post-overflow-menu><rpl-action-bar><div data-testid="action-row"><button aria-label="Upvote">↑</button><button aria-label="Downvote">↓</button><a href="/r/example/comments/abc12/public_post/">5 comments</a><button aria-label="Share">Share</button><button data-rt-download="action">Download</button></div></rpl-action-bar></shreddit-post></article>`;
+ const postHtml=`<article><shreddit-post id="t3_abc12" author="BlockedUser" post-title="Public post" created-timestamp="2026-10-20T12:00:00Z"><a slot="full-post-link" href="/r/example/comments/abc12/public_post/">Public post</a><shreddit-post-overflow-menu><button>Save</button></shreddit-post-overflow-menu><rpl-action-bar><div data-testid="action-row"><span class="rpl-vote-button-group upvote"><button aria-label="Upvote" aria-pressed="true"><svg class="vote-icon-outline"></svg><svg class="vote-icon-fill"></svg></button><button aria-label="Downvote">↓</button></span><a href="/r/example/comments/abc12/public_post/">5 comments</a><button aria-label="Share">Share</button><button data-rt-download="action">Download</button></div></rpl-action-bar></shreddit-post></article>`;
  const e=setup(t,{url:'https://www.reddit.com/user/BlockedUser/?feedViewType=compactView'});
  const browser=publicBrowserMock(e,()=>postHtml);
  const slot=nativeTarget(e,{kind:'post',id:'abc12'});
+ const outgoing=e.W.document.createElement('div');outgoing.dataset.rtProfileHandoff='';
+ outgoing.innerHTML='<main><shreddit-post id="t3_abc12"></shreddit-post></main>';
+ e.W.document.body.append(outgoing);
  const r=await e.send({action:'render-card',username:'BlockedUser',kind:'post',postId:'abc12',target:slot.id,anonymous:true});
  assert.equal(r.ok,true,r.error);assert.equal(r.rendered,true);assert.equal(r.anonymous,true);assert.equal(e.calls.length,0,'never uses signed-in fetch');
  const u=new URL(browser[0].url);assert.equal(u.pathname,'/svc/shreddit/partial-feed-post/t3_abc12');assert.equal(u.searchParams.get('isProfile'),'true');assert.equal(u.searchParams.get('fvt'),'compactView');
@@ -1314,6 +1317,9 @@ test('render-card with anonymous:true uses RTPublicBrowser and marks vote/reply/
  assert.equal(card.querySelector('shreddit-post-overflow-menu').hasAttribute('inert'),true);
  assert.equal(card.querySelector('button[aria-label="Upvote"]').hasAttribute('inert'),true);
  assert.equal(card.querySelector('button[aria-label="Downvote"]').disabled,true);
+ assert.equal(card.querySelector('button[aria-label="Upvote"]').getAttribute('aria-pressed'),'false');
+ assert.equal(card.querySelector('.rpl-vote-button-group').classList.contains('upvote'),false);
+ assert.equal(card.querySelector('.vote-icon-fill').style.display,'none');
  // Permalinks, Share, and Download stay interactive
  assert.equal(card.querySelector('rpl-action-bar').hasAttribute('inert'),false);
  assert.equal(card.querySelector('a[slot="full-post-link"]').hasAttribute('inert'),false);
@@ -1329,6 +1335,7 @@ test('render-card with anonymous:true uses RTPublicBrowser and marks vote/reply/
  assert.equal(cr.ok,true,cr.error);assert.equal(cr.rendered,true);assert.equal(ce.calls.length,0);
  assert.equal(cBrowser[0].url,'https://www.reddit.com/svc/shreddit/comment/t1_cmnt1?isProfile=true');
  assert.equal(cSlot.querySelector('shreddit-comment-action-row').hasAttribute('inert'),true);
+ assert.equal(cSlot.querySelector('shreddit-comment-action-row').getAttribute('vote-state'),'NONE');
  assert.equal(cSlot.querySelector('a[href*="/cmnt1/"]').hasAttribute('inert'),false);
 
  // Unsupported browser fails closed without signed-in fallback
@@ -1337,6 +1344,24 @@ test('render-card with anonymous:true uses RTPublicBrowser and marks vote/reply/
  const uSlot=nativeTarget(unsupported,{kind:'post',id:'abc12'});
  const ur=await unsupported.send({action:'render-card',username:'BlockedUser',kind:'post',postId:'abc12',target:uSlot.id,anonymous:true});
  assert.equal(ur.ok,false);assert.equal(unsupported.calls.length,0);
+});
+
+test('blocked profile search enables the native scope once and keeps a user dismissal',async t=>{
+ const {W}=setup(t);const doc=W.document;
+ W.customElements.define('reddit-search-large',class extends W.HTMLElement {isSearchScopeEnabled=false;});
+ doc.body.innerHTML='<reddit-search-large></reddit-search-large><div data-rt-account-state="blocked" data-rt-username="Example"></div><div id="shreddit-forbidden"></div>';
+ const header=doc.querySelector('reddit-search-large'),notice=doc.querySelector('#shreddit-forbidden');
+ header.setAttribute('scope',JSON.stringify({type:'profile',name:'Example',path:'/user/Example/'}));
+ await Promise.resolve();
+ assert.equal(header.isSearchScopeEnabled,false);
+ notice.dataset.rtArchiveNotice='true';await Promise.resolve();
+ assert.equal(header.isSearchScopeEnabled,true);
+ header.isSearchScopeEnabled=false;doc.body.append(doc.createElement('span'));await Promise.resolve();
+ assert.equal(header.isSearchScopeEnabled,false);
+ const replacement=header.cloneNode();header.replaceWith(replacement);await Promise.resolve();
+ assert.equal(replacement.isSearchScopeEnabled,true);
+ notice.removeAttribute('data-rt-archive-notice');await Promise.resolve();
+ assert.equal(replacement.isSearchScopeEnabled,false);
 });
 
 test('user-avatar with anonymous:true resolves headshot via RTPublicBrowser without signed-in cookies or cache mixing',async t=>{

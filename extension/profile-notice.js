@@ -7,7 +7,7 @@
   const notFoundSelector='shreddit-app[user-logged-in="true"] > #shreddit-forbidden:has(#shreddit-forbidden-not_found):has(svg[icon-name="meme-fill"]):not(:has(svg[icon-name="ban-fill"],img[alt="Deleted user"]))';
   let blockedOn=true,blockedScope='',blockedResult,blockedTimer=0;
   function updateBlockedHold(doc,loc){
-    const username=enabled && blockedOn && loc?.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search))?\/?$/i)?.[1].toLowerCase();
+    const username=blockedOn && loc?.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search))?\/?$/i)?.[1].toLowerCase();
     const app=username?doc.querySelector('shreddit-app'):null;
     const scope=username && app?.getAttribute('user-logged-in')!=='false'?username+':'+(app?.getAttribute('logged-in-user-id') || ''):'';
     if(scope!==blockedScope){clearTimeout(blockedTimer);blockedTimer=0;blockedScope=scope;blockedResult=undefined;}
@@ -150,7 +150,7 @@
   }
   function unavailableNotice(){for(const [notice,anchor] of notices)if(anchor.isConnected){const state=notice.querySelector('img[alt="Deleted user"]')?'deleted':notice.id==='shreddit-forbidden'?'banned':'';if(state)return {notice,anchor,state};}return null;}
   function notFoundNotice(doc=globalThis.document || window.document){return doc?.querySelector(notFoundSelector) || null;}
-  function setEnabled(value,showBlocked=blockedOn){revision++;const next=value===true,changed=next!==enabled;enabled=next;blockedOn=showBlocked;refresh(changed?undefined:[]);}
+  function setEnabled(value,showBlocked=value){revision++;const next=value===true,changed=next!==enabled;enabled=next;blockedOn=showBlocked===true;refresh(changed?undefined:[]);}
   const emptyTemplate=()=>[...notices.keys()].find(n=>n.id==='empty-feed-content' && n.querySelector('[data-testid="empty-state-creative"]'))?.cloneNode(true) || null;
   try{document.documentElement?.setAttribute?.('data-rt-public-relay','true');}catch{}
   document.addEventListener('rt-public-relay-request',event=>{
@@ -173,7 +173,7 @@
   window.addEventListener('popstate',refresh);document.addEventListener('reddit:route',refresh);
   refresh();
   const initialRevision=revision,initialRestoreRevision=restoreRevision;
-  function updateSettings(s){settingsKnown=true;archiveOn=s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;setRestoreEnabled(s?.postDiscovery!==false && archiveOn && s?.restoreDeletedContent!==false);setEnabled(s?.postDiscovery!==false,s?.blockedProfiles!==false);}
+  function updateSettings(s){settingsKnown=true;archiveOn=s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;setRestoreEnabled(s?.postDiscovery!==false && archiveOn && s?.restoreDeletedContent!==false);setEnabled(s?.postDiscovery!==false,s?.postDiscovery!==false && s?.blockedProfiles!==false);}
   try{chrome.storage?.onChanged?.addListener((changes,area)=>{if(area==='local' && changes['rt-settings-v1'])updateSettings(changes['rt-settings-v1'].newValue);});
     // Trusted-only storage does not send storage events to content scripts; the worker forwards normalized settings.
     chrome.runtime?.onMessage?.addListener(message=>{if(message?.scope==='rt-posts' && message.action==='settings-changed')updateSettings(message.settings);});}catch{}
@@ -183,6 +183,7 @@
     const s=response?.settings;if(restoreRevision===initialRestoreRevision)restore=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true && s?.restoreDeletedContent!==false;
     archiveOn=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;
     settingsKnown=true;if(!restore && heldAlert.node)releaseAlert(heldAlert.node);
-    if(revision===initialRevision)setEnabled(response?.ok===true && response.settings?.postDiscovery!==false && (!/^\/user\/[\w-]{1,20}\/search\/?$/i.test(window.location?.pathname || '') || archiveOn),s?.blockedProfiles!==false);else refresh([]);if(restore)refresh();
+    const discover=response?.ok===true && s?.postDiscovery!==false;
+    if(revision===initialRevision)setEnabled(discover && (!/^\/user\/[\w-]{1,20}\/search\/?$/i.test(window.location?.pathname || '') || archiveOn),discover && s?.blockedProfiles!==false);else refresh([]);if(restore)refresh();
   },()=>{settingsKnown=true;if(heldAlert.node)releaseAlert(heldAlert.node);failed();});}catch{settingsKnown=true;failed();}
 })();

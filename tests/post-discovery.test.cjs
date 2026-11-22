@@ -2068,6 +2068,47 @@ test('blocked-profile tabs retain the current cards until the incoming tab is re
  assert.equal(calls.filter(c=>c.action==='blocked-profile-page').length,2);
 });
 
+test('blocked profile search keeps native scope for Enter, form submit, and result type changes',async t=>{
+ const {W,d,calls}=setup(t,{pre:['search-core.js','feed-filters.js'],reddit:async input=>{
+  if(input.action==='blocked-probe')return {blocked:true};
+  return {posts:input.mode==='search'?[raw('result',{title:'needle result'})]:[],hasMore:false};
+ }});
+ await d.ready;d.reset();blockedNotFoundPage(W);d.scan();await new Promise(resolve=>setImmediate(resolve));
+ const header=W.document.createElement('reddit-search-large');
+ header.setAttribute('scope',JSON.stringify({type:'profile',name:'Example',path:'/user/Example/'}));
+ const root=header.attachShadow({mode:'open'});
+ root.innerHTML='<form><rpl-input-chip class="scoped-search-pill"></rpl-input-chip><input name="q"></form>';
+ W.document.querySelector('shreddit-app').prepend(header);
+ const input=root.querySelector('input'),form=input.form;
+ input.value='needle';
+ assert.equal(input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true})),false);
+ assert.equal(W.location.pathname,'/user/Example/search/');
+ assert.equal(d.blockedProfile,true);
+ await d.refreshActivity();
+ assert.ok(calls.some(call=>call.action==='blocked-profile-page' && call.mode==='search' && call.query==='needle'));
+ assert.equal(calls.some(call=>call.action==='profile'),false);
+ d.archiveMain.querySelector('#search-results-page-tab-comments').click();
+ assert.equal(d.context.type,'comments');
+ input.value='second';
+ assert.equal(form.dispatchEvent(new W.Event('submit',{bubbles:true,composed:true,cancelable:true})),false);
+ assert.equal(d.context.q,'second');
+ assert.equal(d.context.type,'comments');
+ root.querySelector('.scoped-search-pill').remove();
+ assert.equal(input.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true,composed:true,cancelable:true})),true);
+ assert.equal(calls.filter(c=>c.action==='blocked-probe').length,1);
+});
+
+test('blocked feed cards use one full-width separator outside the native fragment',async t=>{
+ const {W,d}=setup(t);await d.ready;d.blockedProfile=true;
+ const card=W.document.createElement('article');card.className='rt-native-card';
+ card.innerHTML='<faceplate-partial><shreddit-post><hr id="body-rule"></shreddit-post><hr class="border-b-neutral-border-weak"><hr class="list-divider-line"></faceplate-partial>';
+ d.ensureCardRule(card);d.ensureCardRule(card);
+ assert.equal(card.querySelectorAll('[data-rt-blocked-native-rule]').length,2);
+ assert.equal(card.querySelectorAll('[data-rt-blocked-card-rule]').length,1);
+ assert.ok(card.lastElementChild.matches('hr[data-rt-blocked-card-rule]'));
+ assert.ok(!card.querySelector('#body-rule').hasAttribute('data-rt-blocked-native-rule'));
+});
+
 test('blocked-by-user profiles mount signed-out activity when blocked-probe confirms a live blocker account, auto-falling back to search when curated',async t=>{
  const actions=[];
  const {W,d}=setup(t,{

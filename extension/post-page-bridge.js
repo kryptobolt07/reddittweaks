@@ -810,10 +810,56 @@
       seededProfileNavs.add(nav);nav.setAttribute('expanded',value);grid.classList.toggle('flex-nav-collapsed',value==='0');grid.classList.toggle('flex-nav-expanded',value==='1');
     }
   }
-  const profileNavObserver=new MutationObserver(seedProfileNavigation);
-  profileNavObserver.observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['data-rt-profile-discovery']});
+  // Reddit starts these headers unscoped whenever the unavailable view exists.
+  // Restore the native scope for a confirmed public view, once per header/scope
+  // so Reddit's own remove-pill action and unscoped searches still work.
+  const scopedHeaders=new Map(),pendingHeaders=new WeakSet(),profileSearchHeaders='reddit-search-large,reddit-search-small';
+  function syncBlockedSearchHeader(){
+    const notice=document.getElementById('shreddit-forbidden');
+    const shell=notice?.previousElementSibling,username=route()?.username?.toLowerCase();
+    const active=Boolean(username && notice?.hasAttribute('data-rt-archive-notice') && shell?.dataset.rtAccountState==='blocked' && shell.dataset.rtUsername?.toLowerCase()===username);
+    for(const [header,{scope,enabled}] of scopedHeaders){
+      if(!active || !header.isConnected || header.getAttribute('scope')!==scope){
+        if(header.isConnected && header.getAttribute('scope')===scope && notice?.isConnected)header.isSearchScopeEnabled=enabled;
+        scopedHeaders.delete(header);
+      }
+    }
+    if(!active)return;
+    const mobile=document.querySelector('reddit-header-small')?.shadowRoot;
+    for(const header of [...document.querySelectorAll(profileSearchHeaders),...(mobile?.querySelectorAll(profileSearchHeaders) || [])]){
+      if(scopedHeaders.has(header))continue;
+      let scope;const attr=header.getAttribute('scope');try{scope=JSON.parse(attr);}catch{}
+      if(scope?.type!=='profile' || String(scope.name).toLowerCase()!==username || String(scope.path).replace(/\/$/,'').toLowerCase()!=='/user/'+username)continue;
+      if(typeof header.isSearchScopeEnabled!=='boolean'){
+        if(!customElements.get(header.localName) && !pendingHeaders.has(header)){
+          pendingHeaders.add(header);
+          customElements.whenDefined(header.localName).then(()=>{pendingHeaders.delete(header);syncBlockedSearchHeader();});
+        }
+        continue;
+      }
+      scopedHeaders.set(header,{scope:attr,enabled:header.isSearchScopeEnabled});
+      header.isSearchScopeEnabled=true;
+    }
+  }
+  const profileNavObserver=new MutationObserver(records=>{
+    seedProfileNavigation(records);
+    if(scopedHeaders.size || document.getElementById('shreddit-forbidden')?.hasAttribute('data-rt-archive-notice'))syncBlockedSearchHeader();
+  });
+  profileNavObserver.observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['data-rt-profile-discovery','data-rt-archive-notice','scope']});
+  document.addEventListener('focusin',event=>{if(event.composedPath().some(node=>node.matches?.(profileSearchHeaders)))syncBlockedSearchHeader();},true);
+  document.addEventListener('rt-blocked-profile-search-submitted',event=>{
+    const header=event.composedPath()[0];if(!scopedHeaders.has(header))return;
+    header.handleBlur?.();
+    const dialog=header.closest('faceplate-dialog,rpl-dialog') || header.assignedSlot?.closest('faceplate-dialog,rpl-dialog') ||
+      (header.matches('reddit-search-small')?document.querySelector('reddit-header-small rpl-dialog[slot="reddit-search-dialog"]'):null);
+    if(dialog?.open){
+      if(typeof dialog.hide==='function')dialog.hide()?.catch?.(()=>{});
+      else dialog.close?.();
+    }
+  });
   window.addEventListener('pagehide',event=>{if(!event.persisted)profileNavObserver.disconnect();});
   seedProfileNavigation();
+  syncBlockedSearchHeader();
   // Reddit's feed virtualizer assumes its placeholders form one block at the top
   // of the feed, in stack order. Discovery inserts and reorders cards, which
   // breaks that: entries end up out of order, duplicated or detached, Reddit
@@ -1301,14 +1347,28 @@
     if(!native)return;
     native.dataset.rtAnonymousCard='true';
     const disable=el=>{if(!el)return;el.setAttribute('inert','');el.setAttribute('aria-disabled','true');if(el.tagName==='BUTTON')el.disabled=true;};
-    const interactiveVoteSelector='button[upvote],button[downvote],button[aria-label*="upvote" i],button[aria-label*="downvote" i],button[aria-label*="reply" i],button[aria-label*="award" i],award-button,[data-post-click-location="vote"]';
+    const voteSelector='button[upvote],button[downvote],button[aria-label*="upvote" i],button[aria-label*="downvote" i],.rpl-vote-button-group button[aria-pressed]';
+    const interactiveVoteSelector=voteSelector+',button[aria-label*="reply" i],[slot="comment-reply"],button[aria-label*="award" i],award-button,[data-post-click-location="vote"]';
     const overflowSelector='shreddit-post-overflow-menu,shreddit-overflow-menu,shreddit-comment-overflow-menu';
-    const keepActionSelector='slot[name="share-button"],[data-rt-download],shreddit-post-share-button,shreddit-comment-share-button,button[aria-label*="share" i],a[href*="/comments/"]';
+    const keepActionSelector='slot:is([name="share-button"],[name="comment-share"]),[data-rt-download],shreddit-post-share-button,shreddit-comment-share-button,button[aria-label*="share" i],a[href*="/comments/"]:not([slot="comment-reply"])';
     const hasPreservedAction=container=>Boolean(container.querySelector(keepActionSelector) || [...container.querySelectorAll('button')].some(btn=>btn.textContent.trim().toLowerCase()==='share'));
-    for(const root of [native,native.shadowRoot].filter(Boolean)){
+    const roots=[native,...(native.shadowRoot?[native.shadowRoot]:[])];
+    for(const root of roots){
+      for(const row of root.querySelectorAll('rpl-action-bar,shreddit-comment-action-row')){
+        if(row.matches('shreddit-comment-action-row') && row.getAttribute('vote-state')!=='NONE')row.setAttribute('vote-state','NONE');
+        if(row.shadowRoot)roots.push(row.shadowRoot);
+      }
+      for(const group of root.querySelectorAll('.rpl-vote-button-group')){
+        group.classList.remove('upvote','downvote');
+        disable(group);
+      }
+      for(const vote of root.querySelectorAll(voteSelector)){
+        vote.setAttribute('aria-pressed','false');
+        if(vote.querySelector('.vote-icon-outline'))for(const icon of vote.querySelectorAll('.vote-icon-fill'))icon.style.setProperty('display','none','important');
+      }
       for(const menu of root.querySelectorAll(overflowSelector))disable(menu);
       for(const bar of root.querySelectorAll('rpl-action-bar,shreddit-comment-action-row')){
-        if(hasPreservedAction(bar)){
+        if(hasPreservedAction(bar) || bar.shadowRoot && hasPreservedAction(bar.shadowRoot)){
           for(const ctrl of bar.querySelectorAll(interactiveVoteSelector+','+overflowSelector))disable(ctrl);
         }else{
           disable(bar);
@@ -1446,7 +1506,7 @@
     const fullname=(comments?'t1_':'t3_')+input.postId.toLowerCase().replace(/^t[13]_/,''),target=document.getElementById(input.target);
     if(!target?.isConnected || target.dataset.rtUi!=='activity-item' || target.dataset.rtNativeFullname!==fullname || !target.closest('main'))throw Error('Native card target is no longer available.');
     const selector=comments?`shreddit-profile-comment[comment-id="${fullname}"]`:`shreddit-post[id="${fullname}"]`;
-    const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node) && !node.closest('[data-rt-search-hidden]'));
+    const alreadyPresent=()=>[...document.querySelectorAll(selector)].some(node=>!target.contains(node) && !node.closest('[data-rt-search-hidden],[data-rt-profile-handoff]'));
     if(alreadyPresent())return {rendered:false,duplicate:true,fullname};
     const now=Date.now(),cacheKey=path+'|'+(anonymous?'anon|':'')+fullname;
     if((!anonymous && now<cooldown) || !nativeCapacity(comments) && !nativeCardReads.has(cacheKey))return {deferred:true,retryAfterMs:Math.max(100,!anonymous && now<cooldown?cooldown-now:250)};
