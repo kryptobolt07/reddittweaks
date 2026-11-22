@@ -4,7 +4,7 @@
   if(window.top!==window || globalThis.RTPublicBrowser)return;
   const origin='https://www.reddit.com',maxBytes=3000000;
   const itemRefusals=new Map();
-  let frame=null,queue=Promise.resolve(),pending=0,idleTimer=null,cooldownUntil=0,rateLimited=false,verifiedSession=false,activeController=null,revision=0;
+  let frame=null,queue=Promise.resolve(),pending=0,idleTimer=null,cooldownUntil=0,rateLimited=false,verifiedSession=false,activeController=null,revision=0,relayHandler=null;
   const failure=(message='Reddit blocked logged-out search (HTTP 403).')=>Error(message);
   function discard(){frame?.remove();frame=null;window.removeEventListener('pagehide',close);}
   function close(){revision++;verifiedSession=false;clearTimeout(idleTimer);activeController?.abort();discard();}
@@ -51,8 +51,16 @@
     for(const key of p.keys())if(!['q','type','sort','limit','t','cursor','rt_public_search'].includes(key) || p.getAll(key).length!==1)throw failure();
     p.delete('rt_public_search');return url;
   }
-  function isSupported(){
+  function hasCredentialless(){
     if(globalThis.HTMLIFrameElement?.prototype)return 'credentialless' in HTMLIFrameElement.prototype;
+    return false;
+  }
+  function hasRelay(){
+    return typeof relayHandler==='function' || Boolean(document.documentElement?.hasAttribute?.('data-rt-public-relay'));
+  }
+  function setRelay(fn){relayHandler=typeof fn==='function'?fn:null;}
+  function isSupported(){
+    if(hasCredentialless() || hasRelay())return true;
     try{return 'credentialless' in document.createElement('iframe');}catch{return false;}
   }
   function create(){
@@ -102,6 +110,26 @@
       return value+decoder.decode();
     }catch(error){controller.abort();throw error;}finally{await reader.cancel().catch(()=>{});}
   }
+  async function relayRead(url,signal,refresh=false){
+    if(typeof relayHandler==='function')return relayHandler(url.href,{signal,refresh});
+    if(!document.documentElement?.hasAttribute?.('data-rt-public-relay'))throw Object.assign(failure(),{unsupported:true});
+    const id=crypto.randomUUID();let timer;
+    return new Promise((resolve,reject)=>{
+      const finish=(error,value)=>{clearTimeout(timer);document.removeEventListener('rt-public-relay-response',receive);signal?.removeEventListener('abort',cancel);error?reject(error):resolve(value);};
+      const cancel=()=>finish(failure('Post request cancelled.'));
+      const receive=event=>{
+        let data;try{data=JSON.parse(event.detail);}catch{return;}
+        if(data?.id!==id)return;
+        if(data.ok && typeof data.html==='string')finish(null,data.html);
+        else finish(Object.assign(failure(data?.error || undefined),{status:data?.status,unsupported:data?.unsupported===true}));
+      };
+      document.addEventListener('rt-public-relay-response',receive);
+      signal?.addEventListener('abort',cancel,{once:true});
+      timer=setTimeout(()=>finish(failure('Reddit request timed out. Try again.')),15000);
+      if(signal?.aborted){cancel();return;}
+      document.dispatchEvent(new CustomEvent('rt-public-relay-request',{detail:JSON.stringify({id,url:url.href,refresh:Boolean(refresh)})}));
+    });
+  }
   async function perform(value,{signal,refresh=false}={}){
     const url=validate(value),page=location.href,generation=revision,itemRead=/^\/svc\/shreddit\/(?:comment|partial-feed-post)\//.test(url.pathname),hoverRead=url.pathname.startsWith('/svc/shreddit/user-hover-card/'),firstProfilePage=url.pathname.startsWith('/user/');
     if(signal?.aborted)throw failure('Post request cancelled.');
@@ -109,6 +137,21 @@
     if(itemRead && refresh && !rateLimited)itemRefusals.delete(url.pathname);
     if(cooldownUntil>Date.now())throw failure(rateLimited?'Reddit rate limit reached. Try again later.':undefined);
     if(itemRead && (itemRefusals.get(url.pathname) || 0)>Date.now())throw failure('Reddit blocked logged-out item checks (HTTP 403).');
+    if(!hasCredentialless() && hasRelay()){
+      const controller=new AbortController(),cancel=()=>controller.abort();activeController=controller;signal?.addEventListener('abort',cancel,{once:true});
+      try{
+        const result=await relayRead(url,controller.signal,refresh);
+        if(controller.signal.aborted || location.href!==page)throw failure('Page changed. Try again.');
+        verifiedSession=true;return result;
+      }catch(error){
+        controller.abort();
+        const cancelled=signal?.aborted || generation!==revision || location.href!==page;
+        if(error?.status===429){cooldownUntil=Date.now()+60000;rateLimited=true;}
+        else if(itemRead && error?.status===403){if(itemRefusals.size>=1000)itemRefusals.delete(itemRefusals.keys().next().value);itemRefusals.set(url.pathname,Date.now()+600000);}
+        if(cancelled)throw failure('Post request cancelled.');
+        throw error;
+      }finally{signal?.removeEventListener('abort',cancel);if(activeController===controller)activeController=null;}
+    }
     const controller=new AbortController(),cancel=()=>controller.abort();activeController=controller;signal?.addEventListener('abort',cancel,{once:true});
     let timer,node,responseStatus=0,timedOut=false;
     try{
@@ -146,5 +189,5 @@
   // Removing an idle iframe does not clear the top document's anonymous jar.
   // This flag caches transport health only; requested content is always fresh.
   function hasSession(){if(!verifiedSession)return false;if(!frame)return true;try{return !!context(frame);}catch{return false;}}
-  globalThis.RTPublicBrowser=Object.freeze({read,close,hasSession,isSupported});
+  globalThis.RTPublicBrowser=Object.freeze({read,close,hasSession,isSupported,setRelay});
 })();

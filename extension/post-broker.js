@@ -465,6 +465,113 @@
     },{restore:true}));
     return await enabled(true)?result:disabled();
   }
+  const publicSorts=['new','hot','top'],publicRanges=['hour','day','week','month','year','all'];
+  let anonToken='',anonTokenExpires=0,anonTokenPending=null;
+  function extractTokenV2(headers){
+    try{
+      const list=typeof headers?.getSetCookie==='function'?headers.getSetCookie():[headers?.get?.('set-cookie')].filter(Boolean);
+      for(const line of list)for(const m of String(line).matchAll(/(?:^|[;,]\s*)token_v2=([^;\s,]+)/gi))if(m[1])return m[1];
+    }catch{}
+    return '';
+  }
+  async function ensureAnonToken(force=false){
+    if(!force && anonToken && anonTokenExpires>Date.now())return anonToken;
+    if(!force && anonTokenPending)return anonTokenPending;
+    const op=(async()=>{
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
+      try{
+        const res=await fetch('https://www.reddit.com/',{method:'GET',credentials:'omit',redirect:'error',cache:'no-store',headers:{Accept:'text/html'},signal:controller.signal});
+        const tok=extractTokenV2(res.headers);
+        await res.body?.cancel?.().catch(()=>{});
+        if(tok){anonToken=tok;anonTokenExpires=Date.now()+1800000;}
+        return tok;
+      }catch{return '';}
+      finally{clearTimeout(timer);if(anonTokenPending===op)anonTokenPending=null;}
+    })();
+    anonTokenPending=op;return op;
+  }
+  function synthesizeHoverCardFromProfileHtml(html,username){
+    if(/<div[^>]+data-testid="user-hover-card"/i.test(html))return html;
+    if(/id="shreddit-forbidden-not_found"|nobody on Reddit goes by that name/i.test(html))return '<div id="not-found"></div>';
+    if(/id="shreddit-forbidden"[\s\S]{0,1200}icon-name="ban-fill"|This account (?:has been (?:banned|suspended)|is suspended)/i.test(html))return '<div data-testid="user-hover-card"><img src="https://www.redditstatic.com/shreddit/assets/suspended-snoo.png"><p>Account suspended</p></div>';
+    if(/alt="Deleted user"|This account has been deleted/i.test(html))return '<div data-testid="user-hover-card"><img alt="Deleted user" src="https://www.redditstatic.com/avatars/deleted.png"><p>This account has been deleted.</p></div>';
+    if(!/<shreddit-feed\b|id="empty-feed-content"|data-testid="karma-number"/i.test(html))return html;
+    const h1=html.match(/<h1\b[^>]*>([\s\S]{1,120}?)<\/h1>/i)?.[1]?.replace(/<[^>]+>/g,'').trim() || username;
+    const avatar=html.match(/<img\b[^>]*\bsrc="(https:\/\/(?:i\.redd\.it\/snoovatar\/avatars\/[^"]+|styles\.redditmedia\.com\/[^"]*profileIcon[^"]+|www\.redditstatic\.com\/avatars\/[^"]+))"/i)?.[1] || '';
+    const postK=html.match(/(-?[\d,]+)\s+post\s+karma\b/i)?.[1]?.replace(/,/g,'') || '';
+    const commentK=html.match(/(-?[\d,]+)\s+comment\s+karma\b/i)?.[1]?.replace(/,/g,'') || '';
+    const cake=html.match(/<time\b[^>]*data-testid="cake-day"[^>]*>([\s\S]{1,60}?)<\/time>/i)?.[0] || html.match(/\bCake day:\s*([A-Z][a-z]{2,8}\s+\d{1,2},\s+\d{4})\b/i)?.[1] || '';
+    const esc=s=>String(s || '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    return `<div data-testid="user-hover-card"><a href="/user/${esc(username)}/"><span data-testid="nameplate"><span class="truncate">${esc(h1)}</span></span></a><span>u/${esc(username)}</span>${avatar?`<img alt="u/${esc(username)} avatar" src="${esc(avatar)}">`:''}${cake.startsWith('<time')?cake:cake?`<time data-testid="cake-day">${esc(cake)}</time>`:''}${postK?`<div><faceplate-number number="${esc(postK)}"></faceplate-number><span>Post karma</span></div>`:''}${commentK?`<div><faceplate-number number="${esc(commentK)}"></faceplate-number><span>Comment karma</span></div>`:''}</div>`;
+  }
+  async function publicRedditRead(message,sender){
+    if(sender?.id!==chrome.runtime.id || sender.frameId!=null && sender.frameId!==0)return fail('Signed-out reads require a Reddit tab.','forbidden');
+    const stored=await chrome.storage.local.get('rt-settings-v1'),settings=Model.normalizeSettings(stored['rt-settings-v1']);
+    if(!settings.postDiscovery && !settings.ownRemoval)return fail('Enable profile discovery in Reddit Tweaks settings.','disabled');
+    let current,url;
+    try{
+      const source=new URL(sender.url);current=new URL(sender.page || sender.tab?.url || sender.url);
+      if(source.protocol!=='https:' || current.protocol!=='https:' || source.port || current.port || !['reddit.com','www.reddit.com','new.reddit.com','sh.reddit.com'].includes(source.hostname) || current.origin!==source.origin)return fail('Signed-out reads require a Reddit profile.','forbidden');
+      url=new URL(String(message.url || ''));
+    }catch{return fail('Invalid signed-out URL.','invalid-request');}
+    if(url.origin!=='https://www.reddit.com' || url.username || url.password || url.port || url.hash)return fail('Invalid signed-out URL.','invalid-request');
+    const profile=current.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(?:submitted|comments|search|hidden))?\/?$/i),visited=profile?.[1] || '';
+    if(!visited)return fail('Open a Reddit profile for signed-out reads.','forbidden');
+    const p=url.searchParams,sameUser=name=>Boolean(name) && name.toLowerCase()===visited.toLowerCase();
+    const item=url.pathname.match(/^\/svc\/shreddit\/(comment\/t1_[a-z0-9]{1,32}|partial-feed-post\/t3_[a-z0-9]{1,10})$/);
+    const hover=url.pathname.match(/^\/svc\/shreddit\/user-hover-card\/([\w-]{1,20})$/i);
+    const page=url.pathname.match(/^\/user\/([\w-]{1,20})(?:\/(submitted|comments))?\/$/i);
+    const more=url.pathname.match(/^\/svc\/shreddit\/profiles\/profile_(overview|posts|comments)-more-posts\/(new|hot|top)\/$/);
+    if(item){
+      const isPost=item[1].startsWith('partial-feed-post/'),allowed=isPost?['isProfile','pvc','fvt']:['isProfile'];
+      if(p.get('isProfile')!=='true' || (p.has('pvc') && !/^Profile[A-Za-z0-9]{0,24}$/.test(p.get('pvc'))) || (p.has('fvt') && !['cardView','compactView'].includes(p.get('fvt'))) || [...p.keys()].some(k=>!allowed.includes(k) || p.getAll(k).length!==1))return fail('Invalid signed-out item check.','invalid-request');
+    }else if(hover){
+      if(!sameUser(hover[1]) || [...p.keys()].length!==0)return fail('Invalid signed-out profile check.','invalid-request');
+    }else if(page){
+      if(!sameUser(page[1]) || (p.has('sort') && !publicSorts.includes(p.get('sort'))) || (p.has('t') && !publicRanges.includes(p.get('t'))) || [...p.keys()].some(k=>!['sort','t'].includes(k) || p.getAll(k).length!==1))return fail('Invalid signed-out profile read.','invalid-request');
+    }else if(more){
+      const allowed=['sort','after','name','navigationSessionId','feedLength','referer','distance','t','cursor'];
+      if(!sameUser(p.get('name')) || (p.has('sort') && p.get('sort')!==more[2]) || (p.has('t') && !publicRanges.includes(p.get('t'))) || url.href.length>4096 || [...p.keys()].some(k=>!allowed.includes(k) || p.getAll(k).length!==1) || [...p.values()].some(v=>/[\u0000-\u001f\u007f]/.test(v)))return fail('Invalid signed-out profile read.','invalid-request');
+    }else if(url.pathname==='/svc/shreddit/search/'){
+      const q=p.get('q') || '',author=q.match(/^author:"([\w-]{1,20})"(?: [^\u0000-\u001f\u007f]{1,300})?$/);
+      if(!author || !sameUser(author[1]) || !['posts','comments'].includes(p.get('type')) || !['new','hot','top','relevance','comments'].includes(p.get('sort')) || p.get('limit')!=='25')return fail('Invalid signed-out search.','invalid-request');
+      if(p.has('t') && !publicRanges.includes(p.get('t')) || p.has('cursor') && (!p.get('cursor') || p.get('cursor').length>4096 || /[\u0000-\u001f\u007f]/.test(p.get('cursor'))))return fail('Invalid signed-out search.','invalid-request');
+      for(const k of p.keys())if(!['q','type','sort','limit','t','cursor','rt_public_search'].includes(k) || p.getAll(k).length!==1)return fail('Invalid signed-out search.','invalid-request');
+      p.delete('rt_public_search');
+    }else return fail('Unsupported signed-out endpoint.','invalid-request');
+
+    const accept=page?'text/html':'text/vnd.reddit.partial+html, text/html;q=0.9';
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
+    try{
+      let token=await ensureAnonToken(message.refresh===true);
+      for(let attempt=0;attempt<2;attempt++){
+        const headers={Accept:accept};
+        if(token)headers.Authorization='Bearer '+token;
+        const res=await fetch(url.href,{method:'GET',credentials:'omit',redirect:'error',cache:'no-store',headers,signal:controller.signal});
+        const nextTok=extractTokenV2(res.headers);
+        if(nextTok){anonToken=token=nextTok;anonTokenExpires=Date.now()+1800000;}
+        if(res.status===403 && attempt===0 && !item){
+          await res.body?.cancel?.().catch(()=>{});
+          token=await ensureAnonToken(true);
+          if(token)continue;
+          if(hover){
+            const profRes=await fetch('https://www.reddit.com/user/'+encodeURIComponent(hover[1])+'/?sort=new',{method:'GET',credentials:'omit',redirect:'error',cache:'no-store',headers:{Accept:'text/html'},signal:controller.signal});
+            if(profRes.ok){
+              const profHtml=await readBounded(profRes,controller);
+              if(profHtml!=null)return {ok:true,html:synthesizeHoverCardFromProfileHtml(profHtml,hover[1]),status:200};
+            }
+          }
+        }
+        if(!res.ok)return fail(res.status===429?'Reddit rate limit reached. Try again later.':'Reddit blocked logged-out search (HTTP '+res.status+').','http-error',{status:res.status});
+        const html=await readBounded(res,controller);
+        if(html==null)return fail('Reddit returned an oversized public response.','invalid-response');
+        return {ok:true,html,status:res.status};
+      }
+      return fail('Reddit blocked logged-out search (HTTP 403).','http-error',{status:403});
+    }catch{
+      return fail(controller.signal.aborted?'Reddit request timed out. Try again.':'Reddit signed-out check is unavailable.',controller.signal.aborted?'timeout':'network-error');
+    }finally{clearTimeout(timer);}
+  }
   async function handle(message,sender){
     if(message?.scope!=='rt-posts')return;
     if(message.action==='get-settings'){
@@ -484,6 +591,7 @@
     if(message.action==='archive-search')return archiveSearch(message,sender);
     if(message.action==='archive-aggregate')return archiveAggregate(message,sender);
     if(message.action==='archive-subreddit')return archiveSubreddit(message,sender);
+    if(message.action==='public-reddit-read')return publicRedditRead(message,sender);
     const kind=message.kind || 'post';
     if(!['post','comment'].includes(kind) || message.action==='archive-ids' && kind!=='post')return fail('Invalid content type.','invalid-request');
     if(!['archive-profile','archive-ids'].includes(message.action))return fail('Unknown archive action.','invalid-request');
@@ -534,6 +642,6 @@
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     if(message?.scope!=='rt-posts')return;
     sender={...sender,page:typeof message.pageUrl==='string' && message.pageUrl.length<4096?message.pageUrl:undefined};
-    handle(message,sender).then(async value=>{const monitor=message.action==='archive-removal' && message.monitor===true;if(message.action!=='get-settings' && value?.ok && !await enabled(['archive-recover','archive-comments'].includes(message.action),monitor))value=disabled();if(monitor && value?.ok){const me=await globalThis.RTRemovalBroker?.verify(sender,message.username);if(!me || me.owner!==message.owner)value=fail('The signed-in account changed.','forbidden');}if(message.action==='archive-recover' && value?.ok && !authorized(sender,message.username,null))value=fail('Archive recovery requires the matching Reddit profile.','forbidden');rememberCommentContexts(message,sender,value);sendResponse(value);},()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
+    handle(message,sender).then(async value=>{const monitor=message.action==='archive-removal' && message.monitor===true;if(!['get-settings','public-reddit-read'].includes(message.action) && value?.ok && !await enabled(['archive-recover','archive-comments'].includes(message.action),monitor))value=disabled();if(monitor && value?.ok){const me=await globalThis.RTRemovalBroker?.verify(sender,message.username);if(!me || me.owner!==message.owner)value=fail('The signed-in account changed.','forbidden');}if(message.action==='archive-recover' && value?.ok && !authorized(sender,message.username,null))value=fail('Archive recovery requires the matching Reddit profile.','forbidden');rememberCommentContexts(message,sender,value);sendResponse(value);},()=>sendResponse(fail('Archive request failed.'))).catch(()=>sendResponse(fail('Archive request failed.')));return true;
   });
 })();

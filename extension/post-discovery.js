@@ -83,7 +83,7 @@
       const cancel=()=>{document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,action:'cancel'})}));finish(Error('Post request cancelled.'));};
       const receive=event=>{let response;try{response=JSON.parse(event.detail);}catch{return;}if(response.channel!==channel || response.id!==id)return;finish(response.ok?null:Error(response.error || 'Public posts could not be loaded.'),response);};
       document.addEventListener('rt-post-response',receive);signal?.addEventListener('abort',cancel,{once:true});
-      timer=setTimeout(()=>{document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,action:'cancel'})}));finish(Error('Public posts took too long to load. Try again.'));},parameters.action==='removal-public' || parameters.action==='removal-public-profile' || parameters.action==='profile' && (parameters.stream==='public' || parameters.kind!=='comment')?27000:12000);
+      timer=setTimeout(()=>{document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,action:'cancel'})}));finish(Error('Public posts took too long to load. Try again.'));},parameters.action==='removal-public' || parameters.action==='removal-public-profile' || parameters.action==='blocked-probe' || parameters.action==='blocked-profile-page' || parameters.action==='render-card' && parameters.anonymous || parameters.action==='profile' && (parameters.stream==='public' || parameters.kind!=='comment')?27000:12000);
       if(signal?.aborted){cancel();return;}
       document.dispatchEvent(new CustomEvent('rt-post-request',{detail:JSON.stringify({channel,id,...parameters})}));
     });
@@ -667,7 +667,7 @@
       if(context.view==='search' && this.context?.key===context.key && this.host && this.feed && !this.feed.isConnected && this.reattachSearchView()){this.scan();return;}
       const retainNavigation=Boolean(this.profileNavigation && this.settings.postDiscovery && !this.settingsError);
       const carry=this.context?.key===context.key && this.settings.postDiscovery && !this.settingsError && this.context?.kind==='profile' && (this.loaded || this.archiveLoaded)?(this.restoreRecoveredBodies(),this.flushVirtualization(),this.viewState()):null;
-      if(carry)this.reset({keepCards:true,retainNavigation:true});else if(!this.parkSearch({keepVisible:context.view!=='search'}))this.leaveProfile({retainNavigation,always:true});
+      if(carry)this.reset({keepCards:true,retainNavigation:true});else if(!this.parkSearch({keepVisible:context.view!=='search'}) && !this.blockedProbeInFlight)this.leaveProfile({retainNavigation,always:true});
       let main=pageMain();
       if(!main && context.kind==='profile'){
         // Unavailable-account pages omit both main and shreddit-feed. Require an

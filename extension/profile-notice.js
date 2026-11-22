@@ -136,6 +136,18 @@
   }
   function setEnabled(value){revision++;const next=value===true,changed=next!==enabled;enabled=next;refresh(changed?undefined:[]);}
   const emptyTemplate=()=>[...notices.keys()].find(n=>n.id==='empty-feed-content' && n.querySelector('[data-testid="empty-state-creative"]'))?.cloneNode(true) || null;
+  try{document.documentElement?.setAttribute?.('data-rt-public-relay','true');}catch{}
+  document.addEventListener('rt-public-relay-request',event=>{
+    let req;try{req=JSON.parse(event.detail);}catch{return;}
+    if(!req?.id || typeof req.url!=='string' || req.url.length>4096)return;
+    const reply=payload=>document.dispatchEvent(new CustomEvent('rt-public-relay-response',{detail:JSON.stringify({id:req.id,...payload})}));
+    try{
+      Promise.resolve(chrome.runtime.sendMessage({scope:'rt-posts',action:'public-reddit-read',url:req.url,refresh:req.refresh===true,pageUrl:window.location?.href})).then(res=>{
+        if(res?.ok && typeof res.html==='string')reply({ok:true,html:res.html,status:res.status || 200});
+        else reply({ok:false,error:res?.error || 'Reddit blocked logged-out search (HTTP 403).',status:res?.status,unsupported:res?.unsupported===true});
+      },()=>reply({ok:false,error:'Signed-out profile read failed.'}));
+    }catch{reply({ok:false,error:'Signed-out profile read failed.'});}
+  });
   let settings;try{settings=chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});}catch(error){settings=Promise.reject(error);}settings.catch(()=>{});
   globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,setRestoreEnabled,unavailableNotice,notFoundNotice,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
   // Observe the Document: the root may not exist yet at document_start.

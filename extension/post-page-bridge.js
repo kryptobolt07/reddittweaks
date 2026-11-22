@@ -1575,9 +1575,10 @@
     const totalEl=root.querySelector('[data-testid="karma-number"]');
     if(postEl)postKarma=readCount(postEl);
     if(commentEl)commentKarma=readCount(commentEl);
-    if(totalEl)karma=readCount(totalEl);
-    for(const num of root.querySelectorAll('faceplate-number[number]')){
-      const val=parseCompactCount(num.getAttribute('number'));if(val===null)continue;
+    const totalEls=[...root.querySelectorAll('[data-testid="karma-number"]')];
+    if(totalEls.length===1)karma=readCount(totalEls[0]);
+    for(const num of root.querySelectorAll('faceplate-number[number],[data-testid="karma-number"]')){
+      const val=readCount(num);if(val===null)continue;
       const block=num.closest('div,li,p,span,dl') || num.parentElement;
       const label=visibleText(block);
       if(postKarma===null && /\bpost\s+karma\b/i.test(label) && !/\bcomment\s+karma\b/i.test(label))postKarma=val;
@@ -1818,19 +1819,21 @@
         if(signal?.aborted || pageKey()!==path)throw Error(signal?.aborted?'Post request cancelled.':'Page changed. Try again.');
         const listing=(type==='comments'?commentListing:postListing)(html,input.username,{sort,range,stream:'public',q,search:hasQuery});
         const nextCursor=searchCursor(new DOMParser().parseFromString(html,'text/html'),input.username,type,sort,range,{q,search:hasQuery});
-        return {mode:'search',type,sort,metadata:null,posts:listing.posts,nextUrl:null,cursor:nextCursor,hasMore:Boolean(nextCursor),incomplete:true,source:'reddit',signedOut:true};
+        return {mode:'search',type,sort,metadata:null,posts:listing.posts,nextUrl:null,cursor:nextCursor,after:nextCursor,hasMore:Boolean(nextCursor),incomplete:true,source:'reddit',signedOut:true};
       }
-      const isContinuation=input.moreUrl!=null;
+      const isContinuation=input.moreUrl!=null || input.after!=null;
+      const rawMoreUrl=input.moreUrl ?? input.after;
       let url,tab='overview',sort='new';
       if(isContinuation){
-        if(typeof input.moreUrl!=='string' || !input.moreUrl || input.moreUrl.length>4096 || /[\u0000-\u001f\u007f]/.test(input.moreUrl))throw Error('Invalid profile continuation.');
-        url=new URL(input.moreUrl,location.origin);
+        if(typeof rawMoreUrl!=='string' || !rawMoreUrl || rawMoreUrl.length>4096 || /[\u0000-\u001f\u007f]/.test(rawMoreUrl))throw Error('Invalid profile continuation.');
+        url=new URL(rawMoreUrl,location.origin);
         const m=url.pathname.match(/^\/svc\/shreddit\/profiles\/profile_(overview|posts|comments)-more-posts\/(new|hot|top)\/$/);
         const allowed=['sort','after','name','navigationSessionId','feedLength','referer','distance','t','cursor'];
         if(!m || url.origin!==location.origin || url.username || url.password || url.port || url.hash || url.searchParams.get('name')?.toLowerCase()!==input.username.toLowerCase() || (url.searchParams.has('sort') && url.searchParams.get('sort')!==m[2]) || (url.searchParams.has('t') && !validRanges.includes(url.searchParams.get('t'))) || [...url.searchParams.keys()].some(key=>!allowed.includes(key) || url.searchParams.getAll(key).length!==1) || [...url.searchParams.values()].some(v=>/[\u0000-\u001f\u007f]/.test(v)))throw Error('Invalid profile continuation.');
         tab=m[1]==='posts'?'submitted':m[1];sort=m[2];
       }else{
-        tab=input.tab==='posts'?'submitted':(input.tab ?? 'overview');
+        const rawTab=input.tab ?? input.view ?? 'overview';
+        tab=rawTab==='posts'?'submitted':rawTab;
         sort=input.sort ?? 'new';
         if(!['overview','submitted','comments'].includes(tab))throw Error('Invalid profile tab.');
         if(!['new','hot','top'].includes(sort))throw Error('Invalid profile sort.');
@@ -1844,7 +1847,7 @@
       ]);
       if(signal?.aborted || pageKey()!==path)throw Error(signal?.aborted?'Post request cancelled.':'Page changed. Try again.');
       const parsed=parseBlockedProfileListing(new DOMParser().parseFromString(html,'text/html'),input.username,{continuation:isContinuation,previousUrl:isContinuation?url.pathname+url.search:null});
-      return {mode:'profile',tab,sort,metadata:parsed.metadata,posts:parsed.posts,nextUrl:parsed.nextUrl,cursor:null,hasMore:Boolean(parsed.nextUrl),incomplete:true,source:'reddit',signedOut:true};
+      return {mode:'profile',tab,sort,metadata:parsed.metadata,posts:parsed.posts,nextUrl:parsed.nextUrl,after:parsed.nextUrl,cursor:null,hasMore:Boolean(parsed.nextUrl),incomplete:true,source:'reddit',signedOut:true};
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);}
   }
   const ownLists=new Set(['saved','history','hidden','upvoted','downvoted','removed']);

@@ -17,7 +17,7 @@ function env({supported=true,fetcher,loggedIn=false,credentialless=true,appAttri
  const window={addEventListener(name,fn){listeners[name]=fn;},removeEventListener(name,fn){if(listeners[name]===fn)delete listeners[name];}};window.top=window;
  const context=vm.createContext({window,document,location,URL,AbortController,TextDecoder,RTNativeRemoval:{identity:()=>nativeOwner},Date:{now:()=>now,parse:Date.parse},setTimeout(fn,ms){const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout(id){timers.delete(id);},setInterval(fn,ms){const id=++next;timers.set(id,{fn,ms,interval:true});return id;},clearInterval(id){timers.delete(id);}});
  vm.runInContext(fs.readFileSync('extension/public-browser.js','utf8'),context);
- const e={read:(...args)=>context.RTPublicBrowser.read(...args),hasSession:()=>context.RTPublicBrowser.hasSession(),isSupported:()=>context.RTPublicBrowser.isSupported(),events,calls,nodes,state,location,timers,advance(ms){now+=ms;for(const [id,timer] of [...timers])if(timer.ms<=ms){if(!timer.interval)timers.delete(id);timer.fn();}},pagehide:()=>listeners.pagehide()};return e;
+ const e={read:(...args)=>context.RTPublicBrowser.read(...args),hasSession:()=>context.RTPublicBrowser.hasSession(),isSupported:()=>context.RTPublicBrowser.isSupported(),setRelay:fn=>context.RTPublicBrowser.setRelay(fn),events,calls,nodes,state,location,timers,advance(ms){now+=ms;for(const [id,timer] of [...timers])if(timer.ms<=ms){if(!timer.interval)timers.delete(id);timer.fn();}},pagehide:()=>listeners.pagehide()};return e;
 }
 function response(url,{status=200,chunks=[new TextEncoder().encode('<shreddit-comment>public</shreddit-comment>')],length=null,onRead}={}){
  let index=0;return {url,ok:status===200,status,redirected:false,headers:{get:()=>length},body:{getReader(){return {async read(){onRead?.();return index<chunks.length?{value:chunks[index++],done:false}:{done:true};},async cancel(){}};}}};
@@ -194,4 +194,16 @@ test('hover card 404 keeps the healthy anonymous session without triggering a gl
  assert.equal(e.hasSession(),true);
  await e.read(endpoint('still-works'));
  assert.equal(e.nodes.length,1);
+});
+
+test('Firefox relay fallback reads through setRelay when credentialless iframes are unsupported',async()=>{
+ const e=env({supported:false,topLoggedIn:true});
+ assert.equal(e.isSupported(),false);
+ const relayed=[];
+ e.setRelay(async(url,opts)=>{relayed.push([url,opts.refresh]);return '<div data-testid="user-hover-card">u/Example</div>';});
+ assert.equal(e.isSupported(),true);
+ const html=await e.read('https://www.reddit.com/svc/shreddit/user-hover-card/Example',{refresh:true});
+ assert.match(html,/user-hover-card/);
+ assert.deepEqual(relayed,[['https://www.reddit.com/svc/shreddit/user-hover-card/Example',true]]);
+ assert.equal(e.events.includes('append'),false,'never appends a non-credentialless iframe');
 });

@@ -25,5 +25,32 @@
         "xmlhttprequest"
       ]
     }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://www.reddit.com/"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "|https://www.reddit.com/",
+      "excludedInitiatorDomains": [
+        "reddit.com"
+      ],
+      "requestMethods": [
+        "get"
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other"
+      ]
+    }
   }
 ]
