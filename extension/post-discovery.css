@@ -359,11 +359,11 @@ button.rt-feed-trigger-anchor{position:fixed!important;opacity:0!important;point
 .rt-inline-menu-empty{padding:12px 16px}
 /* Mobile: Reddit's filter bottom sheet (measured on its Sort by sheet). */
 .rt-inline-sheet-scrim{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6)}
-.rt-inline-menu.rt-inline-sheet{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;max-width:none;max-height:85vh;z-index:1001;border-radius:12px 12px 0 0;box-shadow:0 2px 15px 0 rgba(26,26,27,.3);padding-bottom:env(safe-area-inset-bottom,0)}
-.rt-inline-sheet-head{display:flex;align-items:center;flex:none;height:48px;margin:8px 0 0;padding-inline-end:16px}
+.rt-inline-menu.rt-inline-sheet{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;max-width:none;max-height:min(65vh,480px);max-height:min(65dvh,480px);z-index:1001;border-radius:12px 12px 0 0;box-shadow:0 2px 15px 0 rgba(26,26,27,.3);padding-bottom:env(safe-area-inset-bottom,0)}
+.rt-inline-sheet-head{display:flex;align-items:center;flex:none;height:44px;margin:4px 0 0;padding-inline-end:16px}
 .rt-inline-sheet-head>span{flex:1 1 auto;min-width:0;padding:0 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-inline-sheet-head>span>span{font-size:16px;line-height:20px;font-weight:700;color:var(--color-neutral-content-strong,#181c1f)}
-.rt-inline-sheet-close{position:absolute;top:16px;right:16px;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:0;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f);cursor:pointer}
+.rt-inline-sheet-close{position:absolute;top:10px;right:16px;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:0;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f);cursor:pointer}
 .rt-inline-sheet-close svg{width:16px;height:16px}
 .rt-inline-sheet .rt-inline-menu-list{max-height:none;flex:1 1 auto}
 .rt-inline-sheet .rt-inline-mark svg{width:20px;height:20px}
@@ -776,29 +776,33 @@ reddit-header-small [data-rt-home-search]{display:none}
 dialog.rt-fsheet-root{box-sizing:border-box;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;overflow:hidden;background:transparent}
 dialog.rt-fsheet-root:not([open]){display:none}
 dialog.rt-fsheet-root::backdrop{background:transparent}
-dialog.rt-fsheet-root .rt-fsheet{max-height:88dvh}
+dialog.rt-fsheet-root .rt-fsheet{max-height:min(65dvh,480px)}
 dialog.rt-fsheet-root .rt-fsheet-body{min-height:0}
 .rt-fsheet-scrim{position:absolute;inset:0;background:rgba(0,0,0,.6)}
-.rt-fsheet{position:relative;box-sizing:border-box;width:100%;margin:0;max-height:88vh;display:flex;flex-direction:column;background:var(--color-neutral-background,#fff);border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0);box-shadow:0 -4px 16px rgba(0,0,0,.2);transform:translateY(100%);transition:transform .22s ease-out}
+.rt-fsheet{position:relative;box-sizing:border-box;width:100%;margin:0;max-height:min(65vh,480px);max-height:min(65dvh,480px);display:flex;flex-direction:column;background:var(--color-neutral-background,#fff);border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0);box-shadow:0 -4px 16px rgba(0,0,0,.2);transform:translateY(100%);transition:transform .22s ease-out}
 .rt-fsheet-root[data-open] .rt-fsheet{transform:none}
 @media (prefers-reduced-motion:reduce){.rt-fsheet{transition:none}}
-.rt-fsheet-head{display:flex;align-items:center;gap:8px;padding:16px 16px 12px;border-bottom:1px solid var(--color-neutral-border-weak,#e5ebee)}
-.rt-fsheet-title{flex:1;min-width:0;margin:0;font-size:20px;line-height:28px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rt-fsheet-close,.rt-fsheet-back{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;flex:none;margin:0;padding:0;border:0;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:inherit;cursor:pointer}
+.rt-fsheet-head{display:flex;align-items:center;gap:8px;flex:none;padding:12px 16px 10px;border-bottom:1px solid var(--color-neutral-border-weak,#e5ebee)}
+.rt-fsheet-title{flex:1;min-width:0;margin:0;font-size:18px;line-height:24px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-fsheet-close,.rt-fsheet-back{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;flex:none;margin:0;padding:0;border:0;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:inherit;cursor:pointer}
 .rt-fsheet-back{background:transparent}.rt-fsheet-back[hidden]{display:none}
 .rt-fsheet-close:focus:not(:focus-visible),.rt-fsheet-back:focus:not(:focus-visible){outline:none}
 .rt-fsheet-close:hover,.rt-fsheet-back:hover{background:var(--color-secondary-background-hover,#d9e0e3)}
-.rt-fsheet-body{overflow-y:auto;overscroll-behavior:contain;padding:4px 0 12px}
-.rt-fsheet-row{display:flex;align-items:center;gap:12px;box-sizing:border-box;width:100%;min-height:52px;margin:0;padding:8px 16px;border:0;background:none;color:inherit;font:inherit;font-size:16px;line-height:20px;text-align:start;text-decoration:none;cursor:pointer}
+.rt-fsheet-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0 8px}
+.rt-fsheet-body:has(>.rt-sub-panel),.rt-fsheet-body:has(>.rt-fsheet-panel[data-rt-fill]){display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+.rt-fsheet-panel{display:flex;flex-direction:column;min-width:0;box-sizing:border-box;padding:8px 16px 12px}
+.rt-fsheet-panel[data-rt-flush]{padding:0}
+.rt-fsheet-panel[data-rt-fill]{flex:1 1 auto;min-height:0;overflow:hidden}
+.rt-fsheet-row{display:flex;align-items:center;gap:12px;box-sizing:border-box;width:100%;min-height:44px;margin:0;padding:6px 16px;border:0;background:none;color:inherit;font:inherit;font-size:15px;line-height:20px;text-align:start;text-decoration:none;cursor:pointer}
 .rt-fsheet-row:hover,.rt-fsheet-row:focus-visible{background:var(--color-neutral-background-hover,#f2f4f5);outline:none}
 .rt-fsheet-lead{display:inline-flex;width:20px;height:20px;flex:none;align-items:center;justify-content:center}.rt-fsheet-lead:empty{display:none}
 .rt-fsheet-lead svg{width:20px;height:20px}
 .rt-fsheet-copy{display:flex;flex-direction:column;min-width:0;flex:1}
 .rt-fsheet-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rt-fsheet-sub{font-size:14px;line-height:18px;color:var(--color-neutral-content-weak,#576f76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-fsheet-sub{font-size:13px;line-height:17px;color:var(--color-neutral-content-weak,#576f76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rt-fsheet-tail{display:inline-flex;flex:none}.rt-fsheet-tail:empty{display:none}
-.rt-fsheet-divider{height:1px;margin:8px 16px;border:0;background:var(--color-neutral-border-weak,#e5ebee)}
-.rt-fsheet-section{padding:8px 16px 4px;font-size:16px;line-height:20px;font-weight:600;color:var(--color-neutral-content-weak,#576f76)}
+.rt-fsheet-divider{height:1px;margin:6px 16px;border:0;background:var(--color-neutral-border-weak,#e5ebee)}
+.rt-fsheet-section{padding:8px 16px 2px;font-size:12px;line-height:16px;font-weight:600;color:var(--color-neutral-content-weak,#576f76)}
 .rt-fsheet-group{padding:4px 16px 8px}
 .rt-fsheet-group-title{padding:4px 0 8px;font-size:14px;line-height:18px;font-weight:600}
 .rt-fsheet-chips{display:flex;flex-wrap:wrap;gap:8px}
@@ -809,7 +813,9 @@ dialog.rt-fsheet-root .rt-fsheet-body{min-height:0}
 .rt-fsheet-chip:focus-visible{outline:2px solid var(--color-focus,#0045ac);outline-offset:1px}
 /* The community picker lent to the sheet uses the sheet's own Back. */
 .rt-fsheet .rt-sub-panel .rt-sub-back{display:none}
-.rt-fsheet .rt-sub-panel{padding:0 8px}
+.rt-fsheet .rt-sub-panel{flex:1 1 auto;min-height:0;padding:0 8px}
+.rt-fsheet .rt-sub-panel .rt-sub-list{flex:1 1 auto;min-height:0;max-height:none;padding-bottom:8px}
+.rt-fsheet .rt-sub-panel .rt-menu-row{min-height:44px}
 .rt-fsheet-item{display:flex;align-items:center;padding-inline-end:12px}.rt-fsheet-item>.rt-fsheet-row{flex:1;min-width:0}
 .rt-fsheet-action{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;flex:none;margin:0;padding:0;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:pointer}
 .rt-fsheet-action:hover,.rt-fsheet-action:focus-visible{background:var(--color-neutral-background-hover,#f2f4f5);outline:none}
@@ -870,7 +876,7 @@ html[data-rt-community-sort-boot] main shreddit-sort-dropdown:is([sort-event="fe
 .rt-community-search-lead{display:flex;align-items:center;gap:8px;min-width:0}
 .rt-community-search-menu.rt-inline-sheet{inset-inline-end:auto;width:100dvw}
 .rt-community-search-menu.rt-inline-sheet .rt-sub-panel{padding:0 8px}
-.rt-community-search-menu.rt-inline-sheet .rt-sub-list{max-height:calc(85dvh - 112px)}
+.rt-community-search-menu.rt-inline-sheet .rt-sub-list{max-height:calc(min(65dvh,480px) - 104px)}
 .rt-community-search-menu:not(.rt-inline-sheet){min-width:190px}
 @media(max-width:767.98px){
   .rt-community-button{min-height:40px}

@@ -52,8 +52,36 @@ test('a lent node (the community picker) goes back home when its page closes',as
 test('the sheet resets page margins so it sits flush on the bottom edge (Reddit gives section a 16px bottom margin)',()=>{
  const css=fs.readFileSync('extension/post-discovery.css','utf8');
  assert.match(css,/\.rt-fsheet\{position:relative;box-sizing:border-box;width:100%;margin:0;/);
+ assert.match(css,/\.rt-fsheet\{[^}]*max-height:min\(65dvh,480px\)/,'sheet stays comfortably proportioned on phones');
+ assert.match(css,/dialog\.rt-fsheet-root \.rt-fsheet\{[^}]*max-height:min\(65dvh,480px\)/,'modal dialog sheet uses the same cap');
+ assert.match(css,/\.rt-inline-menu\.rt-inline-sheet\{[^}]*max-height:min\(65dvh,480px\)/,'inline mobile sheets use the same cap');
+ assert.match(css,/\.rt-fsheet-row\{[^}]*min-height:44px/,'rows stay compact while preserving 44px touch targets');
+ assert.match(css,/\.rt-fsheet-panel\[data-rt-fill\]/,'custom panels can fill and scroll cleanly inside the sheet');
  assert.match(css,/\.rt-fsheet-avatar img\{[^}]*margin:0/,'Reddit’s img margin must not lift the avatar out of its circle');
  assert.match(css,/\.rt-account-row>a \*\{pointer-events:none\}/,'the icon and chevron cannot swallow the row tap');
+});
+test('custom panels mount inline content with flush/fill layout and run onLeave cleanup on pop and close',async t=>{
+ const {W,d}=page(t);let left=0;
+ const opened=W.RTFeedSheet.open({title:'Date',className:'rt-custom-one rt-custom-two',build:(body,ui)=>{
+  ui.row({label:'Custom range',chevron:true,keepOpen:true,onSelect:()=>{
+   ui.push({title:'Custom range',build:(_b,sub)=>{
+    const panel=sub.panel(wrap=>{const box=d.createElement('div');box.id='inline-picker';box.textContent='Calendar';wrap.append(box);},{flush:true,fill:true,onLeave:()=>{left++;}});
+    assert.equal(panel.hasAttribute('data-rt-flush'),true);
+    assert.equal(panel.hasAttribute('data-rt-fill'),true);
+   }});
+   return {stay:true};
+  }});
+ }});
+ assert.equal(opened.root.classList.contains('rt-custom-one'),true);
+ assert.equal(opened.root.classList.contains('rt-custom-two'),true);
+ d.querySelector('.rt-fsheet-row').click();await flush();
+ assert.equal(d.querySelector('.rt-fsheet-panel #inline-picker')?.textContent,'Calendar');
+ assert.equal(left,0);
+ d.querySelector('.rt-fsheet-back').click();
+ assert.equal(left,1,'leaving the pushed page runs panel cleanup');
+ d.querySelector('.rt-fsheet-row').click();await flush();
+ W.RTFeedSheet.close();
+ assert.equal(left,2,'closing the sheet runs panel cleanup');
 });
 test('New uses Reddit’s own icon (icon-name="new", a filled clock with an up arrow), not a stroked sparkle',()=>{
  const dom=new JSDOM('<body></body>',{runScripts:'outside-only'}),W=dom.window;W.eval(fs.readFileSync('extension/feed-filters.js','utf8'));

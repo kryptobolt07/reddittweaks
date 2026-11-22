@@ -16,9 +16,10 @@
  const glyph=(name,size=20)=>{const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','currentColor');s.setAttribute('aria-hidden','true');s.dataset.rtSheetIcon=name;const p=document.createElementNS(SVG,'path');p.setAttribute('d',PATHS[name]);s.append(p);return s;};
  let active=null,seq=0;
 
- function open({title,build,returnFocus=null,onClose=null,modal=false}){
+ function open({title,build,returnFocus=null,onClose=null,modal=false,className=''}){
   close();
   const id='rt-fsheet-title-'+(++seq),root=make(modal?'dialog':'div','rt-fsheet-root'),scrim=make('div','rt-fsheet-scrim'),sheet=make('section','rt-fsheet');
+  if(className)for(const cls of String(className).split(/\s+/))if(cls)root.classList.add(cls);
   root.dataset.rtUi='feed-sheet';scrim.setAttribute('aria-hidden','true');
   const dialog=modal?root:sheet;dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-labelledby',id);
   const head=make('div','rt-fsheet-head'),back=make('button','rt-fsheet-back'),heading=make('h2','rt-fsheet-title'),closer=make('button','rt-fsheet-close'),body=make('div','rt-fsheet-body');
@@ -86,7 +87,17 @@
    },0);},
    close,
    // A node lent to a page (the community picker) is handed back when the page or sheet goes away.
-   lend(node,restore){state.leaving.push(restore);body.append(node);}
+   lend(node,restore){state.leaving.push(restore);body.append(node);},
+   // A custom content panel (e.g. inline date picker or searchable flair list) with optional leave cleanup.
+   panel(content,{onLeave=null,flush=false,fill=false}={}){
+    const wrap=make('div','rt-fsheet-panel');
+    if(flush)wrap.dataset.rtFlush='';
+    if(fill)wrap.dataset.rtFill='';
+    if(typeof content==='function')content(wrap,ui);
+    else if(content)wrap.append(content);
+    if(typeof onLeave==='function')state.leaving.push(onLeave);
+    body.append(wrap);return wrap;
+   }
   };
   const giveBack=()=>{for(const restore of state.leaving.splice(0))try{restore();}catch{}};
   function render(keepScroll=false){

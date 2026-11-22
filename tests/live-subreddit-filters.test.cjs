@@ -14,11 +14,17 @@ function setup(t,path='/r/Example/',markup=feed()){
  const controller=new api.Controller({navigate:url=>targets.push(String(url))});t.after(()=>{controller.destroy();W.close();});
  return {W,D:W.document,api,controller,targets};
 }
-test('only scoped live feed and search routes qualify',t=>{
+test('only supported live feed and search routes qualify',t=>{
  const {api,W}=setup(t);
- for(const path of ['/r/all/','/r/popular/','/r/Example/comments/id/title/','/user/Example/','/r/Example/wiki/'])assert.equal(api.route(new W.URL(path,W.location)),null);
- assert.equal(api.route(new W.URL('/r/Example/top/',W.location)).kind,'feed');
- assert.equal(api.route(new W.URL('/r/Example/search/',W.location)).kind,'search');
+ for(const path of ['/r/all/search/','/r/popular/search/','/search/','/r/Example/comments/id/title/','/user/Example/','/r/Example/wiki/'])assert.equal(api.route(new W.URL(path,W.location)),null,path);
+ for(const [path,surface,sort] of [['/','home',''],['/best/','home','best'],['/hot/','home','hot'],['/new/','home','new'],['/top/','home','top'],['/rising/','home','rising'],['/r/popular/','popular',''],['/r/popular/top/','popular','top'],['/r/all/','all',''],['/r/all/new/','all','new']]){
+  const parsed=api.route(new W.URL(path,W.location));
+  assert.deepEqual({...parsed},{surface,global:true,name:surface,sort,kind:'feed'},path);
+ }
+ const subFeed=api.route(new W.URL('/r/Example/top/',W.location));
+ assert.equal(subFeed.kind,'feed');assert.equal(Boolean(subFeed.global),false);
+ const subSearch=api.route(new W.URL('/r/Example/search/',W.location));
+ assert.equal(subSearch.kind,'search');assert.equal(Boolean(subSearch.global),false);
 });
 
 const customPath='/user/Curator/m/MyFeed/';
@@ -556,4 +562,104 @@ test('a large filtered feed detaches only hidden card contents and restores the 
  feed.insertBefore(batch,pager);
  assert.deepEqual([...batch.querySelectorAll('article')],wrappers);
  assert.equal(feed.querySelectorAll('['+stop+']').length,0);
+});
+
+const homeFeed=({withReload=true}={})=>'<main><div class="flex items-center"><shreddit-sort-dropdown sort-event="feed-sort-change"><span slot="selected-item">Best</span><a href="/">Best</a><a href="/hot/">Hot</a><a href="/new/">New</a><a href="/top/">Top</a><a href="/rising/">Rising</a></shreddit-sort-dropdown><shreddit-layout-switcher><a href="?feedViewType=compactView">Compact</a></shreddit-layout-switcher></div><shreddit-feed'+(withReload?' reload-url="/svc/shreddit/feeds/home-feed"':'')+'>'+card('video','News')+card('text','Q&A')+'<faceplate-partial slot="load-after"></faceplate-partial></shreddit-feed></main>';
+
+test('Home, Popular, and All feeds mount Feed options with Sort and Post type (without Flair) on desktop and phone',t=>{
+ const {D,W,targets}=setup(t,'/?rt_type=video',homeFeed());
+ assert.equal(D.querySelectorAll('article['+stop+']').length,1);
+ assert.equal(D.querySelector('shreddit-sort-dropdown').hasAttribute(replaced),true);
+ assert.equal(new W.URL(D.querySelector('shreddit-layout-switcher a').href).searchParams.get('rt_type'),'video');
+ D.querySelector('[data-rt-community-options]').click();
+ const menu=D.querySelector('.rt-community-feed-menu');
+ assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(el=>el.getAttribute('aria-label')),['Sort','Post type']);
+ assert.equal(menu.querySelector('[aria-label="Flair"]'),null);
+ menu.querySelector('[aria-label="Sort"]').click();
+ assert.equal(menu.querySelector('[aria-label="Best"]').getAttribute('aria-checked'),'true');
+ menu.querySelector('[aria-label="Top"]').click();
+ menu.querySelector('[aria-label="Today"]').click();
+ const dest=new W.URL(targets.at(-1));
+ assert.equal(dest.pathname,'/top/');
+ assert.equal(dest.searchParams.get('t'),'day');
+ assert.equal(dest.searchParams.get('rt_type'),'video');
+
+ W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ D.querySelector('[data-rt-community-options]').click();
+ const rows=[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent);
+ assert.deepEqual(rows,['Sort by','Post type']);
+
+ for(const [path,reload,links] of [
+  ['/r/popular/','/svc/shreddit/community-more-posts/hot/?name=popular','<a href="/r/popular/hot/">Hot</a><a href="/r/popular/new/">New</a>'],
+  ['/r/all/','/svc/shreddit/feeds/all-feed','<a href="/r/all/hot/">Hot</a><a href="/r/all/top/">Top</a>']
+ ]){
+  const markup='<main><div class="flex items-center"><shreddit-sort-dropdown sort-event="feed-sort-change"><span slot="selected-item">Hot</span>'+links+'</shreddit-sort-dropdown></div><shreddit-feed reload-url="'+reload+'">'+card('video')+card('text')+'</shreddit-feed></main>';
+  const f=setup(t,path,markup);
+  f.D.querySelector('[data-rt-community-options]').click();
+  assert.deepEqual([...f.D.querySelectorAll('.rt-community-feed-menu [role="menuitem"]')].map(el=>el.getAttribute('aria-label')),['Sort','Post type'],path);
+ }
+});
+
+test('SPA transitions between Home and Subreddit clear stale Feed options immediately and never mount on outgoing feeds',async t=>{
+ for(const withReload of [true,false]){
+  const {D,W}=setup(t,'/',homeFeed({withReload}));
+  assert.ok(D.querySelector('[data-rt-ui="community-filters"]'),'Home mounts Feed options');
+  // Reddit changes the URL to /r/Example/ before replacing Home's outgoing shreddit-feed.
+  W.history.pushState({},'','/r/Example/');
+  D.dispatchEvent(new W.Event('reddit:route'));
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'stale Home controls clear immediately on route change');
+  await flush();
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'does not mount Subreddit controls onto outgoing Home feed (withReload='+withReload+')');
+  // Now Reddit swaps in r/Example's incoming feed.
+  D.querySelector('main').outerHTML=sortedFeed();
+  await flush();
+  assert.ok(D.querySelector('[data-rt-ui="community-filters"]'),'mounts once incoming Subreddit feed arrives');
+  D.querySelector('[data-rt-community-options]').click();
+  assert.ok(D.querySelector('.rt-community-feed-menu [aria-label="Flair"]'),'Subreddit menu includes Flair');
+  // Navigate back from Subreddit to Home while Subreddit feed is still detaching.
+  W.history.pushState({},'','/');
+  D.dispatchEvent(new W.Event('reddit:route'));
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'stale Subreddit controls clear immediately');
+  await flush();
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'does not mount Home controls onto outgoing Subreddit feed');
+  D.querySelector('main').outerHTML=homeFeed({withReload});
+  await flush();
+  assert.ok(D.querySelector('[data-rt-ui="community-filters"]'),'Home controls mount cleanly on incoming Home feed');
+ }
+});
+
+test('live filters bail out on banned subreddit archive feed and archive search',async t=>{
+ // Initial presence of archive search attribute prevents mounting.
+ {
+  const {window:W}=new JSDOM('<body>'+searchPage+'</body>',{url:'https://www.reddit.com/r/Banned/search/?q=subreddit%3ABanned',runScripts:'outside-only'});
+  W.document.documentElement.setAttribute('data-rt-subreddit-archive-search','');
+  for(const name of ['post-model.js','feed-filters.js','feed-sheet.js','live-subreddit-filters.js'])W.eval(read(name));
+  const c=new W.RTLiveSubredditFilters.Controller();t.after(()=>{c.destroy();W.close();});
+  assert.equal(W.document.querySelector('[data-rt-ui="community-filters"]'),null);
+ }
+ // Late activation of archive search clears already-mounted live search controls.
+ {
+  const {D}=setup(t,'/r/Banned/search/?q=subreddit%3ABanned&type=posts&sort=new',searchPage);
+  assert.ok(D.querySelector('[data-rt-ui="community-filters"]'));
+  D.documentElement.setAttribute('data-rt-subreddit-archive-search','');
+  await flush();
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'clears live controls when archive-search attr is set');
+ }
+ // Late insertion of [data-rt-ui="archive-search"] also clears live controls.
+ {
+  const {D}=setup(t,'/r/Banned/search/?q=subreddit%3ABanned&type=posts&sort=new',searchPage);
+  assert.ok(D.querySelector('[data-rt-ui="community-filters"]'));
+  const host=D.createElement('div');host.dataset.rtUi='archive-search';D.querySelector('main').append(host);
+  await flush();
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'clears live controls when [data-rt-ui="archive-search"] mounts');
+ }
+ // Archive feed attribute clears boot gate and live controls.
+ {
+  const {D}=setup(t,'/r/Banned/',sortedFeed().replace(/Example/g,'Banned'));
+  assert.equal(D.documentElement.hasAttribute(heldSorts),true);
+  D.documentElement.setAttribute('data-rt-subreddit-archive','');
+  await flush();
+  assert.equal(D.documentElement.hasAttribute(heldSorts),false);
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null);
+ }
 });

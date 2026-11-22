@@ -63,6 +63,25 @@ test('chips render a working x for each filter and one Clear filters',t=>{
   assert.equal(F.isActive(state),false);assert.equal(box.hidden,true);assert.equal(box.children.length,0);
 });
 
+test('hourPreset and allPresets support Past hour while preserving existing presets',t=>{
+  const {W,F}=load();t.after(()=>W.close());
+  assert.deepEqual([...F.presets.map(p=>p.id)],['24h','week','month','year']);
+  assert.deepEqual({...F.hourPreset},{id:'hour',label:'Past hour',seconds:3600});
+  assert.deepEqual([...F.allPresets.map(p=>p.id)],['hour','24h','week','month','year']);
+  const state=F.parse('?rt_date=hour');
+  assert.deepEqual({...state.date},{preset:'hour'});
+  assert.deepEqual({...F.serialize(state)},{rt_date:'hour'});
+  const now=1700003600;
+  assert.deepEqual({...F.dateRange(state,now)},{after:1700000000,before:null});
+  const pred=F.predicate(state,now);
+  assert.equal(pred({created:1700001000}),true);
+  assert.equal(pred({created:1699999000}),false);
+  assert.equal(F.dateLabel(state.date),'Past hour');
+  assert.equal(F.dateShort(state.date),'Past hour');
+  assert.equal(F.valueLabels(state).date,'Past hour');
+  assert.equal(F.chipList(state)[0].label,'Past hour');
+});
+
 test('native filter chips upgrade with native constructors without assigning HTML, and labels remain text',t=>{
  const {W,F}=load();t.after(()=>W.close());W.customElements.define('rpl-input-chip',class extends W.HTMLElement{constructor(){super();this.setAttribute('data-upgraded','true');}});const descriptor=Object.getOwnPropertyDescriptor(W.Element.prototype,'innerHTML');Object.defineProperty(W.Element.prototype,'innerHTML',{...descriptor,set(value){if(value)throw Error('HTML sink blocked');return descriptor.set.call(this,value);}});const make=(tag,cls,text)=>{const el=W.document.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;},container=make('div');W.document.body.append(container);F.renderChips(container,{...F.empty(),subreddits:['Alpha']},{make,glyph:()=>W.document.createElementNS('http://www.w3.org/2000/svg','svg'),onChange(){}});const chip=container.querySelector('rpl-input-chip');assert.equal(chip.getAttribute('data-upgraded'),'true');assert.match(chip.textContent,/Alpha/);assert.equal(chip.getAttribute('appearance'),'bordered');assert.throws(()=>F.parsedElement('rpl-input-chip onclick=alert(1)'),/Invalid custom element/);const label='<img src=x onerror=alert(1)>',literal=F.pill({id:'date',kind:'date',label},{make,glyph:()=>W.document.createElementNS('http://www.w3.org/2000/svg','svg'),onRemove(){}});assert.equal(literal.querySelector('.rt-filter-chip-label').textContent,label);assert.equal(literal.querySelector('[onerror]'),null);
 });

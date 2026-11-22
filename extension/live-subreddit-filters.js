@@ -64,15 +64,97 @@
   const postId = path => /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase();
   const historyEntry = () => window.navigation?.currentEntry?.key || location.href;
 
+  const globalSorts = ['best','hot','new','top','rising','controversial'];
+  const archiveRootAttrs = ['data-rt-subreddit-archive','data-rt-subreddit-archive-search'];
+  const archiveSelectors = '[data-rt-ui="archive-subreddit"],[data-rt-ui="archive-search"]';
+  const isArchiveActive = () => Boolean(
+    archiveRootAttrs.some(attr => document.documentElement?.hasAttribute(attr)) ||
+    document.querySelector(archiveSelectors)
+  );
+  const isArchiveNode = node => node?.nodeType === 1 && (
+    node.matches(archiveSelectors) || Boolean(node.querySelector?.(archiveSelectors))
+  );
+
   function route(url = location) {
+    const home = /^\/(?:(best|hot|new|top|rising|controversial)\/?)?$/i.exec(url.pathname);
+    if (home) return {surface:'home',global:true,name:'home',sort:fold(home[1]),kind:'feed'};
     const multi = /^\/user\/([a-z0-9_-]{1,20})\/m\/([a-z0-9_-]{1,50})(?:\/(hot|new|top|rising|search))?\/?$/i.exec(url.pathname);
-    if(multi)return {owner:multi[1],name:multi[2],sort:fold(multi[3]),kind:fold(multi[3])==='search'?'search':'feed'};
+    if(multi)return {surface:'custom',owner:multi[1],name:multi[2],sort:fold(multi[3]),kind:fold(multi[3])==='search'?'search':'feed'};
     const match = /^\/r\/([a-z0-9_]{2,21})(?:\/(best|hot|new|top|rising|controversial|search))?\/?$/i.exec(url.pathname);
-    if (!match || ['all','popular'].includes(fold(match[1]))) return null;
-    return {name:match[1],sort:fold(match[2]),kind:fold(match[2])==='search'?'search':'feed'};
+    if (!match) return null;
+    const sub = fold(match[1]), subSort = fold(match[2]);
+    if (sub === 'all' || sub === 'popular') {
+      if (subSort === 'search') return null;
+      return {surface:sub,global:true,name:sub,sort:subSort,kind:'feed'};
+    }
+    return {surface:'subreddit',name:match[1],sort:subSort,kind:subSort==='search'?'search':'feed'};
   }
-  const scopePath = scope => scope.owner?'/user/'+scope.owner+'/m/'+scope.name+'/':'/r/'+scope.name+'/';
-  const scopeKey = scope => fold(scope?.owner?scopePath(scope):scope?.name);
+  const scopePath = scope => scope.owner ? '/user/'+scope.owner+'/m/'+scope.name+'/' : scope.surface === 'home' ? '/' : '/r/'+scope.name+'/';
+  const scopeKey = scope => !scope ? '' : scope.owner ? fold(scopePath(scope)) : scope.global ? ':'+scope.surface : fold(scope.name);
+
+  function inspectReloadUrl(reloadUrl, scope) {
+    if (!reloadUrl) return 'unknown';
+    let parsed;
+    try { parsed = new URL(reloadUrl, location.href); } catch { return 'unknown'; }
+    const path = fold(parsed.pathname), params = parsed.searchParams;
+    const curator = params.get('curator'), multi = params.get('feedName'), name = params.get('name');
+    const feedParam = fold(params.get('feed'));
+    if (/\/profiles?\//.test(path)) return 'mismatch';
+    const globalPath = /\/(?:feeds\/)?(home|popular|all)(?:[-_](?:feed|more-posts))?(?:\/|$)/.exec(path)?.[1] || '';
+    const globalKind = globalPath || (['home','popular','all'].includes(feedParam) ? feedParam : '');
+    const isCustom = Boolean(curator || multi || /\/custom-feed\b/.test(path));
+    const isCommunity = Boolean(/\/community-more-posts\b|\/community-feed\b/.test(path));
+    if (scope.owner) {
+      if (name || globalKind || isCommunity) return 'mismatch';
+      if (curator && fold(curator) !== fold(scope.owner)) return 'mismatch';
+      if (multi && fold(multi) !== fold(scope.name)) return 'mismatch';
+      return (curator && multi) || isCustom ? 'match' : 'unknown';
+    }
+    if (scope.global) {
+      if (isCustom) return 'mismatch';
+      if (name) return fold(name) === fold(scope.name) ? 'match' : 'mismatch';
+      if (isCommunity) return 'mismatch';
+      if (globalKind) return globalKind === scope.surface ? 'match' : 'mismatch';
+      return 'unknown';
+    }
+    if (isCustom || globalKind) return 'mismatch';
+    if (name) return fold(name) === fold(scope.name) ? 'match' : 'mismatch';
+    return 'unknown';
+  }
+
+  function inspectFeedMeta(feed, scope) {
+    const feedName = fold(feed.getAttribute('feed-name') || feed.getAttribute('page-type'));
+    if (!feedName) return 'unknown';
+    if (/^profile/.test(feedName)) return 'mismatch';
+    if (['home','popular','all'].includes(feedName)) return scope.surface === feedName ? 'match' : 'mismatch';
+    if (['custom_feed','custom-feed','multireddit'].includes(feedName)) return scope.owner ? 'match' : 'mismatch';
+    if (['subreddit','community'].includes(feedName)) return scope.surface === 'subreddit' ? 'match' : 'mismatch';
+    return 'unknown';
+  }
+
+  function inspectSortBar(main, scope, url, links) {
+    const dropDown = main.querySelector('shreddit-sort-dropdown[sort-event="feed-sort-change"]:not([hidden])');
+    if (!dropDown) return 'unknown';
+    let matched = 0, foreign = 0;
+    for (const link of dropDown.querySelectorAll('a[href],rpl-menu-item[href]')) {
+      const hrefNow = link.getAttribute('href');
+      const patched = links?.get(link);
+      const href = patched?.applied === hrefNow ? patched.original : hrefNow;
+      let parsed;
+      try { parsed = new URL(href, url); } catch { continue; }
+      if (parsed.origin !== url.origin) continue;
+      const target = route(parsed);
+      if (!target) {
+        if (/^\/user\/[^/]+\/?$/i.test(parsed.pathname)) foreign++;
+        continue;
+      }
+      if (target.kind === 'feed' && scopeKey(target) === scopeKey(scope)) matched++;
+      else foreign++;
+    }
+    if (matched) return 'match';
+    if (foreign) return 'mismatch';
+    return 'unknown';
+  }
 
   function flairName(value) {
     const label = String(value || '').trim();
@@ -160,6 +242,7 @@
 
   function withNsfw(url, enabled) {
     const next=new URL(url),scope=route(next);
+    if(scope?.global)return next;
     if(scope?.kind==='feed') {
       if(enabled)next.searchParams.set(nsfwParam,'1');
       else next.searchParams.delete(nsfwParam);
@@ -171,7 +254,7 @@
     const next = new URL(url);
     const value = flairName(label);
     const scope = route(next);
-    if (!scope) return next;
+    if (!scope || scope.global) return next;
     if (scope.kind === 'feed') {
       if (value) next.searchParams.set('f', 'flair_name:' + JSON.stringify(value));
       else next.searchParams.delete('f');
@@ -248,11 +331,16 @@
       this.hidden = new Set();
       this.parked = new Map();
       this.parkedMoves = new WeakMap();
+      this.feedOwners = new WeakMap();
       this.flairs = loadFlairs();
       this.links = new Map();
       this.positions = new Map();
       this.onRoute = () => {
         this.panel?.close();
+        const next = route();
+        if (this.scope && (!next || this.scope.kind !== next.kind || this.scope.surface !== next.surface || scopeKey(this.scope) !== scopeKey(next))) {
+          if (!this.holdDeparture(new URL(location.href))) this.clear();
+        }
         this.schedule();
       };
       this.onHistory = () => {
@@ -289,10 +377,12 @@
         if (records.some(record => {
           if (this.isParkingMutation(record) || globalThis.RTPostMenuDOM?.isMenuMutation(record) || record.target.closest?.('[data-rt-ui]')) return false;
           return [...record.addedNodes, ...record.removedNodes].some(node =>
-            node.nodeType === 1 && !node.matches('[data-rt-ui]'));
+            node.nodeType === 1 && (!node.matches('[data-rt-ui]') || isArchiveNode(node)));
         })) this.schedule();
       });
       this.observer.observe(document, {childList:true, subtree:true});
+      this.rootObserver = new MutationObserver(() => this.schedule());
+      if (document.documentElement) this.rootObserver.observe(document.documentElement, {attributes:true, attributeFilter:archiveRootAttrs});
       window.addEventListener('popstate', this.onHistory);
       window.navigation?.addEventListener('navigate',this.onNavigate);
       window.navigation?.addEventListener('currententrychange',this.onEntry);
@@ -472,7 +562,7 @@
       const url = new URL(location.href);
       if (!this.enabled || (this.returnEntry && this.returnEntry !== historyEntry())) this.finishReturn();
       const current = route(url);
-      const archive = current && document.querySelector('[data-rt-ui="archive-subreddit"]');
+      const archive = Boolean(current && isArchiveActive());
       document.documentElement?.toggleAttribute(sortBoot,Boolean((this.enabled || this.waitingForSettings) && current?.kind === 'feed' && !archive));
       if (this.holdDeparture(url)) return;
       const scope = this.enabled && current;
@@ -485,11 +575,18 @@
         return;
       }
       // Native SPA changes the URL before replacing its outgoing feed.
-      const reloadUrl = feed && feed.getAttribute('reload-url');
-      if(reloadUrl){
-        const params=new URL(reloadUrl,location.href).searchParams;
-        const curator=params.get('curator'),multi=params.get('feedName'),name=params.get('name');
-        if(scope.owner?name || curator && fold(curator)!==fold(scope.owner) || multi && fold(multi)!==fold(scope.name):curator || multi || name && fold(name)!==fold(scope.name))return;
+      if (feed) {
+        const reloadVerdict = inspectReloadUrl(feed.getAttribute('reload-url'), scope);
+        if (reloadVerdict === 'mismatch') { this.clear(); return; }
+        const metaVerdict = inspectFeedMeta(feed, scope);
+        if (metaVerdict === 'mismatch') { this.clear(); return; }
+        const confirmed = reloadVerdict === 'match' || metaVerdict === 'match';
+        const previousOwner = this.feedOwners.get(feed);
+        if (!confirmed) {
+          if (previousOwner && previousOwner !== scopeKey(scope)) { this.clear(); return; }
+          if (inspectSortBar(main, scope, url, this.links) === 'mismatch') { this.clear(); return; }
+        }
+        this.feedOwners.set(feed, scopeKey(scope));
       }
       if (this.main !== main || this.feed !== feed || this.scope?.kind !== scope.kind || scopeKey(this.scope) !== scopeKey(scope)) {
         this.clear();
@@ -546,7 +643,7 @@
 
     placeFeedControls() {
       this.readFeedSorts();
-      const sort = this.main.querySelector(nativeFeedSort);
+      const sort = this.feedSorts?.sorting?.node || this.feedSorts?.range?.node || this.main.querySelector(nativeFeedSort);
       const rail = !this.scope.owner || !isPhone() ? sort?.closest('div.flex.items-center') : null;
       const bar = this.toolbar;
       bar?.classList.toggle('rt-community-in-feed-rail',Boolean(rail));
@@ -595,7 +692,7 @@
           const target = route(url);
           if (!label || url.origin !== this.url.origin || target?.kind !== 'feed' ||
               scopeKey(target) !== scopeKey(this.scope)) continue;
-          const sortKey = target.sort;
+          const sortKey = target.sort || (target.surface === 'home' && globalSorts.includes(fold(label)) ? fold(label) : '');
           const key = isTime ? url.searchParams.get('t') : sortKey;
           if (!key) continue;
           const currentKey = isTime ? this.url.searchParams.get('t') :
@@ -625,7 +722,8 @@
 
     chooseFeedSort(choice) {
       const url = new URL(choice.url);
-      for (const name of ['rt_type',nsfwParam,'f','feedViewType','t']) {
+      const carry = this.scope?.global ? ['rt_type','feedViewType','t'] : ['rt_type',nsfwParam,'f','feedViewType','t'];
+      for (const name of carry) {
         const value = this.url.searchParams.get(name);
         if (value && (name !== 't' || !url.searchParams.has(name))) url.searchParams.set(name,value);
       }
@@ -685,10 +783,12 @@
     }
 
     activeFlair() {
+      if (this.scope?.global) return '';
       return this.feed ? feedFlair(this.url) : searchParts(this.url).flair;
     }
 
     activeNsfw() {
+      if (this.scope?.global) return false;
       return this.feed ? this.url.searchParams.get(nsfwParam)==='1' : searchParts(this.url).nsfw;
     }
 
@@ -712,6 +812,7 @@
     }
 
     collectFlairs() {
+      if (this.scope?.global) return;
       const key = scopeKey(this.scope);
       const labels = new Map(this.flairs.get(key)), seen=new Set();
       const remember=(value,paint)=>{
@@ -949,7 +1050,7 @@
       const nsfw = this.activeNsfw();
       const flair = this.feed && this.scope.owner && this.url.searchParams.get('f');
       const candidates = this.feed
-        ? document.querySelectorAll('a[href*="flair_name"],shreddit-sort-dropdown a,shreddit-layout-switcher a')
+        ? document.querySelectorAll(this.scope.global ? 'shreddit-sort-dropdown a,shreddit-layout-switcher a' : 'a[href*="flair_name"],shreddit-sort-dropdown a,shreddit-layout-switcher a')
         : document.querySelectorAll('#search-results-page-tabgroup a[href],search-sort-dropdown-menu a[href]');
       for (const link of candidates) {
         const old = this.links.get(link);
@@ -1187,7 +1288,7 @@
         const sorting = this.feedSorts?.sorting;
         if (sorting) entry(list,'Sort','sort',sorting.current);
         entry(list,'Post type','text-post',this.typeLabel() || 'All');
-        entry(list,'Flair','tag',this.flairSummary() || 'All');
+        if (!this.scope.global) entry(list,'Flair','tag',this.flairSummary() || 'All');
         menu?.place();
       };
       render();
@@ -1324,7 +1425,7 @@
           sheet.postTypeRows(page,{selected:this.selectedTypes(),onClear:() => this.applyTypes([]),onToggle:type => this.toggleType(type)});
         }}); return {stay:true}; },
       });
-      ui.row({label:'Flair', icon:filters.svgIcon('tag',20), subtitle:this.flairSummary() || 'All flairs', chevron:true, keepOpen:true, onSelect:() => {
+      if (!this.scope.global) ui.row({label:'Flair', icon:filters.svgIcon('tag',20), subtitle:this.flairSummary() || 'All flairs', chevron:true, keepOpen:true, onSelect:() => {
         ui.push({title:'Flair',build:(body, page) => {
           const panel = this.flairPanel({
             active:this.activeFlair(),
@@ -1425,6 +1526,7 @@
     }
 
     prepareInput(event) {
+      if (isArchiveActive()) return;
       const url = new URL(location.href);
       const scope = this.enabled && route(url);
       if (scope?.kind !== 'search') return;
@@ -1439,7 +1541,7 @@
           event.repeat || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       const url = new URL(location.href);
       const scope = route(url);
-      if (scope?.kind !== 'feed' || !this.feed?.isConnected || scopeKey(this.scope) !== scopeKey(scope)) return;
+      if (scope?.kind !== 'feed' || scope.global || !this.feed?.isConnected || scopeKey(this.scope) !== scopeKey(scope)) return;
       const input = scopedField(event,scope);
       if (!input || input.value.trim()) return;
       event.preventDefault();
@@ -1455,6 +1557,7 @@
       this.clear();
       document.documentElement?.removeAttribute(sortBoot);
       this.observer.disconnect();
+      this.rootObserver?.disconnect();
       window.removeEventListener('popstate',this.onHistory);
       window.navigation?.removeEventListener('navigate',this.onNavigate);
       window.navigation?.removeEventListener('currententrychange',this.onEntry);
