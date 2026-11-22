@@ -32,6 +32,11 @@
     const credit=post.querySelector('[slot="credit-bar"]');
     return [...(credit?credit.querySelectorAll('a,span'):post.querySelectorAll('[slot="authorName"],.author'))].find(el=>el.childElementCount===0 && deletedLabel.test(el.textContent.trim()) && !el.closest('[data-rt-source],[data-rt-archived-author]'));
   };
+  const commentAuthorLabel=comment=>{const label=comment.querySelector('.author-name-meta span[dir],[slot="commentMeta"] span[dir]');return label && label.closest('shreddit-comment')===comment && label.textContent.trim()==='[deleted]'?label:null;};
+  // A [deleted] author being looked up: CSS draws a skeleton pill inside the label's own box, so nothing
+  // moves when it resolves. Only ever removed to show the restored author or Reddit's plain [deleted].
+  const pendingAuthor='data-rt-author-pending';
+  const unmarkAuthor=label=>label?.removeAttribute(pendingAuthor);
   async function readSettings(){return (await send({action:'get-settings'})).settings;}
   const signedIn=()=>{const app=document.querySelector('shreddit-app');return Boolean(app && app.getAttribute('user-logged-in')!=='false' && (app.getAttribute('user-logged-in')==='true' || app.hasAttribute('logged-in-user-id')));};
   // An account that blocked the reader looks deleted on a post page; Reddit's signed-out view shows it.
@@ -80,14 +85,18 @@
         // Reddit can re-create an answered comment: restore it again from the kept record, with no new request.
         if(this.done.has(id)){if(!this.checked.has(comment)){this.reapply(id,comment);this.settleNode(comment);}continue;}
         // Asked of the signed-out view and not answered yet: the archive must not answer first.
-        if(this.requested.has(id) || this.signedOutQueue.has(id) || this.signedOutPending.has(id) || this.checked.has(comment))continue;
+        if(this.requested.has(id) || this.signedOutQueue.has(id) || this.signedOutPending.has(id) || this.checked.has(comment)){
+          // Re-created by Reddit while its author is still being asked: the same skeleton, within the same limit.
+          if(!this.checked.has(comment) && !this.noticeParagraph(comment) && authorGone(comment)){this.holdAuthor(comment,id);this.checked.add(comment);}
+          continue;
+        }
         if(M.domStatus(comment)){this.shareComments.add(comment);this.restoreShare(comment,id);}
         // Skeleton instead of Reddit's notice while the archive is asked.
         const notice=this.noticeParagraph(comment);
         if(!notice){
           // A deleted account keeps its text but shows [deleted] as the author: ask for the author only (same
-          // batched request), with no skeleton since the text is already there.
-          if(authorGone(comment)){this.want(id);this.checked.add(comment);continue;}
+          // batched request). The text is already there, so only the author slot shows a skeleton.
+          if(authorGone(comment)){if(this.want(id))this.holdAuthor(comment,id);this.checked.add(comment);continue;}
           comment.setAttribute('data-rt-settled','');this.checked.add(comment);continue;
         }
         if(!this.want(id)){comment.setAttribute('data-rt-settled','');this.checked.add(comment);continue;}
@@ -134,8 +143,16 @@
     commentNodes(ids){const wanted=new Set(ids),found=new Map();for(const node of document.querySelectorAll('main shreddit-comment[thingid]')){const id=node.getAttribute('thingid').toLowerCase();if(wanted.has(id)){if(!found.has(id))found.set(id,[]);found.get(id).push(node);}}return found;}
     // The comment's own body paragraph showing Reddit's deletion notice.
     noticeParagraph(comment){return M.noticeParagraph(comment);}
+    // Skeleton in a deleted account's author slot while it is asked, for at most pendingMs: after that
+    // Reddit's plain [deleted] shows (a later answer still restores the author).
+    holdAuthor(comment,id){
+      const label=commentAuthorLabel(comment);if(!label || this.shown.has(id) || label.hasAttribute(pendingAuthor))return;
+      label.setAttribute(pendingAuthor,'');
+      this.later(()=>{if(label.hasAttribute(pendingAuthor)){this.shown.add(id);unmarkAuthor(label);}});
+    }
     // End a comment's pending look: skeleton, held notice and masks go; Reddit's content shows.
     settleNode(node){
+      for(const label of node.querySelectorAll('['+pendingAuthor+']'))if(label.closest('shreddit-comment')===node)unmarkAuthor(label);
       for(const skeleton of node.querySelectorAll('[data-rt-skeleton]'))if(skeleton.closest('shreddit-comment')===node)skeleton.remove();
       for(const held of node.querySelectorAll('[data-rt-hold]'))if(held.closest('shreddit-comment')===node)held.removeAttribute('data-rt-hold');
       node.removeAttribute('data-rt-pending');node.setAttribute('data-rt-settled','');this.checked.add(node);
@@ -240,7 +257,7 @@
       if(label && label.textContent.trim()==='[deleted]' && !patch.author){
         const link=make('a','truncate font-bold text-neutral-content-strong text-12 focus-visible:-outline-offset-1 hover:underline rt-archived-author');link.href='https://www.reddit.com/user/'+author+'/';link.dir='auto';link.dataset.rtArchivedAuthor='true';link.setAttribute('aria-label','u/'+author+(source==='signed-out'?' (signed-out view)':' (from archive)'));link.title='Author from '+where;
         const plate=make('span','inline-flex items-center max-w-full whitespace-nowrap');plate.dir='auto';plate.dataset.testid='nameplate';plate.append(make('span','truncate',author));link.append(plate);
-        patch.author={label,link};label.replaceWith(link);
+        unmarkAuthor(label);patch.author={label,link};label.replaceWith(link);
         // Reddit opens its profile card from an author-hovercard-trigger, for the comment's author
         // attribute. Give the restored name both, so its card shows like a native author's.
         if(!link.closest('.author-hovercard-trigger')){const trigger=make('span','author-hovercard-trigger cursor-pointer');link.replaceWith(trigger);trigger.append(link);patch.author.trigger=trigger;}
@@ -293,8 +310,8 @@
       // signed-out view first; the archive is asked only when that shows no live author.
       if(state.signedOut==='pending' || state.signedOut==='found')return;
       if(!state.signedOut && !state.started && this.signedOutEnabled() && (authorGone(native) || postAuthorLabel(native))){
-        state.signedOut='pending';native.setAttribute('data-rt-pending','');
-        const settle=()=>{if(this.postState===state){native.removeAttribute('data-rt-pending');native.setAttribute('data-rt-settled','');}};
+        state.signedOut='pending';native.setAttribute('data-rt-pending','');this.holdPostAuthor(state);
+        const settle=()=>{if(this.postState===state){this.releasePostAuthor(state);native.removeAttribute('data-rt-pending');native.setAttribute('data-rt-settled','');}};
         this.later(()=>{if(state.signedOut==='pending')settle();});
         return Promise.resolve().then(()=>this.reddit({action:'blocked-thread-items',postId,post:true,ids:[]})).then(result=>{
           if(this.postState!==state)return;
@@ -303,24 +320,25 @@
           state.signedOut='none';native.removeAttribute('data-rt-pending');this.restorePost();
         },()=>{if(this.postState!==state)return;state.signedOut='none';native.removeAttribute('data-rt-pending');this.restorePost();});
       }
-      if(!this.enabled()){if(state.signedOut==='none' || !this.signedOutEnabled())native.setAttribute('data-rt-settled','');return;}
+      if(!this.enabled()){if(state.signedOut==='none' || !this.signedOutEnabled()){this.releasePostAuthor(state);native.setAttribute('data-rt-settled','');}return;}
       if(state.started){this.applyPostAuthor(state);return;}
       if(!status){
         // A deleted account's post keeps its content; only its [deleted] author is looked up, with no deletion cues.
         if(!authorGone(native) && !postAuthorLabel(native)){native.setAttribute('data-rt-settled','');return;}
         state.started=true;
         if(this.postAuthors.has(postId)){
-          state.archivedAuthor=this.postAuthors.get(postId);this.applyPostAuthor(state);native.setAttribute('data-rt-settled','');return;
+          state.archivedAuthor=this.postAuthors.get(postId);this.applyPostAuthor(state);this.releasePostAuthor(state);native.setAttribute('data-rt-settled','');return;
         }
+        this.holdPostAuthor(state);
         return this.lookupPost(postId,state).then(result=>{
           if(this.postState!==state || !this.enabled())return;
           const found=(result?.posts || []).map(raw=>M.normalizePost(raw,{source:'arctic-shift'})).find(post=>post?.id===postId);
           state.archivedAuthor=M.validateUsername(found?.author)?found.author:null;
           this.cachePostAuthor(postId,state.archivedAuthor);this.applyPostAuthor(state);
-        }).catch(()=>{}).finally(()=>{if(this.postState===state)native.setAttribute('data-rt-settled','');});
+        }).catch(()=>{}).finally(()=>{if(this.postState===state){this.releasePostAuthor(state);native.setAttribute('data-rt-settled','');}});
       }
       state.started=true;
-      native.setAttribute('data-rt-pending','');
+      native.setAttribute('data-rt-pending','');this.holdPostAuthor(state);
       // What Reddit's own notice says decides whether the cue may name the author.
       const reason=[native.getAttribute('post-title'),native.querySelector('[slot="title"]')?.textContent,...[...native.querySelectorAll('[slot="post-removed-banner"],[slot="text-body"] p')].map(node=>node.textContent)].join(' ');
       // Skeleton lines where the body goes while the archive is asked.
@@ -330,7 +348,7 @@
       const badge=state.reserved=this.makeBadge(status,'rt-post-indicator');badge.dataset.rtReserved='true';badge.setAttribute('aria-hidden','true');
       const credit=native.querySelector('[slot="credit-bar"]') || native;let actions=credit.querySelector('shreddit-post-overflow-menu');while(actions && actions.parentElement!==credit)actions=actions.parentElement;
       if(actions)actions.prepend(badge);else{badge.style.marginInlineStart='auto';credit.append(badge);}
-      const settle=()=>{skeleton?.remove();native.removeAttribute('data-rt-pending');native.setAttribute('data-rt-settled','');};
+      const settle=()=>{skeleton?.remove();this.releasePostAuthor(state);native.removeAttribute('data-rt-pending');native.setAttribute('data-rt-settled','');};
       this.later(()=>{if(this.postState===state)settle();});
       return this.lookupPost(postId,state).then(result=>{
         if(this.postState!==state || !this.enabled())return;
@@ -389,6 +407,16 @@
       if(actions)actions.prepend(badge);else{badge.style.marginInlineStart='auto';credit.append(badge);}
       patch.added.push(badge);
     }
+    // The post header's [deleted] author while the signed-out view, then the archive, is asked: one skeleton
+    // for both, shown at most pendingMs in all.
+    holdPostAuthor(state){
+      if(state.authorShown)return;
+      const label=postAuthorLabel(state.native);if(!label)return;
+      if(state.authorLabel!==label)unmarkAuthor(state.authorLabel);state.authorLabel=label;
+      if(label.hasAttribute(pendingAuthor))return;label.setAttribute(pendingAuthor,'');
+      this.later(()=>{if(this.postState===state && label.hasAttribute(pendingAuthor)){state.authorShown=true;this.releasePostAuthor(state);}});
+    }
+    releasePostAuthor(state){unmarkAuthor(state.authorLabel);state.authorLabel=null;}
     // The post's archive lookup retries transient failures, bounded like the comments'.
     async lookupPost(postId,state){
       for(let attempt=1;;attempt++){
@@ -413,7 +441,7 @@
     // Replace the post header's [deleted] author with the archived username,
     // keeping Reddit's element classes; the dotted underline marks it archived.
     restorePostAuthor(native,author,source='archive'){
-      const label=postAuthorLabel(native);if(!label)return null;
+      const label=postAuthorLabel(native);if(!label)return null;unmarkAuthor(label);
       const original=label.textContent,name=(original.trim().startsWith('u/')?'u/':'')+author;
       const accessible='u/'+author+(source==='signed-out'?' (signed-out view)':' (from archive)'),link=make('a',(label.className || '')+' rt-archived-author',name);
       link.href='https://www.reddit.com/user/'+author+'/';link.dataset.rtArchivedAuthor='true';link.title=source==='signed-out'?'Author from Reddit’s signed-out view':'Original author from an Arctic Shift snapshot';link.setAttribute('aria-label',accessible);
@@ -471,14 +499,17 @@
     }
     async flushFeedAuthors(state){
       if(this.feedAuthors!==state || !this.enabled() || state.busy || state.pausedUntil>Date.now() || M.filteredCommunity(new URL(location.href))!==state.subreddit)return;
-      const ids=[];
+      const ids=[],posts=new Map();
       for(const [id,post] of state.wanted){
         state.wanted.delete(id);
-        if(this.feedPostVisible(post) && postAuthorLabel(post) && !this.postAuthors.has(id))ids.push(id);
+        if(this.feedPostVisible(post) && postAuthorLabel(post) && !this.postAuthors.has(id)){ids.push(id);posts.set(id,post);}
         if(ids.length===25)break;
       }
       if(!ids.length)return;
       state.busy=true;
+      // Skeletons in the asked cards' author slots until the answer (or pendingMs).
+      const labels=ids.map(id=>postAuthorLabel(posts.get(id))).filter(Boolean);for(const label of labels)label.setAttribute(pendingAuthor,'');
+      const release=()=>{for(const label of labels)unmarkAuthor(label);};this.later(release);
       try{
         const result=await this.archive({action:'archive-feed-authors',subreddit:state.subreddit,ids});
         if(this.feedAuthors!==state || !this.enabled() || M.filteredCommunity(new URL(location.href))!==state.subreddit)return;
@@ -486,7 +517,7 @@
         for(const id of ids){const row=result.posts?.find(post=>post.id===id && post.subreddit?.toLowerCase()===state.subreddit && M.validateUsername(post.author));this.cachePostAuthor(id,row?.author || null);}
         this.scanFeedAuthors();
       }catch(error){state.pausedUntil=error?.retryAt || Date.now()+this.retryMs;}
-      finally{state.busy=false;this.scheduleFeedAuthors(state);}
+      finally{release();state.busy=false;this.scheduleFeedAuthors(state);}
     }
     clearFeedAuthors(){
       const state=this.feedAuthors;if(!state)return;
@@ -504,6 +535,7 @@
       for(const node of document.querySelectorAll('[data-rt-avatar-pending]'))node.removeAttribute('data-rt-avatar-pending');
       for(const node of document.querySelectorAll('[data-rt-notice]')){delete node.dataset.rtNotice;node.removeAttribute('data-rt-hold');}
       for(const node of document.querySelectorAll('main [data-rt-skeleton]'))node.remove();
+      for(const label of document.querySelectorAll('['+pendingAuthor+']'))unmarkAuthor(label);
     }
     destroy(){this.observer?.disconnect();clearTimeout(this.timer);clearTimeout(this.retryTimer);window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);chrome.runtime.onMessage?.removeListener?.(this.onMessage);this.restoreAll();}
   }

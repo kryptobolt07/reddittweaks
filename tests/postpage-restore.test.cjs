@@ -255,3 +255,78 @@ test('a pending author lookup cannot patch the outgoing feed after changing comm
  finish({ok:true,posts:[archivedPost]});await settle();
  assert.equal(e.doc.querySelector('[data-rt-archived-author]'),null);
 });
+// Author skeleton: a [deleted] author being looked up shows a skeleton pill in its own label box, and
+// resolves to the restored author or back to Reddit's plain [deleted], never stays.
+const alive=id=>row(id,'<p>Still my words</p>');
+const label=(doc,id)=>comment(doc,id).querySelector('.author-name-meta > *');
+test('a deleted account’s comment shows an author skeleton only while its author is asked',async t=>{
+ let answer;const e=setup({html:page(alive('t1_a1')),archive:()=>new Promise(resolve=>{answer=resolve;})});t.after(()=>{e.r.destroy();e.W.close();});
+ await e.r.ready;await settle();
+ const native=label(e.doc,'t1_a1');assert.equal(native.textContent,'[deleted]','the label keeps its text and box');assert.equal(native.hasAttribute('data-rt-author-pending'),true);
+ assert.equal(comment(e.doc,'t1_a1').hasAttribute('data-rt-pending'),false,'the intact text is not masked');
+ answer({ok:true,posts:[archived('a1','Still my words')]});await settle();
+ assert.equal(label(e.doc,'t1_a1').querySelector('[data-rt-archived-author]')?.textContent || label(e.doc,'t1_a1').textContent,'Originala1');
+ assert.equal(e.doc.querySelector('[data-rt-author-pending]'),null,'no skeleton once restored');assert.equal(native.hasAttribute('data-rt-author-pending'),false,'the kept native label is clean for opt-out');
+ e.r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});
+ assert.equal(label(e.doc,'t1_a1'),native);assert.equal(native.hasAttribute('data-rt-author-pending'),false);
+});
+for(const [name,archive] of [['returns nothing',()=>({ok:true,posts:[]})],['returns no author',()=>({ok:true,posts:[archived('a1','Still my words',{author:'[deleted]'})]})],['fails',()=>{throw Object.assign(Error('Archive unavailable.'),{code:'http-404'});}]]){
+ test(`an author lookup that ${name} puts back Reddit’s plain [deleted]`,async t=>{
+  const e=setup({html:page(alive('t1_a1')),archive});t.after(()=>{e.r.destroy();e.W.close();});await e.r.ready;await settle();
+  const node=label(e.doc,'t1_a1');assert.equal(node.textContent,'[deleted]');assert.equal(node.hasAttribute('data-rt-author-pending'),false);
+  assert.equal(e.doc.querySelector('[data-rt-archived-author],[data-rt-source]'),null,'nothing implies a restored author');
+ });
+}
+test('an author skeleton lasts at most the visible limit, and a late answer still restores the author',async t=>{
+ let answer;const e=setup({pendingMs:30,html:page(alive('t1_a1')),archive:()=>new Promise(resolve=>{answer=resolve;})});t.after(()=>{e.r.destroy();e.W.close();});
+ await e.r.ready;await settle(5);assert.equal(label(e.doc,'t1_a1').hasAttribute('data-rt-author-pending'),true);
+ await settle(50);assert.equal(label(e.doc,'t1_a1').hasAttribute('data-rt-author-pending'),false,'timed out: plain [deleted]');assert.equal(label(e.doc,'t1_a1').textContent,'[deleted]');
+ // Reddit re-creates the comment while the answer is still out: no second skeleton.
+ const old=comment(e.doc,'t1_a1');old.replaceWith(e.doc.createRange().createContextualFragment(alive('t1_a1')));await e.r.scan();
+ assert.equal(e.doc.querySelector('[data-rt-author-pending]'),null);
+ answer({ok:true,posts:[archived('a1','Still my words')]});await settle();
+ assert.equal(comment(e.doc,'t1_a1').querySelector('[data-rt-archived-author]').textContent,'Originala1');
+});
+test('a comment re-created while its author is asked gets the same skeleton, settled with the answer',async t=>{
+ let answer;const e=setup({html:page(alive('t1_a1')),archive:()=>new Promise(resolve=>{answer=resolve;})});t.after(()=>{e.r.destroy();e.W.close();});
+ await e.r.ready;await settle();
+ const old=comment(e.doc,'t1_a1');old.replaceWith(e.doc.createRange().createContextualFragment(alive('t1_a1')));await e.r.scan();
+ assert.equal(label(e.doc,'t1_a1').hasAttribute('data-rt-author-pending'),true);
+ answer({ok:true,posts:[]});await settle();assert.equal(e.doc.querySelector('[data-rt-author-pending]'),null);assert.equal(label(e.doc,'t1_a1').textContent,'[deleted]');
+});
+test('a post header’s [deleted] author shows a skeleton while asked, then the author or [deleted]',async t=>{
+ for(const found of [true,false]){
+  let answer;const e=setup({html:'<main>'+missingAuthor+'</main>',archive:()=>new Promise(resolve=>{answer=resolve;})});t.after(()=>{e.r.destroy();e.W.close();});
+  await e.r.ready;await settle();
+  const node=e.doc.querySelector('shreddit-post .author');assert.equal(node.textContent,'[deleted]');assert.equal(node.hasAttribute('data-rt-author-pending'),true,'pending');
+  answer({ok:true,posts:found?[archivedPost]:[]});await settle();
+  assert.equal(e.doc.querySelector('[data-rt-author-pending]'),null,'settled');
+  if(found)assert.equal(e.doc.querySelector('shreddit-post [data-rt-archived-author]').textContent,'BeforeDeletion');
+  else{assert.equal(e.doc.querySelector('shreddit-post .author').textContent,'[deleted]');assert.equal(e.doc.querySelector('[data-rt-archived-author]'),null);}
+ }
+});
+test('a deleted post’s header author skeleton ends with the archive answer, the visible limit or opt-out',async t=>{
+ const deleted='<main><shreddit-post id="t3_abc12" author="[deleted]" is-author-deleted post-title="Gone"><div slot="credit-bar"><span class="author">[deleted]</span></div><h1 slot="title">Gone</h1></shreddit-post></main>';
+ let answer;const e=setup({pendingMs:30,html:deleted,archive:()=>new Promise(resolve=>{answer=resolve;})});t.after(()=>{e.r.destroy();e.W.close();});
+ await e.r.ready;await settle(5);assert.equal(e.doc.querySelector('shreddit-post .author').hasAttribute('data-rt-author-pending'),true);
+ await settle(50);assert.equal(e.doc.querySelector('[data-rt-author-pending]'),null,'visible limit');
+ answer({ok:true,posts:[{...archivedPost,title:'Gone',selftext:'Body'}]});await settle();
+ assert.equal(e.doc.querySelector('shreddit-post [data-rt-archived-author]').textContent,'BeforeDeletion','a late answer still restores the author');
+ const off=setup({html:deleted,archive:()=>new Promise(()=>{})});t.after(()=>{off.r.destroy();off.W.close();});await off.r.ready;await settle();
+ assert.ok(off.doc.querySelector('[data-rt-author-pending]'));off.r.setSettings({postDiscovery:true,archiveDiscovery:false,restoreDeletedContent:true});
+ assert.equal(off.doc.querySelector('[data-rt-author-pending]'),null,'opt-out removes it');assert.equal(off.doc.querySelector('shreddit-post .author').textContent,'[deleted]');
+});
+test('filtered feed cards show author skeletons only while their batch is asked',async t=>{
+ let answer;const e=setup({url:'https://www.reddit.com/r/example/?rt_type=video',html:'<main><shreddit-feed>'+missingAuthor+missingAuthor.replace('abc12','second')+'</shreddit-feed></main>',archive:()=>new Promise(resolve=>{answer=resolve;})});
+ t.after(()=>{e.r.destroy();e.W.close();});await e.r.ready;await settle();
+ assert.equal(e.doc.querySelectorAll('shreddit-feed [data-rt-author-pending]').length,2);
+ answer({ok:true,posts:[{...archivedPost,id:'abc12'}]});await settle();
+ assert.equal(e.doc.querySelector('[data-rt-author-pending]'),null);
+ assert.equal(e.doc.querySelector('#t3_abc12 [data-rt-archived-author]').textContent,'BeforeDeletion');assert.equal(e.doc.querySelector('#t3_second .author').textContent,'[deleted]');
+});
+test('the author skeleton CSS keeps the label box and reveals the text by itself after 6 s',()=>{
+ const css=fs.readFileSync('extension/post-discovery.css','utf8');
+ assert.match(css,/\[data-rt-author-pending\]\{position:relative;animation:rt-hold-text 6s forwards/);
+ assert.match(css,/\[data-rt-author-pending\]::after\{content:"";position:absolute;inset-inline:0;inset-block-start:calc\(50% - 6px\);height:12px;border-radius:999px;[^}]*rt-hold-gone 0s 6s forwards\}/);
+ assert.match(css,/,\[data-rt-author-pending\]\{--rt-skeleton-base:/,'the pill colour also exists on feeds without the restore root flag');
+});

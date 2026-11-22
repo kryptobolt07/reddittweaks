@@ -159,7 +159,7 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui]
 /* Skeleton while an archived post/comment is looked up (Reddit-style shimmer). */
 /* Reddit's shimmer token can be translucent. Mix opaque theme colors for a
    visible base in both themes, while leaving native shimmer animation intact. */
-html[data-rt-restore],.rt-skeleton{--rt-skeleton-base:color-mix(in srgb,var(--color-neutral-content-strong,#1a1a1b) 16%,var(--color-neutral-background,#fff))}
+html[data-rt-restore],.rt-skeleton,[data-rt-author-pending]{--rt-skeleton-base:color-mix(in srgb,var(--color-neutral-content-strong,#1a1a1b) 16%,var(--color-neutral-background,#fff))}
 @keyframes rt-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
 /* Fail-safes: every hidden or masked pending state reveals itself after 6 s even if
    scripts never settle it (the script itself settles visually after about 5 s). Colour
@@ -201,6 +201,12 @@ html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]::after,
 html[data-rt-restore] main [slot="commentAvatar"][data-rt-avatar-pending]::after{content:"";visibility:visible;position:absolute;inset-block-start:4px;inset-inline-start:0;width:32px;height:32px;border-radius:50%;background:var(--rt-skeleton-base);animation:rt-hold-gone 0s 6s forwards}
 html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary [slot="commentMeta"]::after{width:min(160px,80%);height:12px;border-radius:999px;inset-block-start:10px}
+/* A [deleted] author being looked up (thread-restore.js): the label keeps its own box and text, hidden, and a
+   12px pill (the meta-line skeleton's size) shimmers in its place, so nothing moves when it resolves.
+   Fail-safe as above: the text and Reddit's colour come back after 6 s even if scripts never answer. */
+[data-rt-author-pending]{position:relative;animation:rt-hold-text 6s forwards;user-select:none}
+[data-rt-author-pending]::after{content:"";position:absolute;inset-inline:0;inset-block-start:calc(50% - 6px);height:12px;border-radius:999px;background-color:var(--rt-skeleton-base);background-image:linear-gradient(90deg,var(--rt-skeleton-base) 30%,color-mix(in srgb,var(--rt-skeleton-base) 45%,var(--color-neutral-background,#fff)) 50%,var(--rt-skeleton-base) 70%);background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite,rt-hold-gone 0s 6s forwards}
+@media(prefers-reduced-motion:reduce){[data-rt-author-pending]::after{background-image:none;animation:rt-hold-gone 0s 6s forwards}}
 
 /* Feed options: until discovery has grouped Reddit's rows (Sort, View,
    Activity), keep the original rows invisible so the open menu never changes
