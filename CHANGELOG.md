@@ -1,3 +1,10 @@
+# 0.58.1 preview
+
+- The blocked-profile view holds Reddit’s signed-in unavailable page while it checks for public activity. Reddit’s own notice returns if the check fails or confirms the username is unavailable.
+- Switching between Overview, Posts and Comments keeps the current activity on screen until the next view is ready. Visited views can be reused during Back and Forward.
+- Patch increment for the blocked-profile presentation and navigation fixes.
+- Validation: all 2,185 tests passed. Headless Playwright reproduced the flash on 0.58.0 and verified the fix at 1440 px and 412 px, including Back and Forward, a missing username, and signed-out behavior. The live check using the existing Chrome Dev profile returned HTTP 403 before Reddit rendered the page. Both packages matched the source assets byte for byte, and Firefox lint reported zero errors, warnings, and notices. Chromium SHA-256 `c779ae0a3ca650fda6de1d8b0c1631b2b5575a31c761ba33637433dd0ab67860`. Firefox SHA-256 `6c43567b976f3bae1288cf10056e00f9c8d1308ce4b8508cf4aabc3f97abbaef`.
+
 # 0.58.0 preview
 
 - **Blocked-by-user profile view & setting:** added **Show public activity on profiles that blocked you** (`blockedProfiles`, default on) under **Browsing & Feed → Profile search & hidden activity**. When Reddit serves an unavailable profile notice because an account blocked your signed-in account, the extension verifies public profile availability through the isolated signed-out frame (`blocked-probe`) and renders the native-parity profile layout (`Overview`, `Posts`, `Comments`, `Feed options`, profile search, real avatar/karma/cake day, read-only vote/reply controls with interactive permalinks/Share/Download, automatic curated-profile search fallback, optional Arctic Shift enrichment, and genuine-404 pass-through).
