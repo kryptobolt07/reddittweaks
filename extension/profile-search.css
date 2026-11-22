@@ -458,7 +458,8 @@ shreddit-post.rt-archive-compact {
   border-radius: 12px;
   margin-top: 12px;
 }
-[data-rt-blocked-card-rule] {
+[data-rt-blocked-card-rule],
+[data-rt-ui="profile-feed-rule"] {
   height: 0;
   margin: 0;
   border: 0;

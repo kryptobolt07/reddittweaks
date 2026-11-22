@@ -1556,7 +1556,11 @@
       const panel=make('faceplate-tabpanel');panel.id='profile-feed-tabs';panel.setAttribute('pages','3');panel.setAttribute('pageindex',String(index));tabsContainer.append(tabs,panel);
       const feed=make('shreddit-feed','nd:visible');feed.dataset.rtArchiveFeed='true';
       this.archiveEmpty=make('p','rt-archive-empty text-14 text-neutral-content-weak',this.blockedProfile || this.settings.archiveDiscovery?'':'Enable “Use the archive” in Reddit Tweaks to look up this username.');this.archiveEmpty.hidden=this.blockedProfile || this.settings.archiveDiscovery;
-      shell.append(header,mobileAbout,tabsContainer,this.archiveEmpty,feed);columns.append(shell,this.archiveSidebar(context,state,profileMeta));subgrid.append(columns);layout.append(subgrid,this.navigationTarget());anchor.before(layout);notice.setAttribute('data-rt-archive-notice','true');return shell;
+      shell.append(header,mobileAbout,tabsContainer);
+      if(this.blockedProfile && context.view!=='search'){
+        const divider=make('hr','border-0 border-b-sm border-solid border-b-neutral-border-weak');divider.dataset.rtUi='profile-feed-rule';shell.append(divider);
+      }
+      shell.append(this.archiveEmpty,feed);columns.append(shell,this.archiveSidebar(context,state,profileMeta));subgrid.append(columns);layout.append(subgrid,this.navigationTarget());anchor.before(layout);notice.setAttribute('data-rt-archive-notice','true');return shell;
     }
     buildMobileAbout(context,state='deleted',profileMeta=null){
       const details=make('details','rt-mobile-about');details.dataset.rtUi='mobile-about';
@@ -1799,7 +1803,10 @@
       if(!menu){
         if(!this.autoDiscover && !this.isSearch() || this.controlsTarget?.isConnected)return;
         const target=this.controlsTarget=make('div','flex items-center gap-xs my-md');target.id='rt-controls-'+crypto.randomUUID();target.dataset.rtUi='profile-controls';if(!this.isSearch())target.dataset.rtNativeInset='true';
-        const sort=this.context.view==='comments'?main?.querySelector('shreddit-sort-dropdown'):null,view=main?.querySelector('[aria-label="View"],[data-testid="feed-view-toggle"],shreddit-layout-switcher');if(sort){target.className='contents';sort.before(target);}else if(view && !view.closest('shreddit-feed')){target.className='contents';view.after(target);}else this.host.before(target);
+        const sort=this.context.view==='comments'?main?.querySelector('shreddit-sort-dropdown'):null,view=main?.querySelector('[aria-label="View"],[data-testid="feed-view-toggle"],shreddit-layout-switcher');
+        const divider=main?.querySelector(':scope > [data-rt-ui="profile-feed-rule"]');
+        if(divider)divider.before(target);
+        else if(sort){target.className='contents';sort.before(target);}else if(view && !view.closest('shreddit-feed')){target.className='contents';view.after(target);}else this.host.before(target);
         const generation=this.generation;this.request({action:'render-controls',username:this.context.username,target:target.id}).then(result=>{if(generation!==this.generation)return;if(!result?.rendered)throw Error('Native controls are not ready.');this.ensureActivityMenu();}).catch(()=>{if(generation!==this.generation)return;const retry=button('Retry feed options',()=>{target.remove();this.controlsTarget=null;this.ensureActivityMenu();});retry.className='button button-small button-plain';target.replaceChildren(retry);});return;
       }
       this.syncSearchLayout();

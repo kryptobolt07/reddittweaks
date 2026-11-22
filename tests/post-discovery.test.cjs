@@ -2137,6 +2137,10 @@ test('blocked-by-user profiles mount signed-out activity when blocked-probe conf
  assert.equal(d.accountState,'blocked');
  assert.equal(d.archiveShell?.dataset.rtAccountState,'blocked');
  assert.equal(notice.dataset.rtArchiveNotice,'true');
+ const divider=d.archiveMain.querySelector('[data-rt-ui="profile-feed-rule"]');
+ assert.ok(divider);
+ assert.equal(divider.previousElementSibling,d.controlsTarget,'divider is directly below Feed options');
+ assert.equal(d.archiveMain.querySelectorAll('[data-rt-ui="profile-feed-rule"]').length,1);
  assert.equal(d.archiveShell.querySelector('[data-testid="profile-display-name"]').textContent,'Example Display');
  assert.match(d.archiveShell.querySelector('[data-testid="profile-account-state"]').textContent,/This user has blocked your account\. Showing public signed-out activity\./);
  assert.ok(d.archiveShell.querySelector('[data-rt-ui="mobile-about"]'),'collapsible mobile About accordion is mounted');
