@@ -216,8 +216,26 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 /* Filter chips: one row under Feed options (Reddit chip style, same icons as the menu rows). */
 .rt-filter-chips{display:flex;flex:0 0 100%;flex-wrap:wrap;align-items:center;gap:6px;width:100%;box-sizing:border-box;margin:0 0 8px;position:relative;z-index:1}
 /* In the Feed options row: one scrollable line of pills to the right of the button, like the chat search filter rail. */
-.rt-filter-chips[data-rt-rail]{flex:1 1 auto;width:auto;min-width:0;flex-wrap:nowrap;margin:0 0 0 8px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-inline:contain;scrollbar-width:none}
-.rt-filter-chips[data-rt-rail]::-webkit-scrollbar{display:none}
+/* The rail takes only the row's leftover width (basis 0) and never wraps or scrolls: pills that do not fit hide behind
+   a "+N" chip (docs/filter-pills-spec.md), so the controls before and after it never move and the row never grows. */
+.rt-filter-chips[data-rt-rail]{flex:1 1 0;width:auto;min-width:0;flex-wrap:nowrap;margin:0 0 0 8px;overflow:hidden}
+.rt-filter-chips[data-rt-rail]>[hidden]{display:none!important}
+.rt-filter-chips[data-rt-rail][data-rt-collapsed]{visibility:hidden;margin:0!important}
+.rt-filter-more{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;box-sizing:border-box;padding:0 10px;border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:8px;background:transparent;color:var(--color-neutral-content-strong,#172328);font:600 12px/16px var(--font-sans,inherit);white-space:nowrap;cursor:pointer}
+.rt-filter-more:hover,.rt-filter-more[aria-expanded="true"]{background:var(--color-neutral-background-hover,#e8edef)}
+.rt-filter-more:focus-visible{outline:2px solid var(--color-global-focus,#0079d3);outline-offset:1px}
+/* The count sits on the corner of the button's filter icon, like a notification badge, so it takes no width and moves nothing. */
+[data-rt-filter-count]{position:relative}
+.rt-filter-count{position:absolute;top:calc(50% - 14px);inset-inline-start:20px;display:inline-flex;align-items:center;justify-content:center;min-width:14px;height:14px;padding:0 3px;box-sizing:border-box;border-radius:999px;background:var(--color-neutral-content-strong,#172328);color:var(--color-neutral-background,#fff);font:700 9px/14px var(--font-sans,inherit);pointer-events:none}
+.rt-filter-list{box-sizing:border-box;max-height:min(360px,70vh);overflow:auto;padding:4px 0 8px;border-radius:12px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);box-shadow:0 4px 8px rgba(0,0,0,.1),0 6px 12px rgba(0,0,0,.25);font:14px/20px var(--font-sans,system-ui,sans-serif)}
+.rt-filter-list-head{display:flex;align-items:center;justify-content:space-between;padding:8px 8px 4px 16px;font-weight:600}
+.rt-filter-list-clear{height:32px;padding:0 10px;border:0;border-radius:999px;background:transparent;color:inherit;font:600 12px/16px var(--font-sans,inherit);cursor:pointer}
+.rt-filter-list-row{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 8px 0 16px}
+.rt-filter-list-row>svg,.rt-filter-list-row>img{flex:none;width:16px;height:16px;border-radius:50%}
+.rt-filter-list-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-filter-list-remove{flex:none;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
+:is(.rt-filter-list-clear,.rt-filter-list-remove):hover{background:var(--color-neutral-background-hover,#e8edef);color:var(--color-neutral-content-strong,#172328)}
+:is(.rt-filter-list-clear,.rt-filter-list-remove):focus-visible{outline:2px solid var(--color-global-focus,#0079d3);outline-offset:1px}
 .rt-filter-chips[hidden]{display:none!important}
 /* Same pill as the chat search filters: tinted border and fill, small label, round remove button. */
 .rt-filter-chip{flex:0 0 auto;min-width:0;max-width:min(260px,75vw)}

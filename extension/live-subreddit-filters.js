@@ -370,7 +370,7 @@
       this.observer = new MutationObserver(records => {
         if ((!this.enabled && !this.waitingForSettings) || (!this.scope && !route())) return;
         if (this.departure?.opened && !this.departure.feed.isConnected && postId(location.pathname) === this.departure.id) {
-          this.toolbar?.remove();
+          this.toolbar?.remove();this.chips?.remove();
           this.note?.remove();
           return;
         }
@@ -497,7 +497,7 @@
       // screen behind it instead of leaving it on a blank page.
       state.feed.toggleAttribute(outgoing,state.feed.isConnected && !document.documentElement.hasAttribute('data-rt-media-moving'));
       if (!state.feed.isConnected) {
-        this.toolbar?.remove();
+        this.toolbar?.remove();this.chips?.remove();
         this.note?.remove();
       }
       return true;
@@ -545,7 +545,7 @@
 
     clear() {
       this.panel?.close();
-      this.toolbar?.remove();
+      this.toolbar?.remove();this.chips?.remove();
       this.note?.remove();
       this.endNote?.remove();
       this.feedPagination = null;
@@ -650,9 +650,23 @@
       this.chips.toggleAttribute('data-rt-rail',Boolean(rail));
       if (rail) {
         if (bar.parentElement !== rail) rail.append(bar);
-      } else if (this.feed && bar.nextElementSibling !== this.feed) {
-        this.feed.before(bar);
+        this.placeFeedChips(rail);
+      } else {
+        if (this.chips.parentElement !== bar) bar.append(this.chips);
+        if (this.feed && bar.nextElementSibling !== this.feed) this.feed.before(bar);
       }
+    }
+
+    // Applied-filter rail (docs/filter-pills-spec.md): a flex item of Reddit's full-width feed row, in its free space,
+    // so Feed options and the view switch never move. Computers: Reddit's controls start the row, so the rail follows
+    // them. Phones: the controls are right-aligned after the Feed / About tabs, so the rail sits between the two.
+    placeFeedChips(rail) {
+      let group = rail;
+      while (group.parentElement && group.parentElement !== this.main && !group.parentElement.matches('div.flex.justify-between')) group = group.parentElement;
+      const row = group.parentElement;
+      if (!row || row === this.main) { if (this.chips.parentElement !== this.toolbar) this.toolbar.append(this.chips); return; }
+      if (isPhone()) { if (this.chips.nextElementSibling !== group) group.before(this.chips); }
+      else if (group.nextElementSibling !== this.chips) group.after(this.chips);
     }
 
     setReplacedSorts(nodes) {
@@ -1040,6 +1054,7 @@
       if (nsfw) chip('nsfw','NSFW',nsfwGlyph,() => this.applyNsfw(false));
       if (period) chip('date',period[1],'calendar',() => this.go(setSearchOption(this.url,'t','all')));
       this.chips.hidden = !this.chips.childElementCount;
+      if (this.chips.hasAttribute('data-rt-rail')) filters.fitRail?.(this.chips,{badgeFor:this.options || null});
     }
 
     updateLinks() {
@@ -1394,6 +1409,7 @@
     // Reddit's app; Top opens its time ranges one level further. Every choice runs through the desktop menu's handlers.
     buildPhoneFeed(ui) {
       const {sorting,range} = this.feedSorts || {};
+      filters.appliedRow?.(ui,this.chips);
       const top = sorting?.choices.find(choice => choice.key === 'top');
       const ranges = () => ({title:'Time range',build:(_body,page) => {
         for (const choice of range.choices) page.row({

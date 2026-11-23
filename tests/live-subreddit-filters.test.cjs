@@ -478,7 +478,8 @@ test('phone Feed options lists Reddit’s existing sort choices and links to the
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
  const root=D.querySelector('.rt-community-sheet');
- const sortRow=root.querySelector('.rt-fsheet-row');
+ assert.equal(root.querySelector('.rt-fsheet-row .rt-fsheet-label').textContent,'Applied filters','applied filters come first, one tap from removal');
+ const sortRow=[...root.querySelectorAll('.rt-fsheet-row')].find(row=>row.querySelector('.rt-fsheet-label').textContent==='Sort by');
  assert.equal(sortRow.querySelector('.rt-fsheet-sub').textContent,'Top · This Week','the current sort and its range');
  assert.equal(sortRow.querySelector('svg').dataset.icon,'top-fill','Reddit marks the selected sort with its filled icon');
  sortRow.click();
@@ -586,7 +587,7 @@ test('Home, Popular, and All feeds mount Feed options with Sort and Post type (w
 
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
- const rows=[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent);
+ const rows=[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent).filter(label=>label!=='Applied filters');
  assert.deepEqual(rows,['Sort by','Post type']);
 
  for(const [path,reload,links] of [

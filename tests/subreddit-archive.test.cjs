@@ -212,7 +212,7 @@ test('community masthead and sidebar use one header, native sort row, and no ext
  assert.equal(doc.querySelector('.rt-sra-title > .rt-sra-header-line').textContent,'Banned community · archived posts','phone name column has Reddit\'s 12 px line under the name');
  assert.match(doc.querySelector('[data-testid="subreddit-archive-state"]').getAttribute('aria-label'),/banned.*archived posts/i);
  assert.equal(doc.querySelectorAll('main input,main form,faceplate-tabgroup').length,0);
- assert.equal(doc.querySelectorAll('.rt-sra-control-row>div').length,3);assert.match(doc.querySelector('aside').textContent,/Coverage may be partial/);
+ assert.equal(doc.querySelectorAll('.rt-sra-control-row>.rt-sra-dropdown').length,3);assert.match(doc.querySelector('aside').textContent,/Coverage may be partial/);
  assert.equal(ctx.calls[0].kind,'post');assert.equal(ctx.calls[0].subreddit,'gone');
  assert.equal(doc.querySelectorAll('shreddit-feed shreddit-post').length,2);assert.match(doc.querySelector('.rt-sra-searched').textContent,/Searched back to/);
  ctx.sa.destroy();ctx.W.close();

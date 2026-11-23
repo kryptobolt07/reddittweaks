@@ -162,6 +162,7 @@
       if(this.dead || revision!==this.settingsRevision)return;this.enabled=settings?.enabled===true;this.automatic=this.enabled && settings?.automatic===true;this.scan();
     }
     destroy(){
+      this.chipsMedia?.removeEventListener?.('change',this.onChipsMedia);this.chipsMedia=null;
       if(this.dead)return;this.dead=true;this.observer?.disconnect();window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
       removeEventListener('scroll',this.onScroll);document.removeEventListener('click',this.onDocClick,true);document.removeEventListener('keydown',this.onKey,true);
       try{chrome.storage?.onChanged?.removeListener(this.onSettings);chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}this.unmount();this.unmountSearch();this.keptNavigationController?.abort();this.keptNavigation=this.keptNavigationController=null;
@@ -709,6 +710,7 @@
       const {sorts,dates,custom,types}=this.phoneChoices;
       sheet.open({title:'Feed options',returnFocus:button,onClose:()=>button?.setAttribute('aria-expanded','false'),build:(_body,ui)=>{
         const mode=this.sortMode(),state=this.filterState(),labels=f.valueLabels?f.valueLabels(state):{};
+        f.appliedRow?.(ui,this.chipsEl);
         const sortNow=sorts.find(choice=>choice.key===mode);
         ui.row({label:'Sort by',icon:f.svgIcon('sort',20),subtitle:sortNow?.label || 'New',chevron:true,keepOpen:true,onSelect:()=>{ui.push({title:'Sort by',build:(_b,page)=>{
           for(const choice of sorts)page.row({label:choice.label,subtitle:choice.subtitle || '',selected:choice.key===this.sortMode(),onSelect:()=>choice.apply()});
@@ -900,7 +902,7 @@
       this.viewBtn=make('button','rt-sra-view-btn button-small button-plain items-center justify-center button inline-flex ms-auto');
       this.viewBtn.type='button';this.viewBtn.dataset.rtUi='archive-view-toggle';
       this.viewBtn.addEventListener('click',event=>{event.preventDefault();this.setViewType(this.viewType==='compactView'?'cardView':'compactView');});
-      const row=make('div','rt-sra-control-row');row.append(this.sortMenu.wrap,this.dateMenu.wrap,this.typeMenu.wrap,this.viewBtn);wrap.append(row,this.chipsEl);
+      const row=make('div','rt-sra-control-row');row.append(this.sortMenu.wrap,this.dateMenu.wrap,this.typeMenu.wrap,this.chipsEl,this.viewBtn);wrap.append(row);
       return wrap;
     }
     syncMenu(){
@@ -931,7 +933,7 @@
       // Chips only for what the dropdown labels can't show at a glance (several types, custom ranges, flair, NSFW).
       f.renderChips(this.chipsEl,{...f.clone(this.filterState()),sort:null},{make,glyph,onChange:next=>this.applyFilters({...next,sort:this.filterState().sort})});
       if(this.flairFilter || this.nsfwFilter){
-        const clearBtn=this.chipsEl.querySelector('.rt-filter-chip-clear');
+        const clearBtn=this.chipsEl.querySelector(':scope>.rt-filter-clear');
         const addChip=(id,label,onRemove)=>{
           const chip=f.pill?f.pill({id,label,icon:'filter'},{make,glyph,onRemove}):make('button','rt-filter-chip',label);
           chip.dataset.rtExtraChip=id;
@@ -941,6 +943,20 @@
         if(this.nsfwFilter)addChip('nsfw',this.nsfwFilter==='only'?'NSFW only':'Hide NSFW',()=>this.setExtraFilters({nsfw:''}));
         this.chipsEl.hidden=false;
       }
+      this.placeChips();
+    }
+    // Applied-filter rail (docs/filter-pills-spec.md): in the row's free space, never between or before a control.
+    // Computers: the control row, between the dropdowns and the right-aligned view switch. Phones: the Feed / About
+    // row, between the tabs and Feed options (too narrow for pills there, so "+N" or the count on Feed options).
+    placeChips(){
+      const f=globalThis.RTFeedFilters,chips=this.chipsEl;if(!chips || !f)return;
+      const phone=Boolean(this.mobileTabsEl?.isConnected && globalThis.matchMedia?.('(max-width: 639px)')?.matches);
+      const right=this.mobileTabsEl?.querySelector(':scope>.rt-sra-phone-options');
+      if(phone && right){if(chips.nextElementSibling!==right)right.before(chips);}
+      else if(this.viewBtn?.parentElement && chips.nextElementSibling!==this.viewBtn)this.viewBtn.before(chips);
+      chips.dataset.rtRail='true';
+      if(!this.chipsMedia && globalThis.matchMedia){this.chipsMedia=globalThis.matchMedia('(max-width: 639px)');this.chipsMedia.addEventListener?.('change',this.onChipsMedia=()=>this.placeChips());}
+      f.fitRail?.(chips,{badgeFor:phone?this.phoneOptionsBtn:null});
     }
     openDatePicker(anchorButton=null){
       const Picker=globalThis.RCSDatePicker,f=globalThis.RTFeedFilters;if(!Picker || !f)return;

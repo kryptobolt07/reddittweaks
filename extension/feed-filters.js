@@ -272,6 +272,94 @@
     const chips=chipList(state);container.replaceChildren();container.hidden=!chips.length;
     for(const chip of chips)container.append(pill(chip,{make,glyph,onRemove:()=>onChange(chip.remove(clone(state)))}));
     if(chips.length){const clear=make('button','rt-filter-clear','Clear filters');clear.type='button';clear.dataset.rtFilterClear='true';clear.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onChange(empty());});container.append(clear);}
+    fitRail(container);
+  }
+  // Applied-filter rail (docs/filter-pills-spec.md): one line in the row's leftover width, after every existing
+  // control, so nothing else moves and the row never grows. Pills that do not fit are hidden behind a "+N" chip that
+  // lists every applied filter (popover on computers, the Feed options sheet on phones), each removable, with Clear
+  // all. With no room even for that chip, the rail stays empty and the owner's button (badgeFor) shows the count.
+  const rails=new WeakMap();
+  function fitRail(container,options){
+    if(!container)return;
+    let rail=rails.get(container);
+    if(!rail){
+      rail={badgeFor:null,frame:0,observer:null};rails.set(container,rail);
+      if(typeof ResizeObserver==='function'){rail.observer=new ResizeObserver(()=>{cancelAnimationFrame(rail.frame);rail.frame=requestAnimationFrame(()=>layoutRail(container));});rail.observer.observe(container);}
+    }
+    if(options && 'badgeFor' in options)rail.badgeFor=options.badgeFor || null;
+    layoutRail(container);
+  }
+  function railBadge(container,count){
+    const button=rails.get(container)?.badgeFor;if(!button?.isConnected)return;
+    let badge=button.querySelector(':scope>.rt-filter-count');
+    if(!count){badge?.remove();button.removeAttribute('data-rt-filter-count');return;}
+    if(!badge){badge=document.createElement('span');badge.className='rt-filter-count';badge.setAttribute('aria-hidden','true');button.append(badge);}
+    badge.textContent=String(count);button.setAttribute('data-rt-filter-count',String(count));
+  }
+  function layoutRail(container){
+    if(!container.isConnected || !container.hasAttribute('data-rt-rail'))return;
+    container.querySelector(':scope>.rt-filter-more')?.remove();
+    const pills=[...container.children].filter(node=>node.matches('.rt-filter-chip')),clear=container.querySelector(':scope>.rt-filter-clear');
+    for(const node of [...pills,clear])if(node)node.hidden=false;
+    container.removeAttribute('data-rt-collapsed');railBadge(container,0);
+    if(!pills.length || container.hidden || container.scrollWidth<=container.clientWidth+1)return;
+    if(clear)clear.hidden=true;
+    const more=document.createElement('button');more.type='button';more.className='rt-filter-more';more.setAttribute('aria-haspopup','dialog');
+    more.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();openRailList(container,more);});
+    container.append(more);
+    let shown=pills.length;
+    const label=()=>{const hidden=pills.length-shown;more.textContent=shown?'+'+hidden:pills.length+' filters';more.setAttribute('aria-label',(shown?hidden+' more filters':pills.length+' filters applied')+'. Show all applied filters');};
+    while(shown>0 && (label(),container.scrollWidth>container.clientWidth+1)){shown--;pills[shown].hidden=true;}
+    label();
+    if(container.scrollWidth>container.clientWidth+1){more.hidden=true;container.setAttribute('data-rt-collapsed','');railBadge(container,pills.length);}
+  }
+  // A phone Feed options sheet's first row: every applied filter on its own page, each removable, with Clear all.
+  function appliedRow(ui,container){
+    const pills=container?[...container.children].filter(node=>node.matches('.rt-filter-chip')):[];if(!pills.length)return null;
+    const clear=container.querySelector(':scope>.rt-filter-clear');
+    const page=(_body,list)=>{
+      for(const node of pills){const label=node.querySelector('.rt-filter-chip-label')?.textContent.trim() || 'Filter';
+        list.row({label,icon:node.querySelector('[slot="leading"] svg,[slot="leading"] img')?.cloneNode(true) || null,action:{label:'Remove filter '+label,icon:svgIcon('close',16) || null,onSelect:()=>node.click()},onSelect:()=>node.click()});}
+      list.divider();list.row({label:'Clear all filters',onSelect:()=>{if(clear)clear.click();else for(const node of [...pills].reverse())node.click();}});
+    };
+    const row=ui.row({label:'Applied filters',icon:svgIcon('filter',20),subtitle:pills.length===1?'1 filter':pills.length+' filters',chevron:true,keepOpen:true,onSelect:()=>{ui.push({title:'Applied filters',build:page});return {stay:true};}});
+    ui.divider();return row;
+  }
+  // Every applied filter, each removable by its own pill's handler, plus Clear all.
+  let railList=null;
+  function closeRailList(){const list=railList;railList=null;list?.close();}
+  function openRailList(container,anchor){
+    closeRailList();
+    const pills=[...container.children].filter(node=>node.matches('.rt-filter-chip')),clear=container.querySelector(':scope>.rt-filter-clear');
+    const entries=pills.map(node=>({node,label:node.querySelector('.rt-filter-chip-label')?.textContent.trim() || node.dataset.rtChip || 'Filter',icon:node.querySelector('[slot="leading"] svg,[slot="leading"] img')?.cloneNode(true) || null}));
+    const clearAll=()=>{if(clear)clear.click();else for(const entry of [...entries].reverse())entry.node.click();};
+    const phone=globalThis.matchMedia?.('(max-width: 767.98px)')?.matches && globalThis.RTFeedSheet;
+    anchor.setAttribute('aria-expanded','true');
+    if(phone){
+      const sheet=globalThis.RTFeedSheet.open({title:'Applied filters',returnFocus:anchor,onClose:()=>anchor.setAttribute('aria-expanded','false'),build:(_body,ui)=>{
+        for(const entry of entries)ui.row({label:entry.label,icon:entry.icon?.cloneNode(true) || null,action:{label:'Remove filter '+entry.label,icon:svgIcon('close',16) || null,onSelect:()=>entry.node.click()},onSelect:()=>entry.node.click()});
+        ui.divider();ui.row({label:'Clear all filters',onSelect:clearAll});
+      }});
+      railList={close:()=>sheet.close?.()};return;
+    }
+    const pop=document.createElement('div');pop.className='rt-filter-list';pop.dataset.rtUi='applied-filters';pop.setAttribute('role','dialog');pop.setAttribute('aria-label','Applied filters');
+    const head=document.createElement('div');head.className='rt-filter-list-head';const title=document.createElement('span');title.textContent='Applied filters';
+    const all=document.createElement('button');all.type='button';all.className='rt-filter-list-clear';all.textContent='Clear all';all.addEventListener('click',event=>{event.preventDefault();closeRailList();clearAll();});
+    head.append(title,all);pop.append(head);
+    for(const entry of entries){
+      const row=document.createElement('div');row.className='rt-filter-list-row';
+      const text=document.createElement('span');text.className='rt-filter-list-label';if(entry.icon)row.append(entry.icon);text.textContent=entry.label;
+      const remove=document.createElement('button');remove.type='button';remove.className='rt-filter-list-remove';remove.setAttribute('aria-label','Remove filter '+entry.label);remove.append(svgIcon('close',16) || document.createTextNode('×'));
+      remove.addEventListener('click',event=>{event.preventDefault();closeRailList();entry.node.click();});
+      row.append(text,remove);pop.append(row);
+    }
+    const box=anchor.getBoundingClientRect(),width=280,left=Math.max(8,Math.min(box.right-width,(document.documentElement.clientWidth || innerWidth)-width-8));
+    pop.style.cssText=`position:fixed;z-index:2147483000;top:${Math.round(box.bottom+4)}px;left:${Math.round(left)}px;width:${width}px`;
+    const away=event=>{if(!event.composedPath().includes(pop) && !event.composedPath().includes(anchor))closeRailList();};
+    const keys=event=>{if(event.key==='Escape'){event.preventDefault();closeRailList();anchor.focus({preventScroll:true});}};
+    document.addEventListener('pointerdown',away,true);document.addEventListener('keydown',keys,true);addEventListener('scroll',closeRailList,{passive:true,once:true});
+    document.body.append(pop);pop.querySelector('button')?.focus({preventScroll:true});
+    railList={close:()=>{document.removeEventListener('pointerdown',away,true);document.removeEventListener('keydown',keys,true);removeEventListener('scroll',closeRailList);pop.remove();anchor.setAttribute('aria-expanded','false');}};
   }
   // Menu rows in the caller's own style: ctx supplies row(label,icon), activate(el,fn), glyph(kind).
   // icon: a glyph name, a node, or false for no icon. tail: right-aligned muted text. slot: reserve the checkmark column.
@@ -373,5 +461,5 @@
     return {el,list,note,input,back,head,render,reset(){input.value='';if(clear)clear.hidden=true;list.scrollTop=0;},get data(){return last;}};
   }
   const iconNames=Object.freeze([...Object.keys(iconPaths),'gif']);
-  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,hourPreset,allPresets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,pill,parsedElement,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
+  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,hourPreset,allPresets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,fitRail,appliedRow,pill,parsedElement,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
 })();

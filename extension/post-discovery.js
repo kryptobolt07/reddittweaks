@@ -1817,6 +1817,7 @@
     buildPhoneSheet(ui){
       if(!this.activityMain?.isConnected){ui.close();return;}
       const f=globalThis.RTFeedFilters,m=this.rtMenu,content=this.activityMain.parentElement;
+      f?.appliedRow?.(ui,this.rtChips);
       const label=el=>(el?.getAttribute('aria-label') || el?.querySelector('.rt-menu-caption')?.textContent || el?.textContent || '').replace(/\s+/g,' ').trim();
       const picked=el=>el.matches('[aria-checked="true"],[aria-current="true"],[aria-current="page"]') ||
         Boolean(el.querySelector('[icon-name="checkmark"],[data-rt-check]'));
@@ -2187,7 +2188,8 @@
       let node=this.activityDropdown?.isConnected?this.activityDropdown:null;
       if(node){let guard=0;node=node.closest?.('shreddit-layout-event-setter') || node;
         while(guard++<6){const parent=up(node);if(!parent || parent===document.body)break;const style=getComputedStyle(parent),width=parent.getBoundingClientRect().width;if(style.display!=='contents' && width>=320 && /flex/.test(style.display))break;node=parent;}
-        const parent=up(node);if(parent && parent!==document.body && /flex/.test(getComputedStyle(parent).display)){if(node.nextSibling!==chips)node.after(chips);chips.dataset.rtRail='true';return;}
+        // After every control in that row, so pills never move one (docs/filter-pills-spec.md).
+        const parent=up(node);if(parent && parent!==document.body && /flex/.test(getComputedStyle(parent).display)){if(parent.lastElementChild!==chips)parent.append(chips);chips.dataset.rtRail='true';return;}
       }
       delete chips.dataset.rtRail;if(this.host && chips.parentNode!==this.host)this.host.prepend(chips);
     }
@@ -2195,6 +2197,7 @@
       const f=globalThis.RTFeedFilters;if(!f || !this.rtChips)return;this.placeFilterChips();
       const shown={...(this.rtFilters || f.empty())};if(!this.oldSort())shown.sort=null;
       f.renderChips(this.rtChips,shown,{make,glyph,onChange:next=>this.setFilters(shown.sort?next:{...next,sort:this.rtFilters?.sort ?? null})});
+      f.fitRail?.(this.rtChips,{badgeFor:this.activityDropdown?.querySelector?.('button[aria-label="Feed options"]') || null});
       this.syncHeaderFilters();
     }
     // Profile search on desktop: the filters sit in Reddit's header search as scope pills next to
