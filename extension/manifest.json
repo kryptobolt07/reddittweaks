@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "111",
   "name": "Reddit Tweaks",
-  "version": "0.60.0",
+  "version": "0.61.0",
   "description": "Better feeds, media playback, account switching, downloads, raffles, chat search and profile archives for Reddit.",
   "content_scripts": [
     {
@@ -165,7 +165,7 @@
   "background": {
     "service_worker": "cache-broker.js"
   },
-  "version_name": "0.60.0 preview",
+  "version_name": "0.61.0 preview",
   "optional_host_permissions": [
     "https://www.redgifs.com/*",
     "https://player.vimeo.com/*",
