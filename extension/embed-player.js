@@ -155,6 +155,9 @@
     const method=event.data?.rtMedia;
     if(!['hello','play','pause','mute','unmute','policy','rendered','release','progress','resume','volume','loop','hold2x','preview','tap','take'].includes(method) || !(await ready).authorized)return;
     if(event.source===window.parent && parents.includes(event.origin) && !['hello','rendered','progress','tap','take'].includes(method)){
+      // The page registers frames on its own schedule: a hello sent before that is dropped there, and the retries
+      // stop at the first page message. Announce again on first contact so the page can always control this player.
+      if(!parentOrigin)setTimeout(hello,0);
       parentOrigin=event.origin;
       if(method==='preview'){previewOn=event.data.on===true;down(method,{on:previewOn});return;}
       if(method==='policy'){block=event.data.block===true;document.documentElement.toggleAttribute('data-rt-block-links',block);}
@@ -267,6 +270,10 @@
     if(!announced){
       discoveryObserver=new MutationObserver(()=>{if(media())hello();});
       discoveryObserver.observe(document,{childList:true,subtree:true});
+      // Photo posts, albums and text embeds never get a video: stop watching them.
+      setTimeout(()=>{discoveryObserver?.disconnect();discoveryObserver=null;},15000);
+      // A player that builds its video only when pressed still announces itself then.
+      document.addEventListener('pointerdown',()=>{if(!announced)for(const delay of [300,1500])setTimeout(()=>{if(!announced)hello();},delay);},true);
     }
     // An already-loaded player can announce before Reddit's document-idle script starts.
     if(!parentOrigin)for(const delay of [300,1000,3000])setTimeout(()=>{if(!parentOrigin)hello();},delay);

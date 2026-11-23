@@ -243,3 +243,15 @@ test('during a preview, YouTube’s own player chrome and menus hand the player 
  await send('preview',{on:true});
  assert.equal(click(video),false);assert.deepEqual(told(),['take','take','tap']);
 });
+
+test('a player announces again on the page\'s first message, so a hello sent before the page knew the frame is not lost',async t=>{
+ const {messages,send}=await player(t);
+ const hellos=()=>messages.filter(({data})=>data.rtMedia==='hello').length;
+ const early=hellos();
+ assert.ok(early>=1,'announced on load');
+ await send('policy',{block:false});
+ await new Promise(resolve=>setTimeout(resolve,10));
+ assert.equal(hellos(),early+1,'re-announced once on first contact');
+ await send('pause');await new Promise(resolve=>setTimeout(resolve,10));
+ assert.equal(hellos(),early+1,'not on later messages');
+});

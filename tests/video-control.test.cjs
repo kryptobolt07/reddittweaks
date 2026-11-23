@@ -2044,3 +2044,69 @@ test('an extra provider’s frame is expected to drive itself only once that pro
  assert.equal(controller.grantedFrame(frame),true);assert.equal(controller.expectDirect(frame),true);
  controller.setDirect({core:false,origins:[]});assert.equal(controller.directReady,false);assert.equal(controller.expectDirect(vimeo),false);
 });
+
+test('one video at a time also pauses a player Reddit inserted after the last scan',async t=>{
+ const p=page(t);
+ const controller=await hoverController(p,{videoStart:'reddit'});controller.scan();
+ const late=p.player.cloneNode();late.id='late';const root=late.attachShadow({mode:'open'});root.innerHTML='<video></video>';
+ p.d.body.append(Object.assign(p.d.createElement('shreddit-post'),{id:'t3_late'}));p.d.getElementById('t3_late').append(late);
+ const lateVideo=root.querySelector('video');lateVideo._playing=true;
+ p.startFromControl();
+ assert.equal(lateVideo.paused,true,'not yet registered, still paused');
+ assert.equal(p.video.paused,false);
+});
+
+test('opening a post pauses feed media left playing in the outgoing feed, but not the post\'s own video',async t=>{
+ const p=page(t);
+ const controller=await hoverController(p,{videoStart:'reddit',videoOpenPost:'reddit'});controller.scan();
+ const other=p.player.cloneNode();other.id='p2';const root=other.attachShadow({mode:'open'});root.innerHTML='<video></video>';
+ p.d.body.append(Object.assign(p.d.createElement('shreddit-post'),{id:'t3_two'}));p.d.getElementById('t3_two').append(other);
+ const otherVideo=root.querySelector('video');
+ p.video._playing=true;otherVideo._playing=true;
+ p.W.history.pushState({},'','/r/example/comments/two/title/');
+ p.d.dispatchEvent(new p.W.Event('reddit:route'));
+ await new Promise(resolve=>setTimeout(resolve,20));
+ assert.equal(p.video.paused,true,'the outgoing feed\'s video stops');
+ assert.equal(otherVideo.paused,false,'the destination post\'s video keeps playing');
+ controller.destroy();
+});
+
+test('Direct controls for YouTube: a granted preview has no layer, and its frame\'s taps and takes reach the page',async t=>{
+ const p=page(t),e=embed(p);
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({embedStart:'preview',mediaClickAction:'inline',clickAudio:'unmute'}),readPreference:async()=>true,
+  readDirect:async()=>({core:true,origins:['https://www.youtube.com']}),observe:false});
+ await c.ready;await flush();
+ e.over();await waitForHover();
+ assert.deepEqual(e.calls,['rt-embed-preview']);
+ assert.equal(e.layer(),null,'no layer over YouTube once it is granted');
+ // Reddit's lite-youtube creates its iframe on activation; its frame script announces itself.
+ const frame=p.d.createElement('iframe');frame.setAttribute('src','https://www.youtube.com/embed/abc?enablejsapi=1');e.lite.append(frame);
+ Object.defineProperty(frame,'contentWindow',{value:p.d.body.appendChild(p.d.createElement('iframe')).contentWindow});
+ const told=[];frame.contentWindow.postMessage=data=>told.push(data);
+ const says=(rtMedia,data={})=>p.W.dispatchEvent(new p.W.MessageEvent('message',{source:frame.contentWindow,origin:'https://www.youtube.com',data:{rtMedia,...data}}));
+ says('hello',{playing:true});
+ assert.ok(told.some(data=>data?.rtMedia==='preview' && data.on===true),'tap reporting turned on');
+ says('tap');
+ assert.equal(c.ePreview,null,'the preview became the reader\'s');
+ assert.ok(e.calls.includes('rt-embed-sound'),'Video click audio unmutes');
+
+ // With only the original grant, YouTube keeps the layer.
+ const q=page(t),f=embed(q);
+ const d=new q.W.RTVideoControlRaw.Videos({readSettings:async()=>({embedStart:'preview'}),readPreference:async()=>true,readDirect:async()=>true,observe:false});
+ await d.ready;await flush();
+ f.over();await waitForHover();
+ assert.ok(f.layer(),'the layer stays without the YouTube grant');
+});
+
+test('Direct controls: a granted frame previewing before its hello gets no layer, and the hello turns tap reporting on',async t=>{
+ const p=page(t),e=frameEmbed(p,'https://streamable.com/e/abc');
+ e.node.getBoundingClientRect=()=>({top:120,bottom:420,height:300});
+ const c=await directControls(p,{embedStart:'preview',mediaClickAction:'inline'});
+ const told=[];e.frame.contentWindow.postMessage=data=>told.push(data);
+ e.over();await waitForHover();
+ assert.equal(e.layer(),null,'no layer while the hello is on its way');
+ assert.ok(c.ePreview?.active);
+ frameHello(p,e);
+ assert.ok(told.some(data=>data.rtMedia==='preview' && data.on===true));
+});

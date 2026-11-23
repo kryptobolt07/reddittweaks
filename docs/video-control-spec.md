@@ -433,6 +433,16 @@ User request: with Direct embed controls granted, no overlay for any embed provi
 | D2 | All providers granted, YouTube preview | No layer. The frame reports taps; YouTube's mute, seek bar and settings work in place and keep the player in the feed |
 | D3 | Grant more in the popup while a Reddit tab is open | The page re-reads the grant when the tab shows again; frames load with the script after a reload, since Chrome injects into new documents only |
 | D4 | Revoke | Every provider's scripts are unregistered; open tabs keep the old frames until refresh |
+| D5 | A granted frame previews before its hello arrives | No layer while the hello is on its way; the hello turns tap reporting on |
+| D6 | Reddit's own lite-youtube preview, YouTube granted | No layer. Its iframe is created on activation inside lite-youtube's shadow root, which the scan never registers, so its hello is matched by searching the embeds |
+
+### Players that kept playing (2026-11-23)
+
+User report: embed and Reddit videos kept their sound for a while, and some didn't stop when they should have.
+- **Lost hello:** a frame that said hello before the page registered it (scans are debounced by 200 ms, and frames inside shadow roots don't trigger one) was never heard from again, because the page's first message stopped its retries. The page couldn't pause it ("one video at a time", scroll-away, opening another post), and any granted preview kept its click layer. The frame now announces again on the page's first message.
+- **One at a time** also pauses Reddit players inserted since the last scan.
+- **Route changes:** Reddit keeps the page it is leaving on screen until the destination renders (and may keep it for Back). After a route change, media that doesn't belong to the destination is paused, at 0, 500 and 1500 ms: on a post page anything outside that post and its comments; on a feed, a post page's detail player. A video carried into the post (continue on open) and the mini player are kept.
+- Frames that never get a video (photo posts, albums) stop watching for one after 15 s; a press inside the frame checks again.
 
 **Limits:**
 - X, Instagram and Facebook embeds are post cards. A card with no `<video>` never says hello and falls back to its cover after 3.5 s.

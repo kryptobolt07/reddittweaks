@@ -306,7 +306,7 @@
     if(!embed || !link || !this.blockEmbedLinks(!this.isDetailEmbed(embed)))return;
     if(/^https?:/.test(link.href) && new URL(link.href).origin!==this.win.location.origin){event.preventDefault();event.stopImmediatePropagation();}
    };
-   this.onRoute=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.win.setTimeout(()=>this.directPlayer(),0);};
+   this.onRoute=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.win.setTimeout(()=>this.directPlayer(),0);this.queueLeftBehind();};
    this.onBack=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.clearHandoff();this.clearEmbedHandoff();this.directPlayer();};
    this.onMiniDismissed=event=>{
     const node=event.target;
@@ -355,6 +355,11 @@
     active.dataset.rtEmbedUsed='1';this.exclusive(active);
    },0);
    this.onFrameMessage=event=>{
+    if(event.data?.rtMedia==='hello' && event.source && this.active){
+     let known=false;
+     for(const [frame] of this.frames)if(frame.contentWindow===event.source){known=true;break;}
+     if(!known){const frame=this.findFrame(event.source);if(frame && event.origin===this.embedOrigin(frame))this.frameState(frame);}
+    }
     for(const [frame,state] of this.frames){
      if(!frame.isConnected){this.frames.delete(frame);continue;}
      if(!event.source || frame.contentWindow!==event.source)continue;
@@ -368,9 +373,10 @@
        if(this.ePreview?.frame?.frame===frame){
         // A preview that began behind the click layer continues layerless: the frame reports taps itself.
         const preview=this.ePreview;
-        if(preview.active && preview.layer){preview.layer.remove();preview.layer=null;preview.sound=null;preview.direct=true;this.postDirect(frame,'preview',{on:true});}
+        if(preview.active && !preview.direct){preview.layer?.remove();preview.layer=null;preview.sound=null;preview.direct=true;this.postDirect(frame,'preview',{on:true});}
         this.labelEmbedSound(preview);
        }
+       else if(this.ePreview?.ytDirect && this.ePreview.embed===embed){this.ePreview.ytFrame=frame;this.postDirect(frame,'preview',{on:true});}
        this.win.clearTimeout(state.helloTimer);state.helloTimer=null;
        this.framePolicy(frame,state.block,true);
        this.applyDirectEmbed();
@@ -393,7 +399,7 @@
       else if(state.direct && ['play','pause'].includes(method))this.framePlayback(frame,state,method,event.data.user===true);
       else if(state.direct && (method==='tap' || method==='take')){
        const preview=this.ePreview;
-       if(preview?.active && preview.frame?.frame===frame){
+       if(preview?.active && (preview.frame?.frame===frame || preview.ytFrame===frame)){
         if(method==='tap')this.useEmbed(preview,false);
         else this.promoteEmbed(preview,false,false);
        }
@@ -1088,8 +1094,18 @@
   // provider granted host by host).
   grantedFrame(frame){
    const src=frame.dataset.rtParked?frame.dataset.rtSrc:frame.getAttribute('src');
-   const origin=embedHosts?.playerOrigin(src || '');
-   return Boolean(origin && (!embedHosts.isExtra?.(origin) || this.directOrigins.has(origin)));
+   return this.originGranted(embedHosts?.playerOrigin(src || ''));
+  }
+  originGranted(origin){return Boolean(origin && (!embedHosts.isExtra?.(origin) || this.directOrigins.has(origin)));}
+  // Reddit's own lite-youtube creates its iframe only when activated, inside its shadow root: the scan never registers
+  // it, so its hello is matched here.
+  findFrame(source){
+   for(const embed of this.doc.querySelectorAll(ANY_EMBED)){
+    const lite=embed.shadowRoot?.querySelector('lite-youtube');
+    for(const frame of [...(embed.shadowRoot?.querySelectorAll('iframe') || []),...(lite?.shadowRoot?.querySelectorAll('iframe') || []),...(lite?.querySelectorAll('iframe') || [])])
+     if(frame.contentWindow===source)return frame;
+   }
+   return null;
   }
   // A frame the extension can drive from inside (its frame script said hello), or one expected to (Direct embed controls
   // granted and a supported player address) until it says hello or HELLO_MS pass without one. Such a player keeps its
@@ -1364,6 +1380,8 @@
   // it never scrolls in as a black box. Players with Reddit's own placeholder (YouTube, Vimeo) already show one.
   preStill(embed,found){
    const root=embed.shadowRoot,id=embed.closest('shreddit-post')?.id;if(!root || !id)return;
+   // A poster batch that lands after embed overrides were turned off must not cover a player nothing manages now.
+   if(!this.active || this.startMode('embed')==='default'){root.querySelector('[data-rt-pre-still]')?.remove();return;}
    const frame=controlFrame(embed);
    const waiting=frame?.dataset.rtWaiting==='1';
    const idle=!vimeoLite(embed) && !frame && !embed.dataset.rtEmbedPreview && !embed.dataset.rtEmbedUsed;
@@ -1453,6 +1471,8 @@
     const urls=[].concat(value || []).filter(posterOK);
     if(this.dead || !urls.length || this.posters.get(id)?.length)return;
     this.posters.set(id,urls);
+    // Bounded like posterQuality: a long feed session meets thousands of posts.
+    if(this.posters.size>512){const oldest=this.posters.keys().next().value;this.posters.delete(oldest);this.providerPosters.delete(oldest);}
     if(provider)this.providerPosters.add(id);
     this.paintPosters([id]);
    };
@@ -1553,6 +1573,10 @@
    if(embed.matches(EMBED)){
     if(embed.dispatchEvent(new this.win.Event('rt-embed-preview',{bubbles:true,cancelable:true}))){this.stopEmbed();return;}
     host=embed.shadowRoot?.querySelector('lite-youtube') || embed;
+    // Direct embed controls granted for YouTube: its own controls work and its frame reports taps; no layer.
+    if(this.directReady && ['https://www.youtube.com','https://www.youtube-nocookie.com'].some(origin=>this.originGranted(origin))){
+     preview.active=true;preview.direct=true;preview.ytDirect=true;return;
+    }
    }else{
     const frame=controlFrame(embed,'muted'),src=frame?.dataset.rtParked?frame.dataset.rtSrc:frame?.getAttribute('src');if(!frame || !src){this.stopEmbed();return;}
     const state=this.frameState(frame),kind=this.held(state)?'direct':state.kind;
@@ -1565,6 +1589,8 @@
     if(vimeoLite(embed) && !state.rendered){this.awaitDraw(frame);this.paintPoster(embed);}
     // A frame driven from inside reports clicks on its own video surface (tap) or controls (take): no layer over it.
     if(state.direct){preview.active=true;preview.direct=true;this.postDirect(frame,'preview',{on:true});return;}
+    // Granted and its hello still on the way: no layer either; the hello turns tap reporting on.
+    if(kind==='direct' && this.expectDirect(frame)){preview.active=true;return;}
     // The layer sits in the embed's shadow root over its iframe.
     if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
     host=embed.shadowRoot;
@@ -1630,7 +1656,8 @@
   dropLayer(preview){
    preview.layer?.remove();preview.layer=null;delete preview.embed.dataset.rtEmbedPreview;
    if(preview.direct && preview.frame?.frame?.isConnected)this.postDirect(preview.frame.frame,'preview',{on:false});
-   preview.direct=false;
+   if(preview.ytFrame?.isConnected)this.postDirect(preview.ytFrame,'preview',{on:false});
+   preview.direct=false;preview.ytFrame=null;
   }
   stopEmbed(){
    const preview=this.ePreview;if(!preview)return;
@@ -2210,6 +2237,12 @@
     if(this.previews.get(player)?.active && this.hovered===player){this.stopHover();continue;}
     video.pause();
    }
+   // Players Reddit inserted since the last scan aren't registered yet but can already be playing.
+   for(const player of this.doc.querySelectorAll(PLAYERS)){
+    if(this.players.has(player) || mediaKind(player)==='gif')continue;
+    const video=this.video(player);
+    if(video && video!==source && !video.paused && this.pending?.sourceVideo!==video)video.pause();
+   }
    if(this.ePreview && this.ePreview.embed!==source)this.stopEmbed();
    for(const [frame,state] of this.frames)if((state.kind!=='flags' || state.direct) && frame.isConnected &&
      !(this.embedPending?.held && frame===this.embedPending.frame) && embedOfFrame(frame)!==source)this.command(frame,'pause');
@@ -2218,6 +2251,38 @@
     for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(embed!==source && (embed.dataset.rtEmbedUsed==='1' || youTubeLite(embed)?.querySelector('iframe') || this.frames.get(controlFrame(embed))?.played))this.rest(embed);
    }
    source.dispatchEvent(new this.win.Event('rt-media-exclusive',{bubbles:true,composed:true}));
+  }
+  // Reddit keeps the page it is leaving on screen until the destination renders, and may keep it detached for Back;
+  // its videos and embeds kept playing (and sounding) meanwhile. After a route change, media that doesn't belong to
+  // the destination is paused, except a video carried into the post (continue on open) or the mini player.
+  queueLeftBehind(){
+   for(const timer of this.leftBehindTimers || [])this.win.clearTimeout(timer);
+   this.leftBehindTimers=[0,500,1500].map(delay=>this.win.setTimeout(()=>this.pauseLeftBehind(),delay));
+  }
+  pauseLeftBehind(){
+   if(this.dead || !this.active)return;
+   const id=postId(this.win.location.pathname),pending=this.activeHandoff();
+   const keep=new Set([pending?.source,pending?.sourceVideo,this.mini?.node,this.mini?.slot].filter(Boolean));
+   const belongs=node=>{
+    if(keep.has(node) || [...keep].some(kept=>kept.contains?.(node) || node.contains?.(kept)))return true;
+    if(id){
+     const post=node.closest?.('shreddit-post');
+     return Boolean(commentOf(node) || post?.id==='t3_'+id || node.getAttribute?.('post-id')==='t3_'+id);
+    }
+    // A feed: only a post page's own detail media is left behind.
+    return node.getAttribute?.('player-type')!==DETAIL_PLAYER && !node.closest?.('shreddit-post[view-context="CommentsPage"]');
+   };
+   for(const player of this.doc.querySelectorAll(PLAYERS)){
+    const video=this.video(player);
+    if(!video || video.paused || belongs(player))continue;
+    video.pause();
+   }
+   for(const [frame,state] of this.frames){
+    const embed=embedOfFrame(frame);
+    if(!frame.isConnected || !embed || belongs(embed))continue;
+    if(state.playing && (state.kind!=='flags' || state.direct))this.command(frame,'pause');
+   }
+   for(const embed of this.doc.querySelectorAll(EMBED))if(embed.dataset.rtEmbedState==='playing' && !belongs(embed))embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));
   }
   block(player,video){
    if(this.previews.get(player)?.active)return;
@@ -2380,7 +2445,7 @@
    this.startPreview(best);
   }
   destroy(){
-   this.dead=true;
+   for(const timer of this.leftBehindTimers || [])this.win.clearTimeout(timer);this.dead=true;
    this.deactivate();
    this.doc.documentElement?.removeAttribute?.('data-rt-embed-override');
    this.doc.documentElement?.removeAttribute?.('data-rt-stream-quality');
