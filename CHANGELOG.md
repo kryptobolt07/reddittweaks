@@ -3,10 +3,25 @@
 - Free abandoned offscreen comments, filters, players, and chat rows. Keep native feed batches available for Back and preserve live players during handoff.
 - Avoid redundant profile, avatar, and media lookups during scrolling and page updates.
 - Reduce repeated work when ranking archived comments, building chat sender previews, and reading saved chat search data concurrently.
-- Patch increment for memory retention and performance fixes.
-- All 2,312 tests passed. Chromium fixtures verified comment height and focus, cached card identity, retained player registration, and packaged filter startup. Archive ranking and sender picker fixtures returned the same results, and three concurrent cold chat searches shared one projection build.
 - The live Chrome Dev profile loaded the test build and reached Reddit signed out. Signed-in playback, navigation, and chat require live testing. Firefox package checks and lint passed.
-- Both ZIPs matched the unpacked assets byte for byte. Chromium SHA-256 `d38f656f61dec38b97bdecd9ce26fbf6df91531ab0ee4a22bd16bea3b6b159ab`. Firefox SHA-256 `7bff87d5ce4480ac2307e4808f2466be5cf02b8b54183c3dff44e2301a4fdf25`.
+- **Sort & filter:**
+  - The floating Sort & filter pill that slid in under the header is gone.
+  - View always lists Card and Compact. Where Reddit draws its older switch, which links only to the other layout, the current one was missing.
+  - Reddit's own Card icon no longer appears beside Sort & filter while a post or community opens.
+  - Removing a filter after a long scroll used to freeze the page for 0.5–3 s, because every hidden card came back at once. Cards near the screen now return immediately and the rest follow over the next frames. Measured live, the longest freeze is now 175 ms.
+- **Videos and embeds:**
+  - Embeds that announced themselves before the page was ready could never be paused again. They kept playing next to other videos, and with Direct embed controls their preview kept its overlay. They now re-announce.
+  - Opening a post pauses the videos and embeds still playing in the feed you left, which is where the lingering sound came from. A video carried into the post keeps playing.
+  - With Direct embed controls granted, YouTube previews have no overlay either. The player's own buttons, sound and seek bar work in place, and only a click on the picture counts as a click on the video.
+- **Fixes found by an independent review:**
+  - Chat search counted deleted messages when deciding to stop searching older ones.
+  - Switching accounts could save the new session under the old account if another tab reported in late.
+  - A cold chat search started during a save could hide the new messages until restart.
+  - Profile posts skipped offscreen could stay blank after the feed changed.
+  - A few observers and caches did extra work or grew without limit.
+- Patch increment for memory retention, performance and reliability fixes. The later fixes ship in the same unreleased bundle.
+- All 2,326 tests passed. Live, signed out (Chrome Dev, Playwright): Home's View row listed Card and Compact. Removing a filter after about 45 scrolls on r/interestingasfuck blocked the main thread for at most 175 ms, down from 486–3,065 ms. Signed-in Home, playback with sound, and Direct embed controls weren't checked live (the test profile is signed out, and granting is the user's choice).
+- Both ZIPs matched the unpacked assets byte for byte. Chromium SHA-256 `cff71ec017751ef591d880bf7f92bf919d517284f2ed7a3b7257349783e96c5e`. Firefox SHA-256 `d3aa88e0ad84f12957bf2d1570d7b4e34bf6b524ef5ad8f543486923507293ad`.
 
 # 0.62.0 preview
 
