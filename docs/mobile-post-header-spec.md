@@ -17,3 +17,13 @@ The existing navigation controls, row height, and page scroll position are retai
 The mobile header controller marks the existing post header after it appears. It removes the marker when Reddit replaces the header, navigation changes the route, the viewport widens, or the controller shuts down. The new row inherits the visibility state only on the same post.
 
 A Chrome Dev check at 440 by 956 CSS px found Reddit's original 48 px header directly beneath the fixed `reddit-header-small`. After scrolling down by 24 px from the last upward turning point, the extension moved that same row to −48 px. The next sustained upward move returned it to 0 px. Small changes in direction while it was open left it at 0 px.
+
+## Sticky community card (2026-11-23)
+
+Reddit's post page puts a sticky community card (`subreddit-header-card[slot="pdp-sticky-community-header"]`: r/name, members, Join or Open App) inside the same fixed `reddit-header-small`, under the 48 px navigation row, once the reader scrolls past the post's own header. Sliding only the navigation row left the card 48 px down with an empty strip above it. The whole fixed header now slides by the navigation row's measured height (`--rt-post-nav-height`):
+
+| Transition | Expected behavior |
+|---|---|
+| Scroll down past the post header | The navigation row leaves; the community card sits at the top of the viewport (measured y = 0, 49 px tall). |
+| Scroll back up | The navigation row and the card slide down together (both move every frame over about 170 ms; card ends at y = 48). |
+| Back near the top | Reddit hides the card itself; the row stays shown. |

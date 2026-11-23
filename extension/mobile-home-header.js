@@ -66,13 +66,11 @@
         this.edge = Math.max(scrollY,0);
         this.shown = !home;
       }
-      if (home) {
-        this.measure();
-        this.addSearch();
-        if (typeof ResizeObserver === 'function') {
-          this.resize = new ResizeObserver(() => this.measure());
-          this.resize.observe(row);
-        }
+      this.measure();
+      if (home) this.addSearch();
+      if (typeof ResizeObserver === 'function') {
+        this.resize = new ResizeObserver(() => this.measure());
+        this.resize.observe(row);
       }
       window.addEventListener('scroll',this.onScroll,{passive:true});
       this.update();
@@ -93,9 +91,10 @@
       before.before(button);
     }
     measure() {
-      const height = this.row?.offsetHeight || 56;
+      const home = this.state === homeState;
+      const height = this.row?.offsetHeight || (home ? 56 : 48);
       this.height = height;
-      this.header?.style.setProperty('--rt-home-nav-height',height+'px');
+      this.header?.style.setProperty(home ? '--rt-home-nav-height' : '--rt-post-nav-height',height+'px');
     }
     update() {
       if (this.activeRoute() !== this.route || !this.header?.isConnected) {this.sync();return;}
@@ -128,7 +127,7 @@
       this.resize?.disconnect();
       window.removeEventListener('scroll',this.onScroll);
       this.header?.removeAttribute(this.state);
-      if (this.state === homeState) this.header?.style.removeProperty('--rt-home-nav-height');
+      this.header?.style.removeProperty(this.state === homeState ? '--rt-home-nav-height' : '--rt-post-nav-height');
       this.row?.removeEventListener('focusin',this.onFocus);
       this.search?.remove();
       this.header = this.row = this.search = null;
