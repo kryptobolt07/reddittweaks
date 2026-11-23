@@ -15,7 +15,7 @@ async function boot(opts){
   const dom=new JSDOM('<!doctype html><body><shreddit-app>'+(opts?.html??modalHtml('r/gone is banned'))+'</shreddit-app></body>',{url:opts?.url||'https://www.reddit.com/r/gone/',runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window;
   const o={enabled:true,pages:null,owner:'me',meta:null,recents:null,...opts};
   if(o.matchMedia)W.matchMedia=o.matchMedia;
-  for(const f of ['search-core.js','post-model.js','markdown-lite.js','archive-view.js','post-discovery.js','feed-filters.js','subreddit-archive.js'])W.eval(fs.readFileSync('extension/'+f,'utf8'));
+  for(const f of ['search-core.js','post-model.js','markdown-lite.js','archive-view.js','post-discovery.js','feed-filters.js','feed-sheet.js','subreddit-archive.js'])W.eval(fs.readFileSync('extension/'+f,'utf8'));
   const calls=[],store=o.recents || new Map();
   W.RTArchiveQuery={
     async *search(options){calls.push(options);const list=o.pages?o.pages(options,calls.length):[{items:[post('a1',1500000000),post('a2',1400000000)],searchedBackTo:1400000000,hasMore:false,cursor:null}];for(const page of list){if(page instanceof Error)throw page;yield page;}},
@@ -208,7 +208,8 @@ test('an untranslatable text expression scans locally instead of silently droppi
 test('community masthead and sidebar use one header, native sort row, and no extra search bar or tabs',async()=>{
  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();const {doc}=ctx;
  assert.equal(doc.querySelector('h1').textContent,'r/gone');assert.ok(doc.querySelector('.masthead.subreddit-feed-masthead section'));
- assert.equal(doc.querySelector('.rt-sra-avatar').parentElement,doc.querySelector('.rt-sra-name').parentElement.parentElement);
+ assert.equal(doc.querySelector('.rt-sra-avatar').parentElement,doc.querySelector('.rt-sra-name').closest('.rt-sra-title').parentElement);
+ assert.equal(doc.querySelector('.rt-sra-title > .rt-sra-header-line').textContent,'Banned community · archived posts','phone name column has Reddit\'s 12 px line under the name');
  assert.match(doc.querySelector('[data-testid="subreddit-archive-state"]').getAttribute('aria-label'),/banned.*archived posts/i);
  assert.equal(doc.querySelectorAll('main input,main form,faceplate-tabgroup').length,0);
  assert.equal(doc.querySelectorAll('.rt-sra-control-row>div').length,3);assert.match(doc.querySelector('aside').textContent,/Coverage may be partial/);
@@ -844,3 +845,20 @@ test('subreddit archive supports banner artwork, mobile Feed/About tabs, Card/Co
  thread.sa.destroy();thread.W.close();
 });
 
+
+test('phone community row: Feed/About pills, Feed options sheet with Sort, Date and Post type, and the view switch',async()=>{
+ const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();const {doc,W}=ctx;
+ const bar=doc.querySelector('[data-rt-ui="archive-mobile-tabs"]'),tabs=[...bar.querySelectorAll('[role="tab"]')];
+ assert.deepEqual(tabs.map(tab=>tab.textContent),['Feed','About']);assert.equal(tabs[0].getAttribute('aria-selected'),'true');assert.ok(tabs[0].classList.contains('bg-secondary-background-selected'));
+ const options=bar.querySelector('[data-rt-ui="archive-feed-options"]'),view=bar.querySelector('[data-rt-ui="archive-phone-view"]');
+ assert.ok(options && view,'Feed options and the view switch share the tab row');assert.match(view.getAttribute('aria-label'),/View: Card/);
+ if(W.RTFeedSheet){
+  options.click();await tick();const sheet=doc.querySelector('[data-rt-ui="feed-sheet"]');assert.ok(sheet);
+  assert.deepEqual([...sheet.querySelectorAll('.rt-fsheet-label')].map(n=>n.textContent),['Sort by','Date','Post type']);
+  W.RTFeedSheet.close();
+ }
+ tabs[1].click();assert.equal(doc.querySelector('[data-rt-ui="archive-mobile-about"]').hidden,false);assert.equal(bar.querySelector('.rt-sra-phone-options').hidden,true);
+ tabs[0].click();assert.equal(bar.querySelector('.rt-sra-phone-options').hidden,false);
+ view.click();await tick();assert.match(bar.querySelector('[data-rt-ui="archive-phone-view"]').getAttribute('aria-label'),/View: Compact/);
+ ctx.sa.destroy();ctx.W.close();
+});

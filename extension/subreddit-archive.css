@@ -33,11 +33,25 @@
 }
 
 /* Mobile Feed | About tabs (native community tab bar, hidden on desktop where sidebar is visible). */
-.rt-sra-mobile-tabs{display:flex;align-items:center;gap:4px;padding:0 16px;border-bottom:1px solid var(--color-neutral-border-weak,#e5ebee)}
-.rt-sra-mobile-tab{position:relative;display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border:0;border-radius:0;background:transparent;color:var(--color-neutral-content-weak,#576f76);font:600 14px/20px var(--font-sans,inherit);cursor:pointer}
-.rt-sra-mobile-tab[aria-selected="true"]{color:var(--color-neutral-content-strong,#0f1a1c)}
-.rt-sra-mobile-tab[aria-selected="true"]::after{content:"";position:absolute;left:12px;right:12px;bottom:0;height:2px;border-radius:2px 2px 0 0;background:var(--rt-sra-primary,var(--color-primary-plain,#0a449b))}
-.rt-sra-mobile-tab:focus-visible{outline:2px solid var(--color-global-focus,#0079d3);outline-offset:-2px;border-radius:4px}
+.rt-sra-mobile-tabs{align-items:center}
+.rt-sra-mobile-tabs[hidden]{display:none!important}
+.rt-sra-mobile-tab{min-height:40px;padding-block:0;border:0;background:transparent;font:inherit;font-size:14px;line-height:20px;cursor:pointer}
+.rt-sra-mobile-tab:not(.bg-secondary-background-selected){background:transparent}
+.rt-sra-mobile-tab:focus-visible{outline:2px solid var(--color-global-focus,#0079d3);outline-offset:-2px}
+.rt-sra-phone-options[hidden]{display:none!important}
+.rt-sra-phone-options .rt-community-button{height:40px;min-height:40px}
+.rt-sra-phone-view{display:inline-flex;align-items:center;gap:2px;width:54px;height:40px;margin:0;padding:0 8px;justify-content:center}
+.rt-sra-header-line{display:none}
+@media (max-width:639px){
+  .rt-sra-header-line{display:block;line-height:18px}
+  .rt-sra-title{min-height:60px;justify-content:flex-end}
+  .rt-sra-identity{align-items:flex-end}
+  .rt-sra-avatar{width:48px!important;height:48px!important}
+  .rt-sra-avatar>*{width:40px!important;height:40px!important}
+  .rt-sra-controls .rt-sra-control-row{display:none}
+  .rt-sra-controls{margin:0;padding:0}
+  .rt-sra-controls:not(:has(.rt-filter-chips:not([hidden]))){display:none}
+}
 .rt-sra-mobile-about{padding:12px 16px 24px}
 .rt-sra-mobile-about[hidden]{display:none!important}
 .rt-sra-mobile-about>.rt-sra-sidebar-panel{margin-top:0}

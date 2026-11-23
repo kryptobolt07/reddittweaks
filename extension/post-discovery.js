@@ -1627,9 +1627,18 @@
       columns.append(shell,this.archiveSidebar(context,state,profileMeta));subgrid.append(columns);layout.append(subgrid,this.navigationTarget());anchor.before(layout);notice.setAttribute('data-rt-archive-notice','true');return shell;
     }
     buildMobileAbout(context,state='deleted',profileMeta=null){
-      const details=make('details','rt-mobile-about');details.dataset.rtUi='mobile-about';
-      const summary=make('summary');summary.append(make('span','','About'),redditIcon('caret',16));
-      const body=make('div','rt-mobile-about-body');
+      // Reddit's own phone About row (measured on a native profile): a 16px-rounded weak box holding a details whose
+      // summary is an rpl list row, "About" in the weak text colour and a 20px caret at the far end.
+      const wrap=make('div','rt-mobile-about my-xs'),box=make('div','rounded-4 bg-neutral-background-weak py-xs');
+      const details=make('details','p-0 m-0 bg-transparent border-none rounded-none');details.dataset.rtUi='mobile-about';
+      const bodyId='rt-profile-about-'+crypto.randomUUID();
+      const summary=make('summary','font-normal'),item=make('li','relative list-none mt-0'),row=make('div','flex justify-between relative px-md gap-xs text-secondary-plain hover:text-secondary-plain-hover hover:bg-neutral-background-hover hover:no-underline cursor-pointer py-2xs -outline-offset-1');
+      summary.setAttribute('aria-controls',bodyId);item.setAttribute('role','presentation');row.tabIndex=-1;row.style.paddingInlineEnd='16px';
+      const text=make('span','flex items-center gap-xs min-w-0 shrink'),label=make('span','flex flex-col justify-center min-w-0 shrink py-[0.375rem]');
+      label.append(make('span','text-body-2 text-neutral-content-weak','About'));text.append(label);
+      const end=make('span','flex items-center shrink-0'),caret=make('span','rt-mobile-about-caret flex items-center justify-center h-lg');caret.append(redditIcon('caret',20));end.append(caret);
+      row.append(text,end);item.append(row);summary.append(item);
+      const body=make('div','rt-mobile-about-body');body.id=bodyId;
       if(state==='blocked' && profileMeta){
         if(profileMeta.bio)body.append(make('p','m-0 text-12 text-neutral-content',profileMeta.bio));
         const metaDl=make('dl','rt-mobile-about-stats');
@@ -1644,7 +1653,7 @@
         item.append(value,make('dt','',label));stats.append(item);this.mobileArchiveStats[key]=value;
       }
       body.append(stats,make('p','m-0 mt-xs text-12 text-neutral-content-weak',state==='blocked'?'Public signed-out activity. Counts and dates describe loaded records.':'Partial archive coverage. Counts and dates describe loaded records, not the complete account history.'));
-      details.append(summary,body);return details;
+      details.append(summary,body);box.append(details);wrap.append(box);return wrap;
     }
     navigationTarget(){
       if(this.profileNavigation)return this.profileNavigation;

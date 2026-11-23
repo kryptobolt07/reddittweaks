@@ -667,22 +667,62 @@
       globalThis.RTPostDiscovery?.Discovery?.prototype.navigationFallback.call(this,target);
       const retry=make('button','button button-small button-plain px-md','Retry navigation');retry.type='button';retry.addEventListener('click',()=>{target.dataset.state='idle';this.loadNavigation();});target.querySelector('nav')?.append(retry);
     }
+    // Reddit's phone community row (measured on a live subreddit, 412 px): Feed / About pill tabs on the left, Feed
+    // options and the view switch on the right, one 40 px row with 8 px above and below. Sort, Date and Post type live
+    // in the Feed options sheet, as on live subreddits; desktop keeps its own control row.
     buildMobileTabs(){
-      const bar=make('div','rt-sra-mobile-tabs');bar.dataset.rtUi='archive-mobile-tabs';bar.setAttribute('role','tablist');bar.setAttribute('aria-label','Community sections');
-      const feedBtn=make('button','rt-sra-mobile-tab','Feed'),aboutBtn=make('button','rt-sra-mobile-tab','About');
-      for(const [btn,key] of [[feedBtn,'feed'],[aboutBtn,'about']]){
-        btn.type='button';btn.setAttribute('role','tab');btn.dataset.rtTab=key;
-        btn.setAttribute('aria-selected',String(key===(this.mobileTab || 'feed')));
-        btn.addEventListener('click',()=>{
-          this.mobileTab=key;
-          feedBtn.setAttribute('aria-selected',String(key==='feed'));
-          aboutBtn.setAttribute('aria-selected',String(key==='about'));
-          if(this.mainEl)this.mainEl.hidden=key==='about';
-          if(this.mobileAboutEl)this.mobileAboutEl.hidden=key!=='about';
-        });
-        bar.append(btn);
+      const bar=make('div','rt-sra-mobile-tabs flex justify-between flex-wrap mb-xs mt-xs');bar.dataset.rtUi='archive-mobile-tabs';
+      const left=make('div','rt-sra-tab-group'),list=make('div','flex mx-md shrink-0');list.setAttribute('role','tablist');list.setAttribute('aria-label','Community sections');left.append(list);
+      const tabClass='rt-sra-mobile-tab inline-flex flex-col text-secondary-plain-weak text-body-2 relative rounded-full hover:no-underline hover:text-secondary-plain ps-md pe-md hover:bg-secondary-background-hover hover:text-secondary-content active:bg-secondary-background';
+      const tabs=[];
+      const select=key=>{
+        this.mobileTab=key;
+        for(const tab of tabs){const on=tab.dataset.rtTab===key;tab.setAttribute('aria-selected',String(on));tab.classList.toggle('bg-secondary-background-selected',on);tab.classList.toggle('!text-neutral-content-strong',on);}
+        if(this.mainEl)this.mainEl.hidden=key==='about';
+        if(this.mobileAboutEl)this.mobileAboutEl.hidden=key!=='about';
+        if(right)right.hidden=key==='about';
+      };
+      for(const [key,label] of [['feed','Feed'],['about','About']]){
+        const tab=make('button',tabClass),outer=make('span','inline-flex'),inner=make('span','inline-flex flex-row items-center gap-xs py-[0.625rem]');
+        tab.type='button';tab.setAttribute('role','tab');tab.dataset.rtTab=key;inner.append(make('span','',label));outer.append(inner);tab.append(outer);
+        tab.addEventListener('click',()=>select(key));tabs.push(tab);list.append(tab);
       }
+      const f=globalThis.RTFeedFilters;let right=null;
+      if(globalThis.RTFeedSheet && f){
+        right=make('div','rt-sra-phone-options flex me-md ms-auto');
+        const options=this.phoneOptionsBtn=make('button','rt-search-inline-filter rt-community-button','Feed options');
+        options.type='button';options.dataset.rtUi='archive-feed-options';options.setAttribute('aria-haspopup','dialog');options.setAttribute('aria-expanded','false');
+        options.prepend(f.svgIcon('filter',16));options.append(f.svgIcon('caret-down',16));
+        options.addEventListener('click',event=>{event.preventDefault();this.openPhoneOptions();});
+        const view=this.phoneViewBtn=make('button','rt-sra-phone-view rt-search-inline-filter');view.type='button';view.dataset.rtUi='archive-phone-view';
+        view.addEventListener('click',event=>{event.preventDefault();this.setViewType(this.viewType==='compactView'?'cardView':'compactView');});
+        const wrap=make('div','flex items-center');wrap.append(options);right.append(wrap,view);
+      }
+      bar.append(left,...(right?[right]:[]));select(this.mobileTab || 'feed');
+      if(this.menuRows)this.syncMenu();
       return bar;
+    }
+    // The phone Feed options sheet: one row per option with its current value; each opens its own page.
+    openPhoneOptions(){
+      const sheet=globalThis.RTFeedSheet,f=globalThis.RTFeedFilters,button=this.phoneOptionsBtn;if(!sheet || !f || !this.phoneChoices)return;
+      button?.setAttribute('aria-expanded','true');
+      const {sorts,dates,custom,types}=this.phoneChoices;
+      sheet.open({title:'Feed options',returnFocus:button,onClose:()=>button?.setAttribute('aria-expanded','false'),build:(_body,ui)=>{
+        const mode=this.sortMode(),state=this.filterState(),labels=f.valueLabels?f.valueLabels(state):{};
+        const sortNow=sorts.find(choice=>choice.key===mode);
+        ui.row({label:'Sort by',icon:f.svgIcon('sort',20),subtitle:sortNow?.label || 'New',chevron:true,keepOpen:true,onSelect:()=>{ui.push({title:'Sort by',build:(_b,page)=>{
+          for(const choice of sorts)page.row({label:choice.label,subtitle:choice.subtitle || '',selected:choice.key===this.sortMode(),onSelect:()=>choice.apply()});
+        }});return {stay:true};}});
+        ui.row({label:'Date',icon:f.svgIcon('calendar',20),subtitle:state.date?labels.date || 'Custom range':'All time',chevron:true,keepOpen:true,onSelect:()=>{ui.push({title:'Date',build:(_b,page)=>{
+          const now=this.filterState().date;
+          for(const choice of dates)page.row({label:choice.label,selected:choice.key==='any'?!now:now?.preset===choice.key,onSelect:()=>choice.apply()});
+          page.row({label:'Custom range…',selected:Boolean(now?.from),onSelect:()=>{page.close();custom();}});
+        }});return {stay:true};}});
+        const picked=state.types,[one,...more]=picked;
+        ui.row({label:'Post type',icon:f.svgIcon(one && !more.length?(one==='gif'?'gif-post-outline':f.typeIcons[one]):'text-post',20),subtitle:picked.length?labels.type || picked.length+' types':'All types',chevron:true,keepOpen:true,onSelect:()=>{ui.push({title:'Post type',build:(_b,page)=>{
+          sheet.postTypeRows(page,{selected:this.filterState().types,onClear:()=>types.clear(),onToggle:type=>types.toggle(type)});
+        }});return {stay:true};}});
+      }});
     }
     // Reddit's subreddit header: banner, overlapping avatar and r/name with the existing state glyph.
     renderHeader(){
@@ -705,7 +745,9 @@
       const state=make('span','rt-sra-state');state.dataset.testid='subreddit-archive-state';state.dataset.state=this.kind;
       state.append(glyph(this.kind==='banned'?'removed':'hidden'));state.setAttribute('role','img');
       state.title=(this.kind==='private'?'r/'+name+' is private':'r/'+name+' is banned')+'. Showing archived posts.';state.setAttribute('aria-label',state.title);
-      titleWrap.append(title,state);identity.append(avatar,titleWrap);content.append(identity);row.append(content);header.append(banner,row);
+      const nameRow=make('div','flex items-center gap-xs min-w-0');nameRow.append(title,state);
+      const line=make('div','rt-sra-header-line text-neutral-content-weak text-[12px]',(this.kind==='private'?'Private':'Banned')+' community · archived posts');
+      titleWrap.className='flex flex-col min-w-0 rt-sra-title';titleWrap.append(nameRow,line);identity.append(avatar,titleWrap);content.append(identity);row.append(content);header.append(banner,row);
     }
     // Reddit's community sidebar: one rounded column of sections (12px uppercase headers, 14px body) split by
     // rules. Only what the extension honestly knows: the community state, what the archive is, what has been
@@ -827,6 +869,18 @@
       const fx=this.fx=f.plainContext(glyph,{role:'menuitemradio'}),current=()=>f.clone(this.filterState());this.menuRows={sort:new Map(),date:new Map()};
       const close=()=>this.closeMenus();
       const option=(menu,group,key,options)=>{const el=f.menuOption(fx,options);el.dataset.rtUi='filter-option';menu.append(el);this.menuRows[group].set(key,el);return el;};
+      const apply=(change,options)=>{const next=current();change(next);this.applyFilters(next,options);};
+      this.phoneChoices={
+        sorts:[
+          {key:'new',label:'New',apply:()=>apply(next=>{next.sort=null;},{top:false})},
+          {key:'old',label:'Old',apply:()=>apply(next=>{next.sort='old';},{top:false})},
+          {key:'top',label:'Top',subtitle:'Among loaded posts',apply:()=>apply(next=>{next.sort=null;},{top:true})},
+          {key:'comments',label:'Most commented',subtitle:'Among loaded posts',apply:()=>apply(next=>{next.sort='comments';},{top:false})}
+        ],
+        dates:[{key:'any',label:'All time',apply:()=>apply(next=>{next.date=null;})},...f.presets.map(preset=>({key:preset.id,label:preset.label,apply:()=>apply(next=>{next.date={preset:preset.id};})}))],
+        custom:()=>this.openDatePicker(this.phoneOptionsBtn),
+        types:{clear:()=>apply(next=>{next.types=[];}),toggle:name=>apply(next=>{next.types=next.types.includes(name)?next.types.filter(x=>x!==name):[...next.types,name];})}
+      };
       this.sortMenu=this.dropdown('New',menu=>{
         option(menu,'sort','new',{label:'New',icon:false,value:'new',onSelect:()=>{const next=current();next.sort=null;this.applyFilters(next,{top:false});close();}});
         option(menu,'sort','old',{label:'Old',icon:false,value:'old',onSelect:()=>{const next=current();next.sort='old';this.applyFilters(next,{top:false});close();}});
@@ -866,6 +920,11 @@
         const icon=f.svgIcon?.(compact?'classic':'card',16) || glyph(compact?'classic':'card');
         this.viewBtn.replaceChildren(icon,make('span','rt-sra-view-label',compact?'Compact':'Card'));
       }
+      if(this.phoneViewBtn){
+        const compact=this.viewType==='compactView';
+        this.phoneViewBtn.setAttribute('aria-label',compact?'View: Compact (switch to Card)':'View: Card (switch to Compact)');
+        this.phoneViewBtn.replaceChildren(f.svgIcon?.(compact?'classic':'card',16) || glyph(compact?'classic':'card'),f.svgIcon?.('caret-down',16) || glyph('caret'));
+      }
     }
     renderChips(){
       const f=globalThis.RTFeedFilters;if(!f)return;
@@ -883,16 +942,17 @@
         this.chipsEl.hidden=false;
       }
     }
-    openDatePicker(){
+    openDatePicker(anchorButton=null){
       const Picker=globalThis.RCSDatePicker,f=globalThis.RTFeedFilters;if(!Picker || !f)return;
       this.pickerHost?.remove();const host=this.pickerHost=make('div');host.dataset.rtUi='date-picker';
-      const anchor=this.dateMenu.button.getBoundingClientRect?.() || {left:0,bottom:0};
+      const from=anchorButton?.isConnected && anchorButton.getClientRects?.().length?anchorButton:this.dateMenu.button;
+      const anchor=from.getBoundingClientRect?.() || {left:0,bottom:0};
       host.style.cssText=`position:fixed;z-index:2147483000;pointer-events:none;width:0;height:0;left:${Math.max(0,Math.round(anchor.left))}px;top:${Math.max(0,Math.round(anchor.bottom))}px`;
       const shadow=host.attachShadow({mode:'open'}),style=make('style','',`:host{--rcs-bg:var(--color-neutral-background,#fff);--rcs-soft:var(--color-neutral-background-weak,#f2f4f5);--rcs-text:var(--color-neutral-content-strong,#0f1a1c);--rcs-muted:var(--color-neutral-content-weak,#576f76);--rcs-line:var(--color-neutral-border-weak,#e5e8eb);--rcs-hover:var(--color-neutral-background-hover,#e8edef);--rcs-accent:#ff4500}.date-popover{pointer-events:auto;left:0;right:auto;top:4px}`+(Picker.styles || '')+'');
       const away=event=>{if(!event.composedPath().includes(host))picker.close(false);};
       const picker=new Picker({getAnchor:()=>anchor,onChange:bounds=>{
         const today=new Date(),iso=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`,from=bounds.from || '2005-06-01',to=bounds.to || iso,next=f.clone(this.filterState());
-        next.date={from:from<=to?from:to,to:from<=to?to:from};this.applyFilters(next);},onClose:()=>{document.removeEventListener('pointerdown',away,true);host.remove();this.dateMenu?.button?.focus?.({preventScroll:true});}});
+        next.date={from:from<=to?from:to,to:from<=to?to:from};this.applyFilters(next);},onClose:()=>{document.removeEventListener('pointerdown',away,true);host.remove();from?.focus?.({preventScroll:true});}});
       const date=this.filterState().date;if(date?.from)picker.applied={mode:'Between',start:date.from,end:date.to};
       shadow.append(style,picker.element);document.body.append(host);picker.show();document.addEventListener('pointerdown',away,true);
     }
