@@ -40,41 +40,119 @@ function popup(t,{settings,storageFailure=false,runtimeFailure=false,tabs,stored
   return {w,state,messages,reads,paint(){for(const callback of frames.splice(0))callback();}};
 }
 
-test('Direct embed controls uses Grant/Revoke access and nests Block embed links under permission status',async t=>{
-  let granted=false,registered=[],requests=0;
-  const p=popup(t,{storedTab:'settings',embedAccess:{
-    permissions:{contains:async()=>granted,request:async()=>{requests++;return (granted=true);},remove:async()=>{granted=false;}},
-    scripting:{getRegisteredContentScripts:async()=>registered,registerContentScripts:async scripts=>{registered=scripts;},unregisterContentScripts:async()=>{registered=[];}}
-  }});
+function embedAccess({granted=false,grant=true}={}){
+  const access={granted,registered:[],requests:0};
+  access.api={
+    permissions:{contains:async()=>access.granted,request:async()=>{access.requests++;return (access.granted=grant);},remove:async()=>{access.granted=false;}},
+    scripting:{getRegisteredContentScripts:async()=>access.registered,registerContentScripts:async scripts=>{access.registered=scripts;},unregisterContentScripts:async()=>{access.registered=[];}}
+  };
+  return access;
+}
+test('Direct embed controls uses Grant/Revoke access; Block embed links stays visible but dimmed until granted',async t=>{
+  const access=embedAccess();
+  const p=popup(t,{storedTab:'settings',embedAccess:access.api});
   await settle();
   const {document}=p.w;
   const button=document.querySelector('#direct-embed-controls');
-  const blockRow=document.querySelector('#embed-block-links').closest('.setting-row');
-  assert.equal(requests,0);
+  const control=document.querySelector('#embed-block-links'),blockRow=control.closest('.setting-row');
+  assert.equal(access.requests,0);
   assert.equal(button.textContent,'Grant access');
-  assert.equal(blockRow.hidden,true,'Block embed links folds hidden until permission is granted');
+  assert.equal(blockRow.hidden,false,'shown, so the reader knows it exists');
+  assert.ok(blockRow.classList.contains('is-inactive'));
+  assert.equal(control.getAttribute('aria-disabled'),'true');
+  assert.equal(control.disabled,false,'still focusable');
+  const note=blockRow.querySelector('[data-permission-note]');
+  assert.equal(note.textContent,'Needs Direct embed controls');
+  assert.ok(control.getAttribute('aria-describedby').split(' ').includes(note.id));
   assert.equal(document.querySelector('[aria-labelledby="videos-heading"] .group-count').textContent,'Default');
 
   button.click();await settle();
-  assert.equal(requests,1);
+  assert.equal(access.requests,1);
   assert.equal(button.textContent,'Revoke access');
-  assert.equal(blockRow.hidden,false,'Block embed links appears once access is granted');
-  assert.ok(registered[0].matches.includes('https://www.redgifs.com/ifr/*'));
-  assert.equal(registered[0].allFrames,true);
+  assert.equal(blockRow.classList.contains('is-inactive'),false,'enabled in place after the grant');
+  assert.equal(control.hasAttribute('aria-disabled'),false);
+  assert.equal(blockRow.querySelector('[data-permission-note]'),null,'the note goes away');
+  assert.equal(control.getAttribute('aria-describedby'),'embed-block-links-desc');
+  assert.ok(access.registered[0].matches.includes('https://www.redgifs.com/ifr/*'));
+  assert.equal(access.registered[0].allFrames,true);
 
-  document.querySelector('#embed-block-links').click();
+  control.click();
   document.querySelector('#embed-block-links-menu [data-value="both"]').click();
   await settle();
   assert.equal(p.state['rt-settings-v1'].embedBlockLinks,'both');
   assert.equal(document.querySelector('[aria-labelledby="videos-heading"] .group-count').textContent,'1 of 13 active');
 
   button.click();await settle();
-  assert.equal(granted,false);
-  assert.equal(registered.length,0);
+  assert.equal(access.granted,false);
+  assert.equal(access.registered.length,0);
   assert.equal(button.textContent,'Grant access');
-  assert.equal(blockRow.hidden,true,'hides again when revoked');
+  assert.ok(blockRow.classList.contains('is-inactive'),'dims again when revoked');
+  assert.equal(blockRow.hidden,false);
   assert.equal(p.state['rt-settings-v1'].embedBlockLinks,'both','stored value preserved across revoke');
   assert.equal(document.querySelector('[aria-labelledby="videos-heading"] .group-count').textContent,'Default','inactive nested control no longer counts as active');
+});
+test('a dimmed option leads to Direct embed controls: scroll, a brief outline and focus on Grant access',async t=>{
+  const access=embedAccess();
+  const p=popup(t,{storedTab:'settings',embedAccess:access.api});
+  await settle();
+  const {document}=p.w;
+  const button=document.querySelector('#direct-embed-controls'),permissionRow=button.closest('.setting-row');
+  const control=document.querySelector('#embed-block-links'),menu=document.querySelector('#embed-block-links-menu');
+  let scrolled=0;permissionRow.scrollIntoView=()=>scrolled++;
+  control.click();
+  assert.equal(menu.hidden,true,'the menu does not open');
+  assert.equal(document.activeElement,button,'Grant access has focus');
+  assert.equal(scrolled,1);
+  assert.ok(permissionRow.classList.contains('is-pulsing'));
+  await new Promise(resolve=>setTimeout(resolve,1050));
+  assert.equal(permissionRow.classList.contains('is-pulsing'),false,'the outline lasts about a second');
+  // Anywhere on the row, the note's link, and Enter/Space on the focusable control do the same.
+  control.closest('.setting-row').querySelector('.setting-copy p').click();
+  assert.equal(scrolled,2);
+  control.focus();control.closest('.setting-row').querySelector('.permission-link').click();
+  assert.equal(scrolled,3);assert.equal(document.activeElement,button);
+  for(const key of ['Enter',' ']){
+    control.focus();
+    const event=new p.w.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true});
+    control.dispatchEvent(event);
+    assert.equal(event.defaultPrevented,true,key);assert.equal(document.activeElement,button,key);
+  }
+  assert.equal(menu.hidden,true);
+  // One more click grants, and the option enables without reopening the popup.
+  button.click();await settle();
+  assert.equal(control.closest('.setting-row').classList.contains('needs-permission'),false);
+  control.click();
+  assert.equal(menu.hidden,false,'now its own menu opens');
+});
+test('a denied prompt says so and keeps the option dimmed; partly dependent options carry a hint instead',async t=>{
+  const access=embedAccess({grant:false});
+  const p=popup(t,{storedTab:'settings',embedAccess:access.api});
+  await settle();
+  const {document}=p.w;
+  const button=document.querySelector('#direct-embed-controls');
+  for(const id of ['volume-memory','loop-policy','hold-for-2x','video-direct-open']){
+    const row=document.getElementById(id).closest('.setting-row');
+    assert.equal(row.classList.contains('is-inactive'),false,id+' is not dimmed');
+    const hint=row.querySelector('.permission-hint');
+    assert.match(hint.textContent,/need Direct embed controls$/,id);
+    assert.ok(document.getElementById(id).getAttribute('aria-describedby').includes(hint.id));
+  }
+  let scrolled=0;button.closest('.setting-row').scrollIntoView=()=>scrolled++;
+  document.querySelector('#loop-policy').closest('.setting-row').querySelector('.permission-link').click();
+  assert.equal(scrolled,1);assert.equal(document.activeElement,button);
+  button.click();await settle();
+  assert.equal(access.requests,1);
+  assert.match(document.querySelector('#direct-embed-status').textContent,/Allow access/);
+  assert.ok(document.querySelector('#embed-block-links').closest('.setting-row').classList.contains('is-inactive'));
+  assert.ok(document.querySelector('#loop-policy').closest('.setting-row').querySelector('.permission-hint'));
+});
+test('without the permission API, permission-only options stay hidden and no hints show',async t=>{
+  const p=popup(t,{storedTab:'settings'});
+  await settle();
+  const {document}=p.w;
+  assert.equal(document.querySelector('#direct-embed-row').hidden,true);
+  assert.equal(document.querySelector('#embed-block-links').closest('.setting-row').hidden,true);
+  assert.equal(document.querySelectorAll('.permission-hint,[data-permission-note]').length,0);
 });
 
 test('Reddit Tweaks popup loads canonical passive defaults and persists individual changes while preserving other settings',async t=>{
