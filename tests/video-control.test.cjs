@@ -833,9 +833,15 @@ test('direct provider sound stays on the same frame for a feed tap and a post ha
   const messages=[],src=e.frame.src,frame=e.frame.contentWindow;
   frame.postMessage=(data,origin)=>messages.push({data,origin});
   p.W.dispatchEvent(new p.W.MessageEvent('message',{source:frame,origin:new URL(src).origin,data:{rtMedia:'hello'}}));
-  (open?e.layer():e.layer().querySelector('button')).click();
+  // Once the frame announces itself the preview continues without the click layer: the frame reports taps.
+  assert.equal(e.layer(),null);
+  assert.ok(messages.some(({data})=>data.rtMedia==='preview' && data.on===true));
+  p.W.dispatchEvent(new p.W.MessageEvent('message',{source:frame,origin:new URL(src).origin,data:{rtMedia:open?'tap':'take'}}));
   assert.equal(e.frame.src,src);
-  assert.ok(messages.some(({data,origin})=>data.rtMedia==='unmute' && origin==='https://www.redgifs.com'));
+  assert.equal(c.ePreview,null,'the preview became the reader’s');
+  assert.ok(messages.some(({data})=>data.rtMedia==='preview' && data.on===false));
+  // A tap follows Media click action (open, with sound); a click on the player's own sound control leaves sound to it.
+  assert.equal(messages.some(({data,origin})=>data.rtMedia==='unmute' && origin==='https://www.redgifs.com'),open);
   if(open){
    p.W.history.pushState({},'',postPath);
    const detail=p.d.createElement('shreddit-post');detail.id='t3_test';p.d.body.append(detail);
@@ -1797,6 +1803,196 @@ test('Post opened directly: a video scrolled out of view waits until it is seen'
  assert.equal(p.video.paused,true,'not started off screen');
  top=200;p.io.cb([{target:p.player,intersectionRatio:0.6}]);
  assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
+});
+
+// Media playback fixes (docs/video-control-spec.md): frames driven from inside keep their own picture, the post's own
+// embed follows Post opened directly, and Autoplay/Preview leave a post's own video to Reddit.
+const frameSays=(p,e,rtMedia,data={})=>p.W.dispatchEvent(new p.W.MessageEvent('message',{source:e.frame.contentWindow,origin:new URL(e.frame.getAttribute('src')).origin,data:{rtMedia,...data}}));
+const frameHello=(p,e,data={})=>frameSays(p,e,'hello',data);
+async function directControls(p,settings){
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>settings,readPreference:async()=>true,readDirect:async()=>true,observe:false});
+ await c.ready;await flush();return c;
+}
+test('Direct controls: an idle On Play card keeps its own first frame and controls, with no still or cover over it',async t=>{
+ const p=page(t),e=frameEmbed(p,'https://streamable.com/e/abc');
+ e.node.setAttribute('thumbnail-url','https://cdn.example.test/still.jpg');
+ e.node.getBoundingClientRect=()=>({top:120,bottom:420,height:300});
+ const c=await directControls(p,{embedStart:'play',singleVideo:true});c.scan();
+ assert.equal(e.frame.getAttribute('src'),'https://streamable.com/e/abc','not unloaded behind Reddit’s still');
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null);
+ const told=[];e.frame.contentWindow.postMessage=data=>told.push(data.rtMedia);
+ frameHello(p,e);
+ assert.ok(told.includes('pause'),'held on its first frame');
+ told.length=0;
+ frameSays(p,e,'play');
+ assert.deepEqual(told,['pause'],'a start nobody chose is paused');
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null,'and nothing is put over it');
+ told.length=0;
+ frameSays(p,e,'play',{user:true});
+ assert.deepEqual(told,[],'its own Play button is the reader’s');
+ assert.equal(e.node.dataset.rtEmbedUsed,'1');
+ // Something else starting rests it: paused through the frame, its own paused picture stays.
+ c.exclusive(p.video);
+ assert.ok(told.includes('pause'));
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null);
+});
+test('Direct controls: a frame that never announces itself falls back to the still after the wait',async t=>{
+ const p=page(t),e=frameEmbed(p,'https://streamable.com/e/abc');
+ e.node.setAttribute('thumbnail-url','https://cdn.example.test/still.jpg');
+ e.node.getBoundingClientRect=()=>({top:120,bottom:420,height:300});
+ const c=await directControls(p,{embedStart:'play'});c.scan();
+ assert.equal(e.frame.getAttribute('src'),'https://streamable.com/e/abc');
+ c.frameState(e.frame).noHello=true;c.syncIdleEmbed(e.node);
+ assert.equal(e.frame.getAttribute('src'),'about:blank','parked behind the still like any player');
+ assert.ok(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'));
+ // Without the permission nothing is expected from inside: today’s still.
+ const q=page(t),f=frameEmbed(q,'https://streamable.com/e/abc');
+ f.node.setAttribute('thumbnail-url','https://cdn.example.test/still.jpg');
+ f.node.getBoundingClientRect=()=>({top:120,bottom:420,height:300});
+ const d=await hoverController(q,{embedStart:'play'});d.scan();
+ assert.equal(f.frame.getAttribute('src'),'about:blank');
+});
+test('Direct controls: a frame unloaded off screen loads idle once in view instead of staying behind a still',async t=>{
+ const p=page(t),e=frameEmbed(p,'https://www.redgifs.com/ifr/demo');
+ e.node.setAttribute('thumbnail-url','https://cdn.example.test/still.jpg');
+ let top=2400;e.node.getBoundingClientRect=()=>({top,bottom:top+300,height:300});
+ const c=await directControls(p,{embedStart:'autoplay'});c.scan();
+ assert.equal(e.frame.getAttribute('src'),'about:blank','unloaded while far away');
+ top=100;c.paintPoster(e.node);
+ assert.equal(e.frame.getAttribute('src'),'https://www.redgifs.com/ifr/demo');
+ assert.equal(e.node.shadowRoot.querySelector('[data-rt-parked-cover]'),null);
+});
+test('Direct controls: a preview has no click layer; the frame reports taps on its picture and takes on its controls',async t=>{
+ for(const [action,expectUnmute] of [['tap',true],['take',false]]){
+  const p=page(t),e=frameEmbed(p,'https://streamable.com/e/abc');
+  e.node.getBoundingClientRect=()=>({top:120,bottom:420,height:300});
+  const c=await directControls(p,{embedStart:'preview',mediaClickAction:'inline',clickAudio:'unmute'});
+  const told=[];e.frame.contentWindow.postMessage=data=>told.push(data);
+  frameHello(p,e);
+  e.over();await waitForHover();
+  assert.equal(e.layer(),null,'no layer over a frame driven from inside');
+  assert.ok(told.some(data=>data.rtMedia==='preview' && data.on===true));
+  assert.ok(told.some(data=>data.rtMedia==='mute') && told.some(data=>data.rtMedia==='play'),'previews muted in place');
+  told.length=0;
+  frameSays(p,e,action);
+  assert.equal(c.ePreview,null,'the preview became the reader’s');
+  assert.ok(told.some(data=>data.rtMedia==='preview' && data.on===false));
+  assert.equal(told.some(data=>data.rtMedia==='unmute'),expectUnmute,action==='take'?'its own sound control decides':'Video click audio unmutes');
+  assert.equal(e.node.dataset.rtEmbedUsed,'1');
+ }
+});
+function detailEmbedPage(t,src){
+ const p=page(t,{detail:true});
+ const e=src?frameEmbed(p,src):null;
+ p.player.remove();
+ return {p,e};
+}
+function ytDetail(p){
+ const node=p.d.createElement('shreddit-embed');node.setAttribute('providername','YouTube');
+ node.attachShadow({mode:'open'}).appendChild(p.d.createElement('lite-youtube'));
+ p.d.querySelector('shreddit-post').append(node);
+ const calls=[],state={state:'playing',muted:'true',time:'2'};
+ for(const type of ['rt-embed-stop','rt-embed-sound','rt-embed-continue'])node.addEventListener(type,event=>{calls.push([type,node.dataset.rtStart,node.dataset.rtMuted]);event.preventDefault();});
+ node.addEventListener('rt-embed-snapshot',()=>Object.assign(node.dataset,{rtEmbedState:state.state,rtEmbedTime:state.time,rtEmbedMuted:state.muted}));
+ return {node,calls,state};
+}
+const activate=(p,value)=>Object.defineProperty(p.W.navigator,'userActivation',{value,configurable:true});
+async function directOpen(p,settings,{activation=null,landing}={}){
+ if(activation)activate(p,activation);
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>settings,readPreference:async()=>false,readDirect:async()=>settings.direct===true,observe:false,...(landing===undefined?{}:{landing})});
+ await c.ready;await flush();return c;
+}
+test('Post opened directly: the post’s own YouTube embed plays muted, or tries sound and falls back to muted',async t=>{
+ const {p}=detailEmbedPage(t),y=ytDetail(p);
+ const c=await directOpen(p,{videoDirectOpen:'muted'});
+ assert.deepEqual(y.calls,[['rt-embed-continue','0','true']]);
+ c.scan();assert.equal(y.calls.length,1,'started once');
+ const q=detailEmbedPage(t).p,z=ytDetail(q);
+ const d=await directOpen(q,{videoDirectOpen:'sound'},{activation:{hasBeenActive:true,isActive:false}});
+ assert.deepEqual(z.calls,[['rt-embed-continue','0','false']]);
+ z.state.state='paused';d.directEmbedCheck(d.directEmbed);
+ assert.deepEqual(z.calls[1],['rt-embed-continue','2','true'],'refused: kept playing muted where it was');
+ z.state.state='playing';
+ activate(q,{hasBeenActive:true,isActive:true});
+ q.click(q.d.body);
+ assert.equal(z.calls[2]?.[0],'rt-embed-sound','sound at the first click on the page');
+});
+test('Post opened directly: when the browser says sound would be refused, an embed starts muted and the first click elsewhere brings the sound',async t=>{
+ const {p}=detailEmbedPage(t),y=ytDetail(p);
+ p.W.navigator.getAutoplayPolicy=()=>'allowed-muted';
+ const c=await directOpen(p,{videoDirectOpen:'sound'},{activation:{hasBeenActive:false,isActive:false}});
+ assert.deepEqual(y.calls,[['rt-embed-continue','0','true']]);
+ assert.equal(c.directEmbed.phase,'fallback');
+ activate(p,{hasBeenActive:true,isActive:true});
+ p.click(p.d.body);
+ assert.equal(y.calls.at(-1)[0],'rt-embed-sound');
+ assert.equal(c.directEmbed.ended,true,'once');
+ const q=detailEmbedPage(t).p,z=ytDetail(q);
+ q.W.navigator.getAutoplayPolicy=()=>'allowed-muted';
+ await directOpen(q,{videoDirectOpen:'sound'},{activation:{hasBeenActive:false,isActive:false}});
+ activate(q,{hasBeenActive:true,isActive:true});
+ q.click(z.node.shadowRoot.querySelector('lite-youtube'));
+ assert.equal(z.calls.some(([type])=>type==='rt-embed-sound'),false,'a click into the player leaves the sound to it');
+});
+test('Post opened directly: Stay paused stops a YouTube start the reader did not make, until they press Play',async t=>{
+ const {p}=detailEmbedPage(t),y=ytDetail(p);
+ const c=await directOpen(p,{videoDirectOpen:'paused'});
+ assert.deepEqual(y.calls,[],'Reddit does not start it; nothing to do');
+ y.node.dispatchEvent(new p.W.Event('rt-embed-playing',{bubbles:true}));
+ assert.deepEqual(y.calls.map(([type])=>type),['rt-embed-stop']);
+ p.click(y.node.shadowRoot.querySelector('lite-youtube'));
+ y.node.dispatchEvent(new p.W.Event('rt-embed-playing',{bubbles:true}));
+ assert.equal(y.calls.length,1,'the reader’s Play is left alone');
+ assert.equal(c.directEmbed.ended,true);
+});
+test('Post opened directly: a frame driven from inside gets the choice on its hello; Stay paused holds it until the reader plays',async t=>{
+ const {p,e}=detailEmbedPage(t,'https://www.redgifs.com/ifr/demo');
+ const told=[];e.frame.contentWindow.postMessage=data=>told.push(data.rtMedia);
+ await directOpen(p,{videoDirectOpen:'muted',direct:true});
+ frameHello(p,e,{playing:false});
+ assert.ok(told.includes('mute') && told.includes('play'),told.join());
+ const q=detailEmbedPage(t,'https://www.redgifs.com/ifr/demo'),qt=[];q.e.frame.contentWindow.postMessage=data=>qt.push(data.rtMedia);
+ const d=await directOpen(q.p,{videoDirectOpen:'paused',direct:true});
+ frameHello(q.p,q.e,{playing:false});
+ assert.ok(qt.includes('pause'));assert.equal(qt.includes('play'),false);
+ qt.length=0;frameSays(q.p,q.e,'play');
+ assert.deepEqual(qt,['pause'],'a start nobody chose is paused');
+ qt.length=0;frameSays(q.p,q.e,'play',{user:true});
+ assert.deepEqual(qt,[],'the reader’s Play inside the player');
+ assert.equal(d.directEmbed.ended,true);
+});
+test('Post opened directly: Play with sound refused inside a frame keeps it playing muted, then unmutes at the first click',async t=>{
+ const {p,e}=detailEmbedPage(t,'https://www.redgifs.com/ifr/demo');
+ const told=[];e.frame.contentWindow.postMessage=data=>told.push(data.rtMedia);
+ const c=await directOpen(p,{videoDirectOpen:'sound',direct:true},{activation:{hasBeenActive:true,isActive:false}});
+ frameHello(p,e,{playing:false});
+ assert.ok(told.includes('unmute') && told.includes('play'));
+ told.length=0;frameSays(p,e,'pause');
+ assert.deepEqual(told,['mute','play'],'the browser paused it for sound: muted playback');
+ assert.equal(c.directEmbed.phase,'fallback');
+ frameSays(p,e,'play');told.length=0;
+ activate(p,{hasBeenActive:true,isActive:true});
+ p.click(p.d.body);
+ assert.deepEqual(told,['unmute','play']);
+});
+test('Post opened directly: a self-starting player that cannot be driven stays behind its still with Stay paused',async t=>{
+ const {p,e}=detailEmbedPage(t,'https://www.redgifs.com/ifr/demo');
+ await directOpen(p,{videoDirectOpen:'paused'});
+ assert.equal(e.frame.getAttribute('src'),'about:blank');
+ const cover=e.node.shadowRoot.querySelector('[data-rt-parked-cover]');assert.ok(cover);
+ cover.click();
+ assert.match(e.frame.getAttribute('src'),/^https:\/\/www\.redgifs\.com\/ifr\/demo/,'a tap loads it');
+});
+test('Post opened directly: an embed reached in-app, or carried over from the feed, is not managed',async t=>{
+ const {p}=detailEmbedPage(t),y=ytDetail(p);
+ const c=await directOpen(p,{videoDirectOpen:'muted'},{landing:''});c.scan();
+ assert.deepEqual(y.calls,[],'reached in-app');
+ const q=detailEmbedPage(t).p;
+ q.W.sessionStorage.setItem(embedKey,JSON.stringify({id:'test',owner:'t2_alice',at:Date.now(),time:4,muted:true,generic:true}));
+ const d=new q.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoDirectOpen:'muted'}),readPreference:async()=>false,observe:false});
+ assert.equal(d.landing,'','an embed continuation is not a direct open');
 });
 test('Autoplay and Preview leave a post’s own video to Reddit; Only when I press Play still stops it',async t=>{
  for(const [mode,stopped] of [['autoplay',false],['preview',false],['play',true]]){

@@ -353,6 +353,12 @@ test('cache-broker reports rt-embed-player holdFeed from embedStart and gates ch
  localStore['rt-settings-v1']={embedStart:'play'};
  assert.deepEqual(JSON.parse(JSON.stringify(await dispatch({scope:'rt-embed-player'},embedSender))),{authorized:true,holdFeed:true});
  assert.deepEqual(JSON.parse(JSON.stringify(await dispatch({scope:'rt-embed-player'},{...embedSender,tab:{url:'https://evil.test/'}}))),{authorized:false,holdFeed:false});
+ // Stay paused for a post opened directly also holds a self-starting player from document start.
+ localStore['rt-settings-v1']={videoDirectOpen:'paused'};
+ assert.deepEqual(JSON.parse(JSON.stringify(await dispatch({scope:'rt-embed-player'},embedSender))),{authorized:true,holdFeed:true});
+ localStore['rt-settings-v1']={videoDirectOpen:'muted'};
+ assert.deepEqual(JSON.parse(JSON.stringify(await dispatch({scope:'rt-embed-player'},embedSender))),{authorized:true,holdFeed:false});
+ localStore['rt-settings-v1']={embedStart:'play'};
  // 2. chatSearch: false blocks chat writes while keeping stats and clear available
  const owner='@alice:reddit.com',redditSender={id:'own',frameId:0,url:'https://www.reddit.com/chat/',tab:{id:1,url:'https://www.reddit.com/chat/'}},popupSender={id:'own',frameId:0,url:'chrome-extension://own/popup.html'};
  localStore['rt-settings-v1']={chatSearch:true};
