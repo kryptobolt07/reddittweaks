@@ -2255,7 +2255,10 @@
     const url=new URL('/api/info.json',location.origin);url.searchParams.set('id',ids.map(id=>'t3_'+id).join(','));url.searchParams.set('raw_json','1');
     const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
     if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry) && retry>0?retry:60)*1000));throw Error('Reddit rate limit reached. Try again later.');}
-    if(!response.ok)throw Error(response.status===403?'Reddit refused the post status check (HTTP 403).':'Reddit could not check these posts (HTTP '+response.status+').');
+    // Reddit refuses /api/info.json from the page (HTTP 403, measured 2026-11-15, -20 and -23); the caller then uses
+    // Arctic Shift's recorded state instead.
+    if(response.status===403 || response.status===401)return {statuses:[],refused:true};
+    if(!response.ok)throw Error('Reddit could not check these posts (HTTP '+response.status+').');
     let data;try{data=JSON.parse(await boundedText(response));}catch{throw Error('Reddit returned an unexpected post status response.');}
     if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
     if(data?.kind!=='Listing' || !Array.isArray(data?.data?.children) || data.data.children.length>100)throw Error('Reddit returned an unexpected post status response.');

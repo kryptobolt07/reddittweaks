@@ -6,7 +6,7 @@ const post=(extra={})=>({id:'abc12',author:'Example',created_utc:1700000000,titl
 test('automatic deleted-content restoration defaults on independently of archive opt-in and media defaults are passive',()=>{
  const m=model();
  assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{
-  postDiscovery:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
+  postDiscovery:true,feedControls:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
   cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,
   historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,
   videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',

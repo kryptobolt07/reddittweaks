@@ -425,7 +425,7 @@ test('the production startup hides native feed sort before settings settle and r
  const style=D.createElement('style');style.textContent=bootRule;D.head.append(style);
  assert.equal(W.getComputedStyle(D.querySelector('[sort-event="feed-sort-change"]')).display,'none');
  assert.notEqual(W.getComputedStyle(D.querySelector('shreddit-layout-switcher')).display,'none');
- settings({ok:true,settings:{postDiscovery:false}});await flush();
+ settings({ok:true,settings:{feedControls:false}});await flush();
  assert.equal(D.documentElement.hasAttribute(heldSorts),false);
  assert.notEqual(W.getComputedStyle(D.querySelector('[sort-event="feed-sort-change"]')).display,'none');
 });
@@ -727,4 +727,30 @@ test('Community filter on Home: show only or hide chosen communities, carried in
  sub.D.querySelector('[data-rt-community-options]').click();
  assert.equal(sub.D.querySelector('.rt-community-feed-menu [aria-label="Community"]'),null);
  void targets;
+});
+
+test('Awaiting approval: a Post type option in communities run by RTUnapprovedFilter, with a pill, and the standalone button suppressed',async t=>{
+ const {D,W}=setup(t,'/r/Example/',sortedFeed());
+ assert.equal(D.documentElement.hasAttribute('data-rt-unapproved-menu'),true,'the filter is told a menu owns the option');
+ let active=false,listener=null;const calls=[];
+ W.RTUnapprovedFilter={useMenu(){},active:()=>active,availability:async()=>({available:true,source:'archive'}),
+  setActive:async on=>{calls.push(on);active=on;listener?.({subreddit:'Example',active:on,available:true,source:'archive'});return on;},onChange:fn=>{listener=fn;return()=>{listener=null;};}};
+ D.dispatchEvent(new W.Event('rt-unapproved-ready'));await flush();
+ D.querySelector('[data-rt-community-options]').click();
+ D.querySelector('.rt-community-feed-menu [aria-label="Post type"]').click();
+ const row=D.querySelector('.rt-community-feed-menu [data-rt-awaiting]');assert.ok(row);
+ assert.match(row.textContent,/Held for review, from Arctic Shift/);
+ row.click();await flush();
+ assert.deepEqual(calls,[true]);
+ const pill=D.querySelector('[data-rt-chip="awaiting"]');assert.ok(pill,'an applied pill');
+ pill.click();await flush();assert.deepEqual(calls,[true,false]);
+ assert.equal(D.querySelector('[data-rt-chip="awaiting"]'),null);
+ // Without Use the archive: shown, dimmed, says why, does nothing.
+ const off=setup(t,'/r/Example/',sortedFeed());
+ off.W.RTUnapprovedFilter={useMenu(){},active:()=>false,availability:async()=>({available:false,source:'archive',reason:'archive-off'}),setActive:async()=>{throw Error('must not run');},onChange:()=>()=>{}};
+ off.D.dispatchEvent(new off.W.Event('rt-unapproved-ready'));await flush();
+ off.D.querySelector('[data-rt-community-options]').click();off.D.querySelector('.rt-community-feed-menu [aria-label="Post type"]').click();
+ const dim=off.D.querySelector('[data-rt-awaiting]');assert.equal(dim.getAttribute('aria-disabled'),'true');assert.match(dim.textContent,/Needs Use the archive/);dim.click();
+ // Home has no Awaiting approval.
+ const home=setup(t,'/',homeFeed());assert.equal(home.D.documentElement.hasAttribute('data-rt-unapproved-menu'),false);
 });

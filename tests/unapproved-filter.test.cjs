@@ -225,9 +225,20 @@ test('bridge rejects more than 100 IDs and anything that is not a bare base36 ID
  const ok=await b.send({action:'awaiting-status',subreddit:'Alpha',ids:Array.from({length:100},(_,i)=>i.toString(36))});assert.equal(ok.ok,true,'exactly 100 is allowed');
  assert.equal(b.calls.length,1);assert.equal(b.calls[0].url.searchParams.get('id').split(',').length,100);
 });
-test('bridge reports a refused or failed status read as an error, and a signed-out reader as signed out',async t=>{
- for(const status of [403,500]){const b=bridge(t,{respond:()=>({status})});const r=await b.send({action:'awaiting-status',subreddit:'Alpha',ids:['abc']});assert.equal(r.ok,false);assert.match(r.error,new RegExp('HTTP '+status));}
+test('bridge reports a failed status read as an error, a refused one as refused, and a signed-out reader as signed out',async t=>{
+ {const b=bridge(t,{respond:()=>({status:500})});const r=await b.send({action:'awaiting-status',subreddit:'Alpha',ids:['abc']});assert.equal(r.ok,false);assert.match(r.error,/HTTP 500/);}
+ for(const status of [401,403]){const b=bridge(t,{respond:()=>({status})});const r=await b.send({action:'awaiting-status',subreddit:'Alpha',ids:['abc']});assert.equal(r.ok,true,r.error);assert.equal(r.refused,true,'a refusal is reported as such, not as a failure');assert.deepEqual(plain(r.statuses),[]);}
  const out=bridge(t,{respond:()=>({data:{user_is_moderator:null,display_name:'Alpha'}})});const r=await out.send({action:'mod-status',subreddit:'Alpha'});
  assert.equal(r.moderator,false);assert.equal(r.signedIn,false);
  const member=bridge(t,{respond:()=>({data:{user_is_moderator:false,display_name:'Alpha'}})});assert.equal((await member.send({action:'mod-status',subreddit:'Alpha'})).signedIn,true);
+});
+
+test('when Reddit refuses the status check, Arctic Shift’s recorded state is listed and the summary says so',async t=>{
+ const posts=[archived('b1',NOW/1000-60,{removed_by_category:'automod_filtered'}),archived('b2',NOW/1000-120,{removed_by_category:'moderator'}),archived('b3',NOW/1000-180,{removed_by_category:'reddit'}),archived('b4',NOW/1000-240)];
+ let reads=0;
+ const s=await setup(t,{moderator:false,settings:archiveOn,archive:()=>({ok:true,posts,cursor:null,hasMore:false}),status:()=>{reads++;return {ok:true,statuses:[],refused:true};}});
+ assert.equal(await s.api.setActive(true),true);await flush();
+ assert.deepEqual(s.ids(),['b1','b3']);
+ assert.equal(reads,1,'one refusal stops further status reads');
+ assert.match(s.summary().textContent,/^2 posts held for review in r\/Alpha · as recorded when posted; Reddit doesn’t share current status/);
 });

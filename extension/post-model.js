@@ -131,6 +131,7 @@
   });
   const SETTINGS_DEFAULTS=Object.freeze({
     postDiscovery:true,
+    feedControls:true,
     blockedProfiles:true,
     archiveDiscovery:false,
     restoreDeletedContent:true,
@@ -157,6 +158,7 @@
   function normalizeSettings(raw){
     return {
       postDiscovery:raw?.postDiscovery!==false,
+      feedControls:raw?.feedControls!==false,
       blockedProfiles:raw?.blockedProfiles!==false,
       archiveDiscovery:raw?.archiveDiscovery===true,
       restoreDeletedContent:raw?.restoreDeletedContent!==false,

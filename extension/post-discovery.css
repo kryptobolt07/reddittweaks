@@ -929,3 +929,6 @@ html[data-rt-community-sort-boot] main shreddit-sort-dropdown:is([sort-event="fe
   .rt-community-button{min-height:40px}
   .rt-community-sheet{inset-inline-end:auto;width:100dvw}
 }
+/* Awaiting approval row in Post type (docs/feed-controls-ux-plan.md, 10): its source on a second line. */
+[data-rt-awaiting] .rt-awaiting-note{display:block;margin-top:2px;white-space:normal}
+[data-rt-awaiting].rt-awaiting-disabled{opacity:.55;cursor:default}

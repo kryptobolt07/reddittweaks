@@ -459,7 +459,11 @@
       if (this.enabled === enabled && !this.waitingForSettings) return;
       this.waitingForSettings = false;
       this.enabled = enabled;
-      if (!enabled) this.positions.clear();
+      if (!enabled) {
+        this.positions.clear();
+        document.documentElement?.removeAttribute('data-rt-unapproved-menu');
+        globalThis.RTUnapprovedFilter?.useMenu?.(false);
+      }
       this.refresh();
     }
 
@@ -656,6 +660,12 @@
         options.prepend(filters.svgIcon('filter',16));
         options.addEventListener('click', () => this.open());
         bar.append(options,this.chips);
+        if (this.scope.surface === 'subreddit') {
+          document.documentElement?.setAttribute('data-rt-unapproved-menu','');
+          globalThis.RTUnapprovedFilter?.useMenu?.(true);
+          this.watchAwaiting();
+          if (!globalThis.RTUnapprovedFilter) document.addEventListener('rt-unapproved-ready',() => { this.awaitingFor = ''; this.watchAwaiting(); },{once:true});
+        }
         this.placeFeedControls();
         return;
       }
@@ -799,6 +809,47 @@
 
     // Community filter on Home, Popular, All and custom feeds (docs/feed-controls-ux-plan.md, 7): show only, or hide,
     // chosen communities. rt_sub / rt_hide in the address; cards are hidden client-side like Post type.
+    // Awaiting approval (docs/unmoderated-filter-spec.md, docs/feed-controls-ux-plan.md 10): a Post type option in any
+    // community, run by RTUnapprovedFilter (mod queue for moderators, Arctic Shift otherwise). While Sort & filter is
+    // on, the filter's standalone button stays hidden.
+    awaitingApi() {
+      const api = globalThis.RTUnapprovedFilter;
+      return this.scope?.surface === 'subreddit' && this.feed && typeof api?.setActive === 'function' ? api : null;
+    }
+
+    watchAwaiting() {
+      const api = this.awaitingApi();
+      if (!api) return;
+      const name = fold(this.scope.name);
+      if (this.awaitingFor === name) return;
+      this.awaitingFor = name;
+      this.awaitingOff?.();
+      this.awaitingOff = api.onChange?.(state => {
+        if (fold(state?.subreddit || '') !== this.awaitingFor) return;
+        this.awaitingState = {...this.awaitingState,...state};
+        this.updateToolbar();
+      });
+      this.awaitingState = {subreddit:name,active:api.active?.() === true};
+      Promise.resolve(api.availability?.(this.scope.name)).then(answer => {
+        if (this.awaitingFor !== name || !answer) return;
+        this.awaitingState = {...this.awaitingState,...answer,active:api.active?.() === true};
+        this.updateToolbar();
+      },() => {});
+    }
+
+    // null = hidden; otherwise the option's state. Unavailable for want of Use the archive stays visible and says so.
+    awaitingOption() {
+      const api = this.awaitingApi(), state = this.awaitingState;
+      if (!api || !state || fold(state.subreddit || '') !== fold(this.scope.name)) return null;
+      if (!state.available && state.reason !== 'archive-off') return null;
+      const active = api.active?.() === true;
+      return {
+        active,disabled:!state.available,
+        note:!state.available ? 'Needs Use the archive (Reddit Tweaks › Arctic Shift Archive)' : state.source === 'modqueue' ? 'From your mod queue' : 'Held for review, from Arctic Shift (last 7 days)',
+        toggle:() => { if (state.available) Promise.resolve(api.setActive(!active)).then(() => this.updateToolbar(),() => {}); },
+      };
+    }
+
     hasCommunities() {return Boolean(this.feed && (this.scope?.global || this.scope?.owner));}
 
     communityState() {
@@ -864,7 +915,7 @@
         list.replaceChildren();
         list.append(filters.menuOption(radio,{label:'Show only selected',icon:'show',checked:mode === 'show',slot:true,value:'show',
           onSelect:() => { this.applyCommunities('show',names); render(); }}));
-        list.append(filters.menuOption(radio,{label:'Hide selected',icon:'hide',checked:mode === 'hide',slot:true,value:'hide',
+        list.append(filters.menuOption(radio,{label:'Hide selected',icon:'close',checked:mode === 'hide',slot:true,value:'hide',
           onSelect:() => { this.applyCommunities('hide',names); render(); }}));
         list.append(filters.menuOption(radio,{label:'All communities',icon:'community',checked:!names.length,slot:true,value:'all',
           onSelect:() => { this.applyCommunities(mode,[]); render(); }}));
@@ -1193,7 +1244,8 @@
       const nsfw = this.activeNsfw();
       const period = !this.feed && searchDates.find(([value]) => value !== 'all' && value === this.url.searchParams.get('t'));
       const community = this.communityState();
-      const key = JSON.stringify([types,flair,period,nsfw,paint,community]);
+      const awaiting = this.awaitingOption();
+      const key = JSON.stringify([types,flair,period,nsfw,paint,community,awaiting?.active === true]);
       if (this.chips.dataset.state === key) return;
       this.chips.dataset.state = key;
       this.chips.replaceChildren();
@@ -1207,6 +1259,7 @@
       };
       for (const type of types) chip('type-' + type,this.feed ? filters.typeLabels[type] : mediaTypes.get(type),filters.typeIcons[type],
         () => this.applyTypes(types.filter(value => value !== type)));
+      if (awaiting?.active) chip('awaiting','Awaiting approval','activity',() => awaiting.toggle());
       if (flair) chip('flair',flair,'tag',() => this.applyFlair(''));
       for (const name of community.names) {
         const element = filters.pill({id:'sub:' + fold(name),label:(community.mode === 'hide' ? 'Hide r/' : 'r/') + name,icon:'community-fill',community:name},
@@ -1467,6 +1520,18 @@
             onClear:() => { this.applyTypes([]); types.sync(this.selectedTypes()); },
           });
           types.sync(this.selectedTypes());
+          const awaiting = this.awaitingOption();
+          if (awaiting) {
+            list.append(filters.sectionLabel('Moderation'));
+            const toggle = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitemcheckbox'});
+            const row = filters.menuOption(toggle,{label:'Awaiting approval',icon:'activity',subtitle:'',checked:awaiting.active,slot:true,value:'awaiting',
+              onSelect:() => { if (awaiting.disabled) return; menu.close(false); awaiting.toggle(); }});
+            row.dataset.rtAwaiting = '';
+            const note = make('span','rt-awaiting-note text-12 text-neutral-content-weak',awaiting.note);
+            row.firstElementChild.firstElementChild?.append(note);
+            if (awaiting.disabled) { row.setAttribute('aria-disabled','true'); row.classList.add('rt-awaiting-disabled'); }
+            list.append(row);
+          }
           menu?.place();
           header.back.focus({preventScroll:true});
           return;
@@ -1634,6 +1699,12 @@
         subtitle:this.typeLabel() || 'All types',
         chevron:true,keepOpen:true,onSelect:() => { ui.push({title:'Post type',build:(_body,page) => {
           sheet.postTypeRows(page,{selected:this.selectedTypes(),onClear:() => this.applyTypes([]),onToggle:type => this.toggleType(type)});
+          const awaiting = this.awaitingOption();
+          if (awaiting) {
+            page.title?.('Moderation');
+            page.row({label:'Awaiting approval',subtitle:awaiting.note,icon:filters.svgIcon('activity',20),selected:awaiting.active,toggle:true,keepOpen:false,
+              onSelect:() => { if (!awaiting.disabled) awaiting.toggle(); }});
+          }
         }}); return {stay:true}; },
       });
       if (this.hasCommunities()) ui.row({label:'Community',icon:filters.svgIcon('community',20),subtitle:this.communitySummary() || 'All communities',chevron:true,keepOpen:true,onSelect:() => {
@@ -1770,7 +1841,9 @@
       this.finishReturn();
       this.releaseDeparture();
       this.clear();
+      this.awaitingOff?.();
       document.documentElement?.removeAttribute(sortBoot);
+      document.documentElement?.removeAttribute('data-rt-unapproved-menu');
       this.observer.disconnect();
       this.rootObserver?.disconnect();
       window.removeEventListener('popstate',this.onHistory);
@@ -1790,7 +1863,8 @@
   if (globalThis.chrome?.runtime?.id) {
     const controller = new Controller({enabled:false,waitingForSettings:true});
     globalThis.RTLiveSubredditFiltersDebug = controller;
-    const update = settings => controller.setEnabled(settings?.postDiscovery !== false);
+    // Popup: Sort & filter on feeds (docs/feed-controls-ux-plan.md, 9). Off keeps Reddit's own sort and View.
+    const update = settings => controller.setEnabled(settings?.feedControls !== false);
     let receivedChange = false;
     const failed = () => { if (!receivedChange) controller.setEnabled(false); };
     try {

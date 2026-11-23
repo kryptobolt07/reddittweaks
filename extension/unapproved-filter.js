@@ -210,7 +210,13 @@
           }
           while(view.pending.length){
             const batch=view.pending.slice(0,STATUS_BATCH);
+            // Reddit doesn't share current status: list what Arctic Shift recorded when each post was made (L8).
+            if(view.recorded){
+              for(const archived of batch)if(awaitingCategory(archived.archiveRemovedBy) && !view.items.has(archived.id) && view.items.size<MAX_ITEMS)view.items.set(archived.id,archived);
+              view.pending.splice(0,batch.length);continue;
+            }
             const result=await this.reddit({action:'awaiting-status',subreddit:view.name,ids:batch.map(post=>post.id)});if(!current())return;
+            if(result?.refused){view.recorded=true;continue;}
             if(result?.ok===false || result?.deferred)throw Error(result.error || 'Reddit is busy. Try again');
             if(!Array.isArray(result?.statuses) || result.statuses.length>batch.length)throw Error('Reddit returned an unexpected status answer');
             const answered=new Map();for(const status of result.statuses)if(status && typeof status.id==='string')answered.set(status.id,status);
@@ -233,6 +239,7 @@
       if(view.error)return (count?'Showing '+label+' held for review'+where+' · ':'')+'Couldn’t check posts awaiting approval: '+view.error+'.';
       if(view.loading)return count?'Showing '+label+' held for review'+where+' · Checking…':'Checking recent posts'+where+'…';
       const notes=[];
+      if(view.recorded)notes.push('as recorded when posted; Reddit doesn’t share current status, so a moderator may have approved some since');
       if(view.partial==='cap')notes.push('only the newest '+ARCHIVE_PAGES*100+' posts were checked; older posts from the last 7 days weren’t');
       if(view.partial==='stalled')notes.push('the archive listing stopped early; older posts weren’t checked');
       if(view.unchecked)notes.push(view.unchecked.toLocaleString('en-US')+' '+(view.unchecked===1?'post':'posts')+' couldn’t be checked with Reddit');

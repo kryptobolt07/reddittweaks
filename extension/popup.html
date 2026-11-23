@@ -51,7 +51,7 @@
         <div class="card-heading"><h2 id="browsing-heading">Browsing &amp; Feed</h2><span class="group-count"></span></div>
         <div class="setting-row">
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8.5 2a6.5 6.5 0 0 1 5.18 10.43l3.94 3.95a.9.9 0 0 1-1.27 1.27l-3.95-3.94A6.5 6.5 0 1 1 8.5 2Zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg></span>
-          <div class="setting-copy"><label for="post-discovery">Profile search &amp; hidden activity</label><p id="post-discovery-desc">Search profiles and your activity, find hidden posts, and browse or filter subreddits.</p></div>
+          <div class="setting-copy"><label for="post-discovery">Profile search &amp; hidden activity</label><p id="post-discovery-desc">Search profiles and your activity, find hidden posts, and browse banned communities.</p></div>
           <input class="switch" type="checkbox" id="post-discovery" data-setting="postDiscovery" aria-describedby="post-discovery-desc">
         </div>
         <div class="setting-row" data-requires="post-discovery" data-level="2">
@@ -69,6 +69,11 @@
             <button type="button" role="menuitemradio" data-value="5000" data-short="5,000" aria-checked="false">5,000 posts</button>
             <button type="button" role="menuitemradio" data-value="0" data-short="No limit" aria-checked="false">No limit</button>
           </div>
+        </div>
+        <div class="setting-row">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3 5.1h9.1a2.6 2.6 0 0 0 5 0h.1a.9.9 0 1 0 0-1.8h-.1a2.6 2.6 0 0 0-5 0H3a.9.9 0 0 0 0 1.8Zm11.6-1.7a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6ZM3 10.9h.1a2.6 2.6 0 0 0 5 0H17a.9.9 0 1 0 0-1.8H8.1a2.6 2.6 0 0 0-5 0H3a.9.9 0 1 0 0 1.8Zm2.6-1.7a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6ZM17 14.9h-4.9a2.6 2.6 0 0 0-5 0H3a.9.9 0 1 0 0 1.8h4.1a2.6 2.6 0 0 0 5 0H17a.9.9 0 1 0 0-1.8Zm-7.4 1.7a.8.8 0 1 1 0-1.6.8.8 0 0 1 0 1.6Z"/></svg></span>
+          <div class="setting-copy"><label for="feed-controls">Sort &amp; filter on feeds</label><p id="feed-controls-desc">Replaces Reddit’s sort and view menus on Home, Popular, All, communities and custom feeds with one menu that also filters by post type, flair, community and posts awaiting approval. Off keeps Reddit’s own.</p></div>
+          <input class="switch" type="checkbox" id="feed-controls" data-setting="feedControls" aria-describedby="feed-controls-desc">
         </div>
         <div class="setting-row">
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8 5H5a5 5 0 0 0 0 10h3v-2H5a3 3 0 0 1 0-6h3V5Zm4 0v2h3a3 3 0 0 1 0 6h-3v2h3a5 5 0 0 0 0-10h-3ZM5 9v2h10V9H5Z"/></svg></span>

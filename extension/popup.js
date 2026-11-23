@@ -7,7 +7,7 @@ const FALLBACK_VIDEO_DEFAULTS={
   videoOpenPost:'default',cardClickAudio:'keep',videoDirectOpen:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
 };
 const FALLBACK_SETTINGS_DEFAULTS={
-  postDiscovery:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,
+  postDiscovery:true,feedControls:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,
   subredditArchive:false,subredditArchiveAutomatic:false,cleanShareLinks:false,
   modUnapprovedFilter:true,raffles:true,downloadMedia:true,
   ownRemoval:false,removalNotifications:false,historyLimit:20,
@@ -20,6 +20,7 @@ function fallbackNormalizeSettings(raw){
   const pick=(k,allowed,fb)=>allowed.includes(raw?.[k])?raw[k]:fb;
   return {
     postDiscovery:raw?.postDiscovery!==false,
+    feedControls:raw?.feedControls!==false,
     blockedProfiles:raw?.blockedProfiles!==false,
     archiveDiscovery:raw?.archiveDiscovery===true,
     restoreDeletedContent:raw?.restoreDeletedContent!==false,
