@@ -1703,6 +1703,7 @@
       for(const group of this.menuGroups || []){for(const restore of group.rtIconRestores || [])restore();for(const item of group.items){if(item.hasAttribute('data-rt-search-sort-hidden')){item.hidden=item.dataset.rtSearchSortHidden==='true';item.removeAttribute('data-rt-search-sort-hidden');}group.anchor.before(item);}if(group.header)group.header.hidden=group.headerHidden;group.anchor.remove();}
       this.menuGroups=[];
       if(!this.keepSearchControls()){this.searchInlineBar?.remove();this.searchInlineBar=null;this.searchInlineButtons=null;}for(const b of document.querySelectorAll('button.rt-feed-trigger-anchor')){b.classList.remove('rt-feed-trigger-anchor');for(const k of ['left','top','width','height'])b.style[k]='';}
+      this.feedDock?.detach();this.feedDock=null;this.feedDockFor=null;
       for(const row of this.activityMenuRows || [])row.remove();this.activityMenuRows=[];this.host?.removeAttribute('data-rt-menu-ready');this.rtMenu=null;this.rtPickerHost?.remove();this.activityMenu=null;this.activityMain=null;this.activityDropdown=null;this.activityOpen=false;this.openSubmenu=null;this.openFeedSubmenu=null;
     }
     detachActivityMenu(){
@@ -2189,8 +2190,28 @@
       const walker=document.createTreeWalker(button,NodeFilter.SHOW_TEXT);
       for(let node=walker.nextNode();node;node=walker.nextNode())if(node.nodeValue.includes('Feed options'))node.nodeValue=node.nodeValue.replace('Feed options',MENU_LABEL);
     }
+    // Sort & filter docked under the header down the profile feed (feed-dock.js). Phones open the same sheet; computers
+    // bring the row back into view and open Reddit's own menu there, since that menu belongs to its button.
+    dockFeedOptions(){
+      const dropdown=this.activityDropdown,dock=globalThis.RTFeedDock;
+      if(!dock || !dropdown?.isConnected){this.feedDock?.detach();this.feedDock=null;return;}
+      if(this.feedDock && this.feedDockFor===dropdown){this.feedDock.update();return;}
+      this.feedDock?.detach();this.feedDockFor=dropdown;
+      this.feedDock=dock.attach({
+        anchor:()=>this.activityDropdown,
+        count:()=>globalThis.RTFeedFilters?.appliedCount?.(this.rtChips) || 0,
+        open:()=>{
+          const trigger=this.activityDropdown?.querySelector(FEED_TRIGGER);if(!trigger)return;
+          if(this.phoneSheetOn?.()){trigger.click();return;}
+          const header=document.querySelector('reddit-header-large')?.getBoundingClientRect().bottom || 56;
+          window.scrollBy({top:trigger.getBoundingClientRect().top-header-16,behavior:'smooth'});
+          setTimeout(()=>{if(trigger.isConnected)trigger.click();},350);
+        },
+      });
+    }
     placeFilterChips(){
       this.relabelTrigger();
+      this.dockFeedOptions();
       const chips=this.rtChips;if(!chips)return;
       for(const stale of document.querySelectorAll('[data-rt-ui="filter-chips"]'))if(stale!==chips)stale.remove();
       if(this.isSearch() && this.controlsTarget?.isConnected){const row=this.controlsTarget;row.className='flex items-center gap-xs my-md';if(chips.parentNode!==row)row.append(chips);chips.dataset.rtRail='true';return;}

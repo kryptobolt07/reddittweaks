@@ -392,3 +392,17 @@ Evidence: L1 = unit test in `tests/video-control.test.cjs`, `tests/embed-player.
 | Block embed links | Direct frames only (now dimmed with a link until granted, L1) | n/a | n/a |
 
 Not verified live: anything that needs Direct embed controls granted (the user's test), the Firefox build, and Streamable, Vimeo, Twitch and RedGIFs cards.
+
+## First load (2026-11-23)
+
+Report: previews sometimes ignored the start policy on first load until one video was played by hand. Four cold loads didn't reproduce it (native hover, native phone in-view, YouTube hover). The code had stuck states that match the report; they're fixed (`docs/feed-controls-ux-plan.md` §11):
+
+| | Transition | Expected |
+|---|---|---|
+| V1 | Cold load with the pointer already resting on a feed video, Preview mode | The preview starts once settings are in and the player is ready, with no movement needed (`recheckPointer` after configure, attach, scroll end and tab shown) |
+| V2 | Start chosen but impossible (no `<video>` yet, tab hidden, another video playing) | No player stays marked as hovered or in view. A missing video retries when the player attaches or reports metadata, and later hovers work |
+| V3 | Preview never plays (no metadata) | Dropped after 4 s, so the next hover or in-view pick can try again |
+| V4 | Phone: the in-view pick equals a player whose start failed | The pick runs again instead of returning early |
+| V5 | Direct embed controls granted in the popup while a Reddit tab is open | Read again on settings changes and when the tab shows; no reload needed |
+
+Verified: unit tests for V1–V3. Live: previews started on cold loads before and after the fix. The original failure wasn't reproduced live, so V1–V4 aren't verified against it.

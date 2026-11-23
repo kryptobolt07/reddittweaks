@@ -581,6 +581,8 @@
 
     clear() {
       this.leaving = null;
+      this.dock?.detach();
+      this.dock = null;
       this.panel?.close();
       this.toolbar?.remove();this.chips?.remove();
       this.note?.remove();
@@ -660,6 +662,11 @@
         options.prepend(filters.svgIcon('filter',16));
         options.addEventListener('click', () => this.open());
         bar.append(options,this.chips);
+        this.dock = globalThis.RTFeedDock?.attach({
+          anchor:() => this.options?.isConnected ? this.options : this.toolbar,
+          count:() => filters.appliedCount?.(this.chips) || 0,
+          open:button => this.open(button),
+        }) || null;
         if (this.scope.surface === 'subreddit') {
           document.documentElement?.setAttribute('data-rt-unapproved-menu','');
           globalThis.RTUnapprovedFilter?.useMenu?.(true);
@@ -1270,6 +1277,7 @@
       if (period) chip('date',period[1],'calendar',() => this.go(setSearchOption(this.url,'t','all')));
       this.chips.hidden = !this.chips.childElementCount;
       if (this.chips.hasAttribute('data-rt-rail')) filters.fitRail?.(this.chips,{badgeFor:this.options || null});
+      this.dock?.update();
     }
 
     updateLinks() {
@@ -1345,11 +1353,11 @@
       if (url.href !== location.href) this.navigate(url);
     }
 
-    open() {
+    open(anchor = this.options) {
       if (!this.scope) return;
       if (this.panel) { this.panel.close(); return; }
-      if (!isPhone()) { this.openFeedMenu(); return; }
-      const button = this.options;
+      if (!isPhone()) { this.openFeedMenu(anchor); return; }
+      const button = anchor;
       button.setAttribute('aria-expanded','true');
       this.panel = sheet.open({
         title:menuLabel, returnFocus:button,
@@ -1437,7 +1445,7 @@
       return {close,place};
     }
 
-    openFeedMenu() {
+    openFeedMenu(anchor = this.options) {
       const root = make('div','rt-inline-menu rt-community-feed-menu');
       root.dataset.rtUi = 'community-filter-menu';
       root.dataset.rtFeedOptions = '';
@@ -1558,7 +1566,7 @@
         menu?.place();
       };
       render();
-      menu = this.openPanel(this.options,root,{back});
+      menu = this.openPanel(anchor,root,{back});
       root.querySelector('[role="menuitem"]')?.focus({preventScroll:true});
     }
 

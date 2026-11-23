@@ -932,3 +932,11 @@ html[data-rt-community-sort-boot] main shreddit-sort-dropdown:is([sort-event="fe
 /* Awaiting approval row in Post type (docs/feed-controls-ux-plan.md, 10): its source on a second line. */
 [data-rt-awaiting] .rt-awaiting-note{display:block;margin-top:2px;white-space:normal}
 [data-rt-awaiting].rt-awaiting-disabled{opacity:.55;cursor:default}
+/* Sort & filter docked under Reddit's header down the feed (feed-dock.js, docs/feed-controls-ux-plan.md 6). */
+.rt-feed-dock{position:fixed;z-index:2147482000;top:calc(var(--rt-dock-top,56px) + 8px);left:var(--rt-dock-left,12px);display:inline-flex;align-items:center;gap:6px;height:32px;box-sizing:border-box;padding:0 12px;border:0;border-radius:999px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);box-shadow:0 1px 2px rgba(0,0,0,.12),0 4px 12px rgba(0,0,0,.16);font:600 12px/16px var(--font-sans,system-ui,sans-serif);cursor:pointer;opacity:0;visibility:hidden;transform:translateY(-8px);transition:opacity .16s ease-out,transform .16s ease-out,visibility 0s linear .16s}
+.rt-feed-dock[data-rt-shown]{opacity:1;visibility:visible;transform:none;transition:opacity .16s ease-out,transform .16s ease-out,visibility 0s}
+.rt-feed-dock>svg{flex:none;width:16px;height:16px}
+.rt-feed-dock:hover{background:var(--color-neutral-background-hover,#e8edef)}
+.rt-feed-dock:focus-visible{outline:2px solid var(--color-global-focus,#0079d3);outline-offset:2px}
+.rt-feed-dock .rt-filter-count{top:1px;inset-inline-start:4px}
+@media (prefers-reduced-motion:reduce){.rt-feed-dock,.rt-feed-dock[data-rt-shown]{transition:none}}

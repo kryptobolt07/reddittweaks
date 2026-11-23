@@ -92,6 +92,7 @@
         "android-app-prompt.js",
         "feed-filters.js",
         "feed-sheet.js",
+        "feed-dock.js",
         "mobile-home-header.js",
         "live-subreddit-filters.js"
       ],

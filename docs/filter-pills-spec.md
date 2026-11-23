@@ -1,5 +1,7 @@
 # Applied filter pills (2026-11-23)
 
+> **Superseded on feeds by `docs/feed-controls-ux-plan.md` §5–6 (same day):** the row no longer shows a pill rail. The button carries a count badge, computers show one summary chip that opens the removable list, phones keep the Applied filters row in the sheet, and Sort & filter docks under the header on scroll-up. The rail mechanics below still describe the pill containers, which remain as the data source. The chat section is unchanged.
+
 User report: on phones the applied-filter pills overflowed their row, and on computers they pushed other controls aside (a subreddit's view switch moved right, profile pills were cut off with Clear filters out of reach). Pills should still show what is applied and be easy to remove, while moving as little as possible.
 
 ## Measured before (live, signed-in Chrome Dev, 1440×900 and 412×915 Android)
