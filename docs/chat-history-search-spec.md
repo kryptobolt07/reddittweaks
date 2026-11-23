@@ -44,9 +44,9 @@ Every record is scoped by integer account ordinal `a` (and per-account room ordi
 ## People Previews
 
 - Directory traversals (`getRoomList` with `include: {timeline: true}`) populate `lastPreview` alongside `rooms.latest` in v2.
-- A preview older than the chat's `lastSeq` or directory `timestamp` is rendered dimmed with `…` until refreshed, never presented as current.
+- A preview older than the chat's `lastSeq` or directory `timestamp` keeps Reddit's own preview style (no dimming or trailing `…`, at the user's request 2026-11-23) and triggers the same latest read below, so it updates in place.
 - `from:` picker rows for people without a direct chat display their latest message from any shared group chat prefixed with the group name.
-- A chat row on screen with neither a saved message nor a directory preview reads its newest events once per session (bridge method `latest`, `/rooms/{id}/events` with `dir=b, before=20`, a second page only when the first had no message, at most 12 rooms per batch). The events are saved through the normal cache path and the summaries reload. A room with no messages reads "No messages yet"; a failed read is tried again on a later render. Inaccessible rooms (403/404) are left blank.
+- A chat row on screen with no saved message, no directory preview, or only a stale one reads its newest events once per session (bridge method `latest`, `/rooms/{id}/events` with `dir=b, before=20`, a second page only when the first had no message, at most 12 rooms per batch). The read runs with interactive priority: with background priority it waited behind a running older-messages search, which holds the one background permit, and only appeared after the chat was opened. The events are saved through the normal cache path and the summaries reload. A room with no messages reads "No messages yet"; a failed read is tried again on a later render. Inaccessible rooms (403/404) are left blank.
 
 ## Searching older messages with no match yet
 
@@ -61,3 +61,10 @@ Every record is scoped by integer account ordinal `a` (and per-account room ordi
 - Default budget is 300 requests or 3 minutes per active search/filter run (resumable automatically by scrolling near the bottom of results), coordinated per account across tabs via `rcs-backfill-lease:<owner>`. Browsing unfiltered Messages with no search term or filter makes zero automatic requests and loads older batches (12 requests per batch) on demand as the user scrolls near the bottom.
 - Lossless `from:` room pruning (`excludeRoomIds`) skips resolved 1:1 direct rooms whose counterparty cannot match any required sender in `compilePlan().roomPruneSenders`, while always keeping all group rooms, modmail rooms, unresolved DMs, and uncached rooms.
 - Backfill keeps running when chat is minimized and stops cleanly after the in-flight request when the search panel closes, the query clears, the account changes, or chat search is disabled.
+
+## Filters by tab
+
+- Sender (`from:`), attachment (`has:`) and date (`before:`, `after:`, date picker) filters describe messages. They apply in **Messages** and **All** only.
+- On **People** they are not applied (names match with the operators left out: "alex has:image" lists Alex, and a bare operator lists every chat), not counted as active filters, not shown in the applied-filter rail, not offered as suggestions or in Search tips, and `from:` does not open the sender picker.
+- The People rows inside **All** keep the earlier rule: a query with a message operator shows no people rows, so a bare `has:image` doesn't list every chat.
+- Chat type, status and sort apply on every tab (sort choices follow the tab).

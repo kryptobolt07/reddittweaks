@@ -166,3 +166,15 @@ test('People evaluates nested Boolean names and phrases and rejects message fiel
     assert.deepEqual(ids(query),[],query);assert.equal(chatFilterCounts(records,query).types.all,0,query);
   }
 });
+
+test('the People tab leaves message operators out instead of matching nothing (ignoreFields)',()=>{
+  const {RCSGlobalSearchModel:{matchPeople,chatFilterCounts}}=environment();
+  const records=[{id:'alex',name:'Alex',type:'direct',timestamp:2},{id:'bea',name:'Bea',type:'direct',timestamp:1}];
+  const ids=query=>plain(matchPeople(records,query,{ignoreFields:true}).map(record=>record.id));
+  assert.deepEqual(ids('alex has:image'),['alex']);
+  assert.deepEqual(ids('has:image'),['alex','bea'],'a bare operator lists everyone');
+  assert.deepEqual(ids('(from:x OR from:y)'),['alex','bea']);
+  assert.deepEqual(ids('-alex before:2026-01-01'),['bea']);
+  assert.equal(chatFilterCounts(records,'alex from:bea',{ignoreFields:true}).types.all,1);
+  assert.deepEqual(plain(matchPeople(records,'has:image').map(record=>record.id)),[],'All keeps its people rows empty for message operators');
+});

@@ -179,7 +179,7 @@ test('operator commands insert query tokens and sender values use main avatar ro
   p.cache.set('space',{id:'space',name:'Coffee Person',type:'direct'});p.control.senderChoicesCache=null;p.type('coffee from:Co');await p.tick(180);assert.match(p.find('.sender-result').textContent,/Coffee Person/);
   await p.key('ArrowDown');assert.ok(p.find('.sender-result.keyboard-focus'));await p.key('Enter');assert.equal(p.control.input.value,'coffee');assert.equal(p.control.queryValue(),'from:"Coffee Person" coffee');assert.equal(p.requests.length,calls);
   for(const query of ['has','has:','before','before:','after','after:']){p.type(query);assert.equal(p.control.suggestions.hidden,false);assert.equal(p.control.valuePicker(),null);}
-  await p.search('alex');await p.click('[data-scope="people"]');p.type('from');assert.equal(p.control.scope,'people');assert.equal(p.control.suggestions.hidden,false);assert.equal(p.requests.filter(item=>item.method==='history').length,0);
+  await p.search('alex');await p.click('[data-scope="people"]');p.type('from');assert.equal(p.control.scope,'people');assert.equal(p.control.suggestions.hidden,true,'message fields are not offered on People');assert.equal(p.requests.filter(item=>item.method==='history').length,0);
 });
 test('global media and date operator completion preserves message terms and exposes removable tags',async t=>{
   const p=await setup(t,{scope:'messages'}),c=p.control;
@@ -246,14 +246,14 @@ test('calendar applies dates independently of filter accent and People ignores d
   await p.click('[aria-label="Remove date filter"]');assert.equal(p.find('[data-control="date"]').getAttribute('aria-pressed'),'false');assert.equal(c.filter,'all');await p.click('[data-scope="people"]');assert.equal(c.filter,'unread');
 });
 
-test('people previews show directory/stored latest messages, dim stale previews, and show shared-group previews in from: picker',async t=>{
+test('people previews show directory/stored latest messages, refresh stale previews in Reddit\'s own style, and show shared-group previews in from: picker',async t=>{
   const p=await setup(t);await p.search('alex');await p.click('[data-scope="people"]');const c=p.control,calls=p.requests.length,chat=p.cache.get('alex'),at=1791432000000+86400000;
   c.summaries.clear();c.render();assert.equal(c.shadow.querySelector('.row-snippet'),null);assert.doesNotMatch(c.results.textContent,/No saved message/);
   p.cache.set('alex',{...chat,timestamp:at,lastSeq:'m50'});c.summaries.set('alex',{roomId:'alex',text:'An older saved message',timestamp:new p.w.Date(at-60000).toISOString(),seq:40,authorSelf:true});c.render();
-  const staleEl=p.find('[data-key="chat:alex"] .row-snippet');assert.equal(staleEl.classList.contains('row-snippet-stale'),true);assert.equal(staleEl.textContent,'You: An older saved message…');assert.equal(p.find('[data-key="chat:alex"] time').getAttribute('datetime'),new p.w.Date(at).toISOString());
+  const staleEl=p.find('[data-key="chat:alex"] .row-snippet');assert.equal(staleEl.classList.contains('row-snippet-stale'),false,'styled like Reddit\'s own preview');assert.equal(staleEl.textContent,'You: An older saved message');assert.equal(p.find('[data-key="chat:alex"] time').getAttribute('datetime'),new p.w.Date(at).toISOString());
   // Directory lastPreview supplies fresh last-message line immediately without server reads.
   p.cache.set('alex',{...chat,timestamp:at,lastSeq:'m50',lastPreview:{id:'dir-50',sender:'@t2_alex:reddit.com',author:'Alex Morgan',authorSelf:false,text:'Directory preview',timestamp:at,seq:50}});c.render();
-  const dirEl=p.find('[data-key="chat:alex"] .row-snippet');assert.equal(dirEl.classList.contains('row-snippet-stale'),false);assert.equal(dirEl.textContent,'Directory preview');
+  const dirEl=p.find('[data-key="chat:alex"] .row-snippet');assert.equal(dirEl.textContent,'Directory preview');
   await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'latest-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:at+1000,seq_id:'m51',content:{body:'The latest\nmessage'}}]});p.emit({owner:'@t2_me:reddit.com',changed:true,roomIds:['alex']});await p.tick(750);assert.equal(p.find('[data-key="chat:alex"] .row-snippet').textContent,'You: The latest message');
   p.cache.set('alex',{...p.cache.get('alex'),accountUnavailable:true,historicalName:true});c.render();assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.find('[data-key="chat:alex"] .row-meta').getAttribute('aria-label'),'Unavailable account');assert.match(p.find('[data-key="chat:alex"] .row-meta').title,/Unavailable account/);
   p.cache.set('alex',{...chat,timestamp:at});c.summaries.set('alex',{roomId:'alex',text:'   ',timestamp:new p.w.Date(at).toISOString()});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.requests.filter(request=>request.method!=='latest').length,calls,'no other reads');assert.ok(p.requests.filter(request=>request.method==='latest').length<=1,'a missing preview is read at most once');
@@ -358,7 +358,7 @@ test('clearing, replacing and removing filters preserves the explicitly selected
   p.type('tomorrow');await p.tick(180);assert.equal(c.scope,'messages');assert.ok(c.savedHits.every(record=>record.authorSelf));
   await p.click('[aria-label="Remove sender me"]');assert.equal(c.scope,'messages');
   await p.click('[data-scope="all"]');c.clearQuery();p.type('alex');await p.tick(180);assert.equal(c.scope,'all');
-  await p.click('[data-scope="people"]');p.type('from');assert.equal(c.scope,'people');await p.key('Enter');assert.equal(c.scope,'people');assert.equal(c.input.value,'from:');
+  await p.click('[data-scope="people"]');p.type('from');assert.equal(c.scope,'people');await p.key('Enter');assert.equal(c.scope,'people');assert.equal(c.input.value,'from','People offers no from: field, so Enter keeps the name search');
 });
 
 test('People and message counts are independent of the selected tab and applied message filters',async t=>{
@@ -1005,7 +1005,8 @@ test('a chat row with no saved message reads its latest messages once, batched, 
   c.summaries.clear();const chat=p.cache.get('alex');p.cache.set('alex',{...chat,lastPreview:undefined});c.render();
   await p.tick(300);await p.tick(20);
   const reads=p.requests.filter(request=>request.method==='latest');
-  assert.equal(reads.length,1);assert.ok(reads[0].roomIds.includes('alex'));assert.ok(reads[0].roomIds.length<=12);
+  assert.equal(reads.length,1);
+  assert.match(require('node:fs').readFileSync('extension/page-bridge.js','utf8'),/priority:\['history','open','jump','latest'\]\.includes\(request\.method\)\?'interactive'/,'preview reads are interactive so a running older-messages search cannot starve them');assert.ok(reads[0].roomIds.includes('alex'));assert.ok(reads[0].roomIds.length<=12);
   c.render();await p.tick(300);
   assert.equal(p.requests.filter(request=>request.method==='latest').length,1,'not read again');
   assert.equal(p.find('[data-key="chat:alex"] .row-snippet').textContent,'No messages yet');
@@ -1020,4 +1021,27 @@ test('while older messages are searched with no match yet, the empty state stays
   // A new query shows skeletons first as before.
   c.input.value='another';c.renderedWindow='';c.renderWindow();
   assert.ok(c.shadow.querySelector('.skeleton-list'),'a different query loads normally');
+});
+
+test('a stale saved preview asks for the latest messages too',async t=>{
+  const p=await setup(t);await p.search('alex');await p.click('[data-scope="people"]');const c=p.control,chat=p.cache.get('alex'),at=1791432000000+86400000;
+  p.w.RCSData.request=(method,parameters)=>{p.requests.push({method,...parameters});return {promise:Promise.resolve(method==='latest'?{rooms:{alex:'found'}}:{})};};
+  p.cache.set('alex',{...chat,timestamp:at,lastSeq:'m50',lastPreview:undefined});c.summaries.set('alex',{roomId:'alex',text:'Old words',timestamp:new p.w.Date(at-60000).toISOString(),seq:40});c.render();
+  await p.tick(300);await p.tick(20);
+  assert.ok(p.requests.some(request=>request.method==='latest' && request.roomIds.includes('alex')));
+});
+
+test('message-only filters neither apply nor show on People: no sender picker, no field suggestions or tips, and dates do not count',async t=>{
+  const p=await setup(t);await p.click('[data-scope="people"]');const c=p.control;
+  c.dates={from:'2026-01-01',to:''};
+  assert.equal(c.filtersActive(),false,'a date range set in Messages does not count on People');
+  p.type('from:');await p.tick(200);
+  assert.equal(c.valuePicker(),null,'no sender picker on People');
+  assert.equal(c.shadow.querySelector('.sender-result'),null);
+  c.input.value='has';c.suggest();
+  assert.ok(![...c.shadow.querySelectorAll('[data-token],.suggestion')].some(el=>/has:/.test(el.textContent)),'no field suggestion on People');
+  c.input.value='';c.suggest({explicit:true});
+  assert.ok(![...c.shadow.querySelectorAll('.suggestion,[role="option"]')].some(el=>/from:|has:|before:|after:/.test(el.textContent)));
+  await p.click('[data-scope="messages"]');
+  assert.equal(c.filtersActive(),true,'the same date range counts in Messages');
 });

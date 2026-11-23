@@ -93,17 +93,20 @@
     const feedback=parsed.errors.join(' · '),hasField=node=>node.type==='field' || node.type==='not' && hasField(node.child) || (node.children || []).some(hasField);
     return feedback+(parsed.errors.includes('Put a word on both sides of OR') && hasField(parsed.expr)?' · Group chat-field alternatives, e.g. (from:alice OR from:bob).':'');
   }
-  function peoplePredicate(draft,{wholeWord=false}={}){
+  function peoplePredicate(draft,{wholeWord=false,ignoreFields=false}={}){
     const parsed=core().parseQuery(draft);
-    // These operators describe messages; People and All use the same name query.
     const hasField=node=>node.type==='field' || node.type==='not' && hasField(node.child) || (node.children || []).some(hasField);
-    if(parsed.invalid || hasField(parsed.expr))return ()=>false;
-    const predicate=core().prepareQuery(parsed,{wholeWord,shortTermsWholeWord:false});
+    if(parsed.invalid)return ()=>false;
+    // Message operators (from:, has:, before:, after:) describe messages. In All they leave the people rows empty; the
+    // People tab (ignoreFields) leaves them out instead, so "alex has:image" lists Alex and a bare operator lists everyone.
+    if(hasField(parsed.expr) && !ignoreFields)return ()=>false;
+    const names=hasField(parsed.expr)?core().splitQuery(parsed,['and','or','not','term','phrase']).server:parsed;
+    const predicate=core().prepareQuery(names,{wholeWord,shortTermsWholeWord:false});
     return record=>predicate({text:[record.name,...record.participants || [],...record.aliases || [],...(record.accountUnavailable?[record.accountState==='banned' ? 'banned suspended unavailable retained username' : 'deleted unavailable retained username']:[])].join(' ')});
   }
-  function chatFilterCounts(records,draft='',{chatType='all',status='all',wholeWord=false}={}){
+  function chatFilterCounts(records,draft='',{chatType='all',status='all',wholeWord=false,ignoreFields=false}={}){
     const counts={types:{all:0,direct:0,groups:0},statuses:{all:0,unread:0,requests:0,unavailable:0}};
-    const matches=peoplePredicate(draft,{wholeWord});
+    const matches=peoplePredicate(draft,{wholeWord,ignoreFields});
     for(const record of recordList(records)){
       if(!matches(record))continue;
       for(const type of Object.keys(counts.types))if(roomAllowed(record,{chatType:type,status}))counts.types[type]++;
@@ -111,8 +114,8 @@
     }
     return counts;
   }
-  function matchPeople(records,draft='',{filter='all',chatType='all',status='all',sort='newest',wholeWord=false}={}){
-    const matches=peoplePredicate(draft,{wholeWord});
+  function matchPeople(records,draft='',{filter='all',chatType='all',status='all',sort='newest',wholeWord=false,ignoreFields=false}={}){
+    const matches=peoplePredicate(draft,{wholeWord,ignoreFields});
     const newest=(a,b)=>timestamp(b)-timestamp(a);
     const compare=typeof sort==='function'?sort:sort==='oldest'?(a,b)=>timestamp(a)-timestamp(b)
       :sort==='alphabetical'?(a,b)=>String(a.name || '').localeCompare(String(b.name || ''),undefined,{sensitivity:'base'}) || newest(a,b)

@@ -1680,7 +1680,8 @@
     if (['history','open','jump'].includes(request.method) && (typeof request.roomId!=='string' || request.roomId.length>1000)) return;
     if(request.knownIds && (!Array.isArray(request.knownIds) || request.knownIds.some(id=>typeof id!=='string' || id.length>1000)))return;
     if (request.method==='jump' && (typeof request.eventId!=='string' || request.eventId.length>1000)) return;
-    const job={cancelled:false,stage:'connection',request,priority:['history','open','jump'].includes(request.method)?'interactive':'background'};running.set(key,job);
+    // latest fills previews of rows on screen: interactive, so a running older-messages search (background) can't starve it.
+    const job={cancelled:false,stage:'connection',request,priority:['history','open','jump','latest'].includes(request.method)?'interactive':'background'};running.set(key,job);
     try {
       if(request.method==='jump' && request.eventId.startsWith('~'))throw problem('This result has a temporary Reddit message ID. Open the conversation to check its send status.');
       if(['identity-context','identity-snapshot','cache-native-history'].includes(request.method)) {

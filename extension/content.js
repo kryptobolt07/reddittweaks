@@ -133,7 +133,6 @@
     :host([data-rcs-compact]) .message-panel { width:min(320px,calc(100% - 12px));margin-top:0;border-radius:9px; }
     :host([data-rcs-compact]) .message-panel .results { max-height:min(210px,var(--rcs-message-height,42vh)); }
     :host([data-rcs-compact]) .message-panel .avatar { width:22px;height:22px; }
-    :host([data-rcs-compact]) .message-panel .preview { font-size:11px; }
     :host([data-rcs-compact]) .date-chip,:host([data-rcs-compact]) .load:not(.rcs-refresh) { min-height:24px;font-size:10px; }
     :host([data-rcs-compact]) .load:not(.rcs-refresh) { padding:3px 7px; }
     :host([data-rcs-compact]) .date-chip { padding:0 2px 0 7px; }
