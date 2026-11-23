@@ -71,8 +71,8 @@
       ...(parsedSeq?{seq:parsedSeq.s,seqScope:parsedSeq.p}:{}),...(seqRaw?{seqRaw}:{}),
       ...(Number.isInteger(threadCount) && threadCount>0?{threadCount}:{})};
   }
-  const encoder=new TextEncoder();
-  const bytes=value=>encoder.encode(JSON.stringify(value)).length;
+  let encoder;
+  const bytes=value=>{const text=JSON.stringify(value);if(typeof TextEncoder==='function')return (encoder ||= new TextEncoder()).encode(text).length;return text.length;};
   const order=(a,b)=>(a.time-b.time) || a.id.localeCompare(b.id);
   const relOrder=(a,b)=>(a.t-b.t) || a.e.localeCompare(b.e);
   const foldFast=value=>{const text=String(value ?? '');return /[^\x00-\x7f]/.test(text)?(globalThis.RCSCore?.foldedValue?RCSCore.foldedValue(text):text.normalize('NFKC').toLocaleLowerCase()):text.toLowerCase();};

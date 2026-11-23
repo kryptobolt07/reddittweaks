@@ -214,7 +214,7 @@
     if(raw.unsigned?.redacted_because)saved.unsigned={...saved.unsigned,redacted_because:{event_id:raw.unsigned.redacted_because.event_id}};
     return saved;
   }
-  function publishCache(ctx,roomId,values=[],source='native',coverage,identityIds=[]) {
+  function publishCache(ctx,roomId,values=[],source='native',coverage,identityIds=[],span) {
     const owner=ctx.client.getUserId();if(!owner || owner!==watchedOwner || ctx.client!==watchedClient)return;
     const events=[],ids=new Set(identityIds),identities=[];
     for(const value of values) {
@@ -235,10 +235,32 @@
       const signature=JSON.stringify(coverage);
       if(capturedCoverage.get(roomId)===signature)coverage=undefined;else capturedCoverage.set(roomId,signature);
     }
-    if(!events.length && !identities.length && !coverage)return;
-    const detail=JSON.stringify({owner,roomId,events,identities,source,...(coverage ? {coverage} : {})});
+    if(!events.length && !identities.length && !coverage && !span)return;
+    const detail=JSON.stringify({owner,roomId,events,identities,source,...(coverage ? {coverage} : {}),...(span ? {span} : {})});
     document.dispatchEvent(new CustomEvent('rcs-message-cache-batch',{detail}));
     return {events:events.length,bytes:detail.length*2};
+  }
+  function storeControl(action,owner,payload={},job) {
+    if(!cacheConsumerReady)return Promise.resolve(null);
+    const id=crypto.randomUUID();
+    return new Promise((resolve,reject)=>{
+      let timer,monitor;
+      const finish=(err,val)=>{
+        document.removeEventListener('rcs-store-control-response',onReply);
+        clearTimeout(timer);clearInterval(monitor);
+        err ? reject(err) : resolve(val);
+      };
+      const onReply=event=>{
+        let value;try{value=JSON.parse(event.detail);}catch{return;}
+        if(value?.id!==id || value.owner!==owner)return;
+        if(job)try{check(job);}catch(err){finish(err);return;}
+        finish(null,value.ok?value:null);
+      };
+      document.addEventListener('rcs-store-control-response',onReply);
+      timer=setTimeout(()=>finish(null,null),8000);
+      if(job)monitor=setInterval(()=>{try{check(job);}catch(err){finish(err);}},50);
+      document.dispatchEvent(new CustomEvent('rcs-store-control-request',{detail:JSON.stringify({id,owner,action,...payload})}));
+    });
   }
   function nativeRoomEvents(native) {
     const live=native.getLiveTimeline?.()?.getEvents?.() || native.getUnfilteredTimelineSet?.()?.getEvents?.() || [];
@@ -1042,6 +1064,9 @@
     const scope=histories.scope(room,parent);
     if(scope.done && !refresh)return;
     if(!refresh && scopeCoversDate(scope,job.dateStart?.() ?? -Infinity))return;
+    const persistedSpans=(room.persistedCoverage?.spans?.[parent] || []).slice().sort((a,b)=>a.hi-b.hi);
+    let topSpan=!scope.headVerified && persistedSpans.length?persistedSpans.at(-1):null;
+    if(topSpan)room.resumedFromStore=true;
     const wasDone=scope.done,refreshing=scope.headVerified && refresh,resumeCursor=scope.cursor;
     const baseline=refreshing ? new Set(scope.verifiedIds) : null;
     const rootCount=room.roots.get(parent)?.count || 0;
@@ -1056,25 +1081,41 @@
       if(!Array.isArray(data.events))throw problem('Reddit returned an unexpected message history. Search is incomplete.');
       rememberMembers(data.events,ctx);
       let overlap=false;const changed=new Set();
+      const legacyLatestId=room.persistedCoverage?.legacyComplete?room.persistedCoverage.latest?.e:'';
+      let overlapLegacy=false;
       for(const event of data.events)if(event.event_id) {
         if(baseline?.has(event.event_id))overlap=true;
+        if(legacyLatestId && event.event_id===legacyLatestId)overlapLegacy=true;
         for(const id of histories.accept(room,event))changed.add(id);scope.verifiedIds.add(event.event_id);
       }
-      publishCache(ctx,room.roomId,data.events,'history-page',room.dirtyThreads.size ? {complete:false,dateComplete:false} : undefined);
       const values=data.events.map(sequence).filter(value=>value!==null);
       if(data.events.length && !values.length)throw problem('Reddit did not provide a history cursor. Search is incomplete.');
       const oldest=values.length ? Math.min(...values) : 0;
+      const newest=values.length ? Math.max(...values) : (cursor!==null ? cursor : 0);
+      const reqHi=cursor!==null ? cursor : newest;
       const dated=data.events.filter(event=>['m.room.message','m.sticker'].includes(event.type)).sort((a,b)=>sequence(a)-sequence(b));
+      let tLo=0,tHi=0;
       if(dated.length) {
+        tLo=dated[0].origin_server_ts || 0;tHi=dated.at(-1).origin_server_ts || 0;
         const chronological=dated.every((event,i)=>Number.isFinite(event.origin_server_ts) && event.origin_server_ts>0 && (!i || event.origin_server_ts>=dated[i-1].origin_server_ts));
         if(!chronological || scope.headVerified && !refreshing && chronological && dated.at(-1).origin_server_ts>scope.coveredStart)scope.dateOrderSafe=false;
         if(chronological)scope.coveredStart=Math.min(scope.coveredStart,dated[0].origin_server_ts);
       }
       if(scope.cursor===null || refreshing)scope.headVerified=true;
-      const done=!data.events.length || oldest===0 || overlap && wasDone;
+      const touchesPersisted=Boolean(topSpan && (!data.events.length || oldest<=topSpan.hi+1));
+      const done=!data.events.length || oldest===0 || overlap && wasDone || Boolean(touchesPersisted && topSpan.bottom) || Boolean(!parent && overlapLegacy);
+      const spanMeta={p:parent,lo:touchesPersisted?Math.min(oldest,topSpan.lo):oldest,hi:Math.max(reqHi,newest),tLo,tHi,bottom:Boolean(done && (!overlap || wasDone)),src:'history',...(overlapLegacy?{overlapLegacy:true}:{})};
+      publishCache(ctx,room.roomId,data.events,'history-page',room.dirtyThreads.size ? {complete:false,dateComplete:false} : undefined,[],spanMeta);
       if(done) {
         scope.done=true;
         if(!parent || (room.roots.get(parent)?.count || 0)<=rootCount)room.dirtyThreads.delete(parent);
+      } else if(touchesPersisted) {
+        // Head gap closed: jump straight below the persisted span without refetching its messages.
+        const jumped=topSpan.lo-1;
+        if(topSpan.tLo>0)scope.coveredStart=Math.min(scope.coveredStart,topSpan.tLo);
+        topSpan=null;
+        if(jumped<0){scope.done=true;}
+        else{cursor=jumped;scope.cursor=scope.cursor===null ? jumped : Math.min(scope.cursor,jumped);}
       } else {
         const next=refreshing && overlap && resumeCursor!==null ? Math.min(oldest-1,resumeCursor) : oldest-1;
         if(cursor!==null && next>=cursor)throw problem('Reddit history pagination stopped advancing. Search is incomplete.');
@@ -1082,7 +1123,7 @@
       }
       histories.readiness(room);
       historyProgress(ctx,job,room,parent ? 'Searching replies…' : 'Searching older messages…',[...changed]);
-      if(done || scopeCoversDate(scope,job.dateStart?.() ?? -Infinity)) {
+      if(scope.done || scopeCoversDate(scope,job.dateStart?.() ?? -Infinity)) {
         if(parent && (room.roots.get(parent)?.count || 0)<=rootCount)room.dirtyThreads.delete(parent);
         return;
       }
@@ -1093,6 +1134,20 @@
     rememberRenderedIdentities(ctx);
     const room=histories.get(job.owner,roomId);
     job.requestedDates=job.requestedDates || request.dates || {};historyDateStart(job.requestedDates);historyDateEnd(job.requestedDates);
+    if(!room.hydratedFromStore && cacheConsumerReady) {
+      const covRes=await storeControl('coverage',job.owner,{roomIds:[roomId]},job).catch(()=>null);
+      room.hydratedFromStore=true;
+      const savedCov=covRes?.rooms?.[roomId] || null;
+      if(savedCov){
+        room.persistedCoverage=savedCov;
+        for(const [p,info] of Object.entries(savedCov.threads || {})){
+          if(!room.roots.has(p))room.roots.set(p,{id:info.root,count:info.count});
+          const tspans=savedCov.spans?.[p] || [];
+          const ttop=tspans.length?tspans[tspans.length-1]:null;
+          if(!ttop?.bottom || info.dirty)room.dirtyThreads.add(p);
+        }
+      }
+    }
     const native=ctx.client.getRoom?.(roomId);
     if(native)rememberMembers(stateOf(cachedRoom(native)),ctx);
     const live=native?.getLiveTimeline?.()?.getEvents?.() || native?.getUnfilteredTimelineSet?.()?.getEvents?.() || [];
@@ -1101,7 +1156,7 @@
     for(const value of cached){const raw=value.event || value;if(!room.events.has(raw.event_id))histories.accept(room,raw);}
     if(room.events.size)historyProgress(ctx,job,room,'Searching cached messages…');
     if((room.complete || rangeCovered(room,historyDateStart(job.requestedDates))) && !request.refresh) {
-      job.historyMeta={complete:room.complete,dateComplete:true,dates:job.requestedDates,redacted:[...room.removed]};
+      job.historyMeta={complete:room.complete,dateComplete:true,dates:job.requestedDates,redacted:[...room.removed],...(room.resumedFromStore?{resumedFromStore:true}:{})};
       publishCache(ctx,roomId,[],'history-verified',job.historyMeta);
       if(cacheConsumerReady)await flushNativeCache(job,()=>check(job));
       return projectHistory(room,ctx);
@@ -1132,14 +1187,14 @@
     }
     try {
       const records=await load.promise;check(job);
-      job.historyMeta={complete:room.complete,dateComplete:rangeCovered(room,historyDateStart(job.requestedDates)),dates:job.requestedDates,redacted:[...room.removed]};
+      job.historyMeta={complete:room.complete,dateComplete:rangeCovered(room,historyDateStart(job.requestedDates)),dates:job.requestedDates,redacted:[...room.removed],...(room.resumedFromStore?{resumedFromStore:true}:{})};
       publishCache(ctx,roomId,[],'history-verified',job.historyMeta);if(cacheConsumerReady)await flushNativeCache(job,()=>check(job));return records;
     } finally {load.jobs.delete(job);}
   }
   document.addEventListener('rcs-message-cache-reset',event=>{
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     if(!watchedOwner || value?.owner!==watchedOwner || watchedClient?.getUserId?.()!==watchedOwner)return;
-    captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();
+    captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();histories.clear();
     const ctx=nativeCapture?.ctx;
     if(ctx){
       // Clear cancels pre-clear snapshot jobs. Existing tails form the baseline;

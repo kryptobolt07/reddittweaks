@@ -734,7 +734,8 @@
           // Only a verified-complete snapshot may drop messages it lacks. Missing or partial metadata is incomplete:
           // merge what arrived, never hide or clear what the index already holds.
           const verified=records.historyMeta?.complete===true;
-          if(verified)index.replace(room,records,records.historyMeta);else index.upsert(room,records,{authoritative:true,redacted:records.historyMeta?.redacted || []});
+          if(verified && !records.historyMeta?.resumedFromStore)index.replace(room,records,records.historyMeta);else index.upsert(room,records,{authoritative:true,redacted:records.historyMeta?.redacted || []});
+          if(records.historyMeta?.resumedFromStore){this.roomSavedKey='';this.queueRoomRead();}
           this.complete=verified;this.dateCompleteKey=records.historyMeta?.dateComplete ? JSON.stringify(records.historyMeta.dates || {}) : '';if(this.complete)completeRooms.add(room);else completeRooms.delete(room);}
       } catch(error) { if(this.dataTask===task)this.notice=error.message; }
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;if(!globalThis.document || stopped)return;this.updateLoad();if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
