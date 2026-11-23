@@ -1,3 +1,13 @@
+# 0.62.1 preview
+
+- Free abandoned offscreen comments, filters, players, and chat rows. Keep native feed batches available for Back and preserve live players during handoff.
+- Avoid redundant profile, avatar, and media lookups during scrolling and page updates.
+- Reduce repeated work when ranking archived comments, building chat sender previews, and reading saved chat search data concurrently.
+- Patch increment for memory retention and performance fixes.
+- All 2,312 tests passed. Chromium fixtures verified comment height and focus, cached card identity, retained player registration, and packaged filter startup. Archive ranking and sender picker fixtures returned the same results, and three concurrent cold chat searches shared one projection build.
+- The live Chrome Dev profile loaded the test build and reached Reddit signed out. Signed-in playback, navigation, and chat require live testing. Firefox package checks and lint passed.
+- Both ZIPs matched the unpacked assets byte for byte. Chromium SHA-256 `d38f656f61dec38b97bdecd9ce26fbf6df91531ab0ee4a22bd16bea3b6b159ab`. Firefox SHA-256 `7bff87d5ce4480ac2307e4808f2466be5cf02b8b54183c3dff44e2301a4fdf25`.
+
 # 0.62.0 preview
 
 - **Sort & filter** replaces the vague "Feed options" label everywhere the extension draws it, including Reddit's own profile button.
