@@ -18,8 +18,10 @@
       discard();
       for(const request of importRequests.values())request.cancel?.();
       importRequests.clear();initializations.clear();preparing.clear();cacheProgress.clear();
+      notify({owner,statusOnly:true,chatSearchEnabled:false});
       return;
     }
+    notify({owner,statusOnly:true,chatSearchEnabled:true});
     document.dispatchEvent(new CustomEvent('rcs-message-cache-listening',{detail:'resume'}));
   }
   function transportError(error){

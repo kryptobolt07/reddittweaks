@@ -1191,10 +1191,321 @@
       publishCache(ctx,roomId,[],'history-verified',job.historyMeta);if(cacheConsumerReady)await flushNativeCache(job,()=>check(job));return records;
     } finally {load.jobs.delete(job);}
   }
+  // Watermark max-heap & search-driven global history backfill (PLAN.md 3.5).
+  const backfillFreshnessAt=new Map(); // owner -> {at, rooms: Map<roomId, {lastSeq, membership, timestamp}>}
+  const backfillReleasing=new Map(); // owner -> Promise (serializes rapid Stop -> Continue lease release on same tab)
+  function releaseBackfillLease(job){
+    const token=job?.leaseToken;if(!token)return Promise.resolve();
+    job.leaseToken='';
+    const owner=job.owner;
+    const p=storeControl('backfill-lease',owner,{op:'release',token}).catch(()=>{}).finally(()=>{if(backfillReleasing.get(owner)===p)backfillReleasing.delete(owner);});
+    backfillReleasing.set(owner,p);
+    return p;
+  }
+  class MaxHeap {
+    constructor(keyFn){this.items=[];this.key=keyFn;}
+    get size(){return this.items.length;}
+    peek(){return this.items[0];}
+    push(item){
+      const a=this.items;a.push(item);let i=a.length-1;
+      while(i>0){const p=(i-1)>>1;if(this.key(a[p])>=this.key(a[i]))break;[a[p],a[i]]=[a[i],a[p]];i=p;}
+    }
+    pop(){
+      const a=this.items;if(!a.length)return;
+      const top=a[0],last=a.pop();
+      if(a.length){
+        a[0]=last;let i=0;const n=a.length;
+        while(true){
+          let best=i,l=i*2+1,r=l+1;
+          if(l<n && this.key(a[l])>this.key(a[best]))best=l;
+          if(r<n && this.key(a[r])>this.key(a[best]))best=r;
+          if(best===i)break;
+          [a[i],a[best]]=[a[best],a[i]];i=best;
+        }
+      }
+      return top;
+    }
+  }
+  function mergeLocalSpan(spans,incoming){
+    const overlapping=[],kept=[];
+    for(const sp of spans){
+      if(sp.lo<=incoming.hi+1 && incoming.lo<=sp.hi+1)overlapping.push(sp);
+      else kept.push(sp);
+    }
+    let lo=incoming.lo,hi=incoming.hi,tLo=incoming.tLo>0?incoming.tLo:Infinity,tHi=incoming.tHi || 0,bottom=Boolean(incoming.bottom);
+    for(const sp of overlapping){
+      if(sp.lo<lo)lo=sp.lo;if(sp.hi>hi)hi=sp.hi;
+      if(sp.tLo>0 && sp.tLo<tLo)tLo=sp.tLo;if(sp.tHi>tHi)tHi=sp.tHi;
+      if(sp.bottom)bottom=true;
+    }
+    return [...kept,{lo,hi,tLo:Number.isFinite(tLo)?tLo:0,tHi,bottom}].sort((a,b)=>a.hi-b.hi);
+  }
+  function seqNumOf(value){
+    if(typeof value==='number')return Number.isSafeInteger(value) && value>=0?value:null;
+    if(typeof value!=='string' || !value)return null;
+    const end=value.split('.').at(-1),num=Number(end?.replace(/^[a-z]/i,''));
+    return end && Number.isSafeInteger(num) && num>=0?num:null;
+  }
+  async function backfill(ctx,job,request){
+    job.stage='older chat messages';
+    const owner=job.owner;
+    // Runtime contract gate (M9): disable backfill cleanly if native client shape changed.
+    if(typeof ctx.client?.http?.authedRequest!=='function' || typeof ctx.client?.getRoomList!=='function'){
+      return {state:'unavailable',reason:'contract',searchedRooms:0,totalRooms:0,inaccessibleCount:0,unreadableCount:0,requestsUsed:0};
+    }
+    if(backfillReleasing.has(owner))await backfillReleasing.get(owner);
+    check(job);
+    const lease=await storeControl('backfill-lease',owner,{op:'acquire'},job).catch(()=>null);
+    if(lease?.busy){
+      emit(job.request,{progress:{state:'other-tab',label:'Searching in another tab…'}});
+      return {state:'other-tab',searchedRooms:0,totalRooms:0,inaccessibleCount:0,unreadableCount:0,requestsUsed:0};
+    }
+    job.leaseToken=lease?.token || '';
+    let leaseTimer=job.leaseToken?setInterval(()=>{if(job.leaseToken)storeControl('backfill-lease',owner,{op:'renew',token:job.leaseToken}).catch(()=>{});},25000):null;
+    let requestsUsed=0,eventsSinceFlush=0,bytesSinceFlush=0;
+    const startedAt=Date.now();
+    const normalizePlan=p=>({
+      roomIds:Array.isArray(p?.roomIds)?p.roomIds.filter(id=>typeof id==='string' && id && id.length<=1000):null,
+      excludeRoomIds:Array.isArray(p?.excludeRoomIds)?p.excludeRoomIds.filter(id=>typeof id==='string' && id && id.length<=1000):null,
+      start:Number.isFinite(p?.start)?p.start:-Infinity,
+      end:Number.isFinite(p?.end)?p.end:Infinity,
+      maxRequests:Number.isInteger(p?.maxRequests) && p.maxRequests>0 && p.maxRequests<=5000?p.maxRequests:300,
+      maxMs:Number.isFinite(p?.maxMs) && p.maxMs>0?Math.min(p.maxMs,1800000):180000,
+      refreshHeads:Boolean(p?.refreshHeads)
+    });
+    const initialPlan=normalizePlan(request.plan || request);
+    job.plan=job.retargeted && job.plan?{...initialPlan,...job.plan}:initialPlan;
+    job.retargeted=false;
+
+    try{
+      // 1. Freshness check: one ids-only /rooms traversal per session (or when requested) for all rooms incl. modmail.
+      let fresh=backfillFreshnessAt.get(owner);
+      const staleFresh=!fresh || job.plan.refreshHeads || Date.now()-fresh.at>600000;
+      let headsChecked=Boolean(fresh);
+      if(staleFresh){
+        const roomRoster=new Map();let cursor=null;const seen=new Set();
+        while(true){
+          check(job);
+          const opts={page_size:200};if(cursor)opts.next_batch=cursor;
+          const data=await retryRead(()=>ctx.client.getRoomList(opts),job);
+          check(job);
+          if(!Array.isArray(data?.rooms))break;
+          for(const raw of data.rooms){
+            if(typeof raw?.room_id!=='string')continue;
+            const saved=knownConversations.get(raw.room_id);
+            roomRoster.set(raw.room_id,{
+              roomId:raw.room_id,
+              lastSeq:raw.last_seq_id!=null?String(raw.last_seq_id):(saved?.lastSeq || ''),
+              membership:raw.membership || saved?.membership || 'join',
+              timestamp:Math.max(raw.timestamp || 0,saved?.timestamp || 0)
+            });
+          }
+          const next=data.next_batch;
+          if(!next || typeof next!=='string' || seen.has(next) || next===cursor || !data.rooms.length)break;
+          seen.add(next);cursor=next;
+        }
+        fresh={at:Date.now(),rooms:roomRoster};
+        backfillFreshnessAt.set(owner,fresh);
+        headsChecked=true;
+        const headUpdates=[];
+        for(const r of roomRoster.values())if(r.lastSeq)headUpdates.push({roomId:r.roomId,lastSeq:r.lastSeq});
+        if(headUpdates.length)await storeControl('update-heads',owner,{heads:headUpdates},job).catch(()=>{});
+      }
+
+      // Also include any knownConversations not yet in fresh (e.g. cached before reload).
+      const allRooms=new Map(fresh.rooms);
+      for(const [id,rec] of knownConversations)if(!allRooms.has(id))allRooms.set(id,{roomId:id,lastSeq:rec.lastSeq || '',membership:rec.membership || 'join',timestamp:rec.timestamp || 0});
+
+      // 2. Read persisted coverage snapshot from rcs-chat-v2.
+      const covRes=await storeControl('coverage',owner,{},job);
+      const savedRooms=covRes?.rooms || {};
+
+      // Build mutable per-room backfill state (holds NO raw events — only spans, threads, cursors & timestamps).
+      const roomStates=new Map();
+      for(const [roomId,meta] of allRooms){
+        if(meta.membership==='leave' || meta.membership==='ban')continue;
+        const cov=savedRooms[roomId] || {};
+        const spansByScope=new Map();
+        for(const [p,list] of Object.entries(cov.spans || {}))spansByScope.set(p,list.slice().sort((a,b)=>a.hi-b.hi));
+        const headSeq=Math.max(seqNumOf(meta.lastSeq) ?? -1,cov.headSeen?.s ?? -1);
+        const threads=new Map();
+        for(const [p,info] of Object.entries(cov.threads || {}))threads.set(p,{root:info.root,count:info.count,dirty:Boolean(info.dirty)});
+        roomStates.set(roomId,{
+          roomId,
+          timestamp:Math.max(meta.timestamp || 0,cov.latest?.t || 0),
+          headSeq:headSeq>=0?headSeq:null,
+          spans:spansByScope,
+          threads,
+          inaccessible:Boolean(cov.inaccessible),
+          unknownCount:cov.unknownCount || 0,
+          legacyComplete:Boolean(cov.legacyComplete),
+          legacyLatestId:cov.latest?.e || '',
+          headCursor:null,
+          frontier:0
+        });
+      }
+
+      const computeRoomProgress=(st,start)=>{
+        if(st.inaccessible)return {done:true,frontier:0,pendingScope:null};
+        const mainSpans=st.spans.get('') || [];
+        const top=mainSpans.length?mainSpans[mainSpans.length-1]:null;
+        const needsHead=Boolean(!top || (st.headSeq!==null && top.hi<st.headSeq));
+        const mainBelowStart=Boolean(!needsHead && Number.isFinite(start) && top.tLo>0 && top.tLo<start);
+        const roomBeforeStart=Boolean(Number.isFinite(start) && !top && st.timestamp>0 && st.timestamp<start);
+        const mainDone=Boolean((!needsHead && (top.bottom || top.lo===0)) || mainBelowStart || roomBeforeStart);
+        if(!mainDone){
+          const frontier=(!needsHead && top && top.tLo>0)?top.tLo:(st.timestamp || Date.now());
+          const nextCursor=needsHead?st.headCursor:(top.lo-1);
+          return {done:false,frontier,pendingScope:'',needsHead,cursor:nextCursor,top};
+        }
+        // After main scope is covered for the window, process any unbottomed thread scopes.
+        for(const [p,info] of st.threads){
+          const tspans=st.spans.get(p) || [];
+          const ttop=tspans.length?tspans[tspans.length-1]:null;
+          const tDone=Boolean(ttop && (ttop.bottom || ttop.lo===0) && !info.dirty);
+          if(!tDone){
+            const tNeedsHead=!ttop || info.dirty;
+            return {done:false,frontier:st.timestamp || 0,pendingScope:p,needsHead:tNeedsHead,cursor:tNeedsHead?null:(ttop.lo-1),top:ttop};
+          }
+        }
+        return {done:true,frontier:0,pendingScope:null};
+      };
+
+      const buildPlanState=()=>{
+        const plan=job.plan;
+        const excluded=plan.excludeRoomIds?.length?new Set(plan.excludeRoomIds):null;
+        const baseIds=plan.roomIds?plan.roomIds.filter(id=>roomStates.has(id)):[...roomStates.keys()];
+        const scopeIds=excluded?baseIds.filter(id=>!excluded.has(id)):baseIds;
+        const heap=new MaxHeap(entry=>entry.frontier);
+        let totalRooms=scopeIds.length,searchedRooms=0,inaccessibleCount=0,unreadableCount=0;
+        for(const id of scopeIds){
+          const st=roomStates.get(id);
+          if(st.inaccessible){inaccessibleCount++;continue;}
+          if(st.unknownCount>0)unreadableCount++;
+          const prog=computeRoomProgress(st,plan.start);
+          if(prog.done){searchedRooms++;}
+          else{st.frontier=prog.frontier;heap.push(st);}
+        }
+        return {heap,totalRooms,searchedRooms,inaccessibleCount,unreadableCount};
+      };
+
+      let state=buildPlanState();
+      const emitStatus=(status,extra={})=>{
+        const watermark=state.heap.peek()?.frontier || 0;
+        emit(job.request,{progress:{state:status,watermark,searchedRooms:state.searchedRooms,totalRooms:state.totalRooms,inaccessibleCount:state.inaccessibleCount,unreadableCount:state.unreadableCount,requestsUsed,...extra}});
+      };
+      emitStatus('running');
+
+      while(state.heap.size>0){
+        check(job);
+        if(job.retargeted){job.retargeted=false;state=buildPlanState();emitStatus('running');if(!state.heap.size)break;}
+        if(requestsUsed>=job.plan.maxRequests || Date.now()-startedAt>=job.plan.maxMs){
+          if(eventsSinceFlush>0 && cacheConsumerReady){await flushNativeCache(job,()=>check(job));eventsSinceFlush=0;bytesSinceFlush=0;}
+          const watermark=state.heap.peek()?.frontier || 0;
+          return {state:'paused',reason:'budget',watermark,searchedRooms:state.searchedRooms,totalRooms:state.totalRooms,inaccessibleCount:state.inaccessibleCount,unreadableCount:state.unreadableCount,requestsUsed};
+        }
+
+        const st=state.heap.pop();
+        const prog=computeRoomProgress(st,job.plan.start);
+        if(prog.done){state.searchedRooms++;continue;}
+
+        const parent=prog.pendingScope;
+        const params={dir:'b',before:100,include:'timeline'};
+        if(parent)params.parent=parent;
+        if(prog.cursor!==null && prog.cursor>=0)params.seq=String(prog.cursor);
+
+        let data;
+        try{
+          requestsUsed++;
+          data=await retryRead(()=>ctx.client.http.authedRequest('GET','/rooms/'+encodeURIComponent(st.roomId)+'/events',params),job);
+        }catch(error){
+          const httpStatus=Number(error?.httpStatus || error?.status || error?.response?.status);
+          if(httpStatus===403 || httpStatus===404){
+            st.inaccessible=true;state.inaccessibleCount++;
+            await storeControl('mark-inaccessible',owner,{roomId:st.roomId,status:httpStatus},job).catch(()=>{});
+            emitStatus('running');
+            continue;
+          }
+          if(error?.name==='AbortError')throw error;
+          // Repeated 5xx or connection failure: pause cleanly preserving persisted spans.
+          if(eventsSinceFlush>0 && cacheConsumerReady)await flushNativeCache(job,()=>check(job)).catch(()=>{});
+          const watermark=Math.max(st.frontier || 0,state.heap.peek()?.frontier || 0);
+          return {state:'paused',reason:'error',error:error.rcsMessage || error.message,watermark,searchedRooms:state.searchedRooms,totalRooms:state.totalRooms,inaccessibleCount:state.inaccessibleCount,unreadableCount:state.unreadableCount,requestsUsed};
+        }
+
+        check(job);
+        const events=Array.isArray(data?.events)?data.events:[];
+        rememberMembers(events,ctx);
+        const values=events.map(sequence).filter(v=>v!==null);
+        // Check for unknown event types (never drop silently; continue paging readable messages while blocking completeness).
+        const hadUnknown=st.unknownCount>0;
+        let pageUnknown=0;
+        for(const ev of events){
+          if(ev?.event_id && !ev.event_id.startsWith('~') && ev.type && ev.state_key===undefined && !['m.room.message','m.sticker','m.room.redaction','m.room.create','m.room.member','m.room.join_rules','m.room.power_levels','m.room.history_visibility','m.room.name','m.room.topic','m.room.avatar','m.room.canonical_alias','m.room.tombstone','m.room.pinned_events','m.room.encryption','m.room.guest_access','m.room.server_acl','m.room.third_party_invite','m.reaction','m.receipt','m.typing','m.fully_read','m.call.invite','m.call.answer','m.call.hangup','m.call.candidates','com.reddit.chat.type','com.reddit.chat.settings','com.reddit.chat.pinned','com.reddit.chat.read_receipt','com.reddit.room.settings'].includes(ev.type)){
+            st.unknownCount++;pageUnknown++;
+          }
+          const tCount=ev?.unsigned?.['m.relations']?.['m.thread']?.count;
+          if(tCount>0 && ev.seq_id!==undefined){
+            const tp=String(ev.seq_id);
+            const prevT=st.threads.get(tp);
+            if(!prevT || prevT.count!==tCount)st.threads.set(tp,{root:ev.event_id,count:tCount,dirty:true});
+          }
+        }
+        if(!hadUnknown && st.unknownCount>0)state.unreadableCount++;
+        const oldest=values.length?Math.min(...values):0;
+        const newest=values.length?Math.max(...values):(prog.cursor!==null?prog.cursor:0);
+        const reqHi=prog.cursor!==null?prog.cursor:(!parent && prog.needsHead && st.headSeq!==null?Math.max(newest,st.headSeq):newest);
+        const dated=events.filter(e=>['m.room.message','m.sticker'].includes(e.type) && Number.isFinite(e.origin_server_ts) && e.origin_server_ts>0).map(e=>e.origin_server_ts);
+        const tLo=dated.length?Math.min(...dated):0;
+        const tHi=dated.length?Math.max(...dated):0;
+        const overlapLegacy=Boolean(!parent && st.legacyComplete && st.legacyLatestId && events.some(e=>e.event_id===st.legacyLatestId));
+        const touchesTop=Boolean(prog.top && (!events.length || oldest<=prog.top.hi+1));
+        const bottom=Boolean(!events.length || oldest===0 || (touchesTop && prog.top.bottom) || overlapLegacy);
+
+        const spanMeta={p:parent,lo:overlapLegacy?0:(touchesTop?Math.min(oldest,prog.top.lo):oldest),hi:Math.max(reqHi,newest),tLo,tHi,bottom,src:'backfill',...(overlapLegacy?{overlapLegacy:true}:{}),...(pageUnknown?{unknownDelta:pageUnknown}:{})};
+        const sent=publishCache(ctx,st.roomId,events,'backfill',undefined,[],spanMeta);
+        if(sent){eventsSinceFlush+=Math.max(1,sent.events);bytesSinceFlush+=sent.bytes;}
+
+        // Update local room span state.
+        st.spans.set(parent,mergeLocalSpan(st.spans.get(parent) || [],spanMeta));
+        if(overlapLegacy)st.legacyComplete=false;
+        if(!parent){
+          if(prog.needsHead && !touchesTop && !bottom && oldest>0)st.headCursor=oldest-1;
+          else st.headCursor=null;
+          if(st.headSeq===null || newest>st.headSeq)st.headSeq=newest;
+        }else if(st.threads.has(parent) && (prog.cursor===null || bottom)){
+          st.threads.set(parent,{...st.threads.get(parent),dirty:false});
+        }
+
+        // Backpressure: flush to worker every 200 events or 512 KB so page memory stays flat.
+        if(cacheConsumerReady && (eventsSinceFlush>=200 || bytesSinceFlush>=512*1024)){
+          await flushNativeCache(job,()=>check(job));
+          eventsSinceFlush=0;bytesSinceFlush=0;
+        }
+
+        if(job.retargeted){
+          job.retargeted=false;state=buildPlanState();
+        }else{
+          const nextProg=computeRoomProgress(st,job.plan.start);
+          if(nextProg.done)state.searchedRooms++;
+          else{st.frontier=nextProg.frontier;state.heap.push(st);}
+        }
+        emitStatus('running');
+      }
+
+      if(eventsSinceFlush>0 && cacheConsumerReady)await flushNativeCache(job,()=>check(job));
+      const partial=state.inaccessibleCount>0 || state.unreadableCount>0 || !headsChecked;
+      const finalState=partial?'partial':(Number.isFinite(job.plan.start)?'window-complete':'complete');
+      return {state:finalState,watermark:0,searchedRooms:state.searchedRooms,totalRooms:state.totalRooms,inaccessibleCount:state.inaccessibleCount,unreadableCount:state.unreadableCount,requestsUsed};
+    }finally{
+      clearInterval(leaseTimer);
+      await releaseBackfillLease(job);
+    }
+  }
   document.addEventListener('rcs-message-cache-reset',event=>{
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     if(!watchedOwner || value?.owner!==watchedOwner || watchedClient?.getUserId?.()!==watchedOwner)return;
-    captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();histories.clear();
+    captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();histories.clear();backfillFreshnessAt.delete(watchedOwner);
     const ctx=nativeCapture?.ctx;
     if(ctx){
       // Clear cancels pre-clear snapshot jobs. Existing tails form the baseline;
@@ -1253,9 +1564,10 @@
     try { request=JSON.parse(event.detail); } catch { return; }
     if (!request || typeof request.channel!=='string' || typeof request.id!=='string' || request.channel.length>100 || request.id.length>100) return;
     const key=`${request.channel}:${request.id}`;
-    if (request.method==='cancel') { const job=running.get(key); if(job)job.cancelled=true;return; }
+    if (request.method==='cancel') { const job=running.get(key); if(job){job.cancelled=true;releaseBackfillLease(job);}return; }
     if(request.method==='history-range'){const job=running.get(key);if(job){try{historyDateStart(request.dates);historyDateEnd(request.dates);job.requestedDates=request.dates || {};}catch{}}return;}
-    if (!['identity-context','identity-snapshot','cache-native-history','directory-context','prime-directory','conversations','activity','history','open','jump','native-bindings','classify-accounts'].includes(request.method)) return;
+    if(request.method==='backfill-retarget'){const job=running.get(key);if(job && request.plan){job.plan={...job.plan,roomIds:Array.isArray(request.plan.roomIds)?request.plan.roomIds.filter(id=>typeof id==='string' && id && id.length<=1000):null,excludeRoomIds:Array.isArray(request.plan.excludeRoomIds)?request.plan.excludeRoomIds.filter(id=>typeof id==='string' && id && id.length<=1000):null,start:Number.isFinite(request.plan.start)?request.plan.start:-Infinity,end:Number.isFinite(request.plan.end)?request.plan.end:Infinity};job.retargeted=true;}return;}
+    if (!['identity-context','identity-snapshot','cache-native-history','directory-context','prime-directory','conversations','activity','history','backfill','open','jump','native-bindings','classify-accounts'].includes(request.method)) return;
     if (['history','open','jump'].includes(request.method) && (typeof request.roomId!=='string' || request.roomId.length>1000)) return;
     if(request.knownIds && (!Array.isArray(request.knownIds) || request.knownIds.some(id=>typeof id!=='string' || id.length>1000)))return;
     if (request.method==='jump' && (typeof request.eventId!=='string' || request.eventId.length>1000)) return;
@@ -1294,6 +1606,7 @@
       }
       else if (request.method==='conversations') result=await conversations(ctx,job,request);
       else if (request.method==='history') result=await history(ctx,job,request.roomId,request);
+      else if (request.method==='backfill') result=await backfill(ctx,job,request);
       else {
         job.stage='navigation';
         await prepareNavigation(ctx,job,request.roomId);

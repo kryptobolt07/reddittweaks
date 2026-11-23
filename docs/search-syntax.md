@@ -2,7 +2,7 @@
 
 Every search box in Reddit Tweaks understands the same query language: chat search (all chats and inside a conversation), profile search, your Saved, History, Hidden, Upvoted and Downvoted searches, the archive's community search, and Search Comments on archived posts.
 
-**Search tips:** press **Ctrl+/** (**⌘/** on Mac) in a search box to see the syntax that box supports; click a tip to use its example. In chat search, the tips are also in the Filters menu.
+**Search tips:** press **Ctrl+/** (**⌘/** on Mac) in post/archive search boxes to see the syntax that box supports; click a tip to use its example. In chat search, the tips are in the Filters menu, and you can press **Ctrl+Space** or type `/` in an empty box to open operator suggestions.
 
 ## Words, phrases and operators
 
@@ -40,7 +40,7 @@ Field alternatives can be grouped: `(from:alice OR from:bob) invoice`. A field a
 
 ## How results are found
 
-- **Chat** searches messages saved on this device. History may be incomplete; messages become searchable once Reddit or a conversation search has loaded them.
+- **Chat** searches messages saved on this device first, then searches older unfetched history across your chats (including modmail and thread replies) on demand using your signed-in Reddit session and saves what it loads locally so later searches are instant. Status labels distinguish running progress (`Searching older messages…`), budget pauses (`Searched back to <date>` with **Search older messages** to continue), date-window completion (`All chats searched for these dates`), full completion (`All chats searched`), and incomplete coverage (inaccessible chats or unreadable event types are never marked complete).
 - **Profile search** asks Reddit's search and, when "Use the archive" is on, the Arctic Shift archive. Parts of a query that Reddit or the archive can't run are matched on loaded results, and the status says "Some matches filtered locally".
 - **Your lists** (Saved, History and the others) are read from Reddit and matched locally. Reddit returns the newest 1,000 items; History holds about your 20 most recently viewed posts.
 - **Archive searches** use Arctic Shift and say how far back they searched. Archive coverage is never complete.

@@ -27,7 +27,7 @@
       pending.set(id,{resolve,reject,onProgress,timeout,expire});
       send(method,id,parameters);
     });
-    return {promise,setDates:dates=>send('history-range',id,{dates}),cancel:()=>{send('cancel',id,{});const task=pending.get(id);if(task){pending.delete(id);clearTimeout(task.timeout);task.reject(new Error('Search cancelled'));}}};
+    return {promise,setDates:dates=>send('history-range',id,{dates}),retarget:plan=>send('backfill-retarget',id,{plan}),cancel:()=>{send('cancel',id,{});const task=pending.get(id);if(task){pending.delete(id);clearTimeout(task.timeout);task.reject(new Error('Search cancelled'));}}};
   }
   function send(method,id,parameters){document.dispatchEvent(new CustomEvent('rcs-v2-request',{detail:JSON.stringify({channel,id,method,...parameters})}));}
   globalThis.RCSData=Object.freeze({request});

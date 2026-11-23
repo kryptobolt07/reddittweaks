@@ -103,3 +103,11 @@ test('room Boolean sender completion stays inline and syntax suggestions and tip
   type('dogs NO');key('ArrowDown');assert.equal(tools.suggestions.querySelector('[aria-selected=true] code').textContent,'NOT');key('Enter');assert.equal(c.input.value,'dogs NOT ');
   tools.showMenu('filter');tools.popover.querySelector('[data-value="tips"]').click();assert.equal(tools.popover.querySelectorAll('.search-tip').length,10);assert.equal(tools.popover.classList.contains('menu-popover-tips'),true);key('Escape',c.host.shadowRoot.activeElement);assert.equal(c.host.shadowRoot.activeElement.dataset.value,'tips');
 });
+
+test('chat avatar img elements preserve aspect ratio with object-fit:cover across global and room styles',t=>{
+  const {w}=setup(t);
+  w.eval(fs.readFileSync(path.join(__dirname,'../extension/unified-search-styles.js'),'utf8'));
+  assert.match(w.RCSUnifiedStyles,/\.avatar\s*\{[^}]*object-fit:\s*cover/i,'global .avatar preserves aspect ratio');
+  assert.match(w.RCSUnifiedStyles,/img\.avatar\s*\{[^}]*object-fit:\s*cover/i,'global img.avatar preserves aspect ratio');
+  assert.match(w.RCSUnifiedToolStyles,/img\.avatar\s*\{[^}]*object-fit:\s*cover/i,'room tool img.avatar preserves aspect ratio');
+});

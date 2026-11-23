@@ -965,6 +965,11 @@
           const spanInput=roomId===batch.roomId?batch.span:null;
           const covInput=roomId===batch.roomId?batch.coverage:undefined;
           if(spanInput && Number.isSafeInteger(spanInput.lo) && Number.isSafeInteger(spanInput.hi) && spanInput.lo>=0 && spanInput.hi>=spanInput.lo){
+            if(Number.isInteger(spanInput.unknownDelta) && spanInput.unknownDelta>0){
+              room.unknownCount=(room.unknownCount || 0)+spanInput.unknownDelta;
+              acc.unknownEvents=(acc.unknownEvents || 0)+spanInput.unknownDelta;
+              roomDirty=true;coverageChanged=true;
+            }
             const scope=str(spanInput.p || '',200);
             const existingSpans=await this._getSpans(tx,a,n,scope);
             let lo=spanInput.lo,bottom=Boolean(spanInput.bottom);
