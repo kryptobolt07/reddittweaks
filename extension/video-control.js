@@ -6,7 +6,7 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1',DIRECT_PREPARE_MS=1500,DIRECT_TRIAL_MS=250,HELLO_MS=3500,EMBED_TRIAL_MS=1500;
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1',DIRECT_PREPARE_MS=1500,DIRECT_TRIAL_MS=250,HELLO_MS=3500,EMBED_TRIAL_MS=1500,PREVIEW_STALL_MS=4000;
  const COMMENT='shreddit-comment',MEDIA_NODES=PLAYERS+', '+COMMENT+' video';
  const commentOf=node=>node?.closest?.(COMMENT);
  const closedThread=node=>Boolean(commentOf(node) && node.closest('shreddit-comment[collapsed],details:not([open]),[hidden], [inert]'));
@@ -279,18 +279,25 @@
     }
    };
    this.onPointerMove=event=>{
+    if(event.pointerType==='mouse')this.pointer={x:event.clientX,y:event.clientY};
     if(!this.hold2x || this.hold2x.engaged)return;
     if(Math.hypot(event.clientX-this.hold2x.x,event.clientY-this.hold2x.y)>10)this.endHold2x(false);
    };
    this.onPointerEnd=event=>this.endHold2x(event.type==='pointerup');
    this.onContextMenu=event=>{if(this.hold2x?.engaged)event.preventDefault();};
    this.onHover=event=>this.hover(event);
-   this.onTabVisibility=()=>{if(this.doc.hidden){this.stopHover();this.endHold2x(false);for(const player of [...this.loops.keys()])this.stopLoop(player);}else if(this.inView)this.settle();};
+   this.onTabVisibility=()=>{
+    if(this.doc.hidden){this.stopHover();this.endHold2x(false);for(const player of [...this.loops.keys()])this.stopLoop(player);return;}
+    // Granting Direct embed controls happens in the popup, away from this tab.
+    this.refreshDirect();
+    if(this.inView)this.settle();else this.recheckPointer();
+   };
    this.onCommentToggle=event=>{if(commentOf(event.target))this.syncCommentVisibility();};
    // Phones, like YouTube's feed: a preview starts once scrolling has stopped for a moment.
    this.onScroll=()=>{
     if(this.hold2x && !this.hold2x.engaged)this.endHold2x(false);
     if(this.inView)this.settle();
+    else if(this.pointer){this.win.clearTimeout(this.pointerTimer);this.pointerTimer=this.win.setTimeout(()=>this.recheckPointer(),150);}
     if(this.landing && this.directOpen!=='default' && (!this.directEmbed || this.directEmbed.phase==='start' && !this.directEmbed.ended))this.applyDirectEmbed();
    };
    this.onRemember=event=>this.remember(event);
@@ -407,6 +414,7 @@
    this.readPreference=readPreference;this.preference=null;
    // Whether direct embed controls are on: then a player that starts by itself is held on its first frame, not unloaded.
    this.directReady=false;
+   this.readDirect=readDirect;
    const direct=Promise.resolve(readDirect?.()).then(value=>{this.directReady=value===true;},()=>{});
    const vol=Promise.resolve(this.readVolume?.()).then(value=>{if(value && typeof value==='object')this.savedVolume=value;},()=>{});
    this.ready=Promise.all([readSettings?.(),direct,vol]).then(([s])=>{this.configure(s || {});},()=>this.configure({}));
@@ -457,6 +465,7 @@
    this.posterIO?.disconnect();this.posterIO=null;
    win.clearTimeout(this.posterTimer);this.posterTimer=null;
    win.clearTimeout(this.settleTimer);win.clearTimeout(this.dwellTimer);
+   win.clearTimeout(this.pointerTimer);win.clearTimeout(this.previewWatch);this.retryPreview=null;
    win.clearTimeout(this.volumeSaveTimer);this.volumeSaveTimer=null;
    this.stopHover();
    this.endHold2x(false);
@@ -541,6 +550,7 @@
    // Visibility reports that arrived before the settings did still choose the in-view preview.
    if(this.inView)this.settle();
    else if(this.viewing || this.ePreview?.view)this.stopHover();
+   this.recheckPointer();
    for(const player of this.players){
     const video=this.video(player);if(!video)continue;
     if(mediaKind(player)!=='gif'){
@@ -738,6 +748,8 @@
     if(player.matches(PLAYERS))this.manageViewport(player,manageDetail && this.isDetailMedia(player));
    }
    this._lastAttached=attachedNow;
+   if(attachedNow.size || this.retryPreview && !this.retryPreview.isConnected)this.retryPreview=null;
+   if(attachedNow.size)this.recheckPointer();
    for(const embed of this.detailEmbeds)if(!embed.isConnected || !this.isDetailEmbed(embed)){
     this.detailEmbeds.delete(embed);this.embedAway.delete(embed);this.io?.unobserve(embed);this.manageViewport(embed,false);
    }
@@ -817,6 +829,7 @@
      if(this.volumeMemory && this.savedVolume && !preview?.active)this.applySavedVolume(player,event.target,false);
     }
     if(preview?.active && preview.video===event.target)this.playPreview(player,preview);
+    else if(this.retryPreview===player){this.retryPreview=null;this.recheckPointer();if(this.inView)this.settle();}
     if(this.loops.get(player)===event.target)this.playLoop(player,event.target);
     if(this.away.get(player)?.loading)this.resumeAway(player);
     this.handoff();
@@ -879,14 +892,39 @@
    this.hovered=player;
    this.hoverTimer=this.win.setTimeout(()=>this.startPreview(player),HOVER_MS);
   }
+  refreshDirect(){
+   if(!this.readDirect)return;
+   Promise.resolve(this.readDirect()).then(value=>{this.directReady=value===true;},()=>{});
+  }
+  // A pointer already resting on a video gets no new pointerover: when settings arrive, a player attaches, the tab
+  // shows again or scrolling stops, the media under the last known pointer position is treated as just hovered
+  // (docs/feed-controls-ux-plan.md, 11).
+  recheckPointer(){
+   if(!this.active || this.dead || !this.configured || this.touch || !this.pointer || this.doc.hidden || this.hovered || this.ePreview)return;
+   if(!kinds.some(kind=>this.startMode(kind)==='preview'))return;
+   const target=this.doc.elementFromPoint?.(this.pointer.x,this.pointer.y);if(!target)return;
+   const path=[];for(let node=target;node;node=node.parentNode || node.host)path.push(node);path.push(this.win);
+   const media=path.find(node=>node.matches?.(MEDIA_NODES) || node.matches?.(ANY_EMBED));if(!media)return;
+   this.hover({type:'pointerover',pointerType:'mouse',isTrusted:true,buttons:0,relatedTarget:null,composedPath:()=>path});
+  }
+  // A failed start must not leave the player marked as hovered or in view: every later pointerover inside it, and every
+  // in-view pick, would then return early until another video was played by hand.
+  abandonPreview(player,retry=false){
+   if(this.hovered===player){this.win.clearTimeout(this.hoverTimer);this.hovered=null;this.viewing=false;}
+   if(retry)this.retryPreview=player;
+  }
   startPreview(player){
    const video=this.video(player);
-   if(this.doc.hidden || this.hovered!==player || !player.isConnected || closedThread(player) || !video?.paused ||
-      video.ended || this.started.has(video))return;
+   if(this.hovered!==player || !player.isConnected)return false;
+   if(this.doc.hidden || closedThread(player)){this.abandonPreview(player);return false;}
+   // Not hydrated yet: try again once the player attaches or reports metadata.
+   if(!video){this.abandonPreview(player,true);return false;}
+   if(!video.paused || video.ended || this.started.has(video)){this.abandonPreview(player);return false;}
    if(mediaKind(player)!=='gif')for(const other of this.players){
     const media=this.video(other);
-    if(mediaKind(other)!=='gif' && media && !media.paused && this.started.has(media))return;
+    if(mediaKind(other)!=='gif' && media && !media.paused && this.started.has(media)){this.abandonPreview(player);return false;}
    }
+   if(this.retryPreview===player)this.retryPreview=null;
    this.attach(player);
    const previous=this.previews.get(player);
    const preview={video,muted:video.muted,active:true,played:previous?.video===video && previous.played};
@@ -894,6 +932,10 @@
    video.muted=true;
    player.dispatchEvent(new this.win.Event('rt-prepare-feed-preview',{bubbles:true}));
    if(video.readyState>=1)this.playPreview(player,preview);
+   // A preview that never gets metadata or never plays is dropped, so the next hover or pick can try again.
+   this.win.clearTimeout(this.previewWatch);
+   this.previewWatch=this.win.setTimeout(()=>{if(this.previews.get(player)===preview && preview.active && !preview.played && this.hovered===player)this.stopHover();},PREVIEW_STALL_MS);
+   return true;
   }
   startLoop(player){
    const video=this.video(player);
@@ -2304,7 +2346,7 @@
     }
     if(shown>=IN_VIEW && gap<distance){best=node;distance=gap;}
    }
-   if(best && (best===this.hovered || best===this.ePreview?.embed))return;
+   if(best && (best===this.hovered && this.previews.get(best)?.active || best===this.ePreview?.embed))return;
    if(this.hovered && !this.viewing || this.ePreview && !this.ePreview.view)return;
    if(!settled && this.startMode(mediaKind(this.hovered || this.ePreview?.embed))==='preview' && (this.viewing || this.ePreview?.view))return;
    this.stopHover();
@@ -2329,7 +2371,7 @@
   const read=async()=>{const r=await chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});return r?.ok?r.settings:{};};
   const direct=()=>chrome.runtime.sendMessage({scope:'rt-embed-direct'}).then(value=>value===true,()=>false);
   const videos=new Videos({readSettings:read,readDirect:direct});
-  chrome.runtime.onMessage.addListener((message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===chrome.runtime.id)videos.configure(message.settings);});
+  chrome.runtime.onMessage.addListener((message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===chrome.runtime.id){videos.refreshDirect();videos.configure(message.settings);};});
   // Visiting Reddit's own settings re-reads the preference next time.
   if(/^\/settings\//.test(location.pathname))try{sessionStorage.removeItem(PREF_KEY);}catch{}
  }

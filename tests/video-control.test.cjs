@@ -2004,3 +2004,32 @@ test('Autoplay and Preview leave a post’s own video to Reddit; Only when I pre
  const q=page(t);await hoverController(q,{videoStart:'play'});q.start();
  assert.equal(q.video.paused,true,'a feed video Reddit starts is still stopped');
 });
+// First load (docs/feed-controls-ux-plan.md, 11): no stuck hover or in-view state.
+test('a preview that cannot start yet (no video element) leaves no stuck hover, and the next hover starts it',async t=>{
+ const p=page(t);const controller=await hoverController(p);
+ const video=p.video;video.remove();
+ pointer(p);await waitForHover();
+ assert.equal(controller.hovered,null,'a failed start clears the hovered player');
+ p.root.append(video);
+ pointer(p);await waitForHover();
+ assert.equal(video.paused,false,'a later pointerover in the same player starts the preview');
+});
+test('a pointer already resting on a video starts its preview once settings arrive, without moving',async t=>{
+ const p=page(t);
+ p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+ Object.defineProperty(p.video,'readyState',{value:1,configurable:true});
+ p.d.elementFromPoint=()=>p.player;
+ const controller=new p.W.RTVideoControl.Videos({readSettings:async()=>({}),readPreference:async()=>true,observe:false});
+ controller.pointer={x:100,y:200};
+ await controller.ready;await flush();await waitForHover();
+ assert.equal(p.video.paused,false,'previewing under the resting pointer');assert.equal(p.video.muted,true);
+});
+test('a stalled preview is dropped so a later pick can try again',async t=>{
+ const p=page(t);const controller=await hoverController(p);
+ p.W.HTMLMediaElement.prototype.play=function(){return new Promise(()=>{});};// never plays
+ const watch=[];const setTimeout0=p.W.setTimeout;p.W.setTimeout=(fn,ms)=>{if(ms===4000){watch.push(fn);return 0;}return setTimeout0(fn,ms);};
+ pointer(p);await waitForHover();
+ assert.equal(controller.hovered,p.player);assert.equal(watch.length,1,'a stall watch is armed');
+ watch[0]();
+ assert.equal(controller.hovered,null,'the stalled preview is released');
+});
