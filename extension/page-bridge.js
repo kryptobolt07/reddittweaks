@@ -547,7 +547,7 @@
   function headshotOf(value) {
     try {
       const url=new URL(value);
-      if(url.hostname==='i.redd.it' && /^\/snoovatar\/avatars\/[0-9a-z-]+\.png$/i.test(url.pathname) && !/-headshot\.png$/i.test(url.pathname)) {
+      if(url.hostname==='i.redd.it' && /^\/snoovatar\/avatars\/[0-9a-z_-]+\.png$/i.test(url.pathname) && !/-headshot\.png$/i.test(url.pathname)) {
         url.pathname=url.pathname.replace(/\.png$/i,'-headshot.png');url.search='';return url.href;
       }
     } catch {}
@@ -1286,18 +1286,20 @@
         const roomRoster=new Map();let cursor=null;const seen=new Set();
         while(true){
           check(job);
-          const opts={page_size:200};if(cursor)opts.next_batch=cursor;
+          const opts={page_size:200,include:{timeline:true}};if(cursor)opts.next_batch=cursor;
           const data=await retryRead(()=>ctx.client.getRoomList(opts),job);
           check(job);
           if(!Array.isArray(data?.rooms))break;
           for(const raw of data.rooms){
             if(typeof raw?.room_id!=='string')continue;
+            const timelineEvents=listOf(raw.chunk || raw.timeline);
+            if(timelineEvents.length)publishCache(ctx,raw.room_id,timelineEvents,'directory');
             const saved=knownConversations.get(raw.room_id);
             roomRoster.set(raw.room_id,{
               roomId:raw.room_id,
               lastSeq:raw.last_seq_id!=null?String(raw.last_seq_id):(saved?.lastSeq || ''),
               membership:raw.membership || saved?.membership || 'join',
-              timestamp:Math.max(raw.timestamp || 0,saved?.timestamp || 0)
+              timestamp:Math.max(raw.timestamp || 0,latestMessageTime(raw),saved?.timestamp || 0)
             });
           }
           const next=data.next_batch;
@@ -1356,7 +1358,9 @@
         const roomBeforeStart=Boolean(!st.dateOrderUnsafe && Number.isFinite(start) && !top && st.timestamp>0 && st.timestamp<start);
         const done=Boolean((!needsHead && (top.bottom || top.lo===0)) || mainBelowStart || roomBeforeStart);
         if(done)return {done:true,frontier:0};
-        const frontier=st.dateOrderUnsafe?(st.timestamp || Date.now()):((!needsHead && top && top.tLo>0)?top.tLo:(st.timestamp || Date.now()));
+        // Empty or undated rooms (timestamp === 0 after timeline-enabled /rooms scan) go to the bottom of the heap (1),
+        // never Date.now(), so they do not pin the global watermark in the future and block certified-watermark early stop.
+        const frontier=st.dateOrderUnsafe?(st.timestamp || Date.now()):((!needsHead && top && top.tLo>0)?top.tLo:(st.timestamp || 1));
         const cursor=needsHead?st.headCursor:(top.lo-1);
         return {done:false,frontier,needsHead,cursor,top};
       };
@@ -1370,7 +1374,7 @@
         const tBelowStart=Boolean(!st.dateOrderUnsafe && !tNeedsHead && Number.isFinite(start) && ttop.tLo>0 && ttop.tLo<start);
         const done=Boolean((ttop && (ttop.bottom || ttop.lo===0) && !info.dirty) || tBelowStart);
         if(done)return {done:true,frontier:0};
-        const frontier=st.dateOrderUnsafe?(st.timestamp || Date.now()):((!tNeedsHead && ttop && ttop.tLo>0)?ttop.tLo:(info.latestTs || Math.max(info.rootTs || 0,st.timestamp || 0) || Date.now()));
+        const frontier=st.dateOrderUnsafe?(st.timestamp || Date.now()):((!tNeedsHead && ttop && ttop.tLo>0)?ttop.tLo:(info.latestTs || Math.max(info.rootTs || 0,st.timestamp || 0) || 1));
         return {done:false,frontier,needsHead:tNeedsHead,cursor:tNeedsHead?null:(ttop.lo-1),top:ttop};
       };
 

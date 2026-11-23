@@ -1277,6 +1277,22 @@
       if(!ownerOK(owner))throw Error('Invalid account');
       if(typeof query!=='string' || query.length>1000 || !['all','me','them'].includes(from) || roomIds!==undefined && (!Array.isArray(roomIds) || roomIds.some(id=>typeof id!=='string' || !id || id.length>1000)))throw Error('Invalid message query');
       if(!committed)await this.queue;
+      if(this.legacy && await this.legacy.probe()){
+        const acc=await this._readAccountQuick(owner);
+        if(!acc || acc.migration?.state!=='done'){
+          this.ensureMigration(owner).catch(()=>{});
+          const v1Res=await this.legacy.searchV1(owner,{query,roomId,roomIds,dates,from,wholeWord,sort:'newest',limit:Math.min(500,Math.max(100,stopAt || 100)),offset:0},directory);
+          if(v1Res){
+            const hasMin=Number.isFinite(minTimeExclusive);
+            let certified=0;
+            for(const rec of v1Res.records || []){
+              const ts=typeof rec.timestamp==='number'?rec.timestamp:Date.parse(rec.timestamp || '') || 0;
+              if(!hasMin || ts>minTimeExclusive){certified++;if(stopAt>0 && certified>=stopAt)break;}
+            }
+            return {certified};
+          }
+        }
+      }
       const proj=await this._ensureProjection(owner);
       if(!proj)return {certified:0};
       const plan=RCSCore.compilePlan(query,{from,wholeWord,dates});

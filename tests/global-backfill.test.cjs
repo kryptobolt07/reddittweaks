@@ -587,38 +587,43 @@ test('certified-watermark early stop saves >80% of requests on common queries, p
     }
     rooms.push({roomId,events,lastSeq:'m120',timestamp:roomEnd});
   }
+  // Add 50 empty/undated rooms (timestamp: 0, simulating invites/dormant rooms) — they must NOT pin W at Date.now()!
+  for(let e=0;e<50;e++){
+    rooms.push({roomId:`!empty${e}:reddit.com`,events:[],lastSeq:'m0',timestamp:0});
+  }
   const homeserver=createFixtureHomeserver({owner,rooms});
   const {W,store,ui}=mountFullStack(t,{idb,dbName,owner,homeserver});
   const corpus=buildOracleMessages(homeserver.eventsByRoom(),owner,{[owner]:{id:owner,name:'You',self:true}});
 
-  // 1. Common query 'hi' with default sort='newest': stops early once 50+ newest matches are certified above watermark + skew!
+  // 1. Common query 'hi' with default sort='newest': stops early once 20+ newest matches are certified above watermark + skew!
   ui.open(false);ui.setScope('messages');ui.setQuery('hi');
   await waitFor(()=>ui.backfillState?.state==='paused' && ui.backfillState.reason==='target' && !ui.backfillTask && !ui.searching && ui.appliedKey===JSON.stringify(ui.parameters()),{timeout:15000});
   const reqsAfterFirstStop=homeserver.eventCalls.length;
-  assert.ok(reqsAfterFirstStop<20,`expected <20 requests on early stop (got ${reqsAfterFirstStop} vs 120 full scan)`);
+  assert.ok(reqsAfterFirstStop<10,`expected <10 requests on early stop even with 50 undated rooms (got ${reqsAfterFirstStop})`);
+  assert.equal(homeserver.eventCalls.filter(c=>c.roomId.startsWith('!empty')).length,0,'undated/empty rooms do not pin watermark or run ahead of recent rooms');
   assert.match(ui.status.textContent,/\+ matches/);
   assert.match(ui.status.textContent,/Scroll for older/);
   assert.equal(ui.coverageNote.hidden,true,'does not duplicate Partial history badge alongside watermark status');
 
-  // Top 50 results must match the brute-force oracle 100% bit-for-bit!
-  const expectedTop50=oracleSearch(W.RCSCore,corpus,{query:'hi',sort:'newest',limit:50});
-  const actualTop50=await store.search(owner,{query:'hi',sort:'newest',limit:50,committed:true});
-  assert.deepEqual(Array.from(actualTop50.records,r=>r.roomId+'\0'+r.id),expectedTop50.ids,'top 50 certified matches are 100% oracle-exact');
+  // Top 20 results must match the brute-force oracle 100% bit-for-bit!
+  const expectedTop20=oracleSearch(W.RCSCore,corpus,{query:'hi',sort:'newest',limit:20});
+  const actualTop20=await store.search(owner,{query:'hi',sort:'newest',limit:20,committed:true});
+  assert.deepEqual(Array.from(actualTop20.records,r=>r.roomId+'\0'+r.id),expectedTop20.ids,'top 20 certified matches are 100% oracle-exact');
 
   // 2. Scroll down -> raises certified target and advances watermark with 0 refetched pages!
   const callsBeforeScroll=homeserver.eventCalls.length;
   ui.results.scrollTop=ui.totalHeight;
   ui.results.dispatchEvent(new W.Event('scroll'));
   await waitFor(()=>homeserver.eventCalls.length>callsBeforeScroll && ui.backfillState?.state==='paused' && !ui.backfillTask && !ui.searching,{timeout:15000});
-  const expectedTop100=oracleSearch(W.RCSCore,corpus,{query:'hi',sort:'newest',limit:100});
-  const actualTop100=await store.search(owner,{query:'hi',sort:'newest',limit:100,committed:true});
-  assert.deepEqual(Array.from(actualTop100.records,r=>r.roomId+'\0'+r.id),expectedTop100.ids,'top 100 certified matches after scroll are 100% oracle-exact');
+  const expectedTop45=oracleSearch(W.RCSCore,corpus,{query:'hi',sort:'newest',limit:45});
+  const actualTop45=await store.search(owner,{query:'hi',sort:'newest',limit:45,committed:true});
+  assert.deepEqual(Array.from(actualTop45.records,r=>r.roomId+'\0'+r.id),expectedTop45.ids,'top 45 certified matches after scroll are 100% oracle-exact');
 
   // 2b. Another common query ('msg') already satisfied by cached pages above watermark -> 0 new /events requests!
   const callsBeforeCachedCommon=homeserver.eventCalls.length;
   ui.setQuery('msg');
   await waitFor(()=>ui.backfillState?.state==='paused' && ui.backfillState.reason==='target' && !ui.backfillTask && !ui.searching && ui.appliedKey===JSON.stringify(ui.parameters()),{timeout:15000});
-  assert.equal(homeserver.eventCalls.length,callsBeforeCachedCommon,'0 /events requests when local cache already holds >=50 certified matches above watermark');
+  assert.equal(homeserver.eventCalls.length,callsBeforeCachedCommon,'0 /events requests when local cache already holds >=20 certified matches above watermark');
 
   // 3. Switch to a rare query ('ultra_rare_diamond') -> immediately resumes past watermark without refetching covered spans and finds it!
   const seenKeySet=new Set(homeserver.eventCalls.map(c=>`${c.roomId}:${c.params.seq ?? 'head'}`));

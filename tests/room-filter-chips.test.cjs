@@ -115,6 +115,10 @@ test('chat avatar img elements preserve aspect ratio, use native container size,
   const img=tools.avatar({name:'Alex',avatar:fullSnoo},'test-snoo');
   assert.equal(img.src,'https://i.redd.it/snoovatar/avatars/0a1b2c3d-4e5f-6789-abcd-ef0123456789-headshot.png');
   assert.equal(img.classList.contains('avatar-snoovatar'),true);
+  const nftSnoo='https://i.redd.it/snoovatar/avatars/nftv2_bmZ0X2VpcDE1NToxMzdf.png';
+  const nftImg=tools.avatar({name:'Henry',avatar:nftSnoo},'test-nft-snoo');
+  assert.equal(nftImg.src,'https://i.redd.it/snoovatar/avatars/nftv2_bmZ0X2VpcDE1NToxMzdf-headshot.png');
+  assert.equal(nftImg.classList.contains('avatar-snoovatar'),true);
   const photo=tools.avatar({name:'Sam',avatar:'https://styles.redditmedia.com/t5_1/styles/profileIcon_abc.png'},'test-photo');
   assert.equal(photo.src,'https://styles.redditmedia.com/t5_1/styles/profileIcon_abc.png');
   assert.equal(photo.classList.contains('avatar-snoovatar'),false);

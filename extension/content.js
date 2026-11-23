@@ -601,7 +601,7 @@
             row.preview.title=hit.text;row.result.setAttribute('aria-label',`${sender.label} sent: ${hit.attachmentType==='image'?(globalThis.RCSMediaPreview?.label(hit) || 'Image'):snippet.text}. In ${partnerName || this.cache.get(hit.roomId)?.name || 'Saved conversation'}. ${C.fullTimestamp(hit.timestamp)}. Open message.`);
           }
         }
-        const rawAvatarUrl=hit.avatar || '',avatarUrl=(()=>{try{const u=new URL(rawAvatarUrl);if(u.hostname==='i.redd.it' && /^\/snoovatar\/avatars\/[0-9a-z-]+\.png$/i.test(u.pathname) && !/-headshot\.png$/i.test(u.pathname)){u.pathname=u.pathname.replace(/\.png$/i,'-headshot.png');u.search='';return u.href;}}catch{}return rawAvatarUrl;})(),speaker=!this.messageMode ? hit.name : this.kind==='messages' ? C.messageSender(hit,partner || {}).label : partnerName || (hit.authorSelf ? 'You' : hit.author);
+        const rawAvatarUrl=hit.avatar || '',avatarUrl=(()=>{try{const u=new URL(rawAvatarUrl);if(u.hostname==='i.redd.it' && /^\/snoovatar\/avatars\/[0-9a-z_-]+\.png$/i.test(u.pathname) && !/-headshot\.png$/i.test(u.pathname)){u.pathname=u.pathname.replace(/\.png$/i,'-headshot.png');u.search='';return u.href;}}catch{}return rawAvatarUrl;})(),speaker=!this.messageMode ? hit.name : this.kind==='messages' ? C.messageSender(hit,partner || {}).label : partnerName || (hit.authorSelf ? 'You' : hit.author);
         if(row.avatar && (row.avatarUrl!==avatarUrl || !row.image?.isConnected && row.avatarLabel!==speaker)) {
           if(row.image){this.avatarObserver?.unobserve(row.image);this.pendingAvatarSources.delete(row.image);}
           row.avatarUrl=avatarUrl;row.avatarLabel=speaker;row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();
