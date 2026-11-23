@@ -17,7 +17,9 @@
   - Signed out, Home lost its sort control entirely because Reddit serves its popular feed there. Home now gets Sort & filter, and any feed we don't take over gets Reddit's sort back.
   - Previews no longer need one video played by hand before the start policy works on first load. A failed start no longer leaves a player stuck as hovered or in view, and a pointer already resting on a video starts its preview.
   - Granting Direct embed controls applies without reloading Reddit.
-- **Chat People search:** a chat with no saved message now fetches its latest message and shows it (or "No messages yet"), instead of an empty second line.
+- **Chat People search:** a chat with no saved message, or an outdated one, now fetches its latest message and shows it (or "No messages yet") in Reddit's own preview style, even while older messages are being searched. Previously the line stayed empty until you opened the chat, and outdated previews were drawn lighter.
+- **Chat search previews match Reddit's style everywhere:** the `from:` people picker and room message search (including the floating chat) use Reddit's own preview font and color instead of smaller, lighter text.
+- **People tab ignores message-only filters:** sender, attachment and date filters belong to Messages and All. On People they aren't applied, counted, suggested or listed in Search tips, and `from:` doesn't open the sender picker. Typing a message operator there ("alex has:image") still lists matching chats instead of nothing.
 - **Chat search, no matches yet:** while older messages are searched, "No matches yet" stays in place instead of flashing between skeleton rows and the message, and the scrollbar no longer flickers.
 - **Chat search startup:** the loading skeleton stays below the People, All and Messages tabs and behind search results. Applied filters have an 8 px gap beneath the tabs.
 - **Direct embed controls cover every embed provider:**
@@ -35,8 +37,8 @@
   - The original first-load preview failure (not reproduced live).
   - The banned-community archive page has no docked pill yet.
 - **Checksums (SHA-256):**
-  - Chromium `d453b3173e2abd7d453e99b48ba48943b7784abef424bde4c7324ff841c77c3c`
-  - Firefox `1b88db0f4a2b051377b79237fe250280beca79d0a1c3c3b3a368a4d353b530ba`
+  - Chromium `57d2ab31cec21ef58a70b049f20055d7c642141aecc52e6f09340ce988d13cb7`
+  - Firefox `addd905f82103d8bf0c8bfd311aa0485f235aa1f1a9a8f7ed73ca3dfc1b28912`
 
 # 0.61.2 preview
 
