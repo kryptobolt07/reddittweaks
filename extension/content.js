@@ -140,7 +140,7 @@
     :host([data-rcs-ui=minimized-search]) .icon { width:24px;height:24px; }
     :host([data-rcs-ui=minimized-search]) svg { width:16px;height:16px; }
     :host([data-rcs-ui=messages]) .bar { padding:6px 8px 3px; }
-    :host([data-rcs-ui=messages]) .room-applied-filters { display:flex;flex-wrap:nowrap;align-items:center;gap:6px;height:32px;min-width:0;max-width:100%;padding:2px 8px 5px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none; }
+    :host([data-rcs-ui=messages]) .room-applied-filters { display:flex;flex-wrap:nowrap;align-items:center;gap:6px;height:32px;min-width:0;max-width:100%;padding:2px 8px 5px;overflow:hidden; }
     .room-applied-filters .sender-chip,.room-applied-filters .room-type-chip { flex:0 0 auto;max-width:min(260px,75vw);min-height:25px;font-size:10px;padding:2px 4px 2px 8px; }
     .room-applied-filters .room-add-sender { display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;padding:0;border:1px solid var(--rcs-line);border-radius:50%;color:var(--rcs-muted);background:var(--rcs-bg); }
     .room-add-sender svg { width:13px;height:13px; }

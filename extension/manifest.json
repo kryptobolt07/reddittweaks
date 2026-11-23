@@ -55,6 +55,7 @@
         "global-search-model.js",
         "media-preview.js",
         "unified-search-styles.js",
+        "chat-filter-rail.js",
         "unified-search.js",
         "content.js"
       ]

@@ -1,5 +1,5 @@
 (() => {
-  const shell=document.getElementById('shell');let api;let compact=false;
+  const shell=document.getElementById('shell');let api;let compact=new URL(location.href).searchParams.has('compact');
   function loadedMessagesPreview(api) {
     // These synthetic events are the visible native tails, not the archived
     // messages the history endpoint exposes only after an explicit search.
