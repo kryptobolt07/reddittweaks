@@ -336,7 +336,8 @@
       this.enabled = enabled;
       this.waitingForSettings = waitingForSettings;
       this.hidden = new Set();
-      this.parked = new RTPostModel.WeakElementMap();
+      const WeakElementMap = globalThis.RTPostModel?.WeakElementMap;
+      this.parked = WeakElementMap ? new WeakElementMap() : new Map();
       // The parking threshold follows the filter lifecycle, independent of GC.
       this.parkedCount = 0;
       this.parkedMoves = new WeakMap();
@@ -1086,6 +1087,14 @@
     }
 
     filterResults() {
+      // Feed controls start before the isolated-world post model. Upgrade on
+      // the next pass once it loads, including cards already parked at startup.
+      const WeakElementMap = globalThis.RTPostModel?.WeakElementMap;
+      if (this.parked instanceof Map && WeakElementMap) {
+        const parked = new WeakElementMap();
+        for (const [unit, entry] of this.parked) parked.set(unit, entry);
+        this.parked = parked;
+      }
       const types = this.selectedTypes();
       const nsfw = this.feed && this.activeNsfw();
       const flair = this.feed && this.scope.owner && fold(this.activeFlair());
