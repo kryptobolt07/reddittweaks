@@ -128,11 +128,14 @@
     communityCache.set(key,pending);return pending;
   }
 
+  const avatarSelector='img[data-rt-avatar-user]:not([data-rt-avatar-watched])';
+
   class SubredditArchive {
     constructor({autoRetries=AUTO_RETRIES,autoRetryWaits=AUTO_RETRY_WAITS,readSettings=defaultSettings,getOwner=null,observe=true,communityState=defaultCommunityState,reddit=(...args)=>globalThis.RTPostDiscovery?.redditRead?.(...args),archive=archiveRead}={}){
       this.autoRetries=autoRetries;this.autoRetryWaits=autoRetryWaits;this.readSettings=readSettings;this.communityState=communityState;this.reddit=reddit;this.archive=archive;
       this.getOwner=getOwner || (()=>globalThis.RCSDirectory?.getOwner?.() || globalThis.RCSMessages?.getSelfIdentity?.()?.id || '');
       this.enabled=null;this.mounted=null;this.search=null;this.states=new Map();this.top=false;this.openMenuEl=null;this.dead=false;this.meta=null;this.metaName='';
+      this.avatarCandidates=new Set();this.avatarWatching=new Set();
       this.onRoute=()=>this.scan();this.initialHref=location.href;
       this.onThreadViewport=()=>{
         const mobile=this.threadViewport?.matches===true;
@@ -148,7 +151,7 @@
       this.onKey=event=>{if(event.key==='Escape' && this.openMenuEl){const button=this.openMenuEl.parentElement.querySelector('button');this.closeMenus();button?.focus({preventScroll:true});}};
       document.addEventListener('click',this.onDocClick,true);document.addEventListener('keydown',this.onKey,true);
       if(observe){
-        this.observer=new MutationObserver(()=>this.scan());this.observer.observe(document.documentElement,{childList:true,subtree:true});
+        this.observer=new MutationObserver(records=>this.scan(records));this.observer.observe(document.documentElement,{childList:true,subtree:true});
         window.addEventListener('popstate',this.onRoute);document.addEventListener('reddit:route',this.onRoute);
         this.onSettings=(changes,area)=>{if(area==='local' && changes['rt-settings-v1'])this.loadSettings();};
         this.onSettingsMessage=message=>{if(message?.scope==='rt-posts' && message.action==='settings-changed')this.loadSettings();};
@@ -163,15 +166,19 @@
     }
     destroy(){
       this.chipsMedia?.removeEventListener?.('change',this.onChipsMedia);this.chipsMedia=null;
-      if(this.dead)return;this.dead=true;this.observer?.disconnect();window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
+      if(this.dead)return;this.dead=true;this.observer?.disconnect();
+      this.avatarIO?.disconnect();
+      for(const img of this.avatarWatching)img.removeAttribute('data-rt-avatar-watched');
+      this.avatarWatching.clear();this.avatarCandidates.clear();
+      window.removeEventListener('popstate',this.onRoute);document.removeEventListener('reddit:route',this.onRoute);
       removeEventListener('scroll',this.onScroll);document.removeEventListener('click',this.onDocClick,true);document.removeEventListener('keydown',this.onKey,true);
       try{chrome.storage?.onChanged?.removeListener(this.onSettings);chrome.runtime?.onMessage?.removeListener(this.onSettingsMessage);}catch{}this.unmount();this.unmountSearch();this.keptNavigationController?.abort();this.keptNavigation=this.keptNavigationController=null;
     }
 
     // Called on every relevant change. Until settings are known nothing is added (an early hold may stay).
-    scan(){
+    scan(records){
       if(this.dead || this.enabled===null)return;
-      if(!this.avatarSweep){this.avatarSweep=true;(globalThis.requestAnimationFrame || setTimeout)(()=>{this.avatarSweep=false;this.watchAvatars();});}
+      this.queueAvatars(records);
       const route=this.enabled?searchRoute():null;
       if(route){this.unmount();this.scanSearch(route);return;}
       this.unmountSearch();
@@ -396,10 +403,46 @@
     // Archive records carry no avatars: once a default avatar nears the screen, ask Reddit (through the page
     // bridge's hover-card lookup, which throttles itself) for that user's real picture. Deleted or suspended
     // accounts and accounts without one keep the default. One lookup per user per page.
+    queueAvatars(records){
+      if(!records)this.avatarRescan=true;
+      else for(const record of records){
+        for(const node of record.removedNodes){
+          if(node.nodeType!==1 || node.isConnected)continue;
+          for(const img of [node,...node.querySelectorAll('img[data-rt-avatar-watched]')]){
+            if(!this.avatarWatching.delete(img))continue;
+            this.avatarIO.unobserve(img);img.removeAttribute('data-rt-avatar-watched');
+          }
+        }
+        if(this.avatarRescan)continue;
+        for(const node of record.addedNodes){
+          if(node.nodeType!==1 || !node.isConnected)continue;
+          if(node.matches(avatarSelector))this.avatarCandidates.add(node);
+          for(const img of node.querySelectorAll(avatarSelector))this.avatarCandidates.add(img);
+        }
+      }
+      if(this.avatarSweep || !this.avatarRescan && !this.avatarCandidates.size)return;
+      this.avatarSweep=true;
+      (globalThis.requestAnimationFrame || setTimeout)(()=>{
+        this.avatarSweep=false;
+        if(!this.dead)this.watchAvatars();
+      });
+    }
     watchAvatars(){
-      const images=document.querySelectorAll('img[data-rt-avatar-user]:not([data-rt-avatar-watched])');if(!images.length)return;
-      if(!this.avatarIO && typeof IntersectionObserver==='function')this.avatarIO=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){this.avatarIO.unobserve(entry.target);this.resolveAvatar(entry.target);}},{rootMargin:'600px 0px'});
-      for(const img of images){img.dataset.rtAvatarWatched='';if(this.avatarIO)this.avatarIO.observe(img);else this.resolveAvatar(img);}
+      const images=this.avatarRescan?[...document.querySelectorAll(avatarSelector)]:[...this.avatarCandidates]
+        .filter(img=>img.isConnected && img.matches(avatarSelector))
+        .sort((a,b)=>a===b?0:a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1);
+      this.avatarRescan=false;this.avatarCandidates.clear();
+      if(!images.length)return;
+      if(!this.avatarIO && typeof IntersectionObserver==='function')this.avatarIO=new IntersectionObserver(entries=>{
+        for(const entry of entries)if(entry.isIntersecting && this.avatarWatching.delete(entry.target)){
+          this.avatarIO.unobserve(entry.target);this.resolveAvatar(entry.target);
+        }
+      },{rootMargin:'600px 0px'});
+      for(const img of images){
+        img.dataset.rtAvatarWatched='';
+        if(this.avatarIO){this.avatarWatching.add(img);this.avatarIO.observe(img);}
+        else this.resolveAvatar(img);
+      }
     }
     resolveAvatar(img){
       const user=img.dataset.rtAvatarUser,key=user.toLowerCase();this.avatarUrls ||= new Map();let lookup=this.avatarUrls.get(key);
@@ -599,7 +642,7 @@
       const kids=new Map();for(const item of state.items){const key=parentOf.get(item.fullname);if(!kids.has(key))kids.set(key,[]);kids.get(key).push(item);}
       const sort=state.commentSort || 'best',best=sort==='new'?(a,b)=>b.created-a.created:sort==='old'?(a,b)=>a.created-b.created:(a,b)=>(b.score||0)-(a.score||0) || a.created-b.created;
       // Rank each incoming batch, then append it. Late archive pages must not reshuffle comments already being read.
-      for(const [key,list] of kids){const order=state.childOrder.get(key) || [];for(const item of [...list].sort(best))if(!order.includes(item.fullname))order.push(item.fullname);state.childOrder.set(key,order);const ranks=new Map(order.map((id,index)=>[id,index]));list.sort((a,b)=>ranks.get(a.fullname)-ranks.get(b.fullname));}
+      for(const [key,list] of kids){const order=state.childOrder.get(key) || [],known=new Set(order);for(const item of [...list].sort(best))if(!known.has(item.fullname)){known.add(item.fullname);order.push(item.fullname);}state.childOrder.set(key,order);const ranks=new Map(order.map((id,index)=>[id,index]));list.sort((a,b)=>ranks.get(a.fullname)-ranks.get(b.fullname));}
       const forced=new Set();let focus=state.route.focusId?'t1_'+state.route.focusId:null;while(focus && items.has(focus) && !forced.has(focus)){forced.add(focus);focus=parentOf.get(focus);}
       const replyLimit=depth=>depth===1?3:depth<=3?2:1;
       const more=(parentKey,count,link)=>{

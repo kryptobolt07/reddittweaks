@@ -11,6 +11,7 @@
     if(res && typeof res==='object')return {authorized:res.authorized===true,holdFeed:res.holdFeed===true};
     return {authorized:false,holdFeed:false};
   },()=>({authorized:false,holdFeed:false}));
+  let discoveryObserver=null;
   let allowed=false,parentOrigin='',block=false,child=null,childOrigin='',childState={},playback='',sound='',announced=false;
   let targetVolume=null,loopPolicy='default',hold2xEnabled=false,activeHold2x=null,suppressClickUntil=-Infinity;
   // While the Reddit page previews this player (preview on), a click on the video surface is reported as a tap instead
@@ -116,6 +117,7 @@
     const video=media();
     if(allowed && (video || child)){
       announced=true;
+      discoveryObserver?.disconnect();discoveryObserver=null;
       up('hello',video?{playing:!video.paused && !video.ended,rendered:video.readyState>=2}:childState);
     }
   };
@@ -258,12 +260,13 @@
     let lastProgress=-Infinity;
     document.addEventListener('timeupdate',event=>{
       const video=event.target,now=performance.now();
-      if(!parentOrigin || video!==media() || video.paused || now-lastProgress<750)return;
+      if(!parentOrigin || video.paused || now-lastProgress<750 || video!==media())return;
       lastProgress=now;up('progress',{time:video.currentTime,muted:video.muted});
     },true);
-    new MutationObserver(()=>{
-      if(!announced && media())hello();
-    }).observe(document,{childList:true,subtree:true});
+    if(!announced){
+      discoveryObserver=new MutationObserver(()=>{if(media())hello();});
+      discoveryObserver.observe(document,{childList:true,subtree:true});
+    }
     hello();
     // An already-loaded player can announce before Reddit's document-idle script starts.
     if(!parentOrigin)for(const delay of [300,1000,3000])setTimeout(()=>{if(!parentOrigin)hello();},delay);

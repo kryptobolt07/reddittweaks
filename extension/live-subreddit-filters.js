@@ -336,7 +336,9 @@
       this.enabled = enabled;
       this.waitingForSettings = waitingForSettings;
       this.hidden = new Set();
-      this.parked = new Map();
+      this.parked = new RTPostModel.WeakElementMap();
+      // The parking threshold follows the filter lifecycle, independent of GC.
+      this.parkedCount = 0;
       this.parkedMoves = new WeakMap();
       this.feedOwners = new WeakMap();
       this.flairs = loadFlairs();
@@ -432,11 +434,12 @@
         else marker.replaceWith(card);
       }
       this.parked.clear();
+      this.parkedCount = 0;
       this.parkKey = '';
     }
 
     parkHiddenCards(candidates) {
-      if (!this.parked.size && candidates.length < parkAfter) return;
+      if (!this.parkedCount && candidates.length < parkAfter) return;
       // Keep Reddit's article, separator, and batch in the feed. A detached card's
       // subtree stays out of the native menu's document-wide style recalculation.
       for (const [unit,card] of candidates) {
@@ -444,6 +447,7 @@
         const marker = document.createComment('filtered post');
         this.parkedMoves.set(marker,card);
         this.parked.set(unit,{card,marker});
+        this.parkedCount++;
         card.replaceWith(marker);
       }
     }
@@ -1112,7 +1116,7 @@
           const replaced = this.parked.get(unit);
           if (replaced) {
             replaced.marker.remove();
-            this.parked.delete(unit);
+            if (this.parked.delete(unit)) this.parkedCount--;
           }
           const flairNode=flair && card.querySelector('[slot="post-flair"]');
           let matches=(!nsfw || nsfwCard(card)) && (!flair || flairNode && fold(cardFlair(flairNode))===flair);
@@ -1136,7 +1140,7 @@
           hide(unit);
         }
         for (const [unit,{marker}] of this.parked) {
-          if (!unit.contains(marker)) this.parked.delete(unit);
+          if (!unit.contains(marker)) { if (this.parked.delete(unit)) this.parkedCount--; }
           else if (this.feed.contains(unit)) hide(unit);
         }
         this.parkHiddenCards(candidates);

@@ -176,6 +176,10 @@
   function unavailableNotice(){for(const [notice,anchor] of notices)if(anchor.isConnected){const state=notice.querySelector('img[alt="Deleted user"]')?'deleted':notice.id==='shreddit-forbidden'?'banned':'';if(state)return {notice,anchor,state};}return null;}
   function notFoundNotice(doc=globalThis.document || window.document){return doc?.querySelector(notFoundSelector) || null;}
   function setEnabled(value,showBlocked=value){revision++;const next=value===true,changed=next!==enabled;enabled=next;blockedOn=showBlocked===true;refresh(changed?undefined:[]);}
+  function syncEnabled(value,showBlocked){
+    if(settingsKnown && (value===true)===enabled && (showBlocked===true)===blockedOn)return;
+    setEnabled(value,showBlocked);
+  }
   const emptyTemplate=()=>[...notices.keys()].find(n=>n.id==='empty-feed-content' && n.querySelector('[data-testid="empty-state-creative"]'))?.cloneNode(true) || null;
   try{document.documentElement?.setAttribute?.('data-rt-public-relay','true');}catch{}
   document.addEventListener('rt-public-relay-request',event=>{
@@ -190,7 +194,7 @@
     }catch{reply({ok:false,error:'Signed-out profile read failed.'});}
   });
   let settings;try{settings=chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});}catch(error){settings=Promise.reject(error);}settings.catch(()=>{});
-  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,setRestoreEnabled,unavailableNotice,notFoundNotice,resolveBlockedNotice,completeBlockedProfile,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
+  globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,syncEnabled,setRestoreEnabled,unavailableNotice,notFoundNotice,resolveBlockedNotice,completeBlockedProfile,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
   // Observe the Document: the root may not exist yet at document_start.
   const observer=new MutationObserver(records=>{
     if(!globalThis.RTPostMenuDOM?.onlyMenuChanges(records))refresh(records);

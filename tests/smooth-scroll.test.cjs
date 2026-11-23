@@ -122,3 +122,24 @@ test('cache activation follows smoothFeeds and smoothComments on touch and deskt
   s.destroy();
  }
 });
+
+test('removing offscreen comments releases observation without an intersection callback',async t=>{
+ const html='<main><section><shreddit-comment depth="0"></shreddit-comment></section></main>';
+ const {W,d,io,fire}=page(t,{path:'/r/pics/comments/abc/title/',html});
+ const smooth=new W.RTSmoothScroll.Smooth({readSettings:async()=>({smoothComments:true})});
+ await smooth.ready;
+ const main=d.querySelector('main'),batch=main.firstElementChild,comment=batch.firstElementChild;
+ const afterPaint=()=>new Promise(resolve=>W.requestAnimationFrame(()=>W.requestAnimationFrame(resolve)));
+ fire(comment,{height:640});
+ batch.remove();main.append(batch);await afterPaint();
+ assert.ok(io.observed.has(comment),'a move within the same update keeps the observation');
+ assert.equal(comment.style.containIntrinsicSize,'auto 640px');
+ batch.remove();await afterPaint();
+ assert.equal(io.observed.size,0);
+ assert.equal(smooth.observed.size,0);
+ main.append(batch);await afterPaint();
+ assert.ok(io.observed.has(comment),'a saved batch can be observed again');
+ fire(comment,{intersecting:true});
+ assert.equal(comment.hasAttribute('data-rt-skip'),false);
+ smooth.destroy();
+});

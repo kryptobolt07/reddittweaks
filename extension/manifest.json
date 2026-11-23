@@ -86,6 +86,7 @@
       ],
       "run_at": "document_start",
       "js": [
+        "post-model.js",
         "post-menu-dom.js",
         "profile-notice.js",
         "share-links-settings.js",
@@ -112,7 +113,6 @@
       ],
       "run_at": "document_idle",
       "js": [
-        "post-model.js",
         "download-model.js",
         "markdown-lite.js",
         "archive-view.js",

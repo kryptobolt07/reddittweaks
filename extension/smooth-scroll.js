@@ -29,7 +29,7 @@
 
  class Smooth{
   constructor({doc=document,readSettings,observe=true}={}){
-   this.doc=doc;this.settings=null;this.dead=false;this.observed=new Set();this.pending=new Set();this.frame=0;this.currentArea=null;this.active=false;
+   this.doc=doc;this.settings=null;this.dead=false;this.observed=new Set();this.pending=new Set();this.removed=new Set();this.frame=0;this.currentArea=null;this.active=false;
    // Touch screens do not skip anything. Measured on a phone-emulated Videos feed (2026-11-19, the user flicking, 45 s
    // each way): skipping left 8.8 % of frames at least half blank against 1.0 % without it. Throughput was 3.0 vs
    // 2.1 fps, with Reddit saturating the main thread either way. A flick outruns the redraw.
@@ -38,8 +38,11 @@
    this.touch=Boolean(globalThis.matchMedia?.('(hover: none) and (pointer: coarse)')?.matches);
    this.io=typeof IntersectionObserver==='function' && !this.touch?new IntersectionObserver(entries=>this.onIntersect(entries),{rootMargin:'200% 0px 200% 0px'}):null;
    this.mo=observe && this.io?new MutationObserver(records=>{
-    for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1)this.pending.add(node);
-    if(this.pending.size)this.schedule();
+    for(const record of records){
+     for(const node of record.addedNodes)if(node.nodeType===1)this.pending.add(node);
+     for(const node of record.removedNodes)if(node.nodeType===1)this.removed.add(node);
+    }
+    if(this.pending.size || this.removed.size)this.schedule();
    }):null;
    this.onRoute=()=>this.sync();addEventListener('popstate',this.onRoute);doc.addEventListener('reddit:route',this.onRoute);
    this.ready=(readSettings?readSettings():Promise.resolve({})).then(s=>{this.configure(s);},()=>{this.configure({});});
@@ -53,7 +56,7 @@
    // The page bridge uses measurement caches while the current area's Smooth scrolling option is enabled.
    this.doc.documentElement.toggleAttribute('data-rt-smooth-site',active);
    if(!this.io)return;
-   if(name!==this.currentArea || !active){this.pending.clear();this.clear();}
+   if(name!==this.currentArea || !active){this.pending.clear();this.removed.clear();this.clear();}
    this.currentArea=name;this.active=active;
    if(!active){this.mo?.disconnect();return;}
    this.mo?.observe(this.doc.documentElement,{childList:true,subtree:true});
@@ -62,6 +65,13 @@
   schedule(){if(this.frame || this.dead)return;this.frame=(globalThis.requestAnimationFrame || (fn=>setTimeout(fn,16)))(()=>{this.frame=0;this.flush();});}
   flush(){
    if(this.dead || !this.active)return;
+   // An already-offscreen removal may never deliver another intersection entry.
+   for(const root of this.removed){
+    if(root.isConnected)continue;
+    if(this.observed.has(root))this.unwatch(root);
+    for(const unit of root.querySelectorAll('[data-rt-smooth]'))if(this.observed.has(unit))this.unwatch(unit);
+   }
+   this.removed.clear();
    const nodes=[...this.pending];this.pending.clear();const selector=selectorFor(this.currentArea);
    for(const node of nodes){if(!node.isConnected)continue;if(node.matches?.(selector))this.watch(node);for(const unit of node.querySelectorAll?.(selector) || [])this.watch(unit);}
   }
@@ -78,13 +88,17 @@
    for(const entry of entries){
     const unit=entry.target,height=Math.round(entry.boundingClientRect?.height || 0);
     if(!this.observed.has(unit))continue;
-    if(!unit.isConnected){this.io.unobserve(unit);this.observed.delete(unit);continue;}
+    if(!unit.isConnected){this.unwatch(unit);continue;}
     if(entry.isIntersecting || unit.contains(this.doc.activeElement)){if(unit.hasAttribute('data-rt-skip'))unit.removeAttribute('data-rt-skip');continue;}
     if(height>0 && !unit.hasAttribute('data-rt-skip')){unit.style.containIntrinsicSize='auto '+height+'px';unit.setAttribute('data-rt-skip','');}
    }
   }
-  clear(){for(const unit of this.observed){this.io?.unobserve(unit);unit.removeAttribute('data-rt-skip');unit.removeAttribute('data-rt-smooth');unit.style.removeProperty('contain-intrinsic-size');}this.observed.clear();this.io?.takeRecords?.();}
-  destroy(){this.dead=true;this.doc.documentElement.removeAttribute('data-rt-smooth-site');this.mo?.disconnect();this.pending.clear();this.clear();this.io?.disconnect();removeEventListener('popstate',this.onRoute);this.doc.removeEventListener('reddit:route',this.onRoute);}
+  unwatch(unit){
+   this.observed.delete(unit);this.io?.unobserve(unit);
+   unit.removeAttribute('data-rt-skip');unit.removeAttribute('data-rt-smooth');unit.style.removeProperty('contain-intrinsic-size');
+  }
+  clear(){for(const unit of this.observed)this.unwatch(unit);this.io?.takeRecords?.();}
+  destroy(){this.dead=true;this.doc.documentElement.removeAttribute('data-rt-smooth-site');this.mo?.disconnect();this.pending.clear();this.removed.clear();this.clear();this.io?.disconnect();removeEventListener('popstate',this.onRoute);this.doc.removeEventListener('reddit:route',this.onRoute);}
  }
  globalThis.RTSmoothScroll=Object.freeze({Smooth,area,enabled});
  if(globalThis.chrome?.runtime?.id && !globalThis.__rtSmoothScrollTest){

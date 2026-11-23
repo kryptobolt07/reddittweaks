@@ -417,7 +417,7 @@ test('the production startup hides native feed sort before settings settle and r
  W.chrome={runtime:{id:'test',sendMessage:()=>new Promise(resolve=>{settings=resolve;}),onMessage:{addListener(){}}}};
  const script=JSON.parse(read('manifest.json')).content_scripts.find(entry=>entry.js?.includes('live-subreddit-filters.js'));
  assert.equal(script.run_at,'document_start');
- for(const name of script.js.filter(name=>['feed-filters.js','feed-sheet.js','live-subreddit-filters.js'].includes(name)))W.eval(read(name));
+ for(const name of script.js.filter(name=>['post-model.js','feed-filters.js','feed-sheet.js','live-subreddit-filters.js'].includes(name)))W.eval(read(name));
  assert.equal(D.documentElement.hasAttribute(heldSorts),true,'the gate is present before any feed markup');
  D.body.innerHTML=sortedFeed();
  const bootRule=read('post-discovery.css').split('\n').find(line=>line.startsWith('html['+heldSorts+']'));

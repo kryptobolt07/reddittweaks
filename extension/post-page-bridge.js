@@ -392,9 +392,9 @@
   }
   // Each followed YouTube player reports when it starts playing, so the content script keeps one video playing; and
   // pauses when something else starts.
-  const playingEmbeds=new Set(),playerEmbeds=new WeakMap();
+  const playingEmbeds=new RTPostModel.WeakElementMap(),playerEmbeds=new WeakMap();
   function followYouTube(embed,player){
-    ytPlayers.set(embed,player);playingEmbeds.add(embed);
+    ytPlayers.set(embed,player);playingEmbeds.set(embed,true);
     const watched=playerEmbeds.has(player);playerEmbeds.set(player,embed);
     if(watched || typeof player.addEventListener!=='function')return;
     player.addEventListener('onStateChange',change=>{
@@ -404,7 +404,7 @@
   }
   document.addEventListener('rt-media-exclusive',event=>{
     const path=event.composedPath();
-    for(const embed of playingEmbeds){
+    for(const [embed] of playingEmbeds){
       if(!embed.isConnected){playingEmbeds.delete(embed);continue;}
       if(path.includes(embed) || heldEmbed?.embed===embed)continue;
       try{const player=ytPlayers.get(embed),state=player?.getPlayerState?.();if(state===1 || state===3)player.pauseVideo();}catch{}
@@ -885,6 +885,8 @@
     }
   }
   const profileNavObserver=new MutationObserver(records=>{
+    if(!globalThis.document)return;
+    if(observedFeed && !observedFeed.isConnected)stopObservingFeed();
     seedProfileNavigation(records);
     if(scopedHeaders.size || hiddenSearchScopes.size || document.documentElement?.hasAttribute('data-rt-profile-scope-pending') ||
       document.getElementById('shreddit-forbidden')?.hasAttribute('data-rt-archive-notice'))syncBlockedSearchHeader();
@@ -913,7 +915,10 @@
   // viewport, wherever its stack entry is, and only virtualize cards far above.
   // Entries keep Reddit's {node,placeholder,height} shape so its state survives.
   let syncFrame=null,observedFeed=null;const managed=new WeakSet(),nativeMethods=new WeakMap();
-  const feedObserver=typeof MutationObserver==='function'?new MutationObserver(()=>scheduleFeedSync()):null;
+  const feedObserver=typeof MutationObserver==='function'?new MutationObserver(records=>{
+    updateFeedTargets(records);
+    scheduleFeedSync();
+  }):null;
   function ownedFeed(feed){return Boolean(feed?.isConnected && feed.hasAttribute('data-rt-loading-owner') && route()?.username && document.documentElement.hasAttribute('data-rt-profile-discovery'));}
   function currentFeed(){return document.querySelector('main shreddit-feed[data-rt-loading-owner]') || (observedFeed?.isConnected?observedFeed:null);}
   function manageFeed(feed){
@@ -925,13 +930,20 @@
         if(ownedFeed(this.host)){scheduleFeedSync();return;}
         // Discovery released the feed: restore everything we hold so Reddit
         // restarts from a consistent, empty stack.
-        if(managed.has(this)){managed.delete(this);releaseFeed(this);}
+        if(managed.has(this)){managed.delete(this);releaseFeed(this);if(observedFeed===this.host)stopObservingFeed();}
         return native.call(this,distance);
       };
     }
     managed.add(controller);
-    if(observedFeed!==feed && feedObserver){feedObserver.disconnect();feedObserver.observe(feed,{childList:true});observedFeed=feed;}
+    observeFeed(feed);
     return controller;
+  }
+  function observeFeed(feed){
+    if(observedFeed===feed)return;
+    stopObservingFeed();
+    observedFeed=feed;
+    feedObserver?.observe(feed,{childList:true});
+    for(const child of feed.children)watchPlaceholder(child);
   }
   function restoreEntry(feed,entry){
     const {node,placeholder}=entry;
@@ -973,12 +985,13 @@
     const feed=currentFeed();
     if(!ownedFeed(feed)){
       const controller=feed?.virtualization;if(controller && managed.has(controller)){managed.delete(controller);releaseFeed(controller);}
+      stopObservingFeed();
       return;
     }
     const controller=manageFeed(feed);if(!controller)return;
     try{reconcileFeed(feed,controller);}
     // Our own changes must not wake the observer into another pass.
-    finally{feedObserver?.takeRecords();}
+    finally{updateFeedTargets(feedObserver?.takeRecords());}
   }
   function reconcileFeed(feed,controller){
     // Restore within 4 screens either way (the observer's margin); virtualize only beyond 5, so nothing thrashes.
@@ -1018,7 +1031,6 @@
       if(node.parentElement!==feed)continue;
       const placeholder=document.createElement('div');placeholder.className='virtualized-placeholder';placeholder.style.height=size+'px';feed.replaceChild(placeholder,node);controller.topStack.push({node,placeholder,height:size});changed=true;
     }
-    observePlaceholders(feed);
     if(!changed)return;
     controller.topPadding=controller.topStack.reduce((sum,entry)=>sum+(entry.placeholder?.isConnected && Number.isFinite(entry.height)?entry.height:0),0);
     // Restored cards may differ from their saved heights; keep what the reader
@@ -1029,10 +1041,38 @@
   // forced seconds of layout, and a 1.5-screen restore window let flicks up reach placeholders (blank screens). While
   // the reader scrolls, an IntersectionObserver swaps placeholders back as they come within 4 screens, with no layout
   // reads of ours; the full measure-and-virtualize pass waits until scrolling pauses.
-  let lastScroll=-Infinity,idleTimer=null,restoreFrame=null;const pendingRestore=new Set(),observedPlaceholders=new WeakSet();
+  let lastScroll=-Infinity,idleTimer=null,restoreFrame=null;const pendingRestore=new Set(),observedPlaceholders=new Set();
   const idleMs=()=>Number(window.__rtFeedIdleMs) || 200;
   const restoreObserver=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{const near=entries.filter(entry=>entry.isIntersecting).map(entry=>entry.target);if(near.length)queueRestore(near);},{rootMargin:'400% 0px 400% 0px'}):null;
-  function observePlaceholders(feed){if(!restoreObserver || !feed)return;for(const placeholder of feed.querySelectorAll(':scope > .virtualized-placeholder'))if(!observedPlaceholders.has(placeholder)){observedPlaceholders.add(placeholder);restoreObserver.observe(placeholder);}}
+  function watchPlaceholder(node){
+    if(!restoreObserver || !node.classList?.contains('virtualized-placeholder') || observedPlaceholders.has(node))return;
+    observedPlaceholders.add(node);
+    restoreObserver.observe(node);
+  }
+  function stopObservingFeed(){
+    if(!observedFeed)return;
+    feedObserver?.disconnect();
+    restoreObserver?.disconnect?.();
+    skipObserver?.disconnect?.();
+    restoreObserver?.takeRecords?.();
+    skipObserver?.takeRecords?.();
+    observedPlaceholders.clear();
+    skipObserved.clear();
+    pendingRestore.clear();
+    observedFeed=null;
+  }
+  // Native virtualization and our own replacements both change direct children.
+  function updateFeedTargets(records){
+    if(!observedFeed || !records?.length)return;
+    for(const record of records)if(record.target===observedFeed){
+      for(const node of record.removedNodes)if(node.parentElement!==observedFeed){
+        if(observedPlaceholders.delete(node))restoreObserver?.unobserve(node);
+        if(skipObserved.delete(node))skipObserver?.unobserve(node);
+        pendingRestore.delete(node);
+      }
+      for(const node of record.addedNodes)if(node.parentElement===observedFeed)watchPlaceholder(node);
+    }
+  }
   function queueRestore(list){for(const placeholder of list)pendingRestore.add(placeholder);if(restoreFrame!==null || typeof requestAnimationFrame!=='function')return;restoreFrame=requestAnimationFrame(()=>{restoreFrame=null;try{restorePlaceholders();}catch{ /* the next full pass restores them */ }});}
   function restorePlaceholders(){
     const feed=currentFeed(),list=[...pendingRestore];pendingRestore.clear();
@@ -1048,7 +1088,7 @@
     if(done.size){const keep=stack.filter(entry=>!done.has(entry));stack.length=0;stack.push(...keep);}
     controller.topPadding=stack.reduce((sum,entry)=>sum+(entry.placeholder?.isConnected && Number.isFinite(entry.height)?entry.height:0),0);
     // A restored entry can itself be an older placeholder; it is observed like any other.
-    observePlaceholders(feed);feedObserver?.takeRecords();
+    updateFeedTargets(feedObserver?.takeRecords());
   }
   /* Smooth long feeds (setting, default on): a post more than two screens away gets content-visibility:hidden at its
      measured height (CSS [data-rt-skip]), so the browser skips laying it out and painting it, and draws it again as it
@@ -1061,31 +1101,33 @@
       if(!on || entry.isIntersecting){if(node.hasAttribute('data-rt-skip'))node.removeAttribute('data-rt-skip');continue;}
       if(height>0 && !node.hasAttribute('data-rt-skip')){node.style.containIntrinsicSize='auto '+height+'px';node.setAttribute('data-rt-skip','');}}
   },{rootMargin:'200% 0px 200% 0px'}):null;
-  const skipObserved=new WeakSet();
+  const skipObserved=new Set();
   function observeForSkip(child,smooth){
     if(!skipObserver)return;
     if(!smooth){if(child.hasAttribute('data-rt-skip'))child.removeAttribute('data-rt-skip');return;}
     if(skipObserved.has(child) || child.classList.contains('virtualized-placeholder') || child.dataset.rtUi && child.dataset.rtUi!=='activity-item')return;
     skipObserved.add(child);skipObserver.observe(child);
   }
-  function scheduleFeedSync(){
+  function scheduleFeedSync(discover=false){
     // Only profile feeds are managed: elsewhere (subreddits, home) every scroll event returned here after a document
     // search (measured 2026-11-19: ~1.3 s of a 46 s phone scroll). A feed managed earlier still gets its release pass.
     if(!observedFeed && !route()?.username)return;
     const quiet=performance.now()-lastScroll;
     if(restoreObserver && quiet<idleMs()){
-      observePlaceholders(currentFeed());
+      if(discover===true || !observedFeed){
+        const feed=currentFeed();if(ownedFeed(feed))observeFeed(feed);
+      }else updateFeedTargets(feedObserver?.takeRecords());
       if(!idleTimer)idleTimer=setTimeout(()=>{idleTimer=null;scheduleFeedSync();},idleMs()-quiet+5);
       return;
     }
     if(syncFrame!==null || typeof requestAnimationFrame!=='function')return;
     syncFrame=requestAnimationFrame(()=>{syncFrame=null;try{syncFeed();}catch{ /* Native virtualization remains if Reddit's contract changes. */ }});
   }
-  document.addEventListener('scroll',()=>{lastScroll=performance.now();scheduleFeedSync();},{passive:true});
+  document.addEventListener('scroll',()=>{lastScroll=performance.now();if(observedFeed && !observedFeed.isConnected)stopObservingFeed();scheduleFeedSync();},{passive:true});
   window.addEventListener('resize',scheduleFeedSync,{passive:true});
   // Take over as soon as discovery marks a feed, before Reddit's next native
   // pass can virtualize around inserted cards.
-  if(typeof MutationObserver==='function')new MutationObserver(scheduleFeedSync).observe(document.documentElement,{subtree:true,attributes:true,attributeFilter:['data-rt-loading-owner','data-rt-profile-discovery']});
+  if(typeof MutationObserver==='function')new MutationObserver(()=>scheduleFeedSync(true)).observe(document.documentElement,{subtree:true,attributes:true,attributeFilter:['data-rt-loading-owner','data-rt-profile-discovery']});
   async function boundedText(response,max=2500000){
     if(Number(response.headers.get('content-length'))>max)throw Error('Reddit response is too large.');
     let text='';

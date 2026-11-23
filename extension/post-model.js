@@ -431,5 +431,41 @@
     const name=match?.[1].toLowerCase();
     return name && !['all','popular'].includes(name) && (url.searchParams.get('rt_type') || url.searchParams.get('rt_nsfw')==='1' || /^flair_name:/.test(url.searchParams.get('f') || ''))?name:'';
   }
-  globalThis.RTPostModel=Object.freeze({SETTINGS_DEFAULTS,VIDEO_DEFAULTS,HISTORY_LIMITS,noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord,filteredCommunity});
+  // Preserve insertion order for live DOM keys without keeping abandoned elements alive.
+  class WeakElementMap {
+    #entries=new WeakMap();
+    #ordered=new Set();
+    #registry=new FinalizationRegistry(ref=>this.#ordered.delete(ref));
+
+    has(key){return this.#entries.has(key);}
+    get(key){return this.#entries.get(key)?.value;}
+    set(key,value){
+      const existing=this.#entries.get(key);
+      if(existing){existing.value=value;return this;}
+      const ref=new WeakRef(key);
+      this.#entries.set(key,{ref,value});
+      this.#ordered.add(ref);
+      this.#registry.register(key,ref,ref);
+      return this;
+    }
+    delete(key){
+      const entry=this.#entries.get(key);if(!entry)return false;
+      this.#registry.unregister(entry.ref);
+      this.#ordered.delete(entry.ref);
+      return this.#entries.delete(key);
+    }
+    clear(){
+      for(const ref of this.#ordered)this.#registry.unregister(ref);
+      this.#ordered.clear();
+      this.#entries=new WeakMap();
+    }
+    *[Symbol.iterator](){
+      for(const ref of this.#ordered){
+        const key=ref.deref();
+        if(key)yield [key,this.#entries.get(key).value];
+        else this.#ordered.delete(ref);
+      }
+    }
+  }
+  globalThis.RTPostModel=Object.freeze({WeakElementMap,SETTINGS_DEFAULTS,VIDEO_DEFAULTS,HISTORY_LIMITS,noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord,filteredCommunity});
 })();
