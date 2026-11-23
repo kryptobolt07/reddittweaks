@@ -91,7 +91,7 @@ The implementation plan, request policy and primary references are in [docs/redd
 
 ## Chat search
 
-The completed chat-search work is integrated into local `main`; the Reddit Tweaks expansion is on `codex/reddit-tweaks-post-discovery`. The isolated experiment in `demo/prototype/` remains a separate synthetic reference.
+The completed chat-search work is integrated into local `main`; the Reddit Tweaks expansion started on the `codex/reddit-tweaks-post-discovery` branch. The isolated experiment in `demo/prototype/` remains a separate synthetic reference.
 
 Individual chat search replaces the identity header with **Back + Search in this chat** while open. Back restores Reddit’s original header and controls; Escape dismisses a popup, then results, then search. Global and individual search toolbars use the native room-header height in CSS pixels, including transformed/floating layouts and width changes. Both fields contain icon-only **Filters** and **Date** controls. Both filter menus contain From, Message contains and Sort; sender choices retain avatars and multiple selection. Applied sender/media/date filters appear as removable tags below the field, matching global search. Date opens our compact Reddit-accented calendar directly, with its existing quick ranges, date modes, explicit Apply and future-day limits. The empty room-search view retains recent successful searches scoped to the conversation and account for this page session.
 
@@ -206,11 +206,12 @@ The packaged release's validation record distinguishes synthetic Brave checks fr
 
 ### Browser testing with Playwright + Chrome Dev
 
-`playwright-core` is installed globally (`(global npm folder)/playwright-core`) so it can be reused across projects without downloading extra browser binaries. This repository keeps its own git-ignored Chrome Dev profile in `.chrome-dev-profile/` (completely separate from regular Chrome and regular Chrome Dev profiles).
+`playwright-core` is installed globally (`(global npm folder)/playwright-core`), so no browser binaries are downloaded. The repository keeps its own git-ignored, signed-in Chrome Dev profile in `.chrome-dev-profile/`, separate from regular Chrome and Chrome Dev profiles.
 
-- Launch a headed setup or live-testing session with `/usr/bin/google-chrome-unstable --user-data-dir="$PWD/.chrome-dev-profile" --enable-unsafe-extension-debugging --remote-debugging-port=0 --no-first-run https://www.reddit.com/` (no `--enable-automation` flag, so Reddit sign-in works normally).
-- Branded Chrome 137+ ignores `--load-extension`, so load/reload the unpacked build via official CDP after connecting Playwright (`chromium.connectOverCDP` using `.chrome-dev-profile/DevToolsActivePort` or `chromium.launchPersistentContext` with `executablePath: '/usr/bin/google-chrome-unstable'`):
-  `await (await browser.newBrowserCDPSession()).send('Extensions.loadUnpacked', { path: path.resolve('artifacts/reddit-chat-search') })`.
-- Use `context.newCDPSession(page)` on the same page for live DOM-survival checks and DevTools profiling (`Performance.getMetrics`, `Tracing.start`, `Emulation.setCPUThrottlingRate`). For fast offline fixture checks, Playwright can also run `--headless=new` against the local preview server.
+- **Run a probe:** `npm run package`, then `node scripts/live/browser.mjs run <probe.mjs> [--url <url>] [--phone]`. A probe default-exports `async ({page, context, extensionId, args}) => result`, and the result is printed as JSON. `open` instead of `run <probe>` keeps the browser open until Ctrl-C.
+- **How it launches:** Playwright's `launchPersistentContext` starts `/usr/bin/google-chrome-unstable` on the profile, headed on a private Xvfb display (`:97`, started if needed). It talks to Chrome over Playwright's own `--remote-debugging-pipe`; there is no TCP debugging port. The launcher keeps extensions enabled and keeps the OS keyring (it drops Playwright's `--password-store=basic` and `--use-mock-keychain`, which can't read the profile's encrypted cookies and so sign Reddit out).
+- **Loading the build:** branded Chrome 137+ ignores `--load-extension`, so with `--enable-unsafe-extension-debugging` the launcher installs `artifacts/reddit-chat-search/` with one `Extensions.loadUnpacked` call over Playwright's pipe on every launch. That is the only CDP call; viewport, phone emulation (`isMobile`, `hasTouch`, Android user agent), input and screenshots use Playwright's API. To skip it, load the folder once through chrome://extensions → Load unpacked (Developer Mode) and pass `--no-load`; Chrome remembers the fixed path, which `npm run package` updates in place.
+- **Signing in again:** `node scripts/live/browser.mjs open --headed-desktop --url https://www.reddit.com/login` opens the profile on your own desktop.
+- Live checks are read-only, and the launcher can run only once at a time because the profile is locked. The older CDP relay tools in `scripts/live/` are retired for live Reddit.
 
 The earlier numeric-segment and separate-dropdown experiments are recorded in `1378c4e` and `d3ff68f`; the current slash-date/calendar picker replaces their presentation while preserving saved-message storage. The independent typing fix is `fa72432`. The older standalone design preview retains its historical calendar; load the exported extension to test the current controls.

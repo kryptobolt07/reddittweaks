@@ -21,13 +21,13 @@ Copy `templates/spec.md` to the working folder and fill it in. It's a spec sheet
 4. **Out of scope**: list what you notice; don't change it in this loop.
 
 ## 2. Measure native Reddit first (L3, read-only, targeted)
-Before building anything that should look or behave like Reddit, capture Reddit's own version of it **as data**, not as screenshots.
+Before building anything that should look or behave like Reddit, capture Reddit's own version of it **as data**, not as screenshots. Live checks run only through the signed-in Playwright launcher, `node scripts/live/browser.mjs run <probe.mjs>` (AGENTS.md, Live testing). No CDP of our own: use `page.evaluate`, locators, `page.mouse`, `page.touchscreen` and `page.keyboard`.
 - **Markup**: dump the native component's outerHTML, including shadow roots (`shadowRoot.innerHTML`), with tracking attributes and SVG bodies stripped.
 - **Computed styles per state**: idle, hover, focused, typed, results, empty, error. Record box sizes and positions, padding, margin, gap, border, radius, font weight, size and line-height, colours and transitions (`styledump.mjs`-style deep dump; see tools.md).
-- **Behaviour**: which keys do what (Enter, Escape, empty vs typed), what happens on blur, what the URL becomes, what a click opens and where the page scrolls. Drive it with real CDP input events.
-- **Timing and order**: when each part appears on a direct load and after a click (post, toolbar and comments for example). Use `probe-timeline`, or a polling loop that records the first time each selector has height.
+- **Behaviour**: which keys do what (Enter, Escape, empty vs typed), what happens on blur, what the URL becomes, what a click opens and where the page scrolls. Drive it with Playwright input (`locator.click()`, `page.mouse`, `page.keyboard`).
+- **Timing and order**: when each part appears on a direct load and after a click (post, toolbar and comments for example). Install a `requestAnimationFrame` logger with `page.evaluate` before the click and read it back afterwards.
 - Write `FINDINGS.md` in the working folder with the measured numbers, and settle any contradiction (for example "inline or collapsed?") by measuring again at the user's real window size before building.
-- Keep browser use minimal and targeted: one tab, closed afterwards. Don't touch the user's other tabs.
+- Keep browser use minimal and targeted: reuse one page, and space out loads (about 40 loads in 30 minutes gets HTTP 429).
 
 ## 3. Build with Reddit's own pieces
 - Prefer Reddit's own custom elements and classes when they're defined on the page (`faceplate-search-input`, `rpl-input-chip`, `shreddit-comment` attributes such as `is-highlighted`). Check `customElements.get()` from the page world first. Fall back to CSS only for what Reddit's page stylesheet lacks, using the measured values.
@@ -39,17 +39,17 @@ Before building anything that should look or behave like Reddit, capture Reddit'
 - `node --check` every changed `.js` or `.mjs` file.
 - Run the relevant `tests/*.test.cjs`, then the full `npm test`. **Read the failure list before committing**: packaging tests fail on extension files the manifest doesn't reference. Add tests for every expectation that logic can prove. Synthetic data only.
 
-## 5. L2: fixture browser (where a fixture exists)
-- `node scripts/live/fixture-browser.mjs` in the background, then `RELAY_PORT=9334`. Pages: `demo/` (chat: full, floating and dark) and `demo/tweaks/` (profile discovery).
+## 5. L2: fixture pages (where a fixture exists)
+- `npm run preview` in the background, then open `http://127.0.0.1:8765/demo/` (chat: full, floating and dark) or `/demo/tweaks/` (profile discovery) with Playwright (`browser.mjs run <probe> --no-load --url …`, or a throwaway `chromium.launch()`).
 - Use it for surfaces with no live data needed, such as chat chips and floating layouts. Measure computed values there the same way as live.
 - Loop rules: fix the real cause, never the test or the probe. At most **3 attempts per failing expectation**; then stop and report with the evidence. Don't widen the change to make something pass.
 
 ## 6. L3: compare ours with native live (read-only)
-1. `npm run package`. Reload the extension (tools.md: keep the popup tab open about 1.5 s) and confirm the version it prints.
+1. `npm run package`. Each `browser.mjs` launch loads the fresh build; confirm the version from `chrome-extension://<id>/popup.html` (`chrome.runtime.getManifest().version`). Mid-session, use `reloadExtension()`.
 2. Run the same dump as in step 2 on our version, and **diff the numbers**: sizes, offsets, fonts, colours and every state. A match means equal to within 1 px. Explain any remaining difference (for example, banned-community pages use Reddit's older colour palette) or fix it.
 3. Re-run the timing check for load order and transitions.
 4. Strictly read-only: no voting, joining, posting, commenting, saving, reporting or settings changes. If live data isn't available, the result is **not verified (reason)**.
-5. Close your tab, stop the relay and delete the relay token (`artifacts/research/live-probe/relay-token*`).
+5. The launcher closes the browser when the probe returns. Nothing else to clean up.
 
 ## 7. Release (only when packaging a release bundle)
 Full suite, then integrity checks:
@@ -68,9 +68,9 @@ Start with the outcome. Then the measured comparisons (native vs ours, with numb
 - **Settled screenshots miss timing bugs.** Measure appearance order and transitions with real clicks; direct loads skip the client-side router.
 - **Measure, don't eyeball.** The user wants programmatic, accurate values; screenshots are for a final glance only.
 - **Native first.** Before calling something a defect, check native Reddit on the equivalent page at the user's real window size.
-- **Background tabs and windows are throttled.** Use one foreground tab with focus emulation on.
-- **The relay's event buffer drains per session.** Enable Log, Runtime and Network before acting, and read the events soon after.
-- **The extension service worker sleeps.** Wake it by opening a feature page, then attach to it.
-- **Reddit challenges cookieless and headless sessions** ("Prove your humanity"). Never try to get past it. Real-Reddit checks happen only in the user's signed-in Chrome.
+- **Background tabs are throttled.** Probe in the launcher's own foreground page.
+- **Console and network:** `page.on('console')`, `page.on('response')` and `context.serviceWorkers()` instead of CDP domains.
+- **Reddit challenges cookieless and headless sessions** ("Prove your humanity"). Never try to get past it. Real-Reddit checks happen only in the signed-in profile, headed on Xvfb.
+- **A signed-out profile** (no `reddit_session` cookie) means the user must sign in again (`browser.mjs open --headed-desktop`); report it, never type credentials.
 - **Never stage files you didn't change.** The user often has their own work in progress.
 - **A judge panel is optional and off by default.** If the user asks for an independent review, the archived council in `.claude/skills-archived/council/` can still be used once (see that folder's README).

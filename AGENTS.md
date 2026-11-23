@@ -1,8 +1,11 @@
 # Repository workflow
 
-Follow the user's current instructions first. The user has authorized subagents for work in this repository: use gpt-6.1-terra with high reasoning for all subagents, while the main agent manages and reviews the work. Follow any newer user instructions about delegation or model choice.
+Follow the user's current instructions first.
 
-For extension changes, Claude Code agents use the `verify-loop` skill (`.claude/skills/verify-loop/`): spec first, measure native Reddit as data before building, build with Reddit's own markup, unit, fixture and targeted read-only live checks, fix loop, and the main agent verifies its own work. The `council` judging skill is archived and inactive (`.claude/skills-archived/`, with a README on switching back); use it only if the user asks for a council review.
+- **Delegation is optional.** The main agent may do the work itself. Use subagents only for self-contained pieces that need little live back-and-forth (research, a logic module with unit tests, a read-only sweep), choose any capable model the current tool offers, and review their diffs before committing. No particular agent, provider or model (Codex included) is required.
+- **Branch names** only need to be descriptive (for example `feat/…`, `fix/…`); a `codex/` prefix is not required.
+
+For extension changes, Claude Code agents use the `verify-loop` skill (`.claude/skills/verify-loop/`): spec first, measure native Reddit as data before building, build with Reddit's own markup, unit, fixture and targeted read-only live checks, fix loop, and the main agent verifies its own work. When the user says the verify loop isn't needed, test efficiently and hand over for their testing instead. The `council` judging skill is archived and inactive (`.claude/skills-archived/`, with a README on switching back); use it only if the user asks for a council review.
 
 ## Git and commits
 
@@ -24,6 +27,16 @@ For extension changes, Claude Code agents use the `verify-loop` skill (`.claude/
 - Choose the smallest justified increment once per completed release bundle. Explain the choice in release notes. A version decision is independent of the number of commits or edited lines.
 - Treat `extension/manifest.json` as the extension version source of truth. Synchronize only current runtime/display version references, the current release notes, and packaging paths. Preserve historical version references and independent tooling/package versions.
 - Make coherent implementation commits with relevant tests first. Then run the full suite and verify archive integrity and source/stable-folder byte equality before committing release metadata. Small edits may rebuild the same-version local export with updated validation; do not replace published release assets or tags without authorization.
+
+## Live testing
+
+- **Signed-in Playwright only:** `node scripts/live/browser.mjs run <probe.mjs> [--url …] [--phone]` (or `open`). It launches Chrome Dev on the repo's signed-in `.chrome-dev-profile/` with Playwright's `launchPersistentContext`, headed on a private Xvfb display (`:97`), and loads `artifacts/reddit-chat-search/` fresh each launch. Run `npm run package` first.
+- **No CDP of our own:** no `--remote-debugging-port`, no `connectOverCDP`, no CDP sessions for emulation or probing. The one exception is `Extensions.loadUnpacked` over Playwright's own pipe, because Chrome 137+ ignores `--load-extension`. Phone mode is Playwright's context options (viewport, `isMobile`, `hasTouch`, Android user agent); input is Playwright's mouse, touch and keyboard.
+- **Keep the keyring:** never launch the profile with `--password-store=basic` or `--use-mock-keychain` (Playwright defaults the launcher already drops). They can't read the profile's encrypted cookies, so Reddit signs it out.
+- **Signing in** is the user's job: `node scripts/live/browser.mjs open --headed-desktop --url https://www.reddit.com/login` opens the profile on their desktop. Agents never type passwords.
+- Live checks are read-only. Never get past "Prove your humanity" or 403 pages. About 40 page loads in 30 minutes gets HTTP 429, so space loads out and reuse the page. One launch at a time (the profile is locked).
+- Offline checks: `npm test` (jsdom) and Playwright pages against `npm run preview` (`demo/`, `demo/tweaks/`). The older CDP relay tools in `scripts/live/` (`relay.mjs`, `cdp.mjs`, `probe-*.mjs`, `fixture-browser.mjs`) are retired for live Reddit; use them only if the user asks.
+- Probes, captures and screenshots go in ignored `artifacts/research/verify/<slug>/` and `artifacts/research/shots/`.
 
 ## Extension constraints
 
