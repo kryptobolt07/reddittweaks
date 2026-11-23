@@ -922,18 +922,53 @@ test('Boolean chat expressions preserve field positions, results, inline errors 
   assert.equal(p.searches.length,before,'invalid queries never reach saved storage');
 });
 
-test('syntax suggestions and Search tips share menu rows and keyboard navigation',async t=>{
+test('syntax suggestions open only on explicit request, operator colon, exact operator, or 2+ uppercase Boolean; Search tips fit compact/mobile panels',async t=>{
   const p=await setup(t,{scope:'messages'}),c=p.control;
+  // Trailing space and single-letter tokens never open suggestions.
   p.type('cats ');await p.tick(180);
+  assert.equal(c.suggestions.hidden,true);assert.equal(p.searches.at(-1).query,'cats');
+  p.type('cats O');assert.equal(c.suggestions.hidden,true);
+  p.type('cats or');assert.equal(c.suggestions.hidden,true);
+  p.type('A cat');assert.equal(c.suggestions.hidden,true);
+  p.type('it\'s - fine');assert.equal(c.suggestions.hidden,true);
+  // Explicit Ctrl+Space opens the full syntax list without blocking search.
+  c.input.dispatchEvent(new p.w.KeyboardEvent('keydown',{key:' ',code:'Space',ctrlKey:true,bubbles:true,cancelable:true,composed:true}));await settle();
+  assert.equal(c.suggestions.hidden,false);
   assert.deepEqual(Array.from(c.suggestionOptions,option=>option.token),['from:','has:','before:','after:','AND','OR','NOT','( )','"phrase"','-exclude']);
-  assert.equal(p.searches.at(-1).query,'cats','a discoverability popover does not block valid search');
   for(const row of c.suggestions.querySelectorAll('[role=option]'))assert.ok(row.classList.contains('menu-option') && row.querySelector('.operator-label').textContent);
-  p.type('cats O');await p.key('ArrowDown');assert.equal(c.suggestions.querySelector('[aria-selected=true] code').textContent,'OR');await p.key('Enter');assert.equal(c.input.value,'cats OR ');assert.equal(c.suggestions.hidden,true);
-  p.type('cats ');const group=c.suggestionOptions.findIndex(option=>option.token==='( )');c.acceptSuggestion(group);assert.equal(c.input.value,'cats (');
+  // Escape closes suggestions without dismissing the search panel and stays closed for the token.
+  await p.key('Escape');assert.equal(c.suggestions.hidden,true);assert.equal(c.searchDismissed,false);
+  // Uppercase 2+ letter Boolean after a term offers the matching Boolean once.
+  p.type('cats OR');assert.equal(c.suggestions.hidden,false);assert.deepEqual(Array.from(c.suggestionOptions,o=>o.token),['OR']);
+  await p.key('ArrowDown');assert.equal(c.suggestions.querySelector('[aria-selected=true] code').textContent,'OR');await p.key('Enter');assert.equal(c.input.value,'cats OR ');assert.equal(c.suggestions.hidden,true);
+  // Explicit / in an empty field opens the full syntax list.
+  p.type('');c.input.dispatchEvent(new p.w.KeyboardEvent('keydown',{key:'/',bubbles:true,cancelable:true,composed:true}));await settle();
+  assert.equal(c.suggestions.hidden,false);const group=c.suggestionOptions.findIndex(option=>option.token==='( )');c.acceptSuggestion(group);assert.equal(c.input.value,'(');
+  // Paste, Backspace/Delete, and IME composition never open suggestions.
+  c.input.value='coffee from';c.input.dispatchEvent(new p.w.Event('paste',{bubbles:true}));c.input.dispatchEvent(new p.w.Event('input',{bubbles:true}));assert.equal(c.suggestions.hidden,true);
+  const delEvt=new p.w.Event('input',{bubbles:true});Object.defineProperty(delEvt,'inputType',{value:'deleteContentBackward'});c.input.value='coffee has';c.input.dispatchEvent(delEvt);assert.equal(c.suggestions.hidden,true);
+  c.input.dispatchEvent(new p.w.Event('compositionstart',{bubbles:true}));c.input.value='coffee from';c.input.dispatchEvent(new p.w.Event('input',{bubbles:true}));assert.equal(c.suggestions.hidden,true);
+  c.input.dispatchEvent(new p.w.Event('compositionend',{bubbles:true}));assert.equal(c.suggestions.hidden,true);
+  // 50 plain queries without operator keywords never trigger suggestions across any keystroke.
+  const plainQueries=['lunch tomorrow','dinner tonight','see you soon','A cat in the park','O my goodness','N/A right now','(parentheses)','quoted "hello world"','it\'s - fine','can\'t wait','good morning!','happy birthday','check this out','meeting at 3pm','on my way','where are you','coffee shop','weekend plans','movie night','project update','send the link','nice photo','lol okay','thanks a lot','sounds great','let me know','call me later','running late','almost there','got it','no worries','for sure','makes sense','good luck','take care','see ya','what happened','just finished','working on it','almost done','need help','quick question','one sec','be right back','heading home','free tomorrow?','all good','wait a minute','never mind','talk soon'];
+  let plainOpens=0;
+  for(const q of plainQueries){
+    c.input.value='';c.closeSuggestions();
+    for(let i=1;i<=q.length;i++){p.type(q.slice(0,i));if(!c.suggestions.hidden)plainOpens++;}
+  }
+  assert.equal(plainOpens,0,'plain queries must never pop up suggestions');
+  // Search tips layout fits narrow/mobile containers cleanly with sticky header and bounded height.
+  c.bar.getBoundingClientRect=()=>({left:0,right:340,top:0,bottom:52,width:340,height:52});
+  c.container.getBoundingClientRect=()=>({left:0,right:340,top:0,bottom:360,width:340,height:360});
+  c.controlButtons.filter.getBoundingClientRect=()=>({left:270,right:296,top:10,bottom:36,width:26,height:26});
   await p.click('[data-control="filter"]');await p.click('[data-value="tips"]');
-  assert.equal(c.popover.getAttribute('aria-label'),'Search tips');assert.equal(c.popover.querySelectorAll('.search-tip.menu-option').length,10);
+  assert.equal(c.popover.getAttribute('aria-label'),'Search tips');assert.equal(c.popover.classList.contains('menu-popover-tips'),true);
+  assert.equal(c.popover.querySelectorAll('.search-tip.menu-option').length,10);
+  assert.equal(c.popover.querySelector('.menu-reset').hidden,true);
+  assert.equal(c.popover.style.left,'8px');assert.equal(c.popover.style.right,'8px');
+  assert.ok(parseInt(c.popover.style.maxHeight,10)<=320 && parseInt(c.popover.style.maxHeight,10)>=160,'tips height bounded inside container');
   assert.match(c.popover.textContent,/cats AND dogs/);assert.match(c.popover.textContent,/\(from:alice OR from:bob\)/);
-  await p.key('Escape',c.shadow.activeElement);assert.equal(c.filterSection,'');assert.equal(c.shadow.activeElement.dataset.value,'tips');
+  await p.key('Escape',c.shadow.activeElement);assert.equal(c.filterSection,'');assert.equal(c.popover.classList.contains('menu-popover-tips'),false);assert.equal(c.shadow.activeElement.dataset.value,'tips');
 });
 
 test('picking a conversation in the chat list keeps an opened search bar open; a click elsewhere closes it',async t=>{

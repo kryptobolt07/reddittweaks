@@ -93,7 +93,13 @@ test('room Boolean sender completion stays inline and syntax suggestions and tip
   type('(from:me OR from:Al');assert.equal(tools.valuePicker().prefix,'Al');key('Enter');
   assert.equal(c.input.value,'(from:me OR from:Alex ');assert.equal(tools.queryState.filters.length,0);
   type('(from:me OR from:Alex) NOT has:image');assert.equal(c.input.value,'(from:me OR from:Alex) NOT has:image');assert.equal(tools.queryState.filters.length,0);
-  type('cats ');assert.deepEqual(Array.from(tools.suggestionOptions,option=>option.token),['from:','has:','before:','after:','AND','OR','NOT','( )','"phrase"','-exclude']);
-  type('cats N');key('ArrowDown');assert.equal(tools.suggestions.querySelector('[aria-selected=true] code').textContent,'NOT');key('Enter');assert.equal(c.input.value,'cats NOT ');
-  tools.showMenu('filter');tools.popover.querySelector('[data-value="tips"]').click();assert.equal(tools.popover.querySelectorAll('.search-tip').length,10);key('Escape',c.host.shadowRoot.activeElement);assert.equal(c.host.shadowRoot.activeElement.dataset.value,'tips');
+  // Plain trailing spaces and single-letter tokens never open suggestions automatically; Ctrl+Space opens the full list.
+  type('cats ');assert.equal(tools.suggestions.hidden,true);
+  type('cats N');assert.equal(tools.suggestions.hidden,true);
+  c.input.dispatchEvent(new w.KeyboardEvent('keydown',{key:' ',code:'Space',ctrlKey:true,bubbles:true,cancelable:true}));
+  assert.deepEqual(Array.from(tools.suggestionOptions,option=>option.token),['from:','has:','before:','after:','AND','OR','NOT','( )','"phrase"','-exclude']);
+  key('Escape');assert.equal(tools.suggestions.hidden,true);
+  type('cats NO');assert.equal(tools.suggestions.hidden,true,'Escape stays dismissed for the rest of the token');
+  type('dogs NO');key('ArrowDown');assert.equal(tools.suggestions.querySelector('[aria-selected=true] code').textContent,'NOT');key('Enter');assert.equal(c.input.value,'dogs NOT ');
+  tools.showMenu('filter');tools.popover.querySelector('[data-value="tips"]').click();assert.equal(tools.popover.querySelectorAll('.search-tip').length,10);assert.equal(tools.popover.classList.contains('menu-popover-tips'),true);key('Escape',c.host.shadowRoot.activeElement);assert.equal(c.host.shadowRoot.activeElement.dataset.value,'tips');
 });

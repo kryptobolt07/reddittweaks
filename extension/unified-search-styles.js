@@ -135,7 +135,12 @@
     .query-tools-overlay:empty { display:none; }
     .popover { position:absolute; top:calc(100% + 4px); right:8px; width:min(248px,calc(100% - 16px)); max-height:none; overflow:visible; padding:5px; color:var(--rcs-text,#172328); background:var(--rcs-bg,#fff); border:1px solid var(--rcs-line,#dfe6e9); border-radius:12px; box-shadow:0 8px 24px #00000024; z-index:20; }
     .query-tools-overlay .popover { top:4px; pointer-events:auto; }
-    .menu-popover { left:auto;right:8px;transform:none;width:min(260px,calc(100% - 16px));max-height:min(520px,75vh);overflow:auto;padding:6px; }
+    .menu-popover { left:auto;right:8px;transform:none;width:min(260px,calc(100% - 16px));max-height:min(520px,75vh);overflow:auto;padding:6px;scrollbar-width:thin;scrollbar-color:var(--rcs-border,#aabcc4) transparent; }
+    .menu-popover.menu-popover-tips { display:flex;flex-direction:column;width:min(320px,calc(100% - 16px));padding:0;overflow:hidden; }
+    .menu-popover-tips .filter-menu-header { flex:none;margin:0;padding:8px 8px 7px;border-bottom:1px solid var(--rcs-line,#dfe6e9);background:var(--rcs-bg,#fff); }
+    .search-tips-body { flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 8px 8px;scrollbar-width:thin;scrollbar-color:var(--rcs-border,#aabcc4) transparent; }
+    .search-tips-group-title { margin:6px 2px 3px;font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--rcs-muted,#52656c); }
+    .search-tips-group-title:first-child { margin-top:2px; }
     .menu-title { font-size:11px;color:var(--rcs-text);margin:3px 7px 6px; }
     .menu-section-title { margin:4px 7px; font-size:10px; color:var(--rcs-muted,#52656c); font-weight:600; letter-spacing:.2px; }
     .menu-section-title:not(:first-child) { padding-top:3px; border:0; }
@@ -158,11 +163,20 @@
     .operator-label { flex:1;min-width:0;white-space:nowrap; }
     .operator-option svg { width:15px;height:15px;flex:0 0 15px; }
     .operator-token { display:inline-flex;align-items:center;flex-shrink:0;padding:3px 7px;border:1px solid var(--rcs-line,#dfe6e9);border-radius:6px;color:var(--rcs-accent,#ff4500);background:color-mix(in srgb,var(--rcs-accent,#ff4500) 8%,var(--rcs-bg,#fff));font:inherit;font-size:11px;font-weight:500; }
-    .search-tip { align-items:flex-start;cursor:default;font-size:12px;line-height:1.4; }
+    .search-tip { display:grid;grid-template-columns:76px minmax(0,1fr);align-items:start;gap:4px 8px;min-height:0;padding:6px 4px;border-radius:0;border-bottom:1px solid color-mix(in srgb,var(--rcs-line,#dfe6e9) 55%,transparent);cursor:default;font-size:12px;line-height:1.35; }
+    .search-tip:last-of-type { border-bottom:0; }
     .search-tip:hover { background:transparent; }
-    .search-tip-copy { display:flex;flex:1;min-width:0;flex-direction:column;gap:2px; }
-    .search-tip-copy small { font:inherit;color:var(--rcs-muted);overflow-wrap:anywhere; }
-    .search-tip-note { margin:6px 7px;font-size:12px;line-height:1.45;color:var(--rcs-muted); }
+    .search-tip .operator-token { justify-self:start;padding:2px 6px;font-size:10.5px;line-height:1.3;white-space:nowrap; }
+    .search-tip-copy { display:flex;min-width:0;flex-direction:column;gap:2px; }
+    .search-tip-label { color:var(--rcs-text,#172328);font-size:11.5px;font-weight:500;line-height:1.3; }
+    .search-tip-copy small,.search-tip-example { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;line-height:1.3;color:var(--rcs-muted,#52656c);overflow-wrap:anywhere; }
+    .search-tip-note { margin:8px 0 2px;padding:7px 9px;border-radius:8px;background:var(--rcs-soft,#f6f8f9);font-size:11px;line-height:1.45;color:var(--rcs-muted,#52656c); }
+    :host([data-rcs-compact]) .menu-popover.menu-popover-tips { width:min(300px,calc(100% - 16px)); }
+    :host([data-rcs-compact]) .search-tip { grid-template-columns:68px minmax(0,1fr);gap:2px 6px;padding:5px 2px; }
+    :host([data-rcs-compact]) .search-tip .operator-token { font-size:10px;padding:2px 5px; }
+    :host([data-rcs-compact]) .search-tip-label { font-size:11px; }
+    :host([data-rcs-compact]) .search-tip-example { font-size:10px; }
+    :host([data-rcs-compact]) .search-tip-note { font-size:10.5px;padding:6px 8px; }
     .operator-suggestions .operator-label { overflow:hidden;text-overflow:ellipsis; }
     .sender-chips { display:flex;align-items:center;flex-wrap:wrap;gap:5px;min-width:0;max-width:100%;padding:6px 12px 8px; }
     .sender-chips:empty { display:none; }
