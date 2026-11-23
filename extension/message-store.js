@@ -1351,7 +1351,7 @@
           senderMask[s]=ok?1:0;
         }
       }
-      const {t,room,senderIdx,flags,folded,count}=proj;
+      const {t,room,senderIdx,flags,folded,count,ids}=proj;
       const {start:tStart,end:tEnd,active:timeActive}=plan.timeRange;
       const hasMin=Number.isFinite(minTimeExclusive);
       const effStart=hasMin?Math.max(tStart,minTimeExclusive):tStart;
@@ -1365,6 +1365,8 @@
       for(let i=lo;i<hi;i++){
         const ti=t[i];
         if(hasMin && ti<=minTimeExclusive){if(proj.sortedDesc)break;continue;}
+        // Removed (redacted or deleted) entries keep their slot; search() skips them, so the count does too.
+        if(!ids[i])continue;
         if(timeActive && (ti<tStart || ti>=tEnd))continue;
         if(roomSet && !roomSet.has(room[i]))continue;
         const s=senderIdx[i];
@@ -1408,7 +1410,7 @@
       const proj=await this._ensureProjection(owner);
       const mediaCounts=emptyMediaCounts();
       if(!proj){
-        return {owner,selfIdentity:null,persistent:this.persistent,records:[],total:0,hasMore:false,matchedRooms:0,mediaCounts,availableMediaTypes:[],...(grouped?{groups}:{}),stats:{messages:0,rooms:0,completeRooms:0,approxBytes:0},coverage:roomId?{complete:false,dateComplete:false}:{complete:false,unknownRooms:false,threadsVerified:false}};
+        return {owner,selfIdentity:null,persistent:this.persistent,records:[],total:0,hasMore:false,matchedRooms:0,mediaCounts,availableMediaTypes:[],...(grouped?{groups:[]}:{}),stats:{messages:0,rooms:0,completeRooms:0,approxBytes:0},coverage:roomId?{complete:false,dateComplete:false}:{complete:false,unknownRooms:false,threadsVerified:false}};
       }
       const acc=proj.account;
       const availableMediaTypes=MEDIA_TYPES.filter(type=>(acc.mediaTypeCounts?.[type] || 0)>0);

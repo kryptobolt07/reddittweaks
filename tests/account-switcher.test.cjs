@@ -445,3 +445,17 @@ test('removing needs a second click, and a failed list is reported',async t=>{
  const failed=await popupPage(t,{fail:'Worker unavailable'});assert.match(failed.d.querySelector('#accounts-status').textContent,/Worker unavailable/);assert.ok(failed.d.querySelector('#accounts-status').classList.contains('error'));
  const empty=await popupPage(t,{accounts:[]});assert.match(empty.d.querySelector('#account-list').textContent+empty.d.querySelector('#accounts-home').textContent,/account menu/);
 });
+test('a tab still on the old account right after a switch cannot file the new session under the old account',async()=>{
+ const w=worker();await w.send({action:'save-current',...alice});for(const [k,v] of jarFor('bob'))w.jar.set(k,v);await w.send({action:'save-current',...bob});
+ await w.send({action:'switch',owner:'t2_alice',from:'t2_bob'});
+ // The jar now holds Alice's session; a tab that loaded as Bob reports before it reloads.
+ const stale=await w.send({action:'remember',owner:'t2_bob'});
+ assert.equal(stale.ok,true);
+ const list=await w.send({action:'list',owner:''},w.popup);
+ assert.equal(list.accounts.find(a=>a.owner==='t2_alice').expired,false,'the switch target is not marked expired');
+ assert.equal(list.current,'t2_alice');
+ await w.send({action:'remember',owner:'t2_alice'});
+ const after=await w.send({action:'switch',owner:'t2_bob',from:'t2_alice'});
+ assert.equal(after.ok,true);
+ assert.equal(w.jar.get('reddit_session').value,'reddit_session-bob','Bob\'s saved cookies are still Bob\'s');
+});

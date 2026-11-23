@@ -77,7 +77,8 @@
   if(privateMemory.has(key))return structuredClone(privateMemory.get(key));
   try{return (await chrome.storage.session?.get(key))?.[key];}catch{}
  }
- const clean=value=>({accounts:Array.isArray(value?.accounts)?value.accounts.filter(a=>ownerOK(a?.owner)):[],current:ownerOK(value?.current)?value.current:'',pending:ownerOK(value?.pending)?value.pending:'',anonymous:value?.anonymous===true,adding:ownerOK(value?.adding?.from)?{from:value.adding.from,at:Number(value.adding.at) || 0,tab:Number.isInteger(value.adding.tab)?value.adding.tab:null}:null});
+ const SWITCH_SETTLE_MS=8000;
+ const clean=value=>({accounts:Array.isArray(value?.accounts)?value.accounts.filter(a=>ownerOK(a?.owner)):[],current:ownerOK(value?.current)?value.current:'',pending:ownerOK(value?.pending)?value.pending:'',pendingAt:Number(value?.pendingAt) || 0,anonymous:value?.anonymous===true,adding:ownerOK(value?.adding?.from)?{from:value.adding.from,at:Number(value.adding.at) || 0,tab:Number.isInteger(value.adding.tab)?value.adding.tab:null}:null});
  async function state(jar){
   const s=clean(jar?.private?await readPrivate(jar):(await chrome.storage.local.get(KEY))?.[KEY]);s.jar=jar;
   // A private window can also switch to accounts saved in normal windows (read-only there: never overwritten).
@@ -154,6 +155,9 @@
   if(message.action==='remember'){
    // A page reports who is signed in now. A switch that did not land on its target means that session expired.
    let now=ownerOK(owner)?owner:'';if(s.anonymous && now){if(await signedIn(jar))s.anonymous=false;else now='';}
+   // Right after a switch, a tab that loaded before it can still report the old account while the jar already holds
+   // the new one: saving then would file the new session under the old account. Such reports wait out the reloads.
+   if(now && s.pending && s.pending!==now && Date.now()-s.pendingAt<SWITCH_SETTLE_MS)return {ok:true,save:false,current:s.current,anonymous:s.anonymous};
    if(s.pending && s.pending!==now){const target=s.accounts.find(a=>a.owner===s.pending);if(target)target.expired=true;}
    s.pending='';
    const fromSignIn=s.adding && (s.adding.tab==null || sender.tab?.id===s.adding.tab || Date.now()-s.adding.at>600000);
@@ -209,7 +213,7 @@
    const target=known(s,owner);if(!target)throw Error('That account is not saved.');if(target.expired)return {ok:false,expired:true,error:'Sign in to this account again.'};
    const from=String(message.from || s.current || '').toLowerCase();if(from!==owner && await unsavedSession(s,from))return unsaved(jar);
    if(ownerOK(from) && from!==owner && s.accounts.some(a=>a.owner===from))await store(s,{owner:from});
-   await apply(jar,target.cookies);s.pending=owner;s.current=owner;s.anonymous=false;s.adding=null;await save(s);
+   await apply(jar,target.cookies);s.pending=owner;s.pendingAt=Date.now();s.current=owner;s.anonymous=false;s.adding=null;await save(s);
    await reloadAll(jar);
    return {ok:true};
   }

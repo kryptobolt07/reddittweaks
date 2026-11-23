@@ -347,3 +347,18 @@ test('a cold search that starts while a save is running never caches its snapsho
  assert.equal(store.activeWrites,0);
  assert.equal((await store._ensureProjection(owner)).count,2,'the snapshot read during the save was not kept');
 });
+
+test('certified counts skip redacted messages, and a grouped search of an empty account answers instead of throwing',async()=>{
+ const idb=new IDBFactory(),{M}=makeEnv(idb);
+ const store=new M.Store({indexedDB:idb,name:'count-redacted'});
+ const owner='@t2_owner:reddit.com',room='!r:reddit.com';
+ const empty=await store.search(owner,{query:'hi',grouped:true,committed:true});
+ assert.deepEqual([...empty.groups],[]);
+ await store.ingest({owner,roomId:room,events:[
+  {event_id:'$1',room_id:room,type:'m.room.message',sender:owner,origin_server_ts:1000,content:{msgtype:'m.text',body:'one'}},
+  {event_id:'$2',room_id:room,type:'m.room.message',sender:owner,origin_server_ts:2000,content:{msgtype:'m.text',body:'two'}}]});
+ assert.equal((await store.searchCount(owner,{query:'from:me',committed:true})).certified,2);
+ await store.ingest({owner,roomId:room,events:[{event_id:'$r',room_id:room,type:'m.room.redaction',sender:owner,origin_server_ts:3000,redacts:'$2'}]});
+ assert.equal((await store.search(owner,{query:'from:me',committed:true})).total,1);
+ assert.equal((await store.searchCount(owner,{query:'from:me',committed:true})).certified,1);
+});
