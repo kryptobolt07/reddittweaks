@@ -424,7 +424,7 @@ test('the production startup hides native feed sort before settings settle and r
  assert.ok(bootRule,'the prepaint gate has a stylesheet rule');
  const style=D.createElement('style');style.textContent=bootRule;D.head.append(style);
  assert.equal(W.getComputedStyle(D.querySelector('[sort-event="feed-sort-change"]')).display,'none');
- assert.notEqual(W.getComputedStyle(D.querySelector('shreddit-layout-switcher')).display,'none');
+ assert.equal(W.getComputedStyle(D.querySelector('shreddit-layout-switcher')).display,'none','the View switch moves into Sort & filter too');
  settings({ok:true,settings:{feedControls:false}});await flush();
  assert.equal(D.documentElement.hasAttribute(heldSorts),false);
  assert.notEqual(W.getComputedStyle(D.querySelector('[sort-event="feed-sort-change"]')).display,'none');
@@ -433,7 +433,7 @@ test('the production startup hides native feed sort before settings settle and r
 test('desktop Feed options moves native sorting and Top time ranges into Sort, preserving other filters',t=>{
  const {D,targets,W,controller}=setup(t,sortedPath,sortedFeed());
  assert.equal(D.querySelectorAll('shreddit-sort-dropdown['+replaced+']').length,2);
- assert.equal(D.querySelector('shreddit-layout-switcher').hasAttribute(replaced),false);
+ assert.equal(D.querySelector('shreddit-layout-switcher').hasAttribute(replaced),true,'the layout switcher moves into View too');
  D.querySelector('[data-rt-community-options]').click();
  const root=D.querySelector('.rt-community-feed-menu');
  assert.equal(root.querySelector('[aria-label="Sort"] [data-rt-menu-value]').textContent,'Top');
@@ -535,6 +535,8 @@ test('an unsupported native feed sort remains available and the boot gate stays 
  assert.equal(sort.hasAttribute('data-rt-community-sort-native'),true);
  W.history.pushState({},'','/r/Example/search/?q=fixture');
  D.dispatchEvent(new W.Event('reddit:route'));await flush();
+ assert.equal(D.documentElement.hasAttribute(heldSorts),true,'kept while the outgoing feed is still on screen');
+ D.querySelector('shreddit-feed').remove();D.dispatchEvent(new W.Event('reddit:route'));await flush();
  assert.equal(D.documentElement.hasAttribute(heldSorts),false);
 });
 
@@ -571,10 +573,11 @@ test('Home, Popular, and All feeds mount Sort & filter with Sort, Post type and 
  const {D,W,targets}=setup(t,'/?rt_type=video',homeFeed());
  assert.equal(D.querySelectorAll('article['+stop+']').length,1);
  assert.equal(D.querySelector('shreddit-sort-dropdown').hasAttribute(replaced),true);
+ assert.equal(D.querySelector('shreddit-layout-switcher').hasAttribute(replaced),true);
  assert.equal(new W.URL(D.querySelector('shreddit-layout-switcher a').href).searchParams.get('rt_type'),'video');
  D.querySelector('[data-rt-community-options]').click();
  const menu=D.querySelector('.rt-community-feed-menu');
- assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(el=>el.getAttribute('aria-label')),['Sort','Post type','Community']);
+ assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(el=>el.getAttribute('aria-label')),['Sort','View','Post type','Community']);
  assert.equal(menu.querySelector('[aria-label="Flair"]'),null);
  menu.querySelector('[aria-label="Sort"]').click();
  assert.equal(menu.querySelector('[aria-label="Best"]').getAttribute('aria-checked'),'true');
@@ -588,7 +591,7 @@ test('Home, Popular, and All feeds mount Sort & filter with Sort, Post type and 
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
  const rows=[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent).filter(label=>label!=='Applied filters');
- assert.deepEqual(rows,['Sort by','Post type','Community']);
+ assert.deepEqual(rows,['Sort by','View','Post type','Community']);
 
  for(const [path,reload,links] of [
   ['/r/popular/','/svc/shreddit/community-more-posts/hot/?name=popular','<a href="/r/popular/hot/">Hot</a><a href="/r/popular/new/">New</a>'],
@@ -775,4 +778,33 @@ test('parked cards upgrade to weak storage after the isolated model loads',async
  controller.applyTypes([]);
  await flush();
  assert.equal(batch.querySelectorAll('shreddit-post')[1],original);
+});
+
+test('View offers Card and Compact even when Reddit renders a switcher linking only to the other layout',t=>{
+ const {D,W,targets}=setup(t,'/',homeFeed());
+ D.querySelector('[data-rt-community-options]').click();
+ const menu=D.querySelector('.rt-community-feed-menu');
+ menu.querySelector('[aria-label="View"]').click();
+ assert.equal(menu.querySelector('[aria-label="Card"]').getAttribute('aria-checked'),'true','the switcher links to Compact, so Card is current');
+ let clicked=false;D.querySelector('shreddit-layout-switcher a').addEventListener('click',event=>{event.preventDefault();clicked=true;});
+ menu.querySelector('[aria-label="Compact"]').click();
+ assert.equal(clicked,true,'Reddit\'s own link is used when it exists');
+});
+
+test('removing a filter brings back the cards next to the viewport at once and the rest over the next frames',async t=>{
+ const markup='<main><shreddit-feed><faceplate-batch>'+card('video','Match')+card('text','Hidden').repeat(30)+
+  '</faceplate-batch><faceplate-partial slot="load-after"></faceplate-partial></shreddit-feed></main>';
+ const {D,controller}=setup(t,'/r/Example/',markup);
+ const feed=D.querySelector('shreddit-feed');
+ controller.applyTypes(['video']);await flush();
+ const hiddenArticles=()=>feed.querySelectorAll('article['+stop+']').length;
+ assert.equal(hiddenArticles(),30);
+ controller.applyTypes([]);
+ const left=hiddenArticles();
+ assert.ok(left>0 && left<30,'only part comes back in the click\'s own pass ('+left+' left)');
+ await new Promise(resolve=>setTimeout(resolve,400));
+ assert.equal(feed.querySelectorAll('['+stop+']').length,0,'then everything');
+ controller.applyTypes(['video']);await flush();controller.applyTypes([]);controller.applyTypes(['video']);
+ await new Promise(resolve=>setTimeout(resolve,400));
+ assert.equal(hiddenArticles(),30,'a filter chosen again mid-reveal keeps its cards hidden');
 });

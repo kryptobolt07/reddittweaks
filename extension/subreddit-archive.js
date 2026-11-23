@@ -406,7 +406,9 @@
     queueAvatars(records){
       if(!records)this.avatarRescan=true;
       else for(const record of records){
-        for(const node of record.removedNodes){
+        // Nothing watched and no archive view: Reddit's own changes on every page need no walk.
+        if(!this.avatarWatching.size && !this.mounted && !this.search)break;
+        if(this.avatarWatching.size)for(const node of record.removedNodes){
           if(node.nodeType!==1 || node.isConnected)continue;
           for(const img of [node,...node.querySelectorAll('img[data-rt-avatar-watched]')]){
             if(!this.avatarWatching.delete(img))continue;

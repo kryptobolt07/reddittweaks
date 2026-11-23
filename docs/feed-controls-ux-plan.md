@@ -20,7 +20,7 @@ Measured before (signed-in Playwright launcher, Chrome Dev 160; profile signed o
 | 3 | Keep Sort & filter (and the hidden native sort) in place while the outgoing feed is still on screen after a click to a post or community | |
 | 4 | Fix Home when Reddit serves the signed-out popular feed there; never leave Reddit's sort hidden when we don't take over | |
 | 5 | Applied filters, new design: a count badge on the button, one **summary chip** on computers (no pill rail), the full list with remove buttons in a popover or sheet | |
-| 6 | Sort & filter **docked under the header** once the row has scrolled away and you scroll up, on computers and phones | |
+| 6 | ~~Sort & filter docked under the header~~ Removed in 0.62.1 at the user's request: the floating pill felt out of place | |
 | 7 | Home, Popular and All: **Community** row (show only, or hide, chosen communities) | |
 | 8 | Profile: the same count badge, summary chip and phone Applied row list every filter | |
 | 9 | Popup switch **Sort & filter on feeds** (on by default): off keeps Reddit's own sort and view controls on Home, Popular, All, communities and custom feeds | |
@@ -35,7 +35,7 @@ Measured before (signed-in Playwright launcher, Chrome Dev 160; profile signed o
 ## 2. View inside the menu
 
 - Rows: Sort · View · Post type · Community (Home, Popular, All) or Flair (communities) · NSFW where offered.
-- The View row lists Reddit's own choices, read from its `shreddit-sort-dropdown[sort-event="layout-view-change"]`. Choosing one activates Reddit's own item, so Reddit stores the layout as before. The native dropdown is hidden only while our control is mounted, with the same attribute pair used for the replaced sort (`data-rt-community-sort-replaced`).
+- The View row always offers Card and Compact. It reads Reddit's `shreddit-sort-dropdown[sort-event="layout-view-change"]`, or the older `shreddit-layout-switcher`, which links only to the other layout (so the current one was missing from the row). Choosing one activates Reddit's own item when it exists, and otherwise opens the feed with `feedViewType`, as Reddit's links do. The native dropdown is hidden only while our control is mounted, with the same attribute pair used for the replaced sort (`data-rt-community-sort-replaced`).
 - Phones: the same rows in the bottom sheet.
 - The profile already has Reddit's View group inside its menu; the banned-community archive keeps its own view button, which belongs to our page.
 
@@ -46,6 +46,7 @@ Measured before (signed-in Playwright launcher, Chrome Dev 160; profile signed o
 | F1 | Click a post title or card | Sort & filter stays in place, with Reddit's sort still hidden, until Reddit removes or hides the outgoing feed; it goes in the same frame as the feed |
 | F2 | Click a community link in the feed | As F1; the new community mounts its own control with its feed |
 | F3 | Back to the feed | Control returns with the feed, as today (no flash of Reddit's sort) |
+| F1a | During F1/F2, Reddit re-renders its sort or View switch for the new address | Stays hidden: the boot rule holds while the outgoing feed is held, so Reddit's Card icon never appears beside Sort & filter |
 | F4 | Home signed out (`popular-feed` behind `/`) | Mounts like Home; if we give up for any reason, the boot rule is lifted in the same pass so Reddit's sort shows |
 | F5 | Sort & filter switch off | Reddit's own sort and View show at once in open tabs; ours are removed |
 
@@ -54,16 +55,14 @@ Measured before (signed-in Playwright launcher, Chrome Dev 160; profile signed o
 - **Button:** a count badge on the filter icon's corner (no layout width) whenever one or more filters apply. Sort and View don't count.
 - **Computers:** one summary chip in the row's free space, after every control: "Videos · r/pics · +1". It's truncated with an ellipsis to the room available and shows "N filters" if even that doesn't fit. Its × clears all. Clicking it opens the Applied filters list (each filter with its icon and a remove button, then Clear all). With no room at all, only the badge shows.
 - **Phones:** badge only in the row. The sheet's first row is **Applied filters · N filters**, opening the removable list.
-- **Docked control:** when the row is above the viewport and you scroll up at least 24 px, a compact Sort & filter pill (with the badge) slides in under Reddit's header, aligned with the feed column. On phones it moves with the header reveal. Scrolling down hides it; it never covers the row itself. Activating it opens the same menu (popover under the pill on computers, the sheet on phones).
+- **Docked control:** removed in 0.62.1 (the user didn't want a floating pill). Sort & filter stays in the feed's own row.
 - Covered surfaces: Home, Popular, All, communities, custom feeds, profiles, banned/private community archive. The chat panel keeps its own rows (`docs/filter-pills-spec.md`, Chat search).
 
 | | Transition | Expected |
 |---|---|---|
 | A1 | Apply a filter | Badge appears; computers add the summary chip in free space; nothing moves |
 | A2 | Remove from the list | List and summary refit; the last removal hides chip and badge |
-| A3 | Scroll down past the row, then up | Docked pill slides in under the header; down again hides it |
-| A4 | Open from the docked pill | Same menu, same state; changes apply to the feed in place |
-| A5 | Row back in view | Docked pill hides |
+| A3 | Remove a filter after a long scroll | The cards next to the viewport return in the click's own frame; the rest follow nearest first, 8 per frame. Measured live (r/interestingasfuck, 150 hidden cards): the longest main-thread block after the click fell from 0.5-3 s to 175 ms |
 
 ## 7. Community filter on Home, Popular and All
 
@@ -114,7 +113,6 @@ Remaining gaps:
   - View row reads and activates native items.
   - Hold during route change (F1–F3) and the popular-feed Home fix (F4).
   - Summary chip and badge.
-  - Docked pill show and hide.
   - Community filter matching and address.
   - Switch on and off.
   - Awaiting-approval source selection and state classification.
@@ -123,7 +121,7 @@ Remaining gaps:
   - F1/F2 frame logs.
   - Home signed out and signed in.
   - The row on desktop and phone.
-  - Docked pill on scroll.
+  - Filter removal after a long scroll (main-thread gaps).
   - V1 with the pointer resting before settings load.
 - Not verifiable here:
   - Anything needing Direct embed controls (a browser permission the user grants).

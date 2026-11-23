@@ -30,11 +30,15 @@
   const menuLabel = 'Sort & filter';
   const subParam = 'rt_sub', hideParam = 'rt_hide';
   const nativeView = 'shreddit-sort-dropdown[sort-event="layout-view-change"]';
+  const viewLabels = {cardView:'Card',compactView:'Compact'};
   // Signed out, Reddit serves its popular feed at / (reload-url /svc/shreddit/feeds/popular-feed).
   const signedOut = () => Boolean(document.querySelector('#login-button,#open-app-header-cta'));
   const shown = node => node?.isConnected && (typeof node.checkVisibility !== 'function' || node.checkVisibility());
   const subList = value => [...new Set(String(value || '').split(',').map(name => name.trim().replace(/^r\//i,'')).filter(name => /^[a-z0-9_]{2,21}$/i.test(name)))].slice(0,20);
   const parkAfter = 40;
+  const revealNow = 12, revealPerFrame = 8;
+  const nextFrame = fn => globalThis.requestAnimationFrame ? requestAnimationFrame(fn) : setTimeout(fn,16);
+  const cancelFrame = id => globalThis.cancelAnimationFrame ? cancelAnimationFrame(id) : clearTimeout(id);
   const nsfwCard = card => ['nsfw','is-nsfw','over-18'].some(name => card.hasAttribute(name) && !/^(?:false|0)$/i.test(card.getAttribute(name))) ||
     Boolean(card.querySelector('[slot="ssr-post-content-header"] [icon-name="nsfw-fill-12"]'));
   const feedSortIcons = {best:'best',hot:'hot',new:'new',top:'top',rising:'top',controversial:'sort'};
@@ -384,11 +388,19 @@
           this.note?.remove();
           return;
         }
-        if (records.some(record => {
-          if (this.isParkingMutation(record) || globalThis.RTPostMenuDOM?.isMenuMutation(record) || record.target.closest?.('[data-rt-ui]')) return false;
-          return [...record.addedNodes, ...record.removedNodes].some(node =>
+        let relevant = false, urgent = false;
+        for (const record of records) {
+          if (this.isParkingMutation(record) || globalThis.RTPostMenuDOM?.isMenuMutation(record) || record.target.closest?.('[data-rt-ui]')) continue;
+          const nodes = [...record.addedNodes, ...record.removedNodes].filter(node =>
             node.nodeType === 1 && (!node.matches('[data-rt-ui]') || isArchiveNode(node)));
-        })) this.schedule();
+          if (!nodes.length) continue;
+          relevant = true;
+          // Inside a card that stays (its player, menus, hover content), unless a card itself comes or goes.
+          const inCard = record.target.closest?.('shreddit-post,shreddit-ad-post') &&
+            !nodes.some(node => node.matches('shreddit-post,shreddit-ad-post,article') || node.querySelector('shreddit-post,shreddit-ad-post'));
+          if (!inCard) { urgent = true; break; }
+        }
+        if (relevant) this.schedule(urgent);
       });
       this.observer.observe(document, {childList:true, subtree:true});
       this.rootObserver = new MutationObserver(() => this.schedule());
@@ -407,19 +419,88 @@
       this.refresh();
     }
 
-    schedule() {
-      if (this.queued || this.dead) return;
+    schedule(urgent = true) {
+      if (this.dead) return;
+      // A frame-deferred pass is promoted when something urgent arrives meanwhile.
+      if (this.queued && !(urgent && this.queuedFrame)) return;
       this.queued = true;
-      queueMicrotask(() => {
+      const run = () => {
         this.queued = false;
         if (!this.dead) this.refresh();
-      });
+      };
+      // Feed and route changes run in this microtask, before the frame (docs/feed-controls-ux-plan.md, F1-F3). Churn
+      // inside cards that are already there (players, hover cards) waits for the next frame: it changes nothing a pass
+      // decides, and each pass reads every card in the feed. A hidden tab runs no frames.
+      if (!urgent && globalThis.requestAnimationFrame && document.visibilityState !== 'hidden') {
+        this.queuedFrame = true;
+        requestAnimationFrame(() => { if (this.queuedFrame) { this.queuedFrame = false; run(); } });
+      } else { this.queuedFrame = false; queueMicrotask(run); }
     }
 
     clearHidden() {
       this.restoreParked();
       for (const node of this.hidden) node.removeAttribute(hidden);
       this.hidden.clear();
+      this.flushReveal();
+    }
+
+    // Removing a filter after a long scroll used to unhide every card in one pass, and the next layout (the rail's
+    // own measurement, then the frame) laid out hundreds of cards with media at once: 0.5-3 s before the click painted
+    // (measured live, 2026-11-23). Cards next to the viewport come back at once; the rest follow nearest first, a few
+    // per frame.
+    reveal(nodes, anchor = null) {
+      const queue = (this.revealQueue || []).filter(node => !this.hidden.has(node));
+      queue.push(...nodes);
+      this.revealQueue = null;
+      if (this.revealFrame) cancelFrame(this.revealFrame);
+      this.revealFrame = 0;
+      if (queue.length <= revealNow) { for (const node of queue) node.removeAttribute(hidden); return; }
+      anchor ||= this.revealAnchor();
+      const below = [], above = [];
+      for (const node of queue) {
+        // Detached (a batch Reddit keeps for later) costs no layout.
+        if (!node.isConnected) { node.removeAttribute(hidden); continue; }
+        if (anchor && anchor.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING) above.push(node);
+        else below.push(node);
+      }
+      // Document order: the nearest cards above the viewport are the last ones before it.
+      above.reverse();
+      const ordered = [];
+      for (let i = 0; i < Math.max(above.length,below.length); i++) {
+        if (i < below.length) ordered.push(below[i]);
+        if (i < above.length && i % 2 === 0) ordered.push(above[i]);
+      }
+      for (const node of above.filter((node,i) => i % 2 === 1)) ordered.push(node);
+      for (const node of ordered.splice(0,revealNow)) node.removeAttribute(hidden);
+      this.revealQueue = ordered;
+      const step = () => {
+        this.revealFrame = 0;
+        const list = this.revealQueue;
+        if (!list?.length || this.dead) { this.revealQueue = null; return; }
+        for (const node of list.splice(0,revealPerFrame)) if (!this.hidden.has(node)) node.removeAttribute(hidden);
+        if (list.length) this.revealFrame = nextFrame(step);
+        else this.revealQueue = null;
+      };
+      this.revealFrame = nextFrame(step);
+    }
+
+    flushReveal() {
+      if (this.revealFrame) cancelFrame(this.revealFrame);
+      this.revealFrame = 0;
+      for (const node of this.revealQueue || []) if (!this.hidden.has(node)) node.removeAttribute(hidden);
+      this.revealQueue = null;
+    }
+
+    // The first feed card still on screen; cards before it in the document are above the viewport.
+    revealAnchor() {
+      const top = Math.max(0,document.querySelector('reddit-header-large,reddit-header-small')?.getBoundingClientRect().bottom || 0);
+      for (const card of this.feed?.querySelectorAll('shreddit-post') || []) {
+        const unit = card.closest('article') || card;
+        if (unit.hasAttribute(hidden)) continue;
+        const box = unit.getBoundingClientRect();
+        if (box.height && box.bottom > top) return unit;
+      }
+      return null;
     }
 
     isParkingMutation({addedNodes,removedNodes}) {
@@ -586,8 +667,6 @@
 
     clear() {
       this.leaving = null;
-      this.dock?.detach();
-      this.dock = null;
       this.panel?.close();
       this.toolbar?.remove();this.chips?.remove();
       this.note?.remove();
@@ -607,9 +686,14 @@
       if (!this.enabled || (this.returnEntry && this.returnEntry !== historyEntry())) this.finishReturn();
       const current = route(url);
       const archive = Boolean(current && isArchiveActive());
-      document.documentElement?.toggleAttribute(sortBoot,Boolean((this.enabled || this.waitingForSettings) && current?.kind === 'feed' && !archive));
-      if (this.holdDeparture(url)) return;
-      if (this.enabled && this.stillLeaving(current)) return;
+      const boot = Boolean((this.enabled || this.waitingForSettings) && current?.kind === 'feed' && !archive);
+      // While the outgoing feed is still on screen, Reddit may re-render its sort and View switches for the new
+      // address; the boot rule keeps them hidden next to the held Sort & filter until the feed leaves.
+      if (this.holdDeparture(url) || (this.enabled && this.stillLeaving(current))) {
+        document.documentElement?.toggleAttribute(sortBoot,boot || Boolean(this.toolbar?.isConnected));
+        return;
+      }
+      document.documentElement?.toggleAttribute(sortBoot,boot);
       const scope = this.enabled && current;
       const main = document.querySelector('main');
       const feed = scope?.kind === 'feed' && main?.querySelector('shreddit-feed');
@@ -667,11 +751,6 @@
         options.prepend(filters.svgIcon('filter',16));
         options.addEventListener('click', () => this.open());
         bar.append(options,this.chips);
-        this.dock = globalThis.RTFeedDock?.attach({
-          anchor:() => this.options?.isConnected ? this.options : this.toolbar,
-          count:() => filters.appliedCount?.(this.chips) || 0,
-          open:button => this.open(button),
-        }) || null;
         if (this.scope.surface === 'subreddit') {
           document.documentElement?.setAttribute('data-rt-unapproved-menu','');
           globalThis.RTUnapprovedFilter?.useMenu?.(true);
@@ -795,28 +874,51 @@
     // Reddit's Card / Compact switch moves into Sort & filter (docs/feed-controls-ux-plan.md, 2). Choosing activates
     // Reddit's own item, so Reddit keeps storing the layout.
     readView() {
-      const node = this.main?.querySelector(nativeView + ':not([hidden])');
-      if (!node) return null;
-      const choices = [...node.querySelectorAll('[slot="dropdown-items"] a[href]')].map(link => ({
-        link,label:(link.querySelector('.text-body-2')?.textContent || link.textContent).trim(),
-        selected:Boolean(link.closest('li')?.hasAttribute('rpl-selected')),
-        icon:link.querySelector('svg'),
-      })).filter(choice => choice.label);
-      if (!choices.length) return null;
-      return {node,choices,current:choices.find(choice => choice.selected)?.label || ''};
+      // Reddit renders the switch as a View dropdown (both choices) or, on some feeds, as a layout switcher that links
+      // only to the other layout. Either way the row offers Card and Compact; a choice Reddit didn't render opens the
+      // feed with its feedViewType, as Reddit's own links do.
+      const node = this.main?.querySelector(nativeView + ':not([hidden])') || this.main?.querySelector('shreddit-layout-switcher:not([hidden])');
+      if (!node || node.closest('[data-rt-ui],shreddit-feed')) return null;
+      const keyOf = value => /compact/i.test(value || '') ? 'compactView' : /card/i.test(value || '') ? 'cardView' : '';
+      const found = new Map();
+      for (const link of node.querySelectorAll('a[href],rpl-menu-item[href]')) {
+        let key = '';
+        try { key = keyOf(new URL(link.getAttribute('href'),location.href).searchParams.get('feedViewType')); } catch {}
+        const label = (link.querySelector('.text-body-2')?.textContent || link.textContent).trim();
+        key ||= keyOf(label);
+        if (!key || found.has(key)) continue;
+        found.set(key,{key,link,label:label || viewLabels[key],selected:Boolean(link.closest('li')?.hasAttribute('rpl-selected')),icon:link.querySelector('svg')});
+      }
+      const switcher = node.localName === 'shreddit-layout-switcher';
+      let current = keyOf(new URL(location.href).searchParams.get('feedViewType')) ||
+        [...found.values()].find(choice => choice.selected)?.key ||
+        keyOf((node.getAttribute('button-aria-label') || '').replace(/^View:?/i,'')) ||
+        keyOf(node.querySelector('[slot="selected-item"]')?.textContent);
+      // A switcher's one link is the layout you'd switch to.
+      if (!current && switcher && found.size === 1) current = found.has('cardView') ? 'compactView' : 'cardView';
+      current ||= 'cardView';
+      const choices = Object.keys(viewLabels).map(key => {
+        const choice = found.get(key) || {key,link:null,label:viewLabels[key],icon:null};
+        return {...choice,selected:key === current};
+      });
+      return {node,choices,current:viewLabels[current]};
     }
 
     viewIcon(choice, size) {
       const icon = choice?.icon?.cloneNode(true);
-      if (!icon) return filters.svgIcon('card',size);
+      if (!icon) return filters.svgIcon(choice?.key === 'compactView' ? 'compact' : 'card',size) || filters.svgIcon('card',size);
       icon.setAttribute('width',String(size));icon.setAttribute('height',String(size));
       return icon;
     }
 
     chooseView(choice) {
-      if (!choice?.link?.isConnected) return;
+      if (!choice) return;
       this.panel?.close();
-      choice.link.click();
+      if (choice.link?.isConnected) { choice.link.click(); return; }
+      if (choice.selected || !choice.key) return;
+      const url = new URL(location.href);
+      url.searchParams.set('feedViewType',choice.key);
+      location.assign(url.href);
     }
 
     // Community filter on Home, Popular, All and custom feeds (docs/feed-controls-ux-plan.md, 7): show only, or hide,
@@ -1168,9 +1270,14 @@
         if (seconds >= date.after) matching++;
         else next.add(unit);
       }
-      for (const node of this.hidden) if (!next.has(node)) node.removeAttribute(hidden);
+      const shown = [];
+      for (const node of this.hidden) if (!next.has(node)) shown.push(node);
+      // Measured before any card is hidden again, so finding the viewport costs no extra layout.
+      const anchor = shown.length + (this.revealQueue?.length || 0) > revealNow ? this.revealAnchor() : null;
       for (const node of next) if (!this.hidden.has(node)) node.setAttribute(hidden,'');
       this.hidden = next;
+      // A reveal already under way keeps going on its own; cards hidden again meanwhile are skipped.
+      if (shown.length) this.reveal(shown,anchor);
 
       const feedPager = this.feed ? [...this.feed.querySelectorAll('faceplate-partial[slot="load-after"]')].at(-1) : null;
       const reachedEnd = this.syncFeedEnd(feedPager,active,matching,next.size);
@@ -1290,7 +1397,6 @@
       if (period) chip('date',period[1],'calendar',() => this.go(setSearchOption(this.url,'t','all')));
       this.chips.hidden = !this.chips.childElementCount;
       if (this.chips.hasAttribute('data-rt-rail')) filters.fitRail?.(this.chips,{badgeFor:this.options || null});
-      this.dock?.update();
     }
 
     updateLinks() {
