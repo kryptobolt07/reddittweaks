@@ -1480,3 +1480,45 @@ test('user-avatar with anonymous:true resolves headshot via RTPublicBrowser with
  const res=await noBrowser.send({action:'user-avatar',username:'BlockedUser',anonymous:true});
  assert.equal(res.ok,true);assert.equal(res.avatar,'');assert.equal(noBrowser.calls.length,0);
 });
+
+test('profile placeholder tracking handles mutations and releases detached feeds without scroll rescans',async t=>{
+ const {W,feed,held,controller,run,observers}=virtualFeed(t);
+ const first=held('first',-9000,400);
+ controller.topStack.push(first);
+ W.document.dispatchEvent(new W.Event('scroll'));run();
+ const observer=observers.find(value=>value.targets.has(first.placeholder));
+ assert.ok(observer);
+ let searches=0;
+ const query=feed.querySelectorAll;
+ feed.querySelectorAll=function(selector){
+  if(selector.includes('virtualized-placeholder'))searches++;
+  return query.call(this,selector);
+ };
+ for(let i=0;i<12;i++)W.document.dispatchEvent(new W.Event('scroll'));
+ assert.equal(searches,0,'scroll reads no placeholder list');
+ const next=held('next',-9200,400);
+ await Promise.resolve();
+ assert.ok(observer.targets.has(next.placeholder));
+ next.placeholder.remove();
+ await Promise.resolve();
+ assert.equal(observer.targets.has(next.placeholder),false);
+ W.history.pushState({},'','/r/example/comments/abc/title/');
+ feed.parentElement.replaceChildren(W.document.createElement('shreddit-post'));
+ await Promise.resolve();
+ assert.equal(observer.targets.size,0);
+ assert.equal(controller.topStack[0],first,'a feed kept by Reddit retains its original batch for Back');
+});
+
+test('switching the observed profile feed draws again the posts the old feed skipped',async t=>{
+ const {W,feed,card,run,observers}=virtualFeed(t);W.document.documentElement.setAttribute('data-rt-smooth-feed','');
+ const far=card('far',-3000,480),near=card('near',0,300);feed.append(far,near);await new Promise(r=>setTimeout(r,0));run();
+ const skip=observers.find(o=>o.targets.has(far));
+ skip.callback([{target:far,isIntersecting:false,boundingClientRect:{height:480}}],skip);run();
+ assert.equal(far.hasAttribute('data-rt-skip'),true);
+ const next=W.document.createElement('shreddit-feed');next.setAttribute('data-rt-loading-owner','extension');
+ next.virtualization={host:next,topStack:[],topPadding:0,_virtualizeTop(){}};
+ feed.before(next);W.document.dispatchEvent(new W.Event('scroll'));await new Promise(r=>setTimeout(r,W.__rtFeedIdleMs*2+20));run();
+ assert.equal(feed.isConnected,true);
+ assert.equal(far.hasAttribute('data-rt-skip'),false,'nothing is left to draw it again otherwise');
+ assert.equal(far.style.containIntrinsicSize,'');
+});

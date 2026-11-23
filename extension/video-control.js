@@ -239,7 +239,7 @@
    this.readVolume=readVolume || (()=>readStoredVolume(this.win));
    this.saveVolume=saveVolume || (val=>writeStoredVolume(this.win,val));
    this.choice=videoSettings({});
-   this.frames=new Map();this.posters=new Map();this.providerPosters=new Set();this.posterWanted=new Map();this.watchedEmbeds=new Map();
+   this.frames=new RTPostModel.WeakElementMap();this.posters=new Map();this.providerPosters=new Set();this.posterWanted=new Map();this.watchedEmbeds=new RTPostModel.WeakElementMap();
    this.posterNodes=new Set();this.preparedPosters=new WeakSet();this.warmedPosters=new Map();
    this.posterConsumers=new Map();this.posterQuality=new Map();this.posterDeferred=new Set();
    this.readPosters=readPosters;
@@ -1433,6 +1433,14 @@
    // No usable image for a loaded player: its own paused first frame or poster shows instead.
    if('rtLoaded' in cover.dataset && !('rtKeepCover' in cover.dataset)){cover.remove();return;}
   }
+  paintPosters(ids){
+   if(!ids.length)return;
+   const wanted=new Set(ids);
+   const selector=ids.every(id=>/^t3_[a-z0-9]+$/i.test(id))
+    ?ids.map(id=>'shreddit-post[id="'+id+'"] '+ANY_EMBED).join(',')
+    :ANY_EMBED;
+   for(const embed of this.doc.querySelectorAll(selector))if(wanted.has(embed.closest('shreddit-post')?.id))this.paintPoster(embed);
+  }
   // Missing images are requested in small batches after their cards approach the viewport.
   async loadPosters(){
    this.posterTimer=null;
@@ -1446,14 +1454,14 @@
     if(this.dead || !urls.length || this.posters.get(id)?.length)return;
     this.posters.set(id,urls);
     if(provider)this.providerPosters.add(id);
-    for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(embed.closest('shreddit-post')?.id===id)this.paintPoster(embed);
+    this.paintPosters([id]);
    };
    let found={};try{found=await this.readPosters(ids,sources,paint);}catch{}
    this.loadingPosters=false;
    if(this.dead)return;
    if(this.posterWanted.size && !this.posterTimer)this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);
    for(const [id,urls] of Object.entries(found || {}))paint(id,urls);
-   for(const embed of this.doc.querySelectorAll(ANY_EMBED))if(ids.includes(embed.closest('shreddit-post')?.id))this.paintPoster(embed);
+   this.paintPosters(ids);
   }
   // Iframes Reddit adds inside an embed (when it comes near the screen) are caught before they load, unless chosen.
   watchEmbed(embed){

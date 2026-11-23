@@ -322,7 +322,7 @@
       };document.addEventListener('keydown',this.onEmptyProfileSearch,true);
       // Changes inside the observed feed are handled by its own observer; only
       // route/page-level changes need a scan.
-      if(observe){this.observer=new MutationObserver(records=>{if(this.orphaned() || globalThis.RTPostMenuDOM?.onlyMenuChanges(records))return;this.syncProfileNotice();this.syncOwnListHeader();if(this.feed)this.trackVirtualization(records);
+      if(observe){this.observer=new MutationObserver(records=>{if(this.orphaned() || globalThis.RTPostMenuDOM?.onlyMenuChanges(records))return;this.syncProfileNotice(true);this.syncOwnListHeader();if(this.feed)this.trackVirtualization(records);
         const handoff=this.profileHandoff;
         if((handoff && !(handoff.incoming || handoff.main).isConnected) || (this.profileReturnKey && this.host && !this.host.isConnected)){this.scan();return;}
         // Reddit's start-up reconcile removes what we inserted into main (only our nodes change, so the
@@ -373,14 +373,16 @@
     }
     // Nothing is mounted and the page is not one discovery acts on.
     idleRoute(){if(this.host || this.context)return false;const route=pageRoute();return route?.kind!=='profile' && !(route?.kind==='post' && !globalThis.RTThreadRestore);}
-    syncProfileNotice(){
+    syncProfileNotice(fromMutation=false){
       // The independent early guard needs no shared model. Discovery itself
       // retains its established document_idle registration in the isolated world.
-      if(globalThis.RTProfileNoticeGuard){
-        if(this.settingsPending)RTProfileNoticeGuard.refresh();
+      const guard=globalThis.RTProfileNoticeGuard;
+      if(guard){
+        if(this.settingsPending){if(!fromMutation || !guard.syncEnabled)guard.refresh();}
         else{
           const route=pageRoute(),discover=this.settings.postDiscovery;
-          RTProfileNoticeGuard.setEnabled(discover && (route?.view!=='search' || route?.list || this.blockedProfile || this.settings.archiveDiscovery),discover && this.settings.blockedProfiles!==false);
+          const enable=(fromMutation && guard.syncEnabled) || guard.setEnabled;
+          enable(discover && (route?.view!=='search' || route?.list || this.blockedProfile || this.settings.archiveDiscovery),discover && this.settings.blockedProfiles!==false);
         }
         return;
       }
@@ -873,6 +875,7 @@
     syncOwnListHeader(){
       const route=pageRoute(),routeKey=location.pathname+':'+(new URLSearchParams(location.search).get('rt_list') || '');
       if(this.ownHeaderDismissed && this.ownHeaderDismissed!==routeKey)this.ownHeaderDismissed='';
+      if(!route?.list && !this.ownHeader && !this.ownHeaderObserver)return;
       const host=document.querySelector('reddit-search-large'),root=host?.shadowRoot || host;
       const field=root?.querySelector('faceplate-search-input[name="q"]'),form=root?.querySelector('form');
       let native=root?.querySelector('rpl-input-chip.scoped-search-pill,rpl-input-chip[slot="chips"],#search-input-chip,#search-input-remove-filter');

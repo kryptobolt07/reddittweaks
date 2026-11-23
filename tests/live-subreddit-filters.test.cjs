@@ -754,3 +754,25 @@ test('Awaiting approval: a Post type option in communities run by RTUnapprovedFi
  // Home has no Awaiting approval.
  const home=setup(t,'/',homeFeed());assert.equal(home.D.documentElement.hasAttribute('data-rt-unapproved-menu'),false);
 });
+
+test('parked cards upgrade to weak storage after the isolated model loads',async t=>{
+ const {window:W}=new JSDOM('<main><shreddit-feed><faceplate-batch>'+card('video','Match')+
+   card('text','Hidden').repeat(45)+'</faceplate-batch></shreddit-feed></main>',
+   {url:'https://www.reddit.com/r/Example/?rt_type=video',runScripts:'outside-only'});
+ for(const name of ['feed-filters.js','feed-sheet.js','live-subreddit-filters.js'])W.eval(read(name));
+ const batch=W.document.querySelector('faceplate-batch');
+ const original=batch.querySelectorAll('shreddit-post')[1];
+ const controller=new W.RTLiveSubredditFilters.Controller();
+ t.after(()=>{controller.destroy();W.close();});
+ await flush();
+ assert.equal(batch.querySelectorAll('shreddit-post').length,1);
+ assert.equal([...controller.parked].length,45);
+ W.eval(read('post-model.js'));
+ controller.refresh();
+ assert.ok(controller.parked instanceof W.RTPostModel.WeakElementMap);
+ assert.equal([...controller.parked].length,45);
+ batch.remove();
+ controller.applyTypes([]);
+ await flush();
+ assert.equal(batch.querySelectorAll('shreddit-post')[1],original);
+});
