@@ -1,3 +1,22 @@
+# 0.60.0 preview
+
+- **New:** *Post opened directly* (Videos & Embeds) chooses what a post's own video or embed does when its link, a new tab or a reload opens it: play muted, play with sound, or stay paused. If the browser refuses sound, the video keeps playing muted and the first click, tap or key turns the sound on. Posts opened from a feed keep their moment and sound.
+- **New:** with *Direct embed controls* granted, supported embedded players show their own first frame and controls, with no still or play cover over them. Previews no longer put a click layer over them either: a click on the picture follows *Media click action*, and the player's own buttons hand it to you. YouTube and players without that access keep the earlier covers.
+- **New:** options that need Direct embed controls stay visible but dimmed, with a "Needs Direct embed controls" link. Clicking one leads to Grant access. Options that only partly depend on it say so.
+- **New:** applied filter pills sit only in the row's free space, so Feed options, the view switch and tabs never move and the row never grows. Pills that do not fit hide behind a "+N" chip that lists every filter, each removable, with Clear all. When there is no room at all, Feed options shows the count, and phone Feed options sheets start with an Applied filters page.
+- **New:** while a deleted author is looked up, their slot shows a placeholder.
+- **Fix (phones):** blocked profiles load again. Reddit's phone markup has no Log In button, so every signed-out check timed out and the profile fell back to "nobody goes by that name".
+- **Fix (phones):** on post pages, Reddit's sticky community card (r/name, Join or Open App) stays at the top while the navigation row is hidden, and slides down with it on scroll-up, instead of sitting 48 px down under an empty strip.
+- **Fix (phones):** banned and private subreddits use Reddit's phone community layout: Feed and About pills, then Feed options and the view switch on one row, with Sort, Date and Post type in the Feed options sheet, a 40 px icon and a line under the name. Deleted, banned and blocked profiles use Reddit's own About row and its insets.
+- **Fix:** *Videos start* or *GIFs start* set to Autoplay or Preview no longer keeps a post's own video paused on its page.
+- Minor increment: new user-facing capabilities, compatible with existing settings.
+- **Testing:** all 2,252 tests passed. Live, read-only checks used a signed-in Chrome Dev profile and the packaged build, at 1440×900 and at 412×915 with an Android user agent:
+  - Header geometry measured against native pages: about 170 ms frame trace of the post header; r/AskReddit compared with r/The_Donald; u/spez compared with u/example_account and u/another_account.
+  - Filter pills placed on profile, live and banned subreddits.
+  - Direct open for YouTube.
+  - Not checked live: anything that needs the Direct embed controls permission (it was not granted in the test profile), and Firefox rendering.
+- **Integrity:** both packages matched source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings and notices. Chromium SHA-256 `4be24bc467e85475cb5827591ca3c520c8bbf2b10aa25b3324a60e892e0a26c4`. Firefox SHA-256 `c39d37e26ee2c15f1bdf677a11b20df32bbfd86ca4e2f3b277e22e94e83f5841`.
+
 # 0.59.0 preview
 
 - **New:** posts and comments by accounts that blocked you now appear on post pages. For a signed-in reader, Reddit shows such a post as [deleted] without its body or media, and such a comment as “Comment deleted by user”, exactly like real deletions. Reddit Tweaks checks those items against Reddit's own signed-out view. When that view shows a live author, it fills in the author, avatar, text and media, with the cue “u/… has blocked you · Shown from Reddit's signed-out view”. This needs the blocked-profile setting, not the archive. Real deletions still go to the archive when it is on. Signed-out reads on a post page are limited to that post's fragment and its comment fragments.
