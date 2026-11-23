@@ -341,7 +341,8 @@ Limits: an Embedly wrapper whose provider is not on the supported list never say
 | Row | Permission not granted (API available) | After *Grant access* |
 |---|---|---|
 | Block embed links (fully dependent) | Visible, dimmed (`is-inactive`), control `aria-disabled="true"` but focusable, with the note **Needs Direct embed controls** (the name is a link-style button) named by the control's `aria-describedby` | Enabled in place, note removed, no reopen |
-| Persistent volume memory, Looping policy, Hold for 2× speed, Post opened directly (partly dependent: they work on Reddit's own video; volume and direct open also on YouTube) | Not dimmed; a one-line hint with the same link: *Embeds from Vimeo, Streamable, RedGIFs and Twitch need Direct embed controls* | Hint removed |
+| Persistent volume memory, Looping policy, Hold for 2× speed (partly dependent: they work on Reddit's own video; volume also on YouTube) | Not dimmed; a one-line hint with the same link: *Embeds from Vimeo, Streamable, RedGIFs and Twitch need Direct embed controls* | Hint removed |
+| Post opened directly (YouTube, Vimeo and answering Embedly players work without it) | Same, with *Embeds from RedGIFs, Streamable and Twitch need Direct embed controls* | Hint removed |
 
 - A click or tap anywhere on a dimmed row (its control included), Enter or Space on its control, or the note's link does not open the menu: it scrolls to the Direct embed controls row, pulses an outline for about 1 s (none with `prefers-reduced-motion: reduce`) and focuses **Grant access**. One more click grants.
 - Denied prompt: the status line says so, as before; rows stay dimmed. Revoke: rows dim again; stored values are kept but inactive and not counted.
@@ -369,3 +370,25 @@ Same *direct open* as for native video (`landingPost`: the document's own naviga
 | E7 | Reader clicks into the player first | Management ends; the player's own controls decide |
 
 Limits: whether sound is allowed is the browser's decision per visit. A self-starting provider without Direct embed controls cannot be unmuted or paused from the page.
+
+### Option × surface audit (2026-11-23)
+
+Evidence: L1 = unit test in `tests/video-control.test.cjs`, `tests/embed-player.test.cjs` or `tests/tweaks-popup.test.cjs`; L3 = live, read-only, own profile copy, desktop 1440×900 and phone 412×915 (logs in the ignored `artifacts/research/verify/media-fixes/`). Embeds other than YouTube could not be found on live feeds in this session, and Direct embed controls is not granted in the test profile, so every frame-script path is L1 only.
+
+| Option | Feed/post embeds | Native video (feed, post) | Comment media |
+|---|---|---|---|
+| Videos start | n/a | **Fixed**: Autoplay/Preview paused the post's own video for good (L3 before: paused at 0.84 s; after: plays 0.02 → 4.54 s desktop, 0.06 → 4.58 s phone with Preview). Feed: pass (L1) | Pass (L1) |
+| GIFs start | n/a | **Fixed**, same cause, for a GIF post's own GIF (L1) | Pass (L3: a visible comment GIF loops, t = 2.46 s; GIFs inside a collapsed thread stay paused by design) |
+| Embedded players start | **Fixed** for direct frames: no still, cover or layer (L1); YouTube unchanged (L3: Autoplay activates the card muted) | n/a | n/a (no embeds in comments seen) |
+| Media click action, Video click audio | Applies to previews (layer or frame tap, L1) and covers; with *Provider Default* start the provider's own click stays (limit, now in the option's description) | Pass (L3 post page: first click unmuted without pausing, second paused) | Pass (L1; *Open post* acts as *Play / Control in feed*) |
+| Seamless post transition, Post card click audio | Pass (L1) | Pass (L1) | n/a |
+| Post opened directly | **Fixed**: YouTube L3 (muted: plays muted; sound refused: muted from 2.08 s, a click turned it on at 5.87 s and it kept playing, desktop and phone; Reddit Default: never activated); frames and protocols L1 | Pass (verified earlier today) | n/a by design |
+| Play one video at a time | Pass for YouTube, protocol and direct frames (L1); a self-starting provider without the permission cannot be paused | Pass (L1) | Pass (L1) |
+| Persistent volume memory | YouTube and direct frames only; Vimeo and Embedly need the permission (hint). Volume changes inside an embed are not recorded (limit) | Pass (L1) | Pass for videos (L1) |
+| When scrolling past media | Post embeds: YouTube, protocol and direct frames (L1) | Pass (L3: paused once away at 2.55 s, resumed at the top) | Pass (L1) |
+| Hold for 2× speed | Direct frames only (hint) | Pass (L3: rate 2 with the pill while held, 1 after release, still playing) | Pass for videos (L1) |
+| Looping policy | Direct frames only (hint) | Pass (L1; L3: the loop flag is applied in the feed) | Pass for videos (L1); GIFs excluded by design |
+| Stream quality | n/a | Not re-verified live (unchanged; manifest filtering in the page bridge) | n/a |
+| Block embed links | Direct frames only (now dimmed with a link until granted, L1) | n/a | n/a |
+
+Not verified live: anything that needs Direct embed controls granted (the user's test), the Firefox build, and Streamable, Vimeo, Twitch and RedGIFs cards.
