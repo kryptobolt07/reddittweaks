@@ -1290,7 +1290,7 @@ test('a card without archive text keeps a Reddit-styled retry row after a defini
 test('Refresh lives in Reddit’s Feed options menu and reloads search and archive together',async t=>{
  const archiveCalls=[];const {W,d,calls}=setup(t,{settings:{postDiscovery:true,archiveDiscovery:true},archive:async input=>{archiveCalls.push(input);return {posts:[],hasMore:false};}});await d.ready;
  assert.equal(d.archiveButton,null,'no separate archive button');assert.equal(d.host.hasAttribute('data-rt-menu-ready'),true);const mainMenu=W.document.querySelector('rpl-menu.main-menu-container');assert.equal(mainMenu.hasAttribute('data-rt-menu-ready'),true,'the grouped menu is marked so the pre-hide stops');t.after(()=>assert.equal(mainMenu.hasAttribute('data-rt-menu-ready'),true,'restored native rows stay visible'));
- const refresh=W.document.querySelector('[data-rt-ui="activity-refresh"]');assert.ok(refresh);assert.equal(refresh.closest('rpl-dropdown').querySelector('button[aria-label="Feed options"]')!=null,true);
+ const refresh=W.document.querySelector('[data-rt-ui="activity-refresh"]');assert.ok(refresh);assert.equal(refresh.closest('rpl-dropdown').querySelector('button[data-rt-feed-trigger]')!=null,true);
  refresh.click();await Promise.all([d.redditRun,d.archiveRun]);assert.equal(calls.filter(c=>c.action==='profile').length,1);assert.equal(archiveCalls.length,1);
  d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:false}}},'local');assert.equal(W.document.querySelector('[data-rt-ui="activity-refresh"]'),null,'opt-out removes the menu row');
 });
@@ -1460,7 +1460,7 @@ test('profile restored comments render archive images inline and remain restrict
 test('Reddit\'s original Feed options rows stay invisible until grouped, with a self-revealing fail-safe',()=>{
  const css=fs.readFileSync('extension/post-discovery.css','utf8');
  assert.match(css,/@keyframes rt-menu-reveal\{to\{visibility:visible\}\}/);
- assert.match(css,/html\[data-rt-profile-discovery\] main rpl-dropdown:has\(> button\[aria-label="Feed options"\]\) rpl-menu\.main-menu-container:not\(\[data-rt-menu-ready\]\)>:not\(\[data-rt-ui\]\)\{visibility:hidden;animation:rt-menu-reveal 0s 2\.5s forwards\}/);
+ assert.match(css,/html\[data-rt-profile-discovery\] main rpl-dropdown:is\(:has\(> button\[aria-label="Feed options"\]\),:has\(> button\[data-rt-feed-trigger\]\)\) rpl-menu\.main-menu-container:not\(\[data-rt-menu-ready\]\)>:not\(\[data-rt-ui\]\)\{visibility:hidden;animation:rt-menu-reveal 0s 2\.5s forwards\}/);
  assert.doesNotMatch(css,/submenu-container[^{]*:not\(\[data-rt-menu-ready\]\)/,'Reddit\'s own submenus are never hidden');
  const manifest=JSON.parse(fs.readFileSync('extension/manifest.json','utf8'));assert.ok(manifest.content_scripts.some(entry=>entry.run_at==='document_start' && (entry.css || []).includes('post-discovery.css')),'loaded before Reddit renders the menu');
 });
@@ -1504,7 +1504,7 @@ test('Comments Feed options groups its Sort rows beside Activity, with no View g
  const dropdown=W.document.querySelector('main rpl-dropdown'),rows=[...dropdown.querySelector('.main-menu-container').children].filter(n=>n.matches('rpl-menu-item')).map(n=>n.getAttribute('aria-label'));
  assert.deepEqual(rows,['Sort','Activity'],'sort rows live in a Sort submenu, like Overview and Posts');
  const sortSub=[...dropdown.querySelectorAll('rpl-menu.rt-activity-submenu')].find(sub=>sub.querySelector('rpl-menu-item[aria-label="New"]'));assert.ok(sortSub);assert.equal(dropdown.querySelector('[data-rt-activity-filter="hidden"]')!=null && dropdown.querySelector('[data-rt-activity-filter="deleted"]')!=null && dropdown.querySelector('[data-rt-ui="activity-refresh"]')!=null,true);
- assert.equal(dropdown.querySelector('button[aria-label="Feed options"]')!=null,true);
+ assert.equal(dropdown.querySelector('button[data-rt-feed-trigger]')!=null,true);
 });
 
 const creditRow=(extra='')=>`<div slot="credit-bar" class="contents"><div class="flex flex-wrap items-center gap-2xs text-12 min-h-[24px]" id="feed-post-credit-bar-t3_native"><span class="relative"><a href="/r/trains/">r/trains</a></span><span>•</span><faceplate-timeago>2mo ago</faceplate-timeago><shreddit-async-loader><shreddit-status-icons><rpl-tooltip content="Stickied post"><svg></svg></rpl-tooltip></shreddit-status-icons></shreddit-async-loader>${extra}</div></div>`;
@@ -1739,7 +1739,7 @@ test('opening Feed options always starts at the main menu',async t=>{
   assert.equal(d.openSubmenu,null);assert.equal(m.shown().length,0);assert.equal(d.activityMain.classList.contains('hidden'),false);
   // A trigger click while a submenu is showing also lands on the main menu, and each row opens its own submenu only.
   m.group('Subreddit').click();assert.equal(d.openSubmenu,m.sub('sub'));
-  dropdown.querySelector('button[aria-label="Feed options"]').click();assert.equal(d.openSubmenu,null);assert.equal(d.activityMain.classList.contains('hidden'),false);
+  dropdown.querySelector('button[data-rt-feed-trigger]').click();assert.equal(d.openSubmenu,null);assert.equal(d.activityMain.classList.contains('hidden'),false);
   for(const [name,key] of [['Date','date'],['Post type','type'],['Subreddit','sub'],['Activity','activity']]){m.group(name)?.click?.();if(name==='Activity')d.activityMain.querySelector('[data-rt-activity]').click();else;const open=m.shown();assert.equal(open.length,1,name);assert.equal(open[0].dataset.rtSubKey,key,name);open[0].querySelector('[aria-label="Back"],[data-rt-sub-back]').click();}
   // If Reddit re-renders its menu while a filter list is open, the same list comes back.
   m.group('Post type').click();d.clearActivityMenu();d.ensureActivityMenu();assert.equal(d.openSubmenu?.dataset.rtSubKey,'type');
@@ -1952,9 +1952,9 @@ test('on phones the profile Feed options opens as a bottom sheet with a backdrop
 });
 test('on phones profile Feed options opens short pages that run the menu’s own options',async t=>{
   const {W,d}=setup(t,{pre:['feed-filters.js','feed-sheet.js']});let phone=true;W.matchMedia=query=>({matches:/max-width/.test(query)?phone:false,media:query,addEventListener(){},removeEventListener(){}});
-  await d.ready;d.ensureActivityMenu();const dropdown=d.activityDropdown,button=dropdown.querySelector('button[aria-label="Feed options"]');
+  await d.ready;d.ensureActivityMenu();const dropdown=d.activityDropdown,button=dropdown.querySelector('button[data-rt-feed-trigger]');
   button.click();const sheet=W.document.querySelector('[data-rt-ui="feed-sheet"]');assert.ok(sheet,'the Feed options sheet opens');assert.equal(dropdown.hasAttribute('open'),false,'Reddit’s popup stays closed');
-  assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Feed options');
+  assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Sort & filter');
   const rows=()=>[...sheet.querySelectorAll('.rt-fsheet-row')];
   const label=row=>row.querySelector('.rt-fsheet-label').textContent;
   const row=name=>rows().find(r=>label(r)===name);

@@ -1,4 +1,4 @@
-/* Community icons for the Feed options menus (isolated world).
+/* Community icons for the Sort & filter menus (isolated world).
    Order of sources: icons already on the page (cards, credit bars, sidebar links, post-discovery's hints),
    then Reddit's own community hover card. Loads are rate limited and cached; nothing here blocks a menu. */
 (() => {

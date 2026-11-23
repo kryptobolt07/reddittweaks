@@ -27,6 +27,13 @@
   const sortBoot = 'data-rt-community-sort-boot';
   const sortNative = 'data-rt-community-sort-native';
   const nsfwParam = 'rt_nsfw',nsfwGlyph = 'nsfw-fill-12';
+  const menuLabel = 'Sort & filter';
+  const subParam = 'rt_sub', hideParam = 'rt_hide';
+  const nativeView = 'shreddit-sort-dropdown[sort-event="layout-view-change"]';
+  // Signed out, Reddit serves its popular feed at / (reload-url /svc/shreddit/feeds/popular-feed).
+  const signedOut = () => Boolean(document.querySelector('#login-button,#open-app-header-cta'));
+  const shown = node => node?.isConnected && (typeof node.checkVisibility !== 'function' || node.checkVisibility());
+  const subList = value => [...new Set(String(value || '').split(',').map(name => name.trim().replace(/^r\//i,'')).filter(name => /^[a-z0-9_]{2,21}$/i.test(name)))].slice(0,20);
   const parkAfter = 40;
   const nsfwCard = card => ['nsfw','is-nsfw','over-18'].some(name => card.hasAttribute(name) && !/^(?:false|0)$/i.test(card.getAttribute(name))) ||
     Boolean(card.querySelector('[slot="ssr-post-content-header"] [icon-name="nsfw-fill-12"]'));
@@ -114,7 +121,7 @@
       if (isCustom) return 'mismatch';
       if (name) return fold(name) === fold(scope.name) ? 'match' : 'mismatch';
       if (isCommunity) return 'mismatch';
-      if (globalKind) return globalKind === scope.surface ? 'match' : 'mismatch';
+      if (globalKind) return globalKind === scope.surface || scope.surface === 'home' && globalKind === 'popular' && signedOut() ? 'match' : 'mismatch';
       return 'unknown';
     }
     if (isCustom || globalKind) return 'mismatch';
@@ -126,7 +133,7 @@
     const feedName = fold(feed.getAttribute('feed-name') || feed.getAttribute('page-type'));
     if (!feedName) return 'unknown';
     if (/^profile/.test(feedName)) return 'mismatch';
-    if (['home','popular','all'].includes(feedName)) return scope.surface === feedName ? 'match' : 'mismatch';
+    if (['home','popular','all'].includes(feedName)) return scope.surface === feedName || scope.surface === 'home' && feedName === 'popular' && signedOut() ? 'match' : 'mismatch';
     if (['custom_feed','custom-feed','multireddit'].includes(feedName)) return scope.owner ? 'match' : 'mismatch';
     if (['subreddit','community'].includes(feedName)) return scope.surface === 'subreddit' ? 'match' : 'mismatch';
     return 'unknown';
@@ -339,7 +346,7 @@
         this.panel?.close();
         const next = route();
         if (this.scope && (!next || this.scope.kind !== next.kind || this.scope.surface !== next.surface || scopeKey(this.scope) !== scopeKey(next))) {
-          if (!this.holdDeparture(new URL(location.href))) this.clear();
+          if (!this.holdDeparture(new URL(location.href)) && !this.holdOutgoing()) this.clear();
         }
         this.schedule();
       };
@@ -459,7 +466,7 @@
     rememberPost(url, card = null) {
       const id = postId(url.pathname), feed = this.feed;
       if (!id || url.origin !== location.origin || !this.enabled || !feed?.isConnected ||
-          this.url.href !== location.href || !(this.selectedTypes().length || this.activeNsfw() || this.scope.owner && this.activeFlair())) return;
+          this.url.href !== location.href || !(this.selectedTypes().length || this.activeNsfw() || this.scope.owner && this.activeFlair() || this.communityState().names.length)) return;
       const entry = historyEntry();
       if (this.departure?.entry === entry && this.departure?.id === id && !card) return;
       card ||= feed.querySelector(`shreddit-post[id="t3_${id}"]`);
@@ -543,7 +550,33 @@
       step();
     }
 
+    // Opening a post or another community from the feed: Reddit changes the address first and keeps the outgoing feed
+    // on screen until the destination renders. Sort & filter (and the native sort it hides) stay with that feed and
+    // leave in the same pass as it (docs/feed-controls-ux-plan.md, F1-F2).
+    holdOutgoing() {
+      if (!this.feed || !this.toolbar?.isConnected || !shown(this.feed)) return false;
+      this.leaving = {feed:this.feed};
+      return true;
+    }
+
+    stillLeaving(current) {
+      const leaving = this.leaving;
+      if (!leaving) return false;
+      if (current && this.scope && current.kind === this.scope.kind && scopeKey(current) === scopeKey(this.scope)) { this.leaving = null; return false; }
+      const next = document.querySelector('main shreddit-feed');
+      if (shown(leaving.feed) && (!next || next === leaving.feed)) return true;
+      this.leaving = null;
+      this.clear();
+      return false;
+    }
+
+    giveUp() {
+      this.clear();
+      document.documentElement?.removeAttribute(sortBoot);
+    }
+
     clear() {
+      this.leaving = null;
       this.panel?.close();
       this.toolbar?.remove();this.chips?.remove();
       this.note?.remove();
@@ -565,6 +598,7 @@
       const archive = Boolean(current && isArchiveActive());
       document.documentElement?.toggleAttribute(sortBoot,Boolean((this.enabled || this.waitingForSettings) && current?.kind === 'feed' && !archive));
       if (this.holdDeparture(url)) return;
+      if (this.enabled && this.stillLeaving(current)) return;
       const scope = this.enabled && current;
       const main = document.querySelector('main');
       const feed = scope?.kind === 'feed' && main?.querySelector('shreddit-feed');
@@ -577,14 +611,14 @@
       // Native SPA changes the URL before replacing its outgoing feed.
       if (feed) {
         const reloadVerdict = inspectReloadUrl(feed.getAttribute('reload-url'), scope);
-        if (reloadVerdict === 'mismatch') { this.clear(); return; }
+        if (reloadVerdict === 'mismatch') { this.giveUp(); return; }
         const metaVerdict = inspectFeedMeta(feed, scope);
-        if (metaVerdict === 'mismatch') { this.clear(); return; }
+        if (metaVerdict === 'mismatch') { this.giveUp(); return; }
         const confirmed = reloadVerdict === 'match' || metaVerdict === 'match';
         const previousOwner = this.feedOwners.get(feed);
         if (!confirmed) {
-          if (previousOwner && previousOwner !== scopeKey(scope)) { this.clear(); return; }
-          if (inspectSortBar(main, scope, url, this.links) === 'mismatch') { this.clear(); return; }
+          if (previousOwner && previousOwner !== scopeKey(scope)) { this.giveUp(); return; }
+          if (inspectSortBar(main, scope, url, this.links) === 'mismatch') { this.giveUp(); return; }
         }
         this.feedOwners.set(feed, scopeKey(scope));
       }
@@ -611,9 +645,10 @@
       bar.dataset.rtUi = 'community-filters';
       this.chips = make('div','rt-community-chips rt-filter-chips');
       if (this.feed) {
-        // Same name as the profile's Feed options menu, which this toolbar mirrors.
-        const options = this.options = make('button','rt-search-inline-filter rt-community-button','Feed options');
+        // Same name as the profile's menu, which this toolbar mirrors (docs/feed-controls-ux-plan.md, 1).
+        const options = this.options = make('button','rt-search-inline-filter rt-community-button',menuLabel);
         options.type = 'button';
+        options.dataset.rtFeedTrigger = '';
         options.dataset.rtCommunityOptions = '';
         options.setAttribute('aria-haspopup','true');
         options.setAttribute('aria-expanded','false');
@@ -658,7 +693,7 @@
     }
 
     // Applied-filter rail (docs/filter-pills-spec.md): a flex item of Reddit's full-width feed row, in its free space,
-    // so Feed options and the view switch never move. Computers: Reddit's controls start the row, so the rail follows
+    // so Sort & filter never moves. Computers: Reddit's controls start the row, so the rail follows
     // them. Phones: the controls are right-aligned after the Feed / About tabs, so the rail sits between the two.
     placeFeedChips(rail) {
       let group = rail;
@@ -730,13 +765,130 @@
         range = {current:choices.find(choice => choice.selected)?.label || '',choices};
       }
       this.feedSorts = {sorting,range};
-      this.setReplacedSorts([sorting?.node,range?.node].filter(Boolean));
+      this.feedView = this.readView();
+      this.setReplacedSorts([sorting?.node,range?.node,this.feedView?.node].filter(Boolean));
       this.setNativeSorts([sorting ? null : sort,range ? null : time].filter(Boolean));
+    }
+
+    // Reddit's Card / Compact switch moves into Sort & filter (docs/feed-controls-ux-plan.md, 2). Choosing activates
+    // Reddit's own item, so Reddit keeps storing the layout.
+    readView() {
+      const node = this.main?.querySelector(nativeView + ':not([hidden])');
+      if (!node) return null;
+      const choices = [...node.querySelectorAll('[slot="dropdown-items"] a[href]')].map(link => ({
+        link,label:(link.querySelector('.text-body-2')?.textContent || link.textContent).trim(),
+        selected:Boolean(link.closest('li')?.hasAttribute('rpl-selected')),
+        icon:link.querySelector('svg'),
+      })).filter(choice => choice.label);
+      if (!choices.length) return null;
+      return {node,choices,current:choices.find(choice => choice.selected)?.label || ''};
+    }
+
+    viewIcon(choice, size) {
+      const icon = choice?.icon?.cloneNode(true);
+      if (!icon) return filters.svgIcon('card',size);
+      icon.setAttribute('width',String(size));icon.setAttribute('height',String(size));
+      return icon;
+    }
+
+    chooseView(choice) {
+      if (!choice?.link?.isConnected) return;
+      this.panel?.close();
+      choice.link.click();
+    }
+
+    // Community filter on Home, Popular, All and custom feeds (docs/feed-controls-ux-plan.md, 7): show only, or hide,
+    // chosen communities. rt_sub / rt_hide in the address; cards are hidden client-side like Post type.
+    hasCommunities() {return Boolean(this.feed && (this.scope?.global || this.scope?.owner));}
+
+    communityState() {
+      if (!this.hasCommunities()) return {mode:'show',names:[]};
+      const show = subList(this.url.searchParams.get(subParam)), hide = subList(this.url.searchParams.get(hideParam));
+      if (show.length) return {mode:'show',names:show};
+      if (hide.length) return {mode:'hide',names:hide};
+      return {mode:this.communityMode || 'show',names:[]};
+    }
+
+    communitySummary() {
+      const {mode,names} = this.communityState();
+      if (!names.length) return '';
+      const text = names.length === 1 ? 'r/' + names[0] : names.length + ' communities';
+      return mode === 'hide' ? 'Hiding ' + text : text;
+    }
+
+    applyCommunities(mode, names) {
+      this.communityMode = mode;
+      const url = new URL(location.href);
+      url.searchParams.delete(subParam);url.searchParams.delete(hideParam);
+      if (names.length) url.searchParams.set(mode === 'hide' ? hideParam : subParam,names.join(','));
+      this.replaceLocalUrl(url);
+    }
+
+    toggleCommunity(name) {
+      const {mode,names} = this.communityState();
+      const has = names.some(value => fold(value) === fold(name));
+      this.applyCommunities(mode,has ? names.filter(value => fold(value) !== fold(name)) : [...names,name].slice(0,20));
+    }
+
+    seenCommunities() {
+      const counts = new Map();
+      for (const card of this.feed?.querySelectorAll('shreddit-post') || []) {
+        const name = (card.getAttribute('subreddit-prefixed-name') || '').replace(/^r\//i,'');
+        if (!/^[a-z0-9_]{2,21}$/i.test(name)) continue;
+        const key = fold(name), entry = counts.get(key) || {name,count:0};
+        entry.count++;counts.set(key,entry);
+      }
+      for (const name of this.communityState().names) if (!counts.has(fold(name))) counts.set(fold(name),{name,count:0});
+      return [...counts.values()].sort((a,b) => b.count - a.count || a.name.localeCompare(b.name));
+    }
+
+    communityPanel({onBack = null} = {}) {
+      const panel = make('div','rt-sub-panel');
+      panel.dataset.rtUi = 'community-panel';
+      if (onBack) panel.append(filters.submenuHeader('Community',onBack).head);
+      const head = make('div','rt-sub-head');
+      const field = make('div','rt-filter-field');
+      const search = make('input','rt-filter-search');
+      search.type = 'search';search.placeholder = 'Search communities';search.autocomplete = 'off';
+      search.setAttribute('aria-label','Search communities');
+      field.append(filters.svgIcon('search',16),search);
+      head.append(field);
+      const list = make('div','rt-sub-list');
+      list.dataset.rtSubList = 'true';list.setAttribute('role','group');list.setAttribute('aria-label','Communities');
+      panel.append(head,list);
+      const radio = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitemradio'});
+      const toggle = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitemcheckbox'});
+      const render = () => {
+        const term = search.value.trim().replace(/^r\//i,''), wanted = fold(term);
+        const {mode,names} = this.communityState(), picked = new Set(names.map(fold));
+        list.replaceChildren();
+        list.append(filters.menuOption(radio,{label:'Show only selected',icon:'show',checked:mode === 'show',slot:true,value:'show',
+          onSelect:() => { this.applyCommunities('show',names); render(); }}));
+        list.append(filters.menuOption(radio,{label:'Hide selected',icon:'hide',checked:mode === 'hide',slot:true,value:'hide',
+          onSelect:() => { this.applyCommunities('hide',names); render(); }}));
+        list.append(filters.menuOption(radio,{label:'All communities',icon:'community',checked:!names.length,slot:true,value:'all',
+          onSelect:() => { this.applyCommunities(mode,[]); render(); }}));
+        const seen = this.seenCommunities();
+        for (const {name,count} of seen) {
+          if (wanted && !fold(name).includes(wanted)) continue;
+          const row = filters.menuOption(toggle,{label:'r/' + name,icon:filters.communityIcon?.(name,16) || 'community',checked:picked.has(fold(name)),
+            tail:count ? String(count) : '',slot:true,value:'r/' + name,onSelect:() => { this.toggleCommunity(name); render(); }});
+          row.dataset.rtCommunityRow = name;
+          list.append(row);
+        }
+        if (term && /^[a-z0-9_]{2,21}$/i.test(term) && !seen.some(entry => fold(entry.name) === wanted)) {
+          list.append(filters.menuOption(toggle,{label:'Use r/' + term,icon:'search',slot:true,value:'custom',onSelect:() => { search.value = ''; this.toggleCommunity(term); render(); }}));
+        }
+      };
+      search.addEventListener('input',render);
+      search.addEventListener('keydown',event => { if (event.key !== 'Escape') event.stopPropagation(); });
+      render();
+      return {panel,list,search,render};
     }
 
     chooseFeedSort(choice) {
       const url = new URL(choice.url);
-      const carry = this.scope?.global ? ['rt_type','feedViewType','t'] : ['rt_type',nsfwParam,'f','feedViewType','t'];
+      const carry = this.scope?.global ? ['rt_type',subParam,hideParam,'feedViewType','t'] : this.scope?.owner ? ['rt_type',nsfwParam,'f',subParam,hideParam,'feedViewType','t'] : ['rt_type',nsfwParam,'f','feedViewType','t'];
       for (const name of carry) {
         const value = this.url.searchParams.get(name);
         if (value && (name !== 't' || !url.searchParams.has(name))) url.searchParams.set(name,value);
@@ -875,7 +1027,10 @@
       const types = this.selectedTypes();
       const nsfw = this.feed && this.activeNsfw();
       const flair = this.feed && this.scope.owner && fold(this.activeFlair());
-      const parkKey = this.feed && (types.length || nsfw || flair) ? JSON.stringify([types,Boolean(nsfw),flair]) : '';
+      const community = this.communityState();
+      const subs = community.names.length ? {hide:community.mode === 'hide',names:new Set(community.names.map(fold))} : null;
+      const active = Boolean(types.length || nsfw || flair || subs);
+      const parkKey = this.feed && active ? JSON.stringify([types,Boolean(nsfw),flair,community]) : '';
       if (parkKey !== this.parkKey) {
         this.restoreParked();
         this.parkKey = parkKey;
@@ -884,7 +1039,7 @@
       const date = period && filters.dateRange({date:{preset:period === 'day' ? '24h' : period}});
       const next = new Set();
       let matching = 0;
-      if (this.feed && (types.length || nsfw || flair)) {
+      if (this.feed && active) {
         const wanted = new Set(types);
         const candidates = [];
         const hide = unit => {
@@ -903,6 +1058,7 @@
           }
           const flairNode=flair && card.querySelector('[slot="post-flair"]');
           let matches=(!nsfw || nsfwCard(card)) && (!flair || flairNode && fold(cardFlair(flairNode))===flair);
+          if (matches && subs) matches = subs.names.has(fold((card.getAttribute('subreddit-prefixed-name') || '').replace(/^r\//i,''))) !== subs.hide;
           if (matches && wanted.size) {
             const type=filters.inferType(card);
             matches=wanted.has(type) || (wanted.has('video') && type === 'embed' && externalVideo(card));
@@ -946,8 +1102,8 @@
       this.hidden = next;
 
       const feedPager = this.feed ? [...this.feed.querySelectorAll('faceplate-partial[slot="load-after"]')].at(-1) : null;
-      const reachedEnd = this.syncFeedEnd(feedPager,types.length || nsfw || flair,matching,next.size);
-      const needsMore = (types.length || nsfw || flair || date) && next.size && !matching;
+      const reachedEnd = this.syncFeedEnd(feedPager,active,matching,next.size);
+      const needsMore = (active || date) && next.size && !matching;
       if (!needsMore || reachedEnd) {
         this.clearPager();
         this.note?.remove();
@@ -970,7 +1126,7 @@
       if (waiting && !pager.hasAttribute(paused)) this.pausedAt = performance.now();
       if (!waiting) this.pausedAt = 0;
       pager?.toggleAttribute(paused,waiting);
-      this.updateNote(date && !this.isMedia() ? 'No loaded results match this date range.' : nsfw || flair ? 'No loaded posts match these filters.' : 'No loaded posts match these types.',waiting);
+      this.updateNote(date && !this.isMedia() ? 'No loaded results match this date range.' : nsfw || flair || subs ? 'No loaded posts match these filters.' : 'No loaded posts match these types.',waiting);
     }
 
     syncFeedEnd(pager,filterCount,matching,hiddenCount) {
@@ -1036,7 +1192,8 @@
       const paint = this.flairStyle(flair);
       const nsfw = this.activeNsfw();
       const period = !this.feed && searchDates.find(([value]) => value !== 'all' && value === this.url.searchParams.get('t'));
-      const key = JSON.stringify([types,flair,period,nsfw,paint]);
+      const community = this.communityState();
+      const key = JSON.stringify([types,flair,period,nsfw,paint,community]);
       if (this.chips.dataset.state === key) return;
       this.chips.dataset.state = key;
       this.chips.replaceChildren();
@@ -1051,6 +1208,11 @@
       for (const type of types) chip('type-' + type,this.feed ? filters.typeLabels[type] : mediaTypes.get(type),filters.typeIcons[type],
         () => this.applyTypes(types.filter(value => value !== type)));
       if (flair) chip('flair',flair,'tag',() => this.applyFlair(''));
+      for (const name of community.names) {
+        const element = filters.pill({id:'sub:' + fold(name),label:(community.mode === 'hide' ? 'Hide r/' : 'r/') + name,icon:'community-fill',community:name},
+          {make,glyph:icon => filters.svgIcon(icon,16),onRemove:() => this.applyCommunities(community.mode,community.names.filter(value => value !== name))});
+        this.chips.append(element);
+      }
       if (nsfw) chip('nsfw','NSFW',nsfwGlyph,() => this.applyNsfw(false));
       if (period) chip('date',period[1],'calendar',() => this.go(setSearchOption(this.url,'t','all')));
       this.chips.hidden = !this.chips.childElementCount;
@@ -1064,6 +1226,7 @@
       const types = this.selectedTypes().join(',');
       const nsfw = this.activeNsfw();
       const flair = this.feed && this.scope.owner && this.url.searchParams.get('f');
+      const community = this.feed ? this.communityState() : {names:[]};
       const candidates = this.feed
         ? document.querySelectorAll(this.scope.global ? 'shreddit-sort-dropdown a,shreddit-layout-switcher a' : 'a[href*="flair_name"],shreddit-sort-dropdown a,shreddit-layout-switcher a')
         : document.querySelectorAll('#search-results-page-tabgroup a[href],search-sort-dropdown-menu a[href]');
@@ -1076,8 +1239,9 @@
         const target = route(url);
         if (url.origin !== this.url.origin || scopeKey(target) !== scopeKey(this.scope) || target.kind !== this.scope.kind) continue;
         if (this.feed) {
-          if (!types && !nsfw && !flair) continue;
+          if (!types && !nsfw && !flair && !community.names.length) continue;
           if(types)url.searchParams.set('rt_type',types);
+          if(community.names.length)url.searchParams.set(community.mode === 'hide' ? hideParam : subParam,community.names.join(','));
           if(nsfw)url.searchParams.set(nsfwParam,'1');
           if(flair)url.searchParams.set('f',flair);
         } else {
@@ -1135,7 +1299,7 @@
       const button = this.options;
       button.setAttribute('aria-expanded','true');
       this.panel = sheet.open({
-        title:'Feed options', returnFocus:button,
+        title:menuLabel, returnFocus:button,
         onClose: () => {
           this.panel = null;
           button.setAttribute('aria-expanded','false');
@@ -1225,7 +1389,7 @@
       root.dataset.rtUi = 'community-filter-menu';
       root.dataset.rtFeedOptions = '';
       root.setAttribute('role','menu');
-      root.setAttribute('aria-label','Feed options');
+      root.setAttribute('aria-label',menuLabel);
       const ctx = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitem'});
       const choices = filters.plainContext(name => filters.svgIcon(name,16));
       let section = '';
@@ -1273,6 +1437,26 @@
           header.back.focus({preventScroll:true});
           return;
         }
+        if (view === 'View') {
+          const header = filters.submenuHeader(view,back);
+          const list = make('div','rt-community-menu-body');
+          root.append(header.head,list);
+          const radios = filters.plainContext(name => filters.svgIcon(name,16),{role:'menuitemradio'});
+          for (const choice of this.feedView?.choices || []) list.append(filters.menuOption(radios,{
+            label:choice.label,icon:this.viewIcon(choice,16),checked:choice.selected,slot:true,
+            onSelect:() => { menu.close(false); this.chooseView(choice); },
+          }));
+          menu?.place();
+          header.back.focus({preventScroll:true});
+          return;
+        }
+        if (view === 'Community') {
+          const panel = this.communityPanel({onBack:back});
+          root.append(panel.panel);
+          menu?.place();
+          panel.search.focus({preventScroll:true});
+          return;
+        }
         if (view === 'Post type') {
           const header = filters.submenuHeader(view,back);
           const list = make('div','rt-community-menu-body');
@@ -1299,10 +1483,12 @@
         }
         const list = make('div','rt-community-menu-body');
         root.append(list);
-        root.prepend(filters.sectionLabel('Feed options'));
+        root.prepend(filters.sectionLabel(menuLabel));
         const sorting = this.feedSorts?.sorting;
         if (sorting) entry(list,'Sort','sort',sorting.current);
+        if (this.feedView) entry(list,'View',this.viewIcon(this.feedView.choices.find(choice => choice.selected),16),this.feedView.current || 'Card');
         entry(list,'Post type','text-post',this.typeLabel() || 'All');
+        if (this.hasCommunities()) entry(list,'Community','community',this.communitySummary() || 'All');
         if (!this.scope.global) entry(list,'Flair','tag',this.flairSummary() || 'All');
         menu?.place();
       };
@@ -1434,6 +1620,15 @@
           chevron:true,keepOpen:true,onSelect:() => { ui.push(sorts()); return {stay:true}; },
         });
       }
+      if (this.feedView) {
+        const current = this.feedView.choices.find(choice => choice.selected);
+        ui.row({label:'View',icon:this.viewIcon(current,20),subtitle:this.feedView.current || 'Card',chevron:true,keepOpen:true,onSelect:() => {
+          ui.push({title:'View',build:(_body,page) => {
+            for (const choice of this.feedView?.choices || []) page.row({label:choice.label,icon:this.viewIcon(choice,20),selected:choice.selected,onSelect:() => this.chooseView(choice)});
+          }});
+          return {stay:true};
+        }});
+      }
       ui.row({
         label:'Post type',icon:(() => { const [one,...more] = this.selectedTypes(); return filters.svgIcon(one && !more.length ? (one === 'gif' ? 'gif-post-outline' : filters.typeIcons[one]) : 'text-post',20); })(),
         subtitle:this.typeLabel() || 'All types',
@@ -1441,6 +1636,10 @@
           sheet.postTypeRows(page,{selected:this.selectedTypes(),onClear:() => this.applyTypes([]),onToggle:type => this.toggleType(type)});
         }}); return {stay:true}; },
       });
+      if (this.hasCommunities()) ui.row({label:'Community',icon:filters.svgIcon('community',20),subtitle:this.communitySummary() || 'All communities',chevron:true,keepOpen:true,onSelect:() => {
+        ui.push({title:'Community',build:(body) => { body.append(this.communityPanel().panel); return {stay:true}; }});
+        return {stay:true};
+      }});
       if (!this.scope.global) ui.row({label:'Flair', icon:filters.svgIcon('tag',20), subtitle:this.flairSummary() || 'All flairs', chevron:true, keepOpen:true, onSelect:() => {
         ui.push({title:'Flair',build:(body, page) => {
           const panel = this.flairPanel({

@@ -274,10 +274,10 @@
     if(chips.length){const clear=make('button','rt-filter-clear','Clear filters');clear.type='button';clear.dataset.rtFilterClear='true';clear.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();onChange(empty());});container.append(clear);}
     fitRail(container);
   }
-  // Applied-filter rail (docs/filter-pills-spec.md): one line in the row's leftover width, after every existing
-  // control, so nothing else moves and the row never grows. Pills that do not fit are hidden behind a "+N" chip that
-  // lists every applied filter (popover on computers, the Feed options sheet on phones), each removable, with Clear
-  // all. With no room even for that chip, the rail stays empty and the owner's button (badgeFor) shows the count.
+  // Applied filters (docs/feed-controls-ux-plan.md, 5): the pills stay in the container as the source of every filter
+  // and its remove handler, but are not shown in the row. The owner's button (badgeFor) carries the count; computers add
+  // one summary chip in the row's leftover width ("Videos · r/pics"), truncated, then "N filters", then nothing. The
+  // chip opens the Applied filters list (popover on computers, the Sort & filter sheet on phones); its × clears all.
   const rails=new WeakMap();
   function fitRail(container,options){
     if(!container)return;
@@ -296,24 +296,36 @@
     if(!badge){badge=document.createElement('span');badge.className='rt-filter-count';badge.setAttribute('aria-hidden','true');button.append(badge);}
     badge.textContent=String(count);button.setAttribute('data-rt-filter-count',String(count));
   }
+  const chipLabel=node=>node.querySelector('.rt-filter-chip-label')?.textContent.trim() || node.dataset.rtChip || 'Filter';
+  const appliedPills=container=>container?[...container.children].filter(node=>node.matches('.rt-filter-chip')):[];
+  function clearAllPills(container){
+    const clear=container.querySelector(':scope>.rt-filter-clear');
+    if(clear)clear.click();else for(const node of appliedPills(container).reverse())node.click();
+  }
   function layoutRail(container){
     if(!container.isConnected || !container.hasAttribute('data-rt-rail'))return;
-    container.querySelector(':scope>.rt-filter-more')?.remove();
-    const pills=[...container.children].filter(node=>node.matches('.rt-filter-chip')),clear=container.querySelector(':scope>.rt-filter-clear');
-    for(const node of [...pills,clear])if(node)node.hidden=false;
-    container.removeAttribute('data-rt-collapsed');railBadge(container,0);
-    if(!pills.length || container.hidden || container.scrollWidth<=container.clientWidth+1)return;
-    if(clear)clear.hidden=true;
-    const more=document.createElement('button');more.type='button';more.className='rt-filter-more';more.setAttribute('aria-haspopup','dialog');
-    more.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();openRailList(container,more);});
-    container.append(more);
-    let shown=pills.length;
-    const label=()=>{const hidden=pills.length-shown;more.textContent=shown?'+'+hidden:pills.length+' filters';more.setAttribute('aria-label',(shown?hidden+' more filters':pills.length+' filters applied')+'. Show all applied filters');};
-    while(shown>0 && (label(),container.scrollWidth>container.clientWidth+1)){shown--;pills[shown].hidden=true;}
-    label();
-    if(container.scrollWidth>container.clientWidth+1){more.hidden=true;container.setAttribute('data-rt-collapsed','');railBadge(container,pills.length);}
+    for(const node of container.querySelectorAll(':scope>.rt-filter-summary,:scope>.rt-filter-more'))node.remove();
+    const pills=appliedPills(container),clear=container.querySelector(':scope>.rt-filter-clear');
+    for(const node of [...pills,clear])if(node)node.hidden=true;
+    container.removeAttribute('data-rt-collapsed');
+    railBadge(container,pills.length);
+    if(!pills.length || container.hidden)return;
+    if(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches){container.setAttribute('data-rt-collapsed','');return;}
+    const labels=pills.map(chipLabel),count=labels.length===1?'1 filter':labels.length+' filters';
+    const chip=document.createElement('span');chip.className='rt-filter-summary';
+    const open=document.createElement('button');open.type='button';open.className='rt-filter-summary-open';open.setAttribute('aria-haspopup','dialog');open.setAttribute('aria-expanded','false');
+    open.setAttribute('aria-label',count+' applied: '+labels.join(', ')+'. Show applied filters');open.title=labels.join(', ');
+    const text=document.createElement('span');text.className='rt-filter-summary-text';text.textContent=labels.join(' · ');
+    open.append(svgIcon('filter',16) || document.createTextNode(''),text);
+    open.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();openRailList(container,open);});
+    const x=document.createElement('button');x.type='button';x.className='rt-filter-summary-clear';x.setAttribute('aria-label','Clear all filters');x.append(svgIcon('close',16) || document.createTextNode('×'));
+    x.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();clearAllPills(container);});
+    chip.append(open,x);container.append(chip);
+    // Truncated names say less than the count does.
+    if(labels.length>1 && text.scrollWidth>text.clientWidth+1)text.textContent=count;
+    if(container.scrollWidth>container.clientWidth+1 || text.clientWidth && text.clientWidth<24){chip.remove();container.setAttribute('data-rt-collapsed','');}
   }
-  // A phone Feed options sheet's first row: every applied filter on its own page, each removable, with Clear all.
+  // A phone Sort & filter sheet's first row: every applied filter on its own page, each removable, with Clear all.
   function appliedRow(ui,container){
     const pills=container?[...container.children].filter(node=>node.matches('.rt-filter-chip')):[];if(!pills.length)return null;
     const clear=container.querySelector(':scope>.rt-filter-clear');
@@ -330,9 +342,8 @@
   function closeRailList(){const list=railList;railList=null;list?.close();}
   function openRailList(container,anchor){
     closeRailList();
-    const pills=[...container.children].filter(node=>node.matches('.rt-filter-chip')),clear=container.querySelector(':scope>.rt-filter-clear');
-    const entries=pills.map(node=>({node,label:node.querySelector('.rt-filter-chip-label')?.textContent.trim() || node.dataset.rtChip || 'Filter',icon:node.querySelector('[slot="leading"] svg,[slot="leading"] img')?.cloneNode(true) || null}));
-    const clearAll=()=>{if(clear)clear.click();else for(const entry of [...entries].reverse())entry.node.click();};
+    const entries=appliedPills(container).map(node=>({node,label:chipLabel(node),icon:node.querySelector('[slot="leading"] svg,[slot="leading"] img')?.cloneNode(true) || null}));
+    const clearAll=()=>clearAllPills(container);
     const phone=globalThis.matchMedia?.('(max-width: 767.98px)')?.matches && globalThis.RTFeedSheet;
     anchor.setAttribute('aria-expanded','true');
     if(phone){
@@ -353,7 +364,7 @@
       remove.addEventListener('click',event=>{event.preventDefault();closeRailList();entry.node.click();});
       row.append(text,remove);pop.append(row);
     }
-    const box=anchor.getBoundingClientRect(),width=280,left=Math.max(8,Math.min(box.right-width,(document.documentElement.clientWidth || innerWidth)-width-8));
+    const box=anchor.getBoundingClientRect(),width=280,left=Math.max(8,Math.min(box.left,(document.documentElement.clientWidth || innerWidth)-width-8));
     pop.style.cssText=`position:fixed;z-index:2147483000;top:${Math.round(box.bottom+4)}px;left:${Math.round(left)}px;width:${width}px`;
     const away=event=>{if(!event.composedPath().includes(pop) && !event.composedPath().includes(anchor))closeRailList();};
     const keys=event=>{if(event.key==='Escape'){event.preventDefault();closeRailList();anchor.focus({preventScroll:true});}};
@@ -461,5 +472,5 @@
     return {el,list,note,input,back,head,render,reset(){input.value='';if(clear)clear.hidden=true;list.scrollTop=0;},get data(){return last;}};
   }
   const iconNames=Object.freeze([...Object.keys(iconPaths),'gif']);
-  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,hourPreset,allPresets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,fitRail,appliedRow,pill,parsedElement,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
+  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,hourPreset,allPresets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,fitRail,appliedRow,openApplied:openRailList,appliedCount:container=>appliedPills(container).length,pill,parsedElement,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
 })();

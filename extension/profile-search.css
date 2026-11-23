@@ -569,7 +569,7 @@ shreddit-post.rt-archive-compact {
     font-size: 24px;
     line-height: 28px;
   }
-  /* Reddit's Feed options row: 4px from the edge, the button's own 8px start margin puts it 12px in. */
+  /* Reddit's Sort & filter row: 4px from the edge, the button's own 8px start margin puts it 12px in. */
   [data-rt-ui="archive-profile"] [data-rt-ui="profile-controls"] {
     padding-inline: 4px;
   }

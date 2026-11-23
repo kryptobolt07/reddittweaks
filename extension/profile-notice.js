@@ -144,7 +144,7 @@
     }
     const underlying=doc.querySelector('#profile-feed-tabgroup,[data-rt-ui="archive-profile"]'),active=enabled && Boolean(profile || underlying || notices.size);
     doc.documentElement?.toggleAttribute('data-rt-profile-discovery',active);
-    // Comments tab: Reddit's sort button is swapped for our Feed options menu; keep it from flashing first.
+    // Comments tab: Reddit's sort button is swapped for our Sort & filter menu; keep it from flashing first.
     doc.documentElement?.toggleAttribute('data-rt-profile-comments',active && /^\/user\/[\w-]{1,20}\/comments\/?$/i.test(loc?.pathname || ''));
     for(const [notice,anchor] of notices){if(!anchor.isConnected){notices.delete(notice);continue;}if(!active){anchor.replaceWith(notice);notices.delete(notice);}}
     if(!active)return;

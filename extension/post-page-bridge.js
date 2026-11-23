@@ -1320,7 +1320,7 @@
     if(signal?.aborted || path!==pageKey() || !target.isConnected || document.getElementById(input.target)!==target)throw Error('Page changed. Try again.');
     for(const row of root.querySelectorAll('rpl-menu-item[href]')){const old=new URL(row.getAttribute('href'),location.origin);if(old.origin!==location.origin || old.pathname!=='/user/reddit/submitted/')throw Error('Unexpected native control destination.');const next=new URL(path,location.origin);if(/\/search\/?$/.test(location.pathname))next.search=location.search;for(const name of ['sort','t','feedViewType'])if(old.searchParams.has(name))next.searchParams.set(name,old.searchParams.get(name));if(old.searchParams.has('sort') && old.searchParams.get('sort')!=='top')next.searchParams.delete('t');row.setAttribute('href',next.pathname+next.search);}
     if(/\/comments\/?$/.test(location.pathname)){
-      // The Comments tab gets the same Feed options trigger and menu Reddit renders
+      // The Comments tab gets the same Sort & filter trigger and menu Reddit renders
       // on Posts. Only the View section is dropped, because the Comments tab has
       // no Card/Compact choice (unless Reddit shows its own layout control here).
       if(!root.querySelector('button[aria-label="Feed options"]'))throw Error('Reddit returned no native feed trigger.');

@@ -670,7 +670,7 @@
     }
     // Reddit's phone community row (measured on a live subreddit, 412 px): Feed / About pill tabs on the left, Feed
     // options and the view switch on the right, one 40 px row with 8 px above and below. Sort, Date and Post type live
-    // in the Feed options sheet, as on live subreddits; desktop keeps its own control row.
+    // in the Sort & filter sheet, as on live subreddits; desktop keeps its own control row.
     buildMobileTabs(){
       const bar=make('div','rt-sra-mobile-tabs flex justify-between flex-wrap mb-xs mt-xs');bar.dataset.rtUi='archive-mobile-tabs';
       const left=make('div','rt-sra-tab-group'),list=make('div','flex mx-md shrink-0');list.setAttribute('role','tablist');list.setAttribute('aria-label','Community sections');left.append(list);
@@ -691,7 +691,7 @@
       const f=globalThis.RTFeedFilters;let right=null;
       if(globalThis.RTFeedSheet && f){
         right=make('div','rt-sra-phone-options flex me-md ms-auto');
-        const options=this.phoneOptionsBtn=make('button','rt-search-inline-filter rt-community-button','Feed options');
+        const options=this.phoneOptionsBtn=make('button','rt-search-inline-filter rt-community-button','Sort & filter');
         options.type='button';options.dataset.rtUi='archive-feed-options';options.setAttribute('aria-haspopup','dialog');options.setAttribute('aria-expanded','false');
         options.prepend(f.svgIcon('filter',16));options.append(f.svgIcon('caret-down',16));
         options.addEventListener('click',event=>{event.preventDefault();this.openPhoneOptions();});
@@ -703,12 +703,12 @@
       if(this.menuRows)this.syncMenu();
       return bar;
     }
-    // The phone Feed options sheet: one row per option with its current value; each opens its own page.
+    // The phone Sort & filter sheet: one row per option with its current value; each opens its own page.
     openPhoneOptions(){
       const sheet=globalThis.RTFeedSheet,f=globalThis.RTFeedFilters,button=this.phoneOptionsBtn;if(!sheet || !f || !this.phoneChoices)return;
       button?.setAttribute('aria-expanded','true');
       const {sorts,dates,custom,types}=this.phoneChoices;
-      sheet.open({title:'Feed options',returnFocus:button,onClose:()=>button?.setAttribute('aria-expanded','false'),build:(_body,ui)=>{
+      sheet.open({title:'Sort & filter',returnFocus:button,onClose:()=>button?.setAttribute('aria-expanded','false'),build:(_body,ui)=>{
         const mode=this.sortMode(),state=this.filterState(),labels=f.valueLabels?f.valueLabels(state):{};
         f.appliedRow?.(ui,this.chipsEl);
         const sortNow=sorts.find(choice=>choice.key===mode);
@@ -947,7 +947,7 @@
     }
     // Applied-filter rail (docs/filter-pills-spec.md): in the row's free space, never between or before a control.
     // Computers: the control row, between the dropdowns and the right-aligned view switch. Phones: the Feed / About
-    // row, between the tabs and Feed options (too narrow for pills there, so "+N" or the count on Feed options).
+    // row, between the tabs and Sort & filter (too narrow for pills there, so "+N" or the count on Sort & filter).
     placeChips(){
       const f=globalThis.RTFeedFilters,chips=this.chipsEl;if(!chips || !f)return;
       const phone=Boolean(this.mobileTabsEl?.isConnected && globalThis.matchMedia?.('(max-width: 639px)')?.matches);

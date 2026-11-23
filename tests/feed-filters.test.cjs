@@ -85,23 +85,26 @@ test('hourPreset and allPresets support Past hour while preserving existing pres
 test('native filter chips upgrade with native constructors without assigning HTML, and labels remain text',t=>{
  const {W,F}=load();t.after(()=>W.close());W.customElements.define('rpl-input-chip',class extends W.HTMLElement{constructor(){super();this.setAttribute('data-upgraded','true');}});const descriptor=Object.getOwnPropertyDescriptor(W.Element.prototype,'innerHTML');Object.defineProperty(W.Element.prototype,'innerHTML',{...descriptor,set(value){if(value)throw Error('HTML sink blocked');return descriptor.set.call(this,value);}});const make=(tag,cls,text)=>{const el=W.document.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;},container=make('div');W.document.body.append(container);F.renderChips(container,{...F.empty(),subreddits:['Alpha']},{make,glyph:()=>W.document.createElementNS('http://www.w3.org/2000/svg','svg'),onChange(){}});const chip=container.querySelector('rpl-input-chip');assert.equal(chip.getAttribute('data-upgraded'),'true');assert.match(chip.textContent,/Alpha/);assert.equal(chip.getAttribute('appearance'),'bordered');assert.throws(()=>F.parsedElement('rpl-input-chip onclick=alert(1)'),/Invalid custom element/);const label='<img src=x onerror=alert(1)>',literal=F.pill({id:'date',kind:'date',label},{make,glyph:()=>W.document.createElementNS('http://www.w3.org/2000/svg','svg'),onRemove(){}});assert.equal(literal.querySelector('.rt-filter-chip-label').textContent,label);assert.equal(literal.querySelector('[onerror]'),null);
 });
-test('applied-filter rail: pills that do not fit hide behind +N, which lists every filter; no room shows the count on the owner button',t=>{
+test('applied filters: badge on the owner button, one summary chip on computers, list with removal, badge only when no room',t=>{
   const {W,F}=load();t.after(()=>W.close());
   const d=W.document,make=(tag,cls,text)=>{const el=d.createElement(tag);if(cls)el.className=cls;if(text)el.textContent=text;return el;},glyph=k=>{const s=d.createElement('span');s.dataset.icon=k;return s;};
-  const box=d.createElement('div');box.dataset.rtRail='true';d.body.append(box);let width=250;
-  // Synthetic layout: each visible pill 100 px, the +N chip 40 px, Clear filters 90 px.
-  const used=()=>[...box.children].filter(node=>!node.hidden).reduce((sum,node)=>sum+(node.matches('.rt-filter-more')?40:node.matches('.rt-filter-clear')?90:100),0);
-  Object.defineProperty(box,'scrollWidth',{get:used});Object.defineProperty(box,'clientWidth',{get:()=>width});
-  const owner=d.createElement('button');owner.textContent='Feed options';d.body.append(owner);
+  const box=d.createElement('div');box.dataset.rtRail='true';d.body.append(box);let width=400,textRoom=300;
+  // Synthetic layout: the summary chip is its text (8 px per character, capped by the room) plus 60 px of icon and ×.
+  const summaryText=()=>box.querySelector('.rt-filter-summary-text');
+  Object.defineProperty(box,'scrollWidth',{get:()=>{const t=summaryText();return t?Math.min(t.textContent.length*8,textRoom)+60:0;}});Object.defineProperty(box,'clientWidth',{get:()=>width});
+  Object.defineProperty(W.HTMLElement.prototype,'scrollWidth',{configurable:true,get(){return this.classList.contains('rt-filter-summary-text')?this.textContent.length*8:0;}});
+  Object.defineProperty(W.HTMLElement.prototype,'clientWidth',{configurable:true,get(){return this.classList.contains('rt-filter-summary-text')?Math.min(this.textContent.length*8,textRoom):0;}});
+  const owner=d.createElement('button');owner.textContent='Sort & filter';d.body.append(owner);
   let state=F.clone(full);const draw=()=>{F.renderChips(box,state,{make,glyph,onChange:next=>{state=next;draw();}});F.fitRail(box,{badgeFor:owner});};draw();
-  const visible=()=>[...box.querySelectorAll('[data-rt-chip]')].filter(node=>!node.hidden).length;
-  const more=box.querySelector('.rt-filter-more');
-  assert.equal(visible(),2);assert.equal(more.textContent,'+4');assert.equal(box.querySelector('.rt-filter-clear').hidden,true,'Clear all moves into the list');
-  assert.equal(owner.hasAttribute('data-rt-filter-count'),false);
-  more.click();const list=d.querySelector('[data-rt-ui="applied-filters"]');assert.ok(list);assert.equal(list.querySelectorAll('.rt-filter-list-row').length,6);
+  const pills=()=>[...box.querySelectorAll('[data-rt-chip]')];
+  assert.equal(pills().filter(node=>!node.hidden).length,0,'pills are data only');
+  assert.equal(owner.getAttribute('data-rt-filter-count'),'6');assert.equal(owner.querySelector('.rt-filter-count').textContent,'6');
+  const chip=box.querySelector('.rt-filter-summary');assert.ok(chip);assert.equal(summaryText().textContent,'6 filters','truncated names give way to the count');
+  assert.match(chip.querySelector('.rt-filter-summary-open').getAttribute('aria-label'),/^6 filters applied: /);
+  chip.querySelector('.rt-filter-summary-open').click();const list=d.querySelector('[data-rt-ui="applied-filters"]');assert.ok(list);assert.equal(list.querySelectorAll('.rt-filter-list-row').length,6);
   list.querySelector('.rt-filter-list-row:last-child .rt-filter-list-remove').click();assert.equal(d.querySelector('[data-rt-ui="applied-filters"]'),null);
-  assert.equal(box.querySelectorAll('[data-rt-chip]').length,5,'removing from the list removes that filter');
-  width=30;F.fitRail(box);assert.ok(box.hasAttribute('data-rt-collapsed'));assert.equal(owner.getAttribute('data-rt-filter-count'),'5');assert.equal(owner.querySelector('.rt-filter-count').textContent,'5');
-  width=2000;F.fitRail(box);assert.equal(visible(),5);assert.equal(box.querySelector('.rt-filter-more'),null);assert.equal(box.querySelector('.rt-filter-clear').hidden,false);assert.equal(owner.hasAttribute('data-rt-filter-count'),false);
-  box.querySelector('.rt-filter-clear').click();assert.equal(box.hidden,true);
+  assert.equal(pills().length,5,'removing from the list removes that filter');assert.equal(owner.getAttribute('data-rt-filter-count'),'5');
+  textRoom=2000;width=2100;F.fitRail(box);assert.equal(summaryText().textContent,pills().map(node=>node.querySelector('.rt-filter-chip-label').textContent).join(' · '),'names when they fit');
+  width=30;textRoom=300;F.fitRail(box);assert.ok(box.hasAttribute('data-rt-collapsed'));assert.equal(box.querySelector('.rt-filter-summary'),null);assert.equal(owner.getAttribute('data-rt-filter-count'),'5','badge stays');
+  width=2000;F.fitRail(box);box.querySelector('.rt-filter-summary-clear').click();assert.equal(box.hidden,true);assert.equal(owner.hasAttribute('data-rt-filter-count'),false);
 });

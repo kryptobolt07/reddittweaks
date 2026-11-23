@@ -15,7 +15,7 @@ html[data-rt-profile-discovery] shreddit-app > div:has(> img[alt="Deleted user"]
 .rt-posts-toolbar>.rt-posts-more{width:auto;border-radius:16px;font-size:12px;padding:4px 10px;white-space:nowrap}
 .rt-posts-status{font-size:12px;margin:0 auto 0 0;line-height:1.5;color:var(--color-neutral-content-weak,#576f76)}
 .rt-posts-status[data-error=false]{position:fixed;left:0;top:0;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-/* Reddit's own Posts row starts with an empty faceplate-loader and gap-xs, so Feed options sits .5rem in; ours matches it. */
+/* Reddit's own Posts row starts with an empty faceplate-loader and gap-xs, so Sort & filter sits .5rem in; ours matches it. */
 [data-rt-native-inset] shreddit-layout-event-setter{margin-inline-start:.5rem}
 .rt-posts-status[data-error=true],.rt-posts-notice{display:inline-flex;align-items:center;gap:6px;color:var(--color-neutral-content-weak,#576f76)}
 /* Errors and notes use Reddit's quiet secondary text; only the small icon carries colour. */
@@ -110,7 +110,7 @@ html[data-rt-profile-discovery] shreddit-feed faceplate-partial[slot="load-after
 [data-rt-ui="activity-empty"][hidden]{display:none!important}
 
 shreddit-sort-dropdown[data-rt-comment-sort-suppressed]{display:none!important}
-/* Until Feed options replaces it (or 2.5 s pass), Reddit's Comments sort keeps its space but stays invisible. */
+/* Until Sort & filter replaces it (or 2.5 s pass), Reddit's Comments sort keeps its space but stays invisible. */
 html[data-rt-profile-comments] main shreddit-sort-dropdown:not([data-rt-ui] *){visibility:hidden;animation:rt-menu-reveal 0s 2.5s forwards}
 
 /* Gate native insertions before their first paint; retain nodes and native stack. */
@@ -130,7 +130,7 @@ shreddit-feed[data-rt-merge-waiting] shreddit-feed-load-more-observer:not(:has(s
 shreddit-feed[data-rt-merge-waiting] faceplate-partial[slot="load-after"]:not(:has(shreddit-post,shreddit-profile-comment)):not([data-rt-ui] *),
 shreddit-feed[data-rt-merge-waiting] shreddit-feed-page-loading:not([data-rt-ui] *){display:none!important}
 
-/* With Refresh in Reddit's Feed options menu, the toolbar shows only errors. */
+/* With Refresh in Reddit's Sort & filter menu, the toolbar shows only errors. */
 .rt-posts[data-rt-menu-ready] .rt-posts-toolbar>button:not(.rt-posts-more){display:none!important}
 .rt-posts[data-rt-menu-ready] .rt-posts-toolbar{min-height:0}
 .rt-posts[data-rt-menu-ready]:not(:has(.rt-posts-status[data-error=true],.rt-posts-notice:not([hidden]),.rt-posts-more:not([hidden]))){margin-block:0}
@@ -208,19 +208,28 @@ html[data-rt-restore] main shreddit-comment[data-rt-pending] > details > summary
 [data-rt-author-pending]::after{content:"";position:absolute;inset-inline:0;inset-block-start:calc(50% - 6px);height:12px;border-radius:999px;background-color:var(--rt-skeleton-base);background-image:linear-gradient(90deg,var(--rt-skeleton-base) 30%,color-mix(in srgb,var(--rt-skeleton-base) 45%,var(--color-neutral-background,#fff)) 50%,var(--rt-skeleton-base) 70%);background-size:200% 100%;animation:rt-shimmer 1.5s ease-in-out infinite,rt-hold-gone 0s 6s forwards}
 @media(prefers-reduced-motion:reduce){[data-rt-author-pending]::after{background-image:none;animation:rt-hold-gone 0s 6s forwards}}
 
-/* Feed options: until discovery has grouped Reddit's rows (Sort, View,
+/* Sort & filter: until discovery has grouped Reddit's rows (Sort, View,
    Activity), keep the original rows invisible so the open menu never changes
    under the reader. Reveals itself after 2.5 s if discovery never takes over. */
 @keyframes rt-menu-reveal{to{visibility:visible}}
-html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed options"]) rpl-menu.main-menu-container:not([data-rt-menu-ready])>:not([data-rt-ui]){visibility:hidden;animation:rt-menu-reveal 0s 2.5s forwards}
-/* Filter chips: one row under Feed options (Reddit chip style, same icons as the menu rows). */
+html[data-rt-profile-discovery] main rpl-dropdown:is(:has(> button[aria-label="Feed options"]),:has(> button[data-rt-feed-trigger])) rpl-menu.main-menu-container:not([data-rt-menu-ready])>:not([data-rt-ui]){visibility:hidden;animation:rt-menu-reveal 0s 2.5s forwards}
+/* Filter chips: one row under Sort & filter (Reddit chip style, same icons as the menu rows). */
 .rt-filter-chips{display:flex;flex:0 0 100%;flex-wrap:wrap;align-items:center;gap:6px;width:100%;box-sizing:border-box;margin:0 0 8px;position:relative;z-index:1}
-/* In the Feed options row: one scrollable line of pills to the right of the button, like the chat search filter rail. */
+/* In the Sort & filter row: one scrollable line of pills to the right of the button, like the chat search filter rail. */
 /* The rail takes only the row's leftover width (basis 0) and never wraps or scrolls: pills that do not fit hide behind
    a "+N" chip (docs/filter-pills-spec.md), so the controls before and after it never move and the row never grows. */
 .rt-filter-chips[data-rt-rail]{flex:1 1 0;width:auto;min-width:0;flex-wrap:nowrap;margin:0 0 0 8px;overflow:hidden}
 .rt-filter-chips[data-rt-rail]>[hidden]{display:none!important}
 .rt-filter-chips[data-rt-rail][data-rt-collapsed]{visibility:hidden;margin:0!important}
+.rt-filter-summary{flex:0 1 auto;display:inline-flex;align-items:center;min-width:0;max-width:100%;height:32px;box-sizing:border-box;border-radius:999px;background:var(--color-secondary-background,#e5ebee);color:var(--color-neutral-content-strong,#181c1f)}
+.rt-filter-summary-open{flex:0 1 auto;display:inline-flex;align-items:center;gap:6px;min-width:0;height:32px;padding:0 4px 0 12px;border:0;border-radius:999px 0 0 999px;background:transparent;color:inherit;font:600 12px/16px var(--font-sans,inherit);cursor:pointer}
+.rt-filter-summary-open>svg{flex:none;width:16px;height:16px}
+.rt-filter-summary-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt-filter-summary-clear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;margin:0 2px 0 0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--color-neutral-content-weak,#52656c);cursor:pointer}
+.rt-filter-summary-clear>svg{width:16px;height:16px}
+.rt-filter-summary:hover,.rt-filter-summary:has([aria-expanded="true"]){background:var(--color-secondary-background-hover,#d9e1e5)}
+.rt-filter-summary-clear:hover{color:var(--color-neutral-content-strong,#181c1f)}
+:is(.rt-filter-summary-open,.rt-filter-summary-clear):focus-visible{outline:2px solid var(--color-global-focus,#0079d3);outline-offset:1px}
 .rt-filter-more{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;box-sizing:border-box;padding:0 10px;border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:8px;background:transparent;color:var(--color-neutral-content-strong,#172328);font:600 12px/16px var(--font-sans,inherit);white-space:nowrap;cursor:pointer}
 .rt-filter-more:hover,.rt-filter-more[aria-expanded="true"]{background:var(--color-neutral-background-hover,#e8edef)}
 .rt-filter-more:focus-visible{outline:2px solid var(--color-global-focus,#0079d3);outline-offset:1px}
@@ -269,7 +278,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-menu-row:hover,.rt-menu-row:focus-visible{background:var(--color-neutral-background-hover,#e8edef);outline:none}
 .rt-menu-row[aria-disabled="true"]{opacity:.45;cursor:not-allowed;background:transparent}
 .rt-menu-row[hidden]{display:none!important}
-/* Feed options menu rows: Reddit's icon size and a value that truncates instead of overlapping the label. */
+/* Sort & filter menu rows: Reddit's icon size and a value that truncates instead of overlapping the label. */
 /* Same 16px leading icon as Reddit's own Sort and View rows, so every label starts at the same x. */
 .rt-menu-lead{width:16px;height:16px;flex:none}
 .rt-menu-caption{flex:none;min-width:0}
@@ -313,7 +322,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-filter-search{width:100%;box-sizing:border-box;height:32px;padding:0 12px;border:1px solid var(--color-neutral-border,#cfd8dc);border-radius:16px;background:var(--color-neutral-background,#fff);color:var(--color-neutral-content-strong,#181c1f);font:inherit;font-size:14px}
 .rt-filter-note{padding:4px 16px 8px}
 
-/* Profile Feed options: one width for Reddit's slot and every menu in it. */
+/* Profile Sort & filter: one width for Reddit's slot and every menu in it. */
 [data-rt-feed-options-host]{--rt-menu-width:min(272px,calc(100vw - 32px));width:var(--rt-menu-width)!important}
 [data-rt-feed-options-host]>rpl-menu{box-sizing:border-box;width:var(--rt-menu-width);min-width:0;max-width:var(--rt-menu-width)}
 /* Each submenu sizes to its own content; long lists (Subreddit) scroll inside a capped height. */
@@ -364,7 +373,7 @@ html[data-rt-profile-discovery] main rpl-dropdown:has(> button[aria-label="Feed 
 .rt-media-unavailable{display:flex;align-items:center;justify-content:center;min-height:120px;padding:12px;text-align:center;font-size:12px;color:var(--color-neutral-content-weak,#576f76)}
 .rt-media-unavailable-compact{min-height:0;height:100%;padding:4px}
 
-/* Profile search: our Feed options items are inline in Reddit's sort row; the original pill only anchors menus. */
+/* Profile search: our Sort & filter items are inline in Reddit's sort row; the original pill only anchors menus. */
 button.rt-feed-trigger-anchor{position:fixed!important;opacity:0!important;pointer-events:none!important;min-width:0!important;padding:0!important;overflow:hidden}
 .rt-search-inline-filter{flex:none;display:inline-flex;align-items:center;justify-content:center;height:32px;margin:0 0 0 var(--rt-inline-gap,16px);padding:0 calc(var(--rem10,10px) - var(--button-border-width,0px));border:0;border-radius:999px;background:transparent;color:var(--color-secondary-plain,var(--color-neutral-content-weak,#576f76));font:600 12px/16px var(--font-sans,inherit);white-space:nowrap;cursor:pointer}
 .rt-search-inline-filter:hover{background:var(--color-secondary-background-hover,var(--color-neutral-background-hover,#eff3f5))}
@@ -778,7 +787,7 @@ dialog.rt-raffle-sheet .rt-raffle-card{width:100%;max-height:92%;border-radius:v
 html[data-rt-smooth-feed] shreddit-feed[data-rt-loading-owner]>[data-rt-skip]{content-visibility:hidden}
 /* Smooth scrolling elsewhere (home, subreddits, search, comments): set by smooth-scroll.js. */
 [data-rt-smooth][data-rt-skip]{content-visibility:hidden}
-/* Phones: Feed options opens as Reddit's bottom sheet (the popup is pinned by the style injected into its popper). */
+/* Phones: Sort & filter opens as Reddit's bottom sheet (the popup is pinned by the style injected into its popper). */
 @media (max-width:767.98px){rpl-dropdown[data-rt-feed-sheet]>[slot="content"]{width:100%!important;box-sizing:border-box;border-radius:12px 12px 0 0;overflow:hidden;padding-bottom:env(safe-area-inset-bottom,0)}rpl-dropdown[data-rt-feed-sheet]>[slot="content"] rpl-menu{width:100%!important;max-width:none!important}}
 /* Before Reddit's script defines the post menu (slow connections), its light-DOM children render in place: keep the
    raffle item hidden until the menu can slot it into its closed popup. */
@@ -809,7 +818,7 @@ reddit-header-small [data-rt-home-search]{display:none}
   reddit-header-small[data-rt-post-nav="shown"]>header{pointer-events:auto}
 }
 @media (prefers-reduced-motion:reduce){reddit-header-small[data-rt-post-nav]{transition:none}}
-/* Phones: Feed options sheet shaped like Reddit's app (docs/feed-options-sheet-spec.md). */
+/* Phones: Sort & filter sheet shaped like Reddit's app (docs/feed-options-sheet-spec.md). */
 .rt-fsheet-root{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:flex-end;font-family:var(--font-sans,inherit);color:var(--color-neutral-content-strong,#0f1a1c)}
 dialog.rt-fsheet-root{box-sizing:border-box;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;overflow:hidden;background:transparent}
 dialog.rt-fsheet-root:not([open]){display:none}
@@ -877,7 +886,7 @@ dialog.rt-fsheet-root .rt-fsheet-body{min-height:0}
 /* Live feed options and inline native search filters. */
 [data-rt-community-outgoing],[data-rt-community-restoring]{visibility:hidden!important;opacity:0!important;pointer-events:none!important}
 [data-rt-community-filtered],[data-rt-community-paused],[data-rt-community-sort-replaced],.rt-community-note [hidden]{display:none!important}
-html[data-rt-community-sort-boot] main shreddit-sort-dropdown:is([sort-event="feed-sort-change"],[sort-event="feed-time-sort-change"]):not([data-rt-community-sort-native]){display:none!important}
+html[data-rt-community-sort-boot] main shreddit-sort-dropdown:is([sort-event="feed-sort-change"],[sort-event="feed-time-sort-change"],[sort-event="layout-view-change"]):not([data-rt-community-sort-native]){display:none!important}
 .rt-community-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0;max-width:100%;box-sizing:border-box;padding-block:4px 8px}
 .rt-community-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;margin:0;padding:0 12px;border:0;border-radius:999px;background:transparent;color:var(--color-secondary-plain,#0f1a1c);font:600 12px/16px var(--font-sans,inherit);text-decoration:none;cursor:pointer}
 .rt-community-button:hover{background:var(--color-secondary-background-hover,#e5ebee);text-decoration:none}

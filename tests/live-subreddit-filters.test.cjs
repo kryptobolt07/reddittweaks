@@ -567,14 +567,14 @@ test('a large filtered feed detaches only hidden card contents and restores the 
 
 const homeFeed=({withReload=true}={})=>'<main><div class="flex items-center"><shreddit-sort-dropdown sort-event="feed-sort-change"><span slot="selected-item">Best</span><a href="/">Best</a><a href="/hot/">Hot</a><a href="/new/">New</a><a href="/top/">Top</a><a href="/rising/">Rising</a></shreddit-sort-dropdown><shreddit-layout-switcher><a href="?feedViewType=compactView">Compact</a></shreddit-layout-switcher></div><shreddit-feed'+(withReload?' reload-url="/svc/shreddit/feeds/home-feed"':'')+'>'+card('video','News')+card('text','Q&A')+'<faceplate-partial slot="load-after"></faceplate-partial></shreddit-feed></main>';
 
-test('Home, Popular, and All feeds mount Feed options with Sort and Post type (without Flair) on desktop and phone',t=>{
+test('Home, Popular, and All feeds mount Sort & filter with Sort, Post type and Community (without Flair) on desktop and phone',t=>{
  const {D,W,targets}=setup(t,'/?rt_type=video',homeFeed());
  assert.equal(D.querySelectorAll('article['+stop+']').length,1);
  assert.equal(D.querySelector('shreddit-sort-dropdown').hasAttribute(replaced),true);
  assert.equal(new W.URL(D.querySelector('shreddit-layout-switcher a').href).searchParams.get('rt_type'),'video');
  D.querySelector('[data-rt-community-options]').click();
  const menu=D.querySelector('.rt-community-feed-menu');
- assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(el=>el.getAttribute('aria-label')),['Sort','Post type']);
+ assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(el=>el.getAttribute('aria-label')),['Sort','Post type','Community']);
  assert.equal(menu.querySelector('[aria-label="Flair"]'),null);
  menu.querySelector('[aria-label="Sort"]').click();
  assert.equal(menu.querySelector('[aria-label="Best"]').getAttribute('aria-checked'),'true');
@@ -588,7 +588,7 @@ test('Home, Popular, and All feeds mount Feed options with Sort and Post type (w
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
  const rows=[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent).filter(label=>label!=='Applied filters');
- assert.deepEqual(rows,['Sort by','Post type']);
+ assert.deepEqual(rows,['Sort by','Post type','Community']);
 
  for(const [path,reload,links] of [
   ['/r/popular/','/svc/shreddit/community-more-posts/hot/?name=popular','<a href="/r/popular/hot/">Hot</a><a href="/r/popular/new/">New</a>'],
@@ -597,35 +597,40 @@ test('Home, Popular, and All feeds mount Feed options with Sort and Post type (w
   const markup='<main><div class="flex items-center"><shreddit-sort-dropdown sort-event="feed-sort-change"><span slot="selected-item">Hot</span>'+links+'</shreddit-sort-dropdown></div><shreddit-feed reload-url="'+reload+'">'+card('video')+card('text')+'</shreddit-feed></main>';
   const f=setup(t,path,markup);
   f.D.querySelector('[data-rt-community-options]').click();
-  assert.deepEqual([...f.D.querySelectorAll('.rt-community-feed-menu [role="menuitem"]')].map(el=>el.getAttribute('aria-label')),['Sort','Post type'],path);
+  assert.deepEqual([...f.D.querySelectorAll('.rt-community-feed-menu [role="menuitem"]')].map(el=>el.getAttribute('aria-label')),['Sort','Post type','Community'],path);
  }
 });
 
-test('SPA transitions between Home and Subreddit clear stale Feed options immediately and never mount on outgoing feeds',async t=>{
+test('SPA transitions between Home and Subreddit keep the outgoing Sort & filter with its feed and never mount on outgoing feeds',async t=>{
  for(const withReload of [true,false]){
   const {D,W}=setup(t,'/',homeFeed({withReload}));
-  assert.ok(D.querySelector('[data-rt-ui="community-filters"]'),'Home mounts Feed options');
+  const home=D.querySelector('[data-rt-ui="community-filters"]');
+  assert.ok(home,'Home mounts Sort & filter');
+  const homeSort=D.querySelector('shreddit-sort-dropdown');
   // Reddit changes the URL to /r/Example/ before replacing Home's outgoing shreddit-feed.
   W.history.pushState({},'','/r/Example/');
   D.dispatchEvent(new W.Event('reddit:route'));
-  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'stale Home controls clear immediately on route change');
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),home,'Home controls stay while the outgoing feed is on screen');
+  assert.equal(homeSort.hasAttribute(replaced),true,'Reddit sort stays hidden during the transition');
   await flush();
-  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'does not mount Subreddit controls onto outgoing Home feed (withReload='+withReload+')');
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),home,'no Subreddit controls on the outgoing Home feed (withReload='+withReload+')');
   // Now Reddit swaps in r/Example's incoming feed.
   D.querySelector('main').outerHTML=sortedFeed();
   await flush();
-  assert.ok(D.querySelector('[data-rt-ui="community-filters"]'),'mounts once incoming Subreddit feed arrives');
+  const sub=D.querySelector('[data-rt-ui="community-filters"]');
+  assert.ok(sub && sub!==home,'mounts once incoming Subreddit feed arrives');
   D.querySelector('[data-rt-community-options]').click();
   assert.ok(D.querySelector('.rt-community-feed-menu [aria-label="Flair"]'),'Subreddit menu includes Flair');
   // Navigate back from Subreddit to Home while Subreddit feed is still detaching.
   W.history.pushState({},'','/');
   D.dispatchEvent(new W.Event('reddit:route'));
-  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'stale Subreddit controls clear immediately');
+  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),sub,'Subreddit controls stay with their outgoing feed');
   await flush();
-  assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null,'does not mount Home controls onto outgoing Subreddit feed');
+  assert.equal(D.querySelector('.rt-community-feed-menu [aria-label="Community"]'),null,'does not mount Home controls onto outgoing Subreddit feed');
   D.querySelector('main').outerHTML=homeFeed({withReload});
   await flush();
-  assert.ok(D.querySelector('[data-rt-ui="community-filters"]'),'Home controls mount cleanly on incoming Home feed');
+  const next=D.querySelector('[data-rt-ui="community-filters"]');
+  assert.ok(next && next!==sub,'Home controls mount cleanly on incoming Home feed');
  }
 });
 
@@ -663,4 +668,63 @@ test('live filters bail out on banned subreddit archive feed and archive search'
   assert.equal(D.documentElement.hasAttribute(heldSorts),false);
   assert.equal(D.querySelector('[data-rt-ui="community-filters"]'),null);
  }
+});
+
+const viewDropdown='<shreddit-sort-dropdown header-text="View" sort-event="layout-view-change"><div slot="dropdown-items"><data value="cardView"><li rpl-selected><a href="?feedViewType=cardView"><svg data-icon="card"></svg><span class="text-body-2">Card</span></a></li></data><data value="compactView"><li><a href="?feedViewType=compactView"><svg data-icon="compact"></svg><span class="text-body-2">Compact</span></a></li></data></div></shreddit-sort-dropdown>';
+const subCard=(sub,type='text')=>'<article><shreddit-post post-type="'+type+'" subreddit-prefixed-name="r/'+sub+'"></shreddit-post></article><hr>';
+
+test('signed-out Home served by the popular feed mounts Sort & filter; a foreign feed lifts the boot rule',t=>{
+ const signedOut=homeFeed().replace('/svc/shreddit/feeds/home-feed','/svc/shreddit/feeds/popular-feed?sort=BEST').replace('<main>','<button id="login-button">Log In</button><main>');
+ const {D}=setup(t,'/',signedOut);
+ assert.ok(D.querySelector('[data-rt-ui="community-filters"]'),'mounts on signed-out Home');
+ assert.equal(D.querySelector('shreddit-sort-dropdown').hasAttribute(replaced),true);
+ const signedIn=setup(t,'/',homeFeed().replace('/svc/shreddit/feeds/home-feed','/svc/shreddit/feeds/popular-feed?sort=BEST'));
+ assert.equal(signedIn.D.querySelector('[data-rt-ui="community-filters"]'),null,'a popular feed under / when signed in is not Home');
+ assert.equal(signedIn.D.documentElement.hasAttribute(heldSorts),false,'giving up shows Reddit\'s own sort again');
+});
+
+test('View: Reddit\'s Card/Compact switch is hidden and offered as a View row that activates Reddit\'s own item',t=>{
+ const {D,W}=setup(t,'/r/Example/',sortedFeed().replace('<shreddit-layout-switcher><a href="?feedViewType=cardView">Card</a></shreddit-layout-switcher>',viewDropdown));
+ const native=D.querySelector('shreddit-sort-dropdown[sort-event="layout-view-change"]');
+ assert.equal(native.hasAttribute(replaced),true,'native View hidden while ours is mounted');
+ let clicked='';native.querySelector('a[href*="compactView"]').addEventListener('click',event=>{event.preventDefault();clicked='compact';});
+ D.querySelector('[data-rt-community-options]').click();
+ const menu=D.querySelector('.rt-community-feed-menu');
+ assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(el=>el.getAttribute('aria-label')),['Sort','View','Post type','Flair']);
+ assert.equal(D.querySelector('[data-rt-community-options]').textContent.trim(),'Sort & filter');
+ menu.querySelector('[aria-label="View"]').click();
+ assert.equal(menu.querySelector('[aria-label="Card"]').getAttribute('aria-checked'),'true');
+ menu.querySelector('[aria-label="Compact"]').click();
+ assert.equal(clicked,'compact');
+ W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ D.querySelector('[data-rt-community-options]').click();
+ const rows=[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent);
+ assert.deepEqual(rows,['Sort by','View','Post type','Flair']);
+});
+
+test('Community filter on Home: show only or hide chosen communities, carried in the address and on sort links',async t=>{
+ const markup=homeFeed().replace(card('video','News')+card('text','Q&A'),subCard('pics')+subCard('pics')+subCard('news')+subCard('funny'));
+ const {D,W,targets}=setup(t,'/',markup);
+ const hiddenSubs=()=>[...D.querySelectorAll('article['+stop+'] shreddit-post')].map(p=>p.getAttribute('subreddit-prefixed-name'));
+ D.querySelector('[data-rt-community-options]').click();
+ D.querySelector('.rt-community-feed-menu [aria-label="Community"]').click();
+ const panel=()=>D.querySelector('[data-rt-ui="community-panel"]');
+ assert.deepEqual([...panel().querySelectorAll('[data-rt-community-row]')].map(r=>r.dataset.rtCommunityRow),['pics','funny','news'],'most frequent first');
+ panel().querySelector('[data-rt-community-row="pics"]').click();
+ assert.equal(new W.URL(W.location.href).searchParams.get('rt_sub'),'pics');
+ assert.deepEqual(hiddenSubs(),['r/news','r/funny']);
+ panel().querySelector('[data-rt-option="hide"]').click();
+ assert.equal(new W.URL(W.location.href).searchParams.get('rt_hide'),'pics');
+ assert.equal(new W.URL(W.location.href).searchParams.has('rt_sub'),false);
+ assert.deepEqual(hiddenSubs(),['r/pics','r/pics']);
+ const pill=D.querySelector('[data-rt-chip="sub:pics"]');assert.ok(pill);assert.match(pill.textContent,/Hide r\/pics/);
+ assert.equal(new W.URL(D.querySelector('shreddit-sort-dropdown a[href*="hot"]').href).searchParams.get('rt_hide'),'pics','sort links keep the filter');
+ pill.click();
+ assert.equal(new W.URL(W.location.href).searchParams.has('rt_hide'),false);
+ assert.deepEqual(hiddenSubs(),[]);
+ // Subreddit feeds have no Community row.
+ const sub=setup(t,'/r/Example/',sortedFeed());
+ sub.D.querySelector('[data-rt-community-options]').click();
+ assert.equal(sub.D.querySelector('.rt-community-feed-menu [aria-label="Community"]'),null);
+ void targets;
 });

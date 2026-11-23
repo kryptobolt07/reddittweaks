@@ -1,4 +1,4 @@
-/* Phone bottom sheet for profile Feed options (docs/feed-options-sheet-spec.md), shaped like Reddit's app: a title
+/* Phone bottom sheet for profile Sort & filter (docs/feed-options-sheet-spec.md), shaped like Reddit's app: a title
    with a round close button, rows listed directly (check / chevron / subtitle), dividers, titled chip groups, and
    drill-in pages with Back. Pages are built by the caller each time they render, from the live desktop menu, so every
    choice runs through the menu's existing handlers. */
@@ -103,7 +103,7 @@
   function render(keepScroll=false){
    const top=keepScroll?body.scrollTop:0;giveBack();body.replaceChildren();const page=pages.at(-1);
    heading.textContent=page.title;back.hidden=pages.length<2;sheet.dataset.depth=String(pages.length);
-   try{page.build(body,ui);}catch(error){body.append(make('p','rt-fsheet-error',error?.message || 'Feed options are unavailable.'));}
+   try{page.build(body,ui);}catch(error){body.append(make('p','rt-fsheet-error',error?.message || 'Sort & filter is unavailable.'));}
    if(!body.lastElementChild)close();else body.scrollTop=top;
   }
   back.addEventListener('click',event=>{event.preventDefault();ui.pop();});

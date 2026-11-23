@@ -57,7 +57,7 @@
 .rt-sra-mobile-about>.rt-sra-sidebar-panel{margin-top:0}
 @media (min-width:640px){.rt-sra-mobile-tabs,.rt-sra-mobile-about{display:none!important}}
 
-/* Unified Feed options + Card/Compact view switcher + filter chips. */
+/* Unified Sort & filter + Card/Compact view switcher + filter chips. */
 .rt-sra-controls{position:relative;margin:12px 0 8px}
 .rt-sra-control-row{display:flex;flex-wrap:nowrap;align-items:center;gap:6px;min-width:0}
 .rt-sra-control-row>.rt-search-inline-filter{margin-inline-start:0}
