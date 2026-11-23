@@ -1057,6 +1057,8 @@
     restoreObserver?.takeRecords?.();
     skipObserver?.takeRecords?.();
     observedPlaceholders.clear();
+    // Cards this feed skipped while offscreen get no further intersection entries: draw them again.
+    for(const node of skipObserved)if(node.isConnected && node.hasAttribute('data-rt-skip')){node.removeAttribute('data-rt-skip');node.style.removeProperty('contain-intrinsic-size');}
     skipObserved.clear();
     pendingRestore.clear();
     observedFeed=null;

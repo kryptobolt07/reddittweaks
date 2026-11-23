@@ -329,3 +329,21 @@ test('cold search reads share a projection only within the same write generation
  await store.clear(owner);
  assert.equal(await store._ensureProjection(owner),null);
 });
+
+test('a cold search that starts while a save is running never caches its snapshot',async()=>{
+ const idb=new IDBFactory(),{M}=makeEnv(idb);
+ const store=new M.Store({indexedDB:idb,name:'cold-projection-active-write'});
+ const owner='@t2_account:reddit.com',roomId='!room:reddit.com';
+ const batch=id=>({owner,roomId,events:[{event_id:id,type:'m.room.message',sender:owner,origin_server_ts:Date.now(),content:{msgtype:'m.text',body:'fixture'}}]});
+ await store.ingest(batch('$first'));
+ const write=store.write.bind(store);let release;const gate=new Promise(resolve=>{release=resolve;});
+ store.write=async value=>{await gate;return write(value);};
+ const saving=store.ingest(batch('$second'));
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(store.activeWrites>0,true,'the save has started');
+ const during=await store._ensureProjection(owner);
+ assert.equal(during.count,1);
+ release();await saving;
+ assert.equal(store.activeWrites,0);
+ assert.equal((await store._ensureProjection(owner)).count,2,'the snapshot read during the save was not kept');
+});

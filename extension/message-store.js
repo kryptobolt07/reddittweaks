@@ -423,7 +423,7 @@
       this.idb=indexedDB;this.name=name;this.persistent=Boolean(indexedDB);this.onStatsDelta=onStatsDelta;
       this.legacyName=legacyName!==undefined?legacyName:(name==='rcs-chat-v2'?'rcs-messages-v1':null);
       this.legacy=this.persistent && this.legacyName?new LegacyV1Bridge(indexedDB,this.legacyName):null;
-      this.writeEpoch=0;
+      this.writeEpoch=0;this.activeWrites=0;
       this.database=null;this.connection=null;this.queue=Promise.resolve();
       this.projections=new Map(); // owner -> AccountProjection
       this.projectionReads=new Map();
@@ -456,11 +456,19 @@
       });
       const opening=this.database;try{return await opening;}catch(error){if(this.database===opening)this.database=null;throw error;}
     }
+    // Cached projections are published only when no write ran while they were read: the epoch moves when a write
+    // starts and again when it settles, and activeWrites covers writes still running when a read finishes.
+    beginWrite(){this.activeWrites++;this.writeEpoch++;let open=true;return ()=>{if(!open)return;open=false;this.activeWrites--;this.writeEpoch++;};}
+    enqueueWrite(task){const result=this.queue.then(async()=>{const end=this.beginWrite();try{return await task();}finally{end();}});this.queue=result.catch(()=>{});return result;}
     async transaction(names,mode='readonly') {
       if(mode==='readwrite')this.writeEpoch++;
       for(let attempt=0;attempt<2;attempt++){
         const db=await this.db();if(!db)return null;
-        try{return db.transaction(names,mode);}catch(error){
+        try{
+          const tx=db.transaction(names,mode);
+          if(mode==='readwrite'){const end=this.beginWrite();tx.addEventListener?.('complete',end);tx.addEventListener?.('abort',end);}
+          return tx;
+        }catch(error){
           if(error?.name!=='InvalidStateError')throw error;
           this.forgetConnection(db);try{db.close();}catch{}
           if(attempt)throw error;
@@ -549,7 +557,7 @@
     }
 
     // --- Public Write Path: O(batch) per transaction ---
-    ingest(batch) {const result=this.queue.then(()=>this.write(batch));this.queue=result.catch(()=>{});return result;}
+    ingest(batch) {return this.enqueueWrite(()=>this.write(batch));}
     async write(batch) {
       if(!ownerOK(batch?.owner))throw Error('Invalid account');
       if(!Array.isArray(batch.events) || batch.events.length>1000 || (batch.identities?.length || 0)>1000)throw Error('Invalid message batch');
@@ -1045,7 +1053,7 @@
       } catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
     }
 
-    rememberDimensions(batch){const result=this.queue.then(()=>this.writeDimensions(batch));this.queue=result.catch(()=>{});return result;}
+    rememberDimensions(batch){return this.enqueueWrite(()=>this.writeDimensions(batch));}
     async writeDimensions({owner,records}={}){
       if(!ownerOK(owner) || !Array.isArray(records) || records.length>100)throw Error('Invalid image dimensions');
       for(const r of records)if(typeof r?.roomId!=='string' || !r.roomId || r.roomId.length>1000 || typeof r.eventId!=='string' || !r.eventId || r.eventId.length>1000 || !previewURL(r.preview) || !Number.isFinite(r.width) || !Number.isFinite(r.height) || r.width<1 || r.height<1 || r.width>100000 || r.height>100000)throw Error('Invalid image dimensions');
@@ -1125,7 +1133,7 @@
       return {owner,rooms:out};
     }
 
-    markInaccessible(owner,roomId,status){const result=this.queue.then(()=>this._writeInaccessible(owner,roomId,status));this.queue=result.catch(()=>{});return result;}
+    markInaccessible(owner,roomId,status){return this.enqueueWrite(()=>this._writeInaccessible(owner,roomId,status));}
     async _writeInaccessible(owner,roomId,status){
       if(!ownerOK(owner) || typeof roomId!=='string' || !roomId || roomId.length>1000)throw Error('Invalid room');
       const tx=await this.transaction(['accounts','rooms','meta'],'readwrite'),completion=tx?done(tx):null;
@@ -1150,7 +1158,7 @@
       }catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
     }
 
-    updateHeads(owner,heads){const result=this.queue.then(()=>this._writeHeads(owner,heads));this.queue=result.catch(()=>{});return result;}
+    updateHeads(owner,heads){return this.enqueueWrite(()=>this._writeHeads(owner,heads));}
     async _writeHeads(owner,heads){
       if(!ownerOK(owner) || !Array.isArray(heads))throw Error('Invalid head update');
       const tx=await this.transaction(['accounts','rooms','spans','meta'],'readwrite'),completion=tx?done(tx):null;
@@ -1201,7 +1209,7 @@
       const promise=this._buildProjection(owner).then(projection=>{
         // A read that raced a write can return its snapshot to its original
         // caller, but must not publish it for later searches.
-        if(projection && this.writeEpoch===epoch)this.projections.set(owner,projection);
+        if(projection && this.writeEpoch===epoch && !this.activeWrites)this.projections.set(owner,projection);
         return projection;
       });
       this.projectionReads.set(owner,{epoch,promise});

@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   if(window.top!==window || !globalThis.chrome?.runtime?.id)return;
-  let enabled=true,restore=false,settingsKnown=false,revision=0,restoreRevision=0;const notices=new Map();
+  let enabled=true,restore=false,settingsKnown=false,enabledApplied=false,revision=0,restoreRevision=0;const notices=new Map();
   const unavailableSelector='shreddit-app > div:has(> img[alt="Deleted user"]):has(> h3),shreddit-app > #shreddit-forbidden:has(svg[icon-name="ban-fill"]):has(#shreddit-forbidden-title)';
   const notFoundSelector='shreddit-app[user-logged-in="true"] > #shreddit-forbidden:has(#shreddit-forbidden-not_found):has(svg[icon-name="meme-fill"]):not(:has(svg[icon-name="ban-fill"],img[alt="Deleted user"]))';
   let blockedOn=true,blockedScope='',blockedResult,blockedReady=false,blockedTimer=0,blockedLoader=null;
@@ -175,9 +175,10 @@
   }
   function unavailableNotice(){for(const [notice,anchor] of notices)if(anchor.isConnected){const state=notice.querySelector('img[alt="Deleted user"]')?'deleted':notice.id==='shreddit-forbidden'?'banned':'';if(state)return {notice,anchor,state};}return null;}
   function notFoundNotice(doc=globalThis.document || window.document){return doc?.querySelector(notFoundSelector) || null;}
-  function setEnabled(value,showBlocked=value){revision++;const next=value===true,changed=next!==enabled;enabled=next;blockedOn=showBlocked===true;refresh(changed?undefined:[]);}
+  function setEnabled(value,showBlocked=value){revision++;enabledApplied=true;const next=value===true,changed=next!==enabled;enabled=next;blockedOn=showBlocked===true;refresh(changed?undefined:[]);}
   function syncEnabled(value,showBlocked){
-    if(settingsKnown && (value===true)===enabled && (showBlocked===true)===blockedOn)return;
+    // Known once our own settings read or discovery has applied a value.
+    if((settingsKnown || enabledApplied) && (value===true)===enabled && (showBlocked===true)===blockedOn)return;
     setEnabled(value,showBlocked);
   }
   const emptyTemplate=()=>[...notices.keys()].find(n=>n.id==='empty-feed-content' && n.querySelector('[data-testid="empty-state-creative"]'))?.cloneNode(true) || null;

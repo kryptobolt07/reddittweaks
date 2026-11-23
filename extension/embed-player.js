@@ -263,11 +263,11 @@
       if(!parentOrigin || video.paused || now-lastProgress<750 || video!==media())return;
       lastProgress=now;up('progress',{time:video.currentTime,muted:video.muted});
     },true);
+    hello();
     if(!announced){
       discoveryObserver=new MutationObserver(()=>{if(media())hello();});
       discoveryObserver.observe(document,{childList:true,subtree:true});
     }
-    hello();
     // An already-loaded player can announce before Reddit's document-idle script starts.
     if(!parentOrigin)for(const delay of [300,1000,3000])setTimeout(()=>{if(!parentOrigin)hello();},delay);
   });

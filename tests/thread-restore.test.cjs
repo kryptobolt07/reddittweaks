@@ -240,3 +240,18 @@ test('a comment seen again while its signed-out check is pending is never answer
  release();await settle();await settle();
  assert.equal(comment(e.doc,'t1_gone1').querySelector('[data-rt-source]').title,'u/Blocker has blocked you · Shown from Reddit’s signed-out view');
 });
+
+test('the profile notice guard skips repeated identical values once discovery has applied settings',async()=>{
+ const dom=new JSDOM('<main></main>',{url:'https://www.reddit.com/user/example/',runScripts:'outside-only'}),W=dom.window;
+ // The guard's own settings read never answers: discovery applies settings first.
+ W.chrome={runtime:{id:'own',sendMessage:()=>new Promise(()=>{})}};
+ W.eval(fs.readFileSync('extension/profile-notice.js','utf8'));
+ const guard=W.RTProfileNoticeGuard;guard.setEnabled(true,true);
+ let reads=0;const query=W.document.querySelectorAll.bind(W.document),one=W.document.querySelector.bind(W.document);
+ W.document.querySelectorAll=selector=>{reads++;return query(selector);};W.document.querySelector=selector=>{reads++;return one(selector);};
+ for(let i=0;i<5;i++)guard.syncEnabled(true,true);
+ assert.equal(reads,0,'no refresh for unchanged values');
+ guard.syncEnabled(false,false);
+ assert.ok(reads>0,'a changed value still refreshes');
+ W.close();
+});

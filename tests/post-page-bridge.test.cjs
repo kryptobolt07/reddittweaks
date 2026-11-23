@@ -1508,3 +1508,17 @@ test('profile placeholder tracking handles mutations and releases detached feeds
  assert.equal(observer.targets.size,0);
  assert.equal(controller.topStack[0],first,'a feed kept by Reddit retains its original batch for Back');
 });
+
+test('switching the observed profile feed draws again the posts the old feed skipped',async t=>{
+ const {W,feed,card,run,observers}=virtualFeed(t);W.document.documentElement.setAttribute('data-rt-smooth-feed','');
+ const far=card('far',-3000,480),near=card('near',0,300);feed.append(far,near);await new Promise(r=>setTimeout(r,0));run();
+ const skip=observers.find(o=>o.targets.has(far));
+ skip.callback([{target:far,isIntersecting:false,boundingClientRect:{height:480}}],skip);run();
+ assert.equal(far.hasAttribute('data-rt-skip'),true);
+ const next=W.document.createElement('shreddit-feed');next.setAttribute('data-rt-loading-owner','extension');
+ next.virtualization={host:next,topStack:[],topPadding:0,_virtualizeTop(){}};
+ feed.before(next);W.document.dispatchEvent(new W.Event('scroll'));await new Promise(r=>setTimeout(r,W.__rtFeedIdleMs*2+20));run();
+ assert.equal(feed.isConnected,true);
+ assert.equal(far.hasAttribute('data-rt-skip'),false,'nothing is left to draw it again otherwise');
+ assert.equal(far.style.containIntrinsicSize,'');
+});
