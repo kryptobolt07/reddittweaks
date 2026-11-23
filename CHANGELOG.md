@@ -1,3 +1,35 @@
+# 0.62.0 preview
+
+- **Sort & filter** replaces the vague "Feed options" label everywhere the extension draws it, including Reddit's own profile button.
+- **View inside the menu:** on Home, Popular, All, communities and custom feeds, Reddit's separate Card/Compact switch moves into Sort & filter as a View row. Choosing a view still uses Reddit's own setting.
+- **Applied filters, redesigned:**
+  - The pill rail is gone. Sort & filter shows a count badge.
+  - Computers add one summary chip ("Images · Galleries") that opens the full list, where each filter can be removed. Its × clears all.
+  - Phones list every filter under Applied filters in the sheet, on profiles too.
+- **Sort & filter down the feed:** once you've scrolled past it, scrolling up slides a Sort & filter pill in under Reddit's header (feeds and profiles, computers and phones). Scrolling down hides it.
+- **Community filter on Home, Popular, All and custom feeds:** show only, or hide, chosen communities.
+- **Awaiting approval in any community** (Post type → Moderation):
+  - Moderators get the mod queue.
+  - Everyone else gets posts that Arctic Shift recorded as held for review in the last 7 days (needs Use the archive). Reddit doesn't share the current status with the page (HTTP 403), so the list says a moderator may have approved some since.
+- **New switch:** "Sort & filter on feeds" (Browsing & Feed). Turning it off keeps Reddit's own sort and view menus.
+- **Fixes:**
+  - Sort & filter no longer vanishes, and Reddit's sort no longer flashes in, while a post or community opens from a feed.
+  - Signed out, Home lost its sort control entirely because Reddit serves its popular feed there. Home now gets Sort & filter, and any feed we don't take over gets Reddit's sort back.
+  - Previews no longer need one video played by hand before the start policy works on first load. A failed start no longer leaves a player stuck as hovered or in view, and a pointer already resting on a video starts its preview.
+  - Granting Direct embed controls applies without reloading Reddit.
+- **Minor increment:** new user-facing features (View row, Community filter, docked control, Awaiting approval for everyone, the new switch).
+- **Measured live** (signed-in Playwright launcher, profile signed out): the row and menu, the post-open transition (control kept for the 5 s the old feed stayed on screen), signed-out Home, the dock on computer and phone, previews on cold loads.
+- **Not verified:**
+  - Signed-in Home.
+  - The moderator queue.
+  - Anything that needs Direct embed controls.
+  - The non-moderator Awaiting approval list on live Reddit.
+  - The original first-load preview failure (not reproduced live).
+  - The banned-community archive page has no docked pill yet.
+- **Checksums (SHA-256):**
+  - Chromium `155c9fe385cff47e253376d16d6a0a9ab6f895be7f6d2cf5e287a507ae04beee`
+  - Firefox `e56ddee3ccc373ebb931ab145e006b5dc09f06f4267150e53219d50a3d467b6b`
+
 # 0.61.2 preview
 
 - **Fix:** newest-first global chat search no longer keeps spinning and scanning older chats when you already have matching results at the top of the list. Backfill freshness now requests `include: { timeline: true }` so rooms receive their real latest timestamp, undated/empty rooms sit at the bottom of the priority queue (`frontier = 1`) instead of pinning the global watermark at `Date.now()`, `Store.searchCount()` falls back to `rcs-messages-v1` while migration is in progress, and the initial certified target is 20 newest matches (advancing by +25 as you scroll).
