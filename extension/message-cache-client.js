@@ -51,7 +51,7 @@
   }
   async function call(action,parameters={}) {
     if(contextError)throw contextError;
-    if(runtime?.sendMessage){let timer;const reading=['search','room','stats','summaries','coverage','backfill-lease'].includes(action);
+    if(runtime?.sendMessage){let timer;const reading=['search','search-count','room','stats','summaries','coverage','backfill-lease'].includes(action);
       try{const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(Error(reading?'Reading saved messages took too long. Saved data is kept; try Refresh.':'Saving messages took too long. Saved data is kept; try Refresh.'),{code:reading?'RCS_READ_TIMEOUT':'RCS_WRITE_TIMEOUT'})),reading?15000:30000);});
         const value=await Promise.race([runtime.sendMessage({scope:'rcs-messages',...parameters,action}),timeout]);if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;
       }catch(error){if(error.code==='RCS_READ_TIMEOUT' && !await workerResponsive())throw Error('Reddit Tweaks’ background worker is not responding. Reload Reddit Tweaks, then refresh this Reddit tab. Saved data is kept.');throw transportError(error);}finally{clearTimeout(timer);}
@@ -66,6 +66,7 @@
     if(action==='backfill-lease')return {token:parameters.op==='acquire'?'memory-lease':undefined,renewed:parameters.op==='renew',released:parameters.op==='release'};
     if(action==='mark-native-import-complete')return {nativeImportComplete:await memory.importState(parameters.owner,true)};
     if(action==='search')return memory.search(parameters.owner,{...parameters,committed:true});
+    if(action==='search-count')return memory.searchCount(parameters.owner,{...parameters,committed:true});
     if(action==='room')return memory.room(parameters.owner,parameters.roomId,undefined,{committed:true});
   }
   async function drain() {
@@ -114,7 +115,7 @@
   document.addEventListener('rcs-store-control-request',async event=>{
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     if(!RCSMessageStore.ownerOK(value?.owner) || typeof value.id!=='string' || !value.id || value.id.length>100)return;
-    if(!['coverage','mark-inaccessible','update-heads','backfill-lease'].includes(value.action))return;
+    if(!['coverage','mark-inaccessible','update-heads','backfill-lease','search-count'].includes(value.action))return;
     let reply;
     try{
       if(!chatSearchEnabled)throw Error('Chat search is turned off.');

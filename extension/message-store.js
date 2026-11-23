@@ -61,7 +61,9 @@
     const rawBody=str(bodyContent.body,65536) || stripFormattedBody(bodyContent.formatted_body);
     const body=rawBody || (raw.type==='m.sticker'?'Sticker':({image:'Image',video:'Video',audio:'Audio',file:'File'}[attachmentType] || ''));
     const parsedSeq=parseSeq(raw.seq_id);
-    const threadCount=raw.unsigned?.['m.relations']?.['m.thread']?.count;
+    const threadMeta=raw.unsigned?.['m.relations']?.['m.thread'];
+    const threadCount=threadMeta?.count;
+    const threadLatestTs=Number.isFinite(threadMeta?.latest_event?.origin_server_ts) && threadMeta.latest_event.origin_server_ts>0?threadMeta.latest_event.origin_server_ts:0;
     const seqRaw=typeof raw.seq_id==='string'?str(raw.seq_id,200):typeof raw.seq_id==='number' && Number.isSafeInteger(raw.seq_id)?String(raw.seq_id):'';
     return {id,room,type:raw.type,sender:str(raw.sender),time:Number.isFinite(raw.origin_server_ts)?raw.origin_server_ts:0,
       body,attachmentType,attachmentMime,...(attachmentPreview?{attachmentPreview}:{}),...dimensions,
@@ -69,7 +71,7 @@
       threadRoot:relation.rel_type==='m.thread'?str(relation.event_id):'',
       redacts:str(raw.redacts || content.redacts),redacted:Boolean(raw.unsigned?.redacted_because),
       ...(parsedSeq?{seq:parsedSeq.s,seqScope:parsedSeq.p}:{}),...(seqRaw?{seqRaw}:{}),
-      ...(Number.isInteger(threadCount) && threadCount>0?{threadCount}:{})};
+      ...(Number.isInteger(threadCount) && threadCount>0?{threadCount,...(threadLatestTs?{threadLatestTs}:{})}:{})};
   }
   let encoder;
   const bytes=value=>{const text=JSON.stringify(value);if(typeof TextEncoder==='function')return (encoder ||= new TextEncoder()).encode(text).length;return text.length;};
@@ -807,8 +809,10 @@
             }
             if(ev.threadCount>0 && ev.seqRaw){
               const prevThread=room.threads[ev.seqRaw];
-              if(!prevThread || prevThread.count!==ev.threadCount){
-                room.threads[ev.seqRaw]={root:ev.id,count:ev.threadCount,dirty:true};
+              const latestTs=Math.max(ev.threadLatestTs || 0,prevThread?.latestTs || 0);
+              const rootTs=ev.time || prevThread?.rootTs || 0;
+              if(!prevThread || prevThread.count!==ev.threadCount || latestTs>(prevThread.latestTs || 0) || rootTs && !prevThread.rootTs){
+                room.threads[ev.seqRaw]={root:ev.id,count:ev.threadCount,dirty:!prevThread || prevThread.count!==ev.threadCount?true:Boolean(prevThread.dirty),...(latestTs?{latestTs}:{}),...(rootTs?{rootTs}:{})};
                 roomDirty=true;
               }
             }
@@ -1267,6 +1271,82 @@
         thread:Boolean(msg.th),
         threadRoot:msg.th || ''
       };
+    }
+
+    async searchCount(owner,{query='',roomId,roomIds,dates={},from='all',wholeWord=false,minTimeExclusive=-Infinity,stopAt=0,committed=true}={},directory) {
+      if(!ownerOK(owner))throw Error('Invalid account');
+      if(typeof query!=='string' || query.length>1000 || !['all','me','them'].includes(from) || roomIds!==undefined && (!Array.isArray(roomIds) || roomIds.some(id=>typeof id!=='string' || !id || id.length>1000)))throw Error('Invalid message query');
+      if(!committed)await this.queue;
+      const proj=await this._ensureProjection(owner);
+      if(!proj)return {certified:0};
+      const plan=RCSCore.compilePlan(query,{from,wholeWord,dates});
+      if(plan.invalid || plan.impossible)return {certified:0};
+      let roomSet=null;
+      if(roomId){
+        const ord=proj.roomOrdById.get(roomId);
+        if(ord===undefined || (roomIds && !roomIds.includes(roomId)))return {certified:0};
+        roomSet=new Set([ord]);
+      }else if(roomIds){
+        roomSet=new Set();
+        for(const id of roomIds){const ord=proj.roomOrdById.get(id);if(ord!==undefined)roomSet.add(ord);}
+        if(!roomSet.size)return {certified:0};
+      }
+      const senderCount=proj.senderIdByIdx.length;
+      const senderInfos=new Array(senderCount);
+      const senderMask=(plan.fromMode!=='all' || plan.anySenders)?new Uint8Array(senderCount):null;
+      for(let s=0;s<senderCount;s++){
+        const sid=proj.senderIdByIdx[s];
+        const cached=proj.people.get(sid) || {},known=directory?.identities?.[sid] || {};
+        const person=mergeIdentity(cached,{...known,id:sid});
+        const self=sid===owner;
+        const info={self,sender:sid,author:self?'You':person.name || sid,aliases:person.aliases || []};
+        senderInfos[s]=info;
+        if(senderMask){
+          let ok=true;
+          if(plan.fromMode==='me' && !self || plan.fromMode==='them' && self)ok=false;
+          if(ok && plan.anySenders){
+            ok=plan.anySenders.some(wanted=>{
+              if(wanted==='me')return self;
+              if(wanted==='them')return !self;
+              if(self)return false;
+              return RCSCore.matches(info.author || info.sender,wanted) || info.aliases.some(alias=>RCSCore.matches(alias,wanted));
+            });
+          }
+          senderMask[s]=ok?1:0;
+        }
+      }
+      const {t,room,senderIdx,flags,folded,count}=proj;
+      const {start:tStart,end:tEnd,active:timeActive}=plan.timeRange;
+      const hasMin=Number.isFinite(minTimeExclusive);
+      const effStart=hasMin?Math.max(tStart,minTimeExclusive):tStart;
+      const needles=plan.requiredNeedles,needleCount=needles.length;
+      const reqMask=plan.requiredMediaMask;
+      const {matchFinal}=plan;
+      const wordAt=RCSCore.wordAt;
+      let lo=0,hi=count;
+      if(proj.sortedDesc && (timeActive || hasMin))[lo,hi]=descendingTimeBounds(t,count,effStart,tEnd);
+      let certified=0;
+      for(let i=lo;i<hi;i++){
+        const ti=t[i];
+        if(hasMin && ti<=minTimeExclusive){if(proj.sortedDesc)break;continue;}
+        if(timeActive && (ti<tStart || ti>=tEnd))continue;
+        if(roomSet && !roomSet.has(room[i]))continue;
+        const s=senderIdx[i];
+        if(senderMask && !senderMask[s])continue;
+        const fi=flags[i];
+        if(reqMask && (fi & reqMask)!==reqMask)continue;
+        const text=folded[i];
+        if(needleCount){
+          let hit=true;
+          for(let k=0;k<needleCount;k++){const nd=needles[k];if(!wordAt(text,nd.needle,nd.bounded)){hit=false;break;}}
+          if(!hit)continue;
+        }
+        if(matchFinal(text,ti,fi,senderInfos[s])){
+          certified++;
+          if(stopAt>0 && certified>=stopAt)break;
+        }
+      }
+      return {certified};
     }
 
     async search(owner,{query='',roomId,roomIds,dates={},from='all',wholeWord=false,sort='newest',grouped=false,limit=200,offset=0,committed=false}={},directory) {

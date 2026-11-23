@@ -146,6 +146,7 @@ function mountFullStack(t,{idb,dbName,owner='@me:reddit.com',homeserver,leaseSto
           return {ok:true};
         }
         if(msg.action==='search')return {ok:true,...await store.search(msg.owner,{...msg,committed:true})};
+        if(msg.action==='search-count')return {ok:true,...await store.searchCount(msg.owner,{...msg,committed:true})};
         if(msg.action==='room')return {ok:true,...await store.room(msg.owner,msg.roomId,undefined,{committed:true})};
         if(msg.action==='stats')return {ok:true,...await store.stats(msg.owner,{committed:true})};
         if(msg.action==='summaries')return {ok:true,...await store.summaries(msg.owner,{committed:true})};
@@ -566,4 +567,140 @@ test('lifecycle: minimize keeps backfill running, panel close stops it, Stop/Con
   const res=await s4.W.RCSData.request('backfill',{plan:{}}).promise;
   assert.equal(res.state,'unavailable');
   assert.equal(res.reason,'contract');
+});
+
+test('certified-watermark early stop saves >80% of requests on common queries, preserves exact top-N oracle order, advances on scroll, resumes on rare queries, and disables on oldest sort',async t=>{
+  const idb=new IDBFactory(),dbName='bf-cert-'+crypto.randomUUID();
+  const owner='@me:reddit.com';
+  const baseTs=Date.UTC(2026,10,20,12,0,0); // Nov 20, 2026
+  const rooms=[];
+  // 40 rooms spanning 40 distinct days (120 msgs each = 4,800 msgs total, ~3 requests/room = 120 requests full scan).
+  // Every room has 'hi' in every message; only the oldest room (#39) has 'ultra_rare_diamond'.
+  for(let r=0;r<40;r++){
+    const roomId=`!c${r}:reddit.com`;
+    const events=[];
+    const roomEnd=baseTs-r*86400_000*2; // spaced 2 days apart so watermark crosses cleanly
+    for(let s=1;s<=120;s++){
+      const ts=roomEnd-(120-s)*600_000; // 10 min apart
+      const body=(r===39 && s===5)?'hi ultra_rare_diamond':`hi msg ${s} in room ${r}`;
+      events.push({event_id:`$c${r}_e${s}`,room_id:roomId,type:'m.room.message',sender:owner,origin_server_ts:ts,seq_id:`m${s}`,_seq:s,content:{body}});
+    }
+    rooms.push({roomId,events,lastSeq:'m120',timestamp:roomEnd});
+  }
+  const homeserver=createFixtureHomeserver({owner,rooms});
+  const {W,store,ui}=mountFullStack(t,{idb,dbName,owner,homeserver});
+  const corpus=buildOracleMessages(homeserver.eventsByRoom(),owner,{[owner]:{id:owner,name:'You',self:true}});
+
+  // 1. Common query 'hi' with default sort='newest': stops early once 50+ newest matches are certified above watermark + skew!
+  ui.open(false);ui.setScope('messages');ui.setQuery('hi');
+  await waitFor(()=>ui.backfillState?.state==='paused' && ui.backfillState.reason==='target' && !ui.backfillTask && !ui.searching && ui.appliedKey===JSON.stringify(ui.parameters()),{timeout:15000});
+  const reqsAfterFirstStop=homeserver.eventCalls.length;
+  assert.ok(reqsAfterFirstStop<20,`expected <20 requests on early stop (got ${reqsAfterFirstStop} vs 120 full scan)`);
+  assert.match(ui.status.textContent,/\+ matches/);
+  assert.match(ui.status.textContent,/Scroll for older/);
+  assert.equal(ui.coverageNote.hidden,true,'does not duplicate Partial history badge alongside watermark status');
+
+  // Top 50 results must match the brute-force oracle 100% bit-for-bit!
+  const expectedTop50=oracleSearch(W.RCSCore,corpus,{query:'hi',sort:'newest',limit:50});
+  const actualTop50=await store.search(owner,{query:'hi',sort:'newest',limit:50,committed:true});
+  assert.deepEqual(Array.from(actualTop50.records,r=>r.roomId+'\0'+r.id),expectedTop50.ids,'top 50 certified matches are 100% oracle-exact');
+
+  // 2. Scroll down -> raises certified target and advances watermark with 0 refetched pages!
+  const callsBeforeScroll=homeserver.eventCalls.length;
+  ui.results.scrollTop=ui.totalHeight;
+  ui.results.dispatchEvent(new W.Event('scroll'));
+  await waitFor(()=>homeserver.eventCalls.length>callsBeforeScroll && ui.backfillState?.state==='paused' && !ui.backfillTask && !ui.searching,{timeout:15000});
+  const expectedTop100=oracleSearch(W.RCSCore,corpus,{query:'hi',sort:'newest',limit:100});
+  const actualTop100=await store.search(owner,{query:'hi',sort:'newest',limit:100,committed:true});
+  assert.deepEqual(Array.from(actualTop100.records,r=>r.roomId+'\0'+r.id),expectedTop100.ids,'top 100 certified matches after scroll are 100% oracle-exact');
+
+  // 2b. Another common query ('msg') already satisfied by cached pages above watermark -> 0 new /events requests!
+  const callsBeforeCachedCommon=homeserver.eventCalls.length;
+  ui.setQuery('msg');
+  await waitFor(()=>ui.backfillState?.state==='paused' && ui.backfillState.reason==='target' && !ui.backfillTask && !ui.searching && ui.appliedKey===JSON.stringify(ui.parameters()),{timeout:15000});
+  assert.equal(homeserver.eventCalls.length,callsBeforeCachedCommon,'0 /events requests when local cache already holds >=50 certified matches above watermark');
+
+  // 3. Switch to a rare query ('ultra_rare_diamond') -> immediately resumes past watermark without refetching covered spans and finds it!
+  const seenKeySet=new Set(homeserver.eventCalls.map(c=>`${c.roomId}:${c.params.seq ?? 'head'}`));
+  const beforeRare=homeserver.eventCalls.length;
+  ui.setQuery('ultra_rare_diamond');
+  await waitFor(()=>ui.backfillState?.state==='complete' && !ui.backfillTask && !ui.searching && ui.appliedKey===JSON.stringify(ui.parameters()),{timeout:15000});
+  assert.equal(ui.savedTotal,1,'rare query found deep in oldest room');
+  const rareNewCalls=homeserver.eventCalls.slice(beforeRare);
+  const duplicates=rareNewCalls.filter(c=>seenKeySet.has(`${c.roomId}:${c.params.seq ?? 'head'}`));
+  assert.equal(duplicates.length,0,'zero already-fetched pages refetched when resuming for rare query');
+
+  // 4. Separate fresh DB: switching to sort='oldest' disables early stop and searches all rooms to exact oldest match!
+  const idb2=new IDBFactory(),dbName2='bf-oldest-'+crypto.randomUUID();
+  const hs2=createFixtureHomeserver({owner,rooms:rooms.slice(0,8)});
+  const s2=mountFullStack(t,{idb:idb2,dbName:dbName2,owner,homeserver:hs2});
+  s2.ui.open(false);s2.ui.setScope('messages');s2.ui.sort='oldest';s2.ui.setQuery('hi');
+  await waitFor(()=>s2.ui.backfillState?.state==='complete' && !s2.ui.backfillTask && !s2.ui.searching,{timeout:15000});
+  assert.equal(s2.ui.savedTotal,8*120,'sort=oldest searches full history without early stop');
+});
+
+test('optimizations: thread-in-heap orders recent thread replies ahead of old main pages, m.room.create avoids empty seq=0 requests, conversations seeds freshness, and dateOrderUnsafe guards out-of-order rooms',async t=>{
+  const idb=new IDBFactory(),dbName='bf-opt-'+crypto.randomUUID();
+  const owner='@me:reddit.com';
+  const novTs=Date.UTC(2026,10,20,12,0,0);
+  const janTs=Date.UTC(2026,0,15,12,0,0);
+
+  // Room 1: 150 main messages (page 1 has Nov thread root with latest_event in Nov, page 2 is old Jan 2026) + 1 thread reply in Nov!
+  const r1Events=[];
+  for(let s=1;s<=150;s++){
+    const ts=s>50?novTs-(150-s)*60_000:janTs-(50-s)*60_000;
+    const isRoot=s===140;
+    r1Events.push({
+      event_id:`$r1_e${s}`,room_id:'!r1:reddit.com',type:s===1?'m.room.create':'m.room.message',sender:owner,origin_server_ts:ts,seq_id:`m${s}`,_seq:s,
+      content:s===1?{}:{body:`main ${s}`},
+      ...(isRoot?{unsigned:{'m.relations':{'m.thread':{count:1,latest_event:{origin_server_ts:novTs-1000}}}}}:{})
+    });
+  }
+  const r1Threads={
+    m140:[{event_id:'$r1_t1',room_id:'!r1:reddit.com',type:'m.room.message',sender:owner,origin_server_ts:novTs-1000,seq_id:'t.m140.1',_seq:1,content:{body:'hot_nov_thread_reply','m.relates_to':{rel_type:'m.thread',event_id:'$r1_e140'}}}]
+  };
+
+  // Room 2: tiny room with m.room.create at seq 1 -> should take ONLY 1 /events request (no seq=0 follow-up!).
+  const r2Events=[
+    {event_id:'$r2_create',room_id:'!r2:reddit.com',type:'m.room.create',sender:owner,origin_server_ts:novTs-500_000,seq_id:'m1',_seq:1,content:{}},
+    {event_id:'$r2_m2',room_id:'!r2:reddit.com',type:'m.room.message',sender:owner,origin_server_ts:novTs-400_000,seq_id:'m2',_seq:2,content:{body:'tiny_create_room'}}
+  ];
+
+  // Room 3: out-of-order timestamps (page 1 drops below May 1, page 2 jumps FORWARD to Nov 20 with 'sneaky_out_of_order'!).
+  const mayTs=Date.UTC(2026,4,1,0,0,0);
+  const r3Events=[];
+  for(let s=1;s<=120;s++){
+    // seqs 21..120 (page 1) are in Nov..Apr (oldest seq 21 = Apr 1 < May 1); seqs 1..20 (page 2) jump forward to Nov!
+    const ts=s>20?(s===21?janTs:novTs-(120-s)*60_000):novTs-5000;
+    r3Events.push({event_id:`$r3_e${s}`,room_id:'!r3:reddit.com',type:'m.room.message',sender:owner,origin_server_ts:ts,seq_id:`m${s}`,_seq:s,content:{body:s===10?'sneaky_out_of_order':'filler'}});
+  }
+
+  const rooms=[
+    {roomId:'!r1:reddit.com',events:r1Events,threads:r1Threads,lastSeq:'m150',timestamp:novTs},
+    {roomId:'!r2:reddit.com',events:r2Events,threads:{},lastSeq:'m2',timestamp:novTs-400_000},
+    {roomId:'!r3:reddit.com',events:r3Events,threads:{},lastSeq:'m120',timestamp:novTs}
+  ];
+  const homeserver=createFixtureHomeserver({owner,rooms});
+  const {W,store}=mountFullStack(t,{idb,dbName,owner,homeserver});
+
+  // 1. Seed freshness via full conversations() scan -> backfill must make 0 additional getRoomList calls!
+  await W.RCSData.request('conversations',{}).promise;
+  const roomListBefore=homeserver.roomListCalls.length;
+  assert.equal(roomListBefore,1);
+
+  const res=await W.RCSData.request('backfill',{plan:{}}).promise;
+  assert.equal(res.state,'complete');
+  assert.equal(homeserver.roomListCalls.length,roomListBefore,'backfill reused conversations() freshness with 0 extra /rooms calls');
+
+  // 2. Room 2 (with m.room.create) took ONLY 1 /events request (no redundant seq=0 check)!
+  assert.equal(homeserver.eventCalls.filter(c=>c.roomId==='!r2:reddit.com').length,1,'m.room.create marks bottom immediately in 1 request');
+
+  // 3. Thread-in-heap: !r1 thread m140 (Nov 20) was fetched BEFORE !r1 page 2 (seq 50, older main messages)!
+  const r1Calls=homeserver.eventCalls.filter(c=>c.roomId==='!r1:reddit.com');
+  const threadIdx=r1Calls.findIndex(c=>c.params.parent==='m140');
+  const mainPage2Idx=r1Calls.findIndex(c=>!c.params.parent && c.params.seq==='50');
+  assert.ok(threadIdx>=0 && mainPage2Idx>=0 && threadIdx<mainPage2Idx,`thread (idx ${threadIdx}) fetched ahead of older main page (idx ${mainPage2Idx})`);
+  assert.equal((await store.search(owner,{query:'hot_nov_thread_reply',committed:true})).total,1);
+  assert.equal((await store.search(owner,{query:'tiny_create_room',committed:true})).total,1);
+  assert.equal((await store.search(owner,{query:'sneaky_out_of_order',committed:true})).total,1);
 });

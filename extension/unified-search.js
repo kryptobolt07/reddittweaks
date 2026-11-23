@@ -57,7 +57,7 @@
   const self = record => record.authorSelf === true || record.author === 'You';
   class UnifiedSearch {
     constructor(container,{cache=new Map(),adapter=globalThis.RCSAdapter,version=''}={}) {
-      Object.assign(this,{container,cache,adapter,kind:'list',scope:'people',filter:'all',chatType:'all',tabStates:{},from:'all',sort:'newest',wholeWord:false,dates:{from:'',to:''},complete:false,loading:false,stoppedByUser:false,focused:false,searchDismissed:false,notice:'',query:'',owner:'',recent:[],savedHits:[],savedTotal:0,savedRooms:0,hasMore:false,searching:false,dirty:false,destroyed:false,generation:0,active:'',navigating:false,selectedKey:'',dateLabel:'',imageCache:new Map(),summaries:new Map(),senderChoicesCache:null,items:[],rowCache:new Map(),messageHeights:new Map(),backfillTask:null,backfillState:null,backfillPlanKey:'',backfillStoppedKey:'',backfillPausedKey:'',backfillDoneKey:'',backfillGeneration:0});
+      Object.assign(this,{container,cache,adapter,kind:'list',scope:'people',filter:'all',chatType:'all',tabStates:{},from:'all',sort:'newest',wholeWord:false,dates:{from:'',to:''},complete:false,loading:false,stoppedByUser:false,focused:false,searchDismissed:false,notice:'',query:'',owner:'',recent:[],savedHits:[],savedTotal:0,savedRooms:0,hasMore:false,searching:false,dirty:false,destroyed:false,generation:0,active:'',navigating:false,selectedKey:'',dateLabel:'',imageCache:new Map(),summaries:new Map(),senderChoicesCache:null,items:[],rowCache:new Map(),messageHeights:new Map(),backfillTask:null,backfillState:null,backfillPlanKey:'',backfillCoverageKey:'',backfillStoppedKey:'',backfillPausedKey:'',backfillDoneKey:'',backfillTarget:50,backfillGeneration:0});
       this.mediaView=globalThis.RCSMediaPreview?new RCSMediaPreview.View({onResize:record=>this.mediaResized(record)}):null;this.queryState=new RCSGlobalSearchModel.QueryState();this.availableMediaTypes=new Set(['image','gif','link']);
       this.host=make('div');this.host.dataset.rcsUi='list';this.host.dataset.rcsVersion=version;
       this.shadow=this.host.attachShadow({mode:'open'});
@@ -92,9 +92,9 @@
       this.shortcutHandler=event=>{const target=event.composedPath()[0];if(event.key!=='/' || target?.matches?.('input,textarea,[contenteditable="true"]') || !this.adapter.visible?.(this.container))return;const path=event.composedPath();if(!path.includes(this.container) && !this.adapter.chatRoots?.().some(root=>root.contains?.(target)))return;event.preventDefault();this.open();};document.addEventListener('keydown',this.shortcutHandler);
       this.outside=event=>{const path=event.composedPath(),inPicker=path.includes(this.input) || path.includes(this.field) || path.includes(this.suggestions) || path.includes(this.popover) || path.includes(this.chips) || path.includes(this.results);if(!inPicker && this.editingSender()){this.senderPickerDismissed=true;this.panel.hidden=true;this.dismissSuggestions();}if(!path.includes(this.host)){this.clearResultFocus();if(!this.suggestions.hidden)this.dismissSuggestions();this.closeMenu();if(this.datePicker?.open)this.datePicker.close(false);if(!this.inChatList(path))this.dismissBrowse();}};document.addEventListener('pointerdown',this.outside);this.menuOutsideGuard=blockOutsideMenuActivation(()=>!this.popover.hidden||Boolean(this.datePicker?.open),path=>path.includes(this.popover)||path.includes(this.datePicker?.element),()=>{this.closeMenu();if(!this.suggestions.hidden)this.dismissSuggestions();if(this.datePicker?.open)this.datePicker.close(false);});
       this.focusOutside=event=>{const path=event.composedPath();if(!path.includes(this.host)){this.clearResultFocus();if(!this.input.value.trim() && !this.inChatList(path))this.dismissBrowse();}};document.addEventListener('focusin',this.focusOutside);
-      this.results.addEventListener('scroll',()=>{if(!this.suspended){this.lastScrollTop=this.results.scrollTop;this.lastScrollAt=Date.now();}if(this.scrollFrame)return;this.scrollFrame=requestAnimationFrame(()=>{this.scrollFrame=0;this.renderWindow();if(this.results.scrollTop+this.results.clientHeight>=this.totalHeight-300){if(this.hasMore)this.searchSaved(true);else this.maybeLoadOlderOnScroll();}});},{passive:true});
+      this.results.addEventListener('scroll',()=>{if(!this.suspended){this.lastScrollTop=this.results.scrollTop;this.lastScrollAt=Date.now();}if(this.scrollFrame)return;this.scrollFrame=requestAnimationFrame(()=>{this.scrollFrame=0;this.renderWindow();this.checkScrollLoad();});},{passive:true});
       this.results.addEventListener('wheel',event=>{if(event.deltaY>0 && this.results.scrollTop+this.results.clientHeight>=this.totalHeight-300){if(this.hasMore)this.searchSaved(true);else this.maybeLoadOlderOnScroll();}},{passive:true});
-      this.savedUnsubscribe=globalThis.RCSMessages?.subscribe(value=>{if(value?.contextInvalidated){this.contextInvalidated=true;this.importing=this.savingPending=false;this.notice=value.error;this.pendingNavigation='';clearTimeout(this.captureTimer);this.captureTimer=null;this.stopBackfill(false);this.updateControls();return;}if(value?.chatSearchEnabled===false){this.stopBackfill(false);this.updateControls();return;}if(value?.owner && this.owner && value.owner!==this.owner && value.statusOnly)return;if(value?.importing!==undefined)this.importing=value.importing;if(value?.cacheProgress!==undefined)this.cacheProgress=value.cacheProgress;if(value?.cacheError!==undefined)this.cacheError=value.cacheError;if(value?.savingPending!==undefined)this.savingPending=value.savingPending;if(value?.statusOnly){this.updateControls();return;}if(value?.owner && (this.owner && value.owner!==this.owner || globalThis.RCSDirectory?.getOwner?.() && globalThis.RCSDirectory.getOwner()!==value.owner)){this.cache.clear();this.input.value=this.query='';this.resetSaved();this.directoryStarted=false;this.stoppedByUser=false;this.render();}else if(value?.cleared){this.recent=[];this.resetSaved();this.render();}this.summaryDirty=true;this.dirty=true;this.scheduleSavedRefresh();});
+      this.savedUnsubscribe=globalThis.RCSMessages?.subscribe(value=>{if(value?.contextInvalidated){this.contextInvalidated=true;this.importing=this.savingPending=false;this.notice=value.error;this.pendingNavigation='';clearTimeout(this.captureTimer);this.captureTimer=null;this.stopBackfill(false);this.updateControls();return;}if(value?.chatSearchEnabled===false){this.stopBackfill(false);this.updateControls();return;}if(value?.owner && this.owner && value.owner!==this.owner && value.statusOnly)return;if(value?.importing!==undefined)this.importing=value.importing;if(value?.cacheProgress!==undefined)this.cacheProgress=value.cacheProgress;if(value?.cacheError!==undefined)this.cacheError=value.cacheError;if(value?.savingPending!==undefined)this.savingPending=value.savingPending;if(value?.statusOnly){this.updateControls();return;}if(value?.owner && (this.owner && value.owner!==this.owner || globalThis.RCSDirectory?.getOwner?.() && globalThis.RCSDirectory.getOwner()!==value.owner)){this.cache.clear();this.input.value=this.query='';this.resetSaved();this.directoryStarted=false;this.stoppedByUser=false;this.render();}else if(value?.cleared){this.recent=[];this.resetSaved();this.render();}this.summaryDirty=true;const filterRoomIds=this.parameters().roomIds;if(!value?.coverageChanged && filterRoomIds && Array.isArray(value?.roomIds) && value.roomIds.length && !value.roomIds.some(id=>filterRoomIds.includes(id))){this.loadSummaries();return;}this.dirty=true;this.scheduleSavedRefresh();});
       if(globalThis.ResizeObserver){this.resizeObserver=new ResizeObserver(()=>{if(this.destroyed || this.suspended)return;if(this.host.hidden && this.adapter.visible(this.container)){this.sync();return;}this.updateLayout(true);this.makeItems();this.renderWindow();});this.resizeObserver.observe(container);}
       this.nativeStyleChange=()=>{this.appearanceSignature='';this.updateLayout(true);this.makeItems();this.renderWindow();};document.fonts?.addEventListener?.('loadingdone',this.nativeStyleChange);this.nativeThemeObserver=globalThis.MutationObserver?new MutationObserver(this.nativeStyleChange):null;this.nativeThemeObserver?.observe(document.documentElement,{attributes:true,attributeFilter:['class','style']});if(document.body)this.nativeThemeObserver?.observe(document.body,{attributes:true,attributeFilter:['class','style']});
       this.sync();this.render();this.loadSummaries();
@@ -160,12 +160,13 @@
       const countContext=key=>{if(!key)return '';const {sort,...criteria}=typeof key==='string'?JSON.parse(key):key;return JSON.stringify(criteria);},currentCountContext=countContext(this.parameters()),messageKnown=messageContextMatches && countContext(this.countKey)===currentCountContext,messagePending=messageContextMatches && this.searching && countContext(this.inFlightKey)===currentCountContext,messageCount=messageKnown?count(this.savedTotal):messagePending?'…':'';
       for(const [value,el] of Object.entries(this.scopeButtons)){const state=value===this.scope?this:this.tabStates?.[value],badge=(state?.filter && state.filter!=='all'?1:0)+(state?.chatType && state.chatType!=='all'?1:0)+(state?.sort && state.sort!=='newest'?1:0)+(value!=='people'?this.queryState.filters.filter(item=>!['before','after'].includes(item.kind)).length:0);el.dataset.filterCount=badge || '';el.title=badge?`${badge} applied ${badge===1?'filter':'filters'}`:'';if(this.scopeCounts[value])this.scopeCounts[value].textContent=showCounts?(value==='people'?count(peopleCount):messageCount):'';el.classList.toggle('active',this.scope===value);el.setAttribute('aria-selected',String(this.scope===value));el.setAttribute('aria-label',(value==='all'?'All':value==='people'?'People':'Messages')+(showCounts && value!=='all' && (value==='people' || messageCount)?` (${value==='people'?peopleCount.toLocaleString():messageKnown?this.savedTotal.toLocaleString():'updating'})`:''));}
       const filter=this.controlButtons.filter,date=this.controlButtons.date,filterActive=this.filterIsActive(),dateActive=Boolean(this.dates.from || this.dates.to || parsed.after.length || parsed.before.length);filter.classList.toggle('active',filterActive);filter.setAttribute('aria-pressed',String(filterActive));date.hidden=!messages;date.disabled=!messages;date.title=messages?'Filter messages by date':'Date filters are available in Messages and All';date.classList.toggle('active',messages && dateActive);date.setAttribute('aria-pressed',String(messages && dateActive));this.updateFilterIndicator();this.renderAppliedFilters();
-      const directoryBusy=this.loading && (this.scope==='people' || !this.savedHits.length),backfillActive=Boolean(messages && this.searchingMode() && this.backfillState && this.backfillState.planKey===this.currentBackfillPlanKey()),bs=backfillActive?this.backfillState:null,backfillRunning=bs?.state==='running',busy=!this.contextInvalidated && Boolean(directoryBusy || this.searching && !this.loadingMore && !this.backgroundSearch || this.summaryLoading || this.importing || this.savingPending || backfillRunning);this.refresh.disabled=Boolean(this.contextInvalidated || this.loading || this.searching && !this.loadingMore || this.summaryLoading);this.refresh.classList.toggle('busy',busy);this.refresh.setAttribute('aria-busy',String(busy));this.refresh.title=this.contextInvalidated?'Refresh this Reddit tab to reconnect':this.loading?'Checking conversations…':this.importing?'Checking Reddit’s local cache…':backfillRunning?'Searching older messages…':this.savingPending?'Saving captured messages…':this.searching && !this.loadingMore && !this.backgroundSearch?'Searching saved messages…':this.summaryLoading?'Reading saved previews…':'Refresh saved results';this.refresh.setAttribute('aria-label',this.refresh.title);const moreButton=this.rowCache.get('more')?.node;if(moreButton){moreButton.textContent=this.loadingMore?'Loading more saved matches…':'Load more saved matches';moreButton.disabled=Boolean(this.loadingMore);moreButton.setAttribute('aria-busy',String(Boolean(this.loadingMore)));}this.status.textContent=messages && this.searchingMode()?known?`${this.savedTotal.toLocaleString()} ${this.savedTotal===1?'match':'matches'} · ${this.savedRooms.toLocaleString()} ${this.savedRooms===1?'chat':'chats'}`:'Searching saved messages…':`${people.toLocaleString()} ${this.filter==='requests'?'requests':'chats'}`;
-      if(this.scope==='all' && this.searchingMode())this.status.textContent=`${people.toLocaleString()} ${people===1?'chat':'chats'} · ${known?this.savedTotal.toLocaleString():'…'} message ${known && this.savedTotal===1?'match':'matches'}`;
+      const curPlan=this.backfillPlan(),directoryBusy=this.loading && (this.scope==='people' || !this.savedHits.length),backfillActive=Boolean(messages && this.searchingMode() && this.backfillState && curPlan && (this.backfillState.queryKey===curPlan.queryKey || (this.backfillState.coverageKey===curPlan.coverageKey && ['complete','window-complete','partial'].includes(this.backfillState.state)))),bs=backfillActive?this.backfillState:null,backfillRunning=bs?.state==='running',busy=!this.contextInvalidated && Boolean(directoryBusy || this.searching && !this.loadingMore && !this.backgroundSearch || this.summaryLoading || this.importing || this.savingPending || backfillRunning);this.refresh.disabled=Boolean(this.contextInvalidated || this.loading || this.searching && !this.loadingMore || this.summaryLoading);this.refresh.classList.toggle('busy',busy);this.refresh.setAttribute('aria-busy',String(busy));this.refresh.title=this.contextInvalidated?'Refresh this Reddit tab to reconnect':this.loading?'Checking conversations…':this.importing?'Checking Reddit’s local cache…':backfillRunning?'Searching older messages…':this.savingPending?'Saving captured messages…':this.searching && !this.loadingMore && !this.backgroundSearch?'Searching saved messages…':this.summaryLoading?'Reading saved previews…':'Refresh saved results';this.refresh.setAttribute('aria-label',this.refresh.title);const moreButton=this.rowCache.get('more')?.node;if(moreButton){moreButton.textContent=this.loadingMore?'Loading more saved matches…':'Load more saved matches';moreButton.disabled=Boolean(this.loadingMore);moreButton.setAttribute('aria-busy',String(Boolean(this.loadingMore)));}const plusMark=bs?.state==='paused' && bs.watermark>0 && this.savedTotal>0?'+':'';this.status.textContent=messages && this.searchingMode()?known?`${this.savedTotal.toLocaleString()}${plusMark} ${this.savedTotal===1 && !plusMark?'match':'matches'} · ${this.savedRooms.toLocaleString()} ${this.savedRooms===1?'chat':'chats'}`:'Searching saved messages…':`${people.toLocaleString()} ${this.filter==='requests'?'requests':'chats'}`;
+      if(this.scope==='all' && this.searchingMode())this.status.textContent=`${people.toLocaleString()} ${people===1?'chat':'chats'} · ${known?this.savedTotal.toLocaleString()+plusMark:'…'} message ${known && this.savedTotal===1 && !plusMark?'match':'matches'}`;
       // Missing or partial coverage is never reported as complete.
       // Kept out of the status line so compact and floating chat do not truncate the counts.
       const backfillComplete=Boolean(bs && (bs.state==='complete' || bs.state==='window-complete') && !(bs.inaccessibleCount>0) && !(bs.unreadableCount>0));
-      this.coverageNote.hidden=!(messages && this.searchingMode() && known && this.savedTotal>0 && !this.savedComplete && !backfillComplete);
+      const backfillShowsWatermark=Boolean(bs && (bs.state==='running' || bs.state==='paused'));
+      this.coverageNote.hidden=!(messages && this.searchingMode() && known && this.savedTotal>0 && !this.savedComplete && !backfillComplete && !backfillShowsWatermark);
       if(bs && !this.valuePicker() && !parsed.invalid && !this.contextInvalidated){
         const wm=bs.watermark>0?C().dayLabel(bs.watermark):'';
         const baseCount=known && (this.savedTotal>0 || this.scope==='all')?this.status.textContent:'';
@@ -215,11 +216,14 @@
         }
         if(excluded.length)excludeRoomIds=excluded.sort();
       }
-      return {roomIds:baseRoomIds,excludeRoomIds,start,end};
+      const coverageKey=JSON.stringify([baseRoomIds,excludeRoomIds,Number.isFinite(start)?start:null,Number.isFinite(end)?end:null]);
+      const earlyStop=Boolean(this.hasActiveMessageCriteria() && this.effectiveSort()==='newest');
+      const queryKey=JSON.stringify([coverageKey,query,this.from,this.wholeWord,earlyStop]);
+      const queryCriteria={query,from:this.from,wholeWord:this.wholeWord,dates:{...this.dates},...(baseRoomIds?{roomIds:baseRoomIds}:{})};
+      return {roomIds:baseRoomIds,excludeRoomIds,start,end,coverageKey,queryKey,earlyStop,queryCriteria};
     }
     currentBackfillPlanKey(){
-      const plan=this.backfillPlan();
-      return plan?JSON.stringify([plan.roomIds,plan.excludeRoomIds,Number.isFinite(plan.start)?plan.start:null,Number.isFinite(plan.end)?plan.end:null]):'';
+      return this.backfillPlan()?.queryKey || '';
     }
     stopBackfill(userStopped=false){
       this.backfillGeneration=(this.backfillGeneration || 0)+1;
@@ -231,6 +235,7 @@
         if(this.backfillState)this.backfillState={...this.backfillState,state:'paused',reason:'stopped',rateLimited:false};
       }else{
         this.backfillPlanKey='';
+        this.backfillCoverageKey='';
         this.backfillState=null;
       }
       if(!this.destroyed)this.updateControls();
@@ -246,13 +251,48 @@
         this.dates?.from || this.dates?.to
       );
     }
-    maybeLoadOlderOnScroll(){
-      if(this.roomOnly || this.destroyed || this.suspended || this.contextInvalidated || this.searching || this.hasMore || this.backfillTask)return;
+    bottomVisibleMessageIndex(){
+      const bottom=this.results.scrollTop+(this.results.clientHeight || 520);
+      let last=-1,idx=0;
+      for(const item of this.items){
+        if(item.kind==='message'){
+          if(item.offset<=bottom)last=idx;
+          idx++;
+        }
+      }
+      return last;
+    }
+    checkScrollLoad(){
+      const nearBottom=this.results.scrollTop+this.results.clientHeight>=this.totalHeight-300;
+      if(nearBottom && this.hasMore){this.searchSaved(true);return;}
+      const bs=this.backfillState;
+      const bottomIdx=this.bottomVisibleMessageIndex();
+      // Proactively advance the certified watermark before the user scrolls into uncertified older matches.
+      const approachingWatermark=Boolean(bs?.state==='paused' && bs.reason==='target' && bottomIdx>=0 && bottomIdx+25>=(bs.certifiedCount || this.backfillTarget || 50));
+      if(nearBottom || approachingWatermark)this.maybeLoadOlderOnScroll(bottomIdx);
+    }
+    maybeLoadOlderOnScroll(bottomIdx=-1){
+      if(this.roomOnly || this.destroyed || this.suspended || this.contextInvalidated || this.searching)return;
       if(this.scope==='people' || !this.searchingMode() || this.panel.hidden || this.searchDismissed || this.valuePicker())return;
       if(typeof globalThis.RCSMessages?.coverage!=='function' || typeof globalThis.RCSData?.request!=='function')return;
-      const planKey=this.currentBackfillPlanKey();
-      if(!planKey || this.backfillDoneKey===planKey || this.backfillState?.state==='other-tab')return;
-      this.syncBackfill({continueRun:true,maxRequests:this.hasActiveMessageCriteria()?300:12});
+      const plan=this.backfillPlan();
+      if(!plan || this.backfillDoneKey===plan.coverageKey || this.backfillState?.state==='other-tab')return;
+      const active=this.hasActiveMessageCriteria();
+      if(plan.earlyStop){
+        const nextTarget=Math.max((this.backfillTarget || 50)+50,(this.backfillState?.certifiedCount || 0)+50,bottomIdx>=0?bottomIdx+75:0);
+        if(this.backfillTask){
+          if(nextTarget>this.backfillTarget){
+            this.backfillTarget=nextTarget;
+            this.backfillTask.retarget?.({roomIds:plan.roomIds,excludeRoomIds:plan.excludeRoomIds,start:plan.start,end:plan.end,targetMatches:this.backfillTarget,queryCriteria:plan.queryCriteria});
+          }
+          return;
+        }
+        this.backfillTarget=nextTarget;
+        this.syncBackfill({continueRun:true,maxRequests:300});
+        return;
+      }
+      if(this.hasMore || this.backfillTask)return;
+      this.syncBackfill({continueRun:true,maxRequests:active?300:12});
     }
     syncBackfill({continueRun=false,refreshHeads=false,maxRequests=null}={}){
       if(this.roomOnly || this.destroyed || this.contextInvalidated)return;
@@ -271,30 +311,34 @@
       }
       const plan=this.backfillPlan();
       if(!plan){if(this.backfillTask)this.stopBackfill(false);return;}
-      const planKey=JSON.stringify([plan.roomIds,plan.excludeRoomIds,Number.isFinite(plan.start)?plan.start:null,Number.isFinite(plan.end)?plan.end:null]);
+      const {coverageKey,queryKey,earlyStop,queryCriteria}=plan;
+      if(!continueRun && queryKey!==this.backfillPlanKey)this.backfillTarget=50;
+      const targetMatches=earlyStop?(this.backfillTarget || 50):0;
       if(this.backfillTask){
-        if(planKey!==this.backfillPlanKey){
-          this.backfillPlanKey=planKey;
-          if(this.backfillState)this.backfillState={...this.backfillState,planKey};
-          this.backfillTask.retarget?.(plan);
+        if(queryKey!==this.backfillPlanKey){
+          this.backfillPlanKey=queryKey;
+          this.backfillCoverageKey=coverageKey;
+          if(this.backfillState)this.backfillState={...this.backfillState,queryKey,coverageKey};
+          this.backfillTask.retarget?.({roomIds:plan.roomIds,excludeRoomIds:plan.excludeRoomIds,start:plan.start,end:plan.end,targetMatches,queryCriteria});
           this.updateControls();
         }
         return;
       }
-      if(!continueRun && !this.backfillRefreshHeads && (this.backfillStoppedKey===planKey || this.backfillPausedKey===planKey || this.backfillDoneKey===planKey))return;
       const doRefreshHeads=Boolean(refreshHeads || this.backfillRefreshHeads);
+      if(!continueRun && !doRefreshHeads && (this.backfillStoppedKey===queryKey || this.backfillPausedKey===queryKey || this.backfillDoneKey===coverageKey))return;
       this.backfillRefreshHeads=false;
-      if(continueRun || doRefreshHeads){this.backfillStoppedKey='';this.backfillPausedKey='';this.backfillDoneKey='';}
+      if(continueRun || doRefreshHeads){this.backfillStoppedKey='';this.backfillPausedKey='';if(doRefreshHeads)this.backfillDoneKey='';}
       const generation=this.generation,bfGen=this.backfillGeneration=(this.backfillGeneration || 0)+1;
-      this.backfillPlanKey=planKey;
-      this.backfillState={planKey,state:'running',watermark:0,searchedRooms:0,totalRooms:0,inaccessibleCount:0,unreadableCount:0,requestsUsed:0,rateLimited:false};
+      this.backfillPlanKey=queryKey;
+      this.backfillCoverageKey=coverageKey;
+      this.backfillState={queryKey,coverageKey,state:'running',watermark:0,searchedRooms:0,totalRooms:0,inaccessibleCount:0,unreadableCount:0,requestsUsed:0,rateLimited:false};
       this.updateControls();
-      const task=RCSData.request('backfill',{plan:{...plan,...(Number.isInteger(maxRequests) && maxRequests>0?{maxRequests}:{}),...(doRefreshHeads?{refreshHeads:true}:{})}},progress=>{
+      const task=RCSData.request('backfill',{plan:{roomIds:plan.roomIds,excludeRoomIds:plan.excludeRoomIds,start:plan.start,end:plan.end,targetMatches,queryCriteria,...(Number.isInteger(maxRequests) && maxRequests>0?{maxRequests}:{}),...(doRefreshHeads?{refreshHeads:true}:{})}},progress=>{
         if(this.destroyed || generation!==this.generation || bfGen!==this.backfillGeneration || this.backfillTask!==task)return;
         if(progress?.state){
-          this.backfillState={...this.backfillState,...progress,planKey:this.backfillPlanKey,rateLimited:false};
+          this.backfillState={...this.backfillState,...progress,queryKey:this.backfillPlanKey,coverageKey:this.backfillCoverageKey,rateLimited:false};
         }else if(progress?.label){
-          this.backfillState={...(this.backfillState || {planKey:this.backfillPlanKey,state:'running'}),planKey:this.backfillPlanKey,label:progress.label,rateLimited:/request limit/i.test(progress.label)};
+          this.backfillState={...(this.backfillState || {queryKey:this.backfillPlanKey,coverageKey:this.backfillCoverageKey,state:'running'}),queryKey:this.backfillPlanKey,coverageKey:this.backfillCoverageKey,label:progress.label,rateLimited:/request limit/i.test(progress.label)};
         }
         this.updateControls();
       });
@@ -303,9 +347,9 @@
         if(this.destroyed || generation!==this.generation || bfGen!==this.backfillGeneration || this.backfillTask!==task)return;
         this.backfillTask=null;
         const finalState=result?.state || 'partial';
-        this.backfillState={...result,state:finalState,planKey:this.backfillPlanKey,rateLimited:false};
+        this.backfillState={...result,state:finalState,queryKey:this.backfillPlanKey,coverageKey:this.backfillCoverageKey,rateLimited:false};
         if(finalState==='paused')this.backfillPausedKey=this.backfillPlanKey;
-        else if(finalState==='complete' || finalState==='window-complete' || finalState==='partial' || finalState==='unavailable')this.backfillDoneKey=this.backfillPlanKey;
+        else if(finalState==='complete' || finalState==='window-complete' || finalState==='partial' || finalState==='unavailable')this.backfillDoneKey=this.backfillCoverageKey;
         this.dirty=true;
         this.updateControls();
         if(!this.suspended && this.shouldSearchMessages()){clearTimeout(this.captureTimer);this.captureTimer=null;this.searchSaved();}
@@ -313,7 +357,7 @@
         if(this.destroyed || generation!==this.generation || bfGen!==this.backfillGeneration || this.backfillTask!==task)return;
         this.backfillTask=null;
         this.backfillPausedKey=this.backfillPlanKey;
-        this.backfillState={...(this.backfillState || {}),planKey:this.backfillPlanKey,state:'paused',reason:'error',rateLimited:false};
+        this.backfillState={...(this.backfillState || {}),queryKey:this.backfillPlanKey,coverageKey:this.backfillCoverageKey,state:'paused',reason:'error',rateLimited:false};
         this.updateControls();
       });
     }
@@ -518,7 +562,7 @@
     async openMessage(record){this.returnViewport=this.captureViewport();this.lastScrollTop=this.results.scrollTop;this.saveRecent();this.jumpTask?.cancel?.();this.clearJump();const generation=this.generation,nav=this.navigationGeneration=(this.navigationGeneration || 0)+1;this.navigationNotice='Opening message…';this.updateControls();try{if(!globalThis.RCSData)throw Error('Native message navigation is unavailable.');const task=RCSData.request('jump',{roomId:record.roomId,eventId:record.id,thread:Boolean(record.thread)},progress=>{if(this.destroyed || generation!==this.generation || nav!==this.navigationGeneration)return;this.navigationNotice=progress?.label || 'Opening message…';this.updateControls();});this.jumpTask=task;await task.promise;if(!this.destroyed && generation===this.generation && nav===this.navigationGeneration)this.highlightMessage(record,generation,40,nav);}catch(error){if(generation!==this.generation || this.destroyed || nav!==this.navigationGeneration)return;this.navigationNotice=error.message;this.updateControls();}}
     async ensureData(force=false,reconcile=false){if(this.contextInvalidated || this.suspended || this.destroyed || this.loading || !globalThis.RCSDirectory || this.stoppedByUser && !force || this.complete && !force && !reconcile || globalThis.RCSDirectory.getStartup?.().pending)return;this.directoryStarted=true;this.stoppedByUser=false;this.loading=true;this.notice='';this.updateControls();const generation=this.generation;const task=RCSDirectory.load(force,progress=>{if(generation!==this.generation || this.destroyed)return;if(progress?.records?.length)this.senderChoicesCache=null;for(const record of progress?.records || [])if(record.id)this.cache.set(record.id,{...this.cache.get(record.id),...record});this.updateControls();if(!this.queryPending){this.makeItems();this.renderWindow();}});this.dataTask=task;try{const records=await task.promise;if(generation!==this.generation || this.destroyed)return;this.senderChoicesCache=null;for(const record of records || [])if(record.id)this.cache.set(record.id,{...this.cache.get(record.id),...record});this.complete=Boolean(RCSDirectory.getStartup?.().entry?.directoryComplete);const owner=RCSDirectory.getOwner?.();if(owner)this.setOwner(owner);}catch(error){if(generation===this.generation && !this.destroyed)this.notice=this.cache.size?'Saved conversations available · updates unavailable':error.message || 'Conversations unavailable';}finally{if(this.dataTask===task){this.loading=false;this.dataTask=null;if(!this.queryPending)this.render();else this.updateControls();}}}
     cancelLoad(){this.stoppedByUser=true;this.dataTask?.cancel();this.dataTask=null;this.loading=false;}
-    resetSaved(){this.stopBackfill(false);this.backfillStoppedKey=this.backfillPausedKey=this.backfillDoneKey='';this.failedKey=this.searchError=this.cacheError='';this.cacheProgress=null;cancelAnimationFrame(this.mediaFrame);this.mediaFrame=0;this.changedMedia?.clear();this.mediaView?.clear();this.queryState?.clear();this.tabStates={};this.chatType=this.filter='all';this.sort='newest';this.savedMediaCounts=null;this.mediaCountKey='';this.availableMediaTypes=new Set(['image','gif','link']);this.countKey='';this.appliedKey='';this.senderPickerDismissed=false;clearTimeout(this.captureTimer);this.captureTimer=null;this.importing=false;this.jumpTask?.cancel?.();this.navigationGeneration=(this.navigationGeneration || 0)+1;this.navigationNotice='';this.generation++;this.cancelLoad();this.clearJump();this.owner='';this.savingError='';this.senderChoicesCache=null;this.stoppedByUser=false;if(!this.cache.size)this.directoryStarted=false;this.pendingNavigation='';this.closeSuggestions();this.recent=[];this.savedHits=[];this.savedTotal=this.savedRooms=0;this.hasMore=false;this.appliedKey='';this.inFlightKey='';this.searching=false;this.dirty=false;this.queued=false;this.summaries.clear();this.imageCache.clear();this.rowCache.clear();this.messageHeights.clear();this.active='';this.input.removeAttribute('aria-activedescendant');}
+    resetSaved(){this.stopBackfill(false);this.backfillStoppedKey=this.backfillPausedKey=this.backfillDoneKey=this.backfillCoverageKey='';this.backfillTarget=50;this.failedKey=this.searchError=this.cacheError='';this.cacheProgress=null;cancelAnimationFrame(this.mediaFrame);this.mediaFrame=0;this.changedMedia?.clear();this.mediaView?.clear();this.queryState?.clear();this.tabStates={};this.chatType=this.filter='all';this.sort='newest';this.savedMediaCounts=null;this.mediaCountKey='';this.availableMediaTypes=new Set(['image','gif','link']);this.countKey='';this.appliedKey='';this.senderPickerDismissed=false;clearTimeout(this.captureTimer);this.captureTimer=null;this.importing=false;this.jumpTask?.cancel?.();this.navigationGeneration=(this.navigationGeneration || 0)+1;this.navigationNotice='';this.generation++;this.cancelLoad();this.clearJump();this.owner='';this.savingError='';this.senderChoicesCache=null;this.stoppedByUser=false;if(!this.cache.size)this.directoryStarted=false;this.pendingNavigation='';this.closeSuggestions();this.recent=[];this.savedHits=[];this.savedTotal=this.savedRooms=0;this.hasMore=false;this.appliedKey='';this.inFlightKey='';this.searching=false;this.dirty=false;this.queued=false;this.summaries.clear();this.imageCache.clear();this.rowCache.clear();this.messageHeights.clear();this.active='';this.input.removeAttribute('aria-activedescendant');}
     destroy(){this.stopBackfill(false);this.datePicker?.close(false);this.menuOutsideGuard?.();document.fonts?.removeEventListener?.('loadingdone',this.nativeStyleChange);this.nativeThemeObserver?.disconnect();this.mediaView?.clear();this.adapter.releaseSearchLayer?.(this.host);this.destroyed=true;this.jumpTask?.cancel?.();this.navigationGeneration=(this.navigationGeneration || 0)+1;this.generation++;this.cancelLoad();clearTimeout(this.captureTimer);clearTimeout(this.queryTimer);this.clearJump();cancelAnimationFrame(this.scrollFrame);cancelAnimationFrame(this.mediaFrame);this.changedMedia?.clear();this.savedUnsubscribe?.();this.resizeObserver?.disconnect();document.removeEventListener('keydown',this.shortcutHandler);document.removeEventListener('pointerdown',this.outside);document.removeEventListener('focusin',this.focusOutside);this.imageCache.clear();this.rowCache.clear();this.messageHeights.clear();this.host.remove();}
   }
   // Adds query tools to the existing room controller without another load loop or subscription.

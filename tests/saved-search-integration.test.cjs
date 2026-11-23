@@ -96,7 +96,7 @@ test('real global interface searches captured messages and receives redactions w
   // Never triggers a stateful directory scan on search; only local results + optional lightweight backfill freshness.
   assert.equal(env.api.calls.some(call=>call.options?.include?.state),false);
   assert.equal(root.querySelector('.coverage'),null);
-  await wait(50);const callsBeforeRedact=env.api.calls.length;
+  await until(()=>/All chats searched/.test(root.querySelector('.status').textContent));const callsBeforeRedact=env.api.calls.length;
   env.emit(event('$remove','',{type:'m.room.redaction',redacts:'$visible'}));await env.W.RCSMessages.flush();await until(()=>root.querySelectorAll('.message-result').length===0);
   assert.equal(root.querySelectorAll('.message-result').length,0);assert.equal(env.api.calls.length,callsBeforeRedact);
 });
