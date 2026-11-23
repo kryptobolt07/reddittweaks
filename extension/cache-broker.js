@@ -4,6 +4,7 @@ const Model=RCSDirectoryModel;
 const cachePrefix='rcs-directory-v2:';
 const oldPrefix='rcs-directory-v1:';
 const leasePrefix='rcs-directory-lease:';
+const backfillLeasePrefix='rcs-backfill-lease:';
 const sessionPrefix='rcs-directory-session-v2:';
 const trafficPrefix='rcs-traffic-v1:';
 const cooldownPrefix='rcs-request-cooldown-v1:';
@@ -41,7 +42,7 @@ async function handle(message,sender) {
     const all=await chrome.storage.local.get(null);
     await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(cachePrefix)||key.startsWith(oldPrefix)||key.startsWith(cooldownPrefix)));
     const session=await chrome.storage.session.get(null);
-    await chrome.storage.session.remove(Object.keys(session).filter(key=>key.startsWith(leasePrefix)||key.startsWith(sessionPrefix)));
+    await chrome.storage.session.remove(Object.keys(session).filter(key=>key.startsWith(leasePrefix)||key.startsWith(backfillLeasePrefix)||key.startsWith(sessionPrefix)));
     // Traffic state keeps a session copy of the cooldown; clearing must end a lockout but not live permits.
     const traffic={};for(const key of Object.keys(session))if(key.startsWith(trafficPrefix))traffic[key]={...session[key],cooldownUntil:0};
     if(Object.keys(traffic).length)await chrome.storage.session.set(traffic);
@@ -52,9 +53,10 @@ async function handle(message,sender) {
   const holder=sender.tab?.id+':'+(sender.documentId || sender.frameId || 0);
   const now=Date.now();
   if(message.action==='detach') {
-    const leaseKey=leasePrefix+owner,trafficKey=trafficPrefix+owner;
-    const saved=await chrome.storage.session.get([leaseKey,trafficKey]);
+    const leaseKey=leasePrefix+owner,backfillKey=backfillLeasePrefix+owner,trafficKey=trafficPrefix+owner;
+    const saved=await chrome.storage.session.get([leaseKey,backfillKey,trafficKey]);
     if(saved[leaseKey]?.holder===holder)await chrome.storage.session.remove(leaseKey);
+    if(saved[backfillKey]?.holder===holder)await chrome.storage.session.remove(backfillKey);
     if(saved[trafficKey])await chrome.storage.session.set({[trafficKey]:{...saved[trafficKey],permits:saved[trafficKey].permits.filter(p=>p.holder!==holder)}});
     return {detached:true};
   }
@@ -232,9 +234,33 @@ async function globalMessageStats() {
 }
 const messages=new RCSMessageStore.Store({onStatsDelta:updateMessageStatsCache});
 let messageQueue=Promise.resolve();
-async function notifyMessageTabs(owner,cleared=false,roomIds) {
+async function notifyMessageTabs(owner,cleared=false,roomIds,coverageChanged=false) {
   const tabs=await chrome.tabs.query({});
-  await Promise.all(tabs.map(tab=>chrome.tabs.sendMessage(tab.id,{scope:'rcs-messages-changed',owner,cleared,...(roomIds?{roomIds}:{})}).catch(()=>{})));
+  await Promise.all(tabs.map(tab=>chrome.tabs.sendMessage(tab.id,{scope:'rcs-messages-changed',owner,cleared,...(roomIds?{roomIds}:{}),...(coverageChanged?{coverageChanged:true}:{})}).catch(()=>{})));
+}
+async function handleBackfillLease(message,sender) {
+  const owner=message.owner;
+  if(!RCSMessageStore.ownerOK(owner))throw Error('Invalid account');
+  const holder=sender.tab?.id+':'+(sender.documentId || sender.frameId || 0);
+  const key=backfillLeasePrefix+owner,now=Date.now();
+  const lease=(await chrome.storage.session.get(key))[key];
+  const active=Boolean(lease && lease.expires>now);
+  if(message.op==='acquire'){
+    if(active && lease.holder!==holder)return {busy:true};
+    const token=crypto.randomUUID();
+    await chrome.storage.session.set({[key]:{token,holder,expires:now+90000}});
+    return {token};
+  }
+  if(message.op==='renew'){
+    if(!active || lease.token!==message.token || lease.holder!==holder)return {expired:true};
+    await chrome.storage.session.set({[key]:{...lease,expires:now+90000}});
+    return {renewed:true};
+  }
+  if(message.op==='release'){
+    if(lease && lease.holder===holder && (!message.token || lease.token===message.token))await chrome.storage.session.remove(key);
+    return {released:true};
+  }
+  throw Error('Unknown backfill lease operation');
 }
 async function handleMessages(message,sender) {
   if(sender.id!==chrome.runtime.id)throw Error('Invalid sender');
@@ -252,7 +278,11 @@ async function handleMessages(message,sender) {
   }
   if(message.action==='stats' && popup)return message.owner?messages.stats(message.owner,{committed:true}):globalMessageStats();
   if(!RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
-  if(message.action==='ingest') {if(!await chatSearchEnabled())return {changed:false,disabled:true};const result=await messages.ingest(message);if(result.changed!==false)await notifyMessageTabs(message.owner,false,result.roomIds);return result;}
+  if(message.action==='backfill-lease')return handleBackfillLease(message,sender);
+  if(message.action==='coverage')return messages.coverage(message.owner,message.roomIds);
+  if(message.action==='mark-inaccessible'){if(!await chatSearchEnabled())return {disabled:true};const result=await messages.markInaccessible(message.owner,message.roomId,message.status);await notifyMessageTabs(message.owner,false,[message.roomId],true);return result;}
+  if(message.action==='update-heads'){if(!await chatSearchEnabled())return {disabled:true};return messages.updateHeads(message.owner,message.heads);}
+  if(message.action==='ingest') {if(!await chatSearchEnabled())return {changed:false,disabled:true};const result=await messages.ingest(message);if(result.changed!==false || result.coverageChanged)await notifyMessageTabs(message.owner,false,result.roomIds,Boolean(result.coverageChanged));return result;}
   // Layout hints do not broadcast message changes or restart active searches.
   if(message.action==='image-dimensions')return await chatSearchEnabled()?messages.rememberDimensions(message):{changed:false,disabled:true};
   if(message.action==='mark-native-import-complete'){if(!await chatSearchEnabled())return {nativeImportComplete:false,disabled:true};await messages.importState(message.owner,true);return {nativeImportComplete:true};}
@@ -272,7 +302,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(message?.scope!=='rcs-messages')return;
   // Reads see committed data without joining the capture/clear mutation queue.
   // Mutations retain their order and native producers still wait for their ack.
-  const reading=['search','room','stats','summaries'].includes(message.action);
+  const reading=['search','room','stats','summaries','coverage','backfill-lease'].includes(message.action);
   const result=reading?handleMessages(message,sender):messageQueue.then(()=>handleMessages(message,sender));if(!reading)messageQueue=result.catch(()=>{});
   result.then(value=>respond({ok:true,...value}),error=>respond({ok:false,error:error?.message || 'Unable to save messages. Please retry.'}));return true;
 });

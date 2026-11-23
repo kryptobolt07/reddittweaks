@@ -49,7 +49,7 @@
   }
   async function call(action,parameters={}) {
     if(contextError)throw contextError;
-    if(runtime?.sendMessage){let timer;const reading=['search','room','stats','summaries'].includes(action);
+    if(runtime?.sendMessage){let timer;const reading=['search','room','stats','summaries','coverage','backfill-lease'].includes(action);
       try{const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(Error(reading?'Reading saved messages took too long. Saved data is kept; try Refresh.':'Saving messages took too long. Saved data is kept; try Refresh.'),{code:reading?'RCS_READ_TIMEOUT':'RCS_WRITE_TIMEOUT'})),reading?15000:30000);});
         const value=await Promise.race([runtime.sendMessage({scope:'rcs-messages',...parameters,action}),timeout]);if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;
       }catch(error){if(error.code==='RCS_READ_TIMEOUT' && !await workerResponsive())throw Error('Reddit Tweaks’ background worker is not responding. Reload Reddit Tweaks, then refresh this Reddit tab. Saved data is kept.');throw transportError(error);}finally{clearTimeout(timer);}
@@ -58,20 +58,24 @@
     if(action==='image-dimensions')return memory.rememberDimensions(parameters);
     if(action==='summaries')return memory.summaries(parameters.owner,{committed:true});
     if(action==='stats')return memory.stats(parameters.owner,{committed:true});
+    if(action==='coverage')return memory.coverage(parameters.owner,parameters.roomIds);
+    if(action==='mark-inaccessible')return memory.markInaccessible(parameters.owner,parameters.roomId,parameters.status);
+    if(action==='update-heads')return memory.updateHeads(parameters.owner,parameters.heads);
+    if(action==='backfill-lease')return {token:parameters.op==='acquire'?'memory-lease':undefined,renewed:parameters.op==='renew',released:parameters.op==='release'};
     if(action==='mark-native-import-complete')return {nativeImportComplete:await memory.importState(parameters.owner,true)};
     if(action==='search')return memory.search(parameters.owner,{...parameters,committed:true});
     if(action==='room')return memory.room(parameters.owner,parameters.roomId,undefined,{committed:true});
   }
   async function drain() {
     while(pending.length){if(!chatSearchEnabled){discard();return;}const item=pending[0],active=await context();if(!chatSearchEnabled){discard();return;}if(!pending.includes(item))continue;if(item.batch.owner!==active){pending.splice(pending.indexOf(item),1);continue;}
-      let result;item.inFlight=true;try{result=await call('ingest',item.batch);}finally{item.inFlight=false;}const index=pending.indexOf(item);if(index>=0)pending.splice(index,1);writeError=null;cacheActivity.get(active)?.();if(result.changed!==false)notify({owner:active,changed:true,roomIds:result.roomIds});}
+      let result;item.inFlight=true;try{result=await call('ingest',item.batch);}finally{item.inFlight=false;}const index=pending.indexOf(item);if(index>=0)pending.splice(index,1);writeError=null;cacheActivity.get(active)?.();if(result.changed!==false || result.coverageChanged)notify({owner:active,changed:true,roomIds:result.roomIds,...(result.coverageChanged?{coverageChanged:true}:{})});}
   }
   function schedule(){if(!chatSearchEnabled)return Promise.resolve();if(contextError)return Promise.reject(contextError);if(draining)return queue;draining=true;notify({owner,statusOnly:true,savingPending:pending.length>0});queue=queue.then(drain).catch(error=>{writeError=error;notify({owner,error:error.message});}).finally(()=>{draining=false;notify({owner,statusOnly:true,savingPending:pending.length>0});});return queue;}
   function enqueue(batch) {
     if(!chatSearchEnabled)return Promise.resolve();
     if(contextError)return Promise.reject(contextError);
     const events=Array.isArray(batch.events)?batch.events:[],identities=Array.isArray(batch.identities)?batch.identities.slice(0,1000):[],additions=[];
-    for(let offset=0;offset<Math.max(1,events.length);offset+=500){const chunk={owner:batch.owner,roomId:batch.roomId,events:events.slice(offset,offset+500).map(event=>event.room_id?event:{...event,room_id:batch.roomId}),identities,coverage:offset+500>=events.length?batch.coverage:undefined};additions.push({batch:chunk,bytes:JSON.stringify(chunk).length*2});}
+    for(let offset=0;offset<Math.max(1,events.length);offset+=500){const isLast=offset+500>=events.length;const chunk={owner:batch.owner,roomId:batch.roomId,events:events.slice(offset,offset+500).map(event=>event.room_id?event:{...event,room_id:batch.roomId}),identities,coverage:isLast?batch.coverage:undefined,...(isLast && batch.span?{span:batch.span}:{}),...(batch.source?{source:batch.source}:{})};additions.push({batch:chunk,bytes:JSON.stringify(chunk).length*2});}
     const count=items=>items.reduce((sum,item)=>sum+item.batch.events.length,0),size=items=>items.reduce((sum,item)=>sum+item.bytes,0);
     if(pending.length+additions.length>MAX_BATCHES || count(pending)+count(additions)>MAX_EVENTS || size(pending)+size(additions)>MAX_BYTES){
       overflowError=Error(writeError ? `Saved message storage failed: ${writeError.message}. Waiting to recover captured messages.` : 'Saved message buffer is full. Recovering captured messages…');overflowError.account=batch.owner;overflowError.id=crypto.randomUUID();captureGaps.add(batch.owner);
@@ -82,8 +86,8 @@
     for(const item of additions){
       const tail=pending.at(-1),a=tail?.batch,b=item.batch;
       // Coalesce native one-event bursts before transport, never mutate a batch
-      // already handed to the worker or merge away a coverage boundary.
-      if(tail && !tail.inFlight && a.owner===b.owner && !a.coverage && !b.coverage && a.events.length+b.events.length<=200 && a.identities.length+b.identities.length<=1000 && tail.bytes+item.bytes<=512*1024){a.events.push(...b.events);a.identities.push(...b.identities);a.roomId=undefined;tail.bytes+=item.bytes;}
+      // already handed to the worker or merge away a coverage or span boundary.
+      if(tail && !tail.inFlight && a.owner===b.owner && !a.coverage && !b.coverage && !a.span && !b.span && a.events.length+b.events.length<=200 && a.identities.length+b.identities.length<=1000 && tail.bytes+item.bytes<=512*1024){a.events.push(...b.events);a.identities.push(...b.identities);a.roomId=undefined;tail.bytes+=item.bytes;}
       else pending.push(item);
     }
     return schedule();
@@ -102,7 +106,21 @@
       for(const account of accounts)if(account){initializations.delete(account);preparing.delete(account);cacheErrors.delete(account);cacheProgress.delete(account);captureGaps.delete(account);clearedAccounts.add(account);importRequests.get(account)?.cancel?.();imports.set(account,{available:false,cleared:true});}
       if(affectsActive){selfIdentity=null;nativeSelfIdentity=null;readRevision++;writeError=null;overflowError=null;document.dispatchEvent(new CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:message.owner || owner})}));}
     }
-    if(affectsActive)notify({owner,changed:true,cleared:message.cleared,roomIds:message.roomIds});
+    if(affectsActive)notify({owner,changed:true,cleared:message.cleared,roomIds:message.roomIds,...(message.coverageChanged?{coverageChanged:true}:{})});
+  });
+  // Narrow page-world bridge for coverage reads, head updates, inaccessible flags, and backfill lease coordination.
+  document.addEventListener('rcs-store-control-request',async event=>{
+    let value;try{value=JSON.parse(event.detail);}catch{return;}
+    if(!RCSMessageStore.ownerOK(value?.owner) || typeof value.id!=='string' || !value.id || value.id.length>100)return;
+    if(!['coverage','mark-inaccessible','update-heads','backfill-lease'].includes(value.action))return;
+    let reply;
+    try{
+      if(!chatSearchEnabled)throw Error('Chat search is turned off.');
+      if(await context()!==value.owner)throw Error('Reddit account changed. Please retry.');
+      const res=await call(value.action,value);
+      reply={ok:true,...res};
+    }catch(error){reply={ok:false,error:error.message};}
+    document.dispatchEvent(new CustomEvent('rcs-store-control-response',{detail:JSON.stringify({...reply,owner:value.owner,id:value.id})}));
   });
   async function flush({barrier=false}={}){if(contextError)throw contextError;await queue;if(pending.length)await schedule();if(writeError)throw writeError;if(overflowError && (!owner || overflowError.account===owner) && !barrier)throw overflowError;}
   document.addEventListener('rcs-message-cache-flush',async event=>{
@@ -187,7 +205,7 @@
     });
   }
   window.addEventListener('pagehide',event=>{if(!event.persisted){clearTimeout(dimensionTimer);for(const item of dimensionPatches.values())item.resolve({changed:false});dimensionPatches.clear();}});
-  globalThis.RCSMessages=Object.freeze({getSelfIdentity:()=>selfIdentity?.id===owner?{...selfIdentity}:null,ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),rememberImageDimensions,flush,setEnabled,isEnabled:()=>chatSearchEnabled,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
+  globalThis.RCSMessages=Object.freeze({getSelfIdentity:()=>selfIdentity?.id===owner?{...selfIdentity}:null,ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),coverage:roomIds=>read('coverage',{...(roomIds?{roomIds}:{})}),markInaccessible:(roomId,status)=>read('mark-inaccessible',{roomId,status}),updateHeads:heads=>read('update-heads',{heads}),backfillLease:(op,token)=>read('backfill-lease',{op,...(token?{token}:{})}),rememberImageDimensions,flush,setEnabled,isEnabled:()=>chatSearchEnabled,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
   if(runtime?.id && runtime.sendMessage){
     Promise.resolve().then(()=>runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>{
       if(response?.ok && response.settings?.chatSearch===false)setEnabled(false);

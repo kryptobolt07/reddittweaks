@@ -210,7 +210,7 @@
       if(field==='from'){
         if(record.authorSelf==null && record.author==null && record.sender==null)return false;
         const self=typeof record.authorSelf==='boolean'?record.authorSelf:normalize(record.author)==='you';
-        return wanted==='me'?self:wanted==='them'?!self:!self && matches(record.author || record.sender,value);
+        return wanted==='me'?self:wanted==='them'?!self:!self && (matches(record.author || record.sender,value) || Array.isArray(record.authorAliases) && record.authorAliases.some(alias=>matches(alias,value)));
       }
       if(field==='has')return Boolean(mediaFlags({...record,attachmentType:record.attachmentType || record.type,text:record.text ?? record.body ?? record.url})&mediaKinds[wanted.replace(/s$/,'')]);
       return false;
@@ -377,7 +377,7 @@
       }
       // Multiple sender selections are alternatives; text and other filters
       // still narrow those senders together.
-      if(parsed.from.length && !parsed.from.some(sender=>sender==='me'?self:sender==='them'?!self:!self && (matches(record.author || record.sender,sender) || !record.author && matches(conversation.name,sender))))return false;
+      if(parsed.from.length && !parsed.from.some(sender=>sender==='me'?self:sender==='them'?!self:!self && (matches(record.author || record.sender,sender) || Array.isArray(record.authorAliases) && record.authorAliases.some(alias=>matches(alias,sender)) || !record.author && matches(conversation.name,sender))))return false;
       if(dated){const time=typeof record.timestamp==='number'?record.timestamp:new Date(record.timestamp ?? record.at).getTime();if(!(Number.isFinite(time) && time>=start && time<end))return false;}
       const text=String(record.text || '');
       if(wantedMedia && (mediaFlags(record)&wantedMedia)!==wantedMedia)return false;
@@ -508,5 +508,170 @@
     ];
     return {tips:tips.filter(tip=>!tip.field || has.has(tip.field)),note:'Words use AND. NOT binds first, then OR, then AND, so a b OR c means a AND (b OR c). Only uppercase AND, OR and NOT are operators.'};
   }
-  globalThis.RCSCore = Object.freeze({searchTips,normalize, matches, ranges, dateBounds, parseQuery, matchesText, matchRecord, toArchiveQuery, toRedditQuery, splitQuery, prepareQuery, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
+  // Compile a query once into a guaranteed-superset prefilter plan plus zero-allocation
+  // pre-folded evaluators that match prepareQuery semantics identically.
+  function compilePlan(query='',{from='all',wholeWord=false,shortTermsWholeWord=true,dates={}}={}){
+    const parsed=typeof query==='object' && query!==null?query:parseQuery(query),bounds=dateBounds(dates);
+    if(parsed.invalid || bounds.invalid){
+      const never=()=>false;
+      return {invalid:true,impossible:true,parsed,structured:false,timeRange:{start:Infinity,end:-Infinity,active:true},requiredNeedles:[],requiredMediaMask:0,fromMode:from,anySenders:null,roomPruneSenders:null,matchIgnoreMedia:never,matchFinal:never};
+    }
+    const opts={wholeWord,shortTermsWholeWord};
+    const root=exprFor(parsed);
+    const hasField=node=>node.type==='field' || node.type==='not' && hasField(node.child) || (node.children || []).some(hasField);
+    const fieldBoolean=node=>node.type==='not' && hasField(node.child) || node.type==='field' && !node.legacy || (node.children || []).some(fieldBoolean);
+    const structured=parsed.explicitBoolean || fieldBoolean(root);
+
+    // Extract guaranteed-superset required needles (longest first for fastest rejection).
+    function extractNeedles(node){
+      if(!node || node.type==='not' || node.type==='field')return [];
+      if(node.type==='term' || node.type==='phrase'){
+        const needle=normalize(node.text);
+        return needle?[{needle,bounded:requiresBoundary(needle,opts)}]:[];
+      }
+      const children=node.children || [];
+      if(!children.length)return [];
+      if(node.type==='and'){
+        const byKey=new Map();
+        for(const child of children)for(const item of extractNeedles(child))byKey.set(item.needle+'\0'+(item.bounded?1:0),item);
+        return [...byKey.values()];
+      }
+      // OR: only needles required by EVERY branch stay required.
+      const branchSets=children.map(extractNeedles);
+      if(branchSets.some(list=>!list.length))return [];
+      return branchSets[0].filter(item=>branchSets.slice(1).every(other=>other.some(candidate=>candidate.needle===item.needle && (!item.bounded || candidate.bounded))));
+    }
+    const requiredNeedles=extractNeedles(root).sort((a,b)=>b.needle.length-a.needle.length);
+
+    // Extract unconditional AND time bounds (never from inside OR/NOT).
+    let start=bounds.start,end=bounds.end;
+    const topChildren=root.type==='and'?root.children:[root];
+    if(!structured){
+      for(const d of parsed.after)start=Math.max(start,dateBounds({from:d}).start);
+      for(const d of parsed.before)end=Math.min(end,dateBounds({from:d}).start);
+    }else{
+      for(const node of topChildren){
+        if(node.type==='field' && node.field==='after')start=Math.max(start,dateBounds({from:node.value}).start);
+        else if(node.type==='field' && node.field==='before')end=Math.min(end,dateBounds({from:node.value}).start);
+      }
+    }
+    const timeActive=Number.isFinite(start) || Number.isFinite(end);
+    const impossible=start>=end;
+
+    // Extract unconditional AND media mask for final match (0 for ignoreMedia).
+    function extractMediaMask(node){
+      if(!node || node.type==='not')return 0;
+      if(node.type==='field' && node.field==='has'){
+        const k=normalize(node.value).replace(/s$/,'');
+        return mediaKinds[k] || 0;
+      }
+      const children=node.children || [];
+      if(!children.length)return 0;
+      if(node.type==='and')return children.reduce((mask,child)=>mask | extractMediaMask(child),0);
+      if(node.type==='or')return children.reduce((mask,child)=>mask & extractMediaMask(child),~0);
+      return 0;
+    }
+    const requiredMediaMask=structured?extractMediaMask(root):mediaQueryFlags(parsed);
+
+    // Extract unconditional sender prefilter (superset).
+    let anySenders=null;
+    if(!structured && parsed.from.length){
+      anySenders=[...parsed.from];
+    }else if(structured){
+      // Collect top-level AND `from:` or pure-`from:` OR branches.
+      const senderClauses=[];
+      for(const node of topChildren){
+        if(node.type==='field' && node.field==='from')senderClauses.push([normalize(node.value)]);
+        else if(node.type==='or' && node.children?.length && node.children.every(c=>c.type==='field' && c.field==='from'))senderClauses.push(node.children.map(c=>normalize(c.value)));
+      }
+      // Single clause or pick the tightest clause as a superset prefilter.
+      if(senderClauses.length)anySenders=senderClauses.sort((a,b)=>a.length-b.length)[0];
+    }
+    const roomPruneSenders=anySenders && anySenders.every(s=>s!=='me' && s!=='them')?anySenders:null;
+
+    // Helper: evaluate a sender against a single `from:` value.
+    const senderMatches=(senderInfo,wanted)=>{
+      const self=Boolean(senderInfo.self);
+      if(wanted==='me')return self;
+      if(wanted==='them')return !self;
+      if(self)return false;
+      if(matches(senderInfo.author || senderInfo.sender,wanted))return true;
+      if(senderInfo.aliases?.length)for(const alias of senderInfo.aliases)if(matches(alias,wanted))return true;
+      return false;
+    };
+
+    // Compile zero-allocation evaluators over (foldedText, numericTime, mediaBitmask, senderInfo).
+    const compileNode=(node,ignoreMedia)=>{
+      if(!node)return ()=>true;
+      if(node.type==='term' || node.type==='phrase'){
+        const needle=normalize(node.text);
+        if(!needle)return ()=>true;
+        const bounded=requiresBoundary(needle,opts);
+        return folded=>wordAt(folded,needle,bounded);
+      }
+      if(node.type==='not'){
+        const child=compileNode(node.child,ignoreMedia);
+        return (folded,time,flags,senderInfo)=>!child(folded,time,flags,senderInfo);
+      }
+      if(node.type==='field'){
+        const {field,value}=node,wanted=normalize(value);
+        if(field==='after'){const bound=dateBounds({from:value}).start;return (_f,time)=>Number.isFinite(time) && time>=bound;}
+        if(field==='before'){const bound=dateBounds({from:value}).start;return (_f,time)=>Number.isFinite(time) && time<bound;}
+        if(field==='from')return (_f,_t,_fl,senderInfo)=>senderMatches(senderInfo,wanted);
+        if(field==='has'){
+          if(ignoreMedia)return ()=>true;
+          const bit=mediaKinds[wanted.replace(/s$/,'')] || 0;
+          return (_f,_t,flags)=>Boolean(flags & bit);
+        }
+        return ()=>false;
+      }
+      const children=(node.children || []).map(child=>compileNode(child,ignoreMedia));
+      if(!children.length)return ()=>true;
+      if(children.length===1)return children[0];
+      return node.type==='or'
+        ?(folded,time,flags,senderInfo)=>children.some(fn=>fn(folded,time,flags,senderInfo))
+        :(folded,time,flags,senderInfo)=>children.every(fn=>fn(folded,time,flags,senderInfo));
+    };
+
+    const buildEvaluator=ignoreMedia=>{
+      if(impossible)return ()=>false;
+      if(structured){
+        const local=ignoreMedia?splitQuery(parsed,['and','or','not','term','phrase',...queryFields,'from','after','before']).server:parsed;
+        const evalAst=compileNode(exprFor(local),false);
+        return (folded,time,flags,senderInfo)=>{
+          const self=Boolean(senderInfo.self);
+          if(from==='me' && !self || from==='them' && self)return false;
+          if(bounds.active && !(Number.isFinite(time) && time>=bounds.start && time<bounds.end))return false;
+          return evalAst(folded,time,flags,senderInfo);
+        };
+      }
+      const textTest=compileExpr(root,opts);
+      const mediaMask=ignoreMedia?0:requiredMediaMask;
+      const fromList=parsed.from;
+      return (folded,time,flags,senderInfo)=>{
+        const self=Boolean(senderInfo.self);
+        if(from==='me' && !self || from==='them' && self)return false;
+        if(fromList.length && !fromList.some(wanted=>senderMatches(senderInfo,wanted)))return false;
+        if(timeActive && !(Number.isFinite(time) && time>=start && time<end))return false;
+        if(mediaMask && (flags & mediaMask)!==mediaMask)return false;
+        return !textTest || textTest(folded);
+      };
+    };
+
+    return {
+      invalid:false,
+      impossible,
+      parsed,
+      structured,
+      timeRange:{start,end,active:timeActive},
+      requiredNeedles,
+      requiredMediaMask,
+      fromMode:from,
+      anySenders,
+      roomPruneSenders,
+      matchIgnoreMedia:buildEvaluator(true),
+      matchFinal:buildEvaluator(false),
+    };
+  }
+  globalThis.RCSCore = Object.freeze({searchTips,normalize, matches, ranges, dateBounds, parseQuery, matchesText, matchRecord, toArchiveQuery, toRedditQuery, splitQuery, prepareQuery, compilePlan, foldedValue, wordAt, requiresBoundary, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
 })();

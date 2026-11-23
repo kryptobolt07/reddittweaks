@@ -1,0 +1,55 @@
+# Chat History Search & Storage v2 Specification
+
+## Overview
+
+Reddit's Matrix homeserver (`matrix.redditspace.com`) does not expose `/_matrix/client/v3/search` for chat messages. Finding matches in unfetched chat history therefore requires fetching uncovered history ranges at most once, persisting verified coverage spans, and executing all search queries locally.
+
+This document specifies the storage v2 layout (`rcs-chat-v2`), the O(batch) write path, the in-memory column search projection, verified coverage spans, v1→v2 migration, and search-driven backfill.
+
+## Storage Layout (`rcs-chat-v2`)
+
+Every record is scoped by integer account ordinal `a` (and per-account room ordinal `n`) so long Matrix IDs are not duplicated across every key and index entry.
+
+| Store | keyPath | Indexes | Purpose |
+|---|---|---|---|
+| `accounts` | `owner` | `a` (unique) | Account ordinal, `nextRoom`, import markers, resumable migration cursor, delta-maintained stats (`messages`, `rooms`, `completeRooms`, `bytes`, `unknownEvents`) and `mediaTypeCounts`. |
+| `rooms` | `[a, n]` | `id` `[a, roomId]` (unique) | Room ordinal map, `latest` preview pointer, `headSeen`, thread roots, `inaccessible` (403/404), `legacyComplete` (from v1), `unknownCount`, and derived `coverage`. |
+| `msgs` | `[a, n, e]` | `time` `[a, t]`, `order` `[a, n, p, s]` | One record per visible message with display body `b` after latest valid edit, media bitmask `f`, MIME/preview/dimensions, thread root `th`, and applied edit pointer `eb`/`et`. Original fields are kept in `orig` only when edited so redacting all edits restores the original. |
+| `rels` | `[a, n, e]` | `target` `[a, n, target]` | Edits (`k: 'edit'`) and permanent redaction tombstones (`k: 'redact'`). Supports out-of-order arrival and edit-redaction fallback. Redacted tombstones never retain plaintext or media metadata. |
+| `spans` | `[a, n, p, hi]` | — | Verified backward-pagination coverage spans `{a, n, p, hi, lo, tHi, tLo, bottom, at, src}`. Adjacent/overlapping spans (`lo <= other.hi + 1`) merge on write. |
+| `people` | `[a, id]` | — | Per-person identity records with display-name history (`aliases`) for stable Matrix ID resolution under `from:`. |
+| `meta` | `key` | — | Global schema counters (`nextAccount`). |
+
+## Write Path & Correctness Guarantees
+
+- **O(batch) writes:** Each ingest prefetches affected `people`, `rooms`, and (for existing rooms only) `msgs`/`rels` in parallel waves inside a single IndexedDB transaction. Brand-new rooms perform zero `msgs`/`rels` reads.
+- **Order-independent reduction:** Any arrival permutation of originals, edits, forged edits, and redactions yields the exact same visible state, `summaries()`, and `stats()`.
+- **No silent drops:** Unhandled non-state event types increment `room.unknownCount` and `accounts.stats.unknownEvents`. Any room with `unknownCount > 0` or `inaccessible` is never labelled complete.
+- **Local echoes:** Temporary `~…` IDs are never persisted and are filtered on read if present.
+
+## Search Engine & Query Plan
+
+- `RCSCore.compilePlan()` compiles a parsed query once into guaranteed-superset prefilters (`requiredNeedles` sorted longest-first, unconditional `timeRange`, `requiredMediaMask`, `fromMode`, `anySenders`, `roomPruneSenders`) plus zero-allocation pre-folded evaluators matching `RCSCore.prepareQuery()`.
+- On first query after worker wake, the worker builds a per-owner column projection (`Float64Array t`, `Uint32Array room`, `Uint32Array senderIdx`, `Uint8Array flags`, `folded[]`, `ids[]`) in bounded 5,000-row primary-key `getAll` batches, sorted descending by `t` for O(log N) date-window binary search.
+- Subsequent writes patch the projection in place. Only the returned page (≤500 records) is fetched by primary key from `msgs`.
+- Single-room reads (`room()` and cold single-room `search()`) read only that room's `[a, n]` key range without building a full-account projection.
+
+## Migration from `rcs-messages-v1`
+
+- On opening `rcs-chat-v2`, any existing `rcs-messages-v1` database is migrated per owner in resumable 500-event transactions tracked in `accounts.migration.cursor`.
+- Until an owner finishes migration, reads fall back to v1 and new ingests dual-write to both v1 and v2.
+- Rooms marked `coverage.complete === true` in v1 become `rooms.legacyComplete` (never reported complete until an overlapping head span verifies them).
+- After migration completes, 20 fixed differential queries compare v1 vs v2 totals and IDs. `rcs-messages-v1` is deleted only after every owner passes verification.
+
+## People Previews
+
+- Directory traversals (`getRoomList` with `include: {timeline: true}`) populate `lastPreview` alongside `rooms.latest` in v2.
+- A preview older than the chat's `lastSeq` or directory `timestamp` is rendered dimmed with `…` until refreshed, never presented as current.
+- `from:` picker rows for people without a direct chat display their latest message from any shared group chat prefixed with the group name.
+
+## Persisted Coverage & Global Backfill
+
+- In-room `history` and global `backfill` persist verified spans from `/rooms/{id}/events` backward pagination cursors (`seq = lo - 1`, `bottom: true` on empty page or `lo === 0`), reusing `coordinatedRead` / `retryRead` / `ctx.client.http.authedRequest` without touching Reddit's own IndexedDB or scrolling timelines.
+- Global backfill orders incomplete rooms (including modmail) with a max-heap by frontier timestamp `F(r)` so matches stream newest-first and the watermark `W = max F(r)` moves monotonically backward.
+- Default budget is 300 requests or 3 minutes per search (resumable via **Search older messages**), coordinated per account across tabs via `rcs-backfill-lease:<owner>`.
+- Backfill keeps running when chat is minimized and stops cleanly after the in-flight request when the search panel closes, the query clears, the account changes, or chat search is disabled.

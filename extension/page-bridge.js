@@ -827,12 +827,53 @@
           return !person.name || person.unavailable && !person.historical && !retained?.recoveryCheckedAt;
         })),
         timestamp:Math.max(raw.timestamp || 0,saved?.timestamp || 0,latestMessageTime(raw)),
+        ...(raw.lastPreview || saved?.lastPreview ? {lastPreview:pickNewerPreview(raw.lastPreview,saved?.lastPreview)} : {}),
         lastSeq:String(raw.last_seq_id ?? saved?.lastSeq ?? ''),href:'/room/'+encodeURIComponent(raw.room_id)};
     }).sort((a,b)=>b.timestamp-a.timestamp);
   }
   function latestMessageTime(raw) {
     const events=listOf(raw.chunk || raw.timeline);
     return Math.max(0,...events.filter(e=>['m.room.message','m.sticker'].includes(e.type)).map(e=>e.origin_server_ts || 0));
+  }
+  function pickNewerPreview(a,b) {
+    if(!a)return b || null;
+    if(!b)return a;
+    return (a.timestamp || 0)>=(b.timestamp || 0) ? a : b;
+  }
+  function latestPreviewOf(raw,own,ctx) {
+    const events=listOf(raw.chunk || raw.timeline);
+    if(!events.length)return null;
+    const redacted=new Set();
+    for(const e of events){
+      if(e.type==='m.room.redaction' && (e.redacts || e.content?.redacts))redacted.add(e.redacts || e.content?.redacts);
+      if(e.unsigned?.redacted_because && e.event_id)redacted.add(e.event_id);
+    }
+    const edits=new Map();
+    for(const e of events){
+      const rel=e.content?.['m.relates_to'];
+      if(rel?.rel_type==='m.replace' && rel.event_id && !redacted.has(e.event_id)){
+        const prev=edits.get(rel.event_id);
+        if(!prev || (e.origin_server_ts || 0)>=(prev.origin_server_ts || 0))edits.set(rel.event_id,e);
+      }
+    }
+    let best=null;
+    for(const e of events){
+      if(!['m.room.message','m.sticker'].includes(e.type) || !e.event_id || e.event_id.startsWith('~') || redacted.has(e.event_id))continue;
+      if(e.content?.['m.relates_to']?.rel_type==='m.replace')continue;
+      if(!best || (e.origin_server_ts || 0)>(best.origin_server_ts || 0))best=e;
+    }
+    if(!best)return null;
+    const edit=edits.get(best.event_id);
+    const bodyEvent=edit && edit.sender===best.sender ? edit : best;
+    const content=bodyEvent.content?.['m.new_content'] || bodyEvent.content || {};
+    const media=previewMetadata(content,bodyEvent.type,ctx.client);
+    const rawBody=typeof content.body==='string'?content.body:'';
+    const text=(rawBody || (bodyEvent.type==='m.sticker'?'Sticker':({image:'Image',video:'Video',audio:'Audio',file:'File'}[media.attachmentType] || ''))).slice(0,200);
+    if(!text.trim() && !media.attachmentType)return null;
+    const self=best.sender===own;
+    const person=!self?historyIdentity(ctx,best.sender):null;
+    const seq=sequence(best);
+    return {id:best.event_id,sender:best.sender || '',author:self?'You':person?.name || '',authorSelf:self,text,attachmentType:media.attachmentType,attachmentMime:media.attachmentMime,attachmentPreview:media.attachmentPreview,timestamp:best.origin_server_ts || 0,...(seq!==null?{seq}:{})};
   }
   const activityScans=new Map();
   async function activity(ctx,job,request) {
@@ -846,7 +887,8 @@
         rememberMembers(stateOf(raw),ctx);publishCache(ctx,raw.room_id,listOf(raw.chunk || raw.timeline),'directory');
         const saved=knownConversations.get(raw.room_id);if(!saved)continue;
         const timestamp=Math.max(saved.timestamp || 0,latestMessageTime(raw));
-        scan.records.set(raw.room_id,{...saved,timestamp});
+        const lastPreview=pickNewerPreview(latestPreviewOf(raw,own,ctx),saved.lastPreview);
+        scan.records.set(raw.room_id,{...saved,timestamp,...(raw.last_seq_id!=null?{lastSeq:String(raw.last_seq_id)}:{}),...(lastPreview?{lastPreview}:{})});
       }
       const next=data.next_batch;
       if(next && (typeof next!=='string' || scan.seen.has(next) || next===scan.cursor || !data.rooms.length))throw problem('Reddit activity pagination stopped advancing.');
@@ -889,12 +931,14 @@
         if(!Array.isArray(data.rooms))throw problem('Reddit returned an unexpected room directory. Search is incomplete.');
         for(const raw of data.rooms) {
           if(typeof raw?.room_id!=='string')throw problem('Reddit returned an invalid conversation ID. Search is incomplete.');
-          const metadata={...raw,timestamp:latestMessageTime(raw)};
+          rememberMembers(stateOf(raw),ctx);
+          const preview=latestPreviewOf(raw,own,ctx);
+          const metadata={...raw,timestamp:latestMessageTime(raw),...(preview?{lastPreview:preview}:{})};
           delete metadata.chunk;delete metadata.timeline;
-          scan.rooms.set(raw.room_id,metadata);rememberMembers(stateOf(raw),ctx);
+          scan.rooms.set(raw.room_id,metadata);
           publishCache(ctx,raw.room_id,listOf(raw.chunk || raw.timeline),'directory');
           const existing=rooms.get(raw.room_id);
-          rooms.set(raw.room_id,{...existing,...metadata,timestamp:Math.max(existing?.timestamp || 0,metadata.timestamp),state:mergeState(stateOf(existing || {}),stateOf(raw))});
+          rooms.set(raw.room_id,{...existing,...metadata,timestamp:Math.max(existing?.timestamp || 0,metadata.timestamp),...(pickNewerPreview(metadata.lastPreview,existing?.lastPreview)?{lastPreview:pickNewerPreview(metadata.lastPreview,existing?.lastPreview)}:{}),state:mergeState(stateOf(existing || {}),stateOf(raw))});
           knownRoomStates.set(raw.room_id,metadata);
         }
         const next=data.next_batch;

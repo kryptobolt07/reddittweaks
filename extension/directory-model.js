@@ -4,6 +4,20 @@
   const strings = values => [...new Set((Array.isArray(values) ? values : []).map(string).filter(Boolean))];
   const number = value => Number.isFinite(value) && value >= 0 ? value : 0;
   const image = value => /^https:\/\//.test(value || '') ? string(value) : '';
+  function cleanPreview(value) {
+    if (!value || typeof value !== 'object') return null;
+    const text = string(value.text).slice(0, 200);
+    const attachmentType = ['image','video','audio','file'].includes(value.attachmentType) ? value.attachmentType : '';
+    if (!text.trim() && !attachmentType) return null;
+    return {
+      id: string(value.id), sender: string(value.sender), author: string(value.author),
+      authorSelf: Boolean(value.authorSelf), text, attachmentType,
+      attachmentMime: string(value.attachmentMime).slice(0, 200),
+      attachmentPreview: image(value.attachmentPreview),
+      timestamp: number(typeof value.timestamp === 'number' ? value.timestamp : Date.parse(value.timestamp || '')),
+      ...(Number.isSafeInteger(value.seq) && value.seq >= 0 ? {seq: value.seq} : {})
+    };
+  }
   // Reddit's chat profile only says isDeleted; the public hover card tells a deleted account from a suspended one.
   const accountStates=['deleted','banned'];
   const accountState=value => accountStates.includes(value) ? value : '';
@@ -78,7 +92,8 @@
         id:string(item.id),type,participantIds,name:direct && participantIds.length ? '' : string(item.name),
         avatar:direct && participantIds.length ? '' : image(item.avatar),aliases:direct && participantIds.length ? [] : strings(item.aliases),
         timestamp:number(item.timestamp),...(Number.isFinite(item.unreadCount)&&item.unreadCount>=0 ? {unreadCount:item.unreadCount} : {}),membership:string(item.membership),hidden:Boolean(item.hidden),
-        status:string(item.status),lastSeq:string(item.lastSeq),identityPending:Boolean(item.identityPending)
+        status:string(item.status),lastSeq:string(item.lastSeq),identityPending:Boolean(item.identityPending),
+        ...(cleanPreview(item.lastPreview) ? {lastPreview:cleanPreview(item.lastPreview)} : {})
       });
     }
     // Deleted/banned answers live in their own map: directory refreshes re-merge

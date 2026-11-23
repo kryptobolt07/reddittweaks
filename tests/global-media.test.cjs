@@ -18,7 +18,7 @@ test('media filters classify native types and GIF MIME without guessing filename
   assert.equal((await store.search(sender,{query:'has:gif'})).total,0);
   for(const [kind,flag]of [['link','hasLink'],['image','hasImage'],['file','hasFile'],['video','hasVideo'],['audio','hasAudio'],['gif','hasGif']])assert.equal(C.parseQuery(`has:${kind}`)[flag],true);
   assert.equal(C.parseQuery('has:unsupported').invalid,true);
-  const saved=[...store.memory.values()][0];
+  const saved=(await store.snapshot(owner)).rows[0];
   assert.equal(saved.events.find(item=>item.id==='gif').attachmentMime,'image/gif');
   assert.equal(saved.events.find(item=>item.id==='video').body,'Video');
   assert.equal(saved.events.find(item=>item.id==='audio').body,'Audio');
@@ -35,7 +35,7 @@ test('edits replace media metadata and redactions erase it without native replay
   assert.deepEqual(ids(result),['base']);assert.equal(result.records[0].text,'Video');assert.equal(result.records[0].attachmentMime,'video/mp4');
   await store.ingest({owner,events:[{...event('remove','m.text'),type:'m.room.redaction',redacts:'base'}]});
   assert.equal((await store.search(owner,{})).total,0);
-  const tombstones=[...store.memory.values()][0].events.filter(item=>['base','edit'].includes(item.id));
+  const tombstones=(await store.snapshot(owner)).rows[0].events.filter(item=>['base','edit'].includes(item.id));
   for(const item of tombstones){assert.equal(item.body,'');assert.equal(item.attachmentType,'');assert.equal(item.attachmentMime,'');}
   assert.equal((await store.ingest({owner,events:[original,edit]})).changed,false);
   assert.equal(JSON.stringify(await store.snapshot(owner)).includes('secret'),false);
@@ -44,13 +44,13 @@ test('edits replace media metadata and redactions erase it without native replay
 test('native replay backfills MIME and empty-body attachments without schema or completeness changes',async()=>{
   const {RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null}),gif=event('gif','m.image','',{mimetype:'image/gif',url:'private'}),coverage={complete:true,dateComplete:true};
   await store.ingest({owner,roomId:room,events:[gif],coverage});
-  const saved=[...store.memory.values()][0];delete saved.events[0].attachmentMime;saved.events[0].body='';saved.records=[];
+  const savedMsg=[...store.mem.msgs.values()][0];delete savedMsg.m;savedMsg.b='';savedMsg.f=1;store.projections.delete(owner);
   assert.equal((await store.search(owner,{query:'has:gif'})).total,0);
   assert.equal((await store.ingest({owner,roomId:room,events:[gif],coverage})).changed,true);
   assert.deepEqual(ids(await store.search(owner,{query:'has:gif'})),['gif']);
   assert.equal((await store.search(owner,{roomId:room})).coverage.complete,true);
   assert.equal((await store.ingest({owner,roomId:room,events:[gif],coverage})).changed,false);
-  assert.equal(JSON.stringify(saved.events).includes('private'),false,'retain only minimal classification metadata');
+  assert.equal(JSON.stringify((await store.snapshot(owner)).rows[0].events).includes('private'),false,'retain only minimal classification metadata');
 });
 
 test('available media types come from materialized account data independently of filters and pagination',async()=>{

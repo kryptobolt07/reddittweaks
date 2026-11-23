@@ -14,12 +14,15 @@ test('temporary Reddit local echoes are not persisted as searchable messages',as
   assert.equal((await store.snapshot(owner)).rows[0].events.some(e=>e.id.startsWith('~')),false);(await store.db()).close();
 });
 test('legacy temporary entries are hidden from global, room, summary and count reads without clearing saved data',async()=>{
-  const {Store,compact}=model(),store=new Store({name:crypto.randomUUID()}),db=await store.db();
-  const saved=compact(event('$sent','confirmed text')),pending={...saved,id:'~!room:reddit.com:m123',body:'pending text',time:2000};
-  await new Promise((resolve,reject)=>{const tx=db.transaction('rooms','readwrite');tx.objectStore('rooms').put({owner,roomId,events:[saved,pending],records:[saved,pending].map(e=>({id:e.id,bodyEvent:e.id,sender:e.sender,time:e.time})),coverage:{complete:false}});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+  const {Store}=model(),store=new Store({name:crypto.randomUUID()});
+  await store.ingest(batch([event('$sent','confirmed text',1000)]));
+  const db=await store.db();
+  // Inject a legacy temporary ~ record directly into msgs to verify read-side hiding.
+  await new Promise((resolve,reject)=>{const tx=db.transaction('msgs','readwrite');tx.objectStore('msgs').put({a:1,n:1,e:'~!room:reddit.com:m123',p:'',t:2000,u:owner,b:'pending text',f:0});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+  store.projections.delete(owner);
   assert.equal((await store.search(owner,{query:'pending'})).total,0);assert.equal((await store.search(owner)).total,1);assert.equal((await store.room(owner,roomId)).records.length,1);
   assert.equal((await store.summaries(owner)).summaries[0].id,'$sent');assert.equal((await store.stats(owner)).stats.messages,1);
-  const raw=await new Promise(resolve=>{const req=db.transaction('rooms').objectStore('rooms').get([owner,roomId]);req.onsuccess=()=>resolve(req.result);});assert.equal(raw.events.length,2);assert.equal(raw.records.length,2);db.close();
+  const raw=await new Promise(resolve=>{const req=db.transaction('msgs').objectStore('msgs').getAll();req.onsuccess=()=>resolve(req.result);});assert.equal(raw.length,2);db.close();
 });
 test('closed extension database handles reopen for reads and queued writes without losing accounts or import state',async()=>{
   const {Store}=model(),store=new Store({name:crypto.randomUUID()});
@@ -94,7 +97,7 @@ test('local reconciliation skips unchanged room and identity writes while persis
   db.transaction=(...args)=>{const tx=transaction(...args),objectStore=tx.objectStore.bind(tx),wrapped=new WeakSet();tx.objectStore=name=>{const store=objectStore(name);if(!wrapped.has(store)){wrapped.add(store);const put=store.put.bind(store);store.put=(...values)=>{writes++;return put(...values);};}return store;};return tx;};
   assert.equal((await store.ingest(base)).changed,false);assert.equal(writes,0,'duplicate local rows cause no durable rewrites');
   await store.ingest(batch([event('$edit','* edited',2000,{content:{body:'* edited','m.new_content':{body:'edited'},'m.relates_to':{rel_type:'m.replace',event_id:'$base'}}})]));
-  assert.equal((await new Store({name:store.name}).search(owner)).records[0].text,'edited');assert.equal(writes,1,'only the changed room is rewritten');
+  assert.equal((await new Store({name:store.name}).search(owner)).records[0].text,'edited');assert.ok(writes>=1 && writes<=4,'only the changed message/relation/room/account records are written');
   await store.ingest(batch([event('$base','',1000,{unsigned:{redacted_because:{event_id:'$red'}}})]));
   assert.equal((await new Store({name:store.name}).search(owner)).total,0);
   assert.equal((await store.ingest(base)).changed,false,'a duplicate cannot undo a saved redaction');
@@ -314,9 +317,9 @@ test('committed snapshots read saved data while future writes are paused; a room
   const pending=store.ingest(batch([event('$queued','pending text',10000)]));
   let timeout;
   try {
-    let snapshots=0;const snapshot=store.snapshot.bind(store);store.snapshot=(...args)=>{snapshots++;return snapshot(...args);};
+    let roomReads=0;const txOrig=store.transaction.bind(store);store.transaction=(...args)=>{if(args[1]!=='readwrite')roomReads++;return txOrig(...args);};
     const room=await Promise.race([store.room(owner,roomId,undefined,{committed:true}),new Promise((_,reject)=>timeout=setTimeout(()=>reject(Error('committed read waited for queued write')),1000))]);
-    assert.equal(room.total,750);assert.equal(room.records.length,750);assert.equal(new Set(room.records.map(r=>r.id)).size,750);assert.equal(snapshots,1);
+    assert.equal(room.total,750);assert.equal(room.records.length,750);assert.equal(new Set(room.records.map(r=>r.id)).size,750);assert.equal(roomReads,1);
     assert.equal((await store.stats(owner,{committed:true})).stats.messages,750);
   }finally{clearTimeout(timeout);release();await pending;}
   assert.equal((await store.search(owner)).total,751);

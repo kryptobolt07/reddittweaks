@@ -246,14 +246,23 @@ test('calendar applies dates independently of filter accent and People ignores d
   await p.click('[aria-label="Remove date filter"]');assert.equal(p.find('[data-control="date"]').getAttribute('aria-pressed'),'false');assert.equal(c.filter,'all');await p.click('[data-scope="people"]');assert.equal(c.filter,'unread');
 });
 
-test('people previews omit missing or older messages and update from existing saved captures without server reads',async t=>{
+test('people previews show directory/stored latest messages, dim stale previews, and show shared-group previews in from: picker',async t=>{
   const p=await setup(t);await p.search('alex');await p.click('[data-scope="people"]');const c=p.control,calls=p.requests.length,chat=p.cache.get('alex'),at=1791432000000+86400000;
   c.summaries.clear();c.render();assert.equal(c.shadow.querySelector('.row-snippet'),null);assert.doesNotMatch(c.results.textContent,/No saved message/);
-  p.cache.set('alex',{...chat,timestamp:at});c.summaries.set('alex',{roomId:'alex',text:'An older saved message',timestamp:new p.w.Date(at-60000).toISOString(),authorSelf:true});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(p.find('[data-key="chat:alex"] time').getAttribute('datetime'),new p.w.Date(at).toISOString());
-  await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'latest-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:at,content:{body:'The latest\nmessage'}}]});p.emit({owner:'@t2_me:reddit.com',changed:true,roomIds:['alex']});await p.tick(750);assert.equal(p.find('[data-key="chat:alex"] .row-snippet').textContent,'You: The latest message');
+  p.cache.set('alex',{...chat,timestamp:at,lastSeq:'m50'});c.summaries.set('alex',{roomId:'alex',text:'An older saved message',timestamp:new p.w.Date(at-60000).toISOString(),seq:40,authorSelf:true});c.render();
+  const staleEl=p.find('[data-key="chat:alex"] .row-snippet');assert.equal(staleEl.classList.contains('row-snippet-stale'),true);assert.equal(staleEl.textContent,'You: An older saved message…');assert.equal(p.find('[data-key="chat:alex"] time').getAttribute('datetime'),new p.w.Date(at).toISOString());
+  // Directory lastPreview supplies fresh last-message line immediately without server reads.
+  p.cache.set('alex',{...chat,timestamp:at,lastSeq:'m50',lastPreview:{id:'dir-50',sender:'@t2_alex:reddit.com',author:'Alex Morgan',authorSelf:false,text:'Directory preview',timestamp:at,seq:50}});c.render();
+  const dirEl=p.find('[data-key="chat:alex"] .row-snippet');assert.equal(dirEl.classList.contains('row-snippet-stale'),false);assert.equal(dirEl.textContent,'Directory preview');
+  await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'latest-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:at+1000,seq_id:'m51',content:{body:'The latest\nmessage'}}]});p.emit({owner:'@t2_me:reddit.com',changed:true,roomIds:['alex']});await p.tick(750);assert.equal(p.find('[data-key="chat:alex"] .row-snippet').textContent,'You: The latest message');
   p.cache.set('alex',{...p.cache.get('alex'),accountUnavailable:true,historicalName:true});c.render();assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.find('[data-key="chat:alex"] .row-meta').getAttribute('aria-label'),'Unavailable account');assert.match(p.find('[data-key="chat:alex"] .row-meta').title,/Unavailable account/);
-  c.summaries.set('alex',{roomId:'alex',text:'   ',timestamp:new p.w.Date(at).toISOString()});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.requests.length,calls);
-  await p.click('[data-scope="messages"]');p.type('from:');await p.tick(180);assert.ok(c.shadow.querySelector('.sender-result .row-title'),'sender choices reuse the People row renderer');
+  p.cache.set('alex',{...chat,timestamp:at});c.summaries.set('alex',{roomId:'alex',text:'   ',timestamp:new p.w.Date(at).toISOString()});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.requests.length,calls);
+  // Person with no direct chat gets their latest message from a shared group in the from: picker.
+  p.cache.set('grp',{id:'grp',name:'Weekend Crew',type:'group',timestamp:at,participants:['GroupMember'],identities:[{id:'@t2_gm:reddit.com',name:'GroupMember'}]});
+  c.summaries.set('grp',{roomId:'grp',text:'See you Saturday',timestamp:new p.w.Date(at).toISOString(),authorSelf:false,author:'GroupMember'});
+  c.senderChoicesCache=null;
+  await p.click('[data-scope="messages"]');p.type('from:GroupMember');await p.tick(180);
+  const gmRow=p.find('.sender-result');assert.ok(gmRow.querySelector('.row-title'));assert.equal(gmRow.querySelector('.row-snippet').textContent,'Weekend Crew · See you Saturday');
 });
 
  test('extension popup explains incomplete saved history and shows cache statistics outside injected chat UI',async t=>{
