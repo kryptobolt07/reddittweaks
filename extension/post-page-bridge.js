@@ -2232,8 +2232,10 @@
     if(input.action==='mod-status'){
       const data=await modJson('/r/'+name+'/about.json',{raw_json:'1'},signal);
       if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
-      return {moderator:data?.data?.user_is_moderator===true,subreddit:typeof data?.data?.display_name==='string' && communityName.test(data.data.display_name)?data.data.display_name:name};
+      // Signed-out readers get null for every user_is_* field; signed-in readers get a boolean.
+      return {moderator:data?.data?.user_is_moderator===true,signedIn:data?.data?.user_is_moderator!==null,subreddit:typeof data?.data?.display_name==='string' && communityName.test(data.data.display_name)?data.data.display_name:name};
     }
+    if(input.action==='awaiting-status')return awaitingStatus(input,name,path,signal);
     if(input.after!=null && (typeof input.after!=='string' || !/^t3_[a-z0-9]{1,10}$/i.test(input.after)))throw Error('Invalid moderation queue cursor.');
     const params={limit:'100',only:'links',raw_json:'1'};if(input.after)params.after=input.after;
     const data=await modJson('/r/'+name+'/about/unmoderated.json',params,signal),listing=data?.data;
@@ -2242,6 +2244,30 @@
     const posts=listing.children.filter(item=>item?.kind==='t3').map(item=>M.normalizePost(item.data));
     if(posts.some(post=>!post))throw Error('Some queued posts could not be read.');
     return {posts:posts.filter(post=>post.subreddit.toLowerCase()===name.toLowerCase()),after:listing.after || null,hasMore:Boolean(listing.after)};
+  }
+  // Awaiting approval for non-moderators (docs/unmoderated-filter-spec.md B8): Reddit's current state of up to 100
+  // archived post IDs of this community, read with the reader's session. Posts from another community, and IDs Reddit
+  // leaves out, are not answered; the caller counts them as unchecked, never as approved.
+  async function awaitingStatus(input,name,path,signal){
+    if(!Array.isArray(input.ids) || !input.ids.length || input.ids.length>100 || !input.ids.every(id=>typeof id==='string' && /^[a-z0-9]{1,10}$/.test(id)))throw Error('Invalid post IDs.');
+    const ids=[...new Set(input.ids)];
+    if(Date.now()<cooldown)throw Error('Reddit asked us to wait. Try again shortly.');
+    const url=new URL('/api/info.json',location.origin);url.searchParams.set('id',ids.map(id=>'t3_'+id).join(','));url.searchParams.set('raw_json','1');
+    const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
+    if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry) && retry>0?retry:60)*1000));throw Error('Reddit rate limit reached. Try again later.');}
+    if(!response.ok)throw Error(response.status===403?'Reddit refused the post status check (HTTP 403).':'Reddit could not check these posts (HTTP '+response.status+').');
+    let data;try{data=JSON.parse(await boundedText(response));}catch{throw Error('Reddit returned an unexpected post status response.');}
+    if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
+    if(data?.kind!=='Listing' || !Array.isArray(data?.data?.children) || data.data.children.length>100)throw Error('Reddit returned an unexpected post status response.');
+    const statuses=[],seen=new Set();
+    for(const child of data.data.children){
+      if(child?.kind!=='t3')continue;
+      const post=M.normalizePost(child.data,{source:'reddit'});
+      if(!post || !ids.includes(post.id) || seen.has(post.id) || post.subreddit.toLowerCase()!==name.toLowerCase())continue;
+      seen.add(post.id);const category=child.data?.removed_by_category;
+      statuses.push({id:post.id,category:typeof category==='string' && /^[a-z_]{1,40}$/.test(category)?category:null,post});
+    }
+    return {statuses,subreddit:name};
   }
   // Raffles (docs/raffle-spec.md): comments of one post and account facts, read with the reader's session.
   const raffleId=/^[a-z0-9]{1,10}$/i,raffleComment=/^[a-z0-9]{1,32}$/i;
@@ -2508,7 +2534,7 @@
     if(input.action==='blocked-thread-items')return blockedThreadItems(input,signal);
     if(input.action==='community-suggestions')return readCommunitySuggestions(input,signal);
     if(['own-list','own-list-identity'].includes(input.action))return readOwnList(input,signal);
-    if(['mod-status','unapproved'].includes(input.action))return readModeration(input,signal);
+    if(['mod-status','unapproved','awaiting-status'].includes(input.action))return readModeration(input,signal);
     if(input.action==='raffle-thread')return raffleThread(input,signal);
     if(input.action==='raffle-me')return raffleMe(signal);
     if(input.action==='raffle-winner-comments')return raffleWinnerComments(input,signal);
@@ -2607,7 +2633,7 @@
     const key=input.channel+':'+input.id;
     if(input.action==='cancel'){jobs.get(key)?.abort();return;}
     if(jobs.has(key))return;
-    if(jobs.size>=4){const deferred=['own-list','own-list-identity','removal-public','removal-public-profile','blocked-probe','blocked-profile-page','blocked-thread-items','render-card','render-navigation','render-controls','render-search-empty','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
+    if(jobs.size>=4){const deferred=['own-list','own-list-identity','removal-public','removal-public-profile','blocked-probe','blocked-profile-page','blocked-thread-items','render-card','render-navigation','render-controls','render-search-empty','profile','info','status','user-avatar','raffle-thread','raffle-me','raffle-winner-comments','raffle-tree','raffle-user','chat-status','chat-send','chat-group','unapproved','mod-status','awaiting-status','community-suggestions','redact-identity','redact-list','redact-item'].includes(input.action);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:deferred,...(deferred?{deferred:true,retryAfterMs:250}:{error:'Please wait for the current Reddit request.'})})}));return;}
     const controller=new AbortController();jobs.set(key,controller);
     try{const result=await read(input,controller.signal);document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:true,...result})}));}
     catch(error){document.dispatchEvent(new CustomEvent('rt-post-response',{detail:JSON.stringify({channel:input.channel,id:input.id,ok:false,error:controller.signal.aborted?'Post request cancelled.':error.message})}));}
