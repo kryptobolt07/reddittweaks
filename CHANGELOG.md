@@ -17,6 +17,8 @@
   - Signed out, Home lost its sort control entirely because Reddit serves its popular feed there. Home now gets Sort & filter, and any feed we don't take over gets Reddit's sort back.
   - Previews no longer need one video played by hand before the start policy works on first load. A failed start no longer leaves a player stuck as hovered or in view, and a pointer already resting on a video starts its preview.
   - Granting Direct embed controls applies without reloading Reddit.
+- **Chat People search:** a chat with no saved message now fetches its latest message and shows it (or "No messages yet"), instead of an empty second line.
+- **Chat search, no matches yet:** while older messages are searched, "No matches yet" stays in place instead of flashing between skeleton rows and the message, and the scrollbar no longer flickers.
 - **Direct embed controls cover every embed provider:**
   - YouTube, Dailymotion, TikTok, Rumble, Kick, GIPHY, X, Facebook, Instagram, Bilibili, Medal, Streamff, Streamja, Imgur and Gfycat join Vimeo, Streamable, RedGIFs and Twitch.
   - Once granted, previews have no overlay, and each player's own sound button, seek bar and settings work without opening the post.
@@ -31,8 +33,8 @@
   - The original first-load preview failure (not reproduced live).
   - The banned-community archive page has no docked pill yet.
 - **Checksums (SHA-256):**
-  - Chromium `614e84f26abbbd057253f5a92cc21ea5ddc37632e31a543180ee7bea64c3f9b5`
-  - Firefox `ba5bf178f1acac84d0075bd7b1b2960027f493a0cd57d506ae01a1d2ecf02f56`
+  - Chromium `53dcefdbb461e1c856d76d7891b0069303772176442c98b3099e4b0211d25b7f`
+  - Firefox `a122dbc890f32e0a187e89b84a4e08d3e4d76b6cf83f8fda7e3c70c9590147ae`
 
 # 0.61.2 preview
 
