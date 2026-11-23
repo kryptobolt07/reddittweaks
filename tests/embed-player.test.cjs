@@ -202,3 +202,44 @@ test('a start that follows input inside the player is reported as the viewer’s
  video.dispatchEvent(new W.Event('play'));
  assert.deepEqual(plays(),[false,true]);
 });
+
+// Every embed provider (docs/video-control-spec.md, Direct embed controls for all providers).
+test('every embed provider is a player address; only its embed page counts',async t=>{
+ const {W}=await player(t),H=W.RTEmbedHosts;
+ for(const url of ['https://www.youtube.com/embed/abc?enablejsapi=1','https://www.youtube-nocookie.com/embed/abc','https://www.dailymotion.com/embed/video/x1','https://www.tiktok.com/embed/v2/123','https://rumble.com/embed/v1abc/','https://player.kick.com/channel','https://platform.twitter.com/embed/Tweet.html?id=1','https://www.facebook.com/plugins/video.php?href=x'])
+  assert.ok(H.playerOrigin(url),url);
+ for(const url of ['https://www.youtube.com/watch?v=abc','https://www.facebook.com/someone','http://www.youtube.com/embed/abc','https://evil.example/embed/abc'])assert.equal(H.playerOrigin(url),'',url);
+ assert.equal(H.isExtra('https://www.youtube.com'),true);assert.equal(H.isExtra('https://player.vimeo.com'),false);
+ assert.ok(H.origins.every(origin=>H.allOrigins.includes(origin)) && H.extraOrigins.every(origin=>H.allOrigins.includes(origin)));
+ assert.ok(!H.origins.some(origin=>origin.includes('youtube')),'an existing grant stays complete without the new providers');
+ const manifest=JSON.parse(read('manifest.json'));for(const origin of H.allOrigins)assert.ok(manifest.optional_host_permissions.includes(origin),origin);
+});
+test('an existing grant keeps its players; granting a provider adds its frames to the registered scripts',async t=>{
+ const {W}=await player(t),H=W.RTEmbedHosts,registered=new Map(),granted=new Set(H.origins);const updates=[];
+ const api={permissions:{contains:async({origins})=>origins.every(origin=>granted.has(origin))},scripting:{
+  getRegisteredContentScripts:async()=>[...registered.values()],
+  registerContentScripts:async scripts=>{for(const script of scripts)registered.set(script.id,{...script});},
+  updateContentScripts:async scripts=>{for(const script of scripts){updates.push(script.id);registered.get(script.id).matches=script.matches;}}
+ }};
+ assert.equal(await H.ensureScripts(api),true);
+ assert.equal(registered.get('rt-embed-player').matches.some(match=>match.includes('youtube')),false);
+ assert.deepEqual([...H.missingProviders((await H.access(api)).hosts).slice(0,2)],['YouTube','Dailymotion']);
+ granted.add('https://www.youtube.com/*');
+ assert.equal(await H.ensureScripts(api),true);
+ assert.ok(registered.get('rt-embed-player').matches.includes('https://www.youtube.com/embed/*'));
+ assert.deepEqual(updates,['rt-embed-player','rt-embed-player-main']);
+ assert.equal(await H.ensureScripts(api),true);assert.equal(updates.length,2,'unchanged matches are left alone');
+});
+test('during a preview, YouTube’s own player chrome and menus hand the player over instead of tapping',async t=>{
+ const {W,video,messages,send,click}=await player(t);
+ W.__rtEmbedPreviewTest=true;
+ const bar=W.document.createElement('div');bar.className='ytp-chrome-bottom';const inner=W.document.createElement('span');bar.append(inner);W.document.body.append(bar);
+ const menu=W.document.createElement('div');menu.setAttribute('role','menuitem');W.document.body.append(menu);
+ await send('preview',{on:true});
+ const told=()=>messages.map(({data})=>data.rtMedia).filter(method=>method==='tap' || method==='take');
+ assert.equal(click(inner),true);assert.deepEqual(told(),['take']);
+ await send('preview',{on:true});
+ assert.equal(click(menu),true);assert.deepEqual(told(),['take','take']);
+ await send('preview',{on:true});
+ assert.equal(click(video),false);assert.deepEqual(told(),['take','take','tap']);
+});

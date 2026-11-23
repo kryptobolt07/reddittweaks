@@ -326,38 +326,58 @@ for(const toggle of document.querySelectorAll('.drawer-toggle[aria-controls]')){
   body.addEventListener('transitionend',()=>settled());
 }
 
-// Direct embed controls: explicit Grant access / Revoke access permission button.
+// Direct embed controls: explicit Grant access / Revoke access permission button. The original players are one grant;
+// the other embed providers are checked host by host, so a grant made before they were added still works and shows
+// what one more Grant access adds (docs/video-control-spec.md, Direct embed controls).
 async function loadDirectEmbedControls(){
   const api=globalThis.browser || globalThis.chrome,hosts=globalThis.RTEmbedHosts;
   const button=document.getElementById('direct-embed-controls'),status=document.getElementById('direct-embed-status');
+  const revoke=document.getElementById('direct-embed-revoke');
   const heading=document.getElementById('embed-controls-heading');
   if(!button || !hosts || !api?.permissions?.request || !api.scripting?.registerContentScripts)return;
-  const id='rt-embed-player',sites={origins:hosts.origins};
+  const ids=['rt-embed-player','rt-embed-player-main'];
   if(heading)heading.hidden=false;
   button.closest('.setting-row').hidden=false;
   button.disabled=true;
-  let enabled=false;
+  let core=false,missing=[];
+  const read=async()=>{
+    const state=hosts.access?await hosts.access(api):{core:await api.permissions.contains({origins:hosts.origins}),hosts:[]};
+    core=state.core;missing=hosts.missingProviders?hosts.missingProviders(state.hosts):[];
+  };
+  const list=names=>names.length<=2?names.join(' and '):names.slice(0,2).join(', ')+' and '+(names.length-2)+' more';
   const paint=()=>{
-    button.textContent=enabled?'Revoke access':'Grant access';
-    button.dataset.granted=String(enabled);
+    const partial=core && missing.length>0;
+    button.textContent=core && !partial?'Revoke access':'Grant access';
+    button.dataset.granted=String(core);
+    button.dataset.partial=String(partial);
+    if(revoke)revoke.hidden=!partial;
     button.disabled=false;
     syncDependencies();syncSummary();settled();
   };
-  try{enabled=await hosts.ensureScripts(api);}catch{}
-  if(enabled)status.textContent='Access granted for supported players.';
-  paint();
+  const describe=()=>{
+    if(core && missing.length)status.textContent='Granted for Vimeo, Streamable, RedGIFs and Twitch. '+list(missing)+' need one more Grant access.';
+    else if(core)status.textContent='Access granted for supported players.';
+  };
+  try{await read();if(core)await hosts.ensureScripts(api);}catch{}
+  describe();paint();
+  const unregister=async()=>{for(const id of ids){try{await api.scripting.unregisterContentScripts({ids:[id]});}catch{}}};
+  revoke?.addEventListener('click',async()=>{
+    revoke.disabled=true;
+    try{await api.permissions.remove({origins:hosts.allOrigins || hosts.origins});await unregister();core=false;missing=[];status.textContent='Access revoked. Refresh open Reddit tabs to apply.';}
+    catch{status.textContent='Could not update direct embed controls. Please retry.';}
+    revoke.disabled=false;paint();
+  });
   button.addEventListener('click',async()=>{
     button.disabled=true;
     try{
-      if(enabled){
-        await api.permissions.remove(sites);
-        await api.scripting.unregisterContentScripts({ids:[id]});
-        try{await api.scripting.unregisterContentScripts({ids:['rt-embed-player-main']});}catch{}
-        enabled=false;
+      if(core && !missing.length){
+        await api.permissions.remove({origins:hosts.allOrigins || hosts.origins});
+        await unregister();
+        core=false;missing=[];
         status.textContent='Access revoked. Refresh open Reddit tabs to apply.';
-      }else if(await api.permissions.request(sites)){
+      }else if(await api.permissions.request({origins:hosts.allOrigins || hosts.origins})){
         if(!await hosts.ensureScripts(api))throw Error('Player permission is unavailable.');
-        enabled=true;
+        await read();
         status.textContent='Access granted. Refresh open Reddit tabs to apply.';
       }else status.textContent='Allow access to supported players to enable direct controls.';
     }catch{status.textContent='Could not update direct embed controls. Please retry.';}
@@ -505,16 +525,17 @@ function syncDependencies(){
   // Options that work without it but reach some embeds only through it: a one-line hint, not dimmed.
   for(const row of document.querySelectorAll('.setting-row[data-permission-hint]')){
     if(isDeviceHidden(row))continue;
-    const {available,granted,name}=permissionState(row.dataset.permissionHint);
+    const {available,granted,partial,name}=permissionState(row.dataset.permissionHint);
     const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
-    permissionNote(row,control,available && !granted?(row.dataset.permissionHintText || 'Embeds from Vimeo, Streamable, RedGIFs and Twitch need')+' ':'',name,'permission-hint');
+    const lead=!available?'':!granted?(row.dataset.permissionHintText || 'Embeds from Vimeo, Streamable, RedGIFs and Twitch need'):partial?'Embeds from YouTube and other sites need':'';
+    permissionNote(row,control,lead?lead+' ':'',name,'permission-hint');
   }
 }
 function permissionState(id){
   const button=document.getElementById(id),row=button?.closest('.setting-row');
   const available=Boolean(button) && !row?.hidden;
   const label=document.querySelector('label[for="'+id+'"]');
-  return {available,granted:available && button.dataset.granted==='true',name:(label?.textContent || 'the permission').trim(),target:id};
+  return {available,granted:available && button.dataset.granted==='true',partial:available && button.dataset.partial==='true',name:(label?.textContent || 'the permission').trim(),target:id};
 }
 // The note under a row's description, with the permission's name as a link-style button, named by its control.
 function permissionNote(row,control,lead,name,className){

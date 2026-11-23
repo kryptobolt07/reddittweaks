@@ -328,7 +328,12 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(message?.scope!=='rt-embed-direct')return;
   let origin='';try{origin=new URL(sender.url).origin;}catch{}
   if(sender.id!==chrome.runtime.id || sender.frameId!==0 || !RTEmbedHosts.redditOrigins.includes(origin)){respond(false);return;}
-  ensureEmbedScripts().then(respond);
+  // {core, origins}: the page expects a frame to drive itself only where its provider is granted.
+  ensureEmbedScripts().then(async core=>{
+    if(!core){respond({core:false,origins:[]});return;}
+    const {hosts}=await RTEmbedHosts.access(chrome).catch(()=>({hosts:[]}));
+    respond({core:true,origins:hosts.map(host=>'https://'+host)});
+  },()=>respond({core:false,origins:[]}));
   return true;
 });
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{

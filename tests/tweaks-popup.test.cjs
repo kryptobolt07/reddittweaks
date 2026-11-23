@@ -584,3 +584,24 @@ test('switches and choices show the last known settings on first paint via mirro
   assert.equal(JSON.parse(p.w.localStorage.getItem('rt-settings-mirror-v1')).cleanShareLinks,true);
   const fresh=popup(t,{tabs:redditTab});assert.equal(fresh.w.document.getElementById('raffles').disabled,true,'without a mirror, controls wait for storage');
 });
+
+test('a grant made before the other embed providers were added stays on, and Grant access adds the rest',async t=>{
+  const access=embedAccess({granted:true});let requested=null;
+  const hostsContext={};require('node:vm').runInNewContext(require('node:fs').readFileSync('extension/embed-player-hosts.js','utf8'),hostsContext);
+  const granted=new Set(hostsContext.RTEmbedHosts.origins);
+  access.api.permissions.contains=async({origins})=>origins.every(origin=>granted.has(origin));
+  access.api.permissions.request=async({origins})=>{requested=origins;for(const origin of origins)granted.add(origin);return true;};
+  access.api.permissions.remove=async({origins})=>{for(const origin of origins)granted.delete(origin);};
+  const p=popup(t,{storedTab:'settings',embedAccess:access.api});
+  await settle();
+  const {document}=p.w,button=document.querySelector('#direct-embed-controls'),revoke=document.querySelector('#direct-embed-revoke');
+  assert.equal(button.textContent,'Grant access');assert.equal(button.dataset.granted,'true');assert.equal(button.dataset.partial,'true');
+  assert.match(document.querySelector('#direct-embed-status').textContent,/^Granted for Vimeo, Streamable, RedGIFs and Twitch\. YouTube, Dailymotion and \d+ more need one more Grant access\.$/);
+  assert.equal(revoke.hidden,false);
+  const blockRow=document.querySelector('#embed-block-links').closest('.setting-row');
+  assert.equal(blockRow.classList.contains('is-inactive'),false,'options that need the grant stay on');
+  button.click();await settle();
+  assert.ok(requested.includes('https://www.youtube.com/*') && requested.includes('https://www.redgifs.com/*'));
+  assert.equal(button.textContent,'Revoke access');assert.equal(button.dataset.partial,'false');assert.equal(revoke.hidden,true);
+  assert.ok(access.registered[0].matches.includes('https://www.youtube.com/embed/*'));
+});

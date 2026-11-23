@@ -16,7 +16,10 @@
   // While the Reddit page previews this player (preview on), a click on the video surface is reported as a tap instead
   // of toggling playback, and a click on the player's own controls as the viewer taking the player.
   let previewOn=false,lastInput=-Infinity;
-  const CONTROLS='button,input,select,[role="button"]:not(a[href]),[role="slider"]';
+  const CONTROLS='button,input,select,[role="button"]:not(a[href]),[role="slider"],[role="menu"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="dialog"],[role="listbox"],[role="option"]';
+  // Player chrome of the common embed players (YouTube, video.js, Plyr, JW Player): a click there is the viewer using
+  // the player, never a tap on the video.
+  const CHROME='.ytp-chrome-bottom,.ytp-chrome-top,.ytp-popup,.ytp-ce-element,.ytp-cards-teaser,.ytp-pause-overlay,.ytp-endscreen-content,.ytp-large-play-button,.ytp-watermark,.vjs-control-bar,.vjs-menu,.vjs-big-play-button,.plyr__controls,.plyr__menu,.jw-controls-backdrop~.jw-controlbar,.jw-controlbar,.jw-settings-menu,.jw-display-icon-container';
   const media=()=>document.querySelector('video');
   // A player that starts by itself (RedGIFs) waits on its first frame until the Reddit page says play or pause, so an
   // idle feed card shows the real first frame instead of an image or a blank box. Without an answer within 3 s — or
@@ -217,8 +220,9 @@
     if(event.defaultPrevented)return;
     const path=event.composedPath(),target=path[0],link=path.find(node=>node.matches?.('a[href],area[href]'));
     const video=target?.matches?.('video')?target:link?.querySelector('video');
-    const inStrip=node=>Boolean(node?.controls) && node.getBoundingClientRect().bottom-event.clientY<52;
-    const control=path.some(node=>node.matches?.(CONTROLS)) || inStrip(video);
+    // The bottom 52 px of a player is its control strip, whether native controls or the provider's own overlay.
+    const inStrip=node=>{if(!node)return false;const box=node.getBoundingClientRect();return (node.controls || box.height>80) && box.bottom-event.clientY<52 && event.clientY<=box.bottom;};
+    const control=path.some(node=>node.matches?.(CONTROLS) || node.matches?.(CHROME)) || inStrip(video);
     // Preview: the video surface is the Reddit page's (tap); the player's own controls or links hand it the player (take).
     if(previewOn && event.type==='click' && event.button===0 && (event.isTrusted || globalThis.__rtEmbedPreviewTest)){
       if(control || inStrip(media()) || link && !video){previewOn=false;up('take');}

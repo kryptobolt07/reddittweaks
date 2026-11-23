@@ -415,7 +415,8 @@
    // Whether direct embed controls are on: then a player that starts by itself is held on its first frame, not unloaded.
    this.directReady=false;
    this.readDirect=readDirect;
-   const direct=Promise.resolve(readDirect?.()).then(value=>{this.directReady=value===true;},()=>{});
+   this.directOrigins=new Set();
+   const direct=Promise.resolve(readDirect?.()).then(value=>this.setDirect(value),()=>{});
    const vol=Promise.resolve(this.readVolume?.()).then(value=>{if(value && typeof value==='object')this.savedVolume=value;},()=>{});
    this.ready=Promise.all([readSettings?.(),direct,vol]).then(([s])=>{this.configure(s || {});},()=>this.configure({}));
   }
@@ -894,7 +895,12 @@
   }
   refreshDirect(){
    if(!this.readDirect)return;
-   Promise.resolve(this.readDirect()).then(value=>{this.directReady=value===true;},()=>{});
+   Promise.resolve(this.readDirect()).then(value=>this.setDirect(value),()=>{});
+  }
+  // true (original players only) or {core, origins}: extra providers count only once granted.
+  setDirect(value){
+   this.directReady=value===true || value?.core===true;
+   this.directOrigins=new Set(Array.isArray(value?.origins)?value.origins.filter(origin=>typeof origin==='string'):[]);
   }
   // A pointer already resting on a video gets no new pointerover: when settings arrive, a player attaches, the tab
   // shows again or scrolling stops, the media under the last known pointer position is treated as just hovered
@@ -1077,7 +1083,14 @@
    const origin=this.embedOrigin(frame);
    if(origin)frame.contentWindow?.postMessage({rtMedia,...fields},origin);
   }
-  held(state){return Boolean(state.direct || this.directReady && state.kind==='flags');}
+  held(state){return Boolean(state.direct || this.directReady && state.kind==='flags' && state.frame && this.grantedFrame(state.frame));}
+  // A supported player address whose provider is covered by the current grant (the original players, or an extra
+  // provider granted host by host).
+  grantedFrame(frame){
+   const src=frame.dataset.rtParked?frame.dataset.rtSrc:frame.getAttribute('src');
+   const origin=embedHosts?.playerOrigin(src || '');
+   return Boolean(origin && (!embedHosts.isExtra?.(origin) || this.directOrigins.has(origin)));
+  }
   // A frame the extension can drive from inside (its frame script said hello), or one expected to (Direct embed controls
   // granted and a supported player address) until it says hello or HELLO_MS pass without one. Such a player keeps its
   // own picture and controls: no still, cover or click layer is put over it.
@@ -1085,8 +1098,7 @@
    const state=this.frameState(frame);
    if(state.direct)return true;
    if(!this.directReady || state.noHello)return false;
-   const src=frame.dataset.rtParked?frame.dataset.rtSrc:frame.getAttribute('src');
-   if(!embedHosts?.playerOrigin(src || ''))return false;
+   if(!this.grantedFrame(frame))return false;
    if(!frame.dataset.rtParked && !state.helloTimer)state.helloTimer=this.win.setTimeout(()=>{
     state.helloTimer=null;
     if(state.direct || !frame.isConnected || frame.dataset.rtParked || this.dead)return;
@@ -1130,7 +1142,7 @@
   frameState(frame){
    let state=this.frames.get(frame);
    if(!state){
-    state={kind:frameKind(frame),queue:new Map()};this.frames.set(frame,state);
+    state={kind:frameKind(frame),queue:new Map(),frame};this.frames.set(frame,state);
     if(state.kind!=='flags')this.subscribe(frame,state);
     frame.addEventListener('load',()=>{
      if(frame.dataset.rtParked)return;
@@ -2369,7 +2381,7 @@
  globalThis.RTVideoControl=Object.freeze({Videos,readAutoplayDisabled});
  if(globalThis.chrome?.runtime?.id && !globalThis.__rtVideoControlTest){
   const read=async()=>{const r=await chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});return r?.ok?r.settings:{};};
-  const direct=()=>chrome.runtime.sendMessage({scope:'rt-embed-direct'}).then(value=>value===true,()=>false);
+  const direct=()=>chrome.runtime.sendMessage({scope:'rt-embed-direct'}).then(value=>value,()=>false);
   const videos=new Videos({readSettings:read,readDirect:direct});
   chrome.runtime.onMessage.addListener((message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===chrome.runtime.id){videos.refreshDirect();videos.configure(message.settings);};});
   // Visiting Reddit's own settings re-reads the preference next time.

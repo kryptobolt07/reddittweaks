@@ -104,8 +104,8 @@ Fixes: `startPreview` reports failure and clears `hovered`/`viewing`. A transien
 Already in place for direct frames (`docs/video-control-spec.md`, M1–M8). The page answers each supported frame's hello with `pause` instead of parking it behind a still or cover. Previews add no click layer; the frame script turns clicks on the video surface into `tap` and clicks on the player's own controls into `take`. Reddit's own player never had an overlay; its controls stay native (strict click-target isolation).
 
 Remaining gaps:
-- YouTube isn't a direct host, so its previews still use the transparent layer with a sound button. Adding `www.youtube.com/embed/` and `www.youtube-nocookie.com/embed/` as their own optional origins (existing grants keep working; YouTube needs one more grant) removes the layer there too. That's a separate step after the user tests 0.62.
-- `directReady` is read once per page; granting while a Reddit tab is open applies after a reload. Fix: re-read it on `settings-changed`.
+- Done in 0.62.0: every embed provider (YouTube included) is a direct host under the same Grant access, checked host by host so existing grants keep working (`docs/video-control-spec.md`, Direct embed controls for every provider).
+- Done: the grant is re-read on `settings-changed` and when the tab shows again.
 
 ## Verification
 

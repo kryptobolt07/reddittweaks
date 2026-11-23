@@ -2033,3 +2033,14 @@ test('a stalled preview is dropped so a later pick can try again',async t=>{
  watch[0]();
  assert.equal(controller.hovered,null,'the stalled preview is released');
 });
+test('an extra provider’s frame is expected to drive itself only once that provider is granted',async t=>{
+ const p=page(t);const controller=await hoverController(p);
+ const frame=p.d.createElement('iframe');frame.setAttribute('src','https://www.youtube.com/embed/abc?enablejsapi=1');p.d.body.append(frame);
+ const vimeo=p.d.createElement('iframe');vimeo.setAttribute('src','https://player.vimeo.com/video/1');p.d.body.append(vimeo);
+ controller.setDirect(true);
+ assert.equal(controller.grantedFrame(frame),false,'the original grant does not cover YouTube');assert.equal(controller.grantedFrame(vimeo),true);
+ assert.equal(controller.expectDirect(frame),false);
+ controller.setDirect({core:true,origins:['https://www.youtube.com']});
+ assert.equal(controller.grantedFrame(frame),true);assert.equal(controller.expectDirect(frame),true);
+ controller.setDirect({core:false,origins:[]});assert.equal(controller.directReady,false);assert.equal(controller.expectDirect(vimeo),false);
+});

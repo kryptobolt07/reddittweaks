@@ -406,3 +406,37 @@ Report: previews sometimes ignored the start policy on first load until one vide
 | V5 | Direct embed controls granted in the popup while a Reddit tab is open | Read again on settings changes and when the tab shows; no reload needed |
 
 Verified: unit tests for V1–V3. Live: previews started on cold loads before and after the fix. The original failure wasn't reproduced live, so V1–V4 aren't verified against it.
+
+## Direct embed controls for every provider (2026-11-23)
+
+User request: with Direct embed controls granted, no overlay for any embed provider, and the player's own controls (sound, seek bar, settings) usable without counting as a tap on the video.
+
+- **Providers:** the original players (RedGIFs, Vimeo, Streamable, Twitch, Embedly's wrapper) plus every other video provider Reddit embeds, directly or inside Embedly's wrapper: YouTube (including youtube-nocookie), Dailymotion, TikTok, Rumble, Kick, GIPHY, X, Facebook video, Instagram, Bilibili, Medal, Streamff, Streamja, Imgur albums and Gfycat. Only each provider's embed page counts (`RTEmbedHosts.playerOrigin`).
+- **Grants:**
+  - The original set stays one grant (`RTEmbedHosts.origins`), so a grant made before this change keeps working.
+  - Other providers are checked host by host (`RTEmbedHosts.access`), and the frame scripts are registered, or updated, for exactly the granted hosts.
+  - The worker answers `rt-embed-direct` with `{core, origins}`. The page expects a frame to say hello only when its provider is granted (`grantedFrame`), so an ungranted provider never waits 3.5 s without its cover.
+- **Popup:**
+  - Grant access asks for every provider in one prompt.
+  - With only the original grant, the row reads "Granted for Vimeo, Streamable, RedGIFs and Twitch. YouTube, Dailymotion and N more need one more Grant access." The options that need the grant stay on, a Revoke access link shows, and partly dependent rows hint "Embeds from YouTube and other sites need Direct embed controls".
+  - Revoke removes every provider.
+- **Controls during a preview:** besides buttons and sliders, these hand the player over (`take`) instead of tapping:
+  - ARIA menus, dialogs and listboxes.
+  - The common players' chrome: YouTube's bars, menus, end screen and big play button; video.js; Plyr; JW Player.
+  - The bottom 52 px strip of any player taller than 80 px.
+
+  A click anywhere else on the video surface is the page's `tap`, which applies *Media click action*.
+
+| | Transition | Expected |
+|---|---|---|
+| D1 | Original grant only, YouTube preview | Unchanged: the transparent layer with a sound button, and no 3.5 s wait for a hello |
+| D2 | All providers granted, YouTube preview | No layer. The frame reports taps; YouTube's mute, seek bar and settings work in place and keep the player in the feed |
+| D3 | Grant more in the popup while a Reddit tab is open | The page re-reads the grant when the tab shows again; frames load with the script after a reload, since Chrome injects into new documents only |
+| D4 | Revoke | Every provider's scripts are unregistered; open tabs keep the old frames until refresh |
+
+**Limits:**
+- X, Instagram and Facebook embeds are post cards. A card with no `<video>` never says hello and falls back to its cover after 3.5 s.
+- Players whose controls live in a closed shadow root or a nested frame of another site get the strip and ARIA rules only.
+- Audio-only embeds (SoundCloud, Spotify) aren't covered.
+
+**Verified:** unit tests (provider addresses, per-host registration and updates, partial-grant popup, page expectation gating, YouTube chrome as controls). **Not verified live:** granting is a browser permission prompt the user answers, and provider pages weren't opened.
