@@ -17,18 +17,22 @@
   - Signed out, Home lost its sort control entirely because Reddit serves its popular feed there. Home now gets Sort & filter, and any feed we don't take over gets Reddit's sort back.
   - Previews no longer need one video played by hand before the start policy works on first load. A failed start no longer leaves a player stuck as hovered or in view, and a pointer already resting on a video starts its preview.
   - Granting Direct embed controls applies without reloading Reddit.
+- **Direct embed controls cover every embed provider:**
+  - YouTube, Dailymotion, TikTok, Rumble, Kick, GIPHY, X, Facebook, Instagram, Bilibili, Medal, Streamff, Streamja, Imgur and Gfycat join Vimeo, Streamable, RedGIFs and Twitch.
+  - Once granted, previews have no overlay, and each player's own sound button, seek bar and settings work without opening the post.
+  - A grant made before this keeps working; the popup shows what one more Grant access adds.
 - **Minor increment:** new user-facing features (View row, Community filter, docked control, Awaiting approval for everyone, the new switch).
 - **Measured live** (signed-in Playwright launcher, profile signed out): the row and menu, the post-open transition (control kept for the 5 s the old feed stayed on screen), signed-out Home, the dock on computer and phone, previews on cold loads.
 - **Not verified:**
   - Signed-in Home.
   - The moderator queue.
-  - Anything that needs Direct embed controls.
+  - Anything that needs Direct embed controls, for any provider (the grant is a browser prompt for you, and provider pages weren't opened).
   - The non-moderator Awaiting approval list on live Reddit.
   - The original first-load preview failure (not reproduced live).
   - The banned-community archive page has no docked pill yet.
 - **Checksums (SHA-256):**
-  - Chromium `155c9fe385cff47e253376d16d6a0a9ab6f895be7f6d2cf5e287a507ae04beee`
-  - Firefox `e56ddee3ccc373ebb931ab145e006b5dc09f06f4267150e53219d50a3d467b6b`
+  - Chromium `614e84f26abbbd057253f5a92cc21ea5ddc37632e31a543180ee7bea64c3f9b5`
+  - Firefox `ba5bf178f1acac84d0075bd7b1b2960027f493a0cd57d506ae01a1d2ecf02f56`
 
 # 0.61.2 preview
 
