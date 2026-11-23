@@ -523,7 +523,7 @@
      this.applyLoopPolicy(player,video);
      if(this.volumeMemory && this.savedVolume && !this.previews.get(player)?.active && !this._lastAttached?.has(player))this.applySavedVolume(player,video,false);
     }
-    if(this.startMode(mediaKind(player))!=='default' && !video.paused && !this.started.has(video) && !this.continued.has(video) && !this.loops.has(player) &&
+    if(this.blocksStart(player) && !video.paused && !this.started.has(video) && !this.continued.has(video) && !this.loops.has(player) &&
        !this.directManaged(video)){
      this.block(player,video);
     }
@@ -531,6 +531,13 @@
   }
   get touch(){return Boolean(this.win.matchMedia?.('(hover: none) and (pointer: coarse)')?.matches);}
   startMode(kind,settings=this.choice){return settings[kind+'Start'];}
+  // Whether a start Reddit makes by itself is stopped. Autoplay and Preview choose among feed and comment media only,
+  // so a post's own video or GIF keeps Reddit's start there (blocking it left it paused for good, measured
+  // 2026-11-23); Only when I press Play stops it everywhere.
+  blocksStart(player,kind=mediaKind(player)){
+   const mode=this.startMode(kind);
+   return mode!=='default' && (mode==='play' || player.getAttribute?.('player-type')!==DETAIL_PLAYER);
+  }
   get clickAction(){return this.choice.mediaClickAction;}
   get clickAudio(){return this.choice.clickAudio;}
   get singleVideo(){return this.choice.singleVideo===true;}
@@ -790,7 +797,7 @@
     this.handoff();
     this.applyDirect();
    },true);
-   if(commentOf(player) && video && !video.paused && this.startMode(mediaKind(player))!=='default')this.block(player,video);
+   if(commentOf(player) && video && !video.paused && this.blocksStart(player))this.block(player,video);
   }
   video(player){return player.matches('video')?player:player.shadowRoot?.querySelector('video') || null;}
   isDetailMedia(player){
@@ -1963,7 +1970,7 @@
     if(kind!=='gif' && this.volumeMemory && this.savedVolume)this.applySavedVolume(player,video,true);
    }else{
     this.started.delete(video);
-    if(this.startMode(kind)!=='default'){this.block(player,video);return;}
+    if(this.blocksStart(player,kind)){this.block(player,video);return;}
     if(kind!=='gif' && this.volumeMemory && this.savedVolume)this.applySavedVolume(player,video,false);
    }
    delete player.dataset.rtAutoplayBlocked;

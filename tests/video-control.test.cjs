@@ -1798,3 +1798,13 @@ test('Post opened directly: a video scrolled out of view waits until it is seen'
  top=200;p.io.cb([{target:p.player,intersectionRatio:0.6}]);
  assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);
 });
+test('Autoplay and Preview leave a post’s own video to Reddit; Only when I press Play still stops it',async t=>{
+ for(const [mode,stopped] of [['autoplay',false],['preview',false],['play',true]]){
+  const p=page(t,{detail:true});
+  await hoverController(p,{videoStart:mode});
+  p.video.muted=true;p.start();
+  assert.equal(p.video.paused,stopped,mode);
+ }
+ const q=page(t);await hoverController(q,{videoStart:'play'});q.start();
+ assert.equal(q.video.paused,true,'a feed video Reddit starts is still stopped');
+});
