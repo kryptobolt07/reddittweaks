@@ -19,12 +19,14 @@
   - Granting Direct embed controls applies without reloading Reddit.
 - **Chat People search:** a chat with no saved message now fetches its latest message and shows it (or "No messages yet"), instead of an empty second line.
 - **Chat search, no matches yet:** while older messages are searched, "No matches yet" stays in place instead of flashing between skeleton rows and the message, and the scrollbar no longer flickers.
+- **Chat search startup:** the loading skeleton stays below the People, All and Messages tabs and behind search results. Applied filters have an 8 px gap beneath the tabs.
 - **Direct embed controls cover every embed provider:**
   - YouTube, Dailymotion, TikTok, Rumble, Kick, GIPHY, X, Facebook, Instagram, Bilibili, Medal, Streamff, Streamja, Imgur and Gfycat join Vimeo, Streamable, RedGIFs and Twitch.
   - Once granted, previews have no overlay, and each player's own sound button, seek bar and settings work without opening the post.
   - A grant made before this keeps working; the popup shows what one more Grant access adds.
 - **Minor increment:** new user-facing features (View row, Community filter, docked control, Awaiting approval for everyone, the new switch).
 - **Measured live** (signed-in Playwright launcher, profile signed out): the row and menu, the post-open transition (control kept for the 5 s the old feed stayed on screen), signed-out Home, the dock on computer and phone, previews on cold loads.
+- **Chat search verification:** phone-width, desktop and floating browser fixtures covered opening search during startup, applying and clearing a filter, and restoring search from minimized chat. The signed-out test profile prevented live chat verification. This fix ships in the same unreleased preview.
 - **Not verified:**
   - Signed-in Home.
   - The moderator queue.
@@ -33,8 +35,8 @@
   - The original first-load preview failure (not reproduced live).
   - The banned-community archive page has no docked pill yet.
 - **Checksums (SHA-256):**
-  - Chromium `53dcefdbb461e1c856d76d7891b0069303772176442c98b3099e4b0211d25b7f`
-  - Firefox `a122dbc890f32e0a187e89b84a4e08d3e4d76b6cf83f8fda7e3c70c9590147ae`
+  - Chromium `d453b3173e2abd7d453e99b48ba48943b7784abef424bde4c7324ff841c77c3c`
+  - Firefox `1b88db0f4a2b051377b79237fe250280beca79d0a1c3c3b3a368a4d353b530ba`
 
 # 0.61.2 preview
 
