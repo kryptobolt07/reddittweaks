@@ -5,16 +5,38 @@ const {JSDOM}=require('jsdom');
 function setup(t){
  const W=new JSDOM('<body><rs-app><rs-rooms-nav></rs-rooms-nav></rs-app></body>',{url:'https://www.reddit.com/chat',runScripts:'outside-only',pretendToBeVisual:true}).window;t.after(()=>W.close());
  let now=0,next=0;const timers=new Map();W.Date.now=()=>now;W.setTimeout=(fn,ms)=>{timers.set(++next,{fn,at:now+ms});return next;};W.clearTimeout=id=>timers.delete(id);
+ W.requestAnimationFrame=fn=>W.setTimeout(fn,16);W.cancelAnimationFrame=W.clearTimeout;
  const tick=ms=>{const end=now+ms;for(;;){const entry=[...timers].filter(([,v])=>v.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!entry)break;now=entry[1].at;timers.delete(entry[0]);entry[1].fn();}now=end;};
  const nav=W.document.querySelector('rs-rooms-nav'),root=nav.attachShadow({mode:'open'});root.innerHTML='<rs-virtual-scroll></rs-virtual-scroll>';const scroller=root.firstElementChild;scroller.attachShadow({mode:'open'});
  const rect=(top,height)=>({x:0,y:top,top,bottom:top+height,left:0,right:300,width:300,height});nav.getBoundingClientRect=()=>rect(0,500);scroller.getBoundingClientRect=()=>rect(80,420);
  W.eval(fs.readFileSync('extension/adapter.js','utf8'));
  const row=(id,name='Person',avatar=true,top=80)=>{const e=W.document.createElement('rs-rooms-nav-room');e.setAttribute('room',id);const s=e.attachShadow({mode:'open'});s.innerHTML='<div class="container"><span class="room-name"></span><rs-room-icon></rs-room-icon></div>';s.querySelector('.room-name').textContent=name;const icon=s.querySelector('rs-room-icon');icon.attachShadow({mode:'open'});if(avatar)icon.shadowRoot.innerHTML='<span avatar><svg></svg></span>';e.getBoundingClientRect=()=>rect(top,60);scroller.shadowRoot.append(e);return e;};
- W.eval(fs.readFileSync('extension/chat-startup.js','utf8'));const check=()=>W.RCSChatStartup.check(W.RCSAdapter.chatRoots());const held=()=>scroller.style.visibility==='hidden';return {W,nav,root,scroller,row,tick,check,held,timers};
+ W.eval(fs.readFileSync('extension/chat-startup.js','utf8'));const check=()=>W.RCSChatStartup.check([W.document]);const held=()=>scroller.style.visibility==='hidden';return {W,nav,root,scroller,row,tick,check,held,timers};
 }
 test('warm native list holds only its scroller for 300ms, preserving native scroll position and ARIA',t=>{
  const p=setup(t);p.row('one');p.scroller.scrollTop=42;p.scroller.setAttribute('aria-busy','false');p.check();assert.equal(p.held(),true);assert.notEqual(p.nav.style.visibility,'hidden');assert.equal(p.root.querySelector('[data-rcs-ui="startup"]')?.getAttribute('aria-hidden'),'true');p.tick(299);assert.equal(p.held(),true);p.tick(1);assert.equal(p.held(),false);assert.equal(p.scroller.scrollTop,42);assert.equal(p.scroller.getAttribute('aria-busy'),'false');assert.equal(p.root.querySelector('[data-rcs-ui="startup"]'),null);
  p.row('two');p.check();p.tick(500);assert.equal(p.held(),false,'later changes never hold again');assert.equal(p.timers.size,0);
+});
+test('startup placeholder follows the native list as search controls open and close',t=>{
+ const p=setup(t);p.row('a','');p.check();
+ const host=p.root.querySelector('[data-rcs-ui="startup"]');
+ const initial=p.scroller.getBoundingClientRect();
+ let controlsHeight=36.25;
+ p.scroller.getBoundingClientRect=()=>({...initial,top:initial.top+controlsHeight,height:initial.height-controlsHeight});
+ p.tick(16);
+ assert.equal(host.style.top,'116.25px');
+ assert.equal(host.style.height,'383.75px');
+ controlsHeight+=40;
+ p.tick(16);
+ assert.equal(host.style.top,'156.25px');
+ assert.equal(host.style.height,'343.75px');
+ controlsHeight=0;
+ p.tick(16);
+ assert.equal(host.style.top,'80px');
+ assert.equal(host.style.height,'420px');
+ p.W.RCSChatStartup.stop();
+ assert.equal(host.isConnected,false);
+ assert.equal(p.timers.size,0);
 });
 test('changing visible room order restarts stability and missing names wait until available',t=>{
  const p=setup(t),a=p.row('a','');p.check();p.tick(250);p.row('b','Other',true,140);p.tick(100);assert.equal(p.held(),true);a.shadowRoot.querySelector('.room-name').textContent='Ready';p.tick(300);assert.equal(p.held(),false);

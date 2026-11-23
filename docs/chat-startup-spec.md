@@ -19,6 +19,7 @@ User report (screenshots): opening Reddit chat after a while or after a browser 
 - It reveals Reddit's list in one step once it has **settled**: the visible rows (room order) have not changed for 300 ms, every visible row has a name, and every visible avatar has rendered (images inside it complete). Avatars still pending 1.2 s after the rows are stable no longer hold it.
 - Hard cap: the list is never held for more than 4.5 s after it first appears; an empty list (no conversations) is revealed once stable.
 - Only the first appearance per document is held. Switching conversations, Reddit re-rendering the list, searching and later updates are never hidden.
+- During the hold, the placeholder follows the native list as search tabs and filters open or close. The search controls and results paint above it.
 - Scroll position and focus are Reddit's own; placeholders are inert (`aria-hidden`), and the list keeps `aria-busy` while held.
 - Full-screen, floating and minimized chat are all covered (the floating list uses the same `rs-rooms-nav`).
 
@@ -31,12 +32,13 @@ User report (screenshots): opening Reddit chat after a while or after a browser 
 | T3 | Reddit never finishes a row (deleted account, slow avatar) | Revealed by the 1.2 s avatar grace or the 4.5 s cap |
 | T4 | Switch conversation / list re-render after startup | Never hidden again |
 | T5 | Extension reloaded mid-hold / page hidden | Hold released; no stale placeholders |
+| T6 | Focus search, apply a filter or dismiss search while the list is held | Placeholder bounds follow the scroller and the search UI stays above it |
 
 ## Verification and lifecycle
 
 - Synthetic shadow-DOM fixtures cover room-order changes, nameless rows, incomplete image avatars, offscreen rows, empty lists, the deadline, cleanup and zero-sized minimized lists. Native scroll position and prior inline styles/ARIA state are retained.
 - Native measurement on 2026-11-17: row frame 60px, padding 8px 12px, gap 8px; scroller is in the nav shadow root, rows are inside the scroller shadow root. Avatars render `[avatar]` with a snoovatar/SVG or image. The page registers `faceplate-shimmer`, reused when available with a reduced-motion fallback.
-- Early chat-root observation and bounded 100ms shadow-hydration probes find the first list before document-idle controls; existing content-script discovery is a backup. Starting the hold disconnects these observers and cancels hydration probing; releasing it clears both bounded timers and removes its listeners and overlay. Later discovery does nothing. Hidden/pagehide/detached scroller/invalid extension context release it.
+- Early chat-root observation and bounded 100ms shadow-hydration probes find the first list before document-idle controls; existing content-script discovery is a backup. Starting the hold disconnects these observers and cancels hydration probing; releasing it clears both bounded timers, cancels the layout frame and removes its listeners and overlay. Later discovery does nothing. Hidden/pagehide/detached scroller/invalid extension context release it.
 
 - Live packaged Chrome check: placeholder and native scroller bounds matched exactly (299.44px by 586.46px, top107.99px); placeholder rows matched native60px. The first hold was observed at1198ms and released by1923ms, with no remaining overlay. Chrome isolated worlds can have a null custom-element registry; the themed fallback handles this without blocking startup. The original long-gap nameless startup and all display modes were not reproduced live.
 

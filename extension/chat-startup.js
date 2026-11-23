@@ -6,13 +6,26 @@
   const restore=(element,name,value)=>value!==null ? element.setAttribute(name,value) : element.removeAttribute(name);
   function release(){
     const state=active;if(!state)return;active=null;
-    clearTimeout(state.timer);clearTimeout(state.deadline);
+    clearTimeout(state.timer);clearTimeout(state.deadline);cancelAnimationFrame(state.frame);
     state.scroller.style.visibility=state.visibility;
     restore(state.scroller,'aria-busy',state.busy);
     state.nav.style.position=state.position;state.host.remove();
     window.removeEventListener('pagehide',release);document.removeEventListener('visibilitychange',hidden);
   }
   function hidden(){if(document.hidden)release();}
+  // Search tabs and applied filters can move the native list while it is held.
+  function follow(state){
+    if(active!==state)return;
+    const parent=state.host.offsetParent || state.nav;
+    const bounds=state.scroller.getBoundingClientRect(),frame=parent.getBoundingClientRect();
+    Object.assign(state.host.style,{
+      top:(bounds.top-frame.top-parent.clientTop+parent.scrollTop)+'px',
+      left:(bounds.left-frame.left-parent.clientLeft+parent.scrollLeft)+'px',
+      width:bounds.width+'px',
+      height:bounds.height+'px',
+    });
+    state.frame=requestAnimationFrame(()=>follow(state));
+  }
   function ready(row){
     const named=Boolean(A.text(A.query(A.selectors.name,row)));
     const icon=A.query('rs-room-icon',row),avatar=icon && A.query('[avatar]',icon);
@@ -36,11 +49,12 @@
     const nav=roots.flatMap(root=>[...(root.matches?.(A.selectors.list)?[root]:[]),...root.querySelectorAll(A.selectors.list)]).find(A.visible);
     if(!nav)return;
     const scroller=A.query('rs-virtual-scroll',nav);if(!scroller)return;
-    const bounds=scroller.getBoundingClientRect(),frame=nav.getBoundingClientRect();
+    const bounds=scroller.getBoundingClientRect();
     if(!bounds.width || !bounds.height)return;
     used=true;endDiscovery();
     const host=document.createElement('div');host.setAttribute('data-rcs-ui','startup');host.setAttribute('aria-hidden','true');host.inert=true;
-    host.style.cssText=`position:absolute;pointer-events:none;overflow:hidden;z-index:1;top:${bounds.top-frame.top+nav.scrollTop}px;left:${bounds.left-frame.left}px;width:${bounds.width}px;height:${bounds.height}px;`;
+    // Search has its own layer above the native list and its startup placeholder.
+    host.style.cssText='position:absolute;pointer-events:none;overflow:hidden;z-index:0;';
     const shadow=host.attachShadow({mode:'open'}),style=document.createElement('style');
     style.textContent=`:host{display:block}.row{display:flex;align-items:center;box-sizing:border-box;min-height:var(--rcs-row-min-height,60px);padding:var(--rcs-row-padding-block,8px) var(--rcs-row-padding-inline,12px);gap:var(--rcs-row-gap,8px)}.avatar{width:var(--rcs-row-avatar-size,32px);height:var(--rcs-row-avatar-size,32px);border-radius:50%;flex:none}.copy{flex:1;display:flex;flex-direction:column;gap:8px}.line{height:12px;width:55%;border-radius:4px}.preview{width:86%;height:11px}.shimmer{display:block;background:var(--color-shimmer-background,var(--color-neutral-background-hover,#e5ebee));animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}@media(prefers-reduced-motion:reduce){.shimmer{animation:none}}`;
     shadow.append(style);
@@ -59,7 +73,7 @@
     if(getComputedStyle(nav).position==='static' || !getComputedStyle(nav).position)nav.style.position='relative';
     scroller.style.visibility='hidden';scroller.setAttribute('aria-busy','true');scroller.after(host);
     window.addEventListener('pagehide',release);document.addEventListener('visibilitychange',hidden);
-    active.deadline=setTimeout(release,4500);sample();
+    active.deadline=setTimeout(release,4500);follow(active);sample();
   }
   // Discover the first shadow-hydrated list before document_idle controls run.
   // Observe only candidate chat roots; timer probing is bounded to hydration.
