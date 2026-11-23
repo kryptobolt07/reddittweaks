@@ -505,7 +505,7 @@ test('lifecycle: minimize keeps backfill running, panel close stops it, Stop/Con
   // 1. Multi-tab lease already held by another tab -> other-tab state, 0 /events requests!
   leaseStore.set(owner,{token:'other-tab-token',expiresAt:Date.now()+60000});
   ui.open(false);ui.setScope('messages');ui.setQuery('life_needle');
-  await waitFor(()=>ui.backfillState?.state==='other-tab' && !ui.backfillTask,{timeout:15000});
+  await waitFor(()=>ui.backfillState?.state==='other-tab' && !ui.backfillTask && !ui.refresh.disabled,{timeout:15000});
   assert.match(ui.status.textContent,/Searching in another tab…/);
   assert.equal(homeserver.eventCalls.length,0,'second tab made 0 /events requests');
   leaseStore.delete(owner);
