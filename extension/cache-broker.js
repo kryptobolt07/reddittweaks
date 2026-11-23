@@ -307,7 +307,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(!authorized){respond({authorized:false,holdFeed:false});return;}
   Promise.resolve(chrome.storage?.local?.get?.('rt-settings-v1')).then(stored=>{
     const settings=globalThis.RTPostModel?.normalizeSettings?.(stored?.['rt-settings-v1']);
-    respond({authorized:true,holdFeed:Boolean(settings && settings.embedStart!=='default')});
+    respond({authorized:true,holdFeed:Boolean(settings && (settings.embedStart!=='default' || settings.videoDirectOpen==='paused'))});
   },()=>respond({authorized:true,holdFeed:false}));
   return true;
 });

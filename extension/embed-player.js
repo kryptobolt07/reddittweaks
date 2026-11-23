@@ -13,6 +13,10 @@
   },()=>({authorized:false,holdFeed:false}));
   let allowed=false,parentOrigin='',block=false,child=null,childOrigin='',childState={},playback='',sound='',announced=false;
   let targetVolume=null,loopPolicy='default',hold2xEnabled=false,activeHold2x=null,suppressClickUntil=-Infinity;
+  // While the Reddit page previews this player (preview on), a click on the video surface is reported as a tap instead
+  // of toggling playback, and a click on the player's own controls as the viewer taking the player.
+  let previewOn=false,lastInput=-Infinity;
+  const CONTROLS='button,input,select,[role="button"]:not(a[href]),[role="slider"]';
   const media=()=>document.querySelector('video');
   // A player that starts by itself (RedGIFs) waits on its first frame until the Reddit page says play or pause, so an
   // idle feed card shows the real first frame instead of an image or a blank box. Without an answer within 3 s — or
@@ -78,14 +82,18 @@
    },isTouch?350:300);
    activeHold2x=state;
   }
-  window.addEventListener('pointerdown',event=>{if(event.isTrusted){acted=true;soundRevision++;}startHold2x(event);},true);
+  window.addEventListener('pointerdown',event=>{
+   if(event.isTrusted){acted=true;soundRevision++;}
+   if(event.isTrusted || globalThis.__rtEmbedPreviewTest)lastInput=performance.now();
+   startHold2x(event);
+  },true);
   window.addEventListener('pointermove',event=>{
    if(!activeHold2x || activeHold2x.engaged)return;
    if(Math.hypot(event.clientX-activeHold2x.x,event.clientY-activeHold2x.y)>10)endHold2x(false);
   },true);
   for(const type of ['pointerup','pointercancel','blur'])window.addEventListener(type,()=>endHold2x(type==='pointerup'),true);
   window.addEventListener('contextmenu',event=>{if(activeHold2x?.engaged)event.preventDefault();},true);
-  for(const type of ['keydown','touchstart'])window.addEventListener(type,event=>{if(event.isTrusted){acted=true;soundRevision++;}},true);
+  for(const type of ['keydown','touchstart'])window.addEventListener(type,event=>{if(event.isTrusted){acted=true;soundRevision++;lastInput=performance.now();}},true);
   document.addEventListener('play',event=>{if(event.target.matches?.('video')){hold(event.target);applyLoop(event.target);applyVolume(event.target);}},true);
   document.addEventListener('loadedmetadata',event=>{if(event.target.matches?.('video')){applyLoop(event.target);applyVolume(event.target);}},true);
   document.addEventListener('durationchange',event=>{if(event.target.matches?.('video'))applyLoop(event.target);},true);
@@ -140,9 +148,10 @@
   }
   window.addEventListener('message',async event=>{
     const method=event.data?.rtMedia;
-    if(!['hello','play','pause','mute','unmute','policy','rendered','release','progress','resume','volume','loop','hold2x'].includes(method) || !(await ready).authorized)return;
-    if(event.source===window.parent && parents.includes(event.origin) && !['hello','rendered','progress'].includes(method)){
+    if(!['hello','play','pause','mute','unmute','policy','rendered','release','progress','resume','volume','loop','hold2x','preview','tap','take'].includes(method) || !(await ready).authorized)return;
+    if(event.source===window.parent && parents.includes(event.origin) && !['hello','rendered','progress','tap','take'].includes(method)){
       parentOrigin=event.origin;
+      if(method==='preview'){previewOn=event.data.on===true;down(method,{on:previewOn});return;}
       if(method==='policy'){block=event.data.block===true;document.documentElement.toggleAttribute('data-rt-block-links',block);}
       else if(method==='volume'){
         const vol=Number(event.data.volume);
@@ -178,7 +187,7 @@
       down(method,method==='policy'?{block}:undefined);
       return;
     }
-    if(!wrapper || !['hello','play','pause','rendered','progress'].includes(method))return;
+    if(!wrapper || !['hello','play','pause','rendered','progress','tap','take'].includes(method))return;
     const frame=[...document.querySelectorAll('iframe[src]')].find(frame=>frame.contentWindow===event.source && playerOrigin(frame.src)===event.origin);
     if(!frame)return;
     if(method==='hello'){
@@ -189,23 +198,33 @@
       if(loopPolicy!=='default')down('loop',{policy:loopPolicy});
       if(hold2xEnabled)down('hold2x',{enabled:true});
       if(sound)down(sound);if(playback)down(playback);
+      if(previewOn)down('preview',{on:true});
       hello();
     }else if(event.source===child && method==='progress'){
       up(method,{time:event.data.time,muted:event.data.muted});
+    }else if(event.source===child && (method==='tap' || method==='take')){
+      if(method==='take')previewOn=false;
+      up(method);
     }else if(event.source===child){
       if(method==='rendered')childState.rendered=true;else childState.playing=method==='play';
-      up(method);
+      up(method,method==='play'?{user:event.data.user===true}:undefined);
     }
   });
   function intercept(event){
     if(event.type==='click' && performance.now()<suppressClickUntil){
       event.preventDefault();event.stopImmediatePropagation();return;
     }
-    if(!block || event.defaultPrevented)return;
+    if(event.defaultPrevented)return;
     const path=event.composedPath(),target=path[0],link=path.find(node=>node.matches?.('a[href],area[href]'));
     const video=target?.matches?.('video')?target:link?.querySelector('video');
-    const control=path.some(node=>node.matches?.('button,input,select,[role="button"]:not(a[href]),[role="slider"]')) ||
-      video?.controls && video.getBoundingClientRect().bottom-event.clientY<52;
+    const inStrip=node=>Boolean(node?.controls) && node.getBoundingClientRect().bottom-event.clientY<52;
+    const control=path.some(node=>node.matches?.(CONTROLS)) || inStrip(video);
+    // Preview: the video surface is the Reddit page's (tap); the player's own controls or links hand it the player (take).
+    if(previewOn && event.type==='click' && event.button===0 && (event.isTrusted || globalThis.__rtEmbedPreviewTest)){
+      if(control || inStrip(media()) || link && !video){previewOn=false;up('take');}
+      else{event.preventDefault();event.stopImmediatePropagation();up('tap');return;}
+    }
+    if(!block)return;
     const webLink=link && /^https?:/.test(link.href) && link.href.split('#')[0]!==location.href.split('#')[0];
     if(control || !webLink && !video)return;
     event.preventDefault();event.stopImmediatePropagation();
@@ -225,8 +244,9 @@
       if(wasHeld)media()?.play()?.catch(()=>{});
     }
     allowed=true;
+    // A start that follows the viewer's own input inside the player is theirs (user), so the page never pauses it.
     for(const type of ['play','pause','ended'])document.addEventListener(type,event=>{
-      if(event.target.matches?.('video') && parentOrigin)up(type==='ended'?'pause':type);
+      if(event.target.matches?.('video') && parentOrigin)up(type==='ended'?'pause':type,type==='play'?{user:performance.now()-lastInput<1500}:undefined);
     },true);
     document.addEventListener('loadeddata',event=>{
       if(event.target===media())up('rendered');

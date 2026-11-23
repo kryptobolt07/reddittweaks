@@ -271,7 +271,7 @@ Setting `videoDirectOpen` in the Videos & Embeds card (row *Post opened directly
 | Stay paused until I press Play (`paused`) | Reddit's player shows its first frame or poster and Play button; Reddit's own autoplay is stopped every time it tries, until the reader presses Play. |
 
 - **Direct open** means the post is the page the tab first loaded (typed or pasted link, bookmark, new tab, reload, a link from another site), still on that post, with no feed-to-post handoff saved for it. It applies once per landing. A post reached in-app (feed card, search result, another post's link, Back/Forward inside Reddit) and a post that continues a feed video (Seamless post transition) are never affected, so posts opened from a feed keep their moment and sound.
-- Applies to the post's own native Reddit video (`shreddit-player` or `shreddit-player-2` with `player-type="post_detail_screen"` and the post's id). Not comment media, not GIF posts (they keep *GIFs start*), not embedded players (they keep their provider's behaviour).
+- Applies to the post's own native Reddit video (`shreddit-player` or `shreddit-player-2` with `player-type="post_detail_screen"` and the post's id) and, since 2026-11-23, to the post's own embedded player (see *Media playback fixes* below). Not comment media, not GIF posts (they keep *GIFs start*).
 - After the reader uses the video's controls (Play, pause, sound, seek) the extension stops managing it; scroll-away, loop, 2× and volume-memory options keep working as before.
 - Changing the option in the popup applies to the next direct open (or a reload); a video already managed on the open tab is not restarted or paused again.
 - Firefox: `navigator.getAutoplayPolicy('mediaelement')` answers before trying; `allowed-muted` goes straight to the muted fallback.
@@ -293,7 +293,7 @@ Setting `videoDirectOpen` in the Videos & Embeds card (row *Post opened directly
 - Whether sound is allowed without a gesture is the browser's decision, made per visit; the fallback is muted playback with sound at the first interaction, never a silent failure or a paused video.
 - Sound that comes on is set through Reddit's own volume state, as its sound button does, so Reddit keeps sound for its later autoplays in that tab, as it would after the reader's own unmute.
 - A video Reddit starts may play for a fraction of a second (muted) before *Stay paused* pauses it.
-- Embedded players and GIF posts are not covered by this option.
+- GIF posts are not covered by this option. Embedded players follow it per provider (*Media playback fixes* below).
 
 ### Verification (2026-11-23, live, read-only, own copy of the signed-in Chrome Dev 160 profile, unpacked build of this branch)
 
@@ -307,3 +307,88 @@ Setting `videoDirectOpen` in the Videos & Embeds card (row *Post opened directly
 | D7 Feed card → post in-app with Stay paused set | Reddit's own muted autoplay played on (not blocked); the navigation entry stayed the feed | Same |
 
 Unit (`tests/video-control.test.cjs`, "Post opened directly: …"): Reddit Default passive; muted overrides the feed start option and re-applied volume; lazy player loader after 1.5 s; Stay paused until the reader's Play; sound allowed, refused (Chrome-style pause on unmute), Firefox `allowed-muted`, and the reader's controls first; feed continuations (same tab and full load) and in-app returns not managed; a changed choice does not restart the open tab; an out-of-view video waits until seen. Not verified live: the Firefox build.
+
+## Media playback fixes (2026-11-23)
+
+User report: (1) with Direct embed controls granted, the extension still puts its old placeholder over players it can control; (2) options that need that permission should stay visible but greyed out until it is granted, and say what to enable; (3) *Post opened directly* does nothing for embedded players, even with the permission; (4) the options do not work well across embeds, Reddit's own video and comment media.
+
+### Measured (live, read-only, own copy of the signed-in Chrome Dev 160 profile, unpacked 0.59.0, permission not granted)
+
+- Desktop 1440×900 and phone 412×915: the topmost element at the centre of a feed player is its `<video>` in the player's open shadow root (no overlay), so the click matrix and hold-for-2× see the video as the event target.
+- Video post opened directly, every option at default: Reddit plays the post's own video muted (0 → 4.39 s in 6 s). With *Videos start: Autoplay, muted* the same post's video was paused at 0.84 s and stayed paused (`data-rt-autoplay-blocked`): Autoplay never picks a post's own video, it only picks feed and comment media.
+- YouTube link post opened directly, every option at default: Reddit leaves `lite-youtube` unactivated (no iframe after 6 s).
+- Feed with *Embedded players start: Autoplay*: the YouTube card in view was activated muted (`mute=1&autoplay=1`) under the click layer.
+
+### Direct frames keep their own picture
+
+A **direct frame** is a provider frame whose frame script has said `hello`. With Direct embed controls granted (`rt-embed-direct` answered true), a frame whose address is one of the supported player addresses is **expected direct** until it says hello, or until 3.5 s pass without one; meanwhile it is treated as direct.
+
+| | Transition | Direct (or expected-direct) frame | Other frames (YouTube's lite player, unsupported providers, no permission) |
+|---|---|---|---|
+| M1 | Idle feed card, any start mode except Provider Default | Stays loaded. No parked still, no play-button cover, no unload while in view. The page answers its hello with `pause`, so a player that starts by itself is held on its first frame. Its own picture and controls show. | Unchanged: still, cover or placeholder |
+| M2 | On Play, idle | As M1; its own Play starts it, and that start counts as the reader's (`play` carries `user:true` when input inside the frame came less than 1.5 s before) | Unchanged: parked behind the still |
+| M3 | Rest (another video starts, a preview ends, a used player scrolls away) | Paused through the frame; nothing is put over it | Unchanged: transparent cover with play button, or unloaded |
+| M4 | Unplayed and outside the viewport | May still be unloaded for data; once in view it reloads idle (the loading still has no play button and takes no clicks) instead of staying behind a still | Unchanged |
+| M5 | Preview starts | No click layer. The page sends `{rtMedia:'preview',on:true}`; the frame script turns a trusted primary click on the video surface (anything that is not one of the player's buttons, sliders or links, nor its bottom 52 px control strip) into `{rtMedia:'tap'}` with its default prevented, and the page applies *Media click action* / *Video click audio* as the layer did. A click on the player's own controls (its sound button included) posts `{rtMedia:'take'}`: the preview becomes the reader's unchanged and the control does what it does. | Unchanged: transparent layer with a round sound button |
+| M6 | Preview ends, is promoted, or is carried into its post | `{rtMedia:'preview',on:false}`; clicks reach the player again | Layer removed |
+| M7 | Frame announces after a layer preview started | Layer removed; the preview continues as M5 | — |
+| M8 | Every option at default | Nothing attaches (passive rule unchanged) | Same |
+
+Limits: an Embedly wrapper whose provider is not on the supported list never says hello and, after 3.5 s, falls back to the right-hand column. Keyboard activation of a layerless preview is the player's own (Tab into the frame).
+
+### Popup: options that need Direct embed controls
+
+| Row | Permission not granted (API available) | After *Grant access* |
+|---|---|---|
+| Block embed links (fully dependent) | Visible, dimmed (`is-inactive`), control `aria-disabled="true"` but focusable, with the note **Needs Direct embed controls** (the name is a link-style button) named by the control's `aria-describedby` | Enabled in place, note removed, no reopen |
+| Persistent volume memory, Looping policy, Hold for 2× speed (partly dependent: they work on Reddit's own video; volume also on YouTube) | Not dimmed; a one-line hint with the same link: *Embeds from Vimeo, Streamable, RedGIFs and Twitch need Direct embed controls* | Hint removed |
+| Post opened directly (YouTube, Vimeo and answering Embedly players work without it) | Same, with *Embeds from RedGIFs, Streamable and Twitch need Direct embed controls* | Hint removed |
+
+- A click or tap anywhere on a dimmed row (its control included), Enter or Space on its control, or the note's link does not open the menu: it scrolls to the Direct embed controls row, pulses an outline for about 1 s (none with `prefers-reduced-motion: reduce`) and focuses **Grant access**. One more click grants.
+- Denied prompt: the status line says so, as before; rows stay dimmed. Revoke: rows dim again; stored values are kept but inactive and not counted.
+- Where the permission API is unavailable (the Direct embed controls row stays hidden), fully dependent rows stay hidden and no hints show.
+
+### Post opened directly: the post's own embed
+
+Same *direct open* as for native video (`landingPost`: the document's own navigation entry is this post, it is still on screen, and no feed-to-post continuation, native or embed, was saved for it). Applies to the post's own `shreddit-embed` (not in a feed, not in a comment), until the reader uses that player (a gesture whose path includes the embed, or focus moving into its frame).
+
+| Choice | YouTube (`lite-youtube`, page bridge) | Vimeo `lite-vimeo`; Vimeo, Embedly and YouTube iframes (their protocols) | Direct frames (frame script) | Self-starting provider without the permission |
+|---|---|---|---|---|
+| Play muted | Activated with `mute=1` through `rt-embed-continue` (from 0), plays muted | Activated muted (`autoplay=1&muted=1` for lite-vimeo); `mute` + `play` | `mute` + `play` | Already plays muted; nothing else |
+| Play with sound, page has user activation (`navigator.userActivation.hasBeenActive`, e.g. a reload after interaction) | Activated with sound, faded in | `unmute` + `play` | `unmute` + `play` | Plays muted; its own sound control |
+| Play with sound, no activation, or refused (the player reports a pause, or is not playing 1.5 s later) | Plays muted; the first click, tap or key press on the page sends `rt-embed-sound` | Plays muted; the first interaction sends `unmute` + `play` (frames with `allow="autoplay"` inherit the top page's activation) | Same, through the frame script | Same as above |
+| Stay paused until I press Play | Reddit does not start it; a start the reader did not make is stopped (`rt-embed-stop`) | A reported start the reader did not make is paused | Its hello is answered `pause` (held on its first frame; the worker's `holdFeed` is also true with this choice, so it waits from document start) | Unloaded behind its still with a play button until tapped |
+
+| | Transition | Expected |
+|---|---|---|
+| E1 | Direct load, Reddit Default | Nothing attaches for the embed |
+| E2 | Direct load, Play muted | Playing muted once the player can take commands |
+| E3 | Direct load, Play with sound, sound allowed | Playing with sound |
+| E4 | Direct load, Play with sound, refused | Playing muted, then sound on at the first click, tap or key press outside the player while it still plays |
+| E5 | Direct load, Stay paused | Never plays by itself; the reader's Play starts it and management ends |
+| E6 | Feed card → post in-app, or an embed continuation | Not managed |
+| E7 | Reader clicks into the player first | Management ends; the player's own controls decide |
+
+Limits: whether sound is allowed is the browser's decision per visit. A self-starting provider without Direct embed controls cannot be unmuted or paused from the page.
+
+### Option × surface audit (2026-11-23)
+
+Evidence: L1 = unit test in `tests/video-control.test.cjs`, `tests/embed-player.test.cjs` or `tests/tweaks-popup.test.cjs`; L3 = live, read-only, own profile copy, desktop 1440×900 and phone 412×915 (logs in the ignored `artifacts/research/verify/media-fixes/`). Embeds other than YouTube could not be found on live feeds in this session, and Direct embed controls is not granted in the test profile, so every frame-script path is L1 only.
+
+| Option | Feed/post embeds | Native video (feed, post) | Comment media |
+|---|---|---|---|
+| Videos start | n/a | **Fixed**: Autoplay/Preview paused the post's own video for good (L3 before: paused at 0.84 s; after: plays 0.02 → 4.54 s desktop, 0.06 → 4.58 s phone with Preview). Feed: pass (L1) | Pass (L1) |
+| GIFs start | n/a | **Fixed**, same cause, for a GIF post's own GIF (L1) | Pass (L3: a visible comment GIF loops, t = 2.46 s; GIFs inside a collapsed thread stay paused by design) |
+| Embedded players start | **Fixed** for direct frames: no still, cover or layer (L1); YouTube unchanged (L3: Autoplay activates the card muted) | n/a | n/a (no embeds in comments seen) |
+| Media click action, Video click audio | Applies to previews (layer or frame tap, L1) and covers; with *Provider Default* start the provider's own click stays (limit, now in the option's description) | Pass (L3 post page: first click unmuted without pausing, second paused) | Pass (L1; *Open post* acts as *Play / Control in feed*) |
+| Seamless post transition, Post card click audio | Pass (L1) | Pass (L1) | n/a |
+| Post opened directly | **Fixed**: YouTube L3 (muted: plays muted; sound refused: muted from 2.08 s, a click turned it on at 5.87 s and it kept playing, desktop and phone; Reddit Default: never activated); frames and protocols L1 | Pass (verified earlier today) | n/a by design |
+| Play one video at a time | Pass for YouTube, protocol and direct frames (L1); a self-starting provider without the permission cannot be paused | Pass (L1) | Pass (L1) |
+| Persistent volume memory | YouTube and direct frames only; Vimeo and Embedly need the permission (hint). Volume changes inside an embed are not recorded (limit) | Pass (L1) | Pass for videos (L1) |
+| When scrolling past media | Post embeds: YouTube, protocol and direct frames (L1) | Pass (L3: paused once away at 2.55 s, resumed at the top) | Pass (L1) |
+| Hold for 2× speed | Direct frames only (hint) | Pass (L3: rate 2 with the pill while held, 1 after release, still playing) | Pass for videos (L1) |
+| Looping policy | Direct frames only (hint) | Pass (L1; L3: the loop flag is applied in the feed) | Pass for videos (L1); GIFs excluded by design |
+| Stream quality | n/a | Not re-verified live (unchanged; manifest filtering in the page bridge) | n/a |
+| Block embed links | Direct frames only (now dimmed with a link until granted, L1) | n/a | n/a |
+
+Not verified live: anything that needs Direct embed controls granted (the user's test), the Firefox build, and Streamable, Vimeo, Twitch and RedGIFs cards.

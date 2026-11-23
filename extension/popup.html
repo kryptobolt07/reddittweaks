@@ -158,7 +158,7 @@
         <div class="sub-heading">Click, Audio &amp; Post Transition</div>
         <div class="setting-row">
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M5 2.6a.8.8 0 0 1 1.24-.67l10.2 6.8a.8.8 0 0 1-.27 1.44l-4.23.94 2.12 4.38a.8.8 0 0 1-1.44.7l-2.12-4.38-3.02 3.1a.8.8 0 0 1-1.38-.56V2.6Z"/></svg></span>
-          <div class="setting-copy"><label for="media-click-action">Media click action</label><p id="media-click-action-desc">What happens when clicking a video or embed. Post titles keep normal links.</p></div>
+          <div class="setting-copy"><label for="media-click-action">Media click action</label><p id="media-click-action-desc">What happens when clicking a video, or an embed while it previews or autoplays. Post titles keep normal links.</p></div>
           <button id="media-click-action" class="setting-choice" type="button" data-choice="mediaClickAction" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="media-click-action-menu" aria-describedby="media-click-action-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
           <div id="media-click-action-menu" class="setting-menu" role="menu" aria-label="Media click action" hidden>
             <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit / Provider Default</button>
@@ -198,9 +198,9 @@
           </div>
         </div>
 
-        <div class="setting-row">
+        <div class="setting-row" data-permission-hint="direct-embed-controls" data-permission-hint-text="Embeds from RedGIFs, Streamable and Twitch need">
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4.5 2A2.5 2.5 0 0 0 2 4.5v11A2.5 2.5 0 0 0 4.5 18h11a2.5 2.5 0 0 0 2.5-2.5v-4a.9.9 0 0 0-1.8 0v4a.7.7 0 0 1-.7.7h-11a.7.7 0 0 1-.7-.7v-11c0-.39.31-.7.7-.7h4a.9.9 0 0 0 0-1.8h-4Zm7.6 0a.9.9 0 0 0 0 1.8h2.83l-5.07 5.07a.9.9 0 1 0 1.27 1.27l5.07-5.07V7.9a.9.9 0 0 0 1.8 0V2.9a.9.9 0 0 0-.9-.9h-5ZM7.4 9.6v5.3a.55.55 0 0 0 .84.47l4.2-2.65a.55.55 0 0 0 0-.94L8.24 9.13a.55.55 0 0 0-.84.47Z"/></svg></span>
-          <div class="setting-copy"><label for="video-direct-open">Post opened directly</label><p id="video-direct-open-desc">A post’s own video when you open its link, a new tab, or reload. Posts opened from a feed keep their moment.</p></div>
+          <div class="setting-copy"><label for="video-direct-open">Post opened directly</label><p id="video-direct-open-desc">A post’s own video or embedded player when you open its link, a new tab, or reload. Posts opened from a feed keep their moment.</p></div>
           <button id="video-direct-open" class="setting-choice" type="button" data-choice="videoDirectOpen" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="video-direct-open-menu" aria-describedby="video-direct-open-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
           <div id="video-direct-open-menu" class="setting-menu" role="menu" aria-label="Post opened directly" hidden>
             <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>
@@ -256,7 +256,7 @@
                 <div class="setting-copy"><label for="single-video">Play one video at a time</label><p id="single-video-desc">Pause other playing videos when a new one starts. Excludes GIFs.</p></div>
                 <input class="switch" type="checkbox" id="single-video" data-setting="singleVideo" aria-describedby="single-video-desc">
               </div>
-              <div class="setting-row">
+              <div class="setting-row" data-permission-hint="direct-embed-controls">
                 <div class="setting-copy"><label for="volume-memory">Persistent volume memory</label><p id="volume-memory-desc">Remember your volume level across videos.</p></div>
                 <input class="switch" type="checkbox" id="volume-memory" data-setting="volumeMemory" aria-describedby="volume-memory-desc">
               </div>
@@ -269,12 +269,12 @@
                   <button type="button" role="menuitemradio" data-value="mini" data-short="Mini-player" aria-checked="false">Floating mini-player (Beta)</button>
                 </div>
               </div>
-              <div class="setting-row">
+              <div class="setting-row" data-permission-hint="direct-embed-controls">
                 <div class="setting-copy"><label for="hold-for-2x">Hold for 2× speed</label><p id="hold-for-2x-desc" data-touch-desc="Long-press the right side of a playing video for 2× speed.">Press and hold on a playing video to speed up to 2×.</p></div>
                 <input class="switch" type="checkbox" id="hold-for-2x" data-setting="holdFor2x" aria-describedby="hold-for-2x-desc">
               </div>
-              <div class="setting-row">
-                <div class="setting-copy"><label for="loop-policy">Looping policy</label><p id="loop-policy-desc">Control whether native and direct-controlled videos repeat. Excludes GIFs.</p></div>
+              <div class="setting-row" data-permission-hint="direct-embed-controls">
+                <div class="setting-copy"><label for="loop-policy">Looping policy</label><p id="loop-policy-desc">Control whether Reddit videos and supported embeds repeat. Excludes GIFs.</p></div>
                 <button id="loop-policy" class="setting-choice" type="button" data-choice="loopPolicy" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="loop-policy-menu" aria-describedby="loop-policy-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
                 <div id="loop-policy-menu" class="setting-menu" role="menu" aria-label="Looping policy" hidden>
                   <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Reddit Default</button>

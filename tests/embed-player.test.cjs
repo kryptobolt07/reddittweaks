@@ -174,3 +174,31 @@ test('a direct player applies volume, loop policy, and hold-for-2x enhancements'
  assert.equal(W.document.querySelector('[data-rt-speed-pill]'),null);
  assert.equal(click(video),false,'trailing click after 2x hold is swallowed');
 });
+test('while the page previews it, a click on the video is a tap for the page and a click on its controls hands it over',async t=>{
+ const {W,video,messages,send,click}=await player(t);
+ W.__rtEmbedPreviewTest=true;
+ await send('policy',{block:false});
+ await send('play');
+ const told=()=>messages.map(({data})=>data.rtMedia).filter(method=>method==='tap' || method==='take');
+ assert.equal(click(video),true,'no preview: the player handles its own click');
+ await send('preview',{on:true});
+ const before=video.paused;
+ assert.equal(click(video),false,'the video surface click is the page’s');
+ assert.equal(video.paused,before,'the player does not toggle');
+ assert.deepEqual(told(),['tap']);
+ assert.equal(click(W.document.querySelector('button')),true,'its own controls stay usable');
+ assert.deepEqual(told(),['tap','take']);
+ assert.equal(click(video),true,'once taken, clicks are the player’s again');
+ assert.deepEqual(told(),['tap','take']);
+});
+test('a start that follows input inside the player is reported as the viewer’s',async t=>{
+ const {W,video,messages,send}=await player(t);
+ await send('policy',{block:false});
+ const plays=()=>messages.filter(({data})=>data.rtMedia==='play').map(({data})=>data.user);
+ video.dispatchEvent(new W.Event('play'));
+ assert.deepEqual(plays(),[false]);
+ W.__rtEmbedPreviewTest=true;
+ W.dispatchEvent(new W.MouseEvent('pointerdown',{bubbles:true}));
+ video.dispatchEvent(new W.Event('play'));
+ assert.deepEqual(plays(),[false,true]);
+});

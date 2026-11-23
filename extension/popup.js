@@ -489,16 +489,77 @@ function syncDependencies(){
     const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
     if(control){if(active)control.removeAttribute('aria-disabled');else control.setAttribute('aria-disabled','true');}
   }
+  // Options that need an optional permission stay visible but dimmed until it is granted, saying what to enable; a
+  // click (or Enter/Space) on them leads to the permission's own button. Hidden only where the permission API is.
   for(const row of document.querySelectorAll('.setting-row[data-requires-permission]')){
     if(isDeviceHidden(row))continue;
-    const permBtn=document.getElementById(row.dataset.requiresPermission);
-    const active=Boolean(permBtn) && permBtn.dataset.granted==='true' && !permBtn.closest('.setting-row')?.hidden;
-    row.classList.toggle('is-inactive',!active);
-    row.hidden=!active;
+    const {available,granted,name}=permissionState(row.dataset.requiresPermission);
+    row.hidden=!available;
+    row.classList.toggle('is-inactive',!granted);
+    row.classList.toggle('needs-permission',available && !granted);
     const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
-    if(control){if(active)control.removeAttribute('aria-disabled');else control.setAttribute('aria-disabled','true');}
+    if(control){if(granted)control.removeAttribute('aria-disabled');else control.setAttribute('aria-disabled','true');}
+    permissionNote(row,control,available && !granted?'Needs ':'',name,'requires-note permission-note');
+  }
+  // Options that work without it but reach some embeds only through it: a one-line hint, not dimmed.
+  for(const row of document.querySelectorAll('.setting-row[data-permission-hint]')){
+    if(isDeviceHidden(row))continue;
+    const {available,granted,name}=permissionState(row.dataset.permissionHint);
+    const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
+    permissionNote(row,control,available && !granted?(row.dataset.permissionHintText || 'Embeds from Vimeo, Streamable, RedGIFs and Twitch need')+' ':'',name,'permission-hint');
   }
 }
+function permissionState(id){
+  const button=document.getElementById(id),row=button?.closest('.setting-row');
+  const available=Boolean(button) && !row?.hidden;
+  const label=document.querySelector('label[for="'+id+'"]');
+  return {available,granted:available && button.dataset.granted==='true',name:(label?.textContent || 'the permission').trim(),target:id};
+}
+// The note under a row's description, with the permission's name as a link-style button, named by its control.
+function permissionNote(row,control,lead,name,className){
+  const copy=row.querySelector('.setting-copy');
+  let note=copy?.querySelector('[data-permission-note]');
+  const id=(control?.id || row.dataset.requiresPermission || row.dataset.permissionHint)+'-permission-note';
+  const described=new Set((control?.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+  if(!lead){
+    note?.remove();
+    if(control && described.delete(id))control.setAttribute('aria-describedby',[...described].join(' '));
+    return;
+  }
+  if(!note){
+    note=document.createElement('p');note.dataset.permissionNote='';note.id=id;
+    const link=document.createElement('button');link.type='button';link.className='permission-link';
+    link.dataset.permissionTarget=row.dataset.requiresPermission || row.dataset.permissionHint;
+    note.append(document.createTextNode(''),link);copy?.append(note);
+  }
+  note.className=className;note.firstChild.textContent=lead;note.lastChild.textContent=name;
+  if(control && !described.has(id)){described.add(id);control.setAttribute('aria-describedby',[...described].join(' '));}
+}
+// Two clicks, no hunting: the dimmed option (or its note) scrolls to the permission's row, outlines it briefly and
+// focuses its button; one more click grants.
+function jumpToPermission(id){
+  const button=document.getElementById(id),row=button?.closest('.setting-row');
+  if(!button || !row || row.hidden)return;
+  closeAllMenus();
+  const reduced=Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+  row.scrollIntoView?.({block:'center',behavior:reduced?'auto':'smooth'});
+  row.classList.remove('is-pulsing');void row.offsetWidth;row.classList.add('is-pulsing');
+  clearTimeout(row.pulseTimer);row.pulseTimer=setTimeout(()=>row.classList.remove('is-pulsing'),1000);
+  button.focus({preventScroll:true});
+}
+document.addEventListener('click',event=>{
+  const link=event.target.closest?.('.permission-link'),row=event.target.closest?.('.setting-row.needs-permission');
+  if(!link && !row)return;
+  event.preventDefault();event.stopPropagation();
+  jumpToPermission(link?link.dataset.permissionTarget:row.dataset.requiresPermission);
+},true);
+document.addEventListener('keydown',event=>{
+  if(event.key!=='Enter' && event.key!==' ')return;
+  const row=event.target.closest?.('.setting-row.needs-permission');
+  if(!row || event.target.closest('.permission-link'))return;
+  event.preventDefault();event.stopPropagation();
+  jumpToPermission(row.dataset.requiresPermission);
+},true);
 
 // Accurate counters: count visible active booleans + visible overridden selectors; exclude historyLimit, clickAudio, action/permission buttons, and hidden device cards.
 const isCountable=control=>!isDeviceHidden(control) && control.dataset.count!=='exclude';
