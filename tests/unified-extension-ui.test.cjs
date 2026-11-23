@@ -256,7 +256,7 @@ test('people previews show directory/stored latest messages, dim stale previews,
   const dirEl=p.find('[data-key="chat:alex"] .row-snippet');assert.equal(dirEl.classList.contains('row-snippet-stale'),false);assert.equal(dirEl.textContent,'Directory preview');
   await p.store.ingest({owner:'@t2_me:reddit.com',roomId:'alex',events:[{event_id:'latest-preview',type:'m.room.message',sender:'@t2_me:reddit.com',origin_server_ts:at+1000,seq_id:'m51',content:{body:'The latest\nmessage'}}]});p.emit({owner:'@t2_me:reddit.com',changed:true,roomIds:['alex']});await p.tick(750);assert.equal(p.find('[data-key="chat:alex"] .row-snippet').textContent,'You: The latest message');
   p.cache.set('alex',{...p.cache.get('alex'),accountUnavailable:true,historicalName:true});c.render();assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.find('[data-key="chat:alex"] .row-meta').getAttribute('aria-label'),'Unavailable account');assert.match(p.find('[data-key="chat:alex"] .row-meta').title,/Unavailable account/);
-  p.cache.set('alex',{...chat,timestamp:at});c.summaries.set('alex',{roomId:'alex',text:'   ',timestamp:new p.w.Date(at).toISOString()});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.requests.length,calls);
+  p.cache.set('alex',{...chat,timestamp:at});c.summaries.set('alex',{roomId:'alex',text:'   ',timestamp:new p.w.Date(at).toISOString()});c.render();assert.equal(c.shadow.querySelector('[data-key="chat:alex"] .row-snippet'),null);assert.equal(c.items.find(item=>item.key==='chat:alex').height,64);assert.equal(p.requests.filter(request=>request.method!=='latest').length,calls,'no other reads');assert.ok(p.requests.filter(request=>request.method==='latest').length<=1,'a missing preview is read at most once');
   // Person with no direct chat gets their latest message from a shared group in the from: picker.
   p.cache.set('grp',{id:'grp',name:'Weekend Crew',type:'group',timestamp:at,participants:['GroupMember'],identities:[{id:'@t2_gm:reddit.com',name:'GroupMember'}]});
   c.summaries.set('grp',{roomId:'grp',text:'See you Saturday',timestamp:new p.w.Date(at).toISOString(),authorSelf:false,author:'GroupMember'});
@@ -996,4 +996,28 @@ test('the conversation-list search bar keeps one height whichever conversation i
   control.updateLayout(true);const first=control.host.style.getPropertyValue('--rcs-native-header-height');
   header=64;control.updateLayout(true);assert.equal(control.host.style.getPropertyValue('--rcs-native-header-height'),first);
   assert.equal(first,'','the list falls back to the standard 52px toolbar');
+});
+
+test('a chat row with no saved message reads its latest messages once, batched, and says when there are none',async t=>{
+  const p=await setup(t);await p.search('alex');await p.click('[data-scope="people"]');const c=p.control;
+  let answer={rooms:{alex:'none'}};p.w.RCSMessages.summaries=async()=>({summaries:[]});
+  p.w.RCSData.request=(method,parameters)=>{p.requests.push({method,...parameters});return {promise:Promise.resolve(method==='latest'?answer:{})};};
+  c.summaries.clear();const chat=p.cache.get('alex');p.cache.set('alex',{...chat,lastPreview:undefined});c.render();
+  await p.tick(300);await p.tick(20);
+  const reads=p.requests.filter(request=>request.method==='latest');
+  assert.equal(reads.length,1);assert.ok(reads[0].roomIds.includes('alex'));assert.ok(reads[0].roomIds.length<=12);
+  c.render();await p.tick(300);
+  assert.equal(p.requests.filter(request=>request.method==='latest').length,1,'not read again');
+  assert.equal(p.find('[data-key="chat:alex"] .row-snippet').textContent,'No messages yet');
+});
+test('while older messages are searched with no match yet, the empty state stays instead of trading places with skeletons',async t=>{
+  const p=await setup(t);const c=p.control;await p.click('[data-scope="messages"]');p.type('zzqx');await p.tick(400);
+  c.backfillState={state:'running',searchedRooms:1,totalRooms:9};c.savedHits=[];c.searching=false;c.rowCache.clear();c.renderedWindow='';c.makeItems();c.renderWindow();
+  assert.ok(c.shadow.querySelector('.empty-state'),'No matches yet shows');assert.match(c.shadow.querySelector('.empty-state').textContent,/No matches yet/);
+  // The next backfill batch reruns the saved search.
+  c.searching=true;c.inFlightKey=JSON.stringify(['other']);c.renderedWindow='';c.renderWindow();
+  assert.equal(c.shadow.querySelector('.skeleton-list'),null,'no skeleton flash');assert.ok(c.shadow.querySelector('.empty-state'));
+  // A new query shows skeletons first as before.
+  c.input.value='another';c.renderedWindow='';c.renderWindow();
+  assert.ok(c.shadow.querySelector('.skeleton-list'),'a different query loads normally');
 });

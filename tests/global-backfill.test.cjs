@@ -709,3 +709,28 @@ test('optimizations: thread-in-heap orders recent thread replies ahead of old ma
   assert.equal((await store.search(owner,{query:'tiny_create_room',committed:true})).total,1);
   assert.equal((await store.search(owner,{query:'sneaky_out_of_order',committed:true})).total,1);
 });
+
+test('People previews: latest reads the newest events of rooms with no saved message, a second page only when needed, and saves them',async t=>{
+  const idb=new IDBFactory(),dbName='latest-'+crypto.randomUUID(),owner='@me:reddit.com',ts=Date.UTC(2026,5,1,12);
+  const msg=(roomId,seq,body)=>({event_id:`$${roomId}_m${seq}`,room_id:roomId,type:'m.room.message',sender:'@peer:reddit.com',origin_server_ts:ts+seq*1000,seq_id:`m${seq}`,_seq:seq,content:{body}});
+  const member=(roomId,seq)=>({event_id:`$${roomId}_s${seq}`,room_id:roomId,type:'m.room.member',state_key:'@peer:reddit.com',sender:'@peer:reddit.com',origin_server_ts:ts+seq*1000,seq_id:`m${seq}`,_seq:seq,content:{membership:'join'}});
+  const deepId='!deep:reddit.com',topId='!top:reddit.com',quietId='!quiet:reddit.com',goneId='!gone:reddit.com';
+  // The deep room's newest 20 events are membership changes; its last message is older.
+  const deep=[msg(deepId,3,'Older hello'),...Array.from({length:25},(_,i)=>member(deepId,10+i))];
+  const homeserver=createFixtureHomeserver({owner,rooms:[
+    {roomId:topId,lastSeq:'m9',events:[msg(topId,8,'Newest words'),member(topId,9)]},
+    {roomId:deepId,lastSeq:'m34',events:deep},
+    {roomId:quietId,lastSeq:'m2',events:[member(quietId,1),member(quietId,2)]},
+    {roomId:goneId,lastSeq:'m1',httpError:403,events:[]}
+  ]});
+  const calls=[];const original=homeserver.authedRequest;homeserver.authedRequest=(m,u,p)=>{calls.push({u,p});return original(m,u,p);};
+  const {W,store}=mountFullStack(t,{idb,dbName,owner,homeserver});
+  const result=await W.RCSData.request('latest',{roomIds:[topId,deepId,quietId,goneId]}).promise;
+  assert.deepEqual(JSON.parse(JSON.stringify(result.rooms)),{[topId]:'found',[deepId]:'found',[quietId]:'none',[goneId]:'inaccessible'});
+  const pages=room=>calls.filter(call=>call.u.includes(encodeURIComponent(room))).map(call=>call.p);
+  assert.equal(pages(topId).length,1,'one page when it has a message');assert.equal(pages(topId)[0].before,20);
+  assert.equal(pages(deepId).length,2,'a second page only when the first had no message');
+  const summaries=await store.summaries(owner,{committed:true});
+  const byRoom=new Map((summaries.summaries || []).map(x=>[x.roomId,x]));
+  assert.equal(byRoom.get(topId)?.text,'Newest words');assert.equal(byRoom.get(deepId)?.text,'Older hello');
+});

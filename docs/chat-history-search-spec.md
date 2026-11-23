@@ -46,6 +46,11 @@ Every record is scoped by integer account ordinal `a` (and per-account room ordi
 - Directory traversals (`getRoomList` with `include: {timeline: true}`) populate `lastPreview` alongside `rooms.latest` in v2.
 - A preview older than the chat's `lastSeq` or directory `timestamp` is rendered dimmed with `…` until refreshed, never presented as current.
 - `from:` picker rows for people without a direct chat display their latest message from any shared group chat prefixed with the group name.
+- A chat row on screen with neither a saved message nor a directory preview reads its newest events once per session (bridge method `latest`, `/rooms/{id}/events` with `dir=b, before=20`, a second page only when the first had no message, at most 12 rooms per batch). The events are saved through the normal cache path and the summaries reload. A room with no messages reads "No messages yet"; a failed read is tried again on a later render. Inaccessible rooms (403/404) are left blank.
+
+## Searching older messages with no match yet
+
+- While older messages are searched (or Reddit's local cache is read) and nothing has matched, the list shows **No matches yet** · "Searching older messages across your chats. Results appear as messages are found." Once that message has shown for a query, later batches rerun the saved search without swapping it for skeleton rows, so neither the skeleton nor its scrollbar flashes. A new query, scope, date range or filter shows skeletons first, as before.
 
 ## Persisted Coverage & Global Backfill
 

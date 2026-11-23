@@ -1117,6 +1117,38 @@
       }
     }
   }
+  // People previews (docs/chat-history-search-spec.md, People Previews): a chat on screen with no saved message yet gets
+  // its newest events read once through Reddit's own client (the newest 20, and 20 more only if none was a message),
+  // saved like a directory page. Nothing else is read; Reddit's own timelines are not touched.
+  const previewMessage=event=>['m.room.message','m.sticker'].includes(event?.type) && event.content?.['m.relates_to']?.rel_type!=='m.replace' && !event.unsigned?.redacted_because && Object.keys(event.content || {}).length>0;
+  async function latest(ctx,job,request) {
+    job.stage='latest messages';
+    const roomIds=[...new Set(request.roomIds)].slice(0,20),rooms={};
+    for(const roomId of roomIds) {
+      check(job);
+      let cursor=null,found=false,read=0;
+      try {
+        for(let page=0;page<2 && !found;page++) {
+          const params={dir:'b',before:20,include:'timeline'};if(cursor!==null)params.seq=String(cursor);
+          const data=await retryRead(()=>ctx.client.http.authedRequest('GET','/rooms/'+encodeURIComponent(roomId)+'/events',params),job);
+          check(job);
+          const events=Array.isArray(data?.events)?data.events:[];
+          rememberMembers(events,ctx);read+=events.length;
+          if(events.length)publishCache(ctx,roomId,events,'directory');
+          found=events.some(previewMessage);
+          const seqs=events.map(sequence).filter(value=>value!==null);
+          if(!events.length || !seqs.length)break;
+          const next=Math.min(...seqs)-1;if(next<0 || next===cursor)break;cursor=next;
+        }
+        rooms[roomId]=found?'found':read?'none':'empty';
+      } catch(error) {
+        if(job.cancelled)throw error;
+        rooms[roomId]=error.httpStatus===403 || error.httpStatus===404?'inaccessible':'failed';
+      }
+    }
+    if(cacheConsumerReady)await flushNativeCache(job,()=>check(job));
+    return {rooms};
+  }
   async function history(ctx,job,roomId,request) {
     job.stage='message history';
     rememberRenderedIdentities(ctx);
@@ -1643,7 +1675,8 @@
     if (request.method==='cancel') { const job=running.get(key); if(job){job.cancelled=true;releaseBackfillLease(job);}return; }
     if(request.method==='history-range'){const job=running.get(key);if(job){try{historyDateStart(request.dates);historyDateEnd(request.dates);job.requestedDates=request.dates || {};}catch{}}return;}
     if(request.method==='backfill-retarget'){const job=running.get(key);if(job && request.plan){job.plan={...job.plan,roomIds:Array.isArray(request.plan.roomIds)?request.plan.roomIds.filter(id=>typeof id==='string' && id && id.length<=1000):null,excludeRoomIds:Array.isArray(request.plan.excludeRoomIds)?request.plan.excludeRoomIds.filter(id=>typeof id==='string' && id && id.length<=1000):null,start:Number.isFinite(request.plan.start)?request.plan.start:-Infinity,end:Number.isFinite(request.plan.end)?request.plan.end:Infinity,targetMatches:Number.isInteger(request.plan.targetMatches) && request.plan.targetMatches>0 && request.plan.targetMatches<=100000?request.plan.targetMatches:0,...(request.plan.queryCriteria!==undefined?{queryCriteria:request.plan.queryCriteria}:{})};job.retargeted=true;}return;}
-    if (!['identity-context','identity-snapshot','cache-native-history','directory-context','prime-directory','conversations','activity','history','backfill','open','jump','native-bindings','classify-accounts'].includes(request.method)) return;
+    if (!['identity-context','identity-snapshot','cache-native-history','directory-context','prime-directory','conversations','activity','history','backfill','latest','open','jump','native-bindings','classify-accounts'].includes(request.method)) return;
+    if (request.method==='latest' && (!Array.isArray(request.roomIds) || !request.roomIds.length || request.roomIds.length>20 || request.roomIds.some(id=>typeof id!=='string' || !id || id.length>1000))) return;
     if (['history','open','jump'].includes(request.method) && (typeof request.roomId!=='string' || request.roomId.length>1000)) return;
     if(request.knownIds && (!Array.isArray(request.knownIds) || request.knownIds.some(id=>typeof id!=='string' || id.length>1000)))return;
     if (request.method==='jump' && (typeof request.eventId!=='string' || request.eventId.length>1000)) return;
@@ -1683,6 +1716,7 @@
       else if (request.method==='conversations') result=await conversations(ctx,job,request);
       else if (request.method==='history') result=await history(ctx,job,request.roomId,request);
       else if (request.method==='backfill') result=await backfill(ctx,job,request);
+      else if (request.method==='latest') result=await latest(ctx,job,request);
       else {
         job.stage='navigation';
         await prepareNavigation(ctx,job,request.roomId);
