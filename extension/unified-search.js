@@ -78,7 +78,7 @@
       this.suggestions=make('div','popover operator-suggestions');this.suggestions.id='rcs-operator-suggestions';this.suggestions.hidden=true;this.suggestions.setAttribute('role','listbox');this.suggestions.setAttribute('aria-label','Search operators and senders');this.suggestionIndex=-1;this.field.append(this.controls);this.toolbar=make('div','search-toolbar');this.toolbar.append(this.field);this.bar.append(this.toolbar,help,this.scopeBar,this.chips,this.popover,this.suggestions);
       if(globalThis.RCSDatePicker){this.datePicker=new RCSDatePicker({getAnchor:()=>this.controlButtons.date.getBoundingClientRect(),getBounds:()=>{const rect=this.container.getBoundingClientRect();if(!rect.width||!rect.height)return;return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom};},onChange:(dates,label,selection)=>{if(this.completeDateOperator(selection))return;this.dates=dates;this.dateLabel=label;this.invalidate();},onClose:restore=>{this.controlButtons.date.setAttribute('aria-expanded','false');if(restore)this.controlButtons.date.focus({preventScroll:true});}});this.bar.append(this.datePicker.element);}
       this.panel=make('section','panel');this.panel.hidden=true;this.panel.setAttribute('aria-label','Chat and saved message search');
-      const statusBar=make('div','results-status');this.status=make('span','status');this.status.setAttribute('role','status');this.status.setAttribute('aria-live','polite');this.refresh=refreshButton('Refresh saved results',()=>{this.retryWrites=true;this.dirty=true;this.summaryDirty=true;this.stopBackfill(false);this.backfillDoneKey=this.backfillPausedKey=this.backfillStoppedKey='';this.backfillRefreshHeads=true;this.loadSummaries();if(!this.searchingMode() || this.scope==='people')this.ensureData(true);this.invalidate();});this.coverageNote=make('span','coverage-note');this.coverageNote.hidden=true;this.coverageNote.textContent='Partial history';this.coverageNote.title='Saved messages only: some conversation history may be missing.';this.backfillAction=button('','backfill-action',()=>{if(this.backfillTask)this.stopBackfill(true);else this.syncBackfill({continueRun:true});});this.backfillAction.hidden=true;statusBar.append(this.status,this.coverageNote,this.backfillAction,this.refresh);
+      const statusBar=make('div','results-status');this.status=make('span','status');this.status.setAttribute('role','status');this.status.setAttribute('aria-live','polite');this.refresh=refreshButton('Refresh saved results',()=>{this.retryWrites=true;this.dirty=true;this.summaryDirty=true;this.stopBackfill(false);this.backfillDoneKey=this.backfillPausedKey=this.backfillStoppedKey='';this.backfillRefreshHeads=true;this.loadSummaries();if(!this.searchingMode() || this.scope==='people')this.ensureData(true);this.invalidate();});this.coverageNote=make('span','coverage-note');this.coverageNote.hidden=true;this.coverageNote.textContent='Partial history';this.coverageNote.title='Saved messages only: some conversation history may be missing.';statusBar.append(this.status,this.coverageNote,this.refresh);
       this.results=make('div','results results-viewport');this.results.id='rcs-unified-results';this.results.setAttribute('aria-label','Search results');this.results.tabIndex=-1;
       this.panel.append(statusBar,this.results);this.shadow.append(this.bar,this.panel);
       this.composing=false;this.suppressNextSuggest=false;this.suggestionDismissedPrefix=null;
@@ -92,7 +92,8 @@
       this.shortcutHandler=event=>{const target=event.composedPath()[0];if(event.key!=='/' || target?.matches?.('input,textarea,[contenteditable="true"]') || !this.adapter.visible?.(this.container))return;const path=event.composedPath();if(!path.includes(this.container) && !this.adapter.chatRoots?.().some(root=>root.contains?.(target)))return;event.preventDefault();this.open();};document.addEventListener('keydown',this.shortcutHandler);
       this.outside=event=>{const path=event.composedPath(),inPicker=path.includes(this.input) || path.includes(this.field) || path.includes(this.suggestions) || path.includes(this.popover) || path.includes(this.chips) || path.includes(this.results);if(!inPicker && this.editingSender()){this.senderPickerDismissed=true;this.panel.hidden=true;this.dismissSuggestions();}if(!path.includes(this.host)){this.clearResultFocus();if(!this.suggestions.hidden)this.dismissSuggestions();this.closeMenu();if(this.datePicker?.open)this.datePicker.close(false);if(!this.inChatList(path))this.dismissBrowse();}};document.addEventListener('pointerdown',this.outside);this.menuOutsideGuard=blockOutsideMenuActivation(()=>!this.popover.hidden||Boolean(this.datePicker?.open),path=>path.includes(this.popover)||path.includes(this.datePicker?.element),()=>{this.closeMenu();if(!this.suggestions.hidden)this.dismissSuggestions();if(this.datePicker?.open)this.datePicker.close(false);});
       this.focusOutside=event=>{const path=event.composedPath();if(!path.includes(this.host)){this.clearResultFocus();if(!this.input.value.trim() && !this.inChatList(path))this.dismissBrowse();}};document.addEventListener('focusin',this.focusOutside);
-      this.results.addEventListener('scroll',()=>{if(!this.suspended){this.lastScrollTop=this.results.scrollTop;this.lastScrollAt=Date.now();}if(this.scrollFrame)return;this.scrollFrame=requestAnimationFrame(()=>{this.scrollFrame=0;this.renderWindow();if(this.hasMore && this.results.scrollTop+this.results.clientHeight>=this.totalHeight-300)this.searchSaved(true);});},{passive:true});
+      this.results.addEventListener('scroll',()=>{if(!this.suspended){this.lastScrollTop=this.results.scrollTop;this.lastScrollAt=Date.now();}if(this.scrollFrame)return;this.scrollFrame=requestAnimationFrame(()=>{this.scrollFrame=0;this.renderWindow();if(this.results.scrollTop+this.results.clientHeight>=this.totalHeight-300){if(this.hasMore)this.searchSaved(true);else this.maybeLoadOlderOnScroll();}});},{passive:true});
+      this.results.addEventListener('wheel',event=>{if(event.deltaY>0 && this.results.scrollTop+this.results.clientHeight>=this.totalHeight-300){if(this.hasMore)this.searchSaved(true);else this.maybeLoadOlderOnScroll();}},{passive:true});
       this.savedUnsubscribe=globalThis.RCSMessages?.subscribe(value=>{if(value?.contextInvalidated){this.contextInvalidated=true;this.importing=this.savingPending=false;this.notice=value.error;this.pendingNavigation='';clearTimeout(this.captureTimer);this.captureTimer=null;this.stopBackfill(false);this.updateControls();return;}if(value?.chatSearchEnabled===false){this.stopBackfill(false);this.updateControls();return;}if(value?.owner && this.owner && value.owner!==this.owner && value.statusOnly)return;if(value?.importing!==undefined)this.importing=value.importing;if(value?.cacheProgress!==undefined)this.cacheProgress=value.cacheProgress;if(value?.cacheError!==undefined)this.cacheError=value.cacheError;if(value?.savingPending!==undefined)this.savingPending=value.savingPending;if(value?.statusOnly){this.updateControls();return;}if(value?.owner && (this.owner && value.owner!==this.owner || globalThis.RCSDirectory?.getOwner?.() && globalThis.RCSDirectory.getOwner()!==value.owner)){this.cache.clear();this.input.value=this.query='';this.resetSaved();this.directoryStarted=false;this.stoppedByUser=false;this.render();}else if(value?.cleared){this.recent=[];this.resetSaved();this.render();}this.summaryDirty=true;this.dirty=true;this.scheduleSavedRefresh();});
       if(globalThis.ResizeObserver){this.resizeObserver=new ResizeObserver(()=>{if(this.destroyed || this.suspended)return;if(this.host.hidden && this.adapter.visible(this.container)){this.sync();return;}this.updateLayout(true);this.makeItems();this.renderWindow();});this.resizeObserver.observe(container);}
       this.nativeStyleChange=()=>{this.appearanceSignature='';this.updateLayout(true);this.makeItems();this.renderWindow();};document.fonts?.addEventListener?.('loadingdone',this.nativeStyleChange);this.nativeThemeObserver=globalThis.MutationObserver?new MutationObserver(this.nativeStyleChange):null;this.nativeThemeObserver?.observe(document.documentElement,{attributes:true,attributeFilter:['class','style']});if(document.body)this.nativeThemeObserver?.observe(document.body,{attributes:true,attributeFilter:['class','style']});
@@ -165,13 +166,6 @@
       // Kept out of the status line so compact and floating chat do not truncate the counts.
       const backfillComplete=Boolean(bs && (bs.state==='complete' || bs.state==='window-complete') && !(bs.inaccessibleCount>0) && !(bs.unreadableCount>0));
       this.coverageNote.hidden=!(messages && this.searchingMode() && known && this.savedTotal>0 && !this.savedComplete && !backfillComplete);
-      if(this.backfillAction){
-        if(bs?.state==='running' && !this.valuePicker() && !parsed.invalid && !this.contextInvalidated){
-          this.backfillAction.hidden=false;this.backfillAction.textContent='Stop';this.backfillAction.setAttribute('aria-label','Stop searching older messages');
-        }else if(bs?.state==='paused' && !this.valuePicker() && !parsed.invalid && !this.contextInvalidated){
-          this.backfillAction.hidden=false;this.backfillAction.textContent='Search older messages';this.backfillAction.setAttribute('aria-label','Continue searching older messages');
-        }else{this.backfillAction.hidden=true;}
-      }
       if(bs && !this.valuePicker() && !parsed.invalid && !this.contextInvalidated){
         const wm=bs.watermark>0?C().dayLabel(bs.watermark):'';
         const baseCount=known && (this.savedTotal>0 || this.scope==='all')?this.status.textContent:'';
@@ -181,7 +175,7 @@
           const detail=bs.rateLimited?'Waiting for Reddit’s request limit…':`Searching older messages… ${Number(bs.searchedRooms || 0).toLocaleString()} of ${Number(bs.totalRooms || 0).toLocaleString()} chats${wm?` · back to ${wm}`:''}`;
           this.status.textContent=join(baseCount,detail);
         }else if(bs.state==='paused'){
-          const detail=wm?`Searched back to ${wm}`:'Search paused';
+          const detail=wm?`Searched back to ${wm} · Scroll for older`:'Scroll for older messages';
           this.status.textContent=join(baseCount,detail)+partialSuffix;
         }else if(bs.state==='window-complete' && !partialSuffix){
           this.status.textContent=join(this.status.textContent,'All chats searched for these dates');
@@ -241,13 +235,40 @@
       }
       if(!this.destroyed)this.updateControls();
     }
-    syncBackfill({continueRun=false,refreshHeads=false}={}){
+    hasActiveMessageCriteria(){
+      const parsed=C().parseQuery(this.queryValue());
+      if(parsed.invalid)return false;
+      return Boolean(
+        parsed.terms.length || parsed.phrases.length || parsed.excluded.length ||
+        parsed.from.length || this.from!=='all' ||
+        parsed.hasImage || parsed.hasGif || parsed.hasLink || parsed.hasFile || parsed.hasVideo || parsed.hasAudio ||
+        parsed.after.length || parsed.before.length ||
+        this.dates?.from || this.dates?.to
+      );
+    }
+    maybeLoadOlderOnScroll(){
+      if(this.roomOnly || this.destroyed || this.suspended || this.contextInvalidated || this.searching || this.hasMore || this.backfillTask)return;
+      if(this.scope==='people' || !this.searchingMode() || this.panel.hidden || this.searchDismissed || this.valuePicker())return;
+      if(typeof globalThis.RCSMessages?.coverage!=='function' || typeof globalThis.RCSData?.request!=='function')return;
+      const planKey=this.currentBackfillPlanKey();
+      if(!planKey || this.backfillDoneKey===planKey || this.backfillState?.state==='other-tab')return;
+      this.syncBackfill({continueRun:true,maxRequests:this.hasActiveMessageCriteria()?300:12});
+    }
+    syncBackfill({continueRun=false,refreshHeads=false,maxRequests=null}={}){
       if(this.roomOnly || this.destroyed || this.contextInvalidated)return;
       if(typeof globalThis.RCSMessages?.coverage!=='function' || typeof globalThis.RCSData?.request!=='function')return;
       if(globalThis.RCSMessages?.isEnabled?.()===false){this.stopBackfill(false);return;}
       const parsed=C().parseQuery(this.queryValue());
       const eligible=Boolean(this.scope!=='people' && this.searchingMode() && !this.panel.hidden && !this.searchDismissed && !this.valuePicker() && !parsed.invalid);
       if(!eligible){if(this.backfillTask)this.stopBackfill(false);return;}
+      const activeCriteria=this.hasActiveMessageCriteria();
+      // Do not automatically scan history when browsing unfiltered Messages with no search term;
+      // load older batches on demand as the user scrolls near the bottom.
+      if(!activeCriteria && !continueRun){
+        this.backfillRefreshHeads=false;
+        if(this.backfillTask)this.stopBackfill(false);
+        return;
+      }
       const plan=this.backfillPlan();
       if(!plan){if(this.backfillTask)this.stopBackfill(false);return;}
       const planKey=JSON.stringify([plan.roomIds,plan.excludeRoomIds,Number.isFinite(plan.start)?plan.start:null,Number.isFinite(plan.end)?plan.end:null]);
@@ -268,7 +289,7 @@
       this.backfillPlanKey=planKey;
       this.backfillState={planKey,state:'running',watermark:0,searchedRooms:0,totalRooms:0,inaccessibleCount:0,unreadableCount:0,requestsUsed:0,rateLimited:false};
       this.updateControls();
-      const task=RCSData.request('backfill',{plan:{...plan,...(doRefreshHeads?{refreshHeads:true}:{})}},progress=>{
+      const task=RCSData.request('backfill',{plan:{...plan,...(Number.isInteger(maxRequests) && maxRequests>0?{maxRequests}:{}),...(doRefreshHeads?{refreshHeads:true}:{})}},progress=>{
         if(this.destroyed || generation!==this.generation || bfGen!==this.backfillGeneration || this.backfillTask!==task)return;
         if(progress?.state){
           this.backfillState={...this.backfillState,...progress,planKey:this.backfillPlanKey,rateLimited:false};
@@ -345,7 +366,7 @@
         if(this.hasMore && this.appliedKey===JSON.stringify(this.parameters()))items.push({kind:'more',key:'more',height:44});}
       if((this.scope==='people'?!people.length:this.scope==='messages'?!currentHits.length:!people.length && (!this.searchingMode() || !currentHits.length)) && !(this.searching && !this.cache.size))items.push({kind:'empty',height:200});this.setItems(items);}
     time(value,{message=false}={}){const known=Boolean(value) && Number.isFinite(new Date(value).getTime()),el=make('time','row-time',known?(message?C().messageTime(value,{sort:this.sort}):C().compactTime(value)):'');el.title=C().fullTimestamp(known?value:NaN);if(known)el.dateTime=new Date(value).toISOString();return el;}
-    avatar(chat,key){const source=typeof chat.avatar==='string' && /^https:\/\//.test(chat.avatar)?chat.avatar:'';if(!source){const el=make('span','avatar initials',String(chat.name || '?').split(/[\s_-]+/).slice(0,2).map(part=>part[0]).join('').toUpperCase());el.setAttribute('aria-hidden','true');return el;}const cached=this.imageCache.get(key);if(cached?.source===source){this.imageCache.delete(key);this.imageCache.set(key,cached);return cached.element;}const element=make('img','avatar');element.alt='';element.width=36;element.height=36;element.loading='lazy';element.referrerPolicy='no-referrer';element.src=source;this.imageCache.set(key,{source,element});while(this.imageCache.size>160)this.imageCache.delete(this.imageCache.keys().next().value);return element;}
+    avatar(chat,key){const raw=typeof chat.avatar==='string' && /^https:\/\//.test(chat.avatar)?chat.avatar:'';const source=(()=>{if(!raw)return '';try{const u=new URL(raw);if(u.hostname==='i.redd.it' && /^\/snoovatar\/avatars\/[0-9a-z-]+\.png$/i.test(u.pathname) && !/-headshot\.png$/i.test(u.pathname)){u.pathname=u.pathname.replace(/\.png$/i,'-headshot.png');u.search='';return u.href;}}catch{}return raw;})();if(!source){const el=make('span','avatar initials',String(chat.name || '?').split(/[\s_-]+/).slice(0,2).map(part=>part[0]).join('').toUpperCase());el.setAttribute('aria-hidden','true');return el;}const cached=this.imageCache.get(key);if(cached?.source===source){this.imageCache.delete(key);this.imageCache.set(key,cached);return cached.element;}const snoo=/\/snoovatar\/avatars\/|redditstatic\.com\/avatars\//i.test(source),element=make('img','avatar'+(snoo?' avatar-snoovatar':''));element.alt='';element.width=32;element.height=32;element.loading='lazy';element.referrerPolicy='no-referrer';if(source!==raw)element.addEventListener('error',()=>{if(element.src===source)element.src=raw;},{once:true});element.src=source;this.imageCache.set(key,{source,element});while(this.imageCache.size>160)this.imageCache.delete(this.imageCache.keys().next().value);return element;}
     mediaResized(record){
       if(this.destroyed || this.suspended)return;this.changedMedia ||= new Set();this.changedMedia.add('message:'+record.roomId+':'+record.id);if(this.mediaFrame)return;
       this.mediaFrame=requestAnimationFrame(()=>{this.mediaFrame=0;if(this.destroyed || this.suspended || this.queryPending)return;this.invalidateMediaMeasurements();this.renderWindow();});

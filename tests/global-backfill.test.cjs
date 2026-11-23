@@ -284,13 +284,14 @@ test('200-room fixture homeserver: 100% oracle recall & precision across DMs, gr
   ui.setScope('messages');
   ui.setQuery('alpha_needle');
 
-  // Wait for backfill run 1 to hit the 300-request budget pause on 200 rooms, then click "Search older messages" to finish!
+  // Wait for backfill run 1 to hit the 300-request budget pause on 200 rooms, then scroll near the bottom to load the next slice!
   await waitFor(()=>ui.backfillState && ui.backfillState.state!=='running' && !ui.searching,{timeout:15000});
+  assert.equal(ui.shadow.querySelector('.backfill-action'),null,'no extra Stop or Search older messages button in status bar');
   if(ui.backfillState.state==='paused'){
-    assert.equal(ui.backfillAction.hidden,false,'Search older messages button visible on budget pause');
-    assert.equal(ui.backfillAction.textContent,'Search older messages');
-    ui.backfillAction.click();
-    await waitFor(()=>ui.backfillState && ui.backfillState.state!=='running' && !ui.searching && ui.appliedKey===JSON.stringify(ui.parameters()),{timeout:15000});
+    assert.match(ui.status.textContent,/Scroll for older/);
+    ui.results.scrollTop=ui.totalHeight;
+    ui.results.dispatchEvent(new W.Event('scroll'));
+    await waitFor(()=>ui.backfillState && ui.backfillState.state!=='paused' && ui.backfillState.state!=='running' && !ui.searching && ui.appliedKey===JSON.stringify(ui.parameters()),{timeout:15000});
   }
 
   assert.equal(ui.backfillState.state,'partial','2 inaccessible 403 rooms must keep run partial');
@@ -519,20 +520,33 @@ test('lifecycle: minimize keeps backfill running, panel close stops it, Stop/Con
   await waitFor(()=>ui.savedTotal===12,{timeout:15000});
   assert.equal(ui.savedTotal,12,'minimize kept backfill running to completion');
 
-  // 3. Stop button pauses & Continue resumes; dismissSearch cancels & releases lease!
-  const idb2=new IDBFactory(),dbName2='bf-stop-'+crypto.randomUUID();
-  const hs2=createFixtureHomeserver({owner,rooms});
-  hs2.setDelay(15);
+  // 3. Unfiltered Messages tab (no search term or filter): 0 automatic requests; repeated scroll-to-bottom loads batches until complete!
+  const idb2=new IDBFactory(),dbName2='bf-browse-'+crypto.randomUUID();
+  const browseRooms=Array.from({length:16},(_,i)=>({
+    roomId:`!br${i}:reddit.com`,timestamp:ts-i*60_000,lastSeq:'m1',
+    events:[{event_id:`$br${i}_1`,room_id:`!br${i}:reddit.com`,type:'m.room.message',sender:owner,origin_server_ts:ts-i*60_000,seq_id:'m1',_seq:1,content:{body:`browse message ${i}`}}]
+  }));
+  const hs2=createFixtureHomeserver({owner,rooms:browseRooms});
   const s2=mountFullStack(t,{idb:idb2,dbName:dbName2,owner,homeserver:hs2,leaseStore:new Map()});
-  s2.ui.open(false);s2.ui.setScope('messages');s2.ui.setQuery('life_needle');
-  await waitFor(()=>s2.ui.backfillState?.state==='running' && !s2.ui.backfillAction.hidden,{timeout:15000});
-  assert.equal(s2.ui.backfillAction.textContent,'Stop');
-  s2.ui.backfillAction.click();
-  assert.equal(s2.ui.backfillState.state,'paused');
-  assert.equal(s2.ui.backfillAction.textContent,'Search older messages');
-  // Click Continue -> finishes!
-  s2.ui.backfillAction.click();
-  await waitFor(()=>s2.ui.backfillState?.state==='complete',{timeout:15000});
+  s2.ui.open(false);s2.ui.setScope('messages');
+  await new Promise(r=>setTimeout(r,80));
+  assert.equal(hs2.eventCalls.length,0,'unfiltered Messages tab with no search term makes 0 automatic /events requests');
+  assert.equal(s2.ui.backfillTask,null);
+  // First scroll to bottom -> loads first bounded batch (maxRequests: 12) and pauses!
+  s2.ui.results.scrollTop=s2.ui.totalHeight;
+  s2.ui.results.dispatchEvent(new s2.W.Event('scroll'));
+  await waitFor(()=>s2.ui.backfillState?.state==='paused' && !s2.ui.backfillTask && !s2.ui.searching,{timeout:15000});
+  assert.equal(s2.ui.backfillState.requestsUsed,12,'first scroll batch bounded to 12 requests');
+  assert.ok(s2.ui.savedTotal>0 && s2.ui.savedTotal<16,'partial older messages loaded on first scroll');
+  // Repeat scroll-to-bottom cycles until all 16 rooms complete!
+  for(let cycle=0;cycle<4 && s2.ui.backfillState?.state!=='complete';cycle++){
+    const prevCalls=hs2.eventCalls.length;
+    s2.ui.results.scrollTop=s2.ui.totalHeight;
+    s2.ui.results.dispatchEvent(new s2.W.Event('scroll'));
+    await waitFor(()=>hs2.eventCalls.length>prevCalls && s2.ui.backfillState && s2.ui.backfillState.state!=='running' && !s2.ui.backfillTask && !s2.ui.searching,{timeout:15000});
+  }
+  assert.equal(s2.ui.backfillState.state,'complete','repeated scroll-to-bottom batches eventually cover all rooms');
+  assert.equal(s2.ui.savedTotal,16);
 
   // 4. Closing search panel (dismissSearch) stops an active backfill immediately.
   const idb3=new IDBFactory(),dbName3='bf-close-'+crypto.randomUUID();

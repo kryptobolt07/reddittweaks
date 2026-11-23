@@ -92,7 +92,8 @@
     .result.active { position:relative; }
     .result.active::before { content:'';position:absolute;inset-block:8px;left:0;width:3px;border-radius:0 3px 3px 0;background:color-mix(in srgb,var(--rcs-accent) 35%,transparent); }
     .avatar { position:relative;display:grid; place-items:center; width:32px; height:32px; border-radius:50%; color:var(--rcs-muted); background:var(--rcs-soft); font-weight:600; flex:none; overflow:hidden; }
-    .avatar img { position:absolute;inset:0;width:100%; height:100%; object-fit:cover; }
+    .avatar img { position:absolute;inset:0;width:100%; height:100%; object-fit:cover; object-position:center; }
+    .avatar img.avatar-snoovatar { object-fit:contain; object-position:center bottom; }
     .copy { min-width:0; flex:1; } .name { display:block; font-size:13px; font-weight:600; } .preview { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; margin-top:4px; font-size:13px; overflow-wrap:anywhere; }
     .time { display:block; color:var(--rcs-muted); font-size:11px; font-weight:400; margin-top:2px; } .hint,.empty { color:var(--rcs-muted); padding:20px 16px; font-size:12px; text-align:center; }
     mark { background:#ffcc804d; color:inherit; border-radius:2px; } .count { font-size:11px; color:var(--rcs-muted); white-space:nowrap; }
@@ -600,7 +601,7 @@
             row.preview.title=hit.text;row.result.setAttribute('aria-label',`${sender.label} sent: ${hit.attachmentType==='image'?(globalThis.RCSMediaPreview?.label(hit) || 'Image'):snippet.text}. In ${partnerName || this.cache.get(hit.roomId)?.name || 'Saved conversation'}. ${C.fullTimestamp(hit.timestamp)}. Open message.`);
           }
         }
-        const avatarUrl=hit.avatar || '',speaker=!this.messageMode ? hit.name : this.kind==='messages' ? C.messageSender(hit,partner || {}).label : partnerName || (hit.authorSelf ? 'You' : hit.author);
+        const rawAvatarUrl=hit.avatar || '',avatarUrl=(()=>{try{const u=new URL(rawAvatarUrl);if(u.hostname==='i.redd.it' && /^\/snoovatar\/avatars\/[0-9a-z-]+\.png$/i.test(u.pathname) && !/-headshot\.png$/i.test(u.pathname)){u.pathname=u.pathname.replace(/\.png$/i,'-headshot.png');u.search='';return u.href;}}catch{}return rawAvatarUrl;})(),speaker=!this.messageMode ? hit.name : this.kind==='messages' ? C.messageSender(hit,partner || {}).label : partnerName || (hit.authorSelf ? 'You' : hit.author);
         if(row.avatar && (row.avatarUrl!==avatarUrl || !row.image?.isConnected && row.avatarLabel!==speaker)) {
           if(row.image){this.avatarObserver?.unobserve(row.image);this.pendingAvatarSources.delete(row.image);}
           row.avatarUrl=avatarUrl;row.avatarLabel=speaker;row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();
@@ -609,6 +610,7 @@
             const url=new URL(avatarUrl,location.href);
             if(avatarUrl && (url.protocol==='https:' || /^data:image\/(png|jpeg|webp|svg\+xml)[;,]/.test(avatarUrl))) {
               const image=node('img');image.alt='';image.referrerPolicy='no-referrer';
+              if(/\/snoovatar\/avatars\/|redditstatic\.com\/avatars\//i.test(avatarUrl))image.className='avatar-snoovatar';
               // An avatar the browser already shows (Reddit's chat, or an earlier result) needs no
               // placeholder letter, no hidden phase and no wait for the visibility observer.
               if(knownAvatar(avatarUrl)){image.src=avatarUrl;image.decoding='sync';row.image=image;row.avatar.replaceChildren(image);wanted.push(row.result);continue;}
@@ -616,7 +618,7 @@
                 image.style.visibility='visible';
                 if(image.parentNode===row.avatar)for(const child of [...row.avatar.childNodes])if(child!==image)child.remove();
               },{once:true});
-              image.addEventListener('error',()=>{if(image.parentNode===row.avatar){row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();if(!speaker || speaker.startsWith('@') || speaker==='Sender unavailable')row.avatar.replaceChildren(svgIcon('person'));}},{once:true});
+              image.addEventListener('error',()=>{if(avatarUrl!==rawAvatarUrl && image.src===avatarUrl){image.src=rawAvatarUrl;return;}if(image.parentNode===row.avatar){row.avatar.textContent=(speaker || '').replace(/^u\//,'').slice(0,1).toUpperCase();if(!speaker || speaker.startsWith('@') || speaker==='Sender unavailable')row.avatar.replaceChildren(svgIcon('person'));}});
               image.loading='lazy';image.decoding='async';row.image=image;
               row.avatar.append(image);
               if(this.avatarObserver){this.pendingAvatarSources.set(image,avatarUrl);this.avatarObserver.observe(image);}

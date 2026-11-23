@@ -86,12 +86,13 @@
   const appearanceRows = new WeakMap();
   function chatListMetrics(container) {
     let refs=appearanceRows.get(container);
-    if(!refs?.name?.isConnected || !refs.frame?.isConnected || refs.frame.classList.contains('has-notifications') || ['preview','time','body','avatar'].some(key=>refs[key] && !refs[key].isConnected)){
+    if(!refs?.name?.isConnected || !refs.frame?.isConnected || refs.frame.classList.contains('has-notifications') || ['preview','time','body','icon','avatar'].some(key=>refs[key] && !refs[key].isConnected)){
       const rows=queryAll(selectors.row,container),row=rows.find(row=>!query('.has-notifications',row)) || rows[0];
       if(!row)return null;
       const name=query(selectors.name,row);if(!name)return null;
       const icon=query('rs-room-icon',row);
-      refs={frame:query('.container,a',row) || row,name,preview:query('.last-message,.preview,[data-testid="last-message"]',row),time:query('.last-message-time,time,[data-testid="last-message-time"]',row),body:query('.body,.copy',row),avatar:query('.avatar,img,image',icon || row)};
+      const avatar=query('[avatar],.avatar,.avatar-container',icon || row) || icon || query('img,svg,image',row);
+      refs={frame:query('.container,a',row) || row,name,preview:query('.last-message,.preview,[data-testid="last-message"]',row),time:query('.last-message-time,time,[data-testid="last-message-time"]',row),body:query('.body,.copy',row),icon,avatar};
       appearanceRows.set(container,refs);
     }
     const values={},frame=getComputedStyle(refs.frame);
@@ -106,7 +107,18 @@
     const length=(value,key)=>{const number=parseFloat(value);if(Number.isFinite(number) && number>=0)values['--rcs-row-'+key]=number+'px';};
     const rowHeight=Math.max(parseFloat(frame.minHeight) || 0,refs.frame.offsetHeight || (/px$/.test(frame.height)?parseFloat(frame.height):0) || 0);if(rowHeight>0)length(rowHeight,'min-height');length(frame.paddingTop,'padding-block');length(frame.paddingLeft,'padding-inline');length(frame.columnGap || frame.gap,'gap');
     if(refs.body){const body=getComputedStyle(refs.body);length(body.rowGap || body.gap,'body-gap');}
-    if(refs.avatar){const avatar=getComputedStyle(refs.avatar),size=parseFloat(avatar.width) || refs.avatar.offsetWidth;if(size>0)values['--rcs-row-avatar-size']=size+'px';}
+    const frameScale=refs.frame.offsetWidth && refs.frame.getBoundingClientRect?.().width?refs.frame.getBoundingClientRect().width/refs.frame.offsetWidth:1;
+    const measureSlot=el=>{
+      if(!el)return 0;
+      const style=getComputedStyle(el);
+      const px=/px$/.test(style.width)?parseFloat(style.width):0;
+      if(px>=24 && px<=56)return Math.round(px);
+      if(el.offsetWidth>=24 && el.offsetWidth<=56)return el.offsetWidth;
+      const rectW=(el.getBoundingClientRect?.().width || 0)/(frameScale || 1);
+      return rectW>=24 && rectW<=56?Math.round(rectW):0;
+    };
+    const avatarSize=measureSlot(refs.icon) || measureSlot(refs.avatar);
+    if(avatarSize>0)values['--rcs-row-avatar-size']=avatarSize+'px';
     return values;
   }
   const toolbarHeaders=new WeakMap(),toolbarHeights=new WeakMap();

@@ -532,10 +532,19 @@
       if(claim.token)await traffic('traffic-release',job,{token:claim.token}).catch(()=>{});
     }
   }
+  function headshotOf(value) {
+    try {
+      const url=new URL(value);
+      if(url.hostname==='i.redd.it' && /^\/snoovatar\/avatars\/[0-9a-z-]+\.png$/i.test(url.pathname) && !/-headshot\.png$/i.test(url.pathname)) {
+        url.pathname=url.pathname.replace(/\.png$/i,'-headshot.png');url.search='';return url.href;
+      }
+    } catch {}
+    return value;
+  }
   function safeImage(value,client) {
     if (!value) return '';
     if (value.startsWith('mxc://')) value=client.mxcUrlToHttp?.(value,64,64,'crop') || '';
-    try { const url=new URL(value,location.href); return url.protocol==='https:' ? url.href : ''; } catch { return ''; }
+    try { const url=new URL(value,location.href); return url.protocol==='https:' ? headshotOf(url.href) : ''; } catch { return ''; }
   }
   function listOf(value) { return Array.isArray(value) ? value : value?.events || []; }
   function profileId(matrixId) { return /^@(t2_[^:]+):/.exec(matrixId)?.[1]; }
@@ -619,7 +628,7 @@
         const name=profile?.isDeleted ? '[deleted]' : profile?.name || profile?.displayName || nativeName || '';
         const person={name,deleted:Boolean(profile?.isDeleted),availabilityKnown:Boolean(profile),
           aliases:profile?.isDeleted ? [] : [profile?.displayName,profile?.name,profile?.prefixedName,nativeName].filter(value=>typeof value==='string' && value),
-          avatar:safeImage(profile?.snoovatarIcon?.src || profile?.avatar?.src || native?.avatarUrl,ctx.client),
+          avatar:safeImage(profile?.avatar?.src || profile?.snoovatarIcon?.src || native?.avatarUrl,ctx.client),
           verifiedAt:profile ? Date.now() : 0,pending:!name || !profile && !nativeName,
           retryAfter:profile && name ? 0 : Date.now()+900000,provenance:profile ? 'native-profile' : 'native-member'};
         // Reddit's profile cannot tell a deleted account from a suspended one; keep what the hover card said.

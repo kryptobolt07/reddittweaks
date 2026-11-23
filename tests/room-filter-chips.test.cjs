@@ -104,10 +104,18 @@ test('room Boolean sender completion stays inline and syntax suggestions and tip
   tools.showMenu('filter');tools.popover.querySelector('[data-value="tips"]').click();assert.equal(tools.popover.querySelectorAll('.search-tip').length,10);assert.equal(tools.popover.classList.contains('menu-popover-tips'),true);key('Escape',c.host.shadowRoot.activeElement);assert.equal(c.host.shadowRoot.activeElement.dataset.value,'tips');
 });
 
-test('chat avatar img elements preserve aspect ratio with object-fit:cover across global and room styles',t=>{
-  const {w}=setup(t);
+test('chat avatar img elements preserve aspect ratio, use native container size, and resolve full-body snoovatars to headshots',t=>{
+  const {w,tools}=setup(t);
   w.eval(fs.readFileSync(path.join(__dirname,'../extension/unified-search-styles.js'),'utf8'));
-  assert.match(w.RCSUnifiedStyles,/\.avatar\s*\{[^}]*object-fit:\s*cover/i,'global .avatar preserves aspect ratio');
+  assert.match(w.RCSUnifiedStyles,/\.avatar\s*\{[^}]*--rcs-row-avatar-size[^}]*object-fit:\s*cover/i,'global .avatar uses native container size and preserves aspect ratio');
   assert.match(w.RCSUnifiedStyles,/img\.avatar\s*\{[^}]*object-fit:\s*cover/i,'global img.avatar preserves aspect ratio');
+  assert.match(w.RCSUnifiedStyles,/img\.avatar\.avatar-snoovatar[^}]*object-fit:\s*contain/i,'snoovatar headshots frame cleanly without clipping or stretching');
   assert.match(w.RCSUnifiedToolStyles,/img\.avatar\s*\{[^}]*object-fit:\s*cover/i,'room tool img.avatar preserves aspect ratio');
+  const fullSnoo='https://i.redd.it/snoovatar/avatars/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png?width=380';
+  const img=tools.avatar({name:'Alex',avatar:fullSnoo},'test-snoo');
+  assert.equal(img.src,'https://i.redd.it/snoovatar/avatars/0a1b2c3d-4e5f-6789-abcd-ef0123456789-headshot.png');
+  assert.equal(img.classList.contains('avatar-snoovatar'),true);
+  const photo=tools.avatar({name:'Sam',avatar:'https://styles.redditmedia.com/t5_1/styles/profileIcon_abc.png'},'test-photo');
+  assert.equal(photo.src,'https://styles.redditmedia.com/t5_1/styles/profileIcon_abc.png');
+  assert.equal(photo.classList.contains('avatar-snoovatar'),false);
 });

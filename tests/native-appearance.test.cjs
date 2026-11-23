@@ -16,6 +16,17 @@ test('chat appearance reads native sidebar typography across shadow roots and fo
   root.replaceChildren();assert.equal(w.RCSAdapter.chatListMetrics(nav),null);
 });
 
+test('chat appearance measures rs-room-icon container size instead of mini group avatars or percent SVG images',t=>{
+  const dom=new JSDOM('<body><rs-rooms-nav></rs-rooms-nav></body>',{runScripts:'outside-only',url:'https://www.reddit.com/chat'}),w=dom.window;t.after(()=>w.close());
+  w.eval(fs.readFileSync(path.join(__dirname,'../extension/adapter.js'),'utf8'));
+  const nav=w.document.querySelector('rs-rooms-nav'),root=nav.attachShadow({mode:'open'});
+  const row=w.document.createElement('rs-rooms-nav-room'),shadow=row.attachShadow({mode:'open'});
+  shadow.innerHTML='<a class="container" style="min-height:64px;padding:8px 12px;column-gap:8px"><rs-room-icon style="width:40px;height:40px"><svg viewBox="0 0 121 122"><image width="100%" height="100%" style="width:100%"></image></svg><img style="width:18px;height:18px"></rs-room-icon><div class="body"><span class="room-name" style="font:14px/20px TestSans">Group</span></div></a>';
+  root.append(row);
+  const metrics=w.RCSAdapter.chatListMetrics(nav);
+  assert.equal(metrics['--rcs-row-avatar-size'],'40px','uses rs-room-icon container slot rather than 100% SVG image or 18px mini-avatar');
+});
+
 test('search toolbars use the local native header height in CSS pixels through hiding, resizing and replacement',t=>{
   const dom=new JSDOM('<body></body>',{runScripts:'outside-only',url:'https://www.reddit.com/chat'}),w=dom.window;t.after(()=>w.close());w.eval(fs.readFileSync(path.join(__dirname,'../extension/adapter.js'),'utf8'));
   const build=height=>{const app=w.document.createElement('rs-app'),root=app.attachShadow({mode:'open'}),nav=w.document.createElement('rs-rooms-nav'),room=w.document.createElement('rs-room');room.innerHTML='<main><header>Person</header></main>';root.append(nav,room);w.document.body.append(app);const header=room.querySelector('header');header.style.cssText='height:'+height+'px;box-sizing:border-box';header.getBoundingClientRect=()=>({width:640,height:height*2});return {nav,room,header};};
