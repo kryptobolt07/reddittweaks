@@ -1,3 +1,11 @@
+# 0.61.2 preview
+
+- **Fix:** newest-first global chat search no longer keeps spinning and scanning older chats when you already have matching results at the top of the list. Backfill freshness now requests `include: { timeline: true }` so rooms receive their real latest timestamp, undated/empty rooms sit at the bottom of the priority queue (`frontier = 1`) instead of pinning the global watermark at `Date.now()`, `Store.searchCount()` falls back to `rcs-messages-v1` while migration is in progress, and the initial certified target is 20 newest matches (advancing by +25 as you scroll).
+- **Fix:** Snoovatar headshot normalization now also matches underscored filenames (such as `nftv2_...` collectible avatars), and `.avatar` uses `var(--rcs-soft)` so transparent avatars keep a visible circular background on hovered/selected rows.
+- Patch increment: bug fixes for certified-watermark early stopping and Snoovatar headshots.
+- **Testing:** all 2,276 tests passed, including a new 50-undated-rooms early-stop regression test and underscored Snoovatar headshot test.
+- **Integrity:** both packages matched source and unpacked assets byte for byte. Firefox lint reported zero errors, warnings and notices. Chromium SHA-256 `8a6a500d347a5c25fdce3a7e9519919a58ccabe6aad3df1e400a853870a02002`. Firefox SHA-256 `ff0f5450cd17541016d8e16a981893f654c5b53f5f4ec1758cbf89775573b6ed`.
+
 # 0.61.1 preview
 
 - **Improved:** newest-first global chat searches now use certified-watermark early stopping (`Store.searchCount()` with `O(log N)` projection slicing above `watermark + 60s` clock skew), pausing automatically once 50+ newest matches are provably certified (or in 0 requests when already cached locally), advancing seamlessly as you scroll before reaching uncertified results, while rare queries and Oldest/Relevant sorts continue searching deeper.
