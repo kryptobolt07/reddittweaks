@@ -218,3 +218,9 @@ test('on a post page a signed-in reader may check that post and its thread comme
  const out=env();out.location.pathname='/r/Alpha/comments/post1/title/';out.location.href='https://www.reddit.com'+out.location.pathname;
  await assert.rejects(out.read('https://www.reddit.com/svc/shreddit/comment/t1_19gsnavtu46ip?isProfile=true'),/Invalid signed-out item check/,'a signed-out reader has nothing blocked');
 });
+test('Reddit phone markup (Open App in place of Log In) counts as a ready signed-out frame; neither control waits',async()=>{
+ const phone=d=>{const base=d.querySelector.bind(d);d.querySelector=selector=>selector==='shreddit-app'?base(selector):selector.split(',').includes('#open-app-header-cta')?{}:null;};
+ const e=env(),task=e.read(endpoint());e.state.credentialless=false;await tick();phone(e.nodes[0].contentDocument);e.state.credentialless=true;e.advance(100);await task;assert.equal(e.calls.length,1);
+ const none=env(),waiting=none.read(endpoint());none.state.credentialless=false;await tick();const d=none.nodes[0].contentDocument,base=d.querySelector.bind(d);d.querySelector=selector=>selector==='shreddit-app'?base(selector):null;none.state.credentialless=true;
+ none.advance(100);await tick();assert.equal(none.calls.length,0);none.advance(6000);await assert.rejects(waiting);assert.equal(none.calls.length,0);
+});

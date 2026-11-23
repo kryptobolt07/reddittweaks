@@ -92,7 +92,8 @@
       // anonymous session. The first search must wait for browser initialization.
       if(d.readyState!=='complete' || !w.customElements.get('shreddit-app'))return null;
       if(app && (app.hasAttribute('logged-in') || app.hasAttribute('logged-in-user-id') || app.getAttribute('user-logged-in')==='true'))throw failure();
-      return app && d.querySelector('#login-button')?{window:w,document:d}:null;
+      // Desktop markup shows Log In; Reddit's phone markup (mobile user agents) shows Open App in its place.
+      return app && d.querySelector('#login-button,#open-app-header-cta')?{window:w,document:d}:null;
     }catch(error){if(error.name==='SecurityError')return null;throw error;}
   }
   function ready(node,signal){

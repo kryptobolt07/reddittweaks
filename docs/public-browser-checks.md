@@ -29,6 +29,13 @@ existing search parsers validate results. Shells, authentication, challenge page
 timeouts cannot prove visibility, removal, or complete history. This transport
 does not add per-comment removal verification.
 
+Reddit's phone markup (served to mobile user agents) has no Log In button in its
+header; the signed-out header shows Open App (`#open-app-header-cta`) in its place.
+Either control counts as the signed-out sign, with the same logged-in checks
+(measured 2026-11-23 at 412 px with an Android user agent: every blocked-profile
+check had waited 6 s for `#login-button` and failed, so phones fell back to
+Reddit's "nobody goes by that name" page).
+
 Server-rendered Log In markup alone is not initialization proof. The iframe
 document must finish loading and Reddit's `shreddit-app` component must be
 registered before its first public request.
