@@ -187,7 +187,7 @@ test('attachment filters use authentic message types, edited metadata and accoun
 test('native replay backfills attachment metadata in preexisting cached events without a schema reset',async()=>{
   const {RCSMessageStore:{Store}}=environment(),store=new Store({indexedDB:null}),image={...event('image','Photo.jpg',noon(10)),content:{body:'Photo.jpg',msgtype:'m.image'}};
   await store.ingest({owner,roomId:room,events:[image],coverage:{complete:true,dateComplete:true}});
-  const saved=[...store.memory.values()][0];delete saved.events[0].attachmentType;
+  const saved=[...store.mem.msgs.values()][0];saved.f=0;store.projections.clear();
   assert.equal((await store.search(owner,{query:'has:image'})).total,0);
   const replay=await store.ingest({owner,roomId:room,events:[image],coverage:{complete:true,dateComplete:true}});
   assert.equal(replay.changed,true);

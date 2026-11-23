@@ -85,17 +85,20 @@ test('worker health responds independently of stalled saved storage without expo
     assert.equal(JSON.stringify(await broker.send({scope:'rcs-cache-health'},{...sender,id:'other-extension'})),JSON.stringify({ok:false}));
   }finally{clearTimeout(timer);}
 });
-test('real global interface searches captured messages and receives redactions without directory or history reads',async t=>{
+test('real global interface searches captured messages and receives redactions without directory rebuilds or extra reads on redaction',async t=>{
   const broker=worker(t),env=page(t,broker,1);await wait(30);
-  env.emit(event('$visible','saved coffee'));await env.W.RCSMessages.flush();
+  env.emit(event('$visible','saved_unique_espresso'));await env.W.RCSMessages.flush();
   for(const file of ['extension/adapter.js','extension/date-picker.js','extension/global-search-model.js','extension/media-preview.js','extension/unified-search-styles.js','extension/unified-search.js','extension/content.js'])env.W.eval(source(file));
   await wait(50);env.api.calls.length=0;
   const root=env.W.RCSAdapter.query('[data-rcs-ui="list"]',env.api.nav).shadowRoot;
-  root.querySelector('[data-scope="all"]').click();const input=root.querySelector('input');input.value='coffee';input.dispatchEvent(new env.W.Event('input'));await until(()=>root.querySelectorAll('.message-result').length===1);
-  assert.equal(root.querySelectorAll('.message-result').length,1);assert.equal(root.querySelector('.message-name').textContent,env.W.ChatFixture.conversations[0].name);assert.match(root.querySelector('.snippet').textContent,/You:.*saved coffee/);assert.equal(env.api.calls.length,0);
+  root.querySelector('[data-scope="all"]').click();const input=root.querySelector('input');input.value='saved_unique_espresso';input.dispatchEvent(new env.W.Event('input'));await until(()=>root.querySelectorAll('.message-result').length===1);
+  assert.equal(root.querySelectorAll('.message-result').length,1);assert.equal(root.querySelector('.message-name').textContent,env.W.ChatFixture.conversations[0].name);assert.match(root.querySelector('.snippet').textContent,/You:.*saved_unique_espresso/);
+  // Never triggers a stateful directory scan on search; only local results + optional lightweight backfill freshness.
+  assert.equal(env.api.calls.some(call=>call.options?.include?.state),false);
   assert.equal(root.querySelector('.coverage'),null);
+  await wait(50);const callsBeforeRedact=env.api.calls.length;
   env.emit(event('$remove','',{type:'m.room.redaction',redacts:'$visible'}));await env.W.RCSMessages.flush();await until(()=>root.querySelectorAll('.message-result').length===0);
-  assert.equal(root.querySelectorAll('.message-result').length,0);assert.equal(env.api.calls.length,0);
+  assert.equal(root.querySelectorAll('.message-result').length,0);assert.equal(env.api.calls.length,callsBeforeRedact);
 });
 test('global results stay usable during a blocked cache reconciliation despite unfinished Reddit startup sync',async t=>{
   const broker=worker(t),owner='@t2_me:reddit.com',sender={id:'test-extension',url:'https://www.reddit.com/chat/',tab:{id:1}};

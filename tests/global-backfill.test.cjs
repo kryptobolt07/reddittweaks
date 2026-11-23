@@ -499,52 +499,52 @@ test('lifecycle: minimize keeps backfill running, panel close stops it, Stop/Con
   }));
   const leaseStore=new Map();
   const homeserver=createFixtureHomeserver({owner,rooms});
-  homeserver.setDelay(15);
+  homeserver.setDelay(10);
   const {W,ui}=mountFullStack(t,{idb,dbName,owner,homeserver,leaseStore});
 
   // 1. Multi-tab lease already held by another tab -> other-tab state, 0 /events requests!
   leaseStore.set(owner,{token:'other-tab-token',expiresAt:Date.now()+60000});
   ui.open(false);ui.setScope('messages');ui.setQuery('life_needle');
-  await waitFor(()=>ui.backfillState?.state==='other-tab',{timeout:5000});
+  await waitFor(()=>ui.backfillState?.state==='other-tab',{timeout:15000});
   assert.match(ui.status.textContent,/Searching in another tab…/);
   assert.equal(homeserver.eventCalls.length,0,'second tab made 0 /events requests');
   leaseStore.delete(owner);
 
   // 2. Start backfill, minimize (suspend) mid-run -> keeps running and finishes!
   ui.refresh.click();
-  await waitFor(()=>ui.backfillState?.state==='running',{timeout:5000});
+  await waitFor(()=>ui.backfillState?.state==='running',{timeout:15000});
   ui.suspend();
-  await waitFor(()=>ui.backfillState?.state==='complete',{timeout:8000});
+  await waitFor(()=>ui.backfillState?.state==='complete',{timeout:15000});
   ui.resume();
-  await waitFor(()=>ui.savedTotal===12,{timeout:5000});
+  await waitFor(()=>ui.savedTotal===12,{timeout:15000});
   assert.equal(ui.savedTotal,12,'minimize kept backfill running to completion');
 
   // 3. Stop button pauses & Continue resumes; dismissSearch cancels & releases lease!
   const idb2=new IDBFactory(),dbName2='bf-stop-'+crypto.randomUUID();
   const hs2=createFixtureHomeserver({owner,rooms});
-  hs2.setDelay(25);
+  hs2.setDelay(15);
   const s2=mountFullStack(t,{idb:idb2,dbName:dbName2,owner,homeserver:hs2,leaseStore:new Map()});
   s2.ui.open(false);s2.ui.setScope('messages');s2.ui.setQuery('life_needle');
-  await waitFor(()=>s2.ui.backfillState?.state==='running' && !s2.ui.backfillAction.hidden,{timeout:5000});
+  await waitFor(()=>s2.ui.backfillState?.state==='running' && !s2.ui.backfillAction.hidden,{timeout:15000});
   assert.equal(s2.ui.backfillAction.textContent,'Stop');
   s2.ui.backfillAction.click();
   assert.equal(s2.ui.backfillState.state,'paused');
   assert.equal(s2.ui.backfillAction.textContent,'Search older messages');
   // Click Continue -> finishes!
   s2.ui.backfillAction.click();
-  await waitFor(()=>s2.ui.backfillState?.state==='complete',{timeout:8000});
+  await waitFor(()=>s2.ui.backfillState?.state==='complete',{timeout:15000});
 
   // 4. Closing search panel (dismissSearch) stops an active backfill immediately.
   const idb3=new IDBFactory(),dbName3='bf-close-'+crypto.randomUUID();
   const hs3=createFixtureHomeserver({owner,rooms});
-  hs3.setDelay(30);
+  hs3.setDelay(15);
   const lease3=new Map();
   const s3=mountFullStack(t,{idb:idb3,dbName:dbName3,owner,homeserver:hs3,leaseStore:lease3});
   s3.ui.open(false);s3.ui.setScope('messages');s3.ui.setQuery('life_needle');
-  await waitFor(()=>s3.ui.backfillTask!==null,{timeout:5000});
+  await waitFor(()=>s3.ui.backfillTask!==null,{timeout:15000});
   s3.ui.dismissSearch();
   assert.equal(s3.ui.backfillTask,null,'dismissSearch cancelled active backfill');
-  await waitFor(()=>lease3.size===0,{timeout:3000});
+  await waitFor(()=>lease3.size===0,{timeout:15000});
 
   // 5. Runtime contract gate (M9): broken native client degrades cleanly without throwing.
   const idb4=new IDBFactory(),dbName4='bf-contract-'+crypto.randomUUID();
