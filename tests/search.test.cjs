@@ -186,3 +186,20 @@ test('the signed-in sender stays You through later DOM username refreshes and re
   index.replace('room',[{id:'self',text:'hello',author:'@t2_me:reddit.com',sender}]);assert.equal(index.search('room','hello')[0].author,'You');assert.equal(index.search('room','hello')[0].avatar,'https://example.com/self.png');
   index.upsert('room',[{id:'next-self',text:'next',author:'example_user',sender}],{dom:true});assert.equal(index.search('room','next')[0].author,'You');
 });
+
+test('native chat navigation references remain usable after a metadata merge',t=>{
+ const dom=environment();t.after(()=>dom.window.close());
+ const {document,RCSAdapter:A}=dom.window;
+ const row=document.createElement('rs-rooms-nav-room');
+ row.setAttribute('room-id','fixture');
+ row.setAttribute('display-name','Example');
+ const link=document.createElement('a');
+ link.href='/chat/room/fixture';
+ row.append(link);document.body.append(row);
+ const record={...A.retainConversation(A.conversation(row)),lastSeq:2};
+ assert.equal(A.conversationNode(record),row);
+ assert.equal(A.conversationNode(record,'link'),link);
+ const serialized=structuredClone(record);
+ assert.equal(serialized.name,'Example');
+ assert.equal(A.conversationNode(serialized),undefined);
+});

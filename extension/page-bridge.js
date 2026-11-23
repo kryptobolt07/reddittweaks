@@ -58,11 +58,11 @@
     const all = selector => [...new Set(roots.flatMap(root => [...root.querySelectorAll(selector)]))];
     const find = selector => all(selector)[0];
     const matrix = find('rs-matrix-client');
-    const users = all('rs-rooms-nav-room,rs-room,rs-room-info,rs-timeline-event,rs-room-settings')
-      .flatMap(host=>[host.users,host.usersController,host.roomController?.users])
+    const userHosts = all('rs-rooms-nav-room,rs-room,rs-room-info,rs-timeline-event,rs-room-settings');
+    const users = userHosts.flatMap(host=>[host.users,host.usersController,host.roomController?.users])
       .find(controller=>typeof controller?.getRedditUserById==='function');
     bindingClient=matrix?.client || bindingClient;
-    for(const host of all('rs-timeline-event'))try{stampNativeEvent(host);}catch{ /* Future native models must fail open. */ }
+    for(const host of userHosts)if(host.localName==='rs-timeline-event')try{stampNativeEvent(host);}catch{ /* Future native models must fail open. */ }
     return {client:matrix?.client,users,history:find('rs-history'),find,all};
   }
   function stampNativeEvent(host,client=bindingClient) {

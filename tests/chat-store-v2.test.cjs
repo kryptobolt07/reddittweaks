@@ -295,3 +295,37 @@ test('coverage spans merge adjacent and overlapping ranges, detect head gaps, an
   assert.equal(cov.inaccessible.status,403);assert.equal(cov.coverage.complete,false);
   (await store.db()).close();
 });
+
+test('cold search reads share a projection only within the same write generation',async()=>{
+ const idb=new IDBFactory(),{M}=makeEnv(idb);
+ const store=new M.Store({indexedDB:idb,name:'cold-projection-generations'});
+ const owner='@t2_account:reddit.com',roomId='!room:reddit.com';
+ const ingest=id=>store.ingest({owner,roomId,events:[{
+  event_id:id,type:'m.room.message',sender:owner,origin_server_ts:Date.now(),
+  content:{msgtype:'m.text',body:'fixture'}
+ }]});
+ await ingest('$first');
+ const build=store._buildProjection.bind(store);
+ let builds=0,ready,release;
+ const snapshotReady=new Promise(resolve=>{ready=resolve;});
+ const blocked=new Promise(resolve=>{release=resolve;});
+ store._buildProjection=async id=>{
+  const n=++builds,result=await build(id);
+  if(n===1){ready();await blocked;}
+  return result;
+ };
+ const first=store._ensureProjection(owner),same=store._ensureProjection(owner);
+ await snapshotReady;
+ assert.equal(builds,1);
+ await ingest('$second');
+ const after=await store._ensureProjection(owner);
+ assert.equal(after.count,2);
+ release();
+ const previous=await first;
+ assert.equal(await same,previous);
+ assert.equal(previous.count,1);
+ assert.equal(await store._ensureProjection(owner),after,'an older snapshot never replaces the newer projection');
+ assert.equal(builds,2);
+ await store.clear(owner);
+ assert.equal(await store._ensureProjection(owner),null);
+});

@@ -426,6 +426,7 @@
       this.writeEpoch=0;
       this.database=null;this.connection=null;this.queue=Promise.resolve();
       this.projections=new Map(); // owner -> AccountProjection
+      this.projectionReads=new Map();
       this.migrationTasks=new Map(); // owner -> Promise
       // In-memory store mirror when persistent === false.
       this.mem={accounts:new Map(),rooms:new Map(),roomsById:new Map(),msgs:new Map(),rels:new Map(),relsByTarget:new Map(),spans:new Map(),people:new Map(),meta:new Map()};
@@ -456,6 +457,7 @@
       const opening=this.database;try{return await opening;}catch(error){if(this.database===opening)this.database=null;throw error;}
     }
     async transaction(names,mode='readonly') {
+      if(mode==='readwrite')this.writeEpoch++;
       for(let attempt=0;attempt<2;attempt++){
         const db=await this.db();if(!db)return null;
         try{return db.transaction(names,mode);}catch(error){
@@ -568,7 +570,6 @@
       for(const rid of unknownByRoom.keys())if(!grouped.has(rid))grouped.set(rid,[]);
       if(batch.roomId && !grouped.has(batch.roomId))grouped.set(str(batch.roomId),[]);
 
-      this.writeEpoch++;
       const tx=await this.transaction(['accounts','rooms','msgs','rels','spans','people','meta'],'readwrite'),completion=tx?done(tx):null;
       const projUpdates=[];
       try {
@@ -1048,7 +1049,6 @@
     async writeDimensions({owner,records}={}){
       if(!ownerOK(owner) || !Array.isArray(records) || records.length>100)throw Error('Invalid image dimensions');
       for(const r of records)if(typeof r?.roomId!=='string' || !r.roomId || r.roomId.length>1000 || typeof r.eventId!=='string' || !r.eventId || r.eventId.length>1000 || !previewURL(r.preview) || !Number.isFinite(r.width) || !Number.isFinite(r.height) || r.width<1 || r.height<1 || r.width>100000 || r.height>100000)throw Error('Invalid image dimensions');
-      this.writeEpoch++;
       const tx=await this.transaction(['accounts','rooms','msgs','rels'],'readwrite'),completion=tx?done(tx):null;
       try{
         const acc=await this._getAccount(tx,owner);
@@ -1128,7 +1128,6 @@
     markInaccessible(owner,roomId,status){const result=this.queue.then(()=>this._writeInaccessible(owner,roomId,status));this.queue=result.catch(()=>{});return result;}
     async _writeInaccessible(owner,roomId,status){
       if(!ownerOK(owner) || typeof roomId!=='string' || !roomId || roomId.length>1000)throw Error('Invalid room');
-      this.writeEpoch++;
       const tx=await this.transaction(['accounts','rooms','meta'],'readwrite'),completion=tx?done(tx):null;
       try{
         const acc=await this._ensureAccount(tx,owner);
@@ -1154,7 +1153,6 @@
     updateHeads(owner,heads){const result=this.queue.then(()=>this._writeHeads(owner,heads));this.queue=result.catch(()=>{});return result;}
     async _writeHeads(owner,heads){
       if(!ownerOK(owner) || !Array.isArray(heads))throw Error('Invalid head update');
-      this.writeEpoch++;
       const tx=await this.transaction(['accounts','rooms','spans','meta'],'readwrite'),completion=tx?done(tx):null;
       try{
         const acc=await this._ensureAccount(tx,owner);
@@ -1197,6 +1195,21 @@
     async _ensureProjection(owner){
       const cached=this.projections.get(owner);
       if(cached)return cached;
+      const epoch=this.writeEpoch;
+      const pending=this.projectionReads.get(owner);
+      if(pending?.epoch===epoch)return pending.promise;
+      const promise=this._buildProjection(owner).then(projection=>{
+        // A read that raced a write can return its snapshot to its original
+        // caller, but must not publish it for later searches.
+        if(projection && this.writeEpoch===epoch)this.projections.set(owner,projection);
+        return projection;
+      });
+      this.projectionReads.set(owner,{epoch,promise});
+      try{return await promise;}
+      finally{if(this.projectionReads.get(owner)?.promise===promise)this.projectionReads.delete(owner);}
+    }
+
+    async _buildProjection(owner){
       const tx=await this.transaction(['accounts','rooms','msgs','people'],'readonly');
       const acc=await this._getAccount(tx,owner);
       if(!acc)return null;
@@ -1244,7 +1257,6 @@
         proj.t=nt;proj.room=nr;proj.senderIdx=ns;proj.flags=nf;proj.folded=nFolded;proj.ids=nIds;
         proj.sortedDesc=true;proj.lastT=proj.t[proj.count-1];
       }
-      this.projections.set(owner,proj);
       return proj;
     }
 
@@ -1681,7 +1693,7 @@
 
     async importState(owner,mark=false) {
       if(!ownerOK(owner))throw Error('Invalid account');
-      await this.queue;if(mark)this.writeEpoch++;
+      await this.queue;
       const tx=await this.transaction(['accounts','meta'],mark?'readwrite':'readonly'),completion=tx && mark?done(tx):null;
       try{
         let acc=await this._getAccount(tx,owner);
@@ -1720,7 +1732,7 @@
 
     async clear(owner) {
       if(owner && !ownerOK(owner))throw Error('Invalid account');
-      await this.queue;this.writeEpoch++;
+      await this.queue;
       if(owner)this.projections.delete(owner);else this.projections.clear();
       const tx=await this.transaction(['accounts','rooms','msgs','rels','spans','people'],'readwrite'),completion=tx?done(tx):null;
       try{

@@ -483,7 +483,7 @@
           const entry = A.conversation(row);
           if (entry.name && entry.id) {
             const previous=this.cache.get(entry.id);
-            this.cache.set(entry.id,{...previous,...entry,name:previous?.participantIds?.length || previous?.historicalName ? previous.name : entry.name,avatar:previous?.avatar || entry.avatar || ''});
+            this.cache.set(entry.id,{...previous,...(A.retainConversation?.(entry) || entry),name:previous?.participantIds?.length || previous?.historicalName ? previous.name : entry.name,avatar:previous?.avatar || entry.avatar || ''});
           }
         }
       } else {
@@ -666,8 +666,11 @@
       if (this.kind === 'list' && !this.isGlobal) {
         try {
           if (globalThis.RCSData) await RCSData.request('open',{roomId:hit.id}).promise;
-          else if (hit.element?.isConnected) (hit.link || hit.element).click();
-          else throw Error('Reddit chat is not connected yet. Please retry.');
+          else {
+            const row=A.conversationNode?.(hit) || hit.element;
+            if(!row?.isConnected)throw Error('Reddit chat is not connected yet. Please retry.');
+            (A.conversationNode?.(hit,'link') || hit.link || row).click();
+          }
           this.input.value = ''; this.render();this.dismiss();
         } catch(error) { this.status.textContent=error.message; }
       } else { this.render(); this.jump(hit); }

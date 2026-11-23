@@ -83,6 +83,19 @@
     if(href){const match=/\/(?:chat\/)?room\/([^/]+)/.exec(new URL(href).pathname);if(match)try{roomId=decodeURIComponent(match[1]);}catch{}}
     return {id: row.getAttribute('room') || row.getAttribute('room-id') || roomId || row.getAttribute('data-rcs-room-id') || href || name, name, href, avatar, element: row, link};
   }
+  const conversationRefs=Symbol('native conversation row');
+  function retainConversation(entry){
+    const {element,link,...record}=entry;
+    // Copied with in-page record merges and excluded from serialized metadata.
+    record[conversationRefs]={
+      element:element?new WeakRef(element):null,
+      link:link?new WeakRef(link):null,
+    };
+    return record;
+  }
+  function conversationNode(record,kind='element'){
+    return record?.[kind] || record?.[conversationRefs]?.[kind]?.deref();
+  }
   const appearanceRows = new WeakMap();
   function chatListMetrics(container) {
     let refs=appearanceRows.get(container);
@@ -262,5 +275,5 @@
     messageHighlight=new Highlight(...ranges);CSS.highlights.set('rcs-message-match',messageHighlight);const current=messageHighlight;
     highlightTimer=setTimeout(()=>{if(CSS.highlights.get('rcs-message-match')===current)CSS.highlights.delete('rcs-message-match');},2400);
   }
-  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, chatNode, query, queryAll, text, visible, conversation, chatListMetrics, searchToolbarHeight, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, revealMessage, scrollContainer});
+  globalThis.RCSAdapter = Object.freeze({selectors, roots, chatRoots, chatNode, query, queryAll, text, visible, conversation, retainConversation, conversationNode, chatListMetrics, searchToolbarHeight, roomKey, messages, mountPoint, syncSearchLayer, releaseSearchLayer, revealMessage, scrollContainer});
 })();

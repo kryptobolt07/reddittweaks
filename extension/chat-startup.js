@@ -78,19 +78,25 @@
   // Discover the first shadow-hydrated list before document_idle controls run.
   // Observe only candidate chat roots; timer probing is bounded to hydration.
   let discoveryTimer=0,queued=false,hydrationUntil=0;
-  const watched=new Set(),observers=[];
+  const watched=new Map();
   // Only chat elements or a floating-chat shell position: Reddit's posts and players also have shadow roots, and treating
   // every one as a candidate re-ran discovery on each batch of posts while scrolling (measured 2026-11-19).
   const candidate=node=>A.chatNode?A.chatNode(node):node.nodeType===1 && (node.localName?.startsWith('rs-') || node.matches?.('[data-testid="chat-room-list"]'));
-  function endDiscovery(){clearTimeout(discoveryTimer);for(const observer of observers)observer.disconnect();observers.length=0;watched.clear();document.removeEventListener('rcs-chat-present',wake);document.removeEventListener('rcs-chat-starting',wake);if(onSettingsMessage)try{chrome.runtime?.onMessage?.removeListener(onSettingsMessage);}catch{}}
+  function endDiscovery(){clearTimeout(discoveryTimer);documentObserver.disconnect();for(const observer of watched.values())observer.disconnect();watched.clear();document.removeEventListener('rcs-chat-present',wake);document.removeEventListener('rcs-chat-starting',wake);if(onSettingsMessage)try{chrome.runtime?.onMessage?.removeListener(onSettingsMessage);}catch{}}
+  function pruneRoots(){
+    for(const [root,observer] of watched)if(!root.isConnected){
+      observer.disconnect();watched.delete(root);
+    }
+  }
   function discover(){
     queued=false;clearTimeout(discoveryTimer);if(used)return;
+    pruneRoots();
     const roots=A.chatRoots();check(roots);if(used)return;
     // The floating shell is in every page even with chat closed; only an open chat app has a list to catch. Opening
     // chat announces itself (rcs-chat-present), so a closed shell is neither watched nor polled (measured 2026-11-19).
     if(!roots.some(root=>root.querySelector?.('rs-app, rs-rooms-nav, [data-testid="chat-room-list"]')))return;
     for(const root of roots)if(!watched.has(root)){
-      watched.add(root);const observer=new MutationObserver(wake);observer.observe(root,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','class','style']});observers.push(observer);
+      const observer=new MutationObserver(wake);observer.observe(root,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','class','style']});watched.set(root,observer);
     }
     if(roots.length && Date.now()<hydrationUntil)discoveryTimer=setTimeout(discover,100);
   }
@@ -98,8 +104,9 @@
   let onSettingsMessage=null;
   const documentObserver=new MutationObserver(records=>{
     if(records.some(record=>!globalThis.RTPostMenuDOM?.isMenuMutation(record) && [...record.addedNodes].some(candidate)))wake();
+    else if(watched.size && records.some(record=>record.removedNodes.length))pruneRoots();
   });
-  documentObserver.observe(document,{childList:true,subtree:true});observers.push(documentObserver);
+  documentObserver.observe(document,{childList:true,subtree:true});
   document.addEventListener('rcs-chat-present',wake);document.addEventListener('rcs-chat-starting',wake);
   const stop=()=>{used=true;release();endDiscovery();};
   if(globalThis.chrome?.runtime?.id && chrome.runtime.sendMessage){
