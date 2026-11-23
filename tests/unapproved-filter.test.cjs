@@ -1,26 +1,37 @@
-// "Not yet approved" filter for moderators (docs/unmoderated-filter-spec.md).
+// "Awaiting approval" filter: moderators’ queue and the archive source for everyone else (docs/unmoderated-filter-spec.md).
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
 const read=file=>fs.readFileSync('extension/'+file,'utf8');
+const plain=value=>JSON.parse(JSON.stringify(value));// jsdom objects come from another realm
 const flush=async()=>{for(let i=0;i<8;i++)await new Promise(r=>setImmediate(r));};
 const page='<main><div class="flex"><shreddit-sort-dropdown><button>Best</button></shreddit-sort-dropdown></div><shreddit-feed><article>Native card</article></shreddit-feed></main>';
 const raw=(id,extra={})=>({id,author:'Writer',subreddit:'Alpha',title:'Queued '+id,selftext:'',created_utc:1700000000+Number.parseInt(id,36)%1000,is_self:true,score:1,num_comments:0,...extra});
 
-async function setup(t,{url='https://www.reddit.com/r/Alpha/',moderator=true,queue,settings={modUnapprovedFilter:true}}={}){
- const dom=new JSDOM(page,{url,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[];let f;
+// Fixed clock for the archive source: the 7-day cutoff is the minute-rounded now minus 604800 s.
+const NOW=1750000000000,CUTOFF=Math.floor(NOW/60000)*60-604800;
+const archived=(id,created,extra={})=>({id,author:'Poster',subreddit:'Alpha',title:'Archived '+id,selftext:'',created_utc:created,is_self:true,score:3,num_comments:1,...extra});
+async function setup(t,{url='https://www.reddit.com/r/Alpha/',moderator=true,signedIn,queue,archive,status,menu,before,settings={modUnapprovedFilter:true}}={}){
+ const dom=new JSDOM(page,{url,runScripts:'outside-only',pretendToBeVisual:true}),W=dom.window,calls=[],archiveCalls=[];let f;
  t.after(()=>{f?.destroy();W.close();});
  for(const file of ['post-model.js','feed-filters.js','unapproved-filter.js'])W.eval(read(file));
+ before?.(W);
  let current=settings;
  const reddit=async args=>{calls.push(args);
-  if(args.action==='mod-status'){if(moderator instanceof Error)throw moderator;return {moderator,subreddit:'Alpha'};}
+  if(args.action==='mod-status'){if(moderator instanceof Error)throw moderator;return {moderator,subreddit:'Alpha',...(signedIn===undefined?{}:{signedIn})};}
   if(args.action==='unapproved')return queue?queue(args,calls.filter(c=>c.action==='unapproved').length):{posts:[raw('q1'),raw('q2')],after:null,hasMore:false};
+  if(args.action==='awaiting-status'){if(!status)throw Error('Unexpected status read');return status(args,calls.filter(c=>c.action==='awaiting-status').length);}
   throw Error('Unexpected '+args.action);};
- f=new W.RTUnapprovedFilter.UnapprovedFilter({observe:false,reddit,readSettings:async()=>current});
+ const archiveRead=async message=>{archiveCalls.push(plain(message));if(!archive)throw Error('Unexpected archive read');return archive(message,archiveCalls.length);};
+ f=new W.RTUnapprovedFilter.UnapprovedFilter({observe:false,reddit,archive:archiveRead,menu,now:()=>NOW,readSettings:async()=>current});
  await f.ready;await flush();
- return {W,D:W.document,f,calls,setSettings:async value=>{current=value;await f.loadSettings();await flush();},button:()=>W.document.querySelector('[data-rt-unapproved="button"]'),list:()=>W.document.querySelector('[data-rt-unapproved="list"]'),feed:()=>W.document.querySelector('shreddit-feed')};
+ return {W,D:W.document,f,calls,archiveCalls,api:{...W.RTUnapprovedFilter,availability:async name=>plain(await W.RTUnapprovedFilter.availability(name))},setSettings:async value=>{current=value;await f.loadSettings();await flush();},button:()=>W.document.querySelector('[data-rt-unapproved="button"]'),list:()=>W.document.querySelector('[data-rt-unapproved="list"]'),feed:()=>W.document.querySelector('shreddit-feed'),
+  summary:()=>W.document.querySelector('.rt-unapproved-summary'),note:()=>W.document.querySelector('.rt-unapproved-source'),ids:()=>[...W.document.querySelectorAll('[data-rt-unapproved-id]')].map(r=>r.dataset.rtUnapprovedId)};
 }
+const archiveOn={modUnapprovedFilter:true,archiveDiscovery:true};
+// Reddit's answer for each requested ID, by removed_by_category (missing key: Reddit left the ID out).
+const statusFrom=categories=>args=>({statuses:args.ids.filter(id=>Object.hasOwn(categories,id)).map(id=>({id,category:categories[id],post:archived(id,CUTOFF+1000,{title:'Live '+id,score:9})})),subreddit:'Alpha'});
 
 test('moderators get one button right after Reddit’s sort control; nothing else changes',async t=>{
  const s=await setup(t);const b=s.button();assert.ok(b);assert.equal(s.D.querySelector('shreddit-sort-dropdown').nextElementSibling,b);
@@ -100,4 +111,123 @@ test('bridge rejects another community, bad names, cursors and URLs before any f
 });
 test('bridge reports a 403 as not a moderator, not an empty queue',async t=>{
  const b=bridge(t,{respond:()=>({status:403})});const r=await b.send({action:'unapproved',subreddit:'Alpha'});assert.equal(r.ok,false);assert.match(r.error,/don’t moderate/);
+});
+
+// --- Any community: source selection, archive source, menu API (spec B7-B10)
+test('availability picks the mod queue for moderators, the archive for everyone else, and says why when it can’t',async t=>{
+ const mod=await setup(t,{settings:archiveOn});assert.deepEqual(await mod.api.availability('alpha'),{available:true,source:'modqueue'});
+ const reader=await setup(t,{moderator:false,settings:archiveOn});assert.deepEqual(await reader.api.availability('Alpha'),{available:true,source:'archive'});
+ assert.equal(reader.button(),null,'the standalone button stays moderator-only');assert.equal(reader.list(),null,'nothing changes until the filter is turned on');
+ assert.deepEqual(await reader.api.availability('Beta'),{available:false,source:null,reason:'not-community'});
+ const off=await setup(t,{moderator:false});assert.deepEqual(await off.api.availability('Alpha'),{available:false,source:'archive',reason:'archive-off'});
+ const signedOut=await setup(t,{moderator:false,signedIn:false,settings:archiveOn});assert.deepEqual(await signedOut.api.availability('Alpha'),{available:false,source:null,reason:'signed-out'});
+ const failed=await setup(t,{moderator:Error('HTTP 500'),settings:archiveOn});assert.deepEqual(await failed.api.availability('Alpha'),{available:false,source:null,reason:'error'});
+ const disabled=await setup(t,{moderator:false,settings:{modUnapprovedFilter:false,archiveDiscovery:true}});assert.deepEqual(await disabled.api.availability('Alpha'),{available:false,source:null,reason:'disabled'});
+ const post=await setup(t,{url:'https://www.reddit.com/r/Alpha/comments/abc/x/',moderator:false,settings:archiveOn});assert.equal((await post.api.availability('Alpha')).reason,'not-community');
+});
+test('only automod_filtered and reddit count as awaiting approval',async t=>{
+ const s=await setup(t,{moderator:false});const awaiting=s.api.awaitingCategory;
+ assert.equal(awaiting('automod_filtered'),true);assert.equal(awaiting('reddit'),true);
+ for(const category of ['moderator','deleted','author','copyright_takedown','anti_evil_ops','content_takedown',null,undefined,'','REDDIT'])assert.equal(awaiting(category),false,String(category));
+});
+test('non-moderators see held posts from Arctic Shift checked against Reddit, with the source note',async t=>{
+ const posts=['a1','a2','a3','a4','a5','a6'].map((id,i)=>archived(id,NOW/1000-60*(i+1)));
+ const s=await setup(t,{moderator:false,settings:archiveOn,archive:()=>({ok:true,posts,cursor:null,hasMore:false}),
+  status:statusFrom({a1:'automod_filtered',a2:null,a3:'moderator',a4:'reddit',a5:'deleted',a6:'author'})});
+ assert.equal(await s.api.setActive(true),true);await flush();
+ assert.equal(s.W.location.search,'?rt_mod=unapproved');assert.equal(s.feed().hasAttribute('data-rt-unapproved-hidden'),true);assert.equal(s.list().dataset.rtUnapprovedSource,'archive');
+ assert.deepEqual(s.ids(),['a1','a4']);
+ assert.equal(s.summary().textContent,'2 posts held for review in r/Alpha in the last 7 days');
+ assert.equal(s.note().textContent,'Held for review and not yet approved (from Arctic Shift, last 7 days)');assert.equal(s.summary().nextElementSibling,s.note());
+ assert.equal(s.list().querySelector('[data-testid="post-title-text"]').textContent,'Live a1','rows use Reddit’s current copy');
+ assert.deepEqual(s.archiveCalls[0],{action:'archive-search',kind:'post',subreddit:'Alpha',sort:'desc',after:CUTOFF});
+ assert.equal(s.list().querySelector('.rt-unapproved-more').hidden,true);
+ const mod=await setup(t,{url:'https://www.reddit.com/r/Alpha/?rt_mod=unapproved'});assert.equal(mod.note().textContent,'From your mod queue');assert.equal(mod.list().dataset.rtUnapprovedSource,'modqueue');
+});
+test('an empty archive check says so for the last 7 days',async t=>{
+ const s=await setup(t,{url:'https://www.reddit.com/r/Alpha/?rt_mod=unapproved',moderator:false,settings:archiveOn,archive:()=>({ok:true,posts:[archived('b1',NOW/1000-100)],cursor:null,hasMore:false}),status:statusFrom({b1:null})});
+ assert.equal(s.summary().textContent,'No posts are waiting for approval in r/Alpha in the last 7 days.');assert.equal(s.summary().dataset.error,undefined);
+});
+test('the archive read stops at the 7-day cutoff',async t=>{
+ const s=await setup(t,{url:'https://www.reddit.com/r/Alpha/?rt_mod=unapproved',moderator:false,settings:archiveOn,
+  archive:()=>({ok:true,posts:[archived('c1',CUTOFF+10),archived('c2',CUTOFF-10)],cursor:CUTOFF-9,hasMore:true,cursorStalled:false}),status:statusFrom({c1:'reddit',c2:'reddit'})});
+ assert.equal(s.archiveCalls.length,1,'an older post ends the read');assert.deepEqual(s.ids(),['c1']);
+ assert.deepEqual(plain(s.calls.filter(c=>c.action==='awaiting-status').map(c=>c.ids)),[['c1']],'posts older than 7 days are not checked');
+ assert.equal(s.summary().textContent,'1 post held for review in r/Alpha in the last 7 days');
+});
+test('at most three Arctic Shift pages, paged backwards, each checked in batches of at most 100',async t=>{
+ const top=Math.floor(NOW/1000)-10;
+ const page=n=>{const posts=Array.from({length:100},(_,i)=>archived((n*1000+i).toString(36),top-(n-1)*100-i));return {ok:true,posts,cursor:top-(n-1)*100-99+1,hasMore:true,cursorStalled:false};};
+ const s=await setup(t,{url:'https://www.reddit.com/r/Alpha/?rt_mod=unapproved',moderator:false,settings:archiveOn,archive:(message,n)=>page(n),status:args=>({statuses:args.ids.map(id=>({id,category:id.endsWith('0')?'automod_filtered':null,post:null})),subreddit:'Alpha'})});
+ assert.equal(s.archiveCalls.length,3);
+ assert.deepEqual(s.archiveCalls.map(c=>c.before),[undefined,top-98,top-198]);assert.ok(s.archiveCalls.every(c=>c.after===CUTOFF));
+ const reads=s.calls.filter(c=>c.action==='awaiting-status');assert.equal(reads.length,3);assert.ok(reads.every(c=>c.ids.length<=100 && c.ids.every(id=>/^[a-z0-9]{1,10}$/.test(id))));
+ assert.match(s.summary().textContent,/ held for review in r\/Alpha · only the newest 300 posts were checked; older posts from the last 7 days weren’t$/);
+ assert.ok(s.ids().length>0);
+});
+test('a stalled archive cursor and IDs Reddit leaves out are stated, never read as empty',async t=>{
+ const stalled=await setup(t,{url:'https://www.reddit.com/r/Alpha/?rt_mod=unapproved',moderator:false,settings:archiveOn,archive:()=>({ok:true,posts:[archived('d1',NOW/1000-100)],cursor:null,hasMore:true,cursorStalled:true}),status:statusFrom({d1:null})});
+ assert.equal(stalled.summary().textContent,'No posts found waiting for approval in r/Alpha · the archive listing stopped early; older posts weren’t checked.');
+ const missing=await setup(t,{url:'https://www.reddit.com/r/Alpha/?rt_mod=unapproved',moderator:false,settings:archiveOn,archive:()=>({ok:true,posts:[archived('e1',NOW/1000-100),archived('e2',NOW/1000-200)],cursor:null,hasMore:false}),status:statusFrom({e1:null})});
+ assert.equal(missing.summary().textContent,'No posts found waiting for approval in r/Alpha · 1 post couldn’t be checked with Reddit.');
+});
+test('a failed archive or Reddit read shows the error with Retry, never “empty”, and Retry resumes',async t=>{
+ let archiveFail=true;
+ const a=await setup(t,{url:'https://www.reddit.com/r/Alpha/?rt_mod=unapproved',moderator:false,settings:archiveOn,archive:()=>archiveFail?{ok:false,error:'Archive rate limit reached.',code:'rate-limited'}:{ok:true,posts:[archived('f1',NOW/1000-100)],cursor:null,hasMore:false},status:statusFrom({f1:'reddit'})});
+ assert.equal(a.summary().textContent,'Couldn’t check posts awaiting approval: Archive rate limit reached.');assert.equal(a.summary().dataset.error,'true');
+ const retry=a.list().querySelector('.rt-unapproved-retry');assert.equal(retry.hidden,false);archiveFail=false;retry.click();await flush();
+ assert.equal(a.summary().textContent,'1 post held for review in r/Alpha in the last 7 days');assert.equal(retry.hidden,true);
+ let statusFail=true;
+ const b=await setup(t,{url:'https://www.reddit.com/r/Alpha/?rt_mod=unapproved',moderator:false,settings:archiveOn,archive:()=>({ok:true,posts:[archived('g1',NOW/1000-100)],cursor:null,hasMore:false}),
+  status:args=>{if(statusFail)throw Error('Reddit refused the post status check (HTTP 403).');return statusFrom({g1:'automod_filtered'})(args);}});
+ assert.equal(b.summary().textContent,'Couldn’t check posts awaiting approval: Reddit refused the post status check (HTTP 403).');assert.deepEqual(b.ids(),[]);
+ statusFail=false;b.list().querySelector('.rt-unapproved-retry').click();await flush();
+ assert.equal(b.archiveCalls.length,1,'Retry re-checks the posts already read instead of reading the archive again');assert.deepEqual(b.ids(),['g1']);
+ const off=await setup(t,{url:'https://www.reddit.com/r/Alpha/?rt_mod=unapproved',moderator:false,settings:archiveOn,archive:()=>({ok:false,error:'Enable archive discovery in Reddit Tweaks settings.',code:'disabled'})});
+ assert.equal(off.summary().textContent,'Couldn’t check posts awaiting approval: Turn on Use the archive to check this community.');
+});
+test('setActive turns the archive view on and off, restores the feed and tells subscribers',async t=>{
+ const s=await setup(t,{moderator:false,settings:archiveOn,archive:()=>({ok:true,posts:[archived('h1',NOW/1000-100)],cursor:null,hasMore:false}),status:statusFrom({h1:'reddit'})});
+ const seen=[];const stop=s.api.onChange(state=>seen.push(state));
+ assert.equal(s.api.active(),false);assert.equal(await s.api.setActive(true),true);await flush();
+ assert.equal(s.api.active(),true);assert.ok(s.list());assert.equal(s.feed().hasAttribute('data-rt-unapproved-hidden'),true);
+ assert.equal(await s.api.setActive(false),false);await flush();
+ assert.equal(s.W.location.search,'');assert.equal(s.list(),null);assert.equal(s.feed().hasAttribute('data-rt-unapproved-hidden'),false);assert.equal(s.D.querySelector('shreddit-feed article').textContent,'Native card');
+ assert.deepEqual(seen.map(state=>state.active),[true,false]);assert.ok(seen.every(state=>state.source==='archive' && state.available===true && state.subreddit==='Alpha'));
+ stop();await s.api.setActive(true);assert.equal(seen.length,2,'unsubscribed');
+ await s.setSettings({modUnapprovedFilter:true,archiveDiscovery:false});
+ assert.equal(s.list(),null,'turning Use the archive off removes the archive list');assert.equal(s.feed().hasAttribute('data-rt-unapproved-hidden'),false);
+ const off=await setup(t,{moderator:false});assert.equal(await off.api.setActive(true),false);assert.equal(off.W.location.search,'');assert.equal(off.list(),null);
+});
+test('a registered feed menu suppresses the standalone button; moderators keep the mod queue through setActive',async t=>{
+ const s=await setup(t);assert.ok(s.button());
+ s.api.useMenu(true);assert.equal(s.button(),null);
+ assert.equal(await s.api.setActive(true),true);await flush();assert.equal(s.button(),null);assert.deepEqual(s.ids(),['q1','q2']);assert.equal(s.list().dataset.rtUnapprovedSource,'modqueue');
+ s.api.useMenu(false);assert.ok(s.button());assert.equal(s.button().getAttribute('aria-pressed'),'true');
+ const early=await setup(t,{before:W=>W.document.documentElement.setAttribute(W.RTUnapprovedFilter.MENU_ATTR,'')});assert.equal(early.button(),null,'the attribute works before the filter starts');
+ const option=await setup(t,{menu:true});assert.equal(option.button(),null);
+});
+
+test('bridge checks archived IDs with one fixed info.json read and returns Reddit’s removal category',async t=>{
+ const b=bridge(t,{respond:u=>u.pathname==='/api/info.json'?{kind:'Listing',data:{children:[
+  {kind:'t3',data:raw('aa',{removed_by_category:'automod_filtered'})},{kind:'t3',data:raw('bb',{removed_by_category:null})},{kind:'t3',data:raw('cc',{subreddit:'Other',removed_by_category:'reddit'})},{kind:'t3',data:raw('dd',{removed_by_category:'<script>'})},{kind:'t3',data:raw('zz',{removed_by_category:'reddit'})}]}}:{}});
+ const r=await b.send({action:'awaiting-status',subreddit:'alpha',ids:['aa','bb','cc','dd','aa']});assert.equal(r.ok,true,r.error);
+ assert.deepEqual(r.statuses.map(s=>[s.id,s.category]),[['aa','automod_filtered'],['bb',null],['dd',null]],'other communities and unrequested IDs are dropped; odd categories read as none');
+ assert.equal(b.calls.length,1);const c=b.calls[0];
+ assert.equal(c.url.origin,'https://www.reddit.com');assert.equal(c.url.pathname,'/api/info.json');assert.equal(c.url.searchParams.get('id'),'t3_aa,t3_bb,t3_cc,t3_dd');assert.equal(c.url.searchParams.get('raw_json'),'1');assert.equal([...c.url.searchParams.keys()].length,2);
+ assert.equal(c.options.credentials,'include');assert.equal(c.options.redirect,'error');assert.equal(c.options.method,'GET');
+});
+test('bridge rejects more than 100 IDs and anything that is not a bare base36 ID before any fetch',async t=>{
+ const b=bridge(t);const many=Array.from({length:101},(_,i)=>i.toString(36));
+ for(const ids of [many,[],['t3_abc'],['ABC'],['abcdefghijk'],['https://evil.test'],['a,b'],[5],'abc',undefined]){const r=await b.send({action:'awaiting-status',subreddit:'Alpha',ids});assert.equal(r.ok,false,JSON.stringify(ids));}
+ for(const input of [{action:'awaiting-status',subreddit:'Beta',ids:['abc']},{action:'awaiting-status',subreddit:'Alpha',ids:['abc'],url:'https://evil.test'}]){const r=await b.send(input);assert.equal(r.ok,false,JSON.stringify(input));}
+ assert.equal(b.calls.length,0);
+ const ok=await b.send({action:'awaiting-status',subreddit:'Alpha',ids:Array.from({length:100},(_,i)=>i.toString(36))});assert.equal(ok.ok,true,'exactly 100 is allowed');
+ assert.equal(b.calls.length,1);assert.equal(b.calls[0].url.searchParams.get('id').split(',').length,100);
+});
+test('bridge reports a refused or failed status read as an error, and a signed-out reader as signed out',async t=>{
+ for(const status of [403,500]){const b=bridge(t,{respond:()=>({status})});const r=await b.send({action:'awaiting-status',subreddit:'Alpha',ids:['abc']});assert.equal(r.ok,false);assert.match(r.error,new RegExp('HTTP '+status));}
+ const out=bridge(t,{respond:()=>({data:{user_is_moderator:null,display_name:'Alpha'}})});const r=await out.send({action:'mod-status',subreddit:'Alpha'});
+ assert.equal(r.moderator,false);assert.equal(r.signedIn,false);
+ const member=bridge(t,{respond:()=>({data:{user_is_moderator:false,display_name:'Alpha'}})});assert.equal((await member.send({action:'mod-status',subreddit:'Alpha'})).signedIn,true);
 });
