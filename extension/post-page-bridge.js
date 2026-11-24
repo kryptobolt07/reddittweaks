@@ -1694,6 +1694,8 @@
       }else{
         const response=await fetch(hoverUrl,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal:controller.signal});
         if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return {deferred:true,retryAfterMs:cooldown-Date.now()};}
+        // A 403 can be Reddit's bot check: pause every Reddit read for a while rather than press on author by author.
+        if(response.status===403){cooldown=Date.now()+300000;return {deferred:true,retryAfterMs:cooldown-Date.now()};}
         ok=response.ok;
         if(response.ok){
           const doc=new DOMParser().parseFromString(await boundedText(response),'text/html'),headshot=[...doc.querySelectorAll('[avatar] image[href],[avatar] img[src]')],pool=headshot.length?headshot:[...doc.querySelectorAll('img[alt*="avatar" i][src]')];
@@ -1780,7 +1782,10 @@
       if(/\bdeleted\b/i.test(bodyText))return {blocked:false,reason:'deleted'};
       return {blocked:false,reason:'not-found'};
     }
-    const cardText=visibleText(card);
+    // Status wording only: a display name such as "[deleted]" or "Deleted User" must not decide it.
+    const statusCard=card.cloneNode(true);
+    for(const node of statusCard.querySelectorAll('a[href*="/user/"],h1,h2,h3,[data-testid*="name" i],[slot*="name" i],faceplate-tracker[noun*="name" i]'))node.remove();
+    const cardText=visibleText(statusCard);
     if(card.querySelector('img[src*="suspended-snoo"]') || /\b(?:account(?:\s+has\s+been|\s+is)?\s+suspended|has\s+been\s+suspended|account\s+suspended)\b/i.test(cardText))return {blocked:false,reason:'suspended'};
     if(card.querySelector('img[alt="Deleted user"]') || /\b(?:account\s+has\s+been\s+deleted|this\s+account\s+is\s+deleted|deleted\s+user)\b/i.test(cardText) || cardText.includes('[deleted]'))return {blocked:false,reason:'deleted'};
     let handle='';

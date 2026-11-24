@@ -402,7 +402,7 @@
     for(const raw of Array.isArray(livePosts)?livePosts:[]){const post=normalizeItem(raw,{source:'reddit'});if(!post)continue;const archived=posts.get(post.fullname);
       if(!same(post) && !(post.author==='[deleted]' && archived))continue;
       const merged={...post,over18:post.over18 || archived?.over18===true,spoiler:post.spoiler || archived?.spoiler===true,archiveAvailable:Boolean(archived)};
-      if(archived && ['deleted','removed'].includes(post.status) && archived.body && !['[deleted]','[removed]'].includes(archived.body)){merged.archivedBody=archived.body;merged.archivedBodySource='arctic-shift';merged.archiveAuthor=archived.author;if(archived.bodyHtml)merged.archivedBodyHtml=archived.bodyHtml;}
+      if(archived && ['deleted','removed'].includes(post.status) && archived.body && !noticeStatus(archived.body)){merged.archivedBody=archived.body;merged.archivedBodySource='arctic-shift';merged.archiveAuthor=archived.author;if(archived.bodyHtml)merged.archivedBodyHtml=archived.bodyHtml;}
       posts.set(post.fullname,merged);
     }
     const rank=new Map();for(const raw of Array.isArray(livePosts)?livePosts:[]){const post=normalizeItem(raw,{source:'reddit'});if(post && !rank.has(post.fullname))rank.set(post.fullname,rank.size);}

@@ -389,7 +389,8 @@
       const place=(node,slots)=>{native.append(node);patch.added.push(node);for(const slot of slots){node.slot=slot;if(!native.shadowRoot || node.assignedSlot)return;}if(native.shadowRoot && !node.assignedSlot)node.removeAttribute('slot');};
       const restricted=native.matches('[nsfw],[spoiler],[is-nsfw],[over-18]') || Boolean(native.querySelector('shreddit-content-gate,[slot="nsfw-blocker"]'));
       const text=typeof post.body==='string'?post.body.trim():'';
-      if(text && !M.noticeStatus(text) && !native.querySelector('[slot="text-body"] [data-rt-recovered-text]')){
+      // Like restorePost: an NSFW or spoiler post's text stays behind Reddit's own gate.
+      if(!restricted && text && !M.noticeStatus(text) && !native.querySelector('[slot="text-body"] [data-rt-recovered-text]')){
         const body=make('div','md text-14 pb-xs rt-recovered-md');body.dataset.rtRecoveredText='true';
         const rendered=globalThis.RTMarkdown?.fromHtml(post.bodyHtml) || globalThis.RTMarkdown?.render(text);if(rendered)body.append(rendered);else body.append(make('p','',text));
         place(body,['text-body','post-recovery-section','post-removed-banner']);

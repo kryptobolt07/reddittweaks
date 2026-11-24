@@ -1522,3 +1522,12 @@ test('switching the observed profile feed draws again the posts the old feed ski
  assert.equal(far.hasAttribute('data-rt-skip'),false,'nothing is left to draw it again otherwise');
  assert.equal(far.style.containIntrinsicSize,'');
 });
+
+test('a 403 from a hover card pauses every avatar lookup instead of trying the next author',async t=>{
+ const e=setup(t,{fetcher:async()=>nativeResponse('',403)});
+ const first=await e.send({action:'user-avatar',username:'One'});
+ assert.equal(first.deferred,true);
+ const second=await e.send({action:'user-avatar',username:'Two'});
+ assert.equal(second.deferred,true);
+ assert.equal(e.calls.length,1,'no second request to Reddit');
+});

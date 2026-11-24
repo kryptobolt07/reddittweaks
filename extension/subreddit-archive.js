@@ -103,12 +103,14 @@
     return match?{name:match[1],postId:match[2].toLowerCase(),focusId:match[3]?.toLowerCase() || ''}:null;
   }
   async function archiveRead(message){
-    let timer;try{const answer=await Promise.race([chrome.runtime.sendMessage({scope:'rt-posts',...message,pageUrl:location.href}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Archive request took too long. Try again.')),16000);})]);if(!answer?.ok)throw Error(answer?.error || 'Archive unavailable.');return answer;}finally{clearTimeout(timer);}
+    let timer;try{const answer=await Promise.race([chrome.runtime.sendMessage({scope:'rt-posts',...message,pageUrl:location.href}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Archive request took too long. Try again.')),16000);})]);if(!answer?.ok)throw Object.assign(Error(answer?.error || 'Archive unavailable.'),{code:answer?.code,retryAt:answer?.retryAt});return answer;}finally{clearTimeout(timer);}
   }
   // Reddit's public about.json says why a community is gone ("banned"/"private"); anything else is not ours.
   const communityCache=new Map();
   async function defaultCommunityState(name){
     const key=name.toLowerCase();if(communityCache.has(key))return communityCache.get(key);
+    // Not a definitive answer: kept briefly so page scans don't refetch, then asked again.
+    const forgetLater=()=>setTimeout(()=>{if(communityCache.get(key)===pending)communityCache.delete(key);},10000);
     const pending=(async()=>{
       const modal=document.querySelector('guard-community-modal[subredditname]');
       if(modal && modal.getAttribute('subredditname')?.toLowerCase()===key){const kind=unavailable(modal);if(kind)return kind;}
@@ -118,10 +120,17 @@
         if(response.ok)return '';
         const data=await response.json().catch(()=>null);
         if(['banned','private'].includes(data?.reason))return data.reason;
+        // Quarantined communities are live (any other reason is not ours), and a rate limit or server error says
+        // nothing about the community: it isn't taken over, and that answer isn't kept for the tab. Signed out,
+        // Reddit refuses JSON reads without a reason, so the search page's own error decides.
+        if(data?.reason)return '';
+        if(response.status===429 || response.status>=500){forgetLater();return '';}
         if(document.querySelector('[data-testid="search-error-message"]') && globalThis.RTArchiveQuery?.subreddit){
           const sub=await globalThis.RTArchiveQuery.subreddit(name).catch(()=>null);
           if(sub?.subreddit)return 'banned';
         }
+        // Reddit's search page may not have rendered its error yet: ask again a little later.
+        forgetLater();
         return '';
       }catch{communityCache.delete(key);return '';}
     })();
@@ -474,7 +483,7 @@
       const fresh=!this.mountedBefore && location.href===this.initialHref && nav!=='back_forward';
       const back=!fresh;
       if(!saved?.fullname || Date.now()-saved.at>60*60*1000 || !back){try{sessionStorage.removeItem(this.feedAnchorKey());}catch{}return;}
-      const state=this.states.get(this.feedKey());if(!state || !this.listEl)return;
+      const feedKey=this.feedKey(),state=this.states.get(feedKey);if(!state || !this.listEl)return;
       // Reveal (and fetch) enough posts in one go, and keep the feed hidden until it is in place, so the reader
       // never watches it scroll down from the top.
       state.want=Math.max(state.want || PAGE_SIZE,Math.ceil((saved.count || PAGE_SIZE)/PAGE_SIZE)*PAGE_SIZE);
@@ -487,7 +496,8 @@
       const step=()=>{
         // Reddit can replace its notice element, which remounts the archive around the same cards: follow the
         // current list instead of giving up, and wait briefly while it is between unmount and mount.
-        if(this.mounted?.thread || performance.now()-started>15000){done();return;}
+        // Another feed took its place (Back to another community): stop, and leave the new list visible.
+        if(this.mounted?.thread || performance.now()-started>15000 || (this.mounted && this.feedKey()!==feedKey)){done();return;}
         if(!this.mounted || !this.listEl?.isConnected){setTimeout(step,30);return;}
         if(!placedAt)this.listEl.style.visibility='hidden';
         if(!placedAt){
@@ -641,7 +651,10 @@
       const depthOf=new Map(),parentOf=new Map();
       for(const item of state.items){let ancestor=item.parentId,cycle=false;const visited=new Set([item.fullname]);while(items.has(ancestor)){if(visited.has(ancestor)){cycle=true;break;}visited.add(ancestor);ancestor=items.get(ancestor).parentId;}
         depthOf.set(item.fullname,cycle?0:visited.size-1);parentOf.set(item.fullname,!cycle && items.has(item.parentId)?item.parentId:'root');}
-      const kids=new Map();for(const item of state.items){const key=parentOf.get(item.fullname);if(!kids.has(key))kids.set(key,[]);kids.get(key).push(item);}
+      // Pages arrive newest first, so a reply often comes before the comment it answers. Until the archive has no more
+      // pages (or stops), such a reply waits for its parent instead of showing as a top-level comment.
+      const waiting=state.hasMore && !state.error && !state.stalled;
+      const kids=new Map();for(const item of state.items){const key=parentOf.get(item.fullname);if(waiting && key==='root' && /^t1_/.test(item.parentId || '') && item.fullname!=='t1_'+state.route.focusId)continue;if(!kids.has(key))kids.set(key,[]);kids.get(key).push(item);}
       const sort=state.commentSort || 'best',best=sort==='new'?(a,b)=>b.created-a.created:sort==='old'?(a,b)=>a.created-b.created:(a,b)=>(b.score||0)-(a.score||0) || a.created-b.created;
       // Rank each incoming batch, then append it. Late archive pages must not reshuffle comments already being read.
       for(const [key,list] of kids){const order=state.childOrder.get(key) || [],known=new Set(order);for(const item of [...list].sort(best))if(!known.has(item.fullname)){known.add(item.fullname);order.push(item.fullname);}state.childOrder.set(key,order);const ranks=new Map(order.map((id,index)=>[id,index]));list.sort((a,b)=>ranks.get(a.fullname)-ranks.get(b.fullname));}
@@ -1232,7 +1245,10 @@
       const parsed=state.parsed && !state.parsed.invalid?state.parsed:null,permalink=item.permalink || '#';
       if(item.kind==='comment'){
         node=make('div','rt-sra-unit');node.dataset.testid='search-sdui-comment-unit';node.dataset.rtUi='archive-search-unit';node.dataset.fullname=item.fullname;
-        const cover=make('a','rt-sra-unit-cover');cover.href=permalink.replace(/\/[a-z0-9]+\/?$/i,'/') || permalink;cover.setAttribute('aria-label',item.title || 'Open thread');
+        const cover=make('a','rt-sra-unit-cover');
+        // The thread itself: from the post id when there is one (a fallback permalink ends in /comment/<id>/, and trimming
+        // its last segment leaves /comment/, which is not a page).
+        cover.href=item.linkId && /^[a-z0-9]{1,10}$/i.test(item.linkId)?(item.subreddit?'/r/'+encodeURIComponent(item.subreddit):'')+'/comments/'+item.linkId+'/':permalink.replace(/\/[a-z0-9]+\/?$/i,'/') || permalink;cover.setAttribute('aria-label',item.title || 'Open thread');
         const body=make('div','rt-sra-unit-body'),credit=make('div','rt-sra-unit-credit');credit.append(this.communityLink(item.subreddit),make('span','mx-2xs','·'),this.searchTime(item.created));
         body.append(credit);if(item.title)body.append(make('h2','rt-sra-unit-thread',item.title));
         // Native comment units: 24px avatar beside the plain username. Archive records carry no avatar, so Reddit's default one.
@@ -1349,8 +1365,15 @@
       if(state.flair){const want=state.flair.toLowerCase();items=items.filter(item=>String(item.flair ?? item.link_flair_text ?? '').trim().toLowerCase()===want);}
       if(state.nsfw==='only')items=items.filter(item=>Boolean(item.over18 ?? item.over_18 ?? item.nsfw));
       else if(state.nsfw==='hide')items=items.filter(item=>!Boolean(item.over18 ?? item.over_18 ?? item.nsfw));
-      if(state.sortMode==='top')items=[...items].sort((a,b)=>(b.score||0)-(a.score||0) || b.created-a.created);
-      else if(state.sortMode==='comments')items=[...items].sort((a,b)=>(b.comments||0)-(a.comments||0) || b.created-a.created);
+      const by=state.sortMode==='top'?(a,b)=>(b.score||0)-(a.score||0) || b.created-a.created:state.sortMode==='comments'?(a,b)=>(b.comments||0)-(a.comments||0) || b.created-a.created:null;
+      if(!by)return items;
+      // Ranked among loaded posts: a later page must not reshuffle, or push out, what is already shown. The shown range
+      // keeps its order; only what comes after it is ranked again.
+      const key=JSON.stringify([state.sortMode,state.media,state.flair,state.nsfw,filters]);
+      const sorted=[...items].sort(by),present=new Map(sorted.map(item=>[item.fullname,item]));
+      const head=(state.rankKey===key?state.rankShown || []:[]).map(id=>present.get(id)).filter(Boolean),kept=new Set(head);
+      items=head.concat(sorted.filter(item=>!kept.has(item)));
+      state.rankKey=key;state.rankShown=items.slice(0,Math.max(head.length,state.want || 0)).map(item=>item.fullname);
       return items;
     }
     async fill(state,render){

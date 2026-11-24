@@ -2963,10 +2963,10 @@
     }
     // Transient failures (rate limits, timeouts, gateway errors) wait and retry
     // the same cursor with backoff, showing a quiet note instead of an error.
-    // After retryLimit attempts the failure is reported normally.
+    // After retryLimit attempts the failure is reported normally. A 403 can be Reddit's bot check: reported once.
     transientFailure(error,provider){
       if(provider==='archive')return ['rate-limited','timeout','network-error','http-error','busy','maintenance','unavailable'].includes(error?.code);
-      return /rate limit|asked us to wait|requests are paused|timed out|took too long|\(HTTP (?:5\d\d|403|429)\)|Failed to fetch/i.test(error?.message || '');
+      return /rate limit|asked us to wait|requests are paused|timed out|took too long|\(HTTP (?:5\d\d|429)\)|Failed to fetch/i.test(error?.message || '');
     }
     scheduleSourceRetry(key,error,provider){
       if(!this.transientFailure(error,provider))return false;

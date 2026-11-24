@@ -862,3 +862,23 @@ test('phone community row: Feed/About pills, Feed options sheet with Sort, Date 
  view.click();await tick();assert.match(bar.querySelector('[data-rt-ui="archive-phone-view"]').getAttribute('aria-label'),/View: Compact/);
  ctx.sa.destroy();ctx.W.close();
 });
+
+test('an archived reply that arrives before its parent waits for it instead of showing as a top-level comment',async()=>{
+  const rec=(id,parent,created)=>({id,body:'text '+id,link_id:'t3_abc12',parent_id:parent,created_utc:created,score:1,author:'alice',subreddit:'gone'});
+  let page=0;
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/comments/abc12/title/',archive:async message=>{
+    if(message.action==='archive-ids')return {ok:true,posts:[post('abc12',1500000000)]};
+    page++;
+    // Newest first: the reply comes on the first page, its parent on the second.
+    return page===1?{ok:true,posts:[rec('reply','t1_parent',1500000500),rec('other','t3_abc12',1500000400)],hasMore:true,cursor:'c1'}:{ok:true,posts:[rec('parent','t3_abc12',1500000100)],hasMore:false};
+  }});
+  for(let i=0;i<4;i++)await tick();
+  const topIds=()=>[...ctx.doc.querySelectorAll('.rt-sra-thread-comments > shreddit-comment[data-rt-ui="archive-thread-comment"]')].map(n=>n.id);
+  if(page===1){
+    assert.equal(topIds().includes('t1_reply'),false,'not shown at the top level while its parent may still come');
+    ctx.sa.loadThread({more:true});for(let i=0;i<4;i++)await tick();
+  }
+  assert.equal(topIds().includes('t1_reply'),false);
+  assert.equal(ctx.doc.getElementById('t1_reply')?.parentElement?.id,'t1_parent','placed under its parent once it arrives');
+  ctx.sa.destroy();ctx.W.close();
+});
