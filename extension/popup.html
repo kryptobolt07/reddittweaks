@@ -46,6 +46,16 @@
     </div>
 
     <div class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+      <div class="settings-search" role="search">
+        <span class="settings-search-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8.5 2a6.5 6.5 0 0 1 5.18 10.43l3.94 3.95a.9.9 0 0 1-1.27 1.27l-3.95-3.94A6.5 6.5 0 1 1 8.5 2Zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"/></svg></span>
+        <input id="settings-search" class="settings-search-input" type="search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off" spellcheck="false">
+        <button id="settings-search-clear" class="settings-search-clear" type="button" aria-label="Clear search" hidden>×</button>
+      </div>
+      <p id="settings-search-status" class="settings-search-status" role="status" aria-live="polite" hidden></p>
+      <section id="settings-search-empty" class="card settings-search-empty" hidden>
+        <p>No matching settings.</p>
+        <button id="settings-search-reset" class="link-action" type="button">Clear search</button>
+      </section>
       <!-- 2.1 Browsing & Feed -->
       <section class="card" aria-labelledby="browsing-heading">
         <div class="card-heading"><h2 id="browsing-heading">Browsing &amp; Feed</h2><span class="group-count"></span></div>
@@ -79,6 +89,74 @@
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M8 5H5a5 5 0 0 0 0 10h3v-2H5a3 3 0 0 1 0-6h3V5Zm4 0v2h3a3 3 0 0 1 0 6h-3v2h3a5 5 0 0 0 0-10h-3ZM5 9v2h10V9H5Z"/></svg></span>
           <div class="setting-copy"><label for="clean-share-links">Clean shared links</label><p id="clean-share-links-desc">Copy post and comment links without Reddit’s tracking parameters.</p></div>
           <input class="switch" type="checkbox" id="clean-share-links" data-setting="cleanShareLinks" aria-describedby="clean-share-links-desc">
+        </div>
+        <div class="setting-row" data-keywords="translate language tl original">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3 4.2h7.6v1.6H7.8a8.9 8.9 0 0 1-1.9 4.5c.6.6 1.3 1.1 2 1.5l-.8 1.5a10 10 0 0 1-2.3-1.8 10.6 10.6 0 0 1-2.2 1.6l-.8-1.5a8.8 8.8 0 0 0 2-1.4A9.2 9.2 0 0 1 2.4 7h1.8c.2.8.6 1.5 1 2.1.5-.9.9-2 1-3.3H3V4.2Zm9.7 1.3h1.8l3.7 10.2h-1.8l-.8-2.3h-4l-.8 2.3H9l3.7-10.2Zm.9 2.4L12.1 12h3l-1.5-4.1Z"/></svg></span>
+          <div class="setting-copy"><label for="stop-auto-translation">Stop auto-translation</label><p id="stop-auto-translation-desc">Remove Reddit’s ?tl= translation parameter so posts open in their original language.</p></div>
+          <input class="switch" type="checkbox" id="stop-auto-translation" data-setting="stopAutoTranslation" aria-describedby="stop-auto-translation-desc">
+        </div>
+      </section>
+
+      <!-- 2.1b Comments & Reading -->
+      <section class="card" aria-labelledby="comments-heading">
+        <div class="card-heading"><h2 id="comments-heading">Comments &amp; Reading</h2><span class="group-count"></span></div>
+        <div class="setting-row" data-keywords="rainbow colors nesting depth lines">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3.5 3h1.8v14H3.5V3Zm4 2.5h1.8v11.5H7.5V5.5Zm4 2.5h1.8v9h-1.8V8Zm4 2.5h1.8v6.5h-1.8v-6.5Z"/></svg></span>
+          <div class="setting-copy"><label for="comment-threadlines">Color-coded threadlines</label><p id="comment-threadlines-desc">Color nested comment indent bars by depth to make deep branches easier to follow.</p></div>
+          <button id="comment-threadlines" class="setting-choice" type="button" data-choice="commentThreadlines" data-default="off" aria-haspopup="menu" aria-expanded="false" aria-controls="comment-threadlines-menu" aria-describedby="comment-threadlines-desc" disabled><span data-choice-value>Off</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="comment-threadlines-menu" class="setting-menu" role="menu" aria-label="Color-coded threadlines" hidden>
+            <button type="button" role="menuitemradio" data-value="off" data-short="Off" aria-checked="true">Off (Reddit default)</button>
+            <button type="button" role="menuitemradio" data-value="classic" data-short="Classic" aria-checked="false">Classic</button>
+            <button type="button" role="menuitemradio" data-value="muted" data-short="Muted" aria-checked="false">Muted</button>
+            <button type="button" role="menuitemradio" data-value="autumn" data-short="Autumn" aria-checked="false">Autumn</button>
+          </div>
+        </div>
+        <div class="setting-row" data-requires-choice="comment-threadlines" data-requires-not="off" data-level="2" data-keywords="colorblind cvd okabe-ito accessible">
+          <div class="setting-copy"><label for="comment-threadlines-cvd">Color-vision-safe palette</label><p id="comment-threadlines-cvd-desc">Use the Okabe-Ito high-distinctiveness palette for nested threadlines.</p></div>
+          <input class="switch" type="checkbox" id="comment-threadlines-cvd" data-setting="commentThreadlinesCvd" data-count="exclude" aria-describedby="comment-threadlines-cvd-desc">
+        </div>
+        <div class="setting-row" data-keywords="next previous navigator root sibling thread" data-conflicts="smooth-comments:scoped:Reveals skipped comments automatically when paired with">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="m10 3.2 4.8 4.8-1.3 1.3-2.6-2.6v6.6l2.6-2.6 1.3 1.3L10 16.8 5.2 12l1.3-1.3 2.6 2.6V6.7L6.5 9.3 5.2 8 10 3.2Z"/></svg></span>
+          <div class="setting-copy"><label for="comment-jump">Comment jump buttons</label><p id="comment-jump-desc">Show a floating pill on post pages to jump between top-level comments and sibling branches.</p></div>
+          <button id="comment-jump" class="setting-choice" type="button" data-choice="commentJump" data-default="off" aria-haspopup="menu" aria-expanded="false" aria-controls="comment-jump-menu" aria-describedby="comment-jump-desc" disabled><span data-choice-value>Off</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="comment-jump-menu" class="setting-menu" role="menu" aria-label="Comment jump buttons" hidden>
+            <button type="button" role="menuitemradio" data-value="off" data-short="Off" aria-checked="true">Off</button>
+            <button type="button" role="menuitemradio" data-value="easy" data-short="Easy" aria-checked="false">Easy — Next / previous thread</button>
+            <button type="button" role="menuitemradio" data-value="pro" data-short="Pro" aria-checked="false">Pro — Threads + sibling depth</button>
+          </div>
+        </div>
+        <div class="setting-row" data-requires-choice="comment-jump" data-requires-not="off" data-level="2" data-keywords="left right thumb dock position">
+          <div class="setting-copy"><label for="comment-jump-side">Jump buttons side</label><p id="comment-jump-side-desc">Choose which bottom corner holds the floating jump buttons.</p></div>
+          <button id="comment-jump-side" class="setting-choice" type="button" data-choice="commentJumpSide" data-default="right" data-count="exclude" aria-haspopup="menu" aria-expanded="false" aria-controls="comment-jump-side-menu" aria-describedby="comment-jump-side-desc" disabled><span data-choice-value>Right</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
+          <div id="comment-jump-side-menu" class="setting-menu" role="menu" aria-label="Jump buttons side" hidden>
+            <button type="button" role="menuitemradio" data-value="right" data-short="Right" aria-checked="true">Right</button>
+            <button type="button" role="menuitemradio" data-value="left" data-short="Left" aria-checked="false">Left</button>
+          </div>
+        </div>
+        <div class="setting-row" data-keywords="scroll top floating button" data-conflicts="comment-jump:scoped:Combines into one pill with">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4 3.5h12v1.8H4V3.5Zm6 3.1 4.8 4.8-1.3 1.3-2.6-2.6v6.9H9.1v-6.9l-2.6 2.6-1.3-1.3L10 6.6Z"/></svg></span>
+          <div class="setting-copy"><label for="back-to-top">Back to top button</label><p id="back-to-top-desc">Show a quick Back to top button after scrolling down feeds and comment threads.</p></div>
+          <input class="switch" type="checkbox" id="back-to-top" data-setting="backToTop" aria-describedby="back-to-top-desc">
+        </div>
+        <div class="setting-row" data-keywords="automoderator stickied bot pinned preview">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2.2a1.2 1.2 0 0 1 1.2 1.2V5h2.3A2.5 2.5 0 0 1 16 7.5v6a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 13.5v-6A2.5 2.5 0 0 1 6.5 5h2.3V3.4A1.2 1.2 0 0 1 10 2.2ZM7.4 9.5a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Zm5.2 0a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Zm-5.1 3.5h5v1.4h-5V13Z"/></svg></span>
+          <div class="setting-copy"><label for="collapse-automod">Auto-collapse AutoMod &amp; pinned bots</label><p id="collapse-automod-desc">Collapse AutoModerator and pinned bot notices with a one-line preview beside the header.</p></div>
+          <input class="switch" type="checkbox" id="collapse-automod" data-setting="collapseAutoMod" aria-describedby="collapse-automod-desc">
+        </div>
+        <div class="setting-row" data-keywords="replies nested top-level threads">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M3 4.2h14V6H3V4.2Zm3 4h11V10H6V8.2Zm0 4h8V14H6v-1.8ZM3 16h14v1.8H3V16Z"/></svg></span>
+          <div class="setting-copy"><label for="collapse-child-comments">Collapse child comments</label><p id="collapse-child-comments-desc">Collapse nested replies by default so only top-level comments start expanded (except comment permalinks).</p></div>
+          <input class="switch" type="checkbox" id="collapse-child-comments" data-setting="collapseChildComments" aria-describedby="collapse-child-comments-desc">
+        </div>
+        <div class="setting-row" data-keywords="expand replies load more comments" data-conflicts="collapse-child-comments:scoped:Loads top-level batches only while paired with">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 3.2a.9.9 0 0 1 .9.9v5h5a.9.9 0 0 1 0 1.8h-5v5a.9.9 0 0 1-1.8 0v-5h-5a.9.9 0 0 1 0-1.8h5v-5a.9.9 0 0 1 .9-.9Z"/></svg></span>
+          <div class="setting-copy"><label for="auto-load-more-comments">Auto-load more comments</label><p id="auto-load-more-comments-desc">Automatically trigger “View more comments” links near the viewport with built-in rate limiting.</p></div>
+          <input class="switch" type="checkbox" id="auto-load-more-comments" data-setting="autoLoadMoreComments" aria-describedby="auto-load-more-comments-desc">
+        </div>
+        <div class="setting-row" data-keywords="ctrl enter submit toolbar draft autosave">
+          <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M13.9 2.6a2.1 2.1 0 0 1 3 3l-8.9 8.9-3.9.9.9-3.9 8.9-8.9Zm-1.7 3.7L5.9 12.6l-.4 1.6 1.6-.4 6.3-6.3-1.2-1.2Z"/></svg></span>
+          <div class="setting-copy"><label for="better-composer">Better comment composer</label><p id="better-composer-desc">Auto-open the formatting bar, submit with Ctrl/Cmd+Enter, and keep per-thread session drafts.</p></div>
+          <input class="switch" type="checkbox" id="better-composer" data-setting="betterComposer" aria-describedby="better-composer-desc">
         </div>
       </section>
 
@@ -487,6 +565,12 @@
         <div class="stats" id="chat-stats-box"><span class="tile small" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 1a9 9 0 0 0-9 9c0 1.95.79 3.58 1.94 4.96L.23 17.66A.78.78 0 0 0 .79 19H10a9 9 0 0 0 0-18Zm0 16.2H6.16c-.99 0-1.9.05-3.04.14l-.08-.19c.79-.63 1.57-1.34 2.33-2.08l-1.05-1.27C3.3 12.58 2.8 11.33 2.8 10a7.2 7.2 0 1 1 7.2 7.2Z"/></svg></span><p id="message-stats" class="message-stats" role="status">Checking saved messages…</p><a class="chat-link" href="https://www.reddit.com/chat/" target="_blank" rel="noopener noreferrer" aria-label="Open Reddit chat">Open <span aria-hidden="true">↗</span></a></div>
         <div class="cache-actions"><button id="clear-messages" type="button">Clear saved messages</button><button id="clear-cache" type="button">Clear saved usernames</button></div>
         <p id="cache-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="card" id="settings-backup-card" aria-labelledby="backup-heading">
+        <div class="card-heading"><h2 id="backup-heading">Settings backup</h2><span class="category-hint">Preferences only</span></div>
+        <p class="backup-desc">Export or import Reddit Tweaks preferences as JSON. Saved accounts, cookies, and chat messages are never included.</p>
+        <div class="cache-actions backup-actions"><button id="export-settings" type="button">Export JSON</button><button id="import-settings" type="button">Import JSON</button><input id="import-settings-file" type="file" accept=".json,application/json" hidden></div>
+        <p id="backup-status" class="settings-status inline-status" role="status" aria-live="polite"></p>
       </section>
       <section class="card tips-card" aria-labelledby="tips-heading"><h2 id="tips-heading">Search tips</h2><p class="search-syntax-hint">Search anywhere with <code>"phrases"</code>, <code>OR</code>, <code>-word</code>, <code>u/</code>, <code>r/</code>, <code>title:</code>. Press <kbd>Ctrl</kbd>+<kbd>/</kbd> in a search box for tips.</p></section>
     </div>

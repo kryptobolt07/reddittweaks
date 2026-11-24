@@ -142,6 +142,16 @@
     visualClick:'post',
     visualSearchMediaButton:false,
     cleanShareLinks:false,
+    stopAutoTranslation:false,
+    commentThreadlines:'off',
+    commentThreadlinesCvd:false,
+    commentJump:'off',
+    commentJumpSide:'right',
+    backToTop:false,
+    collapseAutoMod:false,
+    collapseChildComments:false,
+    autoLoadMoreComments:false,
+    betterComposer:false,
     modUnapprovedFilter:true,
     raffles:true,
     downloadMedia:true,
@@ -180,6 +190,16 @@
       visualClick:['post','viewer','inline'].includes(raw?.visualClick)?raw.visualClick:'post',
       visualSearchMediaButton:raw?.visualSearchMediaButton===true,
       cleanShareLinks:raw?.cleanShareLinks===true,
+      stopAutoTranslation:raw?.stopAutoTranslation===true,
+      commentThreadlines:['off','classic','muted','autumn'].includes(raw?.commentThreadlines)?raw.commentThreadlines:'off',
+      commentThreadlinesCvd:raw?.commentThreadlinesCvd===true,
+      commentJump:['off','easy','pro'].includes(raw?.commentJump)?raw.commentJump:'off',
+      commentJumpSide:['right','left'].includes(raw?.commentJumpSide)?raw.commentJumpSide:'right',
+      backToTop:raw?.backToTop===true,
+      collapseAutoMod:raw?.collapseAutoMod===true,
+      collapseChildComments:raw?.collapseChildComments===true,
+      autoLoadMoreComments:raw?.autoLoadMoreComments===true,
+      betterComposer:raw?.betterComposer===true,
       modUnapprovedFilter:raw?.modUnapprovedFilter!==false,
       raffles:raw?.raffles!==false,
       downloadMedia:raw?.downloadMedia!==false,
@@ -256,6 +276,85 @@
     // Functional parameters on searches, feeds and profiles remain intact.
     for(const key of [...url.searchParams.keys()])if(/^(?:utm_.+|share_id|share_token|rdt|ref|ref_source)$/i.test(key))url.searchParams.delete(key);
     return url.href;
+  }
+  function stripTranslationParam(value){
+    if(typeof value!=='string' || !value || value.length>4096)return '';
+    let url;try{url=new URL(value);}catch{return '';}
+    if(url.protocol!=='https:' || url.username || url.password || url.port)return '';
+    if(!['reddit.com','www.reddit.com','old.reddit.com','new.reddit.com','sh.reddit.com','m.reddit.com'].includes(url.hostname))return '';
+    if(!url.searchParams.has('tl'))return '';
+    url.searchParams.delete('tl');
+    return url.href;
+  }
+  const SETTINGS_CONFLICTS=Object.freeze([
+    Object.freeze({
+      target:'autoLoadMoreComments',
+      by:'collapseChildComments',
+      kind:'scoped',
+      when:s=>s.collapseChildComments===true && s.autoLoadMoreComments===true,
+      message:'Top-level batches only while Collapse child comments is on.'
+    }),
+    Object.freeze({
+      target:'backToTop',
+      by:'commentJump',
+      kind:'scoped',
+      when:s=>s.commentJump!=='off' && s.backToTop===true,
+      message:'Combines into the Comment jump pill on post pages.'
+    }),
+    Object.freeze({
+      target:'commentJump',
+      by:'smoothComments',
+      kind:'scoped',
+      when:s=>s.smoothComments===true && s.commentJump!=='off',
+      message:'Automatically reveals virtualized comments before scrolling.'
+    })
+  ]);
+  function resolveSettingsConflicts(raw,rules=SETTINGS_CONFLICTS){
+    const normalized=normalizeSettings(raw),active=[];
+    for(const rule of Array.isArray(rules)?rules:[]){
+      if(!rule || typeof rule.when!=='function')continue;
+      if(rule.when(normalized)){
+        active.push({
+          target:rule.target,
+          by:rule.by,
+          kind:rule.kind==='paused'?'paused':'scoped',
+          message:str(rule.message,300),
+          ...(Object.hasOwn(rule,'overrideValue')?{overrideValue:rule.overrideValue}:{})
+        });
+      }
+    }
+    return active;
+  }
+  function effectiveSettings(raw,rules=SETTINGS_CONFLICTS){
+    const normalized=normalizeSettings(raw);
+    for(const conflict of resolveSettingsConflicts(normalized,rules)){
+      if(conflict.kind==='paused' && Object.hasOwn(SETTINGS_DEFAULTS,conflict.target)){
+        normalized[conflict.target]=Object.hasOwn(conflict,'overrideValue')?conflict.overrideValue:SETTINGS_DEFAULTS[conflict.target];
+      }
+    }
+    return normalized;
+  }
+  function exportSettingsPayload(raw,version=''){
+    return {
+      app:'Reddit Tweaks',
+      schema:1,
+      version:str(version,40),
+      exportedAt:new Date().toISOString(),
+      settings:normalizeSettings(raw)
+    };
+  }
+  function parseSettingsBackup(text){
+    if(typeof text!=='string' || !text.trim() || text.length>131072)return {ok:false,error:'Settings backup file is empty or too large.'};
+    let parsed;try{parsed=JSON.parse(text);}catch{return {ok:false,error:'Selected file is not valid JSON.'};}
+    if(!parsed || typeof parsed!=='object' || Array.isArray(parsed))return {ok:false,error:'Unexpected settings backup format.'};
+    if(parsed.app!=null && parsed.app!=='Reddit Tweaks')return {ok:false,error:'Backup belongs to another application.'};
+    if(parsed.schema!==1 || !parsed.settings || typeof parsed.settings!=='object' || Array.isArray(parsed.settings))return {ok:false,error:'Unsupported or invalid settings backup schema.'};
+    const filtered=Object.create(null);let recognized=0;
+    for(const key of Object.keys(SETTINGS_DEFAULTS)){
+      if(Object.hasOwn(parsed.settings,key)){filtered[key]=parsed.settings[key];recognized++;}
+    }
+    if(!recognized)return {ok:false,error:'No recognizable Reddit Tweaks settings found in backup.'};
+    return {ok:true,settings:normalizeSettings(filtered),keyCount:recognized};
   }
   function snapshotStatus(raw,body){
     if(body==='[deleted]' || raw.removed_by_category==='deleted' || raw.status==='deleted')return 'deleted';
@@ -485,5 +584,5 @@
       }
     }
   }
-  globalThis.RTPostModel=Object.freeze({WeakElementMap,SETTINGS_DEFAULTS,VIDEO_DEFAULTS,HISTORY_LIMITS,noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,videoSettings,cleanShareUrl,searchRecord,filteredCommunity});
+  globalThis.RTPostModel=Object.freeze({WeakElementMap,SETTINGS_DEFAULTS,SETTINGS_CONFLICTS,VIDEO_DEFAULTS,HISTORY_LIMITS,noticeStatus,noticeParagraph,domStatus,avatarUrl,validateUsername,validateId,validateCommentId,mediaUrl,videoUrl,normalizePost,normalizeComment,normalizeItem,normalizeLinkInfo,mergePosts,normalizeSettings,resolveSettingsConflicts,effectiveSettings,exportSettingsPayload,parseSettingsBackup,videoSettings,cleanShareUrl,stripTranslationParam,searchRecord,filteredCommunity});
 })();

@@ -7,7 +7,9 @@ test('automatic deleted-content restoration defaults on independently of archive
  const m=model();
  assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{
   postDiscovery:true,feedControls:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
-  cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,
+  cleanShareLinks:false,stopAutoTranslation:false,commentThreadlines:'off',commentThreadlinesCvd:false,commentJump:'off',commentJumpSide:'right',
+  backToTop:false,collapseAutoMod:false,collapseChildComments:false,autoLoadMoreComments:false,betterComposer:false,
+  modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,
   historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',visualSearchMediaButton:false,navHome:'scroll',navFeeds:'default',navCommunity:'default',navPost:'scroll',navProfile:'default',navSearch:'default',
   videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
   singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',cardClickAudio:'keep',videoDirectOpen:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
@@ -263,4 +265,53 @@ test('normalizeComment preserves sanitized optional submitter, mod/admin, sticki
  assert.equal(M.normalizeComment({...base,edited:true},{source:'arctic-shift'}).edited,true);
  assert.equal('edited' in M.normalizeComment({...base,edited:false},{source:'arctic-shift'}),false);
  assert.equal('authorFlairBg' in M.normalizeComment({...base,author_flair_background_color:'transparent'},{source:'arctic-shift'}),false);
+});
+
+test('Phase 1 comment settings validate strictly and stripTranslationParam cleans only Reddit ?tl= URLs',()=>{
+ const M=model();
+ const invalid=M.normalizeSettings({commentThreadlines:'neon',commentJump:'warp',commentJumpSide:'top',stopAutoTranslation:'yes',backToTop:1});
+ assert.equal(invalid.commentThreadlines,'off');assert.equal(invalid.commentJump,'off');assert.equal(invalid.commentJumpSide,'right');
+ assert.equal(invalid.stopAutoTranslation,false);assert.equal(invalid.backToTop,false);
+ const valid=M.normalizeSettings({commentThreadlines:'autumn',commentThreadlinesCvd:true,commentJump:'pro',commentJumpSide:'left',backToTop:true,collapseAutoMod:true,collapseChildComments:true,autoLoadMoreComments:true,betterComposer:true,stopAutoTranslation:true});
+ assert.equal(valid.commentThreadlines,'autumn');assert.equal(valid.commentThreadlinesCvd,true);assert.equal(valid.commentJump,'pro');assert.equal(valid.commentJumpSide,'left');
+ assert.equal(valid.stopAutoTranslation,true);assert.equal(valid.betterComposer,true);
+
+ assert.equal(M.stripTranslationParam('https://www.reddit.com/r/pics/comments/abc12/post/?tl=es&sort=new#c1'),'https://www.reddit.com/r/pics/comments/abc12/post/?sort=new#c1');
+ assert.equal(M.stripTranslationParam('https://sh.reddit.com/r/pics/?tl=de'),'https://sh.reddit.com/r/pics/');
+ assert.equal(M.stripTranslationParam('https://www.reddit.com/r/pics/?sort=hot'),'');
+ assert.equal(M.stripTranslationParam('https://reddit.com.evil.test/r/pics/?tl=fr'),'');
+ assert.equal(M.stripTranslationParam('http://www.reddit.com/r/pics/?tl=fr'),'');
+});
+
+test('conflict resolution reports scoped cooperation and enforces non-destructive paused precedence',()=>{
+ const M=model();
+ const raw={collapseChildComments:true,autoLoadMoreComments:true,commentJump:'easy',backToTop:true,smoothComments:true};
+ const scoped=M.resolveSettingsConflicts(raw);
+ assert.deepEqual([...scoped.map(c=>c.target)].sort(),['autoLoadMoreComments','backToTop','commentJump']);
+ assert.ok(scoped.every(c=>c.kind==='scoped'));
+ const effScoped=M.effectiveSettings(raw);
+ assert.equal(effScoped.autoLoadMoreComments,true);
+ assert.equal(effScoped.backToTop,true);
+
+ const customRules=[{target:'backToTop',by:'commentJump',kind:'paused',when:s=>s.commentJump!=='off' && s.backToTop===true,message:'Paused'}];
+ const effPaused=M.effectiveSettings(raw,customRules);
+ assert.equal(effPaused.backToTop,false,'effectiveSettings overrides paused conflict target');
+ assert.equal(raw.backToTop,true,'stored raw settings object is never mutated');
+});
+
+test('settings JSON export/import round-trips allowlisted settings and rejects invalid or unsafe backups',()=>{
+ const M=model();
+ const payload=M.exportSettingsPayload({commentThreadlines:'muted',betterComposer:true,rtAccounts:'secret-cookies',__proto__:{polluted:true}},'0.66.0');
+ assert.equal(payload.app,'Reddit Tweaks');assert.equal(payload.schema,1);assert.equal(payload.version,'0.66.0');
+ assert.equal('rtAccounts' in payload.settings,false);assert.equal(payload.settings.commentThreadlines,'muted');assert.equal(payload.settings.betterComposer,true);
+
+ const ok=M.parseSettingsBackup(JSON.stringify({...payload,extraCookie:'drop',settings:{...payload.settings,unknownEvil:'drop',rtAccounts:'drop'}}));
+ assert.equal(ok.ok,true);assert.equal(ok.settings.commentThreadlines,'muted');assert.equal('unknownEvil' in ok.settings,false);assert.equal('rtAccounts' in ok.settings,false);assert.equal(({}).polluted,undefined);
+
+ assert.equal(M.parseSettingsBackup('').ok,false);
+ assert.equal(M.parseSettingsBackup('x'.repeat(131073)).ok,false);
+ assert.equal(M.parseSettingsBackup('{not json').ok,false);
+ assert.equal(M.parseSettingsBackup(JSON.stringify({app:'OtherApp',schema:1,settings:{backToTop:true}})).ok,false);
+ assert.equal(M.parseSettingsBackup(JSON.stringify({app:'Reddit Tweaks',schema:2,settings:{backToTop:true}})).ok,false);
+ assert.equal(M.parseSettingsBackup(JSON.stringify({app:'Reddit Tweaks',schema:1,settings:{onlyUnknown:true}})).ok,false);
 });

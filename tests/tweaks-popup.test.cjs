@@ -399,10 +399,11 @@ test('Home: Raffles explains where to find them and can be turned on in place',a
 
 test('accurate counters: active booleans + overridden selectors, excluding historyLimit, clickAudio, actions, and hidden device cards',async t=>{
   const p=popup(t,{tabs:redditTab,touch:false});await settle();const doc=p.w.document;
-  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 33 active','desktop fresh count excludes Mobile Web card, includes blockedProfiles and chatSearch');
+  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 41 active','desktop fresh count excludes Mobile Web card, includes blockedProfiles and chatSearch');
   doc.getElementById('manage-features').click();assert.equal(doc.getElementById('panel-settings').hidden,false);
   const count=id=>doc.querySelector('[aria-labelledby="'+id+'"] .group-count').textContent;
-  assert.equal(count('browsing-heading'),'3 of 4 on');
+  assert.equal(count('browsing-heading'),'3 of 5 on');
+  assert.equal(count('comments-heading'),'0 of 7 on');
   assert.equal(count('performance-heading'),'1 of 2 on');
   assert.equal(count('videos-heading'),'Default');
   assert.equal(count('tools-heading'),'3 of 3 on');
@@ -413,8 +414,8 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   // Numeric History length dropdown does NOT change Browsing & Feed or Home counts.
   doc.getElementById('history-limit').click();
   doc.querySelector('#history-limit-menu [data-value="500"]').click();await settle();
-  assert.equal(count('browsing-heading'),'3 of 4 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 33 active');
+  assert.equal(count('browsing-heading'),'3 of 5 on');
+  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 41 active');
 
   // Overriding mediaClickAction counts (+1) and reveals clickAudio; changing clickAudio does NOT add to counts.
   const clickAudioRow=doc.getElementById('click-audio').closest('.setting-row');
@@ -423,7 +424,7 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   doc.querySelector('#media-click-action-menu [data-value="inline"]').click();await settle();
   assert.equal(clickAudioRow.hidden,false);
   assert.equal(count('videos-heading'),'1 of 13 active');
-  assert.equal(doc.getElementById('feature-summary').textContent,'9 of 33 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'9 of 41 active');
   assert.equal(doc.getElementById('reset-video-defaults').hidden,false);
   doc.getElementById('click-audio').click();
   doc.querySelector('#click-audio-menu [data-value="unmute"]').click();await settle();
@@ -448,11 +449,11 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   // Enabling Archive turns on Archive + already-checked restoreDeletedContent (+2).
   const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(count('archive-heading'),'2 of 4 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'11 of 33 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'11 of 41 active');
 
   // Touch device counts Mobile Web card (+1 of +8: two switches and six navigation bar choices at their defaults).
   const mob=popup(t,{tabs:redditTab,touch:true});await settle();
-  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'9 of 41 active');
+  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'9 of 49 active');
   assert.equal(mob.w.document.querySelector('[aria-labelledby="mobile-heading"] .group-count').textContent,'1 of 8 on');
 });
 
@@ -466,7 +467,7 @@ test('View profiles that blocked you defaults on, nests under postDiscovery, and
   assert.equal(row.hidden,false);
   blocked.click();await settle();
   assert.equal(p.state['rt-settings-v1'].blockedProfiles,false);
-  assert.equal(doc.querySelector('[aria-labelledby="browsing-heading"] .group-count').textContent,'2 of 4 on');
+  assert.equal(doc.querySelector('[aria-labelledby="browsing-heading"] .group-count').textContent,'2 of 5 on');
   blocked.click();await settle();
   assert.equal(p.state['rt-settings-v1'].blockedProfiles,true);
   post.click();await settle();
@@ -650,4 +651,159 @@ test('Visual Search defaults off, asks for infini.wtf access when turned on, and
   assert.equal(toggle.checked,false,'refused access leaves it off');
   assert.equal(p.state['rt-settings-v1'].visualSearch,false);
   assert.match(doc.getElementById('settings-status').textContent,/infini\.wtf/);
+});
+
+test('settings search filters cards, keywords, and drawer items, reveals matched dependents, and restores drawer state on clear',async t=>{
+  const p=popup(t,{storedTab:'settings',tabs:redditTab});await settle();
+  const doc=p.w.document,search=doc.getElementById('settings-search'),clear=doc.getElementById('settings-search-clear');
+  const status=doc.getElementById('settings-search-status'),empty=doc.getElementById('settings-search-empty');
+  const enhBody=doc.getElementById('video-enhancements'),smoothBody=doc.getElementById('smooth-surfaces');
+  const setSearch=value=>{search.value=value;search.dispatchEvent(new p.w.Event('input',{bubbles:true}));};
+
+  // Start with Enhancements closed and Smooth surfaces open cleanly to verify snapshot/restore.
+  doc.getElementById('smooth-surfaces-toggle').click();
+  assert.equal(smoothBody.dataset.open,'true');
+  assert.equal(enhBody.dataset.open,'false');
+
+  // Keyword & option match inside closed Enhancements drawer expands it and hides unrelated cards.
+  setSearch('mini-player');
+  assert.equal(clear.hidden,false);
+  assert.equal(status.hidden,false);
+  assert.equal(status.textContent,'1 matching setting');
+  assert.equal(enhBody.dataset.open,'true','matching drawer opens automatically');
+  assert.equal(enhBody.querySelector('.drawer-inner').hasAttribute('inert'),false);
+  assert.equal(doc.getElementById('video-scroll-away').closest('.setting-row').hidden,false);
+  assert.equal(doc.getElementById('comments-heading').closest('.card').hidden,true,'non-matching cards hide');
+  assert.equal(doc.getElementById('direct-embed-row').hidden,true,'unavailable platform permission row stays hidden');
+
+  // Match keyword alias (`tl`) and also matched dependent row (`Okabe-Ito`) with clickable Requires link.
+  setSearch('okabe-ito');
+  const cvdRow=doc.getElementById('comment-threadlines-cvd').closest('.setting-row');
+  assert.equal(cvdRow.hidden,false,'dependent child reveals when searched directly');
+  assert.equal(cvdRow.querySelector('.requires-note').textContent,'Requires Color-coded threadlines');
+  assert.equal(cvdRow.querySelector('.conflict-link').dataset.jumpTarget,'comment-threadlines');
+
+  // Empty search state + Clear search button restores pre-search drawer states and hidden rows.
+  setSearch('nonexistent_xyz_setting');
+  assert.equal(status.textContent,'No matching settings');
+  assert.equal(empty.hidden,false);
+  doc.getElementById('settings-search-reset').click();
+  assert.equal(search.value,'');
+  assert.equal(empty.hidden,true);
+  assert.equal(status.hidden,true);
+  assert.equal(enhBody.dataset.open,'false','pre-search closed drawer restored');
+  assert.equal(enhBody.querySelector('.drawer-inner').hasAttribute('inert'),true);
+  assert.equal(smoothBody.dataset.open,'true','pre-search open drawer preserved');
+  assert.equal(cvdRow.hidden,true,'unmet dependent row hides again when search clears');
+  assert.equal(doc.getElementById('comments-heading').closest('.card').hidden,false);
+
+  // `/` focuses search when Settings tab is active, and Escape clears non-empty query.
+  doc.getElementById('settings-search-reset').focus();
+  doc.dispatchEvent(new p.w.KeyboardEvent('keydown',{key:'/',bubbles:true,cancelable:true}));
+  assert.equal(doc.activeElement,search);
+  setSearch('tl');
+  assert.equal(doc.getElementById('stop-auto-translation').closest('.setting-row').hidden,false,'matches keyword alias tl');
+  search.dispatchEvent(new p.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+  assert.equal(search.value,'');
+});
+
+test('conflict engine renders non-dimmed scoped hints and non-destructive paused overrides with jump links',async t=>{
+  const p=popup(t,{storedTab:'settings',tabs:redditTab});await settle();
+  const doc=p.w.document;
+
+  // Scoped coordination: Collapse child comments + Auto-load more comments shows hint without disabling.
+  const child=doc.getElementById('collapse-child-comments'),more=doc.getElementById('auto-load-more-comments');
+  child.click();await settle();
+  more.click();await settle();
+  const moreRow=more.closest('.setting-row');
+  assert.equal(moreRow.classList.contains('is-inactive'),false);
+  const scopedHint=moreRow.querySelector('[data-conflict-note]');
+  assert.ok(scopedHint && scopedHint.classList.contains('conflict-hint'));
+  assert.match(scopedHint.textContent,/top-level batches only/i);
+  assert.equal(scopedHint.querySelector('.conflict-link').dataset.jumpTarget,'collapse-child-comments');
+  child.click();await settle();
+  assert.equal(moreRow.querySelector('[data-conflict-note]'),null,'scoped hint clears when blocker turns off');
+
+  // Paused conflict rule: preserves stored value, excludes from active count, jumps on click/Enter, resumes cleanly.
+  const backRow=doc.getElementById('back-to-top').closest('.setting-row'),back=doc.getElementById('back-to-top');
+  backRow.dataset.conflicts='collapse-automod:paused:Paused while AutoMod collapse test blocker is on.';
+  back.click();await settle();
+  assert.equal(p.state['rt-settings-v1'].backToTop,true);
+  assert.equal(doc.querySelector('[aria-labelledby="comments-heading"] .group-count').textContent,'2 of 7 on');
+
+  const automod=doc.getElementById('collapse-automod'),automodRow=automod.closest('.setting-row');
+  let scrolled=0;automodRow.scrollIntoView=()=>scrolled++;
+  automod.click();await settle();
+  assert.equal(backRow.classList.contains('is-conflicted'),true);
+  assert.equal(backRow.classList.contains('is-inactive'),true);
+  assert.equal(back.getAttribute('aria-disabled'),'true');
+  assert.equal(back.checked,true,'UI preserves saved toggle');
+  assert.equal(p.state['rt-settings-v1'].backToTop,true,'stored value preserved during paused conflict');
+  assert.equal(doc.querySelector('[aria-labelledby="comments-heading"] .group-count').textContent,'2 of 7 on','paused control excluded from active count');
+  assert.ok(backRow.querySelector('.conflict-note'));
+
+  // Clicking or pressing Enter on paused conflicted row jumps to blocker without toggling back-to-top.
+  back.click();
+  assert.equal(scrolled,1);
+  assert.equal(doc.activeElement,automod);
+  assert.equal(automodRow.classList.contains('is-pulsing'),true);
+  assert.equal(back.checked,true);
+
+  back.focus();
+  back.dispatchEvent(new p.w.KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}));
+  assert.equal(scrolled,2);
+  assert.equal(doc.activeElement,automod);
+
+  // Turning blocker off resumes the paused setting automatically (autoLoadMore + backToTop = 2 of 7 on).
+  automod.click();await settle();
+  assert.equal(backRow.classList.contains('is-conflicted'),false);
+  assert.equal(back.hasAttribute('aria-disabled'),false);
+  assert.equal(doc.querySelector('[aria-labelledby="comments-heading"] .group-count').textContent,'2 of 7 on');
+});
+
+test('Data tab exports normalized preferences JSON without sensitive data and imports with 2-step confirmation',async t=>{
+  let exportedText='',revoked=0;
+  const p=popup(t,{storedTab:'data',tabs:redditTab,settings:{'rt-settings-v1':{commentThreadlines:'classic',betterComposer:true,secretCookie:'never-export'}}});
+  await settle();
+  const doc=p.w.document;
+  p.w.Blob=Blob;
+  p.w.URL.createObjectURL=blob=>{p.lastBlob=blob;return 'blob:test-url';};
+  p.w.URL.revokeObjectURL=()=>{revoked++;};
+  doc.getElementById('export-settings').click();await settle();
+  exportedText=await p.lastBlob.text();
+  const exported=JSON.parse(exportedText);
+  assert.equal(exported.app,'Reddit Tweaks');
+  assert.equal(exported.schema,1);
+  assert.equal(exported.settings.commentThreadlines,'classic');
+  assert.equal(exported.settings.betterComposer,true);
+  assert.equal('secretCookie' in exported.settings,false);
+  assert.equal(doc.getElementById('backup-status').textContent,'Settings exported to JSON.');
+  await new Promise(r=>setTimeout(r,1050));
+  assert.equal(revoked,1);
+
+  const importBtn=doc.getElementById('import-settings'),fileInput=doc.getElementById('import-settings-file'),backupStatus=doc.getElementById('backup-status');
+  const sendFile=text=>{
+    Object.defineProperty(fileInput,'files',{configurable:true,value:[{text:async()=>text}]});
+    fileInput.dispatchEvent(new p.w.Event('change',{bubbles:true}));
+  };
+
+  // Invalid JSON rejected cleanly without arming import.
+  sendFile('{bad json');await settle();
+  assert.match(backupStatus.textContent,/not valid JSON/i);
+  assert.equal(importBtn.classList.contains('confirming'),false);
+
+  // Valid JSON arms confirmation first without modifying storage until second click.
+  const backup={app:'Reddit Tweaks',schema:1,settings:{commentThreadlines:'autumn',collapseAutoMod:true,unknownHack:'drop'}};
+  sendFile(JSON.stringify(backup));await settle();
+  assert.equal(importBtn.classList.contains('confirming'),true);
+  assert.match(importBtn.textContent,/Confirm import/);
+  assert.equal(p.state['rt-settings-v1'].commentThreadlines,'classic','not written before confirmation');
+
+  importBtn.click();await settle();
+  assert.equal(p.state['rt-settings-v1'].commentThreadlines,'autumn');
+  assert.equal(p.state['rt-settings-v1'].collapseAutoMod,true);
+  assert.equal('unknownHack' in p.state['rt-settings-v1'],false);
+  assert.equal(doc.getElementById('collapse-automod').checked,true);
+  assert.equal(doc.getElementById('comment-threadlines').textContent.trim(),'Autumn');
+  assert.match(backupStatus.textContent,/Imported \d+ settings\./);
 });

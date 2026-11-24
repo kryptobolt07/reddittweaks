@@ -8,7 +8,8 @@ const FALLBACK_VIDEO_DEFAULTS={
 };
 const FALLBACK_SETTINGS_DEFAULTS={
   postDiscovery:true,feedControls:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,
-  subredditArchive:false,subredditArchiveAutomatic:false,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',visualSearchMediaButton:false,cleanShareLinks:false,
+  subredditArchive:false,subredditArchiveAutomatic:false,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',visualSearchMediaButton:false,cleanShareLinks:false,stopAutoTranslation:false,
+  commentThreadlines:'off',commentThreadlinesCvd:false,commentJump:'off',commentJumpSide:'right',backToTop:false,collapseAutoMod:false,collapseChildComments:false,autoLoadMoreComments:false,betterComposer:false,
   modUnapprovedFilter:true,raffles:true,downloadMedia:true,
   ownRemoval:false,removalNotifications:false,historyLimit:20,
   smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,
@@ -31,6 +32,16 @@ function fallbackNormalizeSettings(raw){
     visualClick:pick('visualClick',['post','viewer','inline'],'post'),
     visualSearchMediaButton:raw?.visualSearchMediaButton===true,
     cleanShareLinks:raw?.cleanShareLinks===true,
+    stopAutoTranslation:raw?.stopAutoTranslation===true,
+    commentThreadlines:pick('commentThreadlines',['off','classic','muted','autumn'],'off'),
+    commentThreadlinesCvd:raw?.commentThreadlinesCvd===true,
+    commentJump:pick('commentJump',['off','easy','pro'],'off'),
+    commentJumpSide:pick('commentJumpSide',['right','left'],'right'),
+    backToTop:raw?.backToTop===true,
+    collapseAutoMod:raw?.collapseAutoMod===true,
+    collapseChildComments:raw?.collapseChildComments===true,
+    autoLoadMoreComments:raw?.autoLoadMoreComments===true,
+    betterComposer:raw?.betterComposer===true,
     modUnapprovedFilter:raw?.modUnapprovedFilter!==false,
     raffles:raw?.raffles!==false,
     downloadMedia:raw?.downloadMedia!==false,
@@ -73,7 +84,15 @@ const Model=globalThis.RTPostModel || {
   SETTINGS_DEFAULTS:FALLBACK_SETTINGS_DEFAULTS,
   VIDEO_DEFAULTS:FALLBACK_VIDEO_DEFAULTS,
   HISTORY_LIMITS:FALLBACK_HISTORY_LIMITS,
-  normalizeSettings:fallbackNormalizeSettings
+  normalizeSettings:fallbackNormalizeSettings,
+  exportSettingsPayload:(raw,version='')=>({app:'Reddit Tweaks',schema:1,version:String(version || ''),exportedAt:new Date().toISOString(),settings:fallbackNormalizeSettings(raw)}),
+  parseSettingsBackup(text){
+    if(typeof text!=='string' || !text.trim() || text.length>131072)return {ok:false,error:'Settings backup file is empty or too large.'};
+    let parsed;try{parsed=JSON.parse(text);}catch{return {ok:false,error:'Selected file is not valid JSON.'};}
+    if(!parsed || typeof parsed!=='object' || Array.isArray(parsed) || (parsed.app!=null && parsed.app!=='Reddit Tweaks') || parsed.schema!==1 || !parsed.settings || typeof parsed.settings!=='object' || Array.isArray(parsed.settings))return {ok:false,error:'Unsupported or invalid settings backup schema.'};
+    const filtered=Object.create(null);let count=0;for(const k of Object.keys(FALLBACK_SETTINGS_DEFAULTS))if(Object.hasOwn(parsed.settings,k)){filtered[k]=parsed.settings[k];count++;}
+    return count?{ok:true,settings:fallbackNormalizeSettings(filtered),keyCount:count}:{ok:false,error:'No recognizable Reddit Tweaks settings found in backup.'};
+  }
 };
 const SETTINGS_DEFAULTS=Model.SETTINGS_DEFAULTS;
 const VIDEO_DEFAULTS=Model.VIDEO_DEFAULTS;
@@ -332,6 +351,7 @@ document.getElementById('reset-video-defaults')?.addEventListener('click',async 
 // Collapsible drawers (Smooth scrolling surfaces & Videos Enhancements)
 const enhancementsBody=document.getElementById('video-enhancements');
 const smoothSurfacesBody=document.getElementById('smooth-surfaces');
+const drawerControllers=new Map();
 for(const toggle of document.querySelectorAll('.drawer-toggle[aria-controls]')){
   const body=document.getElementById(toggle.getAttribute('aria-controls'));
   if(!body)continue;
@@ -345,6 +365,7 @@ for(const toggle of document.querySelectorAll('.drawer-toggle[aria-controls]')){
     }
     settled();
   };
+  drawerControllers.set(body.id,{toggle,body,setDrawer,isOpen:()=>toggle.getAttribute('aria-expanded')==='true'});
   toggle.addEventListener('click',()=>setDrawer(toggle.getAttribute('aria-expanded')!=='true'));
   body.addEventListener('transitionend',()=>settled());
 }
@@ -352,12 +373,14 @@ for(const toggle of document.querySelectorAll('.drawer-toggle[aria-controls]')){
 // Direct embed controls: explicit Grant access / Revoke access permission button. The original players are one grant;
 // the other embed providers are checked host by host, so a grant made before they were added still works and shows
 // what one more Grant access adds (docs/video-control-spec.md, Direct embed controls).
+let directEmbedAvailable=false;
 async function loadDirectEmbedControls(){
   const api=globalThis.browser || globalThis.chrome,hosts=globalThis.RTEmbedHosts;
   const button=document.getElementById('direct-embed-controls'),status=document.getElementById('direct-embed-status');
   const revoke=document.getElementById('direct-embed-revoke');
   const heading=document.getElementById('embed-controls-heading');
   if(!button || !hosts || !api?.permissions?.request || !api.scripting?.registerContentScripts)return;
+  directEmbedAvailable=true;
   const ids=['rt-embed-player','rt-embed-player-main'];
   if(heading)heading.hidden=false;
   button.closest('.setting-row').hidden=false;
@@ -469,8 +492,95 @@ function clearAction(id,{scope,warning,done,failed,after}){
 }
 clearAction('#clear-cache',{scope:'rcs-directory',warning:'Clears saved usernames for every Reddit account on this device. Click Confirm clear to proceed.',done:'Saved usernames cleared. Refresh Reddit to rebuild.',failed:'Could not clear the cache. Please retry.'});
 clearAction('#clear-messages',{scope:'rcs-messages',warning:'Clears saved messages for every Reddit account on this device. Click Confirm clear to proceed.',done:'Saved messages cleared. Open chats can save newly received messages.',failed:'Could not clear saved messages. Please retry.',after:()=>{writeCachedMessageStats(null);return updateMessageStats({fresh:true});}});
-document.addEventListener('keydown',event=>{if(event.key==='Escape')disarm();});
-document.addEventListener('click',event=>{if(armed && event.target!==armed.button)disarm();});
+
+// Data tab: allowlisted Settings JSON Export/Import (never touches saved accounts/cookies or chat messages).
+const exportBtn=document.getElementById('export-settings');
+const importBtn=document.getElementById('import-settings');
+const importFile=document.getElementById('import-settings-file');
+const backupStatus=document.getElementById('backup-status');
+let pendingImport=null;
+function disarmImport(){
+  if(!pendingImport)return;
+  clearTimeout(pendingImport.timer);
+  if(importBtn){importBtn.classList.remove('confirming');importBtn.textContent=pendingImport.label;}
+  if(backupStatus?.dataset.confirming){backupStatus.textContent='';delete backupStatus.dataset.confirming;}
+  pendingImport=null;
+}
+function setBackupStatus(text,{error=false}={}){
+  if(!backupStatus)return;
+  backupStatus.classList.toggle('error',error);
+  delete backupStatus.dataset.confirming;
+  backupStatus.textContent=text;
+}
+exportBtn?.addEventListener('click',async()=>{
+  disarmImport();
+  if(!storage?.get){setBackupStatus('Settings storage unavailable.',{error:true});return;}
+  exportBtn.disabled=true;
+  try{
+    const stored=await storage.get(SETTINGS_KEY);
+    const version=globalThis.chrome?.runtime?.getManifest?.()?.version || '';
+    const payload=Model.exportSettingsPayload(stored?.[SETTINGS_KEY],version);
+    const json=JSON.stringify(payload,null,2);
+    if(typeof URL.createObjectURL==='function'){
+      const blob=new Blob([json],{type:'application/json'});
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement('a');
+      link.href=url;link.download='reddit-tweaks-settings.json';
+      document.body.append(link);link.click();link.remove();
+      setTimeout(()=>{try{URL.revokeObjectURL(url);}catch{}},1000);
+    }
+    setBackupStatus('Settings exported to JSON.');
+  }catch{setBackupStatus('Could not export settings.',{error:true});}
+  finally{exportBtn.disabled=false;}
+});
+importBtn?.addEventListener('click',async()=>{
+  if(!storage?.get || !storage?.set){setBackupStatus('Settings storage unavailable.',{error:true});return;}
+  if(!pendingImport){
+    if(importFile){importFile.value='';importFile.click();}
+    return;
+  }
+  const {settings:imported,keyCount}=pendingImport;
+  disarmImport();
+  importBtn.disabled=true;setBackupStatus('Importing settings…');
+  settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{
+    const latest=await storage.get(SETTINGS_KEY);
+    const merged=mergeStored(latest?.[SETTINGS_KEY],imported);
+    await storage.set({[SETTINGS_KEY]:merged});
+    const normalized=normalizeSettings(merged);
+    applySettingsToUI(normalized,{enable:true});
+    writeMirror(normalized);
+    syncDependencies();syncSummary();settled();
+    setBackupStatus('Imported '+keyCount+' settings.');
+    setStatus('Settings imported.');
+  }).catch(()=>{setBackupStatus('Could not import settings. Please retry.',{error:true});})
+    .finally(()=>{importBtn.disabled=false;});
+});
+importFile?.addEventListener('change',async()=>{
+  disarmImport();
+  const file=importFile.files?.[0];
+  if(!file)return;
+  let text='';
+  try{
+    if(typeof file.text==='function')text=await file.text();
+    else if(typeof FileReader==='function')text=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result || ''));r.onerror=()=>reject(r.error);r.readAsText(file);});
+  }catch{setBackupStatus('Could not read the selected file.',{error:true});return;}
+  const parsed=Model.parseSettingsBackup(text);
+  if(!parsed.ok){setBackupStatus(parsed.error,{error:true});return;}
+  pendingImport={
+    settings:parsed.settings,
+    keyCount:parsed.keyCount,
+    label:importBtn.textContent,
+    timer:setTimeout(disarmImport,10000)
+  };
+  importBtn.classList.add('confirming');
+  importBtn.textContent='Confirm import ('+parsed.keyCount+')';
+  backupStatus.classList.remove('error');
+  backupStatus.dataset.confirming='1';
+  backupStatus.textContent='Ready to apply '+parsed.keyCount+' settings from backup. Click Confirm import to proceed.';
+});
+
+document.addEventListener('keydown',event=>{if(event.key==='Escape'){disarm();disarmImport();}});
+document.addEventListener('click',event=>{if(armed && event.target!==armed.button)disarm();if(pendingImport && event.target!==importBtn && event.target!==importFile)disarmImport();});
 
 const aboutWrap=document.querySelector('#cache-about'),aboutButton=document.querySelector('#cache-info-toggle'),aboutPanel=document.querySelector('#cache-info-panel');
 function setAbout(open,restoreFocus=false){
@@ -486,12 +596,68 @@ aboutWrap?.addEventListener('focusout',event=>{if(!aboutPanel.hidden && !aboutWr
 document.addEventListener('click',event=>{if(aboutPanel && !aboutPanel.hidden && !aboutWrap.contains(event.target))setAbout(false);});
 document.addEventListener('keydown',event=>{if(event.key==='Escape' && aboutPanel && !aboutPanel.hidden)setAbout(false,true);});
 
-// Dependency engine: checkbox parents, choice parents, and permission parents.
+// Dependency & graceful conflict engine: checkbox parents, choice parents, permissions, and mutual/scoped conflicts.
 function isDeviceHidden(el){
   const scoped=el?.closest?.('[data-device]');
   return Boolean(scoped && scoped.dataset.device!==activeDevice);
 }
-function syncDependencies(){
+function controlLabel(el){
+  const labelEl=el?.id?document.querySelector('label[for="'+el.id+'"]'):null;
+  return (labelEl?.childNodes?.[0]?.textContent || labelEl?.textContent || el?.id || 'that setting').trim();
+}
+function ensureRequiresNote(row,blockerId,blockerName){
+  const copy=row?.querySelector('.setting-copy');
+  if(!copy)return;
+  let note=copy.querySelector('.requires-note:not([data-permission-note]):not([data-conflict-note])');
+  if(!blockerId){note?.remove();return;}
+  if(!note){
+    note=document.createElement('p');note.className='requires-note';
+    const link=document.createElement('button');link.type='button';link.className='permission-link conflict-link';
+    note.append('Requires ',link);copy.append(note);
+  }
+  const link=note.querySelector('.conflict-link');
+  if(link){link.dataset.jumpTarget=blockerId;link.textContent=blockerName;}
+}
+function parseConflictRules(raw){
+  if(typeof raw!=='string' || !raw.trim())return [];
+  const rules=[];
+  for(const part of raw.split(';')){
+    const m=part.trim().match(/^([a-z0-9-]+):(paused|scoped):([\s\S]+)$/i);
+    if(m)rules.push({blockerId:m[1],kind:m[2].toLowerCase(),message:m[3].trim()});
+  }
+  return rules;
+}
+function isSettingControlActive(control){
+  const row=control?.closest?.('.setting-row');
+  if(!control || isDeviceHidden(control) || row?.classList.contains('is-inactive'))return false;
+  if(control.hasAttribute('data-setting'))return Boolean(control.checked);
+  if(control.hasAttribute('data-choice'))return Boolean(choiceViews.get(control.dataset.choice)?.isModified());
+  return false;
+}
+function setConflictNote(row,control,{id,className,message,blockerId,blockerName}){
+  const copy=row.querySelector('.setting-copy');if(!copy)return;
+  let note=copy.querySelector('[data-conflict-note]');
+  if(!note){
+    note=document.createElement('p');note.dataset.conflictNote='';note.id=id;
+    const link=document.createElement('button');link.type='button';link.className='permission-link conflict-link';
+    note.append(document.createTextNode(''),link);copy.append(note);
+  }
+  note.className=className;note.firstChild.textContent=message+' ';
+  const link=note.querySelector('.conflict-link');link.dataset.jumpTarget=blockerId;link.textContent=blockerName;
+  const described=new Set((control?.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+  if(control && !described.has(id)){described.add(id);control.setAttribute('aria-describedby',[...described].join(' '));}
+}
+function clearConflictNote(row,control){
+  row.classList.remove('is-conflicted');delete row.dataset.conflictTarget;
+  const note=row.querySelector('.setting-copy [data-conflict-note]');
+  if(note){
+    const described=new Set((control?.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+    if(control && described.delete(note.id))control.setAttribute('aria-describedby',[...described].join(' '));
+    note.remove();
+  }
+}
+function syncDependencies({skipSearch=false}={}){
+  const prereqInactive=new WeakSet();
   for(const drawer of document.querySelectorAll('.drawer-section[data-requires]')){
     if(isDeviceHidden(drawer))continue;
     const parent=document.getElementById(drawer.dataset.requires);
@@ -502,20 +668,16 @@ function syncDependencies(){
     const parent=document.getElementById(row.dataset.requires),ancestor=parent?.closest('.setting-row[data-requires]');
     const active=Boolean(parent?.checked) && (!ancestor || !ancestor.classList.contains('is-inactive'));
     row.classList.toggle('is-inactive',!active);
+    if(!active)prereqInactive.add(row);
     let blocker=null;
     for(let at=parent;at;){
       if(!at.checked)blocker=at;
       const up=at.closest('.setting-row[data-requires]');
       at=up?document.getElementById(up.dataset.requires):null;
     }
-    row.hidden=!active && parent?.closest('.card')===row.closest('.card');
-    let note=row.querySelector('.requires-note');
-    if(!active && blocker && !row.hidden){
-      if(!note){note=document.createElement('p');note.className='requires-note';row.querySelector('.setting-copy').append(note);}
-      const labelEl=document.querySelector('label[for="'+blocker.id+'"]');
-      const name=(labelEl?.childNodes?.[0]?.textContent || labelEl?.textContent || 'the setting above').trim();
-      note.textContent='Requires '+name;
-    }else note?.remove();
+    row.hidden=!active && parent?.closest('.card')===row.closest('.card') && row.dataset.searchReveal!=='1';
+    if(!active && blocker && !row.hidden)ensureRequiresNote(row,blocker.id,controlLabel(blocker));
+    else ensureRequiresNote(row,'','');
     const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
     if(control && !control.classList.contains('is-unavailable')){
       if(active)control.removeAttribute('aria-disabled');else control.setAttribute('aria-disabled','true');
@@ -529,7 +691,10 @@ function syncDependencies(){
     const parentRow=parent?.closest('.setting-row');
     const active=Boolean(parentView) && String(parentView.value)!==String(forbidden) && (!parentRow || !parentRow.classList.contains('is-inactive'));
     row.classList.toggle('is-inactive',!active);
-    row.hidden=!active;
+    if(!active)prereqInactive.add(row);
+    row.hidden=!active && row.dataset.searchReveal!=='1';
+    if(!active && parent && !row.hidden)ensureRequiresNote(row,parent.id,controlLabel(parent));
+    else if(!row.hasAttribute('data-requires'))ensureRequiresNote(row,'','');
     const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
     if(control){if(active)control.removeAttribute('aria-disabled');else control.setAttribute('aria-disabled','true');}
   }
@@ -540,6 +705,7 @@ function syncDependencies(){
     const {available,granted,name}=permissionState(row.dataset.requiresPermission);
     row.hidden=!available;
     row.classList.toggle('is-inactive',!granted);
+    if(!granted)prereqInactive.add(row);
     row.classList.toggle('needs-permission',available && !granted);
     const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
     if(control){if(granted)control.removeAttribute('aria-disabled');else control.setAttribute('aria-disabled','true');}
@@ -553,6 +719,49 @@ function syncDependencies(){
     const lead=!available?'':!granted?(row.dataset.permissionHintText || 'Embeds from Vimeo, Streamable, RedGIFs and Twitch need'):partial?'Embeds from YouTube and other sites need':'';
     permissionNote(row,control,lead?lead+' ':'',name,'permission-hint');
   }
+  // Graceful conflict handling: paused overrides preserve stored state without mutating it; scoped rules explain active cooperation.
+  const conflictRows=[...document.querySelectorAll('.setting-row[data-conflicts]')];
+  for(const row of conflictRows){
+    if(prereqInactive.has(row))continue;
+    const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
+    row.classList.remove('is-inactive');
+    clearConflictNote(row,control);
+    if(control && !control.classList.contains('is-unavailable'))control.removeAttribute('aria-disabled');
+  }
+  for(const row of conflictRows){
+    if(isDeviceHidden(row))continue;
+    const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
+    if(prereqInactive.has(row)){clearConflictNote(row,control);continue;}
+    const rules=parseConflictRules(row.dataset.conflicts);
+    const pausedRule=rules.find(r=>r.kind==='paused' && isSettingControlActive(document.getElementById(r.blockerId)));
+    if(pausedRule){
+      const blocker=document.getElementById(pausedRule.blockerId);
+      row.classList.add('is-inactive','is-conflicted');
+      row.dataset.conflictTarget=pausedRule.blockerId;
+      if(control)control.setAttribute('aria-disabled','true');
+      setConflictNote(row,control,{
+        id:(control?.id || pausedRule.blockerId)+'-conflict-note',
+        className:'requires-note conflict-note',
+        message:pausedRule.message,
+        blockerId:pausedRule.blockerId,
+        blockerName:'Go to '+controlLabel(blocker)
+      });
+      continue;
+    }
+    const selfActive=isSettingControlActive(control);
+    const scopedRule=selfActive?rules.find(r=>r.kind==='scoped' && isSettingControlActive(document.getElementById(r.blockerId))):null;
+    if(scopedRule){
+      const blocker=document.getElementById(scopedRule.blockerId);
+      setConflictNote(row,control,{
+        id:(control?.id || scopedRule.blockerId)+'-conflict-note',
+        className:'permission-hint conflict-hint',
+        message:scopedRule.message,
+        blockerId:scopedRule.blockerId,
+        blockerName:controlLabel(blocker)
+      });
+    }else clearConflictNote(row,control);
+  }
+  if(!skipSearch && searchInput?.value.trim())applySearchFilter({fromSync:true});
 }
 function permissionState(id){
   const button=document.getElementById(id),row=button?.closest('.setting-row');
@@ -580,31 +789,180 @@ function permissionNote(row,control,lead,name,className){
   note.className=className;note.firstChild.textContent=lead;note.lastChild.textContent=name;
   if(control && !described.has(id)){described.add(id);control.setAttribute('aria-describedby',[...described].join(' '));}
 }
-// Two clicks, no hunting: the dimmed option (or its note) scrolls to the permission's row, outlines it briefly and
-// focuses its button; one more click grants.
-function jumpToPermission(id){
-  const button=document.getElementById(id),row=button?.closest('.setting-row');
-  if(!button || !row || row.hidden)return;
+// Two clicks, no hunting: dimmed/conflicted/linked rows scroll to the controlling row, outline it briefly and focus it.
+function jumpToControl(id){
+  if(!id)return;
+  if(searchInput?.value.trim())clearSettingsSearch({focusInput:false});
+  const target=document.getElementById(id),row=target?.closest('.setting-row');
+  if(!target || !row || isDeviceHidden(row))return;
+  const drawerBody=row.closest('.drawer-body');
+  if(drawerBody && drawerControllers.has(drawerBody.id))drawerControllers.get(drawerBody.id).setDrawer(true);
+  if(row.hidden)row.hidden=false;
   closeAllMenus();
   const reduced=Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
   row.scrollIntoView?.({block:'center',behavior:reduced?'auto':'smooth'});
   row.classList.remove('is-pulsing');void row.offsetWidth;row.classList.add('is-pulsing');
   clearTimeout(row.pulseTimer);row.pulseTimer=setTimeout(()=>row.classList.remove('is-pulsing'),1000);
-  button.focus({preventScroll:true});
+  target.focus({preventScroll:true});
 }
+const jumpToPermission=jumpToControl;
 document.addEventListener('click',event=>{
-  const link=event.target.closest?.('.permission-link'),row=event.target.closest?.('.setting-row.needs-permission');
-  if(!link && !row)return;
-  event.preventDefault();event.stopPropagation();
-  jumpToPermission(link?link.dataset.permissionTarget:row.dataset.requiresPermission);
+  const conflictLink=event.target.closest?.('.conflict-link');
+  if(conflictLink){event.preventDefault();event.stopPropagation();jumpToControl(conflictLink.dataset.jumpTarget);return;}
+  const link=event.target.closest?.('.permission-link'),permRow=event.target.closest?.('.setting-row.needs-permission');
+  if(link || permRow){event.preventDefault();event.stopPropagation();jumpToControl(link?link.dataset.permissionTarget:permRow.dataset.requiresPermission);return;}
+  const confRow=event.target.closest?.('.setting-row.is-conflicted');
+  if(confRow){event.preventDefault();event.stopPropagation();jumpToControl(confRow.dataset.conflictTarget);}
 },true);
 document.addEventListener('keydown',event=>{
   if(event.key!=='Enter' && event.key!==' ')return;
-  const row=event.target.closest?.('.setting-row.needs-permission');
-  if(!row || event.target.closest('.permission-link'))return;
-  event.preventDefault();event.stopPropagation();
-  jumpToPermission(row.dataset.requiresPermission);
+  if(event.target.closest?.('.permission-link, .conflict-link'))return;
+  const permRow=event.target.closest?.('.setting-row.needs-permission');
+  if(permRow){event.preventDefault();event.stopPropagation();jumpToControl(permRow.dataset.requiresPermission);return;}
+  const confRow=event.target.closest?.('.setting-row.is-conflicted');
+  if(confRow){event.preventDefault();event.stopPropagation();jumpToControl(confRow.dataset.conflictTarget);}
 },true);
+
+// Settings panel live search: filters across labels, descriptions, headings, menus, and keywords; opens matching drawers.
+const searchInput=document.getElementById('settings-search');
+const searchClear=document.getElementById('settings-search-clear');
+const searchStatus=document.getElementById('settings-search-status');
+const searchEmpty=document.getElementById('settings-search-empty');
+const searchReset=document.getElementById('settings-search-reset');
+const settingsPanel=document.getElementById('panel-settings');
+const preSearchDrawerState=new Map();
+
+function rowSearchText(row){
+  const parts=[];
+  const cardHeading=row.closest('.card')?.querySelector('.card-heading h2')?.textContent;
+  if(cardHeading)parts.push(cardHeading);
+  let prev=row.previousElementSibling;
+  while(prev){if(prev.classList.contains('sub-heading')){parts.push(prev.textContent);break;}prev=prev.previousElementSibling;}
+  const labelEl=row.querySelector('.setting-copy label');
+  if(labelEl)parts.push(labelEl.textContent);
+  for(const p of row.querySelectorAll('.setting-copy p:not(.requires-note):not([data-permission-note]):not([data-conflict-note])'))parts.push(p.textContent);
+  if(row.dataset.keywords)parts.push(row.dataset.keywords);
+  const choiceBtn=row.querySelector('.setting-choice[data-choice]');
+  if(choiceBtn){
+    const view=choiceViews.get(choiceBtn.dataset.choice);
+    if(view)for(const opt of view.options)parts.push(opt.textContent,opt.dataset.short || '');
+  }
+  return parts.join(' ').toLowerCase();
+}
+function isRowPlatformHidden(row){
+  if(isDeviceHidden(row))return true;
+  if(row.id==='direct-embed-row' && !directEmbedAvailable)return true;
+  if(row.hasAttribute('data-requires-permission') && !permissionState(row.dataset.requiresPermission).available)return true;
+  return false;
+}
+function topUnmetParentId(row){
+  if(row.hasAttribute('data-requires')){
+    let blocker=null;
+    for(let at=document.getElementById(row.dataset.requires);at;){
+      if(!at.checked)blocker=at;
+      const up=at.closest('.setting-row[data-requires]');
+      at=up?document.getElementById(up.dataset.requires):null;
+    }
+    if(blocker)return blocker.id;
+  }
+  if(row.hasAttribute('data-requires-choice'))return row.dataset.requiresChoice;
+  return '';
+}
+function applySearchFilter({fromSync=false}={}){
+  if(!searchInput || !settingsPanel)return;
+  const tokens=searchInput.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if(!tokens.length){
+    clearSettingsSearch({focusInput:false,alreadyEmpty:true,fromSync});
+    return;
+  }
+  if(!preSearchDrawerState.size){
+    for(const [id,ctrl] of drawerControllers)preSearchDrawerState.set(id,ctrl.isOpen());
+  }
+  if(!fromSync)syncDependencies({skipSearch:true});
+  let totalMatches=0;
+  for(const card of settingsPanel.querySelectorAll('.card:not(.settings-search-empty)')){
+    if(isDeviceHidden(card)){card.hidden=true;continue;}
+    let cardMatches=0;
+    for(const row of card.querySelectorAll('.setting-row')){
+      if(isRowPlatformHidden(row)){row.hidden=true;delete row.dataset.searchReveal;continue;}
+      const matched=tokens.every(tok=>rowSearchText(row).includes(tok));
+      if(matched){
+        cardMatches++;totalMatches++;
+        row.hidden=false;
+        if(row.classList.contains('is-inactive')){
+          row.dataset.searchReveal='1';
+          const bId=topUnmetParentId(row);
+          if(bId)ensureRequiresNote(row,bId,controlLabel(document.getElementById(bId)));
+        }else delete row.dataset.searchReveal;
+      }else{
+        row.hidden=true;delete row.dataset.searchReveal;
+      }
+    }
+    for(const drawer of card.querySelectorAll('.drawer-section')){
+      const body=drawer.querySelector('.drawer-body');
+      const hasMatch=[...drawer.querySelectorAll('.setting-row')].some(r=>!r.hidden);
+      drawer.hidden=!hasMatch;
+      if(hasMatch && body && drawerControllers.has(body.id))drawerControllers.get(body.id).setDrawer(true);
+    }
+    for(const sub of card.querySelectorAll('.sub-heading')){
+      let hasVisible=false;
+      for(let el=sub.nextElementSibling;el && !el.classList.contains('sub-heading') && !el.classList.contains('drawer-section');el=el.nextElementSibling){
+        if(el.classList.contains('setting-row') && !el.hidden){hasVisible=true;break;}
+      }
+      sub.hidden=!hasVisible;
+    }
+    for(const extra of card.querySelectorAll('.group-note, .card-action-row'))extra.hidden=cardMatches===0;
+    card.hidden=cardMatches===0;
+  }
+  if(searchClear)searchClear.hidden=false;
+  if(searchStatus){searchStatus.hidden=false;searchStatus.textContent=totalMatches===0?'No matching settings':totalMatches===1?'1 matching setting':totalMatches+' matching settings';}
+  if(searchEmpty)searchEmpty.hidden=totalMatches>0;
+  settled();
+}
+function clearSettingsSearch({focusInput=false,alreadyEmpty=false,fromSync=false}={}){
+  if(!searchInput)return;
+  if(!alreadyEmpty && searchInput.value)searchInput.value='';
+  if(settingsPanel){
+    for(const row of settingsPanel.querySelectorAll('.setting-row')){
+      delete row.dataset.searchReveal;
+      if(row.id==='direct-embed-row')row.hidden=!directEmbedAvailable;
+      else if(isDeviceHidden(row))row.hidden=true;
+      else if(!row.hasAttribute('data-requires') && !row.hasAttribute('data-requires-choice') && !row.hasAttribute('data-requires-permission'))row.hidden=false;
+    }
+    for(const sub of settingsPanel.querySelectorAll('.sub-heading'))sub.hidden=sub.id==='embed-controls-heading'?!directEmbedAvailable:false;
+    for(const extra of settingsPanel.querySelectorAll('.group-note, .card-action-row'))extra.hidden=false;
+    for(const drawer of settingsPanel.querySelectorAll('.drawer-section'))drawer.hidden=isDeviceHidden(drawer);
+    for(const card of settingsPanel.querySelectorAll('.card:not(.settings-search-empty)'))card.hidden=isDeviceHidden(card);
+  }
+  if(preSearchDrawerState.size){
+    for(const [id,wasOpen] of preSearchDrawerState){drawerControllers.get(id)?.setDrawer(wasOpen);}
+    preSearchDrawerState.clear();
+  }
+  if(searchClear)searchClear.hidden=true;
+  if(searchStatus){searchStatus.hidden=true;searchStatus.textContent='';}
+  if(searchEmpty)searchEmpty.hidden=true;
+  if(!fromSync)syncDependencies({skipSearch:true});
+  settled();
+  if(focusInput)searchInput.focus({preventScroll:true});
+}
+searchInput?.addEventListener('input',()=>applySearchFilter());
+searchClear?.addEventListener('click',()=>clearSettingsSearch({focusInput:true}));
+searchReset?.addEventListener('click',()=>clearSettingsSearch({focusInput:true}));
+searchInput?.addEventListener('keydown',event=>{
+  if(event.key==='Escape' && searchInput.value){
+    event.preventDefault();event.stopPropagation();
+    clearSettingsSearch({focusInput:true});
+  }
+});
+document.addEventListener('keydown',event=>{
+  if(event.key!=='/' || event.metaKey || event.ctrlKey || event.altKey)return;
+  if(selectedTab?.dataset.tab!=='settings' || !searchInput)return;
+  const active=document.activeElement;
+  if(active && (active.tagName==='INPUT' || active.tagName==='TEXTAREA' || active.isContentEditable))return;
+  event.preventDefault();
+  if(settingsPanel)settingsPanel.scrollTop=0;
+  searchInput.focus({preventScroll:true});
+});
 
 // Accurate counters: count visible active booleans + visible overridden selectors; exclude historyLimit, clickAudio, action/permission buttons, and hidden device cards.
 const isCountable=control=>!isDeviceHidden(control) && control.dataset.count!=='exclude';
