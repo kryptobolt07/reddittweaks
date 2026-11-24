@@ -1,6 +1,41 @@
+# Dependencies
 node_modules/
+
+# Build output, packages, local research captures and validation records
 artifacts/
+web-ext-artifacts/
+*.zip
+*.xpi
+*.crx
+*.pem
+
+# Local browser profiles used for testing (signed-in sessions: never commit)
 .chrome-dev-profile/
+.firefox-profile/
+
+# Test and tool output
 test-results/
+playwright-report/
+coverage/
 *.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
 .DS_Store
+Thumbs.db
+
+# Local Claude Code state (shared skills in .claude/skills stay tracked)
+.claude/worktrees/
+.claude/settings.local.json
