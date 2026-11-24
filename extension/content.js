@@ -432,7 +432,10 @@
           const result=await RCSMessages.room(room);
           if(generation!==this.savedGeneration || room!==this.room || !this.host.isConnected)return;
           if(this.savedOwner!==undefined && this.savedOwner!==result.owner)return;
-          this.savedOwner=result.owner;index.replace(room,result.records,{complete:false});
+          this.savedOwner=result.owner;
+          // Merge, never prune: native history not yet saved, or events the capture buffer turned away, are only in
+          // memory. Only a verified-complete native snapshot may drop messages (see the history load below).
+          index.upsert(room,result.records || [],{authoritative:true,redacted:result.redacted || []});
           // A stored boundary does not prove freshness after an offline gap.
           // Show saved data immediately; native history still verifies current coverage.
           if(!this.panel.hidden)this.render();

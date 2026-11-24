@@ -291,6 +291,38 @@ test('native unread counts are local metadata and receipt changes do not issue r
   assert.equal(context.roomMeta.alex.unreadCount,3);assert.equal(context.roomMeta.jules.unreadCount,0);
   const calls=api.calls.length;let received;
   W.document.addEventListener('rcs-conversation-activity',event=>received=JSON.parse(event.detail));
-  count=0;handlers.get('Room.receipt')?.({roomId:'alex'});
+  count=0;for(let i=0;i<5;i++)handlers.get('Room.receipt')?.({roomId:'alex'});
+  let bursts=0;W.document.addEventListener('rcs-conversation-activity',()=>bursts++);
+  await new Promise(resolve=>setTimeout(resolve,150));
+  assert.equal(bursts,1,'a burst of receipts sends one snapshot');
   assert.equal(received.owner,context.owner);assert.equal(received.roomMeta.alex.unreadCount,0);assert.equal(api.calls.length,calls);
+});
+test('a request permit granted after the page stopped waiting is handed back',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const {W,api}=env;
+  W.__rcsTrafficTimeoutMs=40;
+  const client=api.app.querySelector('rs-matrix-client').client;client.fetchRoomEvent=async()=>{};
+  const released=[];let late=true;
+  W.chrome={runtime:{sendMessage:async value=>{
+    if(value.action==='traffic-acquire'){
+      if(late){late=false;await new Promise(resolve=>setTimeout(resolve,80));return {ok:true,token:'late-token'};}
+      return {ok:true,token:'second'};
+    }
+    if(value.action==='traffic-release')released.push(value.token);
+    return {ok:true};
+  }}};
+  await W.RCSData.request('jump',{roomId:'alex',eventId:'missing-from-native-cache'}).promise.catch(()=>{});
+  await new Promise(resolve=>setTimeout(resolve,150));
+  assert.ok(released.includes('late-token'),'the late grant was released');
+});
+test('identity reads use the watched native client without rescanning Reddit\'s chat',async t=>{
+  const env=setup();t.after(()=>env.dom.window.close());const {W}=env;
+  const first=await W.RCSData.request('identity-context').promise;
+  assert.ok(first.owner);
+  let scans=0;const all=W.document.querySelectorAll.bind(W.document);
+  W.document.querySelectorAll=selector=>{if(selector==='div')scans++;return all(selector);};
+  for(let i=0;i<3;i++)assert.equal((await W.RCSData.request('identity-context').promise).owner,first.owner);
+  assert.equal(scans,0,'no full scan while the client\'s element is still on the page');
+  W.document.querySelector('rs-matrix-client').remove();
+  await W.RCSData.request('identity-context').promise.catch(()=>{});
+  assert.ok(scans>0,'a detached client falls back to the scan');
 });

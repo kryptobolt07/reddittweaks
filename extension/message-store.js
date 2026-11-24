@@ -194,6 +194,8 @@
       this.people=new Map();   // id -> person record
       this.senderIdByIdx=[];this.senderIdxById=new Map();
       this.sortedDesc=true;
+      // Entries [0, sortedCount) are newest first; live messages append an unsorted tail after them.
+      this.sortedCount=0;
       this.lastT=Infinity;
     }
     ensureCapacity(needed){
@@ -225,7 +227,7 @@
       const sIdx=this.internSender(msg.u || '');
       const folded=foldFast(msg.b);
       if(pos!==undefined){
-        if(this.t[pos]!==(msg.t || 0))this.sortedDesc=false;
+        if(this.t[pos]!==(msg.t || 0)){this.sortedDesc=false;if(pos<this.sortedCount)this.sortedCount=pos;}
         this.t[pos]=msg.t || 0;
         this.room[pos]=msg.n;
         this.senderIdx[pos]=sIdx;
@@ -237,6 +239,7 @@
       this.ensureCapacity(this.count);
       const time=msg.t || 0;
       if(idx>0 && time>this.lastT)this.sortedDesc=false;
+      if(this.sortedDesc)this.sortedCount=this.count;
       this.lastT=time;
       this.t[idx]=time;
       this.room[idx]=msg.n;
@@ -246,6 +249,32 @@
       this.ids[idx]=msg.e;
       this.keyToPos.set(key,idx);
       this.liveCount++;
+    }
+    // Re-sort every column newest first, so date-bounded searches can binary-search the whole projection.
+    sortDescending(){
+      if(this.count>1){
+        const orderIdx=new Uint32Array(this.count);
+        for(let i=0;i<this.count;i++)orderIdx[i]=i;
+        orderIdx.sort((x,y)=>this.t[y]-this.t[x]);
+        const nt=new Float64Array(this.capacity),nr=new Uint32Array(this.capacity),ns=new Uint32Array(this.capacity),nf=new Uint8Array(this.capacity);
+        const nFolded=new Array(this.count),nIds=new Array(this.count);
+        this.keyToPos.clear();
+        for(let i=0;i<this.count;i++){
+          const old=orderIdx[i];
+          nt[i]=this.t[old];nr[i]=this.room[old];ns[i]=this.senderIdx[old];nf[i]=this.flags[old];
+          nFolded[i]=this.folded[old];nIds[i]=this.ids[old];
+          if(nIds[i])this.keyToPos.set(nr[i]+'\0'+nIds[i],i);
+        }
+        this.t=nt;this.room=nr;this.senderIdx=ns;this.flags=nf;this.folded=nFolded;this.ids=nIds;
+      }
+      this.sortedDesc=true;this.sortedCount=this.count;this.lastT=this.count?this.t[this.count-1]:Infinity;
+    }
+    // Index ranges a date-bounded scan needs: the matching slice of the sorted prefix, then the unsorted tail.
+    // compactTail() folds a long tail back in; call it before reading the column arrays.
+    compactTail(){if(this.count-this.sortedCount>Math.max(2048,this.count>>3))this.sortDescending();}
+    timeRanges(start,end){
+      const [lo,hi]=descendingTimeBounds(this.t,this.sortedCount,start,end);
+      return this.sortedCount<this.count?[[lo,hi],[this.sortedCount,this.count]]:[[lo,hi]];
     }
     remove(n,e){
       const key=n+'\0'+e;
@@ -427,6 +456,7 @@
       this.database=null;this.connection=null;this.queue=Promise.resolve();
       this.projections=new Map(); // owner -> AccountProjection
       this.projectionReads=new Map();
+      this.projectionLogs=new Map(); // owner -> patches from saves that finished while its projection was being built
       this.migrationTasks=new Map(); // owner -> Promise
       // In-memory store mirror when persistent === false.
       this.mem={accounts:new Map(),rooms:new Map(),roomsById:new Map(),msgs:new Map(),rels:new Map(),relsByTarget:new Map(),spans:new Map(),people:new Map(),meta:new Map()};
@@ -459,6 +489,19 @@
     // Cached projections are published only when no write ran while they were read: the epoch moves when a write
     // starts and again when it settles, and activeWrites covers writes still running when a read finishes.
     beginWrite(){this.activeWrites++;this.writeEpoch++;let open=true;return ()=>{if(!open)return;open=false;this.activeWrites--;this.writeEpoch++;};}
+    // Saves patch the cached projection in memory after they commit. While a projection is being built, the patches are
+    // also kept and replayed onto it before it is published: every patch is keyed (upsert, remove, registerRoom,
+    // people, account), so one already in the built snapshot is harmless, and the build is kept instead of thrown
+    // away whenever a save overlapped it (during backfill, that was every search).
+    patchProjection(owner,patch){
+      const proj=this.projections.get(owner);if(proj)patch(proj);
+      const log=this.projectionLogs.get(owner);if(log && !log.dropped)log.push(patch);
+    }
+    dropProjection(owner){
+      // A build already under way answers only its own callers; later ones start afresh.
+      if(owner){this.projections.delete(owner);this.projectionReads.delete(owner);const log=this.projectionLogs.get(owner);if(log)log.dropped=true;}
+      else{this.projections.clear();this.projectionReads.clear();for(const log of this.projectionLogs.values())log.dropped=true;}
+    }
     enqueueWrite(task){const result=this.queue.then(async()=>{const end=this.beginWrite();try{return await task();}finally{end();}});this.queue=result.catch(()=>{});return result;}
     async transaction(names,mode='readonly') {
       if(mode==='readwrite')this.writeEpoch++;
@@ -1038,8 +1081,7 @@
         if(completion)await completion;
 
         // Patch in-memory projection AFTER transaction commits so failed writes never poison memory.
-        const proj=this.projections.get(batch.owner);
-        if(proj && changed){
+        if(changed)this.patchProjection(batch.owner,proj=>{
           for(const u of projUpdates){
             if(u.kind==='person')proj.people.set(u.person.id,u.person);
             else if(u.kind==='room')proj.registerRoom(u.room);
@@ -1047,7 +1089,7 @@
             else if(u.kind==='delete')proj.remove(u.n,u.e);
           }
           proj.account=acc;
-        }
+        });
         if(changed && this.onStatsDelta)this.onStatsDelta({owner:batch.owner,messages:deltaMessages,rooms:deltaRooms,completeRooms:deltaCompleteRooms,approxBytes:deltaBytes});
         return {owner:batch.owner,persistent:this.persistent,changed,...(!identitiesChanged?{roomIds:changedRoomIds}:{}),...(batch.span?{coverageChanged:true}:{})};
       } catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
@@ -1101,11 +1143,10 @@
           this._putAccount(tx,acc);
         }
         if(completion)await completion;
-        const proj=this.projections.get(owner);
-        if(proj && changed.size>0){
+        if(changed.size>0)this.patchProjection(owner,proj=>{
           proj.account=acc;
           for(const rm of roomsUpdated)proj.registerRoom(rm);
-        }
+        });
         if(changed.size>0 && this.onStatsDelta)this.onStatsDelta({owner,messages:0,rooms:0,completeRooms:0,approxBytes:deltaBytes});
         return {owner,changed:changed.size>0,roomIds:[...changed]};
       }catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
@@ -1152,7 +1193,7 @@
         acc.stats={...acc.stats,rooms:(acc.stats?.rooms || 0)+(isNew?1:0),completeRooms:Math.max(0,(acc.stats?.completeRooms || 0)-prevComplete),bytes:Math.max(0,(acc.stats?.bytes || 0)+deltaBytes)};
         this._putAccount(tx,acc);
         if(completion)await completion;
-        const proj=this.projections.get(owner);if(proj){proj.registerRoom(rm);proj.account=acc;}
+        this.patchProjection(owner,proj=>{proj.registerRoom(rm);proj.account=acc;});
         if(this.onStatsDelta)this.onStatsDelta({owner,messages:0,rooms:isNew?1:0,completeRooms:-prevComplete,approxBytes:deltaBytes});
         return {owner,roomId,inaccessible:rm.inaccessible};
       }catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
@@ -1189,7 +1230,7 @@
           this._putAccount(tx,acc);
         }
         if(completion)await completion;
-        const proj=this.projections.get(owner);if(proj && updatedRooms.length){for(const rm of updatedRooms)proj.registerRoom(rm);proj.account=acc;}
+        if(updatedRooms.length)this.patchProjection(owner,proj=>{for(const rm of updatedRooms)proj.registerRoom(rm);proj.account=acc;});
         return {owner,updated:updatedRooms.length};
       }catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
     }
@@ -1203,16 +1244,19 @@
     async _ensureProjection(owner){
       const cached=this.projections.get(owner);
       if(cached)return cached;
-      const epoch=this.writeEpoch;
+      // One build per account at a time; every caller shares it.
       const pending=this.projectionReads.get(owner);
-      if(pending?.epoch===epoch)return pending.promise;
+      if(pending)return pending.promise;
+      const log=[];this.projectionLogs.set(owner,log);
       const promise=this._buildProjection(owner).then(projection=>{
-        // A read that raced a write can return its snapshot to its original
-        // caller, but must not publish it for later searches.
-        if(projection && this.writeEpoch===epoch && !this.activeWrites)this.projections.set(owner,projection);
+        if(this.projectionLogs.get(owner)===log)this.projectionLogs.delete(owner);
+        // Dropped meanwhile (cleared, migrated): the snapshot answers its own callers but is not kept.
+        if(!projection || log.dropped)return projection;
+        for(const patch of log)patch(projection);
+        this.projections.set(owner,projection);
         return projection;
-      });
-      this.projectionReads.set(owner,{epoch,promise});
+      },error=>{if(this.projectionLogs.get(owner)===log)this.projectionLogs.delete(owner);throw error;});
+      this.projectionReads.set(owner,{promise});
       try{return await promise;}
       finally{if(this.projectionReads.get(owner)?.promise===promise)this.projectionReads.delete(owner);}
     }
@@ -1249,22 +1293,7 @@
         }
       }
       // Sort projection columns descending by t once on cold build so date queries use O(log N) binary search.
-      if(!proj.sortedDesc && proj.count>1){
-        const orderIdx=new Uint32Array(proj.count);
-        for(let i=0;i<proj.count;i++)orderIdx[i]=i;
-        orderIdx.sort((x,y)=>proj.t[y]-proj.t[x]);
-        const nt=new Float64Array(proj.capacity),nr=new Uint32Array(proj.capacity),ns=new Uint32Array(proj.capacity),nf=new Uint8Array(proj.capacity);
-        const nFolded=new Array(proj.count),nIds=new Array(proj.count);
-        proj.keyToPos.clear();
-        for(let i=0;i<proj.count;i++){
-          const old=orderIdx[i];
-          nt[i]=proj.t[old];nr[i]=proj.room[old];ns[i]=proj.senderIdx[old];nf[i]=proj.flags[old];
-          nFolded[i]=proj.folded[old];nIds[i]=proj.ids[old];
-          if(nIds[i])proj.keyToPos.set(nr[i]+'\0'+nIds[i],i);
-        }
-        proj.t=nt;proj.room=nr;proj.senderIdx=ns;proj.flags=nf;proj.folded=nFolded;proj.ids=nIds;
-        proj.sortedDesc=true;proj.lastT=proj.t[proj.count-1];
-      }
+      if(!proj.sortedDesc || proj.sortedCount!==proj.count)proj.sortDescending();
       return proj;
     }
 
@@ -1351,6 +1380,7 @@
           senderMask[s]=ok?1:0;
         }
       }
+      proj.compactTail();
       const {t,room,senderIdx,flags,folded,count,ids}=proj;
       const {start:tStart,end:tEnd,active:timeActive}=plan.timeRange;
       const hasMin=Number.isFinite(minTimeExclusive);
@@ -1359,12 +1389,11 @@
       const reqMask=plan.requiredMediaMask;
       const {matchFinal}=plan;
       const wordAt=RCSCore.wordAt;
-      let lo=0,hi=count;
-      if(proj.sortedDesc && (timeActive || hasMin))[lo,hi]=descendingTimeBounds(t,count,effStart,tEnd);
+      const ranges=timeActive || hasMin?proj.timeRanges(effStart,tEnd):[[0,count]],sortedEnd=timeActive || hasMin?proj.sortedCount:0;
       let certified=0;
-      for(let i=lo;i<hi;i++){
+      scan: for(const [lo,hi] of ranges)for(let i=lo;i<hi;i++){
         const ti=t[i];
-        if(hasMin && ti<=minTimeExclusive){if(proj.sortedDesc)break;continue;}
+        if(hasMin && ti<=minTimeExclusive){if(i<sortedEnd)continue scan;continue;}
         // Removed (redacted or deleted) entries keep their slot; search() skips them, so the count does too.
         if(!ids[i])continue;
         if(timeActive && (ti<tStart || ti>=tEnd))continue;
@@ -1381,7 +1410,7 @@
         }
         if(matchFinal(text,ti,fi,senderInfos[s])){
           certified++;
-          if(stopAt>0 && certified>=stopAt)break;
+          if(stopAt>0 && certified>=stopAt)break scan;
         }
       }
       return {certified};
@@ -1465,6 +1494,7 @@
         }
       }
 
+      proj.compactTail();
       const {t,room,senderIdx,flags,folded,ids,count}=proj;
       const {start:tStart,end:tEnd,active:timeActive}=plan.timeRange;
       const needles=plan.requiredNeedles,needleCount=needles.length;
@@ -1472,11 +1502,10 @@
       const {matchIgnoreMedia,matchFinal}=plan;
       const wordAt=RCSCore.wordAt;
 
-      let lo=0,hi=count;
-      if(proj.sortedDesc && timeActive)[lo,hi]=descendingTimeBounds(t,count,tStart,tEnd);
+      const ranges=timeActive?proj.timeRanges(tStart,tEnd):[[0,count]];
 
       const matchedIdx=[];
-      for(let i=lo;i<hi;i++){
+      for(const [lo,hi] of ranges)for(let i=lo;i<hi;i++){
         if(!ids[i])continue;
         if(roomSet && !roomSet.has(room[i]))continue;
         if(senderMask && !senderMask[senderIdx[i]])continue;
@@ -1713,7 +1742,7 @@
           this._putAccount(tx,acc);
         }
         if(completion)await completion;
-        const proj=this.projections.get(owner);if(proj && acc)proj.account=acc;
+        if(acc)this.patchProjection(owner,proj=>{proj.account=acc;});
         return mark || Boolean(acc?.nativeImportComplete);
       }catch(error){try{tx?.abort();}catch{}await completion?.catch(()=>{});throw error;}
     }
@@ -1743,7 +1772,7 @@
     async clear(owner) {
       if(owner && !ownerOK(owner))throw Error('Invalid account');
       await this.queue;
-      if(owner)this.projections.delete(owner);else this.projections.clear();
+      this.dropProjection(owner || null);
       const tx=await this.transaction(['accounts','rooms','msgs','rels','spans','people'],'readwrite'),completion=tx?done(tx):null;
       try{
         if(!owner){
@@ -1897,7 +1926,7 @@
               latestAcc.migration={state:'running',cursor:row.roomId};
               this._putAccount(tx,latestAcc);
               await completion;
-              this.projections.delete(owner);
+              this.dropProjection(owner);
             });
             cursor=row.roomId;
           }
@@ -1918,7 +1947,7 @@
           aRec.migration={state:'verifying',cursor};
           this._putAccount(tx,aRec);await completion;
         });
-        this.projections.delete(owner);
+        this.dropProjection(owner);
         const savedLegacy=this.legacy;
         this.legacy=null;
         let verified=true;
@@ -1938,7 +1967,7 @@
           const aRec=await this._getAccount(tx,owner);
           aRec.migration={state:'done',cursor:''};
           this._putAccount(tx,aRec);await completion;
-          const proj=this.projections.get(owner);if(proj)proj.account=aRec;
+          this.patchProjection(owner,proj=>{proj.account=aRec;});
         });
         return {ok:true};
       }catch(error){

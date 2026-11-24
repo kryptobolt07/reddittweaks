@@ -7,7 +7,13 @@
   const running = new Map();
   const knownConversations = new Map();
   let knownOwner='';
-  let watchedClient=null;
+  let watchedClient=null,watchedHost=null,activityTimer=null;
+  // The watched client while its own element is still on the page: identity reads need nothing else, so they skip
+  // the full scan of Reddit's chat (every element and shadow root), which ran twice per saved-data read.
+  function liveClient(){
+    const host=watchedHost,client=watchedClient;
+    return client && host?.isConnected && host.client===client && client.getUserId?.()===watchedOwner && watchedOwner?client:null;
+  }
   let watchedOwner='';
   const captureSignatures=new Map();
   const capturedIdentities=new Map();
@@ -130,7 +136,7 @@
     nativeCapture={client:ctx.client,owner,ctx,pending:new Map(),snapshots:new Map(),task:null,recovery:null,incomplete:false,missing:new Set()};
     if(knownOwner!==owner){knownConversations.clear();knownRoomStates.clear();histories.clear();knownOwner=owner;}
     watchedSignature=JSON.stringify(directoryContext(ctx));
-    const client=ctx.client,matrixHost=ctx.find?.('rs-matrix-client');
+    const client=ctx.client,matrixHost=ctx.find?.('rs-matrix-client');watchedHost=matrixHost || null;
     // Native callbacks must never interrupt Reddit or write an event using a
     // replacement client's account. A queued old callback is ignored too.
     const guarded=operation=>(...values)=>{try{
@@ -140,7 +146,12 @@
     if(client.on)for(const type of ['sync','Room','deleteRoom','accountData','Room.name','Room.timeline','Room.localEchoUpdated','Room.receipt','Room.unreadNotifications','Room.redaction','Thread.update','Thread.newReply','RoomState.events','RoomMember.name','event']) {
       const handler=guarded((...values)=>{
         if(type==='Room.receipt' || type==='Room.unreadNotifications'){
-          document.dispatchEvent(new CustomEvent('rcs-conversation-activity',{detail:JSON.stringify(directoryContext(ctx))}));return;
+          // Receipts arrive in bursts (every member, every room); one snapshot of every room per burst is enough.
+          if(!activityTimer)activityTimer=setTimeout(()=>{
+            activityTimer=null;
+            guarded(()=>document.dispatchEvent(new CustomEvent('rcs-conversation-activity',{detail:JSON.stringify(directoryContext(ctx))})))();
+          },100);
+          return;
         }
         if(type==='event')nativeHistoryEvent(values[0]);
         else {
@@ -501,12 +512,20 @@
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     const waiter=trafficWaiters.get(value?.id);if(!waiter)return;
     trafficWaiters.delete(value.id);clearTimeout(waiter.timer);
+    // A permit granted after this page stopped waiting would hold its slot until it expired: hand it back.
+    if(waiter.late){if(value.ok && value.token)traffic('traffic-release',waiter.job,{token:value.token}).catch(()=>{});return;}
     value.ok ? waiter.resolve(value) : waiter.reject(problem('Request coordination unavailable. Please retry.'));
   });
   function traffic(action,job,parameters={}) {
     const id=crypto.randomUUID();
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{trafficWaiters.delete(id);reject(problem('Request coordination timed out. Please retry.'));},10000);
+      const timer=setTimeout(()=>{
+        if(action==='traffic-acquire'){
+          // Keep listening a while for a late grant, so it can be released.
+          trafficWaiters.set(id,{late:true,job,timer:setTimeout(()=>trafficWaiters.delete(id),130000)});
+        }else trafficWaiters.delete(id);
+        reject(problem('Request coordination timed out. Please retry.'));
+      },Number(window.__rcsTrafficTimeoutMs) || 10000);
       trafficWaiters.set(id,{resolve,reject,timer});
       document.dispatchEvent(new CustomEvent('rcs-traffic-request',{detail:JSON.stringify({id,action,owner:job.owner,...parameters})}));
     });
@@ -1685,7 +1704,8 @@
     try {
       if(request.method==='jump' && request.eventId.startsWith('~'))throw problem('This result has a temporary Reddit message ID. Open the conversation to check its send status.');
       if(['identity-context','identity-snapshot','cache-native-history'].includes(request.method)) {
-        const ctx=await identityReady(job),owner=ctx.client.getUserId();watchDirectory(ctx);
+        const quick=request.method==='identity-context' && liveClient();
+        const ctx=quick?{client:quick,find:()=>null,all:()=>[]}:await identityReady(job),owner=ctx.client.getUserId();if(!quick)watchDirectory(ctx);
         if(request.method==='cache-native-history') {
           if(request.owner && request.owner!==owner)throw problem('Reddit account changed. Please retry.');
           job.ctx=ctx;job.owner=owner;job.stage='Reddit’s local message cache';

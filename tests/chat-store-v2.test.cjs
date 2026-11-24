@@ -296,7 +296,7 @@ test('coverage spans merge adjacent and overlapping ranges, detect head gaps, an
   (await store.db()).close();
 });
 
-test('cold search reads share a projection only within the same write generation',async()=>{
+test('cold searches share one projection build, and saves that finish during it are replayed onto it',async()=>{
  const idb=new IDBFactory(),{M}=makeEnv(idb);
  const store=new M.Store({indexedDB:idb,name:'cold-projection-generations'});
  const owner='@t2_account:reddit.com',roomId='!room:reddit.com';
@@ -318,19 +318,17 @@ test('cold search reads share a projection only within the same write generation
  await snapshotReady;
  assert.equal(builds,1);
  await ingest('$second');
- const after=await store._ensureProjection(owner);
- assert.equal(after.count,2);
  release();
- const previous=await first;
- assert.equal(await same,previous);
- assert.equal(previous.count,1);
- assert.equal(await store._ensureProjection(owner),after,'an older snapshot never replaces the newer projection');
- assert.equal(builds,2);
+ const projection=await first;
+ assert.equal(await same,projection,'every caller shares the build');
+ assert.equal(projection.count,2,'the save that finished during the build is in it');
+ assert.equal(await store._ensureProjection(owner),projection,'and it is kept');
+ assert.equal(builds,1,'no rebuild after a save overlapped it');
  await store.clear(owner);
  assert.equal(await store._ensureProjection(owner),null);
 });
 
-test('a cold search that starts while a save is running never caches its snapshot',async()=>{
+test('a cold search during a save sees the save once it lands',async()=>{
  const idb=new IDBFactory(),{M}=makeEnv(idb);
  const store=new M.Store({indexedDB:idb,name:'cold-projection-active-write'});
  const owner='@t2_account:reddit.com',roomId='!room:reddit.com';
@@ -345,7 +343,7 @@ test('a cold search that starts while a save is running never caches its snapsho
  assert.equal(during.count,1);
  release();await saving;
  assert.equal(store.activeWrites,0);
- assert.equal((await store._ensureProjection(owner)).count,2,'the snapshot read during the save was not kept');
+ assert.equal((await store._ensureProjection(owner)).count,2,'the save reached the projection the search built');
 });
 
 test('certified counts skip redacted messages, and a grouped search of an empty account answers instead of throwing',async()=>{
@@ -361,4 +359,22 @@ test('certified counts skip redacted messages, and a grouped search of an empty 
  await store.ingest({owner,roomId:room,events:[{event_id:'$r',room_id:room,type:'m.room.redaction',sender:owner,origin_server_ts:3000,redacts:'$2'}]});
  assert.equal((await store.search(owner,{query:'from:me',committed:true})).total,1);
  assert.equal((await store.searchCount(owner,{query:'from:me',committed:true})).certified,1);
+});
+
+test('date-bounded searches keep their fast path after live messages arrive, and still find them',async()=>{
+ const idb=new IDBFactory(),{M}=makeEnv(idb);
+ const store=new M.Store({indexedDB:idb,name:'time-tail'});
+ const owner='@t2_owner:reddit.com',room='!r:reddit.com';
+ const day=86400000,base=Date.UTC(2026,0,10);
+ const msg=(id,t,body)=>({event_id:id,room_id:room,type:'m.room.message',sender:owner,origin_server_ts:t,content:{msgtype:'m.text',body}});
+ await store.ingest({owner,roomId:room,events:[msg('$a',base,'alpha'),msg('$b',base+day,'beta'),msg('$c',base+2*day,'gamma')]});
+ const proj=await store._ensureProjection(owner);
+ assert.equal(proj.sortedCount,3);
+ await store.ingest({owner,roomId:room,events:[msg('$d',base+5*day,'delta')]});
+ assert.equal(proj.sortedDesc,false,'the live message is newer than the sorted prefix');
+ assert.equal(proj.sortedCount,3,'the sorted prefix is kept');
+ const range=await store.search(owner,{query:'',dates:{from:'2026-01-11',to:'2026-01-20'},committed:true});
+ assert.deepEqual([...range.records.map(r=>r.id)].sort().join(),'$b,$c,$d');
+ const newer=await store.searchCount(owner,{query:'',minTimeExclusive:base+day,committed:true});
+ assert.equal(newer.certified,2,'gamma from the prefix and delta from the tail');
 });

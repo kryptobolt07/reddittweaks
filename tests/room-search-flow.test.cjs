@@ -122,3 +122,11 @@ test('live room Boolean results, field groups and error feedback match saved sea
   }
   assert.equal(p.calls.length,calls,'invalid input never starts another history request');
 });
+test('a saved-room read merges with what is in memory instead of dropping messages the store lacks',async t=>{
+  const p=setup(t);
+  p.w.RCSMessages={room:async()=>({records:[]})};
+  p.w.document.dispatchEvent(new p.w.CustomEvent('rcs-history-changed',{detail:JSON.stringify({roomId:p.api.active.id,complete:false,records:[{id:'mem-only',text:'kettle memory only',author:'alex_morgan',timestamp:'2026-10-14T10:00:00Z'}]})}));
+  await wait(20);
+  await p.search('kettle');await wait(40);
+  assert.match(p.root.querySelector('.result')?.textContent || '',/kettle memory only/,'a message not yet saved stays searchable');
+});
