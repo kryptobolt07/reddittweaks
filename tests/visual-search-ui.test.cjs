@@ -67,6 +67,7 @@ function setupUi(t, {
   html = searchHtml(),
   settings = { visualSearch: true, visualSearchPostMenu: true },
   phone = false,
+  hover = false,
   fastTimers = false,
   sendImpl,
   observe = false
@@ -82,7 +83,7 @@ function setupUi(t, {
   }
 
   W.matchMedia = query => ({
-    matches: query.includes('max-width: 767.98px') ? phone : false,
+    matches: query.includes('max-width: 767.98px') ? phone : query.includes('hover: hover') ? hover : false,
     media: query,
     addEventListener() {},
     removeEventListener() {}
@@ -323,7 +324,7 @@ test('T5: Media <-> Visual fast swap works instantaneously and Back to baseNativ
   assert.equal(D.getElementById('native-results').hidden, false);
 });
 
-test('masonry aspect ratios, community icons, VIDEO/GIF badges, multi-page append, and Similar pushState Back navigation work seamlessly', async t => {
+test('masonry aspect ratios, community icons, icon-only video/GIF badges, quiet load-more, and Similar keeps the query and Back works', async t => {
   const { W, D, controller } = setupUi(t, {
     sendImpl: async msg => {
       if (msg.action === 'query' && msg.kind === 'search' && (msg.page || 1) === 1) {
@@ -401,23 +402,36 @@ test('masonry aspect ratios, community icons, VIDEO/GIF badges, multi-page appen
     'https://styles.redditmedia.com/t5_pics/styles/communityIcon_b.png',
     'async RTCommunityIcons.get resolves second subreddit icon'
   );
-  assert.equal(secondTile.querySelector('.rt-vs-badge').textContent.trim(), 'VIDEO');
+  const badge = secondTile.querySelector('.rt-vs-badge');
+  assert.equal(badge.textContent.trim(), '', 'a symbol, not the word VIDEO');
+  assert.equal(badge.getAttribute('aria-label'), 'Video');
+  assert.ok(badge.querySelector('svg'));
+  assert.equal(firstTile.querySelectorAll('.rt-vs-overlay-actions button').length, 2);
+  for (const b of firstTile.querySelectorAll('.rt-vs-overlay-actions button')) assert.equal(b.textContent.trim(), '', 'icon-only hover buttons');
+  assert.ok(firstTile.querySelector('.rt-vs-sub-row .rt-vs-more-btn[aria-label="More options"]'), 'touch ⋯ menu');
 
-  // Click Load more -> appends only unique page 2 item without rebuilding page 1 nodes
-  const moreBtn = [...D.querySelectorAll('.rt-vs-foot button')].find(b => b.textContent === 'Load more');
-  assert.ok(moreBtn);
-  moreBtn.click();
+  // Below the grid there is no count bar or Media tab link: just the sentinel that loads the next page.
+  const foot = D.querySelector('.rt-vs-foot');
+  assert.equal(foot.textContent.trim(), '');
+  assert.equal(foot.querySelector('a'), null);
+  assert.equal(foot.dataset.state, 'more');
+  const loading = controller.loadMore();
+  assert.equal(D.querySelector('.rt-vs-foot').dataset.state, 'loading');
+  assert.equal(D.querySelectorAll('.rt-vs-foot .shimmer-placeholder.bg-shimmer.rounded-2').length, 9, 'Reddit’s placeholder row while loading');
+  await loading;
   await flush();
   assert.equal(D.querySelector('.rt-vs-tile[data-uuid="uuidOne123"]'), firstTile, 'existing page 1 tile DOM preserved');
   const tiles = D.querySelectorAll('.rt-vs-tile');
   assert.equal(tiles.length, 3);
-  assert.equal(D.querySelector('.rt-vs-tile[data-uuid="uuidPage2Gif"] .rt-vs-badge').textContent.trim(), 'GIF');
-  assert.match(D.querySelector('.rt-vs-foot').textContent, /End of results/);
+  assert.equal(D.querySelector('.rt-vs-tile[data-uuid="uuidPage2Gif"] .rt-vs-badge').getAttribute('aria-label'), 'GIF');
+  assert.equal(D.querySelector('.rt-vs-foot').dataset.state, 'end');
+  assert.equal(D.querySelector('.rt-vs-foot').textContent.trim(), '');
 
-  // Clicking Similar pushes state so Back restores the 3-tile masonry cleanly
-  firstTile.querySelector('.rt-vs-overlay-actions button[aria-label="Find visually similar posts"]').click();
+  // Clicking Similar pushes state so Back restores the 3-tile masonry cleanly; q stays so Reddit keeps its All tab.
+  firstTile.querySelector('.rt-vs-overlay-actions button[aria-label="Find visually similar"]').click();
   await flush();
   assert.equal(new URL(W.location.href).searchParams.get('rt_vview'), 'gelato-cone-uuidOne123');
+  assert.equal(new URL(W.location.href).searchParams.get('q'), 'ice cream');
   assert.equal(D.querySelectorAll('.rt-vs-tile').length, 1);
 
   W.history.replaceState({}, '', 'https://www.reddit.com/search/?q=ice+cream&type=media&rt_visual=1');
@@ -645,4 +659,131 @@ test('coexistence guards yield to active Visual Search and opt-out restores orig
   assert.ok(saSrc.includes("params.get('rt_visual')==='1' && document.documentElement?.hasAttribute('data-rt-visual-active')"));
   const lsfSrc = read('live-subreddit-filters.js');
   assert.ok(lsfSrc.includes("'data-rt-visual-active'") && lsfSrc.includes('[data-rt-ui="visual-search"]'));
+});
+
+// The tile clip (uuidTwo456) and a fake fetch-video reply.
+function clipSend(counter) {
+  return async msg => {
+    if (msg.action === 'fetch-video') { counter.fetches++; return { ok: true, base64: 'AAAA', mimeType: 'video/mp4' }; }
+    if (msg.action === 'query') return { ok: true, items: SAMPLE_ITEMS, skippedCount: 0, page: 1, hasMore: false, nextPage: 0, endpointKind: msg.kind, filterable: true };
+    return { ok: true, items: [] };
+  };
+}
+function inView(W, D) {
+  // jsdom has no layout: put every tile's media fully on screen, the video tile nearest the middle.
+  W.innerHeight = 800;
+  for (const media of D.querySelectorAll('.rt-vs-media')) media.getBoundingClientRect = () => ({ top: 250, bottom: 550, height: 300, left: 0, right: 300, width: 300 });
+  W.URL.createObjectURL = () => 'blob:clip';
+  W.HTMLMediaElement.prototype.play = function () { return Promise.resolve(); };
+  W.HTMLMediaElement.prototype.pause = function () {};
+  W.HTMLMediaElement.prototype.load = function () {};
+  W.URL.revokeObjectURL = () => {};
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+test('loading shows Reddit’s own Media tab placeholder row', async t => {
+  let release;
+  const { D, controller } = setupUi(t, { sendImpl: msg => msg.action === 'query' ? new Promise(r => { release = () => r({ ok: true, items: SAMPLE_ITEMS, page: 1, hasMore: false }); }) : Promise.resolve({ ok: true, items: [] }) });
+  await controller.ready;
+  await flush();
+  const row = D.querySelector('.rt-vs-skeleton[role="article"]');
+  assert.ok(row);
+  assert.equal(row.children.length, 3);
+  assert.deepEqual([...row.children[0].children].map(c => c.className), [
+    'shimmer-placeholder h-5xl w-100 mb-2xs bg-shimmer rounded-2',
+    'shimmer-placeholder h-md w-100 mb-2xs bg-shimmer rounded-2',
+    'shimmer-placeholder h-[40px] w-100 mb-2xs bg-shimmer rounded-2'
+  ]);
+  release();
+  await flush();
+  assert.equal(D.querySelector('.rt-vs-skeleton'), null);
+});
+
+test('clip previews follow the start choices: hover with a mouse, Play only starts nothing, one fetch per clip', async t => {
+  const counter = { fetches: 0 };
+  const { W, D, controller } = setupUi(t, { hover: true, sendImpl: clipSend(counter) });
+  await controller.ready;
+  await flush();
+  inView(W, D);
+  const wrap = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"] .rt-vs-media-wrap');
+  const media = wrap.querySelector('.rt-vs-media');
+  assert.equal(media.dataset.kind, 'video');
+  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true }));
+  await wait(260);
+  await flush();
+  assert.ok(media.querySelector('video.rt-vs-video'), 'hovering plays the clip');
+  assert.equal(media.dataset.previewing, 'playing');
+  // Moving onto the tile's own buttons keeps it playing.
+  const btn = wrap.querySelector('.rt-vs-icon-btn');
+  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseout', { bubbles: true, relatedTarget: btn }));
+  assert.ok(media.querySelector('video'), 'buttons are part of the tile');
+  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseout', { bubbles: true, relatedTarget: D.body }));
+  assert.equal(media.querySelector('video'), null, 'leaving the tile stops it');
+  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true }));
+  await wait(260);
+  await flush();
+  assert.equal(counter.fetches, 1, 'the clip is fetched once');
+
+  controller.applySettings({ visualSearch: true, videoStart: 'play' });
+  assert.equal(media.querySelector('video'), null, 'Only when I press Play stops automatic previews');
+  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true }));
+  await wait(260);
+  assert.equal(media.querySelector('video'), null);
+});
+
+test('on touch the clip you stop on plays muted after scrolling settles, and Autoplay picks one quickly', async t => {
+  for (const [settings, waitMs] of [[{ visualSearch: true }, 700], [{ visualSearch: true, videoStart: 'preview' }, 700], [{ visualSearch: true, videoStart: 'autoplay' }, 220]]) {
+    const counter = { fetches: 0 };
+    const { W, D, controller } = setupUi(t, { phone: true, settings, sendImpl: clipSend(counter) });
+    await controller.ready;
+    await flush();
+    inView(W, D);
+    W.dispatchEvent(new W.Event('scroll'));
+    await wait(waitMs);
+    await flush();
+    const video = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"] video');
+    assert.ok(video, JSON.stringify(settings));
+    assert.equal(video.muted, true);
+    assert.equal(D.querySelectorAll('.rt-vs-host video, [data-rt-ui="visual-search"] video').length, 1, 'one at a time');
+  }
+  const { W, D, controller } = setupUi(t, { phone: true, settings: { visualSearch: true, videoStart: 'play' }, sendImpl: clipSend({ fetches: 0 }) });
+  await controller.ready;
+  await flush();
+  inView(W, D);
+  W.dispatchEvent(new W.Event('scroll'));
+  await wait(700);
+  assert.equal(D.querySelector('[data-rt-ui="visual-search"] video'), null, 'Play only: nothing starts by itself');
+});
+
+test('touch ⋯ sheet offers the tile’s actions, and Play preview plays it in the grid', async t => {
+  const counter = { fetches: 0 };
+  const { W, D, controller } = setupUi(t, { phone: true, settings: { visualSearch: true, videoStart: 'play' }, sendImpl: clipSend(counter) });
+  await controller.ready;
+  await flush();
+  inView(W, D);
+  D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"] .rt-vs-more-btn').click();
+  await flush();
+  const labels = [...D.querySelectorAll('.rt-fsheet-label')].map(n => n.textContent);
+  assert.deepEqual(labels, ['Play preview here', 'Find visually similar', 'View larger', 'Download', 'Open post']);
+  [...D.querySelectorAll('.rt-fsheet-label')].find(n => n.textContent === 'Play preview here').closest('button,a,[role="button"],li,div[tabindex]').click();
+  await flush();
+  assert.ok(D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"] video'), 'plays in place');
+  // An image tile has no preview row.
+  D.querySelector('.rt-vs-tile[data-uuid="uuidOne123"] .rt-vs-more-btn').click();
+  await flush();
+  assert.equal([...D.querySelectorAll('.rt-fsheet-label')].some(n => /preview/i.test(n.textContent)), false);
+});
+
+test('community icons: the colour Reddit paints behind an icon, and its coloured glyph when there is none', async t => {
+  const { W, D, controller } = setupUi(t);
+  W.RTCommunityIcons.color = sub => (sub === 'pics' ? '#AF6401' : '');
+  await controller.ready;
+  await flush();
+  const icon = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"] .rt-vs-sub-icon');
+  assert.ok(icon.classList.contains('shreddit-subreddit-icon__icon'));
+  // The test double's color() is added after load; CommunityIcons is captured at load, so re-render to read it.
+  controller.renderHost();
+  await flush();
+  const img = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"] .rt-vs-sub-avatar');
+  assert.equal(img.style.background.replace(/\s/g, ''), 'rgb(175,100,1)');
 });

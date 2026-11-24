@@ -4,8 +4,14 @@
 - Results fit their original aspect ratios in a masonry layout. More matches load as you scroll when the provider has another page. Media filters distinguish videos from GIFs, and Back restores the previous results and scroll position.
 - Similar and fullscreen preview buttons stay below Reddit’s sticky header and search tabs as you scroll.
 - Visual Search and NSFW results start off. The service is powered by infini.wtf and receives the queries, public post links, or images used for Visual Search without Reddit credentials. Images are uploaded only after a user action. Coverage and pagination depend on the provider.
-- **Minor increment:** Visual Search is a new opt-in feature.
-- All 2,380 tests passed. Signed-in Chromium checks on desktop and phone verified that the result actions remain accessible below the sticky bars and behind them when scrolling. Both packages matched the unpacked builds byte for byte, and Firefox lint passed with zero warnings. Live Firefox behavior and image uploads were outside this release check.
+- **Cleaner result tiles:** one symbol per clip (a play mark for videos, a GIF mark for GIFs) and icon-only *Find visually similar* and *View larger* buttons on hover. Community names, icons and titles use Reddit's own Media tab markup, and old-style community icons show on their community colour instead of looking blank. Loading uses Reddit's own placeholder row.
+- **Phones:** a ⋯ button beside each community opens a sheet with Play preview here, Find visually similar, View larger, Download and Open post. Clips follow your video and GIF start choices: hover with a mouse, the one you stop on with touch, Autoplay, or only when you press Play.
+- **Image search:** the chip reads *Search with image*. The popover and sheet are titled *Search with an image*, with clearer actions and a note that images are resized and stripped of metadata first. **All** no longer disappears from Reddit's tabs after an image or similar search.
+- **Grid end:** the bottom bar with the result count and the Media tab link is gone. More results load quietly as you scroll.
+- **Reddit's Media tab and opened results:** Media tab videos now follow *Preview the one I stop on*, hover preview and Autoplay (they stayed still before). Posts opened from Media tab or Visual search results follow *Post opened directly*.
+- **Minor increment:** Visual Search is a new opt-in feature; the follow-ups above stay in this preview.
+- Follow-up check: all 2,388 tests passed; signed-in Chrome Dev checks on desktop (1440 px) and phone (412 px) matched Reddit's Media tab placeholders (347 × 128 / 182 × 128 px) and community row (14/21 px, 600), loaded 10/10 community icons, kept **All** in similar mode, played hover and stop-on previews muted, and applied *Post opened directly* to an opened result. Image uploads were not sent in this check.
+- Earlier check: all 2,380 tests passed. Signed-in Chromium checks on desktop and phone verified that the result actions remain accessible below the sticky bars and behind them when scrolling. Both packages matched the unpacked builds byte for byte, and Firefox lint passed with zero warnings. Live Firefox behavior and image uploads were outside this release check.
 
 # 0.64.0 preview
 

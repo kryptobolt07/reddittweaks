@@ -421,6 +421,7 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   color: var(--color-neutral-content-weak, #576f76);
 }
 
+/* One symbol in Reddit's dark media pill (where Reddit shows a gallery's 1/4), top right of the tile. */
 .rt-vs-badge {
   position: absolute;
   inset-inline-end: 8px;
@@ -428,24 +429,42 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 8px;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  box-sizing: border-box;
   border-radius: 999px;
-  background: rgba(0, 0, 0, .65);
+  background: rgba(0, 0, 0, .6);
   color: #fff;
-  font-size: 11px;
-  line-height: 1;
-  font-weight: 700;
-  letter-spacing: .02em;
   pointer-events: none;
+  transition: opacity 120ms ease;
 }
 
 .rt-vs-badge svg {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
+  flex: none;
 }
 
+.rt-vs-badge[data-kind="gif"] svg {
+  width: 18px;
+  height: 18px;
+}
+
+.rt-vs-media[data-previewing="loading"] .rt-vs-badge {
+  animation: rt-vs-badge-wait 900ms ease-in-out infinite alternate;
+}
+
+.rt-vs-media[data-previewing="playing"] .rt-vs-badge {
+  opacity: 0;
+}
+
+@keyframes rt-vs-badge-wait {
+  to { opacity: .45; }
+}
+
+/* Mouse: two icon-only buttons on hover, bottom right. */
 .rt-vs-overlay-actions {
   position: absolute;
   inset-inline-end: 8px;
@@ -453,46 +472,39 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   z-index: 2;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms ease;
 }
 
 .rt-vs-media-wrap:hover .rt-vs-overlay-actions,
 .rt-vs-media-wrap:focus-within .rt-vs-overlay-actions {
   opacity: 1;
-}
-
-@media (hover: none) {
-  .rt-vs-overlay-actions {
-    opacity: 1;
-  }
+  pointer-events: auto;
 }
 
 .rt-vs-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: 0;
   border-radius: 999px;
-  background: rgba(15, 20, 24, .72);
+  background: rgba(0, 0, 0, .6);
   color: #fff;
-  font: 600 11px/1 var(--font-sans, inherit);
   cursor: pointer;
-  backdrop-filter: blur(4px);
 }
 
 .rt-vs-icon-btn:hover {
-  background: rgba(15, 20, 24, .9);
+  background: rgba(0, 0, 0, .8);
 }
 
 .rt-vs-icon-btn svg {
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
   flex: none;
 }
 
@@ -501,42 +513,60 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   outline-offset: 2px;
 }
 
-/* Tile footer: 16px subreddit avatar + r/sub + title matching Reddit Media cards */
+/* Touch: no hover buttons; everything sits in the ⋯ sheet beside the community. */
+.rt-vs-more-btn {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -6px -8px -6px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-neutral-content-weak, #576f76);
+  cursor: pointer;
+}
+
+.rt-vs-more-btn:active {
+  background: var(--color-interactive-pressed, rgba(0, 0, 0, .1));
+}
+
+@media (hover: none), (pointer: coarse) {
+  .rt-vs-overlay-actions {
+    display: none;
+  }
+
+  .rt-vs-more-btn {
+    display: inline-flex;
+  }
+}
+
+/* Reddit's tile footer: mt-2xs community row, 16 px icon, 14/21 semibold weak text; then a 2-line 14 px title. */
 .rt-vs-sub-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
+  justify-content: space-between;
+  gap: 4px;
   min-width: 0;
-}
-
-.rt-vs-sub-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  flex: none;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--color-secondary-background, #e5ebee);
-  color: var(--color-neutral-content-weak, #576f76);
-}
-
-.rt-vs-sub-avatar {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  margin-top: 4px;
 }
 
 .rt-vs-sub-link {
+  display: flex;
+  align-items: center;
   min-width: 0;
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 400;
-  color: var(--color-neutral-content-weak, #576f76);
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 600;
+  color: var(--color-neutral-content-weak, #5c6c74);
   text-decoration: none;
+}
+
+.rt-vs-sub-link .truncate {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -544,83 +574,84 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
 
 .rt-vs-sub-link:hover {
   text-decoration: underline;
-  color: var(--color-neutral-content-strong, #181c1f);
+}
+
+.rt-vs-sub-icon {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 4px;
+}
+
+.rt-vs-sub-icon > span {
+  display: inline-block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.rt-vs-sub-avatar {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  object-fit: cover;
 }
 
 .rt-vs-title {
-  margin: 2px 0 0;
+  display: -webkit-box;
+  margin-top: 4px;
   font-size: 14px;
   line-height: 20px;
   font-weight: 600;
   color: var(--color-neutral-content-strong, #181c1f);
-  display: -webkit-box;
+  text-decoration: none;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
 }
 
-/* Shimmer skeletons */
-.rt-vs-skeleton-media {
-  position: relative;
+.rt-vs-title:hover {
+  text-decoration: underline;
+}
+
+/* Reddit's own placeholder row (its shimmer-placeholder bg-shimmer rounded-2 blocks), laid out like the grid. */
+.rt-vs-skeleton {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 16px;
   width: 100%;
-  aspect-ratio: 4 / 5;
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--rt-skeleton-base, color-mix(in srgb, var(--color-neutral-content-strong, #1a1a1b) 14%, var(--color-neutral-background, #fff)));
+  box-sizing: border-box;
+  padding: 12px 0 16px;
 }
 
-.rt-vs-skeleton-media::after,
-.rt-vs-skeleton-line::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-neutral-background, #fff) 45%, transparent), transparent);
-  animation: rt-skeleton-sweep 1.5s ease-in-out infinite;
+.rt-vs-foot .rt-vs-skeleton {
+  padding-top: 0;
 }
 
-.rt-vs-skeleton-line {
-  position: relative;
-  height: 12px;
-  margin-top: 8px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--rt-skeleton-base, color-mix(in srgb, var(--color-neutral-content-strong, #1a1a1b) 14%, var(--color-neutral-background, #fff)));
-}
-
-.rt-vs-skeleton-line.short {
-  width: 65%;
-  margin-top: 6px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rt-vs-skeleton-media::after,
-  .rt-vs-skeleton-line::after {
-    animation: none;
-    display: none;
-  }
-}
-
-/* Honest provider limit footer */
+/* Below the grid: an invisible sentinel, the placeholder row while loading, or one retry line. */
 .rt-vs-foot {
-  margin: 8px 0 0;
-  padding: 12px 16px;
-  border-top: 1px solid var(--color-neutral-border-weak, #e5ebee);
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--color-neutral-content-weak, #576f76);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 8px 12px;
+  min-height: 1px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-neutral-content-weak, #576f76);
 }
 
-.rt-vs-foot-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.rt-vs-foot[data-state="loading"] {
+  display: block;
+}
+
+.rt-vs-foot[data-state="error"] {
+  padding: 8px 0 24px;
 }
 
 /* Upload popover on desktop */
@@ -692,6 +723,56 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   justify-content: center;
   gap: 8px;
   margin-top: 4px;
+}
+
+.rt-vs-drop-art {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: var(--color-secondary-background, #e5ebee);
+  color: var(--color-neutral-content, #2a3c42);
+}
+
+.rt-vs-drop-title {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--color-neutral-content-strong, #181c1f);
+}
+
+.rt-vs-drop-or {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.rt-vs-upload-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.rt-vs-link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary, #0a449b);
+  font: 600 13px/18px var(--font-sans, inherit);
+  cursor: pointer;
+}
+
+.rt-vs-link-btn:hover {
+  text-decoration: underline;
+}
+
+.rt-vs-upload-note {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-neutral-content-weak, #576f76);
 }
 
 .rt-vs-upload-err {
@@ -831,12 +912,8 @@ dialog.rt-vs-lightbox::backdrop {
     padding: 8px 16px 16px;
   }
 
-  .rt-vs-foot {
-    padding: 12px 16px;
-  }
-
-  .rt-vs-icon-btn {
-    min-width: 32px;
-    height: 32px;
+  .rt-vs-skeleton {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 8px 16px 16px;
   }
 }

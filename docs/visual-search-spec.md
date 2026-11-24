@@ -88,3 +88,33 @@ Measured read-only on signed-in `https://www.reddit.com/search/?q=ice+cream&type
 - `html[data-rt-visual-active]`, `html[data-rt-visual-ready]`, `data-rt-visual-restoring`, `data-rt-visual-hidden`: owned exclusively by `visual-search-boot.js` & `visual-search.js`.
 - `[data-rt-ui="visual-search"]` (`.rt-vs-host`), `[data-rt-ui="visual-progress"]`, `[data-rt-ui="visual-search-tab"]` (`#search-results-page-tab-visual`), `[data-rt-ui="visual-search-slot"]` (inside `#search-results-page-tabgroup` Shadow DOM), `[data-rt-ui="visual-search-trigger"]`, `[data-rt-ui="visual-search-popover"]`, `[data-rt-ui="visual-search-lightbox"]`, `[data-rt-visual-menu="item"]`: owned exclusively by `visual-search.js` (ignoring mutations inside `[data-rt-ui]` and `RTPostMenuDOM.onlyMenuChanges`).
 - `parks` / `urlParks` store detached `.rt-vs-host` subtrees only up to `MAX_PARKS` (`6`) and `PARK_TTL_MS` (`15 min`), cleared on `teardownActive()`.
+
+## Cleanup pass (2026-11-24)
+
+User report: the tile overlay ("▶ VIDEO" and a "Similar" text button) was messy, community icons didn't load properly, the placeholders weren't Reddit's, *Search by image* needed better naming, **All** disappeared after an image search, the bottom bar linking to the Media tab should go, phones needed a better way to reach the media options (including *Preview the one I stop on*), posts opened from results ignored *Post opened directly*, and hover previews were unreliable.
+
+### Measured on Reddit's Media tab (signed in, Chrome Dev, 1440 px and 412 px)
+
+| Part | Reddit | Visual tab now |
+|---|---|---|
+| Placeholder row | `div.grid.grid-cols-2.xs:grid-cols-3.gap-x-md`; per column `shimmer-placeholder bg-shimmer rounded-2` blocks of 128, 16 and 40 px with 4 px gaps, `rgba(0,0,0,.03)`, no animation; 3 columns (347 px) desktop, 2 (182–198 px) phone | Same classes and sizes (live: 347 × 128 px desktop, 182 × 128 px phone, same colour, radius and gap), also as the load-more row |
+| Community row | `mt-2xs`, 16 px `shreddit-subreddit-icon__icon`, label 14/21 px 600 `rgb(92,108,116)` | Same markup and classes; live 14/21 px 600 `rgb(92,108,116)`, icons 16 px |
+| Community icon | Hover card marks the real icon `img.shreddit-subreddit-icon__icon`; old `b.thumbs.redditmedia.com` icons are transparent and drawn over the community colour (`background:#AF6401`); no icon = `community-fill` glyph in that colour | `community-icons.js` reads the marked icon and its colour (never a flair emoji), keeps colours for the session; live 10/10 icons loaded with their colours |
+| Title | `text-sm font-semibold mt-2xs text-neutral-content-strong line-clamp-2` | Same (live 14/20 px 600) |
+| Tile badge | `button-media` pill, top right (gallery count `1/4`) | One symbol in a 24 px dark pill: play mark (video) or GIF mark; `aria-label` Video / GIF |
+| Tabs with an empty `q` | Reddit drops **All** | Image, similar and popular searches keep the search's `q` (the `rt_v*` mode still decides the results), so **All** stays (live: `all` present in similar mode) |
+
+### Behaviour
+
+| | Case | Expected |
+|---|---|---|
+| C1 | Mouse over a clip tile (videoStart / gifStart *Default* or *Preview*) | Plays muted after 200 ms; moving onto the tile's buttons keeps it; leaving the tile stops it; each clip is fetched once even when hovered twice |
+| C2 | Touch, *Default* or *Preview the one I stop on* | Once scrolling rests 600 ms, the clip ≥ 60 % on screen nearest the middle plays muted; it keeps playing while ≥ 50 % visible; one at a time |
+| C3 | *Autoplay* | Same pick after 150 ms, any pointer |
+| C4 | *Only when I press Play* | Nothing starts by itself; the lightbox or the ⋯ sheet's *Play preview here* still play |
+| C5 | Touch ⋯ beside the community | Bottom sheet: Play preview here (clips only), Find visually similar, View larger, Download, Open post |
+| C6 | Open a result | `video-control.js` treats the opened post as *Post opened directly* (live: *Stay paused* held it at 0:00; *Play muted* played it) |
+| C7 | Grid end | No count bar or Media tab link: a 1 px sentinel loads the next page, Reddit's placeholder row while loading, *Couldn't load more results · Try again* on failure |
+| C8 | Image search entry | Chip *Search with image* (*Change image* during an image search). Popover *Search with an image*: drop zone, Upload a file, Paste image (⌘V / Ctrl+V hint), Browse popular, and a note that images are resized and stripped of metadata. Phone sheet: Choose a photo, Paste copied image, Browse popular. The image-search banner reads *Your image* with *Remove image* (back to the words searched for, or popular) |
+
+Verification: `tests/visual-search-ui.test.cjs` (placeholder markup, icon-only badges and buttons, quiet load-more, `q` kept, hover/stop-on/autoplay/Play-only previews with one fetch per clip, the ⋯ sheet, community colours) and `tests/community-icons.test.cjs` (marked icon, glyph, colour). Live desktop and phone: `artifacts/research/verify/visual-search/after.mjs` (values above). Not verified live: uploads (no image was sent to infini.wtf), Firefox, and the phone tab row (at 412 px Reddit scrolls a fifth selected tab into view, so **All** slides under the left arrow, as it does for Comments).

@@ -27,6 +27,9 @@
   const LEAVE_FAILSAFE_MS = 6000;
   const RETURN_RESTORE_MS = 900;
   const POST_SCROLL_WAIT_MS = 1200;
+  const HOVER_PREVIEW_MS = 200;
+  const AUTO_PREVIEW_MS = 150;
+  const DWELL_PREVIEW_MS = 600;
 
   const PATHS = {
     camera: [
@@ -36,7 +39,14 @@
     close: ['m11.273 10 5.363-5.363a.9.9 0 1 0-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 1 0-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 1 0 1.274 1.273L10 11.273l5.363 5.363a.897.897 0 0 0 1.274 0 .9.9 0 0 0 0-1.273L11.275 10Z'],
     play: ['M6.8 4.4a.8.8 0 0 1 1.22-.68l7.6 4.6a.8.8 0 0 1 0 1.36l-7.6 4.6A.8.8 0 0 1 6.8 13.6V4.4Z'],
     expand: ['M3.5 8V4.2A.7.7 0 0 1 4.2 3.5H8a.9.9 0 0 1 0 1.8H5.3V8a.9.9 0 0 1-1.8 0ZM12 3.5h3.8a.7.7 0 0 1 .7.7V8a.9.9 0 0 1-1.8 0V5.3H12a.9.9 0 0 1 0-1.8ZM4.4 11.1a.9.9 0 0 1 .9.9v2.7H8a.9.9 0 0 1 0 1.8H4.2a.7.7 0 0 1-.7-.7V12a.9.9 0 0 1 .9-.9ZM15.6 11.1a.9.9 0 0 1 .9.9v3.8a.7.7 0 0 1-.7.7H12a.9.9 0 0 1 0-1.8h2.7V12a.9.9 0 0 1 .9-.9Z'],
-    similar: ['M8.5 2a6.5 6.5 0 0 1 5.18 10.43l3.94 3.95a.9.9 0 0 1-1.27 1.27l-3.95-3.94A6.5 6.5 0 1 1 8.5 2Zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z'],
+    // An image frame with a magnifier: search with this picture.
+    similar: [
+      'M4.6 2.5h10.8a2.1 2.1 0 0 1 2.1 2.1v4.1h-1.8V4.6a.3.3 0 0 0-.3-.3H4.6a.3.3 0 0 0-.3.3v10.8c0 .17.13.3.3.3h4.1v1.8H4.6a2.1 2.1 0 0 1-2.1-2.1V4.6a2.1 2.1 0 0 1 2.1-2.1Z',
+      'M6.3 12.9 8.6 10l1.6 2 .1-.1a4.9 4.9 0 0 0-.5 1.9H6.3v-.9ZM12.75 6.6a1.35 1.35 0 1 1-2.7 0 1.35 1.35 0 0 1 2.7 0Z',
+      'M14.1 10a3.6 3.6 0 0 1 3.01 5.58l1.63 1.63a.9.9 0 1 1-1.27 1.27l-1.63-1.63A3.6 3.6 0 1 1 14.1 10Zm0 1.8a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6Z'
+    ],
+    overflow: ['M4.25 11.75a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm5.75 0a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm5.75 0a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z'],
+    image: ['M15.5 2.5h-11a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-11a2 2 0 0 0-2-2Zm.2 13a.2.2 0 0 1-.2.2h-11a.2.2 0 0 1-.2-.2v-1.33l3.3-3.96 2.2 2.64 3.1-3.72 2.8 3.36v3.01Zm0-5.82-2.8-3.36-3.1 3.72-2.2-2.64-3.3 3.96V4.5c0-.11.09-.2.2-.2h11c.11 0 .2.09.2.2v5.18ZM7.75 8.25a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z'],
     download: [
       'M9.1 2.5h1.8v6.6l2.55-2.55 1.27 1.27L10 12.57 5.28 7.82 6.55 6.55 9.1 9.1V2.5Z',
       'M3.9 12.5h1.8v2.8h8.6v-2.8h1.8v3.5c0 .5-.4.9-.9.9H4.8a.9.9 0 0 1-.9-.9v-3.5Z'
@@ -94,6 +104,7 @@
   }
 
   const isPhone = () => Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);
+  const canHover = () => Boolean(globalThis.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches);
   const reducedMotion = () => Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
   const historyEntry = () => globalThis.navigation?.currentEntry?.key || (location.pathname + location.search);
   const urlKey = (href = location.href) => {
@@ -297,6 +308,9 @@
       this.lightbox = null;
       this.hoveredPreview = null;
       this.videoBlobs = new Map();
+      this.videoFetches = new Map();
+      this.mediaChoice = { video: 'default', gif: 'default' };
+      this.settleTimer = 0;
       this.localPreviewUrls = new Set();
 
       this.fileInput = null;
@@ -320,7 +334,10 @@
         this.closeUploadPopover();
         if (this.host?.isConnected && this.state?.status === 'ready') this.renderHost();
       };
-      this.onScrollPause = () => { if (this.hoveredPreview) this.checkVideoVisibility(); };
+      this.onScrollPause = () => {
+        if (this.hoveredPreview) this.checkVideoVisibility();
+        if (this.host?.isConnected) this.settlePreviews();
+      };
 
       this.phoneMedia = globalThis.matchMedia?.('(max-width: 767.98px)');
       this.phoneMedia?.addEventListener?.('change', this.onMediaChange);
@@ -386,6 +403,8 @@
       const s = postModel?.normalizeSettings ? postModel.normalizeSettings(raw) : (raw || {});
       const nextEnabled = s.visualSearch === true;
       const nextMenu = nextEnabled && s.visualSearchPostMenu !== false;
+      this.mediaChoice = { video: s.videoStart || 'default', gif: s.gifStart || 'default' };
+      if (this.hoveredPreview && !this.hoveredPreview.manual && this.previewMode(this.hoveredPreview.media) === 'none') this.stopVideoPreview();
       const changed = nextEnabled !== this.enabled || nextMenu !== this.postMenuEnabled;
       this.enabled = nextEnabled;
       this.postMenuEnabled = nextMenu;
@@ -725,6 +744,7 @@
       if (park.scrollY > 0 || park.clickedUuid) {
         this.restoreScrollAfterReturn(park);
       }
+      this.settlePreviews();
       // If interrupted during active polling or loading, resume instead of leaving a dead spinner.
       if (['hashing', 'uploading', 'embedding', 'fetching'].includes(this.state.status)) {
         this.startLoad(parsed);
@@ -914,6 +934,7 @@
 
     startProgress() {
       clearTimeout(this.progressTimer);
+      clearTimeout(this.settleTimer);
       const bar = this.ensureProgressBar();
       bar.classList.remove('is-finishing');
       bar.dataset.state = 'loading';
@@ -960,7 +981,7 @@
 
       if (parsed.kind === 'pending-upload' && parsed.uploadHash) {
         this.state.status = 'embedding';
-        this.state.uploadStatusText = 'Analyzing visual features…';
+        this.state.uploadStatusText = 'Finding images that look like yours…';
         this.state.pollHash = parsed.uploadHash;
         this.state.pollFilters = parsed.filters;
         this.state.pollAttempt = 0;
@@ -1064,6 +1085,7 @@
         st.skippedCount += Number(res.skippedCount) || 0;
         if (added.length) this.appendMasonryItems(added, st);
         this.updateFooter();
+        this.settlePreviews();
       } catch (err) {
         if (this.dead || myGen !== this.gen || this.state !== st) return;
         st.loadingMore = false;
@@ -1147,7 +1169,7 @@
         if (typeof fileOrUrl === 'string') {
           if (onVisual && this.state) {
             this.state.status = 'uploading';
-            this.state.uploadStatusText = 'Uploading image to infini.wtf…';
+            this.state.uploadStatusText = 'Uploading your image…';
             this.renderHost();
           }
           try {
@@ -1169,7 +1191,7 @@
         } else {
           if (onVisual && this.state) {
             this.state.status = 'hashing';
-            this.state.uploadStatusText = 'Preparing image locally…';
+            this.state.uploadStatusText = 'Preparing your image…';
             this.renderHost();
           }
           const prep = await this.prepareImage(fileOrUrl);
@@ -1183,7 +1205,7 @@
           if (onVisual && this.state) {
             this.state.uploadPreviewUrl = previewUrl;
             this.state.status = 'uploading';
-            this.state.uploadStatusText = 'Uploading image to infini.wtf…';
+            this.state.uploadStatusText = 'Uploading your image…';
             this.renderHost();
           }
           payload = { dataBase64: prep.dataBase64, mimeType: prep.mimeType };
@@ -1210,8 +1232,8 @@
           this.closeUploadPopover();
           Sheet?.close?.();
           const dest = up.hasEmbedding && up.uuid
-            ? Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', uploadUuid: up.uuid, filters: nextFilters, cleanNav: true })
-            : Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', uploadHash: up.hash, filters: nextFilters, cleanNav: true });
+            ? Model.buildVisualUrl(location.href, { basePath: '/search/', q: this.currentQuery(), uploadUuid: up.uuid, filters: nextFilters, cleanNav: true })
+            : Model.buildVisualUrl(location.href, { basePath: '/search/', q: this.currentQuery(), uploadHash: up.hash, filters: nextFilters, cleanNav: true });
           this.navigateUrl(dest.href);
           return;
         }
@@ -1222,7 +1244,7 @@
         }
 
         this.state.status = 'embedding';
-        this.state.uploadStatusText = 'Analyzing visual features…';
+        this.state.uploadStatusText = 'Finding images that look like yours…';
         this.state.pollHash = up.hash;
         this.state.pollFilters = nextFilters;
         this.state.pollAttempt = 0;
@@ -1289,7 +1311,7 @@
       const cur = Model.parseVisualUrl(location.href);
       const next = Model.buildVisualUrl(location.href, {
         basePath: cur?.scope?.path || '/search/',
-        q: '',
+        q: this.currentQuery(),
         uploadUuid: uuid,
         filters,
         cleanNav: true
@@ -1380,7 +1402,7 @@
             cancelBtn.addEventListener('click', () => {
               this.stopPolling();
               this.gen++;
-              const popular = Model.buildVisualUrl(location.href, { q: '', popular: true, filters: parsed.filters });
+              const popular = Model.buildVisualUrl(location.href, { q: this.currentQuery(), popular: true, filters: parsed.filters });
               this.replaceVisualUrl(popular);
             });
             actions.append(cancelBtn);
@@ -1403,7 +1425,11 @@
       }
 
       host.replaceChildren(...parts);
-      if (st.status === 'ready') this.observeMoreSentinel();
+      if (this.hoveredPreview && !this.hoveredPreview.media.isConnected) this.stopVideoPreview();
+      if (st.status === 'ready') {
+        this.observeMoreSentinel();
+        this.settlePreviews();
+      }
     }
 
     buildControls(parsed) {
@@ -1413,7 +1439,9 @@
       const uploadBtn = make('button', 'rt-search-inline-filter');
       uploadBtn.type = 'button';
       uploadBtn.dataset.rtVisualControl = 'upload';
-      uploadBtn.append(icon('camera', 16), make('span', '', 'Search by image'));
+      uploadBtn.setAttribute('aria-haspopup', 'dialog');
+      uploadBtn.title = 'Search with an image: upload, paste or drop one';
+      uploadBtn.append(icon('camera', 16), make('span', '', parsed.kind === 'upload' ? 'Change image' : 'Search with image'));
       uploadBtn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
@@ -1480,7 +1508,7 @@
         noteBtn.title = 'infini.wtf similarity views cannot be filtered; switch to popular or image search to filter.';
         noteBtn.append(make('span', '', 'Browse popular (filterable)'));
         noteBtn.addEventListener('click', () => {
-          const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, filters: parsed.filters });
+          const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: this.currentQuery(), popular: true, filters: parsed.filters });
           this.pushVisualUrl(dest);
         });
         bar.append(noteBtn);
@@ -1497,31 +1525,25 @@
         if (st.uploadPreviewUrl) {
           const img = make('img', 'rt-vs-seed-thumb');
           img.src = st.uploadPreviewUrl;
-          img.alt = '';
+          img.alt = 'Your image';
           lead.append(img);
         }
         const copy = make('div', 'rt-vs-banner-copy');
-        const subline = make('span', 'rt-vs-banner-sub');
-        if (parsed.filters.nsfw) {
-          const tag = make('span', 'rt-community-nsfw-tag', 'NSFW');
-          tag.prepend(nsfwIcon(12));
-          subline.append(tag, 'results active');
-        } else {
-          subline.textContent = 'Safe results (NSFW off)';
-        }
         copy.append(
-          make('span', 'rt-vs-banner-title', 'Results matching your uploaded image'),
-          subline
+          make('span', 'rt-vs-banner-title', 'Your image'),
+          make('span', 'rt-vs-banner-sub', 'Posts with images and videos that look like it')
         );
         lead.append(copy);
         const actions = make('div', 'rt-vs-banner-actions');
-        const clear = make('button', 'rt-community-action', 'Reset');
-        clear.type = 'button';
-        clear.addEventListener('click', () => {
-          const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, filters: parsed.filters });
+        const remove = make('button', 'rt-community-action', 'Remove image');
+        remove.type = 'button';
+        remove.addEventListener('click', () => {
+          // Back to the words searched for, or to popular posts when there were none.
+          const q = this.currentQuery();
+          const dest = Model.buildVisualUrl(location.href, q ? { basePath: '/search/', q, filters: parsed.filters } : { basePath: '/search/', q: '', popular: true, filters: parsed.filters });
           this.pushVisualUrl(dest);
         });
-        actions.append(clear);
+        actions.append(remove);
         banner.append(lead, actions);
         return banner;
       }
@@ -1593,81 +1615,53 @@
       return null;
     }
 
+    // Reddit's Media tab placeholder row (measured 2026-11-24): per column a 128 px block, a 16 px line and a 40 px
+    // block, each shimmer-placeholder bg-shimmer rounded-2 with a 4 px gap; three columns, two on phones.
     buildSkeletonGrid() {
-      const grid = make('div', 'rt-vs-grid rt-vs-skeleton');
-      const count = isPhone() ? 6 : 9;
+      const grid = make('div', 'rt-vs-skeleton');
+      grid.setAttribute('role', 'article');
+      grid.setAttribute('aria-label', 'Loading');
+      const count = isPhone() ? 2 : 3;
       for (let i = 0; i < count; i++) {
-        const tile = make('div', 'rt-vs-tile');
-        tile.append(make('div', 'rt-vs-skeleton-media'), make('div', 'rt-vs-skeleton-line'), make('div', 'rt-vs-skeleton-line short'));
-        grid.append(tile);
+        const cell = make('div', 'rt-vs-skeleton-cell');
+        for (const h of ['h-5xl', 'h-md', 'h-[40px]']) cell.append(make('div', 'shimmer-placeholder ' + h + ' w-100 mb-2xs bg-shimmer rounded-2'));
+        grid.append(cell);
       }
       return grid;
     }
 
-    buildSubIcon(sub, st) {
-      const iconWrap = make('span', 'rt-vs-sub-icon');
-      iconWrap.setAttribute('aria-hidden', 'true');
-      const fallbackSvg = () => {
-        const nativeIcon = Filters?.svgIcon?.('community-fill', 16);
-        if (nativeIcon) return nativeIcon;
-        const svg = document.createElementNS(SVG, 'svg');
-        svg.setAttribute('viewBox', '0 0 20 20');
-        svg.setAttribute('width', '12');
-        svg.setAttribute('height', '12');
-        svg.setAttribute('fill', 'currentColor');
-        const p = document.createElementNS(SVG, 'path');
-        p.setAttribute('d', 'M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm1 11.5H9v-5h2v5Zm0-6.5H9V5.2h2V7Z');
-        svg.append(p);
+    // Reddit's 16 px community icon: its image over the community colour, or the community-fill glyph in that colour.
+    buildSubIcon(sub) {
+      const outer = make('span', 'inline-flex items-center justify-center w-md h-md relative me-2xs shreddit-subreddit-icon__icon rt-vs-sub-icon');
+      outer.setAttribute('aria-hidden', 'true');
+      const inner = make('span', 'inline-block rounded-full relative h-full w-full overflow-hidden');
+      outer.append(inner);
+      const glyph = () => {
+        const svg = Filters?.svgIcon?.('community-fill', 16) || icon('similar', 16);
+        svg.setAttribute('class', 'flex items-center w-full h-full');
+        const color = CommunityIcons?.color?.(sub);
+        if (color) svg.style.color = color;
         return svg;
       };
-      const setUrl = url => {
-        const img = make('img', 'rt-vs-sub-avatar');
-        img.src = url;
+      const show = url => {
+        if (!url) { inner.replaceChildren(glyph()); return; }
+        const img = make('img', 'mb-0 w-full h-full rt-vs-sub-avatar');
         img.alt = '';
         img.decoding = 'async';
-        img.loading = 'lazy';
         img.referrerPolicy = 'no-referrer';
-        img.addEventListener('error', () => { iconWrap.replaceChildren(fallbackSvg()); }, { once: true });
-        iconWrap.replaceChildren(img);
+        const color = CommunityIcons?.color?.(sub);
+        if (color) img.style.background = color;
+        img.addEventListener('error', () => inner.replaceChildren(glyph()), { once: true });
+        img.src = url;
+        inner.replaceChildren(img);
       };
-
       const known = CommunityIcons?.peek?.(sub);
-      if (typeof known === 'string' && known) {
-        setUrl(known);
-        return iconWrap;
-      }
-      iconWrap.append(fallbackSvg());
-      if (known === undefined && CommunityIcons?.get) {
-        const key = sub.toLowerCase();
-        const myGen = this.gen;
-        let list = st.subIconNodes?.get(key);
-        const firstForKey = !list;
-        if (!list) {
-          list = [];
-          st.subIconNodes?.set(key, list);
-        }
-        list.push(iconWrap);
-        if (firstForKey) {
-          CommunityIcons.get(sub).then(url => {
-            if (this.dead || myGen !== this.gen) return;
-            const targets = st.subIconNodes?.get(key) || [];
-            st.subIconNodes?.delete(key);
-            if (!url) return;
-            for (const node of targets) {
-              if (!node.isConnected) continue;
-              const img = make('img', 'rt-vs-sub-avatar');
-              img.src = url;
-              img.alt = '';
-              img.decoding = 'async';
-              img.loading = 'lazy';
-              img.referrerPolicy = 'no-referrer';
-              img.addEventListener('error', () => { node.replaceChildren(fallbackSvg()); }, { once: true });
-              node.replaceChildren(img);
-            }
-          }).catch(() => {});
-        }
-      }
-      return iconWrap;
+      if (typeof known === 'string' && known) { show(known); return outer; }
+      inner.append(glyph());
+      // Each icon waits on the shared loader itself (it de-duplicates requests), so icons fill in after Load more,
+      // a parked return or a new search alike.
+      if (known === undefined) Promise.resolve(CommunityIcons?.get?.(sub)).then(url => { if (!this.dead) show(url || null); }, () => {});
+      return outer;
     }
 
     createTileNode(item, st) {
@@ -1675,11 +1669,14 @@
       tile.dataset.uuid = item.uuid;
 
       const mediaWrap = make('div', 'rt-vs-media-wrap');
-      const media = make('div', 'rt-vs-media');
+      const media = make('div', 'rt-vs-media bg-neutral-background-weak rounded-2 overflow-hidden');
       media.style.aspectRatio = String(item.aspectRatio > 0 ? item.aspectRatio : 1);
-      if (item.videoUrl) media.dataset.videoUrl = item.videoUrl;
+      if (item.videoUrl) {
+        media.dataset.videoUrl = item.videoUrl;
+        media.dataset.kind = item.isGif ? 'gif' : 'video';
+      }
 
-      const link = make('a', 'rt-vs-card-link');
+      const link = make('a', 'rt-vs-card-link no-underline');
       link.href = item.permalink;
 
       const thumbUrl = item.thumb || item.src;
@@ -1710,38 +1707,36 @@
         media.append(make('span', 'rt-vs-img-fallback', 'Media preview unavailable'));
       }
 
+      // One symbol in Reddit's media pill (where Reddit puts its 1/4 gallery count): a play mark for videos, GIF for GIFs.
       if (item.isVideo) {
         const badge = make('span', 'rt-vs-badge');
-        badge.append(icon('play', 11), make('span', '', item.isGif ? 'GIF' : 'VIDEO'));
+        badge.setAttribute('role', 'img');
+        badge.setAttribute('aria-label', item.isGif ? 'GIF' : 'Video');
+        badge.dataset.kind = item.isGif ? 'gif' : 'video';
+        badge.append(item.isGif ? (Filters?.svgIcon?.('gif-post-outline', 16) || icon('play', 12)) : icon('play', 12));
         media.append(badge);
       }
 
       link.append(media);
 
-      // Overlay actions sit beside <a> inside .rt-vs-media-wrap so interactive controls are never nested inside <a>.
+      // Mouse: icon buttons on hover, beside <a> so controls are never nested in a link. Touch: the ⋯ menu below.
       const actions = make('div', 'rt-vs-overlay-actions');
       const simBtn = make('button', 'rt-vs-icon-btn');
       simBtn.type = 'button';
-      simBtn.title = 'Find visually similar posts';
-      simBtn.setAttribute('aria-label', 'Find visually similar posts');
-      simBtn.append(icon('similar', 13), make('span', '', 'Similar'));
+      simBtn.title = 'Find visually similar';
+      simBtn.setAttribute('aria-label', 'Find visually similar');
+      simBtn.append(icon('similar', 16));
       simBtn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
-        const dest = Model.buildVisualUrl(location.href, {
-          basePath: '/search/',
-          q: '',
-          viewId: item.viewId || item.uuid,
-          cleanNav: true
-        });
-        this.pushVisualUrl(dest);
+        this.findSimilar(item);
       });
 
       const prevBtn = make('button', 'rt-vs-icon-btn');
       prevBtn.type = 'button';
-      prevBtn.title = 'Quick preview';
-      prevBtn.setAttribute('aria-label', 'Preview media');
-      prevBtn.append(icon('expand', 13));
+      prevBtn.title = 'View larger';
+      prevBtn.setAttribute('aria-label', 'View larger');
+      prevBtn.append(icon('expand', 16));
       prevBtn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
@@ -1751,26 +1746,88 @@
       actions.append(simBtn, prevBtn);
       mediaWrap.append(link, actions);
 
-      const subRow = make('div', 'rt-vs-sub-row');
+      // Reddit's tile footer: mt-2xs community row (16 px icon, 14 px semibold weak text), then a 2-line title.
+      const subRow = make('div', 'rt-vs-sub-row mt-2xs');
       if (item.subreddit) {
         const isUser = item.subreddit.startsWith('u_');
-        if (!isUser) subRow.append(this.buildSubIcon(item.subreddit, st));
         const label = isUser ? 'u/' + item.subreddit.slice(2) : 'r/' + item.subreddit;
-        const subLink = make('a', 'rt-vs-sub-link', label);
+        const subLink = make('a', 'rt-vs-sub-link flex items-center text-neutral-content-weak font-semibold');
         subLink.href = isUser
           ? 'https://www.reddit.com/user/' + encodeURIComponent(item.subreddit.slice(2)) + '/'
           : 'https://www.reddit.com/r/' + encodeURIComponent(item.subreddit) + '/';
+        const iconBox = make('span', 'flex shrink-0 items-center');
+        if (!isUser) iconBox.append(this.buildSubIcon(item.subreddit));
+        subLink.append(iconBox, make('span', 'truncate', label));
         subRow.append(subLink);
       } else {
-        subRow.append(make('span', 'rt-vs-sub-link', 'Reddit'));
+        subRow.append(make('span', 'rt-vs-sub-link text-neutral-content-weak font-semibold', 'Reddit'));
       }
+      const more = make('button', 'rt-vs-more-btn');
+      more.type = 'button';
+      more.setAttribute('aria-label', 'More options');
+      more.setAttribute('aria-haspopup', 'dialog');
+      more.append(icon('overflow', 16));
+      more.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.openTileOptions(item, more);
+      });
+      subRow.append(more);
 
-      const titleLink = make('a', 'rt-vs-card-link');
+      const titleLink = make('a', 'rt-vs-card-link rt-vs-title no-underline text-sm font-semibold mt-2xs text-neutral-content-strong line-clamp-2', item.title || 'Untitled Reddit post');
       titleLink.href = item.permalink;
-      titleLink.append(make('h3', 'rt-vs-title', item.title || 'Untitled Reddit post'));
 
       tile.append(mediaWrap, subRow, titleLink);
       return tile;
+    }
+
+    findSimilar(item) {
+      this.closeLightbox();
+      const dest = Model.buildVisualUrl(location.href, {
+        basePath: '/search/',
+        q: this.currentQuery(),
+        viewId: item.viewId || item.uuid,
+        cleanNav: true
+      });
+      this.pushVisualUrl(dest);
+    }
+
+    // The search's own words, kept in q so Reddit still shows its All tab (it drops All when q is empty).
+    currentQuery() {
+      try { return (new URLSearchParams(location.search).get('q') || '').trim(); }
+      catch { return ''; }
+    }
+
+    // Touch: one bottom sheet for everything a tile offers, like Reddit's own ⋯ post menu.
+    openTileOptions(item, anchor) {
+      const playing = this.hoveredPreview?.media?.closest?.('.rt-vs-tile')?.dataset?.uuid === item.uuid && Boolean(this.hoveredPreview?.video);
+      const media = [...(this.host?.querySelectorAll?.('.rt-vs-tile') || [])].find(tile => tile.dataset.uuid === item.uuid)?.querySelector('.rt-vs-media');
+      const download = () => {
+        const dlUrl = item.videoUrl || item.src || item.thumb || item.downloadUrl;
+        if (!dlUrl) return;
+        const ext = item.isVideo ? 'mp4' : 'webp';
+        const name = (item.title || 'visual-match').replace(/[^\w\s-]/g, '').trim().slice(0, 60) || 'visual-match';
+        this.send({ action: 'download', url: dlUrl, filename: name + '.' + ext }).catch(() => {});
+      };
+      if (!Sheet) { this.openLightbox(item, anchor); return; }
+      Sheet.open({
+        title: item.title || 'Visual result',
+        returnFocus: anchor,
+        build: (body, ui) => {
+          if (item.videoUrl && media) {
+            ui.row({
+              label: playing ? 'Stop preview' : (item.isGif ? 'Play GIF here' : 'Play preview here'),
+              subtitle: playing ? '' : 'Muted, in the grid',
+              icon: icon(playing ? 'close' : 'play', 20),
+              onSelect: () => { if (playing) this.stopVideoPreview(); else this.startPreview(media, { manual: true }); }
+            });
+          }
+          ui.row({ label: 'Find visually similar', icon: icon('similar', 20), onSelect: () => this.findSimilar(item) });
+          ui.row({ label: 'View larger', icon: icon('expand', 20), onSelect: () => this.openLightbox(item, anchor) });
+          if (item.videoUrl || item.src || item.thumb || item.downloadUrl) ui.row({ label: 'Download', icon: icon('download', 20), onSelect: download });
+          ui.row({ label: 'Open post', icon: Filters?.svgIcon?.('comment', 20) || null, onSelect: () => this.navigateUrl(item.permalink) });
+        }
+      });
     }
 
     appendMasonryItems(items, st) {
@@ -1825,39 +1882,20 @@
       this.observeMoreSentinel();
     }
 
+    // Below the grid: nothing while idle (an invisible sentinel loads the next page), Reddit's placeholder row while
+    // loading, and a short retry line if a page failed. No count bar and no Media tab link (the tabs are right above).
     buildLimitFooter(parsed, st) {
       const foot = make('div', 'rt-vs-foot');
-      const count = st.items.length;
-      let msg;
+      foot.dataset.state = st.loadingMore ? 'loading' : st.loadMoreError ? 'error' : st.hasMore ? 'more' : 'end';
       if (st.loadingMore) {
-        const spin = make('span', 'rt-community-spinner');
-        spin.append(icon('camera', 16));
-        msg = make('span', 'rt-community-state-head');
-        msg.append(spin, make('span', '', 'Loading more visual results…'));
+        foot.append(this.buildSkeletonGrid());
       } else if (st.loadMoreError) {
-        msg = make('span', '', st.loadMoreError);
-      } else {
-        const noun = parsed.kind === 'view' ? 'similar results' : 'visual matches';
-        const suffix = st.hasMore ? '' : ' · End of results';
-        const skipped = st.skippedCount ? ` (${st.skippedCount} incomplete entries skipped)` : '';
-        msg = make('span', '', `Showing ${count} ${noun} from infini.wtf${suffix}${skipped}`);
+        foot.append(make('span', 'rt-vs-foot-msg', 'Couldn’t load more results.'));
+        const retry = make('button', 'rt-community-action', 'Try again');
+        retry.type = 'button';
+        retry.addEventListener('click', () => this.loadMore());
+        foot.append(retry);
       }
-
-      const actions = make('div', 'rt-vs-foot-actions');
-      if ((st.hasMore || st.loadMoreError) && !st.loadingMore) {
-        const moreBtn = make('button', 'rt-community-action rt-community-action-primary', st.loadMoreError ? 'Retry loading more' : 'Load more');
-        moreBtn.type = 'button';
-        moreBtn.addEventListener('click', () => this.loadMore());
-        actions.append(moreBtn);
-      }
-      const nativeMediaUrl = Model.stripVisualParams(new URL(location.href));
-      nativeMediaUrl.searchParams.set('type', 'media');
-      const nativeLink = make('a', 'rt-community-action', 'Open Reddit Media tab');
-      nativeLink.href = nativeMediaUrl.href;
-      nativeLink.dataset.rtVisualTabNav = '1';
-      nativeLink.addEventListener('click', e => this.handleTabNavigationClick(e, nativeMediaUrl));
-      actions.append(nativeLink);
-      foot.append(msg, actions);
       return foot;
     }
 
@@ -1911,7 +1949,7 @@
         clear.addEventListener('click', () => this.applyFilterPatch({ mediaType: '', time: '', nsfw: false }));
         actions.append(clear);
       }
-      const upload = make('button', 'rt-community-action', 'Search by image');
+      const upload = make('button', 'rt-community-action', 'Search with an image');
       upload.type = 'button';
       upload.addEventListener('click', () => this.openUploadUi(upload));
       actions.append(upload);
@@ -1935,13 +1973,6 @@
         retry.addEventListener('click', () => this.startLoad(st.parsed, { force: true }));
         actions.append(retry);
       }
-      const mediaUrl = Model.stripVisualParams(new URL(location.href));
-      mediaUrl.searchParams.set('type', 'media');
-      const openMedia = make('a', 'rt-community-action', 'Open Reddit Media tab');
-      openMedia.href = mediaUrl.href;
-      openMedia.dataset.rtVisualTabNav = '1';
-      openMedia.addEventListener('click', e => this.handleTabNavigationClick(e, mediaUrl));
-      actions.append(openMedia);
       card.append(actions);
       return card;
     }
@@ -2069,21 +2100,22 @@
     }
 
     openUploadUi(anchor) {
+      const popular = () => Model.buildVisualUrl(location.href, { basePath: '/search/', q: this.currentQuery(), popular: true, cleanNav: true });
       if (isPhone() && Sheet) {
         Sheet.open({
-          title: 'Visual search',
+          title: 'Search with an image',
           returnFocus: anchor,
           build: (body, ui) => {
             ui.row({
-              label: 'Choose photo or image',
-              subtitle: 'Search infini.wtf with an image from your device',
-              icon: icon('upload', 20),
+              label: 'Choose a photo',
+              subtitle: 'From your gallery or camera',
+              icon: icon('image', 20),
               onSelect: () => { this.ensureFileInput().click(); }
             });
             ui.row({
-              label: 'Paste image from clipboard',
-              subtitle: 'Uses the most recent copied image',
-              icon: icon('camera', 20),
+              label: 'Paste copied image',
+              subtitle: 'The image you copied last',
+              icon: icon('upload', 20),
               keepOpen: true,
               onSelect: async () => {
                 let err = '';
@@ -2092,13 +2124,10 @@
               }
             });
             ui.row({
-              label: 'Browse popular visual posts',
-              subtitle: 'Explore trending images and videos on infini.wtf',
+              label: 'Browse popular',
+              subtitle: 'Trending images and videos',
               icon: icon('similar', 20),
-              onSelect: () => {
-                const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, cleanNav: true });
-                this.navigateUrl(dest.href);
-              }
+              onSelect: () => this.navigateUrl(popular().href)
             });
           }
         });
@@ -2115,10 +2144,10 @@
       const panel = make('div', 'rt-vs-upload-popover');
       panel.dataset.rtUi = 'visual-upload-popover';
       panel.setAttribute('role', 'dialog');
-      panel.setAttribute('aria-label', 'Search by image');
+      panel.setAttribute('aria-label', 'Search with an image');
 
       const head = make('div', 'rt-vs-upload-head');
-      const title = make('h3', 'rt-vs-upload-title', 'Search by image');
+      const title = make('h3', 'rt-vs-upload-title', 'Search with an image');
       const closeBtn = make('button', 'rt-vs-upload-close');
       closeBtn.type = 'button';
       closeBtn.setAttribute('aria-label', 'Close');
@@ -2130,27 +2159,23 @@
       errLine.hidden = true;
       const showErr = text => { errLine.textContent = text; errLine.hidden = !text; };
 
+      const mac = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || '');
       const drop = make('div', 'rt-vs-drop');
-      drop.append(make('span', '', 'Drop an image, choose a file, or press Ctrl+V'));
+      const art = make('span', 'rt-vs-drop-art');
+      art.append(icon('image', 28));
+      drop.append(art, make('span', 'rt-vs-drop-title', 'Drag an image here'), make('span', 'rt-vs-drop-or', 'or'));
       const btnRow = make('div', 'rt-vs-upload-actions');
 
-      const pickBtn = make('button', 'rt-community-action rt-community-action-primary', 'Choose image');
+      const pickBtn = make('button', 'rt-community-action rt-community-action-primary', 'Upload a file');
       pickBtn.type = 'button';
       pickBtn.addEventListener('click', () => this.ensureFileInput().click());
 
-      const pasteBtn = make('button', 'rt-community-action', 'Paste');
+      const pasteBtn = make('button', 'rt-community-action', 'Paste image');
       pasteBtn.type = 'button';
+      pasteBtn.title = 'Or press ' + (mac ? '⌘V' : 'Ctrl+V') + ' anywhere on the page';
       pasteBtn.addEventListener('click', () => this.pasteFromClipboard(showErr));
 
-      const popBtn = make('button', 'rt-community-action', 'Popular visual posts');
-      popBtn.type = 'button';
-      popBtn.addEventListener('click', () => {
-        this.closeUploadPopover();
-        const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, cleanNav: true });
-        this.navigateUrl(dest.href);
-      });
-
-      btnRow.append(pickBtn, pasteBtn, popBtn);
+      btnRow.append(pickBtn, pasteBtn);
       drop.append(btnRow);
       drop.addEventListener('dragover', e => {
         if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); drop.dataset.dragging = 'true'; }
@@ -2162,14 +2187,23 @@
         if (file) { e.preventDefault(); this.uploadAndSearch(file); }
       });
 
-      panel.append(head, drop, errLine);
+      const foot = make('div', 'rt-vs-upload-foot');
+      const popBtn = make('button', 'rt-vs-link-btn', 'Browse popular images and videos');
+      popBtn.type = 'button';
+      popBtn.addEventListener('click', () => {
+        this.closeUploadPopover();
+        this.navigateUrl(popular().href);
+      });
+      foot.append(popBtn, make('span', 'rt-vs-upload-note', 'Images are resized and stripped of their metadata before they’re sent to infini.wtf.'));
+
+      panel.append(head, drop, errLine, foot);
       document.body.append(panel);
 
       const rect = anchor?.getBoundingClientRect?.() || { left: 16, right: 356, bottom: 56, top: 16 };
       const vw = window.innerWidth || 1024;
       const pw = panel.offsetWidth || 340;
-      const left = Math.max(8, Math.min(rect.right - pw, vw - pw - 8));
-      const top = Math.min((window.innerHeight || 768) - (panel.offsetHeight || 190) - 8, rect.bottom + 8);
+      const left = Math.max(8, Math.min(rect.left, vw - pw - 8));
+      const top = Math.min((window.innerHeight || 768) - (panel.offsetHeight || 260) - 8, rect.bottom + 8);
       panel.style.left = Math.round(left) + 'px';
       panel.style.top = Math.round(Math.max(8, top)) + 'px';
 
@@ -2183,11 +2217,21 @@
 
     // ---- Lightbox & Video Preview (CSP-compliant blob: transport) ---------------------------------------------
 
+    // How a tile's clip may start, from the reader's video and GIF start choices: 'hover' with a mouse, 'stop' (the one
+    // you stop on) with touch, 'auto' (in view) for Autoplay, 'none' for Only when I press Play.
+    previewMode(media) {
+      const mode = this.mediaChoice?.[media?.dataset?.kind === 'gif' ? 'gif' : 'video'] || 'default';
+      if (mode === 'play' || reducedMotion()) return 'none';
+      if (mode === 'autoplay') return 'auto';
+      return canHover() ? 'hover' : 'stop';
+    }
+
     stopVideoPreview() {
       const cur = this.hoveredPreview;
       if (!cur) return;
       this.hoveredPreview = null;
       clearTimeout(cur.timer);
+      delete cur.media?.dataset?.previewing;
       if (cur.media) this.videoIO?.unobserve?.(cur.media);
       if (cur.video) {
         try { cur.video.pause(); } catch {}
@@ -2204,62 +2248,116 @@
       if (rect.bottom < 0 || rect.top > (window.innerHeight || 900)) this.stopVideoPreview();
     }
 
-    async getVideoBlobUrl(videoUrl) {
+    // One fetch per clip, shared by every caller while it is in flight; the last few clips stay as blob: URLs.
+    getVideoBlobUrl(videoUrl) {
       if (this.videoBlobs.has(videoUrl)) {
         const existing = this.videoBlobs.get(videoUrl);
         this.videoBlobs.delete(videoUrl);
         this.videoBlobs.set(videoUrl, existing);
-        return existing;
+        return Promise.resolve(existing);
       }
-      const res = await this.send({ action: 'fetch-video', url: videoUrl });
-      if (!res?.ok || !res.base64) throw Error(res?.error || 'Video preview unavailable.');
-      const blob = base64ToBlob(res.base64, res.mimeType || 'video/mp4');
-      const objUrl = URL.createObjectURL(blob);
-      this.videoBlobs.set(videoUrl, objUrl);
-      while (this.videoBlobs.size > MAX_VIDEO_BLOBS) {
-        const [oldKey, oldUrl] = this.videoBlobs.entries().next().value;
-        this.videoBlobs.delete(oldKey);
-        URL.revokeObjectURL(oldUrl);
-      }
-      return objUrl;
+      if (this.videoFetches.has(videoUrl)) return this.videoFetches.get(videoUrl);
+      const job = this.send({ action: 'fetch-video', url: videoUrl }).then(res => {
+        if (!res?.ok || !res.base64) throw Error(res?.error || 'Video preview unavailable.');
+        if (this.dead) throw Error('Visual search stopped.');
+        const objUrl = URL.createObjectURL(base64ToBlob(res.base64, res.mimeType || 'video/mp4'));
+        this.videoBlobs.set(videoUrl, objUrl);
+        while (this.videoBlobs.size > MAX_VIDEO_BLOBS) {
+          const [oldKey, oldUrl] = this.videoBlobs.entries().next().value;
+          this.videoBlobs.delete(oldKey);
+          if (this.hoveredPreview?.video?.src === oldUrl) this.stopVideoPreview();
+          URL.revokeObjectURL(oldUrl);
+        }
+        return objUrl;
+      }).finally(() => this.videoFetches.delete(videoUrl));
+      this.videoFetches.set(videoUrl, job);
+      return job;
+    }
+
+    // Plays one tile's clip muted and looping in place; starting another stops the first.
+    startPreview(media, { delay = 0, manual = false } = {}) {
+      if (!media?.dataset?.videoUrl || !media.isConnected) return;
+      if (this.hoveredPreview?.media === media) return;
+      this.stopVideoPreview();
+      const videoUrl = media.dataset.videoUrl;
+      const entry = { media, videoUrl, video: null, manual, timer: 0 };
+      this.hoveredPreview = entry;
+      const run = async () => {
+        if (this.dead || this.hoveredPreview !== entry || !media.isConnected || document.visibilityState === 'hidden') return;
+        media.dataset.previewing = 'loading';
+        try {
+          const objUrl = await this.getVideoBlobUrl(videoUrl);
+          if (this.dead || this.hoveredPreview !== entry || !media.isConnected) return;
+          const video = make('video', 'rt-vs-video');
+          video.muted = true;
+          video.loop = true;
+          video.playsInline = true;
+          video.autoplay = true;
+          video.setAttribute('aria-hidden', 'true');
+          video.src = objUrl;
+          entry.video = video;
+          media.append(video);
+          media.dataset.previewing = 'playing';
+          this.videoIO?.observe?.(media);
+          video.play?.().catch(() => {});
+        } catch {
+          if (this.hoveredPreview === entry) { delete media.dataset.previewing; this.hoveredPreview = null; }
+        }
+      };
+      if (delay > 0) entry.timer = setTimeout(run, delay);
+      else run();
     }
 
     handlePointerOver(event) {
-      if (!this.enabled || isPhone() || reducedMotion()) return;
-      const media = event.target?.closest?.('[data-rt-ui="visual-search"] .rt-vs-media[data-video-url]');
-      if (!media || this.hoveredPreview?.media === media) return;
-      this.stopVideoPreview();
-      const videoUrl = media.dataset.videoUrl;
-      if (!videoUrl) return;
-      const entry = {
-        media,
-        videoUrl,
-        video: null,
-        timer: setTimeout(async () => {
-          if (this.dead || this.hoveredPreview !== entry || !media.isConnected || document.visibilityState === 'hidden') return;
-          try {
-            const objUrl = await this.getVideoBlobUrl(videoUrl);
-            if (this.dead || this.hoveredPreview !== entry || !media.isConnected) return;
-            const video = make('video', 'rt-vs-video');
-            video.muted = true;
-            video.loop = true;
-            video.playsInline = true;
-            video.autoplay = true;
-            video.src = objUrl;
-            entry.video = video;
-            media.append(video);
-            this.videoIO?.observe?.(media);
-            video.play?.().catch(() => {});
-          } catch {}
-        }, 200)
-      };
-      this.hoveredPreview = entry;
+      if (!this.enabled) return;
+      const wrap = event.target?.closest?.('[data-rt-ui="visual-search"] .rt-vs-media-wrap');
+      const media = wrap?.querySelector?.('.rt-vs-media[data-video-url]');
+      if (!media || this.hoveredPreview?.media === media || this.previewMode(media) !== 'hover') return;
+      this.startPreview(media, { delay: HOVER_PREVIEW_MS });
     }
 
     handlePointerOut(event) {
       const cur = this.hoveredPreview;
-      if (!cur) return;
-      if (!cur.media.contains(event.relatedTarget)) this.stopVideoPreview();
+      if (!cur || cur.manual || this.previewMode(cur.media) !== 'hover') return;
+      const wrap = cur.media.closest('.rt-vs-media-wrap') || cur.media;
+      if (!wrap.contains(event.relatedTarget)) this.stopVideoPreview();
+    }
+
+    // Touch and Autoplay: once scrolling pauses, the clip at least 60 % on screen and nearest the middle plays; a playing
+    // clip keeps going while it stays at least half visible (the same rule as Reddit feeds in video-control.js).
+    settlePreviews() {
+      clearTimeout(this.settleTimer);
+      if (!this.enabled || !this.host?.isConnected || this.state?.status !== 'ready') return;
+      const any = this.host.querySelector('.rt-vs-media[data-video-url]');
+      if (!any) return;
+      const modes = new Set([...this.host.querySelectorAll('.rt-vs-media[data-video-url]')].slice(0, 60).map(m => this.previewMode(m)));
+      const wait = modes.has('auto') ? AUTO_PREVIEW_MS : modes.has('stop') ? DWELL_PREVIEW_MS : 0;
+      if (!wait) return;
+      this.settleTimer = setTimeout(() => this.pickInView(), wait);
+    }
+
+    pickInView() {
+      if (this.dead || !this.enabled || !this.host?.isConnected || document.visibilityState === 'hidden' || this.lightbox) return;
+      const height = window.innerHeight || 800;
+      const visible = media => {
+        const r = media.getBoundingClientRect();
+        if (!r.height) return 0;
+        return Math.max(0, Math.min(r.bottom, height) - Math.max(r.top, 0)) / r.height;
+      };
+      const cur = this.hoveredPreview;
+      if (cur?.manual && cur.media.isConnected && visible(cur.media) >= 0.5) return;
+      if (cur && cur.media.isConnected && ['auto', 'stop'].includes(this.previewMode(cur.media)) && visible(cur.media) >= 0.5) return;
+      let best = null, distance = Infinity;
+      for (const media of this.host.querySelectorAll('.rt-vs-media[data-video-url]')) {
+        const mode = this.previewMode(media);
+        if (mode !== 'auto' && mode !== 'stop') continue;
+        if (visible(media) < 0.6) continue;
+        const r = media.getBoundingClientRect();
+        const d = Math.abs(r.top + r.height / 2 - height / 2);
+        if (d < distance) { best = media; distance = d; }
+      }
+      if (best) this.startPreview(best);
+      else if (cur && !cur.manual && this.previewMode(cur.media) !== 'hover') this.stopVideoPreview();
     }
 
     closeLightbox() {
@@ -2308,11 +2406,7 @@
 
       const simBtn = make('button', 'rt-community-action', 'Find similar');
       simBtn.type = 'button';
-      simBtn.addEventListener('click', () => {
-        this.closeLightbox();
-        const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', viewId: item.viewId || item.uuid, cleanNav: true });
-        this.pushVisualUrl(dest);
-      });
+      simBtn.addEventListener('click', () => this.findSimilar(item));
 
       const dlUrl = item.videoUrl || item.src || item.thumb || item.downloadUrl;
       if (dlUrl) {
@@ -2588,8 +2682,8 @@
         btn.type = 'button';
         btn.slot = 'trailingContent';
         btn.dataset.rtUi = 'visual-search-trigger';
-        btn.setAttribute('aria-label', 'Search by image');
-        btn.title = 'Search by image (infini.wtf)';
+        btn.setAttribute('aria-label', 'Search with an image');
+        btn.title = 'Search with an image';
         // Shadow roots isolate page CSS, so style directly on the slotted button (Contract Rule 11).
         btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;margin:0 4px 0 2px;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:pointer;transition:background-color 120ms ease,color 120ms ease;';
         btn.append(icon('camera', 18));
