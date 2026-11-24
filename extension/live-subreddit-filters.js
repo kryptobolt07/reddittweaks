@@ -31,6 +31,8 @@
   const subParam = 'rt_sub', hideParam = 'rt_hide';
   const nativeView = 'shreddit-sort-dropdown[sort-event="layout-view-change"]';
   const viewLabels = {cardView:'Card',compactView:'Compact'};
+  // r/name -> name; a profile's posts (u/name) are filed under its profile community, u_name.
+  const cardCommunity = card => (card.getAttribute('subreddit-prefixed-name') || '').replace(/^r\//i,'').replace(/^u\//i,'u_');
   // Signed out, Reddit serves its popular feed at / (reload-url /svc/shreddit/feeds/popular-feed).
   const signedOut = () => Boolean(document.querySelector('#login-button,#open-app-header-cta'));
   const shown = node => node?.isConnected && (typeof node.checkVisibility !== 'function' || node.checkVisibility());
@@ -365,7 +367,15 @@
         }
         this.onRoute();
       };
-      this.onEntry = event => event.navigationType === 'traverse' ? this.onHistory() : this.onRoute();
+      this.entryPath = location.pathname;
+      this.onEntry = event => {
+        const same = location.pathname === this.entryPath;
+        this.entryPath = location.pathname;
+        if (event.navigationType === 'traverse') { this.onHistory(); return; }
+        // Choosing a filter replaces the address on the same page: the open menu stays, the feed just refreshes.
+        if (event.navigationType === 'replace' && same) { this.schedule(); return; }
+        this.onRoute();
+      };
       this.onNavigate = event => {
         if (event.navigationType === 'push') this.rememberPost(new URL(event.destination.url));
       };
@@ -465,12 +475,12 @@
       }
       // Document order: the nearest cards above the viewport are the last ones before it.
       above.reverse();
+      // Two below for each one above, each side nearest first.
       const ordered = [];
-      for (let i = 0; i < Math.max(above.length,below.length); i++) {
-        if (i < below.length) ordered.push(below[i]);
-        if (i < above.length && i % 2 === 0) ordered.push(above[i]);
+      for (let b = 0, a = 0; b < below.length || a < above.length;) {
+        for (let k = 0; k < 2 && b < below.length; k++) ordered.push(below[b++]);
+        if (a < above.length) ordered.push(above[a++]);
       }
-      for (const node of above.filter((node,i) => i % 2 === 1)) ordered.push(node);
       for (const node of ordered.splice(0,revealNow)) node.removeAttribute(hidden);
       this.revealQueue = ordered;
       const step = () => {
@@ -668,6 +678,13 @@
     clear() {
       this.leaving = null;
       this.panel?.close();
+      // Awaiting approval lives in this menu only while it is mounted on a community.
+      const root = globalThis.document?.documentElement;
+      if (root?.hasAttribute('data-rt-unapproved-menu')) {
+        root.removeAttribute('data-rt-unapproved-menu');
+        globalThis.RTUnapprovedFilter?.useMenu?.(false);
+        this.awaitingFor = '';
+      }
       this.toolbar?.remove();this.chips?.remove();
       this.note?.remove();
       this.endNote?.remove();
@@ -736,6 +753,8 @@
     }
 
     mount(tabs) {
+      // A rail left beside Reddit's controls when Reddit re-rendered them goes with the old toolbar.
+      this.chips?.remove();this.endNote?.remove();
       const bar = this.toolbar = make('div','rt-community-controls');
       bar.dataset.rtUi = 'community-filters';
       this.chips = make('div','rt-community-chips rt-filter-chips');
@@ -997,9 +1016,11 @@
 
     seenCommunities() {
       const counts = new Map();
-      for (const card of this.feed?.querySelectorAll('shreddit-post') || []) {
-        const name = (card.getAttribute('subreddit-prefixed-name') || '').replace(/^r\//i,'');
-        if (!/^[a-z0-9_]{2,21}$/i.test(name)) continue;
+      // Parked cards are out of the document but still part of this feed.
+      const parked = [...this.parked].map(([,entry]) => entry.card).filter(Boolean);
+      for (const card of [...(this.feed?.querySelectorAll('shreddit-post') || []),...parked]) {
+        const name = cardCommunity(card);
+        if (!/^(?:u_)?[a-z0-9_-]{2,21}$/i.test(name)) continue;
         const key = fold(name), entry = counts.get(key) || {name,count:0};
         entry.count++;counts.set(key,entry);
       }
@@ -1204,7 +1225,8 @@
       const subs = community.names.length ? {hide:community.mode === 'hide',names:new Set(community.names.map(fold))} : null;
       const active = Boolean(types.length || nsfw || flair || subs);
       const parkKey = this.feed && active ? JSON.stringify([types,Boolean(nsfw),flair,community]) : '';
-      if (parkKey !== this.parkKey) {
+      const sameFilters = parkKey === this.parkKey;
+      if (!sameFilters) {
         this.restoreParked();
         this.parkKey = parkKey;
       }
@@ -1231,7 +1253,7 @@
           }
           const flairNode=flair && card.querySelector('[slot="post-flair"]');
           let matches=(!nsfw || nsfwCard(card)) && (!flair || flairNode && fold(cardFlair(flairNode))===flair);
-          if (matches && subs) matches = subs.names.has(fold((card.getAttribute('subreddit-prefixed-name') || '').replace(/^r\//i,''))) !== subs.hide;
+          if (matches && subs) matches = subs.names.has(fold(cardCommunity(card))) !== subs.hide;
           if (matches && wanted.size) {
             const type=filters.inferType(card);
             matches=wanted.has(type) || (wanted.has('video') && type === 'embed' && externalVideo(card));
@@ -1269,6 +1291,11 @@
         const seconds = Date.parse(time?.getAttribute('ts') || time?.getAttribute('datetime') || '') / 1000;
         if (seconds >= date.after) matching++;
         else next.add(unit);
+      }
+      // A batch Reddit swapped out keeps its hidden cards hidden while the filters are the same, so it comes back right.
+      if (sameFilters && active) {
+        let kept = 0;
+        for (const node of this.hidden) if (!node.isConnected && !next.has(node) && kept++ < 2000) next.add(node);
       }
       const shown = [];
       for (const node of this.hidden) if (!next.has(node)) shown.push(node);
@@ -1396,6 +1423,14 @@
       if (nsfw) chip('nsfw','NSFW',nsfwGlyph,() => this.applyNsfw(false));
       if (period) chip('date',period[1],'calendar',() => this.go(setSearchOption(this.url,'t','all')));
       this.chips.hidden = !this.chips.childElementCount;
+      // One clear-all for the summary chip and the Applied filters list: removing pills one by one replays each pill's
+      // own (older) filter list and puts filters back.
+      if (this.chips.childElementCount) {
+        const clear = make('button','rt-filter-clear','Clear all');
+        clear.type = 'button';clear.hidden = true;clear.style.display = 'none';
+        clear.addEventListener('click',event => { event.preventDefault();event.stopPropagation();this.clearFilters(); });
+        this.chips.append(clear);
+      }
       if (this.chips.hasAttribute('data-rt-rail')) filters.fitRail?.(this.chips,{badgeFor:this.options || null});
     }
 
@@ -1442,6 +1477,16 @@
         if (link.getAttribute('href') === entry.applied) link.setAttribute('href',entry.original);
         this.links.delete(link);
       }
+    }
+
+    clearFilters() {
+      const url = new URL(location.href);
+      for (const key of ['rt_type',subParam,hideParam,nsfwParam]) url.searchParams.delete(key);
+      if (this.feed && this.scope?.owner) url.searchParams.delete('f');
+      const awaiting = this.awaitingOption();
+      if (awaiting?.active) awaiting.toggle();
+      if (this.feed) this.replaceLocalUrl(url);
+      else if (url.href !== location.href) this.go(url);
     }
 
     applyTypes(types) {

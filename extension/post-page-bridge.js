@@ -964,7 +964,7 @@
   // embeds (shreddit-embed drops its content on disconnect: a new lite-youtube, thumbnail loaded again, a playing
   // YouTube video lost). Keeping every card mounted instead grew a phone feed to ~73,000 elements (2026-11-19), so
   // Reddit still swaps cards out, but only beyond about ten screens.
-  const keptFeeds=new WeakSet(),typeFiltered=()=>new URLSearchParams(location.search).has('rt_type'),FILTERED_SCREENS=9;
+  const keptFeeds=new WeakSet(),typeFiltered=()=>{const q=new URLSearchParams(location.search);return ['rt_type','rt_sub','rt_hide','rt_nsfw'].some(key=>q.has(key));},FILTERED_SCREENS=9;
   function keepFilteredFeeds(){
     for(const feed of document.querySelectorAll('shreddit-feed')){
       const controller=feed.virtualization;

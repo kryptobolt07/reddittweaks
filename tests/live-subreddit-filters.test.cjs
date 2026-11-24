@@ -808,3 +808,59 @@ test('removing a filter brings back the cards next to the viewport at once and t
  await new Promise(resolve=>setTimeout(resolve,400));
  assert.equal(hiddenArticles(),30,'a filter chosen again mid-reveal keeps its cards hidden');
 });
+
+test('Clear all removes every filter at once, even with several type and community pills',async t=>{
+ const markup=homeFeed().replace(card('video','News')+card('text','Q&A'),subCard('pics','video')+subCard('news','image')+subCard('aaa')+subCard('bbb'));
+ const {D,W,api}=setup(t,'/?rt_type=video,image&rt_sub=aaa,bbb',markup);
+ await flush();
+ const chips=D.querySelector('.rt-community-chips');
+ assert.equal(chips.querySelectorAll('.rt-filter-chip').length,4);
+ // What the summary chip's × and the Applied filters list's Clear all use (feed-filters.js clearAllPills).
+ const x=chips.querySelector('.rt-filter-summary-clear');
+ if(x)x.click();else chips.querySelector(':scope>.rt-filter-clear').click();
+ const url=new W.URL(W.location.href);
+ assert.equal(url.searchParams.has('rt_type'),false);
+ assert.equal(url.searchParams.has('rt_sub'),false);
+ assert.equal(D.querySelectorAll('.rt-community-chips .rt-filter-chip').length,0);
+});
+
+test('choosing a filter replaces the address without closing the open menu',async t=>{
+ const {D,W}=setup(t,'/r/Example/');
+ const listeners=new Map();
+ W.navigation={addEventListener:(type,fn)=>listeners.set(type,fn),removeEventListener(){}};
+ // The controller reads navigation at construction: make one that sees it.
+ const c=new W.RTLiveSubredditFilters.Controller({navigate(){}});
+ const replace=W.history.replaceState.bind(W.history);
+ W.history.replaceState=(...args)=>{replace(...args);listeners.get('currententrychange')?.({navigationType:'replace'});};
+ await flush();
+ const button=D.querySelectorAll('[data-rt-community-options]');
+ button[button.length-1].click();
+ assert.ok(c.panel,'menu open');
+ c.applyTypes(['video']);
+ assert.ok(c.panel,'still open after the address changed on the same page');
+ W.history.pushState({},'','/r/Other/');listeners.get('currententrychange')?.({navigationType:'push'});
+ assert.equal(c.panel,null,'a real route change closes it');
+ c.destroy();
+});
+
+test('the Community picker still lists communities whose cards were set aside, and u/ posts count as u_ communities',async t=>{
+ const others=Array.from({length:45},(_,i)=>subCard('other'+(i%3))).join('');
+ const markup=homeFeed().replace(card('video','News')+card('text','Q&A'),subCard('keepme')+others+'<article><shreddit-post post-type="text" subreddit-prefixed-name="u/someone"></shreddit-post></article><hr>');
+ const {D,controller}=setup(t,'/?rt_sub=keepme',markup);
+ await flush();
+ assert.ok(controller.parkedCount>=40,'cards were parked');
+ const names=controller.seenCommunities().map(entry=>entry.name);
+ assert.ok(names.includes('other0') && names.includes('other2'),'parked communities are still offered');
+ assert.ok(names.includes('u_someone'));
+});
+
+test('a batch Reddit swaps out keeps its filtered cards hidden when it comes back',async t=>{
+ const {D,W,controller}=setup(t,'/r/Example/?rt_type=video');
+ await flush();
+ const text=[...D.querySelectorAll('shreddit-post')].find(p=>p.getAttribute('post-type')==='text').closest('article');
+ assert.equal(text.hasAttribute(stop),true);
+ const feed=D.querySelector('shreddit-feed'),marker=D.createComment('placeholder');
+ text.replaceWith(marker);await flush();
+ marker.replaceWith(text);
+ assert.equal(text.hasAttribute(stop),true,'still hidden the moment it returns');
+});
