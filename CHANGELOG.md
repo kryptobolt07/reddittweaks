@@ -1,3 +1,12 @@
+# 0.65.0 preview
+
+- **Visual Search:** Enable it in the extension popup to add a Visual tab to Reddit Search, search by uploaded or pasted image, and find similar media from a result or a post’s three-dot menu.
+- Results fit their original aspect ratios in a masonry layout. More matches load as you scroll when the provider has another page. Media filters distinguish videos from GIFs, and Back restores the previous results and scroll position.
+- Similar and fullscreen preview buttons stay below Reddit’s sticky header and search tabs as you scroll.
+- Visual Search and NSFW results start off. The service is powered by infini.wtf and receives the queries, public post links, or images used for Visual Search without Reddit credentials. Images are uploaded only after a user action. Coverage and pagination depend on the provider.
+- **Minor increment:** Visual Search is a new opt-in feature.
+- All 2,380 tests passed. Signed-in Chromium checks on desktop and phone verified that the result actions remain accessible below the sticky bars and behind them when scrolling. Both packages matched the unpacked builds byte for byte, and Firefox lint passed with zero warnings. Live Firefox behavior and image uploads were outside this release check.
+
 # 0.64.0 preview
 
 - **Bottom sheets kept for phone filter menus (`000ac44`):** On phones, Sort & filter (communities, Home, Popular, All, profiles and the archive) and Reddit search's filter menus open as bottom sheets instead of pull-downs.
