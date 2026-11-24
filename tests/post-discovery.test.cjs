@@ -2368,3 +2368,44 @@ test('blocked-probe leaves genuine 404 profiles untouched and shows a non-intrus
  assert.ok(W.document.querySelector('[data-rt-ui="archive-profile"]'),'clicking fallback mounts archive profile');
 });
 
+
+test('Sort & filter shows the filter count when the filters come from the address',async t=>{
+  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/?rt_type=image&rt_date=week',pre:['feed-filters.js']});
+  const gcs=W.getComputedStyle.bind(W);W.getComputedStyle=el=>{const s=gcs(el);return new Proxy(s,{get:(o,k)=>k==='display'?'flex':o[k]});};
+  W.Element.prototype.getBoundingClientRect=function(){return {width:400,height:20,top:0,left:0,bottom:20,right:400};};
+  await d.ready;await new Promise(r=>setTimeout(r,20));
+  const btn=d.activityDropdown?.querySelector('button[data-rt-feed-trigger],button[aria-label="Sort & filter"],button[aria-label="Feed options"]');
+  assert.ok(btn);
+  assert.equal(btn.getAttribute('data-rt-filter-count'),'2','no filter change needed for the badge');
+});
+
+test('Overview with a post-type filter loads posts only, since no comment can match',async t=>{
+  const {d}=setup(t,{url:'https://www.reddit.com/user/Example/?rt_type=image',pre:['feed-filters.js']});
+  await d.ready;await new Promise(r=>setTimeout(r,20));
+  assert.deepEqual([...d.kinds()],['post']);
+  d.setFilters({...d.rtFilters,types:[]});
+  assert.deepEqual([...d.kinds()],['post','comment'],'comments come back with the filter');
+});
+
+test('Old lists archived activity oldest first without inserting later pages above what is shown',async t=>{
+  const legacy=[raw('n2',{created_utc:1700000200}),raw('n1',{created_utc:1700000190})];
+  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/?sort=new',pre:['feed-filters.js'],settings:{postDiscovery:true,archiveDiscovery:true},archive:async()=>({posts:legacy,hasMore:true,before:1700000190})});
+  await d.ready;
+  W.RTArchiveQuery={async *search(args){const page=args.cursor?[raw('o3',{created_utc:1600000300}),raw('o4',{created_utc:1600000400})]:[raw('o1',{created_utc:1600000100}),raw('o2',{created_utc:1600000200})];yield {items:page.map(r=>W.RTPostModel.normalizePost(r,{source:'arctic-shift'})),hasMore:true,cursor:1600000200,stalled:false,mode:'server'};},async aggregate(){return {ok:false};}};
+  await d.loadArchive();await new Promise(r=>setTimeout(r,20));
+  const next=W.RTFeedFilters.clone(d.rtFilters);next.sort='old';d.setFilters(next);await new Promise(r=>setTimeout(r,30));
+  assert.equal(d.renderedPosts.map(p=>p.id).join(' '),'o1 o2','items loaded for New wait until the oldest-first stream reaches them');
+  await d.loadMore();await new Promise(r=>setTimeout(r,30));
+  assert.equal(d.renderedPosts.map(p=>p.id).join(' '),'o1 o2 o3 o4','the next page continues below');
+});
+
+test('leaving Old on a Hot profile leaves no archived filler under Reddit\'s Hot feed',async t=>{
+  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/?sort=hot',pre:['feed-filters.js'],settings:{postDiscovery:true,archiveDiscovery:true},reddit:async()=>({posts:[],hasMore:false})});
+  await d.ready;
+  W.RTArchiveQuery={async *search(){yield {items:[raw('o1',{created_utc:1600000100}),raw('o2',{created_utc:1600000200})].map(r=>W.RTPostModel.normalizePost(r,{source:'arctic-shift'})),hasMore:true,cursor:1600000200,stalled:false,mode:'server'};},async aggregate(){return {ok:false};}};
+  await new Promise(r=>setTimeout(r,20));
+  let next=W.RTFeedFilters.clone(d.rtFilters);next.sort='old';d.setFilters(next);await new Promise(r=>setTimeout(r,30));
+  assert.ok(d.renderedPosts.length>=2);
+  next=W.RTFeedFilters.clone(d.rtFilters);next.sort=null;d.setFilters(next);await new Promise(r=>setTimeout(r,30));
+  assert.equal(d.renderedPosts.length,0,'Hot keeps Reddit\'s own ranking');
+});

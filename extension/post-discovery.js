@@ -866,7 +866,7 @@
     }
     showOwnListIdentityError(message){const note=this.ownIdentityError ||= make('p','rt-posts-notice');note.dataset.rtUi='own-list-error';note.setAttribute('role','alert');note.textContent=message;(document.querySelector('main') || document.body).prepend(note);}
     clearOwnListHeader(){
-      this.ownHeaderObserver?.disconnect();this.ownHeaderObserver=null;
+      this.ownHeaderObserver?.disconnect();this.ownHeaderObserver=null;this.ownHeaderWaitRoot=null;
       const state=this.ownHeader;if(!state)return;
       state.form?.removeEventListener('submit',this.onOwnSubmit,true);state.chip.remove();state.nativeRemove?.removeEventListener('click',state.onNativeRemove);
       for(const [node,previous] of state.placeholders)if(node.getAttribute('placeholder')===state.placeholder){if(previous==null)node.removeAttribute('placeholder');else node.setAttribute('placeholder',previous);}
@@ -885,7 +885,14 @@
       // Opening a result: the list pill stays with the parked results until Reddit swaps the page or the search scope.
       const leaving=!enabled && this.ownHeader?.chip.isConnected && this.ownHeader.native===native && host?.getAttribute('scope')===this.ownHeader.scope && (this.context?.list===this.ownHeader.list && this.host?.isConnected || [...(this.searchParks?.values() || [])].some(park=>park.state.context?.list===this.ownHeader.list && park.feed.isConnected));
       if(leaving){if(!this.ownHeaderObserver){this.ownHeaderObserver=new MutationObserver(()=>this.syncOwnListHeader());this.ownHeaderObserver.observe(root,{childList:true,subtree:true});this.ownHeaderObserver.observe(host,{attributes:true,attributeFilter:['scope']});}return;}
-      if(!enabled){this.clearOwnListHeader();if(root && route?.list && signedInName && this.settings.postDiscovery && !this.dead && this.ownHeaderDismissed!==routeKey){this.ownHeaderObserver=new MutationObserver(()=>this.syncOwnListHeader());this.ownHeaderObserver.observe(root,{childList:true,subtree:true});this.ownHeaderObserver.observe(host,{attributes:true,attributeFilter:['scope']});}return;}
+      if(!enabled){
+        const wait=root && route?.list && signedInName && this.settings.postDiscovery && !this.dead && this.ownHeaderDismissed!==routeKey;
+        // Already waiting on this header: keep that observer instead of rebuilding it on every header change.
+        if(wait && !this.ownHeader && this.ownHeaderObserver && this.ownHeaderWaitRoot===root)return;
+        this.clearOwnListHeader();
+        if(wait){this.ownHeaderWaitRoot=root;this.ownHeaderObserver=new MutationObserver(()=>this.syncOwnListHeader());this.ownHeaderObserver.observe(root,{childList:true,subtree:true});this.ownHeaderObserver.observe(host,{attributes:true,attributeFilter:['scope']});}
+        return;
+      }
       const input=(field?.shadowRoot || root)?.querySelector('input[name="q"],textarea[name="q"]');
       if(this.ownHeader?.native===native && this.ownHeader.chip.isConnected && this.ownHeader.input===input && this.ownHeader.list===route.list)return;
       this.clearOwnListHeader();
@@ -1903,7 +1910,9 @@
       this.syncRemovedTab(globalThis.RTNativeRemoval?.identity(document)?.owner,this.context);
       if(this.activityMain===menu && (this.activityMenu?.dataset.rtRemovalOwner || '')!==removalOwner)this.clearActivityMenu();
       if(this.activityMain!==menu){
-        this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;this.relabelTrigger(dropdown);queueMicrotask(()=>this.placeFilterChips());
+        this.clearActivityMenu();this.activityMain=menu;this.activityDropdown=dropdown;this.relabelTrigger(dropdown);
+        // Chips drawn before this button existed had no badge to put the count on (filters from the address, Back).
+        queueMicrotask(()=>{if(this.rtChips)this.renderFilterChips();else this.placeFilterChips();});
         const content=menu.parentElement,subs=[],polished=true;
         if(polished){menu.dataset.rtFeedOptions='true';content.dataset.rtFeedOptionsHost='true';}
         const row=(label,icon,tail)=>{const el=make('rpl-menu-item','cursor-pointer'),body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs rt-menu-caption');for(const [k,v] of Object.entries({size:'medium',appearance:'default',truncate:'both','aria-label':label,'prevent-auto-close':''}))el.setAttribute(k,v);const lead=typeof icon==='string'?glyph(icon):icon;lead?.classList?.add('rt-menu-lead');caption.append(lead,document.createTextNode(label));body.append(caption);if(tail)body.append(glyph(tail));el.tabIndex=-1;el.append(body);return el;};
@@ -2547,7 +2556,8 @@
     }
     updateArchiveSummary(){if(!this.archiveStats)return;const posts=this.renderedPosts || [],times=posts.map(p=>p.created),date=value=>new Date(value*1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});const set=(key,value)=>{if(this.archiveStats[key].textContent!==value)this.archiveStats[key].textContent=value;if(this.mobileArchiveStats?.[key] && this.mobileArchiveStats[key].textContent!==value)this.mobileArchiveStats[key].textContent=value;};set('posts',String(posts.filter(p=>p.kind!=='comment').length));set('comments',String(posts.filter(p=>p.kind==='comment').length));set('oldest',times.length?date(Math.min(...times)):'—');set('newest',times.length?date(Math.max(...times)):'—');}
     retrySettings(){this.reset();return this.loadSettings();}
-    kinds(){if(this.isSearch())return [this.searchKind()];return this.context.view==='overview'?['post','comment']:[this.context.view==='comments'?'comment':'post'];}
+    // A post-type filter matches no comment, so Overview then pages through posts only.
+    kinds(){if(this.isSearch())return [this.searchKind()];return this.context.view==='overview'?(this.rtFilters?.types?.length?['post']:['post','comment']):[this.context.view==='comments'?'comment':'post'];}
     noteSourcePage(key,posts,more){
       const values=posts.map(post=>this.context.sort==='top'?post.score:post.created).filter(Number.isFinite),previous=this.sourceFrontiers.get(key);
       this.sourceFrontiers.set(key,{more,floor:more?(values.length?Math.min(...values):previous?.floor ?? -Infinity):-Infinity});
@@ -2752,7 +2762,7 @@
       this.syncSearchLayout();
       if(this.isOwnList()){this.summarizeOwnList();return;}
       const {count=0,deferred=0}=this.summaryCounts || {},noun=this.context.view==='comments'?(count===1?'comment':'comments'):this.context.view==='overview'?(count===1?'item':'items'):count===1?'post':'posts';
-      const archiveView=this.activityFilter==='deleted' && this.settings.archiveDiscovery,errors=Object.entries(this.sourceErrors || {}).filter(([key,value])=>value && !key.startsWith('metadata-') && !(archiveView && ['post','comment','comment-public','request'].includes(key))).map(([,value])=>value);this.setStatus(errors.length?errors.join(' '):this.nativeBatch.blocked?'Reddit is limiting card requests. Select Refresh activity to retry.':count?`${count} ${this.archiveOnly?'archived':this.blockedProfile?'public':'additional'} ${noun}${this.rtActive()?' · Search and archive coverage may be incomplete':''}`:this.rtActive()?'No matches in loaded activity':'Activity checked',errors.length>0 || this.nativeBatch.blocked===true);
+      const archiveView=this.activityFilter==='deleted' && this.settings.archiveDiscovery,errors=Object.entries(this.sourceErrors || {}).filter(([key,value])=>value && !key.startsWith('metadata-') && !(archiveView && ['post','comment','comment-public','request'].includes(key))).map(([,value])=>value);this.setStatus(errors.length?errors.join(' '):this.nativeBatch.blocked?'Reddit is limiting card requests. Select Refresh activity to retry.':count?`${count} ${this.archiveOnly?'archived':this.blockedProfile?'public':'additional'} ${noun}${this.rtActive()?' · Search and archive coverage may be incomplete':''}`:this.busy || this.archiveBusy || this.hasMoreProfile()?(this.rtActive()?'No matches loaded yet':'Checking activity…'):this.rtActive()?'No matches in loaded activity':'Activity checked',errors.length>0 || this.nativeBatch.blocked===true);
       if(this.isSearch() && !errors.length && !this.nativeBatch.blocked)this.setStatus(this.searchParsed.invalid?this.searchParsed.errors.join('. '):count?count+' results · Search and archive coverage may be incomplete':'Search and archive coverage may be incomplete',Boolean(this.searchParsed.invalid));
       if(this.isSearch()){
         if(this.searchParsed.invalid)this.sourceNotices.query=this.searchParsed.errors.join('. ');
@@ -2934,6 +2944,7 @@
       return Promise.all([reddit,archive]);
     }
     async archivePage({more=false,only=null}={}){
+      if(!more || !this.oldCeiling)this.oldCeiling=new Map();
       if(!more){this.initialPrefetchDone=false;if(!this.busy)this.pages=0;for(const key of Object.keys(this.sourceErrors))if(key.startsWith('archive-'))delete this.sourceErrors[key];this.clearSourceRetries(key=>key.startsWith('archive-'));}
       const generation=this.generation,current=()=>generation===this.generation && pageRoute()?.key===this.context?.key && this.host?.isConnected;
       const sig=more?(this.archiveSig ??= this.archiveSigNow()):(this.archiveSig=this.archiveSigNow());
@@ -2948,7 +2959,9 @@
             // The filters changed while this page was loading: keep its items, drop its cursor.
             if(sig!==this.archiveSig){this.render();return;}
             this.noteSearched(result);
-            this.beforeByKind[kind]=result.before;this.archiveMore[kind]=Boolean(result.hasMore && !result.cursorStalled);this.archiveLoaded=true;this.moreArchive=Object.values(this.archiveMore).some(Boolean);this.noteSourcePage('archive-'+kind,page,this.archiveMore[kind]);
+            this.beforeByKind[kind]=result.before;this.archiveMore[kind]=Boolean(result.hasMore && !result.cursorStalled);
+            // Old reads oldest first: remember how far up each kind's stream has come (all the way once it ends).
+            if(this.oldSort()){const top=page.reduce((max,p)=>Math.max(max,Number(p.created) || 0),-Infinity);this.oldCeiling.set(kind,this.archiveMore[kind]?Math.max(this.oldCeiling.get(kind) ?? -Infinity,top):Infinity);}this.archiveLoaded=true;this.moreArchive=Object.values(this.archiveMore).some(Boolean);this.noteSourcePage('archive-'+kind,page,this.archiveMore[kind]);
             delete this.sourceErrors['archive-'+kind];this.clearSourceRetries(key=>key==='archive-'+kind);this.render();
             // All activity renders these cards, and rendering proves their status, so a
             // separate check would fetch each card twice. Hidden/Deleted need status first.
@@ -3055,7 +3068,13 @@
       if(this.isOwnList()){this.renderOwnList();return;}
       return this.withFeedViewport(()=>{
       this.renderVersion=(this.renderVersion || 0)+1;
-      const posts=this.oldSort()?M.mergePosts([],[...this.archived.values()],{username:this.context.username,visibleIds:[],sort:'new'}).reverse():M.mergePosts(this.isSearch() && !this.clientSearchOn()?[]:[...this.live.values()],[...this.archived.values()],{username:this.context.username,visibleIds:this.visibleIds(),sort:this.effectiveSort(),range:this.isSearch()?'all':this.context.range});
+      // Old: only what every oldest-first stream has passed, so a later page never lands above cards already shown
+      // (items loaded earlier for New, or a kind whose stream is behind, wait until the streams reach them).
+      const oldCeiling=this.oldSort()?Math.min(...this.kinds().map(kind=>this.oldCeiling?.get(kind) ?? -Infinity)):Infinity;
+      // Hot and Top keep Reddit's ranking: archive items only add to the views that merge the archive.
+      const mergesArchive=this.context.sort==='new' || this.freeMerge() || this.activityFilter!=='all' || this.archiveOnly;
+      const archivedForView=mergesArchive?[...this.archived.values()]:[...this.archived.values()].filter(post=>this.live.has(itemKey(post)) || this.live.has(post.fullname));
+      const posts=this.oldSort()?M.mergePosts([],[...this.archived.values()].filter(post=>(Number(post.created) || 0)<=oldCeiling),{username:this.context.username,visibleIds:[],sort:'new'}).reverse():M.mergePosts(this.isSearch() && !this.clientSearchOn()?[]:[...this.live.values()],archivedForView,{username:this.context.username,visibleIds:this.visibleIds(),sort:this.effectiveSort(),range:this.isSearch()?'all':this.context.range});
       for(const post of posts){const key=itemKey(post);this.postMetadata.set(key,post);if(post.subredditIcon)globalThis.RTCommunityIcons?.prime?.(post.subreddit,post.subredditIcon);const previous=this.nodes.get(key);if(previous){if(!reuseCards && previous.dataset.rtArchiveFallback==='true')this.renderArchivedNative(post,previous);if(previous.dataset.rtNativeState==='ready')this.decorateNative(post,previous);continue;}const node=this.card(post);this.results.append(node);this.nodes.set(key,node);}
       this.renderedPosts=posts;
       this.deduplicate();this.more.hidden=!this.hasMoreProfile();

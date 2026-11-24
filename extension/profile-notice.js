@@ -204,7 +204,10 @@
   document.addEventListener('DOMContentLoaded',()=>updateBlockedHold(document,window.location),{once:true});
   refresh();
   const initialRevision=revision,initialRestoreRevision=restoreRevision;
-  function updateSettings(s){settingsKnown=true;archiveOn=s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;setRestoreEnabled(s?.postDiscovery!==false && archiveOn && s?.restoreDeletedContent!==false);setEnabled(s?.postDiscovery!==false,s?.postDiscovery!==false && s?.blockedProfiles!==false);}
+  // Same gate as discovery's own (post-discovery.js syncProfileNotice): profile search pages only with the archive on,
+  // except the signed-in user's own lists (rt_list).
+  const searchAllowed=()=>!/^\/user\/[\w-]{1,20}\/search\/?$/i.test(window.location?.pathname || '') || archiveOn || new URLSearchParams(window.location?.search || '').has('rt_list');
+  function updateSettings(s){settingsKnown=true;archiveOn=s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;setRestoreEnabled(s?.postDiscovery!==false && archiveOn && s?.restoreDeletedContent!==false);setEnabled(s?.postDiscovery!==false && searchAllowed(),s?.postDiscovery!==false && s?.blockedProfiles!==false);}
   try{chrome.storage?.onChanged?.addListener((changes,area)=>{if(area==='local' && changes['rt-settings-v1'])updateSettings(changes['rt-settings-v1'].newValue);});
     // Trusted-only storage does not send storage events to content scripts; the worker forwards normalized settings.
     chrome.runtime?.onMessage?.addListener(message=>{if(message?.scope==='rt-posts' && message.action==='settings-changed')updateSettings(message.settings);});}catch{}
@@ -215,6 +218,6 @@
     archiveOn=response?.ok===true && s?.postDiscovery!==false && s?.archiveDiscovery===true;communityOn=s?.subredditArchive===true;automatic=s?.subredditArchiveAutomatic===true;
     settingsKnown=true;if(!restore && heldAlert.node)releaseAlert(heldAlert.node);
     const discover=response?.ok===true && s?.postDiscovery!==false;
-    if(revision===initialRevision)setEnabled(discover && (!/^\/user\/[\w-]{1,20}\/search\/?$/i.test(window.location?.pathname || '') || archiveOn),discover && s?.blockedProfiles!==false);else refresh([]);if(restore)refresh();
+    if(revision===initialRevision)setEnabled(discover && searchAllowed(),discover && s?.blockedProfiles!==false);else refresh([]);if(restore)refresh();
   },()=>{settingsKnown=true;if(heldAlert.node)releaseAlert(heldAlert.node);failed();});}catch{settingsKnown=true;failed();}
 })();
