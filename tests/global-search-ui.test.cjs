@@ -12,7 +12,7 @@ const records=[
 ];
 function setup(t,{compact=false,search,directory,tools=false,beforeContent}={}){
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat/',runScripts:'outside-only',pretendToBeVisual:true});
-  t.after(()=>dom.window.close());const W=dom.window;W.matchMedia=()=>({matches:true});
+  t.after(()=>dom.window.close());const W=dom.window;W.matchMedia=query=>({matches:!/max-width/.test(String(query))});
   for(const file of ['demo/fixture.js','extension/search-core.js','extension/adapter.js','extension/date-picker.js'])W.eval(source(file));
   const parent=W.document.createElement('div');if(compact)parent.id='resizable';W.document.body.append(parent);
   const api=W.ChatFixture.build(parent,{compact}),nativeCalls=[],savedCalls=[],listeners=new Set();let data=records,owner='fixture-owner';

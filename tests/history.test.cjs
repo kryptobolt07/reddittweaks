@@ -8,7 +8,7 @@ const source=file=>readFileSync(join(__dirname,'..',file),'utf8');
 const tick=ms=>new Promise(resolve=>setTimeout(resolve,ms||30));
 function setup(t,{content=false}={}) {
   const dom=new JSDOM('<!doctype html><body></body>',{url:'https://www.reddit.com/chat/',runScripts:'outside-only',pretendToBeVisual:true});
-  t.after(()=>dom.window.close());const W=dom.window;W.matchMedia=()=>({matches:true});W.HTMLElement.prototype.scrollIntoView=function(){};
+  t.after(()=>dom.window.close());const W=dom.window;W.matchMedia=query=>({matches:!/max-width/.test(String(query))});W.HTMLElement.prototype.scrollIntoView=function(){};
   for(const file of ['demo/fixture.js','extension/directory-model.js','extension/search-core.js','extension/adapter.js','extension/history-store.js','extension/native-identities.js','extension/page-bridge.js','extension/data-client.js'])W.eval(source(file));
   const api=W.ChatFixture.build(W.document.body),client=api.app.querySelector('rs-matrix-client').client,listeners=new Map();
   client.on=(type,fn)=>listeners.set(type,fn);client.off=type=>listeners.delete(type);

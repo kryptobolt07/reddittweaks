@@ -1,3 +1,57 @@
+# 0.63.0 preview
+
+- **One menu shape on phones:** Sort & filter on communities, Home, Popular, All, profiles and the banned-community archive, and Reddit search's filter menus, now open as the same pull-down as on computers and in chat, not a bottom sheet. Phones show only the filter count on the button, so the menu's first row is **Applied filters**, which opens the removable list (also a pull-down) with Clear all.
+- **Date picker on phones:** a pull-up sheet modelled on Android's range picker and the range sheets common in iOS apps:
+  - drag handle and Close;
+  - the On, Before, After and Between switch, plus quick ranges, at touch size;
+  - one weekday row over months that scroll up to today, with older months loading as you scroll;
+  - month titles that jump to any year and month;
+  - 44 px days with a continuous range band;
+  - a sticky footer with the selection, Clear and a full-width Apply.
+
+  Computers keep the existing calendar, and nothing from it was dropped.
+- **Feed filters (found by an independent review):**
+  - Clear all removes every filter at once. It used to put some back when two or more types or communities were set.
+  - Choosing a filter no longer closes the open menu.
+  - The Community picker keeps the communities of cards set aside after a long scroll, and profile posts (u/name) can be filtered.
+  - A batch Reddit swaps out comes back still filtered.
+  - The applied-filter rail is no longer duplicated.
+  - Awaiting approval's menu hand-off is undone when you leave.
+- **Profiles:**
+  - Old shows archived activity oldest first without inserting later pages above what you've read.
+  - Leaving Old on a Hot or Top profile no longer leaves archived filler under Reddit's ranking.
+  - Filters from the address (reload, shared link, Back) show their count.
+  - Overview with a post-type filter no longer pages through comments that can't match.
+  - The status doesn't say "Activity checked" while still loading.
+  - Reddit's "Feed options" menu heading reads Sort & filter.
+- **Banned, blocked and deleted:**
+  - Archived threads keep replies under their parents instead of showing them as top-level comments while older pages load.
+  - Quarantined communities, rate limits and server errors are never read as banned.
+  - An NSFW or spoiler post by an account that blocked you keeps its text behind Reddit's gate.
+  - Top and Comments ranking in the archive no longer reshuffles what you've already seen.
+  - A 403 (possibly Reddit's bot check) pauses Reddit lookups for 5 minutes and is never retried automatically.
+  - Reddit's removal notices aren't shown as recovered text.
+  - "Go To Thread" works for archived comments without a permalink.
+- **Chat:**
+  - Room search no longer drops messages that weren't saved yet.
+  - A request slot granted after the page stopped waiting is released.
+  - Searches during a backfill reuse the search index instead of rebuilding it each time.
+  - The date fast path survives new messages.
+  - Identity reads and read receipts do much less work.
+  - Speaker names are kept per room instead of being rebuilt every 1.8 s.
+- **Videos:**
+  - The loop setting is restored when set back to Default.
+  - A start refused by Reddit's player now reaches the fallbacks.
+  - Less layout work while parking embeds and while scrolling a directly opened post.
+- **Minor increment:** new user-facing behaviour (phone menus, the phone date sheet) on top of the 0.62.1 fixes, which this bundle includes.
+- All 2,346 tests passed. Live, signed out (Chrome Dev, Playwright, 412 px phone emulation):
+  - r/pics Sort & filter opened as a pull-down 8 px under its button (272 px wide, 40 px rows), and choosing Images kept it open.
+  - The profile menu stayed Reddit's own drop-down with the Sort & filter heading.
+  - The date sheet measured 412 × 640 px with 54 × 44 px days.
+
+  Signed-in pages, Direct embed controls, and the archive pages of banned communities weren't checked live.
+- Both ZIPs matched the unpacked assets byte for byte; Firefox lint clean. Chromium SHA-256 `eca5528454e4688c6d63906a31fcba7f4bb0f0a0b055216540adfa7fe5923e1c`. Firefox SHA-256 `28eb4f5bc1c60c4e1c2a9ce110a6300103db2e30048f554dd0ac0ded6064ede0`.
+
 # 0.62.1 preview
 
 - Free abandoned offscreen comments, filters, players, and chat rows. Keep native feed batches available for Back and preserve live players during handoff.
