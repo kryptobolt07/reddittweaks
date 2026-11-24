@@ -79,6 +79,12 @@ export async function launch({phone = false, load = true, headedDesktop = false}
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     await new Promise(resolve => setTimeout(resolve, 300));
+    // Loading over an install already in the profile keeps the worker's previously imported scripts (importScripts
+    // files such as post-model.js) until the extension reloads itself. Reload once so every launch tests this build.
+    await reloadExtension(context, extensionId);
+    for (let i = 0; i < 30 && !context.serviceWorkers().some(w => w.url().startsWith(`chrome-extension://${extensionId}/`)); i++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
   }
   return {context, extensionId, page: context.pages()[0] || await context.newPage()};
 }
@@ -89,7 +95,8 @@ export async function reloadExtension(context, extensionId) {
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   const version = await page.evaluate(() => chrome.runtime.getManifest().version);
   await page.evaluate(() => setTimeout(() => chrome.runtime.reload(), 50));
-  await page.waitForTimeout(1500);
+  // The reload closes the extension's own pages, this one included.
+  await new Promise(resolve => setTimeout(resolve, 1500));
   await page.close().catch(() => {});
   return version;
 }
