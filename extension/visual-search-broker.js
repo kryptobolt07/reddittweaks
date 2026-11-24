@@ -62,13 +62,6 @@
     } catch { return false; }
   }
 
-  async function hasOriginPermission(originPattern) {
-    const perms = api()?.permissions;
-    if (!perms?.contains) return true;
-    try { return Boolean(await perms.contains({ origins: [originPattern] })); }
-    catch { return false; }
-  }
-
   function clearCache({ nsfwOnly = false } = {}) {
     if (!nsfwOnly) {
       cache.clear();
@@ -85,9 +78,6 @@
       const raw = changes['rt-settings-v1'].newValue;
       const enabled = PostModel?.normalizeSettings ? PostModel.normalizeSettings(raw).visualSearch : raw?.visualSearch === true;
       if (!enabled) clearCache();
-    });
-    api()?.permissions?.onRemoved?.addListener(removed => {
-      if (removed?.origins?.some(origin => /infini\.wtf/i.test(origin))) clearCache();
     });
   } catch {}
 
@@ -316,8 +306,10 @@
   async function runQuery(message) {
     const kind = ['search', 'subreddit', 'user', 'popular', 'view', 'upload'].includes(message.kind) ? message.kind : '';
     if (!kind) return fail('Unsupported visual search mode.', 'invalid-request');
+    const pageRaw = Number.parseInt(message.page, 10);
+    const page = Number.isInteger(pageRaw) && pageRaw >= 1 && pageRaw <= 50 ? pageRaw : 1;
     const filters = kind === 'view' ? Model.normalizeFilters(null) : Model.normalizeFilters(message.filters);
-    const spec = { kind, target: message.target || message.slug || message.viewId || message.uuid || '', filters };
+    const spec = { kind, target: message.target || message.slug || message.viewId || message.uuid || '', filters, page };
     const endpoint = Model.buildEndpoint(spec);
     if (!endpoint) return fail('Invalid visual search query.', 'invalid-request');
 
@@ -334,7 +326,7 @@
 
       let { response, controller } = first;
       if (response.status === 204) {
-        const result = { ok: true, items: [], skippedCount: 0, endpointKind: kind, filterable: kind !== 'view', capped: true, cached: false };
+        const result = { ok: true, items: [], skippedCount: 0, page, hasMore: false, nextPage: 0, endpointKind: kind, filterable: kind !== 'view', cached: false };
         setCached(key, result);
         return result;
       }
@@ -350,7 +342,7 @@
       if (kind === 'view' && !text.includes('grid-cell')) {
         const canonical = Model.parseViewUrl(response.url);
         if (canonical && canonical !== spec.target && !String(response.url || '').includes('.turbo_stream')) {
-          const retryUrl = Model.buildEndpoint({ kind: 'view', target: canonical });
+          const retryUrl = Model.buildEndpoint({ kind: 'view', target: canonical, page });
           if (retryUrl) {
             const second = await fetchInfini(retryUrl, { method: 'GET', headers: { Accept: 'text/vnd.turbo-stream.html' } }, { timeoutMs: QUERY_TIMEOUT_MS, force: Boolean(message.force) });
             if (!second.early && second.response.ok && second.response.status !== 204) {
@@ -362,13 +354,20 @@
       }
 
       const parsed = Model.parseGridCells(text);
+      let items = parsed.items;
+      if (filters.mediaType === 'videos') items = items.filter(it => it.isVideo && !it.isGif);
+      else if (filters.mediaType === 'gifs') items = items.filter(it => it.isGif);
+      else if (filters.mediaType === 'images') items = items.filter(it => !it.isVideo);
+      const paging = Model.parseNextPage ? Model.parseNextPage(text, page) : { hasMore: false, nextPage: 0 };
       const result = {
         ok: true,
-        items: parsed.items,
+        items,
         skippedCount: parsed.skippedCount,
+        page,
+        hasMore: paging.hasMore,
+        nextPage: paging.nextPage,
         endpointKind: kind,
         filterable: kind !== 'view',
-        capped: true,
         cached: false
       };
       setCached(key, result);
@@ -602,9 +601,6 @@
   async function fetchVideo(message) {
     const videoUrl = Model.safeVideoUrl(message.url);
     if (!videoUrl) return fail('Invalid visual video URL.', 'invalid-request');
-    if (!await hasOriginPermission('https://video.infini.wtf/*')) {
-      return fail('Grant access to infini.wtf in Reddit Tweaks settings to preview videos.', 'permission-required');
-    }
     return dedupeRead('vid|' + videoUrl, async () => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), VIDEO_TIMEOUT_MS);
@@ -678,10 +674,6 @@
     if (!await featureEnabled()) {
       clearCache();
       return fail('Enable Visual search in Reddit Tweaks settings.', 'disabled');
-    }
-    if (!await hasOriginPermission('https://infini.wtf/*')) {
-      clearCache();
-      return fail('Grant access to infini.wtf in Reddit Tweaks settings.', 'permission-required');
     }
     switch (message?.action) {
       case 'query': return runQuery(message);

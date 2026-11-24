@@ -171,9 +171,6 @@
   },
   "version_name": "0.64.0 preview",
   "optional_host_permissions": [
-    "https://infini.wtf/*",
-    "https://image.infini.wtf/*",
-    "https://video.infini.wtf/*",
     "https://www.redgifs.com/*",
     "https://player.vimeo.com/*",
     "https://vimeo.com/*",
@@ -200,6 +197,8 @@
     "https://gfycat.com/*"
   ],
   "host_permissions": [
+    "https://infini.wtf/*",
+    "https://video.infini.wtf/*",
     "https://arctic-shift.photon-reddit.com/*",
     "https://www.redditraffler.com/*",
     "https://reddit.com/*",

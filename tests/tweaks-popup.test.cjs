@@ -607,13 +607,13 @@ test('a grant made before the other embed providers were added stays on, and Gra
   assert.ok(access.registered[0].matches.includes('https://www.youtube.com/embed/*'));
 });
 
-test('Visual Search requests infini.wtf origins synchronously on opt-in, reverts on denial, and revokes cleanly',async t=>{
-  const granted=new Set();let allow=false;const requests=[];
+test('Visual Search defaults off and persists directly on opt-in toggle without extra permission prompts',async t=>{
+  let permRequests=0;
   const permsApi={
     permissions:{
-      async contains({origins}){return origins.every(o=>granted.has(o));},
-      async request({origins}){requests.push(origins);if(allow)for(const o of origins)granted.add(o);return allow;},
-      async remove({origins}){for(const o of origins)granted.delete(o);}
+      async contains(){return true;},
+      async request(){permRequests++;return true;},
+      async remove(){}
     },
     scripting:{async getRegisteredContentScripts(){return [];},async registerContentScripts(){},async unregisterContentScripts(){}}
   };
@@ -623,39 +623,23 @@ test('Visual Search requests infini.wtf origins synchronously on opt-in, reverts
   const toggle=doc.getElementById('visual-search');
   const postMenu=doc.getElementById('visual-search-post-menu');
   const postMenuRow=postMenu.closest('.setting-row');
-  const revoke=doc.getElementById('visual-search-revoke');
-  const permNote=doc.getElementById('visual-search-perm-status');
 
   assert.equal(toggle.checked,false);
   assert.equal(postMenuRow.hidden,true);
   assert.equal(postMenu.getAttribute('aria-disabled'),'true');
-  assert.equal(revoke.hidden,true);
+  assert.equal(doc.getElementById('visual-search-revoke'),null);
+  assert.equal(doc.getElementById('visual-search-perm-status'),null);
 
-  // Denial reverts checkbox, avoids persisting visualSearch: true, and shows status note
-  toggle.checked=true;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));
-  assert.equal(requests.length,1,'permissions.request invoked synchronously inside input change frame');
-  assert.deepEqual([...requests[0]],['https://infini.wtf/*','https://image.infini.wtf/*','https://video.infini.wtf/*']);
-  await settle();
-  assert.equal(toggle.checked,false);
-  assert.notEqual(p.state['rt-settings-v1']?.visualSearch,true);
-  assert.equal(permNote.hidden,false);
-  assert.match(permNote.textContent,/Allow access to infini\.wtf/);
-
-  // Grant persists visualSearch: true and reveals dependent row + revoke button
-  allow=true;
   toggle.checked=true;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
+  assert.equal(permRequests,0,'toggling visualSearch requires no runtime optional-permission prompt');
   assert.equal(toggle.checked,true);
   assert.equal(p.state['rt-settings-v1'].visualSearch,true);
   assert.equal(postMenuRow.hidden,false);
   assert.equal(doc.querySelector('[aria-labelledby="visual-search-heading"] .group-count').textContent,'2 of 2 on');
-  assert.equal(revoke.hidden,false);
-  assert.equal(permNote.hidden,true);
 
-  // Revoke removes origins, hides revoke, unchecks visualSearch, and saves false
-  revoke.click();await settle();
-  assert.equal(granted.size,0);
-  assert.equal(revoke.hidden,true);
+  toggle.checked=false;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(toggle.checked,false);
   assert.equal(p.state['rt-settings-v1'].visualSearch,false);
+  assert.equal(postMenuRow.hidden,true);
   assert.equal(doc.querySelector('[aria-labelledby="visual-search-heading"] .group-count').textContent,'0 of 2 on');
 });

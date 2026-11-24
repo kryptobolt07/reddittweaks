@@ -18,6 +18,9 @@ const SAMPLE_ITEMS = [
     videoUrl: '',
     isVideo: false,
     isGif: false,
+    width: 800,
+    height: 1000,
+    aspectRatio: 0.8,
     downloadUrl: 'https://infini.wtf/download/uuidOne123?is_animated=false',
     permalink: 'https://www.reddit.com/r/pixelart/comments/1gylby2/gelato_cone/',
     subreddit: 'pixelart',
@@ -33,7 +36,10 @@ const SAMPLE_ITEMS = [
     videoUrl: 'https://video.infini.wtf/uuidTwo456/original.mp4',
     isVideo: true,
     isGif: false,
-    downloadUrl: 'https://infini.wtf/download/uuidTwo456?is_animated=false',
+    width: 1280,
+    height: 720,
+    aspectRatio: 1.7778,
+    downloadUrl: 'https://infini.wtf/download/uuidTwo456?is_animated=true',
     permalink: 'https://www.reddit.com/r/pics/comments/9xyz1/soft_serve/',
     subreddit: 'pics',
     postId: '9xyz1',
@@ -107,9 +113,23 @@ function setupUi(t, {
     const form = D.createElement('form');
     const field = D.createElement('faceplate-search-input');
     field.setAttribute('name', 'q');
+    const input = D.createElement('input');
+    input.name = 'q';
+    input.value = 'ice cream';
+    field.append(input);
+    const drop = D.createElement('div');
+    drop.id = 'search-dropdown-results-container';
+    const ul = D.createElement('ul');
+    ul.id = 'reddit-typeahead-results-partial-container';
+    drop.append(ul);
     form.append(field);
-    sr.append(form);
+    sr.append(form, drop);
   }
+
+  W.RTCommunityIcons = {
+    peek(sub) { return sub.toLowerCase() === 'pixelart' ? 'https://styles.redditmedia.com/t5_pixel/styles/communityIcon_a.png' : undefined; },
+    async get(sub) { return sub.toLowerCase() === 'pics' ? 'https://styles.redditmedia.com/t5_pics/styles/communityIcon_b.png' : null; }
+  };
 
   for (const file of ['post-model.js', 'download-model.js', 'post-menu-dom.js', 'feed-sheet.js', 'visual-search-model.js']) {
     W.eval(read(file));
@@ -124,7 +144,7 @@ function setupUi(t, {
       sent.push(msg);
       if (sendImpl) return sendImpl(msg);
       if (msg.action === 'query') {
-        return { ok: true, items: SAMPLE_ITEMS, skippedCount: 0, endpointKind: msg.kind, filterable: msg.kind !== 'view', capped: true };
+        return { ok: true, items: SAMPLE_ITEMS, skippedCount: 0, page: msg.page || 1, hasMore: false, nextPage: 0, endpointKind: msg.kind, filterable: msg.kind !== 'view' };
       }
       if (msg.action === 'related') {
         return { ok: true, items: [{ label: 'gelato', slug: 'gelato' }] };
@@ -275,10 +295,9 @@ test('T5: Media <-> Visual fast swap works instantaneously and Back to baseNativ
   assert.equal(D.getElementById('native-results').hidden, true);
   assert.equal(visualTab.getAttribute('aria-current'), 'page');
   assert.equal(visualTab.hasAttribute('faceplate-tab-selected'), true);
-  assert.equal(visualTab.style.backgroundColor, 'var(--color-secondary-background-selected)');
   assert.equal(visualWrap.getAttribute('aria-selected'), 'true');
   assert.equal(mediaWrap.getAttribute('aria-selected'), 'false');
-  assert.equal(mediaTab.style.backgroundColor, 'transparent');
+  assert.equal(mediaTab.hasAttribute('data-rt-visual-tab-muted'), true);
 
   // Click native Media tab back -> reveals native Media in 0ms without departure hold and restores native selection
   mediaTab.click();
@@ -288,9 +307,10 @@ test('T5: Media <-> Visual fast swap works instantaneously and Back to baseNativ
   assert.equal(D.getElementById('native-results').hidden, false);
   assert.equal(mediaTab.getAttribute('aria-current'), 'page');
   assert.equal(mediaTab.hasAttribute('faceplate-tab-selected'), true);
-  assert.equal(mediaTab.style.backgroundColor, 'var(--color-secondary-background-selected)');
+  assert.equal(mediaTab.hasAttribute('data-rt-visual-tab-muted'), false);
   assert.equal(mediaWrap.getAttribute('aria-selected'), 'true');
   assert.equal(visualWrap.getAttribute('aria-selected'), 'false');
+  assert.equal(visualTab.hasAttribute('faceplate-tab-selected'), false);
 
   // Repeat forward into Visual, then browser Back to baseNativeUrl (popstate) must also unmount immediately
   visualTab.click();
@@ -301,6 +321,145 @@ test('T5: Media <-> Visual fast swap works instantaneously and Back to baseNativ
   assert.equal(controller.outgoing, null);
   assert.equal(D.querySelector('[data-rt-ui="visual-search"]'), null);
   assert.equal(D.getElementById('native-results').hidden, false);
+});
+
+test('masonry aspect ratios, community icons, VIDEO/GIF badges, multi-page append, and Similar pushState Back navigation work seamlessly', async t => {
+  const { W, D, controller } = setupUi(t, {
+    sendImpl: async msg => {
+      if (msg.action === 'query' && msg.kind === 'search' && (msg.page || 1) === 1) {
+        return {
+          ok: true,
+          items: SAMPLE_ITEMS,
+          skippedCount: 0,
+          page: 1,
+          hasMore: true,
+          nextPage: 2,
+          endpointKind: 'search',
+          filterable: true
+        };
+      }
+      if (msg.action === 'query' && msg.kind === 'search' && msg.page === 2) {
+        return {
+          ok: true,
+          items: [
+            SAMPLE_ITEMS[0], // duplicate should be deduped
+            {
+              uuid: 'uuidPage2Gif',
+              title: 'Swirl GIF',
+              thumb: 'https://image.infini.wtf/uuidPage2Gif/400/80/thumbnail.webp',
+              src: 'https://image.infini.wtf/uuidPage2Gif/400/80/thumbnail.webp',
+              videoUrl: 'https://video.infini.wtf/uuidPage2Gif/original.mp4',
+              isVideo: true,
+              isGif: true,
+              width: 500,
+              height: 500,
+              aspectRatio: 1,
+              permalink: 'https://www.reddit.com/r/gifs/comments/p2gif/',
+              subreddit: 'gifs',
+              postId: 'p2gif',
+              viewId: 'swirl-gif-uuidPage2Gif'
+            }
+          ],
+          skippedCount: 0,
+          page: 2,
+          hasMore: false,
+          nextPage: 0,
+          endpointKind: 'search',
+          filterable: true
+        };
+      }
+      if (msg.action === 'query' && msg.kind === 'view') {
+        return {
+          ok: true,
+          items: [SAMPLE_ITEMS[1]],
+          skippedCount: 0,
+          page: 1,
+          hasMore: false,
+          nextPage: 0,
+          endpointKind: 'view',
+          filterable: false
+        };
+      }
+      return { ok: true };
+    }
+  });
+  await controller.ready;
+  await flush();
+
+  const cols = D.querySelectorAll('.rt-vs-masonry .rt-vs-col');
+  assert.equal(cols.length, 3, 'desktop masonry renders 3 columns');
+  const firstTile = D.querySelector('.rt-vs-tile[data-uuid="uuidOne123"]');
+  assert.equal(firstTile.querySelector('.rt-vs-media').style.aspectRatio, '0.8');
+  assert.equal(
+    firstTile.querySelector('.rt-vs-sub-avatar')?.getAttribute('src'),
+    'https://styles.redditmedia.com/t5_pixel/styles/communityIcon_a.png',
+    'sync peek populates subreddit icon immediately'
+  );
+  const secondTile = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"]');
+  assert.equal(
+    secondTile.querySelector('.rt-vs-sub-avatar')?.getAttribute('src'),
+    'https://styles.redditmedia.com/t5_pics/styles/communityIcon_b.png',
+    'async RTCommunityIcons.get resolves second subreddit icon'
+  );
+  assert.equal(secondTile.querySelector('.rt-vs-badge').textContent.trim(), 'VIDEO');
+
+  // Click Load more -> appends only unique page 2 item without rebuilding page 1 nodes
+  const moreBtn = [...D.querySelectorAll('.rt-vs-foot button')].find(b => b.textContent === 'Load more');
+  assert.ok(moreBtn);
+  moreBtn.click();
+  await flush();
+  assert.equal(D.querySelector('.rt-vs-tile[data-uuid="uuidOne123"]'), firstTile, 'existing page 1 tile DOM preserved');
+  const tiles = D.querySelectorAll('.rt-vs-tile');
+  assert.equal(tiles.length, 3);
+  assert.equal(D.querySelector('.rt-vs-tile[data-uuid="uuidPage2Gif"] .rt-vs-badge').textContent.trim(), 'GIF');
+  assert.match(D.querySelector('.rt-vs-foot').textContent, /End of results/);
+
+  // Clicking Similar pushes state so Back restores the 3-tile masonry cleanly
+  firstTile.querySelector('.rt-vs-overlay-actions button[aria-label="Find visually similar posts"]').click();
+  await flush();
+  assert.equal(new URL(W.location.href).searchParams.get('rt_vview'), 'gelato-cone-uuidOne123');
+  assert.equal(D.querySelectorAll('.rt-vs-tile').length, 1);
+
+  W.history.replaceState({}, '', 'https://www.reddit.com/search/?q=ice+cream&type=media&rt_visual=1');
+  controller.handleRoute({ type: 'popstate' });
+  assert.equal(D.querySelectorAll('[data-rt-ui="visual-search"]').length, 1, 'never leaves duplicate visual host nodes in <main>');
+  assert.equal(D.querySelectorAll('.rt-vs-tile').length, 3, 'Back restores parked multi-page masonry');
+});
+
+test('search bar Enter dismisses dropdown, navigates new queries, and ignores arrow-selected suggestions', async t => {
+  const { W, D, controller, searchHeader, sent } = setupUi(t);
+  await controller.ready;
+  await flush();
+
+  const sr = searchHeader.shadowRoot;
+  const input = sr.querySelector('input[name="q"]');
+  const drop = sr.getElementById('search-dropdown-results-container');
+  const ul = sr.getElementById('reddit-typeahead-results-partial-container');
+
+  // 1. If a typeahead suggestion row is aria-selected="true", let Reddit handle Enter natively
+  const row = D.createElement('li');
+  row.setAttribute('aria-selected', 'true');
+  ul.append(row);
+  let navigated = '';
+  D.addEventListener('click', e => {
+    const a = e.target.closest('a[data-rt-ui="visual-nav-link"]');
+    if (a) { e.preventDefault(); navigated = a.href; }
+  });
+  const selEvt = new W.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true, cancelable: true });
+  input.dispatchEvent(selEvt);
+  assert.equal(selEvt.defaultPrevented, false);
+  assert.equal(navigated, '');
+  row.remove();
+
+  // 2. Normal query Enter hides dropdown, shows orange progress bar, prefetches, and calls native navigateUrl
+  input.value = 'chocolate cake';
+  const subEvt = new W.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true, cancelable: true });
+  input.dispatchEvent(subEvt);
+  assert.equal(subEvt.defaultPrevented, true);
+  assert.equal(drop.classList.contains('hidden'), true, 'search dropdown closed on Enter');
+  assert.ok(D.querySelector('[data-rt-ui="visual-progress"]'), 'orange top progress bar active');
+  assert.ok(navigated.includes('q=chocolate+cake') && navigated.includes('rt_visual=1'));
+  assert.ok(sent.some(m => m.action === 'query' && m.target === 'chocolate-cake'));
 });
 
 test('Visual -> Posts tab switch holds mounted host until <main> swaps, and desktop dropdown updates filters cleanly', async t => {

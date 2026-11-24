@@ -9,6 +9,7 @@
   const Sheet = globalThis.RTFeedSheet;
   const MenuDOM = globalThis.RTPostMenuDOM;
   const DownloadModel = globalThis.RTDownloadModel;
+  const CommunityIcons = globalThis.RTCommunityIcons;
   if (!Model) return;
 
   const SVG = 'http://www.w3.org/2000/svg';
@@ -262,6 +263,8 @@
       this.scrollTimer = 0;
       this.restoreFrame = 0;
       this.postScrollTimer = 0;
+      this.progressTimer = 0;
+      this.progressBar = null;
       this.queued = false;
       this.queuedFrame = false;
 
@@ -312,11 +315,21 @@
       this.onDocPaste = event => this.handlePaste(event);
       this.onVisibility = () => this.handleVisibility();
       this.onRoute = event => this.handleRoute(event);
-      this.onMediaChange = () => { this.closeDropdown(); this.closeUploadPopover(); };
+      this.onMediaChange = () => {
+        this.closeDropdown();
+        this.closeUploadPopover();
+        if (this.host?.isConnected && this.state?.status === 'ready') this.renderHost();
+      };
       this.onScrollPause = () => { if (this.hoveredPreview) this.checkVideoVisibility(); };
 
       this.phoneMedia = globalThis.matchMedia?.('(max-width: 767.98px)');
       this.phoneMedia?.addEventListener?.('change', this.onMediaChange);
+
+      this.moreIO = typeof IntersectionObserver === 'function'
+        ? new IntersectionObserver(entries => {
+            if (entries.some(e => e.isIntersecting)) this.loadMore();
+          }, { rootMargin: '600px 0px' })
+        : null;
 
       this.videoIO = typeof IntersectionObserver === 'function'
         ? new IntersectionObserver(entries => {
@@ -575,6 +588,10 @@
       const entryKey = historyEntry();
       const currentUrl = urlKey(location.href);
 
+      if (main !== this.mountedMain) {
+        this.baseNativeUrl = urlKey(Model.stripVisualParams(location.href).href);
+      }
+
       // Hide Reddit's native children in <main> (excluding our own host and scoped switcher/tabgroup).
       this.suppressNativeInMain(main);
 
@@ -584,6 +601,9 @@
           main.prepend(this.host);
         }
         this.mountedMain = main;
+        if (!['hashing', 'uploading', 'embedding', 'fetching'].includes(this.state?.status)) {
+          this.finishProgress();
+        }
         if (!wasActive) this.notifyOtherModules();
         return;
       }
@@ -592,6 +612,7 @@
       const park = this.takePark(entryKey, currentUrl);
       if (park && park.settingsRev === this.settingsRevision) {
         this.adoptPark(park, main, parsed);
+        this.finishProgress();
         if (!wasActive) this.notifyOtherModules();
         return;
       }
@@ -622,15 +643,27 @@
       this.hiddenNodes.clear();
     }
 
+    isHostParked(host) {
+      if (!host) return false;
+      for (const p of this.parks.values()) if (p.host === host) return true;
+      for (const p of this.urlParks.values()) if (p.host === host) return true;
+      return false;
+    }
+
     mountFreshVisual(main, parsed, currentUrl) {
       this.stopVideoPreview();
       this.stopPolling();
       this.stopScrollRestore();
+      this.moreIO?.disconnect();
       this.mountedMain = main;
       this.activeKey = currentUrl;
       this.activeSpecKey = parsed.spec ? Model.cacheKey(parsed.spec) : '';
 
-      const host = this.host || this.buildHost();
+      const host = (this.host && !this.isHostParked(this.host)) ? this.host : this.buildHost();
+      if (this.host && this.host !== host) this.host.remove();
+      for (const stray of main.querySelectorAll('[data-rt-ui="visual-search"]')) {
+        if (stray !== host) stray.remove();
+      }
       this.host = host;
       if (host.parentElement !== main || main.firstElementChild !== host) main.prepend(host);
       this.state = {
@@ -641,6 +674,17 @@
         code: '',
         retryAt: 0,
         skippedCount: 0,
+        page: 1,
+        hasMore: false,
+        nextPage: 0,
+        loadingMore: false,
+        loadMoreError: '',
+        seenUuids: new Set(),
+        subIconNodes: new Map(),
+        masonryEl: null,
+        masonryCols: [],
+        colHeights: [],
+        footEl: null,
         pollAttempt: 0,
         uploadStatusText: '',
         uploadPreviewUrl: this.readUploadPreview(parsed.uploadUuid || parsed.uploadHash),
@@ -656,6 +700,11 @@
       this.stopVideoPreview();
       this.stopPolling();
       this.stopScrollRestore();
+      this.moreIO?.disconnect();
+      if (this.host && this.host !== park.host) this.host.remove();
+      for (const stray of main.querySelectorAll('[data-rt-ui="visual-search"]')) {
+        if (stray !== park.host) stray.remove();
+      }
       this.host = park.host;
       this.state = park.state;
       this.state.parsed = parsed;
@@ -666,6 +715,11 @@
       this.suppressNativeInMain(main);
       if (this.host.parentElement !== main || main.firstElementChild !== this.host) {
         main.prepend(this.host);
+      }
+      if (this.state.status === 'ready' && this.state.masonryCols?.length !== (isPhone() ? 2 : 3)) {
+        this.renderHost();
+      } else {
+        this.observeMoreSentinel();
       }
 
       if (park.scrollY > 0 || park.clickedUuid) {
@@ -813,6 +867,8 @@
       this.outgoing = null;
       clearTimeout(out.timer);
       if (!keepHost) {
+        this.moreIO?.disconnect();
+        this.finishProgress();
         if (out.host === this.host) this.host = null;
         if (out.main?.isConnected) this.restoreHiddenNodes();
         out.host?.remove();
@@ -832,6 +888,8 @@
       this.stopVideoPreview();
       this.stopPolling();
       this.stopScrollRestore();
+      this.moreIO?.disconnect();
+      this.finishProgress();
       this.closeDropdown();
       this.host?.remove();
       this.host = null;
@@ -841,7 +899,40 @@
       this.restoreHiddenNodes();
     }
 
-    // ---- Data Loading & Upload Polling -------------------------------------------------------------------------
+    // ---- Top Orange Progress Bar -------------------------------------------------------------------------------
+
+    ensureProgressBar() {
+      if (this.progressBar?.isConnected) return this.progressBar;
+      const bar = make('div', 'rt-vs-progress');
+      bar.dataset.rtUi = 'visual-progress';
+      bar.setAttribute('role', 'progressbar');
+      bar.setAttribute('aria-label', 'Loading visual search results');
+      (document.body || document.documentElement)?.append(bar);
+      this.progressBar = bar;
+      return bar;
+    }
+
+    startProgress() {
+      clearTimeout(this.progressTimer);
+      const bar = this.ensureProgressBar();
+      bar.classList.remove('is-finishing');
+      bar.dataset.state = 'loading';
+    }
+
+    finishProgress() {
+      const bar = this.progressBar;
+      if (!bar) return;
+      clearTimeout(this.progressTimer);
+      bar.classList.add('is-finishing');
+      this.progressTimer = setTimeout(() => {
+        if (this.progressBar === bar) {
+          bar.remove();
+          this.progressBar = null;
+        }
+      }, 260);
+    }
+
+    // ---- Data Loading, Pagination & Upload Polling -------------------------------------------------------------
 
     stopPolling() {
       clearTimeout(this.pollTimer);
@@ -851,10 +942,16 @@
     async startLoad(parsed, { force = false } = {}) {
       const myGen = ++this.gen;
       this.stopPolling();
+      this.moreIO?.disconnect();
       this.state.error = '';
       this.state.code = '';
       this.state.retryAt = 0;
       this.state.skippedCount = 0;
+      this.state.page = 1;
+      this.state.hasMore = false;
+      this.state.nextPage = 0;
+      this.state.loadingMore = false;
+      this.state.loadMoreError = '';
 
       if (parsed.kind === 'post' && parsed.postSeed) {
         await this.loadSimilarFromPost(parsed, myGen, force);
@@ -873,15 +970,13 @@
       }
 
       if (!parsed.spec) {
+        this.finishProgress();
         this.state.status = 'empty';
         this.renderHost();
         return;
       }
 
-      if (parsed.kind === 'upload' && parsed.uploadUuid && !this.state.items.length) {
-        // Check upload embedding status first if we came from an unready upload, or query directly.
-      }
-
+      this.startProgress();
       this.state.status = 'fetching';
       this.renderHost();
 
@@ -896,6 +991,7 @@
           target: parsed.spec.target,
           slug: parsed.spec.slug,
           filters: parsed.spec.filters,
+          page: 1,
           force
         });
         if (this.dead || myGen !== this.gen) return;
@@ -913,8 +1009,11 @@
           return;
         }
 
-        this.state.items = Array.isArray(result.items) ? result.items : [];
+        this.state.items = Array.isArray(result.items) ? [...result.items] : [];
         this.state.skippedCount = Number(result.skippedCount) || 0;
+        this.state.page = Number(result.page) || 1;
+        this.state.hasMore = Boolean(result.hasMore);
+        this.state.nextPage = Number(result.nextPage) || 0;
         this.state.status = this.state.items.length ? 'ready' : 'empty';
         this.renderHost();
       } catch (err) {
@@ -922,11 +1021,60 @@
         this.state.status = 'error';
         this.state.error = err?.message || 'Unable to load visual search results.';
         this.renderHost();
+      } finally {
+        if (myGen === this.gen) this.finishProgress();
+      }
+    }
+
+    async loadMore() {
+      const st = this.state;
+      if (this.dead || !this.enabled || !this.host?.isConnected || !st || st.status !== 'ready' || !st.hasMore || st.loadingMore || !st.parsed?.spec) return;
+      const myGen = this.gen;
+      const page = st.nextPage || (st.page + 1);
+      st.loadingMore = true;
+      st.loadMoreError = '';
+      this.updateFooter();
+
+      try {
+        const res = await this.send({
+          action: 'query',
+          kind: st.parsed.spec.kind,
+          target: st.parsed.spec.target,
+          slug: st.parsed.spec.slug,
+          filters: st.parsed.spec.filters,
+          page
+        });
+        if (this.dead || myGen !== this.gen || this.state !== st) return;
+        st.loadingMore = false;
+        if (!res?.ok) {
+          st.loadMoreError = res?.error || 'Could not load more results.';
+          this.updateFooter();
+          return;
+        }
+        const added = [];
+        for (const it of res.items || []) {
+          if (!st.seenUuids?.has(it.uuid)) {
+            added.push(it);
+            st.items.push(it);
+          }
+        }
+        st.page = Number(res.page) || page;
+        st.hasMore = Boolean(res.hasMore && res.nextPage > st.page);
+        st.nextPage = res.hasMore ? Number(res.nextPage) || 0 : 0;
+        st.skippedCount += Number(res.skippedCount) || 0;
+        if (added.length) this.appendMasonryItems(added, st);
+        this.updateFooter();
+      } catch (err) {
+        if (this.dead || myGen !== this.gen || this.state !== st) return;
+        st.loadingMore = false;
+        st.loadMoreError = err?.message || 'Could not load more results.';
+        this.updateFooter();
       }
     }
 
     async loadSimilarFromPost(parsed, myGen, force) {
       const { subreddit, postId } = parsed.postSeed;
+      this.startProgress();
       this.state.status = 'fetching';
       this.renderHost();
 
@@ -944,7 +1092,8 @@
 
         if (res.indexed && res.viewId) {
           this.state.indexedViewId = res.viewId;
-          const queryRes = await this.send({ action: 'query', kind: 'view', target: res.viewId, force });
+          this.state.parsed = { ...parsed, spec: { kind: 'view', target: res.viewId, filters: {} } };
+          const queryRes = await this.send({ action: 'query', kind: 'view', target: res.viewId, page: 1, force });
           if (this.dead || myGen !== this.gen) return;
           if (!queryRes?.ok) {
             this.state.status = 'error';
@@ -952,8 +1101,11 @@
             this.renderHost();
             return;
           }
-          this.state.items = Array.isArray(queryRes.items) ? queryRes.items : [];
+          this.state.items = Array.isArray(queryRes.items) ? [...queryRes.items] : [];
           this.state.skippedCount = Number(queryRes.skippedCount) || 0;
+          this.state.page = Number(queryRes.page) || 1;
+          this.state.hasMore = Boolean(queryRes.hasMore);
+          this.state.nextPage = Number(queryRes.nextPage) || 0;
           this.state.status = this.state.items.length ? 'ready' : 'empty';
           this.renderHost();
           return;
@@ -967,6 +1119,8 @@
         this.state.status = 'error';
         this.state.error = err?.message || 'Could not resolve that post.';
         this.renderHost();
+      } finally {
+        if (myGen === this.gen) this.finishProgress();
       }
     }
 
@@ -1132,14 +1286,16 @@
     }
 
     commitUploadUuid(uuid, filters) {
+      const cur = Model.parseVisualUrl(location.href);
       const next = Model.buildVisualUrl(location.href, {
-        basePath: Model.parseVisualUrl(location.href)?.scope?.path || '/search/',
+        basePath: cur?.scope?.path || '/search/',
         q: '',
         uploadUuid: uuid,
         filters,
         cleanNav: true
       });
-      this.replaceVisualUrl(next);
+      if (cur?.kind === 'pending-upload') this.replaceVisualUrl(next);
+      else this.pushVisualUrl(next);
     }
 
     // ---- Rendering (Pure DOM APIs only — zero innerHTML) -------------------------------------------------------
@@ -1193,7 +1349,14 @@
               filters: parsed.filters,
               cleanNav: true
             });
-            this.replaceVisualUrl(dest);
+            if (urlKey(dest.href) === urlKey(location.href)) return;
+            this.savePark();
+            this.startProgress();
+            const dp = Model.parseVisualUrl(dest.href);
+            if (dp?.spec) {
+              this.send({ action: 'query', kind: dp.spec.kind, target: dp.spec.target, slug: dp.spec.slug, filters: dp.spec.filters, page: 1 }).catch(() => {});
+            }
+            this.navigateUrl(dest.href);
           });
           row.append(pill);
         }
@@ -1201,6 +1364,7 @@
       }
 
       // 4. Body state
+      this.moreIO?.disconnect();
       if (['hashing', 'uploading', 'embedding', 'fetching'].includes(st.status)) {
         if (st.uploadStatusText) {
           const status = make('div', 'rt-community-state');
@@ -1232,11 +1396,14 @@
       } else if (st.status === 'empty') {
         parts.push(this.buildEmptyCard(parsed));
       } else if (st.status === 'ready') {
-        parts.push(this.buildResultsGrid(st.items));
-        parts.push(this.buildLimitFooter(parsed, st));
+        parts.push(this.buildResultsMasonry(st.items, st));
+        const foot = this.buildLimitFooter(parsed, st);
+        st.footEl = foot;
+        parts.push(foot);
       }
 
       host.replaceChildren(...parts);
+      if (st.status === 'ready') this.observeMoreSentinel();
     }
 
     buildControls(parsed) {
@@ -1314,7 +1481,7 @@
         noteBtn.append(make('span', '', 'Browse popular (filterable)'));
         noteBtn.addEventListener('click', () => {
           const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, filters: parsed.filters });
-          this.replaceVisualUrl(dest);
+          this.pushVisualUrl(dest);
         });
         bar.append(noteBtn);
       }
@@ -1352,7 +1519,7 @@
         clear.type = 'button';
         clear.addEventListener('click', () => {
           const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, filters: parsed.filters });
-          this.replaceVisualUrl(dest);
+          this.pushVisualUrl(dest);
         });
         actions.append(clear);
         banner.append(lead, actions);
@@ -1415,7 +1582,7 @@
           browseSub.type = 'button';
           browseSub.addEventListener('click', () => {
             const dest = Model.buildVisualUrl(location.href, { basePath: parsed.scope.path, q: '', filters: parsed.filters });
-            this.replaceVisualUrl(dest);
+            this.pushVisualUrl(dest);
           });
           actions.append(browseSub);
           banner.append(actions);
@@ -1437,109 +1604,252 @@
       return grid;
     }
 
-    buildResultsGrid(items) {
-      const grid = make('div', 'rt-vs-grid');
-      for (const item of items) {
-        const tile = make('article', 'rt-vs-tile');
-        tile.dataset.uuid = item.uuid;
+    buildSubIcon(sub, st) {
+      const iconWrap = make('span', 'rt-vs-sub-icon');
+      iconWrap.setAttribute('aria-hidden', 'true');
+      const fallbackSvg = () => {
+        const nativeIcon = Filters?.svgIcon?.('community-fill', 16);
+        if (nativeIcon) return nativeIcon;
+        const svg = document.createElementNS(SVG, 'svg');
+        svg.setAttribute('viewBox', '0 0 20 20');
+        svg.setAttribute('width', '12');
+        svg.setAttribute('height', '12');
+        svg.setAttribute('fill', 'currentColor');
+        const p = document.createElementNS(SVG, 'path');
+        p.setAttribute('d', 'M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm1 11.5H9v-5h2v5Zm0-6.5H9V5.2h2V7Z');
+        svg.append(p);
+        return svg;
+      };
+      const setUrl = url => {
+        const img = make('img', 'rt-vs-sub-avatar');
+        img.src = url;
+        img.alt = '';
+        img.decoding = 'async';
+        img.loading = 'lazy';
+        img.referrerPolicy = 'no-referrer';
+        img.addEventListener('error', () => { iconWrap.replaceChildren(fallbackSvg()); }, { once: true });
+        iconWrap.replaceChildren(img);
+      };
 
-        const media = make('div', 'rt-vs-media');
-        if (item.videoUrl) media.dataset.videoUrl = item.videoUrl;
-        const link = make('a', 'rt-vs-card-link');
-        link.href = item.permalink;
-
-        const thumbUrl = item.thumb || item.src;
-        if (thumbUrl) {
-          const img = make('img', 'rt-vs-img');
-          img.src = thumbUrl;
-          if (item.srcset) img.srcset = item.srcset;
-          img.sizes = isPhone() ? '(max-width: 767px) 46vw, 350px' : '(min-width: 768px) 347px, 46vw';
-          img.alt = item.title || 'Reddit post media';
-          img.loading = 'lazy';
-          img.decoding = 'async';
-          img.referrerPolicy = 'no-referrer';
-          img.addEventListener('error', () => {
-            if (!media.querySelector('.rt-vs-img-fallback')) {
-              img.remove();
-              media.append(make('span', 'rt-vs-img-fallback', 'Thumbnail unavailable'));
-            }
-          }, { once: true });
-          media.append(img);
-        } else {
-          media.append(make('span', 'rt-vs-img-fallback', 'Media preview unavailable'));
-        }
-
-        if (item.isVideo) {
-          const badge = make('span', 'rt-vs-badge');
-          badge.append(icon('play', 11), make('span', '', item.isGif ? 'GIF' : 'VIDEO'));
-          media.append(badge);
-        }
-
-        const titleEl = make('h3', 'rt-vs-title', item.title || 'Untitled Reddit post');
-        link.append(media);
-
-        const meta = make('div', 'rt-vs-meta');
-        if (item.subreddit) {
-          const isUser = item.subreddit.startsWith('u_');
-          const label = isUser ? 'u/' + item.subreddit.slice(2) : 'r/' + item.subreddit;
-          const subLink = make('a', 'rt-vs-sub-link', label);
-          subLink.href = isUser
-            ? 'https://www.reddit.com/user/' + encodeURIComponent(item.subreddit.slice(2)) + '/'
-            : 'https://www.reddit.com/r/' + encodeURIComponent(item.subreddit) + '/';
-          meta.append(subLink);
-        } else {
-          meta.append(make('span', 'rt-vs-sub-link', 'Reddit'));
-        }
-
-        const actions = make('div', 'rt-vs-tile-actions');
-        const simBtn = make('button', 'rt-vs-icon-btn');
-        simBtn.type = 'button';
-        simBtn.title = 'Find visually similar posts';
-        simBtn.setAttribute('aria-label', 'Find visually similar posts');
-        simBtn.append(icon('similar', 13), make('span', '', 'Similar'));
-        simBtn.addEventListener('click', e => {
-          e.preventDefault();
-          e.stopPropagation();
-          const dest = Model.buildVisualUrl(location.href, {
-            basePath: '/search/',
-            q: '',
-            viewId: item.viewId || item.uuid,
-            cleanNav: true
-          });
-          this.replaceVisualUrl(dest);
-        });
-
-        const prevBtn = make('button', 'rt-vs-icon-btn');
-        prevBtn.type = 'button';
-        prevBtn.title = 'Quick preview';
-        prevBtn.setAttribute('aria-label', 'Preview media');
-        prevBtn.append(icon('expand', 13));
-        prevBtn.addEventListener('click', e => {
-          e.preventDefault();
-          e.stopPropagation();
-          this.openLightbox(item, prevBtn);
-        });
-
-        actions.append(simBtn, prevBtn);
-        meta.append(actions);
-
-        const titleLink = make('a', 'rt-vs-card-link');
-        titleLink.href = item.permalink;
-        titleLink.append(titleEl);
-        tile.append(link, meta, titleLink);
-        grid.append(tile);
+      const known = CommunityIcons?.peek?.(sub);
+      if (typeof known === 'string' && known) {
+        setUrl(known);
+        return iconWrap;
       }
-      return grid;
+      iconWrap.append(fallbackSvg());
+      if (known === undefined && CommunityIcons?.get) {
+        const key = sub.toLowerCase();
+        const myGen = this.gen;
+        let list = st.subIconNodes?.get(key);
+        const firstForKey = !list;
+        if (!list) {
+          list = [];
+          st.subIconNodes?.set(key, list);
+        }
+        list.push(iconWrap);
+        if (firstForKey) {
+          CommunityIcons.get(sub).then(url => {
+            if (this.dead || myGen !== this.gen) return;
+            const targets = st.subIconNodes?.get(key) || [];
+            st.subIconNodes?.delete(key);
+            if (!url) return;
+            for (const node of targets) {
+              if (!node.isConnected) continue;
+              const img = make('img', 'rt-vs-sub-avatar');
+              img.src = url;
+              img.alt = '';
+              img.decoding = 'async';
+              img.loading = 'lazy';
+              img.referrerPolicy = 'no-referrer';
+              img.addEventListener('error', () => { node.replaceChildren(fallbackSvg()); }, { once: true });
+              node.replaceChildren(img);
+            }
+          }).catch(() => {});
+        }
+      }
+      return iconWrap;
+    }
+
+    createTileNode(item, st) {
+      const tile = make('article', 'rt-vs-tile');
+      tile.dataset.uuid = item.uuid;
+
+      const mediaWrap = make('div', 'rt-vs-media-wrap');
+      const media = make('div', 'rt-vs-media');
+      media.style.aspectRatio = String(item.aspectRatio > 0 ? item.aspectRatio : 1);
+      if (item.videoUrl) media.dataset.videoUrl = item.videoUrl;
+
+      const link = make('a', 'rt-vs-card-link');
+      link.href = item.permalink;
+
+      const thumbUrl = item.thumb || item.src;
+      if (thumbUrl) {
+        const img = make('img', 'rt-vs-img');
+        img.src = thumbUrl;
+        if (item.srcset) img.srcset = item.srcset;
+        img.sizes = isPhone() ? '(max-width: 767px) 46vw, 350px' : '(min-width: 768px) 347px, 46vw';
+        img.alt = item.title || 'Reddit post media';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.referrerPolicy = 'no-referrer';
+        img.addEventListener('load', () => {
+          if (!item.aspectRatio && img.naturalWidth > 0 && img.naturalHeight > 0) {
+            const realRatio = Math.min(2.4, Math.max(0.42, img.naturalWidth / img.naturalHeight));
+            item.aspectRatio = Number(realRatio.toFixed(4));
+            media.style.aspectRatio = String(item.aspectRatio);
+          }
+        }, { once: true });
+        img.addEventListener('error', () => {
+          if (!media.querySelector('.rt-vs-img-fallback')) {
+            img.remove();
+            media.append(make('span', 'rt-vs-img-fallback', 'Thumbnail unavailable'));
+          }
+        }, { once: true });
+        media.append(img);
+      } else {
+        media.append(make('span', 'rt-vs-img-fallback', 'Media preview unavailable'));
+      }
+
+      if (item.isVideo) {
+        const badge = make('span', 'rt-vs-badge');
+        badge.append(icon('play', 11), make('span', '', item.isGif ? 'GIF' : 'VIDEO'));
+        media.append(badge);
+      }
+
+      link.append(media);
+
+      // Overlay actions sit beside <a> inside .rt-vs-media-wrap so interactive controls are never nested inside <a>.
+      const actions = make('div', 'rt-vs-overlay-actions');
+      const simBtn = make('button', 'rt-vs-icon-btn');
+      simBtn.type = 'button';
+      simBtn.title = 'Find visually similar posts';
+      simBtn.setAttribute('aria-label', 'Find visually similar posts');
+      simBtn.append(icon('similar', 13), make('span', '', 'Similar'));
+      simBtn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const dest = Model.buildVisualUrl(location.href, {
+          basePath: '/search/',
+          q: '',
+          viewId: item.viewId || item.uuid,
+          cleanNav: true
+        });
+        this.pushVisualUrl(dest);
+      });
+
+      const prevBtn = make('button', 'rt-vs-icon-btn');
+      prevBtn.type = 'button';
+      prevBtn.title = 'Quick preview';
+      prevBtn.setAttribute('aria-label', 'Preview media');
+      prevBtn.append(icon('expand', 13));
+      prevBtn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.openLightbox(item, prevBtn);
+      });
+
+      actions.append(simBtn, prevBtn);
+      mediaWrap.append(link, actions);
+
+      const subRow = make('div', 'rt-vs-sub-row');
+      if (item.subreddit) {
+        const isUser = item.subreddit.startsWith('u_');
+        if (!isUser) subRow.append(this.buildSubIcon(item.subreddit, st));
+        const label = isUser ? 'u/' + item.subreddit.slice(2) : 'r/' + item.subreddit;
+        const subLink = make('a', 'rt-vs-sub-link', label);
+        subLink.href = isUser
+          ? 'https://www.reddit.com/user/' + encodeURIComponent(item.subreddit.slice(2)) + '/'
+          : 'https://www.reddit.com/r/' + encodeURIComponent(item.subreddit) + '/';
+        subRow.append(subLink);
+      } else {
+        subRow.append(make('span', 'rt-vs-sub-link', 'Reddit'));
+      }
+
+      const titleLink = make('a', 'rt-vs-card-link');
+      titleLink.href = item.permalink;
+      titleLink.append(make('h3', 'rt-vs-title', item.title || 'Untitled Reddit post'));
+
+      tile.append(mediaWrap, subRow, titleLink);
+      return tile;
+    }
+
+    appendMasonryItems(items, st) {
+      if (!st.masonryCols?.length) return;
+      for (const item of items) {
+        if (st.seenUuids?.has(item.uuid)) continue;
+        st.seenUuids?.add(item.uuid);
+        let minIdx = 0;
+        for (let i = 1; i < st.colHeights.length; i++) {
+          if (st.colHeights[i] < st.colHeights[minIdx]) minIdx = i;
+        }
+        const tile = this.createTileNode(item, st);
+        const ratio = item.aspectRatio > 0 ? item.aspectRatio : 1;
+        st.masonryCols[minIdx].append(tile);
+        st.colHeights[minIdx] += (1 / ratio + 0.24);
+      }
+    }
+
+    buildResultsMasonry(items, st) {
+      const colCount = isPhone() ? 2 : 3;
+      const masonry = make('div', 'rt-vs-masonry');
+      const cols = [];
+      const heights = new Array(colCount).fill(0);
+      for (let i = 0; i < colCount; i++) {
+        const col = make('div', 'rt-vs-col');
+        cols.push(col);
+        masonry.append(col);
+      }
+      st.masonryEl = masonry;
+      st.masonryCols = cols;
+      st.colHeights = heights;
+      st.seenUuids = new Set();
+      this.appendMasonryItems(items, st);
+      return masonry;
+    }
+
+    observeMoreSentinel() {
+      this.moreIO?.disconnect();
+      const foot = this.state?.footEl;
+      if (!foot || !foot.isConnected || !this.moreIO) return;
+      if (this.state.status === 'ready' && this.state.hasMore && !this.state.loadingMore && !this.state.loadMoreError) {
+        this.moreIO.observe(foot);
+      }
+    }
+
+    updateFooter() {
+      const st = this.state;
+      if (!st?.footEl?.isConnected || !st.parsed) return;
+      const next = this.buildLimitFooter(st.parsed, st);
+      st.footEl.replaceWith(next);
+      st.footEl = next;
+      this.observeMoreSentinel();
     }
 
     buildLimitFooter(parsed, st) {
       const foot = make('div', 'rt-vs-foot');
       const count = st.items.length;
-      const modeText = parsed.kind === 'view'
-        ? `Showing ${count} similar results from infini.wtf (provider limit per lookup).`
-        : `Showing ${count} visual matches from infini.wtf (provider caps results at ${Model.RESULT_LIMIT} per query).`;
-      const msg = make('span', '', modeText + (st.skippedCount ? ` (${st.skippedCount} incomplete entries skipped)` : ''));
+      let msg;
+      if (st.loadingMore) {
+        const spin = make('span', 'rt-community-spinner');
+        spin.append(icon('camera', 16));
+        msg = make('span', 'rt-community-state-head');
+        msg.append(spin, make('span', '', 'Loading more visual results…'));
+      } else if (st.loadMoreError) {
+        msg = make('span', '', st.loadMoreError);
+      } else {
+        const noun = parsed.kind === 'view' ? 'similar results' : 'visual matches';
+        const suffix = st.hasMore ? '' : ' · End of results';
+        const skipped = st.skippedCount ? ` (${st.skippedCount} incomplete entries skipped)` : '';
+        msg = make('span', '', `Showing ${count} ${noun} from infini.wtf${suffix}${skipped}`);
+      }
+
       const actions = make('div', 'rt-vs-foot-actions');
+      if ((st.hasMore || st.loadMoreError) && !st.loadingMore) {
+        const moreBtn = make('button', 'rt-community-action rt-community-action-primary', st.loadMoreError ? 'Retry loading more' : 'Load more');
+        moreBtn.type = 'button';
+        moreBtn.addEventListener('click', () => this.loadMore());
+        actions.append(moreBtn);
+      }
       const nativeMediaUrl = Model.stripVisualParams(new URL(location.href));
       nativeMediaUrl.searchParams.set('type', 'media');
       const nativeLink = make('a', 'rt-community-action', 'Open Reddit Media tab');
@@ -1571,7 +1881,7 @@
         titleBtn.type = 'button';
         titleBtn.addEventListener('click', () => {
           const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: st.postSeed.title, filters: parsed.filters, cleanNav: true });
-          this.replaceVisualUrl(dest);
+          this.pushVisualUrl(dest);
         });
         actions.append(titleBtn);
       }
@@ -1591,7 +1901,7 @@
       card.append(head);
       const hasFilters = Boolean(parsed.filters.mediaType || parsed.filters.time || parsed.filters.nsfw);
       const reason = hasFilters
-        ? 'infini.wtf returned no matches for this combination of filters. Try clearing filters' + (!parsed.filters.nsfw ? ' or toggling 18+.' : '.')
+        ? 'infini.wtf returned no matches for this combination of filters. Try clearing filters' + (!parsed.filters.nsfw ? ' or toggling NSFW.' : '.')
         : 'infini.wtf had no indexed visual matches for this query.';
       card.append(make('p', 'rt-community-state-body', reason));
       const actions = make('div', 'rt-community-state-actions');
@@ -2001,7 +2311,7 @@
       simBtn.addEventListener('click', () => {
         this.closeLightbox();
         const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', viewId: item.viewId || item.uuid, cleanNav: true });
-        this.replaceVisualUrl(dest);
+        this.pushVisualUrl(dest);
       });
 
       const dlUrl = item.videoUrl || item.src || item.thumb || item.downloadUrl;
@@ -2181,9 +2491,10 @@
           for (const cls of NATIVE_TAB_SELECTED_CLS) tab.classList.remove(cls);
           tab.removeAttribute('aria-current');
           tab.removeAttribute('faceplate-tab-selected');
+          tab.setAttribute('data-rt-visual-tab-muted', '');
           tab.tabIndex = -1;
-          if (tab.style.backgroundColor !== 'transparent') tab.style.backgroundColor = 'transparent';
         } else {
+          tab.removeAttribute('data-rt-visual-tab-muted');
           const orig = this.nativeTabBackup.get(tab);
           if (orig) {
             tab.className = orig.className;
@@ -2202,9 +2513,6 @@
         visualTab.setAttribute('faceplate-tab-selected', '');
         visualTab.setAttribute('aria-current', 'page');
         visualTab.tabIndex = 0;
-        if (visualTab.style.backgroundColor !== 'var(--color-secondary-background-selected)') {
-          visualTab.style.backgroundColor = 'var(--color-secondary-background-selected)';
-        }
         if (tg.shadowRoot && this.visualTabScrolled !== visualTab) {
           this.visualTabScrolled = visualTab;
           setTimeout(() => {
@@ -2228,7 +2536,6 @@
         visualTab.removeAttribute('faceplate-tab-selected');
         visualTab.removeAttribute('aria-current');
         visualTab.tabIndex = -1;
-        if (visualTab.style.backgroundColor !== 'transparent') visualTab.style.backgroundColor = 'transparent';
       }
     }
 
@@ -2284,8 +2591,16 @@
         btn.setAttribute('aria-label', 'Search by image');
         btn.title = 'Search by image (infini.wtf)';
         // Shadow roots isolate page CSS, so style directly on the slotted button (Contract Rule 11).
-        btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;margin:0 4px 0 2px;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:pointer;';
+        btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;margin:0 4px 0 2px;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:pointer;transition:background-color 120ms ease,color 120ms ease;';
         btn.append(icon('camera', 18));
+        btn.addEventListener('pointerenter', () => {
+          btn.style.backgroundColor = 'var(--color-secondary-background-hover,rgba(0,0,0,0.06))';
+          btn.style.color = 'var(--color-neutral-content-strong,#181c1f)';
+        });
+        btn.addEventListener('pointerleave', () => {
+          btn.style.backgroundColor = 'transparent';
+          btn.style.color = 'var(--color-neutral-content-weak,#576f76)';
+        });
         btn.addEventListener('pointerdown', e => {
           e.preventDefault();
           e.stopPropagation();
@@ -2412,6 +2727,24 @@
       this.replaceVisualUrl(dest);
     }
 
+    pushVisualUrl(nextUrl) {
+      const nextHref = nextUrl.pathname + nextUrl.search + nextUrl.hash;
+      const curHref = location.pathname + location.search + location.hash;
+      if (nextHref === curHref) return;
+      this.savePark();
+      try { history.pushState(history.state, '', nextHref); }
+      catch { return; }
+      this.lastUrl = location.href;
+      const parsed = Model.parseVisualUrl(location.href);
+      const main = this.mountedMain || document.querySelector('main');
+      if (parsed?.active && main) {
+        this.syncSearchTabGroup(parsed);
+        this.mountFreshVisual(main, parsed, urlKey(location.href));
+      } else {
+        this.sync();
+      }
+    }
+
     replaceVisualUrl(nextUrl) {
       const nextHref = nextUrl.pathname + nextUrl.search + nextUrl.hash;
       const curHref = location.pathname + location.search + location.hash;
@@ -2505,15 +2838,34 @@
       }
     }
 
+    dismissSearchBar(host, input) {
+      const esc = () => new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true, composed: true, cancelable: true });
+      try { input?.dispatchEvent(esc()); } catch {}
+      try { host?.dispatchEvent(esc()); } catch {}
+      try { input?.blur?.(); } catch {}
+      try { host?.blur?.(); } catch {}
+      const roots = [host?.shadowRoot, input?.getRootNode?.()].filter(r => r && r !== document);
+      for (const root of roots) {
+        const drop = root.querySelector?.('#search-dropdown-results-container');
+        if (drop) drop.classList.add('hidden');
+      }
+    }
+
     handleSearchSubmit(event) {
       if (!this.enabled || event.defaultPrevented) return;
       const parsed = Model.parseVisualUrl(location.href);
       if (!parsed?.active) return;
       const path = event.composedPath?.() || [];
-      const host = path.find(node => node?.matches?.('reddit-search-large, reddit-search-small'));
+      const host = path.find(node => node?.matches?.('reddit-search-large, reddit-search-small, prominent-search'));
       const form = path.find(node => node?.matches?.('form'));
       if (!host || !form) return;
-      if (event.type === 'keydown' && !path[0]?.matches?.('input[name="q"], textarea[name="q"]')) return;
+      const sr = host.shadowRoot || host;
+      if (event.type === 'keydown') {
+        const activeRow = sr.querySelector?.('#reddit-typeahead-results-partial-container [aria-selected="true"]');
+        const activeId = path[0]?.getAttribute?.('aria-activedescendant');
+        if (activeRow || (activeId && sr.getElementById?.(activeId))) return;
+        if (!path[0]?.matches?.('input[name="q"], textarea[name="q"]')) return;
+      }
       const field = form.querySelector('faceplate-search-input[name="q"]');
       const input = event.type === 'keydown'
         ? path[0]
@@ -2522,13 +2874,30 @@
       const q = String(input.value || '').trim().slice(0, 300);
       event.preventDefault();
       event.stopImmediatePropagation();
-      input.blur?.();
+      this.dismissSearchBar(host, input);
       const dest = Model.buildVisualUrl(location.href, {
         q,
         filters: parsed.filters,
         cleanNav: true
       });
-      this.replaceVisualUrl(dest);
+      if (urlKey(dest.href) === urlKey(location.href)) {
+        this.startLoad(Model.parseVisualUrl(dest.href), { force: true });
+        return;
+      }
+      this.savePark();
+      this.startProgress();
+      const destParsed = Model.parseVisualUrl(dest.href);
+      if (destParsed?.spec) {
+        this.send({
+          action: 'query',
+          kind: destParsed.spec.kind,
+          target: destParsed.spec.target,
+          slug: destParsed.spec.slug,
+          filters: destParsed.spec.filters,
+          page: 1
+        }).catch(() => {});
+      }
+      this.navigateUrl(dest.href);
     }
 
     handlePaste(event) {
@@ -2628,6 +2997,7 @@
         this.tabOriginals.delete(tg);
       }
       for (const tab of tg.querySelectorAll(':scope > a[href]')) {
+        tab.removeAttribute('data-rt-visual-tab-muted');
         const origHref = this.nativeTabLinks.get(tab);
         if (origHref) tab.setAttribute('href', origHref);
         const backup = this.nativeTabBackup.get(tab);
@@ -2650,6 +3020,11 @@
       clearTimeout(this.postScrollTimer);
       clearTimeout(this.outgoing?.timer);
       clearTimeout(this.waitingTimer);
+      clearTimeout(this.progressTimer);
+      this.progressBar?.remove();
+      this.progressBar = null;
+      this.progressTimer = 0;
+      this.moreIO?.disconnect();
       this.outgoing = null;
       this.waitingForReplacedMain = null;
       this.waitingTimer = 0;
@@ -2679,6 +3054,7 @@
       this.dead = true;
       clearTimeout(this.settingsRetry);
       this.observer?.disconnect();
+      this.moreIO?.disconnect();
       this.videoIO?.disconnect();
       this.phoneMedia?.removeEventListener?.('change', this.onMediaChange);
       const runtime = (globalThis.browser || globalThis.chrome)?.runtime;

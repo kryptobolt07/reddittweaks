@@ -47,6 +47,26 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   text-decoration: none;
 }
 
+#search-results-page-tabgroup > a[data-rt-visual-tab-muted]:not(:hover) {
+  background-color: transparent !important;
+}
+
+#search-results-page-tabgroup > a[data-rt-visual-tab-muted]:hover {
+  background-color: var(--color-secondary-background-hover, var(--color-neutral-background-hover, #e5ebee)) !important;
+}
+
+#search-results-page-tab-visual[faceplate-tab-selected] {
+  background-color: var(--color-secondary-background-selected, #dbe4e9) !important;
+}
+
+#search-results-page-tab-visual:not([faceplate-tab-selected]):not(:hover) {
+  background-color: transparent !important;
+}
+
+#search-results-page-tab-visual:not([faceplate-tab-selected]):hover {
+  background-color: var(--color-secondary-background-hover, var(--color-neutral-background-hover, #e5ebee)) !important;
+}
+
 .rt-vs-root {
   display: block;
   width: 100%;
@@ -83,17 +103,29 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
 .rt-vs-controls .rt-search-inline-filter {
   margin: 0;
   gap: 6px;
-  background: var(--color-secondary-background, #e5ebee);
-  color: var(--color-neutral-content-strong, #181c1f);
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-secondary-plain, var(--color-neutral-content-strong, #181c1f));
+  font: 600 12px/16px var(--font-sans, inherit);
+}
+
+.rt-vs-controls .rt-search-inline-filter svg {
+  width: auto;
+  height: auto;
+  flex: none;
 }
 
 .rt-vs-controls .rt-search-inline-filter:hover {
-  background: var(--color-secondary-background-hover, #dbe4e9);
+  background: var(--color-secondary-background-hover, var(--color-neutral-background-hover, #e5ebee));
 }
 
+.rt-vs-controls .rt-search-inline-filter[aria-expanded="true"],
 .rt-vs-controls .rt-search-inline-filter[data-active="true"],
 .rt-vs-controls .rt-search-inline-filter[aria-pressed="true"] {
-  background: var(--color-secondary-background-selected, #c9d7de);
+  background: var(--color-secondary-background-selected, #dbe4e9);
   color: var(--color-neutral-content-strong, #181c1f);
 }
 
@@ -106,8 +138,12 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
 }
 
 .rt-vs-controls .rt-vs-filter-nsfw[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--color-tags-nsfw-content, #b2007f) 14%, var(--color-secondary-background, #e5ebee));
+  background: color-mix(in srgb, var(--color-tags-nsfw-content, #b2007f) 14%, transparent);
   color: var(--color-tags-nsfw-content, #b2007f);
+}
+
+.rt-vs-controls .rt-vs-filter-nsfw[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--color-tags-nsfw-content, #b2007f) 20%, transparent);
 }
 
 .rt-vs-controls .rt-vs-clear-btn {
@@ -116,8 +152,44 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
 }
 
 .rt-vs-controls .rt-vs-clear-btn:hover {
-  background: var(--color-neutral-background-hover, #f2f4f5);
+  background: var(--color-secondary-background-hover, var(--color-neutral-background-hover, #e5ebee));
   color: var(--color-neutral-content-strong, #181c1f);
+}
+
+/* Reddit-style top orange route loading indicator */
+.rt-vs-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 2147483640;
+  pointer-events: none;
+  background: var(--color-brand-background, #ff4500);
+  transform-origin: 0 50%;
+  transform: scaleX(.18);
+  opacity: 1;
+  transition: transform 220ms cubic-bezier(.22, .61, .36, 1), opacity 180ms ease;
+  animation: rt-vs-progress-sweep 1.2s ease-out forwards;
+}
+
+.rt-vs-progress.is-finishing {
+  animation: none;
+  transform: scaleX(1);
+  opacity: 0;
+}
+
+@keyframes rt-vs-progress-sweep {
+  0% { transform: scaleX(.12); }
+  50% { transform: scaleX(.68); }
+  100% { transform: scaleX(.86); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rt-vs-progress {
+    animation: none;
+    transform: scaleX(.75);
+  }
 }
 
 /* Scope switcher & seed banner (scoped subreddit note, uploaded image preview, similar post reference) */
@@ -248,7 +320,26 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   border-radius: 16px;
 }
 
-/* 1:1 Reddit media search grid (desktop 3 columns, phone 2 columns px-16 gap-16) */
+/* 1:1 Reddit media search masonry (desktop 3 shortest-first columns, phone 2 columns px-16 gap-16) */
+.rt-vs-masonry {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 12px 0 16px;
+}
+
+.rt-vs-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
 .rt-vs-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -257,7 +348,7 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   min-width: 0;
   box-sizing: border-box;
   margin: 0;
-  padding: 4px 0 16px;
+  padding: 12px 0 16px;
 }
 
 .rt-vs-tile {
@@ -267,9 +358,14 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   margin: 0;
 }
 
+.rt-vs-media-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
 .rt-vs-card-link {
-  display: flex;
-  flex-direction: column;
+  display: block;
   min-width: 0;
   text-decoration: none;
   color: inherit;
@@ -281,17 +377,17 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
 
 .rt-vs-card-link:focus-visible {
   outline: 2px solid var(--color-global-focus, #0045ac);
-  outline-offset: 3px;
-  border-radius: 14px;
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 .rt-vs-media {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 5;
-  border-radius: 12px;
+  aspect-ratio: 1;
+  border-radius: 8px;
   overflow: hidden;
-  background: var(--color-neutral-background-weak, #f2f4f5);
+  background: var(--color-neutral-background-weak, #f6f8f9);
 }
 
 .rt-vs-img,
@@ -301,7 +397,7 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   margin: 0;
   border: 0;
 }
@@ -320,8 +416,8 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
 
 .rt-vs-badge {
   position: absolute;
-  inset-inline-start: 10px;
-  bottom: 10px;
+  inset-inline-end: 8px;
+  top: 8px;
   z-index: 2;
   display: inline-flex;
   align-items: center;
@@ -329,7 +425,7 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   height: 22px;
   padding: 0 8px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, .72);
+  background: rgba(0, 0, 0, .65);
   color: #fff;
   font-size: 11px;
   line-height: 1;
@@ -339,42 +435,31 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
 }
 
 .rt-vs-badge svg {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
 }
 
-/* Tile footer */
-.rt-vs-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-top: 8px;
-  min-width: 0;
-}
-
-.rt-vs-sub-link {
-  min-width: 0;
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 600;
-  color: var(--color-neutral-content-weak, #576f76);
-  text-decoration: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rt-vs-sub-link:hover {
-  text-decoration: underline;
-  color: var(--color-neutral-content-strong, #181c1f);
-}
-
-.rt-vs-tile-actions {
+.rt-vs-overlay-actions {
+  position: absolute;
+  inset-inline-end: 8px;
+  bottom: 8px;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  flex: none;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.rt-vs-media-wrap:hover .rt-vs-overlay-actions,
+.rt-vs-media-wrap:focus-within .rt-vs-overlay-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .rt-vs-overlay-actions {
+    opacity: 1;
+  }
 }
 
 .rt-vs-icon-btn {
@@ -387,32 +472,79 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   padding: 0 8px;
   border: 0;
   border-radius: 999px;
-  background: var(--color-secondary-background, #e5ebee);
-  color: var(--color-neutral-content-strong, #181c1f);
+  background: rgba(15, 20, 24, .72);
+  color: #fff;
   font: 600 11px/1 var(--font-sans, inherit);
   cursor: pointer;
+  backdrop-filter: blur(4px);
 }
 
 .rt-vs-icon-btn:hover {
-  background: var(--color-secondary-background-hover, #dbe4e9);
+  background: rgba(15, 20, 24, .9);
 }
 
 .rt-vs-icon-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   flex: none;
 }
 
 .rt-vs-icon-btn:focus-visible {
-  outline: 2px solid var(--color-global-focus, #0045ac);
+  outline: 2px solid #fff;
   outline-offset: 2px;
 }
 
+/* Tile footer: 16px subreddit avatar + r/sub + title matching Reddit Media cards */
+.rt-vs-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.rt-vs-sub-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-secondary-background, #e5ebee);
+  color: var(--color-neutral-content-weak, #576f76);
+}
+
+.rt-vs-sub-avatar {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rt-vs-sub-link {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  color: var(--color-neutral-content-weak, #576f76);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rt-vs-sub-link:hover {
+  text-decoration: underline;
+  color: var(--color-neutral-content-strong, #181c1f);
+}
+
 .rt-vs-title {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   font-size: 14px;
   line-height: 20px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-neutral-content-strong, #181c1f);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -426,7 +558,7 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   position: relative;
   width: 100%;
   aspect-ratio: 4 / 5;
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--rt-skeleton-base, color-mix(in srgb, var(--color-neutral-content-strong, #1a1a1b) 14%, var(--color-neutral-background, #fff)));
 }
@@ -677,10 +809,19 @@ dialog.rt-vs-lightbox::backdrop {
     margin-bottom: 10px;
   }
 
+  .rt-vs-masonry {
+    gap: 16px;
+    padding: 8px 16px 16px;
+  }
+
+  .rt-vs-col {
+    gap: 16px;
+  }
+
   .rt-vs-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
-    padding: 0 16px 16px;
+    padding: 8px 16px 16px;
   }
 
   .rt-vs-foot {

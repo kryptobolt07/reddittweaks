@@ -5,11 +5,7 @@
 Visual Search integrates credential-free visual media search and reverse image similarity from `infini.wtf` directly into Reddit Search, the header search box, and Reddit media posts.
 
 - **Off by default:** `visualSearch: false` in `RTPostModel.SETTINGS_DEFAULTS`. `visualSearchPostMenu: true` controls the post overflow (`⋯`) item only while `visualSearch` is enabled.
-- **Runtime host permissions:** `optional_host_permissions` in `extension/manifest.json` declares:
-  - `https://infini.wtf/*`
-  - `https://image.infini.wtf/*`
-  - `https://video.infini.wtf/*`
-- **Popup permission timing:** Enabling `#visual-search` in `extension/popup.js` calls `api.permissions.request({ origins: [...] })` synchronously inside the checkbox `change` handler before any `await`, preserving user activation across Chrome and Firefox. Denial reverts the checkbox to `false`; disabling or clicking `#visual-search-revoke` clears the worker cache (`clear-cache`).
+- **Host permissions:** `host_permissions` in `extension/manifest.json` declares `https://infini.wtf/*` and `https://video.infini.wtf/*` (matching Arctic Shift and RedditRaffler; `image.infini.wtf` needs no host permission for `<img>` or `chrome.downloads`). Toggling Visual search in the popup saves immediately with no extra runtime permission dialog.
 - **Pre-paint session gate:** `extension/visual-search.js` mirrors `visualSearch` into `sessionStorage['rt-visual-enabled-v1']`. `extension/visual-search-boot.js` runs at `document_start` and sets `html[data-rt-visual-active]` only when `rt-visual-enabled-v1 === '1'` and the URL is a search route with `rt_visual=1` (on initial load, `popstate`, and `navigation.currententrychange`). `extension/visual-search.css` suppresses native Reddit search panes under `html[data-rt-visual-active]` with a 6s `rt-visual-failsafe` reveal animation if the controller does not mark `data-rt-visual-ready`.
 
 ## Measured Reddit Baselines & CSP (Desktop & Phone, 2026-11-24)
@@ -50,11 +46,13 @@ Measured read-only on signed-in `https://www.reddit.com/search/?q=ice+cream&type
 | Image CDN | `https://image.infini.wtf/<uuid>/<width>/<quality>/original.webp` / `thumbnail.webp` | Validated by `safeImageUrl` / `safeSrcset` |
 | Video CDN | `https://video.infini.wtf/<uuid>/original.mp4` | Validated by `safeVideoUrl`, worker-fetched into `blob:` URL |
 
-### Known Provider Limits
+### Pagination, Video vs GIF Distinction & Limits
 
-- `page=2` and higher return `204 No Content`, capping direct endpoint queries at **10 results** (`RESULT_LIMIT = 10`). The UI communicates this honestly in the footer rather than pretending infinite scroll exists.
-- `/view/<slug>-<uuid>.turbo_stream` ignores filter parameters (`media_type`, `time`, `nsfw`). The UI hides or labels filters accordingly in `view` mode so users are never misled.
-- Unindexed Reddit posts return non-view redirects/HTML from `/r/<subreddit>/comments/<postId>/`. The extension **never** auto-uploads Reddit media; instead it shows the post thumbnail and explicit 1-click actions: **"Upload post image to search visually"** and **"Search by title instead"**.
+- **Multi-page pagination:** With a standard browser `User-Agent`, `infini.wtf` returns `page=1, 2, 3, ...` (`10` cells per page) along with `data-infinite-scroll-url-value` triggers (`/view/<slug>-<uuid>` returns up to `20` items across `page=1, 2`), ending cleanly when no next trigger or `204 No Content` arrives. New pages append directly to the shortest `.rt-vs-masonry` columns (`IntersectionObserver` sentinel + `Load more` fallback), deduplicating UUIDs without disturbing existing cards.
+- **Video vs GIF classification:** `infini.wtf` sets `is_animated=true` in `data-download-url` on both GIFs and videos; `visual-search-model.js` inspects `data-video` `attributes` (`controls` vs `muted`) and `visual-search-broker.js` enforces strict `videos` vs `gifs` separation.
+- **Variable aspect-ratio masonry & icons:** Cards read `data-lg-size` / CSS `aspect-ratio` (with `img.onload` fallback), use `object-fit: contain` so images are never clipped, and display 16×16 community avatars resolved through `RTCommunityIcons` (`peek` / `get`).
+- **1:1 Controls & Search Bar parity:** Filter buttons (`.rt-vs-controls .rt-search-inline-filter`) stay transparent at rest and highlight only on hover or selection, reusing Reddit's `nsfw-fill-12` styling for `NSFW`. Submitting via header Enter dismisses `#search-dropdown-results-container` (unless a keyboard-highlighted suggestion row is selected), starts a fixed 2px top `#ff4500` progress bar, prefetches page 1, and navigates via native router links.
+- **`/view/...` filters & unindexed posts:** `/view/<slug>-<uuid>.turbo_stream` ignores `media_type`, `time`, and `nsfw`, so filters are hidden in `view` mode. Unindexed Reddit posts show the post thumbnail and explicit 1-click **"Upload post image to search visually"** and **"Search by title instead"** actions without automatic media uploads.
 
 ## NSFW, Privacy & Safe Parsing Contract
 
@@ -81,12 +79,12 @@ Measured read-only on signed-in `https://www.reddit.com/search/?q=ice+cream&type
 | T11 | Filter changes (`media_type`, `time`, `nsfw`) | Replaces Visual query URL cleanly; safe -> NSFW keeps safe cache separate; NSFW -> safe calls `clear-cache({ nsfwOnly: true })`. |
 | T12 | Query operator stripping | Strips `subreddit:`, `r/`, `author:`, `u/`, `flair:`, `nsfw:`, `self:`, `spoiler:`, `type:`, `site:`, `url:`, `title:`, `selftext:`, `body:` and shows honest notice banner with 1-click "Search all of Reddit". |
 | T13 | Video preview under Reddit CSP | Hover/focus desktop preview or click Play in lightbox loads one `blob:` MP4 at a time via worker `fetch-video`, pausing and revoking/stopping when scrolled out of view (`IntersectionObserver`). |
-| T14 | Phone viewport & bottom sheets | Media/Time filters and header upload menu open via `RTFeedSheet` on `< 768px` viewports; `.rt-vs-grid` uses 2 columns with `box-sizing: border-box` and zero horizontal overflow (`scrollWidth <= innerWidth`). |
+| T14 | Phone viewport & bottom sheets | Media/Time filters and header upload menu open via `RTFeedSheet` on `< 768px` viewports; `.rt-vs-masonry` uses 2 columns with `16px` horizontal padding/gap and zero horizontal overflow (`scrollWidth <= innerWidth`). |
 | T15 | Extension coexistence | `live-subreddit-filters.js`, `post-discovery.js`, and `subreddit-archive.js` yield when `html[data-rt-visual-active]` or `[data-rt-ui="visual-search"]` is active. `visual-search.js` re-emits `reddit:route` only after mount/teardown changes. |
-| T16 | Opt-out / permission revoke | Setting `visualSearch: false` or revoking `infini.wtf` permissions runs `teardownActive()`, restores hidden native `<main>` nodes, removes `[data-rt-ui="visual-search-slot"]` and restores `faceplate-tabgroup` tabs/Shadow DOM selection attributes, removes injected header/menu items, revokes `blob:` URLs, clears parks and worker cache. |
+| T16 | Opt-out | Setting `visualSearch: false` runs `teardownActive()`, restores hidden native `<main>` nodes, removes `.rt-vs-progress` and `[data-rt-ui="visual-search-slot"]`, restores `faceplate-tabgroup` tabs/Shadow DOM selection attributes, removes injected header/menu items, revokes `blob:` URLs, clears parks and worker cache. |
 
 ## DOM Ownership Audit
 
 - `html[data-rt-visual-active]`, `html[data-rt-visual-ready]`, `data-rt-visual-restoring`, `data-rt-visual-hidden`: owned exclusively by `visual-search-boot.js` & `visual-search.js`.
-- `[data-rt-ui="visual-search"]` (`.rt-vs-host`), `[data-rt-ui="visual-search-tab"]` (`#search-results-page-tab-visual`), `[data-rt-ui="visual-search-slot"]` (inside `#search-results-page-tabgroup` Shadow DOM), `[data-rt-ui="visual-search-trigger"]`, `[data-rt-ui="visual-search-popover"]`, `[data-rt-ui="visual-search-lightbox"]`, `[data-rt-visual-menu="item"]`: owned exclusively by `visual-search.js` (ignoring mutations inside `[data-rt-ui]` and `RTPostMenuDOM.onlyMenuChanges`).
+- `[data-rt-ui="visual-search"]` (`.rt-vs-host`), `[data-rt-ui="visual-progress"]`, `[data-rt-ui="visual-search-tab"]` (`#search-results-page-tab-visual`), `[data-rt-ui="visual-search-slot"]` (inside `#search-results-page-tabgroup` Shadow DOM), `[data-rt-ui="visual-search-trigger"]`, `[data-rt-ui="visual-search-popover"]`, `[data-rt-ui="visual-search-lightbox"]`, `[data-rt-visual-menu="item"]`: owned exclusively by `visual-search.js` (ignoring mutations inside `[data-rt-ui]` and `RTPostMenuDOM.onlyMenuChanges`).
 - `parks` / `urlParks` store detached `.rt-vs-host` subtrees only up to `MAX_PARKS` (`6`) and `PARK_TTL_MS` (`15 min`), cleared on `teardownActive()`.

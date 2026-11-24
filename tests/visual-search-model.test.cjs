@@ -41,9 +41,16 @@ test('normalizeFilters and cacheKey default nsfw off and strictly exclude gay/tr
 
   const safeKey = M.cacheKey({ kind: 'search', slug: 'ice-cream', filters: { nsfw: false, mediaType: 'images' } });
   const nsfwKey = M.cacheKey({ kind: 'search', slug: 'ice-cream', filters: { nsfw: true, mediaType: 'images' } });
-  assert.equal(safeKey, 'search|ice-cream|0|images|-');
-  assert.equal(nsfwKey, 'search|ice-cream|1|images|-');
+  const p2Key = M.cacheKey({ kind: 'search', slug: 'ice-cream', filters: { nsfw: false, mediaType: 'images' }, page: 2 });
+  assert.equal(safeKey, 'search|ice-cream|0|images|-|p1');
+  assert.equal(nsfwKey, 'search|ice-cream|1|images|-|p1');
+  assert.equal(p2Key, 'search|ice-cream|0|images|-|p2');
   assert.notEqual(safeKey, nsfwKey);
+  assert.notEqual(safeKey, p2Key);
+  assert.equal(
+    M.buildEndpoint({ kind: 'search', query: 'ice cream', page: 3, filters: { mediaType: 'videos' } }),
+    'https://infini.wtf/search/ice-cream.turbo_stream?page=3&media_type=videos'
+  );
 });
 
 test('buildEndpoint builds exact allowlisted infini.wtf URLs without gay/trans and lowercases subreddit paths', () => {
@@ -128,7 +135,7 @@ test('URL validators enforce strict CDN/infini/Reddit hosts and HTTPS without cr
   assert.equal(M.parseViewUrl('https://evil.com/view/ice-cream-9IQd9DEfnVhMCMa2'), '');
 });
 
-test('parseGridCells parses Turbo Stream cells safely with quoted > attributes, entities, video JSON, and skips incomplete rows', () => {
+test('parseGridCells parses Turbo Stream cells, dimensions, Video vs GIF attributes, and parseNextPage pagination triggers', () => {
   const M = loadModel();
   const stream = `
 <turbo-stream action="append" target="grid">
@@ -139,7 +146,8 @@ test('parseGridCells parses Turbo Stream cells safely with quoted > attributes, 
          data-poster="https://image.infini.wtf/uuidOne123/400/80/thumbnail.webp"
          data-src="https://image.infini.wtf/uuidOne123/800/80/original.webp"
          data-srcset="https://image.infini.wtf/uuidOne123/400/80/thumbnail.webp 400w"
-         data-video='{"source":[{"src":"https://video.infini.wtf/uuidOne123/original.mp4","type":"video/mp4"}]}'
+         data-lg-size="852-480"
+         data-video='{"source":[{"src":"https://video.infini.wtf/uuidOne123/original.mp4","type":"video/mp4"}],"attributes":{"muted":true,"loop":true}}'
          data-download-url="/download/uuidOne123?is_animated=true"
          data-sub-html="&lt;div class=&quot;cap&quot;&gt;&lt;a href=&quot;https://reddit.com/r/pixelart/comments/1gylby2/sweet_cone/&quot;&gt;Reddit&lt;/a&gt;&lt;/div&gt;">
       <a href="/view/sweet-cone-uuidOne123">View</a>
@@ -154,17 +162,30 @@ test('parseGridCells parses Turbo Stream cells safely with quoted > attributes, 
          data-src="https://image.infini.wtf/missingPermalink/400/80/thumbnail.webp">
     </div>
     <div class="grid-cell"
+         data-uuid="uuidVid789"
+         data-title="Sound Video"
+         style="aspect-ratio: 0.5625 / 1!important;"
+         data-poster="https://image.infini.wtf/uuidVid789/480/80/thumbnail.webp"
+         data-video='{"source":[{"src":"https://video.infini.wtf/uuidVid789/original.mp4","type":"video/mp4"}],"attributes":{"controls":true,"loop":true}}'
+         data-download-url="/download/uuidVid789?is_animated=true"
+         data-sub-html="https://reddit.com/r/funny/comments/5abc9/sound_video/">
+    </div>
+    <div class="grid-cell"
          data-uuid="uuidTwo456"
          data-title="Second &gt; Item"
+         data-lg-size="600-900"
          data-src="https://image.infini.wtf/uuidTwo456/600/80/original.webp"
          data-sub-html="https://reddit.com/r/pics/comments/9xyz1/second/">
     </div>
   </template>
-</turbo-stream>`;
+</turbo-stream>
+<turbo-stream action="replace" target="trig"><template>
+  <div id="trig" data-infinite-scroll-url-value="/search/ice-cream.turbo_stream?format=turbo_stream&amp;page=2"></div>
+</template></turbo-stream>`;
 
   const parsed = M.parseGridCells(stream);
   assert.equal(parsed.skippedCount, 1);
-  assert.equal(parsed.items.length, 2);
+  assert.equal(parsed.items.length, 3);
 
   assert.deepEqual(JSON.parse(JSON.stringify(parsed.items[0])), {
     uuid: 'uuidOne123',
@@ -175,6 +196,9 @@ test('parseGridCells parses Turbo Stream cells safely with quoted > attributes, 
     videoUrl: 'https://video.infini.wtf/uuidOne123/original.mp4',
     isVideo: true,
     isGif: true,
+    width: 852,
+    height: 480,
+    aspectRatio: 1.775,
     downloadUrl: 'https://infini.wtf/download/uuidOne123?is_animated=true',
     permalink: 'https://www.reddit.com/r/pixelart/comments/1gylby2/sweet_cone/',
     subreddit: 'pixelart',
@@ -182,9 +206,21 @@ test('parseGridCells parses Turbo Stream cells safely with quoted > attributes, 
     viewId: 'sweet-cone-uuidOne123'
   });
 
-  assert.equal(parsed.items[1].title, 'Second > Item');
-  assert.equal(parsed.items[1].isVideo, false);
-  assert.equal(parsed.items[1].viewId, 'second-item-uuidTwo456');
+  // Video with controls:true + is_animated=true download URL must be VIDEO, NOT GIF
+  assert.equal(parsed.items[1].uuid, 'uuidVid789');
+  assert.equal(parsed.items[1].isVideo, true);
+  assert.equal(parsed.items[1].isGif, false);
+  assert.equal(parsed.items[1].aspectRatio, 0.5625);
+
+  assert.equal(parsed.items[2].title, 'Second > Item');
+  assert.equal(parsed.items[2].isVideo, false);
+  assert.equal(parsed.items[2].width, 600);
+  assert.equal(parsed.items[2].height, 900);
+  assert.equal(parsed.items[2].viewId, 'second-item-uuidTwo456');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(M.parseNextPage(stream, 1))), { hasMore: true, nextPage: 2 });
+  assert.deepEqual(JSON.parse(JSON.stringify(M.parseNextPage(stream, 2))), { hasMore: false, nextPage: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(M.parseNextPage('<div>no trigger</div>', 1))), { hasMore: false, nextPage: 0 });
 });
 
 test('parseSuggestions parses JSON and HTML suggestions and deduplicates against active query', () => {

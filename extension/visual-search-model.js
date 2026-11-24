@@ -10,12 +10,12 @@
   const VIDEO_HOST = 'video.infini.wtf';
   const ORIGINS = Object.freeze([
     'https://infini.wtf/*',
-    'https://image.infini.wtf/*',
     'https://video.infini.wtf/*'
   ]);
   const MEDIA_TYPES = Object.freeze(['images', 'gifs', 'videos']);
   const TIMES = Object.freeze(['year', 'month']);
   const RESULT_LIMIT = 10;
+  const MAX_PAGE = 50;
 
   const UUID_RE = /^[A-Za-z0-9_-]{4,80}$/;
   const VIEW_RE = /^[A-Za-z0-9_-]{4,220}$/;
@@ -116,8 +116,13 @@
     };
   }
 
-  function applyFilterParams(url, rawFilters, { includePage = true, allowFilters = true } = {}) {
-    if (includePage) url.searchParams.set('page', '1');
+  function normalizePage(value) {
+    const num = Number.parseInt(value, 10);
+    return Number.isInteger(num) && num >= 1 && num <= MAX_PAGE ? num : 1;
+  }
+
+  function applyFilterParams(url, rawFilters, { includePage = true, allowFilters = true, page = 1 } = {}) {
+    if (includePage) url.searchParams.set('page', String(normalizePage(page)));
     if (!allowFilters) return url;
     const filters = normalizeFilters(rawFilters);
     // Literal true only; omit for safe/default mode so safe results remain separate.
@@ -130,41 +135,42 @@
   function buildEndpoint(spec) {
     if (!spec || typeof spec !== 'object') return '';
     const kind = spec.kind;
+    const page = normalizePage(spec.page);
     if (kind === 'search') {
       const slug = SLUG_RE.test(spec.slug || '') ? spec.slug.toLowerCase() : slugifyQuery(spec.target || spec.query || '');
       if (!slug || !SLUG_RE.test(slug)) return '';
       const url = new URL(BASE + '/search/' + encodeURIComponent(slug) + '.turbo_stream');
-      return applyFilterParams(url, spec.filters).href;
+      return applyFilterParams(url, spec.filters, { page }).href;
     }
     if (kind === 'subreddit') {
       const sub = str(spec.target || spec.subreddit, 24).trim().replace(/^r\//i, '').toLowerCase();
       if (!SUB_RE.test(sub)) return '';
       const url = new URL(BASE + '/search/r/' + encodeURIComponent(sub));
       url.searchParams.set('format', 'turbo_stream');
-      return applyFilterParams(url, spec.filters).href;
+      return applyFilterParams(url, spec.filters, { page }).href;
     }
     if (kind === 'user') {
       const user = str(spec.target || spec.username, 24).trim().replace(/^u\//i, '');
       if (!USER_RE.test(user)) return '';
       const url = new URL(BASE + '/search/u/' + encodeURIComponent(user));
-      return applyFilterParams(url, spec.filters).href;
+      return applyFilterParams(url, spec.filters, { page }).href;
     }
     if (kind === 'popular') {
       const url = new URL(BASE + '/popular.turbo_stream');
-      return applyFilterParams(url, spec.filters).href;
+      return applyFilterParams(url, spec.filters, { page }).href;
     }
     if (kind === 'view') {
       const viewId = str(spec.target || spec.viewId, 220).trim();
       if (!VIEW_RE.test(viewId)) return '';
       // /view/... does not support filter params (nsfw/media_type/time are ignored by infini.wtf).
       const url = new URL(BASE + '/view/' + encodeURIComponent(viewId) + '.turbo_stream');
-      return applyFilterParams(url, null, { includePage: true, allowFilters: false }).href;
+      return applyFilterParams(url, null, { includePage: true, allowFilters: false, page }).href;
     }
     if (kind === 'upload') {
       const uuid = str(spec.target || spec.uuid, 80).trim();
       if (!UUID_RE.test(uuid)) return '';
       const url = new URL(BASE + '/search-by-upload/' + encodeURIComponent(uuid) + '.turbo_stream');
-      return applyFilterParams(url, spec.filters).href;
+      return applyFilterParams(url, spec.filters, { page }).href;
     }
     if (kind === 'permalink') {
       // /r/<subreddit>/comments/<postId>/ was case-sensitive (lowercase works; mixed-case can redirect to /).
@@ -198,13 +204,14 @@
     return '';
   }
 
-  // Cache keys always include every filter parameter (especially nsfw) so safe and 18+ sets never collide.
+  // Cache keys always include every filter parameter and page (especially nsfw) so safe/18+ and pages never collide.
   function cacheKey(spec) {
     if (!spec || typeof spec !== 'object') return '';
     const kind = String(spec.kind || '');
     const filters = kind === 'view' ? { nsfw: false, mediaType: '', time: '' } : normalizeFilters(spec.filters);
     const target = String(spec.slug || spec.target || spec.viewId || spec.uuid || '').trim().toLowerCase();
-    return [kind, target, filters.nsfw ? '1' : '0', filters.mediaType || '-', filters.time || '-'].join('|');
+    const page = normalizePage(spec.page);
+    return [kind, target, filters.nsfw ? '1' : '0', filters.mediaType || '-', filters.time || '-', 'p' + page].join('|');
   }
 
   function safeImageUrl(value) {
@@ -370,18 +377,75 @@
   }
 
   function extractVideoFromAttr(raw) {
+    const empty = { url: '', hasControls: false, isMuted: false };
     const decoded = decodeEntities(str(raw, 8192)).trim();
-    if (!decoded) return '';
+    if (!decoded) return empty;
     try {
       const parsed = JSON.parse(decoded);
       const sources = Array.isArray(parsed?.source) ? parsed.source
         : Array.isArray(parsed?.sources) ? parsed.sources : [];
+      const attrs = parsed?.attributes && typeof parsed.attributes === 'object' ? parsed.attributes : {};
       for (const entry of sources.slice(0, 8)) {
         const url = safeVideoUrl(entry?.src || entry?.url);
-        if (url) return url;
+        if (url) {
+          return {
+            url,
+            hasControls: Boolean(attrs.controls),
+            isMuted: Boolean(attrs.muted)
+          };
+        }
       }
     } catch {}
-    return '';
+    return empty;
+  }
+
+  function extractDimensions(attrs) {
+    let width = 0;
+    let height = 0;
+    let ratio = 0;
+    const sizeMatch = /^(\d{1,5})[-x](\d{1,5})$/i.exec(str(attrs['data-lg-size'] || '', 32).trim());
+    if (sizeMatch) {
+      const w = Number(sizeMatch[1]);
+      const h = Number(sizeMatch[2]);
+      if (w > 0 && w <= 20000 && h > 0 && h <= 20000) {
+        width = w;
+        height = h;
+        ratio = w / h;
+      }
+    }
+    if (!ratio && attrs.style) {
+      const arMatch = /aspect-ratio\s*:\s*([0-9]+(?:\.[0-9]+)?)(?:\s*\/\s*([0-9]+(?:\.[0-9]+)?))?/i.exec(String(attrs.style));
+      if (arMatch) {
+        const num = Number(arMatch[1]);
+        const den = arMatch[2] ? Number(arMatch[2]) : 1;
+        if (num > 0 && den > 0) ratio = num / den;
+      }
+    }
+    const aspectRatio = ratio > 0 && Number.isFinite(ratio)
+      ? Number(Math.min(2.4, Math.max(0.42, ratio)).toFixed(4))
+      : 0;
+    return { width, height, aspectRatio };
+  }
+
+  function parseNextPage(html, currentPage = 1) {
+    const raw = String(html || '');
+    const cur = normalizePage(currentPage);
+    if (!raw) return { hasMore: false, nextPage: 0 };
+    let nextPage = 0;
+    scanTags(raw, ({ attrs }) => {
+      const val = attrs['data-infinite-scroll-url-value'];
+      if (!val) return;
+      try {
+        const url = new URL(decodeEntities(val), BASE);
+        if (url.origin !== BASE) return;
+        const p = Number.parseInt(url.searchParams.get('page') || '', 10);
+        if (Number.isInteger(p) && p > cur && p <= MAX_PAGE) {
+          nextPage = p;
+          return false;
+        }
+      } catch {}
+    });
+    return { hasMore: nextPage > cur, nextPage };
   }
 
   function parseGridCells(html) {
@@ -412,7 +476,8 @@
       }
       if (seen.has(uuid)) continue;
 
-      const videoUrl = extractVideoFromAttr(attrs['data-video']);
+      const video = extractVideoFromAttr(attrs['data-video']);
+      const videoUrl = video.url;
       const innerImg = snippet.match(/<img\b[^>]*\b(?:data-src|src)\s*=\s*["']([^"']+)["']/i)?.[1] || '';
       const thumb = safeImageUrl(attrs['data-poster'] || attrs['data-src'] || innerImg);
       const src = safeImageUrl(attrs['data-src'] || attrs['data-poster'] || innerImg);
@@ -440,8 +505,10 @@
       if (!VIEW_RE.test(viewId)) viewId = uuid;
 
       const downloadRaw = attrs['data-download-url'] || '';
-      const isGif = /is_animated=true/i.test(downloadRaw) || /\.gif(?:$|[?#])/i.test(attrs['data-src'] || '');
+      // infini.wtf sets is_animated=true on both videos and GIFs; distinguish GIFs by muted autoplay without player controls.
+      const isGif = Boolean(videoUrl && ((video.isMuted && !video.hasControls) || /\.gif(?:$|[?#])/i.test(attrs['data-src'] || '')));
       const downloadUrl = safeDownloadUrl(downloadRaw, uuid);
+      const dims = extractDimensions(attrs);
 
       seen.add(uuid);
       items.push({
@@ -452,7 +519,10 @@
         srcset,
         videoUrl,
         isVideo: Boolean(videoUrl),
-        isGif: Boolean(videoUrl && isGif),
+        isGif,
+        width: dims.width,
+        height: dims.height,
+        aspectRatio: dims.aspectRatio,
         downloadUrl,
         permalink: linkInfo.permalink,
         subreddit: linkInfo.subreddit,
@@ -674,6 +744,7 @@
     safeDownloadUrl,
     safeRedditPermalink,
     parseViewUrl,
+    parseNextPage,
     parseGridCells,
     parseSuggestions,
     searchScopeFromUrl,

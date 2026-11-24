@@ -260,83 +260,11 @@ async function loadSettings(){
   syncDependencies();syncSummary();settled();
 }
 
-const VISUAL_ORIGINS=['https://infini.wtf/*','https://image.infini.wtf/*','https://video.infini.wtf/*'];
-let visualPermGranted=false;
-function setVisualPermNote(text=''){
-  const note=document.getElementById('visual-search-perm-status');
-  if(!note)return;
-  note.textContent=text;
-  note.hidden=!text;
-}
-function paintVisualPerm(){
-  const revoke=document.getElementById('visual-search-revoke');
-  if(revoke)revoke.hidden=!visualPermGranted;
-}
-async function loadVisualSearchPermission(){
-  const api=globalThis.browser || globalThis.chrome;
-  const revoke=document.getElementById('visual-search-revoke');
-  if(!api?.permissions?.contains){visualPermGranted=true;paintVisualPerm();return;}
-  try{visualPermGranted=Boolean(await api.permissions.contains({origins:VISUAL_ORIGINS}));}
-  catch{visualPermGranted=false;}
-  paintVisualPerm();
-  revoke?.addEventListener('click',async()=>{
-    revoke.disabled=true;
-    try{
-      await api.permissions.remove?.({origins:VISUAL_ORIGINS});
-      visualPermGranted=false;
-      paintVisualPerm();
-      setVisualPermNote('');
-      const toggle=document.getElementById('visual-search');
-      if(toggle && toggle.checked){
-        toggle.checked=false;
-        syncDependencies();syncSummary();settled();
-        settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{
-          const latest=await storage?.get?.(SETTINGS_KEY);
-          const merged=mergeStored(latest?.[SETTINGS_KEY],{visualSearch:false});
-          await storage?.set?.({[SETTINGS_KEY]:merged});
-          writeMirror(normalizeSettings(merged));
-        }).then(()=>{setStatus('Access revoked.');},()=>{setStatus('Could not update this setting. Please retry.',{error:true});});
-      }else{
-        setStatus('Access revoked.');
-      }
-    }catch{setStatus('Could not revoke infini.wtf access. Please retry.',{error:true});}
-    finally{revoke.disabled=false;}
-  });
-}
-
 function saveSetting(control){
   const key=control.dataset.setting,next=control.checked;
-  const api=globalThis.browser || globalThis.chrome;
-  let permissionRequest=null;
-  if(key==='visualSearch' && next===true && api?.permissions?.request && !visualPermGranted){
-    // Call permissions.request synchronously in the input handler frame (Firefox rejects async microtasks).
-    try{
-      permissionRequest=new Promise(resolve=>{
-        let done=false;
-        const finish=granted=>{if(!done){done=true;resolve(Boolean(granted));}};
-        const maybe=api.permissions.request({origins:VISUAL_ORIGINS},granted=>finish(granted));
-        if(maybe && typeof maybe.then==='function')maybe.then(finish,()=>finish(false));
-      });
-    }catch{permissionRequest=Promise.resolve(false);}
-  }
-  if(key==='visualSearch' && !next)setVisualPermNote('');
   syncDependencies();syncSummary();settled();
-  control.disabled=true;setStatus(permissionRequest?'Requesting access…':'Saving…');
+  control.disabled=true;setStatus('Saving…');
   settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{
-    if(permissionRequest){
-      let granted=false;
-      try{granted=Boolean(await permissionRequest);}catch{granted=false;}
-      if(!granted){
-        control.checked=false;
-        syncDependencies();syncSummary();settled();
-        setVisualPermNote('Allow access to infini.wtf to enable Visual search.');
-        setStatus('Allow access to infini.wtf to enable Visual search.');
-        return;
-      }
-      visualPermGranted=true;
-      paintVisualPerm();
-      setVisualPermNote('');
-    }
     if(!storage?.get || !storage?.set)throw Error('storage unavailable');
     const latest=await storage.get(SETTINGS_KEY);
     const merged=mergeStored(latest?.[SETTINGS_KEY],{[key]:next});
@@ -838,6 +766,5 @@ document.getElementById('clear-removal-history')?.addEventListener('click',async
 
 initChoices();
 loadDirectEmbedControls();
-loadVisualSearchPermission();
 loadSettings();
 {let saved='';try{saved=localStorage.getItem(TAB_KEY) || '';}catch{}showTab(saved || 'home');}

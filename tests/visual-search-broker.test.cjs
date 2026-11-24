@@ -130,7 +130,7 @@ function setup({
   };
 }
 
-test('broker rejects foreign callers, disabled setting, and missing infini.wtf host permission', async () => {
+test('broker rejects foreign callers and disabled setting', async () => {
   const b = setup({ settings: { visualSearch: false } });
   for (const sender of [
     { id: 'other-ext' },
@@ -142,9 +142,6 @@ test('broker rejects foreign callers, disabled setting, and missing infini.wtf h
   }
 
   assert.equal((await b.send({ action: 'query', kind: 'popular' })).code, 'disabled');
-  b.setSettings({ visualSearch: true });
-  b.revokeOrigin('https://infini.wtf/*');
-  assert.equal((await b.send({ action: 'query', kind: 'popular' })).code, 'permission-required');
   assert.equal(b.calls.length, 0);
 });
 
@@ -295,14 +292,10 @@ test('upload-image checks image-queries hash first and skips POST when already i
   assert.equal(created.hasEmbedding, false);
 });
 
-test('fetch-video enforces video origin permission and returns base64 for blob CSP compliance, and download invokes chrome.downloads', async () => {
+test('fetch-video returns base64 for blob CSP compliance, and download invokes chrome.downloads', async () => {
   const b = setup({
     fetcher: async url => mkResponse(Buffer.from('mp4bytes'), { status: 200, url })
   });
-  b.revokeOrigin('https://video.infini.wtf/*');
-  assert.equal((await b.send({ action: 'fetch-video', url: 'https://video.infini.wtf/v1/original.mp4' })).code, 'permission-required');
-
-  b.grantOrigin('https://video.infini.wtf/*');
   const vid = await b.send({ action: 'fetch-video', url: 'https://video.infini.wtf/v1/original.mp4' });
   assert.equal(vid.ok, true);
   assert.equal(vid.mimeType, 'video/mp4');
@@ -313,4 +306,38 @@ test('fetch-video enforces video origin permission and returns base64 for blob C
   assert.equal(dl.ok, true);
   assert.equal(b.downloads[0].url, 'https://infini.wtf/download/abc1234?is_animated=false');
   assert.equal(b.downloads[0].filename.includes('/'), false);
+});
+
+test('broker supports multi-page pagination and strictly separates videos vs gifs', async () => {
+  const gifCell = `<div class="grid-cell" data-uuid="gifOnly1" data-poster="https://image.infini.wtf/gifOnly1/480/80/t.webp" data-video='{"source":[{"src":"https://video.infini.wtf/gifOnly1/original.mp4"}],"attributes":{"muted":true,"loop":true}}' data-download-url="/download/gifOnly1?is_animated=true" data-sub-html="https://reddit.com/r/pics/comments/a1/"></div>`;
+  const vidCell = `<div class="grid-cell" data-uuid="vidOnly2" data-poster="https://image.infini.wtf/vidOnly2/480/80/t.webp" data-video='{"source":[{"src":"https://video.infini.wtf/vidOnly2/original.mp4"}],"attributes":{"controls":true,"loop":true}}' data-download-url="/download/vidOnly2?is_animated=true" data-sub-html="https://reddit.com/r/funny/comments/b2/"></div>`;
+  const b = setup({
+    fetcher: async url => {
+      if (url.includes('page=2')) {
+        return mkResponse(SAMPLE_CELL('page2Uuid'));
+      }
+      if (url.includes('media_type=videos') || url.includes('media_type=gifs')) {
+        return mkResponse(gifCell + vidCell);
+      }
+      return mkResponse(SAMPLE_CELL('page1Uuid') + '<div data-infinite-scroll-url-value="/search/ice-cream.turbo_stream?page=2"></div>');
+    }
+  });
+
+  const p1 = await b.send({ action: 'query', kind: 'search', target: 'ice cream', page: 1 });
+  assert.equal(p1.page, 1);
+  assert.equal(p1.hasMore, true);
+  assert.equal(p1.nextPage, 2);
+  assert.equal(p1.items[0].uuid, 'page1Uuid');
+
+  const p2 = await b.send({ action: 'query', kind: 'search', target: 'ice cream', page: 2 });
+  assert.equal(p2.page, 2);
+  assert.equal(p2.hasMore, false);
+  assert.equal(p2.nextPage, 0);
+  assert.equal(p2.items[0].uuid, 'page2Uuid');
+
+  const videosOnly = await b.send({ action: 'query', kind: 'search', target: 'ice cream', filters: { mediaType: 'videos' } });
+  assert.deepEqual([...videosOnly.items].map(i => i.uuid), ['vidOnly2']);
+
+  const gifsOnly = await b.send({ action: 'query', kind: 'search', target: 'ice cream', filters: { mediaType: 'gifs' } });
+  assert.deepEqual([...gifsOnly.items].map(i => i.uuid), ['gifOnly1']);
 });
