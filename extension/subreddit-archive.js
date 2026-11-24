@@ -96,6 +96,7 @@
   function searchRoute(){
     const match=location.pathname.match(/^\/r\/([A-Za-z0-9_]{2,21})\/search\/?$/i);if(!match)return null;
     const params=new URLSearchParams(location.search),pick=(key,list,fallback)=>list.includes(params.get(key))?params.get(key):fallback;
+    if(params.get('rt_visual')==='1' && document.documentElement?.hasAttribute('data-rt-visual-active'))return null;
     return {name:match[1],q:(params.get('q') || '').trim().slice(0,256),type:pick('type',['posts','comments','media'],'posts'),sort:pick('sort',['relevance','hot','top','new','comments'],'relevance'),t:pick('t',['hour','day','week','month','year','all'],'all')};
   }
   function threadRoute(){

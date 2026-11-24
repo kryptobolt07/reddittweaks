@@ -61,7 +61,9 @@
   }
   function pageRoute(path=location.pathname,search=location.search,ownName=signedInName){
     const scoped=path.match(/^\/user\/([\w-]{1,20})\/search\/?$/i);
-    if(scoped){const params=new URLSearchParams(search),q=(params.get('q') || '').trim(),type=['posts','comments','media'].includes(params.get('type'))?params.get('type'):'posts';
+    if(scoped){const params=new URLSearchParams(search);
+      if(params.get('rt_visual')==='1' && document.documentElement?.hasAttribute('data-rt-visual-active'))return null;
+      const q=(params.get('q') || '').trim(),type=['posts','comments','media'].includes(params.get('type'))?params.get('type'):'posts';
       const list=params.get('rt_list');if(params.has('rt_list') && (!ownLists.includes(list) || scoped[1].toLowerCase()!==ownName.toLowerCase()))return null;
       if(q.length>300 || /[\u0000-\u001f]/.test(q))return null;
       const layout=['cardView','compactView'].includes(params.get('feedViewType'))?params.get('feedViewType'):'';

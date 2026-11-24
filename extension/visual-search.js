@@ -1,0 +1,2712 @@
+/* Visual Search UI (infini.wtf) — Visual tab beside Media, header image upload/paste trigger,
+   post ⋯ "Find visually similar" shortcut, 1:1 Reddit media grid, and flicker-free SPA transitions. */
+(() => {
+  'use strict';
+  if (globalThis.RTVisualSearch || window.top !== window) return;
+
+  const Model = globalThis.RTVisualSearchModel;
+  const Filters = globalThis.RTFeedFilters;
+  const Sheet = globalThis.RTFeedSheet;
+  const MenuDOM = globalThis.RTPostMenuDOM;
+  const DownloadModel = globalThis.RTDownloadModel;
+  if (!Model) return;
+
+  const SVG = 'http://www.w3.org/2000/svg';
+  const SETTINGS_KEY = 'rt-settings-v1';
+  const ENABLED_SESSION_KEY = 'rt-visual-enabled-v1';
+  const UPLOAD_META_PREFIX = 'rt-visual-upload:';
+  const POST_SEED_PREFIX = 'rt-visual-seed:';
+  const SUPPORTED_POST_TYPES = new Set(['image', 'gallery', 'video', 'gif']);
+  const PARK_TTL_MS = 15 * 60_000;
+  const MAX_PARKS = 6;
+  const MAX_VIDEO_BLOBS = 4;
+  const POLL_INTERVAL_MS = 1600;
+  const MAX_POLLS = 18;
+  const MAX_IMAGE_DIM = 1280;
+  const LEAVE_FAILSAFE_MS = 6000;
+  const RETURN_RESTORE_MS = 900;
+  const POST_SCROLL_WAIT_MS = 1200;
+
+  const PATHS = {
+    camera: [
+      'M5.5 2.5h9A3 3 0 0 1 17.5 5.5v9a3 3 0 0 1-3 3h-9a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3Zm0 1.8a1.2 1.2 0 0 0-1.2 1.2v9c0 .66.54 1.2 1.2 1.2h9c.66 0 1.2-.54 1.2-1.2v-9c0-.66-.54-1.2-1.2-1.2h-9ZM10 6.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm0 1.8a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4ZM14.2 5.2a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6Z'
+    ],
+    caret: ['M10 13.7a.897.897 0 0 1-.636-.264l-4.6-4.6a.9.9 0 1 1 1.272-1.273L10 11.526l3.964-3.963a.9.9 0 1 1 1.272 1.273l-4.6 4.6A.897.897 0 0 1 10 13.7Z'],
+    close: ['m11.273 10 5.363-5.363a.9.9 0 1 0-1.273-1.273L10 8.727 4.637 3.364a.9.9 0 1 0-1.273 1.273L8.727 10l-5.363 5.363a.9.9 0 1 0 1.274 1.273L10 11.273l5.363 5.363a.897.897 0 0 0 1.274 0 .9.9 0 0 0 0-1.273L11.275 10Z'],
+    play: ['M6.8 4.4a.8.8 0 0 1 1.22-.68l7.6 4.6a.8.8 0 0 1 0 1.36l-7.6 4.6A.8.8 0 0 1 6.8 13.6V4.4Z'],
+    expand: ['M3.5 8V4.2A.7.7 0 0 1 4.2 3.5H8a.9.9 0 0 1 0 1.8H5.3V8a.9.9 0 0 1-1.8 0ZM12 3.5h3.8a.7.7 0 0 1 .7.7V8a.9.9 0 0 1-1.8 0V5.3H12a.9.9 0 0 1 0-1.8ZM4.4 11.1a.9.9 0 0 1 .9.9v2.7H8a.9.9 0 0 1 0 1.8H4.2a.7.7 0 0 1-.7-.7V12a.9.9 0 0 1 .9-.9ZM15.6 11.1a.9.9 0 0 1 .9.9v3.8a.7.7 0 0 1-.7.7H12a.9.9 0 0 1 0-1.8h2.7V12a.9.9 0 0 1 .9-.9Z'],
+    similar: ['M8.5 2a6.5 6.5 0 0 1 5.18 10.43l3.94 3.95a.9.9 0 0 1-1.27 1.27l-3.95-3.94A6.5 6.5 0 1 1 8.5 2Zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z'],
+    download: [
+      'M9.1 2.5h1.8v6.6l2.55-2.55 1.27 1.27L10 12.57 5.28 7.82 6.55 6.55 9.1 9.1V2.5Z',
+      'M3.9 12.5h1.8v2.8h8.6v-2.8h1.8v3.5c0 .5-.4.9-.9.9H4.8a.9.9 0 0 1-.9-.9v-3.5Z'
+    ],
+    upload: ['M10 2.5a.9.9 0 0 1 .64.26l4 4a.9.9 0 1 1-1.28 1.28L10.9 5.58v7.82a.9.9 0 0 1-1.8 0V5.58L6.64 8.04a.9.9 0 1 1-1.28-1.28l4-4A.9.9 0 0 1 10 2.5ZM3.4 15.2h13.2a.9.9 0 0 1 0 1.8H3.4a.9.9 0 0 1 0-1.8Z']
+  };
+  const NSFW_PATH = 'M6.506 5.119a.641.641 0 01.002-.723.74.74 0 01.31-.244 1.16 1.16 0 01.874 0 .695.695 0 01.306.244.647.647 0 01-.001.723.768.768 0 01-.303.259 1.008 1.008 0 01-.439.095 1.01 1.01 0 01-.44-.095.765.765 0 01-.309-.259Zm1.255 1.406a1.176 1.176 0 00-.507-.106c-.189 0-.36.036-.508.106a.854.854 0 00-.348.279.647.647 0 00-.127.386.6.6 0 00.13.382.87.87 0 00.353.266c.154.063.317.096.5.096s.352-.034.5-.1a.895.895 0 00.35-.27.625.625 0 00.123-.378.632.632 0 00-.124-.382.85.85 0 00-.342-.279Zm3.918.668c-.359.671-.958 1.57-1.937 2.55-.979.98-1.879 1.579-2.55 1.937-.749.4-1.637.4-2.386 0-.67-.358-1.57-.958-2.55-1.937-.98-.979-1.579-1.879-1.938-2.55-.4-.749-.4-1.637 0-2.387.36-.671.958-1.57 1.937-2.55.98-.98 1.88-1.579 2.55-1.937.75-.4 1.637-.4 2.386 0 .671.358 1.57.958 2.55 1.937.98.98 1.58 1.879 1.938 2.55.4.749.4 1.637 0 2.387ZM4 3.2H2.8v5.6H4V3.2Zm5.5 4.01a1.39 1.39 0 00-.246-.794 1.776 1.776 0 00-.6-.544c.168-.144.3-.312.395-.501.108-.21.163-.44.163-.682 0-.315-.089-.597-.266-.836a1.73 1.73 0 00-.712-.556A2.387 2.387 0 007.26 3.1c-.35 0-.677.065-.976.195-.298.13-.54.316-.72.555-.18.238-.27.521-.27.836 0 .243.054.472.163.684.096.189.228.357.394.501a1.788 1.788 0 00-.6.547 1.393 1.393 0 00.046 1.651c.192.255.465.46.806.608.341.148.727.223 1.151.223.416 0 .8-.074 1.14-.217.341-.145.613-.348.81-.605.197-.258.297-.549.297-.867l-.003-.001Z';
+
+  const MEDIA_LABELS = [
+    ['', 'All media'],
+    ['images', 'Images'],
+    ['gifs', 'GIFs'],
+    ['videos', 'Videos']
+  ];
+  const TIME_LABELS = [
+    ['', 'All time'],
+    ['year', 'Past year'],
+    ['month', 'Past month']
+  ];
+  const MENU_ROW_CLS = 'flex justify-between relative px-md gap-xs text-secondary-plain hover:text-secondary-plain-hover active:bg-interactive-pressed hover:bg-neutral-background-hover hover:no-underline cursor-pointer py-2xs -outline-offset-1';
+  const NATIVE_TAB_SELECTED_CLS = ['bg-secondary-background-selected', '!text-neutral-content-strong', 'tab-selected'];
+  const DEFAULT_TAB_CLS = 'flex hover:no-underline button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))] button-tertiary items-center justify-center button inline-flex';
+
+  const make = (tag, cls, text) => {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text != null) el.textContent = text;
+    return el;
+  };
+
+  function icon(name, size = 16) {
+    const svg = document.createElementNS(SVG, 'svg');
+    for (const [k, v] of Object.entries({ fill: 'currentColor', height: String(size), width: String(size), viewBox: '0 0 20 20', 'aria-hidden': 'true' })) {
+      svg.setAttribute(k, v);
+    }
+    for (const d of PATHS[name] || []) {
+      const p = document.createElementNS(SVG, 'path');
+      p.setAttribute('d', d);
+      svg.append(p);
+    }
+    return svg;
+  }
+
+  function nsfwIcon(size = 14) {
+    const existing = Filters?.svgIcon?.('nsfw-fill-12', size);
+    if (existing) return existing;
+    const svg = document.createElementNS(SVG, 'svg');
+    for (const [k, v] of Object.entries({ fill: 'currentColor', height: String(size), width: String(size), viewBox: '0 0 12 12', 'icon-name': 'nsfw-fill-12', 'aria-hidden': 'true' })) {
+      svg.setAttribute(k, v);
+    }
+    const p = document.createElementNS(SVG, 'path');
+    p.setAttribute('d', NSFW_PATH);
+    svg.append(p);
+    return svg;
+  }
+
+  const isPhone = () => Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);
+  const reducedMotion = () => Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+  const historyEntry = () => globalThis.navigation?.currentEntry?.key || (location.pathname + location.search);
+  const urlKey = (href = location.href) => {
+    try { const u = new URL(href, location.origin); return u.pathname + u.search; }
+    catch { return String(href || ''); }
+  };
+
+  function defaultSend(message) {
+    return new Promise((resolve, reject) => {
+      const runtime = (globalThis.browser || globalThis.chrome)?.runtime;
+      if (!runtime?.sendMessage) return reject(Error('Extension messaging is unavailable.'));
+      let settled = false;
+      const done = res => {
+        if (settled) return;
+        settled = true;
+        void runtime.lastError;
+        resolve(res || { ok: false, error: 'Visual search did not answer.', code: 'network-error' });
+      };
+      try {
+        const out = runtime.sendMessage({ scope: 'rt-visual-search', ...message }, done);
+        if (out && typeof out.then === 'function') out.then(done, err => {
+          if (!settled) { settled = true; reject(err); }
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  async function defaultReadSettings() {
+    const runtime = (globalThis.browser || globalThis.chrome)?.runtime;
+    if (!runtime?.sendMessage) return null;
+    const response = await runtime.sendMessage({ scope: 'rt-posts', action: 'get-settings' });
+    return response?.ok ? response.settings : null;
+  }
+
+  function bytesToBase64(bytes) {
+    const chunk = 0x8000;
+    let out = '';
+    for (let i = 0; i < bytes.length; i += chunk) {
+      out += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(out);
+  }
+
+  function base64ToBlob(base64, mimeType) {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mimeType });
+  }
+
+  // Re-encode uploaded/pasted images on an offscreen canvas to cap dimensions and strip EXIF/GPS metadata.
+  async function prepareImageBlob(blob) {
+    if (!blob || !(blob.type?.startsWith('image/') || blob.size > 0)) {
+      throw Error('Select a valid image file (PNG, JPG, WebP, or GIF).');
+    }
+    if (blob.size > 25 * 1024 * 1024) {
+      throw Error('Image file is larger than 25 MB.');
+    }
+    let previewUrl = '';
+    try {
+      const objectUrl = URL.createObjectURL(blob);
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(Error('Could not read that image.'));
+        el.src = objectUrl;
+      }).finally(() => URL.revokeObjectURL(objectUrl));
+
+      const natW = img.naturalWidth || img.width || 1;
+      const natH = img.naturalHeight || img.height || 1;
+      const scale = Math.min(1, MAX_IMAGE_DIM / Math.max(natW, natH));
+      const width = Math.max(1, Math.round(natW * scale));
+      const height = Math.max(1, Math.round(natH * scale));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+
+      let outBlob = await new Promise(resolve => canvas.toBlob?.(resolve, 'image/webp', 0.88));
+      let mimeType = 'image/webp';
+      if (!outBlob) {
+        outBlob = await new Promise(resolve => canvas.toBlob?.(resolve, 'image/jpeg', 0.88));
+        mimeType = 'image/jpeg';
+      }
+      if (!outBlob) {
+        outBlob = blob;
+        mimeType = blob.type || 'image/jpeg';
+      }
+      const bytes = new Uint8Array(await outBlob.arrayBuffer());
+      previewUrl = URL.createObjectURL(outBlob);
+      let thumbDataUrl = '';
+      try {
+        const thumbScale = Math.min(1, 160 / Math.max(width, height));
+        const tc = document.createElement('canvas');
+        tc.width = Math.max(1, Math.round(width * thumbScale));
+        tc.height = Math.max(1, Math.round(height * thumbScale));
+        tc.getContext('2d')?.drawImage(canvas, 0, 0, tc.width, tc.height);
+        const url = tc.toDataURL('image/jpeg', 0.72);
+        if (url.length < 30_000) thumbDataUrl = url;
+      } catch {}
+      return { dataBase64: bytesToBase64(bytes), mimeType, previewUrl, thumbDataUrl, width, height };
+    } catch (error) {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      throw error;
+    }
+  }
+
+  function extractPostMedia(post) {
+    const postId = String(post?.getAttribute?.('id') || post?.getAttribute?.('post-id') || '').replace(/^t3_/i, '').toLowerCase();
+    const rawPermalink = post?.getAttribute?.('permalink') || '';
+    const subMatch = /^\/r\/([A-Za-z0-9_]{2,24})\//i.exec(rawPermalink);
+    const subAttr = String(post?.getAttribute?.('subreddit-prefixed-name') || '').replace(/^r\//i, '').replace(/^u\//i, 'u_');
+    const subreddit = (subMatch?.[1] || subAttr || '').toLowerCase();
+    const title = String(post?.getAttribute?.('post-title') || post?.querySelector?.('[slot="title"]')?.textContent || '').trim().slice(0, 300);
+
+    let fallbackImageUrl = '';
+    const isAllowedImg = u => {
+      try {
+        const parsed = new URL(String(u || '').replace(/&amp;/gi, '&'));
+        return parsed.protocol === 'https:' && ['i.redd.it', 'preview.redd.it', 'cf.preview.redd.it', 'external-preview.redd.it'].includes(parsed.hostname.toLowerCase());
+      } catch { return false; }
+    };
+
+    const type = String(post?.getAttribute?.('post-type') || '').toLowerCase();
+    if (DownloadModel?.mediaFor && (type === 'image' || type === 'gallery')) {
+      const info = DownloadModel.mediaFor(post);
+      const imgUrl = info?.items?.[0]?.url;
+      if (isAllowedImg(imgUrl)) fallbackImageUrl = imgUrl;
+    }
+    if (!fallbackImageUrl) {
+      const player = post?.querySelector?.('shreddit-player, shreddit-player-2');
+      const poster = player?.getAttribute?.('poster') || player?.shadowRoot?.querySelector?.('video')?.getAttribute?.('poster') || '';
+      if (isAllowedImg(poster)) fallbackImageUrl = poster;
+    }
+    if (!fallbackImageUrl) {
+      const container = post?.querySelector?.('[slot="post-media-container"]') || post;
+      for (const img of container?.querySelectorAll?.('img') || []) {
+        if (img.classList?.contains('rt-media-backdrop')) continue;
+        const candidate = img.currentSrc || img.getAttribute('src') || img.getAttribute('data-src') || '';
+        if (isAllowedImg(candidate)) { fallbackImageUrl = candidate; break; }
+      }
+    }
+    return { postId, subreddit, title, fallbackImageUrl };
+  }
+
+  class VisualSearchController {
+    constructor({
+      send = defaultSend,
+      readSettings = defaultReadSettings,
+      prepareImage = prepareImageBlob,
+      observe = true
+    } = {}) {
+      this.send = send;
+      this.readSettings = readSettings;
+      this.prepareImage = prepareImage;
+      this.dead = false;
+      this.enabled = false;
+      this.postMenuEnabled = false;
+      this.settingsRevision = 0;
+      this.settingsRetry = 0;
+      this.gen = 0;
+      this.pollTimer = 0;
+      this.scrollTimer = 0;
+      this.restoreFrame = 0;
+      this.postScrollTimer = 0;
+      this.queued = false;
+      this.queuedFrame = false;
+
+      this.host = null;
+      this.mountedMain = null;
+      this.activeKey = '';
+      this.activeSpecKey = '';
+      this.lastUrl = location.href;
+      this.state = null;
+      this.hiddenNodes = new Map();
+      this.tabOriginals = new WeakMap();
+      this.tabShadowObserver = null;
+      this.tabShadowTarget = null;
+      this.visualTabScrolled = null;
+      this.nativeTabBackup = new WeakMap();
+      this.nativeTabLinks = new WeakMap();
+      this.parks = new Map();
+      this.urlParks = new Map();
+      this.outgoing = null;
+      this.waitingForReplacedMain = null;
+      this.waitingTimer = 0;
+      this.dispatchingRoute = false;
+      this.returningFromOther = false;
+      this.pendingPostScrollReset = false;
+      this.userScrolledRecently = false;
+      this.baseNativeUrl = urlKey(location.href);
+
+      this.openDropdown = null;
+      this.uploadPopover = null;
+      this.lightbox = null;
+      this.hoveredPreview = null;
+      this.videoBlobs = new Map();
+      this.localPreviewUrls = new Set();
+
+      this.fileInput = null;
+      this.returnInputHandler = () => {
+        this.userScrolledRecently = true;
+        this.stopScrollRestore();
+        this.pendingPostScrollReset = false;
+      };
+
+      this.onDocClick = event => this.handleDocClick(event);
+      this.onDocPointerDown = event => this.handlePointerDown(event);
+      this.onDocKeydown = event => this.handleKeydown(event);
+      this.onDocOver = event => this.handlePointerOver(event);
+      this.onDocOut = event => this.handlePointerOut(event);
+      this.onDocSubmit = event => this.handleSearchSubmit(event);
+      this.onDocPaste = event => this.handlePaste(event);
+      this.onVisibility = () => this.handleVisibility();
+      this.onRoute = event => this.handleRoute(event);
+      this.onMediaChange = () => { this.closeDropdown(); this.closeUploadPopover(); };
+      this.onScrollPause = () => { if (this.hoveredPreview) this.checkVideoVisibility(); };
+
+      this.phoneMedia = globalThis.matchMedia?.('(max-width: 767.98px)');
+      this.phoneMedia?.addEventListener?.('change', this.onMediaChange);
+
+      this.videoIO = typeof IntersectionObserver === 'function'
+        ? new IntersectionObserver(entries => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting || entry.intersectionRatio < 0.25) {
+                if (this.hoveredPreview?.media === entry.target) this.stopVideoPreview();
+              }
+            }
+          }, { threshold: [0, 0.25] })
+        : null;
+
+      document.addEventListener('pointerdown', this.onDocPointerDown, true);
+      document.addEventListener('click', this.onDocClick, true);
+      document.addEventListener('keydown', this.onDocKeydown, true);
+      document.addEventListener('mouseover', this.onDocOver, true);
+      document.addEventListener('mouseout', this.onDocOut, true);
+      document.addEventListener('submit', this.onDocSubmit, true);
+      document.addEventListener('paste', this.onDocPaste, true);
+      document.addEventListener('visibilitychange', this.onVisibility);
+      document.addEventListener('reddit:route', this.onRoute);
+      window.addEventListener('popstate', this.onRoute);
+      globalThis.navigation?.addEventListener('currententrychange', this.onRoute);
+      window.addEventListener('scroll', this.onScrollPause, { passive: true });
+      for (const evt of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+        window.addEventListener(evt, this.returnInputHandler, { capture: true, passive: true });
+      }
+
+      if (observe) {
+        this.observer = new MutationObserver(records => this.handleMutations(records));
+        this.observer.observe(document.documentElement || document, { childList: true, subtree: true });
+
+        const runtime = (globalThis.browser || globalThis.chrome)?.runtime;
+        const storage = (globalThis.browser || globalThis.chrome)?.storage;
+        this.onStorage = (changes, area) => {
+          if (area === 'local' && changes?.[SETTINGS_KEY]) this.applySettings(changes[SETTINGS_KEY].newValue);
+        };
+        this.onSettingsMsg = (message, sender) => {
+          if (sender?.id && runtime?.id && sender.id !== runtime.id) return;
+          if (message?.scope === 'rt-posts' && message.action === 'settings-changed') {
+            if (message.settings) this.applySettings(message.settings);
+            else this.loadSettings();
+          }
+        };
+        try { storage?.onChanged?.addListener(this.onStorage); } catch {}
+        try { runtime?.onMessage?.addListener(this.onSettingsMsg); } catch {}
+      }
+
+      this.ready = this.loadSettings();
+    }
+
+    applySettings(raw) {
+      if (this.dead) return;
+      const postModel = globalThis.RTPostModel;
+      const s = postModel?.normalizeSettings ? postModel.normalizeSettings(raw) : (raw || {});
+      const nextEnabled = s.visualSearch === true;
+      const nextMenu = nextEnabled && s.visualSearchPostMenu !== false;
+      const changed = nextEnabled !== this.enabled || nextMenu !== this.postMenuEnabled;
+      this.enabled = nextEnabled;
+      this.postMenuEnabled = nextMenu;
+      this.settingsRevision++;
+      try { sessionStorage.setItem(ENABLED_SESSION_KEY, nextEnabled ? '1' : '0'); } catch {}
+
+      if (!nextEnabled) {
+        this.teardownActive();
+        return;
+      }
+      if (!nextMenu) this.teardownPostMenus();
+      if (changed) this.sync();
+    }
+
+    async loadSettings(attempt = 0) {
+      if (this.dead) return;
+      clearTimeout(this.settingsRetry);
+      let settings = null;
+      try { settings = await this.readSettings(); } catch {}
+      if (this.dead) return;
+      if (settings) {
+        this.applySettings(settings);
+      } else {
+        // Default OFF until confirmed enabled; retry quietly if service worker was waking/reloading.
+        this.enabled = false;
+        this.postMenuEnabled = false;
+        this.teardownActive();
+        if (attempt < 6) {
+          this.settingsRetry = setTimeout(() => this.loadSettings(attempt + 1), Math.min(30_000, 1000 * 2 ** attempt));
+        }
+      }
+    }
+
+    handleMutations(records) {
+      if (this.dead || !this.enabled) return;
+      if (MenuDOM?.onlyMenuChanges(records)) {
+        if (this.postMenuEnabled) {
+          for (const menu of new Set(records.map(r => r.target.closest?.(MenuDOM.inline)).filter(Boolean))) {
+            const post = menu.closest('shreddit-post');
+            if (post && menu.isConnected) this.syncPostMenuItem(menu, post);
+          }
+          this.dedupePostSheet();
+        }
+        return;
+      }
+      let urgent = false;
+      for (const record of records) {
+        if (record.target?.closest?.('[data-rt-ui]') || MenuDOM?.isMenuMutation?.(record)) continue;
+        const nodes = [...record.addedNodes, ...record.removedNodes];
+        if (!nodes.length) continue;
+        if (nodes.every(n => n.nodeType === 1 && n.dataset?.rtUi && !n.dataset.rtUi.startsWith('visual-'))) continue;
+        urgent = true;
+        break;
+      }
+      if (!urgent) return;
+      this.schedule(true);
+    }
+
+    schedule(urgent = true) {
+      if (this.dead || !this.enabled) return;
+      if (this.queued && !(urgent && this.queuedFrame)) return;
+      this.queued = true;
+      const run = () => {
+        this.queued = false;
+        this.queuedFrame = false;
+        if (!this.dead) this.sync();
+      };
+      if (!urgent && globalThis.requestAnimationFrame && document.visibilityState !== 'hidden') {
+        this.queuedFrame = true;
+        requestAnimationFrame(run);
+      } else {
+        this.queuedFrame = false;
+        queueMicrotask(run);
+      }
+    }
+
+    handleRoute(event) {
+      if (this.dead || !this.enabled || this.dispatchingRoute) return;
+      if (event?.navigationType === 'replace' && urlKey(location.href) === this.activeKey) {
+        this.lastUrl = location.href;
+        return;
+      }
+      const parsed = Model.parseVisualUrl(location.href);
+      const main = document.querySelector('main');
+      const prevUrl = this.lastUrl;
+      this.lastUrl = location.href;
+      if (parsed?.active) {
+        document.documentElement?.setAttribute('data-rt-visual-active', '');
+        const isPostMain = Boolean(main?.querySelector?.('shreddit-post[view-context="CommentsPage"]'));
+        const cameFromNonSearch = Boolean(prevUrl && !Model.searchScopeFromUrl(prevUrl));
+        if ((event?.type === 'popstate' || event?.navigationType === 'traverse') && (isPostMain || cameFromNonSearch)) {
+          if (main && !main.contains(this.host) && this.waitingForReplacedMain !== main) {
+            this.waitingForReplacedMain = main;
+            clearTimeout(this.waitingTimer);
+            this.waitingTimer = setTimeout(() => {
+              if (this.waitingForReplacedMain === main) {
+                this.waitingForReplacedMain = null;
+                this.waitingTimer = 0;
+                this.schedule(true);
+              }
+            }, 3000);
+          }
+        }
+      } else {
+        this.waitingForReplacedMain = null;
+        clearTimeout(this.waitingTimer);
+        this.waitingTimer = 0;
+      }
+      this.sync();
+    }
+
+    // Main synchronization pass: handles departures, Back returns, search tabs, header camera trigger, and post menus.
+    sync() {
+      if (this.dead || !this.enabled) return;
+      const parsed = Model.parseVisualUrl(location.href);
+      const activeVisual = Boolean(parsed?.active);
+      const main = document.querySelector('main');
+
+      // Track the latest native URL rendered inside <main> so Visual <-> Media fast swap knows if hidden native Media matches.
+      if (main && main !== this.mountedMain && !activeVisual) {
+        this.baseNativeUrl = urlKey(location.href);
+      }
+
+      // Track leaving Visual without a click inside host (e.g., browser Back/Forward from Visual to Media/Posts/Home).
+      // Returning to baseNativeUrl (same <main> with hidden native Media) unmounts right away; real <main> transitions hold until swapped.
+      if (!activeVisual && !this.outgoing && this.host?.isConnected && this.mountedMain?.isConnected) {
+        if (urlKey(location.href) === this.baseNativeUrl) {
+          this.savePark();
+          this.unmountVisualHost();
+        } else {
+          this.startDeparture();
+        }
+      }
+
+      // 1. Outgoing Visual View: user clicked a result tile or switched to another search tab while <main> hasn't swapped yet.
+      if (this.outgoing) {
+        if (activeVisual) {
+          this.releaseOutgoing({ keepHost: true });
+        } else {
+          const sameMain = this.outgoing.main && this.outgoing.main.isConnected;
+          const postArrivedInsideSameMain = sameMain && Boolean(this.outgoing.main.querySelector('shreddit-post[view-context="CommentsPage"]'));
+          if (!sameMain || postArrivedInsideSameMain) {
+            this.releaseOutgoing({ keepHost: false });
+            if (this.pendingPostScrollReset && !this.userScrolledRecently) {
+              this.scrollOpenedPostToTop();
+            }
+          } else {
+            // Still transitioning inside Reddit's outgoing <main>: keep our grid mounted and native content suppressed!
+            document.documentElement?.setAttribute('data-rt-visual-active', '');
+            document.documentElement?.setAttribute('data-rt-visual-ready', '');
+            return;
+          }
+        }
+      }
+
+      // If returning via Back to Visual while the outgoing page's <main> hasn't swapped out yet, hold off mounting until search DOM or a new <main> arrives.
+      if (activeVisual && main && main === this.waitingForReplacedMain && main.isConnected && !main.querySelector('#search-results-page-tabgroup, search-media-feed, [data-testid="search-sdui-post"], [data-testid="search-error-message"]')) {
+        document.documentElement?.setAttribute('data-rt-visual-active', '');
+        return;
+      }
+      if (this.waitingForReplacedMain) {
+        this.waitingForReplacedMain = null;
+        clearTimeout(this.waitingTimer);
+        this.waitingTimer = 0;
+      }
+
+      // 2. Active Visual Search route inside <main>
+      if (activeVisual) {
+        this.ensureActiveVisual(parsed, main);
+      } else {
+        this.unmountVisualHost();
+        if (document.documentElement?.hasAttribute('data-rt-visual-active')) {
+          document.documentElement.removeAttribute('data-rt-visual-active');
+          document.documentElement.removeAttribute('data-rt-visual-ready');
+          this.notifyOtherModules();
+        }
+      }
+
+      // 3. Global entry points: Visual tab on search routes, Header camera trigger, Post ⋯ menu.
+      this.syncSearchTabGroup(parsed);
+      this.syncHeaderTriggers();
+      if (this.postMenuEnabled) this.syncPostMenus();
+    }
+
+    notifyOtherModules() {
+      this.dispatchingRoute = true;
+      try { document.dispatchEvent(new Event('reddit:route')); } catch {}
+      finally { this.dispatchingRoute = false; }
+    }
+
+    ensureActiveVisual(parsed, main) {
+      const wasActive = document.documentElement?.hasAttribute('data-rt-visual-active');
+      document.documentElement?.setAttribute('data-rt-visual-active', '');
+      document.documentElement?.setAttribute('data-rt-visual-ready', '');
+
+      if (!main) {
+        if (!wasActive) this.notifyOtherModules();
+        return;
+      }
+      const entryKey = historyEntry();
+      const currentUrl = urlKey(location.href);
+
+      // Hide Reddit's native children in <main> (excluding our own host and scoped switcher/tabgroup).
+      this.suppressNativeInMain(main);
+
+      // If our active host already matches this route & is in main, keep it attached and done.
+      if (this.host && this.activeKey === currentUrl) {
+        if (this.host.parentElement !== main || main.firstElementChild !== this.host) {
+          main.prepend(this.host);
+        }
+        this.mountedMain = main;
+        if (!wasActive) this.notifyOtherModules();
+        return;
+      }
+
+      // Check parked view first (Back/Forward from post or native tab): zero refetch, synchronous adoption!
+      const park = this.takePark(entryKey, currentUrl);
+      if (park && park.settingsRev === this.settingsRevision) {
+        this.adoptPark(park, main, parsed);
+        if (!wasActive) this.notifyOtherModules();
+        return;
+      }
+
+      // Fresh view for this route.
+      this.mountFreshVisual(main, parsed, currentUrl);
+      if (!wasActive) this.notifyOtherModules();
+    }
+
+    suppressNativeInMain(main) {
+      if (!main) return;
+      for (const child of [...main.children]) {
+        if (child === this.host || child.matches?.('[data-rt-ui="visual-search"], #search-results-page-tabgroup')) continue;
+        if (child.querySelector?.('#search-results-page-tabgroup')) continue;
+        if (!this.hiddenNodes.has(child)) this.hiddenNodes.set(child, child.hidden);
+        child.hidden = true;
+        child.setAttribute('data-rt-visual-hidden', '');
+      }
+    }
+
+    restoreHiddenNodes() {
+      for (const [node, wasHidden] of this.hiddenNodes) {
+        if (node.isConnected) {
+          node.hidden = Boolean(wasHidden);
+          node.removeAttribute('data-rt-visual-hidden');
+        }
+      }
+      this.hiddenNodes.clear();
+    }
+
+    mountFreshVisual(main, parsed, currentUrl) {
+      this.stopVideoPreview();
+      this.stopPolling();
+      this.stopScrollRestore();
+      this.mountedMain = main;
+      this.activeKey = currentUrl;
+      this.activeSpecKey = parsed.spec ? Model.cacheKey(parsed.spec) : '';
+
+      const host = this.host || this.buildHost();
+      this.host = host;
+      if (host.parentElement !== main || main.firstElementChild !== host) main.prepend(host);
+      this.state = {
+        status: 'idle',
+        items: [],
+        related: [],
+        error: '',
+        code: '',
+        retryAt: 0,
+        skippedCount: 0,
+        pollAttempt: 0,
+        uploadStatusText: '',
+        uploadPreviewUrl: this.readUploadPreview(parsed.uploadUuid || parsed.uploadHash),
+        postSeed: parsed.postSeed ? this.readPostSeed(parsed.postSeed) : null,
+        indexedViewId: parsed.viewId || '',
+        parsed
+      };
+      this.renderHost();
+      this.startLoad(parsed);
+    }
+
+    adoptPark(park, main, parsed) {
+      this.stopVideoPreview();
+      this.stopPolling();
+      this.stopScrollRestore();
+      this.host = park.host;
+      this.state = park.state;
+      this.state.parsed = parsed;
+      this.mountedMain = main;
+      this.activeKey = urlKey(location.href);
+      this.activeSpecKey = parsed.spec ? Model.cacheKey(parsed.spec) : '';
+
+      this.suppressNativeInMain(main);
+      if (this.host.parentElement !== main || main.firstElementChild !== this.host) {
+        main.prepend(this.host);
+      }
+
+      if (park.scrollY > 0 || park.clickedUuid) {
+        this.restoreScrollAfterReturn(park);
+      }
+      // If interrupted during active polling or loading, resume instead of leaving a dead spinner.
+      if (['hashing', 'uploading', 'embedding', 'fetching'].includes(this.state.status)) {
+        this.startLoad(parsed);
+      }
+    }
+
+    restoreScrollAfterReturn(park) {
+      this.stopScrollRestore();
+      const host = this.host;
+      if (!host) return;
+      this.userScrolledRecently = false;
+      host.setAttribute('data-rt-visual-restoring', '');
+      const deadline = performance.now() + RETURN_RESTORE_MS;
+      let stable = 0;
+
+      const step = () => {
+        if (this.dead || this.host !== host || !host.isConnected || this.userScrolledRecently || performance.now() >= deadline) {
+          this.stopScrollRestore();
+          return;
+        }
+        const tile = park.clickedUuid
+          ? host.querySelector(`.rt-vs-tile[data-uuid="${globalThis.CSS?.escape ? globalThis.CSS.escape(park.clickedUuid) : String(park.clickedUuid).replace(/[^A-Za-z0-9_-]/g, '\\$&')}"]`)
+          : null;
+        const box = tile?.getBoundingClientRect?.();
+        if (tile && box?.height > 0) {
+          const delta = box.top - park.clickedOffset;
+          if (Math.abs(delta) >= 2) {
+            stable = 0;
+            window.scrollBy({ top: delta, behavior: 'instant' });
+          } else if (++stable >= 2) {
+            this.stopScrollRestore();
+            return;
+          }
+        } else if (park.scrollY > 0) {
+          const max = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+          const target = Math.min(park.scrollY, max);
+          if (Math.abs(window.scrollY - target) >= 2) {
+            stable = 0;
+            window.scrollTo({ top: target, behavior: 'instant' });
+          } else if (++stable >= 2) {
+            this.stopScrollRestore();
+            return;
+          }
+        } else {
+          this.stopScrollRestore();
+          return;
+        }
+        this.restoreFrame = requestAnimationFrame(step);
+      };
+      step();
+    }
+
+    stopScrollRestore() {
+      if (this.restoreFrame) {
+        cancelAnimationFrame(this.restoreFrame);
+        this.restoreFrame = 0;
+      }
+      this.host?.removeAttribute?.('data-rt-visual-restoring');
+    }
+
+    scrollOpenedPostToTop() {
+      this.pendingPostScrollReset = false;
+      clearTimeout(this.postScrollTimer);
+      const started = performance.now();
+      const step = () => {
+        if (this.dead || this.userScrolledRecently || performance.now() - started > POST_SCROLL_WAIT_MS) return;
+        if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'instant' });
+        if (document.querySelector('shreddit-post[view-context="CommentsPage"]')) return;
+        this.postScrollTimer = setTimeout(step, 50);
+      };
+      step();
+    }
+
+    savePark({ clickedUuid = '', clickedOffset = 0 } = {}) {
+      if (!this.host || !this.state || !this.activeKey) return null;
+      const entry = historyEntry();
+      const key = this.activeKey;
+      const park = {
+        host: this.host,
+        urlKey: key,
+        state: { ...this.state },
+        scrollY: window.scrollY || 0,
+        clickedUuid,
+        clickedOffset,
+        parkedAt: Date.now(),
+        settingsRev: this.settingsRevision
+      };
+      this.parks.delete(entry);
+      this.parks.set(entry, park);
+      this.urlParks.delete(key);
+      this.urlParks.set(key, park);
+      while (this.parks.size > MAX_PARKS) {
+        const oldKey = this.parks.keys().next().value;
+        this.parks.delete(oldKey);
+      }
+      while (this.urlParks.size > MAX_PARKS) {
+        const oldKey = this.urlParks.keys().next().value;
+        this.urlParks.delete(oldKey);
+      }
+      return park;
+    }
+
+    takePark(entryKey, currentUrl) {
+      let park = this.parks.get(entryKey);
+      if (park && park.urlKey !== currentUrl) park = null;
+      if (!park) park = this.urlParks.get(currentUrl);
+      if (!park) return null;
+      if (Date.now() - park.parkedAt > PARK_TTL_MS) {
+        this.parks.delete(entryKey);
+        this.urlParks.delete(currentUrl);
+        return null;
+      }
+      this.parks.delete(entryKey);
+      this.urlParks.delete(currentUrl);
+      return park;
+    }
+
+    startDeparture({ clickedUuid = '', clickedOffset = 0, expectPost = false } = {}) {
+      if (!this.host?.isConnected || !this.mountedMain) return;
+      this.stopVideoPreview();
+      this.stopPolling();
+      this.closeDropdown();
+      this.savePark({ clickedUuid, clickedOffset });
+      if (expectPost) {
+        this.pendingPostScrollReset = true;
+        this.userScrolledRecently = false;
+      }
+      const main = this.mountedMain;
+      const host = this.host;
+      clearTimeout(this.outgoing?.timer);
+      const timer = setTimeout(() => {
+        if (this.outgoing?.host === host) this.releaseOutgoing({ keepHost: false });
+      }, LEAVE_FAILSAFE_MS);
+      this.outgoing = { main, host, timer };
+    }
+
+    releaseOutgoing({ keepHost = false } = {}) {
+      const out = this.outgoing;
+      if (!out) return;
+      this.outgoing = null;
+      clearTimeout(out.timer);
+      if (!keepHost) {
+        if (out.host === this.host) this.host = null;
+        if (out.main?.isConnected) this.restoreHiddenNodes();
+        out.host?.remove();
+        this.mountedMain = null;
+        this.activeKey = '';
+        this.activeSpecKey = '';
+        if (!Model.parseVisualUrl(location.href)?.active) {
+          document.documentElement?.removeAttribute('data-rt-visual-active');
+          document.documentElement?.removeAttribute('data-rt-visual-ready');
+          this.notifyOtherModules();
+        }
+      }
+    }
+
+    unmountVisualHost() {
+      if (!this.host && !this.hiddenNodes.size) return;
+      this.stopVideoPreview();
+      this.stopPolling();
+      this.stopScrollRestore();
+      this.closeDropdown();
+      this.host?.remove();
+      this.host = null;
+      this.mountedMain = null;
+      this.activeKey = '';
+      this.activeSpecKey = '';
+      this.restoreHiddenNodes();
+    }
+
+    // ---- Data Loading & Upload Polling -------------------------------------------------------------------------
+
+    stopPolling() {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = 0;
+    }
+
+    async startLoad(parsed, { force = false } = {}) {
+      const myGen = ++this.gen;
+      this.stopPolling();
+      this.state.error = '';
+      this.state.code = '';
+      this.state.retryAt = 0;
+      this.state.skippedCount = 0;
+
+      if (parsed.kind === 'post' && parsed.postSeed) {
+        await this.loadSimilarFromPost(parsed, myGen, force);
+        return;
+      }
+
+      if (parsed.kind === 'pending-upload' && parsed.uploadHash) {
+        this.state.status = 'embedding';
+        this.state.uploadStatusText = 'Analyzing visual features…';
+        this.state.pollHash = parsed.uploadHash;
+        this.state.pollFilters = parsed.filters;
+        this.state.pollAttempt = 0;
+        this.renderHost();
+        this.runPollStep(myGen);
+        return;
+      }
+
+      if (!parsed.spec) {
+        this.state.status = 'empty';
+        this.renderHost();
+        return;
+      }
+
+      if (parsed.kind === 'upload' && parsed.uploadUuid && !this.state.items.length) {
+        // Check upload embedding status first if we came from an unready upload, or query directly.
+      }
+
+      this.state.status = 'fetching';
+      this.renderHost();
+
+      const relatedPromise = (parsed.kind === 'search' && parsed.queryInfo.text)
+        ? this.send({ action: 'related', query: parsed.queryInfo.text }).catch(() => ({ ok: true, items: [] }))
+        : Promise.resolve({ ok: true, items: [] });
+
+      try {
+        const result = await this.send({
+          action: 'query',
+          kind: parsed.spec.kind,
+          target: parsed.spec.target,
+          slug: parsed.spec.slug,
+          filters: parsed.spec.filters,
+          force
+        });
+        if (this.dead || myGen !== this.gen) return;
+
+        const rel = await relatedPromise;
+        if (this.dead || myGen !== this.gen) return;
+        this.state.related = Array.isArray(rel?.items) ? rel.items : [];
+
+        if (!result?.ok) {
+          this.state.status = result?.code === 'permission-required' ? 'permission-required' : 'error';
+          this.state.error = result?.error || 'Could not load visual search results.';
+          this.state.code = result?.code || 'visual-error';
+          this.state.retryAt = result?.retryAt || 0;
+          this.renderHost();
+          return;
+        }
+
+        this.state.items = Array.isArray(result.items) ? result.items : [];
+        this.state.skippedCount = Number(result.skippedCount) || 0;
+        this.state.status = this.state.items.length ? 'ready' : 'empty';
+        this.renderHost();
+      } catch (err) {
+        if (this.dead || myGen !== this.gen) return;
+        this.state.status = 'error';
+        this.state.error = err?.message || 'Unable to load visual search results.';
+        this.renderHost();
+      }
+    }
+
+    async loadSimilarFromPost(parsed, myGen, force) {
+      const { subreddit, postId } = parsed.postSeed;
+      this.state.status = 'fetching';
+      this.renderHost();
+
+      try {
+        const res = await this.send({ action: 'resolve-post', subreddit, postId, force });
+        if (this.dead || myGen !== this.gen) return;
+
+        if (!res?.ok) {
+          this.state.status = res?.code === 'permission-required' ? 'permission-required' : 'error';
+          this.state.error = res?.error || 'Could not look up that post on infini.wtf.';
+          this.state.code = res?.code || 'visual-error';
+          this.renderHost();
+          return;
+        }
+
+        if (res.indexed && res.viewId) {
+          this.state.indexedViewId = res.viewId;
+          const queryRes = await this.send({ action: 'query', kind: 'view', target: res.viewId, force });
+          if (this.dead || myGen !== this.gen) return;
+          if (!queryRes?.ok) {
+            this.state.status = 'error';
+            this.state.error = queryRes?.error || 'Could not load similar visual results.';
+            this.renderHost();
+            return;
+          }
+          this.state.items = Array.isArray(queryRes.items) ? queryRes.items : [];
+          this.state.skippedCount = Number(queryRes.skippedCount) || 0;
+          this.state.status = this.state.items.length ? 'ready' : 'empty';
+          this.renderHost();
+          return;
+        }
+
+        // Not indexed on infini.wtf yet: never dead-end; show explicit opt-in upload / title fallback.
+        this.state.status = 'not-indexed';
+        this.renderHost();
+      } catch (err) {
+        if (this.dead || myGen !== this.gen) return;
+        this.state.status = 'error';
+        this.state.error = err?.message || 'Could not resolve that post.';
+        this.renderHost();
+      }
+    }
+
+    async uploadAndSearch(fileOrUrl, { filters = null } = {}) {
+      if (this.dead || !this.enabled) return;
+      const onVisual = Boolean(Model.parseVisualUrl(location.href)?.active);
+      const nextFilters = filters || Model.parseVisualUrl(location.href)?.filters || {};
+      const myGen = ++this.gen;
+      this.stopPolling();
+
+      let thumbDataUrl = '';
+      let previewUrl = '';
+      if (onVisual) {
+        this.closeUploadPopover();
+        Sheet?.close?.();
+        if (!this.host || !this.state) {
+          const main = document.querySelector('main');
+          if (main) this.mountFreshVisual(main, Model.parseVisualUrl(location.href), urlKey(location.href));
+        }
+      }
+
+      try {
+        let payload = {};
+        if (typeof fileOrUrl === 'string') {
+          if (onVisual && this.state) {
+            this.state.status = 'uploading';
+            this.state.uploadStatusText = 'Uploading image to infini.wtf…';
+            this.renderHost();
+          }
+          try {
+            const resp = await fetch(fileOrUrl, { credentials: 'omit' });
+            if (resp.ok) {
+              const blob = await resp.blob();
+              const prep = await this.prepareImage(blob);
+              this.trackPreviewUrl(prep.previewUrl);
+              previewUrl = prep.previewUrl;
+              thumbDataUrl = prep.thumbDataUrl || '';
+              if (onVisual && this.state) this.state.uploadPreviewUrl = previewUrl;
+              payload = { dataBase64: prep.dataBase64, mimeType: prep.mimeType };
+            } else {
+              payload = { redditImageUrl: fileOrUrl };
+            }
+          } catch {
+            payload = { redditImageUrl: fileOrUrl };
+          }
+        } else {
+          if (onVisual && this.state) {
+            this.state.status = 'hashing';
+            this.state.uploadStatusText = 'Preparing image locally…';
+            this.renderHost();
+          }
+          const prep = await this.prepareImage(fileOrUrl);
+          if (this.dead || myGen !== this.gen) {
+            URL.revokeObjectURL(prep.previewUrl);
+            return;
+          }
+          this.trackPreviewUrl(prep.previewUrl);
+          previewUrl = prep.previewUrl;
+          thumbDataUrl = prep.thumbDataUrl || '';
+          if (onVisual && this.state) {
+            this.state.uploadPreviewUrl = previewUrl;
+            this.state.status = 'uploading';
+            this.state.uploadStatusText = 'Uploading image to infini.wtf…';
+            this.renderHost();
+          }
+          payload = { dataBase64: prep.dataBase64, mimeType: prep.mimeType };
+        }
+
+        const up = await this.send({ action: 'upload-image', ...payload });
+        if (this.dead || myGen !== this.gen) return;
+        if (!up?.ok) {
+          if (onVisual && this.state) {
+            this.state.status = up?.code === 'permission-required' ? 'permission-required' : 'error';
+            this.state.error = up?.error || 'Could not upload that image.';
+            this.renderHost();
+          } else {
+            this.showPopoverError(up?.error || 'Could not upload that image.');
+          }
+          return;
+        }
+
+        const storedThumb = thumbDataUrl || previewUrl;
+        if (up.uuid) this.saveUploadPreview(up.uuid, storedThumb);
+        if (up.hash) this.saveUploadPreview(up.hash, storedThumb);
+
+        if (!onVisual) {
+          this.closeUploadPopover();
+          Sheet?.close?.();
+          const dest = up.hasEmbedding && up.uuid
+            ? Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', uploadUuid: up.uuid, filters: nextFilters, cleanNav: true })
+            : Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', uploadHash: up.hash, filters: nextFilters, cleanNav: true });
+          this.navigateUrl(dest.href);
+          return;
+        }
+
+        if (up.hasEmbedding && up.uuid) {
+          this.commitUploadUuid(up.uuid, nextFilters);
+          return;
+        }
+
+        this.state.status = 'embedding';
+        this.state.uploadStatusText = 'Analyzing visual features…';
+        this.state.pollHash = up.hash;
+        this.state.pollFilters = nextFilters;
+        this.state.pollAttempt = 0;
+        this.renderHost();
+        this.schedulePoll(myGen);
+      } catch (err) {
+        if (this.dead || myGen !== this.gen) return;
+        if (onVisual && this.state) {
+          this.state.status = 'error';
+          this.state.error = err?.message || 'Unable to process image.';
+          this.renderHost();
+        } else {
+          this.showPopoverError(err?.message || 'Unable to process image.');
+        }
+      }
+    }
+
+    schedulePoll(myGen) {
+      this.stopPolling();
+      if (document.visibilityState === 'hidden') return; // Paused in background; handleVisibility resumes immediately.
+      this.pollTimer = setTimeout(() => this.runPollStep(myGen), POLL_INTERVAL_MS);
+    }
+
+    async runPollStep(myGen) {
+      if (this.dead || myGen !== this.gen || !this.state?.pollHash) return;
+      if (this.state.pollAttempt >= MAX_POLLS) {
+        this.state.status = 'error';
+        this.state.error = 'infini.wtf is taking longer than expected to analyze that image.';
+        this.renderHost();
+        return;
+      }
+      this.state.pollAttempt++;
+      try {
+        const res = await this.send({ action: 'check-image-query', hash: this.state.pollHash });
+        if (this.dead || myGen !== this.gen) return;
+        if (res?.ok && res.hasEmbedding && res.uuid) {
+          this.saveUploadPreview(res.uuid, this.state.uploadPreviewUrl);
+          this.commitUploadUuid(res.uuid, this.state.pollFilters);
+          return;
+        }
+        if (res?.ok) {
+          this.schedulePoll(myGen);
+          return;
+        }
+        this.state.status = 'error';
+        this.state.error = res?.error || 'Could not check visual analysis status.';
+        this.renderHost();
+      } catch {
+        if (this.dead || myGen !== this.gen) return;
+        this.schedulePoll(myGen);
+      }
+    }
+
+    handleVisibility() {
+      if (document.visibilityState === 'hidden') {
+        this.stopVideoPreview();
+        this.stopPolling();
+      } else if (this.state?.status === 'embedding' && this.state.pollHash) {
+        this.runPollStep(this.gen);
+      }
+    }
+
+    commitUploadUuid(uuid, filters) {
+      const next = Model.buildVisualUrl(location.href, {
+        basePath: Model.parseVisualUrl(location.href)?.scope?.path || '/search/',
+        q: '',
+        uploadUuid: uuid,
+        filters,
+        cleanNav: true
+      });
+      this.replaceVisualUrl(next);
+    }
+
+    // ---- Rendering (Pure DOM APIs only — zero innerHTML) -------------------------------------------------------
+
+    buildHost() {
+      const host = make('section', 'rt-vs-root');
+      host.dataset.rtUi = 'visual-search';
+      host.setAttribute('aria-label', 'Visual search results');
+      host.addEventListener('dragover', e => {
+        if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+        e.preventDefault();
+        host.dataset.dragging = 'true';
+      });
+      host.addEventListener('dragleave', () => { delete host.dataset.dragging; });
+      host.addEventListener('drop', e => {
+        delete host.dataset.dragging;
+        const file = [...(e.dataTransfer?.files || [])].find(f => f.type?.startsWith('image/'));
+        if (!file) return;
+        e.preventDefault();
+        this.uploadAndSearch(file);
+      });
+      return host;
+    }
+
+    renderHost() {
+      const host = this.host;
+      const st = this.state;
+      if (!host || !st) return;
+      const parsed = st.parsed;
+      const parts = [];
+
+      // 1. Controls bar
+      parts.push(this.buildControls(parsed));
+
+      // 2. Scope / seed / stripped-operators banner
+      const banner = this.buildBanner(parsed, st);
+      if (banner) parts.push(banner);
+
+      // 3. Related searches chips
+      if (st.related?.length && st.status !== 'permission-required') {
+        const row = make('div', 'rt-vs-related');
+        row.setAttribute('aria-label', 'Related visual searches');
+        row.append(make('span', 'rt-vs-related-label', 'Related:'));
+        for (const item of st.related) {
+          const pill = make('button', 'rt-vs-related-pill', item.label);
+          pill.type = 'button';
+          pill.addEventListener('click', () => {
+            const dest = Model.buildVisualUrl(location.href, {
+              basePath: '/search/',
+              q: item.label,
+              filters: parsed.filters,
+              cleanNav: true
+            });
+            this.replaceVisualUrl(dest);
+          });
+          row.append(pill);
+        }
+        parts.push(row);
+      }
+
+      // 4. Body state
+      if (['hashing', 'uploading', 'embedding', 'fetching'].includes(st.status)) {
+        if (st.uploadStatusText) {
+          const status = make('div', 'rt-community-state');
+          const head = make('div', 'rt-community-state-head');
+          const spin = make('span', 'rt-community-spinner');
+          spin.append(icon('camera', 18));
+          head.append(spin, make('span', 'rt-community-state-title', st.uploadStatusText));
+          status.append(head);
+          if (st.status === 'embedding') {
+            const actions = make('div', 'rt-community-state-actions');
+            const cancelBtn = make('button', 'rt-community-action', 'Cancel');
+            cancelBtn.type = 'button';
+            cancelBtn.addEventListener('click', () => {
+              this.stopPolling();
+              this.gen++;
+              const popular = Model.buildVisualUrl(location.href, { q: '', popular: true, filters: parsed.filters });
+              this.replaceVisualUrl(popular);
+            });
+            actions.append(cancelBtn);
+            status.append(actions);
+          }
+          parts.push(status);
+        }
+        parts.push(this.buildSkeletonGrid());
+      } else if (st.status === 'not-indexed') {
+        parts.push(this.buildNotIndexedCard(parsed, st));
+      } else if (st.status === 'permission-required' || st.status === 'error') {
+        parts.push(this.buildErrorCard(st));
+      } else if (st.status === 'empty') {
+        parts.push(this.buildEmptyCard(parsed));
+      } else if (st.status === 'ready') {
+        parts.push(this.buildResultsGrid(st.items));
+        parts.push(this.buildLimitFooter(parsed, st));
+      }
+
+      host.replaceChildren(...parts);
+    }
+
+    buildControls(parsed) {
+      const bar = make('div', 'rt-vs-controls');
+      bar.dataset.rtUi = 'visual-controls';
+
+      const uploadBtn = make('button', 'rt-search-inline-filter');
+      uploadBtn.type = 'button';
+      uploadBtn.dataset.rtVisualControl = 'upload';
+      uploadBtn.append(icon('camera', 16), make('span', '', 'Search by image'));
+      uploadBtn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.openUploadUi(uploadBtn);
+      });
+      bar.append(uploadBtn);
+
+      const supportsFilter = parsed.kind !== 'view' && parsed.kind !== 'post';
+      if (supportsFilter) {
+        const mediaText = MEDIA_LABELS.find(([v]) => v === parsed.filters.mediaType)?.[1] || 'All media';
+        const mediaBtn = make('button', 'rt-search-inline-filter');
+        mediaBtn.type = 'button';
+        mediaBtn.dataset.rtVisualControl = 'media';
+        mediaBtn.dataset.active = String(Boolean(parsed.filters.mediaType));
+        mediaBtn.setAttribute('aria-haspopup', 'true');
+        mediaBtn.setAttribute('aria-expanded', 'false');
+        mediaBtn.append(make('span', '', parsed.filters.mediaType ? mediaText : 'Media type'), icon('caret', 14));
+        mediaBtn.addEventListener('click', () => this.openChoiceMenu(mediaBtn, 'media', 'Media type', MEDIA_LABELS, parsed.filters.mediaType, value => {
+          this.applyFilterPatch({ mediaType: value });
+        }));
+
+        const timeText = TIME_LABELS.find(([v]) => v === parsed.filters.time)?.[1] || 'All time';
+        const timeBtn = make('button', 'rt-search-inline-filter');
+        timeBtn.type = 'button';
+        timeBtn.dataset.rtVisualControl = 'time';
+        timeBtn.dataset.active = String(Boolean(parsed.filters.time));
+        timeBtn.setAttribute('aria-haspopup', 'true');
+        timeBtn.setAttribute('aria-expanded', 'false');
+        timeBtn.append(make('span', '', parsed.filters.time ? timeText : 'Time'), icon('caret', 14));
+        timeBtn.addEventListener('click', () => this.openChoiceMenu(timeBtn, 'time', 'Time', TIME_LABELS, parsed.filters.time, value => {
+          this.applyFilterPatch({ time: value });
+        }));
+
+        const nsfwBtn = make('button', 'rt-search-inline-filter rt-vs-filter-nsfw');
+        nsfwBtn.type = 'button';
+        nsfwBtn.dataset.rtVisualControl = 'nsfw';
+        nsfwBtn.setAttribute('aria-pressed', String(parsed.filters.nsfw));
+        nsfwBtn.title = 'Include NSFW visual results (uses a separate infini.wtf index)';
+        nsfwBtn.append(nsfwIcon(14), make('span', 'rt-community-nsfw-tag', 'NSFW'));
+        nsfwBtn.addEventListener('click', () => {
+          const nextNsfw = !parsed.filters.nsfw;
+          if (!nextNsfw) {
+            this.send({ action: 'clear-cache', nsfwOnly: true }).catch(() => {});
+          }
+          this.applyFilterPatch({ nsfw: nextNsfw });
+        });
+
+        bar.append(mediaBtn, timeBtn, nsfwBtn);
+
+        if (parsed.filters.mediaType || parsed.filters.time || parsed.filters.nsfw) {
+          const clearBtn = make('button', 'rt-search-inline-filter rt-vs-clear-btn');
+          clearBtn.type = 'button';
+          clearBtn.dataset.rtVisualControl = 'clear';
+          clearBtn.append(make('span', '', 'Clear'));
+          clearBtn.addEventListener('click', () => {
+            if (parsed.filters.nsfw) this.send({ action: 'clear-cache', nsfwOnly: true }).catch(() => {});
+            this.applyFilterPatch({ mediaType: '', time: '', nsfw: false });
+          });
+          bar.append(clearBtn);
+        }
+      } else if (parsed.kind === 'view') {
+        const noteBtn = make('button', 'rt-search-inline-filter');
+        noteBtn.type = 'button';
+        noteBtn.title = 'infini.wtf similarity views cannot be filtered; switch to popular or image search to filter.';
+        noteBtn.append(make('span', '', 'Browse popular (filterable)'));
+        noteBtn.addEventListener('click', () => {
+          const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, filters: parsed.filters });
+          this.replaceVisualUrl(dest);
+        });
+        bar.append(noteBtn);
+      }
+
+      return bar;
+    }
+
+    buildBanner(parsed, st) {
+      // Show context banner for upload searches, similar-post searches, scoped notices, or stripped operators.
+      if (parsed.kind === 'upload') {
+        const banner = make('div', 'rt-vs-banner');
+        const lead = make('div', 'rt-vs-banner-lead');
+        if (st.uploadPreviewUrl) {
+          const img = make('img', 'rt-vs-seed-thumb');
+          img.src = st.uploadPreviewUrl;
+          img.alt = '';
+          lead.append(img);
+        }
+        const copy = make('div', 'rt-vs-banner-copy');
+        const subline = make('span', 'rt-vs-banner-sub');
+        if (parsed.filters.nsfw) {
+          const tag = make('span', 'rt-community-nsfw-tag', 'NSFW');
+          tag.prepend(nsfwIcon(12));
+          subline.append(tag, 'results active');
+        } else {
+          subline.textContent = 'Safe results (NSFW off)';
+        }
+        copy.append(
+          make('span', 'rt-vs-banner-title', 'Results matching your uploaded image'),
+          subline
+        );
+        lead.append(copy);
+        const actions = make('div', 'rt-vs-banner-actions');
+        const clear = make('button', 'rt-community-action', 'Reset');
+        clear.type = 'button';
+        clear.addEventListener('click', () => {
+          const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, filters: parsed.filters });
+          this.replaceVisualUrl(dest);
+        });
+        actions.append(clear);
+        banner.append(lead, actions);
+        return banner;
+      }
+
+      if (parsed.kind === 'view' || parsed.kind === 'post') {
+        const banner = make('div', 'rt-vs-banner');
+        const lead = make('div', 'rt-vs-banner-lead');
+        if (st.postSeed?.fallbackImageUrl) {
+          const img = make('img', 'rt-vs-seed-thumb');
+          img.src = st.postSeed.fallbackImageUrl;
+          img.alt = '';
+          img.referrerPolicy = 'no-referrer';
+          lead.append(img);
+        }
+        const copy = make('div', 'rt-vs-banner-copy');
+        const heading = st.postSeed?.title ? 'Visually similar to “' + st.postSeed.title + '”'
+          : parsed.postSeed ? 'Visually similar to r/' + parsed.postSeed.subreddit + ' post'
+          : 'Visually similar results';
+        const subline = parsed.kind === 'view'
+          ? 'infini.wtf similarity matches do not apply Safe/Media/Time filters.'
+          : 'Checking infini.wtf index…';
+        copy.append(make('span', 'rt-vs-banner-title', heading), make('span', 'rt-vs-banner-sub', subline));
+        lead.append(copy);
+        const actions = make('div', 'rt-vs-banner-actions');
+        if (st.postSeed?.fallbackImageUrl && parsed.kind === 'view') {
+          const filterable = make('button', 'rt-community-action', 'Filterable image search');
+          filterable.type = 'button';
+          filterable.addEventListener('click', () => this.uploadAndSearch(st.postSeed.fallbackImageUrl, { filters: parsed.filters }));
+          actions.append(filterable);
+        }
+        if (parsed.postSeed) {
+          const openPost = make('a', 'rt-community-action', 'Source post');
+          openPost.href = 'https://www.reddit.com/r/' + encodeURIComponent(parsed.postSeed.subreddit) + '/comments/' + encodeURIComponent(parsed.postSeed.postId) + '/';
+          actions.append(openPost);
+        }
+        banner.append(lead, actions);
+        return banner;
+      }
+
+      // Keyword search inside a community/profile or with stripped Reddit operators: explain scope honestly.
+      const needsScopeNote = (parsed.scope.surface === 'subreddit' || parsed.scope.surface === 'user') && parsed.kind === 'search';
+      if (needsScopeNote || parsed.queryInfo.stripped.length) {
+        const banner = make('div', 'rt-vs-banner');
+        const lead = make('div', 'rt-vs-banner-lead');
+        const copy = make('div', 'rt-vs-banner-copy');
+        const title = needsScopeNote
+          ? 'Visual keyword search covers all of Reddit'
+          : 'Reddit search filters omitted from visual query';
+        const sub = parsed.queryInfo.stripped.length
+          ? 'Ignored Reddit syntax: ' + parsed.queryInfo.stripped.join(', ')
+          : 'infini.wtf supports keyword search globally or community browsing without keywords.';
+        copy.append(make('span', 'rt-vs-banner-title', title), make('span', 'rt-vs-banner-sub', sub));
+        lead.append(copy);
+        banner.append(lead);
+        if (parsed.scope.surface === 'subreddit') {
+          const actions = make('div', 'rt-vs-banner-actions');
+          const browseSub = make('button', 'rt-community-action', 'Browse r/' + parsed.scope.name + ' visually');
+          browseSub.type = 'button';
+          browseSub.addEventListener('click', () => {
+            const dest = Model.buildVisualUrl(location.href, { basePath: parsed.scope.path, q: '', filters: parsed.filters });
+            this.replaceVisualUrl(dest);
+          });
+          actions.append(browseSub);
+          banner.append(actions);
+        }
+        return banner;
+      }
+
+      return null;
+    }
+
+    buildSkeletonGrid() {
+      const grid = make('div', 'rt-vs-grid rt-vs-skeleton');
+      const count = isPhone() ? 6 : 9;
+      for (let i = 0; i < count; i++) {
+        const tile = make('div', 'rt-vs-tile');
+        tile.append(make('div', 'rt-vs-skeleton-media'), make('div', 'rt-vs-skeleton-line'), make('div', 'rt-vs-skeleton-line short'));
+        grid.append(tile);
+      }
+      return grid;
+    }
+
+    buildResultsGrid(items) {
+      const grid = make('div', 'rt-vs-grid');
+      for (const item of items) {
+        const tile = make('article', 'rt-vs-tile');
+        tile.dataset.uuid = item.uuid;
+
+        const media = make('div', 'rt-vs-media');
+        if (item.videoUrl) media.dataset.videoUrl = item.videoUrl;
+        const link = make('a', 'rt-vs-card-link');
+        link.href = item.permalink;
+
+        const thumbUrl = item.thumb || item.src;
+        if (thumbUrl) {
+          const img = make('img', 'rt-vs-img');
+          img.src = thumbUrl;
+          if (item.srcset) img.srcset = item.srcset;
+          img.sizes = isPhone() ? '(max-width: 767px) 46vw, 350px' : '(min-width: 768px) 347px, 46vw';
+          img.alt = item.title || 'Reddit post media';
+          img.loading = 'lazy';
+          img.decoding = 'async';
+          img.referrerPolicy = 'no-referrer';
+          img.addEventListener('error', () => {
+            if (!media.querySelector('.rt-vs-img-fallback')) {
+              img.remove();
+              media.append(make('span', 'rt-vs-img-fallback', 'Thumbnail unavailable'));
+            }
+          }, { once: true });
+          media.append(img);
+        } else {
+          media.append(make('span', 'rt-vs-img-fallback', 'Media preview unavailable'));
+        }
+
+        if (item.isVideo) {
+          const badge = make('span', 'rt-vs-badge');
+          badge.append(icon('play', 11), make('span', '', item.isGif ? 'GIF' : 'VIDEO'));
+          media.append(badge);
+        }
+
+        const titleEl = make('h3', 'rt-vs-title', item.title || 'Untitled Reddit post');
+        link.append(media);
+
+        const meta = make('div', 'rt-vs-meta');
+        if (item.subreddit) {
+          const isUser = item.subreddit.startsWith('u_');
+          const label = isUser ? 'u/' + item.subreddit.slice(2) : 'r/' + item.subreddit;
+          const subLink = make('a', 'rt-vs-sub-link', label);
+          subLink.href = isUser
+            ? 'https://www.reddit.com/user/' + encodeURIComponent(item.subreddit.slice(2)) + '/'
+            : 'https://www.reddit.com/r/' + encodeURIComponent(item.subreddit) + '/';
+          meta.append(subLink);
+        } else {
+          meta.append(make('span', 'rt-vs-sub-link', 'Reddit'));
+        }
+
+        const actions = make('div', 'rt-vs-tile-actions');
+        const simBtn = make('button', 'rt-vs-icon-btn');
+        simBtn.type = 'button';
+        simBtn.title = 'Find visually similar posts';
+        simBtn.setAttribute('aria-label', 'Find visually similar posts');
+        simBtn.append(icon('similar', 13), make('span', '', 'Similar'));
+        simBtn.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const dest = Model.buildVisualUrl(location.href, {
+            basePath: '/search/',
+            q: '',
+            viewId: item.viewId || item.uuid,
+            cleanNav: true
+          });
+          this.replaceVisualUrl(dest);
+        });
+
+        const prevBtn = make('button', 'rt-vs-icon-btn');
+        prevBtn.type = 'button';
+        prevBtn.title = 'Quick preview';
+        prevBtn.setAttribute('aria-label', 'Preview media');
+        prevBtn.append(icon('expand', 13));
+        prevBtn.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openLightbox(item, prevBtn);
+        });
+
+        actions.append(simBtn, prevBtn);
+        meta.append(actions);
+
+        const titleLink = make('a', 'rt-vs-card-link');
+        titleLink.href = item.permalink;
+        titleLink.append(titleEl);
+        tile.append(link, meta, titleLink);
+        grid.append(tile);
+      }
+      return grid;
+    }
+
+    buildLimitFooter(parsed, st) {
+      const foot = make('div', 'rt-vs-foot');
+      const count = st.items.length;
+      const modeText = parsed.kind === 'view'
+        ? `Showing ${count} similar results from infini.wtf (provider limit per lookup).`
+        : `Showing ${count} visual matches from infini.wtf (provider caps results at ${Model.RESULT_LIMIT} per query).`;
+      const msg = make('span', '', modeText + (st.skippedCount ? ` (${st.skippedCount} incomplete entries skipped)` : ''));
+      const actions = make('div', 'rt-vs-foot-actions');
+      const nativeMediaUrl = Model.stripVisualParams(new URL(location.href));
+      nativeMediaUrl.searchParams.set('type', 'media');
+      const nativeLink = make('a', 'rt-community-action', 'Open Reddit Media tab');
+      nativeLink.href = nativeMediaUrl.href;
+      nativeLink.dataset.rtVisualTabNav = '1';
+      nativeLink.addEventListener('click', e => this.handleTabNavigationClick(e, nativeMediaUrl));
+      actions.append(nativeLink);
+      foot.append(msg, actions);
+      return foot;
+    }
+
+    buildNotIndexedCard(parsed, st) {
+      const card = make('div', 'rt-community-state');
+      const head = make('div', 'rt-community-state-head');
+      const iconBox = make('span', 'rt-community-state-icon');
+      iconBox.append(icon('camera', 20));
+      head.append(iconBox, make('span', 'rt-community-state-title', 'This post is not in infini.wtf’s index yet'));
+      card.append(head);
+      card.append(make('p', 'rt-community-state-body', 'You can upload this post’s image to find visually similar matches, or search by its title instead.'));
+      const actions = make('div', 'rt-community-state-actions');
+      if (st.postSeed?.fallbackImageUrl) {
+        const upBtn = make('button', 'rt-community-action rt-community-action-primary', 'Upload post image to search visually');
+        upBtn.type = 'button';
+        upBtn.addEventListener('click', () => this.uploadAndSearch(st.postSeed.fallbackImageUrl, { filters: parsed.filters }));
+        actions.append(upBtn);
+      }
+      if (st.postSeed?.title) {
+        const titleBtn = make('button', 'rt-community-action', 'Search by title instead');
+        titleBtn.type = 'button';
+        titleBtn.addEventListener('click', () => {
+          const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: st.postSeed.title, filters: parsed.filters, cleanNav: true });
+          this.replaceVisualUrl(dest);
+        });
+        actions.append(titleBtn);
+      }
+      const backBtn = make('a', 'rt-community-action', 'Open source post');
+      backBtn.href = 'https://www.reddit.com/r/' + encodeURIComponent(parsed.postSeed.subreddit) + '/comments/' + encodeURIComponent(parsed.postSeed.postId) + '/';
+      actions.append(backBtn);
+      card.append(actions);
+      return card;
+    }
+
+    buildEmptyCard(parsed) {
+      const card = make('div', 'rt-community-state');
+      const head = make('div', 'rt-community-state-head');
+      const iconBox = make('span', 'rt-community-state-icon');
+      iconBox.append(icon('similar', 20));
+      head.append(iconBox, make('span', 'rt-community-state-title', 'No visual matches found'));
+      card.append(head);
+      const hasFilters = Boolean(parsed.filters.mediaType || parsed.filters.time || parsed.filters.nsfw);
+      const reason = hasFilters
+        ? 'infini.wtf returned no matches for this combination of filters. Try clearing filters' + (!parsed.filters.nsfw ? ' or toggling 18+.' : '.')
+        : 'infini.wtf had no indexed visual matches for this query.';
+      card.append(make('p', 'rt-community-state-body', reason));
+      const actions = make('div', 'rt-community-state-actions');
+      if (hasFilters) {
+        const clear = make('button', 'rt-community-action rt-community-action-primary', 'Clear filters');
+        clear.type = 'button';
+        clear.addEventListener('click', () => this.applyFilterPatch({ mediaType: '', time: '', nsfw: false }));
+        actions.append(clear);
+      }
+      const upload = make('button', 'rt-community-action', 'Search by image');
+      upload.type = 'button';
+      upload.addEventListener('click', () => this.openUploadUi(upload));
+      actions.append(upload);
+      card.append(actions);
+      return card;
+    }
+
+    buildErrorCard(st) {
+      const card = make('div', 'rt-community-state');
+      const head = make('div', 'rt-community-state-head');
+      const iconBox = make('span', 'rt-community-state-icon');
+      iconBox.append(icon('camera', 20));
+      const title = st.status === 'permission-required' ? 'Visual search needs infini.wtf access' : 'Visual search unavailable';
+      head.append(iconBox, make('span', 'rt-community-state-title', title));
+      card.append(head);
+      card.append(make('p', 'rt-community-state-body', st.error || 'Could not reach infini.wtf right now.'));
+      const actions = make('div', 'rt-community-state-actions');
+      if (st.status !== 'permission-required') {
+        const retry = make('button', 'rt-community-action rt-community-action-primary', 'Retry');
+        retry.type = 'button';
+        retry.addEventListener('click', () => this.startLoad(st.parsed, { force: true }));
+        actions.append(retry);
+      }
+      const mediaUrl = Model.stripVisualParams(new URL(location.href));
+      mediaUrl.searchParams.set('type', 'media');
+      const openMedia = make('a', 'rt-community-action', 'Open Reddit Media tab');
+      openMedia.href = mediaUrl.href;
+      openMedia.dataset.rtVisualTabNav = '1';
+      openMedia.addEventListener('click', e => this.handleTabNavigationClick(e, mediaUrl));
+      actions.append(openMedia);
+      card.append(actions);
+      return card;
+    }
+
+    // ---- Menus & Bottom Sheets (1:1 Desktop Dropdown & Phone RTFeedSheet) ------------------------------------
+
+    closeDropdown(restoreFocus = false) {
+      const cur = this.openDropdown;
+      if (!cur) return;
+      this.openDropdown = null;
+      cur.trigger?.setAttribute('aria-expanded', 'false');
+      cur.menu?.remove();
+      if (restoreFocus && cur.trigger?.isConnected) cur.trigger.focus({ preventScroll: true });
+    }
+
+    openChoiceMenu(trigger, key, title, items, currentValue, onChoose) {
+      if (isPhone() && Sheet) {
+        Sheet.open({
+          title,
+          returnFocus: trigger,
+          build: (body, ui) => {
+            for (const [val, label] of items) {
+              ui.row({
+                label,
+                selected: val === currentValue,
+                onSelect: () => onChoose(val)
+              });
+            }
+          }
+        });
+        return;
+      }
+
+      if (this.openDropdown?.trigger === trigger) {
+        this.closeDropdown(true);
+        return;
+      }
+      this.closeDropdown();
+      this.closeUploadPopover();
+
+      const menu = make('div', 'rt-inline-menu');
+      menu.dataset.rtUi = 'visual-menu';
+      menu.setAttribute('role', 'menu');
+      menu.setAttribute('aria-label', title);
+
+      const list = make('ul', 'rt-inline-menu-list');
+      list.setAttribute('role', 'presentation');
+      for (const [val, label] of items) {
+        const li = make('li', 'rt-inline-menu-item');
+        li.setAttribute('role', 'menuitemradio');
+        li.setAttribute('aria-checked', String(val === currentValue));
+        li.tabIndex = 0;
+        const left = make('span', 'rt-inline-menu-label', label);
+        const mark = make('span', 'rt-inline-mark');
+        if (val === currentValue && Filters?.svgIcon) mark.append(Filters.svgIcon('checkmark', 16));
+        li.append(left, mark);
+        const select = () => {
+          this.closeDropdown(true);
+          onChoose(val);
+        };
+        li.addEventListener('click', select);
+        li.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(); }
+        });
+        list.append(li);
+      }
+      menu.append(list);
+      document.body.append(menu);
+
+      const rect = trigger.getBoundingClientRect();
+      const vw = window.innerWidth || 1024;
+      const vh = window.innerHeight || 768;
+      const mw = Math.max(160, menu.offsetWidth || 180);
+      const mh = Math.min(menu.offsetHeight || 200, vh - 16);
+      menu.style.left = Math.max(8, Math.min(rect.left, vw - mw - 8)) + 'px';
+      menu.style.top = (rect.bottom + 4 + mh <= vh - 8 ? rect.bottom + 4 : Math.max(8, rect.top - mh - 4)) + 'px';
+
+      trigger.setAttribute('aria-expanded', 'true');
+      this.openDropdown = { trigger, menu, key };
+      (list.querySelector('[aria-checked="true"]') || list.firstElementChild)?.focus?.({ preventScroll: true });
+    }
+
+    ensureFileInput() {
+      if (this.fileInput?.isConnected) return this.fileInput;
+      const input = make('input', '');
+      input.type = 'file';
+      input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/*';
+      input.hidden = true;
+      input.dataset.rtUi = 'visual-file-input';
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        input.value = '';
+        if (file) this.uploadAndSearch(file);
+      });
+      document.body.append(input);
+      this.fileInput = input;
+      return input;
+    }
+
+    async pasteFromClipboard(onError) {
+      try {
+        const clip = navigator.clipboard;
+        if (!clip?.read) throw Error('Use Ctrl+V / Cmd+V to paste an image.');
+        const items = await clip.read();
+        for (const item of items) {
+          const imgType = item.types.find(t => t.startsWith('image/'));
+          if (imgType) {
+            const blob = await item.getType(imgType);
+            await this.uploadAndSearch(blob);
+            return;
+          }
+        }
+        onError?.('No image found on your clipboard.');
+      } catch (err) {
+        onError?.(err?.message || 'Press Ctrl+V to paste an image.');
+      }
+    }
+
+    closeUploadPopover(restoreFocus = false) {
+      const pop = this.uploadPopover;
+      if (!pop) return;
+      this.uploadPopover = null;
+      pop.panel?.remove();
+      if (restoreFocus && pop.anchor?.isConnected) pop.anchor.focus({ preventScroll: true });
+    }
+
+    openUploadUi(anchor) {
+      if (isPhone() && Sheet) {
+        Sheet.open({
+          title: 'Visual search',
+          returnFocus: anchor,
+          build: (body, ui) => {
+            ui.row({
+              label: 'Choose photo or image',
+              subtitle: 'Search infini.wtf with an image from your device',
+              icon: icon('upload', 20),
+              onSelect: () => { this.ensureFileInput().click(); }
+            });
+            ui.row({
+              label: 'Paste image from clipboard',
+              subtitle: 'Uses the most recent copied image',
+              icon: icon('camera', 20),
+              keepOpen: true,
+              onSelect: async () => {
+                let err = '';
+                await this.pasteFromClipboard(msg => { err = msg; });
+                return err ? { ok: false, error: err } : { ok: true };
+              }
+            });
+            ui.row({
+              label: 'Browse popular visual posts',
+              subtitle: 'Explore trending images and videos on infini.wtf',
+              icon: icon('similar', 20),
+              onSelect: () => {
+                const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, cleanNav: true });
+                this.navigateUrl(dest.href);
+              }
+            });
+          }
+        });
+        return;
+      }
+
+      if (this.uploadPopover?.anchor === anchor) {
+        this.closeUploadPopover(true);
+        return;
+      }
+      this.closeUploadPopover();
+      this.closeDropdown();
+
+      const panel = make('div', 'rt-vs-upload-popover');
+      panel.dataset.rtUi = 'visual-upload-popover';
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-label', 'Search by image');
+
+      const head = make('div', 'rt-vs-upload-head');
+      const title = make('h3', 'rt-vs-upload-title', 'Search by image');
+      const closeBtn = make('button', 'rt-vs-upload-close');
+      closeBtn.type = 'button';
+      closeBtn.setAttribute('aria-label', 'Close');
+      closeBtn.append(icon('close', 14));
+      closeBtn.addEventListener('click', () => this.closeUploadPopover(true));
+      head.append(title, closeBtn);
+
+      const errLine = make('p', 'rt-vs-upload-err');
+      errLine.hidden = true;
+      const showErr = text => { errLine.textContent = text; errLine.hidden = !text; };
+
+      const drop = make('div', 'rt-vs-drop');
+      drop.append(make('span', '', 'Drop an image, choose a file, or press Ctrl+V'));
+      const btnRow = make('div', 'rt-vs-upload-actions');
+
+      const pickBtn = make('button', 'rt-community-action rt-community-action-primary', 'Choose image');
+      pickBtn.type = 'button';
+      pickBtn.addEventListener('click', () => this.ensureFileInput().click());
+
+      const pasteBtn = make('button', 'rt-community-action', 'Paste');
+      pasteBtn.type = 'button';
+      pasteBtn.addEventListener('click', () => this.pasteFromClipboard(showErr));
+
+      const popBtn = make('button', 'rt-community-action', 'Popular visual posts');
+      popBtn.type = 'button';
+      popBtn.addEventListener('click', () => {
+        this.closeUploadPopover();
+        const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', popular: true, cleanNav: true });
+        this.navigateUrl(dest.href);
+      });
+
+      btnRow.append(pickBtn, pasteBtn, popBtn);
+      drop.append(btnRow);
+      drop.addEventListener('dragover', e => {
+        if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); drop.dataset.dragging = 'true'; }
+      });
+      drop.addEventListener('dragleave', () => { delete drop.dataset.dragging; });
+      drop.addEventListener('drop', e => {
+        delete drop.dataset.dragging;
+        const file = [...(e.dataTransfer?.files || [])].find(f => f.type?.startsWith('image/'));
+        if (file) { e.preventDefault(); this.uploadAndSearch(file); }
+      });
+
+      panel.append(head, drop, errLine);
+      document.body.append(panel);
+
+      const rect = anchor?.getBoundingClientRect?.() || { left: 16, right: 356, bottom: 56, top: 16 };
+      const vw = window.innerWidth || 1024;
+      const pw = panel.offsetWidth || 340;
+      const left = Math.max(8, Math.min(rect.right - pw, vw - pw - 8));
+      const top = Math.min((window.innerHeight || 768) - (panel.offsetHeight || 190) - 8, rect.bottom + 8);
+      panel.style.left = Math.round(left) + 'px';
+      panel.style.top = Math.round(Math.max(8, top)) + 'px';
+
+      this.uploadPopover = { anchor, panel, showErr };
+      pickBtn.focus({ preventScroll: true });
+    }
+
+    showPopoverError(msg) {
+      this.uploadPopover?.showErr?.(msg);
+    }
+
+    // ---- Lightbox & Video Preview (CSP-compliant blob: transport) ---------------------------------------------
+
+    stopVideoPreview() {
+      const cur = this.hoveredPreview;
+      if (!cur) return;
+      this.hoveredPreview = null;
+      clearTimeout(cur.timer);
+      if (cur.media) this.videoIO?.unobserve?.(cur.media);
+      if (cur.video) {
+        try { cur.video.pause(); } catch {}
+        cur.video.removeAttribute('src');
+        try { cur.video.load(); } catch {}
+        cur.video.remove();
+      }
+    }
+
+    checkVideoVisibility() {
+      const media = this.hoveredPreview?.media;
+      if (!media || !media.isConnected) { this.stopVideoPreview(); return; }
+      const rect = media.getBoundingClientRect();
+      if (rect.bottom < 0 || rect.top > (window.innerHeight || 900)) this.stopVideoPreview();
+    }
+
+    async getVideoBlobUrl(videoUrl) {
+      if (this.videoBlobs.has(videoUrl)) {
+        const existing = this.videoBlobs.get(videoUrl);
+        this.videoBlobs.delete(videoUrl);
+        this.videoBlobs.set(videoUrl, existing);
+        return existing;
+      }
+      const res = await this.send({ action: 'fetch-video', url: videoUrl });
+      if (!res?.ok || !res.base64) throw Error(res?.error || 'Video preview unavailable.');
+      const blob = base64ToBlob(res.base64, res.mimeType || 'video/mp4');
+      const objUrl = URL.createObjectURL(blob);
+      this.videoBlobs.set(videoUrl, objUrl);
+      while (this.videoBlobs.size > MAX_VIDEO_BLOBS) {
+        const [oldKey, oldUrl] = this.videoBlobs.entries().next().value;
+        this.videoBlobs.delete(oldKey);
+        URL.revokeObjectURL(oldUrl);
+      }
+      return objUrl;
+    }
+
+    handlePointerOver(event) {
+      if (!this.enabled || isPhone() || reducedMotion()) return;
+      const media = event.target?.closest?.('[data-rt-ui="visual-search"] .rt-vs-media[data-video-url]');
+      if (!media || this.hoveredPreview?.media === media) return;
+      this.stopVideoPreview();
+      const videoUrl = media.dataset.videoUrl;
+      if (!videoUrl) return;
+      const entry = {
+        media,
+        videoUrl,
+        video: null,
+        timer: setTimeout(async () => {
+          if (this.dead || this.hoveredPreview !== entry || !media.isConnected || document.visibilityState === 'hidden') return;
+          try {
+            const objUrl = await this.getVideoBlobUrl(videoUrl);
+            if (this.dead || this.hoveredPreview !== entry || !media.isConnected) return;
+            const video = make('video', 'rt-vs-video');
+            video.muted = true;
+            video.loop = true;
+            video.playsInline = true;
+            video.autoplay = true;
+            video.src = objUrl;
+            entry.video = video;
+            media.append(video);
+            this.videoIO?.observe?.(media);
+            video.play?.().catch(() => {});
+          } catch {}
+        }, 200)
+      };
+      this.hoveredPreview = entry;
+    }
+
+    handlePointerOut(event) {
+      const cur = this.hoveredPreview;
+      if (!cur) return;
+      if (!cur.media.contains(event.relatedTarget)) this.stopVideoPreview();
+    }
+
+    closeLightbox() {
+      const cur = this.lightbox;
+      if (!cur) return;
+      this.lightbox = null;
+      const vid = cur.dialog?.querySelector('video');
+      if (vid) {
+        try { vid.pause(); } catch {}
+        vid.removeAttribute('src');
+        try { vid.load(); } catch {}
+      }
+      try { cur.dialog?.close?.(); } catch {}
+      cur.dialog?.remove();
+      if (cur.returnFocus?.isConnected) cur.returnFocus.focus({ preventScroll: true });
+    }
+
+    async openLightbox(item, returnFocus = null) {
+      this.stopVideoPreview();
+      this.closeLightbox();
+      const dialog = make('dialog', 'rt-vs-lightbox');
+      dialog.dataset.rtUi = 'visual-lightbox';
+
+      const card = make('div', 'rt-vs-lightbox-card');
+      const head = make('div', 'rt-vs-lightbox-head');
+      const title = make('h2', 'rt-vs-lightbox-title', item.title || 'Visual search preview');
+      const closeBtn = make('button', 'rt-vs-upload-close');
+      closeBtn.type = 'button';
+      closeBtn.setAttribute('aria-label', 'Close preview');
+      closeBtn.append(icon('close', 16));
+      closeBtn.addEventListener('click', () => this.closeLightbox());
+      head.append(title, closeBtn);
+
+      const stage = make('div', 'rt-vs-lightbox-stage');
+      if (item.src || item.thumb) {
+        const img = make('img');
+        img.src = item.src || item.thumb;
+        img.alt = item.title || '';
+        img.referrerPolicy = 'no-referrer';
+        stage.append(img);
+      }
+
+      const foot = make('div', 'rt-vs-lightbox-foot');
+      foot.append(make('span', 'rt-vs-sub-link', item.subreddit ? 'r/' + item.subreddit : 'Reddit'));
+      const actions = make('div', 'rt-vs-banner-actions');
+
+      const simBtn = make('button', 'rt-community-action', 'Find similar');
+      simBtn.type = 'button';
+      simBtn.addEventListener('click', () => {
+        this.closeLightbox();
+        const dest = Model.buildVisualUrl(location.href, { basePath: '/search/', q: '', viewId: item.viewId || item.uuid, cleanNav: true });
+        this.replaceVisualUrl(dest);
+      });
+
+      const dlUrl = item.videoUrl || item.src || item.thumb || item.downloadUrl;
+      if (dlUrl) {
+        const dlBtn = make('button', 'rt-community-action', 'Download');
+        dlBtn.type = 'button';
+        dlBtn.addEventListener('click', () => {
+          const ext = item.isVideo ? 'mp4' : 'webp';
+          const name = (item.title || 'visual-match').replace(/[^\w\s-]/g, '').trim().slice(0, 60) || 'visual-match';
+          this.send({ action: 'download', url: dlUrl, filename: name + '.' + ext }).catch(() => {});
+        });
+        actions.append(dlBtn);
+      }
+
+      const openPost = make('a', 'rt-community-action rt-community-action-primary', 'Open Reddit post');
+      openPost.href = item.permalink;
+      actions.append(simBtn, openPost);
+      foot.append(actions);
+
+      card.append(head, stage, foot);
+      dialog.append(card);
+      dialog.addEventListener('cancel', e => { e.preventDefault(); this.closeLightbox(); });
+      dialog.addEventListener('click', e => { if (e.target === dialog) this.closeLightbox(); });
+      document.body.append(dialog);
+      this.lightbox = { dialog, returnFocus };
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+      closeBtn.focus({ preventScroll: true });
+
+      if (item.isVideo && item.videoUrl) {
+        const note = make('span', 'rt-vs-lightbox-note', 'Loading video…');
+        stage.append(note);
+        try {
+          const objUrl = await this.getVideoBlobUrl(item.videoUrl);
+          if (this.dead || this.lightbox?.dialog !== dialog || !dialog.isConnected) return;
+          const video = make('video');
+          video.controls = true;
+          video.autoplay = true;
+          video.loop = true;
+          video.playsInline = true;
+          video.src = objUrl;
+          stage.replaceChildren(video);
+          video.play?.().catch(() => {});
+        } catch (err) {
+          if (this.lightbox?.dialog === dialog) note.textContent = err?.message || 'Video preview unavailable.';
+        }
+      }
+    }
+
+    // ---- Entry Point 1: Tab in #search-results-page-tabgroup -------------------------------------------------
+
+    syncSearchTabGroup(parsed) {
+      const tg = document.querySelector('#search-results-page-tabgroup');
+      if (!tg) return;
+      const scope = parsed?.scope || Model.searchScopeFromUrl(location.href);
+      if (!scope) return;
+
+      const active = Boolean(parsed?.active);
+
+      let visualTab = tg.querySelector(':scope > [data-rt-ui="visual-search-tab"]');
+      const destUrl = Model.buildVisualUrl(location.href, {
+        q: parsed?.q ?? (new URLSearchParams(location.search).get('q') || ''),
+        filters: parsed?.filters || {},
+        uploadUuid: parsed?.uploadUuid || '',
+        viewId: parsed?.viewId || '',
+        postSeed: parsed?.postSeed || null,
+        popular: parsed?.popular || false,
+        vscope: parsed?.vscope || ''
+      });
+
+      if (!visualTab) {
+        const sibling = tg.querySelector(':scope > a[href]:not([data-rt-ui="visual-search-tab"])');
+        const baseCls = sibling?.className
+          ? sibling.className.split(/\s+/).filter(c => c && !NATIVE_TAB_SELECTED_CLS.includes(c)).join(' ')
+          : '';
+        visualTab = make('a', baseCls || DEFAULT_TAB_CLS);
+        visualTab.id = 'search-results-page-tab-visual';
+        visualTab.setAttribute('slot', 'visual');
+        visualTab.dataset.rtUi = 'visual-search-tab';
+        const inner = make('span', 'flex items-center justify-center');
+        inner.append(make('span', 'flex items-center gap-xs', 'Visual'));
+        visualTab.append(inner);
+        visualTab.addEventListener('click', e => this.handleVisualTabClick(e, visualTab));
+        const mediaTab = tg.querySelector(':scope > a[slot="media"]');
+        if (mediaTab) mediaTab.after(visualTab);
+        else {
+          const backBtn = tg.querySelector(':scope > button[slot="back-button"]');
+          if (backBtn) backBtn.before(visualTab);
+          else tg.append(visualTab);
+        }
+      }
+      if (visualTab.getAttribute('href') !== destUrl.href) visualTab.setAttribute('href', destUrl.href);
+
+      // Project slot="visual" directly inside shared Shadow DOM .tablist (wrapper expandos don't trigger Lit).
+      if (tg.shadowRoot) {
+        const sr = tg.shadowRoot;
+        const tablist = sr.querySelector('.tablist, [role="tablist"]');
+        if (tablist) {
+          let visualSlotWrap = tablist.querySelector(':scope > [data-rt-ui="visual-search-slot"]');
+          if (!visualSlotWrap) {
+            visualSlotWrap = make('span');
+            visualSlotWrap.setAttribute('role', 'tab');
+            visualSlotWrap.dataset.rtUi = 'visual-search-slot';
+            visualSlotWrap.setAttribute('aria-selected', 'false');
+            const slotEl = make('slot');
+            slotEl.setAttribute('name', 'visual');
+            visualSlotWrap.append(slotEl);
+            const mediaWrap = tablist.querySelector('slot[name="media"]')?.closest('[role="tab"], span');
+            if (mediaWrap && mediaWrap.parentElement === tablist) mediaWrap.after(visualSlotWrap);
+            else tablist.append(visualSlotWrap);
+          }
+
+          let origMap = this.tabOriginals.get(tg);
+          if (!origMap) {
+            origMap = new Map();
+            this.tabOriginals.set(tg, origMap);
+          }
+          for (const wrap of tablist.querySelectorAll(':scope > [role="tab"]:not([data-rt-ui="visual-search-slot"])')) {
+            if (!origMap.has(wrap)) origMap.set(wrap, wrap.getAttribute('aria-selected'));
+            if (active) {
+              if (wrap.getAttribute('aria-selected') !== 'false') wrap.setAttribute('aria-selected', 'false');
+            } else {
+              const origSelected = origMap.get(wrap);
+              if (origSelected == null) wrap.removeAttribute('aria-selected');
+              else if (wrap.getAttribute('aria-selected') !== origSelected) wrap.setAttribute('aria-selected', origSelected);
+            }
+          }
+          const targetAria = active ? 'true' : 'false';
+          if (visualSlotWrap.getAttribute('aria-selected') !== targetAria) {
+            visualSlotWrap.setAttribute('aria-selected', targetAria);
+          }
+        }
+
+        if (this.tabShadowTarget !== sr) {
+          this.tabShadowObserver?.disconnect();
+          this.tabShadowTarget = sr;
+          this.tabShadowObserver = new MutationObserver(records => {
+            if (this.dead || !this.enabled) return;
+            const onlyOwnSlot = records.every(r => {
+              const nodes = [...r.addedNodes, ...r.removedNodes];
+              return Boolean(
+                r.target?.closest?.('[data-rt-ui="visual-search-slot"]') ||
+                (nodes.length && nodes.every(n => n.nodeType === 1 && n.dataset?.rtUi === 'visual-search-slot'))
+              );
+            });
+            if (!onlyOwnSlot || !sr.querySelector('[data-rt-ui="visual-search-slot"]')) {
+              this.schedule(true);
+            }
+          });
+          this.tabShadowObserver.observe(sr, { childList: true, subtree: true });
+        }
+        this.tabShadowObserver?.takeRecords?.();
+      }
+
+      // Clean rt_visual params off native sibling tab anchors and manage native selection state reversibly.
+      for (const tab of tg.querySelectorAll(':scope > a[href]:not([data-rt-ui="visual-search-tab"])')) {
+        if (!this.nativeTabBackup.has(tab)) {
+          this.nativeTabBackup.set(tab, {
+            className: tab.className,
+            ariaCurrent: tab.getAttribute('aria-current'),
+            tabIndex: tab.tabIndex,
+            selected: tab.hasAttribute('faceplate-tab-selected'),
+            style: tab.getAttribute('style')
+          });
+        }
+        const href = tab.getAttribute('href');
+        try {
+          const cleaned = Model.stripVisualParams(new URL(href, location.origin));
+          const normalizedHref = cleaned.pathname + cleaned.search + cleaned.hash;
+          if (href && href !== normalizedHref) {
+            if (!this.nativeTabLinks.has(tab)) this.nativeTabLinks.set(tab, href);
+            tab.setAttribute('href', normalizedHref);
+          }
+        } catch {}
+
+        if (active) {
+          for (const cls of NATIVE_TAB_SELECTED_CLS) tab.classList.remove(cls);
+          tab.removeAttribute('aria-current');
+          tab.removeAttribute('faceplate-tab-selected');
+          tab.tabIndex = -1;
+          if (tab.style.backgroundColor !== 'transparent') tab.style.backgroundColor = 'transparent';
+        } else {
+          const orig = this.nativeTabBackup.get(tab);
+          if (orig) {
+            tab.className = orig.className;
+            if (orig.ariaCurrent == null) tab.removeAttribute('aria-current');
+            else tab.setAttribute('aria-current', orig.ariaCurrent);
+            tab.tabIndex = orig.tabIndex;
+            tab.toggleAttribute('faceplate-tab-selected', orig.selected);
+            if (orig.style == null) tab.removeAttribute('style');
+            else if (tab.getAttribute('style') !== orig.style) tab.setAttribute('style', orig.style);
+          }
+        }
+      }
+
+      if (active) {
+        for (const cls of NATIVE_TAB_SELECTED_CLS) visualTab.classList.add(cls);
+        visualTab.setAttribute('faceplate-tab-selected', '');
+        visualTab.setAttribute('aria-current', 'page');
+        visualTab.tabIndex = 0;
+        if (visualTab.style.backgroundColor !== 'var(--color-secondary-background-selected)') {
+          visualTab.style.backgroundColor = 'var(--color-secondary-background-selected)';
+        }
+        if (tg.shadowRoot && this.visualTabScrolled !== visualTab) {
+          this.visualTabScrolled = visualTab;
+          setTimeout(() => {
+            if (this.dead || !tg.isConnected || this.visualTabScrolled !== visualTab) return;
+            const srList = tg.shadowRoot?.querySelector?.('.tablist, [role="tablist"]');
+            const slotWrap = srList?.querySelector?.('[data-rt-ui="visual-search-slot"]');
+            if (srList && slotWrap && srList.scrollWidth > srList.clientWidth) {
+              const lr = srList.getBoundingClientRect();
+              const wr = slotWrap.getBoundingClientRect();
+              const rightLimit = lr.right - 48;
+              if (wr.right > rightLimit) {
+                srList.scrollLeft += wr.right - rightLimit;
+                srList.dispatchEvent(new Event('scroll'));
+              }
+            }
+          }, 0);
+        }
+      } else {
+        this.visualTabScrolled = null;
+        for (const cls of NATIVE_TAB_SELECTED_CLS) visualTab.classList.remove(cls);
+        visualTab.removeAttribute('faceplate-tab-selected');
+        visualTab.removeAttribute('aria-current');
+        visualTab.tabIndex = -1;
+        if (visualTab.style.backgroundColor !== 'transparent') visualTab.style.backgroundColor = 'transparent';
+      }
+    }
+
+    handleVisualTabClick(event, tab) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const href = tab.getAttribute('href');
+      if (!href) return;
+      const curParams = new URLSearchParams(location.search);
+      // Fast 0 ms swap when already on Reddit type=media with the same search scope/path.
+      if (curParams.get('type') === 'media') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (curParams.get('rt_visual') !== '1') {
+          history.pushState(history.state, '', href);
+          this.handleRoute();
+        }
+      }
+    }
+
+    handleTabNavigationClick(event, targetUrl) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const destKey = urlKey(targetUrl.href);
+      // If Reddit's hidden Media grid inside this <main> was rendered for this exact Media URL, reveal it in 0 ms!
+      if (this.mountedMain && destKey === this.baseNativeUrl) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.savePark();
+        this.unmountVisualHost();
+        history.pushState(history.state, '', targetUrl.href);
+        this.lastUrl = location.href;
+        this.sync();
+      } else {
+        // Otherwise keep our Visual view mounted cleanly until Reddit finishes swapping <main> for the native tab!
+        this.startDeparture();
+      }
+    }
+
+    // ---- Entry Point 2: Header Search Bar Camera Trigger -----------------------------------------------------
+
+    syncHeaderTriggers() {
+      const hosts = document.querySelectorAll('reddit-search-large, reddit-search-small, prominent-search');
+      for (const host of hosts) {
+        const root = host.shadowRoot || host;
+        const field = root?.querySelector?.('faceplate-search-input[name="q"]');
+        if (!field || field.closest?.('[data-rt-ui]')) continue;
+        let btn = field.querySelector(':scope > [data-rt-ui="visual-search-trigger"]');
+        if (btn) continue;
+
+        btn = make('button', 'rt-vs-header-btn');
+        btn.type = 'button';
+        btn.slot = 'trailingContent';
+        btn.dataset.rtUi = 'visual-search-trigger';
+        btn.setAttribute('aria-label', 'Search by image');
+        btn.title = 'Search by image (infini.wtf)';
+        // Shadow roots isolate page CSS, so style directly on the slotted button (Contract Rule 11).
+        btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;margin:0 4px 0 2px;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:pointer;';
+        btn.append(icon('camera', 18));
+        btn.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          this.openUploadUi(btn);
+        });
+        field.append(btn);
+      }
+    }
+
+    // ---- Entry Point 3: Post ⋯ Overflow Menu ("Find visually similar") --------------------------------------
+
+    syncPostMenus() {
+      if (!this.postMenuEnabled) return;
+      for (const post of document.querySelectorAll('shreddit-post')) {
+        const type = String(post.getAttribute('post-type') || '').toLowerCase();
+        if (!SUPPORTED_POST_TYPES.has(type)) continue;
+        const menu = post.querySelector('shreddit-post-overflow-menu');
+        if (menu) this.syncPostMenuItem(menu, post);
+      }
+      this.dedupePostSheet();
+    }
+
+    syncPostMenuItem(menu, post) {
+      if (!this.postMenuEnabled) return;
+      const type = String(post.getAttribute('post-type') || '').toLowerCase();
+      if (!SUPPORTED_POST_TYPES.has(type)) return;
+      const media = extractPostMedia(post);
+      if (!media.postId || !media.subreddit) return;
+      const hasSource = Boolean(media.fallbackImageUrl || DownloadModel?.hasMediaSource?.(post, type));
+      if (!hasSource) return;
+
+      const existing = menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-visual-menu="item"]');
+      if (existing) return;
+
+      let slot = menu.querySelector(':scope > [slot="devvit-context-actions"]');
+      if (!slot) {
+        slot = make('div');
+        slot.setAttribute('slot', 'devvit-context-actions');
+        menu.append(slot);
+      }
+      slot.append(this.buildPostMenuItem(post));
+      MenuDOM?.reconcile?.(slot);
+      MenuDOM?.clampMenu?.(menu);
+    }
+
+    buildPostMenuItem(post) {
+      const li = make('li', 'relative list-none mt-0');
+      li.setAttribute('role', 'presentation');
+      li.dataset.rtVisualMenu = 'item';
+      li.dataset.rtMenuAction = 'visual-similar';
+      li.dataset.rtUi = 'visual-menu-item';
+
+      const row = make('div', MENU_ROW_CLS);
+      row.setAttribute('role', 'menuitem');
+      row.tabIndex = -1;
+      row.style.paddingInlineEnd = '16px';
+
+      const lead = make('span', 'flex items-center gap-xs min-w-0 shrink');
+      const box = make('span', 'flex shrink-0 items-center justify-center h-xl w-xl text-20 leading-4');
+      box.append(icon('camera', 20));
+      const text = make('span', 'flex items-center min-w-0 shrink py-[0.375rem]');
+      text.append(make('span', 'text-body-2', 'Find visually similar'));
+      lead.append(box, text);
+      row.append(lead);
+      li.append(row);
+
+      const activate = event => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const media = extractPostMedia(post);
+        if (!media.postId || !media.subreddit) return;
+        this.savePostSeed(media);
+        MenuDOM?.closeSubmenu?.(false);
+        const dest = Model.buildVisualUrl(location.href, {
+          basePath: '/search/',
+          q: '',
+          postSeed: { subreddit: media.subreddit, postId: media.postId },
+          cleanNav: true
+        });
+        this.navigateUrl(dest.href);
+      };
+      row.addEventListener('click', activate, true);
+      row.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') activate(e);
+      }, true);
+      return li;
+    }
+
+    dedupePostSheet() {
+      const portal = document.getElementById('post-overflow-menu-bottom-sheet');
+      if (!portal) return;
+      if (!this.postMenuEnabled) {
+        const slots = new Set();
+        for (const item of portal.querySelectorAll('[data-rt-visual-menu="item"]')) {
+          const slot = item.closest?.('[slot="devvit-context-actions"]');
+          if (slot) slots.add(slot);
+          item.remove();
+        }
+        for (const slot of slots) MenuDOM?.reconcile?.(slot);
+        return;
+      }
+      MenuDOM?.retainAction?.(portal, '[data-rt-visual-menu="item"]');
+    }
+
+    // ---- Navigation & Event Handlers ---------------------------------------------------------------------------
+
+    applyFilterPatch(patch) {
+      const parsed = Model.parseVisualUrl(location.href);
+      if (!parsed?.active) return;
+      const nextFilters = Model.normalizeFilters({ ...parsed.filters, ...patch });
+      const dest = Model.buildVisualUrl(location.href, {
+        q: parsed.q,
+        filters: nextFilters,
+        uploadUuid: parsed.uploadUuid,
+        viewId: parsed.viewId,
+        postSeed: parsed.postSeed,
+        popular: parsed.popular,
+        vscope: parsed.vscope
+      });
+      this.replaceVisualUrl(dest);
+    }
+
+    replaceVisualUrl(nextUrl) {
+      const nextHref = nextUrl.pathname + nextUrl.search + nextUrl.hash;
+      const curHref = location.pathname + location.search + location.hash;
+      if (nextHref === curHref) return; // Contract Rule 8: never replaceState with unchanged URL.
+      try { history.replaceState(history.state, '', nextHref); }
+      catch { return; }
+      this.lastUrl = location.href;
+      const parsed = Model.parseVisualUrl(location.href);
+      const main = this.mountedMain || document.querySelector('main');
+      if (parsed?.active && main) {
+        this.syncSearchTabGroup(parsed);
+        this.mountFreshVisual(main, parsed, urlKey(location.href));
+      } else {
+        this.sync();
+      }
+    }
+
+    navigateUrl(href) {
+      try { sessionStorage.setItem(ENABLED_SESSION_KEY, '1'); } catch {}
+      const target = new URL(href, location.origin);
+      const parsedCur = Model.parseVisualUrl(location.href);
+      if (parsedCur && this.mountedMain) {
+        this.syncSearchTabGroup(Model.parseVisualUrl(target.href));
+      }
+      const a = make('a', '');
+      a.href = target.href;
+      a.hidden = true;
+      a.dataset.rtUi = 'visual-nav-link';
+      (document.body || document.documentElement).append(a);
+      a.click();
+      a.remove();
+    }
+
+    handlePointerDown(event) {
+      if (!this.enabled || !this.host?.isConnected) return;
+      // If user clicks outside open desktop menus, close them cleanly.
+      const path = event.composedPath?.() || [];
+      if (this.openDropdown && !path.includes(this.openDropdown.menu) && !path.includes(this.openDropdown.trigger)) {
+        this.closeDropdown();
+      }
+      if (this.uploadPopover && !path.includes(this.uploadPopover.panel) && !path.includes(this.uploadPopover.anchor)) {
+        this.closeUploadPopover();
+      }
+    }
+
+    handleDocClick(event) {
+      if (!this.enabled || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const path = event.composedPath?.() || [];
+      const link = path.find(node => node?.tagName === 'A' && node.hasAttribute?.('href'));
+      if (!link || link.hasAttribute('download') || (link.target && link.target !== '_self')) return;
+
+      // Native tab click inside #search-results-page-tabgroup while on Visual tab.
+      const tg = link.closest?.('#search-results-page-tabgroup');
+      if (tg && link.dataset?.rtUi !== 'visual-search-tab' && Model.parseVisualUrl(location.href)?.active) {
+        this.handleTabNavigationClick(event, new URL(link.getAttribute('href'), location.href));
+        return;
+      }
+
+      // Click on a result tile or link inside our Visual Search view -> preserve grid through transition!
+      if (this.host && path.includes(this.host) && !link.dataset?.rtVisualTabNav) {
+        let dest;
+        try { dest = new URL(link.getAttribute('href'), location.origin); } catch { return; }
+        if (dest.origin !== location.origin) return;
+        const tile = path.find(node => node?.classList?.contains?.('rt-vs-tile'));
+        const clickedUuid = tile?.dataset?.uuid || '';
+        const clickedOffset = tile ? tile.getBoundingClientRect().top : 0;
+        const expectPost = /\/comments\/[a-z0-9]+/i.test(dest.pathname);
+        this.startDeparture({ clickedUuid, clickedOffset, expectPost });
+      }
+    }
+
+    handleKeydown(event) {
+      if (!this.enabled) return;
+      if (event.key === 'Escape') {
+        if (this.openDropdown) {
+          event.preventDefault();
+          event.stopPropagation();
+          this.closeDropdown(true);
+          return;
+        }
+        if (this.uploadPopover) {
+          event.preventDefault();
+          event.stopPropagation();
+          this.closeUploadPopover(true);
+          return;
+        }
+      }
+      if (event.key === 'Enter' && !event.isComposing && !event.repeat && event.keyCode !== 229 &&
+          !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        this.handleSearchSubmit(event);
+      }
+    }
+
+    handleSearchSubmit(event) {
+      if (!this.enabled || event.defaultPrevented) return;
+      const parsed = Model.parseVisualUrl(location.href);
+      if (!parsed?.active) return;
+      const path = event.composedPath?.() || [];
+      const host = path.find(node => node?.matches?.('reddit-search-large, reddit-search-small'));
+      const form = path.find(node => node?.matches?.('form'));
+      if (!host || !form) return;
+      if (event.type === 'keydown' && !path[0]?.matches?.('input[name="q"], textarea[name="q"]')) return;
+      const field = form.querySelector('faceplate-search-input[name="q"]');
+      const input = event.type === 'keydown'
+        ? path[0]
+        : (field?.shadowRoot || form).querySelector('input[name="q"], textarea[name="q"]');
+      if (!input) return;
+      const q = String(input.value || '').trim().slice(0, 300);
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      input.blur?.();
+      const dest = Model.buildVisualUrl(location.href, {
+        q,
+        filters: parsed.filters,
+        cleanNav: true
+      });
+      this.replaceVisualUrl(dest);
+    }
+
+    handlePaste(event) {
+      if (!this.enabled) return;
+      const activeVisual = Boolean(Model.parseVisualUrl(location.href)?.active);
+      if (!activeVisual && !this.uploadPopover) return;
+      const active = document.activeElement;
+      if (active && active.matches?.('input, textarea, [contenteditable]')) return;
+      const items = [...(event.clipboardData?.items || [])];
+      const imgItem = items.find(item => item.type?.startsWith('image/'));
+      if (!imgItem) return;
+      const blob = imgItem.getAsFile?.();
+      if (!blob) return;
+      event.preventDefault();
+      this.uploadAndSearch(blob);
+    }
+
+    // ---- Session helpers & Cleanup -----------------------------------------------------------------------------
+
+    trackPreviewUrl(url) {
+      if (!url) return;
+      this.localPreviewUrls.add(url);
+      while (this.localPreviewUrls.size > 8) {
+        const oldest = this.localPreviewUrls.values().next().value;
+        this.localPreviewUrls.delete(oldest);
+        URL.revokeObjectURL(oldest);
+      }
+    }
+
+    saveUploadPreview(uuid, url) {
+      if (!uuid || !url) return;
+      try { sessionStorage.setItem(UPLOAD_META_PREFIX + uuid, url); } catch {}
+    }
+
+    readUploadPreview(key) {
+      if (!key) return '';
+      try {
+        const val = sessionStorage.getItem(UPLOAD_META_PREFIX + key) || '';
+        if (val.startsWith('data:image/')) return val;
+        return val.startsWith('blob:') && this.localPreviewUrls.has(val) ? val : '';
+      } catch { return ''; }
+    }
+
+    savePostSeed(media) {
+      try {
+        sessionStorage.setItem(POST_SEED_PREFIX + media.subreddit + '/' + media.postId, JSON.stringify({
+          subreddit: media.subreddit,
+          postId: media.postId,
+          title: media.title,
+          fallbackImageUrl: media.fallbackImageUrl
+        }));
+      } catch {}
+    }
+
+    readPostSeed(seed) {
+      if (!seed) return null;
+      try {
+        const raw = sessionStorage.getItem(POST_SEED_PREFIX + seed.subreddit + '/' + seed.postId);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    }
+
+    teardownPostMenus() {
+      const slots = new Set();
+      for (const item of document.querySelectorAll('[data-rt-visual-menu="item"]')) {
+        const slot = item.closest?.('[slot="devvit-context-actions"]');
+        if (slot) slots.add(slot);
+        item.remove();
+      }
+      for (const slot of slots) MenuDOM?.reconcile?.(slot);
+      this.dedupePostSheet();
+    }
+
+    teardownHeaderTriggers() {
+      for (const host of document.querySelectorAll('reddit-search-large, reddit-search-small, prominent-search')) {
+        host.shadowRoot?.querySelectorAll?.('[data-rt-ui="visual-search-trigger"]')?.forEach(el => el.remove());
+        host.querySelectorAll?.('[data-rt-ui="visual-search-trigger"]')?.forEach(el => el.remove());
+      }
+    }
+
+    teardownSearchTabs() {
+      this.tabShadowObserver?.disconnect();
+      this.tabShadowObserver = null;
+      this.tabShadowTarget = null;
+      this.visualTabScrolled = null;
+      const tg = document.querySelector('#search-results-page-tabgroup');
+      if (!tg) return;
+      tg.querySelectorAll(':scope > [data-rt-ui="visual-search-tab"]').forEach(el => el.remove());
+      tg.shadowRoot?.querySelectorAll?.('[data-rt-ui="visual-search-slot"]')?.forEach(el => el.remove());
+      const origWraps = this.tabOriginals.get(tg);
+      if (origWraps) {
+        for (const [wrap, origSelected] of origWraps) {
+          if (!wrap.isConnected) continue;
+          if (origSelected == null) wrap.removeAttribute('aria-selected');
+          else wrap.setAttribute('aria-selected', origSelected);
+        }
+        this.tabOriginals.delete(tg);
+      }
+      for (const tab of tg.querySelectorAll(':scope > a[href]')) {
+        const origHref = this.nativeTabLinks.get(tab);
+        if (origHref) tab.setAttribute('href', origHref);
+        const backup = this.nativeTabBackup.get(tab);
+        if (backup) {
+          tab.className = backup.className;
+          if (backup.ariaCurrent == null) tab.removeAttribute('aria-current');
+          else tab.setAttribute('aria-current', backup.ariaCurrent);
+          if (backup.tabIndex != null) tab.tabIndex = backup.tabIndex;
+          tab.toggleAttribute('faceplate-tab-selected', Boolean(backup.selected));
+          if (backup.style == null) tab.removeAttribute('style');
+          else tab.setAttribute('style', backup.style);
+        }
+      }
+    }
+
+    teardownActive() {
+      this.gen++;
+      this.stopPolling();
+      this.stopScrollRestore();
+      clearTimeout(this.postScrollTimer);
+      clearTimeout(this.outgoing?.timer);
+      clearTimeout(this.waitingTimer);
+      this.outgoing = null;
+      this.waitingForReplacedMain = null;
+      this.waitingTimer = 0;
+      this.closeDropdown();
+      this.closeUploadPopover();
+      this.closeLightbox();
+      this.stopVideoPreview();
+      this.unmountVisualHost();
+      this.teardownSearchTabs();
+      this.teardownHeaderTriggers();
+      this.teardownPostMenus();
+      this.parks.clear();
+      this.urlParks.clear();
+      for (const objUrl of this.videoBlobs.values()) URL.revokeObjectURL(objUrl);
+      this.videoBlobs.clear();
+      for (const objUrl of this.localPreviewUrls) URL.revokeObjectURL(objUrl);
+      this.localPreviewUrls.clear();
+      if (document.documentElement?.hasAttribute('data-rt-visual-active')) {
+        document.documentElement.removeAttribute('data-rt-visual-active');
+        document.documentElement.removeAttribute('data-rt-visual-ready');
+        this.notifyOtherModules();
+      }
+    }
+
+    destroy() {
+      if (this.dead) return;
+      this.dead = true;
+      clearTimeout(this.settingsRetry);
+      this.observer?.disconnect();
+      this.videoIO?.disconnect();
+      this.phoneMedia?.removeEventListener?.('change', this.onMediaChange);
+      const runtime = (globalThis.browser || globalThis.chrome)?.runtime;
+      const storage = (globalThis.browser || globalThis.chrome)?.storage;
+      try { storage?.onChanged?.removeListener(this.onStorage); } catch {}
+      try { runtime?.onMessage?.removeListener(this.onSettingsMsg); } catch {}
+      document.removeEventListener('pointerdown', this.onDocPointerDown, true);
+      document.removeEventListener('click', this.onDocClick, true);
+      document.removeEventListener('keydown', this.onDocKeydown, true);
+      document.removeEventListener('mouseover', this.onDocOver, true);
+      document.removeEventListener('mouseout', this.onDocOut, true);
+      document.removeEventListener('submit', this.onDocSubmit, true);
+      document.removeEventListener('paste', this.onDocPaste, true);
+      document.removeEventListener('visibilitychange', this.onVisibility);
+      document.removeEventListener('reddit:route', this.onRoute);
+      window.removeEventListener('popstate', this.onRoute);
+      globalThis.navigation?.removeEventListener('currententrychange', this.onRoute);
+      window.removeEventListener('scroll', this.onScrollPause);
+      for (const evt of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+        window.removeEventListener(evt, this.returnInputHandler, true);
+      }
+      this.fileInput?.remove();
+      this.teardownActive();
+    }
+  }
+
+  globalThis.RTVisualSearch = Object.freeze({ VisualSearchController });
+  if (globalThis.chrome?.runtime?.id && !globalThis.__rtVisualSearchTest) {
+    globalThis.RTVisualSearchInstance = new VisualSearchController();
+  }
+})();

@@ -90,6 +90,7 @@
         "profile-notice.js",
         "share-links-settings.js",
         "android-app-prompt.js",
+        "visual-search-boot.js",
         "feed-filters.js",
         "feed-sheet.js",
         "mobile-home-header.js",
@@ -99,7 +100,8 @@
         "post-discovery.css",
         "profile-search.css",
         "subreddit-archive.css",
-        "download-media.css"
+        "download-media.css",
+        "visual-search.css"
       ]
     },
     {
@@ -135,6 +137,8 @@
         "smooth-scroll.js",
         "embed-player-hosts.js",
         "video-control.js",
+        "visual-search-model.js",
+        "visual-search.js",
         "account-switcher.js"
       ]
     }
@@ -167,6 +171,9 @@
   },
   "version_name": "0.64.0 preview",
   "optional_host_permissions": [
+    "https://infini.wtf/*",
+    "https://image.infini.wtf/*",
+    "https://video.infini.wtf/*",
     "https://www.redgifs.com/*",
     "https://player.vimeo.com/*",
     "https://vimeo.com/*",

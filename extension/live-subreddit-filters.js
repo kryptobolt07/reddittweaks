@@ -96,8 +96,8 @@
   }
 
   const globalSorts = ['best','hot','new','top','rising','controversial'];
-  const archiveRootAttrs = ['data-rt-subreddit-archive','data-rt-subreddit-archive-search'];
-  const archiveSelectors = '[data-rt-ui="archive-subreddit"],[data-rt-ui="archive-search"]';
+  const archiveRootAttrs = ['data-rt-subreddit-archive','data-rt-subreddit-archive-search','data-rt-visual-active'];
+  const archiveSelectors = '[data-rt-ui="archive-subreddit"],[data-rt-ui="archive-search"],[data-rt-ui="visual-search"]';
   const isArchiveActive = () => Boolean(
     archiveRootAttrs.some(attr => document.documentElement?.hasAttribute(attr)) ||
     document.querySelector(archiveSelectors)

@@ -1,0 +1,694 @@
+/* Visual Search (infini.wtf) — 1:1 Reddit theme tokens, desktop 3-col / phone 2-col grid,
+   pre-paint transition gate, and zero horizontal overflow on phones. */
+
+html[data-rt-visual-active] {
+  scrollbar-gutter: stable;
+}
+
+/* Suppress Reddit's native search results and filters before first paint on active visual searches.
+   Include a 6s failsafe reveal if the controller has not marked data-rt-visual-ready yet. */
+@keyframes rt-visual-failsafe {
+  to {
+    visibility: visible;
+    position: static;
+    pointer-events: auto;
+  }
+}
+
+html[data-rt-visual-active] main > div.bg-neutral-background:not([data-rt-ui]):not(:has([data-rt-ui="visual-search"])),
+html[data-rt-visual-active] main search-media-feed:not([data-rt-ui] *),
+html[data-rt-visual-active] main [data-testid="search-sdui-post"]:not([data-rt-ui] *),
+html[data-rt-visual-active] main [data-testid="search-sdui-comment-unit"]:not([data-rt-ui] *),
+html[data-rt-visual-active] main [data-testid="search-error-message"]:not([data-rt-ui] *),
+html[data-rt-visual-active] main #empty-search-results:not([data-rt-ui] *),
+html[data-rt-visual-active] main shreddit-search-load-more:not([data-rt-ui] *),
+html[data-rt-visual-active] [slot="filters"]:not([data-rt-ui] *),
+html[data-rt-visual-active] [data-testid="search-results-filter-spacer"]:not([data-rt-ui] *),
+html[data-rt-visual-active] aside[data-testid="search-results-sidebar"] {
+  display: none !important;
+}
+
+html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-background:not([data-rt-ui]) {
+  animation: rt-visual-failsafe 0s 6s forwards;
+}
+
+[data-rt-visual-hidden] {
+  display: none !important;
+}
+
+[data-rt-visual-restoring] {
+  visibility: hidden !important;
+  overflow-anchor: none !important;
+  animation: rt-visual-failsafe 0s .6s forwards;
+}
+
+/* Visual tab badge dot on Reddit's tabgroup when waiting/loading if needed, plus tab parity. */
+#search-results-page-tab-visual {
+  text-decoration: none;
+}
+
+.rt-vs-root {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  color: var(--color-neutral-content-strong, #181c1f);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  margin: 0;
+  padding: 0 0 24px;
+}
+
+.rt-vs-root [hidden] {
+  display: none !important;
+}
+
+/* Filter rail — aligns cleanly with Reddit's desktop [slot="filters"] & mobile overflow rail */
+.rt-vs-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 0 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.rt-vs-controls::-webkit-scrollbar {
+  display: none;
+}
+
+.rt-vs-controls .rt-search-inline-filter {
+  margin: 0;
+  gap: 6px;
+  background: var(--color-secondary-background, #e5ebee);
+  color: var(--color-neutral-content-strong, #181c1f);
+}
+
+.rt-vs-controls .rt-search-inline-filter:hover {
+  background: var(--color-secondary-background-hover, #dbe4e9);
+}
+
+.rt-vs-controls .rt-search-inline-filter[data-active="true"],
+.rt-vs-controls .rt-search-inline-filter[aria-pressed="true"] {
+  background: var(--color-secondary-background-selected, #c9d7de);
+  color: var(--color-neutral-content-strong, #181c1f);
+}
+
+.rt-vs-controls .rt-vs-filter-nsfw [icon-name="nsfw-fill-12"] {
+  color: var(--color-tags-nsfw-content, #b2007f);
+}
+
+.rt-vs-controls .rt-vs-filter-nsfw .rt-community-nsfw-tag {
+  color: inherit;
+}
+
+.rt-vs-controls .rt-vs-filter-nsfw[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-tags-nsfw-content, #b2007f) 14%, var(--color-secondary-background, #e5ebee));
+  color: var(--color-tags-nsfw-content, #b2007f);
+}
+
+.rt-vs-controls .rt-vs-clear-btn {
+  background: transparent;
+  color: var(--color-neutral-content-weak, #576f76);
+}
+
+.rt-vs-controls .rt-vs-clear-btn:hover {
+  background: var(--color-neutral-background-hover, #f2f4f5);
+  color: var(--color-neutral-content-strong, #181c1f);
+}
+
+/* Scope switcher & seed banner (scoped subreddit note, uploaded image preview, similar post reference) */
+.rt-vs-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-neutral-border-weak, #e5ebee);
+  border-radius: 12px;
+  background: var(--color-neutral-background-weak, #f6f8f9);
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.rt-vs-banner-lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.rt-vs-seed-thumb {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--color-secondary-background, #e5ebee);
+}
+
+.rt-vs-banner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rt-vs-banner-title {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--color-neutral-content-strong, #181c1f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rt-vs-banner-sub {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-neutral-content-weak, #576f76);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rt-vs-banner-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: none;
+}
+
+/* Related searches chip bar */
+.rt-vs-related {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 2px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.rt-vs-related::-webkit-scrollbar {
+  display: none;
+}
+
+.rt-vs-related-label {
+  flex: none;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: var(--color-neutral-content-weak, #576f76);
+  white-space: nowrap;
+}
+
+.rt-vs-related-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-neutral-border-weak, #e5ebee);
+  border-radius: 999px;
+  background: var(--color-neutral-background, #fff);
+  color: var(--color-neutral-content-strong, #181c1f);
+  font: 600 12px/16px var(--font-sans, inherit);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rt-vs-related-pill:hover {
+  background: var(--color-neutral-background-hover, #f2f4f5);
+}
+
+.rt-vs-related-pill:focus-visible {
+  outline: 2px solid var(--color-global-focus, #0045ac);
+  outline-offset: 2px;
+}
+
+/* Dropzone notice shown while dragging an image over the Visual Search surface */
+.rt-vs-root[data-dragging="true"] {
+  outline: 2px dashed var(--color-primary-background, #0045ac);
+  outline-offset: -4px;
+  border-radius: 16px;
+}
+
+/* 1:1 Reddit media search grid (desktop 3 columns, phone 2 columns px-16 gap-16) */
+.rt-vs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px 16px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px 0 16px;
+}
+
+.rt-vs-tile {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+}
+
+.rt-vs-card-link {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.rt-vs-card-link:hover .rt-vs-title {
+  text-decoration: underline;
+}
+
+.rt-vs-card-link:focus-visible {
+  outline: 2px solid var(--color-global-focus, #0045ac);
+  outline-offset: 3px;
+  border-radius: 14px;
+}
+
+.rt-vs-media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-neutral-background-weak, #f2f4f5);
+}
+
+.rt-vs-img,
+.rt-vs-video {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  margin: 0;
+  border: 0;
+}
+
+.rt-vs-img-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-neutral-content-weak, #576f76);
+}
+
+.rt-vs-badge {
+  position: absolute;
+  inset-inline-start: 10px;
+  bottom: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .72);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: .02em;
+  pointer-events: none;
+}
+
+.rt-vs-badge svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Tile footer */
+.rt-vs-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.rt-vs-sub-link {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: var(--color-neutral-content-weak, #576f76);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rt-vs-sub-link:hover {
+  text-decoration: underline;
+  color: var(--color-neutral-content-strong, #181c1f);
+}
+
+.rt-vs-tile-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.rt-vs-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-secondary-background, #e5ebee);
+  color: var(--color-neutral-content-strong, #181c1f);
+  font: 600 11px/1 var(--font-sans, inherit);
+  cursor: pointer;
+}
+
+.rt-vs-icon-btn:hover {
+  background: var(--color-secondary-background-hover, #dbe4e9);
+}
+
+.rt-vs-icon-btn svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.rt-vs-icon-btn:focus-visible {
+  outline: 2px solid var(--color-global-focus, #0045ac);
+  outline-offset: 2px;
+}
+
+.rt-vs-title {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--color-neutral-content-strong, #181c1f);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* Shimmer skeletons */
+.rt-vs-skeleton-media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--rt-skeleton-base, color-mix(in srgb, var(--color-neutral-content-strong, #1a1a1b) 14%, var(--color-neutral-background, #fff)));
+}
+
+.rt-vs-skeleton-media::after,
+.rt-vs-skeleton-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-neutral-background, #fff) 45%, transparent), transparent);
+  animation: rt-skeleton-sweep 1.5s ease-in-out infinite;
+}
+
+.rt-vs-skeleton-line {
+  position: relative;
+  height: 12px;
+  margin-top: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--rt-skeleton-base, color-mix(in srgb, var(--color-neutral-content-strong, #1a1a1b) 14%, var(--color-neutral-background, #fff)));
+}
+
+.rt-vs-skeleton-line.short {
+  width: 65%;
+  margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rt-vs-skeleton-media::after,
+  .rt-vs-skeleton-line::after {
+    animation: none;
+    display: none;
+  }
+}
+
+/* Honest provider limit footer */
+.rt-vs-foot {
+  margin: 8px 0 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-neutral-border-weak, #e5ebee);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--color-neutral-content-weak, #576f76);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.rt-vs-foot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Upload popover on desktop */
+.rt-vs-upload-popover {
+  position: fixed;
+  z-index: 2147483000;
+  width: min(340px, calc(100vw - 16px));
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--color-neutral-background, #fff);
+  color: var(--color-neutral-content-strong, #181c1f);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .14), 0 8px 24px rgba(0, 0, 0, .24);
+  padding: 14px 16px 16px;
+  font-family: var(--font-sans, system-ui, sans-serif);
+}
+
+.rt-vs-upload-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rt-vs-upload-title {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.rt-vs-upload-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-secondary-background, #e5ebee);
+  color: inherit;
+  cursor: pointer;
+}
+
+.rt-vs-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 12px;
+  border: 1.5px dashed var(--color-neutral-border-medium, #c9d3d8);
+  border-radius: 12px;
+  background: var(--color-neutral-background-weak, #f6f8f9);
+  text-align: center;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--color-neutral-content-weak, #576f76);
+}
+
+.rt-vs-drop[data-dragging="true"] {
+  border-color: var(--color-primary-background, #0045ac);
+  background: var(--color-secondary-background, #e5ebee);
+}
+
+.rt-vs-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.rt-vs-upload-err {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-danger-content, #b32424);
+}
+
+/* Lightbox dialog */
+dialog.rt-vs-lightbox {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 16px;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: var(--color-neutral-content-strong, #181c1f);
+  overscroll-behavior: contain;
+}
+
+dialog.rt-vs-lightbox[open] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+dialog.rt-vs-lightbox::backdrop {
+  background: rgba(0, 0, 0, .72);
+}
+
+.rt-vs-lightbox-card {
+  display: flex;
+  flex-direction: column;
+  width: min(780px, 100%);
+  max-height: calc(100dvh - 32px);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--color-neutral-background, #fff);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
+}
+
+.rt-vs-lightbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-neutral-border-weak, #e5ebee);
+}
+
+.rt-vs-lightbox-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rt-vs-lightbox-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 200px;
+  background: #0d1114;
+  overflow: hidden;
+}
+
+.rt-vs-lightbox-stage img,
+.rt-vs-lightbox-stage video {
+  display: block;
+  max-width: 100%;
+  max-height: 68dvh;
+  object-fit: contain;
+}
+
+.rt-vs-lightbox-note {
+  position: absolute;
+  bottom: 12px;
+  inset-inline: 12px;
+  text-align: center;
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.rt-vs-lightbox-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-neutral-border-weak, #e5ebee);
+}
+
+/* Mobile 1:1 parity (<= 767.98px): match Reddit's exact 16px horizontal padding & gap (182px tiles at 412px) */
+@media (max-width: 767.98px) {
+  .rt-vs-controls {
+    padding: 4px 16px 8px;
+  }
+
+  .rt-vs-controls .rt-search-inline-filter {
+    min-height: 36px;
+  }
+
+  .rt-vs-banner {
+    margin: 0 16px 12px;
+  }
+
+  .rt-vs-related {
+    padding: 2px 16px;
+    margin-bottom: 10px;
+  }
+
+  .rt-vs-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    padding: 0 16px 16px;
+  }
+
+  .rt-vs-foot {
+    padding: 12px 16px;
+  }
+
+  .rt-vs-icon-btn {
+    min-width: 32px;
+    height: 32px;
+  }
+}
