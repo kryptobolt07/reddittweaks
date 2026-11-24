@@ -1105,3 +1105,44 @@ dialog.rt-vs-viewer::backdrop {
     padding: 8px 16px 16px;
   }
 }
+
+/* Lens on Reddit's own media (opt-in): top left of the picture or player, on hover with a mouse, always on touch. */
+.rt-vs-media-lens {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 8px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .6);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+[slot="post-media-container"] > :hover > .rt-vs-media-lens,
+.rt-vs-media-lens:focus-visible {
+  opacity: 1;
+}
+
+.rt-vs-media-lens:hover {
+  background: rgba(0, 0, 0, .8);
+}
+
+.rt-vs-media-lens:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .rt-vs-media-lens {
+    opacity: .9;
+  }
+}

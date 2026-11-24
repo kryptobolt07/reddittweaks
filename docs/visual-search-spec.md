@@ -150,3 +150,15 @@ Unit: `tests/visual-search-ui.test.cjs` (frame URL and parameters, foreign messa
 Live, signed in (`artifacts/research/verify/visual-search/after2.mjs`): desktop *hi* · Videos: hover → playing in 1.15 s through the frame (no download), viewer opened with the clip continuing, ← / → over 10 results, *Open post* closed the viewer and the post's video played on from 2.4 s (7.5 s six seconds later). Phone: Home lens at 349, 60 (40 × 40) inside the search bar; expand visible on every clip tile; viewer 412 × 915; *Open post* closed it. r/videos with Embeds *Preview*: the mark showed on every YouTube still that had loaded.
 
 Not verified: in Chromium's phone emulation every cross-site frame (the player, and an ordinary YouTube frame alike) is laid out at 1/2.625 of its size, an emulator issue, so clip sizing on phones was not checked on a real device; Firefox; the browser's permission prompt itself (unit only); image uploads.
+
+### Lens on Reddit's own media (separate toggle, 2026-11-24)
+
+User request: a visual search option on ordinary image, video and GIF posts, using the thumbnail for videos and GIFs, as its own toggle.
+
+| | Case | Expected |
+|---|---|---|
+| L1 | Popup *Lens on images and videos* (`visualSearchMediaButton`, off by default, under Visual search) | Off: no lens anywhere. On: a 32 px lens button at 8, 8 inside the first (positioned) child of `[slot="post-media-container"]` on image, gallery, video and GIF posts. None on text and link posts, or blurred (NSFW/spoiler) media; removed when blurred or turned off |
+| L2 | Mouse / touch | Hidden until the media is hovered (or focused); always shown at 90 % on touch |
+| L3 | Click / tap | Never opens the post. Searches with that picture: the post's image (first gallery image), or the thumbnail (player poster) of a video or GIF. Goes to the Visual tab for the post: if infini.wtf has indexed it, its similar results; if not, the picture is uploaded (resized, metadata stripped) as an image search, without the extra *Upload post image* step the ⋯ menu asks for |
+
+Measured live (r/popular, desktop 1440 px and phone 412 px): the media slot's first child is `div` with `position: relative` on image, gallery and video posts; lenses appeared on video, gallery and image posts and not on text posts; the lens is topmost at 8, 8; clicks opened `/search/?type=media&rt_visual=1&rt_vpost=<sub>/<id>` and not the post. The probe left the page right after the click, so the not-indexed upload was checked by unit test only (`tests/visual-search-ui.test.cjs`).

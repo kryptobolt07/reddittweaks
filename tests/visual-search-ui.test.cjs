@@ -920,3 +920,57 @@ test('a slow infini.wtf answer is retried once quietly, then explained with Try 
   assert.match(card.textContent, /infini\.wtf is taking too long/);
   assert.ok([...card.querySelectorAll('button')].some(b => b.textContent === 'Try again'));
 });
+
+test('lens on Reddit media (separate toggle): searches with the picture, uploading it when infini.wtf has not indexed the post', async t => {
+  const feed = (blurred = '') => `<!doctype html><html><body><main>
+    <shreddit-post id="t3_abc123" post-type="video" permalink="/r/pics/comments/abc123/clip/" post-title="A clip"><div slot="post-media-container"><div style="position:relative"><shreddit-player poster="https://preview.redd.it/clip-thumb.jpg?width=640&s=x"></shreddit-player></div></div></shreddit-post>
+    <shreddit-post id="t3_def456" post-type="image" permalink="/r/pics/comments/def456/pic/" post-title="A pic">${blurred}<div slot="post-media-container"><div style="position:relative"><img src="https://i.redd.it/pic.jpg"></div></div></shreddit-post>
+    <shreddit-post id="t3_ghi789" post-type="text" permalink="/r/pics/comments/ghi789/text/"><div slot="post-media-container"><div style="position:relative"></div></div></shreddit-post>
+  </main></body></html>`;
+  const off = setupUi(t, { url: 'https://www.reddit.com/r/pics/', html: feed(), settings: { visualSearch: true } });
+  await off.controller.ready;
+  off.controller.sync();
+  assert.equal(off.D.querySelectorAll('[data-rt-ui="visual-media-lens"]').length, 0, 'off unless its own toggle is on');
+
+  const on = setupUi(t, { url: 'https://www.reddit.com/r/pics/', html: feed('<shreddit-blurred-container blurred></shreddit-blurred-container>'), settings: { visualSearch: true, visualSearchMediaButton: true } });
+  await on.controller.ready;
+  on.controller.sync();
+  const lenses = [...on.D.querySelectorAll('[data-rt-ui="visual-media-lens"]')];
+  assert.equal(lenses.length, 1, 'video gets one; blurred image and text post get none');
+  assert.equal(lenses[0].closest('shreddit-post').id, 't3_abc123');
+  assert.equal(lenses[0].parentElement.parentElement.getAttribute('slot'), 'post-media-container');
+  on.controller.sync();
+  assert.equal(on.D.querySelectorAll('[data-rt-ui="visual-media-lens"]').length, 1, 'added once');
+
+  let navigated = '';
+  on.D.addEventListener('click', e => { const a = e.target.closest?.('a[data-rt-ui="visual-nav-link"]'); if (a) { e.preventDefault(); navigated = a.href; } });
+  let cardClicks = 0;
+  on.D.querySelector('#t3_abc123').addEventListener('click', () => cardClicks++);
+  lenses[0].click();
+  assert.equal(cardClicks, 0, 'the card does not open the post');
+  assert.equal(new URL(navigated).searchParams.get('rt_vpost'), 'pics/abc123');
+  const seed = JSON.parse(on.W.sessionStorage.getItem('rt-visual-seed:pics/abc123'));
+  assert.equal(seed.autoUpload, true);
+  assert.equal(seed.fallbackImageUrl, 'https://preview.redd.it/clip-thumb.jpg?width=640&s=x', 'a video searches with its thumbnail');
+
+  // On the Visual tab: not indexed → the thumbnail is uploaded as an image search instead of asking.
+  const uploads = [];
+  const vis = setupUi(t, {
+    url: 'https://www.reddit.com/search/?type=media&rt_visual=1&rt_vpost=pics/abc123',
+    sendImpl: async msg => {
+      if (msg.action === 'resolve-post') return { ok: true, indexed: false };
+      if (msg.action === 'upload-image') { uploads.push(msg); return { ok: false, error: 'stop here' }; }
+      return { ok: true, items: [] };
+    }
+  });
+  vis.W.sessionStorage.setItem('rt-visual-seed:pics/abc123', JSON.stringify(seed));
+  vis.controller.prepareImage = async () => ({ dataBase64: 'AAAA', mimeType: 'image/webp', previewUrl: 'blob:x' });
+  await vis.controller.ready;
+  await flush();
+  await flush();
+  assert.equal(vis.D.querySelector('[data-rt-ui="visual-search"] .rt-community-state-title')?.textContent === 'This post is not in infini.wtf’s index yet', false, 'no extra step');
+  assert.equal(uploads.length, 1, 'the picture was searched');
+
+  on.controller.applySettings({ visualSearch: true, visualSearchMediaButton: false });
+  assert.equal(on.D.querySelectorAll('[data-rt-ui="visual-media-lens"]').length, 0, 'turning it off removes them');
+});

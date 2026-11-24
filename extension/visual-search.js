@@ -293,6 +293,7 @@
       this.dead = false;
       this.enabled = false;
       this.postMenuEnabled = false;
+      this.mediaLensEnabled = false;
       this.settingsRevision = 0;
       this.settingsRetry = 0;
       this.gen = 0;
@@ -438,9 +439,11 @@
       this.mediaChoice = { video: s.videoStart || 'default', gif: s.gifStart || 'default' };
       this.clickChoice = { visualClick: s.visualClick || 'post', clickAudio: s.clickAudio || 'muted', videoOpenPost: s.videoOpenPost || 'default' };
       if (this.hoveredPreview && !this.hoveredPreview.manual && this.previewMode(this.hoveredPreview.media) === 'none') this.stopVideoPreview();
-      const changed = nextEnabled !== this.enabled || nextMenu !== this.postMenuEnabled;
+      const nextLens = nextEnabled && s.visualSearchMediaButton === true;
+      const changed = nextEnabled !== this.enabled || nextMenu !== this.postMenuEnabled || nextLens !== this.mediaLensEnabled;
       this.enabled = nextEnabled;
       this.postMenuEnabled = nextMenu;
+      this.mediaLensEnabled = nextLens;
       this.settingsRevision++;
       try { sessionStorage.setItem(ENABLED_SESSION_KEY, nextEnabled ? '1' : '0'); } catch {}
 
@@ -449,6 +452,7 @@
         return;
       }
       if (!nextMenu) this.teardownPostMenus();
+      if (!nextLens) this.teardownMediaLenses();
       if (changed) this.sync();
     }
 
@@ -620,6 +624,7 @@
       this.syncSearchTabGroup(parsed);
       this.syncHeaderTriggers();
       if (this.postMenuEnabled) this.syncPostMenus();
+      if (this.mediaLensEnabled) this.syncMediaLenses();
     }
 
     notifyOtherModules() {
@@ -1174,7 +1179,12 @@
           return;
         }
 
-        // Not indexed on infini.wtf yet: never dead-end; show explicit opt-in upload / title fallback.
+        // Not indexed on infini.wtf yet. From the media lens the reader asked to search with this picture, so it is
+        // uploaded (resized, metadata stripped) as an image search; from the ⋯ menu they choose.
+        if (this.state.postSeed?.autoUpload && this.state.postSeed.fallbackImageUrl) {
+          this.uploadAndSearch(this.state.postSeed.fallbackImageUrl, { filters: parsed.filters });
+          return;
+        }
         this.state.status = 'not-indexed';
         this.renderHost();
       } catch (err) {
@@ -3311,7 +3321,8 @@
           subreddit: media.subreddit,
           postId: media.postId,
           title: media.title,
-          fallbackImageUrl: media.fallbackImageUrl
+          fallbackImageUrl: media.fallbackImageUrl,
+          autoUpload: media.autoUpload === true
         }));
       } catch {}
     }
@@ -3322,6 +3333,57 @@
         const raw = sessionStorage.getItem(POST_SEED_PREFIX + seed.subreddit + '/' + seed.postId);
         return raw ? JSON.parse(raw) : null;
       } catch { return null; }
+    }
+
+    // ---- Entry Point 4: lens on Reddit's own media (separate opt-in) ---------------------------------------------
+    // A lens button on image, gallery, video and GIF posts (top left of the media, where Reddit draws nothing). It
+    // searches with that picture: the post's own image, or the thumbnail of a video or GIF. Blurred (NSFW / spoiler)
+    // media gets none.
+    syncMediaLenses() {
+      if (!this.mediaLensEnabled) return;
+      for (const post of document.querySelectorAll('shreddit-post')) {
+        const type = String(post.getAttribute('post-type') || '').toLowerCase();
+        const slot = post.querySelector('[slot="post-media-container"]');
+        const box = slot?.firstElementChild;
+        const existing = box?.querySelector?.(':scope > [data-rt-ui="visual-media-lens"]');
+        const blurred = Boolean(post.querySelector('shreddit-blurred-container[blurred]'));
+        if (!SUPPORTED_POST_TYPES.has(type) || !box || blurred) { existing?.remove(); continue; }
+        if (existing) continue;
+        const media = extractPostMedia(post);
+        if (!media.postId || !media.subreddit || !media.fallbackImageUrl) continue;
+        if (getComputedStyle(box).position === 'static') continue;
+        box.append(this.buildMediaLens(post));
+      }
+    }
+
+    buildMediaLens(post) {
+      const btn = make('button', 'rt-vs-media-lens');
+      btn.type = 'button';
+      btn.dataset.rtUi = 'visual-media-lens';
+      btn.title = 'Search with this image';
+      btn.setAttribute('aria-label', 'Search with this image');
+      btn.append(lensIcon(18));
+      // Reddit opens the post on any click inside a card: keep the press and the click to ourselves.
+      for (const type of ['pointerdown', 'mousedown', 'touchstart']) btn.addEventListener(type, e => e.stopPropagation(), { passive: true });
+      btn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const media = extractPostMedia(post);
+        if (!media.postId || !media.subreddit || !media.fallbackImageUrl) return;
+        this.savePostSeed({ ...media, autoUpload: true });
+        const dest = Model.buildVisualUrl(location.href, {
+          basePath: '/search/',
+          q: '',
+          postSeed: { subreddit: media.subreddit, postId: media.postId },
+          cleanNav: true
+        });
+        this.navigateUrl(dest.href);
+      });
+      return btn;
+    }
+
+    teardownMediaLenses() {
+      for (const btn of document.querySelectorAll('[data-rt-ui="visual-media-lens"]')) btn.remove();
     }
 
     teardownPostMenus() {
@@ -3400,6 +3462,7 @@
       this.teardownSearchTabs();
       this.teardownHeaderTriggers();
       this.teardownPostMenus();
+      this.teardownMediaLenses();
       this.parks.clear();
       this.urlParks.clear();
       for (const objUrl of this.videoBlobs.values()) URL.revokeObjectURL(objUrl);

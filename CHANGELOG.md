@@ -16,6 +16,7 @@
 - **Slow answers:** a slow or dropped answer from infini.wtf is retried once, then explained with *Try again* instead of loading forever.
 - **Permission:** turning Visual search on asks for access to infini.wtf when the browser has it withheld, and the setting's description is now one line.
 - **Embeds:** Reddit's own embedded videos show the same play mark as soon as their thumbnail loads (when an Embeds start option is set).
+- **Lens on images and videos:** a separate option (off by default) adds a lens button to Reddit's image, gallery, video and GIF posts. It searches with that picture (videos and GIFs use their thumbnail), shows on hover with a mouse and always on touch, and skips blurred media.
 - **Minor increment:** Visual Search is a new opt-in feature; the follow-ups above stay in this preview.
 - Second follow-up: all tests passed (see the visual search spec for live results: clips playing in 1.15 s through the player page, viewer hand-off into the post, phone Home lens). Phone clip sizing was not checked on a real device because Chromium's emulator mis-sizes every cross-site frame.
 - Follow-up check: all 2,388 tests passed; signed-in Chrome Dev checks on desktop (1440 px) and phone (412 px) matched Reddit's Media tab placeholders (347 × 128 / 182 × 128 px) and community row (14/21 px, 600), loaded 10/10 community icons, kept **All** in similar mode, played hover and stop-on previews muted, and applied *Post opened directly* to an opened result. Image uploads were not sent in this check.

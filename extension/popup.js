@@ -8,7 +8,7 @@ const FALLBACK_VIDEO_DEFAULTS={
 };
 const FALLBACK_SETTINGS_DEFAULTS={
   postDiscovery:true,feedControls:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,
-  subredditArchive:false,subredditArchiveAutomatic:false,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',cleanShareLinks:false,
+  subredditArchive:false,subredditArchiveAutomatic:false,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',visualSearchMediaButton:false,cleanShareLinks:false,
   modUnapprovedFilter:true,raffles:true,downloadMedia:true,
   ownRemoval:false,removalNotifications:false,historyLimit:20,
   smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,
@@ -29,6 +29,7 @@ function fallbackNormalizeSettings(raw){
     visualSearch:raw?.visualSearch===true,
     visualSearchPostMenu:raw?.visualSearchPostMenu!==false,
     visualClick:pick('visualClick',['post','viewer','inline'],'post'),
+    visualSearchMediaButton:raw?.visualSearchMediaButton===true,
     cleanShareLinks:raw?.cleanShareLinks===true,
     modUnapprovedFilter:raw?.modUnapprovedFilter!==false,
     raffles:raw?.raffles!==false,
