@@ -1535,6 +1535,7 @@
     try{
       const response=await fetch(url.href,{method:'GET',credentials:'include',redirect:'error',headers:{Accept:'application/json'},signal:local.signal});
       if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry)&&retry>0?retry:60)*1000));return [];}
+      if(response.status===403 || response.status===401 || response.status===410){infoBlockedUntil=Date.now()+86400000;return [];}
       if(!response.ok)throw Error(`Reddit info could not be loaded (HTTP ${response.status}).`);
       const data=JSON.parse(await boundedText(response));
       if(!Array.isArray(data?.data?.children) || data.data.children.length>100)throw Error('Reddit returned an unexpected info response.');
@@ -2298,16 +2299,18 @@
   // Awaiting approval for non-moderators (docs/unmoderated-filter-spec.md B8): Reddit's current state of up to 100
   // archived post IDs of this community, read with the reader's session. Posts from another community, and IDs Reddit
   // leaves out, are not answered; the caller counts them as unchecked, never as approved.
+  let awaitingInfoRefusedUntil=0;
   async function awaitingStatus(input,name,path,signal){
     if(!Array.isArray(input.ids) || !input.ids.length || input.ids.length>100 || !input.ids.every(id=>typeof id==='string' && /^[a-z0-9]{1,10}$/.test(id)))throw Error('Invalid post IDs.');
     const ids=[...new Set(input.ids)];
+    if(Date.now()<awaitingInfoRefusedUntil)return {statuses:[],refused:true};
     if(Date.now()<cooldown)throw Error('Reddit asked us to wait. Try again shortly.');
     const url=new URL('/api/info.json',location.origin);url.searchParams.set('id',ids.map(id=>'t3_'+id).join(','));url.searchParams.set('raw_json','1');
     const response=await fetch(url.href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
     if(response.status===429){const retry=Number(response.headers.get('retry-after'));cooldown=Date.now()+Math.max(1000,Math.min(3600000,(Number.isFinite(retry) && retry>0?retry:60)*1000));throw Error('Reddit rate limit reached. Try again later.');}
     // Reddit refuses /api/info.json from the page (HTTP 403, measured 2026-11-15, -20 and -23); the caller then uses
-    // Arctic Shift's recorded state instead.
-    if(response.status===403 || response.status===401)return {statuses:[],refused:true};
+    // Arctic Shift's recorded state instead and remembers the refusal for the session.
+    if(response.status===403 || response.status===401 || response.status===410){awaitingInfoRefusedUntil=Date.now()+86400000;return {statuses:[],refused:true};}
     if(!response.ok)throw Error('Reddit could not check these posts (HTTP '+response.status+').');
     let data;try{data=JSON.parse(await boundedText(response));}catch{throw Error('Reddit returned an unexpected post status response.');}
     if(signal.aborted || pageKey()!==path)throw Error('Page changed. Try again.');
@@ -2459,7 +2462,24 @@
   async function raffleUser(input,signal){
     if(!M.validateUsername(input.username))throw Error('Invalid username.');
     const response=await fetch(new URL('/user/'+encodeURIComponent(input.username)+'/about.json?raw_json=1',location.origin).href,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'application/json'},signal});
-    if(response.status===404 || response.status===403)return {unavailable:true};
+    if(response.status===404)return {unavailable:true};
+    if(response.status===403 || response.status===410){
+      // Fall back to Shreddit's first-party hover card partial when legacy about.json is refused/sunset.
+      const hoverUrl=new URL('/svc/shreddit/user-hover-card/'+encodeURIComponent(input.username),location.origin).href;
+      const hoverRes=await fetch(hoverUrl,{method:'GET',credentials:'include',cache:'no-store',redirect:'error',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'},signal});
+      if(hoverRes.status===404 || hoverRes.status===403 || hoverRes.status===410)return {unavailable:true};
+      if(!hoverRes.ok)throw Error('Reddit could not load u/'+input.username+' (HTTP '+hoverRes.status+').');
+      const parsed=parseBlockedHoverCard(await boundedText(hoverRes),input.username);
+      if(!parsed.blocked)return parsed.reason==='suspended'?{suspended:true}:{unavailable:true};
+      const profile=parsed.profile,createdMs=profile.cakeDay?Date.parse(profile.cakeDay):NaN;
+      return {
+        userId:'',
+        created:Number.isFinite(createdMs)?Math.floor(createdMs/1000):0,
+        commentKarma:Number(profile.commentKarma) || 0,
+        postKarma:Number(profile.postKarma) || 0,
+        avatar:profile.avatar || ''
+      };
+    }
     if(!response.ok)throw Error('Reddit could not load u/'+input.username+' (HTTP '+response.status+').');
     let data;try{data=JSON.parse(await boundedText(response))?.data;}catch{throw Error('Reddit returned an unexpected profile.');}
     if(!data || data.is_suspended===true)return {suspended:true};

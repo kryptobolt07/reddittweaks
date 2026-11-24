@@ -431,9 +431,16 @@
         if(!page.rateLimited)return page;if(attempt>=3)throw Object.assign(Error('Reddit kept asking us to slow down.'),{rateLimited:true});
         this.updateSummary('Reddit asked us to slow down · waiting…');await wait(Math.max(1000,Number(page.retryAfterMs) || 30000),signal);}};
       try{
-        const thread=await this.thread(topLevelOnly);if(!current())return;
+        let thread;
+        try{thread=await this.thread(topLevelOnly);}
+        catch(error){
+          if(current() && /\bHTTP (?:403|410)\b/i.test(error?.message || '') && state.post.subreddit){
+            thread={post:{author:state.post.author || '',title:state.post.title || '',subreddit:state.post.subreddit,numComments:state.post.numComments || 0},entries:[],missingTopLevel:['__tree_fallback__'],missingReplies:topLevelOnly?0:1};
+          }else throw error;
+        }
+        if(!current())return;
         for(const key of ['author','subreddit','title'])if(thread.post?.[key] && !state.post[key])state.post[key]=thread.post[key];if(thread.post?.author)state.post.author=thread.post.author;
-        state.post.numComments=Number(thread.post?.numComments) || 0;
+        state.post.numComments=Number(thread.post?.numComments) || state.post.numComments || 0;
         add(thread.entries);
         const needTop=(thread.missingTopLevel || []).length>0,needReplies=!topLevelOnly && Number(thread.missingReplies)>0;
         // stop: 'end' (Reddit's chain finished), 'cap', 'error' or 'rate-limited'.
@@ -504,7 +511,17 @@
     async loadCommenters(){
       const state=this.dialog;if(!state || state.entries.size || state.suggestEntries || state.suggestLoading)return;
       state.suggestLoading=true;state.suggestFailed=false;state.popup?.render?.();
-      try{const thread=await this.thread(state.form.elements.topLevelOnly.checked);if(this.dialog!==state)return;state.suggestEntries=(thread.entries || []).map(raw=>R.entry(raw,{postId:state.post.id})).filter(Boolean);}
+      try{
+        let thread;
+        try{thread=await this.thread(state.form.elements.topLevelOnly.checked);}
+        catch(error){
+          if(this.dialog===state && /\bHTTP (?:403|410)\b/i.test(error?.message || '') && state.post.subreddit){
+            thread=await this.read({action:'raffle-tree',postId:state.post.id,subreddit:state.post.subreddit,loader:null},{signal:state.controller.signal,timeout:45000});
+          }else throw error;
+        }
+        if(this.dialog!==state)return;
+        state.suggestEntries=(thread.entries || []).map(raw=>R.entry(raw,{postId:state.post.id})).filter(Boolean);
+      }
       catch{if(this.dialog===state)state.suggestFailed=true;}
       finally{if(this.dialog===state){state.suggestLoading=false;state.popup?.render?.();}}
     }

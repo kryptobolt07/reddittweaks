@@ -700,3 +700,31 @@ test('opening Raffle paints a cancellable skeleton before building the rules',as
  assert.equal(s.D.activeElement?.id,'rt-raffle-title');
  assert.ok(!s.calls.some(call=>call.action==='raffle-thread'),'opening never scans entrants');
 });
+
+test('bridge raffle-user falls back to user-hover-card when about.json returns 403 or 410, and raffle-ui falls back to raffle-tree on 403',async t=>{
+ const hoverCard=`<div data-testid="user-hover-card"><a href="/user/Alice/"><span data-testid="nameplate"><span class="truncate">Alice</span></span></a><img alt="u/Alice avatar" src="https://styles.redditmedia.com/t5_x/headshot.png"><time data-testid="cake-day">Nov 14, 2020</time><div data-testid="post-karma">1,250</div><div data-testid="comment-karma">3.5k</div></div>`;
+ const suspendedCard=`<div data-testid="user-hover-card"><img src="https://www.redditstatic.com/shreddit/assets/suspended-snoo.png"><p>Account suspended</p></div>`;
+ const b=bridge(t,{body:u=>{
+  if(u.pathname.endsWith('/about.json'))return {status:u.pathname.includes('Gone')?404:403};
+  if(u.pathname==='/svc/shreddit/user-hover-card/Alice')return {text:hoverCard};
+  if(u.pathname==='/svc/shreddit/user-hover-card/Banned')return {text:suspendedCard};
+  return {status:404};
+ }});
+ const ok=await b.send({action:'raffle-user',username:'Alice'});
+ assert.equal(ok.postKarma,1250);
+ assert.equal(ok.commentKarma,3500);
+ assert.equal(ok.avatar,'https://styles.redditmedia.com/t5_x/headshot.png');
+ assert.ok(ok.created>1600000000);
+ assert.equal((await b.send({action:'raffle-user',username:'Banned'})).suspended,true);
+ assert.equal((await b.send({action:'raffle-user',username:'Gone'})).unavailable,true);
+ assert.equal(b.calls.some(c=>c.url.pathname==='/svc/shreddit/user-hover-card/Gone'),false,'404 keeps direct unavailable result');
+
+ const s=await ui(t,{
+  thread:()=>{throw Error('Reddit could not load the comments (HTTP 403).');},
+  tree:()=>({entries:[comment('a1','Alice',{body:'Entering!'})],loaders:[]})
+ });
+ await s.open();
+ await privateDraw(s);
+ assert.equal(s.calls.filter(c=>c.action==='raffle-tree').length,1);
+ assert.equal(s.r.dialog.result?.winners?.[0]?.author,'Alice');
+});

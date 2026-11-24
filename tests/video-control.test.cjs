@@ -2206,3 +2206,31 @@ test('a Visual search clip hands its moment to the opened post under Seamless po
   assert.equal(p.video.paused,false,videoOpenPost+'/'+source);assert.equal(p.video.currentTime,expectTime);assert.equal(p.video.muted,expectMuted);
  }
 });
+
+test('embed stills fall back to /svc/shreddit/partial-feed-post when .json returns 403 and reuse partial lookup afterward',async t=>{
+ const p=page(t);const urls=[];
+ p.W.fetch=async url=>{
+  const href=String(url);urls.push(href);
+  if(href.includes('.json'))return {ok:false,status:403};
+  const id=/t3_(\w+)/.exec(href)?.[1];
+  return {ok:true,status:200,text:async()=>`<shreddit-post id="t3_${id}"><shreddit-embed poster="https://preview.redd.it/${id}-poster.jpg"></shreddit-embed></shreddit-post>`};
+ };
+ const mkPost=id=>{
+  const post=p.d.createElement('shreddit-post');post.id='t3_'+id;p.d.body.append(post);
+  const node=p.d.createElement('shreddit-embed');node.setAttribute('providername','RedGIFs');
+  node.setAttribute('embed-html','<iframe src="https://www.redgifs.com/ifr/'+id+'"></iframe>');node.attachShadow({mode:'open'});post.append(node);
+ };
+ p.player.closest('shreddit-post').remove();
+ mkPost('first');
+ const c=await hoverController(p,{embedStart:'play'});c.scan();
+ await flush();
+ await new Promise(resolve=>setTimeout(resolve,400));
+ mkPost('second');
+ c.scan();
+ await flush();
+ await new Promise(resolve=>setTimeout(resolve,400));
+ assert.equal(c.posters.get('t3_first')?.[0],'https://preview.redd.it/first-poster.jpg');
+ assert.equal(c.posters.get('t3_second')?.[0],'https://preview.redd.it/second-poster.jpg');
+ assert.equal(urls.filter(u=>u.includes('.json')).length,1,'switches directly to partial endpoint after .json refusal');
+ assert.ok(urls.some(u=>u.includes('/svc/shreddit/partial-feed-post/t3_second')));
+});

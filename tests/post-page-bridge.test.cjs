@@ -1531,3 +1531,17 @@ test('a 403 from a hover card pauses every avatar lookup instead of trying the n
  assert.equal(second.deferred,true);
  assert.equal(e.calls.length,1,'no second request to Reddit');
 });
+
+test('infoStatuses and awaitingStatus remember 403/410 refusals and skip repeated /api/info.json calls',async t=>{
+ const e=setup(t,{url:'https://www.reddit.com/r/Alpha/',fetcher:async url=>new URL(url).pathname==='/api/info.json'?nativeResponse('',410):nativeResponse(statusPost(new URL(url).pathname.split('_').pop()))});
+ const r1=await e.send({action:'awaiting-status',subreddit:'Alpha',ids:['aa']});
+ assert.equal(r1.refused,true);
+ const r2=await e.send({action:'awaiting-status',subreddit:'Alpha',ids:['bb']});
+ assert.equal(r2.refused,true);
+ assert.equal(e.calls.filter(([u])=>new URL(u).pathname==='/api/info.json').length,1,'awaitingStatus stops repeating refused /api/info.json');
+
+ const e2=setup(t,{fetcher:async url=>new URL(url).pathname==='/api/info.json'?nativeResponse('',410):nativeResponse(statusPost(new URL(url).pathname.split('_').pop()))});
+ await e2.send({action:'status',username:'Example',kind:'post',ids:['one']});
+ await e2.send({action:'status',username:'Example',kind:'post',ids:['two']});
+ assert.equal(e2.calls.filter(([u])=>new URL(u).pathname==='/api/info.json').length,1,'infoStatuses suppresses fast path after 410');
+});

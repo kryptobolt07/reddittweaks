@@ -115,23 +115,52 @@
  // named there with the capitals its media host needs). Reddit refuses the batched lookups (/api/info.json, /by_id:
  // HTTP 403, measured 2026-11-20); a single post's data still answers, so these go one at a time, spaced out, and stop
  // for a while on a refusal.
- let stillsPausedUntil=0;
+ let stillsPausedUntil=0,preferPartialStills=false;
  const postStills=d=>{
   const image=d?.preview?.images?.[0],sized=(image?.resolutions || []).find(r=>r.width>=480) || image?.source;
   return [...new Set([sized?.url,d?.secure_media?.oembed?.thumbnail_url,d?.media?.oembed?.thumbnail_url,image?.source?.url].filter(posterOK))];
+ };
+ const partialPostStills=html=>{
+  if(typeof html!=='string' || !html)return [];
+  const out=[],add=url=>{
+   const clean=typeof url==='string'?url.replace(/&amp;/gi,'&').trim():'';
+   if(posterOK(clean) && !/(?:\/avatars\/|snoovatar|icon-|\.svg(?:$|\?))/i.test(clean) && !out.includes(clean))out.push(clean);
+  };
+  const doc=new DOMParser().parseFromString(html,'text/html');
+  for(const embed of doc.querySelectorAll('shreddit-embed')){
+   for(const attr of thumbAttrs(embed))add(attr);
+   const t=templateAddress(embed);
+   if(t){try{const u=new URL(t);if(u.hostname==='cdn.embedly.com')add(u.searchParams.get('image'));}catch{}}
+  }
+  for(const node of doc.querySelectorAll('[poster],[thumbnail-url],[thumbnail],[preview-image],[preview-url]'))for(const attr of thumbAttrs(node))add(attr);
+  for(const img of doc.querySelectorAll('[slot="post-media-container"] img[src],[slot="thumbnail"] img[src],shreddit-embed img[src],shreddit-player-2 img[src],img[src*="redd.it/"]'))add(img.getAttribute('src'));
+  return out;
  };
  // Two reads at a time, in the order given (nearest the screen first); each still is reported as soon as it's read.
  async function readPostStills(ids,onFound,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))){
   const out={},queue=[...ids];
   const worker=async()=>{
    while(queue.length && Date.now()>=stillsPausedUntil){
-    const id=queue.shift();
+    const id=queue.shift(),cleanId=id.replace(/^t3_/,'');
     try{
      // Firefox content scripts fetch as the extension; content.fetch reads as the page, like Chrome's.
      const read=globalThis.content?.fetch?globalThis.content.fetch.bind(globalThis.content):fetch;
-     const response=await read(new URL('/comments/'+id.replace(/^t3_/,'')+'.json?limit=1&depth=1&raw_json=1',location.origin).href,{credentials:'include',headers:{Accept:'application/json'}});
-     if(response.status===403 || response.status===429){stillsPausedUntil=Date.now()+300000;break;}
-     if(response.ok){const urls=postStills((await response.json())?.[0]?.data?.children?.[0]?.data);if(urls.length){out[id]=urls;onFound?.(id,urls);}}
+     let tryPartial=preferPartialStills;
+     if(!tryPartial){
+      const response=await read(new URL('/comments/'+cleanId+'.json?limit=1&depth=1&raw_json=1',location.origin).href,{credentials:'include',headers:{Accept:'application/json'}});
+      if(response.status===429){stillsPausedUntil=Date.now()+300000;break;}
+      if(response.status===403 || response.status===410)tryPartial=true;
+      else if(response.ok){const urls=postStills((await response.json())?.[0]?.data?.children?.[0]?.data);if(urls.length){out[id]=urls;onFound?.(id,urls);}}
+     }
+     if(tryPartial && Date.now()>=stillsPausedUntil){
+      const part=await read(new URL('/svc/shreddit/partial-feed-post/t3_'+cleanId,location.origin).href,{credentials:'include',headers:{Accept:'text/vnd.reddit.partial+html, text/html;q=0.9'}});
+      if(part.status===403 || part.status===429){stillsPausedUntil=Date.now()+300000;break;}
+      if(part.ok){
+       preferPartialStills=true;
+       const urls=partialPostStills(await part.text());
+       if(urls.length){out[id]=urls;onFound?.(id,urls);}
+      }
+     }
     }catch{}
     if(queue.length)await wait(150);
    }
