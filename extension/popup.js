@@ -12,7 +12,7 @@ const FALLBACK_SETTINGS_DEFAULTS={
   modUnapprovedFilter:true,raffles:true,downloadMedia:true,
   ownRemoval:false,removalNotifications:false,historyLimit:20,
   smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,
-  hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,...FALLBACK_VIDEO_DEFAULTS
+  hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,navHome:'scroll',navFeeds:'default',navCommunity:'default',navPost:'scroll',navProfile:'default',navSearch:'default',...FALLBACK_VIDEO_DEFAULTS
 };
 function fallbackNormalizeSettings(raw){
   const starts=['default','autoplay','preview','play'];
@@ -42,6 +42,7 @@ function fallbackNormalizeSettings(raw){
     hideMatureOverlay:raw?.hideMatureOverlay!==false,
     revealNsfwPostMedia:raw?.revealNsfwPostMedia===true,
     chatSearch:raw?.chatSearch!==false,
+    ...Object.fromEntries(Object.entries({navHome:'scroll',navFeeds:'default',navCommunity:'default',navPost:'scroll',navProfile:'default',navSearch:'default'}).map(([k,fb])=>[k,pick(k,['default','scroll','hidden'],fb)])),
     videoStart:mapStart(raw?.videoStart) ?? mapStart(raw?.videoStartTouch) ?? (raw?.videoPreviewsInView===true?'preview':'default'),
     embedStart:mapStart(raw?.embedStart) ?? mapStart(raw?.embedStartTouch) ?? 'default',
     gifStart:mapStart(raw?.gifStart) ?? mapStart(raw?.gifStartTouch) ?? 'default',

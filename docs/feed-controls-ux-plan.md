@@ -131,3 +131,13 @@ A pull-down on phones was tried in 0.63.0 and reverted at the user's request: on
   - Anything needing Direct embed controls (a browser permission the user grants).
   - Moderator queue (needs a moderator account).
   - Signed-in Home until the profile is signed in again.
+
+## 14. Per-page phone navigation bar (2026-11-24)
+
+Reddit’s phone top bar (`reddit-header-small`) gets a separate choice under **Mobile Web → Navigation bar** for six page groups (`navHome`, `navFeeds`, `navCommunity`, `navPost`, `navProfile`, `navSearch`), visible only on touch devices:
+
+- **Reddit default** (`default`): leaves Reddit’s own bar untouched.
+- **Hide while scrolling down** (`scroll`): slides the bar away while scrolling down and reveals it on an upward scroll reversal (default for **Home** and **Posts**).
+- **Hidden** (`hidden`): keeps the bar hidden even at the top of the page; pulling down at `scrollY <= 0` (or keyboard focus-visible) reveals it until you scroll down.
+
+On Home, Reddit renders `prominent-search` inside `reddit-header-small`: when `prominent-search` hydrates after `document_start`, `mobile-home-header.js` upgrades the bar from post mode (`data-rt-post-nav`) to compact Home mode (`data-rt-home-nav` with the inline Search icon) and omits top padding when `hidden` (`data-rt-nav-hidden`) so no blank band sits above the search bar.

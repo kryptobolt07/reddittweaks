@@ -17,7 +17,7 @@ function fixture(t,path='/',markup=native){
  const home=new W.RTMobileHomeHeader.HomeHeader();
  t.after(()=>{home.destroy();W.close();});
  const scroll=top=>{y=top;W.dispatchEvent(new W.Event('scroll'));while(frames.length)frames.shift()();};
- return {W,D,scroll,media,header:()=>D.querySelector('reddit-header-small')};
+ return {W,D,scroll,media,home,header:()=>D.querySelector('reddit-header-small')};
 }
 test('the compact mobile Home row reveals on upward scroll and ignores small directional changes',t=>{
  const {header,scroll,D}=fixture(t);
@@ -124,4 +124,72 @@ test('the post navbar initializes at the new post after delayed header hydration
  assert.equal(header().getAttribute(postAttr),'shown');
  scroll(192);assert.equal(header().getAttribute(postAttr),'shown');
  scroll(204);assert.equal(header().getAttribute(postAttr),'hidden');
+});
+
+test('navigation bar choices apply per page group: scroll on a community, hidden with pull-down at the top, default left alone',t=>{
+ const {W,D,scroll,header}=fixture(t,'/r/pics/',postNative);
+ assert.equal(W.RTMobileHomeHeader.navKey('/r/pics/'),'navCommunity');
+ assert.equal(W.RTMobileHomeHeader.navKey('/r/popular/'),'navFeeds');
+ assert.equal(W.RTMobileHomeHeader.navKey('/user/someone/'),'navProfile');
+ assert.equal(W.RTMobileHomeHeader.navKey('/search/'),'navSearch');
+ assert.equal(W.RTMobileHomeHeader.navKey('/r/pics/comments/abc/x/'),'navPost');
+ assert.equal(header().hasAttribute(postAttr),false,'communities default to Reddit’s own bar');
+ const home=new W.RTMobileHomeHeader.HomeHeader();
+ home.setModes({navCommunity:'scroll'});
+ scroll(400);scroll(800);assert.equal(header().getAttribute(postAttr),'hidden','hidden while scrolling down');
+ scroll(760);assert.equal(header().getAttribute(postAttr),'shown','back on scrolling up');
+ home.setModes({navCommunity:'hidden'});
+ scroll(0);assert.equal(header().getAttribute(postAttr),'hidden','hidden even at the top');
+ const touch=(type,y)=>{const event=new W.Event(type);event.touches=[{clientY:y}];W.dispatchEvent(event);};
+ touch('touchstart',100);touch('touchmove',180);
+ assert.equal(header().getAttribute(postAttr),'shown','pulling down at the top shows it');
+ scroll(60);assert.equal(header().getAttribute(postAttr),'hidden','and it goes again as you scroll on');
+ home.setModes({navCommunity:'default'});
+ assert.equal(header().hasAttribute(postAttr),false,'Reddit default removes ours');
+ home.destroy();
+});
+
+test('late-arriving prominent-search on Home upgrades post nav to Home nav and keeps hidden gap-free',async t=>{
+ const {W,D,scroll,home,header}=fixture(t,'/',postNative);
+ assert.equal(header().getAttribute(postAttr),'shown');
+ const search=D.createElement('prominent-search');
+ search.innerHTML='<button id="expand-search-button">Search Reddit</button>';
+ header().append(search);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(header().hasAttribute(postAttr),false,'post nav is detached on upgrade');
+ assert.ok(D.querySelector('[data-rt-home-search]'),'compact search trigger is added after upgrade');
+ scroll(300);assert.equal(header().getAttribute(attr),'hidden');
+ scroll(260);assert.equal(header().getAttribute(attr),'shown');
+
+ home.setModes({navHome:'hidden'});
+ scroll(0);
+ assert.equal(header().getAttribute(attr),'hidden');
+ assert.equal(header().hasAttribute('data-rt-nav-hidden'),true,'marks hidden mode to collapse top padding');
+ const css=fs.readFileSync('extension/post-discovery.css','utf8');
+ assert.match(css,/reddit-header-small\[data-rt-home-nav\]:not\(\[data-rt-nav-hidden\]\)\{padding-block-start:/);
+ const touch=(type,y)=>{const event=new W.Event(type);event.touches=[{clientY:y}];W.dispatchEvent(event);};
+ touch('touchstart',100);touch('touchmove',180);
+ assert.equal(header().getAttribute(attr),'shown','pulling down at the top reveals Home bar');
+ scroll(60);assert.equal(header().getAttribute(attr),'hidden');
+ home.setModes({});
+ assert.equal(header().hasAttribute('data-rt-nav-hidden'),false,'resetting to defaults clears hidden marker');
+ scroll(0);
+ assert.equal(header().hasAttribute(attr),false,'reverts to Home scroll mode at top');
+});
+
+test('reverting community nav from hidden to default while scrolled down cleans up attributes and height var',t=>{
+ const {W,scroll,home,header}=fixture(t,'/r/pics/',postNative);
+ home.setModes({navCommunity:'hidden'});
+ scroll(1200);
+ assert.equal(header().getAttribute(postAttr),'hidden');
+ assert.equal(header().hasAttribute('data-rt-nav-hidden'),true);
+ assert.ok(header().style.getPropertyValue('--rt-post-nav-height'));
+ home.setModes({navCommunity:'default'});
+ assert.equal(header().hasAttribute(postAttr),false);
+ assert.equal(header().hasAttribute('data-rt-nav-hidden'),false);
+ assert.equal(header().style.getPropertyValue('--rt-post-nav-height'),'');
+ assert.equal(W.RTMobileHomeHeader.navKey('/controversial/'),'navHome');
+ assert.equal(W.RTMobileHomeHeader.navKey('/r/pics/search/'),'navSearch');
+ assert.equal(W.RTMobileHomeHeader.navKey('/user/someone/search/'),'navSearch');
+ assert.equal(W.RTMobileHomeHeader.navKey('/user/someone/m/feed/search/'),'navSearch');
 });

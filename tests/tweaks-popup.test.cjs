@@ -449,10 +449,10 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   assert.equal(count('archive-heading'),'2 of 4 on');
   assert.equal(doc.getElementById('feature-summary').textContent,'11 of 29 active');
 
-  // Touch device counts Mobile Web card (+1 of +2).
+  // Touch device counts Mobile Web card (+1 of +8: two switches and six navigation bar choices at their defaults).
   const mob=popup(t,{tabs:redditTab,touch:true});await settle();
-  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'9 of 31 active');
-  assert.equal(mob.w.document.querySelector('[aria-labelledby="mobile-heading"] .group-count').textContent,'1 of 2 on');
+  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'9 of 37 active');
+  assert.equal(mob.w.document.querySelector('[aria-labelledby="mobile-heading"] .group-count').textContent,'1 of 8 on');
 });
 
 test('View profiles that blocked you defaults on, nests under postDiscovery, and persists independently',async t=>{

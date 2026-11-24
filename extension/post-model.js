@@ -153,6 +153,13 @@
     hideMatureOverlay:true,
     revealNsfwPostMedia:false,
     chatSearch:true,
+    // Phone navigation bar per page group: Reddit's own ('default'), hidden while scrolling down ('scroll'), or 'hidden'.
+    navHome:'scroll',
+    navFeeds:'default',
+    navCommunity:'default',
+    navPost:'scroll',
+    navProfile:'default',
+    navSearch:'default',
     ...VIDEO_DEFAULTS
   });
   function normalizeSettings(raw){
@@ -180,9 +187,12 @@
       hideMatureOverlay:raw?.hideMatureOverlay!==false,
       revealNsfwPostMedia:raw?.revealNsfwPostMedia===true,
       chatSearch:raw?.chatSearch!==false,
+      ...navSettings(raw),
       ...videoSettings(raw)
     };
   }
+  const NAV_DEFAULTS=Object.freeze({navHome:'scroll',navFeeds:'default',navCommunity:'default',navPost:'scroll',navProfile:'default',navSearch:'default'});
+  function navSettings(raw){const out={};for(const [key,fallback] of Object.entries(NAV_DEFAULTS))out[key]=['default','scroll','hidden'].includes(raw?.[key])?raw[key]:fallback;return out;}
   // Videos & Embeds: every media/enhancement setting defaults to passive ('default'/'muted'/'off'/'auto'/false)
   // so fresh installs leave Reddit & third-party embeds untouched. Legacy 0.46–0.54 explicit choices migrate cleanly.
   function videoSettings(raw){
