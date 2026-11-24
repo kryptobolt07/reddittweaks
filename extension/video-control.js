@@ -13,7 +13,11 @@
  const PLAY_BUTTON='.poster-play-button,.play-pause-button';
  const SOUND_CONTROL='.mute-button,.volume-slider';
  const PLAYER_CONTROLS='button,a[href],input,select,textarea,[role="button"],[role="slider"],[role="menu"],[role="menuitem"],.fullscreen-button,.captions-button,.settings-button,[slot="controls"],vds-time-slider,media-time-range';
- const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen';
+ const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen',SEARCH_PLAYER='search_results';
+ // Reddit's Media search tab plays its tiles with search_results players: feed media for start policies and previews.
+ const feedPlayer=player=>{const type=player?.getAttribute?.('player-type');return type===FEED_PLAYER || type===SEARCH_PLAYER && Boolean(player.closest?.(SEARCH_TILE));};
+ // A post opened from a search result tile (Reddit's Media tab, Visual search) brings no playing moment to keep.
+ const SEARCH_TILE='[data-id="search-media-post-unit"]',SEARCH_RESULT=SEARCH_TILE+',[data-rt-ui="visual-search"] .rt-vs-tile';
  // YouTube embeds Reddit renders as lite-youtube with the YouTube player API (controlled by the page bridge).
  const EMBED='shreddit-embed[providername="YouTube"]',EMBED_KEY='rt-embed-continue-v1',ANY_EMBED='shreddit-embed';
  const BLURRED='shreddit-blurred-container[blurred]',NSFW_GATE='shreddit-blurred-container[reason="nsfw"]',POST_MEDIA='[slot="post-media-container"]';
@@ -308,7 +312,7 @@
     if(!embed || !link || !this.blockEmbedLinks(!this.isDetailEmbed(embed)))return;
     if(/^https?:/.test(link.href) && new URL(link.href).origin!==this.win.location.origin){event.preventDefault();event.stopImmediatePropagation();}
    };
-   this.onRoute=()=>{this.hideSoundPrompt();this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.win.setTimeout(()=>this.directPlayer(),0);this.queueLeftBehind();};
+   this.onRoute=()=>{this.hideSoundPrompt();this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.adoptResultOpen();this.win.setTimeout(()=>this.directPlayer(),0);this.queueLeftBehind();};
    this.onBack=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.clearHandoff();this.clearEmbedHandoff();this.directPlayer();};
    this.onMiniDismissed=event=>{
     const node=event.target;
@@ -760,7 +764,7 @@
     const had=this.players.has(player);
     this.attach(player);
     if(!had && this.players.has(player))attachedNow.add(player);
-    if(this.startMode(mediaKind(player))!=='default' && player.getAttribute('player-type')===FEED_PLAYER)this.observePoster(player);
+    if(this.startMode(mediaKind(player))!=='default' && feedPlayer(player))this.observePoster(player);
     if(player.matches(PLAYERS))this.manageViewport(player,manageDetail && this.isDetailMedia(player));
    }
    this._lastAttached=attachedNow;
@@ -871,7 +875,7 @@
    }
   }
   userStarted(player){return performance.now()-this.gesture.at<GESTURE_MS && this.gesture.path.includes(player);}
-  previewable(player){return player.getAttribute('player-type')===FEED_PLAYER || Boolean(commentOf(player) && !closedThread(player));}
+  previewable(player){return feedPlayer(player) || Boolean(commentOf(player) && !closedThread(player));}
   syncCommentVisibility(){
    for(const player of this.players){
     if(!closedThread(player))continue;
@@ -1889,14 +1893,32 @@
    if(!this.configured || (!event.isTrusted && !globalThis.__rtVideoControlTest && event.target!==this.opening) ||
       event.defaultPrevented || event.button!==0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)return;
    const path=event.composedPath();
-   if(path.some(node=>node.matches?.(PLAYERS)))return;
    const link=path.find(node=>node.matches?.('a[href]'));
+   const result=path.find(node=>node.matches?.(SEARCH_RESULT));
+   if(result){this.openFromResult(link);return;}
+   if(path.some(node=>node.matches?.(PLAYERS)))return;
    const card=path.find(node=>node.matches?.('shreddit-post'));
    if(!link || !card || link.hasAttribute('download') || link.target && link.target!=='_self')return;
    const url=new URL(link.href,this.win.location.href),id=postId(url.pathname);
    if(url.origin!==this.win.location.origin || !id || card.id!=='t3_'+id || postId(this.win.location.pathname)===id)return;
    this.cardOpen=!this.opening;
    try{this.rememberCard(card,id);}finally{this.cardOpen=false;}
+  }
+  // The post opened from a search result follows Post opened directly, as if its link had been opened: a result
+  // tile has no playing moment to carry over, so the post's own video or embed starts by that choice.
+  openFromResult(link){
+   if(!link || link.hasAttribute('download') || link.target && link.target!=='_self')return;
+   let url;try{url=new URL(link.href,this.win.location.href);}catch{return;}
+   const id=postId(url.pathname);
+   if(url.origin!==this.win.location.origin || !id || postId(this.win.location.pathname)===id)return;
+   this.resultOpen={id,at:Date.now()};
+  }
+  // Called on the route change: the post Reddit has just opened is the result that was clicked.
+  adoptResultOpen(){
+   const open=this.resultOpen;this.resultOpen=null;
+   if(!open || Date.now()-open.at>CONTINUE_MS || postId(this.win.location.pathname)!==open.id || this.pending?.saved?.id===open.id)return;
+   this.endDirect();this.endDirectEmbed();
+   this.direct=null;this.directEmbed=null;this.directEmbedNone=false;this.landing=open.id;
   }
   rememberCard(card,id){
    const embed=[...card.querySelectorAll(ANY_EMBED)].find(node=>this.feedEmbed(node));

@@ -2156,3 +2156,35 @@ test('Post opened directly with sound: a refused start says so with a Turn on so
  const m=directPage(t);await directController(m,{videoDirectOpen:'muted'});m.redditAutoplay();
  assert.equal(m.d.querySelector('[data-rt-ui="direct-sound"]'),null);
 });
+// Reddit's Media search tab: tiles play through search_results players inside search-media-post-unit.
+function searchTile(p){
+ const unit=p.d.createElement('div');unit.dataset.id='search-media-post-unit';
+ p.player.closest('shreddit-post').replaceWith(unit);unit.append(p.player);p.player.setAttribute('player-type','search_results');
+ return unit;
+}
+test('Media search tab videos follow the start choice: the one you stop on previews on phones',async t=>{
+ const p=page(t);searchTile(p);phone(p);
+ const controller=await hoverController(p,{videoStart:'preview'});
+ assert.equal(controller.previewable(p.player),true);
+ scroll(p);await settle();
+ assert.equal(p.video.paused,false,'the settled tile previews');assert.equal(p.video.muted,true);
+ // A search_results player outside a Media tile is not feed media.
+ const q=page(t);q.player.setAttribute('player-type','search_results');const other=await hoverController(q,{videoStart:'preview'});
+ assert.equal(other.previewable(q.player),false);
+});
+test('Post opened directly also covers a post opened from a search result tile',async t=>{
+ for(const [fromResult,expectMuted] of [[true,true],[false,false]]){
+  const p=directPage(t);
+  p.W.history.replaceState({},'','/search/?q=ice+cream&type=media');
+  const control=await directController(p,{videoDirectOpen:'muted'});
+  assert.equal(control.landing,'','a search page is not a landing post');
+  const tile=p.d.createElement('div');
+  if(fromResult)tile.dataset.id='search-media-post-unit';
+  const link=p.d.createElement('a');link.href=postPath;tile.append(link);p.d.body.append(tile);
+  p.click(link);
+  p.W.history.pushState({},'',postPath);p.d.dispatchEvent(new p.W.Event('reddit:route'));await flush();
+  control.scan();p.redditAutoplay(false);
+  assert.equal(control.landing,fromResult?'test':'');
+  assert.equal(p.video.muted,expectMuted,fromResult?'the result post follows Play muted':'other in-app opens keep Reddit’s start');
+ }
+});
