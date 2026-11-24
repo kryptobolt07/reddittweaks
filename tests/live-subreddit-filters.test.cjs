@@ -865,3 +865,68 @@ test('a batch Reddit swaps out keeps its filtered cards hidden when it comes bac
  marker.replaceWith(text);
  assert.equal(text.hasAttribute(stop),true,'still hidden the moment it returns');
 });
+
+test('in-feed recommendation modules are hidden while filters are active without touching posts or the pager',async t=>{
+ const directRec='<in-feed-community-recommendations id="rec-direct">Suggested communities</in-feed-community-recommendations><hr id="rec-hr">';
+ const wrappedRec='<div id="rec-wrap"><div data-feed-element-id="content_forward_community_recommendation:1">Recommended</div></div>';
+ const protectedWrap='<div id="has-post"><in-feed-community-recommendations>Keep wrapper</in-feed-community-recommendations><article><shreddit-post post-type="video"></shreddit-post></article></div>';
+ const markup='<main><shreddit-feed>'+card('text')+directRec+'<faceplate-batch>'+wrappedRec+'</faceplate-batch>'+protectedWrap+'<faceplate-partial slot="load-after"><in-feed-community-recommendations></in-feed-community-recommendations></faceplate-partial></shreddit-feed></main>';
+ const {D,controller}=setup(t,'/r/Example/?rt_type=video',markup);
+ await flush();
+ assert.equal(D.querySelector('#rec-direct').hasAttribute(stop),true);
+ assert.equal(D.querySelector('#rec-hr').hasAttribute(stop),true);
+ assert.equal(D.querySelector('#rec-wrap').hasAttribute(stop),true);
+ assert.equal(D.querySelector('#has-post').hasAttribute(stop),false,'never hides a wrapper containing a matching post');
+ assert.equal(D.querySelector('[slot="load-after"]').hasAttribute(stop),false,'never hides the feed pager');
+ controller.applyTypes([]);await flush();
+ assert.equal(D.querySelector('#rec-direct').hasAttribute(stop),false);
+ assert.equal(D.querySelector('#rec-hr').hasAttribute(stop),false);
+ assert.equal(D.querySelector('#rec-wrap').hasAttribute(stop),false);
+});
+
+test('filtered feeds distinguish loading, paused and empty states cleanly',async t=>{
+ // Active pager: loading state first, updates checked count as batches arrive, pauses after 2 empty continuations.
+ {
+  const markup='<main><shreddit-feed>'+card('text')+card('image')+'<faceplate-partial slot="load-after" src="/next/0"><shreddit-feed-page-loading></shreddit-feed-page-loading></faceplate-partial></shreddit-feed></main>';
+  const {D,W}=setup(t,'/r/Example/?rt_type=poll',markup);
+  const note=()=>D.querySelector('[data-rt-ui="community-filter-note"]');
+  assert.equal(note()?.dataset.state,'loading');
+  assert.match(note().textContent,/Looking for matching posts/);
+  assert.doesNotMatch(note().textContent,/No matching|No loaded/);
+  assert.match(note().textContent,/Checked 2 posts so far/);
+  assert.equal(note().querySelector('.rt-community-skeleton'),null,'native pager already shows a halo');
+
+  D.querySelector('[slot="load-after"]').outerHTML='<faceplate-batch>'+card('text')+'</faceplate-batch><faceplate-partial slot="load-after" src="/next/1"><shreddit-feed-page-loading></shreddit-feed-page-loading></faceplate-partial>';
+  await flush();
+  assert.equal(note().dataset.state,'loading');
+  assert.match(note().textContent,/Checked 3 posts so far/);
+
+  D.querySelector('[slot="load-after"]').outerHTML='<faceplate-batch>'+card('image')+'</faceplate-batch><faceplate-partial slot="load-after" src="/next/2"><shreddit-feed-page-loading></shreddit-feed-page-loading></faceplate-partial>';
+  await flush();
+  assert.equal(note().dataset.state,'paused');
+  assert.match(note().textContent,/No matching posts yet/);
+  assert.match(note().textContent,/Checked 4 posts so far/);
+  assert.ok(note().querySelector('[data-rt-community-continue]'));
+  assert.ok(note().querySelector('[data-rt-community-clear]'));
+
+  note().querySelector('[data-rt-community-continue]').click();
+  assert.equal(note().dataset.state,'loading');
+  assert.equal(D.querySelector('[slot="load-after"]').hasAttribute('data-rt-community-paused'),false);
+
+  note().querySelector('[data-rt-community-clear]').click();
+  assert.equal(D.querySelector('[data-rt-ui="community-filter-note"]'),null);
+  assert.equal(W.location.search,'');
+ }
+
+ // Without a pager: empty state with no Load more button.
+ {
+  const noPager='<main><shreddit-feed>'+card('text')+'</shreddit-feed></main>';
+  const {D}=setup(t,'/r/Example/?rt_type=poll',noPager);
+  const note=D.querySelector('[data-rt-ui="community-filter-note"]');
+  assert.equal(note?.dataset.state,'empty');
+  assert.match(note.textContent,/No posts match these filters/);
+  assert.match(note.textContent,/Checked 1 post on this page/);
+  assert.equal(note.querySelector('[data-rt-community-continue]'),null);
+  assert.ok(note.querySelector('[data-rt-community-clear]'));
+ }
+});

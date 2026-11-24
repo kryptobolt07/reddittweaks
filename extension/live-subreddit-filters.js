@@ -20,6 +20,7 @@
   const topPeriods = [['hour','Now'],['day','Today'],['week','This Week'],['month','This Month'],['year','This Year'],['all','All Time']];
   const mediaTypes = new Map([['image','Photos'],['video','Videos'],['gif','GIFs'],['gallery','Galleries']]);
   const mediaUnits = 'search-media-feed search-telemetry-tracker[view-events="search/view/post"]';
+  const nonPostModules = 'shreddit-ad-post,in-feed-community-recommendations,[data-feed-element-id*="community_recommendation"]';
   const videoHosts = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|streamable\.com|twitch\.tv|dailymotion\.com|dai\.ly|gfycat\.com|redgifs\.com|tiktok\.com|rumble\.com)$/i;
   const isPhone = () => Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);
   const nativeFeedSort = 'shreddit-sort-dropdown:not([hidden]),shreddit-layout-switcher:not([hidden])';
@@ -76,6 +77,23 @@
   const fold = value => String(value || '').toLowerCase();
   const postId = path => /^\/(?:r\/[^/]+\/|user\/[^/]+\/)?comments\/([a-z0-9]{1,10})(?:\/|$)/i.exec(path)?.[1].toLowerCase();
   const historyEntry = () => window.navigation?.currentEntry?.key || location.href;
+
+  function cardTimestamp(card) {
+    const raw = card.getAttribute('created-timestamp') ||
+      card.querySelector('faceplate-timeago[ts]')?.getAttribute('ts') ||
+      card.querySelector('time[datetime]')?.getAttribute('datetime') || '';
+    const ms = Date.parse(raw);
+    return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+  }
+  const formatDay = seconds => new Date(seconds * 1000).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});
+  function spinnerIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    for (const [k,v] of Object.entries({fill:'currentColor',height:'16',width:'16',viewBox:'0 0 20 20','aria-hidden':'true','icon-name':'load',class:'rt-community-spinner'})) svg.setAttribute(k,v);
+    const path = document.createElementNS(svg.namespaceURI,'path');
+    path.setAttribute('d','M18.1 10.9h-3a.9.9 0 010-1.8h3a.9.9 0 010 1.8ZM5.8 10a.9.9 0 00-.9-.9h-3a.9.9 0 000 1.8h3a.9.9 0 00.9-.9Zm5.1 8.1v-3a.9.9 0 00-1.8 0v3a.9.9 0 001.8 0Zm0-13.2v-3a.9.9 0 00-1.8 0v3a.9.9 0 001.8 0Zm5.464-1.264a.9.9 0 00-1.273 0L12.97 5.757a.901.901 0 001.273 1.273l2.121-2.121a.901.901 0 000-1.273ZM7.03 12.97a.9.9 0 00-1.273 0l-2.121 2.121a.901.901 0 001.273 1.273l2.121-2.121a.901.901 0 000-1.273Zm9.334 2.121-2.121-2.121a.9.9 0 00-1.273 1.273l2.121 2.121a.9.9 0 001.273-1.273ZM7.03 5.758 4.909 3.637A.9.9 0 003.636 4.91l2.121 2.121A.9.9 0 007.03 5.758Z');
+    svg.append(path);
+    return svg;
+  }
 
   const globalSorts = ['best','hot','new','top','rising','controversial'];
   const archiveRootAttrs = ['data-rt-subreddit-archive','data-rt-subreddit-archive-search'];
@@ -1193,6 +1211,8 @@
     }
 
     clearPager() {
+      clearTimeout(this.loadingTimer);
+      this.loadingTimer = 0;
       this.paging?.pager?.removeAttribute(paused);
       this.paging = null;
       this.pausedAt = 0;
@@ -1205,6 +1225,7 @@
       if (!paging?.pager?.hasAttribute(paused)) return;
       if (this.pausedAt && performance.now() - this.pausedAt < 400) return;
       paging.emptyPages = 0;
+      paging.stalled = false;
       this.pausedAt = 0;
       this.filterResults();
     }
@@ -1230,10 +1251,26 @@
         this.restoreParked();
         this.parkKey = parkKey;
       }
+      const source = this.feed ? this.url.pathname + '\n' + (this.feed.getAttribute('reload-url') || '') : '';
+      if (this.feed && this.feedPagination?.source !== source) {
+        this.feedPagination = {source,pager:null,seenIds:new Set(),oldestSec:Infinity,newestSec:0};
+      }
+      const recordCard = card => {
+        const fp = this.feedPagination;
+        if (!fp || !card) return;
+        const id = card.id || card.getAttribute('permalink');
+        if (id && fp.seenIds.size < 5000) fp.seenIds.add(id);
+        const sec = cardTimestamp(card);
+        if (sec != null) {
+          if (sec < fp.oldestSec) fp.oldestSec = sec;
+          if (sec > fp.newestSec) fp.newestSec = sec;
+        }
+      };
       const period = this.feed ? '' : this.url.searchParams.get('t');
       const date = period && filters.dateRange({date:{preset:period === 'day' ? '24h' : period}});
       const next = new Set();
       let matching = 0;
+      let evaluatedPosts = 0;
       if (this.feed && active) {
         const wanted = new Set(types);
         const candidates = [];
@@ -1251,6 +1288,8 @@
             replaced.marker.remove();
             if (this.parked.delete(unit)) this.parkedCount--;
           }
+          evaluatedPosts++;
+          recordCard(card);
           const flairNode=flair && card.querySelector('[slot="post-flair"]');
           let matches=(!nsfw || nsfwCard(card)) && (!flair || flairNode && fold(cardFlair(flairNode))===flair);
           if (matches && subs) matches = subs.names.has(fold(cardCommunity(card))) !== subs.hide;
@@ -1264,28 +1303,39 @@
             if (unit.localName === 'article' && card.hasAttribute('post-type')) candidates.push([unit,card]);
           }
         }
-        // Promoted units are not posts of the chosen type; hiding the posts around them
-        // otherwise leaves the feed looking like an ad list.
-        for (const ad of this.feed.querySelectorAll('shreddit-ad-post')) {
-          const unit = ad.closest('article') || ad;
+        // Promoted units and in-feed community recommendations are not posts of the chosen filter;
+        // hiding non-matching posts around them otherwise pulls ads and "Suggested communities" to the top.
+        for (const mod of this.feed.querySelectorAll(nonPostModules)) {
+          let unit = mod.closest('article') || mod;
+          while (unit.parentElement && unit.parentElement !== this.feed &&
+              !unit.parentElement.matches('faceplate-batch,faceplate-partial')) {
+            unit = unit.parentElement;
+          }
           const parent = unit.parentElement;
           if (parent !== this.feed && !parent?.matches('faceplate-batch,faceplate-partial')) continue;
+          if (unit.matches('faceplate-partial[slot="load-after"]') || unit.querySelector('shreddit-post')) continue;
           hide(unit);
         }
-        for (const [unit,{marker}] of this.parked) {
+        for (const [unit,{card,marker}] of this.parked) {
           if (!unit.contains(marker)) { if (this.parked.delete(unit)) this.parkedCount--; }
-          else if (this.feed.contains(unit)) hide(unit);
+          else if (this.feed.contains(unit)) {
+            evaluatedPosts++;
+            recordCard(card);
+            hide(unit);
+          }
         }
         this.parkHiddenCards(candidates);
       }
       if (this.isMedia() && types.length) {
         const wanted = new Set(types);
         for (const unit of this.main.querySelectorAll(mediaUnits)) {
+          evaluatedPosts++;
           if (wanted.has(mediaType(unit))) matching++;
           else next.add(unit);
         }
       }
       if (date && !this.isMedia()) for (const unit of this.main.querySelectorAll(resultsSelector)) {
+        evaluatedPosts++;
         // New and some other sorts may ignore t on Reddit's server.
         const time = unit.querySelector('faceplate-timeago[ts],time[datetime]');
         const seconds = Date.parse(time?.getAttribute('ts') || time?.getAttribute('datetime') || '') / 1000;
@@ -1306,9 +1356,13 @@
       // A reveal already under way keeps going on its own; cards hidden again meanwhile are skipped.
       if (shown.length) this.reveal(shown,anchor);
 
+      const checkedCount = this.feed ? Math.max(evaluatedPosts, this.feedPagination?.seenIds.size || 0) : evaluatedPosts;
       const feedPager = this.feed ? [...this.feed.querySelectorAll('faceplate-partial[slot="load-after"]')].at(-1) : null;
-      const reachedEnd = this.syncFeedEnd(feedPager,active,matching,next.size);
-      const needsMore = (active || date) && next.size && !matching;
+      const reachedEnd = this.syncFeedEnd(feedPager,active,matching,evaluatedPosts,checkedCount);
+      const pager = this.feed
+        ? feedPager
+        : [...this.main.querySelectorAll('faceplate-partial[loading="lazy"][src*="/search/"]')].at(-1);
+      const needsMore = (active || date) && !matching && (evaluatedPosts > 0 || Boolean(pager));
       if (!needsMore || reachedEnd) {
         this.clearPager();
         this.note?.remove();
@@ -1316,9 +1370,6 @@
       }
       // When all cards collapse, the next native loader can stay in view and
       // request many pages without a scroll. Pause after two empty continuations.
-      const pager = this.feed
-        ? feedPager
-        : [...this.main.querySelectorAll('faceplate-partial[loading="lazy"][src*="/search/"]')].at(-1);
       const key = this.url.href;
       const previous = this.paging;
       let emptyPages = previous?.key === key ? previous.emptyPages : 0;
@@ -1326,21 +1377,44 @@
         previous.pager.removeAttribute(paused);
         if (previous.key === key) emptyPages++;
       }
-      this.paging = {key,pager,emptyPages};
+      const pagerChanged = previous?.pager !== pager || previous?.key !== key;
       const waiting = Boolean(pager && emptyPages >= 2);
+      const stalled = Boolean(pager && !waiting && !pagerChanged && previous?.stalled);
+      this.paging = {key,pager,emptyPages,stalled};
+      if (pager && !waiting && !stalled) {
+        if (!this.loadingTimer || pagerChanged) {
+          clearTimeout(this.loadingTimer);
+          this.loadingTimer = setTimeout(() => {
+            this.loadingTimer = 0;
+            if (this.dead || this.paging?.pager !== pager || this.paging?.key !== key || pager.hasAttribute(paused)) return;
+            this.paging.stalled = true;
+            this.filterResults();
+          },12000);
+        }
+      } else {
+        clearTimeout(this.loadingTimer);
+        this.loadingTimer = 0;
+      }
       if (waiting && !pager.hasAttribute(paused)) this.pausedAt = performance.now();
       if (!waiting) this.pausedAt = 0;
       pager?.toggleAttribute(paused,waiting);
-      this.updateNote(date && !this.isMedia() ? 'No loaded results match this date range.' : nsfw || flair || subs ? 'No loaded posts match these filters.' : 'No loaded posts match these types.',waiting);
+      const mode = !pager ? 'empty' : (waiting || stalled) ? 'paused' : 'loading';
+      this.updateNote({
+        mode,
+        checkedCount,
+        stalled,
+        isDate:Boolean(date && !this.isMedia()),
+        hasNativeLoader:Boolean(pager?.querySelector('shreddit-feed-page-loading')),
+      });
     }
 
-    syncFeedEnd(pager,filterCount,matching,hiddenCount) {
+    syncFeedEnd(pager,filterCount,matching,evaluatedPosts) {
       if (!this.feed) return false;
       const source = this.url.pathname + '\n' + (this.feed.getAttribute('reload-url') || '');
-      if (this.feedPagination?.source !== source) this.feedPagination = {source,pager:null};
+      if (this.feedPagination?.source !== source) this.feedPagination = {source,pager:null,seenIds:new Set(),oldestSec:Infinity,newestSec:0};
       if (pager) this.feedPagination.pager = pager;
-      const ended = filterCount && (matching || hiddenCount) && !pager &&
-        this.feedPagination.pager && !this.feedPagination.pager.isConnected;
+      const ended = Boolean(filterCount && (matching || evaluatedPosts || this.feedPagination?.seenIds.size) && !pager &&
+        this.feedPagination.pager && !this.feedPagination.pager.isConnected);
       if (!ended) { this.endNote?.remove(); return false; }
 
       const alternatives = (this.feedSorts?.sorting?.choices || []).filter(choice =>
@@ -1365,21 +1439,14 @@
       return true;
     }
 
-    updateNote(message, waiting) {
+    updateNote({mode, checkedCount, stalled, isDate, hasNativeLoader}) {
+      const noun = n => isDate ? (n === 1 ? 'result' : 'results') : (n === 1 ? 'post' : 'posts');
+      const plural = isDate ? 'results' : 'posts';
+      const sig = JSON.stringify([mode,checkedCount,stalled,isDate,hasNativeLoader]);
+      if (this.note?.isConnected && this.note.dataset.sig === sig) return;
       if (!this.note?.isConnected) {
-        this.note = make('div','rt-community-note');
+        this.note = make('div','rt-community-state');
         this.note.dataset.rtUi = 'community-filter-note';
-        this.noteText = make('span');
-        this.noteText.setAttribute('role','status');
-        this.more = make('button','rt-community-button','Load more');
-        this.more.type = 'button';
-        this.more.dataset.rtCommunityContinue = '';
-        this.more.addEventListener('click',() => {
-          if (!this.paging?.pager) return;
-          this.paging.emptyPages = 0;
-          this.filterResults();
-        });
-        this.note.append(this.noteText,this.more);
         if (this.feed) this.feed.before(this.note);
         else {
           const results = this.main.querySelector('search-media-feed,' + resultsSelector);
@@ -1387,8 +1454,77 @@
           else this.main.append(this.note);
         }
       }
-      if (this.noteText.textContent !== message) this.noteText.textContent = message;
-      this.more.hidden = !waiting;
+      this.note.dataset.state = mode;
+      this.note.dataset.sig = sig;
+      this.note.replaceChildren();
+      const head = make('div','rt-community-state-head');
+      const title = make('span','rt-community-state-title');
+      title.setAttribute('role','status');
+      const body = make('p','rt-community-state-body');
+      const actions = make('div','rt-community-state-actions');
+      const clearLabel = isDate ? (mode === 'loading' ? 'Clear date' : 'Show all time') : 'Clear filters';
+      const clearAction = () => {
+        if (isDate && !this.isMedia()) this.go(setSearchOption(this.url,'t','all'));
+        else this.clearFilters();
+      };
+      const countText = checkedCount ? 'Checked ' + checkedCount.toLocaleString('en-US') + ' ' + noun(checkedCount) + ' so far' : '';
+      if (mode === 'loading') {
+        head.append(spinnerIcon(),title);
+        title.textContent = isDate ? 'Looking for matching results…' : 'Looking for matching posts…';
+        body.textContent = countText || 'Loading ' + plural + ' from Reddit…';
+        this.note.append(head,body);
+        if (!hasNativeLoader) {
+          const skel = make('div','rt-skeleton rt-community-skeleton');
+          skel.setAttribute('aria-hidden','true');
+          for (const width of ['68%','92%']) {
+            const line = make('span','rt-skeleton-line rt-skeleton-fallback');
+            line.style.width = width;
+            skel.append(line);
+          }
+          this.note.append(skel);
+        }
+        const clearBtn = make('button','rt-community-action',clearLabel);
+        clearBtn.type = 'button';
+        clearBtn.dataset.rtCommunityClear = '';
+        clearBtn.addEventListener('click',clearAction);
+        actions.append(clearBtn);
+        this.note.append(actions);
+        return;
+      }
+      const badge = make('span','rt-community-state-icon');
+      badge.setAttribute('aria-hidden','true');
+      badge.append(filters.svgIcon(isDate ? 'calendar' : 'filter',20));
+      head.append(badge,title);
+      if (mode === 'paused') {
+        title.textContent = isDate ? 'No matching results in this date range yet' : 'No matching posts yet';
+        body.textContent = stalled
+          ? 'Reddit hasn’t loaded the next page yet.' + (countText ? ' ' + countText + '.' : '')
+          : (countText ? countText + '. ' : '') + 'Older ' + plural + ' may still match.';
+        const more = this.more = make('button','rt-community-action rt-community-action-primary','Load more');
+        more.type = 'button';
+        more.dataset.rtCommunityContinue = '';
+        more.addEventListener('click',() => {
+          const pager = this.paging?.pager;
+          if (!pager) return;
+          const wasStalled = Boolean(this.paging.stalled);
+          this.paging.emptyPages = 0;
+          this.paging.stalled = false;
+          this.pausedAt = 0;
+          pager.removeAttribute(paused);
+          if (wasStalled) pager.scrollIntoView?.({block:'nearest'});
+          this.filterResults();
+        });
+        actions.append(more);
+      } else {
+        title.textContent = isDate ? 'No results match this date range' : 'No posts match these filters';
+        body.textContent = checkedCount ? 'Checked ' + checkedCount.toLocaleString('en-US') + ' ' + noun(checkedCount) + ' on this page.' : '';
+      }
+      const clearBtn = make('button','rt-community-action',clearLabel);
+      clearBtn.type = 'button';
+      clearBtn.dataset.rtCommunityClear = '';
+      clearBtn.addEventListener('click',clearAction);
+      actions.append(clearBtn);
+      this.note.append(head,...(body.textContent ? [body] : []),actions);
     }
 
     updateToolbar() {
