@@ -319,6 +319,7 @@ importScripts('download-model.js','download-broker.js');
 importScripts('account-broker.js');
 importScripts('embed-player-hosts.js');
 importScripts('embed-poster-broker.js');
+importScripts('visual-search-model.js','visual-search-broker.js');
 
 // Chrome drops dynamic scripts on unpacked extension reload. The existing host grant is the opt-in to restore them.
 let embedRegistration;
