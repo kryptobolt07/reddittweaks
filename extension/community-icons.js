@@ -18,20 +18,35 @@
   }
   // r/name, /r/name and name all mean name; u_name is a user profile. Anything else is rejected.
   function normalize(value){const name=String(value||'').trim().replace(/^\/?r\//i,'');return /^[\w-]{1,40}$/.test(name)?name:'';}
-  // The icon in a hover card's HTML: a communityIcon image first, then any other safe non-banner image.
-  function parseCard(html,Parser=globalThis.DOMParser){
-    if(!html || !String(html).trim() || !Parser)return null;
-    let doc;try{doc=new Parser().parseFromString(String(html),'text/html');}catch{return null;}
-    const candidates=[...doc.querySelectorAll('img,faceplate-img')].map(img=>safeUrl(img.getAttribute('src') || (img.getAttribute('srcset') || '').split(/\s+/)[0])).filter(Boolean);
-    return candidates.find(url=>/communityIcon/i.test(url) && new URL(url).hostname==='styles.redditmedia.com') || candidates.find(url=>/communityIcon/i.test(url)) || candidates[0] || null;
+  // Reddit paints old-style (thumbs) icons and the community-fill glyph over the community's own colour.
+  function safeColor(value){const m=/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(value||'').trim());return m?'#'+m[1].toUpperCase():'';}
+  function colorOf(node){
+    const style=node?.getAttribute?.('style') || '';
+    return safeColor(/(?:^|;)\s*background(?:-color)?\s*:\s*(#[0-9a-f]{3,6})\b/i.exec(style)?.[1]) || safeColor(/(?:^|;)\s*color\s*:\s*(#[0-9a-f]{3,6})\b/i.exec(style)?.[1]);
   }
+  // The icon in a hover card's HTML, and its colour. Reddit marks the real icon as img.shreddit-subreddit-icon__icon; a
+  // community without one shows the community-fill glyph instead (null, never a flair emoji or other image).
+  function readCard(html,Parser=globalThis.DOMParser){
+    if(!html || !String(html).trim() || !Parser)return {url:null,color:''};
+    let doc;try{doc=new Parser().parseFromString(String(html),'text/html');}catch{return {url:null,color:''};}
+    const marked=doc.querySelector('img.shreddit-subreddit-icon__icon');
+    if(marked)return {url:safeUrl(marked.getAttribute('src') || '') || null,color:colorOf(marked)};
+    const glyph=doc.querySelector('[avatar] svg[icon-name="community-fill"]');
+    if(glyph)return {url:null,color:colorOf(glyph)};
+    const candidates=[...doc.querySelectorAll('img,faceplate-img')].map(img=>safeUrl(img.getAttribute('src') || (img.getAttribute('srcset') || '').split(/\s+/)[0])).filter(Boolean);
+    return {url:candidates.find(url=>/communityIcon/i.test(url) && new URL(url).hostname==='styles.redditmedia.com') || candidates.find(url=>/communityIcon/i.test(url)) || candidates[0] || null,color:''};
+  }
+  function parseCard(html,Parser=globalThis.DOMParser){return readCard(html,Parser).url;}
   function create({fetch:fetcher=(...args)=>globalThis.fetch(...args),doc=()=>globalThis.document,Parser=()=>globalThis.DOMParser,hint=name=>globalThis.RTPostDiscovery?.avatarHint?.(name),
     setTimer=(fn,ms)=>setTimeout(fn,ms),now=()=>Date.now(),gap=60,concurrency=4,pause=60000,max=300,storage=()=>globalThis.sessionStorage}={}){
     const cache=new Map(),pending=new Map(),queue=[];let active=0,nextStart=0,pausedUntil=0,timer=null,saveTimer=null;
     // Public icon URLs survive reloads for this browser session, so a menu reopened later shows them at once.
     const KEY='rt-community-icons-v1',store=()=>{try{return typeof storage==='function'?storage():storage;}catch{return null;}};
     try{const saved=JSON.parse(store()?.getItem(KEY) || '[]');if(Array.isArray(saved))for(const [key,url] of saved.slice(-max))if(typeof key==='string' && normalize(key) && (url===null || safeUrl(url)===url))cache.set(key.toLowerCase(),url);}catch{}
-    const save=()=>{if(saveTimer!==null)return;saveTimer=setTimer(()=>{saveTimer=null;try{store()?.setItem(KEY,JSON.stringify([...cache].slice(-max)));}catch{}},500);};
+    const COLORS='rt-community-icon-colors-v1',colors=new Map();
+    try{const saved=JSON.parse(store()?.getItem(COLORS) || '[]');if(Array.isArray(saved))for(const [key,color] of saved.slice(-max))if(typeof key==='string' && normalize(key) && safeColor(color))colors.set(key.toLowerCase(),safeColor(color));}catch{}
+    const save=()=>{if(saveTimer!==null)return;saveTimer=setTimer(()=>{saveTimer=null;try{store()?.setItem(KEY,JSON.stringify([...cache].slice(-max)));store()?.setItem(COLORS,JSON.stringify([...colors].slice(-max)));}catch{}},500);};
+    const tint=(key,color)=>{const safe=safeColor(color);if(!safe || colors.get(key)===safe)return;colors.delete(key);colors.set(key,safe);while(colors.size>max)colors.delete(colors.keys().next().value);save();};
     const remember=(key,value)=>{cache.delete(key);cache.set(key,value);while(cache.size>max)cache.delete(cache.keys().next().value);save();};
     // Icons that Reddit already painted on this page.
     function fromPage(name){
@@ -40,7 +55,9 @@
       try{const hinted=safeUrl(hint(lower) || '');if(hinted)return hinted;}catch{}
       const pick=root=>{
         const img=root?.querySelector?.('[avatar] img[src]') || [...(root?.querySelectorAll?.('img[src]') || [])].find(i=>/communityIcon|avatar|snoo/i.test(i.getAttribute('src') || ''));
-        return safeUrl(img?.getAttribute('src') || '');
+        const url=safeUrl(img?.getAttribute('src') || '');
+        if(url)tint(lower,colorOf(img));
+        return url;
       };
       if(!user)for(const card of d.querySelectorAll('shreddit-post[subreddit-name]'))if((card.getAttribute('subreddit-name') || '').toLowerCase()===lower){const url=pick(card.querySelector('[slot="credit-bar"]') || card);if(url)return url;}
       let seen=0;
@@ -74,7 +91,7 @@
       try{
         const response=await fetcher(hoverCard+encodeURIComponent(name),{headers:{Accept:accept},credentials:'same-origin'});
         if(response.status===429){pausedUntil=now()+pause;value=undefined;}
-        else if(response.ok){const url=parseCard(await response.text(),Parser());value=url;remember(key,url);}
+        else if(response.ok){const card=readCard(await response.text(),Parser());value=card.url;tint(key,card.color);remember(key,card.url);}
         else if(response.status>=400 && response.status<500){value=null;remember(key,null);}
         else value=undefined;
       }catch{value=undefined;}
@@ -91,8 +108,10 @@
     }
     // An icon Reddit already sent with other data (for example a search result row).
     function prime(value,url){const name=normalize(value),safe=safeUrl(url);if(!name || !safe || cache.get(name.toLowerCase())===safe)return false;remember(name.toLowerCase(),safe);return true;}
-    return Object.freeze({get,peek,prime,stats:()=>({cached:cache.size,queued:queue.length,active,pausedUntil})});
+    // The community's colour behind its icon or glyph, once known ('' otherwise).
+    function color(value){const name=normalize(value);return name?colors.get(name.toLowerCase()) || '':'';}
+    return Object.freeze({get,peek,prime,color,stats:()=>({cached:cache.size,queued:queue.length,active,pausedUntil})});
   }
   const shared=create();
-  globalThis.RTCommunityIcons=Object.freeze({get:shared.get,peek:shared.peek,prime:shared.prime,create,parseCard,safeUrl,normalize});
+  globalThis.RTCommunityIcons=Object.freeze({get:shared.get,peek:shared.peek,prime:shared.prime,color:shared.color,create,parseCard,readCard,safeUrl,safeColor,normalize});
 })();

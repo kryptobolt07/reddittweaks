@@ -66,3 +66,20 @@ test('the cache keeps the most recently used entries only',async t=>{
   assert.equal(api.peek('a')!==undefined,true);assert.equal(api.peek('b'),undefined,'least recently used entry dropped');assert.equal(api.stats().cached,3);
   assert.equal(I.create.length,0);
 });
+test('hover card: Reddit\'s marked icon wins over emojis, a glyph means no image, and the colour is kept',async t=>{
+  const {W,I}=load();t.after(()=>W.close());
+  const banner='<img src="https://styles.redditmedia.com/t5_1/styles/bannerBackgroundImage_b.png">';
+  const emoji='<img src="https://emoji.redditmedia.com/abc_t5_1/Verified">';
+  const legacy=banner+'<span avatar><span><img class="mb-0 shreddit-subreddit-icon__icon rounded-full" src="https://b.thumbs.redditmedia.com/Old.png" style="color: #AF6401;background: #AF6401;width: 48px;"></span></span>'+emoji;
+  const glyph=banner+emoji+'<span avatar><span><svg icon-name="community-fill" style="color: #3299cd;"></svg></span></span>';
+  assert.deepEqual({...I.readCard(legacy,W.DOMParser)},{url:'https://b.thumbs.redditmedia.com/Old.png',color:'#AF6401'});
+  assert.deepEqual({...I.readCard(glyph,W.DOMParser)},{url:null,color:'#3299CD'});
+  assert.equal(I.parseCard(glyph,W.DOMParser),null,'never a flair emoji');
+  assert.equal(I.safeColor('red;background:url(x)'),'');
+  const bodies={legacy,glyph};
+  const api=I.create({fetch:async url=>reply(200,bodies[url.split('/').pop()]),doc:()=>W.document,Parser:()=>W.DOMParser,setTimer:fn=>{fn();return 0;},gap:0,storage:()=>W.sessionStorage});
+  assert.equal(await api.get('legacy'),'https://b.thumbs.redditmedia.com/Old.png');assert.equal(api.color('Legacy'),'#AF6401');
+  assert.equal(await api.get('glyph'),null);assert.equal(api.color('glyph'),'#3299CD');assert.equal(api.color('unknown'),'');
+  const again=I.create({fetch:async()=>reply(500),doc:()=>W.document,Parser:()=>W.DOMParser,storage:()=>W.sessionStorage});
+  assert.equal(again.color('legacy'),'#AF6401','colours survive a reload within the session');
+});
