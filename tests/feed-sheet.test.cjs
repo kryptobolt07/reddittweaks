@@ -88,3 +88,15 @@ test('New uses Reddit’s own icon (icon-name="new", a filled clock with an up a
  const svg=W.RTFeedFilters.svgIcon('new',16);assert.equal(svg.getAttribute('fill'),'currentColor');assert.equal(svg.hasAttribute('stroke'),false);
  assert.match(svg.querySelector('path').getAttribute('d'),/^M10 10\.9H4\.678V9\.1H9\.1V4\.678/);W.close();
 });
+
+test('with an anchor the same pages open as a pull-down under the button',async t=>{
+ const {W,d}=page(t),opener=d.getElementById('opener');
+ opener.getBoundingClientRect=()=>({top:100,bottom:132,left:20,right:140,width:120,height:32});
+ W.RTFeedSheet.open({title:'Sort & filter',anchor:opener,returnFocus:opener,build:(body,ui)=>{ui.row({label:'Sort by',chevron:true,keepOpen:true,onSelect:()=>{ui.push({title:'Sort by',build:(_b,page)=>page.row({label:'New'})});return {stay:true};}});}});
+ const root=d.querySelector('[data-rt-ui="feed-sheet"]'),sheet=root.querySelector('.rt-fsheet');
+ assert.ok(root.hasAttribute('data-rt-anchored'));
+ assert.equal(sheet.style.top,'140px','just below the button');assert.equal(sheet.style.left,'20px');
+ d.querySelector('.rt-fsheet-row').click();
+ assert.equal(d.querySelector('.rt-fsheet-title').textContent,'Sort by','drill-in pages work the same');
+ assert.match(fs.readFileSync('extension/post-discovery.css','utf8'),/\.rt-fsheet-root\[data-rt-anchored\] \.rt-fsheet\{position:fixed/);
+});

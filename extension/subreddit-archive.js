@@ -766,7 +766,8 @@
       const sheet=globalThis.RTFeedSheet,f=globalThis.RTFeedFilters,button=this.phoneOptionsBtn;if(!sheet || !f || !this.phoneChoices)return;
       button?.setAttribute('aria-expanded','true');
       const {sorts,dates,custom,types}=this.phoneChoices;
-      sheet.open({title:'Sort & filter',returnFocus:button,onClose:()=>button?.setAttribute('aria-expanded','false'),build:(_body,ui)=>{
+      // A pull-down under the button on every width (docs/feed-controls-ux-plan.md, 13).
+      sheet.open({title:'Sort & filter',anchor:button,returnFocus:button,onClose:()=>button?.setAttribute('aria-expanded','false'),build:(_body,ui)=>{
         const mode=this.sortMode(),state=this.filterState(),labels=f.valueLabels?f.valueLabels(state):{};
         f.appliedRow?.(ui,this.chipsEl);
         const sortNow=sorts.find(choice=>choice.key===mode);
@@ -911,7 +912,8 @@
       const text=make('span','flex items-center gap-xs',label),caret=make('span','flex ms-2xs me-[-2px]');caret.append(redditCaret());button.append(text,caret);
       const menu=make('div','rt-sra-menu');menu.setAttribute('role','menu');menu.hidden=true;menu.dataset.rtUi='subreddit-menu';
       button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();const open=menu.hidden;this.closeMenus();if(open){this.syncMenu();
-        const sheet=Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);menu.classList.toggle('rt-sra-sheet',sheet);
+        // A pull-down on every width, like Sort & filter elsewhere (docs/feed-controls-ux-plan.md, 13).
+        const sheet=false;menu.classList.toggle('rt-sra-sheet',sheet);
         if(sheet){
           if(!menu.querySelector(':scope>.rt-inline-sheet-head')){
             const head=make('div','rt-inline-sheet-head'),name=make('span','text-16 text-neutral-content-strong font-bold',title || text.textContent.trim());head.append(name);

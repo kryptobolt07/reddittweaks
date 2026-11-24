@@ -1520,18 +1520,8 @@
     open(anchor = this.options) {
       if (!this.scope) return;
       if (this.panel) { this.panel.close(); return; }
-      if (!isPhone()) { this.openFeedMenu(anchor); return; }
-      const button = anchor;
-      button.setAttribute('aria-expanded','true');
-      this.panel = sheet.open({
-        title:menuLabel, returnFocus:button,
-        onClose: () => {
-          this.panel = null;
-          button.setAttribute('aria-expanded','false');
-        },
-        build: (_body, ui) => this.buildPhoneFeed(ui),
-      });
-      this.panel.root.classList.add('rt-community-sheet');
+      // Phones use the same pull-down menu as computers and chat (docs/feed-controls-ux-plan.md, 13).
+      this.openFeedMenu(anchor);
     }
 
     openPanel(button, root, {phone = false, back = () => false} = {}) {
@@ -1591,7 +1581,9 @@
         root.style.top = flip ? 'auto' : box.bottom + 8 + 'px';
         root.style.bottom = flip ? vh - box.top + 8 + 'px' : 'auto';
       };
-      const resize = () => isPhone() === phone ? place() : close();
+      // Phone browsers resize as their address bar slides; only a change of layout closes the menu.
+      const openedPhone = isPhone();
+      const resize = () => isPhone() === openedPhone ? place() : close();
       this.panel = {root,close};
       button.setAttribute('aria-expanded','true');
       if (scrim) {
@@ -1721,6 +1713,17 @@
         const list = make('div','rt-community-menu-body');
         root.append(list);
         root.prepend(filters.sectionLabel(menuLabel));
+        // Phones show only the count on the button, so the list of applied filters opens from here.
+        const applied = filters.appliedCount?.(this.chips) || 0;
+        if (isPhone() && applied) {
+          const row = ctx.row('Applied filters','filter');
+          row.setAttribute('aria-haspopup','dialog');
+          const trailing = make('span','rt-menu-value text-12 text-neutral-content-weak',applied === 1 ? '1 filter' : applied + ' filters');
+          trailing.dataset.rtMenuValue = '';
+          row.firstElementChild.append(trailing,filters.svgIcon('chevron-right',16));
+          ctx.activate(row,() => { const button = this.options; menu?.close(false); if (button?.isConnected) filters.openApplied?.(this.chips,button); });
+          list.append(row);
+        }
         const sorting = this.feedSorts?.sorting;
         if (sorting) entry(list,'Sort','sort',sorting.current);
         if (this.feedView) entry(list,'View',this.viewIcon(this.feedView.choices.find(choice => choice.selected),16),this.feedView.current || 'Card');
@@ -1736,7 +1739,8 @@
 
     openSearchMenu(button, key, title) {
       if (this.panel?.root.dataset.rtSearchMenu === key) { this.panel.close(); return; }
-      const phone = isPhone();
+      // A pull-down on every width, like Sort & filter and chat (docs/feed-controls-ux-plan.md, 13).
+      const phone = false;
       const root = make('div','rt-inline-menu rt-community-search-menu' + (phone ? ' rt-inline-sheet' : '') +
         (key === 'flair' ? ' rt-community-flair-menu' : ''));
       root.dataset.rtUi = 'community-filter-menu';

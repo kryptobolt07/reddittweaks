@@ -4,6 +4,8 @@ const fs=require('node:fs');
 const {JSDOM}=require('jsdom');
 const read=name=>fs.readFileSync('extension/'+name,'utf8');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
+// Top-level rows of the open Sort & filter pull-down (phones use the same menu as computers).
+const menuRows=D=>[...D.querySelectorAll('.rt-community-feed-menu .rt-community-menu-body > [role^="menuitem"]')].map(row=>row.getAttribute('aria-label'));
 const stop='data-rt-community-filtered';
 const card=(type,flair='')=>'<article><shreddit-post post-type="'+type+'"><span slot="post-flair">'+flair+'</span></shreddit-post></article><hr>';
 const feed=()=>'<main><div><shreddit-sort-dropdown></shreddit-sort-dropdown></div><shreddit-feed reload-url="/svc/shreddit/community-more-posts/hot/?name=Example">'+card('video','News')+card('text','Q&A')+'<faceplate-partial slot="load-after"></faceplate-partial></shreddit-feed></main>';
@@ -220,7 +222,7 @@ test('search filters join Reddit’s existing control row and date opens its own
   assert.deepEqual([...bar.querySelectorAll('button:not([hidden])')].map(e=>e.textContent),['Date','Flair']);
   bar.querySelector('[data-rt-community-search="date"]').click();
   const menu=D.querySelector('[data-rt-ui="community-filter-menu"]');
-  assert.equal(menu.classList.contains('rt-inline-sheet'),phone);
+  assert.equal(menu.classList.contains('rt-inline-sheet'),false,'a pull-down on every width');
   assert.equal(menu.querySelector('[aria-checked=true]').textContent,'All time');
   [...menu.querySelectorAll('[role=menuitemradio]')].find(e=>e.textContent==='Past week').click();
   assert.equal(new W.URL(targets[0]).searchParams.get('t'),'week');
@@ -276,19 +278,16 @@ test('desktop community feed options uses current-value rows and drill-ins, rath
  menu.querySelector('[data-rt-sub-back]').click();
  assert.equal(menu.querySelector('[aria-label="Post type"] [data-rt-menu-value]').textContent,'2 types');
 });
-test('phone community feed options keeps the type choices on the Post type page',t=>{
+test('phones open the same Sort & filter pull-down, with Post type values one level down',t=>{
  const {D,W}=setup(t);
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
- const rows=()=>[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')];
- assert.deepEqual(rows().map(row=>row.querySelector('.rt-fsheet-label').textContent),['Post type','Flair'],'one row per option, values one level down');
- assert.equal(rows()[0].querySelector('.rt-fsheet-sub').textContent,'All types');
- assert.equal(D.querySelector('.rt-community-sheet [aria-pressed]'),null);
- rows()[0].click();
- assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-title').textContent,'Post type');
- assert.ok(D.querySelector('.rt-community-sheet .rt-fsheet-row [icon-name="image"]'));
- assert.equal(D.querySelector('.rt-community-sheet .rt-fsheet-row [icon-name="show"]'),null,'All types carries no unrelated icon');
- assert.equal(D.querySelector('[data-rt-feed-options]'),null);
+ assert.equal(D.querySelector('.rt-community-sheet'),null,'no bottom sheet');
+ assert.deepEqual(menuRows(D),['Post type','Flair'],'one row per option, values one level down');
+ const menu=D.querySelector('.rt-community-feed-menu');
+ assert.match(menu.querySelector('[aria-label="Post type"] [data-rt-menu-value]').textContent,/All/);
+ menu.querySelector('[aria-label="Post type"]').click();
+ assert.ok(menu.querySelector('[icon-name="image"]'));
 });
 const flairDirectory='<aside><a href="/r/Example/?f=flair_name%3A%22News%22"><span class="bg-tone-4 text-global-white" style="background-color:#23507f"><span class="flair-content" aria-label="Flair: News"><img class="flair-image" alt="" src="https://emoji.redditmedia.com/sample/Example/sparkle">News</span></span></a><a href="/r/Other/?f=flair_name%3A%22Other%22"><span class="flair-content">Other</span></a></aside>';
 test('desktop Flair uses the native community pill and a distinct tag icon',t=>{
@@ -309,9 +308,9 @@ test('the phone Flair page and search reuse observed community styling across na
  const {D,W,controller}=setup(t,'/r/Example/',feed()+flairDirectory);
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
- const row=[...D.querySelectorAll('.rt-fsheet-row')].find(element=>element.querySelector('.rt-fsheet-label')?.textContent==='Flair');
+ const row=D.querySelector('.rt-community-feed-menu [aria-label="Flair"]');
  assert.ok(row.querySelector('[icon-name="tag"]'));row.click();
- assert.ok(D.querySelector('.rt-community-sheet [data-rt-flair-row="News"] .flair-content'));
+ assert.ok(D.querySelector('.rt-community-feed-menu [data-rt-flair-row="News"] .flair-content'));
  controller.destroy();
  D.querySelector('aside').remove();
  D.querySelector('main').outerHTML=searchPage;
@@ -360,8 +359,8 @@ test('applied emoji-only flair keeps its native pill in the chip and menu summar
  D.querySelector('[data-rt-community-options]').click();
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
- const mobile=[...D.querySelectorAll('.rt-fsheet-row')].find(row=>row.querySelector('.rt-fsheet-label')?.textContent==='Flair');
- assert.equal(mobile.querySelectorAll('.rt-fsheet-sub img').length,3);assert.doesNotMatch(mobile.textContent,/ME1/);
+ const mobile=D.querySelector('.rt-community-feed-menu [aria-label="Flair"] [data-rt-menu-value]');
+ assert.equal(mobile.querySelectorAll('img').length,3);assert.doesNotMatch(mobile.textContent,/ME1/);
 });
 test('Media types can be selected together without hiding the native pager or clearing other filters',t=>{
  const tile=(id,html)=>'<search-telemetry-tracker view-events="search/view/post" id="'+id+'"><div data-id="search-media-post-unit">'+html+'</div></search-telemetry-tracker>';
@@ -459,12 +458,12 @@ for(const phone of [false,true])test((phone?'phone':'desktop')+' Top opens all n
  const {D,W,targets}=setup(t,'/r/Example/new/?rt_type=video&f=flair_name%3A%22News%22&feedViewType=compactView',markup);
  if(phone)W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
- const root=D.querySelector(phone?'.rt-community-sheet':'.rt-community-feed-menu');
- const row=name=>phone?[...root.querySelectorAll('.rt-fsheet-row')].find(r=>r.querySelector('.rt-fsheet-label').textContent===name):root.querySelector('[aria-label="'+name+'"]');
- row(phone?'Sort by':'Sort').click();row('Top').click();
+ const root=D.querySelector('.rt-community-feed-menu');
+ const row=name=>root.querySelector('[aria-label="'+name+'"]');
+ row('Sort').click();row('Top').click();
  assert.equal(targets.length,0,'no navigation before choosing the period');
  for(const choice of ['Now','Today','This Week','This Month','This Year','All Time'])assert.ok(row(choice),choice);
- root.querySelector(phone?'.rt-fsheet-back':'[data-rt-sub-back]').click();
+ root.querySelector('[data-rt-sub-back]').click();
  assert.ok(row('New'));assert.equal(targets.length,0);
  row('Top').click();row('This Month').click();
  assert.equal(targets.length,1);
@@ -473,45 +472,31 @@ for(const phone of [false,true])test((phone?'phone':'desktop')+' Top opens all n
  assert.equal(url.searchParams.get('rt_type'),'video');assert.equal(url.searchParams.get('f'),'flair_name:"News"');assert.equal(url.searchParams.get('feedViewType'),'compactView');
 });
 
-test('phone Feed options lists Reddit’s existing sort choices and links to the new sort without losing filters',t=>{
+test('phone Sort & filter lists the applied filters first, then Reddit’s sorts, and keeps filters on a new sort',t=>{
  const {D,W,targets}=setup(t,sortedPath,sortedFeed());
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
- const root=D.querySelector('.rt-community-sheet');
- assert.equal(root.querySelector('.rt-fsheet-row .rt-fsheet-label').textContent,'Applied filters','applied filters come first, one tap from removal');
- const sortRow=[...root.querySelectorAll('.rt-fsheet-row')].find(row=>row.querySelector('.rt-fsheet-label').textContent==='Sort by');
- assert.equal(sortRow.querySelector('.rt-fsheet-sub').textContent,'Top · This Week','the current sort and its range');
- assert.equal(sortRow.querySelector('svg').dataset.icon,'top-fill','Reddit marks the selected sort with its filled icon');
- sortRow.click();
- const top=[...root.querySelectorAll('.rt-fsheet-row')].find(row=>row.querySelector('.rt-fsheet-label').textContent==='Top');
- assert.equal(top.querySelector('.rt-fsheet-sub').textContent,'This Week');assert.ok(top.querySelector('[data-rt-sheet-icon="next"]'),'Top opens its time ranges');
- top.click();
- assert.equal(root.querySelector('.rt-fsheet-title').textContent,'Time range');
- assert.deepEqual([...root.querySelectorAll('.rt-fsheet-row')].map(row=>row.textContent.trim()),['Today','This Week']);
- root.querySelector('.rt-fsheet-back').click();
- const newSort=[...root.querySelectorAll('.rt-fsheet-row')].find(row=>row.textContent.trim()==='New');
- newSort.click();
+ const root=D.querySelector('.rt-community-feed-menu');
+ assert.equal(menuRows(D)[0],'Applied filters','applied filters come first: the phone row shows only a count');
+ assert.match(root.querySelector('[aria-label="Sort"] [data-rt-menu-value]').textContent,/Top/);
+ root.querySelector('[aria-label="Sort"]').click();
+ root.querySelector('[aria-label="New"]').click();
  const url=new W.URL(targets.at(-1));
  assert.equal(url.pathname,'/r/Example/new/');
  assert.equal(url.searchParams.get('rt_type'),'video');
  assert.equal(url.searchParams.get('f'),'flair_name:"News"');
 });
-test('phone subreddit Post type uses checked rows and supports multiple choices on the same page',async t=>{
+
+test('phone Applied filters opens the removable list as a pull-down',t=>{
  const {D,W}=setup(t,sortedPath,sortedFeed());
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
- const root=D.querySelector('.rt-community-sheet');
- const row=name=>[...root.querySelectorAll('.rt-fsheet-row')].find(r=>r.querySelector('.rt-fsheet-label').textContent===name);
- row('Post type').click();
- assert.equal(row('Videos').getAttribute('aria-pressed'),'true');
- row('GIFs').click();await new Promise(resolve=>W.setTimeout(resolve,15));
- assert.equal(row('Videos').getAttribute('aria-pressed'),'true');
- assert.equal(row('GIFs').getAttribute('aria-pressed'),'true');
- assert.match(new URL(W.location.href).searchParams.get('rt_type'),/gif/);
- root.querySelector('.rt-fsheet-back').click();
- assert.match(row('Post type').textContent,/2 types/);
+ D.querySelector('.rt-community-feed-menu [aria-label="Applied filters"]').click();
+ assert.equal(D.querySelector('.rt-community-feed-menu'),null,'the menu gives way to the list');
+ const list=D.querySelector('[data-rt-ui="applied-filters"]');
+ assert.ok(list,'pull-down list');assert.equal(D.querySelector('.rt-fsheet-root'),null,'not a sheet');
+ assert.ok(list.querySelector('.rt-filter-list-remove'));
 });
-
 test('native sort stays visible until links arrive and a replaced control is integrated once',async t=>{
  const {D,controller}=setup(t,'/r/Example/');
  const old=D.querySelector('shreddit-sort-dropdown');
@@ -590,8 +575,7 @@ test('Home, Popular, and All feeds mount Sort & filter with Sort, Post type and 
 
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
- const rows=[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent).filter(label=>label!=='Applied filters');
- assert.deepEqual(rows,['Sort by','View','Post type','Community']);
+ assert.deepEqual(menuRows(D).filter(label=>label!=='Applied filters'),['Sort','View','Post type','Community']);
 
  for(const [path,reload,links] of [
   ['/r/popular/','/svc/shreddit/community-more-posts/hot/?name=popular','<a href="/r/popular/hot/">Hot</a><a href="/r/popular/new/">New</a>'],
@@ -701,8 +685,7 @@ test('View: Reddit\'s Card/Compact switch is hidden and offered as a View row th
  assert.equal(clicked,'compact');
  W.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
  D.querySelector('[data-rt-community-options]').click();
- const rows=[...D.querySelectorAll('.rt-community-sheet .rt-fsheet-row')].map(r=>r.querySelector('.rt-fsheet-label').textContent);
- assert.deepEqual(rows,['Sort by','View','Post type','Flair']);
+ assert.deepEqual(menuRows(D),['Sort','View','Post type','Flair']);
 });
 
 test('Community filter on Home: show only or hide chosen communities, carried in the address and on sort links',async t=>{

@@ -16,11 +16,12 @@
  const glyph=(name,size=20)=>{const s=document.createElementNS(SVG,'svg');s.setAttribute('viewBox','0 0 20 20');s.setAttribute('width',String(size));s.setAttribute('height',String(size));s.setAttribute('fill','currentColor');s.setAttribute('aria-hidden','true');s.dataset.rtSheetIcon=name;const p=document.createElementNS(SVG,'path');p.setAttribute('d',PATHS[name]);s.append(p);return s;};
  let active=null,seq=0;
 
- function open({title,build,returnFocus=null,onClose=null,modal=false,className=''}){
+ // anchor: draw it as a pull-down under that button (the same menu shape as computers and chat) instead of a sheet.
+ function open({title,build,returnFocus=null,onClose=null,modal=false,className='',anchor=null}){
   close();
   const id='rt-fsheet-title-'+(++seq),root=make(modal?'dialog':'div','rt-fsheet-root'),scrim=make('div','rt-fsheet-scrim'),sheet=make('section','rt-fsheet');
   if(className)for(const cls of String(className).split(/\s+/))if(cls)root.classList.add(cls);
-  root.dataset.rtUi='feed-sheet';scrim.setAttribute('aria-hidden','true');
+  root.dataset.rtUi='feed-sheet';scrim.setAttribute('aria-hidden','true');if(anchor)root.dataset.rtAnchored='';
   const dialog=modal?root:sheet;dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-labelledby',id);
   const head=make('div','rt-fsheet-head'),back=make('button','rt-fsheet-back'),heading=make('h2','rt-fsheet-title'),closer=make('button','rt-fsheet-close'),body=make('div','rt-fsheet-body');
   heading.id=id;back.type='button';back.setAttribute('aria-label','Back');back.append(glyph('back'));closer.type='button';closer.setAttribute('aria-label','Close');closer.append(glyph('close'));
@@ -111,13 +112,22 @@
   scrim.addEventListener('click',event=>{event.preventDefault();if(performance.now()-openedAt<350)return;close();});
   if(modal)root.addEventListener('cancel',event=>{event.preventDefault();close();});
   const onKey=event=>{if(event.key!=='Escape')return;event.preventDefault();event.stopPropagation();if(pages.length>1)ui.pop();else close();};
-  const onMedia=()=>{if(!globalThis.matchMedia?.('(max-width: 767.98px)')?.matches)close();};
+  const place=()=>{
+   if(!anchor?.isConnected)return;
+   const box=anchor.getBoundingClientRect(),vw=document.documentElement.clientWidth || innerWidth,vh=document.documentElement.clientHeight || innerHeight;
+   const width=Math.min(360,vw-16),below=vh-box.bottom-16,above=box.top-16,flip=below<240 && above>below;
+   sheet.style.width=width+'px';sheet.style.left=Math.max(8,Math.min(box.left,vw-width-8))+'px';
+   sheet.style.maxHeight=Math.max(160,Math.min(480,flip?above:below))+'px';
+   sheet.style.top=flip?'auto':Math.round(box.bottom+8)+'px';sheet.style.bottom=flip?Math.round(vh-box.top+8)+'px':'auto';
+  };
+  if(anchor){addEventListener('resize',place);addEventListener('scroll',place,{passive:true});}
+  const onMedia=()=>{if(!anchor && !globalThis.matchMedia?.('(max-width: 767.98px)')?.matches)close();};
   const media=globalThis.matchMedia?.('(max-width: 767.98px)');media?.addEventListener?.('change',onMedia);
   document.addEventListener('keydown',onKey,true);
-  state.closeFn=()=>{giveBack();document.removeEventListener('keydown',onKey,true);media?.removeEventListener?.('change',onMedia);if(modal)root.close?.();root.remove();};
+  state.closeFn=()=>{giveBack();document.removeEventListener('keydown',onKey,true);media?.removeEventListener?.('change',onMedia);if(anchor){removeEventListener('resize',place);removeEventListener('scroll',place);}if(modal)root.close?.();root.remove();};
   active=state;document.body.append(root);
   if(modal){if(root.showModal)root.showModal();else root.setAttribute('open','');root.scrollTop=0;}
-  render();
+  render();place();
   if(active===state){void root.offsetHeight;root.dataset.open='true';closer.focus({preventScroll:true});}
   return {close,refresh:ui.refresh,root};
  }
