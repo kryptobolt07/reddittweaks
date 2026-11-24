@@ -163,6 +163,11 @@ def package(root, target='chromium'):
     print(f'Packaged {output} ({output.stat().st_size:,} bytes)')
     if target == 'firefox':
         shutil.copy2(output, output.with_name(output.stem + '-unsigned.xpi'))
+        # Firefox Add-ons does not take the listing icon from the manifest: it is uploaded on the add-on's page
+        # (square PNG or JPEG, stored at 32, 64 and 128 px). Ship the 512 px master export ready for that.
+        listing = root / 'scripts' / 'assets' / 'extension-icon-512.png'
+        if listing.is_file():
+            shutil.copy2(listing, output.parent / 'reddit-tweaks-firefox-listing-icon.png')
         build_zip(firefox_source_files(extension, manifest), output.with_name(f'reddit-tweaks-firefox-source-v{manifest["version"]}.zip'))
     else:
         shutil.copy2(output, output.parent / 'reddit-tweaks.zip')

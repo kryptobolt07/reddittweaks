@@ -64,6 +64,7 @@ jobs:
             artifacts/reddit-tweaks-firefox-source-v${{ steps.verify.outputs.version }}.zip
             artifacts/reddit-tweaks-firefox-source-v${{ steps.verify.outputs.version }}.zip.sha256
             artifacts/firefox-lint.log
+            artifacts/reddit-tweaks-firefox-listing-icon.png
             artifacts/release-notes.md
           if-no-files-found: error
           retention-days: 14

@@ -12,6 +12,7 @@ with Image.open(assets / 'extension-icon.png') as source:
     master = source.convert('RGBA')
     if master.width != master.height:
         raise ValueError('The approved icon master must be square')
-    for size in (16, 32, 48, 96, 128, 256, 512):
+    # 64 is one of the three sizes Firefox Add-ons stores for its listing icon (32, 64 and 128).
+    for size in (16, 32, 48, 64, 96, 128, 256, 512):
         output = icons / f'{size}.png' if size <= 128 else assets / f'extension-icon-{size}.png'
         master.resize((size, size), Image.Resampling.LANCZOS).save(output, optimize=True)
