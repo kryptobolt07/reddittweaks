@@ -183,6 +183,7 @@
   }catch{}
   return id;
  }
+ const dropPreStill=root=>{root?.querySelector('[data-rt-pre-still]')?.remove();root?.querySelector('[data-rt-pre-mark]')?.remove();};
  const kinds=['video','gif','embed'];
  const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':node?.matches?.('[gif],[post-type="gif"],[data-media-type="gif"]') || node?.closest?.('shreddit-post[post-type="gif"]')?'gif':'video';
  const viewMode=(mode,touch)=>mode==='autoplay' || (touch && mode==='preview');
@@ -307,6 +308,7 @@
      this.directScrollFrame=this.win.requestAnimationFrame(()=>{this.directScrollFrame=0;if(!this.dead)this.applyDirectEmbed(true);});
    };
    this.onRemember=event=>this.remember(event);
+   this.onVisualContinue=event=>this.continueFromVisual(event.detail);
    this.onEmbedLink=event=>{
     const path=event.composedPath(),embed=path.find(node=>node.matches?.(ANY_EMBED)),link=path.find(node=>node.matches?.('a[href]'));
     if(!embed || !link || !this.blockEmbedLinks(!this.isDetailEmbed(embed)))return;
@@ -454,6 +456,7 @@
    doc.addEventListener('click',this.onRemember,true);
    for(const type of ['click','auxclick'])doc.addEventListener(type,this.onEmbedLink,true);
    doc.addEventListener('reddit:route',this.onRoute);
+   doc.addEventListener('rt-visual-continue',this.onVisualContinue);
    doc.addEventListener('rt-embed-playing',this.onEmbedPlaying);
    doc.addEventListener('rt-mini-dismissed',this.onMiniDismissed);
    win.addEventListener('blur',this.onFrameFocus);
@@ -500,6 +503,7 @@
    doc.removeEventListener('click',this.onRemember,true);
    for(const type of ['click','auxclick'])doc.removeEventListener(type,this.onEmbedLink,true);
    doc.removeEventListener('reddit:route',this.onRoute);
+   doc.removeEventListener('rt-visual-continue',this.onVisualContinue);
    doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);
    doc.removeEventListener('rt-mini-dismissed',this.onMiniDismissed);
    win.removeEventListener('blur',this.onFrameFocus);
@@ -1251,7 +1255,7 @@
   }
   cover(embed,loaded,keep=false){
    const root=embed.shadowRoot;if(!root)return;
-   root.querySelector('[data-rt-pre-still]')?.remove();
+   dropPreStill(root);
    const old=root.querySelector('[data-rt-parked-cover]');if(old){if(!loaded)delete old.dataset.rtLoaded;if(keep)old.dataset.rtKeepCover='';return;}
    if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
    const cover=this.doc.createElement('div');cover.dataset.rtParkedCover='';cover.setAttribute('role','button');cover.setAttribute('aria-label','Play');cover.tabIndex=0;
@@ -1271,7 +1275,7 @@
    root.append(cover);
    this.paintPoster(embed);
   }
-  uncover(embed){embed.shadowRoot?.querySelector('[data-rt-parked-cover]')?.remove();embed.shadowRoot?.querySelector('[data-rt-pre-still]')?.remove();}
+  uncover(embed){embed.shadowRoot?.querySelector('[data-rt-parked-cover]')?.remove();dropPreStill(embed.shadowRoot);}
   // A tap on the image plays that player, respecting clickAudio/fullscreen when configured.
   playCovered(embed){
    if(this.ePreview?.embed!==embed)this.stopEmbed();
@@ -1404,21 +1408,27 @@
   preStill(embed,found){
    const root=embed.shadowRoot,id=embed.closest('shreddit-post')?.id;if(!root || !id)return;
    // A poster batch that lands after embed overrides were turned off must not cover a player nothing manages now.
-   if(!this.active || this.startMode('embed')==='default'){root.querySelector('[data-rt-pre-still]')?.remove();return;}
+   if(!this.active || this.startMode('embed')==='default'){dropPreStill(root);return;}
    const frame=controlFrame(embed);
    const waiting=frame?.dataset.rtWaiting==='1';
    const idle=!vimeoLite(embed) && !frame && !embed.dataset.rtEmbedPreview && !embed.dataset.rtEmbedUsed;
    const wanted=found && !youTubeLite(embed) && !root.querySelector('[data-rt-parked-cover]') &&
     (waiting || idle) && this.stillWanted(embed);
    let still=root.querySelector('[data-rt-pre-still]');
-   if(!wanted){still?.remove();return;}
+   if(!wanted){dropPreStill(root);return;}
    if(!still){
     if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
     still=this.doc.createElement('img');still.dataset.rtPreStill='';still.alt='';still.referrerPolicy='no-referrer';still.decoding='async';
     Object.assign(still.style,{position:'absolute',inset:'0',width:'100%',height:'100%',objectFit:'cover',backgroundColor:'var(--color-neutral-background-weak,#f6f8f9)',zIndex:'3',pointerEvents:'none'});
-    root.append(still);
+    // The same play mark as Visual search tiles, shown as soon as the still has drawn: it is a video, not a picture.
+    const mark=this.doc.createElement('span');mark.dataset.rtPreMark='';mark.hidden=true;mark.setAttribute('aria-hidden','true');
+    Object.assign(mark.style,{position:'absolute',top:'8px',insetInlineEnd:'8px',zIndex:'3',minWidth:'24px',height:'24px',padding:'0 6px',boxSizing:'border-box',borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'});
+    mark.innerHTML='<svg viewBox="0 0 20 20" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M6.8 4.4a.8.8 0 0 1 1.22-.68l7.6 4.6a.8.8 0 0 1 0 1.36l-7.6 4.6A.8.8 0 0 1 6.8 13.6V4.4Z"/></svg>';
+    still.addEventListener('load',()=>{mark.hidden=false;});
+    still.addEventListener('error',()=>{mark.hidden=true;});
+    root.append(still,mark);
    }
-   if(still.getAttribute('src')!==found)still.src=found;
+   if(still.getAttribute('src')!==found){still.src=found;const mark=root.querySelector('[data-rt-pre-mark]');if(mark)mark.hidden=!(still.complete && still.naturalWidth);}
   }
   // A player Reddit inserts keeps the still over it until it has loaded and had a moment to draw.
   awaitDraw(frame){
@@ -1912,6 +1922,20 @@
    const id=postId(url.pathname);
    if(url.origin!==this.win.location.origin || !id || postId(this.win.location.pathname)===id)return;
    this.resultOpen={id,at:Date.now()};
+  }
+  // Visual search hands over its clip's moment (the same media as the post's video) when a result opens its post:
+  // Seamless post transition then continues the post's own video from there, as from a feed preview.
+  continueFromVisual(detail){
+   if(!this.configured || !this.continueOnOpen || !detail)return;
+   const id=String(detail.id || '').toLowerCase(),time=Number(detail.time);
+   if(!/^[a-z0-9]{1,10}$/.test(id) || !Number.isFinite(time) || time<0)return;
+   const muted=detail.source==='viewer'?detail.muted!==false:detail.source==='title'?
+    (this.cardClickAudio==='unmute'?false:true):!this.unmutePreview;
+   this.clearHandoff();
+   const saved={id,owner:owner(this.doc),at:Date.now(),time:this.restartPreview?0:time,muted,volume:this.volumeMemory && this.savedVolume?.volume>0?this.savedVolume.volume:0.5,rate:1};
+   this.pending={saved,from:this.win.location.pathname,reached:false};
+   this.saveHandoff();
+   this.expiry=this.win.setTimeout(()=>this.clearHandoff(),CONTINUE_MS);
   }
   // Called on the route change: the post Reddit has just opened is the result that was clicked.
   adoptResultOpen(){

@@ -1182,10 +1182,13 @@ test('a card shows its still while Reddit has not inserted its player, and until
  const c=await hoverController(p,{embedStart:'autoplay'});c.scan();await flush();
  const pre=()=>node.shadowRoot.querySelector('[data-rt-pre-still]');
  assert.equal(pre()?.getAttribute('src'),image,'the still, not a black box');assert.equal(pre().referrerPolicy,'no-referrer');
+ const mark=()=>node.shadowRoot.querySelector('[data-rt-pre-mark]');
+ assert.equal(mark()?.hidden,true,'no play mark before the still has drawn');
+ pre().dispatchEvent(new p.W.Event('load'));assert.equal(mark().hidden,false,'the play mark appears with the still');
  const frame=p.d.createElement('iframe');frame.setAttribute('src',embedly);node.shadowRoot.append(frame);await flush();
  assert.ok(pre(),'kept while the player loads');
  frame.dispatchEvent(new p.W.Event('load'));await new Promise(resolve=>setTimeout(resolve,450));
- assert.equal(pre(),null,'gone once the player has drawn');
+ assert.equal(pre(),null,'gone once the player has drawn');assert.equal(mark(),null,'its mark goes with it');
 });
 
 test('an in-place muted click unlocks Reddit’s controls and keeps the preview position with opening sound on',async t=>{
@@ -2186,5 +2189,20 @@ test('Post opened directly also covers a post opened from a search result tile',
   control.scan();p.redditAutoplay(false);
   assert.equal(control.landing,fromResult?'test':'');
   assert.equal(p.video.muted,expectMuted,fromResult?'the result post follows Play muted':'other in-app opens keep Reddit’s start');
+ }
+});
+
+test('a Visual search clip hands its moment to the opened post under Seamless post transition',async t=>{
+ for(const [videoOpenPost,source,expectTime,expectMuted] of [['position','media',7,true],['start','media',0,true],['position','viewer',9,false],['default','media',null,null]]){
+  const p=page(t,{detail:true});
+  p.W.history.replaceState({},'','/search/?q=ice+cream&type=media&rt_visual=1');
+  p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;this.dispatchEvent(new p.W.Event('play'));return Promise.resolve();};
+  Object.defineProperty(p.video,'readyState',{value:1,configurable:true});
+  const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoOpenPost,clickAudio:'muted'}),readPreference:async()=>false,observe:false});
+  await c.ready;await flush();
+  p.d.dispatchEvent(new p.W.CustomEvent('rt-visual-continue',{detail:{id:'test',time:source==='viewer'?9:7,source,muted:source!=='viewer'}}));
+  p.W.history.pushState({},'',postPath);p.d.dispatchEvent(new p.W.Event('reddit:route'));await flush();c.scan();await flush();
+  if(expectTime===null){assert.ok(!c.pending,'Reddit Default keeps Reddit’s own start');continue;}
+  assert.equal(p.video.paused,false,videoOpenPost+'/'+source);assert.equal(p.video.currentTime,expectTime);assert.equal(p.video.muted,expectMuted);
  }
 });
