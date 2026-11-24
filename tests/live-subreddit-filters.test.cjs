@@ -742,7 +742,8 @@ test('Awaiting approval: a Post type option in communities run by RTUnapprovedFi
  D.querySelector('[data-rt-community-options]').click();
  D.querySelector('.rt-community-feed-menu [aria-label="Post type"]').click();
  const row=D.querySelector('.rt-community-feed-menu [data-rt-awaiting]');assert.ok(row);
- assert.match(row.textContent,/Held for review, from Arctic Shift/);
+ assert.equal(row.textContent.trim(),'Awaiting approval','no long description that widens the menu');
+ assert.match(row.title,/Held for review, from Arctic Shift/,'the source is in the tooltip');
  row.click();await flush();
  assert.deepEqual(calls,[true]);
  const pill=D.querySelector('[data-rt-chip="awaiting"]');assert.ok(pill,'an applied pill');
@@ -753,7 +754,7 @@ test('Awaiting approval: a Post type option in communities run by RTUnapprovedFi
  off.W.RTUnapprovedFilter={useMenu(){},active:()=>false,availability:async()=>({available:false,source:'archive',reason:'archive-off'}),setActive:async()=>{throw Error('must not run');},onChange:()=>()=>{}};
  off.D.dispatchEvent(new off.W.Event('rt-unapproved-ready'));await flush();
  off.D.querySelector('[data-rt-community-options]').click();off.D.querySelector('.rt-community-feed-menu [aria-label="Post type"]').click();
- const dim=off.D.querySelector('[data-rt-awaiting]');assert.equal(dim.getAttribute('aria-disabled'),'true');assert.match(dim.textContent,/Needs Use the archive/);dim.click();
+ const dim=off.D.querySelector('[data-rt-awaiting]');assert.equal(dim.getAttribute('aria-disabled'),'true');assert.match(dim.textContent,/Needs archive/);assert.match(dim.title,/Needs Use the archive/);dim.click();
  // Home has no Awaiting approval.
  const home=setup(t,'/',homeFeed());assert.equal(home.D.documentElement.hasAttribute('data-rt-unapproved-menu'),false);
 });

@@ -138,7 +138,7 @@ test('non-moderators see held posts from Arctic Shift checked against Reddit, wi
  assert.equal(s.W.location.search,'?rt_mod=unapproved');assert.equal(s.feed().hasAttribute('data-rt-unapproved-hidden'),true);assert.equal(s.list().dataset.rtUnapprovedSource,'archive');
  assert.deepEqual(s.ids(),['a1','a4']);
  assert.equal(s.summary().textContent,'2 posts held for review in r/Alpha in the last 7 days');
- assert.equal(s.note().textContent,'Held for review and not yet approved (from Arctic Shift, last 7 days)');assert.equal(s.summary().nextElementSibling,s.note());
+ assert.equal(s.note().textContent,'From Arctic Shift · last 7 days');assert.equal(s.summary().nextElementSibling,s.note());
  assert.equal(s.list().querySelector('[data-testid="post-title-text"]').textContent,'Live a1','rows use Reddit’s current copy');
  assert.deepEqual(s.archiveCalls[0],{action:'archive-search',kind:'post',subreddit:'Alpha',sort:'desc',after:CUTOFF});
  assert.equal(s.list().querySelector('.rt-unapproved-more').hidden,true);
@@ -240,5 +240,5 @@ test('when Reddit refuses the status check, Arctic Shift’s recorded state is l
  assert.equal(await s.api.setActive(true),true);await flush();
  assert.deepEqual(s.ids(),['b1','b3']);
  assert.equal(reads,1,'one refusal stops further status reads');
- assert.match(s.summary().textContent,/^2 posts held for review in r\/Alpha · as recorded when posted; Reddit doesn’t share current status/);
+ assert.match(s.summary().textContent,/^2 posts held for review in r\/Alpha · status when posted/);
 });

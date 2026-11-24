@@ -78,7 +78,7 @@ Browsing & Feed: **Sort & filter on feeds**, "Replaces Reddit's sort and view me
 
 - **Moderators:** unchanged (`/r/<sub>/about/unmoderated.json`, exact).
 - **Everyone else:** the newest posts in the community from Arctic Shift (`/api/posts/search?subreddit=<sub>&limit=100&sort=desc`, up to three pages, last 7 days). Then Reddit's current state for those IDs, from the page world with the user's session (`/api/info.json?id=t3_…`, 100 per request). A post counts as awaiting approval when Reddit's `removed_by_category` is `automod_filtered` or `reddit` (held by AutoModerator or Reddit's filters and not yet approved). Approved posts have no category; moderator removals read `moderator` and are excluded.
-- Shown as **Post type → Awaiting approval** in any community, with a one-line source note: "Held for review and not yet approved (from Arctic Shift, last 7 days)" or "From your mod queue". It needs **Use the archive** for non-moderators; without it the row is dimmed with "Needs Use the archive", and activating it jumps to that switch.
+- Shown as **Post type → Awaiting approval** in any community, with a short source line, "From Arctic Shift · last 7 days" (the menu row itself carries no description, only a tooltip; 2026-11-24) or "From your mod queue". It needs **Use the archive** for non-moderators; without it the row is dimmed with "Needs Use the archive", and activating it jumps to that switch.
 - Limits: Arctic Shift can miss posts it hasn't ingested yet (minutes) and posts removed before ingestion. Reddit's spam filter (`reddit`) also catches posts no moderator will ever review. The list says "Held for review", never "complete".
 
 ## 11. Media first load
@@ -105,6 +105,10 @@ Already in place for direct frames (`docs/video-control-spec.md`, M1–M8). The 
 Remaining gaps:
 - Done in 0.62.0: every embed provider (YouTube included) is a direct host under the same Grant access, checked host by host so existing grants keep working (`docs/video-control-spec.md`, Direct embed controls for every provider).
 - Done: the grant is re-read on `settings-changed` and when the tab shows again.
+
+## 13. Phones keep the bottom sheet (2026-11-24)
+
+A pull-down on phones was tried in 0.63.0 and reverted at the user's request: on phones, Sort & filter (communities, Home, profiles, the archive) and search filter menus open as the bottom sheet, like the other phone sheets (accounts, Applied filters, the date picker).
 
 ## Verification
 

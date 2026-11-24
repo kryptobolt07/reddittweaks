@@ -14,7 +14,7 @@
   const AWAITING=new Set(['automod_filtered','reddit']);
   const awaitingCategory=category=>typeof category==='string' && AWAITING.has(category);
   const hiddenAttr='data-rt-unapproved-hidden',MENU_ATTR='data-rt-unapproved-menu';
-  const NOTES=Object.freeze({modqueue:'From your mod queue',archive:'Held for review and not yet approved (from Arctic Shift, last 7 days)'});
+  const NOTES=Object.freeze({modqueue:'From your mod queue',archive:'From Arctic Shift · last 7 days'});
   const feedRoute=(path=location.pathname)=>path.match(/^\/r\/([A-Za-z0-9_]{2,21})(?:\/(?:hot|new|top|rising|best))?\/?$/i)?.[1] || null;
   const requested=()=>new URLSearchParams(location.search).get(PARAM)===VALUE;
   // Reddit's custom elements reject createElement once defined; parse them instead (contract F7).
@@ -239,7 +239,7 @@
       if(view.error)return (count?'Showing '+label+' held for review'+where+' · ':'')+'Couldn’t check posts awaiting approval: '+view.error+'.';
       if(view.loading)return count?'Showing '+label+' held for review'+where+' · Checking…':'Checking recent posts'+where+'…';
       const notes=[];
-      if(view.recorded)notes.push('as recorded when posted; Reddit doesn’t share current status, so a moderator may have approved some since');
+      if(view.recorded)notes.push('status when posted');
       if(view.partial==='cap')notes.push('only the newest '+ARCHIVE_PAGES*100+' posts were checked; older posts from the last 7 days weren’t');
       if(view.partial==='stalled')notes.push('the archive listing stopped early; older posts weren’t checked');
       if(view.unchecked)notes.push(view.unchecked.toLocaleString('en-US')+' '+(view.unchecked===1?'post':'posts')+' couldn’t be checked with Reddit');

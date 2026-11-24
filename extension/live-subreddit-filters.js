@@ -1699,8 +1699,9 @@
             const row = filters.menuOption(toggle,{label:'Awaiting approval',icon:'activity',subtitle:'',checked:awaiting.active,slot:true,value:'awaiting',
               onSelect:() => { if (awaiting.disabled) return; menu.close(false); awaiting.toggle(); }});
             row.dataset.rtAwaiting = '';
-            const note = make('span','rt-awaiting-note text-12 text-neutral-content-weak',awaiting.note);
-            row.firstElementChild.firstElementChild?.append(note);
+            // The source goes in the tooltip; only an unavailable option says why, in two words.
+            row.title = awaiting.note;
+            if (awaiting.disabled) row.firstElementChild.firstElementChild?.append(make('span','rt-awaiting-note text-12 text-neutral-content-weak','Needs archive'));
             if (awaiting.disabled) { row.setAttribute('aria-disabled','true'); row.classList.add('rt-awaiting-disabled'); }
             list.append(row);
           }
@@ -1874,7 +1875,7 @@
           const awaiting = this.awaitingOption();
           if (awaiting) {
             page.title?.('Moderation');
-            page.row({label:'Awaiting approval',subtitle:awaiting.note,icon:filters.svgIcon('activity',20),selected:awaiting.active,toggle:true,keepOpen:false,
+            page.row({label:'Awaiting approval',subtitle:awaiting.disabled ? 'Needs archive' : '',icon:filters.svgIcon('activity',20),selected:awaiting.active,toggle:true,keepOpen:false,
               onSelect:() => { if (!awaiting.disabled) awaiting.toggle(); }});
           }
         }}); return {stay:true}; },

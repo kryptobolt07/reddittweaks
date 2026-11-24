@@ -932,3 +932,9 @@ html[data-rt-community-sort-boot] main :is(shreddit-sort-dropdown:is([sort-event
 /* Awaiting approval row in Post type (docs/feed-controls-ux-plan.md, 10): its source on a second line. */
 [data-rt-awaiting] .rt-awaiting-note{display:block;margin-top:2px;white-space:normal}
 [data-rt-awaiting].rt-awaiting-disabled{opacity:.55;cursor:default}
+
+/* Menus never scroll sideways: long labels end in an ellipsis inside the menu's width. */
+.rt-community-feed-menu .rt-community-menu-body{overflow-x:hidden}
+.rt-community-feed-menu [role^="menuitem"]{min-width:0;max-width:100%}
+.rt-community-feed-menu [role^="menuitem"] .rt-menu-caption,.rt-community-feed-menu [role^="menuitem"]>*{min-width:0}
+.rt-awaiting-note{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
