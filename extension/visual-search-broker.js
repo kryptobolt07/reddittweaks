@@ -665,6 +665,13 @@
     }
   }
 
+  async function hostAccess() {
+    const perms = api()?.permissions;
+    if (!perms?.contains) return true;
+    try { return await perms.contains({ origins: ['https://infini.wtf/*', 'https://video.infini.wtf/*'] }); }
+    catch { return true; }
+  }
+
   async function handle(message, sender) {
     if (!senderAuthorized(sender)) return fail('Visual search must start from a Reddit page.', 'forbidden');
     if (message?.action === 'clear-cache') {
@@ -674,6 +681,10 @@
     if (!await featureEnabled()) {
       clearCache();
       return fail('Enable Visual search in Reddit Tweaks settings.', 'disabled');
+    }
+    // Site access can be withheld after install (Chrome site access, Firefox optional host permissions).
+    if (message?.action !== 'download' && !await hostAccess()) {
+      return fail('Reddit Tweaks can’t reach infini.wtf. Open the extension popup, turn Visual search off and on, and choose Allow.', 'permission-required');
     }
     switch (message?.action) {
       case 'query': return runQuery(message);

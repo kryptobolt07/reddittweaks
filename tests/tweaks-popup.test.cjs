@@ -399,7 +399,7 @@ test('Home: Raffles explains where to find them and can be turned on in place',a
 
 test('accurate counters: active booleans + overridden selectors, excluding historyLimit, clickAudio, actions, and hidden device cards',async t=>{
   const p=popup(t,{tabs:redditTab,touch:false});await settle();const doc=p.w.document;
-  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 31 active','desktop fresh count excludes Mobile Web card, includes blockedProfiles and chatSearch');
+  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 32 active','desktop fresh count excludes Mobile Web card, includes blockedProfiles and chatSearch');
   doc.getElementById('manage-features').click();assert.equal(doc.getElementById('panel-settings').hidden,false);
   const count=id=>doc.querySelector('[aria-labelledby="'+id+'"] .group-count').textContent;
   assert.equal(count('browsing-heading'),'3 of 4 on');
@@ -408,13 +408,13 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   assert.equal(count('tools-heading'),'3 of 3 on');
   assert.equal(count('removal-settings-heading'),'0 of 2 on');
   assert.equal(count('archive-heading'),'0 of 4 on');
-  assert.equal(count('visual-search-heading'),'0 of 2 on');
+  assert.equal(count('visual-search-heading'),'0 of 3 on');
 
   // Numeric History length dropdown does NOT change Browsing & Feed or Home counts.
   doc.getElementById('history-limit').click();
   doc.querySelector('#history-limit-menu [data-value="500"]').click();await settle();
   assert.equal(count('browsing-heading'),'3 of 4 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 31 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 32 active');
 
   // Overriding mediaClickAction counts (+1) and reveals clickAudio; changing clickAudio does NOT add to counts.
   const clickAudioRow=doc.getElementById('click-audio').closest('.setting-row');
@@ -423,7 +423,7 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   doc.querySelector('#media-click-action-menu [data-value="inline"]').click();await settle();
   assert.equal(clickAudioRow.hidden,false);
   assert.equal(count('videos-heading'),'1 of 13 active');
-  assert.equal(doc.getElementById('feature-summary').textContent,'9 of 31 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'9 of 32 active');
   assert.equal(doc.getElementById('reset-video-defaults').hidden,false);
   doc.getElementById('click-audio').click();
   doc.querySelector('#click-audio-menu [data-value="unmute"]').click();await settle();
@@ -448,11 +448,11 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   // Enabling Archive turns on Archive + already-checked restoreDeletedContent (+2).
   const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(count('archive-heading'),'2 of 4 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'11 of 31 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'11 of 32 active');
 
   // Touch device counts Mobile Web card (+1 of +8: two switches and six navigation bar choices at their defaults).
   const mob=popup(t,{tabs:redditTab,touch:true});await settle();
-  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'9 of 39 active');
+  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'9 of 40 active');
   assert.equal(mob.w.document.querySelector('[aria-labelledby="mobile-heading"] .group-count').textContent,'1 of 8 on');
 });
 
@@ -607,12 +607,12 @@ test('a grant made before the other embed providers were added stays on, and Gra
   assert.ok(access.registered[0].matches.includes('https://www.youtube.com/embed/*'));
 });
 
-test('Visual Search defaults off and persists directly on opt-in toggle without extra permission prompts',async t=>{
-  let permRequests=0;
+test('Visual Search defaults off, asks for infini.wtf access when turned on, and stays off if refused',async t=>{
+  let permRequests=0,grant=true,asked=null;
   const permsApi={
     permissions:{
       async contains(){return true;},
-      async request(){permRequests++;return true;},
+      async request(arg){permRequests++;asked=arg;return grant;},
       async remove(){}
     },
     scripting:{async getRegisteredContentScripts(){return [];},async registerContentScripts(){},async unregisterContentScripts(){}}
@@ -623,23 +623,31 @@ test('Visual Search defaults off and persists directly on opt-in toggle without 
   const toggle=doc.getElementById('visual-search');
   const postMenu=doc.getElementById('visual-search-post-menu');
   const postMenuRow=postMenu.closest('.setting-row');
+  const clickRow=doc.getElementById('visual-click').closest('.setting-row');
 
   assert.equal(toggle.checked,false);
   assert.equal(postMenuRow.hidden,true);
+  assert.equal(clickRow.hidden,true);
   assert.equal(postMenu.getAttribute('aria-disabled'),'true');
-  assert.equal(doc.getElementById('visual-search-revoke'),null);
-  assert.equal(doc.getElementById('visual-search-perm-status'),null);
+  assert.ok(doc.getElementById('visual-search-desc').textContent.length<130,'a short description');
 
   toggle.checked=true;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
-  assert.equal(permRequests,0,'toggling visualSearch requires no runtime optional-permission prompt');
+  assert.equal(permRequests,1,'turning it on asks for access (the browser prompts only when it is missing)');
+  assert.deepEqual([...asked.origins],['https://infini.wtf/*','https://video.infini.wtf/*']);
   assert.equal(toggle.checked,true);
   assert.equal(p.state['rt-settings-v1'].visualSearch,true);
   assert.equal(postMenuRow.hidden,false);
-  assert.equal(doc.querySelector('[aria-labelledby="visual-search-heading"] .group-count').textContent,'2 of 2 on');
+  assert.equal(clickRow.hidden,false);
+  assert.equal(doc.querySelector('[aria-labelledby="visual-search-heading"] .group-count').textContent,'2 of 3 on');
 
   toggle.checked=false;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
-  assert.equal(toggle.checked,false);
+  assert.equal(permRequests,1,'turning it off asks nothing');
   assert.equal(p.state['rt-settings-v1'].visualSearch,false);
   assert.equal(postMenuRow.hidden,true);
-  assert.equal(doc.querySelector('[aria-labelledby="visual-search-heading"] .group-count').textContent,'0 of 2 on');
+
+  grant=false;
+  toggle.checked=true;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
+  assert.equal(toggle.checked,false,'refused access leaves it off');
+  assert.equal(p.state['rt-settings-v1'].visualSearch,false);
+  assert.match(doc.getElementById('settings-status').textContent,/infini\.wtf/);
 });

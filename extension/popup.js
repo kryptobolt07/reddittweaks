@@ -8,7 +8,7 @@ const FALLBACK_VIDEO_DEFAULTS={
 };
 const FALLBACK_SETTINGS_DEFAULTS={
   postDiscovery:true,feedControls:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,
-  subredditArchive:false,subredditArchiveAutomatic:false,visualSearch:false,visualSearchPostMenu:true,cleanShareLinks:false,
+  subredditArchive:false,subredditArchiveAutomatic:false,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',cleanShareLinks:false,
   modUnapprovedFilter:true,raffles:true,downloadMedia:true,
   ownRemoval:false,removalNotifications:false,historyLimit:20,
   smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,
@@ -28,6 +28,7 @@ function fallbackNormalizeSettings(raw){
     subredditArchiveAutomatic:raw?.subredditArchiveAutomatic===true,
     visualSearch:raw?.visualSearch===true,
     visualSearchPostMenu:raw?.visualSearchPostMenu!==false,
+    visualClick:pick('visualClick',['post','viewer','inline'],'post'),
     cleanShareLinks:raw?.cleanShareLinks===true,
     modUnapprovedFilter:raw?.modUnapprovedFilter!==false,
     raffles:raw?.raffles!==false,
@@ -260,8 +261,25 @@ async function loadSettings(){
   syncDependencies();syncSummary();settled();
 }
 
+// Visual search talks to infini.wtf. Site access can be withheld (Chrome site access, Firefox optional host
+// permissions), so turning it on asks for it; the prompt only appears when access is missing.
+const VISUAL_ORIGINS=['https://infini.wtf/*','https://video.infini.wtf/*'];
 function saveSetting(control){
   const key=control.dataset.setting,next=control.checked;
+  const perms=(globalThis.browser || globalThis.chrome)?.permissions;
+  if(key==='visualSearch' && next && perms?.request){
+    let ask;
+    // Called inside the click: browsers show the prompt only for a user gesture.
+    try{ask=perms.request({origins:VISUAL_ORIGINS});}catch{ask=Promise.resolve(true);}
+    return Promise.resolve(ask).then(granted=>{
+      if(granted!==false)return writeSetting(control,key,next);
+      control.checked=false;syncDependencies();syncSummary();settled();
+      setStatus('Visual search needs access to infini.wtf. Turn it on again and choose Allow.',{error:true});
+    },()=>writeSetting(control,key,next));
+  }
+  return writeSetting(control,key,next);
+}
+function writeSetting(control,key,next){
   syncDependencies();syncSummary();settled();
   control.disabled=true;setStatus('Saving…');
   settingsWrite=settingsWrite.catch(()=>{}).then(async()=>{

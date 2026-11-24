@@ -118,3 +118,35 @@ User report: the tile overlay ("▶ VIDEO" and a "Similar" text button) was mess
 | C8 | Image search entry | Chip *Search with image* (*Change image* during an image search). Popover *Search with an image*: drop zone, Upload a file, Paste image (⌘V / Ctrl+V hint), Browse popular, and a note that images are resized and stripped of metadata. Phone sheet: Choose a photo, Paste copied image, Browse popular. The image-search banner reads *Your image* with *Remove image* (back to the words searched for, or popular) |
 
 Verification: `tests/visual-search-ui.test.cjs` (placeholder markup, icon-only badges and buttons, quiet load-more, `q` kept, hover/stop-on/autoplay/Play-only previews with one fetch per clip, the ⋯ sheet, community colours) and `tests/community-icons.test.cjs` (marked icon, glyph, colour). Live desktop and phone: `artifacts/research/verify/visual-search/after.mjs` (values above). Not verified live: uploads (no image was sent to infini.wtf), Firefox, and the phone tab row (at 412 px Reddit scrolls a fifth selected tab into view, so **All** slides under the left arrow, as it does for Comments).
+
+## Second pass: streaming, viewer, hand-off and phones (2026-11-24)
+
+User report: hover previews failed on some results (r/LivestreamFail clips for *hi*); no seamless carry-over into full screen or the post, and the toggles weren't followed; timeouts weren't handled; Android had no clear playback policy, and the full-screen overlay stayed open after *Open Reddit post*; the full-screen viewer looked basic and was hidden in the ⋯ menu on Android; the image-search button should be just a mark (better designed), and it was missing from the phone Home search bar; requests for an embedded-media filter and a click-behaviour option; a play mark on Reddit's own embed thumbnails; the permission prompt didn't always appear and the description was too tall.
+
+### Findings
+
+- The failing clips parsed fine (10/10 tiles of *hi* · Videos page 2 had video URLs) but were 9.5–13 MB. Each preview downloaded the whole MP4 in the worker, then base64 over messaging (~ +33 %), before the first frame, and anything over 16 MB failed. Reddit's `media-src` blocks `video.infini.wtf`, but `frame-src` rules don't apply to the extension's own web-accessible page.
+- infini.wtf only indexes Reddit-hosted media (`i.redd.it`, `v.redd.it`, galleries; checked against Arctic Shift post data for *trailer*, *twitch clip* and *youtube*). There are no YouTube/Twitch embeds to filter, so Visual gets no *Embedded* filter; Reddit's feed Post type filter already has *Embedded media*.
+- Phone Home's `prominent-search` is one large *Search Reddit* button (`#expand-search-button`, 374 × 48 px) with no input until it opens, so the header trigger never attached there.
+- The broker never reported missing site access, and the popup switch never asked for it.
+
+### Design
+
+| | Case | Expected |
+|---|---|---|
+| S1 | Any clip preview, viewer clip | Streams in `visual-player.html` (web-accessible on reddit.com only; validates `https://video.infini.wtf/<id>/original.mp4` and the parent origin; talks only to its parent). Commands in, state out (`hello`, `playing`, `time` 4×/s, `error`). If no `hello` arrives within 2.5 s, later clips use the old bounded `blob:` download |
+| S2 | Expand / click choice *Open in full-screen viewer* | Black full-screen viewer: community and title top left; *Find visually similar*, *Download* (desktop), *Open post*, *Close* top right; ← / → buttons, keys and swipes move through the results; swipe down, Esc or the backdrop close it. A clip continues from the tile's moment, with controls; sound follows *Media click audio* (`clickAudio`) |
+| S3 | *Open post* (viewer, ⋯ sheet) or a click on a playing tile | The viewer closes, then the clip's moment goes to `video-control.js` (`rt-visual-continue`), and *Seamless post transition* decides (Keep time / From start / Reddit Default). Sound: viewer keeps its own; media click follows `clickAudio`; title follows `cardClickAudio` |
+| S4 | Popup *Clicking a result* (`visualClick`) | *Open the post* (default) · *Open in full-screen viewer* · *Play clips in the grid* (images open the viewer). Titles always open the post |
+| S5 | Touch | Expand sits on the media (bottom right, 32 px); Find similar, Download, Open post and Play preview here stay in the ⋯ sheet; playback still follows the start choices (C2–C4) |
+| S6 | Image search entry | A 36 px icon-only button with a lens mark (viewfinder corners around a lens), also used in the header. Phone Home: a 40 px button inside the right end of *Search Reddit*, a sibling of Reddit's button |
+| S7 | Slow or failed answers | Each page request has a ceiling (query 25 s, video 40 s, upload 45 s…) above the broker's own fetch timeouts; a timed-out or dropped first page retries once quietly behind the placeholders, then says *infini.wtf is taking too long* with *Try again*; rate limits say *infini.wtf asked us to slow down*. A clip that can't play turns its badge red briefly |
+| S8 | Turning Visual search on | The popup asks for `infini.wtf` / `video.infini.wtf` access (the browser prompts only if it is withheld); refused leaves it off with a note. The broker answers `permission-required` when access is missing. Description shortened to one line |
+
+### Verification
+
+Unit: `tests/visual-search-ui.test.cjs` (frame URL and parameters, foreign messages ignored, viewer continues from the preview time, ← / →, *Open post* closes and hands over, *Play here*, frame fallback to download, lens button, phone Home trigger, timeout retry and message), `tests/video-control.test.cjs` (hand-off under Keep time / From start / Reddit Default; embed play mark), `tests/tweaks-popup.test.cjs` (access asked on, refused stays off).
+
+Live, signed in (`artifacts/research/verify/visual-search/after2.mjs`): desktop *hi* · Videos: hover → playing in 1.15 s through the frame (no download), viewer opened with the clip continuing, ← / → over 10 results, *Open post* closed the viewer and the post's video played on from 2.4 s (7.5 s six seconds later). Phone: Home lens at 349, 60 (40 × 40) inside the search bar; expand visible on every clip tile; viewer 412 × 915; *Open post* closed it. r/videos with Embeds *Preview*: the mark showed on every YouTube still that had loaded.
+
+Not verified: in Chromium's phone emulation every cross-site frame (the player, and an ordinary YouTube frame alike) is laid out at 1/2.625 of its size, an emulator issue, so clip sizing on phones was not checked on a real device; Firefox; the browser's permission prompt itself (unit only); image uploads.

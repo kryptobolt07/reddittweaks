@@ -8,7 +8,7 @@ test('automatic deleted-content restoration defaults on independently of archive
  assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{
   postDiscovery:true,feedControls:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
   cleanShareLinks:false,modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,
-  historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,visualSearch:false,visualSearchPostMenu:true,navHome:'scroll',navFeeds:'default',navCommunity:'default',navPost:'scroll',navProfile:'default',navSearch:'default',
+  historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',navHome:'scroll',navFeeds:'default',navCommunity:'default',navPost:'scroll',navProfile:'default',navSearch:'default',
   videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
   singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',cardClickAudio:'keep',videoDirectOpen:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
  });

@@ -219,5 +219,18 @@
         "path": "raffler-referer-rules.json"
       }
     ]
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "visual-player.html",
+        "visual-player.js"
+      ],
+      "matches": [
+        "https://www.reddit.com/*",
+        "https://new.reddit.com/*",
+        "https://sh.reddit.com/*"
+      ]
+    }
+  ]
 }

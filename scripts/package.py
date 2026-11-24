@@ -66,6 +66,11 @@ def allowlist(extension, manifest):
     for block in manifest.get('content_scripts', []):
         files.update(block.get('js', []))
         files.update(block.get('css', []))
+    for block in manifest.get('web_accessible_resources', []):
+        for name in block.get('resources', []):
+            files.add(name)
+            if name.endswith('.html') and (extension / name).is_file():
+                files.update(popup_references(extension, name))
     return files
 
 
@@ -103,6 +108,9 @@ def target_files(extension, manifest, target='chromium'):
     if target == 'firefox':
         manifest = json.loads(json.dumps(manifest))
         manifest.pop('minimum_chrome_version', None)
+        # Firefox has no dynamic web-accessible URLs (its extension origin is already per-install).
+        for block in manifest.get('web_accessible_resources', []):
+            block.pop('use_dynamic_url', None)
         worker = manifest['background']['service_worker']
         manifest['background'] = {'scripts': ['firefox-background.js']}
         manifest['browser_specific_settings'] = {'gecko_android': {'strict_min_version': '142.0'}, 'gecko': {

@@ -28,6 +28,7 @@
   const RETURN_RESTORE_MS = 900;
   const POST_SCROLL_WAIT_MS = 1200;
   const HOVER_PREVIEW_MS = 200;
+  const RETRY_CODES = new Set(['timeout', 'network-error']);
   const AUTO_PREVIEW_MS = 150;
   const DWELL_PREVIEW_MS = 600;
 
@@ -90,6 +91,20 @@
     return svg;
   }
 
+  // Visual search's mark: viewfinder corners around a lens, drawn with strokes so it stays crisp at 16–24 px.
+  function lensIcon(size = 20) {
+    const svg = document.createElementNS(SVG, 'svg');
+    for (const [k, v] of Object.entries({ fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', height: String(size), width: String(size), viewBox: '0 0 20 20', 'aria-hidden': 'true', 'data-rt-icon': 'lens' })) {
+      svg.setAttribute(k, v);
+    }
+    const corners = document.createElementNS(SVG, 'path');
+    corners.setAttribute('d', 'M2.9 7.3V5.4a2.5 2.5 0 0 1 2.5-2.5h1.9M12.7 2.9h1.9a2.5 2.5 0 0 1 2.5 2.5v1.9M17.1 12.7v1.9a2.5 2.5 0 0 1-2.5 2.5h-1.9M7.3 17.1H5.4a2.5 2.5 0 0 1-2.5-2.5v-1.9');
+    const lens = document.createElementNS(SVG, 'circle');
+    for (const [k, v] of Object.entries({ cx: '10', cy: '10', r: '3.1' })) lens.setAttribute(k, v);
+    svg.append(corners, lens);
+    return svg;
+  }
+
   function nsfwIcon(size = 14) {
     const existing = Filters?.svgIcon?.('nsfw-fill-12', size);
     if (existing) return existing;
@@ -112,14 +127,25 @@
     catch { return String(href || ''); }
   };
 
+  // Longest wait per request before the page gives up on the worker (each is above the broker's own fetch timeout,
+  // so the broker's answer normally arrives first; this catches a worker that never answers).
+  const SEND_TIMEOUT_MS = { query: 25_000, related: 10_000, autocomplete: 10_000, 'resolve-post': 25_000, 'check-image-query': 25_000, 'upload-image': 45_000, 'fetch-video': 40_000, download: 20_000 };
+
   function defaultSend(message) {
     return new Promise((resolve, reject) => {
       const runtime = (globalThis.browser || globalThis.chrome)?.runtime;
       if (!runtime?.sendMessage) return reject(Error('Extension messaging is unavailable.'));
       let settled = false;
+      const limit = SEND_TIMEOUT_MS[message?.action];
+      const timer = limit ? setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        resolve({ ok: false, error: 'infini.wtf took too long to answer.', code: 'timeout' });
+      }, limit) : 0;
       const done = res => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         void runtime.lastError;
         resolve(res || { ok: false, error: 'Visual search did not answer.', code: 'network-error' });
       };
@@ -309,6 +335,10 @@
       this.hoveredPreview = null;
       this.videoBlobs = new Map();
       this.videoFetches = new Map();
+      this.players = new Map();
+      this.playerSeq = 0;
+      this.framePlayback = null;
+      this.clickChoice = { visualClick: 'post', clickAudio: 'muted', videoOpenPost: 'default' };
       this.mediaChoice = { video: 'default', gif: 'default' };
       this.settleTimer = 0;
       this.localPreviewUrls = new Set();
@@ -329,6 +359,7 @@
       this.onDocPaste = event => this.handlePaste(event);
       this.onVisibility = () => this.handleVisibility();
       this.onRoute = event => this.handleRoute(event);
+      this.onPlayerMessage = event => this.handlePlayerMessage(event);
       this.onMediaChange = () => {
         this.closeDropdown();
         this.closeUploadPopover();
@@ -367,6 +398,7 @@
       document.addEventListener('paste', this.onDocPaste, true);
       document.addEventListener('visibilitychange', this.onVisibility);
       document.addEventListener('reddit:route', this.onRoute);
+      window.addEventListener('message', this.onPlayerMessage);
       window.addEventListener('popstate', this.onRoute);
       globalThis.navigation?.addEventListener('currententrychange', this.onRoute);
       window.addEventListener('scroll', this.onScrollPause, { passive: true });
@@ -404,6 +436,7 @@
       const nextEnabled = s.visualSearch === true;
       const nextMenu = nextEnabled && s.visualSearchPostMenu !== false;
       this.mediaChoice = { video: s.videoStart || 'default', gif: s.gifStart || 'default' };
+      this.clickChoice = { visualClick: s.visualClick || 'post', clickAudio: s.clickAudio || 'muted', videoOpenPost: s.videoOpenPost || 'default' };
       if (this.hoveredPreview && !this.hoveredPreview.manual && this.previewMode(this.hoveredPreview.media) === 'none') this.stopVideoPreview();
       const changed = nextEnabled !== this.enabled || nextMenu !== this.postMenuEnabled;
       this.enabled = nextEnabled;
@@ -1006,7 +1039,7 @@
         : Promise.resolve({ ok: true, items: [] });
 
       try {
-        const result = await this.send({
+        const ask = () => this.send({
           action: 'query',
           kind: parsed.spec.kind,
           target: parsed.spec.target,
@@ -1015,7 +1048,15 @@
           page: 1,
           force
         });
+        let result = await ask();
         if (this.dead || myGen !== this.gen) return;
+        // A slow or dropped answer gets one quiet retry while the placeholders stay up.
+        if (!result?.ok && RETRY_CODES.has(result?.code)) {
+          await new Promise(r => setTimeout(r, 1500));
+          if (this.dead || myGen !== this.gen) return;
+          result = await ask();
+          if (this.dead || myGen !== this.gen) return;
+        }
 
         const rel = await relatedPromise;
         if (this.dead || myGen !== this.gen) return;
@@ -1439,9 +1480,12 @@
       const uploadBtn = make('button', 'rt-search-inline-filter');
       uploadBtn.type = 'button';
       uploadBtn.dataset.rtVisualControl = 'upload';
+      uploadBtn.classList.add('rt-vs-lens-btn');
       uploadBtn.setAttribute('aria-haspopup', 'dialog');
-      uploadBtn.title = 'Search with an image: upload, paste or drop one';
-      uploadBtn.append(icon('camera', 16), make('span', '', parsed.kind === 'upload' ? 'Change image' : 'Search with image'));
+      const lensLabel = parsed.kind === 'upload' ? 'Change image' : 'Search with an image';
+      uploadBtn.title = lensLabel;
+      uploadBtn.setAttribute('aria-label', lensLabel);
+      uploadBtn.append(lensIcon(18));
       uploadBtn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
@@ -1721,7 +1765,7 @@
 
       // Mouse: icon buttons on hover, beside <a> so controls are never nested in a link. Touch: the ⋯ menu below.
       const actions = make('div', 'rt-vs-overlay-actions');
-      const simBtn = make('button', 'rt-vs-icon-btn');
+      const simBtn = make('button', 'rt-vs-icon-btn rt-vs-sim');
       simBtn.type = 'button';
       simBtn.title = 'Find visually similar';
       simBtn.setAttribute('aria-label', 'Find visually similar');
@@ -1732,7 +1776,7 @@
         this.findSimilar(item);
       });
 
-      const prevBtn = make('button', 'rt-vs-icon-btn');
+      const prevBtn = make('button', 'rt-vs-icon-btn rt-vs-expand');
       prevBtn.type = 'button';
       prevBtn.title = 'View larger';
       prevBtn.setAttribute('aria-label', 'View larger');
@@ -1802,13 +1846,7 @@
     openTileOptions(item, anchor) {
       const playing = this.hoveredPreview?.media?.closest?.('.rt-vs-tile')?.dataset?.uuid === item.uuid && Boolean(this.hoveredPreview?.video);
       const media = [...(this.host?.querySelectorAll?.('.rt-vs-tile') || [])].find(tile => tile.dataset.uuid === item.uuid)?.querySelector('.rt-vs-media');
-      const download = () => {
-        const dlUrl = item.videoUrl || item.src || item.thumb || item.downloadUrl;
-        if (!dlUrl) return;
-        const ext = item.isVideo ? 'mp4' : 'webp';
-        const name = (item.title || 'visual-match').replace(/[^\w\s-]/g, '').trim().slice(0, 60) || 'visual-match';
-        this.send({ action: 'download', url: dlUrl, filename: name + '.' + ext }).catch(() => {});
-      };
+      const download = () => this.downloadItem(item);
       if (!Sheet) { this.openLightbox(item, anchor); return; }
       Sheet.open({
         title: item.title || 'Visual result',
@@ -1825,7 +1863,7 @@
           ui.row({ label: 'Find visually similar', icon: icon('similar', 20), onSelect: () => this.findSimilar(item) });
           ui.row({ label: 'View larger', icon: icon('expand', 20), onSelect: () => this.openLightbox(item, anchor) });
           if (item.videoUrl || item.src || item.thumb || item.downloadUrl) ui.row({ label: 'Download', icon: icon('download', 20), onSelect: download });
-          ui.row({ label: 'Open post', icon: Filters?.svgIcon?.('comment', 20) || null, onSelect: () => this.navigateUrl(item.permalink) });
+          ui.row({ label: 'Open post', icon: Filters?.svgIcon?.('comment', 20) || null, onSelect: () => this.openResultPost(item, { source: 'media' }) });
         }
       });
     }
@@ -1962,13 +2000,16 @@
       const head = make('div', 'rt-community-state-head');
       const iconBox = make('span', 'rt-community-state-icon');
       iconBox.append(icon('camera', 20));
-      const title = st.status === 'permission-required' ? 'Visual search needs infini.wtf access' : 'Visual search unavailable';
+      const title = st.status === 'permission-required' ? 'Visual search needs infini.wtf access'
+        : st.code === 'timeout' ? 'infini.wtf is taking too long'
+        : st.code === 'rate-limited' ? 'infini.wtf asked us to slow down'
+        : 'Visual search unavailable';
       head.append(iconBox, make('span', 'rt-community-state-title', title));
       card.append(head);
       card.append(make('p', 'rt-community-state-body', st.error || 'Could not reach infini.wtf right now.'));
       const actions = make('div', 'rt-community-state-actions');
       if (st.status !== 'permission-required') {
-        const retry = make('button', 'rt-community-action rt-community-action-primary', 'Retry');
+        const retry = make('button', 'rt-community-action rt-community-action-primary', 'Try again');
         retry.type = 'button';
         retry.addEventListener('click', () => this.startLoad(st.parsed, { force: true }));
         actions.append(retry);
@@ -2217,6 +2258,73 @@
 
     // ---- Lightbox & Video Preview (CSP-compliant blob: transport) ---------------------------------------------
 
+    // ---- Clip player frames ---------------------------------------------------------------------------------
+    // Reddit's media-src blocks video.infini.wtf, so clips stream inside visual-player.html (an extension page the
+    // page's CSP does not govern): no download first, no size cap. If a frame never says hello (a browser that will
+    // not frame extension pages), clips fall back to the worker's bounded blob: download.
+    playerBase() {
+      if (this.framePlayback === false) return '';
+      try { return (globalThis.browser || globalThis.chrome)?.runtime?.getURL?.('visual-player.html') || ''; }
+      catch { return ''; }
+    }
+
+    makePlayerFrame(videoUrl, { mode = 'preview', time = 0, sound = false, onMessage = null } = {}) {
+      const base = this.playerBase();
+      if (!base) return null;
+      const id = 'vp' + (++this.playerSeq);
+      const params = new URLSearchParams({ src: videoUrl, mode, id, origin: location.origin });
+      if (time > 0) params.set('t', time.toFixed(2));
+      if (sound) params.set('sound', '1');
+      const frame = make('iframe', mode === 'viewer' ? 'rt-vs-viewer-frame' : 'rt-vs-frame');
+      frame.src = base + '#' + params.toString();
+      frame.setAttribute('allow', 'autoplay; fullscreen');
+      frame.referrerPolicy = 'origin';
+      frame.title = mode === 'viewer' ? 'Video' : 'Preview';
+      if (mode !== 'viewer') {
+        frame.tabIndex = -1;
+        frame.setAttribute('aria-hidden', 'true');
+      }
+      const entry = { id, frame, mode, time, origin: /^[a-z][a-z0-9+.-]*:\/\/[^/]+/i.exec(base)?.[0] || '', hello: false, onMessage };
+      this.players.set(id, entry);
+      // No hello within 2.5 s: frames are not usable here; later clips use blob: downloads.
+      entry.helloTimer = setTimeout(() => {
+        if (!entry.hello && this.players.get(id) === entry && frame.isConnected) {
+          this.framePlayback = false;
+          onMessage?.({ type: 'unavailable' });
+        }
+      }, 2500);
+      return entry;
+    }
+
+    handlePlayerMessage(event) {
+      const msg = event.data;
+      if (!msg || msg.rt !== 'visual-player') return;
+      const entry = this.players.get(msg.id);
+      if (!entry || event.origin !== entry.origin || event.source !== entry.frame.contentWindow) return;
+      if (!entry.hello) {
+        entry.hello = true;
+        clearTimeout(entry.helloTimer);
+        this.framePlayback = true;
+      }
+      if (Number.isFinite(msg.time)) entry.time = msg.time;
+      entry.paused = msg.paused;
+      entry.muted = msg.muted;
+      entry.onMessage?.(msg);
+    }
+
+    commandPlayer(entry, cmd, extra = {}) {
+      if (!entry?.frame?.isConnected) return;
+      try { entry.frame.contentWindow?.postMessage({ rt: 'visual-player', id: entry.id, cmd, ...extra }, entry.origin); } catch {}
+    }
+
+    dropPlayer(entry) {
+      if (!entry) return;
+      clearTimeout(entry.helloTimer);
+      this.commandPlayer(entry, 'stop');
+      this.players.delete(entry.id);
+      entry.frame.remove();
+    }
+
     // How a tile's clip may start, from the reader's video and GIF start choices: 'hover' with a mouse, 'stop' (the one
     // you stop on) with touch, 'auto' (in view) for Autoplay, 'none' for Only when I press Play.
     previewMode(media) {
@@ -2233,12 +2341,21 @@
       clearTimeout(cur.timer);
       delete cur.media?.dataset?.previewing;
       if (cur.media) this.videoIO?.unobserve?.(cur.media);
+      if (cur.player) this.dropPlayer(cur.player);
       if (cur.video) {
         try { cur.video.pause(); } catch {}
         cur.video.removeAttribute('src');
         try { cur.video.load(); } catch {}
         cur.video.remove();
       }
+    }
+
+    // Where the tile's clip is now (seconds), for the viewer and the post to continue from.
+    previewTime(media) {
+      const cur = this.hoveredPreview;
+      if (!cur || cur.media !== media) return 0;
+      if (cur.player) return cur.player.time || 0;
+      return Number.isFinite(cur.video?.currentTime) ? cur.video.currentTime : 0;
     }
 
     checkVideoVisibility() {
@@ -2274,17 +2391,16 @@
       return job;
     }
 
-    // Plays one tile's clip muted and looping in place; starting another stops the first.
+    // Plays one tile's clip muted and looping in place; starting another stops the first. Streams through a player
+    // frame when it can, else downloads the clip as a blob: (bounded, see the broker).
     startPreview(media, { delay = 0, manual = false } = {}) {
       if (!media?.dataset?.videoUrl || !media.isConnected) return;
       if (this.hoveredPreview?.media === media) return;
       this.stopVideoPreview();
       const videoUrl = media.dataset.videoUrl;
-      const entry = { media, videoUrl, video: null, manual, timer: 0 };
+      const entry = { media, videoUrl, video: null, player: null, manual, timer: 0 };
       this.hoveredPreview = entry;
-      const run = async () => {
-        if (this.dead || this.hoveredPreview !== entry || !media.isConnected || document.visibilityState === 'hidden') return;
-        media.dataset.previewing = 'loading';
+      const viaBlob = async () => {
         try {
           const objUrl = await this.getVideoBlobUrl(videoUrl);
           if (this.dead || this.hoveredPreview !== entry || !media.isConnected) return;
@@ -2301,11 +2417,37 @@
           this.videoIO?.observe?.(media);
           video.play?.().catch(() => {});
         } catch {
-          if (this.hoveredPreview === entry) { delete media.dataset.previewing; this.hoveredPreview = null; }
+          if (this.hoveredPreview === entry) this.previewFailed(entry);
         }
+      };
+      const run = () => {
+        if (this.dead || this.hoveredPreview !== entry || !media.isConnected || document.visibilityState === 'hidden') return;
+        media.dataset.previewing = 'loading';
+        const player = this.makePlayerFrame(videoUrl, {
+          mode: 'preview',
+          onMessage: msg => {
+            if (this.hoveredPreview !== entry) return;
+            if (msg.type === 'unavailable') { this.dropPlayer(player); entry.player = null; viaBlob(); return; }
+            if (msg.type === 'playing' || msg.type === 'time' && !msg.paused) media.dataset.previewing = 'playing';
+            else if (msg.type === 'error' || msg.type === 'blocked') this.previewFailed(entry);
+          }
+        });
+        if (!player) { viaBlob(); return; }
+        entry.player = player;
+        media.append(player.frame);
+        this.videoIO?.observe?.(media);
       };
       if (delay > 0) entry.timer = setTimeout(run, delay);
       else run();
+    }
+
+    // A clip that could not play: say so on its badge for a moment, then leave the tile as it was.
+    previewFailed(entry) {
+      const media = entry.media;
+      if (this.hoveredPreview === entry) this.stopVideoPreview();
+      if (!media?.isConnected) return;
+      media.dataset.previewing = 'failed';
+      setTimeout(() => { if (media.dataset.previewing === 'failed') delete media.dataset.previewing; }, 2400);
     }
 
     handlePointerOver(event) {
@@ -2360,99 +2502,183 @@
       else if (cur && !cur.manual && this.previewMode(cur.media) !== 'hover') this.stopVideoPreview();
     }
 
-    closeLightbox() {
+    closeLightbox({ restoreFocus = true } = {}) {
       const cur = this.lightbox;
       if (!cur) return;
       this.lightbox = null;
-      const vid = cur.dialog?.querySelector('video');
-      if (vid) {
-        try { vid.pause(); } catch {}
-        vid.removeAttribute('src');
-        try { vid.load(); } catch {}
-      }
+      if (cur.player) this.dropPlayer(cur.player);
+      document.removeEventListener('keydown', cur.onKey, true);
       try { cur.dialog?.close?.(); } catch {}
       cur.dialog?.remove();
-      if (cur.returnFocus?.isConnected) cur.returnFocus.focus({ preventScroll: true });
+      document.documentElement.removeAttribute('data-rt-vs-viewer');
+      if (restoreFocus && cur.returnFocus?.isConnected) cur.returnFocus.focus({ preventScroll: true });
+      if (this.host?.isConnected) this.settlePreviews();
     }
 
-    async openLightbox(item, returnFocus = null) {
+    // Opening a result's post from a tile or the viewer: close the viewer, hand the clip's moment to the post's own
+    // video (Seamless post transition decides whether it is used), then let Reddit's router open the post.
+    openResultPost(item, { time = null, source = 'media', muted = true } = {}) {
+      const media = [...(this.host?.querySelectorAll?.('.rt-vs-tile') || [])].find(tile => tile.dataset.uuid === item.uuid)?.querySelector('.rt-vs-media');
+      const at = time ?? (media ? this.previewTime(media) : 0);
+      if (item.isVideo && !item.isGif && item.postId && (at > 0 || this.hoveredPreview?.media === media || source === 'viewer')) {
+        document.dispatchEvent(new CustomEvent('rt-visual-continue', { detail: { id: item.postId, time: at, source, muted } }));
+      }
+      this.closeLightbox({ restoreFocus: false });
+      this.navigateUrl(item.permalink);
+    }
+
+    // Full-screen viewer: the media as large as the screen allows, the community and title above it, and the result's
+    // actions; ← / → (or a swipe) move through the results. Clips stream with controls from the tile's moment.
+    openLightbox(item, returnFocus = null) {
+      const items = this.state?.items?.length ? this.state.items : [item];
+      let index = Math.max(0, items.findIndex(it => it.uuid === item.uuid));
+      if (items[index]?.uuid !== item.uuid) index = 0;
+      const startMedia = [...(this.host?.querySelectorAll?.('.rt-vs-tile') || [])].find(tile => tile.dataset.uuid === item.uuid)?.querySelector('.rt-vs-media');
+      const startTime = startMedia ? this.previewTime(startMedia) : 0;
       this.stopVideoPreview();
-      this.closeLightbox();
-      const dialog = make('dialog', 'rt-vs-lightbox');
+      this.closeLightbox({ restoreFocus: false });
+
+      const dialog = make('dialog', 'rt-vs-viewer');
       dialog.dataset.rtUi = 'visual-lightbox';
+      dialog.setAttribute('aria-label', 'Media viewer');
+      const top = make('div', 'rt-vs-viewer-top');
+      const who = make('div', 'rt-vs-viewer-who');
+      const titleEl = make('h2', 'rt-vs-viewer-title');
+      const subEl = make('a', 'rt-vs-viewer-sub');
+      who.append(subEl, titleEl);
+      const tools = make('div', 'rt-vs-viewer-tools');
+      const tool = (name, label, onClick, cls = 'rt-vs-viewer-btn') => {
+        const b = make('button', cls);
+        b.type = 'button';
+        b.title = label;
+        b.setAttribute('aria-label', label);
+        b.append(icon(name, 20));
+        b.addEventListener('click', e => { e.stopPropagation(); onClick(); });
+        return b;
+      };
+      const current = () => items[index];
+      const simBtn = tool('similar', 'Find visually similar', () => this.findSimilar(current()));
+      const dlBtn = tool('download', 'Download', () => this.downloadItem(current()));
+      const openBtn = make('button', 'rt-vs-viewer-open');
+      openBtn.type = 'button';
+      openBtn.append(make('span', '', 'Open post'));
+      openBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        const st = this.lightbox;
+        this.openResultPost(current(), { time: st?.player?.time ?? 0, source: 'viewer', muted: st?.player ? st.player.muted !== false : true });
+      });
+      const closeBtn = tool('close', 'Close', () => this.closeLightbox());
+      tools.append(simBtn, dlBtn, openBtn, closeBtn);
+      top.append(who, tools);
 
-      const card = make('div', 'rt-vs-lightbox-card');
-      const head = make('div', 'rt-vs-lightbox-head');
-      const title = make('h2', 'rt-vs-lightbox-title', item.title || 'Visual search preview');
-      const closeBtn = make('button', 'rt-vs-upload-close');
-      closeBtn.type = 'button';
-      closeBtn.setAttribute('aria-label', 'Close preview');
-      closeBtn.append(icon('close', 16));
-      closeBtn.addEventListener('click', () => this.closeLightbox());
-      head.append(title, closeBtn);
+      const stage = make('div', 'rt-vs-viewer-stage');
+      const prev = tool('caret', 'Previous', () => go(-1), 'rt-vs-viewer-nav rt-vs-viewer-prev');
+      const next = tool('caret', 'Next', () => go(1), 'rt-vs-viewer-nav rt-vs-viewer-next');
+      const count = make('span', 'rt-vs-viewer-count');
+      dialog.append(stage, top, prev, next, count);
 
-      const stage = make('div', 'rt-vs-lightbox-stage');
-      if (item.src || item.thumb) {
-        const img = make('img');
-        img.src = item.src || item.thumb;
-        img.alt = item.title || '';
-        img.referrerPolicy = 'no-referrer';
-        stage.append(img);
-      }
-
-      const foot = make('div', 'rt-vs-lightbox-foot');
-      foot.append(make('span', 'rt-vs-sub-link', item.subreddit ? 'r/' + item.subreddit : 'Reddit'));
-      const actions = make('div', 'rt-vs-banner-actions');
-
-      const simBtn = make('button', 'rt-community-action', 'Find similar');
-      simBtn.type = 'button';
-      simBtn.addEventListener('click', () => this.findSimilar(item));
-
-      const dlUrl = item.videoUrl || item.src || item.thumb || item.downloadUrl;
-      if (dlUrl) {
-        const dlBtn = make('button', 'rt-community-action', 'Download');
-        dlBtn.type = 'button';
-        dlBtn.addEventListener('click', () => {
-          const ext = item.isVideo ? 'mp4' : 'webp';
-          const name = (item.title || 'visual-match').replace(/[^\w\s-]/g, '').trim().slice(0, 60) || 'visual-match';
-          this.send({ action: 'download', url: dlUrl, filename: name + '.' + ext }).catch(() => {});
-        });
-        actions.append(dlBtn);
-      }
-
-      const openPost = make('a', 'rt-community-action rt-community-action-primary', 'Open Reddit post');
-      openPost.href = item.permalink;
-      actions.append(simBtn, openPost);
-      foot.append(actions);
-
-      card.append(head, stage, foot);
-      dialog.append(card);
+      const st = { dialog, returnFocus, player: null, onKey: null };
+      const show = (it, time = 0) => {
+        if (st.player) { this.dropPlayer(st.player); st.player = null; }
+        titleEl.textContent = it.title || 'Untitled Reddit post';
+        const isUser = it.subreddit?.startsWith('u_');
+        subEl.replaceChildren();
+        if (it.subreddit) {
+          if (!isUser) subEl.append(this.buildSubIcon(it.subreddit));
+          subEl.append(make('span', '', isUser ? 'u/' + it.subreddit.slice(2) : 'r/' + it.subreddit));
+          subEl.href = isUser ? '/user/' + encodeURIComponent(it.subreddit.slice(2)) + '/' : '/r/' + encodeURIComponent(it.subreddit) + '/';
+        } else subEl.removeAttribute('href');
+        count.textContent = items.length > 1 ? (index + 1) + ' / ' + items.length : '';
+        prev.hidden = items.length < 2 || index === 0;
+        next.hidden = items.length < 2 || index === items.length - 1;
+        stage.replaceChildren();
+        const poster = make('img', 'rt-vs-viewer-img');
+        poster.src = it.src || it.thumb || '';
+        poster.alt = it.title || '';
+        poster.referrerPolicy = 'no-referrer';
+        poster.decoding = 'async';
+        stage.append(poster);
+        if (it.videoUrl) {
+          const sound = this.clickChoice.clickAudio === 'unmute' && !it.isGif;
+          const player = this.makePlayerFrame(it.videoUrl, {
+            mode: 'viewer', time, sound,
+            onMessage: msg => {
+              if (this.lightbox !== st || st.player !== player) return;
+              if (msg.type === 'playing' || msg.type === 'time') stage.dataset.playing = 'true';
+              if (msg.type === 'unavailable' || msg.type === 'error') { this.dropPlayer(player); st.player = null; this.viewerBlob(stage, it, st); }
+            }
+          });
+          if (player) {
+            st.player = player;
+            delete stage.dataset.playing;
+            stage.append(player.frame);
+          } else this.viewerBlob(stage, it, st);
+        }
+      };
+      const go = step => {
+        const nextIndex = index + step;
+        if (nextIndex < 0 || nextIndex >= items.length) return;
+        index = nextIndex;
+        show(items[index]);
+      };
+      st.onKey = e => {
+        if (this.lightbox !== st) return;
+        if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+        else if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+      };
+      // Swipe left / right on touch; swipe down closes.
+      let touch = null;
+      stage.addEventListener('touchstart', e => { const t = e.touches[0]; touch = t ? { x: t.clientX, y: t.clientY } : null; }, { passive: true });
+      stage.addEventListener('touchend', e => {
+        const t = e.changedTouches[0];
+        if (!touch || !t) return;
+        const dx = t.clientX - touch.x, dy = t.clientY - touch.y;
+        touch = null;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
+        else if (dy > 90 && Math.abs(dy) > Math.abs(dx) * 1.5) this.closeLightbox();
+      }, { passive: true });
       dialog.addEventListener('cancel', e => { e.preventDefault(); this.closeLightbox(); });
-      dialog.addEventListener('click', e => { if (e.target === dialog) this.closeLightbox(); });
+      dialog.addEventListener('click', e => { if (e.target === dialog || e.target === stage) this.closeLightbox(); });
+      subEl.addEventListener('click', () => this.closeLightbox({ restoreFocus: false }));
+      document.addEventListener('keydown', st.onKey, true);
       document.body.append(dialog);
-      this.lightbox = { dialog, returnFocus };
+      document.documentElement.setAttribute('data-rt-vs-viewer', '');
+      this.lightbox = st;
       if (typeof dialog.showModal === 'function') dialog.showModal();
       else dialog.setAttribute('open', '');
+      show(items[index], startTime);
       closeBtn.focus({ preventScroll: true });
+    }
 
-      if (item.isVideo && item.videoUrl) {
-        const note = make('span', 'rt-vs-lightbox-note', 'Loading video…');
-        stage.append(note);
-        try {
-          const objUrl = await this.getVideoBlobUrl(item.videoUrl);
-          if (this.dead || this.lightbox?.dialog !== dialog || !dialog.isConnected) return;
-          const video = make('video');
-          video.controls = true;
-          video.autoplay = true;
-          video.loop = true;
-          video.playsInline = true;
-          video.src = objUrl;
-          stage.replaceChildren(video);
-          video.play?.().catch(() => {});
-        } catch (err) {
-          if (this.lightbox?.dialog === dialog) note.textContent = err?.message || 'Video preview unavailable.';
-        }
+    // The viewer's clip where player frames are unavailable: the bounded blob: download, with controls.
+    async viewerBlob(stage, it, st) {
+      const note = make('span', 'rt-vs-viewer-note', 'Loading video…');
+      stage.append(note);
+      try {
+        const objUrl = await this.getVideoBlobUrl(it.videoUrl);
+        if (this.dead || this.lightbox !== st || !stage.isConnected) return;
+        const video = make('video', 'rt-vs-viewer-video');
+        video.controls = true;
+        video.autoplay = true;
+        video.loop = true;
+        video.playsInline = true;
+        video.muted = !(this.clickChoice.clickAudio === 'unmute' && !it.isGif);
+        video.src = objUrl;
+        note.remove();
+        stage.append(video);
+        stage.dataset.playing = 'true';
+        video.play?.().catch(() => { video.muted = true; video.play?.().catch(() => {}); });
+      } catch (err) {
+        if (this.lightbox === st) note.textContent = err?.message || 'Video unavailable.';
       }
+    }
+
+    downloadItem(item) {
+      const dlUrl = item.videoUrl || item.src || item.thumb || item.downloadUrl;
+      if (!dlUrl) return;
+      const ext = item.isVideo ? 'mp4' : 'webp';
+      const name = (item.title || 'visual-match').replace(/[^\w\s-]/g, '').trim().slice(0, 60) || 'visual-match';
+      this.send({ action: 'download', url: dlUrl, filename: name + '.' + ext }).catch(() => {});
     }
 
     // ---- Entry Point 1: Tab in #search-results-page-tabgroup -------------------------------------------------
@@ -2670,23 +2896,9 @@
     // ---- Entry Point 2: Header Search Bar Camera Trigger -----------------------------------------------------
 
     syncHeaderTriggers() {
-      const hosts = document.querySelectorAll('reddit-search-large, reddit-search-small, prominent-search');
-      for (const host of hosts) {
-        const root = host.shadowRoot || host;
-        const field = root?.querySelector?.('faceplate-search-input[name="q"]');
-        if (!field || field.closest?.('[data-rt-ui]')) continue;
-        let btn = field.querySelector(':scope > [data-rt-ui="visual-search-trigger"]');
-        if (btn) continue;
-
-        btn = make('button', 'rt-vs-header-btn');
-        btn.type = 'button';
-        btn.slot = 'trailingContent';
-        btn.dataset.rtUi = 'visual-search-trigger';
-        btn.setAttribute('aria-label', 'Search with an image');
-        btn.title = 'Search with an image';
+      const styleBtn = (btn, size) => {
         // Shadow roots isolate page CSS, so style directly on the slotted button (Contract Rule 11).
-        btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;margin:0 4px 0 2px;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:pointer;transition:background-color 120ms ease,color 120ms ease;';
-        btn.append(icon('camera', 18));
+        btn.style.cssText = `display:inline-flex;align-items:center;justify-content:center;flex:none;width:${size}px;height:${size}px;padding:0;margin:0 4px 0 2px;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:pointer;transition:background-color 120ms ease,color 120ms ease;`;
         btn.addEventListener('pointerenter', () => {
           btn.style.backgroundColor = 'var(--color-secondary-background-hover,rgba(0,0,0,0.06))';
           btn.style.color = 'var(--color-neutral-content-strong,#181c1f)';
@@ -2695,6 +2907,15 @@
           btn.style.backgroundColor = 'transparent';
           btn.style.color = 'var(--color-neutral-content-weak,#576f76)';
         });
+      };
+      const makeTrigger = size => {
+        const btn = make('button', 'rt-vs-header-btn');
+        btn.type = 'button';
+        btn.dataset.rtUi = 'visual-search-trigger';
+        btn.setAttribute('aria-label', 'Search with an image');
+        btn.title = 'Search with an image';
+        styleBtn(btn, size);
+        btn.append(lensIcon(size >= 40 ? 22 : 20));
         btn.addEventListener('pointerdown', e => {
           e.preventDefault();
           e.stopPropagation();
@@ -2704,7 +2925,32 @@
           e.stopImmediatePropagation();
           this.openUploadUi(btn);
         });
-        field.append(btn);
+        return btn;
+      };
+      const hosts = document.querySelectorAll('reddit-search-large, reddit-search-small, prominent-search');
+      for (const host of hosts) {
+        const root = host.shadowRoot || host;
+        const field = root?.querySelector?.('faceplate-search-input[name="q"]');
+        if (field) {
+          if (field.closest?.('[data-rt-ui]') || field.querySelector(':scope > [data-rt-ui="visual-search-trigger"]')) continue;
+          const btn = makeTrigger(32);
+          btn.slot = 'trailingContent';
+          field.append(btn);
+          continue;
+        }
+        // Phone Home: prominent-search is one big "Search Reddit" button (no input until it opens); the lens sits
+        // inside its right end as a separate button.
+        const fake = host.matches('prominent-search') ? host.querySelector(':scope > .relative > .prominent-search-button, .prominent-search-button') : null;
+        const box = fake?.parentElement;
+        if (!fake || !box || box.querySelector(':scope > [data-rt-ui="visual-search-trigger"]')) continue;
+        const btn = makeTrigger(40);
+        btn.style.position = 'absolute';
+        btn.style.insetInlineEnd = '4px';
+        btn.style.top = '50%';
+        btn.style.transform = 'translateY(-50%)';
+        btn.style.zIndex = '1';
+        btn.style.margin = '0';
+        box.append(btn);
       }
     }
 
@@ -2903,6 +3149,30 @@
         try { dest = new URL(link.getAttribute('href'), location.origin); } catch { return; }
         if (dest.origin !== location.origin) return;
         const tile = path.find(node => node?.classList?.contains?.('rt-vs-tile'));
+        const item = tile ? this.state?.items?.find(it => it.uuid === tile.dataset.uuid) : null;
+        const onMedia = Boolean(item && path.some(node => node?.classList?.contains?.('rt-vs-media')));
+        // Clicking the media follows the Visual search click choice; the title and community always open their page.
+        if (onMedia && this.clickChoice.visualClick === 'viewer') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.openLightbox(item, link);
+          return;
+        }
+        if (onMedia && this.clickChoice.visualClick === 'inline') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          const media = tile.querySelector('.rt-vs-media');
+          if (!item.videoUrl) this.openLightbox(item, link);
+          else if (this.hoveredPreview?.media === media && this.hoveredPreview.manual) this.stopVideoPreview();
+          else this.startPreview(media, { manual: true });
+          return;
+        }
+        if (item && /\/comments\/[a-z0-9]+/i.test(dest.pathname)) {
+          const media = tile.querySelector('.rt-vs-media');
+          if (item.isVideo && !item.isGif && item.postId && this.hoveredPreview?.media === media) {
+            document.dispatchEvent(new CustomEvent('rt-visual-continue', { detail: { id: item.postId, time: this.previewTime(media), source: onMedia ? 'media' : 'title' } }));
+          }
+        }
         const clickedUuid = tile?.dataset?.uuid || '';
         const clickedOffset = tile ? tile.getBoundingClientRect().top : 0;
         const expectPost = /\/comments\/[a-z0-9]+/i.test(dest.pathname);

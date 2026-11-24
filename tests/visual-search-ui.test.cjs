@@ -787,3 +787,136 @@ test('community icons: the colour Reddit paints behind an icon, and its coloured
   const img = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"] .rt-vs-sub-avatar');
   assert.equal(img.style.background.replace(/\s/g, ''), 'rgb(175,100,1)');
 });
+
+// Player frames: an extension page streams clips (Reddit's media-src blocks infini.wtf). jsdom cannot load it, so the
+// tests speak for the frame with the messages it would post.
+function withFrames(W) {
+  W.chrome = { runtime: { getURL: path => 'chrome-extension://abc/' + path } };
+}
+function frameSays(W, frame, data) {
+  const id = new URLSearchParams(frame.src.split('#')[1]).get('id');
+  W.dispatchEvent(new W.MessageEvent('message', { data: { rt: 'visual-player', id, paused: false, muted: true, ...data }, origin: 'chrome-extension://abc', source: frame.contentWindow }));
+}
+
+test('tile clips stream through the player frame, and the viewer continues from the same moment', async t => {
+  const counter = { fetches: 0 };
+  const { W, D, controller } = setupUi(t, { hover: true, settings: { visualSearch: true, visualClick: 'viewer' }, sendImpl: clipSend(counter) });
+  withFrames(W);
+  await controller.ready;
+  await flush();
+  inView(W, D);
+  const tile = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"]');
+  const media = tile.querySelector('.rt-vs-media');
+  tile.querySelector('img').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true }));
+  await wait(260);
+  const frame = media.querySelector('iframe.rt-vs-frame');
+  assert.ok(frame, 'a player frame, not a download');
+  const hash = new URLSearchParams(frame.src.split('#')[1]);
+  assert.equal(hash.get('src'), 'https://video.infini.wtf/uuidTwo456/original.mp4');
+  assert.equal(hash.get('mode'), 'preview');
+  assert.equal(frame.getAttribute('allow'), 'autoplay; fullscreen');
+  assert.equal(counter.fetches, 0, 'nothing downloaded');
+  // A message from anywhere else is ignored.
+  W.dispatchEvent(new W.MessageEvent('message', { data: { rt: 'visual-player', id: hash.get('id'), type: 'playing', time: 50 }, origin: 'https://evil.example', source: frame.contentWindow }));
+  assert.equal(media.dataset.previewing, 'loading');
+  frameSays(W, frame, { type: 'hello' });
+  frameSays(W, frame, { type: 'playing', time: 3.4 });
+  assert.equal(media.dataset.previewing, 'playing');
+
+  // Visual click choice: Open in viewer.
+  tile.querySelector('.rt-vs-media img').click();
+  await flush();
+  const viewer = D.querySelector('dialog.rt-vs-viewer');
+  assert.ok(viewer, 'viewer open');
+  assert.equal(media.querySelector('iframe'), null, 'the tile preview handed over');
+  const vframe = viewer.querySelector('iframe.rt-vs-viewer-frame');
+  const vhash = new URLSearchParams(vframe.src.split('#')[1]);
+  assert.equal(vhash.get('mode'), 'viewer');
+  assert.equal(vhash.get('t'), '3.40', 'continues from the tile’s moment');
+  assert.equal(vhash.get('sound'), null, 'Keep muted by default (clickAudio)');
+  assert.equal(viewer.querySelector('.rt-vs-viewer-title').textContent, SAMPLE_ITEMS[1].title);
+  assert.equal(viewer.querySelector('.rt-vs-viewer-count').textContent, '2 / 2');
+
+  // ← moves to the previous result; → back again.
+  D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  assert.equal(viewer.querySelector('.rt-vs-viewer-title').textContent, SAMPLE_ITEMS[0].title);
+  assert.equal(viewer.querySelector('iframe'), null, 'an image has no player');
+  D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  const vframe2 = viewer.querySelector('iframe.rt-vs-viewer-frame');
+  frameSays(W, vframe2, { type: 'hello' });
+  frameSays(W, vframe2, { type: 'time', time: 8.5, muted: false });
+
+  // Open post: the viewer closes, the moment is handed to the post, and Reddit's router opens it.
+  let handed = null, navigated = '';
+  D.addEventListener('rt-visual-continue', e => { handed = e.detail; });
+  D.addEventListener('click', e => { const a = e.target.closest?.('a[data-rt-ui="visual-nav-link"]'); if (a) { e.preventDefault(); navigated = a.href; } });
+  viewer.querySelector('.rt-vs-viewer-open').click();
+  assert.equal(D.querySelector('dialog.rt-vs-viewer'), null, 'the viewer goes away');
+  assert.deepEqual({ ...handed }, { id: SAMPLE_ITEMS[1].postId, time: 8.5, source: 'viewer', muted: false });
+  assert.equal(navigated, SAMPLE_ITEMS[1].permalink);
+});
+
+test('click choice Play here plays clips in the grid; a frame that never answers falls back to a download', async t => {
+  const counter = { fetches: 0 };
+  const { W, D, controller } = setupUi(t, { settings: { visualSearch: true, visualClick: 'inline', videoStart: 'play' }, sendImpl: clipSend(counter) });
+  withFrames(W);
+  await controller.ready;
+  await flush();
+  inView(W, D);
+  const tile = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"]');
+  tile.querySelector('.rt-vs-media img').click();
+  await flush();
+  const frame = tile.querySelector('iframe.rt-vs-frame');
+  assert.ok(frame, 'plays in place');
+  await wait(2600);
+  await flush();
+  assert.equal(tile.querySelector('iframe'), null);
+  assert.ok(tile.querySelector('video.rt-vs-video'), 'downloaded instead');
+  assert.equal(counter.fetches, 1);
+  tile.querySelector('.rt-vs-media img').click();
+  assert.equal(tile.querySelector('video'), null, 'a second click stops it');
+});
+
+test('the image-search button is the lens mark only, and phone Home gets it inside Reddit’s Search bar', async t => {
+  const { D, controller } = setupUi(t);
+  await controller.ready;
+  await flush();
+  const btn = D.querySelector('[data-rt-visual-control="upload"]');
+  assert.equal(btn.textContent.trim(), '');
+  assert.equal(btn.getAttribute('aria-label'), 'Search with an image');
+  assert.ok(btn.querySelector('svg[data-rt-icon="lens"]'));
+
+  const home = setupUi(t, {
+    url: 'https://www.reddit.com/',
+    html: '<!doctype html><html><body><prominent-search class="prominent-search relative"><div class="relative"><button class="prominent-search-button w-full" id="expand-search-button" type="button"><span>Search Reddit</span></button></div></prominent-search><main></main></body></html>',
+    phone: true
+  });
+  await home.controller.ready;
+  await flush();
+  home.controller.syncHeaderTriggers();
+  const trigger = home.D.querySelector('prominent-search .relative > [data-rt-ui="visual-search-trigger"]');
+  assert.ok(trigger, 'beside the fake search button, not inside it');
+  assert.equal(trigger.style.position, 'absolute');
+  assert.equal(home.D.querySelectorAll('[data-rt-ui="visual-search-trigger"]').length, 1);
+  home.controller.syncHeaderTriggers();
+  assert.equal(home.D.querySelectorAll('[data-rt-ui="visual-search-trigger"]').length, 1, 'added once');
+});
+
+test('a slow infini.wtf answer is retried once quietly, then explained with Try again', async t => {
+  let calls = 0;
+  const ok = { ok: true, items: SAMPLE_ITEMS, page: 1, hasMore: false };
+  const one = setupUi(t, { sendImpl: async msg => { if (msg.action !== 'query') return { ok: true, items: [] }; calls++; return calls === 1 ? { ok: false, code: 'timeout', error: 'infini.wtf took too long to answer.' } : ok; } });
+  await one.controller.ready;
+  await wait(1700);
+  await flush();
+  assert.equal(calls, 2);
+  assert.equal(one.D.querySelectorAll('.rt-vs-tile').length, 2, 'the retry filled the grid');
+
+  const two = setupUi(t, { sendImpl: async msg => msg.action === 'query' ? { ok: false, code: 'timeout', error: 'infini.wtf took too long to answer.' } : { ok: true, items: [] } });
+  await two.controller.ready;
+  await wait(1700);
+  await flush();
+  const card = two.D.querySelector('[data-rt-ui="visual-search"] .rt-community-state');
+  assert.match(card.textContent, /infini\.wtf is taking too long/);
+  assert.ok([...card.querySelectorAll('button')].some(b => b.textContent === 'Try again'));
+});

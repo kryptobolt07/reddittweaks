@@ -409,6 +409,22 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   border: 0;
 }
 
+.rt-vs-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.rt-vs-media[data-previewing="playing"] .rt-vs-frame {
+  opacity: 1;
+}
+
 .rt-vs-img-fallback {
   position: absolute;
   inset: 0;
@@ -458,6 +474,10 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
 
 .rt-vs-media[data-previewing="playing"] .rt-vs-badge {
   opacity: 0;
+}
+
+.rt-vs-media[data-previewing="failed"] .rt-vs-badge {
+  background: rgba(180, 30, 30, .85);
 }
 
 @keyframes rt-vs-badge-wait {
@@ -534,8 +554,14 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   background: var(--color-interactive-pressed, rgba(0, 0, 0, .1));
 }
 
+/* Touch keeps one control on the media itself, full screen; the rest live in the ⋯ sheet. */
 @media (hover: none), (pointer: coarse) {
   .rt-vs-overlay-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .rt-vs-overlay-actions .rt-vs-sim {
     display: none;
   }
 
@@ -775,6 +801,13 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   color: var(--color-neutral-content-weak, #576f76);
 }
 
+.rt-vs-controls .rt-vs-lens-btn {
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
 .rt-vs-upload-err {
   margin: 8px 0 0;
   font-size: 12px;
@@ -782,100 +815,255 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   color: var(--color-danger-content, #b32424);
 }
 
-/* Lightbox dialog */
-dialog.rt-vs-lightbox {
+/* Full-screen media viewer: media as large as the screen allows, a dark top bar with the community, title and the
+   result's actions, side arrows on wide screens, swipes on touch. */
+html[data-rt-vs-viewer] {
+  overflow: hidden !important;
+  scrollbar-gutter: auto !important;
+}
+
+dialog.rt-vs-viewer {
   position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100dvh;
   max-width: none;
   max-height: none;
   margin: 0;
-  padding: 16px;
+  padding: 0;
+  border: 0;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  font-family: var(--font-sans, system-ui, sans-serif);
+}
+
+dialog.rt-vs-viewer::backdrop {
+  background: #000;
+}
+
+.rt-vs-viewer-stage {
+  position: absolute;
+  inset: 64px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 72px 24px;
   box-sizing: border-box;
+}
+
+.rt-vs-viewer-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.rt-vs-viewer-frame,
+.rt-vs-viewer-video {
+  position: absolute;
+  inset: 0 72px 24px;
+  width: calc(100% - 144px);
+  height: calc(100% - 24px);
   border: 0;
   background: transparent;
-  color: var(--color-neutral-content-strong, #181c1f);
-  overscroll-behavior: contain;
+  opacity: 0;
+  transition: opacity 160ms ease;
 }
 
-dialog.rt-vs-lightbox[open] {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.rt-vs-viewer-stage[data-playing="true"] .rt-vs-viewer-frame,
+.rt-vs-viewer-stage[data-playing="true"] .rt-vs-viewer-video {
+  opacity: 1;
 }
 
-dialog.rt-vs-lightbox::backdrop {
-  background: rgba(0, 0, 0, .72);
+.rt-vs-viewer-stage[data-playing="true"] .rt-vs-viewer-img {
+  visibility: hidden;
 }
 
-.rt-vs-lightbox-card {
-  display: flex;
-  flex-direction: column;
-  width: min(780px, 100%);
-  max-height: calc(100dvh - 32px);
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--color-neutral-background, #fff);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
-}
-
-.rt-vs-lightbox-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-neutral-border-weak, #e5ebee);
-}
-
-.rt-vs-lightbox-title {
-  margin: 0;
-  font-size: 15px;
-  line-height: 20px;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rt-vs-lightbox-stage {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1 1 auto;
-  min-height: 200px;
-  background: #0d1114;
-  overflow: hidden;
-}
-
-.rt-vs-lightbox-stage img,
-.rt-vs-lightbox-stage video {
-  display: block;
-  max-width: 100%;
-  max-height: 68dvh;
-  object-fit: contain;
-}
-
-.rt-vs-lightbox-note {
+.rt-vs-viewer-note {
   position: absolute;
-  bottom: 12px;
-  inset-inline: 12px;
+  bottom: 40px;
+  inset-inline: 0;
   text-align: center;
-  color: #fff;
-  font-size: 12px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, .8);
   pointer-events: none;
 }
 
-.rt-vs-lightbox-foot {
+.rt-vs-viewer-top {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 12px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--color-neutral-border-weak, #e5ebee);
+  gap: 16px;
+  min-height: 64px;
+  padding: 8px 12px 8px 20px;
+  box-sizing: border-box;
+  background: linear-gradient(rgba(0, 0, 0, .72), rgba(0, 0, 0, 0));
+}
+
+.rt-vs-viewer-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rt-vs-viewer-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, .78);
+  text-decoration: none;
+}
+
+.rt-vs-viewer-sub:hover {
+  text-decoration: underline;
+}
+
+.rt-vs-viewer-title {
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rt-vs-viewer-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.rt-vs-viewer-btn,
+.rt-vs-viewer-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  cursor: pointer;
+}
+
+.rt-vs-viewer-btn:hover,
+.rt-vs-viewer-nav:hover {
+  background: rgba(255, 255, 255, .22);
+}
+
+.rt-vs-viewer-btn:focus-visible,
+.rt-vs-viewer-nav:focus-visible,
+.rt-vs-viewer-open:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.rt-vs-viewer-open {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  margin-inline: 4px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #000;
+  font: 600 14px/20px var(--font-sans, inherit);
+  cursor: pointer;
+}
+
+.rt-vs-viewer-open:hover {
+  background: #e5ebee;
+}
+
+.rt-vs-viewer-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  transform: translateY(-50%);
+}
+
+.rt-vs-viewer-nav[hidden] {
+  display: none;
+}
+
+.rt-vs-viewer-prev {
+  inset-inline-start: 12px;
+}
+
+.rt-vs-viewer-next {
+  inset-inline-end: 12px;
+}
+
+.rt-vs-viewer-prev svg {
+  transform: rotate(90deg);
+}
+
+.rt-vs-viewer-next svg {
+  transform: rotate(-90deg);
+}
+
+.rt-vs-viewer-count {
+  position: absolute;
+  bottom: 6px;
+  inset-inline: 0;
+  z-index: 2;
+  text-align: center;
+  font-size: 12px;
+  line-height: 16px;
+  color: rgba(255, 255, 255, .6);
+  pointer-events: none;
+}
+
+/* Phones: full-bleed media; arrows give way to swipes; the actions stay in the top bar. */
+@media (max-width: 767.98px) {
+  .rt-vs-viewer-stage {
+    inset: 56px 0 0;
+    padding: 0 0 28px;
+  }
+
+  .rt-vs-viewer-frame,
+  .rt-vs-viewer-video {
+    inset: 0 0 28px;
+    width: 100%;
+    height: calc(100% - 28px);
+  }
+
+  .rt-vs-viewer-top {
+    min-height: 56px;
+    padding: 8px 8px 8px 16px;
+    gap: 8px;
+  }
+
+  .rt-vs-viewer-nav,
+  .rt-vs-viewer-btn[aria-label="Download"] {
+    display: none;
+  }
+
+  .rt-vs-viewer-open {
+    height: 36px;
+    padding: 0 12px;
+  }
+
+  .rt-vs-viewer-btn {
+    width: 36px;
+    height: 36px;
+  }
 }
 
 /* Mobile 1:1 parity (<= 767.98px): match Reddit's exact 16px horizontal padding & gap (182px tiles at 412px) */
