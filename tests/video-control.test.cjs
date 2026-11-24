@@ -2130,3 +2130,29 @@ test('a start handed to Reddit\'s own player that never plays is reported as fai
   p.player.addEventListener('rt-play-video',()=>{setTimeout(()=>{p.video._playing=true;p.video.dispatchEvent(new p.W.Event('playing'));},20);});
   await c.play(p.player,p.video);
 });
+
+test('Post opened directly with sound: a refused start says so with a Turn on sound button that brings the sound',async t=>{
+ const refuse=p=>{p.allowed=false;Object.defineProperty(p.video,'muted',{configurable:true,
+  get(){return this._muted!==false;},
+  set(value){if(value===false && !p.allowed){this._playing=false;this.dispatchEvent(new p.W.Event('pause'));return;}this._muted=value;this.dispatchEvent(new p.W.Event('volumechange'));
+  }});
+ };
+ const p=directPage(t);refuse(p);
+ const control=await directController(p,{videoDirectOpen:'sound'});
+ p.redditAutoplay();
+ assert.equal(control.direct.phase,'fallback');
+ const button=p.d.querySelector('[data-rt-ui="direct-sound"]');
+ assert.ok(button,'a visible prompt instead of silent muted playback');assert.equal(button.getAttribute('aria-label'),'Turn on sound');
+ p.allowed=true;p.click(button);
+ assert.equal(p.video.muted,false,'its click is the interaction that turns the sound on');
+ assert.equal(p.d.querySelector('[data-rt-ui="direct-sound"]'),null,'and it goes away');
+ // Using the player's own controls also removes it.
+ const q=directPage(t);refuse(q);
+ await directController(q,{videoDirectOpen:'sound'});q.redditAutoplay();
+ assert.ok(q.d.querySelector('[data-rt-ui="direct-sound"]'));
+ q.click(q.root.getElementById('cc'));
+ assert.equal(q.d.querySelector('[data-rt-ui="direct-sound"]'),null);
+ // Muted on purpose: no prompt.
+ const m=directPage(t);await directController(m,{videoDirectOpen:'muted'});m.redditAutoplay();
+ assert.equal(m.d.querySelector('[data-rt-ui="direct-sound"]'),null);
+});

@@ -450,3 +450,15 @@ User report: embed and Reddit videos kept their sound for a while, and some didn
 - Audio-only embeds (SoundCloud, Spotify) aren't covered.
 
 **Verified:** unit tests (provider addresses, per-host registration and updates, partial-grant popup, page expectation gating, YouTube chrome as controls). **Not verified live:** granting is a browser permission prompt the user answers, and provider pages weren't opened.
+
+### Play with sound when the browser refuses (2026-11-24)
+
+User report: with "Post opened directly: Play with sound", videos (Reddit's own, embeds, YouTube) played but stayed muted.
+
+Browsers allow sound only after the reader has interacted with the page. A post opened in a new tab, from a typed address or from a link on another site has had no click yet. Chrome's exception is sites with high media engagement. The extension can't grant that permission.
+
+Already before this change, a refused start fell back to muted playback, and the first click or key press away from the player turned the sound on. Nothing on screen said so, though, and a click on the player itself counted as taking over, so it never brought the sound.
+
+Now a refused start shows a **Turn on sound** button on the player, as YouTube does. Its click is the interaction that turns the sound on (it fades in), and any other click or key press away from the player still works. The button follows the player as you scroll. It goes away when the sound comes on, when you use the player's own controls, or when you leave the post. It never shows for "Play muted".
+
+Live check: in the Playwright test browser the page counts as already interacted with, so sound starts directly and the refusal can't be reproduced there. The refused path is covered by unit tests that model Chrome's rule (unmuting without an interaction pauses the video).

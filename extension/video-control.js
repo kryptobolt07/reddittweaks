@@ -308,7 +308,7 @@
     if(!embed || !link || !this.blockEmbedLinks(!this.isDetailEmbed(embed)))return;
     if(/^https?:/.test(link.href) && new URL(link.href).origin!==this.win.location.origin){event.preventDefault();event.stopImmediatePropagation();}
    };
-   this.onRoute=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.win.setTimeout(()=>this.directPlayer(),0);this.queueLeftBehind();};
+   this.onRoute=()=>{this.hideSoundPrompt();this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.win.setTimeout(()=>this.directPlayer(),0);this.queueLeftBehind();};
    this.onBack=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.clearHandoff();this.clearEmbedHandoff();this.directPlayer();};
    this.onMiniDismissed=event=>{
     const node=event.target;
@@ -2042,7 +2042,7 @@
   directManaged(video){const state=this.direct;return Boolean(state && !state.ended && state.mode!=='paused' && state.video===video);}
   endDirect(){
    const state=this.direct;if(!state || state.ended)return;
-   state.ended=true;this.win.clearTimeout(state.prepareTimer);
+   state.ended=true;this.win.clearTimeout(state.prepareTimer);this.hideSoundPrompt(state.player);
   }
   applyDirect(){
    const player=this.directPlayer();
@@ -2117,6 +2117,32 @@
    const {player,video}=state;
    video.muted=true;
    if(video.paused)this.play(player,video)?.catch?.(()=>{});
+   if(state.mode==='sound')this.showSoundPrompt(player);
+  }
+  // Browsers refuse sound until the reader has interacted with the page (a new tab, a typed address, a link from another
+  // site). Play with sound then plays muted, and says so the way YouTube does: a button on the player. Its click (like
+  // any click or key away from the player) is the interaction that lets the sound on (directGesture).
+  showSoundPrompt(target){
+   this.hideSoundPrompt();
+   const doc=this.doc,win=this.win,button=doc.createElement('button');
+   button.type='button';button.dataset.rtUi='direct-sound';button.setAttribute('aria-label','Turn on sound');
+   button.innerHTML='<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9.2 3.2 5.3 6.6H2.6a.9.9 0 0 0-.9.9v5a.9.9 0 0 0 .9.9h2.7l3.9 3.4a.9.9 0 0 0 1.5-.7V3.9a.9.9 0 0 0-1.5-.7Zm9 4.1-1.3-1.3-2.1 2.2-2.1-2.2-1.3 1.3 2.1 2.2-2.1 2.1 1.3 1.3 2.1-2.1 2.1 2.1 1.3-1.3-2.1-2.1 2.1-2.2Z"/></svg><span>Turn on sound</span>';
+   Object.assign(button.style,{position:'fixed',zIndex:'2147482000',display:'inline-flex',alignItems:'center',gap:'6px',height:'32px',padding:'0 12px',border:'0',borderRadius:'999px',
+    background:'rgba(0,0,0,.72)',color:'#fff',font:'600 13px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif',cursor:'pointer',boxShadow:'0 1px 4px rgba(0,0,0,.3)'});
+   const place=()=>{
+    if(!target.isConnected){this.hideSoundPrompt();return;}
+    const box=target.getBoundingClientRect(),shown=box.height>0 && box.bottom>40 && box.top<win.innerHeight-40;
+    button.hidden=!shown;button.style.left=Math.round(box.left+12)+'px';button.style.top=Math.round(Math.max(box.top,0)+12)+'px';
+   };
+   button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.hideSoundPrompt();});
+   win.addEventListener('scroll',place,{passive:true,capture:true});win.addEventListener('resize',place,{passive:true});
+   (doc.body || doc.documentElement).append(button);place();
+   this.soundPrompt={button,target,place};
+  }
+  hideSoundPrompt(target=null){
+   const prompt=this.soundPrompt;if(!prompt || (target && prompt.target!==target))return;
+   this.soundPrompt=null;prompt.button.remove();
+   this.win.removeEventListener('scroll',prompt.place,{capture:true});this.win.removeEventListener('resize',prompt.place);
   }
   directGesture(event,path){
    const state=this.direct;
@@ -2199,6 +2225,7 @@
     embed.dataset.rtStart=String(Number.isFinite(time) && time>=0?time:0);embed.dataset.rtMuted='true';
     embed.dispatchEvent(new this.win.Event('rt-embed-continue',{bubbles:true,cancelable:true}));
    }else if(st.frame?.isConnected){this.command(st.frame,'mute');this.command(st.frame,'play');}
+   if(st.mode==='sound')this.showSoundPrompt(embed);
   }
   directEmbedBlocks(embed,user=false){
    const st=this.directEmbed;
@@ -2221,7 +2248,7 @@
   }
   endDirectEmbed(){
    const st=this.directEmbed;if(!st || st.ended)return;
-   st.ended=true;this.win.clearTimeout(st.trialTimer);
+   st.ended=true;this.win.clearTimeout(st.trialTimer);this.hideSoundPrompt(st.embed);
   }
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
@@ -2468,7 +2495,7 @@
    this.startPreview(best);
   }
   destroy(){
-   for(const timer of this.leftBehindTimers || [])this.win.clearTimeout(timer);this.dead=true;
+   for(const timer of this.leftBehindTimers || [])this.win.clearTimeout(timer);this.hideSoundPrompt();this.dead=true;
    this.deactivate();
    this.doc.documentElement?.removeAttribute?.('data-rt-embed-override');
    this.doc.documentElement?.removeAttribute?.('data-rt-stream-quality');
