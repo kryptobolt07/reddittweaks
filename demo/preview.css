@@ -1,1 +1,336 @@
-:root{--color-neutral-background:#fff;--color-neutral-background-weak:#f2f4f5;--color-neutral-content-strong:#0f1a1c;--color-neutral-content-weak:#576f76;--color-neutral-border-weak:#e5e8eb;--color-neutral-background-hover:#e8edef;--color-primary-background:#000;--color-brand-background:#d93900;color-scheme:light}.dark{--color-neutral-background:#0e1113;--color-neutral-background-weak:#181c1f;--color-neutral-content-strong:#eef1f3;--color-neutral-content-weak:#a0b0b5;--color-neutral-border-weak:#30383c;--color-neutral-background-hover:#2a3236;color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:var(--color-neutral-background-weak);color:var(--color-neutral-content-strong);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.preview-nav{height:64px;display:flex;justify-content:space-between;align-items:center;padding:0 30px;background:var(--color-neutral-background);border-bottom:1px solid var(--color-neutral-border-weak)}.preview-nav>div{display:flex;align-items:center;gap:20px}.brand{color:#ff4500;font-size:29px;font-weight:800;letter-spacing:-1px}.preview-label{font-size:12px;color:var(--color-neutral-content-weak)}.tools{gap:5px!important}.tools button{border:0;border-radius:20px;padding:8px 13px;color:var(--color-neutral-content-weak);background:transparent;font:12px sans-serif;cursor:pointer}.tools button[aria-pressed=true]{color:var(--color-neutral-content-strong);background:var(--color-neutral-background-weak)}.page{padding:45px 7vw}.community{font-size:12px;color:var(--color-neutral-content-weak);font-weight:600}.feed{max-width:560px}h1{font-size:42px;line-height:1.2;letter-spacing:-1.5px;margin:22px 0 18px}.feed p{font-size:15px;color:var(--color-neutral-content-weak);max-width:400px}.post{margin-top:42px;padding:24px;border:1px solid var(--color-neutral-border-weak);border-radius:16px;background:var(--color-neutral-background)}h2{font-size:20px;font-weight:600}.fake-lines i{display:block;height:12px;border-radius:6px;background:var(--color-neutral-background-weak);margin:12px 0}.fake-lines i:nth-child(2){width:85%}.fake-lines i:nth-child(3){width:65%}.full-shell{position:absolute;top:100px;left:6vw;right:6vw;height:calc(100vh - 165px);min-height:400px;box-shadow:0 8px 40px #0000000d;z-index:2;background:var(--color-neutral-background);border:1px solid var(--color-neutral-border-weak);border-radius:12px;overflow:hidden}.full-shell>rs-app{height:100%}.compact-shell{position:fixed;bottom:0;right:30px;width:660px;height:506px;z-index:2;box-shadow:0 3px 32px #00000022}.compact-shell.is-minimized{width:130px;height:44px}.caption{position:fixed;bottom:14px;left:0;right:0;text-align:center;color:var(--color-neutral-content-weak);font-size:11px;margin:0}@media(max-width:760px){.preview-nav{padding:0 12px}.preview-label{display:none}.tools button{padding:8px}.compact-shell{width:calc(100vw - 24px);right:12px}.full-shell{left:12px;right:12px}.page{padding:30px}h1{font-size:34px}}
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  --font-10: normal 400 0.625rem/1rem var(--font-sans);
+  --font-12: normal 400 0.75rem/1rem var(--font-sans);
+  --font-14: normal 400 0.875rem/1.25rem var(--font-sans);
+  --font-16: normal 400 1rem/1.25rem var(--font-sans);
+  --font-18: normal 400 1.125rem/1.5rem var(--font-sans);
+  --spacer-4xs: 0.125rem;
+  --spacer-2xs: 0.25rem;
+  --spacer-xs: 0.5rem;
+  --spacer-sm: 0.75rem;
+  --spacer-md: 1rem;
+  --spacer-lg: 1.5rem;
+  --size-xs: 0.5rem;
+  --size-sm: 0.75rem;
+  --size-md: 1rem;
+  --size-lg: 1.5rem;
+  --size-xl: 2rem;
+  --size-2xl: 3rem;
+  --rem2: 0.125rem;
+  --rem4: 0.25rem;
+  --rem8: 0.5rem;
+  --rem10: 0.625rem;
+  --rem12: 0.75rem;
+  --rem14: 0.875rem;
+  --rem16: 1rem;
+  --rem20: 1.25rem;
+  --rem32: 2rem;
+  --rem48: 3rem;
+
+  /* Official Reddit Light theme tokens (theme-beta) */
+  --color-neutral-background: #ffffff;
+  --color-neutral-background-strong: #ffffff;
+  --color-neutral-background-weak: #f6f8f9;
+  --color-neutral-background-medium: #f8f8f8;
+  --color-neutral-background-hover: #f6f8f9;
+  --color-neutral-background-selected: #e5ebee;
+  --color-neutral-background-container: #f6f8f9;
+  --color-neutral-content: #333d42;
+  --color-neutral-content-strong: #181c1f;
+  --color-neutral-content-weak: #5c6c74;
+  --color-neutral-content-disabled: #d6d6d6;
+  --color-neutral-border: #00000033;
+  --color-neutral-border-weak: #00000019;
+  --color-neutral-border-medium: #0000007f;
+  --color-secondary-background: #e5ebee;
+  --color-secondary-background-hover: #dbe4e9;
+  --color-secondary-background-selected: #c9d7de;
+  --color-secondary-plain: #181c1f;
+  --color-secondary-plain-weak: #5c6c74;
+  --color-secondary-plain-hover: #000000;
+  --color-button-plain-background-hover: #dbe4e9;
+  --color-button-primary-text-disabled: #acacac;
+  --color-primary: #115bca;
+  --color-primary-background: #000000;
+  --color-primary-background-weak: #e9f3f8;
+  --color-brand-background: #d93900;
+  --color-global-brand-orangered: #ff4500;
+  --color-success-plain: #016e0b;
+  --color-tone-1: #131313;
+  --color-tone-2: #434343;
+  --color-tone-3: #acacac;
+  --color-tone-4: #e4e4e4;
+  --color-tone-5: #f2f2f2;
+  --color-tone-6: #f8f8f8;
+  --color-tone-7: #ffffff;
+  --color-a-default: #0045ac;
+  --color-input-text: #131313;
+  --boxshadow-tooltip: 0 2px 8px rgba(0, 0, 0, 0.16), 0 0 1px rgba(0, 0, 0, 0.12);
+  color-scheme: light;
+}
+
+.dark {
+  /* Official Reddit Dark theme tokens (theme-dark.theme-beta) */
+  --color-neutral-background: #0e1113;
+  --color-neutral-background-strong: #181c1f;
+  --color-neutral-background-weak: #000000;
+  --color-neutral-background-medium: #131313;
+  --color-neutral-background-hover: #181c1f;
+  --color-neutral-background-selected: #2a3236;
+  --color-neutral-background-container: #181c1f;
+  --color-neutral-content: #b7cad4;
+  --color-neutral-content-strong: #eef1f3;
+  --color-neutral-content-weak: #8ba2ad;
+  --color-neutral-content-disabled: #303030;
+  --color-neutral-border: #ffffff33;
+  --color-neutral-border-weak: #ffffff19;
+  --color-neutral-border-medium: #ffffff7f;
+  --color-secondary-background: #2a3236;
+  --color-secondary-background-hover: #333d42;
+  --color-secondary-background-selected: #3d494e;
+  --color-secondary-plain: #dbe4e9;
+  --color-secondary-plain-weak: #8ba2ad;
+  --color-secondary-plain-hover: #ffffff;
+  --color-button-plain-background-hover: #2a3236;
+  --color-button-primary-text-disabled: #434343;
+  --color-primary: #648efc;
+  --color-primary-background: #eef1f3;
+  --color-primary-background-weak: #233e4a;
+  --color-brand-background: #d93900;
+  --color-global-brand-orangered: #ff4500;
+  --color-success-plain: #00c61c;
+  --color-tone-1: #f2f2f2;
+  --color-tone-2: #acacac;
+  --color-tone-3: #434343;
+  --color-tone-4: #303030;
+  --color-tone-5: #1e1e1e;
+  --color-tone-6: #131313;
+  --color-tone-7: #080808;
+  --color-a-default: #648efc;
+  --color-input-text: #f2f2f2;
+  --boxshadow-tooltip: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.14);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--color-neutral-background);
+  color: var(--color-neutral-content);
+  font: var(--font-14);
+}
+
+body.mode-full {
+  overflow: hidden;
+}
+
+/* Full-screen Reddit Chat (1:1 https://www.reddit.com/chat) */
+.full-shell {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  z-index: 2;
+  background: var(--color-tone-7);
+  overflow: hidden;
+}
+
+.full-shell > rs-app {
+  width: 100%;
+  height: 100%;
+}
+
+/* Floating chat drawer on Reddit feed page */
+.compact-shell {
+  position: fixed;
+  bottom: 0;
+  right: 24px;
+  width: 660px;
+  height: 506px;
+  z-index: 10;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.22);
+  border-radius: 16px 16px 0 0;
+}
+
+.compact-shell.is-minimized {
+  width: 136px;
+  height: 44px;
+}
+
+/* Reddit feed backdrop (visible only in Floating chat mode) */
+.reddit-backdrop {
+  min-height: 100dvh;
+  background: var(--color-neutral-background);
+}
+
+body.mode-full .reddit-backdrop {
+  display: none;
+}
+
+.reddit-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+  background: var(--color-neutral-background);
+  border-bottom: 1px solid var(--color-neutral-border-weak);
+}
+
+.reddit-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--color-global-brand-orangered);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.6px;
+}
+
+.reddit-search-pill {
+  flex: 1;
+  max-width: 560px;
+  height: 40px;
+  margin: 0 auto;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--color-secondary-background);
+  color: var(--color-neutral-content-weak);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  user-select: none;
+}
+
+.reddit-feed-wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 24px 80px;
+}
+
+.feed-post {
+  padding: 16px;
+  border-radius: 16px;
+  border-bottom: 1px solid var(--color-neutral-border-weak);
+}
+
+.feed-post:hover {
+  background: var(--color-neutral-background-hover);
+}
+
+.feed-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-neutral-content-weak);
+  margin-bottom: 6px;
+}
+
+.feed-meta strong {
+  color: var(--color-neutral-content-strong);
+  font-weight: 700;
+}
+
+.feed-sub-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-secondary-background);
+  display: inline-grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-neutral-content-strong);
+}
+
+.feed-post h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
+  color: var(--color-neutral-content-strong);
+}
+
+.feed-post p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-neutral-content);
+}
+
+.feed-pills {
+  display: flex;
+  gap: 8px;
+}
+
+.feed-pills span {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--color-secondary-background);
+  color: var(--color-secondary-plain);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Unobtrusive demo switcher pill */
+.demo-controls {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--color-neutral-background-strong);
+  border: 1px solid var(--color-neutral-border-weak);
+  box-shadow: var(--boxshadow-tooltip);
+}
+
+.demo-controls button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--color-neutral-content-weak);
+  font: 600 11px/16px var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.demo-controls button:hover {
+  color: var(--color-neutral-content-strong);
+  background: var(--color-neutral-background-hover);
+}
+
+.demo-controls button[aria-pressed="true"] {
+  color: var(--color-neutral-content-strong);
+  background: var(--color-secondary-background);
+}
+
+@media (max-width: 760px) {
+  .compact-shell {
+    width: calc(100vw - 16px);
+    right: 8px;
+  }
+  .reddit-search-pill {
+    display: none;
+  }
+}

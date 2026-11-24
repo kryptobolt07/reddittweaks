@@ -1,3 +1,80 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reddit Chat Search · Local preview</title><link rel="stylesheet" href="preview.css"><link rel="stylesheet" href="../extension/post-discovery.css"></head>
-<body><nav class="preview-nav"><div><span class="brand">reddit</span><span class="preview-label">Chat Search · local preview</span></div><div class="tools"><button id="full" aria-pressed="true">Full chat</button><button id="compact" aria-pressed="false">Floating chat</button><button id="theme" aria-pressed="false">Dark mode</button></div></nav><main class="page"><section class="feed"><span class="community">r/design</span><h1>A little less scrolling.<br>A little more finding.</h1><p>Search your conversations and messages, right where you chat.</p><div class="post"><span class="community">r/casualconversation · 2 hr. ago</span><h2>What have you been working on lately?</h2><div class="fake-lines"><i></i><i></i><i></i></div></div></section></main><div id="shell"></div><p class="caption">Demo data only. Use “Messages” to search saved messages. Search “river” under People or “archive” inside a chat to load more history.</p><script src="fixture.js"></script><script src="preview.js"></script><script src="../extension/directory-model.js"></script><script src="../extension/history-store.js"></script><script src="../extension/native-identities.js"></script><script src="../extension/page-bridge.js"></script><script src="../extension/search-core.js"></script><script src="../extension/adapter.js"></script><script src="../extension/data-client.js"></script><script src="../extension/directory-store.js"></script><script src="../extension/message-store.js"></script><script src="../extension/message-cache-client.js"></script><script src="../extension/native-labels.js"></script><script src="../extension/date-picker.js"></script><script src="../extension/global-search-model.js"></script><script src="../extension/media-preview.js"></script><script src="../extension/unified-search-styles.js"></script><script src="../extension/feed-sheet.js"></script><script src="../extension/chat-filter-rail.js"></script><script src="../extension/unified-search.js"></script><script src="../extension/content.js"></script></body></html>
+<html lang="en" class="theme-beta">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Reddit Chat</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 216 216'%3E%3Cpath fill='%23ff4500' d='M108 0C48.35 0 0 48.35 0 108c0 29.82 12.09 56.82 31.63 76.37L11.06 204.94c-4.08 4.08-1.19 11.06 4.58 11.06H108c59.65 0 108-48.35 108-108S167.65 0 108 0Z'/%3E%3Ccircle fill='%23fff' cx='169' cy='107' r='25'/%3E%3Ccircle fill='%23fff' cx='47' cy='107' r='25'/%3E%3Cellipse fill='%23fff' cx='108' cy='129' rx='72' ry='54'/%3E%3Ccircle fill='%23ff4500' cx='74' cy='122' r='13'/%3E%3Ccircle fill='%23ff4500' cx='142' cy='122' r='13'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="preview.css">
+  <link rel="stylesheet" href="../extension/post-discovery.css">
+</head>
+<body class="mode-full">
+  <div class="reddit-backdrop" aria-hidden="true">
+    <header class="reddit-header">
+      <a class="reddit-brand" href="#home" tabindex="-1">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 216 216" aria-hidden="true">
+          <path fill="#ff4500" d="m108,0h0C48.35,0,0,48.35,0,108h0c0,29.82,12.09,56.82,31.63,76.37l-20.57,20.57c-4.08,4.08-1.19,11.06,4.58,11.06h92.36c59.65,0,108-48.35,108-108h0C216,48.35,167.65,0,108,0Z"/>
+          <circle fill="#fff" cx="169.22" cy="106.98" r="25.22"/>
+          <circle fill="#fff" cx="46.78" cy="106.98" r="25.22"/>
+          <ellipse fill="#fff" cx="108.06" cy="128.64" rx="72" ry="54"/>
+          <circle fill="#ff4500" cx="74" cy="122" r="13"/>
+          <circle fill="#ff4500" cx="142" cy="122" r="13"/>
+          <path fill="#172e35" d="m108.06,142.92c-8.76,0-17.16.43-24.92,1.22-1.33.13-2.17,1.51-1.65,2.74,4.35,10.39,14.61,17.69,26.57,17.69s22.23-7.3,26.57-17.69c.52-1.23-.33-2.61-1.65-2.74-7.77-.79-16.16-1.22-24.92-1.22Z"/>
+          <circle fill="#fff" cx="147.49" cy="49.43" r="17.87"/>
+          <path fill="#172e35" d="m107.8,76.92c-2.14,0-3.87-.89-3.87-2.27,0-16.01,13.03-29.04,29.04-29.04,2.14,0,3.87,1.73,3.87,3.87s-1.73,3.87-3.87,3.87c-11.74,0-21.29,9.55-21.29,21.29,0,1.38-1.73,2.27-3.87,2.27Z"/>
+        </svg>
+        <span>reddit</span>
+      </a>
+      <div class="reddit-search-pill">
+        <svg fill="currentColor" width="16" height="16" viewBox="0 0 20 20"><path d="M18.736 17.464l-3.483-3.483A7.961 7.961 0 0017 9a8 8 0 10-8 8 7.961 7.961 0 004.981-1.747l3.483 3.483a.9.9 0 101.272-1.272ZM2.8 9a6.2 6.2 0 1112.4 0A6.2 6.2 0 012.8 9Z"/></svg>
+        <span>Search Reddit</span>
+      </div>
+    </header>
+    <main class="reddit-feed-wrap">
+      <article class="feed-post">
+        <div class="feed-meta"><span class="feed-sub-dot">r/</span><strong>r/design</strong><span>·</span><span>2 hr. ago</span></div>
+        <h2>What small UI details make chat apps feel fast and calm?</h2>
+        <p>Comparing compact spacing, clear unread dividers, and instant search inside conversations. Demo page backdrop for Floating chat mode.</p>
+        <div class="feed-pills"><span>⇧ 412 ⇩</span><span>💬 68</span><span>Share</span></div>
+      </article>
+      <article class="feed-post">
+        <div class="feed-meta"><span class="feed-sub-dot">r/</span><strong>r/casualconversation</strong><span>·</span><span>5 hr. ago</span></div>
+        <h2>What have you been working on lately?</h2>
+        <p>Sharing weekend projects, reading lists, and favorite neighborhood coffee spots.</p>
+        <div class="feed-pills"><span>⇧ 189 ⇩</span><span>💬 44</span><span>Share</span></div>
+      </article>
+    </main>
+  </div>
+
+  <reddit-chat-host id="shell"></reddit-chat-host>
+
+  <div class="demo-controls" role="toolbar" aria-label="Demo view controls">
+    <button id="full" type="button" aria-pressed="true">Full chat</button>
+    <button id="compact" type="button" aria-pressed="false">Floating</button>
+    <button id="theme" type="button" aria-pressed="false">Dark</button>
+  </div>
+
+  <script src="fixture.js"></script>
+  <script src="preview.js"></script>
+  <script src="../extension/directory-model.js"></script>
+  <script src="../extension/history-store.js"></script>
+  <script src="../extension/native-identities.js"></script>
+  <script src="../extension/page-bridge.js"></script>
+  <script src="../extension/search-core.js"></script>
+  <script src="../extension/adapter.js"></script>
+  <script src="../extension/data-client.js"></script>
+  <script src="../extension/directory-store.js"></script>
+  <script src="../extension/message-store.js"></script>
+  <script src="../extension/message-cache-client.js"></script>
+  <script src="../extension/room-header-actions.js"></script>
+  <script src="../extension/native-labels.js"></script>
+  <script src="../extension/date-picker.js"></script>
+  <script src="../extension/global-search-model.js"></script>
+  <script src="../extension/media-preview.js"></script>
+  <script src="../extension/unified-search-styles.js"></script>
+  <script src="../extension/feed-sheet.js"></script>
+  <script src="../extension/chat-filter-rail.js"></script>
+  <script src="../extension/unified-search.js"></script>
+  <script src="../extension/content.js"></script>
+</body>
+</html>
