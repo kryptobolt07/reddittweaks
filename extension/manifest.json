@@ -102,7 +102,8 @@
         "profile-search.css",
         "subreddit-archive.css",
         "download-media.css",
-        "visual-search.css"
+        "visual-search.css",
+        "comment-ergonomics.css"
       ]
     },
     {
@@ -136,6 +137,8 @@
         "own-removal.js",
         "viewed-history.js",
         "smooth-scroll.js",
+        "comment-ergonomics-model.js",
+        "comment-ergonomics.js",
         "embed-player-hosts.js",
         "video-control.js",
         "visual-search-model.js",

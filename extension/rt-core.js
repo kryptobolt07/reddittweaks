@@ -319,10 +319,16 @@
   function unbindRouteEventsIfIdle() {
     if (routeSubscribers.size || !routeEventsBound) return;
     routeEventsBound = false;
-    window.navigation?.removeEventListener?.('currententrychange', onNavEvent);
-    window.removeEventListener('popstate', onPopState);
-    window.removeEventListener('pageshow', onPageShow);
-    document.removeEventListener('reddit:route', onRedditRoute);
+    try {
+      if (typeof window !== 'undefined') {
+        window?.navigation?.removeEventListener?.('currententrychange', onNavEvent);
+        window?.removeEventListener?.('popstate', onPopState);
+        window?.removeEventListener?.('pageshow', onPageShow);
+      }
+      if (typeof document !== 'undefined') {
+        document?.removeEventListener?.('reddit:route', onRedditRoute);
+      }
+    } catch {}
     teardownRootObserverIfIdle();
   }
 

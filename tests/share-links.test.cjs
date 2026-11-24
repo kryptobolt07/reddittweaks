@@ -62,3 +62,27 @@ test('a later native clipboard integration still receives clean URLs and retains
  const result=W.navigator.clipboard.writeText('https://www.reddit.com/r/example/s/opaque?share_id=token');assert.equal(result,feedback);await result;assert.deepEqual(writes,['https://www.reddit.com/r/example/comments/abc12/title/']);
  W.document.querySelector('button').click();await W.navigator.clipboard.writeText('https://www.reddit.com/r/example/s/second');assert.equal(writes.length,2,'repeated Share gestures do not duplicate writes');
 });
+
+test('stopAutoTranslation rewrites clicked links carrying ?tl= and strips ?tl= loop-free on current URL',async t=>{
+ const W=new JSDOM('<!doctype html><body><a id="tl-link" href="https://www.reddit.com/r/pics/comments/xyz/post/?tl=fr&sort=top">Read</a></body>',{url:'https://www.reddit.com/r/example/comments/abc12/title/?tl=es&sort=new',runScripts:'outside-only'}).window;
+ t.after(()=>W.close());
+ W.document.addEventListener('click',e=>e.preventDefault());
+ let receive;
+ W.chrome={runtime:{id:'test',onMessage:{addListener:fn=>receive=fn},sendMessage:async()=>({ok:true,settings:{cleanShareLinks:false,stopAutoTranslation:false}})}};
+ W.eval(fs.readFileSync('extension/post-model.js','utf8'));
+ W.eval(fs.readFileSync('extension/share-links-page.js','utf8'));
+ W.eval(fs.readFileSync('extension/share-links-settings.js','utf8'));
+ await new Promise(r=>setImmediate(r));
+
+ const link=W.document.getElementById('tl-link');
+ link.click();
+ assert.equal(link.href,'https://www.reddit.com/r/pics/comments/xyz/post/?tl=fr&sort=top','untouched when stopAutoTranslation is off');
+
+ // Pre-seed recent reload guard so cleanCurrentUrl falls back to history.replaceState without triggering JSDOM navigation.
+ W.sessionStorage.setItem('rt-tl-reloaded:/r/example/comments/abc12/title/',String(Date.now()));
+ receive({scope:'rt-posts',action:'settings-changed',settings:{cleanShareLinks:false,stopAutoTranslation:true}});
+ assert.equal(W.location.href,'https://www.reddit.com/r/example/comments/abc12/title/?sort=new');
+
+ link.click();
+ assert.equal(link.href,'https://www.reddit.com/r/pics/comments/xyz/post/?sort=top');
+});
