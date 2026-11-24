@@ -285,7 +285,7 @@
 
   const onNavEvent = event => notifyRoute({ navType: event?.navigationType || '' });
   const onPopState = () => notifyRoute({ navType: 'traverse' });
-  const onPageShow = () => notifyRoute({ force: true, navType: 'pageshow' });
+  const onPageShow = event => notifyRoute({ force: Boolean(event?.persisted), navType: 'pageshow' });
   const onRedditRoute = () => notifyRoute({ force: true, navType: 'reddit' });
 
   function notifyRoute({ force = false, navType = '' } = {}) {

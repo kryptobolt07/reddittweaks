@@ -17,7 +17,10 @@
     const rules = [];
     for (let depth = 0; depth < 16; depth++) {
       const color = palette[depth % palette.length];
-      rules.push(`shreddit-comment[depth="${depth}"]{--color-tone-4:${color};--rt-threadline-color:${color};}`);
+      rules.push(
+        `shreddit-comment[depth="${depth}"] > details > .comment-main-grid{--thread-color:${color};--rt-threadline-color:${color};}\n` +
+        `shreddit-comment[depth="${depth}"]:not(:has(> details)){--color-tone-4:${color};--thread-color:${color};--rt-threadline-color:${color};}`
+      );
     }
     return rules.join('\n');
   }

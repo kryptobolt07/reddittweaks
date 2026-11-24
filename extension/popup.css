@@ -99,7 +99,7 @@ main{display:flex;flex-direction:column;gap:8px}
 .setting-row.is-conflicted{cursor:pointer}.setting-row.is-conflicted .setting-choice{cursor:pointer}
 .conflict-hint{margin:3px 0 0!important;font-size:10.5px!important;color:var(--muted)}
 .conflict-note{margin-top:4px!important}
-.conflict-link{margin:0;padding:0;border:0;background:none;color:var(--link-text);font:inherit;font-weight:700;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.conflict-link{margin:0;padding:0;border:0;background:none;color:var(--link-text);font:inherit;font-weight:700;text-decoration:underline;text-underline-offset:2px;cursor:pointer;user-select:text;-webkit-user-select:text}
 
 /* Settings search bar */
 .settings-search{position:relative;display:flex;align-items:center}

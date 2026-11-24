@@ -10,9 +10,9 @@
   const PostModel = globalThis.RTPostModel;
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const MIN_MORE_INTERVAL_MS = 900;
-  const MAX_MORE_LOADS_PER_ROUTE = 25;
+  const MAX_MORE_LOADS_PER_ROUTE = 40;
   const MAX_DRAFT_CHARS = 40000;
-  const MORE_BUTTON_TEXT_RE = /^(?:view\s+more\s+comments|load\s+more\s+comments|\d+\s+more\s+repl(?:y|ies)|continue\s+this\s+thread)$/i;
+  const MORE_BUTTON_TEXT_RE = /^(?:view\s+more\s+comments|load\s+more\s+comments|(?:\d+\s+)?more\s+repl(?:y|ies)|continue\s+this\s+thread)$/i;
 
   function effectiveFromRaw(raw) {
     if (PostModel?.effectiveSettings) return PostModel.effectiveSettings(raw);
@@ -97,6 +97,69 @@
     field.dispatchEvent(new win.Event('input', { bubbles: true }));
   }
 
+  function directDetails(comment) {
+    if (!comment) return null;
+    try {
+      const hit = comment.querySelector(':scope > details');
+      if (hit) return hit;
+    } catch {}
+    for (const child of comment.children || []) {
+      if (child.tagName === 'DETAILS') return child;
+    }
+    return null;
+  }
+
+  function isCommentCollapsed(comment) {
+    const details = directDetails(comment);
+    if (details) return !details.open;
+    return Boolean(comment?.hasAttribute?.('collapsed'));
+  }
+
+  function collapseComment(comment) {
+    const details = directDetails(comment);
+    if (details) {
+      const wasOpen = details.open || details.hasAttribute('open');
+      details.open = false;
+      details.removeAttribute('open');
+      return { ok: true, wasOpen };
+    }
+    if (!comment.children?.length && !comment.hasAttribute?.('author')) return { ok: false, wasOpen: false };
+    const wasOpen = !comment.hasAttribute?.('collapsed');
+    try { comment.collapsed = true; } catch {}
+    comment.setAttribute?.('collapsed', '');
+    return { ok: true, wasOpen };
+  }
+
+  function expandComment(comment) {
+    const details = directDetails(comment);
+    if (details) {
+      details.open = true;
+      details.setAttribute('open', '');
+      return;
+    }
+    try { comment.collapsed = false; } catch {}
+    comment.removeAttribute?.('collapsed');
+  }
+
+  function isVisibleMoreButton(btn) {
+    if (!btn || btn.tagName !== 'BUTTON' || btn.disabled || btn.hidden) return false;
+    if (btn.closest?.('[data-rt-ui], [slot="loading"], [slot="error"], .invisible, [hidden], [aria-hidden="true"]')) return false;
+    if (btn.classList?.contains('invisible') || btn.classList?.contains('pointer-events-none')) return false;
+    const aria = (btn.getAttribute('aria-label') || '').trim();
+    if (/^loading$/i.test(aria)) return false;
+    if (btn.closest?.('details:not([open])')) return false;
+    const text = (aria || btn.textContent || '').replace(/\s+/g, ' ').trim();
+    return text.length > 0;
+  }
+
+  function findPartialMoreButton(partial) {
+    if (!partial?.querySelectorAll) return null;
+    for (const btn of partial.querySelectorAll('button')) {
+      if (isVisibleMoreButton(btn)) return btn;
+    }
+    return null;
+  }
+
   class Controller {
     constructor({ win = window, doc = document, readSettings, observe = true } = {}) {
       this.win = win;
@@ -105,19 +168,25 @@
       this.settings = effectiveFromRaw({});
       this.autoModHandled = new WeakSet();
       this.childHandled = new WeakSet();
+      this.childAutoCollapsed = new Set();
       this.composerHandled = new WeakSet();
+      this.composerToolbarOpened = new WeakSet();
+      this.composerTimers = new Set();
       this.moreClicked = new WeakSet();
+      this.morePartialClicked = new WeakSet();
       this.moreWatched = new WeakSet();
+      this.moreObserved = new Set();
       this.moreVisible = new Set();
       this.moreLoadsOnRoute = 0;
       this.lastMoreAt = 0;
       this.moreTimer = 0;
       this.draftTimers = new Map();
+      this.lastRouteKey = (win.location?.pathname || '') + (win.location?.search || '');
       this.pill = null;
       this.unsubs = [];
 
       this.moreIo = typeof win.IntersectionObserver === 'function'
-        ? new win.IntersectionObserver(entries => this.onMoreIntersect(entries), { rootMargin: '250px 0px' })
+        ? new win.IntersectionObserver(entries => this.onMoreIntersect(entries), { rootMargin: '400px 0px' })
         : null;
 
       this.onScroll = () => this.syncPillVisibility();
@@ -125,6 +194,7 @@
       this.onKeyDown = event => this.handleShortcut(event);
       this.onRouteChange = () => this.onRoute();
       this.onVisibility = () => { if (!this.doc.hidden) this.pumpMoreLoader(); };
+      this.onDetailsToggle = event => this.handleDetailsToggle(event);
 
       win.addEventListener('scroll', this.onScroll, { passive: true });
       doc.addEventListener('focusin', this.onFocusChange, true);
@@ -132,6 +202,7 @@
       doc.addEventListener('fullscreenchange', this.onFocusChange);
       doc.addEventListener('keydown', this.onKeyDown);
       doc.addEventListener('visibilitychange', this.onVisibility);
+      doc.addEventListener('toggle', this.onDetailsToggle, true);
 
       if (globalThis.RTCore?.routes && doc === document) {
         this.unsubs.push(globalThis.RTCore.routes.subscribe(this.onRouteChange));
@@ -162,21 +233,49 @@
 
     configure(raw) {
       if (this.dead) return this.settings;
+      const prev = this.settings;
       const next = effectiveFromRaw(raw || {});
       this.settings = next;
+
+      if (prev.collapseChildComments && !next.collapseChildComments) {
+        for (const comment of this.childAutoCollapsed) {
+          if (comment?.isConnected) expandComment(comment);
+        }
+        this.childAutoCollapsed.clear();
+        this.childHandled = new WeakSet();
+      }
+      if (prev.collapseAutoMod && !next.collapseAutoMod) {
+        this.autoModHandled = new WeakSet();
+      }
+      if (!next.autoLoadMoreComments) {
+        clearTimeout(this.moreTimer);
+        this.moreTimer = 0;
+        this.moreVisible.clear();
+      }
+
       this.applyThreadlines();
       this.syncPill();
       this.scanDocument();
+      if (next.autoLoadMoreComments) {
+        this.refreshVisibleMoreButtons();
+        this.pumpMoreLoader();
+      }
       return next;
     }
 
     onRoute() {
       if (this.dead) return;
-      this.moreLoadsOnRoute = 0;
-      this.lastMoreAt = 0;
-      clearTimeout(this.moreTimer);
-      this.moreTimer = 0;
-      this.moreVisible.clear();
+      const nextKey = (this.win.location?.pathname || '') + (this.win.location?.search || '');
+      if (nextKey !== this.lastRouteKey) {
+        this.lastRouteKey = nextKey;
+        this.moreLoadsOnRoute = 0;
+        this.lastMoreAt = 0;
+        clearTimeout(this.moreTimer);
+        this.moreTimer = 0;
+        this.moreVisible.clear();
+        this.moreObserved.clear();
+        this.childAutoCollapsed.clear();
+      }
       this.syncPill();
       this.scanDocument();
     }
@@ -319,6 +418,20 @@
       if (this.performJump(action)) event.preventDefault();
     }
 
+    handleDetailsToggle(event) {
+      if (this.dead) return;
+      const details = event?.target;
+      if (!details || details.tagName !== 'DETAILS') return;
+      const comment = details.parentElement;
+      if (!details.open) return;
+      if (comment?.tagName === 'SHREDDIT-COMMENT') this.childAutoCollapsed.delete(comment);
+      if (this.settings.autoLoadMoreComments) {
+        this.scanNodes([details]);
+        this.refreshVisibleMoreButtons();
+        this.pumpMoreLoader();
+      }
+    }
+
     scanDocument() {
       this.scanNodes([this.doc]);
     }
@@ -345,14 +458,35 @@
       };
 
       if (checkAutoMod) {
-        for (const comment of collect('shreddit-comment[depth="0"]')) this.maybeCollapseAutoMod(comment, permalinkCid);
+        const amComments = collect('shreddit-comment[depth="0"]');
+        for (const root of roots) {
+          if (root?.tagName === 'DETAILS' && root.parentElement?.matches?.('shreddit-comment[depth="0"]')) {
+            amComments.add(root.parentElement);
+          }
+        }
+        for (const comment of amComments) this.maybeCollapseAutoMod(comment, permalinkCid);
       }
       if (checkChild) {
-        for (const comment of collect('shreddit-comment[depth="1"]')) this.maybeCollapseChild(comment);
+        const children = collect('shreddit-comment[depth="1"]');
+        for (const root of roots) {
+          if (root?.tagName === 'DETAILS' && root.parentElement?.matches?.('shreddit-comment[depth="1"]')) {
+            children.add(root.parentElement);
+          }
+        }
+        for (const comment of children) this.maybeCollapseChild(comment);
       }
       if (checkMore) {
-        for (const btn of collect('faceplate-partial[src*="more-comments"] button, shreddit-comment-tree button, button[rpl][aria-label*="more" i]')) {
-          this.maybeWatchMoreButton(btn);
+        const partials = collect('faceplate-partial[src*="more-comments"]');
+        for (const root of roots) {
+          const enc = root?.closest?.('faceplate-partial[src*="more-comments"]');
+          if (enc) partials.add(enc);
+        }
+        for (const partial of partials) {
+          const btn = findPartialMoreButton(partial);
+          if (btn) this.maybeWatchMoreButton(btn);
+        }
+        for (const btn of collect('shreddit-comment-tree button, button[rpl][aria-label*="more" i]')) {
+          if (!btn.closest?.('faceplate-partial[src*="more-comments"]')) this.maybeWatchMoreButton(btn);
         }
       }
       if (checkComposer) {
@@ -362,20 +496,16 @@
       }
     }
 
-    collapseCommentElement(comment) {
-      try { comment.collapsed = true; } catch {}
-      comment.setAttribute('collapsed', '');
-    }
-
     maybeCollapseAutoMod(comment, permalinkCid) {
       if (this.autoModHandled.has(comment) || !Model?.isAutoModOrPinnedBot(comment)) return;
       const thingId = String(comment.getAttribute('thingid') || comment.id || '').toLowerCase().replace(/^t1_/, '');
       if (permalinkCid && thingId === permalinkCid) return;
 
-      this.autoModHandled.add(comment);
       const body = comment.querySelector('[slot="comment"], [slot="comment-body"], .md, p');
       const snippet = Model.previewSnippet(body?.textContent || '', 60);
-      this.collapseCommentElement(comment);
+      const res = collapseComment(comment);
+      if (!res.ok) return;
+      this.autoModHandled.add(comment);
 
       if (snippet && !comment.querySelector('[data-rt-automod-preview]')) {
         const span = this.doc.createElement('span');
@@ -385,22 +515,32 @@
         const meta = comment.querySelector('[slot="commentMeta"], [slot="comment-header"]');
         if (meta) meta.append(span);
         else if (body) body.before(span);
-        comment.addEventListener('click', () => {
-          setTimeout(() => {
-            if (!comment.hasAttribute('collapsed')) span.remove();
-          }, 0);
-        });
+
+        const details = directDetails(comment);
+        if (details) {
+          details.addEventListener('toggle', () => {
+            if (details.open) span.remove();
+          });
+        } else {
+          comment.addEventListener('click', () => {
+            setTimeout(() => {
+              if (!isCommentCollapsed(comment)) span.remove();
+            }, 0);
+          });
+        }
       }
     }
 
     maybeCollapseChild(comment) {
       if (this.childHandled.has(comment)) return;
+      const res = collapseComment(comment);
+      if (!res.ok) return;
       this.childHandled.add(comment);
-      this.collapseCommentElement(comment);
+      if (res.wasOpen) this.childAutoCollapsed.add(comment);
     }
 
     isMoreButton(btn) {
-      if (!btn || btn.disabled || btn.closest?.('[data-rt-ui]')) return false;
+      if (!isVisibleMoreButton(btn)) return false;
       if (btn.closest?.('faceplate-partial[src*="more-comments"]')) return true;
       const text = (btn.getAttribute('aria-label') || btn.textContent || '').replace(/\s+/g, ' ').trim();
       return MORE_BUTTON_TEXT_RE.test(text);
@@ -408,20 +548,47 @@
 
     isAllowedMoreButton(btn) {
       if (!this.isMoreButton(btn) || !btn.isConnected || this.moreClicked.has(btn)) return false;
+      const partial = btn.closest?.('faceplate-partial[src*="more-comments"]');
+      if (partial && this.morePartialClicked.has(partial)) return false;
       if (this.settings.collapseChildComments) {
         const insideComment = Boolean(btn.closest?.('shreddit-comment'));
-        const partialSrc = btn.closest?.('faceplate-partial[src*="more-comments"]')?.getAttribute('src') || '';
+        const partialSrc = partial?.getAttribute('src') || '';
         const isTop = /(?:^|[?&])top-level=1(?:&|$)/.test(partialSrc);
         if (insideComment && !isTop) return false;
       }
       return true;
     }
 
+    isNearViewport(btn) {
+      if (!btn?.isConnected || !isVisibleMoreButton(btn)) return false;
+      const rect = btn.getBoundingClientRect?.();
+      if (!rect || (rect.width <= 0 && rect.height <= 0)) return false;
+      const vh = this.win.innerHeight || this.doc.documentElement?.clientHeight || 900;
+      return rect.top <= vh + 400 && rect.bottom >= -400;
+    }
+
+    refreshVisibleMoreButtons() {
+      for (const btn of this.moreObserved) {
+        if (!btn.isConnected || this.moreClicked.has(btn)) {
+          this.moreObserved.delete(btn);
+          this.moreVisible.delete(btn);
+          continue;
+        }
+        if (this.isNearViewport(btn)) this.moreVisible.add(btn);
+      }
+    }
+
     maybeWatchMoreButton(btn) {
       if (this.moreWatched.has(btn) || !this.isMoreButton(btn)) return;
       this.moreWatched.add(btn);
-      if (this.moreIo) this.moreIo.observe(btn);
-      else {
+      this.moreObserved.add(btn);
+      if (this.moreIo) {
+        this.moreIo.observe(btn);
+        if (this.isNearViewport(btn)) {
+          this.moreVisible.add(btn);
+          this.pumpMoreLoader();
+        }
+      } else {
         this.moreVisible.add(btn);
         this.pumpMoreLoader();
       }
@@ -441,7 +608,11 @@
 
       let candidate = null;
       for (const btn of this.moreVisible) {
-        if (!btn.isConnected) { this.moreVisible.delete(btn); continue; }
+        if (!btn.isConnected || this.moreClicked.has(btn)) {
+          this.moreVisible.delete(btn);
+          this.moreObserved.delete(btn);
+          continue;
+        }
         if (this.isAllowedMoreButton(btn)) { candidate = btn; break; }
       }
       if (!candidate) return;
@@ -458,7 +629,11 @@
         return;
       }
 
+      const partial = candidate.closest?.('faceplate-partial[src*="more-comments"]');
+      if (partial) this.morePartialClicked.add(partial);
       this.moreVisible.delete(candidate);
+      this.moreObserved.delete(candidate);
+      this.moreIo?.unobserve?.(candidate);
       this.moreClicked.add(candidate);
       this.moreLoadsOnRoute++;
       this.lastMoreAt = now;
@@ -476,12 +651,32 @@
       if (this.composerHandled.has(composer)) return;
       this.composerHandled.add(composer);
 
+      let onSubmitHotkey = null;
       const openToolbar = () => {
+        if (!this.settings.betterComposer) return false;
+        let handled = false;
         const toggle = composer.querySelector?.('button[aria-label*="formatting" i][aria-expanded="false"], button[aria-label*="show formatting" i]') ||
           composer.shadowRoot?.querySelector?.('button[aria-label*="formatting" i][aria-expanded="false"], button[aria-label*="show formatting" i]');
-        if (toggle && !toggle.disabled) toggle.click();
+        if (toggle && !toggle.disabled) {
+          toggle.click();
+          handled = true;
+        }
+
+        const rte = composer.shadowRoot?.querySelector?.('reddit-rte');
+        const rteToolbar = rte?.shadowRoot?.querySelector?.('rte-toolbar.toolbar-top-responsive');
+        if (rteToolbar) {
+          handled = true;
+          if (!this.composerToolbarOpened.has(rteToolbar)) {
+            this.composerToolbarOpened.add(rteToolbar);
+            rteToolbar.classList?.remove('hidden');
+          }
+        }
+        if (rte?.shadowRoot && onSubmitHotkey && !this.composerToolbarOpened.has(rte.shadowRoot)) {
+          this.composerToolbarOpened.add(rte.shadowRoot);
+          rte.shadowRoot.addEventListener('keydown', onSubmitHotkey, true);
+        }
+        return handled;
       };
-      openToolbar();
 
       const key = (!composer.closest?.('shreddit-comment') && Model?.draftKey(this.win.location.pathname)) || '';
       const field = findComposerField(composer);
@@ -515,7 +710,7 @@
         try { this.win.sessionStorage?.removeItem(key); } catch {}
       };
 
-      const onSubmitHotkey = event => {
+      onSubmitHotkey = event => {
         if (!this.settings.betterComposer) return;
         if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key !== 'Enter') return;
         const submit = findSubmitButton(composer);
@@ -527,6 +722,25 @@
       };
       composer.addEventListener('keydown', onSubmitHotkey, true);
       composer.shadowRoot?.addEventListener('keydown', onSubmitHotkey, true);
+
+      if (!openToolbar() && composer.tagName === 'SHREDDIT-COMPOSER') {
+        try {
+          this.win.customElements?.whenDefined?.('shreddit-composer')?.then(() => { if (!this.dead) openToolbar(); }, () => {});
+          this.win.customElements?.whenDefined?.('reddit-rte')?.then(() => { if (!this.dead) openToolbar(); }, () => {});
+        } catch {}
+        let tries = 0;
+        const scheduleRetry = () => {
+          if (this.dead || !composer.isConnected || !this.settings.betterComposer || tries++ >= 6) return;
+          const id = this.win.setTimeout(() => {
+            this.composerTimers.delete(id);
+            if (!this.dead && composer.isConnected && this.settings.betterComposer && !openToolbar()) scheduleRetry();
+          }, 250);
+          this.composerTimers.add(id);
+        };
+        scheduleRetry();
+      }
+      composer.addEventListener('focusin', openToolbar, true);
+      composer.shadowRoot?.addEventListener('focusin', openToolbar, true);
 
       composer.addEventListener('submit', clearDraft, true);
       composer.addEventListener('click', event => {
@@ -540,7 +754,11 @@
       for (const unsub of this.unsubs.splice(0)) unsub();
       this.mo?.disconnect();
       this.moreIo?.disconnect();
+      this.moreObserved.clear();
+      this.childAutoCollapsed.clear();
       clearTimeout(this.moreTimer);
+      for (const id of this.composerTimers) clearTimeout(id);
+      this.composerTimers.clear();
       for (const t of this.draftTimers.values()) clearTimeout(t);
       this.draftTimers.clear();
       this.win.removeEventListener('scroll', this.onScroll);
@@ -549,6 +767,7 @@
       this.doc.removeEventListener('fullscreenchange', this.onFocusChange);
       this.doc.removeEventListener('keydown', this.onKeyDown);
       this.doc.removeEventListener('visibilitychange', this.onVisibility);
+      this.doc.removeEventListener('toggle', this.onDetailsToggle, true);
       if (!globalThis.RTCore?.routes || this.doc !== document) {
         this.win.removeEventListener('popstate', this.onRouteChange);
         this.doc.removeEventListener('reddit:route', this.onRouteChange);

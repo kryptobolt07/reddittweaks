@@ -187,14 +187,24 @@ test('RTCore.routes fires on navigation API, popstate, reddit:route, and dedupli
   navBus.dispatchEvent(navEv);
   assert.deepEqual(seen, [['/r/pics/comments/abc12/post/', 'push']]);
 
-  // Duplicate URL via popstate without URL change is deduplicated.
+  // Duplicate URL via popstate or non-persisted initial pageshow without URL change is deduplicated.
   W.dispatchEvent(new W.PopStateEvent('popstate'));
+  const psInitial = new W.Event('pageshow');
+  psInitial.persisted = false;
+  W.dispatchEvent(psInitial);
   assert.equal(seen.length, 1);
+
+  // Persisted bfcache pageshow still notifies even on the same URL.
+  const psBfcache = new W.Event('pageshow');
+  psBfcache.persisted = true;
+  W.dispatchEvent(psBfcache);
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1][1], 'pageshow');
 
   // Forced reddit:route delivers current route even if href matched.
   W.document.dispatchEvent(new W.CustomEvent('reddit:route'));
-  assert.equal(seen.length, 2);
-  assert.equal(seen[1][1], 'reddit');
+  assert.equal(seen.length, 3);
+  assert.equal(seen[2][1], 'reddit');
 
   off();
 });
