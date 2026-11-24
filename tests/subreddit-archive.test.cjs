@@ -770,13 +770,18 @@ test('archived comment hits fade only when the comment is cut off, and revealed 
   const css=fs.readFileSync(path.join(__dirname,'../extension/post-discovery.css'),'utf8');assert.match(css,/\.rt-search-unit \.rt-sensitive\.rt-revealed\{pointer-events:none\}/);
 });
 // Phones: profile search opens filters as Reddit's bottom sheet; the archive used small desktop popovers.
-test('on phones archive menus are the same pull-downs as on computers',async()=>{
- const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();const {sa,W,doc}=ctx;
- W.matchMedia=query=>({matches:/max-width/.test(query),media:query,addEventListener(){},removeEventListener(){}});
- sa.sortMenu.button.click();const menu=sa.sortMenu.menu;assert.equal(menu.hidden,false);
- assert.equal(menu.classList.contains('rt-sra-sheet'),false,'no bottom sheet');assert.equal(doc.querySelector('[data-rt-ui="subreddit-menu-scrim"]'),null,'no backdrop');
- sa.menuRows.sort.get('old').click();await tick();assert.equal(sa.sortMenu.menu.hidden,true,'choosing closes it');
+test('on phones archive menus open as bottom sheets with a title, close button and backdrop; desktop keeps popovers',async()=>{
+ const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive'});await tick();const {sa,W,doc}=ctx;let phone=true;
+ W.matchMedia=query=>({matches:/max-width/.test(query)?phone:false,media:query,addEventListener(){},removeEventListener(){}});
+ sa.sortMenu.button.click();const menu=sa.sortMenu.menu;assert.equal(menu.hidden,false);assert.ok(menu.classList.contains('rt-sra-sheet'));
+ assert.equal(menu.querySelector('.rt-inline-sheet-head').textContent,'Sort');const scrim=doc.querySelector('[data-rt-ui="subreddit-menu-scrim"]');assert.ok(scrim);
+ menu.querySelector('.rt-inline-sheet-close').click();assert.equal(menu.hidden,true);assert.equal(doc.querySelector('[data-rt-ui="subreddit-menu-scrim"]'),null);
+ sa.dateMenu.button.click();assert.equal(sa.dateMenu.menu.querySelector('.rt-inline-sheet-head').textContent,'Date');doc.querySelector('[data-rt-ui="subreddit-menu-scrim"]').click();assert.equal(sa.dateMenu.menu.hidden,true);
+ sa.sortMenu.button.click();sa.menuRows.sort.get('old').click();await tick();assert.equal(sa.sortMenu.menu.hidden,true);assert.equal(doc.querySelector('[data-rt-ui="subreddit-menu-scrim"]'),null,'choosing closes the sheet');
+ phone=false;sa.sortMenu.button.click();assert.equal(sa.sortMenu.menu.classList.contains('rt-sra-sheet'),false,'desktop popover');assert.equal(doc.querySelector('[data-rt-ui="subreddit-menu-scrim"]'),null);
+ assert.match(fs.readFileSync('extension/subreddit-archive.css','utf8'),/\.rt-sra-menu\.rt-sra-sheet\{position:fixed/);
 });
+
 test('subreddit archive supports banner artwork, mobile Feed/About tabs, Card/Compact view toggle, clickable flair filter, and comment badges',async()=>{
  const rows=[
   post('p1',1500000000,{flair:'Meta',flairBg:'#0079d3',flairTextColor:'light',stickied:true}),

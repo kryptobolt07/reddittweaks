@@ -1798,8 +1798,7 @@
     // Below 768 px (Reddit's phone layout) the Sort & filter popup is a bottom sheet over a dimmed backdrop, like the
     // filter sheets profile search opens. The backdrop sits beside the popup (same stacking context) and closes it.
     syncFeedSheet(dropdown){
-      // Phones keep Reddit's own pull-down, like computers and chat (docs/feed-controls-ux-plan.md, 13).
-      if(!dropdown)return;dropdown.toggleAttribute('data-rt-feed-sheet',false);
+      if(!dropdown)return;dropdown.toggleAttribute('data-rt-feed-sheet',!this.isSearch());
       if(this.feedSheetDropdown!==dropdown){this.feedSheetObserver?.disconnect();this.feedSheetScrim?.remove();this.feedSheetScrim=null;this.feedSheetDropdown=dropdown;this.feedSheetObserver=new MutationObserver(()=>this.updateFeedSheetScrim());this.feedSheetObserver.observe(dropdown,{attributes:true,attributeFilter:['open']});}
       this.updateFeedSheetScrim();
     }
@@ -1812,7 +1811,7 @@
       (dropdown.shadowRoot || document.body).append(scrim);
     }
     // The phone sheet follows the same live menus as the desktop control. Navigation stays inside the sheet.
-    phoneSheetOn(){return false;}
+    phoneSheetOn(){return this.phoneLayout() && !this.isSearch() && this.context?.kind==='profile' && !this.context.section && Boolean(this.activityMain?.isConnected && globalThis.RTFeedSheet);}
     hookPhoneSheet(dropdown){
       if(!dropdown || dropdown.rtPhoneSheetHook)return;
       const handler=event=>{
@@ -1905,7 +1904,7 @@
       // Reddit's dropdown popup sits at z-index 1, so card buttons (z-10) and our chips painted over the open menu. Lift it.
       const popper=dropdown.shadowRoot?.querySelector('rpl-popper')?.shadowRoot;if(popper && ![...this.nativeLoadingStyles].some(style=>style.parentNode===popper)){const style=make('style');style.dataset.rtUi='popup-style';style.textContent='.popup{z-index:1000!important}@media (max-width:767.98px){:host([data-rt-sheet]) .popup{position:fixed!important;left:0!important;right:0!important;top:auto!important;bottom:0!important;transform:none!important;width:auto!important;max-height:85vh;overflow-y:auto;z-index:1001!important}:host([data-rt-sheet]) .popup-safe-area{display:none!important}}';popper.append(style);this.nativeLoadingStyles.add(style);}
       // Phones: Sort & filter on the profile feed opens as Reddit's bottom sheet (search builds its own sheets).
-      if(popper)popper.host.toggleAttribute('data-rt-sheet',false);this.syncFeedSheet(dropdown);this.hookPhoneSheet(dropdown);
+      if(popper)popper.host.toggleAttribute('data-rt-sheet',!this.isSearch());this.syncFeedSheet(dropdown);this.hookPhoneSheet(dropdown);
       const nativeOwner=!this.archiveOnly && !this.blockedProfile && ['overview','posts','comments'].includes(this.context.view)?globalThis.RTNativeRemoval?.identity(document):null;
       const removalOwner=nativeOwner?.username.toLowerCase()===this.context.username.toLowerCase()?nativeOwner.owner:'';
       this.syncRemovedTab(globalThis.RTNativeRemoval?.identity(document)?.owner,this.context);
@@ -1918,7 +1917,6 @@
         if(polished){menu.dataset.rtFeedOptions='true';content.dataset.rtFeedOptionsHost='true';}
         const row=(label,icon,tail)=>{const el=make('rpl-menu-item','cursor-pointer'),body=make('div','flex justify-between items-center w-full'),caption=make('div','flex items-center gap-xs rt-menu-caption');for(const [k,v] of Object.entries({size:'medium',appearance:'default',truncate:'both','aria-label':label,'prevent-auto-close':''}))el.setAttribute(k,v);const lead=typeof icon==='string'?glyph(icon):icon;lead?.classList?.add('rt-menu-lead');caption.append(lead,document.createTextNode(label));body.append(caption);if(tail)body.append(glyph(tail));el.tabIndex=-1;el.append(body);return el;};
         const activate=(el,fn)=>{el.addEventListener('click',fn);el.addEventListener('keydown',event=>{if(event.key==='Enter' || event.key===' '){event.preventDefault();event.stopImmediatePropagation();fn(event);}},true);};
-        this.menuRow=row;this.menuActivate=activate;this.appliedMenuRow=null;
         const submenu=key=>{const el=make('rpl-menu','rt-activity-submenu hidden');el.dataset.rtUi='activity-filter-option';if(key)el.dataset.rtSubKey=key;if(polished)el.dataset.rtFeedOptions='true';el.setAttribute('wrap','');el.setAttribute('role','menu');subs.push(el);return el;};
         // Top-style navigation: one submenu open at a time, inside the same dropdown.
         // Search-page submenus keep the main menu's height; profile Sort & filter submenus size to their own content (see CSS).
@@ -2225,21 +2223,7 @@
       const shown={...(this.rtFilters || f.empty())};if(!this.oldSort())shown.sort=null;
       f.renderChips(this.rtChips,shown,{make,glyph,onChange:next=>this.setFilters(shown.sort?next:{...next,sort:this.rtFilters?.sort ?? null})});
       f.fitRail?.(this.rtChips,{badgeFor:this.activityDropdown?.querySelector?.(FEED_TRIGGER) || null});
-      this.syncAppliedMenuRow();
       this.syncHeaderFilters();
-    }
-    // Phones show only the count on Sort & filter, so the applied filters open from the menu's first row.
-    syncAppliedMenuRow(){
-      const menu=this.activityMain,f=globalThis.RTFeedFilters,count=f?.appliedCount?.(this.rtChips) || 0;
-      if(!menu?.isConnected || !this.menuRow || !count || !this.phoneLayout() || this.isSearch()){this.appliedMenuRow?.remove();this.appliedMenuRow=null;return;}
-      let row=this.appliedMenuRow;
-      if(!row?.isConnected){
-        row=this.appliedMenuRow=this.menuRow('Applied filters','filter','chevron-right');row.dataset.rtUi='applied-filters-row';row.setAttribute('aria-haspopup','dialog');
-        const value=make('span','rt-menu-value text-12 text-neutral-content-weak ms-auto me-xs');value.dataset.rtMenuValue='true';row.firstElementChild?.append(value);
-        this.menuActivate(row,event=>{event?.preventDefault?.();const dropdown=this.activityDropdown,button=dropdown?.querySelector?.(FEED_TRIGGER);if(dropdown){if('open' in dropdown)dropdown.open=false;dropdown.removeAttribute('open');}if(button)f.openApplied?.(this.rtChips,button);});
-        menu.prepend(row);this.activityMenuRows?.push(row);
-      }
-      const value=row.querySelector('[data-rt-menu-value]');if(value)value.textContent=count===1?'1 filter':count+' filters';
     }
     // Profile search on desktop: the filters sit in Reddit's header search as scope pills next to
     // u/name (and the list pill), like Reddit's own scope. The in-page pills stay for other layouts.

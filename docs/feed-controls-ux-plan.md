@@ -106,17 +106,6 @@ Remaining gaps:
 - Done in 0.62.0: every embed provider (YouTube included) is a direct host under the same Grant access, checked host by host so existing grants keep working (`docs/video-control-spec.md`, Direct embed controls for every provider).
 - Done: the grant is re-read on `settings-changed` and when the tab shows again.
 
-## 13. One menu shape on phones (2026-11-24)
-
-User request: filter options on phones (communities, Home, profiles, the banned-community archive, search filters) should use the same pull-down menu as computers and chat, so every menu works alike. Chat already used an anchored popover at every width.
-
-- Sort & filter, Reddit search's filter menus and the archive's menus open as the pull-down under their button on every width, at most 360 px wide and inside the screen. There is no bottom sheet and no backdrop.
-- Phones show only the count badge on the button, so the menu's first row is **Applied filters · N filters**. It opens the removable list, also a pull-down, with Clear all.
-- Profiles keep Reddit's own drop-down: its bottom-sheet styling and the sheet interception are gone, and the same Applied filters row is added on phones.
-- The shared page component (`feed-sheet.js`) takes an `anchor` and then draws its pages as a pull-down under that button (the archive's phone menu). The account switcher and chat keep the sheet.
-- Phone browsers fire resize as their address bar slides. A menu now closes only when the layout itself changes.
-- Measured live (r/pics, phone emulation 412 px): the menu opened 8 px under the button, 272 px wide, with 40 px rows. Choosing Images applied `rt_type=image` and the menu stayed open.
-
 ## Verification
 
 - Unit (jsdom):

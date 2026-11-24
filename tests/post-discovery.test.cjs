@@ -1939,26 +1939,43 @@ test('archived comment headers keep the community name on one line and let the p
 });
 // Phones: profile search already opens its filters as Reddit's bottom sheet; Feed options on the profile feed used the
 // desktop popover. Under 768 px it now opens as the same sheet over a dimmed backdrop.
-test('on phones the profile Sort & filter stays Reddit’s own pull-down, with no sheet or backdrop',async t=>{
-  const {W,d}=setup(t);W.matchMedia=query=>({matches:/max-width/.test(query),media:query,addEventListener(){},removeEventListener(){}});
-  await d.ready;d.ensureActivityMenu();const dropdown=d.activityDropdown;assert.ok(dropdown,'Sort & filter is mounted');
+test('on phones the profile Feed options opens as a bottom sheet with a backdrop that closes it',async t=>{
+  const {W,d}=setup(t);let phone=true;W.matchMedia=query=>({matches:/max-width/.test(query)?phone:false,media:query,addEventListener(){},removeEventListener(){}});
+  await d.ready;d.ensureActivityMenu();const dropdown=d.activityDropdown;assert.ok(dropdown,'Feed options is mounted');
+  // Reddit's popper lives in the dropdown's shadow root; the sheet style goes there.
   const shadow=dropdown.shadowRoot || dropdown.attachShadow({mode:'open'});const popper=W.document.createElement('rpl-popper');popper.attachShadow({mode:'open'}).innerHTML='<div part="popup" class="popup"></div>';shadow.append(popper);
-  d.ensureActivityMenu();assert.equal(dropdown.hasAttribute('data-rt-feed-sheet'),false);assert.equal(popper.hasAttribute('data-rt-sheet'),false);
-  dropdown.setAttribute('open','');await new Promise(r=>setImmediate(r));
-  assert.equal(dropdown.shadowRoot.querySelector('[data-rt-ui="feed-sheet-scrim"]') || W.document.querySelector('[data-rt-ui="feed-sheet-scrim"]'),null,'no backdrop');
+  d.ensureActivityMenu();assert.equal(dropdown.hasAttribute('data-rt-feed-sheet'),true);assert.equal(popper.hasAttribute('data-rt-sheet'),true);
+  assert.match([...popper.shadowRoot.querySelectorAll('style')].map(s=>s.textContent).join(''),/@media \(max-width:767\.98px\)\{:host\(\[data-rt-sheet\]\) \.popup\{position:fixed!important/);
+  dropdown.setAttribute('open','');await new Promise(r=>setImmediate(r));const find=()=>dropdown.shadowRoot.querySelector('[data-rt-ui="feed-sheet-scrim"]') || W.document.querySelector('[data-rt-ui="feed-sheet-scrim"]');const scrim=find();assert.ok(scrim,'a dimmed backdrop');
+  scrim.click();await new Promise(r=>setImmediate(r));assert.equal(dropdown.hasAttribute('open'),false,'tapping it closes the sheet');assert.equal(find(),null);
+  phone=false;dropdown.setAttribute('open','');await new Promise(r=>setImmediate(r));assert.equal(find(),null,'desktop keeps the popover');
 });
-test('on phones the profile menu opens in place and lists the applied filters first',async t=>{
-  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/submitted/?rt_type=image',pre:['feed-filters.js','feed-sheet.js']});
-  W.matchMedia=query=>({matches:/max-width/.test(query),media:query,addEventListener(){},removeEventListener(){}});
-  await d.ready;d.ensureActivityMenu();await new Promise(r=>setTimeout(r,20));
-  const dropdown=d.activityDropdown,button=dropdown.querySelector('button[data-rt-feed-trigger]');
-  button.click();
-  assert.equal(W.document.querySelector('[data-rt-ui="feed-sheet"]'),null,'no bottom sheet');
-  const row=d.activityMain.querySelector('[data-rt-ui="applied-filters-row"]');
-  assert.ok(row,'Applied filters row');assert.equal(d.activityMain.firstElementChild,row,'first');
-  assert.match(row.textContent,/1 filter/);
-  row.click();
-  assert.ok(W.document.querySelector('[data-rt-ui="applied-filters"]'),'the removable list opens as a pull-down');
+test('on phones profile Feed options opens short pages that run the menu’s own options',async t=>{
+  const {W,d}=setup(t,{pre:['feed-filters.js','feed-sheet.js']});let phone=true;W.matchMedia=query=>({matches:/max-width/.test(query)?phone:false,media:query,addEventListener(){},removeEventListener(){}});
+  await d.ready;d.ensureActivityMenu();const dropdown=d.activityDropdown,button=dropdown.querySelector('button[data-rt-feed-trigger]');
+  button.click();const sheet=W.document.querySelector('[data-rt-ui="feed-sheet"]');assert.ok(sheet,'the Feed options sheet opens');assert.equal(dropdown.hasAttribute('open'),false,'Reddit’s popup stays closed');
+  assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Sort & filter');
+  const rows=()=>[...sheet.querySelectorAll('.rt-fsheet-row')];
+  const label=row=>row.querySelector('.rt-fsheet-label').textContent;
+  const row=name=>rows().find(r=>label(r)===name);
+  assert.deepEqual(rows().map(label),['Sort','View','Activity','Date','Post type','Community','Refresh activity']);
+  row('Sort').click();
+  assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Sort');
+  assert.ok(row('New').getAttribute('href'),'sort rows are Reddit’s own links');
+  row('Top').click();
+  assert.equal(sheet.querySelector('.rt-fsheet-title').textContent,'Time range');
+  assert.match(row('Today').getAttribute('href'),/sort=top&t=day/);
+  sheet.querySelector('.rt-fsheet-back').click();
+  sheet.querySelector('.rt-fsheet-back').click();
+  row('Post type').click();
+  assert.equal(row('All types').getAttribute('aria-pressed'),'true');
+  row('Videos').click();await new Promise(r=>W.setTimeout(r,20));
+  assert.equal(row('Videos').getAttribute('aria-pressed'),'true');
+  sheet.querySelector('.rt-fsheet-back').click();
+  assert.match(row('Post type').textContent,/Videos/);
+  row('Activity').click();row('Hidden').click();await new Promise(r=>setImmediate(r));
+  assert.equal(d.activityFilter,'hidden','the menu’s own Activity option ran');assert.equal(W.document.querySelector('[data-rt-ui="feed-sheet"]'),null,'a single choice closes the sheet');
+  phone=false;button.click();assert.equal(W.document.querySelector('[data-rt-ui="feed-sheet"]'),null,'desktop keeps Reddit’s menu');
 });
 test('the Feed options sheet fills the phone width in Reddit sheet style',()=>{
   const css=fs.readFileSync('extension/post-discovery.css','utf8');assert.match(css,/@media \(max-width:767\.98px\)\{rpl-dropdown\[data-rt-feed-sheet\]>\[slot="content"\]\{width:100%!important/);

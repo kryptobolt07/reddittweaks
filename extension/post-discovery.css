@@ -826,14 +826,6 @@ dialog.rt-fsheet-root::backdrop{background:transparent}
 dialog.rt-fsheet-root .rt-fsheet{max-height:min(65dvh,480px)}
 dialog.rt-fsheet-root .rt-fsheet-body{min-height:0}
 .rt-fsheet-scrim{position:absolute;inset:0;background:rgba(0,0,0,.6)}
-/* Anchored: a pull-down under its button, like Sort & filter on computers and chat's menus (docs/feed-controls-ux-plan.md, 13). */
-.rt-fsheet-root[data-rt-anchored]{display:block}
-.rt-fsheet-root[data-rt-anchored] .rt-fsheet-scrim{background:transparent}
-.rt-fsheet-root[data-rt-anchored] .rt-fsheet{position:fixed;transform:none;border-radius:8px;padding-bottom:0;box-shadow:0 2px 15px 0 rgba(26,26,27,.2);transition:opacity .12s ease-out;opacity:0}
-.rt-fsheet-root[data-rt-anchored][data-open] .rt-fsheet{opacity:1}
-.rt-fsheet-root[data-rt-anchored] .rt-fsheet-head{padding:8px 8px 6px 12px}
-.rt-fsheet-root[data-rt-anchored] .rt-fsheet-title{font-size:14px;line-height:20px}
-.rt-fsheet-root[data-rt-anchored] .rt-fsheet-close,.rt-fsheet-root[data-rt-anchored] .rt-fsheet-back{width:32px;height:32px}
 .rt-fsheet{position:relative;box-sizing:border-box;width:100%;margin:0;max-height:min(65vh,480px);max-height:min(65dvh,480px);display:flex;flex-direction:column;background:var(--color-neutral-background,#fff);border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0);box-shadow:0 -4px 16px rgba(0,0,0,.2);transform:translateY(100%);transition:transform .22s ease-out}
 .rt-fsheet-root[data-open] .rt-fsheet{transform:none}
 @media (prefers-reduced-motion:reduce){.rt-fsheet{transition:none}}

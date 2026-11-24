@@ -345,8 +345,7 @@
     closeRailList();
     const entries=appliedPills(container).map(node=>({node,label:chipLabel(node),icon:node.querySelector('[slot="leading"] svg,[slot="leading"] img')?.cloneNode(true) || null}));
     const clearAll=()=>clearAllPills(container);
-    // A pull-down on every width, like the menus it belongs to.
-    const phone=false;
+    const phone=globalThis.matchMedia?.('(max-width: 767.98px)')?.matches && globalThis.RTFeedSheet;
     anchor.setAttribute('aria-expanded','true');
     if(phone){
       const sheet=globalThis.RTFeedSheet.open({title:'Applied filters',returnFocus:anchor,onClose:()=>anchor.setAttribute('aria-expanded','false'),build:(_body,ui)=>{
@@ -366,7 +365,7 @@
       remove.addEventListener('click',event=>{event.preventDefault();closeRailList();entry.node.click();});
       row.append(text,remove);pop.append(row);
     }
-    const box=anchor.getBoundingClientRect(),width=Math.min(280,(document.documentElement.clientWidth || innerWidth)-16),left=Math.max(8,Math.min(box.left,(document.documentElement.clientWidth || innerWidth)-width-8));
+    const box=anchor.getBoundingClientRect(),width=280,left=Math.max(8,Math.min(box.left,(document.documentElement.clientWidth || innerWidth)-width-8));
     pop.style.cssText=`position:fixed;z-index:2147483000;top:${Math.round(box.bottom+4)}px;left:${Math.round(left)}px;width:${width}px`;
     const away=event=>{if(!event.composedPath().includes(pop) && !event.composedPath().includes(anchor))closeRailList();};
     const keys=event=>{if(event.key==='Escape'){event.preventDefault();closeRailList();anchor.focus({preventScroll:true});}};
