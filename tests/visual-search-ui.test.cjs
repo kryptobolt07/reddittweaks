@@ -70,7 +70,8 @@ function setupUi(t, {
   hover = false,
   fastTimers = false,
   sendImpl,
-  observe = false
+  observe = false,
+  boot = false
 } = {}) {
   const dom = new JSDOM(html, { url, runScripts: 'outside-only', pretendToBeVisual: true });
   const W = dom.window;
@@ -127,6 +128,11 @@ function setupUi(t, {
     sr.append(form, drop);
   }
 
+  if (boot) {
+    W.sessionStorage.setItem('rt-visual-enabled-v1', '1');
+    W.eval(read('visual-search-boot.js'));
+  }
+
   W.RTCommunityIcons = {
     peek(sub) { return sub.toLowerCase() === 'pixelart' ? 'https://styles.redditmedia.com/t5_pixel/styles/communityIcon_a.png' : undefined; },
     async get(sub) { return sub.toLowerCase() === 'pics' ? 'https://styles.redditmedia.com/t5_pics/styles/communityIcon_b.png' : null; }
@@ -140,7 +146,7 @@ function setupUi(t, {
 
   const controller = new W.RTVisualSearch.VisualSearchController({
     observe,
-    readSettings: async () => settings,
+    readSettings: async () => (typeof settings === 'function' ? settings() : settings),
     send: async msg => {
       sent.push(msg);
       if (sendImpl) return sendImpl(msg);
@@ -973,4 +979,26 @@ test('lens on Reddit media (separate toggle): searches with the picture, uploadi
 
   on.controller.applySettings({ visualSearch: true, visualSearchMediaButton: false });
   assert.equal(on.D.querySelectorAll('[data-rt-ui="visual-media-lens"]').length, 0, 'turning it off removes them');
+});
+
+test('the header lens is drawn at document start, before visual-search.js has its settings', async t => {
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const { W, D, controller, searchHeader } = setupUi(t, { boot: true, settings: () => gate });
+  await wait(40);
+  const field = searchHeader.shadowRoot.querySelector('faceplate-search-input');
+  const lens = field.querySelector(':scope > [data-rt-ui="visual-search-trigger"]');
+  assert.ok(lens, 'drawn with the bar, from the session flag');
+  assert.ok(lens.querySelector('svg[data-rt-icon="lens"]'));
+  assert.equal(controller.enabled, false, 'the controller has not started yet');
+  lens.click();
+  assert.equal(D.querySelector('[data-rt-ui="visual-upload-popover"]'), null);
+  release({ visualSearch: true });
+  await controller.ready;
+  await flush();
+  assert.equal(field.querySelectorAll('[data-rt-ui="visual-search-trigger"]').length, 1, 'the controller reuses it');
+  assert.ok(D.querySelector('[data-rt-ui="visual-upload-popover"]'), 'the early click is answered once ready');
+  controller.applySettings({ visualSearch: false });
+  assert.equal(field.querySelector('[data-rt-ui="visual-search-trigger"]'), null, 'off removes it');
+  assert.equal(W.sessionStorage.getItem('rt-visual-enabled-v1'), '0');
 });

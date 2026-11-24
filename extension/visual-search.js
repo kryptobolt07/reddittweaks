@@ -2906,6 +2906,17 @@
     // ---- Entry Point 2: Header Search Bar Camera Trigger -----------------------------------------------------
 
     syncHeaderTriggers() {
+      // visual-search-boot.js draws the lens at document_start (same frame as Reddit's bar); here it is switched on
+      // and a click made before this script was ready is answered.
+      const Lens = globalThis.RTVisualLens;
+      if (Lens) {
+        Lens.set(true);
+        Lens.attach();
+        const pending = Lens.pending;
+        Lens.pending = null;
+        if (pending?.isConnected) this.openUploadUi(pending);
+        return;
+      }
       const styleBtn = (btn, size) => {
         // Shadow roots isolate page CSS, so style directly on the slotted button (Contract Rule 11).
         btn.style.cssText = `display:inline-flex;align-items:center;justify-content:center;flex:none;width:${size}px;height:${size}px;padding:0;margin:0 4px 0 2px;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-content-weak,#576f76);cursor:pointer;transition:background-color 120ms ease,color 120ms ease;`;
@@ -3398,6 +3409,7 @@
     }
 
     teardownHeaderTriggers() {
+      globalThis.RTVisualLens?.set(false);
       for (const host of document.querySelectorAll('reddit-search-large, reddit-search-small, prominent-search')) {
         host.shadowRoot?.querySelectorAll?.('[data-rt-ui="visual-search-trigger"]')?.forEach(el => el.remove());
         host.querySelectorAll?.('[data-rt-ui="visual-search-trigger"]')?.forEach(el => el.remove());
